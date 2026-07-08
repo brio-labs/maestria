@@ -5,4 +5,3 @@ version = "0.1.0"
 
 [dependencies]
 maestria_domain = { package = "maestria-domain", path = "../maestria-domain" }
-maestria_ports = { package = "maestria-ports", path = "../maestria-ports" }

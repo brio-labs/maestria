@@ -20,24 +20,29 @@ rustup component add rustfmt clippy
 
 ## Development workflow
 
-1. **Create a branch** from `main`:
+1. Read [`docs/first-pr-guide.md`](./docs/first-pr-guide.md).
+2. **Create a branch** from `main`:
    - `feat/<area>-<short-description>`
    - `fix/<area>-<short-description>`
    - `docs/<short-description>`
    - `chore/<short-description>`
    - `test/<short-description>`
    - `refactor/<short-description>`
-2. Make changes in one logical layer first (`maestria-domain` or `maestria-governance`).
-3. Run quality gates locally (minimum):
+3. Make changes in one logical layer first (`maestria-domain` or `maestria-governance`).
+4. Run quality gates locally (minimum):
    ```bash
    cargo fmt --all -- --check
    cargo clippy --workspace --all-targets --all-features -- -D warnings
    cargo test --workspace --all-targets --all-features
+   cargo test --workspace --doc --all-features
    cargo doc --workspace --no-deps --all-features
    RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --all-features
+   cargo deny check all
+   cargo machete
+   cargo tree --duplicates
    python3 scripts/philosophy-check.py
    ```
-4. Update docs (`README.md`, `docs/PHILOSOPHY.md`, or `docs/SPECS.md`) when behavior or invariants
+5. Update docs (`README.md`, `docs/PHILOSOPHY.md`, or `docs/SPECS.md`) when behavior or invariants
    change.
 
 ## Quality standards
@@ -59,7 +64,7 @@ Where:
 
 - `<type>` is one of:
   - `feat`, `fix`, `docs`, `test`, `refactor`, `perf`, `chore`, `invariant`
-- `<scope>` is a short subsystem id (`domain`, `governance`, `runtime`, `tests`, `ci`, `repo`).
+- `<scope>` is a short subsystem id (`domain`, `governance`, `runtime`, `tests`, `ci`, `repo`, etc.).
 - `<description>` is imperative and concise.
 
 Examples:
@@ -67,13 +72,14 @@ Examples:
 ```text
 feat(governance): add approval policy deny path for critical operations
 fix(domain): tighten validation gate status checks
-chore(ci): add deny.toml to workflow checks
+chore(ci): add dependency audit to CI
 ```
 
 ## Checklist before opening a PR
 
 - [ ] Code is formatted and lint-clean (`fmt`, `clippy`).
 - [ ] Tests pass (`cargo test`).
+- [ ] Dependency hygiene pass (`cargo deny check all`, `cargo machete`, `cargo tree --duplicates`).
 - [ ] Documentation checks pass (`docs`, `specs` updates if required).
 - [ ] Philosophical guardrails pass (`python3 scripts/philosophy-check.py`).
 - [ ] Commit message uses the required format above.

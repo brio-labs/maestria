@@ -19,7 +19,7 @@ jobs:
         env:
           PR_TITLE: ${{ github.event.pull_request.title }}
         run: |
-          REGEX='^(feat|fix|docs|test|refactor|perf|chore|invariant)(\([a-z0-9,-]+\))?!?: .{1,100}$'
+          REGEX='^(feat|fix|docs|test|refactor|perf|chore|invariant)\([a-z0-9-]+\): .{1,100}$'
           if ! printf '%s\n' "$PR_TITLE" | grep -qE "$REGEX"; then
             echo "::error::PR title must follow Conventional Commits:"
             echo "  Expected: type(scope): description"
@@ -34,7 +34,7 @@ jobs:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
-          REGEX='^(feat|fix|docs|test|refactor|perf|chore|invariant)(\([a-z0-9,-]+\))?!?: .{1,100}$'
+          REGEX='^(feat|fix|docs|test|refactor|perf|chore|invariant)\([a-z0-9-]+\): .{1,100}$'
           FAILED=0
 
           while IFS= read -r msg; do

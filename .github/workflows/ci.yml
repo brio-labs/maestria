@@ -22,8 +22,41 @@ env:
   SCCACHE_GHA_ENABLED: "true"
 
 jobs:
-  fmt:
+  # Fast path filtering for PRs to avoid running heavyweight jobs when only docs changed.
+  changes:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      rust: ${{ steps.filter.outputs.rust || 'true' }}
+      philosophy: ${{ steps.filter.outputs.philosophy || 'true' }}
+    steps:
+      - uses: actions/checkout@v7.0.0
+      - uses: dorny/paths-filter@v4.0.1
+        if: github.event_name == 'pull_request'
+        id: filter
+        with:
+          filters: |
+            rust:
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - 'deny.toml'
+              - 'crates/**'
+              - '.github/workflows/**'
+              - '.github/actions/**'
+              - 'scripts/*'
+            philosophy:
+              - 'README.md'
+              - 'CONTRIBUTING.md'
+              - 'docs/**/*.md'
+              - 'scripts/philosophy-check.py'
+              - '.github/workflows/**'
+              - '.github/PULL_REQUEST_TEMPLATE.md'
+  fmt:
+    needs: [changes]
+    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request' || needs.changes.outputs.rust == 'true'
     steps:
       - uses: actions/checkout@v7.0.0
       - name: Set up Rust toolchain
@@ -34,7 +67,9 @@ jobs:
         run: cargo fmt --all -- --check
 
   check:
+    needs: [changes]
     runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request' || needs.changes.outputs.rust == 'true'
     steps:
       - uses: actions/checkout@v7.0.0
       - name: Set up Rust toolchain
@@ -46,7 +81,9 @@ jobs:
         run: cargo check --workspace --all-targets --all-features
 
   clippy:
+    needs: [changes]
     runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request' || needs.changes.outputs.rust == 'true'
     steps:
       - uses: actions/checkout@v7.0.0
       - name: Set up Rust toolchain
@@ -60,7 +97,9 @@ jobs:
         run: cargo clippy --workspace --all-targets --all-features -- -D warnings
 
   deny:
+    needs: [changes]
     runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request' || needs.changes.outputs.rust == 'true'
     steps:
       - uses: actions/checkout@v7.0.0
       - name: Set up Rust toolchain
@@ -73,8 +112,32 @@ jobs:
       - name: Run dependency checks
         run: cargo deny check all
 
-  test:
+  dependency-audit:
+    needs: [changes, deny]
     runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request' || needs.changes.outputs.rust == 'true'
+    steps:
+      - uses: actions/checkout@v7.0.0
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-machete
+      - name: Detect unused dependencies
+        run: cargo machete
+      - name: Detect duplicate transitive dependencies
+        run: |
+          DUPES="$(cargo tree --duplicates 2>&1 || true)"
+          if [ -n "$DUPES" ] && ! printf '%s\n' "$DUPES" | grep -q '^warning: nothing to print'; then
+            echo "❌ Duplicate transitive dependencies detected:"
+            echo "$DUPES"
+            exit 1
+          fi
+
+  test:
+    needs: [changes]
+    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request' || needs.changes.outputs.rust == 'true'
     steps:
       - uses: actions/checkout@v7.0.0
       - name: Set up Rust toolchain
@@ -86,7 +149,9 @@ jobs:
         run: cargo test --workspace --all-targets --all-features
 
   test-doc:
+    needs: [changes]
     runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request' || needs.changes.outputs.rust == 'true'
     steps:
       - uses: actions/checkout@v7.0.0
       - name: Set up Rust toolchain
@@ -98,7 +163,9 @@ jobs:
         run: cargo test --workspace --doc --all-features
 
   docs:
+    needs: [changes]
     runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request' || needs.changes.outputs.rust == 'true'
     steps:
       - uses: actions/checkout@v7.0.0
       - name: Set up Rust toolchain
@@ -110,7 +177,9 @@ jobs:
           RUSTDOCFLAGS: "-D warnings"
 
   audit:
+    needs: [changes]
     runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request' || needs.changes.outputs.rust == 'true'
     permissions:
       contents: read
       checks: write
@@ -124,8 +193,45 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
-  philosophy:
+  commit-branch-check:
     runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v7.0.0
+        with:
+          fetch-depth: 0
+      - name: Check branch name
+        run: |
+          BRANCH="${{ github.head_ref }}"
+          if ! [[ "$BRANCH" =~ ^(feat|fix|docs|test|refactor|perf|chore|invariant)/[a-z0-9-]+$ ]]; then
+            echo "❌ Branch '$BRANCH' does not match CONTRIBUTING convention: feat/fix use <area>-<short-description>, other types use <short-description>"
+            exit 1
+          fi
+          echo "✓ Branch name '$BRANCH' OK"
+      - name: Check commit messages
+        run: |
+          REGEX='^(feat|fix|docs|test|refactor|perf|chore|invariant)\([a-z0-9-]+\): .{1,100}$'
+          BASE="${{ github.event.pull_request.base.sha }}"
+          FAILED=0
+          while IFS= read -r msg; do
+            if ! printf '%s\n' "$msg" | grep -qE "$REGEX"; then
+              echo "❌ Invalid commit message: $msg"
+              FAILED=1
+            fi
+          done < <(git log --no-merges "$BASE".."HEAD" --pretty=format:'%s')
+
+          if [ "$FAILED" -eq 1 ]; then
+            echo "All commit messages must follow: type(scope): description"
+            echo "Valid types: feat, fix, docs, test, refactor, perf, chore, invariant"
+            exit 1
+          fi
+
+          echo "✓ Commit message checks passed"
+
+  philosophy:
+    needs: [changes]
+    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request' || needs.changes.outputs.philosophy == 'true' || needs.changes.outputs.rust == 'true'
     steps:
       - uses: actions/checkout@v7.0.0
       - name: Verify philosophy markers
