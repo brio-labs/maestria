@@ -17,6 +17,8 @@ pub struct RuntimeConfig {
     pub profile: AutonomyProfile,
     pub input_buffer_size: usize,
     pub max_concurrent_effects: usize,
+    pub default_effect_timeout: Duration,
+    pub max_retries: u32,
 }
 
 impl Default for RuntimeConfig {
@@ -25,6 +27,8 @@ impl Default for RuntimeConfig {
             profile: AutonomyProfile::TrustedWorkspace,
             input_buffer_size: 1024,
             max_concurrent_effects: 16,
+            default_effect_timeout: Duration::from_secs(300),
+            max_retries: 3,
         }
     }
 }
@@ -82,7 +86,11 @@ impl MaestriaRuntime {
         }
     }
 
-    pub async fn run(self, mut input_rx: mpsc::Receiver<DomainInput>) {
+    pub async fn run(
+        self,
+        mut input_rx: mpsc::Receiver<DomainInput>,
+        shutdown_token: tokio_util::sync::CancellationToken,
+    ) {
         let (effect_tx, mut effect_rx) =
             mpsc::channel::<MaestriaEffect>(self.config.input_buffer_size);
 
@@ -93,50 +101,87 @@ impl MaestriaRuntime {
         let profile = self.config.profile;
         let state = self.state.clone();
         let max_concurrent_effects = self.config.max_concurrent_effects;
+        let default_effect_timeout = self.config.default_effect_timeout;
+        let max_retries = self.config.max_retries;
+        let effect_shutdown = shutdown_token.clone();
 
         tokio::spawn(async move {
             let semaphore = Arc::new(tokio::sync::Semaphore::new(max_concurrent_effects));
-            while let Some(effect) = effect_rx.recv().await {
-                let permit = semaphore
-                    .clone()
-                    .acquire_owned()
-                    .await
-                    .expect("semaphore closed");
-                // Execute effect
-                let adapters = adapters.clone();
-                let input_tx = input_tx.clone();
-                let governance = governance.clone();
-                let profile = profile;
-                let state = state.clone();
-
-                tokio::spawn(async move {
-                    Self::execute_effect(effect, adapters, governance, profile, state, input_tx)
-                        .await;
-                    drop(permit);
-                });
-            }
-        });
-
-        // Main domain loop
-        while let Some(input) = input_rx.recv().await {
-            let effects = {
-                let mut state = self.state.write().await;
-                match state.apply_input(input) {
-                    Ok(output) => {
-                        let _ = output.events;
-                        output.effects
+            loop {
+                tokio::select! {
+                    _ = effect_shutdown.cancelled() => {
+                        tracing::info!("Effect executor shutting down");
+                        break;
                     }
-                    Err(e) => {
-                        tracing::warn!("Domain rejected input: {}", e);
-                        Vec::new()
+                    msg = effect_rx.recv() => {
+                        let Some(effect) = msg else { break };
+                        let permit = semaphore.clone().acquire_owned().await.expect("semaphore closed");
+                        // Execute effect
+                        let adapters = adapters.clone();
+                        let input_tx = input_tx.clone();
+                        let governance = governance.clone();
+                        let state = state.clone();
+
+                        tokio::spawn(async move {
+                            let result = tokio::time::timeout(default_effect_timeout, async {
+                                let mut attempts = 0;
+                                loop {
+                                    let success = Self::execute_effect(
+                                        effect.clone(),
+                                        adapters.clone(),
+                                        governance.clone(),
+                                        profile,
+                                        state.clone(),
+                                        input_tx.clone(),
+                                    ).await;
+
+                                    if success || attempts >= max_retries {
+                                        break;
+                                    }
+                                    attempts += 1;
+                                    tracing::warn!("Retrying effect execution (attempt {})", attempts);
+                                    tokio::time::sleep(Duration::from_millis(500 * (1 << attempts))).await;
+                                }
+                            }).await;
+
+                            if result.is_err() {
+                                tracing::error!("Watchdog: effect execution timed out after {:?}", default_effect_timeout);
+                            }
+                            drop(permit);
+                        });
                     }
                 }
-            };
+            }
+        });
+        // Main domain loop
+        loop {
+            tokio::select! {
+                _ = shutdown_token.cancelled() => {
+                    tracing::info!("Domain loop shutting down");
+                    break;
+                }
+                msg = input_rx.recv() => {
+                    let Some(input) = msg else { break };
+                    let effects = {
+                        let mut state = self.state.write().await;
+                        match state.apply_input(input) {
+                            Ok(output) => {
+                                let _ = output.events;
+                                output.effects
+                            }
+                            Err(e) => {
+                                tracing::warn!("Domain rejected input: {}", e);
+                                Vec::new()
+                            }
+                        }
+                    };
 
-            // Dispatch effects (lock is dropped)
-            for effect in effects {
-                if let Err(e) = effect_tx.send(effect).await {
-                    tracing::error!("Failed to dispatch effect: {}", e);
+                    // Dispatch effects (lock is dropped)
+                    for effect in effects {
+                        if let Err(e) = effect_tx.send(effect).await {
+                            tracing::error!("Failed to dispatch effect: {}", e);
+                        }
+                    }
                 }
             }
         }
@@ -149,7 +194,7 @@ impl MaestriaRuntime {
         profile: AutonomyProfile,
         state: Arc<RwLock<KernelState>>,
         input_tx: mpsc::Sender<DomainInput>,
-    ) {
+    ) -> bool {
         let scope = ScopeGuard::new(Scope::default());
         let risk = governance.classifier.classify(&effect, &scope);
         let decision = governance.approval_gate.decide(&ApprovalRequest {
@@ -162,11 +207,11 @@ impl MaestriaRuntime {
             PolicyDecision::Allow => {}
             PolicyDecision::Deny { reason } => {
                 tracing::warn!(?risk, %reason, "effect denied");
-                return;
+                return true;
             }
             PolicyDecision::RequireApproval { reason } => {
                 tracing::info!(?risk, %reason, "effect requires approval");
-                return;
+                return true;
             }
         }
 
@@ -175,6 +220,7 @@ impl MaestriaRuntime {
                 let envelope = Self::envelope_for_event(&state, event.clone()).await;
                 if let Err(error) = adapters.event_log.append(envelope) {
                     tracing::error!(%error, "failed to persist event");
+                    return false;
                 }
                 if let DomainEvent::ArtifactRegistered { artifact_id, .. } = event {
                     let artifact = {
@@ -184,6 +230,7 @@ impl MaestriaRuntime {
                     if let Some(artifact) = artifact {
                         if let Err(error) = adapters.artifact_repo.put(artifact) {
                             tracing::error!(%artifact_id, %error, "failed to persist artifact metadata");
+                            return false;
                         }
                     }
                 }
@@ -206,11 +253,10 @@ impl MaestriaRuntime {
                         %blob_id,
                         "stored artifact blob"
                     ),
-                    Err(error) => tracing::error!(
-                        artifact_id = %request.artifact_id,
-                        %error,
-                        "failed to store artifact blob"
-                    ),
+                    Err(error) => {
+                        tracing::error!(artifact_id = %request.artifact_id, %error, "failed to store artifact blob");
+                        return false;
+                    }
                 }
             }
             MaestriaEffect::ParseArtifact(request) => {
@@ -223,13 +269,13 @@ impl MaestriaRuntime {
                         };
                         let Some(artifact) = artifact else {
                             tracing::warn!(artifact_id = %request.artifact_id, "artifact missing for parse");
-                            return;
+                            return true;
                         };
                         artifact
                     }
                     Err(error) => {
                         tracing::error!(artifact_id = %request.artifact_id, %error, "failed to load artifact for parse");
-                        return;
+                        return true;
                     }
                 };
                 let path = PathBuf::from(&artifact.title);
@@ -249,7 +295,7 @@ impl MaestriaRuntime {
                         path = %metadata.path.display(),
                         "parser does not support artifact"
                     );
-                    return;
+                    return true;
                 }
                 let file = FileHandle { path, bytes };
                 match adapters.parser.parse(
@@ -283,6 +329,7 @@ impl MaestriaRuntime {
                     }
                     Err(error) => {
                         tracing::error!(artifact_id = %artifact.id, %error, "parser failed");
+                        return false;
                     }
                 }
             }
@@ -293,7 +340,7 @@ impl MaestriaRuntime {
                 };
                 let Some(chunk) = chunk else {
                     tracing::warn!(chunk_id = %request.chunk_id, "chunk missing for full-text index");
-                    return;
+                    return true;
                 };
                 if let Err(error) = adapters.search_index.index_chunks(vec![IndexedChunk {
                     artifact_id: request.artifact_id,
@@ -301,6 +348,7 @@ impl MaestriaRuntime {
                     text: chunk.text,
                 }]) {
                     tracing::error!(chunk_id = %request.chunk_id, %error, "failed to index chunk");
+                    return false;
                 }
             }
             MaestriaEffect::IndexVector(request) => {
@@ -323,7 +371,7 @@ impl MaestriaRuntime {
                     "shell" => HarnessCommandClass::Shell,
                     other => {
                         tracing::error!(capability = other, "Unknown harness capability requested");
-                        return;
+                        return true;
                     }
                 };
                 let harness_request = HarnessRequest {
@@ -357,11 +405,10 @@ impl MaestriaRuntime {
                         )
                         .await;
                     }
-                    Err(error) => tracing::error!(
-                        run_id = %request.run_id,
-                        %error,
-                        "harness execution failed"
-                    ),
+                    Err(error) => {
+                        tracing::error!(run_id = %request.run_id, %error, "harness execution failed");
+                        return false;
+                    }
                 }
             }
             MaestriaEffect::FetchWeb(request) => {
@@ -402,6 +449,7 @@ impl MaestriaRuntime {
                 );
             }
         }
+        true
     }
 
     async fn envelope_for_event(
