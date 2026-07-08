@@ -642,9 +642,11 @@ pub mod contract_tests {
         let capabilities = harness.capabilities().expect("capabilities");
         assert!(capabilities.read_enabled);
         assert!(capabilities.write_enabled);
-        assert!(capabilities
-            .command_classes
-            .contains(&HarnessCommandClass::Shell));
+        assert!(
+            capabilities
+                .command_classes
+                .contains(&HarnessCommandClass::Shell)
+        );
 
         let outcome = harness
             .execute(HarnessRequest {

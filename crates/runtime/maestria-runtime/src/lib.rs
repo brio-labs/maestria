@@ -16,12 +16,12 @@ use std::{
     collections::BTreeMap,
     path::PathBuf,
     sync::{
-        atomic::{AtomicU64, Ordering},
         Arc,
+        atomic::{AtomicU64, Ordering},
     },
     time::Duration,
 };
-use tokio::sync::{mpsc, RwLock};
+use tokio::sync::{RwLock, mpsc};
 
 pub struct RuntimeConfig {
     pub profile: AutonomyProfile,
@@ -265,11 +265,11 @@ impl MaestriaRuntime {
                         let state = state.read().await;
                         state.artifacts.get(&artifact_id).cloned()
                     };
-                    if let Some(artifact) = artifact {
-                        if let Err(error) = adapters.artifact_repo.put(artifact) {
-                            tracing::error!(%artifact_id, %error, "failed to persist artifact metadata");
-                            return false;
-                        }
+                    if let Some(artifact) = artifact
+                        && let Err(error) = adapters.artifact_repo.put(artifact)
+                    {
+                        tracing::error!(%artifact_id, %error, "failed to persist artifact metadata");
+                        return false;
                     }
                 }
             }

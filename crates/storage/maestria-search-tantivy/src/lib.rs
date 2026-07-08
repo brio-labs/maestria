@@ -10,14 +10,14 @@ use std::{fs, path::Path, sync::Mutex};
 use maestria_domain::{ArtifactId, ChunkId};
 use maestria_ports::{FullTextIndex, IndexedChunk, PortError, SearchHit, SearchQuery};
 use tantivy::{
+    Index, IndexReader, IndexWriter, ReloadPolicy, TantivyDocument, Term,
     collector::TopDocs,
     doc,
     query::QueryParser,
     schema::{
-        Field, IndexRecordOption, Schema, TextFieldIndexing, TextOptions, Value, FAST, STORED,
-        STRING,
+        FAST, Field, IndexRecordOption, STORED, STRING, Schema, TextFieldIndexing, TextOptions,
+        Value,
     },
-    Index, IndexReader, IndexWriter, ReloadPolicy, TantivyDocument, Term,
 };
 
 const WRITER_MEMORY_BUDGET_BYTES: usize = 50_000_000;

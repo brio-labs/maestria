@@ -512,9 +512,11 @@ mod tests {
         let check = MemoryValidator.validate(&fixture.context());
 
         assert!(!check.passed);
-        assert!(check
-            .message
-            .contains("1 memory candidate evidence reference"));
+        assert!(
+            check
+                .message
+                .contains("1 memory candidate evidence reference")
+        );
     }
 
     #[test]
@@ -569,22 +571,30 @@ mod tests {
         assert!(!report.passed);
         assert_eq!(report.checks.len(), 5);
         assert_eq!(report.warnings.len(), 4);
-        assert!(report
-            .warnings
-            .iter()
-            .any(|message| message.contains("claim")));
-        assert!(report
-            .warnings
-            .iter()
-            .any(|message| message.contains("Validating")));
-        assert!(report
-            .warnings
-            .iter()
-            .any(|message| message.contains("non-zero")));
-        assert!(report
-            .warnings
-            .iter()
-            .any(|message| message.contains("memory candidate")));
+        assert!(
+            report
+                .warnings
+                .iter()
+                .any(|message| message.contains("claim"))
+        );
+        assert!(
+            report
+                .warnings
+                .iter()
+                .any(|message| message.contains("Validating"))
+        );
+        assert!(
+            report
+                .warnings
+                .iter()
+                .any(|message| message.contains("non-zero"))
+        );
+        assert!(
+            report
+                .warnings
+                .iter()
+                .any(|message| message.contains("memory candidate"))
+        );
     }
 
     #[test]

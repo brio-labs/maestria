@@ -71,7 +71,7 @@ jobs:
 
       - name: Run ${{ matrix.name }} benchmarks
         if: matrix.changed == 'true'
-        run: cargo bench --package ${{ matrix.package }} --all-features
+        run: cargo bench --package ${{ matrix.package }} --all-features --locked
 
       - name: Save benchmark output
         if: matrix.changed == 'true'
