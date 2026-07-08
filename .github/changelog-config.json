@@ -1,0 +1,26 @@
+{
+  "categories": [
+    {
+      "title": "## Features",
+      "labels": ["type:mechanism", "type:policy", "feat", "fix", "refactor", "perf", "chore", "invariant"]
+    },
+    {
+      "title": "## Bug Fixes",
+      "labels": ["type:bug", "bug", "fix"]
+    },
+    {
+      "title": "## Documentation",
+      "labels": ["docs", "type:docs", "chore:docs"]
+    },
+    {
+      "title": "## Performance",
+      "labels": ["type:performance", "perf"]
+    },
+    {
+      "title": "## Security",
+      "labels": ["type:security", "security"]
+    }
+  ],
+  "sort": "ASC",
+  "template": "## What's Changed\\n\\n${{CHANGELOG}}\\n\\n**Full Changelog**: ${{RELEASE_DIFF}}"
+}

@@ -1,0 +1,14 @@
+edition = "2021"
+max_width = 100
+newline_style = "Unix"
+tab_spaces = 4
+use_small_heuristics = "Default"
+
+# Nightly-only features (run nightly manually or locally if configured).
+# If you run:
+#   rustup run nightly cargo fmt
+# you can enable these for stronger style normalization.
+# imports_granularity = "Module"
+# group_imports = "StdExternalCrate"
+# reorder_impl_items = true
+# format_code_in_doc_comments = true

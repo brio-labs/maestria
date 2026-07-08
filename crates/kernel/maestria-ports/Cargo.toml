@@ -1,0 +1,10 @@
+[package]
+name = "maestria-ports"
+edition = "2021"
+version = "0.1.0"
+
+[features]
+contract-tests = []
+
+[dependencies]
+maestria_domain = { package = "maestria-domain", path = "../maestria-domain" }

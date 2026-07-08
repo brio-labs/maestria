@@ -1,0 +1,13 @@
+[package]
+name = "maestria-blob-fs"
+edition = "2021"
+version = "0.1.0"
+
+[dependencies]
+maestria-domain = { path = "../../kernel/maestria-domain" }
+maestria-ports = { path = "../../kernel/maestria-ports" }
+sha2 = "0.10"
+
+[dev-dependencies]
+maestria-ports = { path = "../../kernel/maestria-ports", features = ["contract-tests"] }
+tempfile = "3"

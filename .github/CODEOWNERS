@@ -1,0 +1,18 @@
+# CODEOWNERS
+#
+# This file defines who must review changes to each part of the codebase.
+# GitHub requires that CODEOWNERS references real users or teams.
+
+# Default fallback — everything not matched below
+*                               @carabistouflette
+
+# Core mechanism
+/crates/kernel/maestria-domain/  @carabistouflette
+/crates/kernel/maestria-governance/ @carabistouflette
+
+# Documentation and specs
+/docs/                          @carabistouflette
+*.md                            @carabistouflette
+
+# CI/CD and tooling
+/.github/                       @carabistouflette

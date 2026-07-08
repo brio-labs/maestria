@@ -1,0 +1,35 @@
+name: Feature / Mechanism Request
+description: Propose a new mechanism or policy
+title: "[FEAT] "
+body:
+  - type: dropdown
+    id: layer
+    attributes:
+      label: Target Layer
+      options:
+        - Domain
+        - Governance
+        - Runtime
+        - Storage
+        - Memory / Retrieval
+        - CLI / API
+        - Docs / Specs
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: Describe the proposed mechanism or policy.
+    validations:
+      required: true
+  - type: textarea
+    id: rationale
+    attributes:
+      label: Why now?
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Pre-implementation Checklist
+      options:
+        - label: Invariant impact reviewed
+        - label: Documentation update planned
+        - label: Tests will be added or adapted

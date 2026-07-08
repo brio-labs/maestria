@@ -1,0 +1,8 @@
+[package]
+name = "maestria-parsers"
+edition = "2021"
+version = "0.1.0"
+
+[dependencies]
+maestria-domain = { path = "../../kernel/maestria-domain" }
+maestria-ports = { path = "../../kernel/maestria-ports" }
