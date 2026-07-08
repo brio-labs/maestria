@@ -32,7 +32,10 @@ async fn main() -> Result<()> {
     };
 
     // Policy Before Action check (I-Policy-BeforeAction)
-    println!("Governance: Validating command class {:?}...", request.class);
+    println!(
+        "Governance: Validating command class {:?}...",
+        request.class
+    );
     if request.class == HarnessCommandClass::Shell && cli.command.contains("rm ") {
         println!("Governance: Denied. Destructive commands not allowed in test harness.");
         return Ok(());
