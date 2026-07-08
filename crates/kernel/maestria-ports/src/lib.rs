@@ -49,17 +49,17 @@ pub struct EventFilter {
     pub artifact_id: Option<ArtifactId>,
 }
 
-pub trait ArtifactRepository {
+pub trait ArtifactRepository: Send + Sync {
     fn get(&self, artifact_id: ArtifactId) -> Result<Option<Artifact>, PortError>;
     fn put(&self, artifact: Artifact) -> Result<(), PortError>;
 }
 
-pub trait EventLog {
+pub trait EventLog: Send + Sync {
     fn append(&self, event: DomainEventEnvelope) -> Result<(), PortError>;
     fn scan(&self, filter: EventFilter) -> Result<Vec<DomainEventEnvelope>, PortError>;
 }
 
-pub trait BlobStore {
+pub trait BlobStore: Send + Sync {
     fn put(&self, bytes: Vec<u8>) -> Result<BlobId, PortError>;
     fn get(&self, id: BlobId) -> Result<Vec<u8>, PortError>;
 }
@@ -83,7 +83,7 @@ pub struct SearchHit {
     pub score: u32,
 }
 
-pub trait FullTextIndex {
+pub trait FullTextIndex: Send + Sync {
     fn index_chunks(&self, chunks: Vec<IndexedChunk>) -> Result<(), PortError>;
     fn search(&self, query: SearchQuery) -> Result<Vec<SearchHit>, PortError>;
 }
@@ -120,7 +120,7 @@ pub struct ParsedArtifact {
     pub cards: Vec<CreateCardInput>,
 }
 
-pub trait Parser {
+pub trait Parser: Send + Sync {
     fn id(&self) -> &'static str;
     fn supports(&self, file: &FileMetadata) -> bool;
     fn parse(&self, file: FileHandle, context: ParseContext) -> Result<ParsedArtifact, PortError>;
@@ -164,7 +164,7 @@ pub struct HarnessOutcome {
     pub validation_hints: Vec<String>,
 }
 
-pub trait HarnessAdapter {
+pub trait HarnessAdapter: Send + Sync {
     fn capabilities(&self) -> Result<HarnessCapabilities, PortError>;
     fn execute(&self, request: HarnessRequest) -> Result<HarnessOutcome, PortError>;
 }

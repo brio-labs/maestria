@@ -8,11 +8,11 @@ publish = false
 
 [workspace]
 resolver = "2"
-members = [
+members = ["crates/apps/maestria-cli",
     "crates/ecosystem/maestria-parsers",
     "crates/kernel/maestria-domain",
     "crates/kernel/maestria-governance",
-    "crates/kernel/maestria-ports",
+    "crates/kernel/maestria-ports", "crates/runtime/maestria-runtime",
     "crates/storage/maestria-blob-fs",
     "crates/storage/maestria-search-tantivy",
     "crates/storage/maestria-storage-sqlite",
