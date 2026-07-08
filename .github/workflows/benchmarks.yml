@@ -1,0 +1,81 @@
+name: Benchmarks
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/benchmarks.yml"
+      - "crates/kernel/maestria-domain/**"
+      - "crates/kernel/maestria-governance/**"
+
+concurrency:
+  group: benchmarks-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTC_WRAPPER: sccache
+  SCCACHE_GHA_ENABLED: "true"
+
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      domain: ${{ steps.filter.outputs.domain }}
+      governance: ${{ steps.filter.outputs.governance }}
+    steps:
+      - uses: actions/checkout@v7.0.0
+      - uses: dorny/paths-filter@v4.0.1
+        id: filter
+        with:
+          filters: |
+            domain:
+              - ".github/workflows/benchmarks.yml"
+              - "crates/kernel/maestria-domain/**"
+            governance:
+              - ".github/workflows/benchmarks.yml"
+              - "crates/kernel/maestria-governance/**"
+
+  bench:
+    needs: [changes]
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: domain
+            package: maestria-domain
+            changed: ${{ needs.changes.outputs.domain }}
+          - name: governance
+            package: maestria-governance
+            changed: ${{ needs.changes.outputs.governance }}
+    name: bench (${{ matrix.name }})
+    steps:
+      - name: Skip unchanged benchmark shard
+        if: matrix.changed != 'true'
+        run: echo "No benchmark-relevant changes for ${{ matrix.name }}."
+
+      - uses: actions/checkout@v7.0.0
+        if: matrix.changed == 'true'
+      - uses: dtolnay/rust-toolchain@stable
+        if: matrix.changed == 'true'
+      - uses: Swatinem/rust-cache@v2
+        if: matrix.changed == 'true'
+      - uses: mozilla-actions/sccache-action@v0.0.10
+        if: matrix.changed == 'true'
+
+      - name: Run ${{ matrix.name }} benchmarks
+        if: matrix.changed == 'true'
+        run: cargo bench --package ${{ matrix.package }} --all-features
+
+      - name: Save benchmark output
+        if: matrix.changed == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-${{ matrix.name }}-${{ github.sha }}
+          path: target/criterion
+          if-no-files-found: ignore

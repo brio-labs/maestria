@@ -1,0 +1,30 @@
+name: 'Setup and build Brioche Desktop frontend'
+description: 'Install Node.js/pnpm and build the Tauri frontend assets'
+
+runs:
+  using: composite
+  steps:
+    - name: Cache pnpm store
+      uses: actions/cache@v6.0.0
+      with:
+        path: |
+          ~/.local/share/pnpm/store
+          ~/.cache/pnpm
+        key: pnpm-store-${{ runner.os }}-${{ hashFiles('crates/apps/brioche-desktop/frontend/pnpm-lock.yaml') }}
+        restore-keys: |
+          pnpm-store-${{ runner.os }}-
+
+    - uses: actions/setup-node@v4
+      with:
+        node-version: '22'
+
+    - uses: pnpm/action-setup@v4
+      with:
+        version: 9
+
+    - name: Build desktop frontend
+      shell: bash
+      working-directory: crates/apps/brioche-desktop/frontend
+      run: |
+        pnpm install --frozen-lockfile
+        pnpm build
