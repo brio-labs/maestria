@@ -57,11 +57,12 @@ pub struct RuntimeHandle {
 
 impl MaestriaRuntime {
     pub fn new(
-        config: RuntimeConfig,
+        mut config: RuntimeConfig,
         state: KernelState,
         adapters: Adapters,
         governance: Governance,
     ) -> (Self, mpsc::Receiver<DomainInput>) {
+        config.max_concurrent_effects = config.max_concurrent_effects.max(1);
         let (input_tx, input_rx) = mpsc::channel(config.input_buffer_size);
         (
             Self {
@@ -96,7 +97,11 @@ impl MaestriaRuntime {
         tokio::spawn(async move {
             let semaphore = Arc::new(tokio::sync::Semaphore::new(max_concurrent_effects));
             while let Some(effect) = effect_rx.recv().await {
-                let permit = semaphore.clone().acquire_owned().await.expect("semaphore closed");
+                let permit = semaphore
+                    .clone()
+                    .acquire_owned()
+                    .await
+                    .expect("semaphore closed");
                 // Execute effect
                 let adapters = adapters.clone();
                 let input_tx = input_tx.clone();
@@ -114,20 +119,24 @@ impl MaestriaRuntime {
 
         // Main domain loop
         while let Some(input) = input_rx.recv().await {
-            let mut state = self.state.write().await;
-            match state.apply_input(input) {
-                Ok(output) => {
-                    let _ = output.events;
-
-                    // Dispatch effects
-                    for effect in output.effects {
-                        if let Err(e) = effect_tx.send(effect).await {
-                            tracing::error!("Failed to dispatch effect: {}", e);
-                        }
+            let effects = {
+                let mut state = self.state.write().await;
+                match state.apply_input(input) {
+                    Ok(output) => {
+                        let _ = output.events;
+                        output.effects
+                    }
+                    Err(e) => {
+                        tracing::warn!("Domain rejected input: {}", e);
+                        Vec::new()
                     }
                 }
-                Err(e) => {
-                    tracing::warn!("Domain rejected input: {}", e);
+            };
+
+            // Dispatch effects (lock is dropped)
+            for effect in effects {
+                if let Err(e) = effect_tx.send(effect).await {
+                    tracing::error!("Failed to dispatch effect: {}", e);
                 }
             }
         }
@@ -311,7 +320,11 @@ impl MaestriaRuntime {
                 let class = match request.capability.as_str() {
                     "browser" => HarnessCommandClass::Browser,
                     "fetch" | "web" => HarnessCommandClass::Fetch,
-                    _ => HarnessCommandClass::Shell,
+                    "shell" => HarnessCommandClass::Shell,
+                    other => {
+                        tracing::error!(capability = other, "Unknown harness capability requested");
+                        return;
+                    }
                 };
                 let harness_request = HarnessRequest {
                     run_id: request.run_id,

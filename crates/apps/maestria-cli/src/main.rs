@@ -8,11 +8,11 @@ use maestria_blob_fs::FsBlobStore;
 use maestria_domain::KernelState;
 use maestria_governance::{AutonomyProfile, DefaultApprovalGate, DefaultRiskClassifier};
 use maestria_parsers::ParserRegistry;
-use maestria_ports::{InMemoryArtifactRepository, InMemoryEventLog, InMemoryHarnessAdapter};
+use maestria_ports::InMemoryHarnessAdapter;
 use maestria_runtime::{Adapters, Governance, MaestriaRuntime, RuntimeConfig};
 use maestria_search_tantivy::TantivyFullTextIndex;
+use maestria_storage_sqlite::SqliteStore;
 use std::sync::Arc;
-
 #[derive(ClapParser)]
 #[command(author, version, about, long_about = None)]
 struct Cli {
@@ -49,8 +49,11 @@ async fn main() -> Result<()> {
             let blob_store = Arc::new(FsBlobStore::open(blobs_dir)?);
             let search_index = Arc::new(TantivyFullTextIndex::open(&index_dir)?);
             let parser = Arc::new(ParserRegistry::default());
-            let event_log = Arc::new(InMemoryEventLog::default());
-            let artifact_repo = Arc::new(InMemoryArtifactRepository::default());
+
+            let db_path = instance_dir.join("maestria.db");
+            let sqlite_store = Arc::new(SqliteStore::open(&db_path)?);
+            let event_log = sqlite_store.clone();
+            let artifact_repo = sqlite_store.clone();
             let harness = Arc::new(InMemoryHarnessAdapter::default());
 
             let adapters = Adapters {
