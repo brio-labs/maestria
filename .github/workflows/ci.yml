@@ -126,6 +126,8 @@ jobs:
       - name: Detect unused dependencies
         run: cargo machete
       - name: Detect duplicate transitive dependencies
+        env:
+          RUSTC_WRAPPER: ""
         run: |
           DUPES="$(cargo tree --duplicates 2>&1 || true)"
           if [ -n "$DUPES" ] && ! printf '%s\n' "$DUPES" | grep -q '^warning: nothing to print'; then
@@ -133,6 +135,7 @@ jobs:
             echo "$DUPES"
             exit 1
           fi
+  
 
   test:
     needs: [changes]
@@ -203,8 +206,10 @@ jobs:
       - name: Check branch name
         run: |
           BRANCH="${{ github.head_ref }}"
-          if ! [[ "$BRANCH" =~ ^(feat|fix|docs|test|refactor|perf|chore|invariant)/[a-z0-9-]+$ ]]; then
-            echo "❌ Branch '$BRANCH' does not match CONTRIBUTING convention: feat/fix use <area>-<short-description>, other types use <short-description>"
+          if ! [[ "$BRANCH" =~ ^((feat|fix)/[a-z0-9-]+-[a-z0-9-]+|(?:docs|test|refactor|perf|chore|invariant)/[a-z0-9-]+)$ ]]; then
+            echo "❌ Branch '$BRANCH' does not match CONTRIBUTING convention:"
+            echo "  feat/fix: feat/<area>-<short-description>"
+            echo "  other: <type>/<short-description>"
             exit 1
           fi
           echo "✓ Branch name '$BRANCH' OK"
