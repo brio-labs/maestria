@@ -11,4 +11,7 @@ resolver = "2"
 members = [
     "crates/kernel/maestria-domain",
     "crates/kernel/maestria-governance",
+    "crates/kernel/maestria-ports",
+    "crates/storage/maestria-blob-fs",
+    "crates/storage/maestria-storage-sqlite",
 ]
