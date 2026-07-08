@@ -691,18 +691,14 @@ name = "maestria-governance"
 version = "0.1.0"
 dependencies = [
  "maestria-domain",
- "maestria-ports",
 ]
 
 [[package]]
 name = "maestria-harness"
 version = "0.1.0"
 dependencies = [
- "maestria-domain",
  "maestria-ports",
- "thiserror",
  "tokio",
- "tracing",
 ]
 
 [[package]]
@@ -715,7 +711,6 @@ dependencies = [
  "maestria-harness",
  "maestria-ports",
  "tokio",
- "tracing",
  "tracing-subscriber",
 ]
 

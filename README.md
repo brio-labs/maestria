@@ -21,8 +21,15 @@ Maestria is a local-first, source-grounded second-brain runtime for AI agents.
 - Keep changes scoped to one crate unless cross-crate coupling is required.
 - Preserve deterministic behavior at the domain layer.
 - Keep side effects in adapters and runtime.
-- Prefer clear, boring abstractions.
+- Prefer clear, boring abstractions with explicit contracts.
 - Prefer stable, ordered types for deterministic state snapshots.
+
+## Documentation map
+
+- `docs/PHILOSOPHY.md` — repository doctrine
+- `docs/SPECS.md` — invariant ledger
+- [`docs/architecture/`](./docs/architecture/) — architecture books
+- `docs/first-pr-guide.md` — contributor onboarding
 
 ## Quick start
 
@@ -46,5 +53,5 @@ python3 scripts/philosophy-check.py
 
 ## Contributing
 
-See [CONTRIBUTING.md](./CONTRIBUTING.md) for branch strategy, commit conventions,
-and quality checks.
+See [CONTRIBUTING.md](./CONTRIBUTING.md), [docs/first-pr-guide.md](./docs/first-pr-guide.md), and
+[docs/PHILOSOPHY.md](./docs/PHILOSOPHY.md) for branch and review expectations.
