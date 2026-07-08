@@ -9,7 +9,7 @@ publish = false
 [workspace]
 resolver = "2"
 members = ["crates/apps/maestria-cli",
-    "crates/ecosystem/maestria-parsers",
+    "crates/ecosystem/maestria-parsers", "crates/harness/maestria-harness", "crates/harness/maestria-harness-cli",
     "crates/kernel/maestria-domain",
     "crates/kernel/maestria-governance",
     "crates/kernel/maestria-ports", "crates/runtime/maestria-runtime",
