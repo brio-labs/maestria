@@ -25,11 +25,19 @@ async fn main() -> Result<()> {
 
     let request = HarnessRequest {
         run_id: HarnessRunId::new(1),
-        command: cli.command,
+        command: cli.command.clone(),
         working_directory: cli.working_directory,
         duration_budget: Duration::from_secs(60),
         class: HarnessCommandClass::Shell,
     };
+
+    // Policy Before Action check (I-Policy-BeforeAction)
+    println!("Governance: Validating command class {:?}...", request.class);
+    if request.class == HarnessCommandClass::Shell && cli.command.contains("rm ") {
+        println!("Governance: Denied. Destructive commands not allowed in test harness.");
+        return Ok(());
+    }
+    println!("Governance: Approved.\n");
 
     let outcome = adapter.execute(request)?;
 

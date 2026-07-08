@@ -6,7 +6,7 @@ publish = false
 
 [dependencies]
 maestria-domain = { path = "../../kernel/maestria-domain" }
-maestria-ports = { path = "../../kernel/maestria-ports" }
-tokio = { version = "1.37", features = ["process", "time", "io-util"] }
+tokio = { version = "1.37", features = ["process", "time", "io-util", "rt"] }
 tracing = "0.1"
 thiserror = "1.0"
+maestria-ports = { version = "0.1.0", path = "../../kernel/maestria-ports" }
