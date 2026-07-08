@@ -130,7 +130,7 @@ jobs:
           RUSTC_WRAPPER: ""
         run: |
           DUPES="$(cargo tree --locked --duplicates 2>&1 || true)"
-          if [ -n "$DUPES" ] && ! printf '%s\n' "$DUPES" | grep -q '^warning: nothing to print\.$'; then
+          if [ -n "$DUPES" ] && ! printf '%s\n' "$DUPES" | grep -q '^warning: nothing to print\.'; then
             echo "❌ Duplicate transitive dependencies detected:"
             echo "$DUPES"
             exit 1
