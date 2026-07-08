@@ -31,6 +31,18 @@ jobs:
       - name: Check formatting
         run: cargo fmt --all -- --check
 
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.0
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+      - name: Cache
+        uses: Swatinem/rust-cache@v2
+      - uses: mozilla-actions/sccache-action@v0.0.10
+      - name: Check compilation
+        run: cargo check --workspace --all-targets --all-features
+
   clippy:
     runs-on: ubuntu-latest
     steps:
@@ -58,17 +70,6 @@ jobs:
       - name: Run dependency checks
         run: cargo deny check all
 
-  docs:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7.0.0
-      - name: Set up Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-      - name: Check documentation
-        run: cargo doc --workspace --no-deps --all-features
-        env:
-          RUSTDOCFLAGS: "-D warnings"
-
   test:
     runs-on: ubuntu-latest
     steps:
@@ -81,10 +82,45 @@ jobs:
       - name: Run tests
         run: cargo test --workspace --all-targets --all-features
 
+  test-doc:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.0
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+      - name: Cache
+        uses: Swatinem/rust-cache@v2
+      - uses: mozilla-actions/sccache-action@v0.0.10
+      - name: Run documentation tests
+        run: cargo test --workspace --doc --all-features
+
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.0
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+      - name: Check documentation
+        run: cargo doc --workspace --no-deps --all-features
+        env:
+          RUSTDOCFLAGS: "-D warnings"
+
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.0
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+      - name: Install cargo-deny
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deny
+      - name: Audit dependencies and usage
+        run: cargo deny check all
+
   philosophy:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7.0.0
       - name: Verify philosophy markers
         run: python3 scripts/philosophy-check.py
-
