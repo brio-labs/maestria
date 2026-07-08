@@ -65,7 +65,7 @@ Where:
 - `<type>` is one of:
   - `feat`, `fix`, `docs`, `test`, `refactor`, `perf`, `chore`, `invariant`
 - `<scope>` is a short subsystem id (`domain`, `governance`, `runtime`, `tests`, `ci`, `repo`, etc.).
-- `<description>` is imperative and concise.
+- `<description>` is imperative and concise (max 100 chars).
 
 Examples:
 

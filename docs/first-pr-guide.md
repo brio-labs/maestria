@@ -40,6 +40,12 @@ Use:
 <type>(<scope>): <description>
 ```
 
+This format is: `<type>(<scope>): <description>` with:
+
+- `<type>`: `feat|fix|docs|test|refactor|perf|chore|invariant`
+- `<scope>`: short subsystem identifier
+- `<description>`: imperative, concise, max 100 chars
+
 Examples:
 
 - `feat(runtime): add deterministic replay hook`

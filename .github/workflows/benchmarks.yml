@@ -63,7 +63,8 @@ jobs:
         if: matrix.changed == 'true'
       - uses: dtolnay/rust-toolchain@stable
         if: matrix.changed == 'true'
-      - uses: Swatinem/rust-cache@v2
+      - name: Cache
+        uses: Swatinem/rust-cache@v2.9.1
         if: matrix.changed == 'true'
       - uses: mozilla-actions/sccache-action@v0.0.10
         if: matrix.changed == 'true'
