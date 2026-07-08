@@ -677,6 +677,7 @@ dependencies = [
  "maestria-search-tantivy",
  "maestria-storage-sqlite",
  "tokio",
+ "tokio-util",
  "tracing",
  "tracing-subscriber",
 ]

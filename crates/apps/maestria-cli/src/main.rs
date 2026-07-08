@@ -81,13 +81,17 @@ async fn main() -> Result<()> {
 
             info!("Maestria runtime started.");
 
+            let shutdown_token = tokio_util::sync::CancellationToken::new();
+            let token_clone = shutdown_token.clone();
             let _runtime_task = tokio::spawn(async move {
-                runtime.run(input_rx).await;
+                runtime.run(input_rx, token_clone).await;
             });
 
             // NOTE: Connect external sources to input_tx or use runtime.handle().
-            // For now, just hold the process.
+            // For now, just hold the process until ctrl_c.
             tokio::signal::ctrl_c().await?;
+            info!("Shutting down Maestria...");
+            shutdown_token.cancel();
             info!("Shutting down.");
         }
     }
