@@ -646,6 +646,7 @@ pub struct ArtifactDetected {
 pub struct ParserResult {
     pub artifact_id: ArtifactId,
     pub chunks: Vec<RegisterChunkInput>,
+    pub cards: Vec<CreateCardInput>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1420,18 +1421,22 @@ impl KernelState {
             });
         }
 
-        let mut chunks = Vec::new();
+        let mut generated = Vec::new();
         for chunk in input.chunks {
-            chunks.push(self.handle_register_chunk(chunk)?);
+            generated.push(self.handle_register_chunk(chunk)?);
         }
 
-        let chunks_added = (chunks.len().min(u32::MAX as usize)) as u32;
+        let chunks_added = (generated.len().min(u32::MAX as usize)) as u32;
+        for card in input.cards {
+            generated.push(self.handle_create_card(card)?);
+        }
+
         let parsed = self.emit_event(DomainEvent::ArtifactParsed {
             artifact_id: input.artifact_id,
             chunks_added,
         });
-        chunks.push(parsed);
-        Ok(chunks)
+        generated.push(parsed);
+        Ok(generated)
     }
 
     fn handle_search_completed(
@@ -1860,6 +1865,7 @@ mod tests {
                         text: "second chunk".to_string(),
                     },
                 ],
+                cards: Vec::new(),
             }),
             DomainInput::CreateClaim(CreateClaimInput {
                 claim_id: ClaimId::new(20),
@@ -1927,6 +1933,47 @@ mod tests {
             range: ContentRange { start: 1, end: 2 },
             content_hash: "sha256:notes".to_string(),
         }
+    }
+
+    #[test]
+    fn parser_completed_registers_chunks_and_cards() -> Result<(), DomainError> {
+        let mut state = KernelState::new();
+        state.apply_input(DomainInput::RegisterArtifact(RegisterArtifactInput {
+            artifact_id: ArtifactId::new(1),
+            title: "Project Notes".to_string(),
+        }))?;
+
+        let output = state.apply_input(DomainInput::ParserCompleted(ParserResult {
+            artifact_id: ArtifactId::new(1),
+            chunks: vec![RegisterChunkInput {
+                chunk_id: ChunkId::new(10),
+                artifact_id: ArtifactId::new(1),
+                order: 0,
+                text: "first chunk".to_string(),
+            }],
+            cards: vec![CreateCardInput {
+                card_id: CardId::new(20),
+                artifact_id: ArtifactId::new(1),
+                title: "Summary".to_string(),
+                body: "Parsed summary".to_string(),
+            }],
+        }))?;
+
+        assert!(state.chunks.contains_key(&ChunkId::new(10)));
+        assert!(state.cards.contains_key(&CardId::new(20)));
+        assert!(state
+            .artifacts
+            .get(&ArtifactId::new(1))
+            .is_some_and(|artifact| artifact.chunk_ids.contains(&ChunkId::new(10))
+                && artifact.card_ids.contains(&CardId::new(20))));
+        assert!(output.events.iter().any(|event| matches!(
+            event.event,
+            DomainEvent::CardCreated {
+                card_id: CardId(20),
+                artifact_id: ArtifactId(1),
+            }
+        )));
+        Ok(())
     }
 
     #[test]
