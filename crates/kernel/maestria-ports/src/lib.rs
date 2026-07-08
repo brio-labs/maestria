@@ -15,8 +15,8 @@ use std::{
 };
 
 use maestria_domain::{
-    Artifact, ArtifactId, BlobId, Card, ChunkId, ContentRange, DomainEvent, DomainEventEnvelope,
-    EvidenceId, EvidenceKind, HarnessRunId,
+    Artifact, ArtifactId, BlobId, ChunkId, ContentRange, CreateCardInput, DomainEvent,
+    DomainEventEnvelope, EvidenceId, EvidenceKind, HarnessRunId,
 };
 
 pub const PORTS_VERSION: &str = "0.1.0";
@@ -117,7 +117,7 @@ pub struct ParsedChunk {
 pub struct ParsedArtifact {
     pub artifact_id: ArtifactId,
     pub chunks: Vec<ParsedChunk>,
-    pub cards: Vec<Card>,
+    pub cards: Vec<CreateCardInput>,
 }
 
 pub trait Parser {
