@@ -695,6 +695,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "maestria-harness"
+version = "0.1.0"
+dependencies = [
+ "maestria-domain",
+ "maestria-ports",
+ "thiserror",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "maestria-harness-cli"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "maestria-domain",
+ "maestria-harness",
+ "maestria-ports",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "maestria-parsers"
 version = "0.1.0"
 dependencies = [

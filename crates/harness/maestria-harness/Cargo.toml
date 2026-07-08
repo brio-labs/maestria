@@ -1,0 +1,12 @@
+[package]
+name = "maestria-harness"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+maestria-domain = { path = "../../kernel/maestria-domain" }
+maestria-ports = { path = "../../kernel/maestria-ports" }
+tokio = { version = "1.37", features = ["process", "time", "io-util"] }
+tracing = "0.1"
+thiserror = "1.0"
