@@ -65,6 +65,53 @@ jobs:
           components: rustfmt
       - name: Check formatting
         run: cargo fmt --all -- --check
+  fmt-nightly:
+    needs: [changes]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    if: github.event_name != 'pull_request' || needs.changes.outputs.rust == 'true'
+    steps:
+      - uses: actions/checkout@v7.0.0
+      - name: Set up nightly Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly-2026-06-15
+          components: rustfmt
+      - name: Check formatting (nightly)
+        run: cargo +nightly-2026-06-15 fmt --check
+
+  deny:
+    needs: [changes]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    if: github.event_name != 'pull_request' || needs.changes.outputs.rust == 'true'
+    steps:
+      - uses: actions/checkout@v7.0.0
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+      - uses: mozilla-actions/sccache-action@v0.0.10
+      - name: Install cargo-deny
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deny
+      - name: Run dependency checks
+        run: cargo deny check all
+
+  benchmark-smoke:
+    needs: [changes, clippy, deny]
+    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request' || needs.changes.outputs.rust == 'true'
+    steps:
+      - uses: actions/checkout@v7.0.0
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+      - name: Cache
+        uses: Swatinem/rust-cache@v2.9.1
+      - uses: mozilla-actions/sccache-action@v0.0.10
+      - name: Smoke-check benchmark compile paths
+        run: cargo check --workspace --benches
 
   check:
     needs: [changes]
@@ -95,22 +142,6 @@ jobs:
       - uses: mozilla-actions/sccache-action@v0.0.10
       - name: Run clippy
         run: cargo clippy --workspace --all-targets --all-features -- -D warnings
-
-  deny:
-    needs: [changes]
-    runs-on: ubuntu-latest
-    if: github.event_name != 'pull_request' || needs.changes.outputs.rust == 'true'
-    steps:
-      - uses: actions/checkout@v7.0.0
-      - name: Set up Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-      - uses: mozilla-actions/sccache-action@v0.0.10
-      - name: Install cargo-deny
-        uses: taiki-e/install-action@v2
-        with:
-          tool: cargo-deny
-      - name: Run dependency checks
-        run: cargo deny check all
 
   dependency-audit:
     needs: [changes, deny]

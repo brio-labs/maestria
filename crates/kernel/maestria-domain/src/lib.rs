@@ -1295,10 +1295,10 @@ impl KernelState {
                 id: input.artifact_id,
             });
         }
-        if let Some(claim_id) = input.claim_id {
-            if !self.claims.contains_key(&claim_id) {
-                return Err(DomainError::MissingClaim { id: claim_id });
-            }
+        if let Some(claim_id) = input.claim_id
+            && !self.claims.contains_key(&claim_id)
+        {
+            return Err(DomainError::MissingClaim { id: claim_id });
         }
 
         let kind = input.kind.clone();
@@ -1317,10 +1317,10 @@ impl KernelState {
         if let Some(artifact) = self.artifacts.get_mut(&input.artifact_id) {
             artifact.evidence_ids.insert(input.evidence_id);
         }
-        if let Some(claim_id) = input.claim_id {
-            if let Some(claim) = self.claims.get_mut(&claim_id) {
-                claim.evidence_ids.insert(input.evidence_id);
-            }
+        if let Some(claim_id) = input.claim_id
+            && let Some(claim) = self.claims.get_mut(&claim_id)
+        {
+            claim.evidence_ids.insert(input.evidence_id);
         }
 
         Ok(self.emit_event(DomainEvent::EvidenceRecorded {
@@ -1379,19 +1379,19 @@ impl KernelState {
                 id: input.task_id.value(),
             });
         }
-        if let Some(artifact_id) = input.artifact_id {
-            if !self.artifacts.contains_key(&artifact_id) {
-                return Err(DomainError::MissingArtifact { id: artifact_id });
-            }
+        if let Some(artifact_id) = input.artifact_id
+            && !self.artifacts.contains_key(&artifact_id)
+        {
+            return Err(DomainError::MissingArtifact { id: artifact_id });
         }
 
         let task = Task::new(input.task_id, input.title.clone(), input.priority);
         let artifact_id = input.artifact_id;
         self.tasks.insert(input.task_id, task);
-        if let Some(artifact_id) = artifact_id {
-            if let Some(task) = self.tasks.get_mut(&input.task_id) {
-                task.artifact_ids.insert(artifact_id);
-            }
+        if let Some(artifact_id) = artifact_id
+            && let Some(task) = self.tasks.get_mut(&input.task_id)
+        {
+            task.artifact_ids.insert(artifact_id);
         }
 
         Ok(self.emit_event(DomainEvent::TaskOpened {
@@ -1499,10 +1499,10 @@ impl KernelState {
                 id: input.relation_id.value(),
             });
         }
-        if let Some(evidence_id) = input.evidence_id {
-            if !self.evidences.contains_key(&evidence_id) {
-                return Err(DomainError::MissingEvidence { id: evidence_id });
-            }
+        if let Some(evidence_id) = input.evidence_id
+            && !self.evidences.contains_key(&evidence_id)
+        {
+            return Err(DomainError::MissingEvidence { id: evidence_id });
         }
         let relation = Relation {
             id: input.relation_id,
@@ -1694,10 +1694,10 @@ impl KernelState {
                 id: input.report_id.value(),
             });
         }
-        if let Some(task_id) = input.task_id {
-            if !self.tasks.contains_key(&task_id) {
-                return Err(DomainError::MissingTask { id: task_id });
-            }
+        if let Some(task_id) = input.task_id
+            && !self.tasks.contains_key(&task_id)
+        {
+            return Err(DomainError::MissingTask { id: task_id });
         }
         self.validation_reports.insert(
             input.report_id,
@@ -1805,36 +1805,33 @@ impl KernelState {
         });
         generated.push(base_event);
 
-        if let Some(task_id) = task_id {
-            if let Some(task) = self.tasks.get(&task_id) {
-                if input.exit_code != 0 {
-                    if task.status.can_transition_to(TaskStatus::Blocked) {
-                        let (from, to) =
-                            self.handle_change_task_status(task_id, TaskStatus::Blocked)?;
-                        generated.push(self.emit_event(DomainEvent::TaskStatusChanged {
-                            task_id,
-                            from,
-                            to,
-                        }));
-                    }
-                } else if task.status == TaskStatus::Draft {
-                    let (from, to) = self.handle_change_task_status(task_id, TaskStatus::Open)?;
-                    generated.push(self.emit_event(DomainEvent::TaskStatusChanged {
-                        task_id,
-                        from,
-                        to,
-                    }));
-                }
+        if let Some(task_id) = task_id
+            && let Some(task) = self.tasks.get(&task_id)
+        {
+            if input.exit_code != 0 && task.status.can_transition_to(TaskStatus::Blocked) {
+                let (from, to) = self.handle_change_task_status(task_id, TaskStatus::Blocked)?;
+                generated.push(self.emit_event(DomainEvent::TaskStatusChanged {
+                    task_id,
+                    from,
+                    to,
+                }));
+            } else if input.exit_code == 0 && task.status == TaskStatus::Draft {
+                let (from, to) = self.handle_change_task_status(task_id, TaskStatus::Open)?;
+                generated.push(self.emit_event(DomainEvent::TaskStatusChanged {
+                    task_id,
+                    from,
+                    to,
+                }));
             }
         }
 
-        if input.exit_code != 0 {
-            if let Some(task_id) = task_id {
-                generated.push(self.emit_event(DomainEvent::ApprovalRecorded {
-                    task_id,
-                    approved: false,
-                }));
-            }
+        if input.exit_code != 0
+            && let Some(task_id) = task_id
+        {
+            generated.push(self.emit_event(DomainEvent::ApprovalRecorded {
+                task_id,
+                approved: false,
+            }));
         }
 
         Ok(generated)
@@ -1988,10 +1985,10 @@ impl KernelState {
                         id: evidence_id.value(),
                     });
                 }
-                if let Some(claim_id) = claim_id {
-                    if !self.claims.contains_key(claim_id) {
-                        return Err(DomainError::MissingClaim { id: *claim_id });
-                    }
+                if let Some(claim_id) = claim_id
+                    && !self.claims.contains_key(claim_id)
+                {
+                    return Err(DomainError::MissingClaim { id: *claim_id });
                 }
 
                 self.evidences.insert(
@@ -2008,10 +2005,10 @@ impl KernelState {
                 if let Some(artifact) = self.artifacts.get_mut(artifact_id) {
                     artifact.evidence_ids.insert(*evidence_id);
                 }
-                if let Some(claim_id) = claim_id {
-                    if let Some(claim) = self.claims.get_mut(claim_id) {
-                        claim.evidence_ids.insert(*evidence_id);
-                    }
+                if let Some(claim_id) = claim_id
+                    && let Some(claim) = self.claims.get_mut(claim_id)
+                {
+                    claim.evidence_ids.insert(*evidence_id);
                 }
             }
             DomainEvent::TaskOpened {
@@ -2332,8 +2329,8 @@ mod tests {
         ]
     }
 
-    fn run_replay_once(
-    ) -> Result<(KernelState, Vec<DomainEventEnvelope>, Vec<MaestriaEffect>), DomainError> {
+    fn run_replay_once()
+    -> Result<(KernelState, Vec<DomainEventEnvelope>, Vec<MaestriaEffect>), DomainError> {
         replay_inputs(&sample_inputs())
     }
 
@@ -2421,11 +2418,13 @@ mod tests {
 
         assert!(state.chunks.contains_key(&ChunkId::new(10)));
         assert!(state.cards.contains_key(&CardId::new(20)));
-        assert!(state
-            .artifacts
-            .get(&ArtifactId::new(1))
-            .is_some_and(|artifact| artifact.chunk_ids.contains(&ChunkId::new(10))
-                && artifact.card_ids.contains(&CardId::new(20))));
+        assert!(
+            state
+                .artifacts
+                .get(&ArtifactId::new(1))
+                .is_some_and(|artifact| artifact.chunk_ids.contains(&ChunkId::new(10))
+                    && artifact.card_ids.contains(&CardId::new(20)))
+        );
         assert!(output.events.iter().any(|event| matches!(
             event.event,
             DomainEvent::CardCreated {
@@ -2446,12 +2445,14 @@ mod tests {
             artifact_id: None,
         }))?;
 
-        assert!(state
-            .apply_input(DomainInput::ChangeTaskStatus(ChangeTaskStatusInput {
-                task_id: TaskId::new(3),
-                to: TaskStatus::Active,
-            }))
-            .is_err());
+        assert!(
+            state
+                .apply_input(DomainInput::ChangeTaskStatus(ChangeTaskStatusInput {
+                    task_id: TaskId::new(3),
+                    to: TaskStatus::Active,
+                }))
+                .is_err()
+        );
 
         state.apply_input(DomainInput::ChangeTaskStatus(ChangeTaskStatusInput {
             task_id: TaskId::new(3),
@@ -2685,8 +2686,8 @@ mod tests {
     }
 
     #[test]
-    fn relation_and_memory_candidates_are_domain_owned_and_evidence_bound(
-    ) -> Result<(), DomainError> {
+    fn relation_and_memory_candidates_are_domain_owned_and_evidence_bound()
+    -> Result<(), DomainError> {
         let mut state = KernelState::new();
         register_artifact_and_claim(&mut state)?;
         state.apply_input(DomainInput::RecordEvidence(RecordEvidenceInput {
@@ -3002,10 +3003,12 @@ mod tests {
         } else {
             panic!("expected validation report created event");
         }
-        assert!(output
-            .effects
-            .iter()
-            .any(|effect| matches!(effect, MaestriaEffect::PersistEvent { .. })));
+        assert!(
+            output
+                .effects
+                .iter()
+                .any(|effect| matches!(effect, MaestriaEffect::PersistEvent { .. }))
+        );
         Ok(())
     }
 

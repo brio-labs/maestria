@@ -42,7 +42,7 @@ impl HarnessAdapter for LocalShellHarnessAdapter {
                 Err(_) => {
                     return Err(PortError::Internal {
                         message: "Failed to build tokio runtime".to_string(),
-                    })
+                    });
                 }
             };
 
@@ -69,12 +69,12 @@ impl HarnessAdapter for LocalShellHarnessAdapter {
             Ok(Ok(Err(e))) => {
                 return Err(PortError::Internal {
                     message: format!("LocalShellHarnessAdapter failed: {}", e),
-                })
+                });
             }
             Ok(Err(_)) => {
                 return Err(PortError::Internal {
                     message: "LocalShellHarnessAdapter timed out".to_string(),
-                })
+                });
             }
             Err(e) => return Err(e),
         };

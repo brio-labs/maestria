@@ -282,7 +282,7 @@ fn io_error(action: &str, path: &Path, error: io::Error) -> PortError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use maestria_ports::{contract_tests, BlobStore};
+    use maestria_ports::{BlobStore, contract_tests};
     use tempfile::tempdir;
 
     #[test]
@@ -357,11 +357,13 @@ mod tests {
             .expect("object path for digest");
         assert!(object_path.starts_with(store.root()));
         assert!(object_path.exists());
-        assert!(object_path
-            .strip_prefix(store.root())
-            .expect("under root")
-            .components()
-            .all(|component| !matches!(component, std::path::Component::ParentDir)));
+        assert!(
+            object_path
+                .strip_prefix(store.root())
+                .expect("under root")
+                .components()
+                .all(|component| !matches!(component, std::path::Component::ParentDir))
+        );
 
         let malicious = "../aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
         assert!(matches!(

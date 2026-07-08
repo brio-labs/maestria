@@ -17,7 +17,7 @@ use maestria_domain::{
     OutputStream, SequenceNumber, TaskId, TaskPriority, TaskStatus, ValidationReportId,
 };
 use maestria_ports::{ArtifactRepository, EventFilter, EventLog, PortError};
-use rusqlite::{params, Connection, ErrorCode, OptionalExtension, Transaction};
+use rusqlite::{Connection, ErrorCode, OptionalExtension, Transaction, params};
 use serde::{Deserialize, Serialize};
 
 const CURRENT_SCHEMA_VERSION: i64 = 1;
@@ -1164,12 +1164,12 @@ fn to_port_error(error: rusqlite::Error) -> PortError {
 }
 
 fn map_append_error(error: rusqlite::Error) -> PortError {
-    if let rusqlite::Error::SqliteFailure(failure, _) = &error {
-        if failure.code == ErrorCode::ConstraintViolation {
-            return PortError::Conflict {
-                message: "domain event id or sequence already exists".to_string(),
-            };
-        }
+    if let rusqlite::Error::SqliteFailure(failure, _) = &error
+        && failure.code == ErrorCode::ConstraintViolation
+    {
+        return PortError::Conflict {
+            message: "domain event id or sequence already exists".to_string(),
+        };
     }
     to_port_error(error)
 }
