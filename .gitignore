@@ -1,0 +1,6 @@
+/target/
+/.worktrees/
+/.agents/
+/.skills/
+/skills-lock.json
+.DS_Store

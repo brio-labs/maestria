@@ -1054,11 +1054,11 @@ impl KernelState {
             chunks.push(self.handle_register_chunk(chunk)?);
         }
 
+        let chunks_added = (chunks.len().min(u32::MAX as usize)) as u32;
         let parsed = self.emit_event(DomainEvent::ArtifactParsed {
             artifact_id: input.artifact_id,
-            chunks_added: u32::try_from(chunks.len()).unwrap_or(u32::MAX),
+            chunks_added,
         });
-
         chunks.push(parsed);
         Ok(chunks)
     }
@@ -1078,9 +1078,10 @@ impl KernelState {
             generated.push(self.handle_create_card(card)?);
         }
 
+        let cards_added = (generated.len().min(u32::MAX as usize)) as u32;
         let event = self.emit_event(DomainEvent::SearchCompleted {
             artifact_id: input.artifact_id,
-            cards_added: u32::try_from(generated.len()).unwrap_or(u32::MAX),
+            cards_added,
         });
         generated.push(event);
         Ok(generated)

@@ -746,7 +746,7 @@ impl FullTextIndex for InMemoryFullTextIndex {
             })
             .map(|chunk| SearchHit {
                 chunk: chunk.clone(),
-                score: u32::try_from(chunk.text.len()).unwrap_or(u32::MAX),
+                score: (chunk.text.len().min(u32::MAX as usize)) as u32,
             })
             .collect::<Vec<_>>();
 

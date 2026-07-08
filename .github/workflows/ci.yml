@@ -1,24 +1,115 @@
-name: ci
+name: CI
 
 on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+  RUSTC_WRAPPER: sccache
+  SCCACHE_GHA_ENABLED: "true"
 
 jobs:
-  verify:
+  fmt:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - name: Set up Rust
+      - uses: actions/checkout@v7.0.0
+      - name: Set up Rust toolchain
         uses: dtolnay/rust-toolchain@stable
-      - name: Cache cargo
-        uses: Swatinem/rust-cache@v2
+        with:
+          components: rustfmt
       - name: Check formatting
         run: cargo fmt --all -- --check
-      - name: Clippy
+
+  clippy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.0
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - name: Cache
+        uses: Swatinem/rust-cache@v2
+      - uses: mozilla-actions/sccache-action@v0.0.10
+      - name: Run clippy
         run: cargo clippy --workspace --all-targets --all-features -- -D warnings
-      - name: Verify philosophy checks
-        run: python3 scripts/philosophy-check.py
+
+  deny:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.0
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+      - name: Install cargo-deny
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deny
+      - name: Run dependency checks
+        run: cargo deny check all
+
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.0
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+      - name: Check documentation
+        run: cargo doc --workspace --no-deps --all-features
+        env:
+          RUSTDOCFLAGS: "-D warnings"
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.0
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+      - name: Cache
+        uses: Swatinem/rust-cache@v2
+      - uses: mozilla-actions/sccache-action@v0.0.10
       - name: Run tests
-        run: cargo test --workspace --all-features
+        run: cargo test --workspace --all-targets --all-features
+
+  philosophy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.0
+      - name: Verify philosophy markers
+        run: python3 scripts/philosophy-check.py
+
+  commit-lint:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.0
+        with:
+          fetch-depth: 0
+      - name: Check commit message format
+        run: |
+          BASE="${{ github.event.pull_request.base.sha }}"
+          FAILED=0
+          for sha in $(git rev-list --no-merges ${BASE}..HEAD); do
+            msg=$(git log -1 --format=%s "$sha")
+            if ! [[ "$msg" =~ ^(feat|fix|docs|test|refactor|perf|chore|invariant)\([a-z0-9-]+\):\ .+ ]]; then
+              echo "❌ Commit $sha has invalid format: '$msg'"
+              echo "Expected: <type>(<scope>): <description>"
+              FAILED=1
+            fi
+          done
+
+          if [ "$FAILED" -ne 0 ]; then
+            exit 1
+          fi
+
+          echo "✓ Commit messages conform to format"

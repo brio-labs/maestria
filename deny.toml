@@ -1,2 +1,44 @@
-# Placeholder for dependency policy checks.
-# This file is intentionally minimal during initial project bootstrap.
+# Dependency and license policy for Maestria.
+
+[graph]
+all-features = true
+
+[licenses]
+confidence-threshold = 0.9
+allow = [
+  "MIT",
+  "Apache-2.0",
+  "Apache-2.0 WITH LLVM-exception",
+  "BSD-3-Clause",
+  "BSD-2-Clause",
+  "ISC",
+  "MPL-2.0",
+  "Unicode-3.0",
+  "Unicode-DFS-2016",
+  "CC0-1.0",
+  "Zlib",
+  "CDLA-Permissive-2.0",
+  "MIT-0",
+]
+
+[advisories]
+# Refresh this periodically with new cargo-audit advisories if needed.
+ignore = []
+
+[bans]
+multiple-versions = "warn"
+# Keep workspace dependency resolution explicit for now.
+wildcards = "allow"
+highlight = "all"
+workspace-default-features = "allow"
+external-default-features = "allow"
+allow-workspace = false
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []
+
+[sources.allow-org]
+github = ["brio-labs"]
