@@ -1,0 +1,23 @@
+name: Invariant Violation
+description: Report a violation of system invariants
+title: "[INVARIANT] "
+body:
+  - type: input
+    id: invariant-id
+    attributes:
+      label: Invariant ID
+      placeholder: "e.g., core-determinism, governance-rollback"
+    validations:
+      required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: Violation Description
+      description: What invariant is being broken and how?
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction Steps
+      description: Minimal reproduction steps or test case

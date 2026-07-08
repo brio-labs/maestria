@@ -1,0 +1,30 @@
+name: Bug Report
+description: Report a bug in Maestria
+title: "[BUG] "
+body:
+  - type: dropdown
+    id: layer
+    attributes:
+      label: Affected Layer
+      options:
+        - Domain
+        - Governance
+        - Runtime
+        - Storage
+        - CLI / APIs
+        - Harness
+        - Documentation
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: What changed and what is broken?
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction Steps
+      description: Step-by-step steps to reproduce
+    validations:
+      required: true
