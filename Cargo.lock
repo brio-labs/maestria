@@ -720,6 +720,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "maestria-memory"
+version = "0.0.0"
+dependencies = [
+ "maestria-domain",
+ "maestria-governance",
+]
+
+[[package]]
 name = "maestria-parsers"
 version = "0.1.0"
 dependencies = [
@@ -738,11 +746,11 @@ dependencies = [
 name = "maestria-runtime"
 version = "0.1.0"
 dependencies = [
- "async-trait",
  "maestria-domain",
  "maestria-governance",
+ "maestria-memory",
  "maestria-ports",
- "thiserror",
+ "maestria-validation",
  "tokio",
  "tokio-test",
  "tokio-util",
@@ -769,6 +777,13 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
+]
+
+[[package]]
+name = "maestria-validation"
+version = "0.0.0"
+dependencies = [
+ "maestria-domain",
 ]
 
 [[package]]

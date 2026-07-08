@@ -1,16 +1,26 @@
 use maestria_domain::{
     ApprovalDecision, DomainEvent, DomainEventEnvelope, DomainInput, EventId, HarnessRunCompleted,
-    KernelState, MaestriaEffect, ParserResult, RegisterChunkInput, SequenceNumber,
-    ValidationCompleted,
+    KernelState, MaestriaEffect, ParserResult, RecordValidationReportInput, RegisterChunkInput,
+    SequenceNumber, ValidationCompleted, ValidationReportId,
 };
 use maestria_governance::{
     ApprovalGate, ApprovalRequest, AutonomyProfile, ClassifyRisk, PolicyDecision, Scope, ScopeGuard,
 };
+use maestria_memory::MemoryService;
 use maestria_ports::{
     ArtifactRepository, BlobStore, EventLog, FileHandle, FileMetadata, FullTextIndex,
     HarnessAdapter, HarnessCommandClass, HarnessRequest, IndexedChunk, ParseContext, Parser,
 };
-use std::{path::PathBuf, sync::Arc, time::Duration};
+use maestria_validation::{ValidationContext, ValidationRunner};
+use std::{
+    collections::BTreeMap,
+    path::PathBuf,
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc,
+    },
+    time::Duration,
+};
 use tokio::sync::{mpsc, RwLock};
 
 pub struct RuntimeConfig {
@@ -53,6 +63,7 @@ pub struct MaestriaRuntime {
     adapters: Arc<Adapters>,
     governance: Arc<Governance>,
     input_tx: mpsc::Sender<DomainInput>,
+    next_validation_report_id: Arc<AtomicU64>,
 }
 
 pub struct RuntimeHandle {
@@ -68,6 +79,8 @@ impl MaestriaRuntime {
     ) -> (Self, mpsc::Receiver<DomainInput>) {
         config.max_concurrent_effects = config.max_concurrent_effects.max(1);
         let (input_tx, input_rx) = mpsc::channel(config.input_buffer_size);
+        let next_validation_report_id =
+            Arc::new(AtomicU64::new(Self::seed_next_validation_report_id(&state)));
         (
             Self {
                 config,
@@ -75,9 +88,20 @@ impl MaestriaRuntime {
                 adapters: Arc::new(adapters),
                 governance: Arc::new(governance),
                 input_tx,
+                next_validation_report_id,
             },
             input_rx,
         )
+    }
+
+    fn seed_next_validation_report_id(state: &KernelState) -> u64 {
+        state
+            .event_log
+            .iter()
+            .map(|entry| entry.id.value())
+            .chain(state.validation_reports.keys().map(|id| id.value()))
+            .max()
+            .map_or(1, |value| value.saturating_add(1))
     }
 
     pub fn handle(&self) -> RuntimeHandle {
@@ -104,6 +128,7 @@ impl MaestriaRuntime {
         let default_effect_timeout = self.config.default_effect_timeout;
         let max_retries = self.config.max_retries;
         let effect_shutdown = shutdown_token.clone();
+        let next_validation_report_id = self.next_validation_report_id.clone();
 
         tokio::spawn(async move {
             let semaphore = Arc::new(tokio::sync::Semaphore::new(max_concurrent_effects));
@@ -114,7 +139,12 @@ impl MaestriaRuntime {
                         break;
                     }
                     msg = effect_rx.recv() => {
-                        let Some(effect) = msg else { break };
+                        let Some(mut effect) = msg else { break };
+                        if let MaestriaEffect::RunValidation(request) = &mut effect {
+                            request.validation_report_id = ValidationReportId::new(
+                                next_validation_report_id.fetch_add(1, Ordering::Relaxed),
+                            );
+                        }
                         let permit = semaphore.clone().acquire_owned().await.expect("semaphore closed");
                         // Execute effect
                         let adapters = adapters.clone();
@@ -133,19 +163,27 @@ impl MaestriaRuntime {
                                         profile,
                                         state.clone(),
                                         input_tx.clone(),
-                                    ).await;
+                                    )
+                                    .await;
 
                                     if success || attempts >= max_retries {
                                         break;
                                     }
                                     attempts += 1;
-                                    tracing::warn!("Retrying effect execution (attempt {})", attempts);
+                                    tracing::warn!(
+                                        "Retrying effect execution (attempt {})",
+                                        attempts
+                                    );
                                     tokio::time::sleep(Duration::from_millis(500 * (1 << attempts))).await;
                                 }
-                            }).await;
+                            })
+                            .await;
 
                             if result.is_err() {
-                                tracing::error!("Watchdog: effect execution timed out after {:?}", default_effect_timeout);
+                                tracing::error!(
+                                    "Watchdog: effect execution timed out after {:?}",
+                                    default_effect_timeout
+                                );
                             }
                             drop(permit);
                         });
@@ -415,12 +453,84 @@ impl MaestriaRuntime {
                 tracing::debug!(url = %request.url, "web fetch effect has no configured port");
             }
             MaestriaEffect::RunValidation(request) => {
+                let report = {
+                    let state = state.read().await;
+                    let report_id = request.validation_report_id;
+                    let task = request
+                        .task_id
+                        .and_then(|task_id| state.tasks.get(&task_id));
+                    let harness_exit_code = request.task_id.and_then(|task_id| {
+                        state
+                            .event_log
+                            .iter()
+                            .rev()
+                            .find_map(|entry| match entry.event {
+                                DomainEvent::HarnessRunCompleted {
+                                    task_id: Some(event_task_id),
+                                    exit_code,
+                                    ..
+                                } if event_task_id == task_id => Some(exit_code),
+                                _ => None,
+                            })
+                    });
+                    let mut claims = BTreeMap::new();
+                    if let Some(claim_id) = request.claim_id {
+                        if let Some(claim) = state.claims.get(&claim_id) {
+                            claims.insert(claim_id, claim.clone());
+                        } else {
+                            tracing::warn!(claim_id = ?claim_id, "validation requested for missing claim");
+                        }
+                    } else {
+                        claims.extend(state.claims.iter().map(|(id, claim)| (*id, claim.clone())));
+                    }
+                    let evidences = state
+                        .evidences
+                        .iter()
+                        .map(|(id, evidence)| (*id, evidence.clone()))
+                        .collect();
+                    let memory_candidates = state
+                        .memory_candidates
+                        .iter()
+                        .map(|(id, candidate)| (*id, candidate.clone()))
+                        .collect();
+                    let review_queue =
+                        MemoryService::review_queue(&state.memory_candidates, &state.memories);
+                    if !review_queue.is_empty() {
+                        tracing::debug!(
+                            pending_candidates = review_queue.len(),
+                            "validation found queued memory candidates"
+                        );
+                    }
+
+                    let mut validators: Vec<Box<dyn maestria_validation::Validator>> = vec![
+                        Box::new(maestria_validation::CitationValidator),
+                        Box::new(maestria_validation::EvidenceExistenceValidator),
+                        Box::new(maestria_validation::MemoryValidator),
+                        Box::new(maestria_validation::HarnessRunValidator),
+                    ];
+                    if request.task_id.is_some() {
+                        validators.push(Box::new(maestria_validation::TaskStateValidator));
+                    }
+
+                    let runner = ValidationRunner::with_validators(validators);
+                    runner.run(
+                        report_id,
+                        request.task_id,
+                        &ValidationContext {
+                            task,
+                            claims: &claims,
+                            evidences: &evidences,
+                            memory_candidates: &memory_candidates,
+                            harness_exit_code,
+                        },
+                    )
+                };
                 if let Some(claim_id) = request.claim_id {
                     Self::send_input(
                         &input_tx,
                         DomainInput::ValidationCompleted(ValidationCompleted {
                             claim_id,
-                            valid: true,
+                            valid: report.passed,
                         }),
                         "validation completion",
                     )
@@ -428,6 +538,17 @@ impl MaestriaRuntime {
                 } else {
                     tracing::debug!(task_id = ?request.task_id, "validation effect has no claim to validate");
                 }
+                Self::send_input(
+                    &input_tx,
+                    DomainInput::RecordValidationReport(RecordValidationReportInput {
+                        report_id: report.id,
+                        task_id: request.task_id,
+                        passed: report.passed,
+                        warnings: report.warnings,
+                    }),
+                    "validation report",
+                )
+                .await;
             }
             MaestriaEffect::RequestApproval(request) => {
                 tracing::info!(task_id = %request.task_id, "approval request requires external decision");
@@ -465,8 +586,15 @@ impl MaestriaRuntime {
         {
             return envelope.clone();
         }
-
-        let next = state.event_log.len() as u64 + 1;
+        let next = state
+            .event_log
+            .iter()
+            .flat_map(|envelope| {
+                std::iter::once(envelope.id.value())
+                    .chain(std::iter::once(envelope.sequence.value()))
+            })
+            .max()
+            .map_or(0, |value| value.saturating_add(1));
         DomainEventEnvelope {
             id: EventId::new(next),
             sequence: SequenceNumber::new(next),

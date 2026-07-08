@@ -346,6 +346,32 @@ enum StoredEventPayload {
     MemoryCandidateCreated {
         candidate_id: u64,
         claim_id: u64,
+        #[serde(default)]
+        evidence_ids: Vec<u64>,
+        #[serde(default)]
+        confidence_milli: u16,
+    },
+    MemoryPromoted {
+        memory_id: u64,
+        candidate_id: u64,
+    },
+    MemoryContradicted {
+        memory_id: u64,
+        contradicting_candidate_id: u64,
+    },
+    MemoryDeprecated {
+        memory_id: u64,
+    },
+    MemorySuperseded {
+        memory_id: u64,
+        by_memory_id: u64,
+    },
+    ValidationReportCreated {
+        report_id: u64,
+        task_id: Option<u64>,
+        passed: bool,
+        #[serde(default)]
+        warnings: Vec<String>,
     },
     UserIntentObserved {
         task_id: u64,
@@ -456,9 +482,51 @@ impl StoredEventPayload {
             DomainEvent::MemoryCandidateCreated {
                 candidate_id,
                 claim_id,
+                evidence_ids,
+                confidence_milli,
             } => Self::MemoryCandidateCreated {
                 candidate_id: candidate_id.value(),
                 claim_id: claim_id.value(),
+                evidence_ids: evidence_ids
+                    .iter()
+                    .map(|evidence_id| evidence_id.value())
+                    .collect(),
+                confidence_milli: *confidence_milli,
+            },
+            DomainEvent::MemoryPromoted {
+                memory_id,
+                candidate_id,
+            } => Self::MemoryPromoted {
+                memory_id: memory_id.value(),
+                candidate_id: candidate_id.value(),
+            },
+            DomainEvent::MemoryContradicted {
+                memory_id,
+                contradicting_candidate_id,
+            } => Self::MemoryContradicted {
+                memory_id: memory_id.value(),
+                contradicting_candidate_id: contradicting_candidate_id.value(),
+            },
+            DomainEvent::MemoryDeprecated { memory_id } => Self::MemoryDeprecated {
+                memory_id: memory_id.value(),
+            },
+            DomainEvent::MemorySuperseded {
+                memory_id,
+                by_memory_id,
+            } => Self::MemorySuperseded {
+                memory_id: memory_id.value(),
+                by_memory_id: by_memory_id.value(),
+            },
+            DomainEvent::ValidationReportCreated {
+                report_id,
+                task_id,
+                passed,
+                warnings,
+            } => Self::ValidationReportCreated {
+                report_id: report_id.value(),
+                task_id: task_id.map(|task_id| task_id.value()),
+                passed: *passed,
+                warnings: warnings.clone(),
             },
             DomainEvent::UserIntentObserved { task_id, title } => Self::UserIntentObserved {
                 task_id: task_id.value(),
@@ -577,9 +645,50 @@ impl StoredEventPayload {
             Self::MemoryCandidateCreated {
                 candidate_id,
                 claim_id,
+                evidence_ids,
+                confidence_milli,
             } => DomainEvent::MemoryCandidateCreated {
                 candidate_id: maestria_domain::MemoryCandidateId::new(candidate_id),
                 claim_id: ClaimId::new(claim_id),
+                evidence_ids: evidence_ids.into_iter().map(EvidenceId::new).collect(),
+                confidence_milli,
+            },
+            Self::MemoryPromoted {
+                memory_id,
+                candidate_id,
+            } => DomainEvent::MemoryPromoted {
+                memory_id: maestria_domain::MemoryId::new(memory_id),
+                candidate_id: maestria_domain::MemoryCandidateId::new(candidate_id),
+            },
+            Self::MemoryContradicted {
+                memory_id,
+                contradicting_candidate_id,
+            } => DomainEvent::MemoryContradicted {
+                memory_id: maestria_domain::MemoryId::new(memory_id),
+                contradicting_candidate_id: maestria_domain::MemoryCandidateId::new(
+                    contradicting_candidate_id,
+                ),
+            },
+            Self::MemoryDeprecated { memory_id } => DomainEvent::MemoryDeprecated {
+                memory_id: maestria_domain::MemoryId::new(memory_id),
+            },
+            Self::MemorySuperseded {
+                memory_id,
+                by_memory_id,
+            } => DomainEvent::MemorySuperseded {
+                memory_id: maestria_domain::MemoryId::new(memory_id),
+                by_memory_id: maestria_domain::MemoryId::new(by_memory_id),
+            },
+            Self::ValidationReportCreated {
+                report_id,
+                task_id,
+                passed,
+                warnings,
+            } => DomainEvent::ValidationReportCreated {
+                report_id: ValidationReportId::new(report_id),
+                task_id: task_id.map(TaskId::new),
+                passed,
+                warnings,
             },
             Self::UserIntentObserved { task_id, title } => DomainEvent::UserIntentObserved {
                 task_id: TaskId::new(task_id),
@@ -632,6 +741,11 @@ impl StoredEventPayload {
             Self::ClaimEvidenceLinked { .. } => "claim_evidence_linked",
             Self::RelationCreated { .. } => "relation_created",
             Self::MemoryCandidateCreated { .. } => "memory_candidate_created",
+            Self::MemoryPromoted { .. } => "memory_promoted",
+            Self::MemoryContradicted { .. } => "memory_contradicted",
+            Self::MemoryDeprecated { .. } => "memory_deprecated",
+            Self::MemorySuperseded { .. } => "memory_superseded",
+            Self::ValidationReportCreated { .. } => "validation_report_created",
             Self::UserIntentObserved { .. } => "user_intent_observed",
             Self::ArtifactParsed { .. } => "artifact_parsed",
             Self::SearchCompleted { .. } => "search_completed",
@@ -1000,6 +1114,11 @@ fn leaked_kind(kind: String) -> Result<&'static str, PortError> {
         "claim_evidence_linked" => Ok("claim_evidence_linked"),
         "relation_created" => Ok("relation_created"),
         "memory_candidate_created" => Ok("memory_candidate_created"),
+        "memory_promoted" => Ok("memory_promoted"),
+        "memory_contradicted" => Ok("memory_contradicted"),
+        "memory_deprecated" => Ok("memory_deprecated"),
+        "memory_superseded" => Ok("memory_superseded"),
+        "validation_report_created" => Ok("validation_report_created"),
         "user_intent_observed" => Ok("user_intent_observed"),
         "artifact_parsed" => Ok("artifact_parsed"),
         "search_completed" => Ok("search_completed"),

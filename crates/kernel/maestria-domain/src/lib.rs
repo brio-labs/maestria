@@ -266,6 +266,15 @@ pub enum RelationKind {
     RelatedTo,
 }
 
+const MIN_PROMOTION_CONFIDENCE_MILLI: u16 = 500;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ValidationReportRecord {
+    pub task_id: Option<TaskId>,
+    pub passed: bool,
+    pub warnings: Vec<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MemoryCandidate {
     pub id: MemoryCandidateId,
@@ -429,6 +438,8 @@ pub enum DomainEvent {
     MemoryCandidateCreated {
         candidate_id: MemoryCandidateId,
         claim_id: ClaimId,
+        evidence_ids: BTreeSet<EvidenceId>,
+        confidence_milli: u16,
     },
     UserIntentObserved {
         task_id: TaskId,
@@ -450,6 +461,27 @@ pub enum DomainEvent {
     ApprovalRecorded {
         task_id: TaskId,
         approved: bool,
+    },
+    MemoryPromoted {
+        memory_id: MemoryId,
+        candidate_id: MemoryCandidateId,
+    },
+    MemoryContradicted {
+        memory_id: MemoryId,
+        contradicting_candidate_id: MemoryCandidateId,
+    },
+    MemoryDeprecated {
+        memory_id: MemoryId,
+    },
+    MemorySuperseded {
+        memory_id: MemoryId,
+        by_memory_id: MemoryId,
+    },
+    ValidationReportCreated {
+        report_id: ValidationReportId,
+        task_id: Option<TaskId>,
+        passed: bool,
+        warnings: Vec<String>,
     },
     TickObserved {
         at: LogicalTick,
@@ -509,6 +541,7 @@ pub struct QueryHarnessRequest {
 pub struct RunValidationRequest {
     pub task_id: Option<TaskId>,
     pub claim_id: Option<ClaimId>,
+    pub validation_report_id: ValidationReportId,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -602,7 +635,6 @@ pub struct ChangeTaskStatusInput {
 pub struct CompleteTaskInput {
     pub task_id: TaskId,
     pub validation_report_id: ValidationReportId,
-    pub warnings: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -627,6 +659,37 @@ pub struct CreateMemoryCandidateInput {
     pub claim_id: ClaimId,
     pub evidence_ids: Vec<EvidenceId>,
     pub confidence_milli: u16,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PromoteMemoryInput {
+    pub memory_id: MemoryId,
+    pub candidate_id: MemoryCandidateId,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ContradictMemoryInput {
+    pub memory_id: MemoryId,
+    pub contradicting_candidate_id: MemoryCandidateId,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DeprecateMemoryInput {
+    pub memory_id: MemoryId,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SupersedeMemoryInput {
+    pub memory_id: MemoryId,
+    pub by_memory_id: MemoryId,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RecordValidationReportInput {
+    pub report_id: ValidationReportId,
+    pub task_id: Option<TaskId>,
+    pub passed: bool,
+    pub warnings: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -688,6 +751,11 @@ pub enum DomainInput {
     LinkEvidenceToClaim(LinkEvidenceToClaimInput),
     CreateRelation(CreateRelationInput),
     CreateMemoryCandidate(CreateMemoryCandidateInput),
+    PromoteMemory(PromoteMemoryInput),
+    ContradictMemory(ContradictMemoryInput),
+    DeprecateMemory(DeprecateMemoryInput),
+    SupersedeMemory(SupersedeMemoryInput),
+    RecordValidationReport(RecordValidationReportInput),
 
     UserIntent(UserIntent),
     ArtifactDetected(ArtifactDetected),
@@ -729,6 +797,17 @@ pub enum DomainError {
     MissingMemoryCandidate {
         id: MemoryCandidateId,
     },
+    MissingMemory {
+        id: MemoryId,
+    },
+    MissingValidationReport {
+        id: ValidationReportId,
+    },
+    ValidationReportTaskMismatch {
+        report_id: ValidationReportId,
+        report_task_id: Option<TaskId>,
+        task_id: TaskId,
+    },
     InvalidTaskTransition {
         task_id: TaskId,
         from: TaskStatus,
@@ -740,6 +819,12 @@ pub enum DomainError {
     EvidenceRequired {
         kind: &'static str,
         id: u64,
+    },
+    MemoryCandidateIneligibleForPromotion {
+        candidate_id: MemoryCandidateId,
+        confidence_milli: u16,
+        minimum_confidence_milli: u16,
+        reason: &'static str,
     },
     EmptyIntent,
 }
@@ -756,6 +841,22 @@ impl fmt::Display for DomainError {
             Self::MissingTask { id } => write!(f, "missing task {id}"),
             Self::MissingRelation { id } => write!(f, "missing relation {id}"),
             Self::MissingMemoryCandidate { id } => write!(f, "missing memory candidate {id}"),
+            Self::MissingMemory { id } => write!(f, "missing memory {id}"),
+            Self::MissingValidationReport { id } => write!(f, "missing validation report {id}"),
+            Self::ValidationReportTaskMismatch {
+                report_id,
+                report_task_id,
+                task_id,
+            } => match report_task_id {
+                Some(report_task_id) => write!(
+                    f,
+                    "validation report {report_id} is for task {report_task_id}, not {task_id}"
+                ),
+                None => write!(
+                    f,
+                    "validation report {report_id} is not associated with task {task_id}"
+                ),
+            },
             Self::InvalidTaskTransition { task_id, from, to } => {
                 write!(f, "invalid task transition {task_id}: {from:?} -> {to:?}")
             }
@@ -766,6 +867,15 @@ impl fmt::Display for DomainError {
             Self::EvidenceRequired { kind, id } => {
                 write!(f, "{kind} {id} requires at least one evidence id")
             }
+            Self::MemoryCandidateIneligibleForPromotion {
+                candidate_id,
+                confidence_milli,
+                minimum_confidence_milli,
+                reason,
+            } => write!(
+                f,
+                "memory candidate {candidate_id} cannot be promoted ({reason}): {confidence_milli} < {minimum_confidence_milli}"
+            ),
         }
     }
 }
@@ -783,6 +893,7 @@ pub struct KernelState {
     pub memory_candidates: BTreeMap<MemoryCandidateId, MemoryCandidate>,
     pub memories: BTreeMap<MemoryId, Memory>,
     pub tasks: BTreeMap<TaskId, Task>,
+    pub validation_reports: BTreeMap<ValidationReportId, ValidationReportRecord>,
     pub event_log: Vec<DomainEventEnvelope>,
 }
 
@@ -861,6 +972,7 @@ impl KernelState {
                         .push(MaestriaEffect::RunValidation(RunValidationRequest {
                             task_id: None,
                             claim_id: Some(claim_id),
+                            validation_report_id: ValidationReportId::new(0),
                         }));
                 }
             }
@@ -875,6 +987,7 @@ impl KernelState {
                     .push(MaestriaEffect::RunValidation(RunValidationRequest {
                         task_id: None,
                         claim_id: Some(input.claim_id),
+                        validation_report_id: ValidationReportId::new(0),
                     }));
             }
             DomainInput::OpenTask(input) => {
@@ -920,11 +1033,19 @@ impl KernelState {
                     }));
             }
             DomainInput::LinkEvidenceToClaim(input) => {
+                let claim_id = input.claim_id;
                 let event = self.handle_link_evidence_to_claim(input.clone())?;
                 output.events.push(event.clone());
                 output
                     .effects
                     .push(MaestriaEffect::PersistEvent { event: event.event });
+                output
+                    .effects
+                    .push(MaestriaEffect::RunValidation(RunValidationRequest {
+                        task_id: None,
+                        claim_id: Some(claim_id),
+                        validation_report_id: ValidationReportId::new(0),
+                    }));
             }
             DomainInput::CreateRelation(input) => {
                 let event = self.handle_create_relation(input)?;
@@ -946,6 +1067,41 @@ impl KernelState {
                 output
                     .effects
                     .push(MaestriaEffect::PersistEvent { event: event.event });
+            }
+            DomainInput::PromoteMemory(input) => {
+                let event = self.handle_promote_memory(input)?;
+                output.events.push(event.clone());
+                output.effects.push(MaestriaEffect::PersistEvent {
+                    event: event.event.clone(),
+                });
+            }
+            DomainInput::ContradictMemory(input) => {
+                let event = self.handle_contradict_memory(input)?;
+                output.events.push(event.clone());
+                output.effects.push(MaestriaEffect::PersistEvent {
+                    event: event.event.clone(),
+                });
+            }
+            DomainInput::DeprecateMemory(input) => {
+                let event = self.handle_deprecate_memory(input)?;
+                output.events.push(event.clone());
+                output.effects.push(MaestriaEffect::PersistEvent {
+                    event: event.event.clone(),
+                });
+            }
+            DomainInput::SupersedeMemory(input) => {
+                let event = self.handle_supersede_memory(input)?;
+                output.events.push(event.clone());
+                output.effects.push(MaestriaEffect::PersistEvent {
+                    event: event.event.clone(),
+                });
+            }
+            DomainInput::RecordValidationReport(input) => {
+                let event = self.handle_record_validation_report(input)?;
+                output.events.push(event.clone());
+                output.effects.push(MaestriaEffect::PersistEvent {
+                    event: event.event.clone(),
+                });
             }
             DomainInput::UserIntent(input) => {
                 let event = self.handle_user_intent(input.clone())?;
@@ -1273,8 +1429,21 @@ impl KernelState {
             .tasks
             .get_mut(&input.task_id)
             .ok_or(DomainError::MissingTask { id: input.task_id })?;
+        let report = self
+            .validation_reports
+            .get(&input.validation_report_id)
+            .ok_or(DomainError::MissingValidationReport {
+                id: input.validation_report_id,
+            })?;
+        if report.task_id != Some(input.task_id) {
+            return Err(DomainError::ValidationReportTaskMismatch {
+                report_id: input.validation_report_id,
+                report_task_id: report.task_id,
+                task_id: input.task_id,
+            });
+        }
         let from = task.status;
-        let to = if input.warnings.is_empty() {
+        let to = if report.warnings.is_empty() {
             TaskStatus::CompletedVerified
         } else {
             TaskStatus::CompletedWithWarnings
@@ -1378,13 +1547,171 @@ impl KernelState {
         let candidate = MemoryCandidate {
             id: input.candidate_id,
             claim_id: input.claim_id,
-            evidence_ids,
+            evidence_ids: evidence_ids.clone(),
             confidence_milli: input.confidence_milli.min(1000),
         };
         self.memory_candidates.insert(input.candidate_id, candidate);
         Ok(self.emit_event(DomainEvent::MemoryCandidateCreated {
             candidate_id: input.candidate_id,
             claim_id: input.claim_id,
+            evidence_ids,
+            confidence_milli: input.confidence_milli.min(1000),
+        }))
+    }
+
+    fn handle_promote_memory(
+        &mut self,
+        input: PromoteMemoryInput,
+    ) -> Result<DomainEventEnvelope, DomainError> {
+        let candidate = self.memory_candidates.get(&input.candidate_id).ok_or(
+            DomainError::MissingMemoryCandidate {
+                id: input.candidate_id,
+            },
+        )?;
+        if candidate.evidence_ids.is_empty() {
+            return Err(DomainError::MemoryCandidateIneligibleForPromotion {
+                candidate_id: candidate.id,
+                confidence_milli: candidate.confidence_milli,
+                minimum_confidence_milli: MIN_PROMOTION_CONFIDENCE_MILLI,
+                reason: "no evidence ids",
+            });
+        }
+        if !candidate
+            .evidence_ids
+            .iter()
+            .all(|evidence_id| self.evidences.contains_key(evidence_id))
+        {
+            return Err(DomainError::MemoryCandidateIneligibleForPromotion {
+                candidate_id: candidate.id,
+                confidence_milli: candidate.confidence_milli,
+                minimum_confidence_milli: MIN_PROMOTION_CONFIDENCE_MILLI,
+                reason: "missing evidence",
+            });
+        }
+        if candidate.confidence_milli < MIN_PROMOTION_CONFIDENCE_MILLI {
+            return Err(DomainError::MemoryCandidateIneligibleForPromotion {
+                candidate_id: candidate.id,
+                confidence_milli: candidate.confidence_milli,
+                minimum_confidence_milli: MIN_PROMOTION_CONFIDENCE_MILLI,
+                reason: "insufficient confidence",
+            });
+        }
+        if self.memories.contains_key(&input.memory_id) {
+            return Err(DomainError::DuplicateId {
+                kind: "memory",
+                id: input.memory_id.value(),
+            });
+        }
+
+        let memory = Memory {
+            id: input.memory_id,
+            candidate_id: input.candidate_id,
+            claim_id: candidate.claim_id,
+            evidence_ids: candidate.evidence_ids.clone(),
+            status: MemoryStatus::Active,
+        };
+        self.memories.insert(input.memory_id, memory);
+
+        Ok(self.emit_event(DomainEvent::MemoryPromoted {
+            memory_id: input.memory_id,
+            candidate_id: input.candidate_id,
+        }))
+    }
+
+    fn handle_contradict_memory(
+        &mut self,
+        input: ContradictMemoryInput,
+    ) -> Result<DomainEventEnvelope, DomainError> {
+        if !self
+            .memory_candidates
+            .contains_key(&input.contradicting_candidate_id)
+        {
+            return Err(DomainError::MissingMemoryCandidate {
+                id: input.contradicting_candidate_id,
+            });
+        }
+        let memory = self
+            .memories
+            .get_mut(&input.memory_id)
+            .ok_or(DomainError::MissingMemory {
+                id: input.memory_id,
+            })?;
+        memory.status = MemoryStatus::Contradicted;
+
+        Ok(self.emit_event(DomainEvent::MemoryContradicted {
+            memory_id: input.memory_id,
+            contradicting_candidate_id: input.contradicting_candidate_id,
+        }))
+    }
+
+    fn handle_deprecate_memory(
+        &mut self,
+        input: DeprecateMemoryInput,
+    ) -> Result<DomainEventEnvelope, DomainError> {
+        let memory = self
+            .memories
+            .get_mut(&input.memory_id)
+            .ok_or(DomainError::MissingMemory {
+                id: input.memory_id,
+            })?;
+        memory.status = MemoryStatus::Deprecated;
+
+        Ok(self.emit_event(DomainEvent::MemoryDeprecated {
+            memory_id: input.memory_id,
+        }))
+    }
+
+    fn handle_supersede_memory(
+        &mut self,
+        input: SupersedeMemoryInput,
+    ) -> Result<DomainEventEnvelope, DomainError> {
+        if !self.memories.contains_key(&input.by_memory_id) {
+            return Err(DomainError::MissingMemory {
+                id: input.by_memory_id,
+            });
+        }
+        let memory = self
+            .memories
+            .get_mut(&input.memory_id)
+            .ok_or(DomainError::MissingMemory {
+                id: input.memory_id,
+            })?;
+        memory.status = MemoryStatus::Superseded;
+
+        Ok(self.emit_event(DomainEvent::MemorySuperseded {
+            memory_id: input.memory_id,
+            by_memory_id: input.by_memory_id,
+        }))
+    }
+
+    fn handle_record_validation_report(
+        &mut self,
+        input: RecordValidationReportInput,
+    ) -> Result<DomainEventEnvelope, DomainError> {
+        if self.validation_reports.contains_key(&input.report_id) {
+            return Err(DomainError::DuplicateId {
+                kind: "validation_report",
+                id: input.report_id.value(),
+            });
+        }
+        if let Some(task_id) = input.task_id {
+            if !self.tasks.contains_key(&task_id) {
+                return Err(DomainError::MissingTask { id: task_id });
+            }
+        }
+        self.validation_reports.insert(
+            input.report_id,
+            ValidationReportRecord {
+                task_id: input.task_id,
+                passed: input.passed,
+                warnings: input.warnings.clone(),
+            },
+        );
+        Ok(self.emit_event(DomainEvent::ValidationReportCreated {
+            report_id: input.report_id,
+            task_id: input.task_id,
+            passed: input.passed,
+            warnings: input.warnings,
         }))
     }
 
@@ -1769,6 +2096,8 @@ impl KernelState {
             DomainEvent::MemoryCandidateCreated {
                 candidate_id,
                 claim_id,
+                evidence_ids,
+                confidence_milli,
             } => {
                 if self.memory_candidates.contains_key(candidate_id) {
                     return Err(DomainError::DuplicateId {
@@ -1779,13 +2108,108 @@ impl KernelState {
                 if !self.claims.contains_key(claim_id) {
                     return Err(DomainError::MissingClaim { id: *claim_id });
                 }
+                if evidence_ids.is_empty() {
+                    return Err(DomainError::EvidenceRequired {
+                        kind: "memory_candidate",
+                        id: candidate_id.value(),
+                    });
+                }
+                for evidence_id in evidence_ids {
+                    if !self.evidences.contains_key(evidence_id) {
+                        return Err(DomainError::MissingEvidence { id: *evidence_id });
+                    }
+                }
                 self.memory_candidates.insert(
                     *candidate_id,
                     MemoryCandidate {
                         id: *candidate_id,
                         claim_id: *claim_id,
-                        evidence_ids: BTreeSet::new(),
-                        confidence_milli: 0,
+                        evidence_ids: evidence_ids.clone(),
+                        confidence_milli: *confidence_milli,
+                    },
+                );
+            }
+            DomainEvent::MemoryPromoted {
+                memory_id,
+                candidate_id,
+            } => {
+                if self.memories.contains_key(memory_id) {
+                    return Err(DomainError::DuplicateId {
+                        kind: "memory",
+                        id: memory_id.value(),
+                    });
+                }
+                let candidate = self
+                    .memory_candidates
+                    .get(candidate_id)
+                    .ok_or(DomainError::MissingMemoryCandidate { id: *candidate_id })?;
+                self.memories.insert(
+                    *memory_id,
+                    Memory {
+                        id: *memory_id,
+                        candidate_id: *candidate_id,
+                        claim_id: candidate.claim_id,
+                        evidence_ids: candidate.evidence_ids.clone(),
+                        status: MemoryStatus::Active,
+                    },
+                );
+            }
+            DomainEvent::MemoryContradicted {
+                memory_id,
+                contradicting_candidate_id,
+            } => {
+                if !self
+                    .memory_candidates
+                    .contains_key(contradicting_candidate_id)
+                {
+                    return Err(DomainError::MissingMemoryCandidate {
+                        id: *contradicting_candidate_id,
+                    });
+                }
+                let memory = self
+                    .memories
+                    .get_mut(memory_id)
+                    .ok_or(DomainError::MissingMemory { id: *memory_id })?;
+                memory.status = MemoryStatus::Contradicted;
+            }
+            DomainEvent::MemoryDeprecated { memory_id } => {
+                let memory = self
+                    .memories
+                    .get_mut(memory_id)
+                    .ok_or(DomainError::MissingMemory { id: *memory_id })?;
+                memory.status = MemoryStatus::Deprecated;
+            }
+            DomainEvent::MemorySuperseded {
+                memory_id,
+                by_memory_id,
+            } => {
+                if !self.memories.contains_key(by_memory_id) {
+                    return Err(DomainError::MissingMemory { id: *by_memory_id });
+                }
+                let memory = self
+                    .memories
+                    .get_mut(memory_id)
+                    .ok_or(DomainError::MissingMemory { id: *memory_id })?;
+                memory.status = MemoryStatus::Superseded;
+            }
+            DomainEvent::ValidationReportCreated {
+                report_id,
+                task_id,
+                passed,
+                warnings,
+            } => {
+                if self.validation_reports.contains_key(report_id) {
+                    return Err(DomainError::DuplicateId {
+                        kind: "validation_report",
+                        id: report_id.value(),
+                    });
+                }
+                self.validation_reports.insert(
+                    *report_id,
+                    ValidationReportRecord {
+                        task_id: *task_id,
+                        passed: *passed,
+                        warnings: warnings.clone(),
                     },
                 );
             }
@@ -1935,6 +2359,42 @@ mod tests {
         }
     }
 
+    fn state_with_memory_candidate(
+        candidate_id: MemoryCandidateId,
+    ) -> Result<KernelState, DomainError> {
+        let mut state = KernelState::new();
+        register_artifact_and_claim(&mut state)?;
+        state.apply_input(DomainInput::RecordEvidence(RecordEvidenceInput {
+            evidence_id: EvidenceId::new(40),
+            artifact_id: ArtifactId::new(1),
+            claim_id: Some(ClaimId::new(20)),
+            kind: file_span_kind(),
+            excerpt: "first chunk".to_string(),
+            observed_at: LogicalTick::new(12),
+        }))?;
+        state.apply_input(DomainInput::CreateMemoryCandidate(
+            CreateMemoryCandidateInput {
+                candidate_id,
+                claim_id: ClaimId::new(20),
+                evidence_ids: vec![EvidenceId::new(40)],
+                confidence_milli: 720,
+            },
+        ))?;
+        Ok(state)
+    }
+
+    fn promote_memory(
+        state: &mut KernelState,
+        memory_id: MemoryId,
+        candidate_id: MemoryCandidateId,
+    ) -> Result<(), DomainError> {
+        state.apply_input(DomainInput::PromoteMemory(PromoteMemoryInput {
+            memory_id,
+            candidate_id,
+        }))?;
+        Ok(())
+    }
+
     #[test]
     fn parser_completed_registers_chunks_and_cards() -> Result<(), DomainError> {
         let mut state = KernelState::new();
@@ -2012,10 +2472,17 @@ mod tests {
             })),
             Err(DomainError::ValidationRequired { .. })
         ));
+        state.apply_input(DomainInput::RecordValidationReport(
+            RecordValidationReportInput {
+                report_id: ValidationReportId::new(9),
+                task_id: Some(TaskId::new(3)),
+                passed: true,
+                warnings: Vec::new(),
+            },
+        ))?;
         state.apply_input(DomainInput::CompleteTask(CompleteTaskInput {
             task_id: TaskId::new(3),
             validation_report_id: ValidationReportId::new(9),
-            warnings: Vec::new(),
         }))?;
 
         let task = state
@@ -2044,30 +2511,26 @@ mod tests {
             task_id: TaskId::new(7),
             to: TaskStatus::Active,
         }))?;
+        state.apply_input(DomainInput::RecordValidationReport(
+            RecordValidationReportInput {
+                report_id: ValidationReportId::new(80),
+                task_id: Some(TaskId::new(7)),
+                passed: false,
+                warnings: vec!["non-blocking warning".to_string()],
+            },
+        ))?;
 
-        assert_eq!(
-            state
-                .apply_input(DomainInput::ChangeTaskStatus(ChangeTaskStatusInput {
-                    task_id: TaskId::new(7),
-                    to: TaskStatus::CompletedVerified,
-                }))
-                .err(),
-            Some(DomainError::ValidationRequired {
-                task_id: TaskId::new(7)
-            })
-        );
         assert_eq!(
             state
                 .apply_input(DomainInput::CompleteTask(CompleteTaskInput {
                     task_id: TaskId::new(7),
                     validation_report_id: ValidationReportId::new(80),
-                    warnings: Vec::new(),
                 }))
                 .err(),
             Some(DomainError::InvalidTaskTransition {
                 task_id: TaskId::new(7),
                 from: TaskStatus::Active,
-                to: TaskStatus::CompletedVerified,
+                to: TaskStatus::CompletedWithWarnings,
             })
         );
 
@@ -2078,7 +2541,6 @@ mod tests {
         let output = state.apply_input(DomainInput::CompleteTask(CompleteTaskInput {
             task_id: TaskId::new(7),
             validation_report_id: ValidationReportId::new(80),
-            warnings: vec!["non-blocking warning".to_string()],
         }))?;
 
         let task = state
@@ -2110,6 +2572,42 @@ mod tests {
                     reason: "validated task completion".to_string(),
                 }),
             ]
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn complete_task_requires_validation_report() -> Result<(), DomainError> {
+        let mut state = KernelState::new();
+        state.apply_input(DomainInput::OpenTask(OpenTaskInput {
+            task_id: TaskId::new(7),
+            title: "Ship the verified answer".to_string(),
+            priority: TaskPriority::Normal,
+            artifact_id: None,
+        }))?;
+        state.apply_input(DomainInput::ChangeTaskStatus(ChangeTaskStatusInput {
+            task_id: TaskId::new(7),
+            to: TaskStatus::Open,
+        }))?;
+        state.apply_input(DomainInput::ChangeTaskStatus(ChangeTaskStatusInput {
+            task_id: TaskId::new(7),
+            to: TaskStatus::Active,
+        }))?;
+        state.apply_input(DomainInput::ChangeTaskStatus(ChangeTaskStatusInput {
+            task_id: TaskId::new(7),
+            to: TaskStatus::Validating,
+        }))?;
+
+        assert_eq!(
+            state
+                .apply_input(DomainInput::CompleteTask(CompleteTaskInput {
+                    task_id: TaskId::new(7),
+                    validation_report_id: ValidationReportId::new(80),
+                }))
+                .err(),
+            Some(DomainError::MissingValidationReport {
+                id: ValidationReportId::new(80)
+            })
         );
         Ok(())
     }
@@ -2158,6 +2656,7 @@ mod tests {
                 MaestriaEffect::RunValidation(RunValidationRequest {
                     task_id: None,
                     claim_id: Some(ClaimId::new(20)),
+                    validation_report_id: ValidationReportId::new(0),
                 }),
             ]
         );
@@ -2276,6 +2775,7 @@ mod tests {
                 event: DomainEvent::MemoryCandidateCreated {
                     candidate_id,
                     claim_id,
+                    ..
                 },
                 ..
             }] if *candidate_id == MemoryCandidateId::new(90)
@@ -2294,6 +2794,313 @@ mod tests {
             BTreeSet::from([EvidenceId::new(40)])
         );
         assert_eq!(candidate.confidence_milli, 720);
+        Ok(())
+    }
+
+    #[test]
+    fn promote_memory_creates_active_memory_from_candidate() -> Result<(), DomainError> {
+        let mut state = state_with_memory_candidate(MemoryCandidateId::new(90))?;
+
+        let output = state.apply_input(DomainInput::PromoteMemory(PromoteMemoryInput {
+            memory_id: MemoryId::new(100),
+            candidate_id: MemoryCandidateId::new(90),
+        }))?;
+
+        let memory = state
+            .memories
+            .get(&MemoryId::new(100))
+            .ok_or(DomainError::MissingMemory {
+                id: MemoryId::new(100),
+            })?;
+        assert_eq!(memory.candidate_id, MemoryCandidateId::new(90));
+        assert_eq!(memory.claim_id, ClaimId::new(20));
+        assert_eq!(memory.evidence_ids, BTreeSet::from([EvidenceId::new(40)]));
+        assert_eq!(memory.status, MemoryStatus::Active);
+        assert!(matches!(
+            output.events.as_slice(),
+            [DomainEventEnvelope {
+                event: DomainEvent::MemoryPromoted {
+                    memory_id,
+                    candidate_id,
+                },
+                ..
+            }] if *memory_id == MemoryId::new(100)
+                && *candidate_id == MemoryCandidateId::new(90)
+        ));
+        assert_eq!(
+            output.effects,
+            vec![MaestriaEffect::PersistEvent {
+                event: output.events[0].event.clone(),
+            }]
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn promote_memory_rejects_missing_candidate() -> Result<(), DomainError> {
+        let mut state = KernelState::new();
+
+        assert_eq!(
+            state
+                .apply_input(DomainInput::PromoteMemory(PromoteMemoryInput {
+                    memory_id: MemoryId::new(100),
+                    candidate_id: MemoryCandidateId::new(404),
+                }))
+                .err(),
+            Some(DomainError::MissingMemoryCandidate {
+                id: MemoryCandidateId::new(404),
+            })
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn contradict_memory_marks_memory_contradicted() -> Result<(), DomainError> {
+        let mut state = state_with_memory_candidate(MemoryCandidateId::new(90))?;
+        state.apply_input(DomainInput::CreateMemoryCandidate(
+            CreateMemoryCandidateInput {
+                candidate_id: MemoryCandidateId::new(91),
+                claim_id: ClaimId::new(20),
+                evidence_ids: vec![EvidenceId::new(40)],
+                confidence_milli: 650,
+            },
+        ))?;
+        promote_memory(&mut state, MemoryId::new(100), MemoryCandidateId::new(90))?;
+
+        let output = state.apply_input(DomainInput::ContradictMemory(ContradictMemoryInput {
+            memory_id: MemoryId::new(100),
+            contradicting_candidate_id: MemoryCandidateId::new(91),
+        }))?;
+
+        assert_eq!(
+            state
+                .memories
+                .get(&MemoryId::new(100))
+                .ok_or(DomainError::MissingMemory {
+                    id: MemoryId::new(100),
+                })?
+                .status,
+            MemoryStatus::Contradicted
+        );
+        assert!(matches!(
+            output.events.as_slice(),
+            [DomainEventEnvelope {
+                event: DomainEvent::MemoryContradicted {
+                    memory_id,
+                    contradicting_candidate_id,
+                },
+                ..
+            }] if *memory_id == MemoryId::new(100)
+                && *contradicting_candidate_id == MemoryCandidateId::new(91)
+        ));
+        Ok(())
+    }
+
+    #[test]
+    fn deprecate_memory_marks_memory_deprecated() -> Result<(), DomainError> {
+        let mut state = state_with_memory_candidate(MemoryCandidateId::new(90))?;
+        promote_memory(&mut state, MemoryId::new(100), MemoryCandidateId::new(90))?;
+
+        let output = state.apply_input(DomainInput::DeprecateMemory(DeprecateMemoryInput {
+            memory_id: MemoryId::new(100),
+        }))?;
+
+        assert_eq!(
+            state
+                .memories
+                .get(&MemoryId::new(100))
+                .ok_or(DomainError::MissingMemory {
+                    id: MemoryId::new(100),
+                })?
+                .status,
+            MemoryStatus::Deprecated
+        );
+        assert!(matches!(
+            output.events.as_slice(),
+            [DomainEventEnvelope {
+                event: DomainEvent::MemoryDeprecated { memory_id },
+                ..
+            }] if *memory_id == MemoryId::new(100)
+        ));
+        Ok(())
+    }
+
+    #[test]
+    fn supersede_memory_marks_memory_superseded() -> Result<(), DomainError> {
+        let mut state = state_with_memory_candidate(MemoryCandidateId::new(90))?;
+        state.apply_input(DomainInput::CreateMemoryCandidate(
+            CreateMemoryCandidateInput {
+                candidate_id: MemoryCandidateId::new(91),
+                claim_id: ClaimId::new(20),
+                evidence_ids: vec![EvidenceId::new(40)],
+                confidence_milli: 650,
+            },
+        ))?;
+        promote_memory(&mut state, MemoryId::new(100), MemoryCandidateId::new(90))?;
+        promote_memory(&mut state, MemoryId::new(101), MemoryCandidateId::new(91))?;
+
+        let output = state.apply_input(DomainInput::SupersedeMemory(SupersedeMemoryInput {
+            memory_id: MemoryId::new(100),
+            by_memory_id: MemoryId::new(101),
+        }))?;
+
+        assert_eq!(
+            state
+                .memories
+                .get(&MemoryId::new(100))
+                .ok_or(DomainError::MissingMemory {
+                    id: MemoryId::new(100),
+                })?
+                .status,
+            MemoryStatus::Superseded
+        );
+        assert!(matches!(
+            output.events.as_slice(),
+            [DomainEventEnvelope {
+                event: DomainEvent::MemorySuperseded {
+                    memory_id,
+                    by_memory_id,
+                },
+                ..
+            }] if *memory_id == MemoryId::new(100)
+                && *by_memory_id == MemoryId::new(101)
+        ));
+        Ok(())
+    }
+
+    #[test]
+    fn record_validation_report_emits_informational_event() -> Result<(), DomainError> {
+        let mut state = KernelState::new();
+        state.apply_input(DomainInput::OpenTask(OpenTaskInput {
+            task_id: TaskId::new(50),
+            title: "Validate answer".to_string(),
+            priority: TaskPriority::Normal,
+            artifact_id: None,
+        }))?;
+
+        let output = state.apply_input(DomainInput::RecordValidationReport(
+            RecordValidationReportInput {
+                report_id: ValidationReportId::new(80),
+                task_id: Some(TaskId::new(50)),
+                passed: true,
+                warnings: vec!["minor style warning".to_string()],
+            },
+        ))?;
+
+        assert_eq!(output.events.len(), 1);
+        if let DomainEvent::ValidationReportCreated {
+            report_id,
+            task_id,
+            passed,
+            warnings,
+        } = &output.events[0].event
+        {
+            assert_eq!(*report_id, ValidationReportId::new(80));
+            assert_eq!(*task_id, Some(TaskId::new(50)));
+            assert!(*passed);
+            assert_eq!(warnings, &vec!["minor style warning".to_string()]);
+        } else {
+            panic!("expected validation report created event");
+        }
+        assert!(output
+            .effects
+            .iter()
+            .any(|effect| matches!(effect, MaestriaEffect::PersistEvent { .. })));
+        Ok(())
+    }
+
+    #[test]
+    fn replay_events_reconstructs_new_memory_event_state() -> Result<(), DomainError> {
+        let inputs = vec![
+            DomainInput::RegisterArtifact(RegisterArtifactInput {
+                artifact_id: ArtifactId::new(1),
+                title: "Project Notes".to_string(),
+            }),
+            DomainInput::CreateClaim(CreateClaimInput {
+                claim_id: ClaimId::new(20),
+                artifact_id: ArtifactId::new(1),
+                text: "Claim from evidence".to_string(),
+                evidence_ids: Vec::new(),
+            }),
+            DomainInput::RecordEvidence(RecordEvidenceInput {
+                evidence_id: EvidenceId::new(40),
+                artifact_id: ArtifactId::new(1),
+                claim_id: Some(ClaimId::new(20)),
+                kind: file_span_kind(),
+                excerpt: "first chunk".to_string(),
+                observed_at: LogicalTick::new(12),
+            }),
+            DomainInput::CreateMemoryCandidate(CreateMemoryCandidateInput {
+                candidate_id: MemoryCandidateId::new(90),
+                claim_id: ClaimId::new(20),
+                evidence_ids: vec![EvidenceId::new(40)],
+                confidence_milli: 720,
+            }),
+            DomainInput::CreateMemoryCandidate(CreateMemoryCandidateInput {
+                candidate_id: MemoryCandidateId::new(91),
+                claim_id: ClaimId::new(20),
+                evidence_ids: vec![EvidenceId::new(40)],
+                confidence_milli: 650,
+            }),
+            DomainInput::PromoteMemory(PromoteMemoryInput {
+                memory_id: MemoryId::new(100),
+                candidate_id: MemoryCandidateId::new(90),
+            }),
+            DomainInput::PromoteMemory(PromoteMemoryInput {
+                memory_id: MemoryId::new(101),
+                candidate_id: MemoryCandidateId::new(91),
+            }),
+            DomainInput::ContradictMemory(ContradictMemoryInput {
+                memory_id: MemoryId::new(100),
+                contradicting_candidate_id: MemoryCandidateId::new(91),
+            }),
+            DomainInput::DeprecateMemory(DeprecateMemoryInput {
+                memory_id: MemoryId::new(101),
+            }),
+            DomainInput::SupersedeMemory(SupersedeMemoryInput {
+                memory_id: MemoryId::new(100),
+                by_memory_id: MemoryId::new(101),
+            }),
+            DomainInput::RecordValidationReport(RecordValidationReportInput {
+                report_id: ValidationReportId::new(80),
+                task_id: None,
+                passed: false,
+                warnings: Vec::new(),
+            }),
+        ];
+        let (_state, events, _effects) = replay_inputs(&inputs)?;
+        let replayed = replay_events(&events)?;
+
+        assert_eq!(replayed.event_log, events);
+        assert_eq!(
+            replayed
+                .memories
+                .get(&MemoryId::new(100))
+                .ok_or(DomainError::MissingMemory {
+                    id: MemoryId::new(100),
+                })?
+                .status,
+            MemoryStatus::Superseded
+        );
+        assert_eq!(
+            replayed
+                .memories
+                .get(&MemoryId::new(101))
+                .ok_or(DomainError::MissingMemory {
+                    id: MemoryId::new(101),
+                })?
+                .status,
+            MemoryStatus::Deprecated
+        );
+        assert!(events.iter().any(|event| matches!(
+            event.event,
+            DomainEvent::ValidationReportCreated {
+                report_id: ValidationReportId(80),
+                task_id: None,
+                passed: false,
+                ..
+            }
+        )));
         Ok(())
     }
 
@@ -2336,10 +3143,15 @@ mod tests {
                 task_id: TaskId::new(50),
                 to: TaskStatus::Validating,
             }),
+            DomainInput::RecordValidationReport(RecordValidationReportInput {
+                report_id: ValidationReportId::new(80),
+                task_id: Some(TaskId::new(50)),
+                passed: true,
+                warnings: Vec::new(),
+            }),
             DomainInput::CompleteTask(CompleteTaskInput {
                 task_id: TaskId::new(50),
                 validation_report_id: ValidationReportId::new(80),
-                warnings: Vec::new(),
             }),
             DomainInput::CreateRelation(CreateRelationInput {
                 relation_id: RelationId::new(70),
@@ -2382,6 +3194,7 @@ mod tests {
             DomainEvent::MemoryCandidateCreated {
                 candidate_id,
                 claim_id,
+                ..
             } if *candidate_id == MemoryCandidateId::new(90)
                 && *claim_id == ClaimId::new(20)
         )));
