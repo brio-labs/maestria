@@ -1,0 +1,9 @@
+[package]
+name = "maestria-memory"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+publish = false
+
+[dependencies]
+maestria-domain = { path = "../../kernel/maestria-domain" }
+maestria-governance = { path = "../../kernel/maestria-governance" }

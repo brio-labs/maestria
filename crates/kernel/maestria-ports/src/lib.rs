@@ -15,8 +15,8 @@ use std::{
 };
 
 use maestria_domain::{
-    Artifact, ArtifactId, BlobId, ChunkId, ContentRange, CreateCardInput, DomainEvent,
-    DomainEventEnvelope, EvidenceId, EvidenceKind, HarnessRunId,
+    Artifact, ArtifactId, BlobId, ChunkId, CreateCardInput, DomainEvent, DomainEventEnvelope,
+    HarnessRunId,
 };
 
 pub const PORTS_VERSION: &str = "0.1.0";
@@ -460,7 +460,7 @@ impl HarnessAdapter for InMemoryHarnessAdapter {
 #[cfg(any(test, feature = "contract-tests"))]
 pub mod contract_tests {
     use super::*;
-    use maestria_domain::{EventId, SequenceNumber};
+    use maestria_domain::{ContentRange, EventId, EvidenceId, EvidenceKind, SequenceNumber};
 
     pub fn sample_artifact(id: u64) -> Artifact {
         Artifact {

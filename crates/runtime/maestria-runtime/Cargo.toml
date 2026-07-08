@@ -7,11 +7,11 @@ publish = false
 [dependencies]
 maestria-domain = { path = "../../kernel/maestria-domain" }
 maestria-governance = { path = "../../kernel/maestria-governance" }
+maestria-memory = { path = "../../ecosystem/maestria-memory" }
 maestria-ports = { path = "../../kernel/maestria-ports" }
+maestria-validation = { path = "../../ecosystem/maestria-validation" }
 
 tokio = { version = "1.37", features = ["full"] }
-async-trait = "0.1"
-thiserror = "1.0"
 tracing = "0.1"
 tokio-util = { version = "0.7.18", features = ["rt"] }
 
