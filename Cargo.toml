@@ -1,0 +1,14 @@
+[package]
+name = "maestria"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+description = "Maestria local-first scaffold"
+publish = false
+
+[workspace]
+resolver = "2"
+members = [
+    "crates/kernel/maestria-domain",
+    "crates/kernel/maestria-governance",
+]
