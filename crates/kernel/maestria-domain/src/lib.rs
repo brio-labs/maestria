@@ -45,6 +45,14 @@ id_type!(EventId);
 id_type!(SequenceNumber);
 id_type!(SnapshotId);
 id_type!(LogicalTick);
+id_type!(RelationId);
+id_type!(MemoryCandidateId);
+id_type!(MemoryId);
+id_type!(ValidationReportId);
+id_type!(ApprovalId);
+id_type!(HarnessRunId);
+id_type!(BlobId);
+id_type!(ScopeId);
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct ContentRange {
@@ -116,14 +124,63 @@ impl Card {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub enum EvidenceKind {
+    FileSpan {
+        path: String,
+        range: ContentRange,
+        content_hash: String,
+    },
+    PdfSpan {
+        blob: BlobId,
+        page_start: u32,
+        page_end: u32,
+    },
+    WebSnapshot {
+        url: String,
+        snapshot: BlobId,
+        fetched_at: LogicalTick,
+        content_hash: String,
+    },
+    CommandOutput {
+        harness_run: HarnessRunId,
+        stream: OutputStream,
+        blob: BlobId,
+    },
+    TestResult {
+        harness_run: HarnessRunId,
+        status: TestStatus,
+        log: BlobId,
+    },
+    Diff {
+        harness_run: HarnessRunId,
+        patch_blob: BlobId,
+    },
+    Validation {
+        report_id: ValidationReportId,
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OutputStream {
+    Stdout,
+    Stderr,
+    Combined,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TestStatus {
+    Passed,
+    Failed,
+    TimedOut,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Evidence {
     pub id: EvidenceId,
     pub artifact_id: ArtifactId,
     pub claim_id: Option<ClaimId>,
-    pub source: String,
-    pub snippet: String,
-    pub range: Option<ContentRange>,
-    pub snapshot: Option<SnapshotId>,
+    pub kind: EvidenceKind,
+    pub excerpt: String,
     pub observed_at: LogicalTick,
 }
 
@@ -132,18 +189,16 @@ impl Evidence {
         id: EvidenceId,
         artifact_id: ArtifactId,
         claim_id: Option<ClaimId>,
-        source: String,
-        snippet: String,
+        kind: EvidenceKind,
+        excerpt: String,
         observed_at: LogicalTick,
     ) -> Self {
         Self {
             id,
             artifact_id,
             claim_id,
-            source,
-            snippet,
-            range: None,
-            snapshot: None,
+            kind,
+            excerpt,
             observed_at,
         }
     }
@@ -179,6 +234,69 @@ impl Claim {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Relation {
+    pub id: RelationId,
+    pub source: RelationEndpoint,
+    pub kind: RelationKind,
+    pub target: RelationEndpoint,
+    pub evidence_id: Option<EvidenceId>,
+    pub confidence_milli: u16,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum RelationEndpoint {
+    Artifact(ArtifactId),
+    Claim(ClaimId),
+    Task(TaskId),
+    Memory(MemoryId),
+    Card(CardId),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RelationKind {
+    Contains,
+    Defines,
+    Supports,
+    Contradicts,
+    UsedEvidence,
+    BasedOn,
+    DerivedFrom,
+    AppliesTo,
+    RelatedTo,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MemoryCandidate {
+    pub id: MemoryCandidateId,
+    pub claim_id: ClaimId,
+    pub evidence_ids: BTreeSet<EvidenceId>,
+    pub confidence_milli: u16,
+}
+
+impl MemoryCandidate {
+    pub fn has_evidence(&self) -> bool {
+        !self.evidence_ids.is_empty()
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MemoryStatus {
+    Active,
+    Deprecated,
+    Contradicted,
+    Superseded,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Memory {
+    pub id: MemoryId,
+    pub candidate_id: MemoryCandidateId,
+    pub claim_id: ClaimId,
+    pub evidence_ids: BTreeSet<EvidenceId>,
+    pub status: MemoryStatus,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum TaskPriority {
     Low,
@@ -191,8 +309,11 @@ pub enum TaskStatus {
     Draft,
     Open,
     Active,
+    Validating,
     Blocked,
-    Completed,
+    CompletedVerified,
+    CompletedWithWarnings,
+    Failed,
     Cancelled,
 }
 
@@ -201,10 +322,24 @@ impl TaskStatus {
         match self {
             Self::Draft => matches!(next, Self::Open | Self::Cancelled),
             Self::Open => matches!(next, Self::Active | Self::Cancelled),
-            Self::Active => matches!(next, Self::Blocked | Self::Completed | Self::Cancelled),
-            Self::Blocked => matches!(next, Self::Active | Self::Cancelled),
-            Self::Completed | Self::Cancelled => false,
+            Self::Active => matches!(
+                next,
+                Self::Validating | Self::Blocked | Self::Failed | Self::Cancelled
+            ),
+            Self::Validating => matches!(
+                next,
+                Self::CompletedVerified | Self::CompletedWithWarnings | Self::Failed | Self::Active
+            ),
+            Self::Blocked => matches!(next, Self::Active | Self::Failed | Self::Cancelled),
+            Self::CompletedVerified
+            | Self::CompletedWithWarnings
+            | Self::Failed
+            | Self::Cancelled => false,
         }
+    }
+
+    pub fn is_completion(self) -> bool {
+        matches!(self, Self::CompletedVerified | Self::CompletedWithWarnings)
     }
 }
 
@@ -214,6 +349,7 @@ pub struct Task {
     pub title: String,
     pub priority: TaskPriority,
     pub status: TaskStatus,
+    pub validation_report_id: Option<ValidationReportId>,
     pub artifact_ids: BTreeSet<ArtifactId>,
     pub evidence_ids: BTreeSet<EvidenceId>,
 }
@@ -225,6 +361,7 @@ impl Task {
             title,
             priority,
             status: TaskStatus::Draft,
+            validation_report_id: None,
             artifact_ids: BTreeSet::new(),
             evidence_ids: BTreeSet::new(),
         }
@@ -261,6 +398,7 @@ pub enum DomainEvent {
         evidence_id: EvidenceId,
         artifact_id: ArtifactId,
         claim_id: Option<ClaimId>,
+        kind: EvidenceKind,
     },
     TaskOpened {
         task_id: TaskId,
@@ -272,6 +410,11 @@ pub enum DomainEvent {
         from: TaskStatus,
         to: TaskStatus,
     },
+    TaskCompletionRecorded {
+        task_id: TaskId,
+        status: TaskStatus,
+        validation_report_id: ValidationReportId,
+    },
     ClaimValidationUpdated {
         claim_id: ClaimId,
         status: ClaimStatus,
@@ -279,6 +422,13 @@ pub enum DomainEvent {
     ClaimEvidenceLinked {
         claim_id: ClaimId,
         evidence_id: EvidenceId,
+    },
+    RelationCreated {
+        relation_id: RelationId,
+    },
+    MemoryCandidateCreated {
+        candidate_id: MemoryCandidateId,
+        claim_id: ClaimId,
     },
     UserIntentObserved {
         task_id: TaskId,
@@ -307,9 +457,19 @@ pub enum DomainEvent {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PersistStateRequest {
+    pub reason: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StoreBlobRequest {
     pub artifact_id: ArtifactId,
     pub payload: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ParseArtifactRequest {
+    pub artifact_id: ArtifactId,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -319,19 +479,36 @@ pub struct IndexFullTextRequest {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct EmbedChunksRequest {
+pub struct IndexVectorRequest {
     pub artifact_id: ArtifactId,
     pub chunk_id: ChunkId,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UpdateGraphRequest {
+    pub relation_id: RelationId,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FetchWebRequest {
+    pub url: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct QueryHarnessRequest {
+    pub run_id: HarnessRunId,
+    pub task_id: Option<TaskId>,
+    pub generation: Option<u64>,
+    pub capability: String,
+    pub scope_id: ScopeId,
+    pub approval_id: Option<ApprovalId>,
     pub command: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RunValidationRequest {
-    pub claim_id: ClaimId,
+    pub task_id: Option<TaskId>,
+    pub claim_id: Option<ClaimId>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -348,10 +525,14 @@ pub struct DiagnosticEvent {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MaestriaEffect {
     PersistEvent { event: DomainEvent },
+    PersistState(PersistStateRequest),
     StoreBlob(StoreBlobRequest),
+    ParseArtifact(ParseArtifactRequest),
     IndexFullText(IndexFullTextRequest),
-    EmbedChunks(EmbedChunksRequest),
+    IndexVector(IndexVectorRequest),
+    UpdateGraph(UpdateGraphRequest),
     QueryHarness(QueryHarnessRequest),
+    FetchWeb(FetchWebRequest),
     RunValidation(RunValidationRequest),
     RequestApproval(RequestApprovalRequest),
     EmitDiagnostic(DiagnosticEvent),
@@ -390,8 +571,8 @@ pub struct RecordEvidenceInput {
     pub evidence_id: EvidenceId,
     pub artifact_id: ArtifactId,
     pub claim_id: Option<ClaimId>,
-    pub source: String,
-    pub snippet: String,
+    pub kind: EvidenceKind,
+    pub excerpt: String,
     pub observed_at: LogicalTick,
 }
 
@@ -418,9 +599,34 @@ pub struct ChangeTaskStatusInput {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CompleteTaskInput {
+    pub task_id: TaskId,
+    pub validation_report_id: ValidationReportId,
+    pub warnings: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LinkEvidenceToClaimInput {
     pub claim_id: ClaimId,
     pub evidence_id: EvidenceId,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CreateRelationInput {
+    pub relation_id: RelationId,
+    pub source: RelationEndpoint,
+    pub kind: RelationKind,
+    pub target: RelationEndpoint,
+    pub evidence_id: Option<EvidenceId>,
+    pub confidence_milli: u16,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CreateMemoryCandidateInput {
+    pub candidate_id: MemoryCandidateId,
+    pub claim_id: ClaimId,
+    pub evidence_ids: Vec<EvidenceId>,
+    pub confidence_milli: u16,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -477,7 +683,10 @@ pub enum DomainInput {
     CreateClaim(CreateClaimInput),
     OpenTask(OpenTaskInput),
     ChangeTaskStatus(ChangeTaskStatusInput),
+    CompleteTask(CompleteTaskInput),
     LinkEvidenceToClaim(LinkEvidenceToClaimInput),
+    CreateRelation(CreateRelationInput),
+    CreateMemoryCandidate(CreateMemoryCandidateInput),
 
     UserIntent(UserIntent),
     ArtifactDetected(ArtifactDetected),
@@ -513,10 +722,23 @@ pub enum DomainError {
     MissingTask {
         id: TaskId,
     },
+    MissingRelation {
+        id: RelationId,
+    },
+    MissingMemoryCandidate {
+        id: MemoryCandidateId,
+    },
     InvalidTaskTransition {
         task_id: TaskId,
         from: TaskStatus,
         to: TaskStatus,
+    },
+    ValidationRequired {
+        task_id: TaskId,
+    },
+    EvidenceRequired {
+        kind: &'static str,
+        id: u64,
     },
     EmptyIntent,
 }
@@ -531,10 +753,18 @@ impl fmt::Display for DomainError {
             Self::MissingEvidence { id } => write!(f, "missing evidence {id}"),
             Self::MissingClaim { id } => write!(f, "missing claim {id}"),
             Self::MissingTask { id } => write!(f, "missing task {id}"),
+            Self::MissingRelation { id } => write!(f, "missing relation {id}"),
+            Self::MissingMemoryCandidate { id } => write!(f, "missing memory candidate {id}"),
             Self::InvalidTaskTransition { task_id, from, to } => {
                 write!(f, "invalid task transition {task_id}: {from:?} -> {to:?}")
             }
+            Self::ValidationRequired { task_id } => {
+                write!(f, "task {task_id} requires validation before completion")
+            }
             Self::EmptyIntent => write!(f, "user intent must not be empty"),
+            Self::EvidenceRequired { kind, id } => {
+                write!(f, "{kind} {id} requires at least one evidence id")
+            }
         }
     }
 }
@@ -548,6 +778,9 @@ pub struct KernelState {
     pub cards: BTreeMap<CardId, Card>,
     pub evidences: BTreeMap<EvidenceId, Evidence>,
     pub claims: BTreeMap<ClaimId, Claim>,
+    pub relations: BTreeMap<RelationId, Relation>,
+    pub memory_candidates: BTreeMap<MemoryCandidateId, MemoryCandidate>,
+    pub memories: BTreeMap<MemoryId, Memory>,
     pub tasks: BTreeMap<TaskId, Task>,
     pub event_log: Vec<DomainEventEnvelope>,
 }
@@ -598,7 +831,7 @@ impl KernelState {
                         }));
                     output
                         .effects
-                        .push(MaestriaEffect::EmbedChunks(EmbedChunksRequest {
+                        .push(MaestriaEffect::IndexVector(IndexVectorRequest {
                             artifact_id,
                             chunk_id,
                         }));
@@ -625,7 +858,8 @@ impl KernelState {
                     output
                         .effects
                         .push(MaestriaEffect::RunValidation(RunValidationRequest {
-                            claim_id,
+                            task_id: None,
+                            claim_id: Some(claim_id),
                         }));
                 }
             }
@@ -638,7 +872,8 @@ impl KernelState {
                 output
                     .effects
                     .push(MaestriaEffect::RunValidation(RunValidationRequest {
-                        claim_id: input.claim_id,
+                        task_id: None,
+                        claim_id: Some(input.claim_id),
                     }));
             }
             DomainInput::OpenTask(input) => {
@@ -671,8 +906,41 @@ impl KernelState {
                     .effects
                     .push(MaestriaEffect::PersistEvent { event: event.event });
             }
+            DomainInput::CompleteTask(input) => {
+                let event = self.handle_complete_task(input)?;
+                output.events.push(event.clone());
+                output.effects.push(MaestriaEffect::PersistEvent {
+                    event: event.event.clone(),
+                });
+                output
+                    .effects
+                    .push(MaestriaEffect::PersistState(PersistStateRequest {
+                        reason: "validated task completion".to_string(),
+                    }));
+            }
             DomainInput::LinkEvidenceToClaim(input) => {
                 let event = self.handle_link_evidence_to_claim(input.clone())?;
+                output.events.push(event.clone());
+                output
+                    .effects
+                    .push(MaestriaEffect::PersistEvent { event: event.event });
+            }
+            DomainInput::CreateRelation(input) => {
+                let event = self.handle_create_relation(input)?;
+                output.events.push(event.clone());
+                output.effects.push(MaestriaEffect::PersistEvent {
+                    event: event.event.clone(),
+                });
+                if let DomainEvent::RelationCreated { relation_id } = event.event {
+                    output
+                        .effects
+                        .push(MaestriaEffect::UpdateGraph(UpdateGraphRequest {
+                            relation_id,
+                        }));
+                }
+            }
+            DomainInput::CreateMemoryCandidate(input) => {
+                let event = self.handle_create_memory_candidate(input)?;
                 output.events.push(event.clone());
                 output
                     .effects
@@ -876,14 +1144,15 @@ impl KernelState {
             }
         }
 
+        let kind = input.kind.clone();
         self.evidences.insert(
             input.evidence_id,
             Evidence::new(
                 input.evidence_id,
                 input.artifact_id,
                 input.claim_id,
-                input.source,
-                input.snippet,
+                kind.clone(),
+                input.excerpt,
                 input.observed_at,
             ),
         );
@@ -901,6 +1170,7 @@ impl KernelState {
             evidence_id: input.evidence_id,
             artifact_id: input.artifact_id,
             claim_id: input.claim_id,
+            kind,
         }))
     }
 
@@ -984,11 +1254,44 @@ impl KernelState {
             .get_mut(&task_id)
             .ok_or(DomainError::MissingTask { id: task_id })?;
         let from = task.status;
+        if to.is_completion() {
+            return Err(DomainError::ValidationRequired { task_id });
+        }
         if !from.can_transition_to(to) {
             return Err(DomainError::InvalidTaskTransition { task_id, from, to });
         }
         task.status = to;
         Ok((from, to))
+    }
+
+    fn handle_complete_task(
+        &mut self,
+        input: CompleteTaskInput,
+    ) -> Result<DomainEventEnvelope, DomainError> {
+        let task = self
+            .tasks
+            .get_mut(&input.task_id)
+            .ok_or(DomainError::MissingTask { id: input.task_id })?;
+        let from = task.status;
+        let to = if input.warnings.is_empty() {
+            TaskStatus::CompletedVerified
+        } else {
+            TaskStatus::CompletedWithWarnings
+        };
+        if !from.can_transition_to(to) {
+            return Err(DomainError::InvalidTaskTransition {
+                task_id: input.task_id,
+                from,
+                to,
+            });
+        }
+        task.status = to;
+        task.validation_report_id = Some(input.validation_report_id);
+        Ok(self.emit_event(DomainEvent::TaskCompletionRecorded {
+            task_id: input.task_id,
+            status: to,
+            validation_report_id: input.validation_report_id,
+        }))
     }
 
     fn handle_link_evidence_to_claim(
@@ -1013,6 +1316,74 @@ impl KernelState {
         Ok(self.emit_event(DomainEvent::ClaimEvidenceLinked {
             claim_id: input.claim_id,
             evidence_id: input.evidence_id,
+        }))
+    }
+
+    fn handle_create_relation(
+        &mut self,
+        input: CreateRelationInput,
+    ) -> Result<DomainEventEnvelope, DomainError> {
+        if self.relations.contains_key(&input.relation_id) {
+            return Err(DomainError::DuplicateId {
+                kind: "relation",
+                id: input.relation_id.value(),
+            });
+        }
+        if let Some(evidence_id) = input.evidence_id {
+            if !self.evidences.contains_key(&evidence_id) {
+                return Err(DomainError::MissingEvidence { id: evidence_id });
+            }
+        }
+        let relation = Relation {
+            id: input.relation_id,
+            source: input.source,
+            kind: input.kind,
+            target: input.target,
+            evidence_id: input.evidence_id,
+            confidence_milli: input.confidence_milli.min(1000),
+        };
+        self.relations.insert(input.relation_id, relation);
+        Ok(self.emit_event(DomainEvent::RelationCreated {
+            relation_id: input.relation_id,
+        }))
+    }
+
+    fn handle_create_memory_candidate(
+        &mut self,
+        input: CreateMemoryCandidateInput,
+    ) -> Result<DomainEventEnvelope, DomainError> {
+        if self.memory_candidates.contains_key(&input.candidate_id) {
+            return Err(DomainError::DuplicateId {
+                kind: "memory_candidate",
+                id: input.candidate_id.value(),
+            });
+        }
+        if !self.claims.contains_key(&input.claim_id) {
+            return Err(DomainError::MissingClaim { id: input.claim_id });
+        }
+        let mut evidence_ids = BTreeSet::new();
+        for evidence_id in input.evidence_ids {
+            if !self.evidences.contains_key(&evidence_id) {
+                return Err(DomainError::MissingEvidence { id: evidence_id });
+            }
+            evidence_ids.insert(evidence_id);
+        }
+        if evidence_ids.is_empty() {
+            return Err(DomainError::EvidenceRequired {
+                kind: "memory_candidate",
+                id: input.candidate_id.value(),
+            });
+        }
+        let candidate = MemoryCandidate {
+            id: input.candidate_id,
+            claim_id: input.claim_id,
+            evidence_ids,
+            confidence_milli: input.confidence_milli.min(1000),
+        };
+        self.memory_candidates.insert(input.candidate_id, candidate);
+        Ok(self.emit_event(DomainEvent::MemoryCandidateCreated {
+            candidate_id: input.candidate_id,
+            claim_id: input.claim_id,
         }))
     }
 
@@ -1274,6 +1645,7 @@ impl KernelState {
                 evidence_id,
                 artifact_id,
                 claim_id,
+                kind,
             } => {
                 if !self.artifacts.contains_key(artifact_id) {
                     return Err(DomainError::MissingArtifact { id: *artifact_id });
@@ -1296,7 +1668,7 @@ impl KernelState {
                         *evidence_id,
                         *artifact_id,
                         *claim_id,
-                        String::new(),
+                        kind.clone(),
                         String::new(),
                         LogicalTick::new(0),
                     ),
@@ -1335,6 +1707,18 @@ impl KernelState {
                     .ok_or(DomainError::MissingTask { id: *task_id })?;
                 task.status = *to;
             }
+            DomainEvent::TaskCompletionRecorded {
+                task_id,
+                status,
+                validation_report_id,
+            } => {
+                let task = self
+                    .tasks
+                    .get_mut(task_id)
+                    .ok_or(DomainError::MissingTask { id: *task_id })?;
+                task.status = *status;
+                task.validation_report_id = Some(*validation_report_id);
+            }
             DomainEvent::ClaimValidationUpdated { claim_id, status } => {
                 let claim = self
                     .claims
@@ -1357,6 +1741,48 @@ impl KernelState {
                 if let Some(evidence) = self.evidences.get_mut(evidence_id) {
                     evidence.claim_id = Some(*claim_id);
                 }
+            }
+            DomainEvent::RelationCreated { relation_id } => {
+                if self.relations.contains_key(relation_id) {
+                    return Err(DomainError::DuplicateId {
+                        kind: "relation",
+                        id: relation_id.value(),
+                    });
+                }
+                self.relations.insert(
+                    *relation_id,
+                    Relation {
+                        id: *relation_id,
+                        source: RelationEndpoint::Artifact(ArtifactId::new(0)),
+                        kind: RelationKind::RelatedTo,
+                        target: RelationEndpoint::Artifact(ArtifactId::new(0)),
+                        evidence_id: None,
+                        confidence_milli: 0,
+                    },
+                );
+            }
+            DomainEvent::MemoryCandidateCreated {
+                candidate_id,
+                claim_id,
+            } => {
+                if self.memory_candidates.contains_key(candidate_id) {
+                    return Err(DomainError::DuplicateId {
+                        kind: "memory_candidate",
+                        id: candidate_id.value(),
+                    });
+                }
+                if !self.claims.contains_key(claim_id) {
+                    return Err(DomainError::MissingClaim { id: *claim_id });
+                }
+                self.memory_candidates.insert(
+                    *candidate_id,
+                    MemoryCandidate {
+                        id: *candidate_id,
+                        claim_id: *claim_id,
+                        evidence_ids: BTreeSet::new(),
+                        confidence_milli: 0,
+                    },
+                );
             }
             DomainEvent::UserIntentObserved { .. }
             | DomainEvent::ArtifactParsed { .. }
@@ -1451,8 +1877,12 @@ mod tests {
                 evidence_id: EvidenceId::new(40),
                 artifact_id: ArtifactId::new(1),
                 claim_id: Some(ClaimId::new(20)),
-                source: "notes.txt:1-2".to_string(),
-                snippet: "first chunk".to_string(),
+                kind: EvidenceKind::FileSpan {
+                    path: "notes.txt".to_string(),
+                    range: ContentRange { start: 1, end: 2 },
+                    content_hash: "sha256:notes".to_string(),
+                },
+                excerpt: "first chunk".to_string(),
                 observed_at: LogicalTick::new(12),
             }),
             DomainInput::LinkEvidenceToClaim(LinkEvidenceToClaimInput {
@@ -1475,6 +1905,28 @@ mod tests {
     fn run_replay_once(
     ) -> Result<(KernelState, Vec<DomainEventEnvelope>, Vec<MaestriaEffect>), DomainError> {
         replay_inputs(&sample_inputs())
+    }
+
+    fn register_artifact_and_claim(state: &mut KernelState) -> Result<(), DomainError> {
+        state.apply_input(DomainInput::RegisterArtifact(RegisterArtifactInput {
+            artifact_id: ArtifactId::new(1),
+            title: "Project Notes".to_string(),
+        }))?;
+        state.apply_input(DomainInput::CreateClaim(CreateClaimInput {
+            claim_id: ClaimId::new(20),
+            artifact_id: ArtifactId::new(1),
+            text: "Claim from evidence".to_string(),
+            evidence_ids: Vec::new(),
+        }))?;
+        Ok(())
+    }
+
+    fn file_span_kind() -> EvidenceKind {
+        EvidenceKind::FileSpan {
+            path: "notes.txt".to_string(),
+            range: ContentRange { start: 1, end: 2 },
+            content_hash: "sha256:notes".to_string(),
+        }
     }
 
     #[test]
@@ -1504,15 +1956,398 @@ mod tests {
         }))?;
         state.apply_input(DomainInput::ChangeTaskStatus(ChangeTaskStatusInput {
             task_id: TaskId::new(3),
-            to: TaskStatus::Completed,
+            to: TaskStatus::Validating,
+        }))?;
+        assert!(matches!(
+            state.apply_input(DomainInput::ChangeTaskStatus(ChangeTaskStatusInput {
+                task_id: TaskId::new(3),
+                to: TaskStatus::CompletedVerified,
+            })),
+            Err(DomainError::ValidationRequired { .. })
+        ));
+        state.apply_input(DomainInput::CompleteTask(CompleteTaskInput {
+            task_id: TaskId::new(3),
+            validation_report_id: ValidationReportId::new(9),
+            warnings: Vec::new(),
         }))?;
 
-        let final_status = state
+        let task = state
             .tasks
             .get(&TaskId::new(3))
-            .ok_or(DomainError::MissingTask { id: TaskId::new(3) })?
-            .status;
-        assert_eq!(final_status, TaskStatus::Completed);
+            .ok_or(DomainError::MissingTask { id: TaskId::new(3) })?;
+        assert_eq!(task.status, TaskStatus::CompletedVerified);
+        assert_eq!(task.validation_report_id, Some(ValidationReportId::new(9)));
+        Ok(())
+    }
+
+    #[test]
+    fn validated_completion_is_the_only_completion_path() -> Result<(), DomainError> {
+        let mut state = KernelState::new();
+        state.apply_input(DomainInput::OpenTask(OpenTaskInput {
+            task_id: TaskId::new(7),
+            title: "Ship the verified answer".to_string(),
+            priority: TaskPriority::Normal,
+            artifact_id: None,
+        }))?;
+        state.apply_input(DomainInput::ChangeTaskStatus(ChangeTaskStatusInput {
+            task_id: TaskId::new(7),
+            to: TaskStatus::Open,
+        }))?;
+        state.apply_input(DomainInput::ChangeTaskStatus(ChangeTaskStatusInput {
+            task_id: TaskId::new(7),
+            to: TaskStatus::Active,
+        }))?;
+
+        assert_eq!(
+            state
+                .apply_input(DomainInput::ChangeTaskStatus(ChangeTaskStatusInput {
+                    task_id: TaskId::new(7),
+                    to: TaskStatus::CompletedVerified,
+                }))
+                .err(),
+            Some(DomainError::ValidationRequired {
+                task_id: TaskId::new(7)
+            })
+        );
+        assert_eq!(
+            state
+                .apply_input(DomainInput::CompleteTask(CompleteTaskInput {
+                    task_id: TaskId::new(7),
+                    validation_report_id: ValidationReportId::new(80),
+                    warnings: Vec::new(),
+                }))
+                .err(),
+            Some(DomainError::InvalidTaskTransition {
+                task_id: TaskId::new(7),
+                from: TaskStatus::Active,
+                to: TaskStatus::CompletedVerified,
+            })
+        );
+
+        state.apply_input(DomainInput::ChangeTaskStatus(ChangeTaskStatusInput {
+            task_id: TaskId::new(7),
+            to: TaskStatus::Validating,
+        }))?;
+        let output = state.apply_input(DomainInput::CompleteTask(CompleteTaskInput {
+            task_id: TaskId::new(7),
+            validation_report_id: ValidationReportId::new(80),
+            warnings: vec!["non-blocking warning".to_string()],
+        }))?;
+
+        let task = state
+            .tasks
+            .get(&TaskId::new(7))
+            .ok_or(DomainError::MissingTask { id: TaskId::new(7) })?;
+        assert_eq!(task.status, TaskStatus::CompletedWithWarnings);
+        assert_eq!(task.validation_report_id, Some(ValidationReportId::new(80)));
+        assert!(matches!(
+            output.events.as_slice(),
+            [DomainEventEnvelope {
+                event: DomainEvent::TaskCompletionRecorded {
+                    task_id,
+                    status,
+                    validation_report_id,
+                },
+                ..
+            }] if *task_id == TaskId::new(7)
+                && *status == TaskStatus::CompletedWithWarnings
+                && *validation_report_id == ValidationReportId::new(80)
+        ));
+        assert_eq!(
+            output.effects,
+            vec![
+                MaestriaEffect::PersistEvent {
+                    event: output.events[0].event.clone(),
+                },
+                MaestriaEffect::PersistState(PersistStateRequest {
+                    reason: "validated task completion".to_string(),
+                }),
+            ]
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn evidence_kind_preserves_provenance_and_triggers_claim_validation() -> Result<(), DomainError>
+    {
+        let mut state = KernelState::new();
+        register_artifact_and_claim(&mut state)?;
+        let kind = EvidenceKind::CommandOutput {
+            harness_run: HarnessRunId::new(77),
+            stream: OutputStream::Stderr,
+            blob: BlobId::new(55),
+        };
+
+        let output = state.apply_input(DomainInput::RecordEvidence(RecordEvidenceInput {
+            evidence_id: EvidenceId::new(40),
+            artifact_id: ArtifactId::new(1),
+            claim_id: Some(ClaimId::new(20)),
+            kind: kind.clone(),
+            excerpt: "stderr: assertion failed".to_string(),
+            observed_at: LogicalTick::new(12),
+        }))?;
+
+        assert!(matches!(
+            output.events.as_slice(),
+            [DomainEventEnvelope {
+                event: DomainEvent::EvidenceRecorded {
+                    evidence_id,
+                    artifact_id,
+                    claim_id,
+                    kind: event_kind,
+                },
+                ..
+            }] if *evidence_id == EvidenceId::new(40)
+                && *artifact_id == ArtifactId::new(1)
+                && *claim_id == Some(ClaimId::new(20))
+                && *event_kind == kind
+        ));
+        assert_eq!(
+            output.effects,
+            vec![
+                MaestriaEffect::PersistEvent {
+                    event: output.events[0].event.clone(),
+                },
+                MaestriaEffect::RunValidation(RunValidationRequest {
+                    task_id: None,
+                    claim_id: Some(ClaimId::new(20)),
+                }),
+            ]
+        );
+
+        let evidence =
+            state
+                .evidences
+                .get(&EvidenceId::new(40))
+                .ok_or(DomainError::MissingEvidence {
+                    id: EvidenceId::new(40),
+                })?;
+        assert_eq!(evidence.kind, kind);
+        assert_eq!(evidence.excerpt, "stderr: assertion failed");
+        assert_eq!(evidence.observed_at, LogicalTick::new(12));
+        assert_eq!(
+            state
+                .claims
+                .get(&ClaimId::new(20))
+                .ok_or(DomainError::MissingClaim {
+                    id: ClaimId::new(20)
+                })?
+                .evidence_ids,
+            BTreeSet::from([EvidenceId::new(40)])
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn relation_and_memory_candidates_are_domain_owned_and_evidence_bound(
+    ) -> Result<(), DomainError> {
+        let mut state = KernelState::new();
+        register_artifact_and_claim(&mut state)?;
+        state.apply_input(DomainInput::RecordEvidence(RecordEvidenceInput {
+            evidence_id: EvidenceId::new(40),
+            artifact_id: ArtifactId::new(1),
+            claim_id: Some(ClaimId::new(20)),
+            kind: file_span_kind(),
+            excerpt: "first chunk".to_string(),
+            observed_at: LogicalTick::new(12),
+        }))?;
+
+        assert_eq!(
+            state
+                .apply_input(DomainInput::CreateRelation(CreateRelationInput {
+                    relation_id: RelationId::new(99),
+                    source: RelationEndpoint::Claim(ClaimId::new(20)),
+                    kind: RelationKind::Supports,
+                    target: RelationEndpoint::Artifact(ArtifactId::new(1)),
+                    evidence_id: Some(EvidenceId::new(404)),
+                    confidence_milli: 875,
+                }))
+                .err(),
+            Some(DomainError::MissingEvidence {
+                id: EvidenceId::new(404)
+            })
+        );
+
+        let relation_output =
+            state.apply_input(DomainInput::CreateRelation(CreateRelationInput {
+                relation_id: RelationId::new(70),
+                source: RelationEndpoint::Claim(ClaimId::new(20)),
+                kind: RelationKind::Supports,
+                target: RelationEndpoint::Artifact(ArtifactId::new(1)),
+                evidence_id: Some(EvidenceId::new(40)),
+                confidence_milli: 875,
+            }))?;
+        assert_eq!(
+            state.relations.get(&RelationId::new(70)),
+            Some(&Relation {
+                id: RelationId::new(70),
+                source: RelationEndpoint::Claim(ClaimId::new(20)),
+                kind: RelationKind::Supports,
+                target: RelationEndpoint::Artifact(ArtifactId::new(1)),
+                evidence_id: Some(EvidenceId::new(40)),
+                confidence_milli: 875,
+            })
+        );
+        assert_eq!(
+            relation_output.effects,
+            vec![
+                MaestriaEffect::PersistEvent {
+                    event: relation_output.events[0].event.clone(),
+                },
+                MaestriaEffect::UpdateGraph(UpdateGraphRequest {
+                    relation_id: RelationId::new(70),
+                }),
+            ]
+        );
+
+        assert!(matches!(
+            state.apply_input(DomainInput::CreateMemoryCandidate(
+                CreateMemoryCandidateInput {
+                    candidate_id: MemoryCandidateId::new(91),
+                    claim_id: ClaimId::new(20),
+                    evidence_ids: Vec::new(),
+                    confidence_milli: 720,
+                },
+            )),
+            Err(DomainError::EvidenceRequired {
+                kind: "memory_candidate",
+                id: 91,
+            })
+        ));
+
+        let candidate_output = state.apply_input(DomainInput::CreateMemoryCandidate(
+            CreateMemoryCandidateInput {
+                candidate_id: MemoryCandidateId::new(90),
+                claim_id: ClaimId::new(20),
+                evidence_ids: vec![EvidenceId::new(40), EvidenceId::new(40)],
+                confidence_milli: 720,
+            },
+        ))?;
+        assert!(matches!(
+            candidate_output.events.as_slice(),
+            [DomainEventEnvelope {
+                event: DomainEvent::MemoryCandidateCreated {
+                    candidate_id,
+                    claim_id,
+                },
+                ..
+            }] if *candidate_id == MemoryCandidateId::new(90)
+                && *claim_id == ClaimId::new(20)
+        ));
+        let candidate = state
+            .memory_candidates
+            .get(&MemoryCandidateId::new(90))
+            .ok_or(DomainError::MissingMemoryCandidate {
+                id: MemoryCandidateId::new(90),
+            })?;
+        assert!(candidate.has_evidence());
+        assert_eq!(candidate.claim_id, ClaimId::new(20));
+        assert_eq!(
+            candidate.evidence_ids,
+            BTreeSet::from([EvidenceId::new(40)])
+        );
+        assert_eq!(candidate.confidence_milli, 720);
+        Ok(())
+    }
+
+    #[test]
+    fn replay_keeps_new_event_and_effect_shapes_deterministic() -> Result<(), DomainError> {
+        let inputs = vec![
+            DomainInput::RegisterArtifact(RegisterArtifactInput {
+                artifact_id: ArtifactId::new(1),
+                title: "Project Notes".to_string(),
+            }),
+            DomainInput::CreateClaim(CreateClaimInput {
+                claim_id: ClaimId::new(20),
+                artifact_id: ArtifactId::new(1),
+                text: "Claim from evidence".to_string(),
+                evidence_ids: Vec::new(),
+            }),
+            DomainInput::RecordEvidence(RecordEvidenceInput {
+                evidence_id: EvidenceId::new(40),
+                artifact_id: ArtifactId::new(1),
+                claim_id: Some(ClaimId::new(20)),
+                kind: file_span_kind(),
+                excerpt: "first chunk".to_string(),
+                observed_at: LogicalTick::new(12),
+            }),
+            DomainInput::OpenTask(OpenTaskInput {
+                task_id: TaskId::new(50),
+                title: "Summarize artifact".to_string(),
+                priority: TaskPriority::Normal,
+                artifact_id: Some(ArtifactId::new(1)),
+            }),
+            DomainInput::ChangeTaskStatus(ChangeTaskStatusInput {
+                task_id: TaskId::new(50),
+                to: TaskStatus::Open,
+            }),
+            DomainInput::ChangeTaskStatus(ChangeTaskStatusInput {
+                task_id: TaskId::new(50),
+                to: TaskStatus::Active,
+            }),
+            DomainInput::ChangeTaskStatus(ChangeTaskStatusInput {
+                task_id: TaskId::new(50),
+                to: TaskStatus::Validating,
+            }),
+            DomainInput::CompleteTask(CompleteTaskInput {
+                task_id: TaskId::new(50),
+                validation_report_id: ValidationReportId::new(80),
+                warnings: Vec::new(),
+            }),
+            DomainInput::CreateRelation(CreateRelationInput {
+                relation_id: RelationId::new(70),
+                source: RelationEndpoint::Claim(ClaimId::new(20)),
+                kind: RelationKind::Supports,
+                target: RelationEndpoint::Task(TaskId::new(50)),
+                evidence_id: Some(EvidenceId::new(40)),
+                confidence_milli: 875,
+            }),
+            DomainInput::CreateMemoryCandidate(CreateMemoryCandidateInput {
+                candidate_id: MemoryCandidateId::new(90),
+                claim_id: ClaimId::new(20),
+                evidence_ids: vec![EvidenceId::new(40)],
+                confidence_milli: 720,
+            }),
+        ];
+
+        let (state_a, events_a, effects_a) = replay_inputs(&inputs)?;
+        let (state_b, events_b, effects_b) = replay_inputs(&inputs)?;
+
+        assert_eq!(state_a, state_b);
+        assert_eq!(events_a, events_b);
+        assert_eq!(effects_a, effects_b);
+        assert!(events_a.iter().any(|envelope| matches!(
+            &envelope.event,
+            DomainEvent::TaskCompletionRecorded {
+                task_id,
+                status,
+                validation_report_id,
+            } if *task_id == TaskId::new(50)
+                && *status == TaskStatus::CompletedVerified
+                && *validation_report_id == ValidationReportId::new(80)
+        )));
+        assert!(events_a.iter().any(|envelope| matches!(
+            &envelope.event,
+            DomainEvent::RelationCreated { relation_id } if *relation_id == RelationId::new(70)
+        )));
+        assert!(events_a.iter().any(|envelope| matches!(
+            &envelope.event,
+            DomainEvent::MemoryCandidateCreated {
+                candidate_id,
+                claim_id,
+            } if *candidate_id == MemoryCandidateId::new(90)
+                && *claim_id == ClaimId::new(20)
+        )));
+        assert!(effects_a.iter().any(|effect| matches!(
+            effect,
+            MaestriaEffect::PersistState(PersistStateRequest { reason })
+                if reason == "validated task completion"
+        )));
+        assert!(effects_a.iter().any(|effect| matches!(
+            effect,
+            MaestriaEffect::UpdateGraph(UpdateGraphRequest { relation_id })
+                if *relation_id == RelationId::new(70)
+        )));
         Ok(())
     }
 

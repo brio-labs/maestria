@@ -15,8 +15,8 @@ use std::{
 };
 
 use maestria_domain::{
-    Artifact, ArtifactId, Card, ChunkId, Claim, DomainEvent, DomainEventEnvelope, EvidenceId,
-    MaestriaEffect, Task, TaskStatus,
+    Artifact, ArtifactId, Card, ChunkId, DomainEvent, DomainEventEnvelope, MaestriaEffect,
+    MemoryCandidate, Task,
 };
 
 pub const GOVERNANCE_VERSION: &str = "0.1.0";
@@ -46,7 +46,6 @@ macro_rules! newtype_id {
 
 newtype_id!(BlobId);
 newtype_id!(HarnessRunId);
-newtype_id!(MemoryCandidateId);
 
 //
 // Scope and policy surface
@@ -197,12 +196,23 @@ pub struct DefaultRiskClassifier;
 impl ClassifyRisk for DefaultRiskClassifier {
     fn classify(&self, effect: &MaestriaEffect, scope: &ScopeGuard) -> RiskClass {
         match effect {
-            MaestriaEffect::PersistEvent { .. } | MaestriaEffect::StoreBlob(_) => RiskClass::Low,
-            MaestriaEffect::RunValidation(_) | MaestriaEffect::RequestApproval(_) => {
-                RiskClass::Medium
+            MaestriaEffect::PersistEvent { .. }
+            | MaestriaEffect::PersistState(_)
+            | MaestriaEffect::StoreBlob(_)
+            | MaestriaEffect::ParseArtifact(_)
+            | MaestriaEffect::EmitDiagnostic(_) => RiskClass::Low,
+            MaestriaEffect::RunValidation(_)
+            | MaestriaEffect::RequestApproval(_)
+            | MaestriaEffect::IndexFullText(_)
+            | MaestriaEffect::IndexVector(_)
+            | MaestriaEffect::UpdateGraph(_) => RiskClass::Medium,
+            MaestriaEffect::FetchWeb(_) => {
+                if scope.web_allowed() {
+                    RiskClass::Medium
+                } else {
+                    RiskClass::High
+                }
             }
-            MaestriaEffect::IndexFullText(_) | MaestriaEffect::EmbedChunks(_) => RiskClass::Medium,
-            MaestriaEffect::EmitDiagnostic(_) => RiskClass::Low,
             MaestriaEffect::QueryHarness(req) => {
                 let command = req.command.to_lowercase();
                 if command.starts_with("rm") || command.contains("delete") {
@@ -360,7 +370,7 @@ impl ValidationGate for DefaultValidationGate {
             };
         }
 
-        if request.task.status == TaskStatus::Completed {
+        if request.task.status.is_completion() {
             if request.had_warning && !self.allow_warnings {
                 return ValidationDecision::BlockedByPolicy {
                     reason: "warnings are blocked in this policy".to_string(),
@@ -375,21 +385,6 @@ impl ValidationGate for DefaultValidationGate {
                 ),
             }
         }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct MemoryCandidate {
-    pub id: MemoryCandidateId,
-    pub artifact_id: ArtifactId,
-    pub evidence_ids: Vec<EvidenceId>,
-    pub claim: Claim,
-    pub confidence: f32,
-}
-
-impl MemoryCandidate {
-    pub fn has_evidence(&self) -> bool {
-        !self.evidence_ids.is_empty()
     }
 }
 
@@ -422,7 +417,7 @@ impl MemoryPromotionGate for DefaultMemoryPromotionGate {
             };
         }
 
-        if request.candidate.confidence < 0.5 {
+        if request.candidate.confidence_milli < 500 {
             return MemoryPromotionDecision::RequireReview {
                 reason: "low confidence memory candidate".to_string(),
             };
@@ -866,28 +861,20 @@ impl HarnessAdapter for InMemoryHarnessAdapter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use maestria_domain::{EventId, SequenceNumber, TaskId};
+    use maestria_domain::{
+        EventId, EvidenceId, MemoryCandidateId, SequenceNumber, TaskId, TaskStatus,
+    };
     fn candidate_with_artifact(id: u64, has_evidence: bool) -> MemoryCandidate {
-        let claim = Claim {
-            id: maestria_domain::ClaimId::new(id),
-            artifact_id: ArtifactId::new(id),
-            text: "candidate".to_string(),
-            status: maestria_domain::ClaimStatus::Draft,
-            evidence_ids: if has_evidence {
-                let mut set = std::collections::BTreeSet::new();
-                set.insert(EvidenceId::new(id));
-                set
-            } else {
-                Default::default()
-            },
-        };
+        let mut evidence_ids = std::collections::BTreeSet::new();
+        if has_evidence {
+            evidence_ids.insert(EvidenceId::new(id));
+        }
 
         MemoryCandidate {
             id: MemoryCandidateId::new(id),
-            artifact_id: ArtifactId::new(id),
-            evidence_ids: claim.evidence_ids.iter().copied().collect(),
-            claim,
-            confidence: 0.9,
+            claim_id: maestria_domain::ClaimId::new(id),
+            evidence_ids,
+            confidence_milli: 900,
         }
     }
 
@@ -966,6 +953,12 @@ mod tests {
         );
         let guard = ScopeGuard::new(scope);
         let risky_effect = MaestriaEffect::QueryHarness(maestria_domain::QueryHarnessRequest {
+            run_id: maestria_domain::HarnessRunId::new(1),
+            task_id: None,
+            generation: None,
+            capability: "shell".into(),
+            scope_id: maestria_domain::ScopeId::new(1),
+            approval_id: None,
             command: "rm -rf /tmp".into(),
         });
 
@@ -989,7 +982,8 @@ mod tests {
             id: TaskId::new(12),
             title: "example".to_string(),
             priority: maestria_domain::TaskPriority::Normal,
-            status: TaskStatus::Completed,
+            status: TaskStatus::CompletedVerified,
+            validation_report_id: Some(maestria_domain::ValidationReportId::new(1)),
             artifact_ids: Default::default(),
             evidence_ids: Default::default(),
         };
