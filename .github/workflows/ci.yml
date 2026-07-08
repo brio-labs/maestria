@@ -4,6 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
+    branches: [main]
   workflow_dispatch:
 
 concurrency:
@@ -12,6 +13,7 @@ concurrency:
 
 permissions:
   contents: read
+  actions: write
 
 env:
   CARGO_TERM_COLOR: always
@@ -63,6 +65,7 @@ jobs:
       - uses: actions/checkout@v7.0.0
       - name: Set up Rust toolchain
         uses: dtolnay/rust-toolchain@stable
+      - uses: mozilla-actions/sccache-action@v0.0.10
       - name: Install cargo-deny
         uses: taiki-e/install-action@v2
         with:
@@ -100,6 +103,7 @@ jobs:
       - uses: actions/checkout@v7.0.0
       - name: Set up Rust toolchain
         uses: dtolnay/rust-toolchain@stable
+      - uses: mozilla-actions/sccache-action@v0.0.10
       - name: Check documentation
         run: cargo doc --workspace --no-deps --all-features
         env:
@@ -107,16 +111,18 @@ jobs:
 
   audit:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      checks: write
+      security-events: write
+      pull-requests: write
+    env:
+      RUSTC_WRAPPER: ""
     steps:
       - uses: actions/checkout@v7.0.0
-      - name: Set up Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-      - name: Install cargo-deny
-        uses: taiki-e/install-action@v2
+      - uses: rustsec/audit-check@v2
         with:
-          tool: cargo-deny
-      - name: Audit dependencies and usage
-        run: cargo deny check all
+          token: ${{ secrets.GITHUB_TOKEN }}
 
   philosophy:
     runs-on: ubuntu-latest
