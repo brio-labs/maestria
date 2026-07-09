@@ -16,7 +16,7 @@ use std::{
 
 use maestria_domain::{
     Artifact, ArtifactId, BlobId, Card, CardId, Chunk, ChunkId, CreateCardInput, DomainEvent,
-    DomainEventEnvelope, Evidence, EvidenceId, HarnessRunId,
+    DomainEventEnvelope, Evidence, EvidenceId, HarnessRunId, Relation, RelationEndpoint,
 };
 
 pub const PORTS_VERSION: &str = "0.1.0";
@@ -560,6 +560,47 @@ impl VectorIndex for InMemoryVectorIndex {
         hits.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
         hits.truncate(query.limit as usize);
         Ok(hits)
+    }
+}
+
+pub trait GraphIndex: Send + Sync {
+    fn insert_relation(&self, relation: Relation) -> Result<(), PortError>;
+    fn get_relations_for(&self, endpoint: RelationEndpoint) -> Result<Vec<Relation>, PortError>;
+}
+
+#[derive(Clone, Default)]
+pub struct InMemoryGraphIndex {
+    relations: Arc<Mutex<Vec<Relation>>>,
+}
+
+impl InMemoryGraphIndex {
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
+
+impl GraphIndex for InMemoryGraphIndex {
+    fn insert_relation(&self, relation: Relation) -> Result<(), PortError> {
+        let mut guard = self.relations.lock().map_err(|_| PortError::Internal {
+            message: "graph index lock poisoned".to_string(),
+        })?;
+        if let Some(pos) = guard.iter().position(|r| r.id == relation.id) {
+            guard[pos] = relation;
+        } else {
+            guard.push(relation);
+        }
+        Ok(())
+    }
+
+    fn get_relations_for(&self, endpoint: RelationEndpoint) -> Result<Vec<Relation>, PortError> {
+        let guard = self.relations.lock().map_err(|_| PortError::Internal {
+            message: "graph index lock poisoned".to_string(),
+        })?;
+        Ok(guard
+            .iter()
+            .filter(|r| r.source == endpoint || r.target == endpoint)
+            .cloned()
+            .collect())
     }
 }
 
