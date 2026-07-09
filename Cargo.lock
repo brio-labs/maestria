@@ -669,6 +669,7 @@ dependencies = [
  "anyhow",
  "clap",
  "maestria-blob-fs",
+ "maestria-core",
  "maestria-domain",
  "maestria-governance",
  "maestria-parsers",
@@ -680,6 +681,14 @@ dependencies = [
  "tokio-util",
  "tracing",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "maestria-core"
+version = "0.1.0"
+dependencies = [
+ "maestria-domain",
+ "maestria-ports",
 ]
 
 [[package]]
