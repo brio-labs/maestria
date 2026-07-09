@@ -435,14 +435,21 @@ async fn wait_for_task_in_state(
                     if state.tasks.contains_key(&task_id) {
                         return Ok(state);
                     }
+                    sleep(Duration::from_millis(25)).await;
+                }
+                Err(error) if is_db_locked(&error) => {
+                    if let Ok(mut slot) = last_error_for_wait.lock() {
+                        *slot = Some(error.to_string());
+                    }
+                    sleep(Duration::from_millis(25)).await;
                 }
                 Err(error) => {
                     if let Ok(mut slot) = last_error_for_wait.lock() {
                         *slot = Some(error.to_string());
                     }
+                    return Err(error);
                 }
             }
-            sleep(Duration::from_millis(25)).await;
         }
     })
     .await
