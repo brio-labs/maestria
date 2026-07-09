@@ -540,7 +540,9 @@ impl VectorIndex for InMemoryVectorIndex {
 
     fn search_similar(&self, query: VectorSearchQuery) -> Result<Vec<VectorSearchHit>, PortError> {
         if query.vector.is_empty() {
-            return Err(PortError::Validation { message: "Query vector cannot be empty".to_string() });
+            return Err(PortError::InvalidInput {
+                message: "Query vector cannot be empty".to_string(),
+            });
         }
         let guard = self.embeddings.lock().map_err(|_| PortError::Internal {
             message: "vector index lock poisoned".to_string(),
