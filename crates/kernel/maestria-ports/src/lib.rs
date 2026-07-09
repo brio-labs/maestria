@@ -552,14 +552,23 @@ impl VectorIndex for InMemoryVectorIndex {
             if emb.vector.len() != query.vector.len() {
                 continue;
             }
-            let diff: f32 = emb.vector.iter().zip(&query.vector).map(|(a, b)| (a - b).abs()).sum();
+            let diff: f32 = emb
+                .vector
+                .iter()
+                .zip(&query.vector)
+                .map(|(a, b)| (a - b).abs())
+                .sum();
             let score = if diff == 0.0 { 1.0 } else { 1.0 / (1.0 + diff) };
             hits.push(VectorSearchHit {
                 chunk_id: emb.chunk_id,
                 score,
             });
         }
-        hits.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+        hits.sort_by(|a, b| {
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         hits.truncate(query.limit as usize);
         Ok(hits)
     }
