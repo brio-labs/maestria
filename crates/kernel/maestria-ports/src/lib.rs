@@ -606,6 +606,43 @@ impl GraphIndex for InMemoryGraphIndex {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WebSnapshotData {
+    pub url: String,
+    pub html: String,
+}
+
+pub trait WebFetcher: Send + Sync {
+    fn fetch(&self, url: &str) -> Result<WebSnapshotData, PortError>;
+}
+
+#[derive(Clone, Default)]
+pub struct InMemoryWebFetcher {
+    pages: Arc<std::sync::Mutex<BTreeMap<String, String>>>,
+}
+
+impl InMemoryWebFetcher {
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
+
+impl WebFetcher for InMemoryWebFetcher {
+    fn fetch(&self, url: &str) -> Result<WebSnapshotData, PortError> {
+        let guard = self.pages.lock().map_err(|_| PortError::Internal {
+            message: "web fetcher lock poisoned".to_string(),
+        })?;
+        if let Some(html) = guard.get(url) {
+            Ok(WebSnapshotData {
+                url: url.to_string(),
+                html: html.clone(),
+            })
+        } else {
+            Err(PortError::NotFound)
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct InMemoryParser;
 
