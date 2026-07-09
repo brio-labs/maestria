@@ -528,18 +528,28 @@ impl VectorIndex for InMemoryVectorIndex {
         let mut guard = self.embeddings.lock().map_err(|_| PortError::Internal {
             message: "vector index lock poisoned".to_string(),
         })?;
-        guard.extend(embeddings);
+        for emb in embeddings {
+            if let Some(pos) = guard.iter().position(|e| e.chunk_id == emb.chunk_id) {
+                guard[pos] = emb;
+            } else {
+                guard.push(emb);
+            }
+        }
         Ok(())
     }
 
     fn search_similar(&self, query: VectorSearchQuery) -> Result<Vec<VectorSearchHit>, PortError> {
+        if query.vector.is_empty() {
+            return Err(PortError::Validation { message: "Query vector cannot be empty".to_string() });
+        }
         let guard = self.embeddings.lock().map_err(|_| PortError::Internal {
             message: "vector index lock poisoned".to_string(),
         })?;
-        // A simple linear scan calculating a mock "similarity" for testing purposes.
         let mut hits = Vec::new();
         for emb in guard.iter() {
-            // Dummy exact match simulation or euclidean distance
+            if emb.vector.len() != query.vector.len() {
+                continue;
+            }
             let diff: f32 = emb.vector.iter().zip(&query.vector).map(|(a, b)| (a - b).abs()).sum();
             let score = if diff == 0.0 { 1.0 } else { 1.0 / (1.0 + diff) };
             hits.push(VectorSearchHit {

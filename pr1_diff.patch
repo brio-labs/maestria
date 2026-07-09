@@ -1,0 +1,560 @@
+diff --git a/Cargo.lock b/Cargo.lock
+index 41422c8..1a1635f 100644
+--- a/Cargo.lock
++++ b/Cargo.lock
+@@ -807,6 +807,15 @@ dependencies = [
+  "maestria-domain",
+ ]
+ 
++[[package]]
++name = "maestria-vector-sqlite"
++version = "0.1.0"
++dependencies = [
++ "maestria-domain",
++ "maestria-ports",
++ "rusqlite",
++]
++
+ [[package]]
+ name = "measure_time"
+ version = "0.8.3"
+diff --git a/Cargo.toml b/Cargo.toml
+index a9eaebe..7fbbfa0 100644
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -24,6 +24,7 @@ members = [
+     "crates/storage/maestria-blob-fs",
+     "crates/storage/maestria-search-tantivy",
+     "crates/storage/maestria-storage-sqlite",
++    "crates/storage/maestria-vector-sqlite",
+ ]
+ 
+ [workspace.package]
+diff --git a/crates/kernel/maestria-ports/src/lib.rs b/crates/kernel/maestria-ports/src/lib.rs
+index 8fc1075..5504344 100644
+--- a/crates/kernel/maestria-ports/src/lib.rs
++++ b/crates/kernel/maestria-ports/src/lib.rs
+@@ -106,6 +106,29 @@ pub trait FullTextIndex: Send + Sync {
+     fn search(&self, query: SearchQuery) -> Result<Vec<SearchHit>, PortError>;
+ }
+ 
++#[derive(Debug, Clone, PartialEq)]
++pub struct VectorEmbedding {
++    pub chunk_id: ChunkId,
++    pub vector: Vec<f32>,
++}
++
++#[derive(Debug, Clone, PartialEq)]
++pub struct VectorSearchQuery {
++    pub vector: Vec<f32>,
++    pub limit: u32,
++}
++
++#[derive(Debug, Clone, PartialEq)]
++pub struct VectorSearchHit {
++    pub chunk_id: ChunkId,
++    pub score: f32,
++}
++
++pub trait VectorIndex: Send + Sync {
++    fn index_embeddings(&self, embeddings: Vec<VectorEmbedding>) -> Result<(), PortError>;
++    fn search_similar(&self, query: VectorSearchQuery) -> Result<Vec<VectorSearchHit>, PortError>;
++}
++
+ #[derive(Debug, Clone, PartialEq, Eq)]
+ pub struct FileMetadata {
+     pub path: PathBuf,
+@@ -489,6 +512,47 @@ impl FullTextIndex for InMemoryFullTextIndex {
+     }
+ }
+ 
++#[derive(Clone, Default)]
++pub struct InMemoryVectorIndex {
++    embeddings: Arc<Mutex<Vec<VectorEmbedding>>>,
++}
++
++impl InMemoryVectorIndex {
++    pub fn new() -> Self {
++        Self::default()
++    }
++}
++
++impl VectorIndex for InMemoryVectorIndex {
++    fn index_embeddings(&self, embeddings: Vec<VectorEmbedding>) -> Result<(), PortError> {
++        let mut guard = self.embeddings.lock().map_err(|_| PortError::Internal {
++            message: "vector index lock poisoned".to_string(),
++        })?;
++        guard.extend(embeddings);
++        Ok(())
++    }
++
++    fn search_similar(&self, query: VectorSearchQuery) -> Result<Vec<VectorSearchHit>, PortError> {
++        let guard = self.embeddings.lock().map_err(|_| PortError::Internal {
++            message: "vector index lock poisoned".to_string(),
++        })?;
++        // A simple linear scan calculating a mock "similarity" for testing purposes.
++        let mut hits = Vec::new();
++        for emb in guard.iter() {
++            // Dummy exact match simulation or euclidean distance
++            let diff: f32 = emb.vector.iter().zip(&query.vector).map(|(a, b)| (a - b).abs()).sum();
++            let score = if diff == 0.0 { 1.0 } else { 1.0 / (1.0 + diff) };
++            hits.push(VectorSearchHit {
++                chunk_id: emb.chunk_id,
++                score,
++            });
++        }
++        hits.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
++        hits.truncate(query.limit as usize);
++        Ok(hits)
++    }
++}
++
+ #[derive(Clone)]
+ pub struct InMemoryParser;
+ 
+diff --git a/crates/storage/maestria-vector-sqlite/Cargo.toml b/crates/storage/maestria-vector-sqlite/Cargo.toml
+new file mode 100644
+index 0000000..eec6781
+--- /dev/null
++++ b/crates/storage/maestria-vector-sqlite/Cargo.toml
+@@ -0,0 +1,11 @@
++[package]
++name = "maestria-vector-sqlite"
++version.workspace = true
++edition.workspace = true
++license.workspace = true
++rust-version.workspace = true
++
++[dependencies]
++maestria_domain = { package = "maestria-domain", path = "../../kernel/maestria-domain" }
++maestria_ports = { package = "maestria-ports", path = "../../kernel/maestria-ports" }
++rusqlite = { version = "0.32", features = ["bundled"] }
+diff --git a/crates/storage/maestria-vector-sqlite/src/lib.rs b/crates/storage/maestria-vector-sqlite/src/lib.rs
+new file mode 100644
+index 0000000..c9de084
+--- /dev/null
++++ b/crates/storage/maestria-vector-sqlite/src/lib.rs
+@@ -0,0 +1,423 @@
++#![forbid(unsafe_code)]
++
++//! SQLite-backed vector projection for Maestria.
++//!
++//! The table in this crate is a rebuildable projection: the domain event log and
++//! chunk store remain the source of truth. The adapter attempts to create a
++//! `sqlite-vec` virtual table when the extension is already available on the
++//! supplied connection, and always maintains a portable BLOB-backed table used by
++//! the `VectorIndex` implementation.
++
++use std::{
++    cmp::Ordering,
++    mem::size_of,
++    path::Path,
++    sync::{Mutex, MutexGuard},
++};
++
++use maestria_domain::ChunkId;
++use maestria_ports::{PortError, VectorEmbedding, VectorIndex, VectorSearchHit, VectorSearchQuery};
++use rusqlite::{Connection, OptionalExtension, params};
++
++const SCHEMA_VERSION: i64 = 1;
++const F32_BYTES: usize = size_of::<f32>();
++const SQLITE_VEC_BOOTSTRAP_SQL: &str =
++    "CREATE VIRTUAL TABLE IF NOT EXISTS vec_docs USING vec0(chunk_id TEXT, embedding float[1536])";
++
++/// SQLite-backed implementation of the vector-search projection.
++pub struct SqliteVectorIndex {
++    connection: Mutex<Connection>,
++}
++
++impl SqliteVectorIndex {
++    /// Opens a SQLite database at `path` and applies the vector projection schema.
++    pub fn open(path: impl AsRef<Path>) -> Result<Self, PortError> {
++        let mut connection = Connection::open(path).map_err(to_port_error)?;
++        migrate(&mut connection)?;
++        Ok(Self {
++            connection: Mutex::new(connection),
++        })
++    }
++
++    /// Creates an in-memory vector projection. Useful for adapter tests and callers
++    /// that want an ephemeral projection.
++    pub fn in_memory() -> Result<Self, PortError> {
++        let mut connection = Connection::open_in_memory().map_err(to_port_error)?;
++        migrate(&mut connection)?;
++        Ok(Self {
++            connection: Mutex::new(connection),
++        })
++    }
++
++    /// Wraps an existing SQLite connection and applies the vector projection schema.
++    pub fn from_connection(mut connection: Connection) -> Result<Self, PortError> {
++        migrate(&mut connection)?;
++        Ok(Self {
++            connection: Mutex::new(connection),
++        })
++    }
++
++    /// Returns true when the optional `sqlite-vec` virtual table could be created.
++    pub fn sqlite_vec_available(&self) -> Result<bool, PortError> {
++        let connection = self.lock_connection()?;
++        sqlite_vec_available(&connection)
++    }
++
++    fn lock_connection(&self) -> Result<MutexGuard<'_, Connection>, PortError> {
++        self.connection.lock().map_err(|_| PortError::Internal {
++            message: "vector sqlite connection lock poisoned".to_string(),
++        })
++    }
++}
++
++impl VectorIndex for SqliteVectorIndex {
++    fn index_embeddings(&self, embeddings: Vec<VectorEmbedding>) -> Result<(), PortError> {
++        let prepared = embeddings
++            .into_iter()
++            .map(PreparedEmbedding::try_from)
++            .collect::<Result<Vec<_>, _>>()?;
++
++        if prepared.is_empty() {
++            return Ok(());
++        }
++
++        let mut connection = self.lock_connection()?;
++        let transaction = connection.transaction().map_err(to_port_error)?;
++        {
++            let mut statement = transaction
++                .prepare(
++                    "INSERT INTO vector_embeddings (chunk_id, dimension, embedding)
++                     VALUES (?1, ?2, ?3)
++                     ON CONFLICT(chunk_id) DO UPDATE SET
++                         dimension = excluded.dimension,
++                         embedding = excluded.embedding",
++                )
++                .map_err(to_port_error)?;
++
++            for embedding in prepared {
++                statement
++                    .execute(params![
++                        u64_to_i64(embedding.chunk_id.value())?,
++                        usize_to_i64(embedding.dimension)?,
++                        embedding.bytes,
++                    ])
++                    .map_err(to_port_error)?;
++            }
++        }
++        transaction.commit().map_err(to_port_error)
++    }
++
++    fn search_similar(&self, query: VectorSearchQuery) -> Result<Vec<VectorSearchHit>, PortError> {
++        if query.limit == 0 {
++            return Ok(Vec::new());
++        }
++        validate_vector(&query.vector, "query vector")?;
++
++        let query_dimension = query.vector.len();
++        let connection = self.lock_connection()?;
++        let mut statement = connection
++            .prepare(
++                "SELECT chunk_id, embedding
++                 FROM vector_embeddings
++                 WHERE dimension = ?1",
++            )
++            .map_err(to_port_error)?;
++        let mut rows = statement
++            .query(params![usize_to_i64(query_dimension)?])
++            .map_err(to_port_error)?;
++
++        let mut hits = Vec::new();
++        while let Some(row) = rows.next().map_err(to_port_error)? {
++            let chunk_id = i64_to_u64(row.get::<_, i64>(0).map_err(to_port_error)?)?;
++            let bytes = row.get::<_, Vec<u8>>(1).map_err(to_port_error)?;
++            let vector = decode_vector(&bytes)?;
++            let score = cosine_similarity(&query.vector, &vector)?;
++            hits.push(VectorSearchHit {
++                chunk_id: ChunkId::new(chunk_id),
++                score,
++            });
++        }
++
++        hits.sort_by(|left, right| match right.score.partial_cmp(&left.score) {
++            Some(ordering) => ordering,
++            None => Ordering::Equal,
++        });
++        hits.truncate(query.limit as usize);
++        Ok(hits)
++    }
++}
++
++struct PreparedEmbedding {
++    chunk_id: ChunkId,
++    dimension: usize,
++    bytes: Vec<u8>,
++}
++
++impl TryFrom<VectorEmbedding> for PreparedEmbedding {
++    type Error = PortError;
++
++    fn try_from(embedding: VectorEmbedding) -> Result<Self, Self::Error> {
++        validate_vector(&embedding.vector, "embedding vector")?;
++        let dimension = embedding.vector.len();
++        let bytes = encode_vector(&embedding.vector)?;
++        Ok(Self {
++            chunk_id: embedding.chunk_id,
++            dimension,
++            bytes,
++        })
++    }
++}
++
++fn migrate(connection: &mut Connection) -> Result<(), PortError> {
++    connection
++        .execute_batch(
++            "CREATE TABLE IF NOT EXISTS vector_projection_schema (
++                 id INTEGER PRIMARY KEY CHECK (id = 1),
++                 version INTEGER NOT NULL
++             );
++             INSERT INTO vector_projection_schema (id, version)
++             VALUES (1, 1)
++             ON CONFLICT(id) DO UPDATE SET version = excluded.version;
++
++             CREATE TABLE IF NOT EXISTS vector_embeddings (
++                 chunk_id INTEGER PRIMARY KEY NOT NULL,
++                 dimension INTEGER NOT NULL,
++                 embedding BLOB NOT NULL
++             );
++             CREATE INDEX IF NOT EXISTS idx_vector_embeddings_dimension
++                 ON vector_embeddings(dimension);",
++        )
++        .map_err(to_port_error)?;
++
++    let version = connection
++        .query_row(
++            "SELECT version FROM vector_projection_schema WHERE id = 1",
++            [],
++            |row| row.get::<_, i64>(0),
++        )
++        .optional()
++        .map_err(to_port_error)?
++        .ok_or_else(|| PortError::Internal {
++            message: "vector projection schema version missing".to_string(),
++        })?;
++
++    if version != SCHEMA_VERSION {
++        return Err(PortError::Internal {
++            message: format!("unsupported vector projection schema version {version}"),
++        });
++    }
++
++    attempt_sqlite_vec_bootstrap(connection);
++    Ok(())
++}
++
++fn attempt_sqlite_vec_bootstrap(connection: &Connection) {
++    let _ = connection.execute(SQLITE_VEC_BOOTSTRAP_SQL, []);
++}
++
++fn sqlite_vec_available(connection: &Connection) -> Result<bool, PortError> {
++    let exists = connection
++        .query_row(
++            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'vec_docs'",
++            [],
++            |row| row.get::<_, i64>(0),
++        )
++        .optional()
++        .map_err(to_port_error)?
++        .is_some();
++    Ok(exists)
++}
++
++fn validate_vector(vector: &[f32], label: &str) -> Result<(), PortError> {
++    if vector.is_empty() {
++        return Err(PortError::InvalidInput {
++            message: format!("{label} must not be empty"),
++        });
++    }
++    if vector.iter().any(|value| !value.is_finite()) {
++        return Err(PortError::InvalidInput {
++            message: format!("{label} must contain only finite values"),
++        });
++    }
++    Ok(())
++}
++
++fn encode_vector(vector: &[f32]) -> Result<Vec<u8>, PortError> {
++    let capacity = vector
++        .len()
++        .checked_mul(F32_BYTES)
++        .ok_or_else(|| PortError::InvalidInput {
++            message: "embedding vector is too large".to_string(),
++        })?;
++    let mut bytes = Vec::with_capacity(capacity);
++    for value in vector {
++        bytes.extend_from_slice(&value.to_le_bytes());
++    }
++    Ok(bytes)
++}
++
++fn decode_vector(bytes: &[u8]) -> Result<Vec<f32>, PortError> {
++    if bytes.len() % F32_BYTES != 0 {
++        return Err(PortError::Internal {
++            message: "stored vector blob has invalid length".to_string(),
++        });
++    }
++
++    let mut vector = Vec::with_capacity(bytes.len() / F32_BYTES);
++    for chunk in bytes.chunks_exact(F32_BYTES) {
++        let value = f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
++        if !value.is_finite() {
++            return Err(PortError::Internal {
++                message: "stored vector blob contains non-finite value".to_string(),
++            });
++        }
++        vector.push(value);
++    }
++    Ok(vector)
++}
++
++fn cosine_similarity(left: &[f32], right: &[f32]) -> Result<f32, PortError> {
++    if left.len() != right.len() {
++        return Err(PortError::Internal {
++            message: "stored vector dimension does not match query vector".to_string(),
++        });
++    }
++
++    let mut dot = 0.0_f32;
++    let mut left_norm = 0.0_f32;
++    let mut right_norm = 0.0_f32;
++    for (left_value, right_value) in left.iter().zip(right.iter()) {
++        dot += left_value * right_value;
++        left_norm += left_value * left_value;
++        right_norm += right_value * right_value;
++    }
++
++    if left_norm == 0.0 || right_norm == 0.0 {
++        return Ok(0.0);
++    }
++
++    Ok(dot / (left_norm.sqrt() * right_norm.sqrt()))
++}
++
++fn u64_to_i64(value: u64) -> Result<i64, PortError> {
++    i64::try_from(value).map_err(|_| PortError::InvalidInput {
++        message: format!("id {value} exceeds sqlite integer range"),
++    })
++}
++
++fn i64_to_u64(value: i64) -> Result<u64, PortError> {
++    u64::try_from(value).map_err(|_| PortError::Internal {
++        message: format!("stored id {value} is negative"),
++    })
++}
++
++fn usize_to_i64(value: usize) -> Result<i64, PortError> {
++    i64::try_from(value).map_err(|_| PortError::InvalidInput {
++        message: format!("dimension {value} exceeds sqlite integer range"),
++    })
++}
++
++fn to_port_error(error: rusqlite::Error) -> PortError {
++    PortError::Internal {
++        message: format!("sqlite vector projection error: {error}"),
++    }
++}
++
++#[cfg(test)]
++mod tests {
++    use maestria_domain::ChunkId;
++    use maestria_ports::{PortError, VectorEmbedding, VectorIndex, VectorSearchQuery};
++
++    use super::SqliteVectorIndex;
++
++    #[test]
++    fn indexes_and_searches_by_similarity() -> Result<(), PortError> {
++        let index = SqliteVectorIndex::in_memory()?;
++        index.index_embeddings(vec![
++            VectorEmbedding {
++                chunk_id: ChunkId::new(1),
++                vector: vec![1.0, 0.0, 0.0],
++            },
++            VectorEmbedding {
++                chunk_id: ChunkId::new(2),
++                vector: vec![0.0, 1.0, 0.0],
++            },
++            VectorEmbedding {
++                chunk_id: ChunkId::new(3),
++                vector: vec![0.8, 0.2, 0.0],
++            },
++        ])?;
++
++        let hits = index.search_similar(VectorSearchQuery {
++            vector: vec![1.0, 0.0, 0.0],
++            limit: 2,
++        })?;
++
++        assert_eq!(hits.len(), 2);
++        assert_eq!(hits[0].chunk_id, ChunkId::new(1));
++        assert_eq!(hits[1].chunk_id, ChunkId::new(3));
++        assert!(hits[0].score >= hits[1].score);
++        Ok(())
++    }
++
++    #[test]
++    fn replaces_existing_embedding_for_chunk() -> Result<(), PortError> {
++        let index = SqliteVectorIndex::in_memory()?;
++        index.index_embeddings(vec![VectorEmbedding {
++            chunk_id: ChunkId::new(7),
++            vector: vec![0.0, 1.0],
++        }])?;
++        index.index_embeddings(vec![VectorEmbedding {
++            chunk_id: ChunkId::new(7),
++            vector: vec![1.0, 0.0],
++        }])?;
++
++        let hits = index.search_similar(VectorSearchQuery {
++            vector: vec![1.0, 0.0],
++            limit: 10,
++        })?;
++
++        assert_eq!(hits.len(), 1);
++        assert_eq!(hits[0].chunk_id, ChunkId::new(7));
++        assert_eq!(hits[0].score, 1.0);
++        Ok(())
++    }
++
++    #[test]
++    fn rejects_invalid_vectors() -> Result<(), PortError> {
++        let index = SqliteVectorIndex::in_memory()?;
++
++        assert!(matches!(
++            index.index_embeddings(vec![VectorEmbedding {
++                chunk_id: ChunkId::new(1),
++                vector: Vec::new(),
++            }]),
++            Err(PortError::InvalidInput { .. })
++        ));
++        assert!(matches!(
++            index.search_similar(VectorSearchQuery {
++                vector: vec![f32::NAN],
++                limit: 1,
++            }),
++            Err(PortError::InvalidInput { .. })
++        ));
++        Ok(())
++    }
++
++    #[test]
++    fn search_filters_dimension() -> Result<(), PortError> {
++        let index = SqliteVectorIndex::in_memory()?;
++        index.index_embeddings(vec![VectorEmbedding {
++            chunk_id: ChunkId::new(1),
++            vector: vec![1.0, 0.0, 0.0],
++        }])?;
++
++        let hits = index.search_similar(VectorSearchQuery {
++            vector: vec![1.0, 0.0],
++            limit: 5,
++        })?;
++
++        assert!(hits.is_empty());
++        Ok(())
++    }
++}
