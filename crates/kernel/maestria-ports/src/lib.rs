@@ -106,6 +106,29 @@ pub trait FullTextIndex: Send + Sync {
     fn search(&self, query: SearchQuery) -> Result<Vec<SearchHit>, PortError>;
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct VectorEmbedding {
+    pub chunk_id: ChunkId,
+    pub vector: Vec<f32>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct VectorSearchQuery {
+    pub vector: Vec<f32>,
+    pub limit: u32,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct VectorSearchHit {
+    pub chunk_id: ChunkId,
+    pub score: f32,
+}
+
+pub trait VectorIndex: Send + Sync {
+    fn index_embeddings(&self, embeddings: Vec<VectorEmbedding>) -> Result<(), PortError>;
+    fn search_similar(&self, query: VectorSearchQuery) -> Result<Vec<VectorSearchHit>, PortError>;
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FileMetadata {
     pub path: PathBuf,
@@ -485,6 +508,47 @@ impl FullTextIndex for InMemoryFullTextIndex {
         if hits.len() > query.limit {
             hits.truncate(query.limit);
         }
+        Ok(hits)
+    }
+}
+
+#[derive(Clone, Default)]
+pub struct InMemoryVectorIndex {
+    embeddings: Arc<Mutex<Vec<VectorEmbedding>>>,
+}
+
+impl InMemoryVectorIndex {
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
+
+impl VectorIndex for InMemoryVectorIndex {
+    fn index_embeddings(&self, embeddings: Vec<VectorEmbedding>) -> Result<(), PortError> {
+        let mut guard = self.embeddings.lock().map_err(|_| PortError::Internal {
+            message: "vector index lock poisoned".to_string(),
+        })?;
+        guard.extend(embeddings);
+        Ok(())
+    }
+
+    fn search_similar(&self, query: VectorSearchQuery) -> Result<Vec<VectorSearchHit>, PortError> {
+        let guard = self.embeddings.lock().map_err(|_| PortError::Internal {
+            message: "vector index lock poisoned".to_string(),
+        })?;
+        // A simple linear scan calculating a mock "similarity" for testing purposes.
+        let mut hits = Vec::new();
+        for emb in guard.iter() {
+            // Dummy exact match simulation or euclidean distance
+            let diff: f32 = emb.vector.iter().zip(&query.vector).map(|(a, b)| (a - b).abs()).sum();
+            let score = if diff == 0.0 { 1.0 } else { 1.0 / (1.0 + diff) };
+            hits.push(VectorSearchHit {
+                chunk_id: emb.chunk_id,
+                score,
+            });
+        }
+        hits.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+        hits.truncate(query.limit as usize);
         Ok(hits)
     }
 }
