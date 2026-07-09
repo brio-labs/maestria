@@ -109,6 +109,9 @@ impl MaestriaRuntime {
             input_tx: self.input_tx.clone(),
         }
     }
+    pub async fn snapshot_state(&self) -> KernelState {
+        self.state.read().await.clone()
+    }
 
     pub async fn run(
         self,

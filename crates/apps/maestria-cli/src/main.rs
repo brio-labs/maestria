@@ -1,25 +1,24 @@
-use std::{
-    fs,
-    path::{Path, PathBuf},
-    sync::Arc,
-};
-
-use anyhow::{Result, anyhow};
-use clap::{Parser as ClapParser, Subcommand};
+use anyhow::{Context, Result, anyhow};
+use clap::{Parser as ClapParser, Subcommand, ValueEnum};
 use maestria_blob_fs::FsBlobStore;
 use maestria_core::{
     CorePorts, CoreServices, IngestFileInput, InitInstanceInput, InstanceLayout, InstanceService,
     OpenChunkEvidenceInput, OpenEvidenceInput, SearchInput,
 };
-use maestria_domain::{ChunkId, EvidenceId, EvidenceKind, KernelState, LogicalTick};
-use maestria_governance::{AutonomyProfile, DefaultApprovalGate, DefaultRiskClassifier};
+use maestria_domain::{
+    ArtifactId, ChunkId, DomainInput, EvidenceId, EvidenceKind, KernelState, LogicalTick,
+    MemoryCandidate, OpenTaskInput, Task, TaskId, TaskPriority,
+};
 use maestria_parsers::ParserRegistry;
-use maestria_ports::{EventFilter, InMemoryHarnessAdapter};
-use maestria_runtime::{Adapters, Governance, MaestriaRuntime, RuntimeConfig};
 use maestria_search_tantivy::TantivyFullTextIndex;
 use maestria_storage_sqlite::SqliteStore;
-use tracing::info;
-use tracing_subscriber::FmtSubscriber;
+use std::{
+    fs,
+    path::{Path, PathBuf},
+    sync::Arc,
+    time::Duration,
+};
+use tokio::time::{sleep, timeout};
 
 #[derive(ClapParser)]
 #[command(author, version, about, long_about = None)]
@@ -76,14 +75,81 @@ enum Commands {
         #[arg(short, long, default_value = ".maestria-dev")]
         instance_dir: PathBuf,
     },
+    /// Task workflow commands
+    Task {
+        #[command(subcommand)]
+        command: TaskCommands,
+    },
+    /// Memory projection commands
+    Memory {
+        #[command(subcommand)]
+        command: MemoryCommands,
+    },
+}
+
+#[derive(Subcommand)]
+enum TaskCommands {
+    /// Create a new task in persisted task state
+    Start {
+        /// Optional task title when provided from command line args
+        title: String,
+        #[arg(short, long, default_value = ".maestria-dev")]
+        instance_dir: PathBuf,
+        #[arg(short, long, default_value = "normal")]
+        priority: CliTaskPriority,
+        #[arg(short, long)]
+        artifact_id: Option<u64>,
+    },
+    /// Show all tasks or a single task
+    Show {
+        #[arg(short, long, default_value = ".maestria-dev")]
+        instance_dir: PathBuf,
+        task_id: Option<u64>,
+    },
+}
+
+#[derive(Subcommand)]
+enum MemoryCommands {
+    /// List persisted memory candidates
+    Candidates {
+        #[arg(short, long, default_value = ".maestria-dev")]
+        instance_dir: PathBuf,
+        #[arg(short, long, default_value_t = 20)]
+        limit: usize,
+    },
+}
+
+#[derive(Clone, Copy, Debug, ValueEnum)]
+enum CliTaskPriority {
+    Low,
+    Normal,
+    High,
+}
+
+impl std::fmt::Display for CliTaskPriority {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let label = match self {
+            CliTaskPriority::Low => "low",
+            CliTaskPriority::Normal => "normal",
+            CliTaskPriority::High => "high",
+        };
+        write!(f, "{label}")
+    }
+}
+
+impl From<CliTaskPriority> for TaskPriority {
+    fn from(value: CliTaskPriority) -> Self {
+        match value {
+            CliTaskPriority::Low => TaskPriority::Low,
+            CliTaskPriority::Normal => TaskPriority::Normal,
+            CliTaskPriority::High => TaskPriority::High,
+        }
+    }
 }
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let subscriber = FmtSubscriber::builder()
-        .with_max_level(tracing::Level::INFO)
-        .finish();
-    let _ = tracing::subscriber::set_global_default(subscriber);
+    tracing_subscriber::fmt::init();
 
     let cli = Cli::parse();
 
@@ -106,7 +172,29 @@ async fn main() -> Result<()> {
         } => open_evidence(instance_dir, evidence_id, chunk_id)?,
         Commands::Status { instance_dir } => status(instance_dir)?,
         Commands::Doctor { instance_dir } => doctor(instance_dir)?,
-        Commands::Start { instance_dir } => start(instance_dir).await?,
+        Commands::Start { instance_dir } => maestria_daemon::run_instance(instance_dir).await?,
+        Commands::Task { command } => match command {
+            TaskCommands::Start {
+                title,
+                instance_dir,
+                priority,
+                artifact_id,
+            } => {
+                task_start(instance_dir, title, priority, artifact_id).await?;
+            }
+            TaskCommands::Show {
+                instance_dir,
+                task_id,
+            } => {
+                task_show(instance_dir, task_id)?;
+            }
+        },
+        Commands::Memory { command } => match command {
+            MemoryCommands::Candidates {
+                instance_dir,
+                limit,
+            } => memory_candidates(instance_dir, limit)?,
+        },
     }
 
     Ok(())
@@ -252,12 +340,11 @@ fn open_evidence(
 
 fn status(instance_dir: PathBuf) -> Result<()> {
     let layout = InstanceLayout::for_root(instance_dir);
-    let sqlite_store = SqliteStore::open(&layout.database_path)?;
-    let events = maestria_ports::EventLog::scan(&sqlite_store, EventFilter { artifact_id: None })?;
+    let state = maestria_daemon::load_kernel_state(&layout).with_context(|| "load kernel state")?;
     println!("instance {}", layout.root.display());
     println!("database {}", layout.database_path.display());
     println!("full_text_index {}", layout.full_text_index_dir.display());
-    println!("events {}", events.len());
+    println!("events {}", state.event_log.len());
     Ok(())
 }
 
@@ -278,63 +365,208 @@ fn doctor(instance_dir: PathBuf) -> Result<()> {
     Ok(())
 }
 
-async fn start(instance_dir: PathBuf) -> Result<()> {
+async fn task_start(
+    instance_dir: PathBuf,
+    title: String,
+    priority: CliTaskPriority,
+    artifact_id: Option<u64>,
+) -> Result<()> {
     let layout = ensure_instance(instance_dir)?;
-    info!("Starting Maestria in {:?}", layout.root);
+    let state = load_kernel_state_with_retry(
+        &layout,
+        Duration::from_secs(2),
+        "load kernel state before task start",
+    )
+    .await?;
+    let task_id = next_task_id(&state);
 
-    let blob_store = Arc::new(FsBlobStore::open(&layout.blobs_dir)?);
-    let search_index = Arc::new(TantivyFullTextIndex::open(&layout.full_text_index_dir)?);
-    let parser = Arc::new(ParserRegistry::with_defaults());
-    let sqlite_store = Arc::new(SqliteStore::open(&layout.database_path)?);
-    let event_log = sqlite_store.clone();
-    let artifact_repo = sqlite_store.clone();
-    let harness = Arc::new(InMemoryHarnessAdapter::default());
+    let (runtime, input_rx, shutdown_token) =
+        maestria_daemon::build_runtime(&layout, state).with_context(|| "build runtime")?;
+    let handle = runtime.handle();
+    let runtime_task = tokio::spawn(runtime.run(input_rx, shutdown_token.clone()));
 
-    let adapters = Adapters {
-        event_log,
-        blob_store,
-        search_index,
-        parser,
-        harness,
-        artifact_repo,
-    };
-
-    let governance = Governance {
-        classifier: Arc::new(DefaultRiskClassifier),
-        approval_gate: Arc::new(DefaultApprovalGate),
-    };
-
-    let config = RuntimeConfig {
-        profile: AutonomyProfile::ReadOnly,
-        ..Default::default()
-    };
-
-    let state = KernelState::new();
-    let (runtime, input_rx) = MaestriaRuntime::new(config, state, adapters, governance);
-
-    info!("Maestria runtime started.");
-    let shutdown_token = tokio_util::sync::CancellationToken::new();
-    let token_clone = shutdown_token.clone();
-    let _runtime_task = tokio::spawn(async move {
-        runtime.run(input_rx, token_clone).await;
+    let input = DomainInput::OpenTask(OpenTaskInput {
+        task_id,
+        title,
+        priority: priority.into(),
+        artifact_id: artifact_id.map(ArtifactId::new),
     });
+    handle
+        .input_tx
+        .send(input)
+        .await
+        .map_err(|error| anyhow!("failed to queue task open input: {error}"))?;
 
-    tokio::signal::ctrl_c().await?;
-    info!("Shutting down Maestria...");
+    let state = wait_for_task_in_state(&layout, task_id, Duration::from_secs(2)).await?;
     shutdown_token.cancel();
-    info!("Shutting down.");
+    runtime_task
+        .await
+        .with_context(|| "runtime loop join failed")?;
+
+    let task = state
+        .tasks
+        .get(&task_id)
+        .cloned()
+        .ok_or_else(|| anyhow!("task {} was not persisted", task_id))?;
+
+    println!(
+        "task={} title={} status={:?} priority={:?}",
+        task.id, task.title, task.status, task.priority
+    );
+
     Ok(())
 }
 
+async fn wait_for_task_in_state(
+    layout: &InstanceLayout,
+    task_id: TaskId,
+    timeout_budget: Duration,
+) -> Result<KernelState> {
+    use std::sync::Mutex;
+
+    let last_error = Arc::new(Mutex::new(None::<String>));
+    let last_error_for_wait = last_error.clone();
+    timeout(timeout_budget, async move {
+        loop {
+            match maestria_daemon::load_kernel_state(layout)
+                .with_context(|| "load kernel state while waiting for task persistence")
+            {
+                Ok(state) => {
+                    if state.tasks.contains_key(&task_id) {
+                        return Ok(state);
+                    }
+                }
+                Err(error) => {
+                    if let Ok(mut slot) = last_error_for_wait.lock() {
+                        *slot = Some(error.to_string());
+                    }
+                }
+            }
+            sleep(Duration::from_millis(25)).await;
+        }
+    })
+    .await
+    .map_err(|_| {
+        let detail = last_error
+            .lock()
+            .ok()
+            .and_then(|error| error.clone())
+            .map_or_else(String::new, |error| format!(" {error}"));
+        anyhow!("timed out while waiting for task {task_id} persistence{detail}")
+    })?
+}
+
+async fn load_kernel_state_with_retry(
+    layout: &InstanceLayout,
+    timeout_budget: Duration,
+    context: &'static str,
+) -> Result<KernelState> {
+    timeout(timeout_budget, async {
+        loop {
+            match maestria_daemon::load_kernel_state(layout).with_context(|| context) {
+                Ok(state) => return Ok(state),
+                Err(error) if is_db_locked(&error) => {
+                    sleep(Duration::from_millis(25)).await;
+                }
+                Err(error) => return Err(error),
+            }
+        }
+    })
+    .await
+    .map_err(|_| anyhow!("timed out while {context}"))?
+}
+
+fn is_db_locked(error: &anyhow::Error) -> bool {
+    let message = error.to_string().to_lowercase();
+    message.contains("database is locked")
+        || message.contains("database is busy")
+        || message.contains("locked")
+}
+
+fn task_show(instance_dir: PathBuf, task_id: Option<u64>) -> Result<()> {
+    let layout = InstanceLayout::for_root(instance_dir);
+    let state = maestria_daemon::load_kernel_state(&layout).with_context(|| "load kernel state")?;
+
+    if let Some(requested) = task_id {
+        let requested = TaskId::new(requested);
+        let task = state
+            .tasks
+            .get(&requested)
+            .ok_or_else(|| anyhow!("task {} not found", requested))?;
+        print_task(task);
+        return Ok(());
+    }
+
+    if state.tasks.is_empty() {
+        println!("no tasks");
+        return Ok(());
+    }
+
+    for task in state.tasks.values() {
+        print_task(task);
+    }
+
+    Ok(())
+}
+
+fn memory_candidates(instance_dir: PathBuf, limit: usize) -> Result<()> {
+    let layout = InstanceLayout::for_root(instance_dir);
+    let state = maestria_daemon::load_kernel_state(&layout).with_context(|| "load kernel state")?;
+
+    if state.memory_candidates.is_empty() {
+        println!("no memory candidates");
+        return Ok(());
+    }
+
+    for candidate in state.memory_candidates.values().take(limit) {
+        print_memory_candidate(candidate);
+    }
+
+    Ok(())
+}
+
+fn print_task(task: &Task) {
+    print!(
+        "task={} status={:?} priority={:?} title='{}'",
+        task.id, task.status, task.priority, task.title
+    );
+
+    if let Some(report_id) = task.validation_report_id {
+        print!(" validation_report={report_id}");
+    }
+
+    if !task.artifact_ids.is_empty() {
+        print!(" artifacts={:?}", task.artifact_ids);
+    }
+
+    if !task.evidence_ids.is_empty() {
+        print!(" evidence={:?}", task.evidence_ids);
+    }
+
+    println!();
+}
+
+fn print_memory_candidate(candidate: &MemoryCandidate) {
+    println!(
+        "candidate={} claim={} confidence={} evidence={} ids={:?}",
+        candidate.id,
+        candidate.claim_id,
+        candidate.confidence_milli,
+        candidate.evidence_ids.len(),
+        candidate.evidence_ids
+    );
+}
+
+fn next_task_id(state: &maestria_domain::KernelState) -> TaskId {
+    state
+        .tasks
+        .iter()
+        .next_back()
+        .map_or(TaskId::new(1), |(id, _)| TaskId::new(id.value() + 1))
+}
+
 fn ensure_instance(instance_dir: PathBuf) -> Result<InstanceLayout> {
-    let plan = InstanceService::init_instance(InitInstanceInput { root: instance_dir })?;
-    for directory in &plan.directories {
-        fs::create_dir_all(directory)?;
-    }
-    if !plan.manifest_path.exists() {
-        fs::write(&plan.manifest_path, plan.manifest_contents.as_bytes())?;
-    }
-    Ok(plan.layout)
+    maestria_daemon::prepare_instance(instance_dir)
 }
 
 fn collect_index_files(path: &Path, recursive: bool) -> Result<Vec<PathBuf>> {

@@ -670,6 +670,31 @@ dependencies = [
  "clap",
  "maestria-blob-fs",
  "maestria-core",
+ "maestria-daemon",
+ "maestria-domain",
+ "maestria-parsers",
+ "maestria-search-tantivy",
+ "maestria-storage-sqlite",
+ "tokio",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "maestria-core"
+version = "0.1.0"
+dependencies = [
+ "maestria-domain",
+ "maestria-ports",
+]
+
+[[package]]
+name = "maestria-daemon"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "maestria-blob-fs",
+ "maestria-core",
  "maestria-domain",
  "maestria-governance",
  "maestria-parsers",
@@ -681,14 +706,6 @@ dependencies = [
  "tokio-util",
  "tracing",
  "tracing-subscriber",
-]
-
-[[package]]
-name = "maestria-core"
-version = "0.1.0"
-dependencies = [
- "maestria-domain",
- "maestria-ports",
 ]
 
 [[package]]
