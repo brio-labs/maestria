@@ -12,11 +12,15 @@ use std::{
 };
 
 use maestria_domain::{
-    Artifact, ArtifactId, BlobId, CardId, ChunkId, ClaimId, ClaimStatus, ContentRange, DomainEvent,
-    DomainEventEnvelope, EventId, EvidenceId, EvidenceKind, HarnessRunId, LogicalTick,
-    OutputStream, SequenceNumber, TaskId, TaskPriority, TaskStatus, ValidationReportId,
+    Artifact, ArtifactId, BlobId, Card, CardId, Chunk, ChunkId, ClaimId, ClaimStatus, ContentRange,
+    DomainEvent, DomainEventEnvelope, EventId, Evidence, EvidenceId, EvidenceKind, HarnessRunId,
+    LogicalTick, OutputStream, SequenceNumber, TaskId, TaskPriority, TaskStatus,
+    ValidationReportId,
 };
-use maestria_ports::{ArtifactRepository, EventFilter, EventLog, PortError};
+use maestria_ports::{
+    ArtifactRepository, CardRepository, ChunkRepository, EventFilter, EventLog, EvidenceRepository,
+    PortError,
+};
 use rusqlite::{Connection, ErrorCode, OptionalExtension, Transaction, params};
 use serde::{Deserialize, Serialize};
 
@@ -125,6 +129,192 @@ impl ArtifactRepository for SqliteStore {
     }
 }
 
+impl ChunkRepository for SqliteStore {
+    fn get(&self, chunk_id: ChunkId) -> Result<Option<Chunk>, PortError> {
+        let connection = self.lock()?;
+        let mut statement = connection
+            .prepare("SELECT id, artifact_id, chunk_order, text FROM chunks WHERE id = ?1")
+            .map_err(to_port_error)?;
+        let mut rows = statement
+            .query(params![u64_to_i64(chunk_id.value())?])
+            .map_err(to_port_error)?;
+        rows.next()
+            .map_err(to_port_error)?
+            .map(read_chunk)
+            .transpose()
+    }
+
+    fn put(&self, chunk: Chunk) -> Result<(), PortError> {
+        let connection = self.lock()?;
+        connection
+            .execute(
+                "INSERT INTO chunks (id, artifact_id, chunk_order, text) VALUES (?1, ?2, ?3, ?4)
+                 ON CONFLICT(id) DO UPDATE SET
+                     artifact_id = excluded.artifact_id,
+                     chunk_order = excluded.chunk_order,
+                     text = excluded.text",
+                params![
+                    u64_to_i64(chunk.id.value())?,
+                    u64_to_i64(chunk.artifact_id.value())?,
+                    i64::from(chunk.order),
+                    chunk.text,
+                ],
+            )
+            .map(|_| ())
+            .map_err(to_port_error)
+    }
+
+    fn list_for_artifact(&self, artifact_id: ArtifactId) -> Result<Vec<Chunk>, PortError> {
+        let connection = self.lock()?;
+        let mut statement = connection
+            .prepare(
+                "SELECT id, artifact_id, chunk_order, text
+                 FROM chunks
+                 WHERE artifact_id = ?1
+                 ORDER BY chunk_order ASC, id ASC",
+            )
+            .map_err(to_port_error)?;
+        let mut rows = statement
+            .query(params![u64_to_i64(artifact_id.value())?])
+            .map_err(to_port_error)?;
+        let mut chunks = Vec::new();
+        while let Some(row) = rows.next().map_err(to_port_error)? {
+            chunks.push(read_chunk(row)?);
+        }
+        Ok(chunks)
+    }
+}
+
+impl CardRepository for SqliteStore {
+    fn get(&self, card_id: CardId) -> Result<Option<Card>, PortError> {
+        let connection = self.lock()?;
+        let mut statement = connection
+            .prepare("SELECT id, artifact_id, title, body FROM cards WHERE id = ?1")
+            .map_err(to_port_error)?;
+        let mut rows = statement
+            .query(params![u64_to_i64(card_id.value())?])
+            .map_err(to_port_error)?;
+        rows.next()
+            .map_err(to_port_error)?
+            .map(|row| read_card(row, &connection))
+            .transpose()
+    }
+
+    fn put(&self, card: Card) -> Result<(), PortError> {
+        let mut connection = self.lock()?;
+        let transaction = connection.transaction().map_err(to_port_error)?;
+        transaction
+            .execute(
+                "INSERT INTO cards (id, artifact_id, title, body) VALUES (?1, ?2, ?3, ?4)
+                 ON CONFLICT(id) DO UPDATE SET
+                     artifact_id = excluded.artifact_id,
+                     title = excluded.title,
+                     body = excluded.body",
+                params![
+                    u64_to_i64(card.id.value())?,
+                    u64_to_i64(card.artifact_id.value())?,
+                    card.title,
+                    card.body,
+                ],
+            )
+            .map_err(to_port_error)?;
+        replace_card_claims(
+            &transaction,
+            card.id,
+            card.claim_ids.iter().map(|id| id.value()),
+        )?;
+        transaction.commit().map_err(to_port_error)
+    }
+
+    fn list_for_artifact(&self, artifact_id: ArtifactId) -> Result<Vec<Card>, PortError> {
+        let connection = self.lock()?;
+        let mut statement = connection
+            .prepare(
+                "SELECT id, artifact_id, title, body
+                 FROM cards
+                 WHERE artifact_id = ?1
+                 ORDER BY id ASC",
+            )
+            .map_err(to_port_error)?;
+        let mut rows = statement
+            .query(params![u64_to_i64(artifact_id.value())?])
+            .map_err(to_port_error)?;
+        let mut cards = Vec::new();
+        while let Some(row) = rows.next().map_err(to_port_error)? {
+            cards.push(read_card(row, &connection)?);
+        }
+        Ok(cards)
+    }
+}
+
+impl EvidenceRepository for SqliteStore {
+    fn get(&self, evidence_id: EvidenceId) -> Result<Option<Evidence>, PortError> {
+        let connection = self.lock()?;
+        let mut statement = connection
+            .prepare(
+                "SELECT id, artifact_id, claim_id, kind_json, excerpt, observed_at
+                 FROM evidence
+                 WHERE id = ?1",
+            )
+            .map_err(to_port_error)?;
+        let mut rows = statement
+            .query(params![u64_to_i64(evidence_id.value())?])
+            .map_err(to_port_error)?;
+        rows.next()
+            .map_err(to_port_error)?
+            .map(read_evidence)
+            .transpose()
+    }
+
+    fn put(&self, evidence: Evidence) -> Result<(), PortError> {
+        let kind_json = serde_json::to_string(&StoredEvidenceKind::from_domain(&evidence.kind))
+            .map_err(json_error)?;
+        let connection = self.lock()?;
+        connection
+            .execute(
+                "INSERT INTO evidence
+                     (id, artifact_id, claim_id, kind_json, excerpt, observed_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+                 ON CONFLICT(id) DO UPDATE SET
+                     artifact_id = excluded.artifact_id,
+                     claim_id = excluded.claim_id,
+                     kind_json = excluded.kind_json,
+                     excerpt = excluded.excerpt,
+                     observed_at = excluded.observed_at",
+                params![
+                    u64_to_i64(evidence.id.value())?,
+                    u64_to_i64(evidence.artifact_id.value())?,
+                    optional_u64_to_i64(evidence.claim_id.map(|id| id.value()))?,
+                    kind_json,
+                    evidence.excerpt,
+                    u64_to_i64(evidence.observed_at.value())?,
+                ],
+            )
+            .map(|_| ())
+            .map_err(to_port_error)
+    }
+
+    fn list_for_artifact(&self, artifact_id: ArtifactId) -> Result<Vec<Evidence>, PortError> {
+        let connection = self.lock()?;
+        let mut statement = connection
+            .prepare(
+                "SELECT id, artifact_id, claim_id, kind_json, excerpt, observed_at
+                 FROM evidence
+                 WHERE artifact_id = ?1
+                 ORDER BY id ASC",
+            )
+            .map_err(to_port_error)?;
+        let mut rows = statement
+            .query(params![u64_to_i64(artifact_id.value())?])
+            .map_err(to_port_error)?;
+        let mut evidences = Vec::new();
+        while let Some(row) = rows.next().map_err(to_port_error)? {
+            evidences.push(read_evidence(row)?);
+        }
+        Ok(evidences)
+    }
+}
+
 impl EventLog for SqliteStore {
     fn append(&self, event: DomainEventEnvelope) -> Result<(), PortError> {
         let record = StoredEvent::from_domain(&event)?;
@@ -180,7 +370,81 @@ fn migrate(connection: &mut Connection) -> Result<(), PortError> {
     let transaction = connection.transaction().map_err(to_port_error)?;
     transaction
         .execute_batch(
-            "PRAGMA foreign_keys = ON;\n             CREATE TABLE IF NOT EXISTS schema_version (\n                 version INTEGER NOT NULL PRIMARY KEY,\n                 applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP\n             );\n             CREATE TABLE IF NOT EXISTS artifacts (\n                 id INTEGER NOT NULL PRIMARY KEY,\n                 title TEXT NOT NULL\n             );\n             CREATE TABLE IF NOT EXISTS artifact_chunks (\n                 artifact_id INTEGER NOT NULL,\n                 related_id INTEGER NOT NULL,\n                 PRIMARY KEY (artifact_id, related_id),\n                 FOREIGN KEY (artifact_id) REFERENCES artifacts(id) ON DELETE CASCADE\n             );\n             CREATE TABLE IF NOT EXISTS artifact_cards (\n                 artifact_id INTEGER NOT NULL,\n                 related_id INTEGER NOT NULL,\n                 PRIMARY KEY (artifact_id, related_id),\n                 FOREIGN KEY (artifact_id) REFERENCES artifacts(id) ON DELETE CASCADE\n             );\n             CREATE TABLE IF NOT EXISTS artifact_claims (\n                 artifact_id INTEGER NOT NULL,\n                 related_id INTEGER NOT NULL,\n                 PRIMARY KEY (artifact_id, related_id),\n                 FOREIGN KEY (artifact_id) REFERENCES artifacts(id) ON DELETE CASCADE\n             );\n             CREATE TABLE IF NOT EXISTS artifact_evidences (\n                 artifact_id INTEGER NOT NULL,\n                 related_id INTEGER NOT NULL,\n                 PRIMARY KEY (artifact_id, related_id),\n                 FOREIGN KEY (artifact_id) REFERENCES artifacts(id) ON DELETE CASCADE\n             );\n             CREATE TABLE IF NOT EXISTS domain_events (\n                 id INTEGER NOT NULL PRIMARY KEY,\n                 sequence INTEGER NOT NULL UNIQUE,\n                 event_kind TEXT NOT NULL,\n                 artifact_id INTEGER,\n                 payload_json TEXT NOT NULL\n             );\n             CREATE INDEX IF NOT EXISTS idx_domain_events_artifact_sequence\n                 ON domain_events(artifact_id, sequence);\n             INSERT OR IGNORE INTO schema_version (version) VALUES (1);",
+            "PRAGMA foreign_keys = ON;
+             CREATE TABLE IF NOT EXISTS schema_version (
+                 version INTEGER NOT NULL PRIMARY KEY,
+                 applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+             );
+             CREATE TABLE IF NOT EXISTS artifacts (
+                 id INTEGER NOT NULL PRIMARY KEY,
+                 title TEXT NOT NULL
+             );
+             CREATE TABLE IF NOT EXISTS artifact_chunks (
+                 artifact_id INTEGER NOT NULL,
+                 related_id INTEGER NOT NULL,
+                 PRIMARY KEY (artifact_id, related_id),
+                 FOREIGN KEY (artifact_id) REFERENCES artifacts(id) ON DELETE CASCADE
+             );
+             CREATE TABLE IF NOT EXISTS artifact_cards (
+                 artifact_id INTEGER NOT NULL,
+                 related_id INTEGER NOT NULL,
+                 PRIMARY KEY (artifact_id, related_id),
+                 FOREIGN KEY (artifact_id) REFERENCES artifacts(id) ON DELETE CASCADE
+             );
+             CREATE TABLE IF NOT EXISTS artifact_claims (
+                 artifact_id INTEGER NOT NULL,
+                 related_id INTEGER NOT NULL,
+                 PRIMARY KEY (artifact_id, related_id),
+                 FOREIGN KEY (artifact_id) REFERENCES artifacts(id) ON DELETE CASCADE
+             );
+             CREATE TABLE IF NOT EXISTS artifact_evidences (
+                 artifact_id INTEGER NOT NULL,
+                 related_id INTEGER NOT NULL,
+                 PRIMARY KEY (artifact_id, related_id),
+                 FOREIGN KEY (artifact_id) REFERENCES artifacts(id) ON DELETE CASCADE
+             );
+             CREATE TABLE IF NOT EXISTS chunks (
+                 id INTEGER NOT NULL PRIMARY KEY,
+                 artifact_id INTEGER NOT NULL,
+                 chunk_order INTEGER NOT NULL,
+                 text TEXT NOT NULL
+             );
+             CREATE INDEX IF NOT EXISTS idx_chunks_artifact_order
+                 ON chunks(artifact_id, chunk_order, id);
+             CREATE TABLE IF NOT EXISTS cards (
+                 id INTEGER NOT NULL PRIMARY KEY,
+                 artifact_id INTEGER NOT NULL,
+                 title TEXT NOT NULL,
+                 body TEXT NOT NULL
+             );
+             CREATE INDEX IF NOT EXISTS idx_cards_artifact
+                 ON cards(artifact_id, id);
+             CREATE TABLE IF NOT EXISTS card_claims (
+                 card_id INTEGER NOT NULL,
+                 claim_id INTEGER NOT NULL,
+                 PRIMARY KEY (card_id, claim_id),
+                 FOREIGN KEY (card_id) REFERENCES cards(id) ON DELETE CASCADE
+             );
+             CREATE TABLE IF NOT EXISTS evidence (
+                 id INTEGER NOT NULL PRIMARY KEY,
+                 artifact_id INTEGER NOT NULL,
+                 claim_id INTEGER,
+                 kind_json TEXT NOT NULL,
+                 excerpt TEXT NOT NULL,
+                 observed_at INTEGER NOT NULL
+             );
+             CREATE INDEX IF NOT EXISTS idx_evidence_artifact
+                 ON evidence(artifact_id, id);
+             CREATE TABLE IF NOT EXISTS domain_events (
+                 id INTEGER NOT NULL PRIMARY KEY,
+                 sequence INTEGER NOT NULL UNIQUE,
+                 event_kind TEXT NOT NULL,
+                 artifact_id INTEGER,
+                 payload_json TEXT NOT NULL
+             );
+             CREATE INDEX IF NOT EXISTS idx_domain_events_artifact_sequence
+                 ON domain_events(artifact_id, sequence);
+             INSERT OR IGNORE INTO schema_version (version) VALUES (1);",
         )
         .map_err(to_port_error)?;
 
@@ -248,6 +512,86 @@ fn replace_id_set(
     }
 
     Ok(())
+}
+
+fn read_chunk(row: &rusqlite::Row<'_>) -> Result<Chunk, PortError> {
+    let order = i64_to_u32(row.get::<_, i64>(2).map_err(to_port_error)?)?;
+    Ok(Chunk {
+        id: ChunkId::new(i64_to_u64(row.get::<_, i64>(0).map_err(to_port_error)?)?),
+        artifact_id: ArtifactId::new(i64_to_u64(row.get::<_, i64>(1).map_err(to_port_error)?)?),
+        order,
+        text: row.get::<_, String>(3).map_err(to_port_error)?,
+    })
+}
+
+fn read_card(row: &rusqlite::Row<'_>, connection: &Connection) -> Result<Card, PortError> {
+    let id = CardId::new(i64_to_u64(row.get::<_, i64>(0).map_err(to_port_error)?)?);
+    Ok(Card {
+        id,
+        artifact_id: ArtifactId::new(i64_to_u64(row.get::<_, i64>(1).map_err(to_port_error)?)?),
+        title: row.get::<_, String>(2).map_err(to_port_error)?,
+        body: row.get::<_, String>(3).map_err(to_port_error)?,
+        claim_ids: load_card_claims(connection, id)?,
+    })
+}
+
+fn load_card_claims(
+    connection: &Connection,
+    card_id: CardId,
+) -> Result<BTreeSet<ClaimId>, PortError> {
+    let mut statement = connection
+        .prepare("SELECT claim_id FROM card_claims WHERE card_id = ?1 ORDER BY claim_id")
+        .map_err(to_port_error)?;
+    let mut rows = statement
+        .query(params![u64_to_i64(card_id.value())?])
+        .map_err(to_port_error)?;
+    let mut ids = BTreeSet::new();
+    while let Some(row) = rows.next().map_err(to_port_error)? {
+        ids.insert(ClaimId::new(i64_to_u64(
+            row.get::<_, i64>(0).map_err(to_port_error)?,
+        )?));
+    }
+    Ok(ids)
+}
+
+fn replace_card_claims(
+    transaction: &Transaction<'_>,
+    card_id: CardId,
+    ids: impl Iterator<Item = u64>,
+) -> Result<(), PortError> {
+    transaction
+        .execute(
+            "DELETE FROM card_claims WHERE card_id = ?1",
+            params![u64_to_i64(card_id.value())?],
+        )
+        .map_err(to_port_error)?;
+
+    for id in ids {
+        transaction
+            .execute(
+                "INSERT INTO card_claims (card_id, claim_id) VALUES (?1, ?2)",
+                params![u64_to_i64(card_id.value())?, u64_to_i64(id)?],
+            )
+            .map_err(to_port_error)?;
+    }
+
+    Ok(())
+}
+
+fn read_evidence(row: &rusqlite::Row<'_>) -> Result<Evidence, PortError> {
+    let kind_json = row.get::<_, String>(3).map_err(to_port_error)?;
+    let kind = serde_json::from_str::<StoredEvidenceKind>(&kind_json)
+        .map_err(json_error)?
+        .into_domain();
+    Ok(Evidence {
+        id: EvidenceId::new(i64_to_u64(row.get::<_, i64>(0).map_err(to_port_error)?)?),
+        artifact_id: ArtifactId::new(i64_to_u64(row.get::<_, i64>(1).map_err(to_port_error)?)?),
+        claim_id: optional_i64_to_u64(row.get::<_, Option<i64>>(2).map_err(to_port_error)?)?
+            .map(ClaimId::new),
+        kind,
+        excerpt: row.get::<_, String>(4).map_err(to_port_error)?,
+        observed_at: LogicalTick::new(i64_to_u64(row.get::<_, i64>(5).map_err(to_port_error)?)?),
+    })
 }
 
 #[derive(Debug)]
@@ -1147,6 +1491,12 @@ fn i64_to_u64(value: i64) -> Result<u64, PortError> {
     })
 }
 
+fn i64_to_u32(value: i64) -> Result<u32, PortError> {
+    u32::try_from(value).map_err(|_| PortError::Internal {
+        message: format!("stored chunk order value {value} is outside u32 range"),
+    })
+}
+
 fn optional_i64_to_u64(value: Option<i64>) -> Result<Option<u64>, PortError> {
     value.map(i64_to_u64).transpose()
 }
@@ -1194,6 +1544,27 @@ mod tests {
         contract_tests::assert_event_log_round_trip(&store);
     }
 
+    #[test]
+    fn satisfies_shared_chunk_repository_contract() {
+        let store = SqliteStore::in_memory().expect("test setup");
+
+        contract_tests::assert_chunk_repository_round_trip(&store);
+    }
+
+    #[test]
+    fn satisfies_shared_card_repository_contract() {
+        let store = SqliteStore::in_memory().expect("test setup");
+
+        contract_tests::assert_card_repository_round_trip(&store);
+    }
+
+    #[test]
+    fn satisfies_shared_evidence_repository_contract() {
+        let store = SqliteStore::in_memory().expect("test setup");
+
+        contract_tests::assert_evidence_repository_round_trip(&store);
+    }
+
     fn artifact(id: u64) -> Artifact {
         Artifact {
             id: ArtifactId::new(id),
@@ -1231,25 +1602,31 @@ mod tests {
             })
             .expect("test setup");
         assert_eq!(version, CURRENT_SCHEMA_VERSION);
+        for table in ["chunks", "cards", "card_claims", "evidence"] {
+            let count: i64 = connection
+                .query_row(
+                    "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?1",
+                    params![table],
+                    |row| row.get(0),
+                )
+                .expect("table lookup");
+            assert_eq!(count, 1, "{table} table should exist");
+        }
     }
 
     #[test]
     fn artifact_put_get_and_missing() {
         let store = SqliteStore::in_memory().expect("test setup");
         assert_eq!(
-            store
-                .get(ArtifactId::new(9))
-                .expect("missing artifact lookup"),
+            ArtifactRepository::get(&store, ArtifactId::new(9)).expect("missing artifact lookup"),
             None
         );
 
         let artifact = artifact(1);
-        store.put(artifact.clone()).expect("test setup");
+        ArtifactRepository::put(&store, artifact.clone()).expect("test setup");
 
         assert_eq!(
-            store
-                .get(ArtifactId::new(1))
-                .expect("stored artifact lookup"),
+            ArtifactRepository::get(&store, ArtifactId::new(1)).expect("stored artifact lookup"),
             Some(artifact)
         );
     }
@@ -1269,13 +1646,114 @@ mod tests {
             .evidence_ids
             .extend([EvidenceId::new(40), EvidenceId::new(41)]);
 
-        store.put(artifact.clone()).expect("test setup");
+        ArtifactRepository::put(&store, artifact.clone()).expect("test setup");
 
         assert_eq!(
-            store
-                .get(ArtifactId::new(1))
-                .expect("stored artifact lookup"),
+            ArtifactRepository::get(&store, ArtifactId::new(1)).expect("stored artifact lookup"),
             Some(artifact)
+        );
+    }
+
+    #[test]
+    fn brain_state_round_trips_and_lists_deterministically() {
+        let store = SqliteStore::in_memory().expect("test setup");
+        let late = Chunk {
+            id: ChunkId::new(10),
+            artifact_id: ArtifactId::new(1),
+            order: 2,
+            text: "late".to_string(),
+        };
+        let early = Chunk {
+            id: ChunkId::new(11),
+            artifact_id: ArtifactId::new(1),
+            order: 1,
+            text: "early".to_string(),
+        };
+        let card = Card {
+            id: CardId::new(20),
+            artifact_id: ArtifactId::new(1),
+            title: "card".to_string(),
+            body: "body".to_string(),
+            claim_ids: [ClaimId::new(5), ClaimId::new(3)].into(),
+        };
+        let evidence = Evidence {
+            id: EvidenceId::new(30),
+            artifact_id: ArtifactId::new(1),
+            claim_id: Some(ClaimId::new(3)),
+            kind: EvidenceKind::FileSpan {
+                path: "notes.md".to_string(),
+                range: ContentRange { start: 3, end: 8 },
+                content_hash: "sha256:abc".to_string(),
+            },
+            excerpt: "grounded excerpt".to_string(),
+            observed_at: LogicalTick::new(4),
+        };
+
+        ChunkRepository::put(&store, late.clone()).expect("late chunk put");
+        ChunkRepository::put(&store, early.clone()).expect("early chunk put");
+        CardRepository::put(&store, card.clone()).expect("card put");
+        EvidenceRepository::put(&store, evidence.clone()).expect("evidence put");
+
+        assert_eq!(
+            ChunkRepository::list_for_artifact(&store, ArtifactId::new(1)).expect("chunk list"),
+            vec![early.clone(), late.clone()]
+        );
+        assert_eq!(
+            ChunkRepository::get(&store, late.id).expect("chunk get"),
+            Some(late)
+        );
+        assert_eq!(
+            CardRepository::list_for_artifact(&store, ArtifactId::new(1)).expect("card list"),
+            vec![card.clone()]
+        );
+        assert_eq!(
+            CardRepository::get(&store, card.id).expect("card get"),
+            Some(card)
+        );
+        assert_eq!(
+            EvidenceRepository::list_for_artifact(&store, ArtifactId::new(1))
+                .expect("evidence list"),
+            vec![evidence.clone()]
+        );
+        assert_eq!(
+            EvidenceRepository::get(&store, evidence.id).expect("evidence get"),
+            Some(evidence)
+        );
+    }
+
+    #[test]
+    fn evidence_kind_persists_without_domain_serde() {
+        let store = SqliteStore::in_memory().expect("test setup");
+        let command = Evidence {
+            id: EvidenceId::new(31),
+            artifact_id: ArtifactId::new(1),
+            claim_id: None,
+            kind: EvidenceKind::CommandOutput {
+                harness_run: HarnessRunId::new(8),
+                stream: OutputStream::Stderr,
+                blob: BlobId::new(9),
+            },
+            excerpt: "stderr excerpt".to_string(),
+            observed_at: LogicalTick::new(5),
+        };
+        let validation = Evidence {
+            id: EvidenceId::new(32),
+            artifact_id: ArtifactId::new(1),
+            claim_id: None,
+            kind: EvidenceKind::Validation {
+                report_id: ValidationReportId::new(10),
+            },
+            excerpt: "validation excerpt".to_string(),
+            observed_at: LogicalTick::new(6),
+        };
+
+        EvidenceRepository::put(&store, command.clone()).expect("command evidence put");
+        EvidenceRepository::put(&store, validation.clone()).expect("validation evidence put");
+
+        assert_eq!(
+            EvidenceRepository::list_for_artifact(&store, ArtifactId::new(1))
+                .expect("evidence list"),
+            vec![command, validation]
         );
     }
 

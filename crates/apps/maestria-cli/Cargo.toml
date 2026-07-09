@@ -5,6 +5,7 @@ edition = "2024"
 publish = false
 
 [dependencies]
+maestria-core = { path = "../../core/maestria-core" }
 maestria-domain = { path = "../../kernel/maestria-domain" }
 maestria-governance = { path = "../../kernel/maestria-governance" }
 maestria-blob-fs = { path = "../../storage/maestria-blob-fs" }

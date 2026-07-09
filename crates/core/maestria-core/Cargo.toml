@@ -1,0 +1,9 @@
+[package]
+name = "maestria-core"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+maestria-domain = { path = "../../kernel/maestria-domain" }
+maestria-ports = { path = "../../kernel/maestria-ports" }

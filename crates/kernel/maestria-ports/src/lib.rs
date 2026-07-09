@@ -15,8 +15,8 @@ use std::{
 };
 
 use maestria_domain::{
-    Artifact, ArtifactId, BlobId, ChunkId, CreateCardInput, DomainEvent, DomainEventEnvelope,
-    HarnessRunId,
+    Artifact, ArtifactId, BlobId, Card, CardId, Chunk, ChunkId, CreateCardInput, DomainEvent,
+    DomainEventEnvelope, Evidence, EvidenceId, HarnessRunId,
 };
 
 pub const PORTS_VERSION: &str = "0.1.0";
@@ -52,6 +52,24 @@ pub struct EventFilter {
 pub trait ArtifactRepository: Send + Sync {
     fn get(&self, artifact_id: ArtifactId) -> Result<Option<Artifact>, PortError>;
     fn put(&self, artifact: Artifact) -> Result<(), PortError>;
+}
+
+pub trait ChunkRepository: Send + Sync {
+    fn get(&self, chunk_id: ChunkId) -> Result<Option<Chunk>, PortError>;
+    fn put(&self, chunk: Chunk) -> Result<(), PortError>;
+    fn list_for_artifact(&self, artifact_id: ArtifactId) -> Result<Vec<Chunk>, PortError>;
+}
+
+pub trait CardRepository: Send + Sync {
+    fn get(&self, card_id: CardId) -> Result<Option<Card>, PortError>;
+    fn put(&self, card: Card) -> Result<(), PortError>;
+    fn list_for_artifact(&self, artifact_id: ArtifactId) -> Result<Vec<Card>, PortError>;
+}
+
+pub trait EvidenceRepository: Send + Sync {
+    fn get(&self, evidence_id: EvidenceId) -> Result<Option<Evidence>, PortError>;
+    fn put(&self, evidence: Evidence) -> Result<(), PortError>;
+    fn list_for_artifact(&self, artifact_id: ArtifactId) -> Result<Vec<Evidence>, PortError>;
 }
 
 pub trait EventLog: Send + Sync {
@@ -177,6 +195,125 @@ pub struct InMemoryArtifactRepository {
 impl InMemoryArtifactRepository {
     pub fn new() -> Self {
         Self::default()
+    }
+}
+
+#[derive(Clone, Default)]
+pub struct InMemoryChunkRepository {
+    chunks: Arc<Mutex<BTreeMap<ChunkId, Chunk>>>,
+}
+
+impl InMemoryChunkRepository {
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
+
+impl ChunkRepository for InMemoryChunkRepository {
+    fn get(&self, chunk_id: ChunkId) -> Result<Option<Chunk>, PortError> {
+        let guard = self.chunks.lock().map_err(|_| PortError::Internal {
+            message: "chunk store lock poisoned".to_string(),
+        })?;
+        Ok(guard.get(&chunk_id).cloned())
+    }
+
+    fn put(&self, chunk: Chunk) -> Result<(), PortError> {
+        let mut guard = self.chunks.lock().map_err(|_| PortError::Internal {
+            message: "chunk store lock poisoned".to_string(),
+        })?;
+        guard.insert(chunk.id, chunk);
+        Ok(())
+    }
+
+    fn list_for_artifact(&self, artifact_id: ArtifactId) -> Result<Vec<Chunk>, PortError> {
+        let guard = self.chunks.lock().map_err(|_| PortError::Internal {
+            message: "chunk store lock poisoned".to_string(),
+        })?;
+        let mut chunks = guard
+            .values()
+            .filter(|chunk| chunk.artifact_id == artifact_id)
+            .cloned()
+            .collect::<Vec<_>>();
+        chunks.sort_by_key(|chunk| (chunk.order, chunk.id));
+        Ok(chunks)
+    }
+}
+
+#[derive(Clone, Default)]
+pub struct InMemoryCardRepository {
+    cards: Arc<Mutex<BTreeMap<CardId, Card>>>,
+}
+
+impl InMemoryCardRepository {
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
+
+impl CardRepository for InMemoryCardRepository {
+    fn get(&self, card_id: CardId) -> Result<Option<Card>, PortError> {
+        let guard = self.cards.lock().map_err(|_| PortError::Internal {
+            message: "card store lock poisoned".to_string(),
+        })?;
+        Ok(guard.get(&card_id).cloned())
+    }
+
+    fn put(&self, card: Card) -> Result<(), PortError> {
+        let mut guard = self.cards.lock().map_err(|_| PortError::Internal {
+            message: "card store lock poisoned".to_string(),
+        })?;
+        guard.insert(card.id, card);
+        Ok(())
+    }
+
+    fn list_for_artifact(&self, artifact_id: ArtifactId) -> Result<Vec<Card>, PortError> {
+        let guard = self.cards.lock().map_err(|_| PortError::Internal {
+            message: "card store lock poisoned".to_string(),
+        })?;
+        Ok(guard
+            .values()
+            .filter(|card| card.artifact_id == artifact_id)
+            .cloned()
+            .collect())
+    }
+}
+
+#[derive(Clone, Default)]
+pub struct InMemoryEvidenceRepository {
+    evidences: Arc<Mutex<BTreeMap<EvidenceId, Evidence>>>,
+}
+
+impl InMemoryEvidenceRepository {
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
+
+impl EvidenceRepository for InMemoryEvidenceRepository {
+    fn get(&self, evidence_id: EvidenceId) -> Result<Option<Evidence>, PortError> {
+        let guard = self.evidences.lock().map_err(|_| PortError::Internal {
+            message: "evidence store lock poisoned".to_string(),
+        })?;
+        Ok(guard.get(&evidence_id).cloned())
+    }
+
+    fn put(&self, evidence: Evidence) -> Result<(), PortError> {
+        let mut guard = self.evidences.lock().map_err(|_| PortError::Internal {
+            message: "evidence store lock poisoned".to_string(),
+        })?;
+        guard.insert(evidence.id, evidence);
+        Ok(())
+    }
+
+    fn list_for_artifact(&self, artifact_id: ArtifactId) -> Result<Vec<Evidence>, PortError> {
+        let guard = self.evidences.lock().map_err(|_| PortError::Internal {
+            message: "evidence store lock poisoned".to_string(),
+        })?;
+        Ok(guard
+            .values()
+            .filter(|evidence| evidence.artifact_id == artifact_id)
+            .cloned()
+            .collect())
     }
 }
 
@@ -460,7 +597,10 @@ impl HarnessAdapter for InMemoryHarnessAdapter {
 #[cfg(any(test, feature = "contract-tests"))]
 pub mod contract_tests {
     use super::*;
-    use maestria_domain::{ContentRange, EventId, EvidenceId, EvidenceKind, SequenceNumber};
+    use maestria_domain::{
+        ClaimId, ContentRange, EventId, EvidenceKind, LogicalTick, SequenceNumber,
+        ValidationReportId,
+    };
 
     pub fn sample_artifact(id: u64) -> Artifact {
         Artifact {
@@ -486,6 +626,147 @@ pub mod contract_tests {
             repository
                 .get(ArtifactId::new(99))
                 .expect("missing artifact get"),
+            None
+        );
+    }
+
+    pub fn assert_chunk_repository_round_trip(repository: &impl ChunkRepository) {
+        let first = Chunk {
+            id: ChunkId::new(10),
+            artifact_id: ArtifactId::new(1),
+            order: 2,
+            text: "second".to_string(),
+        };
+        let second = Chunk {
+            id: ChunkId::new(11),
+            artifact_id: ArtifactId::new(1),
+            order: 1,
+            text: "first".to_string(),
+        };
+        let unrelated = Chunk {
+            id: ChunkId::new(12),
+            artifact_id: ArtifactId::new(2),
+            order: 0,
+            text: "other".to_string(),
+        };
+
+        repository.put(first.clone()).expect("first chunk put");
+        repository.put(second.clone()).expect("second chunk put");
+        repository.put(unrelated).expect("unrelated chunk put");
+
+        assert_eq!(
+            repository.get(first.id).expect("chunk get"),
+            Some(first.clone())
+        );
+        assert_eq!(
+            repository
+                .list_for_artifact(ArtifactId::new(1))
+                .expect("chunk list"),
+            vec![second, first]
+        );
+        assert_eq!(
+            repository.get(ChunkId::new(99)).expect("missing chunk get"),
+            None
+        );
+    }
+
+    pub fn assert_card_repository_round_trip(repository: &impl CardRepository) {
+        let first = Card {
+            id: CardId::new(20),
+            artifact_id: ArtifactId::new(1),
+            title: "bravo".to_string(),
+            body: "body b".to_string(),
+            claim_ids: [ClaimId::new(3), ClaimId::new(1)].into(),
+        };
+        let second = Card {
+            id: CardId::new(21),
+            artifact_id: ArtifactId::new(1),
+            title: "alpha".to_string(),
+            body: "body a".to_string(),
+            claim_ids: Default::default(),
+        };
+        let unrelated = Card {
+            id: CardId::new(22),
+            artifact_id: ArtifactId::new(2),
+            title: "other".to_string(),
+            body: "body".to_string(),
+            claim_ids: Default::default(),
+        };
+
+        repository.put(first.clone()).expect("first card put");
+        repository.put(second.clone()).expect("second card put");
+        repository.put(unrelated).expect("unrelated card put");
+
+        assert_eq!(
+            repository.get(first.id).expect("card get"),
+            Some(first.clone())
+        );
+        assert_eq!(
+            repository
+                .list_for_artifact(ArtifactId::new(1))
+                .expect("card list"),
+            vec![first, second]
+        );
+        assert_eq!(
+            repository.get(CardId::new(99)).expect("missing card get"),
+            None
+        );
+    }
+
+    pub fn assert_evidence_repository_round_trip(repository: &impl EvidenceRepository) {
+        let file = Evidence {
+            id: EvidenceId::new(40),
+            artifact_id: ArtifactId::new(1),
+            claim_id: Some(ClaimId::new(7)),
+            kind: EvidenceKind::FileSpan {
+                path: "notes.md".to_string(),
+                range: ContentRange { start: 1, end: 4 },
+                content_hash: "sha256:notes".to_string(),
+            },
+            excerpt: "source excerpt".to_string(),
+            observed_at: LogicalTick::new(9),
+        };
+        let validation = Evidence {
+            id: EvidenceId::new(41),
+            artifact_id: ArtifactId::new(1),
+            claim_id: None,
+            kind: EvidenceKind::Validation {
+                report_id: ValidationReportId::new(5),
+            },
+            excerpt: "validated".to_string(),
+            observed_at: LogicalTick::new(10),
+        };
+        let unrelated = Evidence {
+            id: EvidenceId::new(42),
+            artifact_id: ArtifactId::new(2),
+            claim_id: None,
+            kind: EvidenceKind::Validation {
+                report_id: ValidationReportId::new(6),
+            },
+            excerpt: "other".to_string(),
+            observed_at: LogicalTick::new(11),
+        };
+
+        repository.put(file.clone()).expect("file evidence put");
+        repository
+            .put(validation.clone())
+            .expect("validation evidence put");
+        repository.put(unrelated).expect("unrelated evidence put");
+
+        assert_eq!(
+            repository.get(file.id).expect("evidence get"),
+            Some(file.clone())
+        );
+        assert_eq!(
+            repository
+                .list_for_artifact(ArtifactId::new(1))
+                .expect("evidence list"),
+            vec![file, validation]
+        );
+        assert_eq!(
+            repository
+                .get(EvidenceId::new(99))
+                .expect("missing evidence get"),
             None
         );
     }
@@ -685,6 +966,21 @@ mod tests {
     #[test]
     fn in_memory_artifact_repository_satisfies_contract() {
         assert_artifact_repository_round_trip(&InMemoryArtifactRepository::new());
+    }
+
+    #[test]
+    fn in_memory_chunk_repository_satisfies_contract() {
+        assert_chunk_repository_round_trip(&InMemoryChunkRepository::new());
+    }
+
+    #[test]
+    fn in_memory_card_repository_satisfies_contract() {
+        assert_card_repository_round_trip(&InMemoryCardRepository::new());
+    }
+
+    #[test]
+    fn in_memory_evidence_repository_satisfies_contract() {
+        assert_evidence_repository_round_trip(&InMemoryEvidenceRepository::new());
     }
 
     #[test]
