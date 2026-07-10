@@ -564,10 +564,9 @@ impl VectorIndex for InMemoryVectorIndex {
                 score,
             });
         }
-        hits.sort_by(|a, b| {
-            b.score
-                .partial_cmp(&a.score)
-                .unwrap_or(std::cmp::Ordering::Equal)
+        hits.sort_by(|a, b| match b.score.partial_cmp(&a.score) {
+            Some(ordering) => ordering,
+            None => std::cmp::Ordering::Equal,
         });
         hits.truncate(query.limit as usize);
         Ok(hits)
