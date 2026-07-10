@@ -24,6 +24,7 @@ members = [
     "crates/storage/maestria-blob-fs",
     "crates/storage/maestria-search-tantivy",
     "crates/storage/maestria-storage-sqlite",
+    "crates/storage/maestria-vector-sqlite",
 ]
 
 [workspace.package]
