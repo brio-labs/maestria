@@ -13,6 +13,7 @@
 - [ ] `cargo test --workspace --all-targets --all-features`
 - [ ] `cargo doc --workspace --no-deps --all-features` with `RUSTDOCFLAGS="-D warnings"`
 - [ ] `python3 scripts/philosophy-check.py`
+- [ ] `python3 -m unittest discover -s scripts -p 'test_*.py'`
 
 ## Human checks
 

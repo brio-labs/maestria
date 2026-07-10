@@ -85,5 +85,19 @@ class PhilosophyCheckTests(unittest.TestCase):
             )
 
 
+
+    def test_rust_size_limits_are_enforced(self) -> None:
+        self.assertEqual(
+            PHILOSOPHY_CHECK.rust_size_violations("src/domain.rs", 1201, 1001, False),
+            [
+                "src/domain.rs has 1201 Rust lines; split the module (maximum 1200)",
+                "src/domain.rs has 1001 production Rust lines; split the module by responsibility (maximum 1000)",
+            ],
+        )
+        self.assertEqual(
+            PHILOSOPHY_CHECK.rust_size_violations("src/tests.rs", 1201, 1201, True),
+            ["src/tests.rs has 1201 Rust lines; split the module (maximum 1200)"],
+        )
+
 if __name__ == "__main__":
     unittest.main()

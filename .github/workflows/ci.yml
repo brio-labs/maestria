@@ -274,5 +274,7 @@ jobs:
     if: github.event_name != 'pull_request' || needs.changes.outputs.philosophy == 'true' || needs.changes.outputs.rust == 'true'
     steps:
       - uses: actions/checkout@v7.0.0
-      - name: Verify philosophy markers
-        run: python3 scripts/philosophy-check.py
+      - name: Verify philosophy and quality checks
+        run: |
+          python3 -m unittest discover -s scripts -p 'test_*.py'
+          python3 scripts/philosophy-check.py

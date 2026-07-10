@@ -41,6 +41,7 @@ rustup component add rustfmt clippy
    cargo machete
    cargo tree --duplicates
    python3 scripts/philosophy-check.py
+   python3 -m unittest discover -s scripts -p 'test_*.py'
    ```
 5. Update docs (`README.md`, `docs/PHILOSOPHY.md`, or `docs/SPECS.md`) when behavior or invariants
    change.
@@ -51,6 +52,7 @@ rustup component add rustfmt clippy
 - **No implicit I/O in core logic:** file / process / network work belongs in adapters.
 - **Explicitness over magic:** gate decisions should be visible in the API and tests.
 - **Small and boring:** prefer straightforward types and explicit data over abstraction layers.
+- **Module boundaries:** production Rust modules are limited to 1,000 lines and every Rust file to 1,200 lines; split by cohesive responsibility when a limit is reached.
 
 ## Commit message format
 

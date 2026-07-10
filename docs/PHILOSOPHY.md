@@ -16,6 +16,8 @@ This document is enforceable. CI and review block violations.
 10. Kernel crates cannot depend on adapter/runtime/provider crates such as Tokio, SQLx, reqwest, Tantivy, or Axum.
 11. Domain production code must not contain `unwrap`, `expect`, or `panic` paths.
 12. Bare task markers are not allowed in source, config, or docs.
+13. Production Rust modules must stay at or below 1,000 lines; every Rust file, including tests, must stay at or below 1,200 lines. Split oversized code by cohesive responsibility instead of suppressing the check.
+14. A module must own one cohesive responsibility. Public façades may re-export private modules, but size-limit exceptions and blanket `#[allow]` suppressions are not permitted.
 
 ## Enforcement
 
