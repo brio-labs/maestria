@@ -41,6 +41,7 @@ rustup component add rustfmt clippy
    cargo machete
    cargo tree --duplicates
    python3 scripts/philosophy-check.py
+   python3 -m unittest discover -s scripts -p 'test_*.py'
    ```
 5. Update docs (`README.md`, `docs/PHILOSOPHY.md`, or `docs/SPECS.md`) when behavior or invariants
    change.
@@ -51,6 +52,7 @@ rustup component add rustfmt clippy
 - **No implicit I/O in core logic:** file / process / network work belongs in adapters.
 - **Explicitness over magic:** gate decisions should be visible in the API and tests.
 - **Small and boring:** prefer straightforward types and explicit data over abstraction layers.
+- **Module boundaries:** each module owns one named responsibility at one architectural layer. Split when a second independently testable concept, representation, lifecycle, or contract appears; use typed APIs, traits, and effects across boundaries instead of appending unrelated code. Public façades expose stable boundaries and re-export implementations.
 
 ## Commit message format
 

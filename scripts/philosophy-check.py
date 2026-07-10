@@ -51,6 +51,7 @@ def production_rust(text: str) -> str:
     return text.split("#[cfg(test)]", 1)[0]
 
 
+
 def scan_markers() -> list[str]:
     violations = []
     for candidate in ROOT.rglob("*"):
