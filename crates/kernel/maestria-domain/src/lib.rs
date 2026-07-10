@@ -2318,6 +2318,13 @@ impl KernelState {
                         to: *from,
                     });
                 }
+                if *from == *to && !from.is_completion() {
+                    return Err(DomainError::InvalidTaskTransition {
+                        task_id: *task_id,
+                        from: *from,
+                        to: *to,
+                    });
+                }
                 if *from != *to {
                     if to.is_completion() {
                         return Err(DomainError::ValidationRequired { task_id: *task_id });

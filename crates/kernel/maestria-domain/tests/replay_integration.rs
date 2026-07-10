@@ -200,6 +200,43 @@ fn replay_accepts_legacy_completion_noop_status_events() -> Result<(), DomainErr
     );
     Ok(())
 }
+
+#[test]
+fn replay_rejects_noncompletion_noop_status_events() -> Result<(), DomainError> {
+    let mut state = KernelState::new();
+    state.apply_event(DomainEventEnvelope {
+        id: EventId::new(1),
+        sequence: SequenceNumber::new(1),
+        event: DomainEvent::TaskOpened {
+            task_id: TaskId::new(1),
+            title: "task".to_string(),
+            priority: TaskPriority::Normal,
+            artifact_id: None,
+        },
+    })?;
+
+    let error = state
+        .apply_event(DomainEventEnvelope {
+            id: EventId::new(2),
+            sequence: SequenceNumber::new(2),
+            event: DomainEvent::TaskStatusChanged {
+                task_id: TaskId::new(1),
+                from: TaskStatus::Draft,
+                to: TaskStatus::Draft,
+            },
+        })
+        .expect_err("noncompletion no-op status events must be rejected");
+    assert!(matches!(
+        error,
+        DomainError::InvalidTaskTransition {
+            task_id: TaskId(1),
+            from: TaskStatus::Draft,
+            to: TaskStatus::Draft,
+        }
+    ));
+    assert_eq!(state.event_log.len(), 1);
+    Ok(())
+}
 #[test]
 fn test_out_of_order_sequence_rejection() -> Result<(), DomainError> {
     let mut state = KernelState::new();
