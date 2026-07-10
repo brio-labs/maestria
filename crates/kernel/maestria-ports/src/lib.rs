@@ -16,7 +16,8 @@ use std::{
 
 use maestria_domain::{
     Artifact, ArtifactId, BlobId, Card, CardId, Chunk, ChunkId, CreateCardInput, DomainEvent,
-    DomainEventEnvelope, Evidence, EvidenceId, HarnessRunId,
+    DomainEventEnvelope, Evidence, EvidenceId, HarnessRunId, Relation, RelationEndpoint,
+    RelationId, RelationKind,
 };
 
 pub const PORTS_VERSION: &str = "0.1.0";
@@ -620,6 +621,43 @@ fn validate_vector_values(vector: &[f32], label: &str) -> Result<(), PortError> 
     Ok(())
 }
 
+pub trait GraphIndex: Send + Sync {
+    fn insert_relation(&self, relation: Relation) -> Result<(), PortError>;
+    fn get_relations_for(&self, endpoint: RelationEndpoint) -> Result<Vec<Relation>, PortError>;
+}
+
+#[derive(Clone, Default)]
+pub struct InMemoryGraphIndex {
+    relations: Arc<Mutex<BTreeMap<RelationId, Relation>>>,
+}
+
+impl InMemoryGraphIndex {
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
+
+impl GraphIndex for InMemoryGraphIndex {
+    fn insert_relation(&self, relation: Relation) -> Result<(), PortError> {
+        let mut guard = self.relations.lock().map_err(|_| PortError::Internal {
+            message: "graph index lock poisoned".to_string(),
+        })?;
+        guard.insert(relation.id, relation);
+        Ok(())
+    }
+
+    fn get_relations_for(&self, endpoint: RelationEndpoint) -> Result<Vec<Relation>, PortError> {
+        let guard = self.relations.lock().map_err(|_| PortError::Internal {
+            message: "graph index lock poisoned".to_string(),
+        })?;
+        Ok(guard
+            .values()
+            .filter(|r| r.source == endpoint || r.target == endpoint)
+            .cloned()
+            .collect())
+    }
+}
+
 #[derive(Clone)]
 pub struct InMemoryParser;
 
@@ -1194,8 +1232,64 @@ pub mod contract_tests {
             Err(PortError::InvalidInput { .. })
         ));
     }
-}
+    pub fn assert_graph_index_contract(index: &impl GraphIndex) {
+        let artifact_ep = RelationEndpoint::Artifact(ArtifactId::new(1));
+        let card_ep = RelationEndpoint::Card(CardId::new(2));
+        let claim_ep = RelationEndpoint::Claim(ClaimId::new(3));
 
+        let mut rel3 = Relation {
+            id: RelationId::new(3),
+            source: artifact_ep,
+            target: card_ep,
+            kind: RelationKind::Contains,
+            evidence_id: None,
+            confidence_milli: 800,
+        };
+        let rel1 = Relation {
+            id: RelationId::new(1),
+            source: card_ep,
+            target: claim_ep,
+            kind: RelationKind::Supports,
+            evidence_id: Some(EvidenceId::new(4)),
+            confidence_milli: 900,
+        };
+        let rel2 = Relation {
+            id: RelationId::new(2),
+            source: artifact_ep,
+            target: claim_ep,
+            kind: RelationKind::Contradicts,
+            evidence_id: None,
+            confidence_milli: 500,
+        };
+
+        // Insert out of order
+        index.insert_relation(rel3.clone()).expect("insert 3");
+        index.insert_relation(rel1.clone()).expect("insert 1");
+        index.insert_relation(rel2.clone()).expect("insert 2");
+
+        // Replace 3
+        rel3.confidence_milli = 950;
+        index.insert_relation(rel3.clone()).expect("replace 3");
+
+        // Query for artifact_ep, which is in rel3 (source) and rel2 (source)
+        // Must be returned in order of RelationId: rel2 then rel3
+        let artifact_rels = index
+            .get_relations_for(artifact_ep)
+            .expect("get relations for artifact");
+        assert_eq!(artifact_rels.len(), 2);
+        assert_eq!(artifact_rels[0], rel2);
+        assert_eq!(artifact_rels[1], rel3);
+
+        // Query for claim_ep, which is in rel1 (target) and rel2 (target)
+        // Must be returned in order of RelationId: rel1 then rel2
+        let claim_rels = index
+            .get_relations_for(claim_ep)
+            .expect("get relations for claim");
+        assert_eq!(claim_rels.len(), 2);
+        assert_eq!(claim_rels[0], rel1);
+        assert_eq!(claim_rels[1], rel2);
+    }
+}
 #[cfg(test)]
 mod tests {
     use super::contract_tests::*;
@@ -1249,5 +1343,10 @@ mod tests {
     #[test]
     fn in_memory_harness_adapter_satisfies_contract() {
         assert_harness_adapter_round_trip(&InMemoryHarnessAdapter::new());
+    }
+
+    #[test]
+    fn in_memory_graph_index_satisfies_contract() {
+        assert_graph_index_contract(&InMemoryGraphIndex::new());
     }
 }
