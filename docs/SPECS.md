@@ -12,6 +12,8 @@ This ledger names the invariants that bootstrap code and future crates must pres
 | `I-Event-AuditTrail` | State changes emit append-only domain events. Replaying the event log must deterministically reconstruct exact KernelState, rejecting duplicate/invalid events. |
 | `I-Evidence-Immutable` | Evidence is immutable and points to stable source spans, snapshots, blobs, command logs, diffs, tests, or validation reports. |
 | `I-Evidence-Provenance` | Claims, memories, task reports, and answers cite evidence IDs and source provenance. |
+| `I-Ingestion-Idempotent` | Reindexing unchanged content produces no duplicate artifacts, chunks, evidence, or events; incomplete ingestion can be retried without falsely reporting completion. |
+| `I-Task-Workspace` | A task workspace is prepared under the instance workspace before the task is persisted. |
 | `I-Memory-CandidateGate` | LLM/model output can create memory candidates, not promoted memory. |
 | `I-Memory-SourceBacked` | Promoted memory requires evidence and a promotion decision. |
 | `I-Task-StateMachine` | Task states transition only through domain functions and emitted events. |

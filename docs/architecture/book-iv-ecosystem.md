@@ -14,6 +14,8 @@ authoritative truth. Domain truth remains in the kernel model.
 1. `I-Storage-ProjectionOnly` — projections support, not replace, domain truth.
 2. `I-DTO-Boundary` — boundary DTOs remain isolated from domain primitives.
 3. `I-Dependency-Layered` — avoid cyclic and backwards dependencies into kernel mechanism.
+4. `I-Ingestion-Idempotent` — unchanged source content is a no-op, and incomplete ingestion is retryable without false completion.
+5. `I-Task-Workspace` — task workspace directories are prepared before task persistence.
 
 ## Interfaces and boundaries
 
