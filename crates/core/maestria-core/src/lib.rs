@@ -17,7 +17,8 @@ use maestria_domain::{
 };
 use maestria_ports::{
     ArtifactRepository, BlobStore, CardRepository, ChunkRepository, EventFilter, EventLog,
-    FileHandle, FileMetadata, FullTextIndex, IndexedChunk, Parser, PortError, SearchQuery,
+    FileHandle, FileMetadata, FullTextIndex, IndexedChunk, ParsedArtifact, Parser, PortError,
+    SearchQuery,
 };
 
 pub const CORE_VERSION: &str = "0.1.0";
@@ -175,7 +176,6 @@ impl<'a> CoreServices<'a> {
             None => artifact_id_for(&input.path, &input.bytes),
         };
         let content_hash = content_hash(&input.bytes);
-        let blob_id = self.ports.blobs.put(input.bytes.clone())?;
         let parsed = self.ports.parser.parse(
             FileHandle {
                 path: input.path.clone(),
@@ -183,6 +183,67 @@ impl<'a> CoreServices<'a> {
             },
             maestria_ports::ParseContext { artifact_id },
         )?;
+        if parsed.chunks.is_empty() {
+            return Err(CoreError::InvalidInput {
+                message: "parser returned no chunks for non-empty input".to_string(),
+            });
+        }
+        let blob_id = self.ports.blobs.put(input.bytes.clone())?;
+        if let Some(existing_artifact) = self.ports.artifacts.get(artifact_id)? {
+            let existing_chunks = self.ports.chunks.list_for_artifact(artifact_id)?;
+            let existing_cards = self.ports.cards.list_for_artifact(artifact_id)?;
+            let existing_evidence = self.ports.evidence.list_for_artifact(artifact_id)?;
+            let events = self.ports.events.scan(EventFilter { artifact_id: None })?;
+            if Self::ingestion_is_complete(
+                IngestionCheck {
+                    artifact: &existing_artifact,
+                    chunks: &existing_chunks,
+                    cards: &existing_cards,
+                    evidence: &existing_evidence,
+                    events: &events,
+                },
+                &parsed,
+                &input.path,
+                &content_hash,
+            ) {
+                return Ok(IngestFileOutput {
+                    artifact: existing_artifact,
+                    chunks: existing_chunks,
+                    evidence: existing_evidence,
+                    blob_id,
+                    content_hash,
+                    unchanged: true,
+                });
+            }
+            let has_different_content = existing_evidence.iter().any(|evidence| {
+                matches!(
+                    &evidence.kind,
+                    EvidenceKind::FileSpan {
+                        content_hash: existing_hash,
+                        ..
+                    } if existing_hash != &content_hash
+                )
+            });
+            let has_completed_event = events.iter().any(|envelope| {
+                matches!(
+                    envelope.event,
+                    DomainEvent::ArtifactParsed {
+                        artifact_id: parsed_artifact_id,
+                        ..
+                    } if parsed_artifact_id == artifact_id
+                )
+            });
+            if input.artifact_id.is_some()
+                && (has_different_content || (has_completed_event && existing_evidence.is_empty()))
+            {
+                return Err(CoreError::InvalidInput {
+                    message: format!(
+                        "artifact {} already contains a different or untraceable content version",
+                        artifact_id
+                    ),
+                });
+            }
+        }
 
         let title = title_for_path(&input.path);
         let mut artifact = Artifact {
@@ -214,7 +275,7 @@ impl<'a> CoreServices<'a> {
             };
             let range = line_range_for_chunk(&source_text, &chunk.text, &mut search_start);
             let evidence_id = evidence_id_for(artifact_id, order);
-            let evidence = Evidence {
+            let proposed_evidence = Evidence {
                 id: evidence_id,
                 artifact_id,
                 claim_id: None,
@@ -225,6 +286,17 @@ impl<'a> CoreServices<'a> {
                 },
                 excerpt: excerpt_for(&chunk.text),
                 observed_at: input.observed_at,
+            };
+            let evidence = match self.ports.evidence.get(evidence_id)? {
+                Some(existing)
+                    if existing.artifact_id == proposed_evidence.artifact_id
+                        && existing.claim_id == proposed_evidence.claim_id
+                        && existing.kind == proposed_evidence.kind
+                        && existing.excerpt == proposed_evidence.excerpt =>
+                {
+                    existing
+                }
+                _ => proposed_evidence,
             };
 
             self.ports.chunks.put(chunk.clone())?;
@@ -286,6 +358,7 @@ impl<'a> CoreServices<'a> {
             evidence: persisted_evidence,
             blob_id,
             content_hash,
+            unchanged: false,
         })
     }
 
@@ -370,6 +443,12 @@ impl<'a> CoreServices<'a> {
 
     fn append_event(&self, event: DomainEvent) -> CoreResult<DomainEventEnvelope> {
         let events = self.ports.events.scan(EventFilter { artifact_id: None })?;
+        if let Some(existing) = events
+            .iter()
+            .find(|envelope| same_event_identity(&envelope.event, &event))
+        {
+            return Ok(existing.clone());
+        }
         let latest_sequence = events.iter().map(|event| event.sequence.value()).max();
         let next = match latest_sequence {
             Some(sequence) => sequence.saturating_add(1),
@@ -383,6 +462,157 @@ impl<'a> CoreServices<'a> {
         self.ports.events.append(envelope.clone())?;
         Ok(envelope)
     }
+    fn ingestion_is_complete(
+        existing: IngestionCheck<'_>,
+        parsed: &ParsedArtifact,
+        path: &Path,
+        content_hash: &str,
+    ) -> bool {
+        let IngestionCheck {
+            artifact,
+            chunks,
+            cards,
+            evidence,
+            events,
+        } = existing;
+        if parsed.chunks.is_empty() {
+            return false;
+        }
+        let source_path = path.display().to_string();
+        if artifact.title != title_for_path(path)
+            || artifact.chunk_ids.len() != parsed.chunks.len()
+            || artifact.card_ids.len() != parsed.cards.len()
+            || artifact.evidence_ids.len() != parsed.chunks.len()
+            || chunks.len() != parsed.chunks.len()
+            || cards.len() != parsed.cards.len()
+            || evidence.len() != parsed.chunks.len()
+        {
+            return false;
+        }
+
+        for (order, expected) in parsed.chunks.iter().enumerate() {
+            let Some(chunk) = chunks.iter().find(|chunk| chunk.id == expected.chunk_id) else {
+                return false;
+            };
+            if chunk.artifact_id != artifact.id
+                || chunk.order != order as u32
+                || chunk.text != expected.text
+                || !artifact.chunk_ids.contains(&chunk.id)
+            {
+                return false;
+            }
+
+            let expected_evidence_id = evidence_id_for(artifact.id, order as u32);
+            let Some(source_evidence) =
+                evidence.iter().find(|item| item.id == expected_evidence_id)
+            else {
+                return false;
+            };
+            if !artifact.evidence_ids.contains(&source_evidence.id)
+                || source_evidence.artifact_id != artifact.id
+                || !matches!(
+                    &source_evidence.kind,
+                    EvidenceKind::FileSpan {
+                        path,
+                        content_hash: existing_hash,
+                        ..
+                    } if path == &source_path && existing_hash == content_hash
+                )
+            {
+                return false;
+            }
+        }
+
+        for expected in &parsed.cards {
+            let Some(card) = cards.iter().find(|card| card.id == expected.card_id) else {
+                return false;
+            };
+            if card.artifact_id != artifact.id
+                || card.title != expected.title
+                || card.body != expected.body
+                || !artifact.card_ids.contains(&card.id)
+            {
+                return false;
+            }
+        }
+
+        let has_event = |predicate: &dyn Fn(&DomainEvent) -> bool| {
+            events.iter().any(|envelope| predicate(&envelope.event))
+        };
+        if !has_event(&|event| {
+            matches!(
+                event,
+                DomainEvent::ArtifactRegistered {
+                    artifact_id,
+                    title
+                } if *artifact_id == artifact.id && title == &artifact.title
+            )
+        }) || !has_event(&|event| {
+            matches!(
+                event,
+                DomainEvent::ArtifactParsed {
+                    artifact_id,
+                    chunks_added
+                } if *artifact_id == artifact.id && *chunks_added == parsed.chunks.len() as u32
+            )
+        }) {
+            return false;
+        }
+
+        for (order, expected) in parsed.chunks.iter().enumerate() {
+            if !has_event(&|event| {
+                matches!(
+                    event,
+                    DomainEvent::ChunkRegistered {
+                        chunk_id,
+                        artifact_id,
+                        order: event_order,
+                        text
+                    } if *chunk_id == expected.chunk_id
+                        && *artifact_id == artifact.id
+                        && *event_order == order as u32
+                        && text == &expected.text
+                )
+            }) || !has_event(&|event| {
+                matches!(
+                    event,
+                    DomainEvent::EvidenceRecorded {
+                        evidence_id,
+                        artifact_id,
+                        ..
+                    } if *evidence_id == evidence_id_for(artifact.id, order as u32)
+                        && *artifact_id == artifact.id
+                )
+            }) {
+                return false;
+            }
+        }
+
+        parsed.cards.iter().all(|expected| {
+            has_event(&|event| {
+                matches!(
+                    event,
+                    DomainEvent::CardCreated {
+                        card_id,
+                        artifact_id,
+                        title,
+                        body
+                    } if *card_id == expected.card_id
+                        && *artifact_id == artifact.id
+                        && title == &expected.title
+                        && body == &expected.body
+                )
+            })
+        })
+    }
+}
+
+struct IngestionCheck<'a> {
+    artifact: &'a Artifact,
+    chunks: &'a [Chunk],
+    cards: &'a [Card],
+    evidence: &'a [Evidence],
+    events: &'a [DomainEventEnvelope],
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -392,6 +622,35 @@ pub struct IngestFileInput {
     pub observed_at: LogicalTick,
     pub artifact_id: Option<ArtifactId>,
 }
+fn same_event_identity(left: &DomainEvent, right: &DomainEvent) -> bool {
+    match (left, right) {
+        (
+            DomainEvent::EvidenceRecorded {
+                evidence_id: left_id,
+                artifact_id: left_artifact_id,
+                claim_id: left_claim_id,
+                kind: left_kind,
+                excerpt: left_excerpt,
+                ..
+            },
+            DomainEvent::EvidenceRecorded {
+                evidence_id: right_id,
+                artifact_id: right_artifact_id,
+                claim_id: right_claim_id,
+                kind: right_kind,
+                excerpt: right_excerpt,
+                ..
+            },
+        ) => {
+            left_id == right_id
+                && left_artifact_id == right_artifact_id
+                && left_claim_id == right_claim_id
+                && left_kind == right_kind
+                && left_excerpt == right_excerpt
+        }
+        _ => left == right,
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IngestFileOutput {
@@ -400,6 +659,7 @@ pub struct IngestFileOutput {
     pub evidence: Vec<Evidence>,
     pub blob_id: maestria_domain::BlobId,
     pub content_hash: String,
+    pub unchanged: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -642,6 +902,41 @@ mod tests {
         assert_eq!(ingested.evidence.len(), 1);
         assert_eq!(ingested.chunks[0].artifact_id, ingested.artifact.id);
         assert_eq!(ingested.evidence[0].artifact_id, ingested.artifact.id);
+        let events_before = maestria_ports::EventLog::scan(
+            &events,
+            maestria_ports::EventFilter { artifact_id: None },
+        )?
+        .len();
+        let repeated = core.ingest_file_from_bytes(IngestFileInput {
+            path: path.clone(),
+            bytes: b"# Project\n\nLocal brain ingestion should find retrieval evidence.".to_vec(),
+            observed_at: LogicalTick::new(8),
+            artifact_id: Some(ArtifactId::new(42)),
+        })?;
+
+        let changed = core.ingest_file_from_bytes(IngestFileInput {
+            path,
+            bytes: b"# Project\n\nA changed source body.".to_vec(),
+            observed_at: LogicalTick::new(9),
+            artifact_id: Some(ArtifactId::new(42)),
+        });
+        assert!(matches!(
+            changed,
+            Err(CoreError::InvalidInput { ref message })
+                if message.contains("different or untraceable")
+        ));
+        assert!(repeated.unchanged);
+        assert_eq!(repeated.artifact, ingested.artifact);
+        assert_eq!(repeated.chunks, ingested.chunks);
+        assert_eq!(repeated.evidence, ingested.evidence);
+        assert_eq!(
+            maestria_ports::EventLog::scan(
+                &events,
+                maestria_ports::EventFilter { artifact_id: None }
+            )?
+            .len(),
+            events_before
+        );
 
         let search = core.search(SearchInput {
             query: "retrieval".to_string(),
