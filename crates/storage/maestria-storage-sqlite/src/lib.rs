@@ -24,7 +24,7 @@ use maestria_ports::{
 use rusqlite::{Connection, ErrorCode, OptionalExtension, Transaction, params};
 use serde::{Deserialize, Serialize};
 
-const CURRENT_SCHEMA_VERSION: i64 = 1;
+const CURRENT_SCHEMA_VERSION: i64 = 2;
 
 /// SQLite-backed implementation of artifact metadata and the domain event log.
 pub struct SqliteStore {
@@ -318,20 +318,65 @@ impl EvidenceRepository for SqliteStore {
 impl EventLog for SqliteStore {
     fn append(&self, event: DomainEventEnvelope) -> Result<(), PortError> {
         let record = StoredEvent::from_domain(&event)?;
-        let connection = self.lock()?;
-        connection
+        let mut connection = self.lock()?;
+        let transaction = connection.transaction().map_err(to_port_error)?;
+        let (count, max_id, max_sequence, mismatched): (i64, Option<i64>, Option<i64>, i64) =
+            transaction
+                .query_row(
+                    "SELECT COUNT(*), MAX(id), MAX(sequence),
+                            COALESCE(SUM(CASE WHEN id != sequence OR id < 1 THEN 1 ELSE 0 END), 0)
+                     FROM domain_events",
+                    [],
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+                )
+                .map_err(to_port_error)?;
+        let count = u64::try_from(count).map_err(|_| PortError::Internal {
+            message: "stored event count is negative".to_string(),
+        })?;
+        if count > 0 {
+            if mismatched != 0 {
+                return Err(PortError::Conflict {
+                    message: "stored event log has mismatched ids and sequences".to_string(),
+                });
+            }
+            let max_id = max_id.ok_or_else(|| PortError::Internal {
+                message: "stored event log has no maximum id".to_string(),
+            })?;
+            let max_sequence = max_sequence.ok_or_else(|| PortError::Internal {
+                message: "stored event log has no maximum sequence".to_string(),
+            })?;
+            let max_id = i64_to_u64(max_id)?;
+            let max_sequence = i64_to_u64(max_sequence)?;
+            if max_id != count || max_sequence != count {
+                return Err(PortError::Conflict {
+                    message: "stored event log is not contiguous".to_string(),
+                });
+            }
+        }
+        let expected_sequence = count + 1;
+        if record.id != expected_sequence || record.sequence != expected_sequence {
+            return Err(PortError::Conflict {
+                message: format!(
+                    "expected event id/sequence {expected_sequence}, got id {}, sequence {}",
+                    record.id, record.sequence
+                ),
+            });
+        }
+        transaction
             .execute(
-                "INSERT INTO domain_events (id, sequence, event_kind, artifact_id, payload_json)\n                 VALUES (?1, ?2, ?3, ?4, ?5)",
+                "INSERT INTO domain_events \
+                     (id, sequence, event_kind, artifact_id, payload_json, payload_version)\n                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
                 params![
                     u64_to_i64(record.id)?,
                     u64_to_i64(record.sequence)?,
                     record.kind,
                     optional_u64_to_i64(record.artifact_id)?,
                     record.payload_json,
+                    record.payload_version,
                 ],
             )
-            .map(|_| ())
-            .map_err(map_append_error)
+            .map_err(map_append_error)?;
+        transaction.commit().map_err(to_port_error)
     }
 
     fn scan(&self, filter: EventFilter) -> Result<Vec<DomainEventEnvelope>, PortError> {
@@ -341,7 +386,7 @@ impl EventLog for SqliteStore {
         if let Some(artifact_id) = filter.artifact_id {
             let mut statement = connection
                 .prepare(
-                    "SELECT id, sequence, event_kind, artifact_id, payload_json\n                     FROM domain_events\n                     WHERE artifact_id = ?1\n                     ORDER BY sequence ASC",
+                    "SELECT id, sequence, event_kind, artifact_id, payload_json, payload_version\n                     FROM domain_events\n                     WHERE artifact_id = ?1\n                     ORDER BY sequence ASC",
                 )
                 .map_err(to_port_error)?;
             let mut rows = statement
@@ -353,7 +398,7 @@ impl EventLog for SqliteStore {
         } else {
             let mut statement = connection
                 .prepare(
-                    "SELECT id, sequence, event_kind, artifact_id, payload_json\n                     FROM domain_events\n                     ORDER BY sequence ASC",
+                    "SELECT id, sequence, event_kind, artifact_id, payload_json, payload_version\n                     FROM domain_events\n                     ORDER BY sequence ASC",
                 )
                 .map_err(to_port_error)?;
             let mut rows = statement.query([]).map_err(to_port_error)?;
@@ -368,6 +413,32 @@ impl EventLog for SqliteStore {
 
 fn migrate(connection: &mut Connection) -> Result<(), PortError> {
     let transaction = connection.transaction().map_err(to_port_error)?;
+
+    let had_schema_version_table = table_exists(&transaction, "schema_version")?;
+    let had_domain_events_table = table_exists(&transaction, "domain_events")?;
+    let had_payload_version_column = if had_domain_events_table {
+        table_has_column(&transaction, "domain_events", "payload_version")?
+    } else {
+        false
+    };
+    let schema_version = if had_schema_version_table {
+        let maybe_version: Option<i64> = transaction
+            .query_row("SELECT MAX(version) FROM schema_version", [], |row| {
+                row.get::<_, Option<i64>>(0)
+            })
+            .map_err(to_port_error)?;
+        match maybe_version {
+            Some(v) => Some(v),
+            None => {
+                return Err(PortError::Internal {
+                    message: "malformed sqlite schema_version table is empty".to_string(),
+                });
+            }
+        }
+    } else {
+        None
+    };
+
     transaction
         .execute_batch(
             "PRAGMA foreign_keys = ON;
@@ -440,28 +511,305 @@ fn migrate(connection: &mut Connection) -> Result<(), PortError> {
                  sequence INTEGER NOT NULL UNIQUE,
                  event_kind TEXT NOT NULL,
                  artifact_id INTEGER,
-                 payload_json TEXT NOT NULL
+                 payload_json TEXT NOT NULL,
+                 payload_version INTEGER NOT NULL DEFAULT 2
              );
              CREATE INDEX IF NOT EXISTS idx_domain_events_artifact_sequence
-                 ON domain_events(artifact_id, sequence);
-             INSERT OR IGNORE INTO schema_version (version) VALUES (1);",
+                 ON domain_events(artifact_id, sequence);",
         )
         .map_err(to_port_error)?;
 
-    let version = transaction
-        .query_row("SELECT MAX(version) FROM schema_version", [], |row| {
-            row.get::<_, i64>(0)
-        })
-        .map_err(to_port_error)?;
-    if version != CURRENT_SCHEMA_VERSION {
-        return Err(PortError::Internal {
-            message: format!(
-                "unsupported sqlite schema version {version}; expected {CURRENT_SCHEMA_VERSION}"
-            ),
-        });
+    match schema_version {
+        Some(1) => {
+            if !had_domain_events_table {
+                return Err(PortError::Internal {
+                    message: "malformed sqlite schema: domain_events table missing".to_string(),
+                });
+            }
+
+            if had_payload_version_column {
+                validate_columns(&transaction, &DOMAIN_EVENTS_V2_COLUMNS)?;
+            } else {
+                validate_columns(&transaction, &DOMAIN_EVENTS_V1_COLUMNS)?;
+                transaction
+                    .execute_batch(
+                        "ALTER TABLE domain_events ADD COLUMN payload_version INTEGER NOT NULL DEFAULT 1;",
+                    )
+                    .map_err(to_port_error)?;
+            }
+
+            transaction
+                .execute(
+                    "INSERT OR IGNORE INTO schema_version (version) VALUES (?1)",
+                    [CURRENT_SCHEMA_VERSION],
+                )
+                .map_err(to_port_error)?;
+        }
+        Some(2) => {
+            if !had_domain_events_table {
+                return Err(PortError::Internal {
+                    message: "malformed sqlite schema: domain_events table missing".to_string(),
+                });
+            }
+            if had_payload_version_column {
+                validate_columns(&transaction, &DOMAIN_EVENTS_V2_COLUMNS)?;
+            } else {
+                return Err(PortError::Internal {
+                    message: "malformed sqlite schema: missing payload_version column".to_string(),
+                });
+            }
+        }
+        Some(version) => {
+            return Err(PortError::Internal {
+                message: format!(
+                    "unsupported sqlite schema version {version}; expected {CURRENT_SCHEMA_VERSION}"
+                ),
+            });
+        }
+        None => {
+            if had_domain_events_table {
+                if had_payload_version_column {
+                    return Err(PortError::Internal {
+                        message:
+                            "malformed sqlite schema: schema_version table missing for domain_events v2 schema"
+                                .to_string(),
+                    });
+                }
+                validate_columns(&transaction, &DOMAIN_EVENTS_V1_COLUMNS)?;
+                transaction
+                    .execute_batch(
+                        "ALTER TABLE domain_events ADD COLUMN payload_version INTEGER NOT NULL DEFAULT 1;",
+                    )
+                    .map_err(to_port_error)?;
+            } else {
+                validate_columns(&transaction, &DOMAIN_EVENTS_V2_COLUMNS)?;
+            }
+
+            transaction
+                .execute(
+                    "INSERT INTO schema_version (version) VALUES (?1)",
+                    [CURRENT_SCHEMA_VERSION],
+                )
+                .map_err(to_port_error)?;
+        }
     }
 
+    validate_domain_events_schema(&transaction)?;
+    validate_event_order(&transaction)?;
+    validate_stored_event_payloads(&transaction)?;
     transaction.commit().map_err(to_port_error)
+}
+
+const DOMAIN_EVENTS_V1_COLUMNS: [&str; 5] = [
+    "id",
+    "sequence",
+    "event_kind",
+    "artifact_id",
+    "payload_json",
+];
+const DOMAIN_EVENTS_V2_COLUMNS: [&str; 6] = [
+    "id",
+    "sequence",
+    "event_kind",
+    "artifact_id",
+    "payload_json",
+    "payload_version",
+];
+
+fn table_exists(connection: &Connection, table: &str) -> Result<bool, PortError> {
+    let exists: Option<i64> = connection
+        .query_row(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name = ?1",
+            params![table],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(to_port_error)?;
+    Ok(exists.is_some())
+}
+
+fn table_has_column(connection: &Connection, table: &str, column: &str) -> Result<bool, PortError> {
+    let mut statement = connection
+        .prepare(&format!("PRAGMA table_info({table})"))
+        .map_err(to_port_error)?;
+    let mut rows = statement.query([]).map_err(to_port_error)?;
+    while let Some(row) = rows.next().map_err(to_port_error)? {
+        let name: String = row.get(1).map_err(to_port_error)?;
+        if name == column {
+            return Ok(true);
+        }
+    }
+
+    Ok(false)
+}
+
+fn validate_columns(connection: &Connection, required: &[&str]) -> Result<(), PortError> {
+    for column in required {
+        if !table_has_column(connection, "domain_events", column)? {
+            return Err(PortError::Internal {
+                message: format!("malformed domain_events table missing required column {column}"),
+            });
+        }
+    }
+
+    Ok(())
+}
+
+fn validate_domain_events_schema(connection: &Connection) -> Result<(), PortError> {
+    let mut statement = connection
+        .prepare("PRAGMA table_info(domain_events)")
+        .map_err(to_port_error)?;
+    let mut rows = statement.query([]).map_err(to_port_error)?;
+    let mut columns = Vec::new();
+    while let Some(row) = rows.next().map_err(to_port_error)? {
+        columns.push((
+            row.get::<_, String>(1).map_err(to_port_error)?,
+            row.get::<_, String>(2).map_err(to_port_error)?,
+            row.get::<_, i64>(3).map_err(to_port_error)?,
+            row.get::<_, i64>(5).map_err(to_port_error)?,
+        ));
+    }
+
+    for (name, expected_type, require_not_null, require_nullable, require_primary_key) in [
+        ("id", "INTEGER", true, false, true),
+        ("sequence", "INTEGER", true, false, false),
+        ("event_kind", "TEXT", true, false, false),
+        ("artifact_id", "INTEGER", false, true, false),
+        ("payload_json", "TEXT", true, false, false),
+        ("payload_version", "INTEGER", true, false, false),
+    ] {
+        let Some((_, actual_type, not_null, primary_key)) =
+            columns.iter().find(|(column, _, _, _)| column == name)
+        else {
+            return Err(PortError::Internal {
+                message: format!("malformed domain_events table missing required column {name}"),
+            });
+        };
+        if !actual_type.trim().eq_ignore_ascii_case(expected_type)
+            || (require_not_null && *not_null == 0)
+            || (require_nullable && *not_null != 0)
+            || (require_primary_key && *primary_key == 0)
+        {
+            return Err(PortError::Internal {
+                message: format!("malformed domain_events column {name}"),
+            });
+        }
+    }
+
+    let indexes = {
+        let mut statement = connection
+            .prepare("PRAGMA index_list(domain_events)")
+            .map_err(to_port_error)?;
+        let mut rows = statement.query([]).map_err(to_port_error)?;
+        let mut indexes = Vec::new();
+        while let Some(row) = rows.next().map_err(to_port_error)? {
+            indexes.push((
+                row.get::<_, String>(1).map_err(to_port_error)?,
+                row.get::<_, i64>(2).map_err(to_port_error)? != 0,
+            ));
+        }
+        indexes
+    };
+    let mut has_unique_sequence = false;
+    let mut has_artifact_sequence_index = false;
+    for (index_name, unique) in indexes {
+        let quoted_name = index_name.replace('"', "\"\"");
+        let mut statement = connection
+            .prepare(&format!("PRAGMA index_info(\"{quoted_name}\")"))
+            .map_err(to_port_error)?;
+        let mut rows = statement.query([]).map_err(to_port_error)?;
+        let mut index_columns = Vec::new();
+        while let Some(row) = rows.next().map_err(to_port_error)? {
+            index_columns.push(row.get::<_, String>(2).map_err(to_port_error)?);
+        }
+        if unique && index_columns == ["sequence"] {
+            has_unique_sequence = true;
+        }
+        if index_name == "idx_domain_events_artifact_sequence"
+            && index_columns == ["artifact_id", "sequence"]
+        {
+            has_artifact_sequence_index = true;
+        }
+    }
+    if !has_unique_sequence {
+        return Err(PortError::Internal {
+            message: "malformed domain_events table sequence is not unique".to_string(),
+        });
+    }
+    if !has_artifact_sequence_index {
+        return Err(PortError::Internal {
+            message: "malformed domain_events artifact index".to_string(),
+        });
+    }
+    Ok(())
+}
+
+fn validate_event_order(connection: &Connection) -> Result<(), PortError> {
+    let mut statement = connection
+        .prepare("SELECT id, sequence FROM domain_events ORDER BY sequence ASC")
+        .map_err(to_port_error)?;
+    let mut rows = statement.query([]).map_err(to_port_error)?;
+    let mut expected = 1_u64;
+    while let Some(row) = rows.next().map_err(to_port_error)? {
+        let id = i64_to_u64(row.get::<_, i64>(0).map_err(to_port_error)?)?;
+        let sequence = i64_to_u64(row.get::<_, i64>(1).map_err(to_port_error)?)?;
+        if id != expected || sequence != expected {
+            return Err(PortError::Internal {
+                message: format!(
+                    "domain event log is not contiguous at expected {expected}: id {id}, sequence {sequence}"
+                ),
+            });
+        }
+        expected = expected.checked_add(1).ok_or_else(|| PortError::Internal {
+            message: "domain event sequence exhausted u64 range".to_string(),
+        })?;
+    }
+    Ok(())
+}
+
+fn validate_stored_event_payloads(connection: &Connection) -> Result<(), PortError> {
+    let mut statement = connection
+        .prepare(
+            "SELECT event_kind, artifact_id, payload_json, payload_version
+             FROM domain_events
+             ORDER BY sequence ASC",
+        )
+        .map_err(to_port_error)?;
+    let mut rows = statement.query([]).map_err(to_port_error)?;
+    while let Some(row) = rows.next().map_err(to_port_error)? {
+        let stored_kind: String = row.get(0).map_err(to_port_error)?;
+        let stored_artifact_id: Option<i64> = row.get(1).map_err(to_port_error)?;
+        let payload_json: String = row.get(2).map_err(to_port_error)?;
+        let payload_version: i64 = row.get(3).map_err(to_port_error)?;
+        let payload = match payload_version {
+            1 => {
+                let legacy: LegacyStoredEventPayload =
+                    serde_json::from_str(&payload_json).map_err(json_error)?;
+                legacy.into_v2()?
+            }
+            2 => serde_json::from_str(&payload_json).map_err(json_error)?,
+            version => {
+                return Err(PortError::Internal {
+                    message: format!("unsupported event payload version {version}"),
+                });
+            }
+        };
+        if stored_kind != payload.kind() {
+            return Err(PortError::Internal {
+                message: format!(
+                    "event kind column {stored_kind} does not match payload kind {}",
+                    payload.kind()
+                ),
+            });
+        }
+        let stored_artifact_id = stored_artifact_id.map(i64_to_u64).transpose()?;
+        if stored_artifact_id != payload.filter_artifact_id() {
+            return Err(PortError::Internal {
+                message: "event artifact_id column does not match payload".to_string(),
+            });
+        }
+    }
+    Ok(())
 }
 
 fn load_id_set<T>(
@@ -601,6 +949,7 @@ struct StoredEvent {
     kind: &'static str,
     artifact_id: Option<u64>,
     payload_json: String,
+    payload_version: i64,
 }
 
 impl StoredEvent {
@@ -612,12 +961,24 @@ impl StoredEvent {
             kind: payload.kind(),
             artifact_id: payload.filter_artifact_id(),
             payload_json: serde_json::to_string(&payload).map_err(json_error)?,
+            payload_version: 2,
         })
     }
 
     fn into_domain(self) -> Result<DomainEventEnvelope, PortError> {
-        let payload: StoredEventPayload =
-            serde_json::from_str(&self.payload_json).map_err(json_error)?;
+        let payload = match self.payload_version {
+            1 => {
+                let legacy: LegacyStoredEventPayload =
+                    serde_json::from_str(&self.payload_json).map_err(json_error)?;
+                legacy.into_v2()?
+            }
+            2 => serde_json::from_str(&self.payload_json).map_err(json_error)?,
+            other => {
+                return Err(PortError::Internal {
+                    message: format!("unsupported payload version {}", other),
+                });
+            }
+        };
         if payload.kind() != self.kind {
             return Err(PortError::Internal {
                 message: format!(
@@ -625,6 +986,11 @@ impl StoredEvent {
                     self.kind,
                     payload.kind()
                 ),
+            });
+        }
+        if payload.filter_artifact_id() != self.artifact_id {
+            return Err(PortError::Internal {
+                message: "stored event artifact_id mismatch".to_string(),
             });
         }
         Ok(DomainEventEnvelope {
@@ -636,8 +1002,8 @@ impl StoredEvent {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-#[serde(tag = "event_kind", rename_all = "snake_case")]
-enum StoredEventPayload {
+#[serde(tag = "event_kind", rename_all = "snake_case", deny_unknown_fields)]
+enum LegacyStoredEventPayload {
     ArtifactRegistered {
         artifact_id: u64,
         title: String,
@@ -657,9 +1023,9 @@ enum StoredEventPayload {
     },
     EvidenceRecorded {
         evidence_id: u64,
+        evidence_kind: StoredEvidenceKind,
         artifact_id: u64,
         claim_id: Option<u64>,
-        evidence_kind: StoredEvidenceKind,
     },
     TaskOpened {
         task_id: u64,
@@ -690,9 +1056,7 @@ enum StoredEventPayload {
     MemoryCandidateCreated {
         candidate_id: u64,
         claim_id: u64,
-        #[serde(default)]
         evidence_ids: Vec<u64>,
-        #[serde(default)]
         confidence_milli: u16,
     },
     MemoryPromoted {
@@ -714,7 +1078,245 @@ enum StoredEventPayload {
         report_id: u64,
         task_id: Option<u64>,
         passed: bool,
-        #[serde(default)]
+        warnings: Vec<String>,
+    },
+    UserIntentObserved {
+        task_id: u64,
+        title: String,
+    },
+    ArtifactParsed {
+        artifact_id: u64,
+        chunks_added: u32,
+    },
+    SearchCompleted {
+        artifact_id: u64,
+        cards_added: u32,
+    },
+    HarnessRunCompleted {
+        task_id: Option<u64>,
+        command: String,
+        exit_code: i32,
+    },
+    ApprovalRecorded {
+        task_id: u64,
+        approved: bool,
+    },
+    TickObserved {
+        at: u64,
+    },
+}
+impl LegacyStoredEventPayload {
+    fn into_v2(self) -> Result<StoredEventPayload, PortError> {
+        let unsupported = |kind: &str, field: &str| PortError::InvalidInput {
+            message: format!("V1 {kind} event is missing required field(s): {field}"),
+        };
+        match self {
+            Self::ArtifactRegistered { artifact_id, title } => {
+                Ok(StoredEventPayload::ArtifactRegistered { artifact_id, title })
+            }
+            Self::ChunkRegistered { .. } => Err(unsupported("ChunkRegistered", "text")),
+            Self::CardCreated { .. } => Err(unsupported("CardCreated", "title and body")),
+            Self::ClaimCreated { .. } => Err(unsupported("ClaimCreated", "text and evidence_ids")),
+            Self::EvidenceRecorded { .. } => {
+                Err(unsupported("EvidenceRecorded", "excerpt and observed_at"))
+            }
+            Self::TaskOpened { .. } => Err(unsupported("TaskOpened", "artifact_id")),
+            Self::TaskStatusChanged { task_id, from, to } => {
+                Ok(StoredEventPayload::TaskStatusChanged { task_id, from, to })
+            }
+            Self::TaskCompletionRecorded {
+                task_id,
+                status,
+                validation_report_id,
+            } => Ok(StoredEventPayload::TaskCompletionRecorded {
+                task_id,
+                status,
+                validation_report_id,
+            }),
+            Self::ClaimValidationUpdated { claim_id, status } => {
+                Ok(StoredEventPayload::ClaimValidationUpdated { claim_id, status })
+            }
+            Self::ClaimEvidenceLinked {
+                claim_id,
+                evidence_id,
+            } => Ok(StoredEventPayload::ClaimEvidenceLinked {
+                claim_id,
+                evidence_id,
+            }),
+            Self::RelationCreated { .. } => Err(unsupported(
+                "RelationCreated",
+                "source, kind, target, evidence_id, confidence_milli",
+            )),
+            Self::MemoryCandidateCreated {
+                candidate_id,
+                claim_id,
+                evidence_ids,
+                confidence_milli,
+            } => Ok(StoredEventPayload::MemoryCandidateCreated {
+                candidate_id,
+                claim_id,
+                evidence_ids,
+                confidence_milli,
+            }),
+            Self::MemoryPromoted {
+                memory_id,
+                candidate_id,
+            } => Ok(StoredEventPayload::MemoryPromoted {
+                memory_id,
+                candidate_id,
+            }),
+            Self::MemoryContradicted {
+                memory_id,
+                contradicting_candidate_id,
+            } => Ok(StoredEventPayload::MemoryContradicted {
+                memory_id,
+                contradicting_candidate_id,
+            }),
+            Self::MemoryDeprecated { memory_id } => {
+                Ok(StoredEventPayload::MemoryDeprecated { memory_id })
+            }
+            Self::MemorySuperseded {
+                memory_id,
+                by_memory_id,
+            } => Ok(StoredEventPayload::MemorySuperseded {
+                memory_id,
+                by_memory_id,
+            }),
+            Self::ValidationReportCreated {
+                report_id,
+                task_id,
+                passed,
+                warnings,
+            } => Ok(StoredEventPayload::ValidationReportCreated {
+                report_id,
+                task_id,
+                passed,
+                warnings,
+            }),
+            Self::UserIntentObserved { task_id, title } => {
+                Ok(StoredEventPayload::UserIntentObserved { task_id, title })
+            }
+            Self::ArtifactParsed {
+                artifact_id,
+                chunks_added,
+            } => Ok(StoredEventPayload::ArtifactParsed {
+                artifact_id,
+                chunks_added,
+            }),
+            Self::SearchCompleted {
+                artifact_id,
+                cards_added,
+            } => Ok(StoredEventPayload::SearchCompleted {
+                artifact_id,
+                cards_added,
+            }),
+            Self::HarnessRunCompleted {
+                task_id,
+                command,
+                exit_code,
+            } => Ok(StoredEventPayload::HarnessRunCompleted {
+                task_id,
+                command,
+                exit_code,
+            }),
+            Self::ApprovalRecorded { task_id, approved } => {
+                Ok(StoredEventPayload::ApprovalRecorded { task_id, approved })
+            }
+            Self::TickObserved { at } => Ok(StoredEventPayload::TickObserved { at }),
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(tag = "event_kind", rename_all = "snake_case", deny_unknown_fields)]
+enum StoredEventPayload {
+    ArtifactRegistered {
+        artifact_id: u64,
+        title: String,
+    },
+    ChunkRegistered {
+        chunk_id: u64,
+        artifact_id: u64,
+        order: u32,
+        text: String,
+    },
+    CardCreated {
+        card_id: u64,
+        artifact_id: u64,
+        title: String,
+        body: String,
+    },
+    ClaimCreated {
+        claim_id: u64,
+        artifact_id: u64,
+        text: String,
+        evidence_ids: Vec<u64>,
+    },
+    EvidenceRecorded {
+        evidence_id: u64,
+        artifact_id: u64,
+        claim_id: Option<u64>,
+        evidence_kind: StoredEvidenceKind,
+        excerpt: String,
+        observed_at: u64,
+    },
+    TaskOpened {
+        task_id: u64,
+        title: String,
+        priority: StoredTaskPriority,
+        artifact_id: Option<u64>,
+    },
+    TaskStatusChanged {
+        task_id: u64,
+        from: StoredTaskStatus,
+        to: StoredTaskStatus,
+    },
+    TaskCompletionRecorded {
+        task_id: u64,
+        status: StoredTaskStatus,
+        validation_report_id: u64,
+    },
+    ClaimValidationUpdated {
+        claim_id: u64,
+        status: StoredClaimStatus,
+    },
+    ClaimEvidenceLinked {
+        claim_id: u64,
+        evidence_id: u64,
+    },
+    RelationCreated {
+        relation_id: u64,
+        source: StoredRelationEndpoint,
+        kind: StoredRelationKind,
+        target: StoredRelationEndpoint,
+        evidence_id: Option<u64>,
+        confidence_milli: u16,
+    },
+    MemoryCandidateCreated {
+        candidate_id: u64,
+        claim_id: u64,
+        evidence_ids: Vec<u64>,
+        confidence_milli: u16,
+    },
+    MemoryPromoted {
+        memory_id: u64,
+        candidate_id: u64,
+    },
+    MemoryContradicted {
+        memory_id: u64,
+        contradicting_candidate_id: u64,
+    },
+    MemoryDeprecated {
+        memory_id: u64,
+    },
+    MemorySuperseded {
+        memory_id: u64,
+        by_memory_id: u64,
+    },
+    ValidationReportCreated {
+        report_id: u64,
+        task_id: Option<u64>,
+        passed: bool,
         warnings: Vec<String>,
     },
     UserIntentObserved {
@@ -754,44 +1356,60 @@ impl StoredEventPayload {
                 chunk_id,
                 artifact_id,
                 order,
+                text,
             } => Self::ChunkRegistered {
                 chunk_id: chunk_id.value(),
                 artifact_id: artifact_id.value(),
                 order: *order,
+                text: text.clone(),
             },
             DomainEvent::CardCreated {
                 card_id,
                 artifact_id,
+                title,
+                body,
             } => Self::CardCreated {
                 card_id: card_id.value(),
                 artifact_id: artifact_id.value(),
+                title: title.clone(),
+                body: body.clone(),
             },
             DomainEvent::ClaimCreated {
                 claim_id,
                 artifact_id,
+                text,
+                evidence_ids,
             } => Self::ClaimCreated {
                 claim_id: claim_id.value(),
                 artifact_id: artifact_id.value(),
+                text: text.clone(),
+                evidence_ids: evidence_ids.iter().map(|id| id.value()).collect(),
             },
             DomainEvent::EvidenceRecorded {
                 evidence_id,
                 artifact_id,
                 claim_id,
                 kind,
+                excerpt,
+                observed_at,
             } => Self::EvidenceRecorded {
                 evidence_id: evidence_id.value(),
                 artifact_id: artifact_id.value(),
                 claim_id: claim_id.map(|id| id.value()),
                 evidence_kind: StoredEvidenceKind::from_domain(kind),
+                excerpt: excerpt.clone(),
+                observed_at: observed_at.value(),
             },
             DomainEvent::TaskOpened {
                 task_id,
                 title,
                 priority,
+                artifact_id,
             } => Self::TaskOpened {
                 task_id: task_id.value(),
                 title: title.clone(),
                 priority: StoredTaskPriority::from_domain(*priority),
+                artifact_id: artifact_id.map(|id| id.value()),
             },
             DomainEvent::TaskStatusChanged { task_id, from, to } => Self::TaskStatusChanged {
                 task_id: task_id.value(),
@@ -820,8 +1438,20 @@ impl StoredEventPayload {
                 claim_id: claim_id.value(),
                 evidence_id: evidence_id.value(),
             },
-            DomainEvent::RelationCreated { relation_id } => Self::RelationCreated {
+            DomainEvent::RelationCreated {
+                relation_id,
+                source,
+                kind,
+                target,
+                evidence_id,
+                confidence_milli,
+            } => Self::RelationCreated {
                 relation_id: relation_id.value(),
+                source: StoredRelationEndpoint::from_domain(source),
+                kind: StoredRelationKind::from_domain(kind),
+                target: StoredRelationEndpoint::from_domain(target),
+                evidence_id: evidence_id.map(|id| id.value()),
+                confidence_milli: *confidence_milli,
             },
             DomainEvent::MemoryCandidateCreated {
                 candidate_id,
@@ -917,44 +1547,60 @@ impl StoredEventPayload {
                 chunk_id,
                 artifact_id,
                 order,
+                text,
             } => DomainEvent::ChunkRegistered {
                 chunk_id: ChunkId::new(chunk_id),
                 artifact_id: ArtifactId::new(artifact_id),
                 order,
+                text,
             },
             Self::CardCreated {
                 card_id,
                 artifact_id,
+                title,
+                body,
             } => DomainEvent::CardCreated {
                 card_id: CardId::new(card_id),
                 artifact_id: ArtifactId::new(artifact_id),
+                title,
+                body,
             },
             Self::ClaimCreated {
                 claim_id,
                 artifact_id,
+                text,
+                evidence_ids,
             } => DomainEvent::ClaimCreated {
                 claim_id: ClaimId::new(claim_id),
                 artifact_id: ArtifactId::new(artifact_id),
+                text,
+                evidence_ids: evidence_ids.into_iter().map(EvidenceId::new).collect(),
             },
             Self::EvidenceRecorded {
                 evidence_id,
                 artifact_id,
                 claim_id,
                 evidence_kind,
+                excerpt,
+                observed_at,
             } => DomainEvent::EvidenceRecorded {
                 evidence_id: EvidenceId::new(evidence_id),
                 artifact_id: ArtifactId::new(artifact_id),
                 claim_id: claim_id.map(ClaimId::new),
                 kind: evidence_kind.into_domain(),
+                excerpt,
+                observed_at: maestria_domain::LogicalTick::new(observed_at),
             },
             Self::TaskOpened {
                 task_id,
                 title,
                 priority,
+                artifact_id,
             } => DomainEvent::TaskOpened {
                 task_id: TaskId::new(task_id),
                 title,
                 priority: priority.into_domain(),
+                artifact_id: artifact_id.map(ArtifactId::new),
             },
             Self::TaskStatusChanged { task_id, from, to } => DomainEvent::TaskStatusChanged {
                 task_id: TaskId::new(task_id),
@@ -983,8 +1629,20 @@ impl StoredEventPayload {
                 claim_id: ClaimId::new(claim_id),
                 evidence_id: EvidenceId::new(evidence_id),
             },
-            Self::RelationCreated { relation_id } => DomainEvent::RelationCreated {
+            Self::RelationCreated {
+                relation_id,
+                source,
+                kind,
+                target,
+                evidence_id,
+                confidence_milli,
+            } => DomainEvent::RelationCreated {
                 relation_id: maestria_domain::RelationId::new(relation_id),
+                source: source.into_domain(),
+                kind: kind.into_domain(),
+                target: target.into_domain(),
+                evidence_id: evidence_id.map(maestria_domain::EvidenceId::new),
+                confidence_milli,
             },
             Self::MemoryCandidateCreated {
                 candidate_id,
@@ -1108,13 +1766,113 @@ impl StoredEventPayload {
             | Self::EvidenceRecorded { artifact_id, .. }
             | Self::ArtifactParsed { artifact_id, .. }
             | Self::SearchCompleted { artifact_id, .. } => Some(*artifact_id),
+            Self::TaskOpened {
+                artifact_id: Some(artifact_id),
+                ..
+            } => Some(*artifact_id),
             _ => None,
         }
     }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+enum StoredRelationEndpoint {
+    Artifact { artifact_id: u64 },
+    Claim { claim_id: u64 },
+    Task { task_id: u64 },
+    Memory { memory_id: u64 },
+    Card { card_id: u64 },
+}
+
+impl StoredRelationEndpoint {
+    fn from_domain(endpoint: &maestria_domain::RelationEndpoint) -> Self {
+        match endpoint {
+            maestria_domain::RelationEndpoint::Artifact(id) => Self::Artifact {
+                artifact_id: id.value(),
+            },
+            maestria_domain::RelationEndpoint::Claim(id) => Self::Claim {
+                claim_id: id.value(),
+            },
+            maestria_domain::RelationEndpoint::Task(id) => Self::Task {
+                task_id: id.value(),
+            },
+            maestria_domain::RelationEndpoint::Memory(id) => Self::Memory {
+                memory_id: id.value(),
+            },
+            maestria_domain::RelationEndpoint::Card(id) => Self::Card {
+                card_id: id.value(),
+            },
+        }
+    }
+
+    fn into_domain(self) -> maestria_domain::RelationEndpoint {
+        match self {
+            Self::Artifact { artifact_id } => maestria_domain::RelationEndpoint::Artifact(
+                maestria_domain::ArtifactId::new(artifact_id),
+            ),
+            Self::Claim { claim_id } => {
+                maestria_domain::RelationEndpoint::Claim(maestria_domain::ClaimId::new(claim_id))
+            }
+            Self::Task { task_id } => {
+                maestria_domain::RelationEndpoint::Task(maestria_domain::TaskId::new(task_id))
+            }
+            Self::Memory { memory_id } => {
+                maestria_domain::RelationEndpoint::Memory(maestria_domain::MemoryId::new(memory_id))
+            }
+            Self::Card { card_id } => {
+                maestria_domain::RelationEndpoint::Card(maestria_domain::CardId::new(card_id))
+            }
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum StoredRelationKind {
+    Contains,
+    Defines,
+    Supports,
+    Contradicts,
+    UsedEvidence,
+    BasedOn,
+    DerivedFrom,
+    AppliesTo,
+    RelatedTo,
+}
+
+impl StoredRelationKind {
+    fn from_domain(kind: &maestria_domain::RelationKind) -> Self {
+        match kind {
+            maestria_domain::RelationKind::Contains => Self::Contains,
+            maestria_domain::RelationKind::Defines => Self::Defines,
+            maestria_domain::RelationKind::Supports => Self::Supports,
+            maestria_domain::RelationKind::Contradicts => Self::Contradicts,
+            maestria_domain::RelationKind::UsedEvidence => Self::UsedEvidence,
+            maestria_domain::RelationKind::BasedOn => Self::BasedOn,
+            maestria_domain::RelationKind::DerivedFrom => Self::DerivedFrom,
+            maestria_domain::RelationKind::AppliesTo => Self::AppliesTo,
+            maestria_domain::RelationKind::RelatedTo => Self::RelatedTo,
+        }
+    }
+
+    fn into_domain(self) -> maestria_domain::RelationKind {
+        match self {
+            Self::Contains => maestria_domain::RelationKind::Contains,
+            Self::Defines => maestria_domain::RelationKind::Defines,
+            Self::Supports => maestria_domain::RelationKind::Supports,
+            Self::Contradicts => maestria_domain::RelationKind::Contradicts,
+            Self::UsedEvidence => maestria_domain::RelationKind::UsedEvidence,
+            Self::BasedOn => maestria_domain::RelationKind::BasedOn,
+            Self::DerivedFrom => maestria_domain::RelationKind::DerivedFrom,
+            Self::AppliesTo => maestria_domain::RelationKind::AppliesTo,
+            Self::RelatedTo => maestria_domain::RelationKind::RelatedTo,
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 enum StoredEvidenceKind {
     FileSpan {
         path: String,
@@ -1441,6 +2199,7 @@ fn read_stored_event(row: &rusqlite::Row<'_>) -> Result<StoredEvent, PortError> 
         kind: leaked_kind(row.get::<_, String>(2).map_err(to_port_error)?)?,
         artifact_id: optional_i64_to_u64(row.get::<_, Option<i64>>(3).map_err(to_port_error)?)?,
         payload_json: row.get::<_, String>(4).map_err(to_port_error)?,
+        payload_version: row.get::<_, i64>(5).map_err(to_port_error)?,
     })
 }
 
@@ -1760,14 +2519,15 @@ mod tests {
     #[test]
     fn event_append_scan_order_and_filter() {
         let store = SqliteStore::in_memory().expect("test setup");
-        let first = registered(1, 2, 7);
+        let first = registered(1, 1, 7);
         let second = DomainEventEnvelope {
             id: EventId::new(2),
-            sequence: SequenceNumber::new(1),
+            sequence: SequenceNumber::new(2),
             event: DomainEvent::TaskOpened {
                 task_id: TaskId::new(99),
                 title: "task".to_string(),
                 priority: TaskPriority::High,
+                artifact_id: Some(ArtifactId::new(7)),
             },
         };
         let third = DomainEventEnvelope {
@@ -1777,18 +2537,30 @@ mod tests {
                 chunk_id: ChunkId::new(8),
                 artifact_id: ArtifactId::new(7),
                 order: 0,
+                text: "chunk".to_string(),
+            },
+        };
+        let out_of_order = DomainEventEnvelope {
+            id: EventId::new(5),
+            sequence: SequenceNumber::new(5),
+            event: DomainEvent::TickObserved {
+                at: LogicalTick::new(1),
             },
         };
 
         store.append(first.clone()).expect("test setup");
         store.append(second.clone()).expect("test setup");
         store.append(third.clone()).expect("test setup");
+        assert!(matches!(
+            store.append(out_of_order),
+            Err(PortError::Conflict { .. })
+        ));
 
         assert_eq!(
             store
                 .scan(EventFilter { artifact_id: None })
                 .expect("full event scan"),
-            vec![second, first.clone(), third.clone()]
+            vec![first.clone(), second.clone(), third.clone()]
         );
         assert_eq!(
             store
@@ -1796,7 +2568,7 @@ mod tests {
                     artifact_id: Some(ArtifactId::new(7)),
                 })
                 .expect("filtered event scan"),
-            vec![first, third]
+            vec![first, second, third]
         );
     }
 
@@ -1804,8 +2576,8 @@ mod tests {
     fn artifact_filter_includes_evidence_and_search_events() {
         let store = SqliteStore::in_memory().expect("test setup");
         let evidence = DomainEventEnvelope {
-            id: EventId::new(10),
-            sequence: SequenceNumber::new(10),
+            id: EventId::new(1),
+            sequence: SequenceNumber::new(1),
             event: DomainEvent::EvidenceRecorded {
                 evidence_id: EvidenceId::new(40),
                 artifact_id: ArtifactId::new(7),
@@ -1815,17 +2587,19 @@ mod tests {
                     range: ContentRange { start: 1, end: 4 },
                     content_hash: "sha256:notes".to_string(),
                 },
+                excerpt: "excerpt".to_string(),
+                observed_at: LogicalTick::new(1),
             },
         };
         let search = DomainEventEnvelope {
-            id: EventId::new(11),
-            sequence: SequenceNumber::new(11),
+            id: EventId::new(2),
+            sequence: SequenceNumber::new(2),
             event: DomainEvent::SearchCompleted {
                 artifact_id: ArtifactId::new(7),
                 cards_added: 2,
             },
         };
-        let unrelated = registered(12, 12, 9);
+        let unrelated = registered(3, 3, 9);
 
         store.append(evidence.clone()).expect("evidence append");
         store.append(search.clone()).expect("search append");
@@ -1854,5 +2628,311 @@ mod tests {
             store.append(registered(2, 1, 1)),
             Err(PortError::Conflict { .. })
         ));
+    }
+
+    #[test]
+    fn append_rejects_swapped_existing_event_rows() -> Result<(), PortError> {
+        let store = SqliteStore::in_memory()?;
+        {
+            let connection = store.lock()?;
+            connection
+                .execute(
+                    "INSERT INTO domain_events (id, sequence, event_kind, artifact_id, payload_json, payload_version)
+                     VALUES (1, 2, 'artifact_registered', 1, ?1, 2)",
+                    params![r#"{"event_kind":"artifact_registered","artifact_id":1,"title":"first"}"#],
+                )
+                .map_err(to_port_error)?;
+            connection
+                .execute(
+                    "INSERT INTO domain_events (id, sequence, event_kind, artifact_id, payload_json, payload_version)
+                     VALUES (2, 1, 'artifact_registered', 1, ?1, 2)",
+                    params![r#"{"event_kind":"artifact_registered","artifact_id":1,"title":"second"}"#],
+                )
+                .map_err(to_port_error)?;
+        }
+        assert!(matches!(
+            store.append(registered(3, 3, 1)),
+            Err(PortError::Conflict { .. })
+        ));
+        Ok(())
+    }
+    #[test]
+    fn migration_rejects_event_metadata_mismatch() -> Result<(), Box<dyn std::error::Error>> {
+        let directory = tempfile::tempdir()?;
+        let path = directory.path().join("mismatched-metadata.db");
+        {
+            let connection = Connection::open(&path)?;
+            connection.execute_batch(
+                "CREATE TABLE schema_version (version INTEGER NOT NULL PRIMARY KEY, applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
+                 INSERT INTO schema_version (version) VALUES (2);
+                 CREATE TABLE domain_events (
+                     id INTEGER NOT NULL PRIMARY KEY,
+                     sequence INTEGER NOT NULL UNIQUE,
+                     event_kind TEXT NOT NULL,
+                     artifact_id INTEGER,
+                     payload_json TEXT NOT NULL,
+                     payload_version INTEGER NOT NULL
+                 );
+                 INSERT INTO domain_events (id, sequence, event_kind, artifact_id, payload_json, payload_version)
+                 VALUES (1, 1, 'artifact_registered', NULL, '{\"event_kind\":\"artifact_registered\",\"artifact_id\":1,\"title\":\"artifact\"}', 2);",
+            )?;
+        }
+
+        assert!(matches!(
+            SqliteStore::open(&path),
+            Err(PortError::Internal { .. })
+        ));
+        Ok(())
+    }
+
+    #[test]
+    fn legacy_migration_rejects_lossy_existing_payloads() -> Result<(), Box<dyn std::error::Error>>
+    {
+        let directory = tempfile::tempdir()?;
+        let path = directory.path().join("lossy-legacy.db");
+        {
+            let connection = Connection::open(&path)?;
+            connection.execute_batch(
+                "CREATE TABLE schema_version (version INTEGER NOT NULL PRIMARY KEY, applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
+                 INSERT INTO schema_version (version) VALUES (1);
+                 CREATE TABLE domain_events (
+                     id INTEGER NOT NULL PRIMARY KEY,
+                     sequence INTEGER NOT NULL UNIQUE,
+                     event_kind TEXT NOT NULL,
+                     artifact_id INTEGER,
+                     payload_json TEXT NOT NULL
+                 );
+                 INSERT INTO domain_events (id, sequence, event_kind, artifact_id, payload_json)
+                 VALUES (1, 1, 'chunk_registered', 1, '{\"event_kind\":\"chunk_registered\",\"chunk_id\":1,\"artifact_id\":1,\"order\":0}');",
+            )?;
+        }
+
+        assert!(matches!(
+            SqliteStore::open(&path),
+            Err(PortError::InvalidInput { .. })
+        ));
+        Ok(())
+    }
+
+    #[test]
+    fn legacy_event_rows_migrate_and_reject_lossy_payloads()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let directory = tempfile::tempdir()?;
+        let path = directory.path().join("legacy.db");
+        {
+            let connection = Connection::open(&path)?;
+            connection.execute_batch(
+                "CREATE TABLE schema_version (version INTEGER NOT NULL PRIMARY KEY, applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
+                 INSERT INTO schema_version (version) VALUES (1);
+                 CREATE TABLE domain_events (
+                     id INTEGER NOT NULL PRIMARY KEY,
+                     sequence INTEGER NOT NULL UNIQUE,
+                     event_kind TEXT NOT NULL,
+                     artifact_id INTEGER,
+                     payload_json TEXT NOT NULL
+                 );",
+            )?;
+        }
+
+        let store = SqliteStore::open(&path)?;
+        {
+            let connection = store.lock()?;
+            connection.execute(
+                "INSERT INTO domain_events (id, sequence, event_kind, artifact_id, payload_json, payload_version)
+                 VALUES (1, 1, 'artifact_registered', 1, ?1, 1)",
+                params![r#"{"event_kind":"artifact_registered","artifact_id":1,"title":"legacy"}"#],
+            )?;
+        }
+        assert_eq!(
+            store.scan(EventFilter { artifact_id: None })?,
+            vec![DomainEventEnvelope {
+                id: EventId::new(1),
+                sequence: SequenceNumber::new(1),
+                event: DomainEvent::ArtifactRegistered {
+                    artifact_id: ArtifactId::new(1),
+                    title: "legacy".to_string(),
+                },
+            }]
+        );
+
+        {
+            let connection = store.lock()?;
+            connection.execute(
+                "INSERT INTO domain_events (id, sequence, event_kind, artifact_id, payload_json, payload_version)
+                 VALUES (2, 2, 'relation_created', NULL, ?1, 1)",
+                params![r#"{"event_kind":"relation_created","relation_id":7}"#],
+            )?;
+        }
+        assert!(matches!(
+            store.scan(EventFilter { artifact_id: None }),
+            Err(PortError::InvalidInput { .. })
+        ));
+
+        let connection = store.lock()?;
+        let has_payload_version: i64 = connection.query_row(
+            "SELECT COUNT(*) FROM pragma_table_info('domain_events') WHERE name = 'payload_version'",
+            [],
+            |row| row.get(0),
+        )?;
+        assert_eq!(has_payload_version, 1);
+        Ok(())
+    }
+
+    #[test]
+    fn migration_rejects_non_nullable_artifact_column() -> Result<(), PortError> {
+        let mut connection = Connection::open_in_memory().map_err(to_port_error)?;
+        connection
+            .execute_batch(
+                "CREATE TABLE schema_version (version INTEGER NOT NULL PRIMARY KEY, applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
+                 INSERT INTO schema_version (version) VALUES (2);
+                 CREATE TABLE domain_events (
+                     id INTEGER NOT NULL PRIMARY KEY,
+                     sequence INTEGER NOT NULL UNIQUE,
+                     event_kind TEXT NOT NULL,
+                     artifact_id INTEGER NOT NULL,
+                     payload_json TEXT NOT NULL,
+                     payload_version INTEGER NOT NULL
+                 );",
+            )
+            .map_err(to_port_error)?;
+
+        assert!(matches!(
+            migrate(&mut connection),
+            Err(PortError::Internal { message }) if message.contains("artifact_id")
+        ));
+        Ok(())
+    }
+
+    #[test]
+    fn legacy_migration_rejects_noncontiguous_event_rows() -> Result<(), Box<dyn std::error::Error>>
+    {
+        let directory = tempfile::tempdir()?;
+        let path = directory.path().join("malformed-legacy.db");
+        {
+            let connection = Connection::open(&path)?;
+            connection.execute_batch(
+                "CREATE TABLE schema_version (version INTEGER NOT NULL PRIMARY KEY, applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
+                 INSERT INTO schema_version (version) VALUES (1);
+                 CREATE TABLE domain_events (
+                     id INTEGER NOT NULL PRIMARY KEY,
+                     sequence INTEGER NOT NULL UNIQUE,
+                     event_kind TEXT NOT NULL,
+                     artifact_id INTEGER,
+                     payload_json TEXT NOT NULL
+                 );
+                 INSERT INTO domain_events (id, sequence, event_kind, artifact_id, payload_json)
+                 VALUES (9, 9, 'artifact_registered', 1, '{\"event_kind\":\"artifact_registered\",\"artifact_id\":1,\"title\":\"legacy\"}');",
+            )?;
+        }
+
+        assert!(matches!(
+            SqliteStore::open(&path),
+            Err(PortError::Internal { .. })
+        ));
+        Ok(())
+    }
+
+    #[test]
+    fn malformed_v2_payload_is_rejected_without_defaults() -> Result<(), PortError> {
+        let store = SqliteStore::in_memory()?;
+        {
+            let connection = store.lock()?;
+            connection
+                .execute(
+                    "INSERT INTO domain_events (id, sequence, event_kind, artifact_id, payload_json, payload_version)
+                     VALUES (1, 1, 'chunk_registered', 1, ?1, 2)",
+                    params![r#"{"event_kind":"chunk_registered","chunk_id":1,"artifact_id":1,"order":0}"#],
+                )
+                .map_err(to_port_error)?;
+        }
+        assert!(matches!(
+            store.scan(EventFilter { artifact_id: None }),
+            Err(PortError::Internal { .. })
+        ));
+        Ok(())
+    }
+
+    #[test]
+    fn strict_v2_payloads_reject_missing_and_unknown_fields() -> Result<(), PortError> {
+        let missing_warnings = SqliteStore::in_memory()?;
+        {
+            let connection = missing_warnings.lock()?;
+            connection
+                .execute(
+                    "INSERT INTO domain_events (id, sequence, event_kind, artifact_id, payload_json, payload_version)
+                     VALUES (1, 1, 'validation_report_created', NULL, ?1, 2)",
+                    params![r#"{"event_kind":"validation_report_created","report_id":1,"task_id":null,"passed":true}"#],
+                )
+                .map_err(to_port_error)?;
+        }
+        assert!(matches!(
+            missing_warnings.scan(EventFilter { artifact_id: None }),
+            Err(PortError::Internal { .. })
+        ));
+
+        let unknown_field = SqliteStore::in_memory()?;
+        {
+            let connection = unknown_field.lock()?;
+            connection
+                .execute(
+                    "INSERT INTO domain_events (id, sequence, event_kind, artifact_id, payload_json, payload_version)
+                     VALUES (1, 1, 'artifact_registered', 1, ?1, 2)",
+                    params![r#"{"event_kind":"artifact_registered","artifact_id":1,"title":"artifact","unexpected":true}"#],
+                )
+                .map_err(to_port_error)?;
+        }
+        assert!(matches!(
+            unknown_field.scan(EventFilter { artifact_id: None }),
+            Err(PortError::Internal { .. })
+        ));
+        let unknown_nested_field = SqliteStore::in_memory()?;
+        {
+            let connection = unknown_nested_field.lock()?;
+            connection
+                .execute(
+                    "INSERT INTO domain_events (id, sequence, event_kind, artifact_id, payload_json, payload_version)
+                     VALUES (1, 1, 'relation_created', NULL, ?1, 2)",
+                    params![r#"{"event_kind":"relation_created","relation_id":1,"source":{"kind":"artifact","artifact_id":1,"unexpected":true},"kind":"supports","target":{"kind":"artifact","artifact_id":2},"evidence_id":null,"confidence_milli":1000}"#],
+                )
+                .map_err(to_port_error)?;
+        }
+        assert!(matches!(
+            unknown_nested_field.scan(EventFilter { artifact_id: None }),
+            Err(PortError::Internal { .. })
+        ));
+
+        let mismatched_metadata = SqliteStore::in_memory()?;
+        {
+            let connection = mismatched_metadata.lock()?;
+            connection
+                .execute(
+                    "INSERT INTO domain_events (id, sequence, event_kind, artifact_id, payload_json, payload_version)
+                     VALUES (1, 1, 'artifact_registered', NULL, ?1, 2)",
+                    params![r#"{"event_kind":"artifact_registered","artifact_id":1,"title":"artifact"}"#],
+                )
+                .map_err(to_port_error)?;
+        }
+        assert!(matches!(
+            mismatched_metadata.scan(EventFilter { artifact_id: None }),
+            Err(PortError::Internal { .. })
+        ));
+
+        Ok(())
+    }
+
+    #[test]
+    fn fresh_schema_writes_payload_version_two() -> Result<(), PortError> {
+        let store = SqliteStore::in_memory()?;
+        store.append(registered(1, 1, 1))?;
+        let connection = store.lock()?;
+        let version: i64 = connection
+            .query_row(
+                "SELECT payload_version FROM domain_events WHERE id = 1",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(to_port_error)?;
+        assert_eq!(version, 2);
+        Ok(())
     }
 }

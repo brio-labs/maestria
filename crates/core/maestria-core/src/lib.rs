@@ -232,6 +232,7 @@ impl<'a> CoreServices<'a> {
                 chunk_id: chunk.id,
                 artifact_id,
                 order,
+                text: chunk.text.clone(),
             })?;
             self.ports.evidence.put(evidence.clone())?;
             self.append_event(DomainEvent::EvidenceRecorded {
@@ -239,6 +240,8 @@ impl<'a> CoreServices<'a> {
                 artifact_id,
                 claim_id: None,
                 kind: evidence.kind.clone(),
+                excerpt: evidence.excerpt.clone(),
+                observed_at: evidence.observed_at,
             })?;
 
             artifact.chunk_ids.insert(chunk.id);
@@ -264,6 +267,8 @@ impl<'a> CoreServices<'a> {
             self.append_event(DomainEvent::CardCreated {
                 card_id: card.id,
                 artifact_id,
+                title: card.title.clone(),
+                body: card.body.clone(),
             })?;
             artifact.card_ids.insert(card.id);
         }

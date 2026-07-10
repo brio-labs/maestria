@@ -381,6 +381,17 @@ impl EventLog for InMemoryEventLog {
         let mut guard = self.events.lock().map_err(|_| PortError::Internal {
             message: "event log lock poisoned".to_string(),
         })?;
+        let expected_sequence = guard.len() as u64 + 1;
+        if event.sequence.value() != expected_sequence || event.id.value() != expected_sequence {
+            return Err(PortError::Conflict {
+                message: format!(
+                    "expected sequence/id {}, got seq {}, id {}",
+                    expected_sequence,
+                    event.sequence.value(),
+                    event.id.value()
+                ),
+            });
+        }
         guard.push(event);
         Ok(())
     }
@@ -410,6 +421,10 @@ impl EventLog for InMemoryEventLog {
                 }
                 | DomainEvent::EvidenceRecorded {
                     artifact_id: current,
+                    ..
+                } => *current == artifact_id,
+                DomainEvent::TaskOpened {
+                    artifact_id: Some(current),
                     ..
                 }
                 | DomainEvent::ArtifactParsed {
@@ -1011,6 +1026,8 @@ pub mod contract_tests {
                     range: ContentRange { start: 1, end: 4 },
                     content_hash: "sha256:notes".to_string(),
                 },
+                excerpt: "excerpt".to_string(),
+                observed_at: LogicalTick::new(0),
             },
         };
         let search = DomainEventEnvelope {
@@ -1034,6 +1051,32 @@ pub mod contract_tests {
         log.append(evidence.clone()).expect("evidence event append");
         log.append(search.clone()).expect("search event append");
         log.append(unrelated).expect("unrelated event append");
+
+        let out_of_order = DomainEventEnvelope {
+            id: EventId::new(6), // next is 5
+            sequence: SequenceNumber::new(6),
+            event: DomainEvent::TickObserved {
+                at: LogicalTick::new(0),
+            },
+        };
+        let err = log.append(out_of_order).unwrap_err();
+        assert!(
+            matches!(err, PortError::Conflict { .. }),
+            "out of order must return Conflict"
+        );
+
+        let id_mismatch = DomainEventEnvelope {
+            id: EventId::new(99),
+            sequence: SequenceNumber::new(5),
+            event: DomainEvent::TickObserved {
+                at: LogicalTick::new(0),
+            },
+        };
+        let err_id = log.append(id_mismatch).unwrap_err();
+        assert!(
+            matches!(err_id, PortError::Conflict { .. }),
+            "id mismatch must return Conflict"
+        );
 
         let all = log
             .scan(EventFilter { artifact_id: None })
@@ -1408,6 +1451,29 @@ mod tests {
     #[test]
     fn in_memory_event_log_satisfies_contract() {
         assert_event_log_round_trip(&InMemoryEventLog::new());
+    }
+
+    #[test]
+    fn in_memory_event_log_filters_task_artifact_events() -> Result<(), PortError> {
+        let log = InMemoryEventLog::new();
+        let task = DomainEventEnvelope {
+            id: maestria_domain::EventId::new(1),
+            sequence: maestria_domain::SequenceNumber::new(1),
+            event: DomainEvent::TaskOpened {
+                task_id: maestria_domain::TaskId::new(1),
+                title: "task".to_string(),
+                priority: maestria_domain::TaskPriority::Normal,
+                artifact_id: Some(maestria_domain::ArtifactId::new(7)),
+            },
+        };
+        log.append(task.clone())?;
+        assert_eq!(
+            log.scan(EventFilter {
+                artifact_id: Some(maestria_domain::ArtifactId::new(7)),
+            })?,
+            vec![task]
+        );
+        Ok(())
     }
 
     #[test]

@@ -402,7 +402,7 @@ impl MemoryPromotionGate for DefaultMemoryPromotionGate {
 mod tests {
     use super::*;
     use maestria_domain::{
-        ArtifactId, DomainEvent, EvidenceId, MemoryCandidateId, TaskId, TaskStatus,
+        DomainEvent, DomainEventEnvelope, EvidenceId, MemoryCandidateId, TaskId, TaskStatus,
     };
     fn candidate_with_artifact(id: u64, has_evidence: bool) -> MemoryCandidate {
         let mut evidence_ids = std::collections::BTreeSet::new();
@@ -449,9 +449,13 @@ mod tests {
         let guard = ScopeGuard::new(scope);
 
         let effect = MaestriaEffect::PersistEvent {
-            event: DomainEvent::ArtifactRegistered {
-                artifact_id: ArtifactId::new(1),
-                title: "notes".to_string(),
+            envelope: DomainEventEnvelope {
+                id: maestria_domain::EventId::new(1),
+                sequence: maestria_domain::SequenceNumber::new(1),
+                event: DomainEvent::ArtifactRegistered {
+                    artifact_id: maestria_domain::ArtifactId::new(1),
+                    title: "notes".to_string(),
+                },
             },
         };
         let read_only = ApprovalRequest {

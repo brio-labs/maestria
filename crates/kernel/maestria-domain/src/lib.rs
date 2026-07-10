@@ -394,25 +394,33 @@ pub enum DomainEvent {
         chunk_id: ChunkId,
         artifact_id: ArtifactId,
         order: u32,
+        text: String,
     },
     CardCreated {
         card_id: CardId,
         artifact_id: ArtifactId,
+        title: String,
+        body: String,
     },
     ClaimCreated {
         claim_id: ClaimId,
         artifact_id: ArtifactId,
+        text: String,
+        evidence_ids: Vec<EvidenceId>,
     },
     EvidenceRecorded {
         evidence_id: EvidenceId,
         artifact_id: ArtifactId,
         claim_id: Option<ClaimId>,
         kind: EvidenceKind,
+        excerpt: String,
+        observed_at: LogicalTick,
     },
     TaskOpened {
         task_id: TaskId,
         title: String,
         priority: TaskPriority,
+        artifact_id: Option<ArtifactId>,
     },
     TaskStatusChanged {
         task_id: TaskId,
@@ -434,6 +442,11 @@ pub enum DomainEvent {
     },
     RelationCreated {
         relation_id: RelationId,
+        source: RelationEndpoint,
+        kind: RelationKind,
+        target: RelationEndpoint,
+        evidence_id: Option<EvidenceId>,
+        confidence_milli: u16,
     },
     MemoryCandidateCreated {
         candidate_id: MemoryCandidateId,
@@ -557,7 +570,7 @@ pub struct DiagnosticEvent {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MaestriaEffect {
-    PersistEvent { event: DomainEvent },
+    PersistEvent { envelope: DomainEventEnvelope },
     PersistState(PersistStateRequest),
     StoreBlob(StoreBlobRequest),
     ParseArtifact(ParseArtifactRequest),
@@ -826,7 +839,32 @@ pub enum DomainError {
         minimum_confidence_milli: u16,
         reason: &'static str,
     },
+    InvalidEventId {
+        expected: u64,
+        actual: u64,
+    },
     EmptyIntent,
+    InvalidSequence {
+        expected: u64,
+        actual: u64,
+    },
+    InvalidConfidence {
+        max: u16,
+        actual: u16,
+    },
+    ArtifactMismatch {
+        expected: ArtifactId,
+        actual: ArtifactId,
+    },
+    ValidationFailed {
+        task_id: TaskId,
+    },
+    ValidationWarningsRequired {
+        task_id: TaskId,
+    },
+    ValidationWarningsForbidden {
+        task_id: TaskId,
+    },
 }
 
 impl fmt::Display for DomainError {
@@ -876,6 +914,36 @@ impl fmt::Display for DomainError {
                 f,
                 "memory candidate {candidate_id} cannot be promoted ({reason}): {confidence_milli} < {minimum_confidence_milli}"
             ),
+            Self::InvalidSequence { expected, actual } => {
+                write!(
+                    f,
+                    "invalid event sequence: expected {expected}, got {actual}"
+                )
+            }
+            Self::InvalidEventId { expected, actual } => {
+                write!(f, "invalid event id: expected {expected}, got {actual}")
+            }
+            Self::InvalidConfidence { max, actual } => {
+                write!(f, "invalid confidence: max {max}, got {actual}")
+            }
+            Self::ArtifactMismatch { expected, actual } => {
+                write!(f, "artifact mismatch: expected {expected}, got {actual}")
+            }
+            Self::ValidationFailed { task_id } => {
+                write!(f, "task {task_id} validation failed")
+            }
+            Self::ValidationWarningsRequired { task_id } => {
+                write!(
+                    f,
+                    "task {task_id} completed with warnings but validation report has none"
+                )
+            }
+            Self::ValidationWarningsForbidden { task_id } => {
+                write!(
+                    f,
+                    "task {task_id} completed verified but validation report has warnings"
+                )
+            }
         }
     }
 }
@@ -914,7 +982,7 @@ impl KernelState {
                 };
                 output.events.push(event.clone());
                 output.effects.push(MaestriaEffect::PersistEvent {
-                    event: event.event.clone(),
+                    envelope: event.clone(),
                 });
                 output
                     .effects
@@ -927,7 +995,7 @@ impl KernelState {
                 let event = self.handle_register_chunk(input.clone())?;
                 output.events.push(event.clone());
                 output.effects.push(MaestriaEffect::PersistEvent {
-                    event: event.event.clone(),
+                    envelope: event.clone(),
                 });
                 if let DomainEvent::ChunkRegistered {
                     artifact_id,
@@ -954,13 +1022,13 @@ impl KernelState {
                 output.events.push(event.clone());
                 output
                     .effects
-                    .push(MaestriaEffect::PersistEvent { event: event.event });
+                    .push(MaestriaEffect::PersistEvent { envelope: event });
             }
             DomainInput::RecordEvidence(input) => {
                 let event = self.handle_record_evidence(input.clone())?;
                 output.events.push(event.clone());
                 output.effects.push(MaestriaEffect::PersistEvent {
-                    event: event.event.clone(),
+                    envelope: event.clone(),
                 });
                 let claim_id = match event.event {
                     DomainEvent::EvidenceRecorded { claim_id, .. } => claim_id,
@@ -980,7 +1048,7 @@ impl KernelState {
                 let event = self.handle_create_claim(input.clone())?;
                 output.events.push(event.clone());
                 output.effects.push(MaestriaEffect::PersistEvent {
-                    event: event.event.clone(),
+                    envelope: event.clone(),
                 });
                 output
                     .effects
@@ -994,7 +1062,7 @@ impl KernelState {
                 let event = self.handle_open_task(input.clone())?;
                 output.events.push(event.clone());
                 output.effects.push(MaestriaEffect::PersistEvent {
-                    event: event.event.clone(),
+                    envelope: event.clone(),
                 });
                 if input.priority == TaskPriority::High {
                     let task_id = match event.event {
@@ -1018,13 +1086,13 @@ impl KernelState {
                 output.events.push(event.clone());
                 output
                     .effects
-                    .push(MaestriaEffect::PersistEvent { event: event.event });
+                    .push(MaestriaEffect::PersistEvent { envelope: event });
             }
             DomainInput::CompleteTask(input) => {
                 let event = self.handle_complete_task(input)?;
                 output.events.push(event.clone());
                 output.effects.push(MaestriaEffect::PersistEvent {
-                    event: event.event.clone(),
+                    envelope: event.clone(),
                 });
                 output
                     .effects
@@ -1038,7 +1106,7 @@ impl KernelState {
                 output.events.push(event.clone());
                 output
                     .effects
-                    .push(MaestriaEffect::PersistEvent { event: event.event });
+                    .push(MaestriaEffect::PersistEvent { envelope: event });
                 output
                     .effects
                     .push(MaestriaEffect::RunValidation(RunValidationRequest {
@@ -1051,9 +1119,9 @@ impl KernelState {
                 let event = self.handle_create_relation(input)?;
                 output.events.push(event.clone());
                 output.effects.push(MaestriaEffect::PersistEvent {
-                    event: event.event.clone(),
+                    envelope: event.clone(),
                 });
-                if let DomainEvent::RelationCreated { relation_id } = event.event {
+                if let DomainEvent::RelationCreated { relation_id, .. } = event.event {
                     output
                         .effects
                         .push(MaestriaEffect::UpdateGraph(UpdateGraphRequest {
@@ -1066,41 +1134,41 @@ impl KernelState {
                 output.events.push(event.clone());
                 output
                     .effects
-                    .push(MaestriaEffect::PersistEvent { event: event.event });
+                    .push(MaestriaEffect::PersistEvent { envelope: event });
             }
             DomainInput::PromoteMemory(input) => {
                 let event = self.handle_promote_memory(input)?;
                 output.events.push(event.clone());
                 output.effects.push(MaestriaEffect::PersistEvent {
-                    event: event.event.clone(),
+                    envelope: event.clone(),
                 });
             }
             DomainInput::ContradictMemory(input) => {
                 let event = self.handle_contradict_memory(input)?;
                 output.events.push(event.clone());
                 output.effects.push(MaestriaEffect::PersistEvent {
-                    event: event.event.clone(),
+                    envelope: event.clone(),
                 });
             }
             DomainInput::DeprecateMemory(input) => {
                 let event = self.handle_deprecate_memory(input)?;
                 output.events.push(event.clone());
                 output.effects.push(MaestriaEffect::PersistEvent {
-                    event: event.event.clone(),
+                    envelope: event.clone(),
                 });
             }
             DomainInput::SupersedeMemory(input) => {
                 let event = self.handle_supersede_memory(input)?;
                 output.events.push(event.clone());
                 output.effects.push(MaestriaEffect::PersistEvent {
-                    event: event.event.clone(),
+                    envelope: event.clone(),
                 });
             }
             DomainInput::RecordValidationReport(input) => {
                 let event = self.handle_record_validation_report(input)?;
                 output.events.push(event.clone());
                 output.effects.push(MaestriaEffect::PersistEvent {
-                    event: event.event.clone(),
+                    envelope: event.clone(),
                 });
             }
             DomainInput::UserIntent(input) => {
@@ -1109,7 +1177,7 @@ impl KernelState {
                     output.events.push(entry.clone());
                     output
                         .effects
-                        .push(MaestriaEffect::PersistEvent { event: entry.event });
+                        .push(MaestriaEffect::PersistEvent { envelope: entry });
                 }
             }
             DomainInput::ArtifactDetected(input) => {
@@ -1121,33 +1189,33 @@ impl KernelState {
                 output.events.push(event.clone());
                 output
                     .effects
-                    .push(MaestriaEffect::PersistEvent { event: event.event });
+                    .push(MaestriaEffect::PersistEvent { envelope: event });
             }
             DomainInput::ParserCompleted(input) => {
                 let generated = self.handle_parser_completed(input)?;
                 for envelope in generated {
                     output.events.push(envelope.clone());
-                    output.effects.push(MaestriaEffect::PersistEvent {
-                        event: envelope.event,
-                    });
+                    output
+                        .effects
+                        .push(MaestriaEffect::PersistEvent { envelope });
                 }
             }
             DomainInput::SearchCompleted(input) => {
                 let generated = self.handle_search_completed(input)?;
                 for envelope in generated {
                     output.events.push(envelope.clone());
-                    output.effects.push(MaestriaEffect::PersistEvent {
-                        event: envelope.event,
-                    });
+                    output
+                        .effects
+                        .push(MaestriaEffect::PersistEvent { envelope });
                 }
             }
             DomainInput::HarnessRunCompleted(input) => {
                 let generated = self.handle_harness_completed(input)?;
                 for envelope in generated {
                     output.events.push(envelope.clone());
-                    output.effects.push(MaestriaEffect::PersistEvent {
-                        event: envelope.event,
-                    });
+                    output
+                        .effects
+                        .push(MaestriaEffect::PersistEvent { envelope });
                 }
             }
             DomainInput::ValidationCompleted(input) => {
@@ -1155,15 +1223,15 @@ impl KernelState {
                 output.events.push(event.clone());
                 output
                     .effects
-                    .push(MaestriaEffect::PersistEvent { event: event.event });
+                    .push(MaestriaEffect::PersistEvent { envelope: event });
             }
             DomainInput::ApprovalResolved(input) => {
                 let envelopes = self.handle_approval_resolved(input)?;
                 for envelope in envelopes {
                     output.events.push(envelope.clone());
-                    output.effects.push(MaestriaEffect::PersistEvent {
-                        event: envelope.event,
-                    });
+                    output
+                        .effects
+                        .push(MaestriaEffect::PersistEvent { envelope });
                 }
             }
             DomainInput::ClockTick(tick) => {
@@ -1171,7 +1239,7 @@ impl KernelState {
                 output.events.push(event.clone());
                 output
                     .effects
-                    .push(MaestriaEffect::PersistEvent { event: event.event });
+                    .push(MaestriaEffect::PersistEvent { envelope: event });
             }
         }
 
@@ -1236,7 +1304,12 @@ impl KernelState {
             });
         }
 
-        let chunk = Chunk::new(input.chunk_id, input.artifact_id, input.order, input.text);
+        let chunk = Chunk::new(
+            input.chunk_id,
+            input.artifact_id,
+            input.order,
+            input.text.clone(),
+        );
         self.chunks.insert(input.chunk_id, chunk);
         if let Some(artifact) = self.artifacts.get_mut(&input.artifact_id) {
             artifact.chunk_ids.insert(input.chunk_id);
@@ -1246,6 +1319,7 @@ impl KernelState {
             chunk_id: input.chunk_id,
             artifact_id: input.artifact_id,
             order: input.order,
+            text: input.text,
         }))
     }
 
@@ -1267,7 +1341,12 @@ impl KernelState {
 
         self.cards.insert(
             input.card_id,
-            Card::new(input.card_id, input.artifact_id, input.title, input.body),
+            Card::new(
+                input.card_id,
+                input.artifact_id,
+                input.title.clone(),
+                input.body.clone(),
+            ),
         );
 
         if let Some(artifact) = self.artifacts.get_mut(&input.artifact_id) {
@@ -1277,6 +1356,8 @@ impl KernelState {
         Ok(self.emit_event(DomainEvent::CardCreated {
             card_id: input.card_id,
             artifact_id: input.artifact_id,
+            title: input.title,
+            body: input.body,
         }))
     }
 
@@ -1295,10 +1376,17 @@ impl KernelState {
                 id: input.artifact_id,
             });
         }
-        if let Some(claim_id) = input.claim_id
-            && !self.claims.contains_key(&claim_id)
-        {
-            return Err(DomainError::MissingClaim { id: claim_id });
+        if let Some(claim_id) = input.claim_id {
+            let claim = self
+                .claims
+                .get(&claim_id)
+                .ok_or(DomainError::MissingClaim { id: claim_id })?;
+            if claim.artifact_id != input.artifact_id {
+                return Err(DomainError::ArtifactMismatch {
+                    expected: input.artifact_id,
+                    actual: claim.artifact_id,
+                });
+            }
         }
 
         let kind = input.kind.clone();
@@ -1309,7 +1397,7 @@ impl KernelState {
                 input.artifact_id,
                 input.claim_id,
                 kind.clone(),
-                input.excerpt,
+                input.excerpt.clone(),
                 input.observed_at,
             ),
         );
@@ -1328,6 +1416,8 @@ impl KernelState {
             artifact_id: input.artifact_id,
             claim_id: input.claim_id,
             kind,
+            excerpt: input.excerpt,
+            observed_at: input.observed_at,
         }))
     }
 
@@ -1347,13 +1437,37 @@ impl KernelState {
             });
         }
 
-        let mut claim = Claim::new(input.claim_id, input.artifact_id, input.text);
-        for evidence_id in input.evidence_ids {
-            if !self.evidences.contains_key(&evidence_id) {
-                return Err(DomainError::MissingEvidence { id: evidence_id });
+        let mut claim = Claim::new(input.claim_id, input.artifact_id, input.text.clone());
+        let mut seen = BTreeSet::new();
+        for evidence_id in &input.evidence_ids {
+            if !seen.insert(*evidence_id) {
+                return Err(DomainError::DuplicateId {
+                    kind: "evidence_in_claim",
+                    id: evidence_id.value(),
+                });
             }
-            claim.evidence_ids.insert(evidence_id);
-            if let Some(evidence) = self.evidences.get_mut(&evidence_id) {
+            let evidence = self
+                .evidences
+                .get(evidence_id)
+                .ok_or(DomainError::MissingEvidence { id: *evidence_id })?;
+            if evidence.artifact_id != input.artifact_id {
+                return Err(DomainError::ArtifactMismatch {
+                    expected: input.artifact_id,
+                    actual: evidence.artifact_id,
+                });
+            }
+            if let Some(existing_claim) = evidence.claim_id
+                && existing_claim != input.claim_id
+            {
+                return Err(DomainError::DuplicateId {
+                    kind: "evidence_claim",
+                    id: evidence_id.value(),
+                });
+            }
+            claim.evidence_ids.insert(*evidence_id);
+        }
+        for evidence_id in &input.evidence_ids {
+            if let Some(evidence) = self.evidences.get_mut(evidence_id) {
                 evidence.claim_id = Some(input.claim_id);
             }
         }
@@ -1366,6 +1480,8 @@ impl KernelState {
         Ok(self.emit_event(DomainEvent::ClaimCreated {
             claim_id: input.claim_id,
             artifact_id: input.artifact_id,
+            text: input.text,
+            evidence_ids: input.evidence_ids,
         }))
     }
 
@@ -1398,6 +1514,7 @@ impl KernelState {
             task_id: input.task_id,
             title: input.title,
             priority: input.priority,
+            artifact_id: input.artifact_id,
         }))
     }
 
@@ -1443,6 +1560,11 @@ impl KernelState {
             });
         }
         let from = task.status;
+        if !report.passed {
+            return Err(DomainError::ValidationFailed {
+                task_id: input.task_id,
+            });
+        }
         let to = if report.warnings.is_empty() {
             TaskStatus::CompletedVerified
         } else {
@@ -1463,7 +1585,6 @@ impl KernelState {
             validation_report_id: input.validation_report_id,
         }))
     }
-
     fn handle_link_evidence_to_claim(
         &mut self,
         input: LinkEvidenceToClaimInput,
@@ -1472,9 +1593,24 @@ impl KernelState {
             .claims
             .get_mut(&input.claim_id)
             .ok_or(DomainError::MissingClaim { id: input.claim_id })?;
-        if !self.evidences.contains_key(&input.evidence_id) {
-            return Err(DomainError::MissingEvidence {
-                id: input.evidence_id,
+        let evidence =
+            self.evidences
+                .get(&input.evidence_id)
+                .ok_or(DomainError::MissingEvidence {
+                    id: input.evidence_id,
+                })?;
+        if evidence.artifact_id != claim.artifact_id {
+            return Err(DomainError::ArtifactMismatch {
+                expected: claim.artifact_id,
+                actual: evidence.artifact_id,
+            });
+        }
+        if let Some(existing_claim) = evidence.claim_id
+            && existing_claim != input.claim_id
+        {
+            return Err(DomainError::DuplicateId {
+                kind: "evidence_claim",
+                id: input.evidence_id.value(),
             });
         }
 
@@ -1493,6 +1629,44 @@ impl KernelState {
         &mut self,
         input: CreateRelationInput,
     ) -> Result<DomainEventEnvelope, DomainError> {
+        if input.confidence_milli > 1000 {
+            return Err(DomainError::InvalidConfidence {
+                max: 1000,
+                actual: input.confidence_milli,
+            });
+        }
+        let validate_endpoint = |endpoint: &RelationEndpoint| -> Result<(), DomainError> {
+            match endpoint {
+                RelationEndpoint::Artifact(id) => {
+                    if !self.artifacts.contains_key(id) {
+                        return Err(DomainError::MissingArtifact { id: *id });
+                    }
+                }
+                RelationEndpoint::Claim(id) => {
+                    if !self.claims.contains_key(id) {
+                        return Err(DomainError::MissingClaim { id: *id });
+                    }
+                }
+                RelationEndpoint::Task(id) => {
+                    if !self.tasks.contains_key(id) {
+                        return Err(DomainError::MissingTask { id: *id });
+                    }
+                }
+                RelationEndpoint::Memory(id) => {
+                    if !self.memories.contains_key(id) {
+                        return Err(DomainError::MissingMemory { id: *id });
+                    }
+                }
+                RelationEndpoint::Card(id) => {
+                    if !self.cards.contains_key(id) {
+                        return Err(DomainError::MissingCard { id: *id });
+                    }
+                }
+            }
+            Ok(())
+        };
+        validate_endpoint(&input.source)?;
+        validate_endpoint(&input.target)?;
         if self.relations.contains_key(&input.relation_id) {
             return Err(DomainError::DuplicateId {
                 kind: "relation",
@@ -1510,11 +1684,16 @@ impl KernelState {
             kind: input.kind,
             target: input.target,
             evidence_id: input.evidence_id,
-            confidence_milli: input.confidence_milli.min(1000),
+            confidence_milli: input.confidence_milli,
         };
         self.relations.insert(input.relation_id, relation);
         Ok(self.emit_event(DomainEvent::RelationCreated {
             relation_id: input.relation_id,
+            source: input.source,
+            kind: input.kind,
+            target: input.target,
+            evidence_id: input.evidence_id,
+            confidence_milli: input.confidence_milli,
         }))
     }
 
@@ -1522,19 +1701,34 @@ impl KernelState {
         &mut self,
         input: CreateMemoryCandidateInput,
     ) -> Result<DomainEventEnvelope, DomainError> {
+        if input.confidence_milli > 1000 {
+            return Err(DomainError::InvalidConfidence {
+                max: 1000,
+                actual: input.confidence_milli,
+            });
+        }
         if self.memory_candidates.contains_key(&input.candidate_id) {
             return Err(DomainError::DuplicateId {
                 kind: "memory_candidate",
                 id: input.candidate_id.value(),
             });
         }
-        if !self.claims.contains_key(&input.claim_id) {
-            return Err(DomainError::MissingClaim { id: input.claim_id });
-        }
+        let claim = self
+            .claims
+            .get(&input.claim_id)
+            .ok_or(DomainError::MissingClaim { id: input.claim_id })?;
+
         let mut evidence_ids = BTreeSet::new();
         for evidence_id in input.evidence_ids {
-            if !self.evidences.contains_key(&evidence_id) {
-                return Err(DomainError::MissingEvidence { id: evidence_id });
+            let evidence = self
+                .evidences
+                .get(&evidence_id)
+                .ok_or(DomainError::MissingEvidence { id: evidence_id })?;
+            if evidence.artifact_id != claim.artifact_id {
+                return Err(DomainError::ArtifactMismatch {
+                    expected: claim.artifact_id,
+                    actual: evidence.artifact_id,
+                });
             }
             evidence_ids.insert(evidence_id);
         }
@@ -1544,18 +1738,19 @@ impl KernelState {
                 id: input.candidate_id.value(),
             });
         }
+
         let candidate = MemoryCandidate {
             id: input.candidate_id,
             claim_id: input.claim_id,
             evidence_ids: evidence_ids.clone(),
-            confidence_milli: input.confidence_milli.min(1000),
+            confidence_milli: input.confidence_milli,
         };
         self.memory_candidates.insert(input.candidate_id, candidate);
         Ok(self.emit_event(DomainEvent::MemoryCandidateCreated {
             candidate_id: input.candidate_id,
             claim_id: input.claim_id,
             evidence_ids,
-            confidence_milli: input.confidence_milli.min(1000),
+            confidence_milli: input.confidence_milli,
         }))
     }
 
@@ -1797,6 +1992,11 @@ impl KernelState {
         let mut generated = Vec::new();
         let task_id = input.task_id;
         let exit_code = input.exit_code;
+        if let Some(task_id) = task_id
+            && !self.tasks.contains_key(&task_id)
+        {
+            return Err(DomainError::MissingTask { id: task_id });
+        }
 
         let base_event = self.emit_event(DomainEvent::HarnessRunCompleted {
             task_id,
@@ -1881,35 +2081,53 @@ impl KernelState {
         } else {
             self.handle_change_task_status(input.task_id, target)?
         };
-        let emitted = vec![
-            self.emit_event(DomainEvent::TaskStatusChanged {
+        let mut emitted = vec![];
+        if from != to {
+            emitted.push(self.emit_event(DomainEvent::TaskStatusChanged {
                 task_id: input.task_id,
                 from,
                 to,
-            }),
-            self.emit_event(DomainEvent::ApprovalRecorded {
-                task_id: input.task_id,
-                approved: input.approved,
-            }),
-        ];
-
+            }));
+        }
+        emitted.push(self.emit_event(DomainEvent::ApprovalRecorded {
+            task_id: input.task_id,
+            approved: input.approved,
+        }));
         Ok(emitted)
     }
 
     pub fn apply_event(&mut self, envelope: DomainEventEnvelope) -> Result<(), DomainError> {
+        let expected_id = self.event_log.len() as u64 + 1;
+        if envelope.id.value() != expected_id {
+            return Err(DomainError::InvalidEventId {
+                expected: expected_id,
+                actual: envelope.id.value(),
+            });
+        }
+        if envelope.sequence.value() != expected_id {
+            return Err(DomainError::InvalidSequence {
+                expected: expected_id,
+                actual: envelope.sequence.value(),
+            });
+        }
         match &envelope.event {
             DomainEvent::ArtifactRegistered { artifact_id, title } => {
-                if !self.artifacts.contains_key(artifact_id) {
-                    self.artifacts.insert(
-                        *artifact_id,
-                        Artifact::with_title(*artifact_id, title.clone()),
-                    );
+                if self.artifacts.contains_key(artifact_id) {
+                    return Err(DomainError::DuplicateId {
+                        kind: "artifact",
+                        id: artifact_id.value(),
+                    });
                 }
+                self.artifacts.insert(
+                    *artifact_id,
+                    Artifact::with_title(*artifact_id, title.clone()),
+                );
             }
             DomainEvent::ChunkRegistered {
                 chunk_id,
                 artifact_id,
                 order,
+                text,
             } => {
                 if !self.artifacts.contains_key(artifact_id) {
                     return Err(DomainError::MissingArtifact { id: *artifact_id });
@@ -1920,9 +2138,19 @@ impl KernelState {
                         id: chunk_id.value(),
                     });
                 }
+                if self
+                    .chunks
+                    .values()
+                    .any(|chunk| chunk.artifact_id == *artifact_id && chunk.order == *order)
+                {
+                    return Err(DomainError::DuplicateId {
+                        kind: "chunk_order",
+                        id: chunk_id.value(),
+                    });
+                }
                 self.chunks.insert(
                     *chunk_id,
-                    Chunk::new(*chunk_id, *artifact_id, *order, String::new()),
+                    Chunk::new(*chunk_id, *artifact_id, *order, text.clone()),
                 );
                 if let Some(artifact) = self.artifacts.get_mut(artifact_id) {
                     artifact.chunk_ids.insert(*chunk_id);
@@ -1931,6 +2159,8 @@ impl KernelState {
             DomainEvent::CardCreated {
                 card_id,
                 artifact_id,
+                title,
+                body,
             } => {
                 if !self.artifacts.contains_key(artifact_id) {
                     return Err(DomainError::MissingArtifact { id: *artifact_id });
@@ -1943,7 +2173,7 @@ impl KernelState {
                 }
                 self.cards.insert(
                     *card_id,
-                    Card::new(*card_id, *artifact_id, String::new(), String::new()),
+                    Card::new(*card_id, *artifact_id, title.clone(), body.clone()),
                 );
                 if let Some(artifact) = self.artifacts.get_mut(artifact_id) {
                     artifact.card_ids.insert(*card_id);
@@ -1952,6 +2182,8 @@ impl KernelState {
             DomainEvent::ClaimCreated {
                 claim_id,
                 artifact_id,
+                text,
+                evidence_ids,
             } => {
                 if !self.artifacts.contains_key(artifact_id) {
                     return Err(DomainError::MissingArtifact { id: *artifact_id });
@@ -1962,10 +2194,41 @@ impl KernelState {
                         id: claim_id.value(),
                     });
                 }
-                self.claims.insert(
-                    *claim_id,
-                    Claim::new(*claim_id, *artifact_id, String::new()),
-                );
+                let mut seen = BTreeSet::new();
+                for evidence_id in evidence_ids {
+                    if !seen.insert(*evidence_id) {
+                        return Err(DomainError::DuplicateId {
+                            kind: "evidence_in_claim",
+                            id: evidence_id.value(),
+                        });
+                    }
+                    let evidence = self
+                        .evidences
+                        .get(evidence_id)
+                        .ok_or(DomainError::MissingEvidence { id: *evidence_id })?;
+                    if evidence.artifact_id != *artifact_id {
+                        return Err(DomainError::ArtifactMismatch {
+                            expected: *artifact_id,
+                            actual: evidence.artifact_id,
+                        });
+                    }
+                    if let Some(existing_claim) = evidence.claim_id
+                        && existing_claim != *claim_id
+                    {
+                        return Err(DomainError::DuplicateId {
+                            kind: "evidence_claim",
+                            id: evidence_id.value(),
+                        });
+                    }
+                }
+                let mut claim = Claim::new(*claim_id, *artifact_id, text.clone());
+                claim.evidence_ids.extend(evidence_ids.iter().copied());
+                for evidence_id in evidence_ids {
+                    if let Some(evidence) = self.evidences.get_mut(evidence_id) {
+                        evidence.claim_id = Some(*claim_id);
+                    }
+                }
+                self.claims.insert(*claim_id, claim);
                 if let Some(artifact) = self.artifacts.get_mut(artifact_id) {
                     artifact.claim_ids.insert(*claim_id);
                 }
@@ -1975,6 +2238,8 @@ impl KernelState {
                 artifact_id,
                 claim_id,
                 kind,
+                excerpt,
+                observed_at,
             } => {
                 if !self.artifacts.contains_key(artifact_id) {
                     return Err(DomainError::MissingArtifact { id: *artifact_id });
@@ -1985,10 +2250,17 @@ impl KernelState {
                         id: evidence_id.value(),
                     });
                 }
-                if let Some(claim_id) = claim_id
-                    && !self.claims.contains_key(claim_id)
-                {
-                    return Err(DomainError::MissingClaim { id: *claim_id });
+                if let Some(claim_id) = claim_id {
+                    let claim = self
+                        .claims
+                        .get(claim_id)
+                        .ok_or(DomainError::MissingClaim { id: *claim_id })?;
+                    if claim.artifact_id != *artifact_id {
+                        return Err(DomainError::ArtifactMismatch {
+                            expected: *artifact_id,
+                            actual: claim.artifact_id,
+                        });
+                    }
                 }
 
                 self.evidences.insert(
@@ -1998,8 +2270,8 @@ impl KernelState {
                         *artifact_id,
                         *claim_id,
                         kind.clone(),
-                        String::new(),
-                        LogicalTick::new(0),
+                        excerpt.clone(),
+                        *observed_at,
                     ),
                 );
                 if let Some(artifact) = self.artifacts.get_mut(artifact_id) {
@@ -2015,6 +2287,7 @@ impl KernelState {
                 task_id,
                 title,
                 priority,
+                artifact_id,
             } => {
                 if self.tasks.contains_key(task_id) {
                     return Err(DomainError::DuplicateId {
@@ -2022,19 +2295,42 @@ impl KernelState {
                         id: task_id.value(),
                     });
                 }
-                self.tasks
-                    .insert(*task_id, Task::new(*task_id, title.clone(), *priority));
+                if let Some(art_id) = artifact_id
+                    && !self.artifacts.contains_key(art_id)
+                {
+                    return Err(DomainError::MissingArtifact { id: *art_id });
+                }
+                let mut task = Task::new(*task_id, title.clone(), *priority);
+                if let Some(art_id) = artifact_id {
+                    task.artifact_ids.insert(*art_id);
+                }
+                self.tasks.insert(*task_id, task);
             }
-            DomainEvent::TaskStatusChanged {
-                task_id,
-                from: _,
-                to,
-            } => {
+            DomainEvent::TaskStatusChanged { task_id, from, to } => {
                 let task = self
                     .tasks
                     .get_mut(task_id)
                     .ok_or(DomainError::MissingTask { id: *task_id })?;
-                task.status = *to;
+                if task.status != *from {
+                    return Err(DomainError::InvalidTaskTransition {
+                        task_id: *task_id,
+                        from: task.status,
+                        to: *from,
+                    });
+                }
+                if *from != *to {
+                    if to.is_completion() {
+                        return Err(DomainError::ValidationRequired { task_id: *task_id });
+                    }
+                    if !from.can_transition_to(*to) {
+                        return Err(DomainError::InvalidTaskTransition {
+                            task_id: *task_id,
+                            from: *from,
+                            to: *to,
+                        });
+                    }
+                    task.status = *to;
+                }
             }
             DomainEvent::TaskCompletionRecorded {
                 task_id,
@@ -2045,6 +2341,43 @@ impl KernelState {
                     .tasks
                     .get_mut(task_id)
                     .ok_or(DomainError::MissingTask { id: *task_id })?;
+                let report = self.validation_reports.get(validation_report_id).ok_or(
+                    DomainError::MissingValidationReport {
+                        id: *validation_report_id,
+                    },
+                )?;
+                if report.task_id != Some(*task_id) {
+                    return Err(DomainError::ValidationReportTaskMismatch {
+                        report_id: *validation_report_id,
+                        report_task_id: report.task_id,
+                        task_id: *task_id,
+                    });
+                }
+                if !report.passed {
+                    return Err(DomainError::ValidationFailed { task_id: *task_id });
+                }
+                if *status == TaskStatus::CompletedVerified && !report.warnings.is_empty() {
+                    return Err(DomainError::ValidationWarningsForbidden { task_id: *task_id });
+                }
+                if *status == TaskStatus::CompletedWithWarnings && report.warnings.is_empty() {
+                    return Err(DomainError::ValidationWarningsRequired { task_id: *task_id });
+                }
+                if *status != TaskStatus::CompletedVerified
+                    && *status != TaskStatus::CompletedWithWarnings
+                {
+                    return Err(DomainError::InvalidTaskTransition {
+                        task_id: *task_id,
+                        from: task.status,
+                        to: *status,
+                    });
+                }
+                if !task.status.can_transition_to(*status) {
+                    return Err(DomainError::InvalidTaskTransition {
+                        task_id: *task_id,
+                        from: task.status,
+                        to: *status,
+                    });
+                }
                 task.status = *status;
                 task.validation_report_id = Some(*validation_report_id);
             }
@@ -2063,30 +2396,95 @@ impl KernelState {
                     .claims
                     .get_mut(claim_id)
                     .ok_or(DomainError::MissingClaim { id: *claim_id })?;
-                if !self.evidences.contains_key(evidence_id) {
-                    return Err(DomainError::MissingEvidence { id: *evidence_id });
+                let evidence = self
+                    .evidences
+                    .get(evidence_id)
+                    .ok_or(DomainError::MissingEvidence { id: *evidence_id })?;
+                if evidence.artifact_id != claim.artifact_id {
+                    return Err(DomainError::ArtifactMismatch {
+                        expected: claim.artifact_id,
+                        actual: evidence.artifact_id,
+                    });
+                }
+                if let Some(existing_claim) = evidence.claim_id
+                    && existing_claim != *claim_id
+                {
+                    return Err(DomainError::DuplicateId {
+                        kind: "evidence_claim",
+                        id: evidence_id.value(),
+                    });
                 }
                 claim.evidence_ids.insert(*evidence_id);
                 if let Some(evidence) = self.evidences.get_mut(evidence_id) {
                     evidence.claim_id = Some(*claim_id);
                 }
             }
-            DomainEvent::RelationCreated { relation_id } => {
+            DomainEvent::RelationCreated {
+                relation_id,
+                source,
+                kind,
+                target,
+                evidence_id,
+                confidence_milli,
+            } => {
+                if *confidence_milli > 1000 {
+                    return Err(DomainError::InvalidConfidence {
+                        max: 1000,
+                        actual: *confidence_milli,
+                    });
+                }
+                let validate_endpoint = |endpoint: &RelationEndpoint| -> Result<(), DomainError> {
+                    match endpoint {
+                        RelationEndpoint::Artifact(id) => {
+                            if !self.artifacts.contains_key(id) {
+                                return Err(DomainError::MissingArtifact { id: *id });
+                            }
+                        }
+                        RelationEndpoint::Claim(id) => {
+                            if !self.claims.contains_key(id) {
+                                return Err(DomainError::MissingClaim { id: *id });
+                            }
+                        }
+                        RelationEndpoint::Task(id) => {
+                            if !self.tasks.contains_key(id) {
+                                return Err(DomainError::MissingTask { id: *id });
+                            }
+                        }
+                        RelationEndpoint::Memory(id) => {
+                            if !self.memories.contains_key(id) {
+                                return Err(DomainError::MissingMemory { id: *id });
+                            }
+                        }
+                        RelationEndpoint::Card(id) => {
+                            if !self.cards.contains_key(id) {
+                                return Err(DomainError::MissingCard { id: *id });
+                            }
+                        }
+                    }
+                    Ok(())
+                };
+                validate_endpoint(source)?;
+                validate_endpoint(target)?;
                 if self.relations.contains_key(relation_id) {
                     return Err(DomainError::DuplicateId {
                         kind: "relation",
                         id: relation_id.value(),
                     });
                 }
+                if let Some(ev_id) = evidence_id
+                    && !self.evidences.contains_key(ev_id)
+                {
+                    return Err(DomainError::MissingEvidence { id: *ev_id });
+                }
                 self.relations.insert(
                     *relation_id,
                     Relation {
                         id: *relation_id,
-                        source: RelationEndpoint::Artifact(ArtifactId::new(0)),
-                        kind: RelationKind::RelatedTo,
-                        target: RelationEndpoint::Artifact(ArtifactId::new(0)),
-                        evidence_id: None,
-                        confidence_milli: 0,
+                        source: *source,
+                        kind: *kind,
+                        target: *target,
+                        evidence_id: *evidence_id,
+                        confidence_milli: *confidence_milli,
                     },
                 );
             }
@@ -2096,15 +2494,22 @@ impl KernelState {
                 evidence_ids,
                 confidence_milli,
             } => {
+                if *confidence_milli > 1000 {
+                    return Err(DomainError::InvalidConfidence {
+                        max: 1000,
+                        actual: *confidence_milli,
+                    });
+                }
                 if self.memory_candidates.contains_key(candidate_id) {
                     return Err(DomainError::DuplicateId {
                         kind: "memory_candidate",
                         id: candidate_id.value(),
                     });
                 }
-                if !self.claims.contains_key(claim_id) {
-                    return Err(DomainError::MissingClaim { id: *claim_id });
-                }
+                let claim = self
+                    .claims
+                    .get(claim_id)
+                    .ok_or(DomainError::MissingClaim { id: *claim_id })?;
                 if evidence_ids.is_empty() {
                     return Err(DomainError::EvidenceRequired {
                         kind: "memory_candidate",
@@ -2112,8 +2517,15 @@ impl KernelState {
                     });
                 }
                 for evidence_id in evidence_ids {
-                    if !self.evidences.contains_key(evidence_id) {
-                        return Err(DomainError::MissingEvidence { id: *evidence_id });
+                    let evidence = self
+                        .evidences
+                        .get(evidence_id)
+                        .ok_or(DomainError::MissingEvidence { id: *evidence_id })?;
+                    if evidence.artifact_id != claim.artifact_id {
+                        return Err(DomainError::ArtifactMismatch {
+                            expected: claim.artifact_id,
+                            actual: evidence.artifact_id,
+                        });
                     }
                 }
                 self.memory_candidates.insert(
@@ -2140,6 +2552,34 @@ impl KernelState {
                     .memory_candidates
                     .get(candidate_id)
                     .ok_or(DomainError::MissingMemoryCandidate { id: *candidate_id })?;
+                if candidate.evidence_ids.is_empty() {
+                    return Err(DomainError::MemoryCandidateIneligibleForPromotion {
+                        candidate_id: candidate.id,
+                        confidence_milli: candidate.confidence_milli,
+                        minimum_confidence_milli: MIN_PROMOTION_CONFIDENCE_MILLI,
+                        reason: "no evidence ids",
+                    });
+                }
+                if !candidate
+                    .evidence_ids
+                    .iter()
+                    .all(|evidence_id| self.evidences.contains_key(evidence_id))
+                {
+                    return Err(DomainError::MemoryCandidateIneligibleForPromotion {
+                        candidate_id: candidate.id,
+                        confidence_milli: candidate.confidence_milli,
+                        minimum_confidence_milli: MIN_PROMOTION_CONFIDENCE_MILLI,
+                        reason: "missing evidence",
+                    });
+                }
+                if candidate.confidence_milli < MIN_PROMOTION_CONFIDENCE_MILLI {
+                    return Err(DomainError::MemoryCandidateIneligibleForPromotion {
+                        candidate_id: candidate.id,
+                        confidence_milli: candidate.confidence_milli,
+                        minimum_confidence_milli: MIN_PROMOTION_CONFIDENCE_MILLI,
+                        reason: "insufficient confidence",
+                    });
+                }
                 self.memories.insert(
                     *memory_id,
                     Memory {
@@ -2201,6 +2641,11 @@ impl KernelState {
                         id: report_id.value(),
                     });
                 }
+                if let Some(tid) = task_id
+                    && !self.tasks.contains_key(tid)
+                {
+                    return Err(DomainError::MissingTask { id: *tid });
+                }
                 self.validation_reports.insert(
                     *report_id,
                     ValidationReportRecord {
@@ -2210,12 +2655,33 @@ impl KernelState {
                     },
                 );
             }
-            DomainEvent::UserIntentObserved { .. }
-            | DomainEvent::ArtifactParsed { .. }
-            | DomainEvent::SearchCompleted { .. }
-            | DomainEvent::HarnessRunCompleted { .. }
-            | DomainEvent::ApprovalRecorded { .. }
-            | DomainEvent::TickObserved { .. } => {}
+            DomainEvent::UserIntentObserved { task_id, title } => {
+                if title.trim().is_empty() {
+                    return Err(DomainError::EmptyIntent);
+                }
+                if !self.tasks.contains_key(task_id) {
+                    return Err(DomainError::MissingTask { id: *task_id });
+                }
+            }
+            DomainEvent::ArtifactParsed { artifact_id, .. }
+            | DomainEvent::SearchCompleted { artifact_id, .. } => {
+                if !self.artifacts.contains_key(artifact_id) {
+                    return Err(DomainError::MissingArtifact { id: *artifact_id });
+                }
+            }
+            DomainEvent::HarnessRunCompleted { task_id, .. } => {
+                if let Some(task_id) = task_id
+                    && !self.tasks.contains_key(task_id)
+                {
+                    return Err(DomainError::MissingTask { id: *task_id });
+                }
+            }
+            DomainEvent::ApprovalRecorded { task_id, .. } => {
+                if !self.tasks.contains_key(task_id) {
+                    return Err(DomainError::MissingTask { id: *task_id });
+                }
+            }
+            DomainEvent::TickObserved { .. } => {}
         }
 
         self.event_log.push(envelope);
@@ -2430,6 +2896,7 @@ mod tests {
             DomainEvent::CardCreated {
                 card_id: CardId(20),
                 artifact_id: ArtifactId(1),
+                ..
             }
         )));
         Ok(())
@@ -2516,7 +2983,7 @@ mod tests {
             RecordValidationReportInput {
                 report_id: ValidationReportId::new(80),
                 task_id: Some(TaskId::new(7)),
-                passed: false,
+                passed: true,
                 warnings: vec!["non-blocking warning".to_string()],
             },
         ))?;
@@ -2567,7 +3034,7 @@ mod tests {
             output.effects,
             vec![
                 MaestriaEffect::PersistEvent {
-                    event: output.events[0].event.clone(),
+                    envelope: output.events[0].clone(),
                 },
                 MaestriaEffect::PersistState(PersistStateRequest {
                     reason: "validated task completion".to_string(),
@@ -2641,6 +3108,7 @@ mod tests {
                     artifact_id,
                     claim_id,
                     kind: event_kind,
+                    ..
                 },
                 ..
             }] if *evidence_id == EvidenceId::new(40)
@@ -2652,7 +3120,7 @@ mod tests {
             output.effects,
             vec![
                 MaestriaEffect::PersistEvent {
-                    event: output.events[0].event.clone(),
+                    envelope: output.events[0].clone(),
                 },
                 MaestriaEffect::RunValidation(RunValidationRequest {
                     task_id: None,
@@ -2739,7 +3207,7 @@ mod tests {
             relation_output.effects,
             vec![
                 MaestriaEffect::PersistEvent {
-                    event: relation_output.events[0].event.clone(),
+                    envelope: relation_output.events[0].clone(),
                 },
                 MaestriaEffect::UpdateGraph(UpdateGraphRequest {
                     relation_id: RelationId::new(70),
@@ -2831,7 +3299,7 @@ mod tests {
         assert_eq!(
             output.effects,
             vec![MaestriaEffect::PersistEvent {
-                event: output.events[0].event.clone(),
+                envelope: output.events[0].clone(),
             }]
         );
         Ok(())
@@ -3190,7 +3658,7 @@ mod tests {
         )));
         assert!(events_a.iter().any(|envelope| matches!(
             &envelope.event,
-            DomainEvent::RelationCreated { relation_id } if *relation_id == RelationId::new(70)
+            DomainEvent::RelationCreated { relation_id, .. } if *relation_id == RelationId::new(70)
         )));
         assert!(events_a.iter().any(|envelope| matches!(
             &envelope.event,
@@ -3211,6 +3679,26 @@ mod tests {
             MaestriaEffect::UpdateGraph(UpdateGraphRequest { relation_id })
                 if *relation_id == RelationId::new(70)
         )));
+        Ok(())
+    }
+
+    #[test]
+    fn persist_effects_keep_exact_event_envelopes() -> Result<(), DomainError> {
+        let mut state = KernelState::new();
+        let first = state.apply_input(DomainInput::ClockTick(LogicalTick::new(7)))?;
+        let second = state.apply_input(DomainInput::ClockTick(LogicalTick::new(7)))?;
+        let first_envelope = match first.effects.as_slice() {
+            [MaestriaEffect::PersistEvent { envelope }] => envelope,
+            _ => return Err(DomainError::EmptyIntent),
+        };
+        let second_envelope = match second.effects.as_slice() {
+            [MaestriaEffect::PersistEvent { envelope }] => envelope,
+            _ => return Err(DomainError::EmptyIntent),
+        };
+        assert_eq!(first_envelope, &first.events[0]);
+        assert_eq!(second_envelope, &second.events[0]);
+        assert_ne!(first_envelope.id, second_envelope.id);
+        assert_ne!(first_envelope.sequence, second_envelope.sequence);
         Ok(())
     }
 
