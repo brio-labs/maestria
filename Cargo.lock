@@ -720,6 +720,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "maestria-graph-sqlite"
+version = "0.1.0"
+dependencies = [
+ "maestria-domain",
+ "maestria-ports",
+ "rusqlite",
+]
+
+[[package]]
 name = "maestria-harness"
 version = "0.1.0"
 dependencies = [
