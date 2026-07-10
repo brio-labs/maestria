@@ -17,7 +17,7 @@ use std::{
 use maestria_domain::{
     Artifact, ArtifactId, BlobId, Card, CardId, Chunk, ChunkId, CreateCardInput, DomainEvent,
     DomainEventEnvelope, Evidence, EvidenceId, HarnessRunId, Relation, RelationEndpoint,
-    RelationId, RelationKind,
+    RelationId,
 };
 
 pub const PORTS_VERSION: &str = "0.1.0";
@@ -658,6 +658,56 @@ impl GraphIndex for InMemoryGraphIndex {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WebSnapshotData {
+    pub url: String,
+    pub html: String,
+}
+
+pub trait WebFetcher: Send + Sync {
+    fn fetch(&self, url: &str) -> Result<WebSnapshotData, PortError>;
+}
+
+#[derive(Clone, Default)]
+pub struct InMemoryWebFetcher {
+    pages: Arc<std::sync::Mutex<BTreeMap<String, String>>>,
+}
+
+impl InMemoryWebFetcher {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn seed(&self, url: &str, html: &str) -> Result<(), PortError> {
+        let mut guard = self.pages.lock().map_err(|_| PortError::Internal {
+            message: "web fetcher lock poisoned".to_string(),
+        })?;
+        guard.insert(url.to_string(), html.to_string());
+        Ok(())
+    }
+}
+
+impl WebFetcher for InMemoryWebFetcher {
+    fn fetch(&self, url: &str) -> Result<WebSnapshotData, PortError> {
+        if url.trim().is_empty() {
+            return Err(PortError::InvalidInput {
+                message: "url cannot be empty".to_string(),
+            });
+        }
+        let guard = self.pages.lock().map_err(|_| PortError::Internal {
+            message: "web fetcher lock poisoned".to_string(),
+        })?;
+        if let Some(html) = guard.get(url) {
+            Ok(WebSnapshotData {
+                url: url.to_string(),
+                html: html.clone(),
+            })
+        } else {
+            Err(PortError::NotFound)
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct InMemoryParser;
 
@@ -767,7 +817,7 @@ impl HarnessAdapter for InMemoryHarnessAdapter {
 pub mod contract_tests {
     use super::*;
     use maestria_domain::{
-        ClaimId, ContentRange, EventId, EvidenceKind, LogicalTick, SequenceNumber,
+        ClaimId, ContentRange, EventId, EvidenceKind, LogicalTick, RelationKind, SequenceNumber,
         ValidationReportId,
     };
 
@@ -1289,6 +1339,26 @@ pub mod contract_tests {
         assert_eq!(claim_rels[0], rel1);
         assert_eq!(claim_rels[1], rel2);
     }
+
+    pub fn assert_web_fetcher_contract(
+        fetcher: &impl super::WebFetcher,
+        valid_url: &str,
+        valid_html: &str,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let fetch_res = fetcher.fetch(valid_url)?;
+        assert_eq!(fetch_res.url, valid_url, "URL must be preserved");
+        assert_eq!(fetch_res.html, valid_html, "HTML must match");
+        assert!(!fetch_res.html.is_empty(), "HTML should be non-empty");
+
+        let empty_res = fetcher.fetch("");
+        assert!(
+            matches!(empty_res, Err(super::PortError::InvalidInput { .. })),
+            "Empty URLs must map to PortError::InvalidInput, got {:?}",
+            empty_res
+        );
+
+        Ok(())
+    }
 }
 #[cfg(test)]
 mod tests {
@@ -1303,6 +1373,26 @@ mod tests {
     #[test]
     fn in_memory_chunk_repository_satisfies_contract() {
         assert_chunk_repository_round_trip(&InMemoryChunkRepository::new());
+    }
+
+    #[test]
+    fn in_memory_web_fetcher_satisfies_contract() -> Result<(), Box<dyn std::error::Error>> {
+        let fetcher = InMemoryWebFetcher::new();
+        fetcher.seed("https://example.com/test", "<html><body>test</body></html>")?;
+        assert_web_fetcher_contract(
+            &fetcher,
+            "https://example.com/test",
+            "<html><body>test</body></html>",
+        )?;
+
+        let missing_res = fetcher.fetch("https://example.com/not-found-anywhere");
+        assert!(
+            matches!(missing_res, Err(PortError::NotFound)),
+            "Missing URLs must map to PortError::NotFound, got {:?}",
+            missing_res
+        );
+
+        Ok(())
     }
 
     #[test]

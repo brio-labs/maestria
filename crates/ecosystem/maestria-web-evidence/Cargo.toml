@@ -1,0 +1,14 @@
+[package]
+name = "maestria-web-evidence"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+maestria-ports = { path = "../../kernel/maestria-ports" }
+ureq = { version = "2", features = ["charset"] }
+url = "2"
+
+[dev-dependencies]
+maestria-ports = { path = "../../kernel/maestria-ports", features = ["contract-tests"] }
