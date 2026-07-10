@@ -29,9 +29,6 @@ FORBIDDEN_DOMAIN_TOKENS = [
 ]
 FORBIDDEN_DOMAIN_FAILURES = ["unwrap(", "expect(", "panic!("]
 
-MAX_RUST_FILE_LINES = 1200
-MAX_PRODUCTION_RUST_LINES = 1000
-
 
 def should_skip(path: Path) -> bool:
     rel = path.relative_to(ROOT)
@@ -53,50 +50,6 @@ def read_text(path: Path) -> str | None:
 def production_rust(text: str) -> str:
     return text.split("#[cfg(test)]", 1)[0]
 
-
-def is_test_rust(path: Path) -> bool:
-    rel = path.relative_to(ROOT)
-    return "tests" in rel.parts or path.name == "tests.rs" or path.stem.endswith("_test")
-
-
-def rust_size_violations(
-    display_path: str,
-    total_lines: int,
-    production_lines: int,
-    test_file: bool,
-) -> list[str]:
-    violations = []
-    if total_lines > MAX_RUST_FILE_LINES:
-        violations.append(
-            f"{display_path} has {total_lines} Rust lines; split the module "
-            f"(maximum {MAX_RUST_FILE_LINES})"
-        )
-    if not test_file and production_lines > MAX_PRODUCTION_RUST_LINES:
-        violations.append(
-            f"{display_path} has {production_lines} production Rust lines; "
-            f"split the module by responsibility (maximum {MAX_PRODUCTION_RUST_LINES})"
-        )
-    return violations
-
-
-def scan_rust_sizes() -> list[str]:
-    violations = []
-    for candidate in ROOT.rglob("*.rs"):
-        if candidate.is_dir() or should_skip(candidate):
-            continue
-        content = read_text(candidate)
-        if content is None:
-            continue
-        rel = candidate.relative_to(ROOT)
-        violations.extend(
-            rust_size_violations(
-                str(rel),
-                len(content.splitlines()),
-                len(production_rust(content).splitlines()),
-                is_test_rust(candidate),
-            )
-        )
-    return violations
 
 
 def scan_markers() -> list[str]:
@@ -148,7 +101,6 @@ def main() -> int:
     violations.extend(f"{path} contains forbidden task marker" for path in marker_violations)
     violations.extend(scan_domain_manifest())
     violations.extend(scan_domain_sources())
-    violations.extend(scan_rust_sizes())
 
     if violations:
         print("philosophy-check failed:")

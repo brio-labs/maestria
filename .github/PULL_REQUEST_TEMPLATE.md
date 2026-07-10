@@ -19,4 +19,6 @@
 
 - [ ] Domain and governance remain deterministic and side-effect free.
 - [ ] Side effects remain confined to adapters/runtime.
+- [ ] Each module owns one responsibility at one architectural layer; new concepts have explicit sibling boundaries.
+- [ ] Public façades expose stable boundaries, and cross-concern behavior uses typed APIs, traits, or effects.
 - [ ] `README.md` or relevant docs were updated if behavior changed.
