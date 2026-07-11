@@ -185,6 +185,23 @@ jobs:
       - uses: mozilla-actions/sccache-action@v0.0.10
       - name: Run tests
         run: cargo test --workspace --all-targets --all-features
+  test-nextest:
+    needs: [changes]
+    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request' || needs.changes.outputs.rust == 'true'
+    steps:
+      - uses: actions/checkout@v7.0.0
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+      - name: Cache
+        uses: Swatinem/rust-cache@v2.9.1
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest
+      - uses: mozilla-actions/sccache-action@v0.0.10
+      - name: Run nextest tests
+        run: cargo nextest run --workspace --all-targets --all-features
 
   test-doc:
     needs: [changes]

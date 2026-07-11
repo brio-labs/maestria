@@ -1,0 +1,68 @@
+---
+source: crates/ecosystem/maestria-parsers/tests/golden.rs
+expression: "&parsed"
+---
+ParsedArtifact {
+    artifact_id: ArtifactId(
+        3,
+    ),
+    chunks: [
+        ParsedChunk {
+            chunk_id: ChunkId(
+                3000010,
+            ),
+            artifact_id: ArtifactId(
+                3,
+            ),
+            text: "use std::fmt;",
+        },
+        ParsedChunk {
+            chunk_id: ChunkId(
+                3000011,
+            ),
+            artifact_id: ArtifactId(
+                3,
+            ),
+            text: "pub struct Thing;",
+        },
+        ParsedChunk {
+            chunk_id: ChunkId(
+                3000012,
+            ),
+            artifact_id: ArtifactId(
+                3,
+            ),
+            text: "impl Thing {",
+        },
+        ParsedChunk {
+            chunk_id: ChunkId(
+                3000013,
+            ),
+            artifact_id: ArtifactId(
+                3,
+            ),
+            text: "pub fn new() -> Self { Self }\n}",
+        },
+        ParsedChunk {
+            chunk_id: ChunkId(
+                3000014,
+            ),
+            artifact_id: ArtifactId(
+                3,
+            ),
+            text: "#[test]\nfn makes_thing() {}",
+        },
+    ],
+    cards: [
+        CreateCardInput {
+            card_id: CardId(
+                3900010,
+            ),
+            artifact_id: ArtifactId(
+                3,
+            ),
+            title: "use std::fmt;",
+            body: "Parsed 5 textual chunks from lib.rs.",
+        },
+    ],
+}

@@ -1,0 +1,41 @@
+---
+source: crates/ecosystem/maestria-parsers/tests/golden.rs
+expression: "&parsed"
+---
+ParsedArtifact {
+    artifact_id: ArtifactId(
+        2,
+    ),
+    chunks: [
+        ParsedChunk {
+            chunk_id: ChunkId(
+                2000007,
+            ),
+            artifact_id: ArtifactId(
+                2,
+            ),
+            text: "First paragraph.\nStill first.",
+        },
+        ParsedChunk {
+            chunk_id: ChunkId(
+                2000008,
+            ),
+            artifact_id: ArtifactId(
+                2,
+            ),
+            text: "Second paragraph.",
+        },
+    ],
+    cards: [
+        CreateCardInput {
+            card_id: CardId(
+                2900007,
+            ),
+            artifact_id: ArtifactId(
+                2,
+            ),
+            title: "First paragraph.",
+            body: "Parsed 2 textual chunks from notes.txt.",
+        },
+    ],
+}

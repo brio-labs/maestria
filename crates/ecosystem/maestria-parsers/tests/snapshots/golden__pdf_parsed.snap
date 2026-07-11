@@ -1,0 +1,32 @@
+---
+source: crates/ecosystem/maestria-parsers/tests/golden.rs
+expression: "&parsed"
+---
+ParsedArtifact {
+    artifact_id: ArtifactId(
+        5,
+    ),
+    chunks: [
+        ParsedChunk {
+            chunk_id: ChunkId(
+                5000016,
+            ),
+            artifact_id: ArtifactId(
+                5,
+            ),
+            text: "Hello PDF world.",
+        },
+    ],
+    cards: [
+        CreateCardInput {
+            card_id: CardId(
+                5900016,
+            ),
+            artifact_id: ArtifactId(
+                5,
+            ),
+            title: "Hello PDF world.",
+            body: "Parsed 1 textual chunk from paper.pdf.",
+        },
+    ],
+}
