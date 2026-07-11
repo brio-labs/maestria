@@ -68,7 +68,7 @@ impl TantivyFullTextIndex {
             .try_into()
             .map_err(to_port_error)?;
         let writer = index
-            .writer(WRITER_MEMORY_BUDGET_BYTES)
+            .writer_with_num_threads(1, WRITER_MEMORY_BUDGET_BYTES)
             .map_err(to_port_error)?;
 
         Ok(Self {
@@ -159,7 +159,10 @@ impl FullTextIndex for TantivyFullTextIndex {
                     message: format!("invalid search query: {error}"),
                 })?;
         let top_docs = searcher
-            .search(&parsed_query, &TopDocs::with_limit(query.limit))
+            .search(
+                &parsed_query,
+                &TopDocs::with_limit(query.limit).order_by_score(),
+            )
             .map_err(to_port_error)?;
         let mut hits = Vec::with_capacity(top_docs.len());
 

@@ -9,8 +9,8 @@ use maestria_governance::{
 use maestria_memory::MemoryService;
 use maestria_ports::{
     ArtifactRepository, BlobStore, EventFilter, EventLog, FileHandle, FileMetadata, FullTextIndex,
-    HarnessAdapter, HarnessCommandClass, HarnessRequest, IndexedChunk, ParseContext, Parser,
-    PortError,
+    GraphIndex, HarnessAdapter, HarnessCommandClass, HarnessRequest, IndexedChunk, ParseContext,
+    Parser, PortError, VectorEmbedding, VectorIndex, WebFetcher,
 };
 use maestria_validation::{ValidationContext, ValidationRunner};
 use std::{
@@ -53,6 +53,9 @@ pub struct Adapters {
     pub harness: Arc<dyn HarnessAdapter + Send + Sync>,
     pub parser: Arc<dyn Parser + Send + Sync>,
     pub artifact_repo: Arc<dyn ArtifactRepository + Send + Sync>,
+    pub vector_index: Arc<dyn VectorIndex + Send + Sync>,
+    pub graph_index: Arc<dyn GraphIndex + Send + Sync>,
+    pub web_fetcher: Arc<dyn WebFetcher + Send + Sync>,
 }
 
 pub struct Governance {
@@ -468,17 +471,45 @@ impl MaestriaRuntime {
                 }
             }
             MaestriaEffect::IndexVector(request) => {
-                tracing::debug!(
-                    artifact_id = %request.artifact_id,
+                let chunk = {
+                    let state = state.read().await;
+                    state.chunks.get(&request.chunk_id).cloned()
+                };
+                let Some(chunk) = chunk else {
+                    tracing::warn!(chunk_id = %request.chunk_id, "chunk missing for vector index");
+                    return true;
+                };
+                let embedding = VectorEmbedding {
+                    chunk_id: request.chunk_id,
+                    vector: Vec::new(),
+                    provenance: maestria_ports::EmbeddingProvenance {
+                        content_hash: String::new(),
+                        model_version: String::new(),
+                    },
+                };
+                tracing::info!(
                     chunk_id = %request.chunk_id,
-                    "vector index effect has no configured port"
+                    text_len = chunk.text.len(),
+                    "indexing chunk in vector store (no embedding provider configured; storing empty vector)"
                 );
+                if let Err(error) = adapters.vector_index.index_embeddings(vec![embedding]) {
+                    tracing::error!(chunk_id = %request.chunk_id, %error, "failed to index vector");
+                    return false;
+                }
             }
             MaestriaEffect::UpdateGraph(request) => {
-                tracing::debug!(
-                    relation_id = %request.relation_id,
-                    "graph update effect has no configured port"
-                );
+                let relation = {
+                    let state = state.read().await;
+                    state.relations.get(&request.relation_id).cloned()
+                };
+                let Some(relation) = relation else {
+                    tracing::warn!(relation_id = %request.relation_id, "relation missing for graph update");
+                    return true;
+                };
+                if let Err(error) = adapters.graph_index.insert_relation(relation) {
+                    tracing::error!(relation_id = %request.relation_id, %error, "failed to insert relation into graph");
+                    return false;
+                }
             }
             MaestriaEffect::QueryHarness(request) => {
                 let class = match request.capability.as_str() {
@@ -527,9 +558,19 @@ impl MaestriaRuntime {
                     }
                 }
             }
-            MaestriaEffect::FetchWeb(request) => {
-                tracing::debug!(url = %request.url, "web fetch effect has no configured port");
-            }
+            MaestriaEffect::FetchWeb(request) => match adapters.web_fetcher.fetch(&request.url) {
+                Ok(snapshot) => {
+                    tracing::debug!(
+                        url = %request.url,
+                        html_len = snapshot.html.len(),
+                        "web fetch succeeded"
+                    );
+                }
+                Err(error) => {
+                    tracing::error!(url = %request.url, %error, "web fetch failed");
+                    return false;
+                }
+            },
             MaestriaEffect::RunValidation(request) => {
                 let report = {
                     let state = state.read().await;
@@ -668,7 +709,8 @@ mod tests {
     use maestria_governance::{DefaultApprovalGate, DefaultRiskClassifier};
     use maestria_ports::{
         EventFilter, EventLog, InMemoryArtifactRepository, InMemoryBlobStore, InMemoryEventLog,
-        InMemoryFullTextIndex, InMemoryHarnessAdapter, InMemoryParser, PortError,
+        InMemoryFullTextIndex, InMemoryGraphIndex, InMemoryHarnessAdapter, InMemoryParser,
+        InMemoryVectorIndex, InMemoryWebFetcher, PortError,
     };
     use std::sync::Arc;
     use tokio_util::sync::CancellationToken;
@@ -701,6 +743,9 @@ mod tests {
             harness: Arc::new(InMemoryHarnessAdapter::new()),
             parser: Arc::new(InMemoryParser::new()),
             artifact_repo: Arc::new(InMemoryArtifactRepository::new()),
+            vector_index: Arc::new(InMemoryVectorIndex::new()),
+            graph_index: Arc::new(InMemoryGraphIndex::new()),
+            web_fetcher: Arc::new(InMemoryWebFetcher::new()),
         };
         let governance = Governance {
             classifier: Arc::new(DefaultRiskClassifier),
@@ -768,6 +813,9 @@ mod tests {
             harness: Arc::new(InMemoryHarnessAdapter::new()),
             parser: Arc::new(InMemoryParser::new()),
             artifact_repo: Arc::new(InMemoryArtifactRepository::new()),
+            vector_index: Arc::new(InMemoryVectorIndex::new()),
+            graph_index: Arc::new(InMemoryGraphIndex::new()),
+            web_fetcher: Arc::new(InMemoryWebFetcher::new()),
         };
         let governance = Governance {
             classifier: Arc::new(DefaultRiskClassifier),

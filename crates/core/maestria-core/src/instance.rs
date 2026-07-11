@@ -10,6 +10,8 @@ pub struct InstanceLayout {
     pub database_path: PathBuf,
     pub blobs_dir: PathBuf,
     pub full_text_index_dir: PathBuf,
+    pub vector_index_dir: PathBuf,
+    pub graph_index_dir: PathBuf,
     pub workspace_dir: PathBuf,
     pub active_tasks_dir: PathBuf,
     pub system_dir: PathBuf,
@@ -26,6 +28,8 @@ impl InstanceLayout {
             database_path: root.join("system").join("maestria.db"),
             blobs_dir: root.join("blobs").join("sha256"),
             full_text_index_dir: root.join("indexes").join("full-text"),
+            vector_index_dir: root.join("indexes").join("vector"),
+            graph_index_dir: root.join("indexes").join("graph"),
             active_tasks_dir: workspace_dir.join("active_tasks"),
             event_log_dir: system_dir.join("event_log"),
             workspace_dir,
@@ -33,12 +37,13 @@ impl InstanceLayout {
             root,
         }
     }
-
     pub fn required_directories(&self) -> Vec<PathBuf> {
         vec![
             self.root.clone(),
             self.blobs_dir.clone(),
             self.full_text_index_dir.clone(),
+            self.vector_index_dir.clone(),
+            self.graph_index_dir.clone(),
             self.workspace_dir.clone(),
             self.active_tasks_dir.clone(),
             self.system_dir.join("config"),

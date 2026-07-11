@@ -2,6 +2,7 @@
 name = "maestria-daemon"
 version = "0.1.0"
 edition = "2024"
+license.workspace = true
 publish = false
 
 [dependencies]
@@ -12,6 +13,9 @@ maestria-runtime = { path = "../../runtime/maestria-runtime" }
 maestria-blob-fs = { path = "../../storage/maestria-blob-fs" }
 maestria-search-tantivy = { path = "../../storage/maestria-search-tantivy" }
 maestria-storage-sqlite = { path = "../../storage/maestria-storage-sqlite" }
+maestria-vector-sqlite = { path = "../../storage/maestria-vector-sqlite" }
+maestria-graph-sqlite = { path = "../../storage/maestria-graph-sqlite" }
+maestria-web-evidence = { path = "../../ecosystem/maestria-web-evidence" }
 maestria-parsers = { path = "../../ecosystem/maestria-parsers" }
 maestria-ports = { path = "../../kernel/maestria-ports" }
 
