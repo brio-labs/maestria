@@ -18,6 +18,10 @@ fn init_instance_returns_isolated_local_layout() -> Result<(), Box<dyn std::erro
     );
     assert!(plan.directories.contains(&plan.layout.active_tasks_dir));
     assert!(plan.manifest_contents.contains("schema_version=1"));
+    let manifest = InstanceService::parse_manifest(&plan.manifest_contents)?;
+    assert_eq!(manifest.root, plan.layout.root);
+    assert_eq!(manifest.read_roots, vec![plan.layout.root.clone()]);
+    assert!(manifest.excluded_patterns.iter().any(|item| item == ".env"));
 
     Ok(())
 }

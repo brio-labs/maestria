@@ -126,6 +126,7 @@ fn ingest_with_in_memory_ports_is_queryable_and_openable() -> Result<(), Box<dyn
             path,
             range,
             content_hash,
+            ..
         } => {
             assert_eq!(path, "notes/project.md");
             assert_eq!(range.start, 1);

@@ -209,12 +209,36 @@ impl EvidenceRepository for crate::SqliteStore {
     }
 
     fn put(&self, evidence: Evidence) -> Result<(), PortError> {
+        let connection = self.lock()?;
+        // Check for existing evidence with this id
+        let mut statement = connection
+            .prepare(
+                "SELECT id, artifact_id, claim_id, kind_json, excerpt, observed_at\n                 FROM evidence\n                 WHERE id = ?1",
+            )
+            .map_err(to_port_error)?;
+        let mut rows = statement
+            .query(params![u64_to_i64(evidence.id.value())?])
+            .map_err(to_port_error)?;
+        if let Some(row) = rows.next().map_err(to_port_error)? {
+            let existing = read_evidence(row)?;
+            if existing == evidence {
+                return Ok(());
+            }
+            return Err(PortError::Conflict {
+                message: format!(
+                    "evidence {} already exists with different content; evidence is immutable",
+                    evidence.id.value()
+                ),
+            });
+        }
+        drop(rows);
+        drop(statement);
+
         let kind_json = serde_json::to_string(&StoredEvidenceKind::from_domain(&evidence.kind))
             .map_err(crate::json_error)?;
-        let connection = self.lock()?;
         connection
             .execute(
-                "INSERT INTO evidence\n                     (id, artifact_id, claim_id, kind_json, excerpt, observed_at)\n                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)\n                 ON CONFLICT(id) DO UPDATE SET\n                     artifact_id = excluded.artifact_id,\n                     claim_id = excluded.claim_id,\n                     kind_json = excluded.kind_json,\n                     excerpt = excluded.excerpt,\n                     observed_at = excluded.observed_at",
+                "INSERT INTO evidence\n                     (id, artifact_id, claim_id, kind_json, excerpt, observed_at)\n                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
                 params![
                     u64_to_i64(evidence.id.value())?,
                     u64_to_i64(evidence.artifact_id.value())?,

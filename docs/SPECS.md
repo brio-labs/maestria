@@ -74,3 +74,20 @@ This ledger names the invariants that bootstrap code and future crates must pres
 - property tests
 - parser golden tests
 - dependency and source governance
+
+## Durable Local Indexing Slice
+
+The local MVP now treats file evidence as immutable source-backed data:
+
+- file-span evidence may reference an immutable blob snapshot;
+- snapshot hashes are verified before search hits or opened evidence are returned;
+- repeated identical evidence writes are idempotent;
+- conflicting evidence writes return a typed storage conflict;
+- instance manifests persist approved read roots and privacy exclusion patterns;
+- CLI indexing rejects sources outside the persisted read scope before reading bytes;
+- restart integration tests reopen SQLite, blob, and full-text adapters before querying.
+
+These boundaries preserve `I-Evidence-Immutable`, `I-Evidence-Provenance`,
+`I-Ingestion-Idempotent`, and `I-Scope-ExplicitAutonomy`. Domain transitions remain
+side-effect free; snapshot verification and manifest parsing remain adapter/application
+responsibilities.

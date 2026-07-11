@@ -24,6 +24,17 @@ Maestria is a local-first, source-grounded second-brain runtime for AI agents.
 - Prefer clear, boring abstractions with explicit contracts.
 - Prefer stable, ordered types for deterministic state snapshots.
 
+The first durable workflow is policy-scoped local indexing:
+
+```bash
+maestria init --instance-dir .maestria-dev --read-root ~/Projects --read-root ~/Notes
+maestria index --instance-dir .maestria-dev ~/Projects/example --recursive
+maestria search --instance-dir .maestria-dev "source-grounded phrase"
+maestria open-evidence --instance-dir .maestria-dev --evidence-id 123
+```
+
+The instance manifest records approved read roots and sensitive-path exclusions.
+
 ## Documentation map
 
 - `docs/PHILOSOPHY.md` — repository doctrine

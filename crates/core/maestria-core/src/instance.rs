@@ -68,24 +68,37 @@ pub struct InstanceService;
 
 impl InstanceService {
     pub fn init_instance(input: InitInstanceInput) -> CoreResult<InitInstancePlan> {
-        if input.root.as_os_str().is_empty() {
+        Self::init_instance_with_roots(input.root.clone(), vec![input.root])
+    }
+
+    pub fn init_instance_with_roots(
+        root: PathBuf,
+        read_roots: Vec<PathBuf>,
+    ) -> CoreResult<InitInstancePlan> {
+        if root.as_os_str().is_empty() {
             return Err(CoreError::InvalidInput {
                 message: "instance root must not be empty".to_string(),
             });
         }
-        let layout = InstanceLayout::for_root(input.root);
-        let manifest_contents = format!(
-            "schema_version=1\nroot={}\nblobs={}\nindex={}\ndatabase={}\n",
-            layout.root.display(),
-            layout.blobs_dir.display(),
-            layout.full_text_index_dir.display(),
-            layout.database_path.display()
-        );
+        if read_roots.is_empty() || read_roots.iter().any(|path| path.as_os_str().is_empty()) {
+            return Err(CoreError::InvalidInput {
+                message: "instance must define at least one non-empty read root".to_string(),
+            });
+        }
+
+        let layout = InstanceLayout::for_root(root);
+        let mut manifest = crate::manifest::InstanceManifest::default_for_root(layout.root.clone());
+        manifest.read_roots = read_roots;
+        let manifest_contents = manifest.encode();
         Ok(InitInstancePlan {
             directories: layout.required_directories(),
             manifest_path: layout.manifest_path.clone(),
             manifest_contents,
             layout,
         })
+    }
+
+    pub fn parse_manifest(contents: &str) -> CoreResult<crate::manifest::InstanceManifest> {
+        crate::manifest::InstanceManifest::decode(contents)
     }
 }

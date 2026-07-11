@@ -7,6 +7,7 @@ publish = false
 [dependencies]
 maestria-core = { path = "../../core/maestria-core" }
 maestria-daemon = { path = "../maestria-daemon" }
+maestria-governance = { path = "../../kernel/maestria-governance" }
 maestria-domain = { path = "../../kernel/maestria-domain" }
 maestria-blob-fs = { path = "../../storage/maestria-blob-fs" }
 maestria-storage-sqlite = { path = "../../storage/maestria-storage-sqlite" }

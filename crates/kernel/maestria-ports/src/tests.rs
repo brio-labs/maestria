@@ -1,5 +1,6 @@
 use super::contract_tests::*;
 use super::*;
+use maestria_domain::{EvidenceKind, LogicalTick, ValidationReportId};
 
 #[test]
 fn in_memory_artifact_repository_satisfies_contract() {
@@ -39,6 +40,71 @@ fn in_memory_card_repository_satisfies_contract() {
 #[test]
 fn in_memory_evidence_repository_satisfies_contract() {
     assert_evidence_repository_round_trip(&InMemoryEvidenceRepository::new());
+}
+
+#[test]
+fn in_memory_evidence_put_is_idempotent() {
+    let repo = InMemoryEvidenceRepository::new();
+    let evidence = Evidence {
+        id: EvidenceId::new(100),
+        artifact_id: ArtifactId::new(10),
+        claim_id: None,
+        kind: EvidenceKind::Validation {
+            report_id: ValidationReportId::new(1),
+        },
+        excerpt: "test excerpt".to_string(),
+        observed_at: LogicalTick::new(1),
+    };
+    // First insert succeeds
+    repo.put(evidence.clone()).expect("first put must succeed");
+    // Identical retry is idempotent
+    repo.put(evidence.clone())
+        .expect("identical retry must succeed");
+    // Stored value is unchanged
+    let stored = repo
+        .get(evidence.id)
+        .expect("get after retry")
+        .expect("evidence must still exist");
+    assert_eq!(stored, evidence);
+}
+
+#[test]
+fn in_memory_evidence_put_rejects_conflicting_overwrite() {
+    let repo = InMemoryEvidenceRepository::new();
+    let first = Evidence {
+        id: EvidenceId::new(200),
+        artifact_id: ArtifactId::new(10),
+        claim_id: None,
+        kind: EvidenceKind::Validation {
+            report_id: ValidationReportId::new(1),
+        },
+        excerpt: "original".to_string(),
+        observed_at: LogicalTick::new(1),
+    };
+    repo.put(first.clone()).expect("first put must succeed");
+
+    let conflict = Evidence {
+        id: EvidenceId::new(200), // same id
+        artifact_id: ArtifactId::new(10),
+        claim_id: None,
+        kind: EvidenceKind::Validation {
+            report_id: ValidationReportId::new(2), // different report_id
+        },
+        excerpt: "different".to_string(),
+        observed_at: LogicalTick::new(2),
+    };
+    let err = repo.put(conflict).unwrap_err();
+    assert!(
+        matches!(err, PortError::Conflict { .. }),
+        "conflicting put must return Conflict, got {err:?}"
+    );
+
+    // Original is preserved
+    let stored = repo
+        .get(first.id)
+        .expect("get after conflict")
+        .expect("evidence must still exist");
+    assert_eq!(stored, first);
 }
 
 #[test]

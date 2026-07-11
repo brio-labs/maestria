@@ -1,6 +1,7 @@
 use maestria_domain::ContentRange;
 use maestria_domain::{ArtifactId, EvidenceId};
 use maestria_ports::FileMetadata;
+use sha2::{Digest, Sha256};
 
 use std::path::Path;
 
@@ -27,11 +28,14 @@ pub(crate) fn title_for_path(path: &Path) -> String {
 }
 
 pub(crate) fn artifact_id_for(path: &Path, bytes: &[u8]) -> ArtifactId {
-    let mut hash = Fnv64::new();
-    hash.update(path.display().to_string().as_bytes());
-    hash.update(&[0]);
-    hash.update(bytes);
-    ArtifactId::new(non_zero_id(hash.finish() % 1_000_000_000))
+    let mut hasher = Sha256::new();
+    hasher.update(path.display().to_string().as_bytes());
+    hasher.update([0]);
+    hasher.update(bytes);
+    let digest = hasher.finalize();
+    let mut id_bytes = [0_u8; 8];
+    id_bytes.copy_from_slice(&digest[..8]);
+    ArtifactId::new(non_zero_id(u64::from_be_bytes(id_bytes) % 1_000_000_000))
 }
 
 pub(crate) fn evidence_id_for(artifact_id: ArtifactId, order: u32) -> EvidenceId {
@@ -45,9 +49,12 @@ pub(crate) fn evidence_id_for(artifact_id: ArtifactId, order: u32) -> EvidenceId
 }
 
 pub(crate) fn content_hash(bytes: &[u8]) -> String {
-    let mut hash = Fnv64::new();
-    hash.update(bytes);
-    format!("fnv64:{:016x}", hash.finish())
+    let digest = Sha256::digest(bytes);
+    format!("sha256:{}", hex_digest(&digest))
+}
+
+fn hex_digest(bytes: &[u8]) -> String {
+    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
 pub(crate) fn non_zero_id(value: u64) -> u64 {
@@ -98,26 +105,4 @@ fn line_number_at(text: &str, byte_index: usize) -> usize {
 pub(crate) fn excerpt_for(text: &str) -> String {
     let compact = text.split_whitespace().collect::<Vec<_>>().join(" ");
     compact.chars().take(240).collect()
-}
-
-struct Fnv64(u64);
-
-impl Fnv64 {
-    const OFFSET: u64 = 0xcbf29ce484222325;
-    const PRIME: u64 = 0x100000001b3;
-
-    const fn new() -> Self {
-        Self(Self::OFFSET)
-    }
-
-    fn update(&mut self, bytes: &[u8]) {
-        for byte in bytes {
-            self.0 ^= u64::from(*byte);
-            self.0 = self.0.wrapping_mul(Self::PRIME);
-        }
-    }
-
-    const fn finish(&self) -> u64 {
-        self.0
-    }
 }

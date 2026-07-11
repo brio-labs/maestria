@@ -26,6 +26,7 @@ use tokio::sync::{RwLock, mpsc};
 
 pub struct RuntimeConfig {
     pub profile: AutonomyProfile,
+    pub scope: Scope,
     pub input_buffer_size: usize,
     pub max_concurrent_effects: usize,
     pub default_effect_timeout: Duration,
@@ -36,6 +37,7 @@ impl Default for RuntimeConfig {
     fn default() -> Self {
         Self {
             profile: AutonomyProfile::TrustedWorkspace,
+            scope: Scope::default(),
             input_buffer_size: 1024,
             max_concurrent_effects: 16,
             default_effect_timeout: Duration::from_secs(300),
@@ -76,6 +78,7 @@ struct EffectExecutionContext {
     adapters: Arc<Adapters>,
     governance: Arc<Governance>,
     profile: AutonomyProfile,
+    scope: Scope,
     state: Arc<RwLock<KernelState>>,
     input_tx: mpsc::Sender<DomainInput>,
     default_effect_timeout: Duration,
@@ -138,6 +141,7 @@ impl MaestriaRuntime {
         let governance = self.governance.clone();
         let input_tx = self.input_tx.clone();
         let profile = self.config.profile;
+        let scope = self.config.scope.clone();
         let state = self.state.clone();
         let max_concurrent_effects = self.config.max_concurrent_effects;
         let default_effect_timeout = self.config.default_effect_timeout;
@@ -170,6 +174,7 @@ impl MaestriaRuntime {
                             adapters: adapters.clone(),
                             governance: governance.clone(),
                             profile,
+                            scope: scope.clone(),
                             state: state.clone(),
                             input_tx: input_tx.clone(),
                             default_effect_timeout,
@@ -247,6 +252,7 @@ impl MaestriaRuntime {
                     context.adapters.clone(),
                     context.governance.clone(),
                     context.profile,
+                    context.scope.clone(),
                     context.state.clone(),
                     context.input_tx.clone(),
                 )
@@ -279,10 +285,11 @@ impl MaestriaRuntime {
         adapters: Arc<Adapters>,
         governance: Arc<Governance>,
         profile: AutonomyProfile,
+        configured_scope: Scope,
         state: Arc<RwLock<KernelState>>,
         input_tx: mpsc::Sender<DomainInput>,
     ) -> bool {
-        let scope = ScopeGuard::new(Scope::default());
+        let scope = ScopeGuard::new(configured_scope);
         let risk = governance.classifier.classify(&effect, &scope);
         let decision = governance.approval_gate.decide(&ApprovalRequest {
             effect: &effect,

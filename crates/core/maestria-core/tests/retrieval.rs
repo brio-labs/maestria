@@ -113,6 +113,7 @@ fn chunk_evidence_lookup_uses_matching_chunk_order_and_source_span()
                 path,
                 range,
                 content_hash,
+                ..
             } => {
                 assert_eq!(path, "notes/multi-source.md");
                 assert_eq!(range.start, *line);
@@ -139,6 +140,7 @@ fn chunk_evidence_lookup_uses_matching_chunk_order_and_source_span()
             path,
             range,
             content_hash,
+            ..
         } => {
             assert_eq!(path, "notes/multi-source.md");
             assert_eq!(range.start, expected[2].1);
