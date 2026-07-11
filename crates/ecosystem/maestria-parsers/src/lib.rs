@@ -1,6 +1,8 @@
 #![forbid(unsafe_code)]
 
 //! Deterministic byte-to-domain parsers for Maestria artifacts.
+mod pdf;
+pub use pdf::PdfParser;
 
 use std::path::Path;
 
@@ -28,6 +30,7 @@ impl ParserRegistry {
         registry.register(PlainTextParser::new());
         registry.register(RustSourceParser::new());
         registry.register(CargoTomlParser::new());
+        registry.register(PdfParser::new());
         registry
     }
 
@@ -257,7 +260,7 @@ fn parsed_artifact(
         });
     }
 
-    let card = summary_card(artifact_id, path, &chunks);
+    let card = summary_card_for(artifact_id, path, &chunks);
     Ok(ParsedArtifact {
         artifact_id,
         chunks,
@@ -265,7 +268,11 @@ fn parsed_artifact(
     })
 }
 
-fn summary_card(artifact_id: ArtifactId, path: &Path, chunks: &[ParsedChunk]) -> CreateCardInput {
+pub(crate) fn summary_card_for(
+    artifact_id: ArtifactId,
+    path: &Path,
+    chunks: &[ParsedChunk],
+) -> CreateCardInput {
     let first_line = chunks
         .first()
         .and_then(|chunk| chunk.text.lines().find(|line| !line.trim().is_empty()))

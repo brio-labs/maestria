@@ -1,0 +1,50 @@
+---
+source: crates/ecosystem/maestria-parsers/tests/golden.rs
+expression: "&parsed"
+---
+ParsedArtifact {
+    artifact_id: ArtifactId(
+        1,
+    ),
+    chunks: [
+        ParsedChunk {
+            chunk_id: ChunkId(
+                1000004,
+            ),
+            artifact_id: ArtifactId(
+                1,
+            ),
+            text: "# Title\n\nIntro paragraph.",
+        },
+        ParsedChunk {
+            chunk_id: ChunkId(
+                1000005,
+            ),
+            artifact_id: ArtifactId(
+                1,
+            ),
+            text: "## Section 1\nContent here.",
+        },
+        ParsedChunk {
+            chunk_id: ChunkId(
+                1000006,
+            ),
+            artifact_id: ArtifactId(
+                1,
+            ),
+            text: "### Subsection\nMore content.",
+        },
+    ],
+    cards: [
+        CreateCardInput {
+            card_id: CardId(
+                1900004,
+            ),
+            artifact_id: ArtifactId(
+                1,
+            ),
+            title: "Title",
+            body: "Parsed 3 textual chunks from guide.md.",
+        },
+    ],
+}

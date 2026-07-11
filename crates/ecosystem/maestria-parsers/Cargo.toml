@@ -5,5 +5,10 @@ license.workspace = true
 version = "0.1.0"
 
 [dependencies]
+lopdf = "0.34"
 maestria-domain = { path = "../../kernel/maestria-domain" }
 maestria-ports = { path = "../../kernel/maestria-ports" }
+
+[dev-dependencies]
+insta = { version = "1", features = ["yaml"] }
+maestria-ports = { path = "../../kernel/maestria-ports", features = ["contract-tests"] }

@@ -1,0 +1,41 @@
+---
+source: crates/ecosystem/maestria-parsers/tests/golden.rs
+expression: "&parsed"
+---
+ParsedArtifact {
+    artifact_id: ArtifactId(
+        4,
+    ),
+    chunks: [
+        ParsedChunk {
+            chunk_id: ChunkId(
+                4000013,
+            ),
+            artifact_id: ArtifactId(
+                4,
+            ),
+            text: "[package]\nname = \"demo\"\nversion = \"0.1.0\"",
+        },
+        ParsedChunk {
+            chunk_id: ChunkId(
+                4000014,
+            ),
+            artifact_id: ArtifactId(
+                4,
+            ),
+            text: "[dependencies]\nserde = \"1\"",
+        },
+    ],
+    cards: [
+        CreateCardInput {
+            card_id: CardId(
+                4900013,
+            ),
+            artifact_id: ArtifactId(
+                4,
+            ),
+            title: "[package]",
+            body: "Parsed 2 textual chunks from Cargo.toml.",
+        },
+    ],
+}
