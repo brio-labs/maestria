@@ -91,3 +91,7 @@ These boundaries preserve `I-Evidence-Immutable`, `I-Evidence-Provenance`,
 `I-Ingestion-Idempotent`, and `I-Scope-ExplicitAutonomy`. Domain transitions remain
 side-effect free; snapshot verification and manifest parsing remain adapter/application
 responsibilities.
+The CLI durability contract is verified by a black-box integration test that
+invokes separate processes for setup, indexing, search, and evidence opening.
+The test must also cover scope rejection, privacy exclusions, and unchanged
+reindex idempotence without inspecting adapter internals.
