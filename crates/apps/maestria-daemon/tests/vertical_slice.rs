@@ -7,8 +7,31 @@ use maestria_domain::LogicalTick;
 use maestria_parsers::ParserRegistry;
 use maestria_search_tantivy::TantivyFullTextIndex;
 use maestria_storage_sqlite::SqliteStore;
+use std::env;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+
+struct TempDir(PathBuf);
+
+impl TempDir {
+    fn new() -> Self {
+        let dir = env::temp_dir().join(format!("maestria-test-{}", std::process::id()));
+        // Best-effort cleanup of any previous run that left the directory
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).expect("create temp dir");
+        Self(dir)
+    }
+
+    fn path(&self) -> &Path {
+        &self.0
+    }
+}
+
+impl Drop for TempDir {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.0);
+    }
+}
 
 fn setup_instance(
     root: &Path,
@@ -40,7 +63,7 @@ fn setup_instance(
 
 #[test]
 fn vertical_slice_init_index_search_evidence() {
-    let tmp = tempfile::tempdir().expect("tempdir");
+    let tmp = TempDir::new();
     let root = tmp.path();
     let notes = root.join("notes");
     fs::create_dir_all(&notes).expect("create notes");
@@ -136,6 +159,7 @@ fn vertical_slice_init_index_search_evidence() {
 
     // === RESTART SIMULATION ===
     // Drop everything and re-open to simulate daemon restart
+    // core is consumed by drop (CoreServices does not implement Drop)
     drop(sqlite);
     drop(blobs);
     drop(search);
