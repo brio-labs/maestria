@@ -805,6 +805,16 @@ checksum = "373f5eceeeab7925e0c1098212f2fbc4d416adec9d35051a6ab251e824c1854a"
 [[package]]
 name = "maestria"
 version = "0.1.0"
+dependencies = [
+ "maestria-blob-fs",
+ "maestria-core",
+ "maestria-domain",
+ "maestria-parsers",
+ "maestria-ports",
+ "maestria-search-tantivy",
+ "maestria-storage-sqlite",
+ "tempfile",
+]
 
 [[package]]
 name = "maestria-blob-fs"
@@ -858,11 +868,14 @@ dependencies = [
  "maestria-core",
  "maestria-domain",
  "maestria-governance",
+ "maestria-graph-sqlite",
  "maestria-parsers",
  "maestria-ports",
  "maestria-runtime",
  "maestria-search-tantivy",
  "maestria-storage-sqlite",
+ "maestria-vector-sqlite",
+ "maestria-web-evidence",
  "tokio",
  "tokio-util",
  "tracing",

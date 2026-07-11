@@ -35,3 +35,13 @@ edition = "2024"
 license = "MIT OR Apache-2.0"
 rust-version = "1.95"
 
+
+[dev-dependencies]
+maestria-core = { path = "crates/core/maestria-core" }
+maestria-storage-sqlite = { path = "crates/storage/maestria-storage-sqlite" }
+maestria-blob-fs = { path = "crates/storage/maestria-blob-fs" }
+maestria-search-tantivy = { path = "crates/storage/maestria-search-tantivy" }
+maestria-parsers = { path = "crates/ecosystem/maestria-parsers" }
+maestria-domain = { path = "crates/kernel/maestria-domain" }
+maestria-ports = { path = "crates/kernel/maestria-ports" }
+tempfile = "3"

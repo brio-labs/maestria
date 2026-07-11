@@ -5,11 +5,14 @@ use maestria_blob_fs::FsBlobStore;
 use maestria_core::{InitInstanceInput, InstanceLayout, InstanceService};
 use maestria_domain::{DomainInput, KernelState, replay_events};
 use maestria_governance::{AutonomyProfile, DefaultApprovalGate, DefaultRiskClassifier, Scope};
+use maestria_graph_sqlite::SqliteGraphIndex;
 use maestria_parsers::ParserRegistry;
 use maestria_ports::{EventFilter, InMemoryHarnessAdapter};
 use maestria_runtime::{Adapters, Governance, MaestriaRuntime, RuntimeConfig};
 use maestria_search_tantivy::TantivyFullTextIndex;
 use maestria_storage_sqlite::SqliteStore;
+use maestria_vector_sqlite::SqliteVectorIndex;
+use maestria_web_evidence::UreqWebFetcher;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use tracing::info;
@@ -62,6 +65,15 @@ pub fn build_runtime(
     let event_log = sqlite_store.clone();
     let artifact_repo = sqlite_store.clone();
     let harness = Arc::new(InMemoryHarnessAdapter::default());
+    let vector_index = Arc::new(
+        SqliteVectorIndex::open(&layout.vector_index_dir)
+            .with_context(|| format!("open vector index {}", layout.vector_index_dir.display()))?,
+    );
+    let graph_index = Arc::new(
+        SqliteGraphIndex::open(&layout.graph_index_dir)
+            .with_context(|| format!("open graph index {}", layout.graph_index_dir.display()))?,
+    );
+    let web_fetcher = Arc::new(UreqWebFetcher::new());
 
     let adapters = Adapters {
         event_log,
@@ -70,6 +82,9 @@ pub fn build_runtime(
         parser,
         harness,
         artifact_repo,
+        vector_index,
+        graph_index,
+        web_fetcher,
     };
     let governance = Governance {
         classifier: Arc::new(DefaultRiskClassifier),
