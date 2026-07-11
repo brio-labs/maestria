@@ -160,6 +160,7 @@ fn brain_state_round_trips_and_lists_deterministically() {
             path: "notes.md".to_string(),
             range: ContentRange { start: 3, end: 8 },
             content_hash: "sha256:abc".to_string(),
+            snapshot: None,
         },
         excerpt: "grounded excerpt".to_string(),
         observed_at: LogicalTick::new(4),
@@ -301,6 +302,7 @@ fn artifact_filter_includes_evidence_and_search_events() {
                 path: "notes.md".to_string(),
                 range: ContentRange { start: 1, end: 4 },
                 content_hash: "sha256:notes".to_string(),
+                snapshot: None,
             },
             excerpt: "excerpt".to_string(),
             observed_at: LogicalTick::new(1),
@@ -659,4 +661,62 @@ fn fresh_schema_writes_payload_version_two() -> Result<(), PortError> {
         .map_err(to_port_error)?;
     assert_eq!(version, 2);
     Ok(())
+}
+
+#[test]
+fn evidence_put_is_idempotent() {
+    let store = SqliteStore::in_memory().expect("test setup");
+    let evidence = Evidence {
+        id: EvidenceId::new(100),
+        artifact_id: ArtifactId::new(10),
+        claim_id: None,
+        kind: EvidenceKind::Validation {
+            report_id: ValidationReportId::new(1),
+        },
+        excerpt: "test excerpt".to_string(),
+        observed_at: LogicalTick::new(1),
+    };
+    EvidenceRepository::put(&store, evidence.clone()).expect("first put must succeed");
+    EvidenceRepository::put(&store, evidence.clone()).expect("identical retry must succeed");
+    let stored = EvidenceRepository::get(&store, evidence.id)
+        .expect("get after retry")
+        .expect("evidence must still exist");
+    assert_eq!(stored, evidence);
+}
+
+#[test]
+fn evidence_put_rejects_conflicting_overwrite() {
+    let store = SqliteStore::in_memory().expect("test setup");
+    let first = Evidence {
+        id: EvidenceId::new(200),
+        artifact_id: ArtifactId::new(10),
+        claim_id: None,
+        kind: EvidenceKind::Validation {
+            report_id: ValidationReportId::new(1),
+        },
+        excerpt: "original".to_string(),
+        observed_at: LogicalTick::new(1),
+    };
+    EvidenceRepository::put(&store, first.clone()).expect("first put must succeed");
+
+    let conflict = Evidence {
+        id: EvidenceId::new(200),
+        artifact_id: ArtifactId::new(10),
+        claim_id: None,
+        kind: EvidenceKind::Validation {
+            report_id: ValidationReportId::new(2),
+        },
+        excerpt: "different".to_string(),
+        observed_at: LogicalTick::new(2),
+    };
+    let err = EvidenceRepository::put(&store, conflict).unwrap_err();
+    assert!(
+        matches!(err, PortError::Conflict { .. }),
+        "conflicting put must return Conflict, got {err:?}"
+    );
+
+    let stored = EvidenceRepository::get(&store, first.id)
+        .expect("get after conflict")
+        .expect("evidence must still exist");
+    assert_eq!(stored, first);
 }

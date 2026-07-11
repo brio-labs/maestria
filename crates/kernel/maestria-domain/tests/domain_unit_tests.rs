@@ -45,6 +45,7 @@ fn sample_inputs() -> Vec<DomainInput> {
                 path: "notes.txt".to_string(),
                 range: ContentRange { start: 1, end: 2 },
                 content_hash: "sha256:notes".to_string(),
+                snapshot: None,
             },
             excerpt: "first chunk".to_string(),
             observed_at: LogicalTick::new(12),
@@ -90,6 +91,7 @@ fn file_span_kind() -> EvidenceKind {
         path: "notes.txt".to_string(),
         range: ContentRange { start: 1, end: 2 },
         content_hash: "sha256:notes".to_string(),
+        snapshot: None,
     }
 }
 

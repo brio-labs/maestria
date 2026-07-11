@@ -129,6 +129,7 @@ pub enum EvidenceKind {
         path: String,
         range: ContentRange,
         content_hash: String,
+        snapshot: Option<BlobId>,
     },
     PdfSpan {
         blob: BlobId,

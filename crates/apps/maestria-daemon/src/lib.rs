@@ -4,7 +4,7 @@ use anyhow::{Context, Result, anyhow};
 use maestria_blob_fs::FsBlobStore;
 use maestria_core::{InitInstanceInput, InstanceLayout, InstanceService};
 use maestria_domain::{DomainInput, KernelState, replay_events};
-use maestria_governance::{AutonomyProfile, DefaultApprovalGate, DefaultRiskClassifier};
+use maestria_governance::{AutonomyProfile, DefaultApprovalGate, DefaultRiskClassifier, Scope};
 use maestria_parsers::ParserRegistry;
 use maestria_ports::{EventFilter, InMemoryHarnessAdapter};
 use maestria_runtime::{Adapters, Governance, MaestriaRuntime, RuntimeConfig};
@@ -75,8 +75,20 @@ pub fn build_runtime(
         classifier: Arc::new(DefaultRiskClassifier),
         approval_gate: Arc::new(DefaultApprovalGate),
     };
+    let manifest_contents = fs::read_to_string(&layout.manifest_path)
+        .with_context(|| format!("read instance manifest {}", layout.manifest_path.display()))?;
+    let manifest = InstanceService::parse_manifest(&manifest_contents)
+        .map_err(|error| anyhow!("parse instance manifest: {error}"))?;
+    let scope = Scope::new(
+        manifest.read_roots,
+        Vec::new(),
+        Vec::new(),
+        Vec::new(),
+        false,
+    );
     let config = RuntimeConfig {
         profile: AutonomyProfile::ReadOnly,
+        scope,
         ..Default::default()
     };
 

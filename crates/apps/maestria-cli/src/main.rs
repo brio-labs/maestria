@@ -2,13 +2,14 @@ use anyhow::{Context, Result, anyhow};
 use clap::{Parser as ClapParser, Subcommand, ValueEnum};
 use maestria_blob_fs::FsBlobStore;
 use maestria_core::{
-    CorePorts, CoreServices, IngestFileInput, InitInstanceInput, InstanceLayout, InstanceService,
+    CorePorts, CoreServices, IngestFileInput, InstanceLayout, InstanceManifest, InstanceService,
     OpenChunkEvidenceInput, OpenEvidenceInput, SearchInput,
 };
 use maestria_domain::{
     ArtifactId, ChunkId, DomainInput, EvidenceId, EvidenceKind, KernelState, LogicalTick,
     MemoryCandidate, OpenTaskInput, Task, TaskId, TaskPriority,
 };
+use maestria_governance::{PrivacyExclusions, Scope};
 use maestria_parsers::ParserRegistry;
 use maestria_search_tantivy::TantivyFullTextIndex;
 use maestria_storage_sqlite::SqliteStore;
@@ -33,6 +34,9 @@ enum Commands {
     Init {
         #[arg(short, long, default_value = ".maestria-dev")]
         instance_dir: PathBuf,
+        /// Approved root paths that may be indexed by this instance
+        #[arg(long = "read-root")]
+        read_roots: Vec<PathBuf>,
     },
     /// Index one local file, or files under a directory with --recursive
     Index {
@@ -154,7 +158,10 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::Init { instance_dir } => init_instance(instance_dir)?,
+        Commands::Init {
+            instance_dir,
+            read_roots,
+        } => init_instance(instance_dir, read_roots)?,
         Commands::Index {
             instance_dir,
             path,
@@ -200,8 +207,13 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-fn init_instance(instance_dir: PathBuf) -> Result<()> {
-    let plan = InstanceService::init_instance(InitInstanceInput { root: instance_dir })?;
+fn init_instance(instance_dir: PathBuf, read_roots: Vec<PathBuf>) -> Result<()> {
+    let read_roots = if read_roots.is_empty() {
+        vec![instance_dir.clone()]
+    } else {
+        read_roots
+    };
+    let plan = InstanceService::init_instance_with_roots(instance_dir, read_roots)?;
     for directory in &plan.directories {
         fs::create_dir_all(directory)?;
     }
@@ -213,6 +225,15 @@ fn init_instance(instance_dir: PathBuf) -> Result<()> {
 
 fn index_path(instance_dir: PathBuf, path: PathBuf, recursive: bool) -> Result<()> {
     let layout = ensure_instance(instance_dir)?;
+    let manifest = load_manifest(&layout)?;
+    let scope = Scope::new(
+        manifest.read_roots.clone(),
+        Vec::new(),
+        Vec::new(),
+        Vec::new(),
+        false,
+    );
+    let privacy = PrivacyExclusions::default();
     let sqlite_store = SqliteStore::open(&layout.database_path)?;
     let blob_store = FsBlobStore::open(&layout.blobs_dir)?;
     let search_index = TantivyFullTextIndex::open(&layout.full_text_index_dir)?;
@@ -237,6 +258,15 @@ fn index_path(instance_dir: PathBuf, path: PathBuf, recursive: bool) -> Result<(
     }
 
     for file in files {
+        if scope.check_read_containment(&file).is_err()
+            || privacy.is_excluded(&file)
+            || !manifest.allows_source(&file)
+        {
+            return Err(anyhow!(
+                "index path is outside the instance read scope or excluded by policy: {}",
+                file.display()
+            ));
+        }
         let bytes = fs::read(&file)?;
         let output = core.ingest_file_from_bytes(IngestFileInput {
             path: file.clone(),
@@ -615,6 +645,13 @@ fn ensure_instance(instance_dir: PathBuf) -> Result<InstanceLayout> {
     maestria_daemon::prepare_instance(instance_dir)
 }
 
+fn load_manifest(layout: &InstanceLayout) -> Result<InstanceManifest> {
+    let contents = fs::read_to_string(&layout.manifest_path)
+        .with_context(|| format!("read instance manifest {}", layout.manifest_path.display()))?;
+    InstanceService::parse_manifest(&contents)
+        .map_err(|error| anyhow!("parse instance manifest: {error}"))
+}
+
 fn collect_index_files(path: &Path, recursive: bool) -> Result<Vec<PathBuf>> {
     if is_excluded_index_path(path) {
         return Err(anyhow!(
@@ -704,6 +741,7 @@ fn source_label(evidence: &maestria_domain::Evidence) -> String {
             path,
             range,
             content_hash,
+            ..
         } => format!(
             "source=file path={} lines={}-{} hash={}",
             path, range.start, range.end, content_hash

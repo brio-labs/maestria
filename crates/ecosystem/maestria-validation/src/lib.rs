@@ -311,6 +311,7 @@ mod tests {
                 path: "src/lib.rs".to_string(),
                 range: ContentRange { start: 0, end: 8 },
                 content_hash: "hash".to_string(),
+                snapshot: None,
             },
             excerpt: "evidence excerpt".to_string(),
             observed_at: LogicalTick::new(1),

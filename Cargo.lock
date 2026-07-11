@@ -826,6 +826,7 @@ dependencies = [
  "maestria-core",
  "maestria-daemon",
  "maestria-domain",
+ "maestria-governance",
  "maestria-parsers",
  "maestria-search-tantivy",
  "maestria-storage-sqlite",
@@ -837,8 +838,14 @@ dependencies = [
 name = "maestria-core"
 version = "0.1.0"
 dependencies = [
+ "maestria-blob-fs",
  "maestria-domain",
+ "maestria-parsers",
  "maestria-ports",
+ "maestria-search-tantivy",
+ "maestria-storage-sqlite",
+ "sha2",
+ "tempfile",
 ]
 
 [[package]]

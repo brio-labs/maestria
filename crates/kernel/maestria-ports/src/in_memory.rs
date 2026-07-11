@@ -125,6 +125,17 @@ impl super::EvidenceRepository for InMemoryEvidenceRepository {
         let mut guard = self.evidences.lock().map_err(|_| PortError::Internal {
             message: "evidence store lock poisoned".to_string(),
         })?;
+        if let Some(existing) = guard.get(&evidence.id) {
+            if existing == &evidence {
+                return Ok(());
+            }
+            return Err(PortError::Conflict {
+                message: format!(
+                    "evidence {} already exists with different content; evidence is immutable",
+                    evidence.id.value()
+                ),
+            });
+        }
         guard.insert(evidence.id, evidence);
         Ok(())
     }

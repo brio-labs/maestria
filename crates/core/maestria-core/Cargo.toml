@@ -7,3 +7,10 @@ publish = false
 [dependencies]
 maestria-domain = { path = "../../kernel/maestria-domain" }
 maestria-ports = { path = "../../kernel/maestria-ports" }
+sha2 = "0.10"
+[dev-dependencies]
+maestria-blob-fs = { path = "../../storage/maestria-blob-fs" }
+maestria-search-tantivy = { path = "../../storage/maestria-search-tantivy" }
+maestria-parsers = { path = "../../ecosystem/maestria-parsers" }
+maestria-storage-sqlite = { path = "../../storage/maestria-storage-sqlite" }
+tempfile = "3"

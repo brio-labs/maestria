@@ -116,6 +116,13 @@ impl FsBlobStore {
     fn ensure_blob_file(&self, digest_hex: &str, bytes: &[u8]) -> Result<(), PortError> {
         let path = self.object_path(digest_hex);
         if path.exists() {
+            let existing =
+                fs::read(&path).map_err(|error| io_error("verify existing blob", &path, error))?;
+            if existing != bytes {
+                return Err(PortError::Conflict {
+                    message: format!("blob object content does not match digest {digest_hex}"),
+                });
+            }
             return Ok(());
         }
 

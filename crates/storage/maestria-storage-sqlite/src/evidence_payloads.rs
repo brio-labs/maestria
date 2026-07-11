@@ -12,6 +12,8 @@ pub(crate) enum StoredEvidenceKind {
         start: usize,
         end: usize,
         content_hash: String,
+        #[serde(default)]
+        snapshot: Option<u64>,
     },
     PdfSpan {
         blob: u64,
@@ -50,11 +52,13 @@ impl StoredEvidenceKind {
                 path,
                 range,
                 content_hash,
+                snapshot,
             } => Self::FileSpan {
                 path: path.clone(),
                 start: range.start,
                 end: range.end,
                 content_hash: content_hash.clone(),
+                snapshot: snapshot.map(|id| id.value()),
             },
             EvidenceKind::PdfSpan {
                 blob,
@@ -114,10 +118,12 @@ impl StoredEvidenceKind {
                 start,
                 end,
                 content_hash,
+                snapshot,
             } => EvidenceKind::FileSpan {
                 path,
                 range: ContentRange { start, end },
                 content_hash,
+                snapshot: snapshot.map(BlobId::new),
             },
             Self::PdfSpan {
                 blob,
