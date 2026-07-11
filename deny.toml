@@ -22,12 +22,8 @@ allow = [
 ]
 
 [advisories]
-# RUSTSEC-2024-0384: `instant` is unmaintained.
-# Chain: maestria-search-tantivy → tantivy 0.22 → measure_time → instant.
-# Resolution: upgrade tantivy to ≥0.23 (drops measure_time) or ≥0.26 (current).
-# Tantivy 0.22→0.26 has breaking API changes; tracked for a dedicated upgrade PR.
-# Until then, this advisory is acknowledged and intentionally suppressed.
-ignore = ["RUSTSEC-2024-0384"]
+# Refresh this periodically with new cargo-audit advisories if needed.
+ignore = []
 
 [bans]
 multiple-versions = "warn"
