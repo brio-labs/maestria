@@ -5,7 +5,7 @@ license.workspace = true
 version = "0.1.0"
 
 [dependencies]
-lopdf = "0.34"
+lopdf = "0.42"
 maestria-domain = { path = "../../kernel/maestria-domain" }
 maestria-ports = { path = "../../kernel/maestria-ports" }
 
