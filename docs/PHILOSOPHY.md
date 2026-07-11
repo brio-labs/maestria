@@ -21,11 +21,14 @@ This document is enforceable. CI and review block violations.
 15. Dependency direction is explicit and acyclic: domain → ports → runtime/adapters. Domain code cannot import adapter concerns, and serialization, schema, and persistence conversions stay at adapter boundaries.
 16. Cross-concern behavior crosses typed functions, traits, or effects. Validation, state transitions, conversion, persistence, and orchestration remain independently reasoned and tested rather than accumulating in one module.
 17. Composition beats accumulation: when a new responsibility, lifecycle, representation, or test contract appears, create a sibling module and an explicit façade boundary. Module length is a diagnostic signal for missed boundaries, never a rule or an exception mechanism.
+18. Production Rust functions over 100 lines require decomposition or a documented, reviewed exemption. Production modules over 400 logical lines require a split or a checked architectural exemption; files over 900 physical lines require an ADR-backed exemption.
+19. `lib.rs` files are façades: they declare modules and re-export stable public APIs. Implementation bodies and responsibility-specific tests belong in sibling modules or crate integration-test files.
+20. Public orchestration methods delegate independently testable phases through typed functions, traits, or value objects. A method must not own parsing, persistence, event reconciliation, projection updates, and response assembly simultaneously.
 
 ## Enforcement
-
 - `scripts/philosophy-check.py`
 - Workspace lint, documentation, and test gates in CI
+- Core cohesion Clippy gate for function size and cognitive complexity budgets
 - Contract checks for kernel inputs/outputs and transitions
 - Review through CODEOWNERS on invariant-owning surfaces
-- The checker enforces objective safety invariants; review enforces responsibility boundaries and architectural composition from Rules 13–17.
+- The checker enforces objective safety and module-size invariants; review enforces responsibility boundaries and architectural composition from Rules 13–20.
