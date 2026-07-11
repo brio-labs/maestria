@@ -154,7 +154,10 @@ fn create_minimal_pdf(text: &[u8]) -> Vec<u8> {
     };
     doc.objects.insert(
         content_id,
-        Object::Stream(Stream::new(Dictionary::new(), content.encode().unwrap())),
+        Object::Stream(Stream::new(
+            Dictionary::new(),
+            content.encode().expect("content stream encoding"),
+        )),
     );
 
     // Resources dictionary
@@ -196,6 +199,6 @@ fn create_minimal_pdf(text: &[u8]) -> Vec<u8> {
     doc.trailer.set("Root", Object::Reference(catalog_id));
 
     let mut output = Vec::new();
-    doc.save_to(&mut output).unwrap();
+    doc.save_to(&mut output).expect("minimal PDF serialization");
     output
 }
