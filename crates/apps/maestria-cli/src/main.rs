@@ -153,7 +153,9 @@ impl From<CliTaskPriority> for TaskPriority {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    tracing_subscriber::fmt::init();
+    tracing_subscriber::fmt()
+        .with_writer(std::io::stderr)
+        .init();
 
     let cli = Cli::parse();
 
@@ -292,7 +294,7 @@ fn index_path(instance_dir: PathBuf, path: PathBuf, recursive: bool) -> Result<(
 }
 
 fn search(instance_dir: PathBuf, query: String, limit: usize) -> Result<()> {
-    let layout = InstanceLayout::for_root(instance_dir);
+    let layout = validated_instance(instance_dir)?;
     let sqlite_store = SqliteStore::open(&layout.database_path)?;
     let blob_store = FsBlobStore::open(&layout.blobs_dir)?;
     let search_index = TantivyFullTextIndex::open(&layout.full_text_index_dir)?;
@@ -332,7 +334,7 @@ fn open_evidence(
     evidence_id: Option<u64>,
     chunk_id: Option<u64>,
 ) -> Result<()> {
-    let layout = InstanceLayout::for_root(instance_dir);
+    let layout = validated_instance(instance_dir)?;
     let sqlite_store = SqliteStore::open(&layout.database_path)?;
     let blob_store = FsBlobStore::open(&layout.blobs_dir)?;
     let search_index = TantivyFullTextIndex::open(&layout.full_text_index_dir)?;
@@ -645,6 +647,18 @@ fn ensure_instance(instance_dir: PathBuf) -> Result<InstanceLayout> {
     maestria_daemon::prepare_instance(instance_dir)
 }
 
+fn validated_instance(instance_dir: PathBuf) -> Result<InstanceLayout> {
+    let layout = InstanceLayout::for_root(instance_dir);
+    if !layout.manifest_path.exists() {
+        return Err(anyhow!(
+            "instance manifest is missing at {}; run init first",
+            layout.manifest_path.display()
+        ));
+    }
+    load_manifest(&layout)?;
+    Ok(layout)
+}
+
 fn load_manifest(layout: &InstanceLayout) -> Result<InstanceManifest> {
     let contents = fs::read_to_string(&layout.manifest_path)
         .with_context(|| format!("read instance manifest {}", layout.manifest_path.display()))?;
@@ -707,15 +721,14 @@ fn collect_files_recursive(path: &Path, files: &mut Vec<PathBuf>) -> Result<()> 
 }
 
 fn is_excluded_index_path(path: &Path) -> bool {
+    let default_exclusions = PrivacyExclusions::default();
     path.components().any(|component| {
         let name = component.as_os_str().to_string_lossy();
         matches!(
             name.as_ref(),
-            ".env" | ".ssh" | ".gnupg" | "secrets" | "node_modules" | "target" | "dist" | "build"
+            ".ssh" | ".gnupg" | "node_modules" | "target" | "dist" | "build"
         ) || name.starts_with(".env.")
-            || name.ends_with(".pem")
-            || name.ends_with(".key")
-    })
+    }) || default_exclusions.is_excluded(path)
 }
 
 fn is_symlink(path: &Path) -> Result<bool> {
