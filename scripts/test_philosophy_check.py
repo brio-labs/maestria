@@ -85,5 +85,46 @@ class PhilosophyCheckTests(unittest.TestCase):
             )
 
 
+    def test_module_size_scan_reports_unexempt_large_module(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.configure_root(root)
+            source = root / "crates" / "core" / "maestria-core" / "src" / "large.rs"
+            source.parent.mkdir(parents=True)
+            source.write_text(
+                "\n".join(f"pub fn item_{index}() {{}}" for index in range(401)),
+                encoding="utf-8",
+            )
+
+            violations = PHILOSOPHY_CHECK.scan_module_sizes()
+
+            self.assertEqual(
+                violations,
+                [
+                    "crates/core/maestria-core/src/large.rs has "
+                    "401 module logical lines (limit 400)"
+                ],
+            )
+
+    def test_module_size_scan_reports_oversized_test_file_physical_budget(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.configure_root(root)
+            source = root / "crates" / "core" / "maestria-core" / "tests" / "large.rs"
+            source.parent.mkdir(parents=True)
+            source.write_text("\n".join("fn test_case() {}" for _ in range(901)), encoding="utf-8")
+
+            violations = PHILOSOPHY_CHECK.scan_module_sizes()
+
+            self.assertEqual(
+                violations,
+                [
+                    "crates/core/maestria-core/tests/large.rs has "
+                    "901 physical lines (limit 900)"
+                ],
+            )
+
+
+
 if __name__ == "__main__":
     unittest.main()
