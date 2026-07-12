@@ -140,6 +140,14 @@ impl super::EvidenceRepository for InMemoryEvidenceRepository {
         Ok(())
     }
 
+    fn replace(&self, evidence: Evidence) -> Result<(), PortError> {
+        let mut guard = self.evidences.lock().map_err(|_| PortError::Internal {
+            message: "evidence store lock poisoned".to_string(),
+        })?;
+        guard.insert(evidence.id, evidence);
+        Ok(())
+    }
+
     fn list_for_artifact(&self, artifact_id: ArtifactId) -> Result<Vec<Evidence>, PortError> {
         let guard = self.evidences.lock().map_err(|_| PortError::Internal {
             message: "evidence store lock poisoned".to_string(),

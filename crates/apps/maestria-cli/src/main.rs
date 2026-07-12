@@ -250,12 +250,35 @@ async fn index_path(instance_dir: PathBuf, path: PathBuf, recursive: bool) -> Re
         .with_context(|| "load kernel state for indexing")?;
     let preexisting_state = initial_state.clone();
 
+    // Compute recovery inputs before state is moved into build_runtime.
+    // Missing pending blobs surface as an error rather than silently dropping work.
+    let recovery = maestria_daemon::recovery_inputs(&initial_state);
+    maestria_daemon::verify_pending_blobs(&layout, &recovery.resume_parsers)
+        .with_context(|| "verify pending parser blobs for resume")?;
+
     // Build a one-shot runtime with a non-critical profile that allows
     // PersistEvent / StoreBlob / ParseArtifact effects.
     let (runtime, input_tx, input_rx, shutdown_token) =
         maestria_daemon::build_runtime(&layout, initial_state, AutonomyProfile::TrustedWorkspace)?;
 
     let runtime_task = tokio::spawn(runtime.run(input_rx, shutdown_token.clone()));
+
+    // Queue pending ResumeParser inputs first so parsing completes before
+    // full-text indexing begins.
+    for input in recovery.resume_parsers {
+        input_tx
+            .send(input)
+            .await
+            .context("failed to queue resume parser")?;
+    }
+
+    // Queue pending StartFullTextIndex inputs after resume parsers.
+    for input in recovery.start_full_text {
+        input_tx
+            .send(input)
+            .await
+            .context("failed to queue restart full-text index")?;
+    }
 
     let index_timeout = Duration::from_secs(30);
 
@@ -1128,5 +1151,106 @@ mod tests {
 
         let other = anyhow!("file not found");
         assert!(!is_db_locked(&other));
+    }
+
+    // --- index_path recovery regression ---
+
+    /// Verify that `recovery_inputs` — as called by `index_path` before
+    /// `build_runtime` — correctly derives `ResumeParser` inputs from
+    /// pending parsers and `StartFullTextIndex` inputs from pending
+    /// full-text chunks, excluding artifacts that have a pending parser
+    /// (whose resumed flow owns index dispatch).  This regression guards
+    /// against the bug where CLI `index_path` started a fresh runtime but
+    /// never queued durable pending work, causing an equal-hash artifact
+    /// to be skipped and the CLI to wait until timeout.
+    #[test]
+    fn index_path_recovery_derives_pending_inputs_with_correct_filter() {
+        use maestria_domain::{BlobId, ParserResult, ParserStarted, RegisterChunkInput};
+
+        let mut state = KernelState::new();
+        let artifact_a = ArtifactId::new(1); // has pending parser
+        let artifact_b = ArtifactId::new(2); // has pending chunks only
+
+        // artifact_a: ParserStarted replayed (pending parser)
+        state.pending_parsers.insert(
+            artifact_a,
+            ParserStarted {
+                artifact_id: artifact_a,
+                title: "a.md".to_string(),
+                source_path: "/tmp/a.md".to_string(),
+                content_hash: "sha256:aaa".to_string(),
+                blob_id: BlobId::new(100),
+            },
+        );
+
+        // artifact_b: ParserCompleted created chunks but indexing not finished
+        state
+            .apply_input(DomainInput::ArtifactDetected(ArtifactDetected {
+                artifact_id: artifact_b,
+                title: "b.md".to_string(),
+                source_path: "/tmp/b.md".to_string(),
+                source_bytes: vec![1, 2, 3],
+                content_hash: "sha256:bbb".to_string(),
+            }))
+            .expect("register artifact_b");
+        state
+            .apply_input(DomainInput::ParserCompleted(ParserResult {
+                artifact_id: artifact_b,
+                chunks: vec![RegisterChunkInput {
+                    chunk_id: ChunkId::new(20),
+                    artifact_id: artifact_b,
+                    order: 0,
+                    text: "hello".to_string(),
+                }],
+                cards: Vec::new(),
+            }))
+            .expect("parser completed for b");
+
+        let recovery = maestria_daemon::recovery_inputs(&state);
+
+        // artifact_a must be in resume_parsers
+        assert_eq!(
+            recovery.resume_parsers.len(),
+            1,
+            "one ResumeParser for artifact_a"
+        );
+        assert!(
+            matches!(
+                &recovery.resume_parsers[0],
+                DomainInput::ResumeParser(r) if r.artifact_id == artifact_a
+            ),
+            "recovery.resume_parsers[0] must be ResumeParser for artifact_a"
+        );
+
+        // artifact_a must NOT appear in start_full_text (parser flow owns indexing)
+        assert!(
+            recovery
+                .start_full_text
+                .iter()
+                .all(|input| !matches!(input, DomainInput::StartFullTextIndex(s) if s.artifact_id == artifact_a)),
+            "artifact_a must be excluded from start_full_text"
+        );
+
+        // artifact_b must be in start_full_text
+        assert_eq!(
+            recovery.start_full_text.len(),
+            1,
+            "one StartFullTextIndex for artifact_b"
+        );
+        assert!(
+            matches!(
+                &recovery.start_full_text[0],
+                DomainInput::StartFullTextIndex(s) if s.artifact_id == artifact_b
+            ),
+            "recovery.start_full_text[0] must be StartFullTextIndex for artifact_b"
+        );
+    }
+
+    #[test]
+    fn index_path_recovery_empty_when_no_pending_work() {
+        let state = KernelState::new();
+        let recovery = maestria_daemon::recovery_inputs(&state);
+        assert!(recovery.resume_parsers.is_empty());
+        assert!(recovery.start_full_text.is_empty());
     }
 }

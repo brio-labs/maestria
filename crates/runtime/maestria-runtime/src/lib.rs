@@ -404,7 +404,7 @@ impl MaestriaRuntime {
                             state.evidences.get(evidence_id).cloned()
                         };
                         if let Some(evidence) = evidence {
-                            if let Err(error) = adapters.evidence_repo.put(evidence) {
+                            if let Err(error) = adapters.evidence_repo.replace(evidence) {
                                 tracing::error!(%evidence_id, %error, "failed to persist evidence");
                                 return false;
                             }
@@ -1006,6 +1006,8 @@ impl MaestriaRuntime {
 mod runtime_barrier_tests;
 #[cfg(test)]
 mod runtime_blob_tests;
+#[cfg(test)]
+mod runtime_evidence_tests;
 #[cfg(test)]
 mod runtime_parse_tests;
 #[cfg(test)]

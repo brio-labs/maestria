@@ -63,7 +63,12 @@ pub trait CardRepository: Send + Sync {
 
 pub trait EvidenceRepository: Send + Sync {
     fn get(&self, evidence_id: EvidenceId) -> Result<Option<Evidence>, PortError>;
+    /// Insert evidence only if it does not already exist.
+    /// Returns `Ok(())` on identical retries; returns `PortError::Conflict`
+    /// when a different value already exists for this `EvidenceId`.
     fn put(&self, evidence: Evidence) -> Result<(), PortError>;
+    /// Unconditionally store evidence, replacing any existing row.
+    fn replace(&self, evidence: Evidence) -> Result<(), PortError>;
     fn list_for_artifact(&self, artifact_id: ArtifactId) -> Result<Vec<Evidence>, PortError>;
 }
 

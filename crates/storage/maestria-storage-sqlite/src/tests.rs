@@ -725,6 +725,58 @@ fn evidence_put_rejects_conflicting_overwrite() {
 }
 
 #[test]
+fn satisfies_shared_evidence_replace_contract() {
+    let store = SqliteStore::in_memory().expect("test setup");
+    contract_tests::assert_evidence_repository_replace_contract(&store);
+}
+
+#[test]
+fn evidence_replace_overwrites_existing() {
+    let store = SqliteStore::in_memory().expect("test setup");
+    let original = Evidence {
+        id: EvidenceId::new(300),
+        artifact_id: ArtifactId::new(1),
+        claim_id: None,
+        kind: EvidenceKind::Validation {
+            report_id: ValidationReportId::new(1),
+        },
+        excerpt: "malformed".to_string(),
+        observed_at: LogicalTick::new(1),
+    };
+    EvidenceRepository::put(&store, original.clone()).expect("first put");
+
+    let replacement = Evidence {
+        id: EvidenceId::new(300),
+        artifact_id: ArtifactId::new(2),
+        claim_id: Some(ClaimId::new(9)),
+        kind: EvidenceKind::Validation {
+            report_id: ValidationReportId::new(2),
+        },
+        excerpt: "corrected".to_string(),
+        observed_at: LogicalTick::new(2),
+    };
+
+    // put rejects different content
+    let err = EvidenceRepository::put(&store, replacement.clone()).unwrap_err();
+    assert!(matches!(err, PortError::Conflict { .. }));
+
+    // replace succeeds
+    EvidenceRepository::replace(&store, replacement.clone()).expect("replace must overwrite");
+
+    let stored = EvidenceRepository::get(&store, EvidenceId::new(300))
+        .expect("get after replace")
+        .expect("evidence must exist");
+    assert_eq!(stored, replacement);
+
+    // list_for_artifact reflects replacement
+    assert_eq!(
+        EvidenceRepository::list_for_artifact(&store, ArtifactId::new(2))
+            .expect("list after replace"),
+        vec![replacement]
+    );
+}
+
+#[test]
 fn pending_index_event_round_trips() {
     let store = SqliteStore::in_memory().expect("test setup");
     let event = DomainEventEnvelope {

@@ -176,6 +176,70 @@ pub fn assert_evidence_repository_round_trip(repository: &impl EvidenceRepositor
     );
 }
 
+pub fn assert_evidence_repository_replace_contract(repository: &impl EvidenceRepository) {
+    let original = Evidence {
+        id: EvidenceId::new(50),
+        artifact_id: ArtifactId::new(1),
+        claim_id: None,
+        kind: EvidenceKind::Validation {
+            report_id: ValidationReportId::new(1),
+        },
+        excerpt: "original excerpt".to_string(),
+        observed_at: LogicalTick::new(1),
+    };
+    let replacement = Evidence {
+        id: EvidenceId::new(50),         // same id
+        artifact_id: ArtifactId::new(2), // different artifact
+        claim_id: Some(ClaimId::new(9)),
+        kind: EvidenceKind::Validation {
+            report_id: ValidationReportId::new(2),
+        },
+        excerpt: "replacement excerpt".to_string(),
+        observed_at: LogicalTick::new(2),
+    };
+
+    repository.put(original.clone()).expect("original put");
+    // put with different content must conflict
+    let err = repository.put(replacement.clone()).unwrap_err();
+    assert!(matches!(err, PortError::Conflict { .. }));
+    // original still intact
+    assert_eq!(
+        repository.get(original.id).expect("get"),
+        Some(original.clone())
+    );
+    // replace overwrites even with different content
+    repository
+        .replace(replacement.clone())
+        .expect("replace must succeed despite conflict");
+    assert_eq!(
+        repository.get(replacement.id).expect("get after replace"),
+        Some(replacement.clone())
+    );
+    // replace of identical value is idempotent
+    repository
+        .replace(replacement.clone())
+        .expect("replace identical must succeed");
+    assert_eq!(
+        repository
+            .get(replacement.id)
+            .expect("get after replace identical"),
+        Some(replacement.clone())
+    );
+    // replace on a fresh id acts as insert
+    let fresh = Evidence {
+        id: EvidenceId::new(51),
+        artifact_id: ArtifactId::new(1),
+        claim_id: None,
+        kind: EvidenceKind::Validation {
+            report_id: ValidationReportId::new(3),
+        },
+        excerpt: "fresh".to_string(),
+        observed_at: LogicalTick::new(3),
+    };
+    repository.replace(fresh.clone()).expect("fresh replace");
+    assert_eq!(repository.get(fresh.id).expect("get fresh"), Some(fresh));
+}
+
 pub fn assert_event_log_round_trip(log: &impl EventLog) {
     let event = DomainEventEnvelope {
         id: EventId::new(1),

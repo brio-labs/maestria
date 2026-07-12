@@ -281,6 +281,26 @@ impl EvidenceRepository for crate::SqliteStore {
             .map_err(to_port_error)
     }
 
+    fn replace(&self, evidence: Evidence) -> Result<(), PortError> {
+        let connection = self.lock()?;
+        let kind_json = serde_json::to_string(&StoredEvidenceKind::from_domain(&evidence.kind))
+            .map_err(crate::json_error)?;
+        connection
+            .execute(
+                "INSERT OR REPLACE INTO evidence\n                     (id, artifact_id, claim_id, kind_json, excerpt, observed_at)\n                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                params![
+                    u64_to_i64(evidence.id.value())?,
+                    u64_to_i64(evidence.artifact_id.value())?,
+                    optional_u64_to_i64(evidence.claim_id.map(|id| id.value()))?,
+                    kind_json,
+                    evidence.excerpt,
+                    u64_to_i64(evidence.observed_at.value())?,
+                ],
+            )
+            .map(|_| ())
+            .map_err(to_port_error)
+    }
+
     fn list_for_artifact(&self, artifact_id: ArtifactId) -> Result<Vec<Evidence>, PortError> {
         let connection = self.lock()?;
         let mut statement = connection

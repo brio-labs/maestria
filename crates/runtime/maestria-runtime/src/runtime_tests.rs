@@ -303,7 +303,6 @@ async fn persist_event_dispatches_chunk_card_evidence_to_repositories() {
         "evidence should be persisted"
     );
 }
-
 #[tokio::test]
 async fn parse_artifact_no_deadlock_at_max_concurrency_one() {
     use maestria_domain::{ArtifactDetected, content_hash};
