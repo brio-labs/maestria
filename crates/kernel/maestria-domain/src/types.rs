@@ -1040,5 +1040,6 @@ pub struct KernelState {
     pub tasks: BTreeMap<TaskId, Task>,
     pub validation_reports: BTreeMap<ValidationReportId, ValidationReportRecord>,
     pub pending_full_text: BTreeSet<ChunkId>,
+    pub parsed_artifact_ids: BTreeSet<ArtifactId>,
     pub event_log: Vec<DomainEventEnvelope>,
 }

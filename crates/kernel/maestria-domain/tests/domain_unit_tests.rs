@@ -1479,6 +1479,20 @@ fn full_text_index_final_feedback_emits_artifact_indexed() -> Result<(), DomainE
         }],
         cards: Vec::new(),
     }))?;
+    // Record evidence so evidence completeness check passes
+    state.apply_input(DomainInput::RecordEvidence(RecordEvidenceInput {
+        evidence_id: evidence_id_for(ArtifactId::new(1), 0),
+        artifact_id: ArtifactId::new(1),
+        claim_id: None,
+        kind: EvidenceKind::FileSpan {
+            path: "/tmp/notes.md".to_string(),
+            range: ContentRange { start: 0, end: 1 },
+            content_hash: "sha256:abc".to_string(),
+            snapshot: None,
+        },
+        excerpt: "a".to_string(),
+        observed_at: LogicalTick::new(1),
+    }))?;
     assert!(state.pending_full_text.contains(&ChunkId::new(10)));
 
     // Full-text index completes for the only chunk
@@ -1529,6 +1543,21 @@ fn duplicate_full_text_index_feedback_is_idempotent() -> Result<(), DomainError>
             text: "a".to_string(),
         }],
         cards: Vec::new(),
+    }))?;
+
+    // Record evidence so evidence completeness check passes
+    state.apply_input(DomainInput::RecordEvidence(RecordEvidenceInput {
+        evidence_id: evidence_id_for(ArtifactId::new(1), 0),
+        artifact_id: ArtifactId::new(1),
+        claim_id: None,
+        kind: EvidenceKind::FileSpan {
+            path: "/tmp/notes.md".to_string(),
+            range: ContentRange { start: 0, end: 1 },
+            content_hash: "sha256:abc".to_string(),
+            snapshot: None,
+        },
+        excerpt: "a".to_string(),
+        observed_at: LogicalTick::new(1),
     }))?;
 
     // First feedback
@@ -1584,6 +1613,33 @@ fn replay_reconstructs_pending_and_indexed_state() -> Result<(), DomainError> {
             },
         ],
         cards: Vec::new(),
+    }))?;
+    // Record two evidences (one per chunk) so terminalization gate passes
+    state.apply_input(DomainInput::RecordEvidence(RecordEvidenceInput {
+        evidence_id: evidence_id_for(ArtifactId::new(1), 0),
+        artifact_id: ArtifactId::new(1),
+        claim_id: None,
+        kind: EvidenceKind::FileSpan {
+            path: "/tmp/notes.md".to_string(),
+            range: ContentRange { start: 0, end: 1 },
+            content_hash: "sha256:abc".to_string(),
+            snapshot: None,
+        },
+        excerpt: "a".to_string(),
+        observed_at: LogicalTick::new(1),
+    }))?;
+    state.apply_input(DomainInput::RecordEvidence(RecordEvidenceInput {
+        evidence_id: evidence_id_for(ArtifactId::new(1), 1),
+        artifact_id: ArtifactId::new(1),
+        claim_id: None,
+        kind: EvidenceKind::FileSpan {
+            path: "/tmp/notes.md".to_string(),
+            range: ContentRange { start: 1, end: 2 },
+            content_hash: "sha256:abc".to_string(),
+            snapshot: None,
+        },
+        excerpt: "b".to_string(),
+        observed_at: LogicalTick::new(1),
     }))?;
     state.apply_input(DomainInput::FullTextIndexCompleted(
         FullTextIndexCompleted {
@@ -1682,13 +1738,13 @@ fn parser_completed_duplicate_is_idempotent() -> Result<(), DomainError> {
     assert_eq!(chunk_events_2, 0, "duplicate parse emits no chunk events");
     assert_eq!(card_events_2, 0, "duplicate parse emits no card events");
     assert_eq!(
-        parsed_events_2, 1,
-        "duplicate parse emits ArtifactParsed with chunks_added=0"
+        parsed_events_2, 0,
+        "duplicate parse with no new chunks/cards emits no ArtifactParsed"
     );
     assert_eq!(
         output2.events.len(),
-        1,
-        "duplicate parse produces only ArtifactParsed"
+        0,
+        "duplicate parse with no new data produces no events"
     );
     Ok(())
 }
@@ -1883,21 +1939,29 @@ fn parser_completed_removes_pending_parser() -> Result<(), DomainError> {
     }))?;
     assert!(state.pending_parsers.contains_key(&ArtifactId::new(1)));
 
-    // Parser completes — pending_parsers must be cleaned up.
-    state.apply_input(DomainInput::ParserCompleted(ParserResult {
+    // Parser completes — pending_parsers survives until ArtifactIndexed.
+    let output = state.apply_input(DomainInput::ParserCompleted(ParserResult {
         artifact_id: ArtifactId::new(1),
         chunks: Vec::new(),
         cards: Vec::new(),
     }))?;
 
     assert!(
-        !state.pending_parsers.contains_key(&ArtifactId::new(1)),
-        "pending_parsers cleaned up on successful parse"
+        state.pending_parsers.contains_key(&ArtifactId::new(1)),
+        "pending_parsers retained after ParserCompleted; cleared only at ArtifactIndexed"
     );
     assert!(
         !state.pending_artifacts.contains_key(&ArtifactId::new(1)),
-        "pending_artifacts also consumed"
+        "pending_artifacts consumed on ParserCompleted"
     );
+    // First zero-output parse emits ArtifactParsed.
+    assert!(output.events.iter().any(|e| matches!(
+        e.event,
+        DomainEvent::ArtifactParsed {
+            chunks_added: 0,
+            ..
+        }
+    )));
     Ok(())
 }
 
@@ -1946,9 +2010,8 @@ fn replay_artifact_parsed_cleans_up_pending_parsers() -> Result<(), DomainError>
             blob_id: BlobId::new(42),
         },
     })?;
-    assert!(state.pending_parsers.contains_key(&ArtifactId::new(1)));
-
-    // Replay the ArtifactParsed event (emitted on ParserCompleted success)
+    // Replay the ArtifactParsed event (emitted on ParserCompleted success).
+    // pending_parsers is NOT removed here — only ArtifactIndexed clears it.
     state.apply_event(DomainEventEnvelope {
         id: EventId::new(3),
         sequence: SequenceNumber::new(3),
@@ -1959,8 +2022,8 @@ fn replay_artifact_parsed_cleans_up_pending_parsers() -> Result<(), DomainError>
     })?;
 
     assert!(
-        !state.pending_parsers.contains_key(&ArtifactId::new(1)),
-        "ArtifactParsed replay cleans up pending parsers"
+        state.pending_parsers.contains_key(&ArtifactId::new(1)),
+        "ArtifactParsed replay retains pending parsers; only ArtifactIndexed clears them"
     );
     Ok(())
 }
@@ -1997,7 +2060,7 @@ fn full_ingestion_flow_with_parser_started() -> Result<(), DomainError> {
         DomainEvent::ParserStarted { .. }
     ));
 
-    // 3. ParserCompleted — pending_parsers cleaned up, artifact committed.
+    // 3. ParserCompleted — pending_parsers retained until ArtifactIndexed.
     let output = state.apply_input(DomainInput::ParserCompleted(ParserResult {
         artifact_id: ArtifactId::new(1),
         chunks: vec![RegisterChunkInput {
@@ -2009,7 +2072,10 @@ fn full_ingestion_flow_with_parser_started() -> Result<(), DomainError> {
         cards: Vec::new(),
     }))?;
 
-    assert!(!state.pending_parsers.contains_key(&ArtifactId::new(1)));
+    assert!(
+        state.pending_parsers.contains_key(&ArtifactId::new(1)),
+        "pending_parsers retained after ParserCompleted; cleared only at ArtifactIndexed"
+    );
     assert!(state.artifacts.contains_key(&ArtifactId::new(1)));
     assert!(state.chunks.contains_key(&ChunkId::new(10)));
     assert!(output.events.iter().any(|e| matches!(
@@ -2021,7 +2087,6 @@ fn full_ingestion_flow_with_parser_started() -> Result<(), DomainError> {
     )));
     Ok(())
 }
-
 #[test]
 fn resume_after_crash_replays_and_completes() -> Result<(), DomainError> {
     // Simulate: ParserStarted event persisted, then crash.
@@ -2068,7 +2133,10 @@ fn resume_after_crash_replays_and_completes() -> Result<(), DomainError> {
         cards: Vec::new(),
     }))?;
 
-    assert!(!state.pending_parsers.contains_key(&ArtifactId::new(1)));
+    assert!(
+        state.pending_parsers.contains_key(&ArtifactId::new(1)),
+        "pending_parsers retained after ParserCompleted on resume; cleared only at ArtifactIndexed"
+    );
     assert!(state.artifacts.contains_key(&ArtifactId::new(1)));
     assert!(state.chunks.contains_key(&ChunkId::new(10)));
     Ok(())
@@ -2111,23 +2179,203 @@ fn parser_completed_cleanup_idempotent_on_resume_retry() -> Result<(), DomainErr
 
     // First ParserCompleted
     state.apply_input(DomainInput::ParserCompleted(result.clone()))?;
-    assert!(!state.pending_parsers.contains_key(&ArtifactId::new(1)));
+    assert!(
+        state.pending_parsers.contains_key(&ArtifactId::new(1)),
+        "pending_parsers retained after first ParserCompleted"
+    );
 
     // Second ParserCompleted (retry) — must not error, must remain clean.
+    // With no new chunks/cards, the duplicate ArtifactParsed is suppressed.
     let output = state.apply_input(DomainInput::ParserCompleted(result))?;
-    assert!(!state.pending_parsers.contains_key(&ArtifactId::new(1)));
+    assert!(
+        state.pending_parsers.contains_key(&ArtifactId::new(1)),
+        "pending_parsers retained after retry"
+    );
     assert_eq!(
         output.events.len(),
-        1,
-        "retry ParserCompleted emits ArtifactParsed with chunks_added=0"
+        0,
+        "retry ParserCompleted with no new chunks/cards emits no events"
     );
-    assert!(matches!(
-        output.events[0].event,
-        DomainEvent::ArtifactParsed {
-            chunks_added: 0,
-            ..
-        }
-    ));
+    Ok(())
+}
+
+#[test]
+fn parser_completed_resume_with_artifact_registered_restores_pending_index()
+-> Result<(), DomainError> {
+    // Crash scenario: ArtifactRegistered event appended, ParserStarted event
+    // appended, but PendingIndex event NOT appended before crash. On replay,
+    // the artifact exists (from ArtifactRegistered) with Unindexed status,
+    // and pending_parsers has the ParserStarted metadata. ParserCompleted
+    // must restore PendingIndex and pending full-text tracking.
+    let events = vec![
+        DomainEventEnvelope {
+            id: EventId::new(1),
+            sequence: SequenceNumber::new(1),
+            event: DomainEvent::ArtifactRegistered {
+                artifact_id: ArtifactId::new(1),
+                title: "Notes".to_string(),
+            },
+        },
+        DomainEventEnvelope {
+            id: EventId::new(2),
+            sequence: SequenceNumber::new(2),
+            event: DomainEvent::ParserStarted {
+                artifact_id: ArtifactId::new(1),
+                title: "Notes".to_string(),
+                source_path: "/tmp/notes.md".to_string(),
+                content_hash: "sha256:abc".to_string(),
+                blob_id: BlobId::new(42),
+            },
+        },
+    ];
+    let mut state = replay_events(&events)?;
+
+    // Pre-conditions: artifact exists (Unindexed, no hash), pending_parsers set.
+    assert!(state.artifacts.contains_key(&ArtifactId::new(1)));
+    assert_eq!(
+        state.artifacts[&ArtifactId::new(1)].index_status,
+        IndexStatus::Unindexed,
+    );
+    assert!(state.artifacts[&ArtifactId::new(1)].content_hash.is_none());
+    assert!(state.pending_parsers.contains_key(&ArtifactId::new(1)));
+
+    // Act: ParserCompleted on resume.
+    let output = state.apply_input(DomainInput::ParserCompleted(ParserResult {
+        artifact_id: ArtifactId::new(1),
+        chunks: vec![RegisterChunkInput {
+            chunk_id: ChunkId::new(10),
+            artifact_id: ArtifactId::new(1),
+            order: 0,
+            text: "first chunk".to_string(),
+        }],
+        cards: Vec::new(),
+    }))?;
+
+    // Assert: PendingIndex event was emitted.
+    let pending_idx = output
+        .events
+        .iter()
+        .find(|e| matches!(e.event, DomainEvent::PendingIndex { .. }));
+    assert!(
+        pending_idx.is_some(),
+        "PendingIndex must be emitted on resume after crash"
+    );
+    if let Some(envelope) = pending_idx
+        && let DomainEvent::PendingIndex {
+            artifact_id,
+            content_hash,
+        } = &envelope.event
+    {
+        assert_eq!(*artifact_id, ArtifactId::new(1));
+        assert_eq!(content_hash, "sha256:abc");
+    }
+
+    // Assert: pending_parsers retained (cleared only at ArtifactIndexed).
+    assert!(state.pending_parsers.contains_key(&ArtifactId::new(1)));
+
+    // Assert: chunk is tracked in pending_full_text.
+    assert!(state.pending_full_text.contains(&ChunkId::new(10)));
+
+    // Assert: ArtifactParsed event emitted.
+    let has_parsed = output.events.iter().any(|e| {
+        matches!(
+            e.event,
+            DomainEvent::ArtifactParsed {
+                chunks_added: 1,
+                ..
+            }
+        )
+    });
+    assert!(
+        has_parsed,
+        "ArtifactParsed must be emitted with chunk count"
+    );
+
+    Ok(())
+}
+
+#[test]
+fn parser_completed_resume_pending_same_hash_is_idempotent() -> Result<(), DomainError> {
+    // On resume with ArtifactRegistered + PendingIndex already replayed
+    // (both events durable), a ParserCompleted retry with the same hash
+    // must not emit a duplicate PendingIndex.
+    let events = vec![
+        DomainEventEnvelope {
+            id: EventId::new(1),
+            sequence: SequenceNumber::new(1),
+            event: DomainEvent::ArtifactRegistered {
+                artifact_id: ArtifactId::new(1),
+                title: "Notes".to_string(),
+            },
+        },
+        DomainEventEnvelope {
+            id: EventId::new(2),
+            sequence: SequenceNumber::new(2),
+            event: DomainEvent::ParserStarted {
+                artifact_id: ArtifactId::new(1),
+                title: "Notes".to_string(),
+                source_path: "/tmp/notes.md".to_string(),
+                content_hash: "sha256:abc".to_string(),
+                blob_id: BlobId::new(42),
+            },
+        },
+        DomainEventEnvelope {
+            id: EventId::new(3),
+            sequence: SequenceNumber::new(3),
+            event: DomainEvent::PendingIndex {
+                artifact_id: ArtifactId::new(1),
+                content_hash: "sha256:abc".to_string(),
+            },
+        },
+    ];
+    let mut state = replay_events(&events)?;
+
+    // Pre-condition: artifact is already Pending with correct hash.
+    assert_eq!(
+        state.artifacts[&ArtifactId::new(1)].index_status,
+        IndexStatus::Pending,
+    );
+    assert_eq!(
+        state.artifacts[&ArtifactId::new(1)].content_hash.as_deref(),
+        Some("sha256:abc"),
+    );
+    assert!(state.pending_parsers.contains_key(&ArtifactId::new(1)));
+
+    // Act: ParserCompleted retry.
+    let result = ParserResult {
+        artifact_id: ArtifactId::new(1),
+        chunks: vec![RegisterChunkInput {
+            chunk_id: ChunkId::new(10),
+            artifact_id: ArtifactId::new(1),
+            order: 0,
+            text: "chunk".to_string(),
+        }],
+        cards: Vec::new(),
+    };
+    let output = state.apply_input(DomainInput::ParserCompleted(result.clone()))?;
+
+    // Assert: no PendingIndex in output (already Pending, same hash).
+    let pending_events: Vec<_> = output
+        .events
+        .iter()
+        .filter(|e| matches!(e.event, DomainEvent::PendingIndex { .. }))
+        .collect();
+    assert!(
+        pending_events.is_empty(),
+        "must not emit duplicate PendingIndex when already Pending with same hash"
+    );
+
+    // Assert: chunk registered, ArtifactParsed emitted.
+    assert!(state.pending_full_text.contains(&ChunkId::new(10)));
+    let has_parsed = output
+        .events
+        .iter()
+        .any(|e| matches!(e.event, DomainEvent::ArtifactParsed { .. }));
+    assert!(has_parsed, "ArtifactParsed still emitted");
+
+    // Assert: pending_parsers retained (cleared only at ArtifactIndexed).
+    assert!(state.pending_parsers.contains_key(&ArtifactId::new(1)));
+
     Ok(())
 }
 
@@ -2501,6 +2749,473 @@ fn start_full_text_index_rejects_missing_artifact() {
         result,
         Err(DomainError::MissingArtifact { id: ArtifactId(1) })
     ));
+}
+
+// ── Parser metadata retention and duplicate suppression ──────────
+
+#[test]
+fn parser_completed_first_zero_output_emits_artifact_parsed() -> Result<(), DomainError> {
+    let mut state = KernelState::new();
+    state.apply_input(DomainInput::RegisterArtifact(RegisterArtifactInput {
+        artifact_id: ArtifactId::new(1),
+        title: "Doc".to_string(),
+    }))?;
+
+    // First parse with zero chunks/cards must still emit ArtifactParsed.
+    let output = state.apply_input(DomainInput::ParserCompleted(ParserResult {
+        artifact_id: ArtifactId::new(1),
+        chunks: Vec::new(),
+        cards: Vec::new(),
+    }))?;
+
+    let parsed_count = output
+        .events
+        .iter()
+        .filter(|e| matches!(e.event, DomainEvent::ArtifactParsed { .. }))
+        .count();
+    assert_eq!(
+        parsed_count, 1,
+        "first zero-output parse emits ArtifactParsed"
+    );
+    Ok(())
+}
+
+#[test]
+fn parser_completed_duplicate_zero_output_suppresses_artifact_parsed() -> Result<(), DomainError> {
+    let mut state = KernelState::new();
+    state.apply_input(DomainInput::RegisterArtifact(RegisterArtifactInput {
+        artifact_id: ArtifactId::new(1),
+        title: "Doc".to_string(),
+    }))?;
+
+    let empty_result = ParserResult {
+        artifact_id: ArtifactId::new(1),
+        chunks: Vec::new(),
+        cards: Vec::new(),
+    };
+
+    // First parse.
+    let output1 = state.apply_input(DomainInput::ParserCompleted(empty_result.clone()))?;
+    assert!(
+        output1
+            .events
+            .iter()
+            .any(|e| matches!(e.event, DomainEvent::ArtifactParsed { .. }))
+    );
+
+    // Second parse with same zero data — must suppress duplicate ArtifactParsed.
+    let output2 = state.apply_input(DomainInput::ParserCompleted(empty_result))?;
+    let parsed2 = output2
+        .events
+        .iter()
+        .filter(|e| matches!(e.event, DomainEvent::ArtifactParsed { .. }))
+        .count();
+    assert_eq!(
+        parsed2, 0,
+        "duplicate zero-output parse suppresses ArtifactParsed"
+    );
+    Ok(())
+}
+
+#[test]
+fn crash_before_evidence_pending_parsers_survives_for_resume() -> Result<(), DomainError> {
+    // Simulate: parser completes, emits ArtifactParsed + chunks, but
+    // ArtifactIndexed never fires (crash). On resume, replay reconstructs
+    // pending_parsers and the parser re-runs idempotently.
+    let mut state = KernelState::new();
+
+    // Full ingestion: detection → parser started → parser completed.
+    state.apply_input(DomainInput::ArtifactDetected(ArtifactDetected {
+        artifact_id: ArtifactId::new(1),
+        title: "Notes".to_string(),
+        source_path: "/tmp/notes.md".to_string(),
+        source_bytes: vec![1, 2, 3],
+        content_hash: "sha256:aaa".to_string(),
+    }))?;
+    state.apply_input(DomainInput::ParserStarted(ParserStarted {
+        artifact_id: ArtifactId::new(1),
+        title: "Notes".to_string(),
+        source_path: "/tmp/notes.md".to_string(),
+        content_hash: "sha256:aaa".to_string(),
+        blob_id: BlobId::new(42),
+    }))?;
+
+    let chunk_input = RegisterChunkInput {
+        chunk_id: ChunkId::new(10),
+        artifact_id: ArtifactId::new(1),
+        order: 0,
+        text: "hello".to_string(),
+    };
+    let card_input = CreateCardInput {
+        card_id: CardId::new(20),
+        artifact_id: ArtifactId::new(1),
+        title: "Summary".to_string(),
+        body: "body".to_string(),
+    };
+
+    state.apply_input(DomainInput::ParserCompleted(ParserResult {
+        artifact_id: ArtifactId::new(1),
+        chunks: vec![chunk_input.clone()],
+        cards: vec![card_input.clone()],
+    }))?;
+
+    // After ParserCompleted, pending_parsers still exists (not yet removed).
+    assert!(
+        state.pending_parsers.contains_key(&ArtifactId::new(1)),
+        "pending_parsers survives ArtifactParsed — crash-before-evidence leaves it retryable"
+    );
+
+    // Simulate resume: re-run identical ParserCompleted (idempotent).
+    let output_resume = state.apply_input(DomainInput::ParserCompleted(ParserResult {
+        artifact_id: ArtifactId::new(1),
+        chunks: vec![chunk_input],
+        cards: vec![card_input],
+    }))?;
+
+    // No new chunks/cards → duplicate should suppress ArtifactParsed.
+    let parsed_on_resume = output_resume
+        .events
+        .iter()
+        .filter(|e| matches!(e.event, DomainEvent::ArtifactParsed { .. }))
+        .count();
+    assert_eq!(
+        parsed_on_resume, 0,
+        "resume duplicate emits no ArtifactParsed"
+    );
+
+    // Record evidence so the terminal ArtifactIndexed evidence gate passes.
+    state.apply_input(DomainInput::RecordEvidence(RecordEvidenceInput {
+        evidence_id: evidence_id_for(ArtifactId::new(1), 0),
+        artifact_id: ArtifactId::new(1),
+        claim_id: None,
+        kind: EvidenceKind::FileSpan {
+            path: "/tmp/notes.md".to_string(),
+            range: ContentRange { start: 0, end: 5 },
+            content_hash: "sha256:aaa".to_string(),
+            snapshot: None,
+        },
+        excerpt: "hello".to_string(),
+        observed_at: LogicalTick::new(1),
+    }))?;
+
+    // Now simulate terminal indexing clearing pending_parsers.
+    // Mark chunk as full-text indexed → all done → ArtifactIndexed.
+    state.apply_input(DomainInput::FullTextIndexCompleted(
+        FullTextIndexCompleted {
+            artifact_id: ArtifactId::new(1),
+            chunk_id: ChunkId::new(10),
+        },
+    ))?;
+
+    assert!(
+        !state.pending_parsers.contains_key(&ArtifactId::new(1)),
+        "ArtifactIndexed clears pending_parsers"
+    );
+    Ok(())
+}
+
+#[test]
+fn missing_evidence_keeps_artifact_pending_after_full_text_done() -> Result<(), DomainError> {
+    // Regression: when all chunks are indexed but no evidence exists for the
+    // deterministic evidence IDs, terminalization MUST be blocked. The artifact
+    // stays Pending and pending_parsers survives so retry/resume can regenerate
+    // evidence.
+    let mut state = KernelState::new();
+    let art_id = ArtifactId::new(1);
+
+    // Full ingestion: detect → parser started → parser completed.
+    state.apply_input(DomainInput::ArtifactDetected(ArtifactDetected {
+        artifact_id: art_id,
+        title: "Notes".to_string(),
+        source_path: "/tmp/notes.md".to_string(),
+        source_bytes: vec![1, 2, 3],
+        content_hash: "sha256:abc".to_string(),
+    }))?;
+    state.apply_input(DomainInput::ParserStarted(ParserStarted {
+        artifact_id: art_id,
+        title: "Notes".to_string(),
+        source_path: "/tmp/notes.md".to_string(),
+        content_hash: "sha256:abc".to_string(),
+        blob_id: BlobId::new(42),
+    }))?;
+    state.apply_input(DomainInput::ParserCompleted(ParserResult {
+        artifact_id: art_id,
+        chunks: vec![
+            RegisterChunkInput {
+                chunk_id: ChunkId::new(10),
+                artifact_id: art_id,
+                order: 0,
+                text: "a".to_string(),
+            },
+            RegisterChunkInput {
+                chunk_id: ChunkId::new(11),
+                artifact_id: art_id,
+                order: 1,
+                text: "b".to_string(),
+            },
+        ],
+        cards: Vec::new(),
+    }))?;
+
+    assert!(state.pending_parsers.contains_key(&art_id));
+    assert_eq!(state.artifacts[&art_id].index_status, IndexStatus::Pending);
+
+    // Index chunk 10 — still not all done
+    let output1 = state.apply_input(DomainInput::FullTextIndexCompleted(
+        FullTextIndexCompleted {
+            artifact_id: art_id,
+            chunk_id: ChunkId::new(10),
+        },
+    ))?;
+    assert_eq!(output1.events.len(), 1);
+    assert!(matches!(
+        &output1.events[0].event,
+        DomainEvent::FullTextIndexed {
+            chunk_id: ChunkId(10),
+            ..
+        }
+    ));
+    assert_eq!(state.artifacts[&art_id].index_status, IndexStatus::Pending);
+
+    // Index chunk 11 — all chunks done, but ZERO evidence recorded.
+    // Terminalization must be blocked.
+    let output2 = state.apply_input(DomainInput::FullTextIndexCompleted(
+        FullTextIndexCompleted {
+            artifact_id: art_id,
+            chunk_id: ChunkId::new(11),
+        },
+    ))?;
+    assert_eq!(output2.events.len(), 1);
+    assert!(matches!(
+        &output2.events[0].event,
+        DomainEvent::FullTextIndexed {
+            chunk_id: ChunkId(11),
+            ..
+        }
+    ));
+    assert_eq!(state.artifacts[&art_id].index_status, IndexStatus::Pending);
+    assert!(
+        state.pending_parsers.contains_key(&art_id),
+        "pending_parsers must survive when evidence is incomplete"
+    );
+
+    // Record evidence for the WRONG chunk order — evidence exists but maps
+    // to order 99 (chunk doesn't exist for this order). Terminalization must
+    // still be blocked.
+    let wrong_ev_id = evidence_id_for(art_id, 99);
+    state.apply_input(DomainInput::RecordEvidence(RecordEvidenceInput {
+        evidence_id: wrong_ev_id,
+        artifact_id: art_id,
+        claim_id: None,
+        kind: EvidenceKind::FileSpan {
+            path: "/tmp/notes.md".to_string(),
+            range: ContentRange { start: 0, end: 1 },
+            content_hash: "sha256:abc".to_string(),
+            snapshot: None,
+        },
+        excerpt: "wrong".to_string(),
+        observed_at: LogicalTick::new(1),
+    }))?;
+
+    // Still blocked — chunk[0] evidence missing (wrong ev points to order 99).
+    let output3 = state.apply_input(DomainInput::StartFullTextIndex(StartFullTextIndex {
+        artifact_id: art_id,
+    }))?;
+    assert_eq!(
+        state.artifacts[&art_id].index_status,
+        IndexStatus::Pending,
+        "wrong-order evidence must not satisfy terminalization gate"
+    );
+    assert!(
+        !output3
+            .events
+            .iter()
+            .any(|e| matches!(e.event, DomainEvent::ArtifactIndexed { .. })),
+        "no ArtifactIndexed when evidence IDs don't match chunk orders"
+    );
+
+    // Now add the correct deterministic evidence for both chunks.
+    let ev0 = evidence_id_for(art_id, 0);
+    let ev1 = evidence_id_for(art_id, 1);
+    state.apply_input(DomainInput::RecordEvidence(RecordEvidenceInput {
+        evidence_id: ev0,
+        artifact_id: art_id,
+        claim_id: None,
+        kind: EvidenceKind::FileSpan {
+            path: "/tmp/notes.md".to_string(),
+            range: ContentRange { start: 0, end: 1 },
+            content_hash: "sha256:abc".to_string(),
+            snapshot: None,
+        },
+        excerpt: "a".to_string(),
+        observed_at: LogicalTick::new(1),
+    }))?;
+    state.apply_input(DomainInput::RecordEvidence(RecordEvidenceInput {
+        evidence_id: ev1,
+        artifact_id: art_id,
+        claim_id: None,
+        kind: EvidenceKind::FileSpan {
+            path: "/tmp/notes.md".to_string(),
+            range: ContentRange { start: 1, end: 2 },
+            content_hash: "sha256:abc".to_string(),
+            snapshot: None,
+        },
+        excerpt: "b".to_string(),
+        observed_at: LogicalTick::new(1),
+    }))?;
+
+    // Evidence now complete. Terminalize via StartFullTextIndex recovery path.
+    let output4 = state.apply_input(DomainInput::StartFullTextIndex(StartFullTextIndex {
+        artifact_id: art_id,
+    }))?;
+    assert_eq!(state.artifacts[&art_id].index_status, IndexStatus::Indexed);
+    assert!(!state.pending_parsers.contains_key(&art_id));
+    assert!(
+        output4
+            .events
+            .iter()
+            .any(|e| matches!(e.event, DomainEvent::ArtifactIndexed { .. }))
+    );
+    Ok(())
+}
+#[test]
+fn parser_started_identical_metadata_is_idempotent() -> Result<(), DomainError> {
+    let mut state = KernelState::new();
+
+    let ps = ParserStarted {
+        artifact_id: ArtifactId::new(1),
+        title: "Notes".to_string(),
+        source_path: "/tmp/notes.md".to_string(),
+        content_hash: "sha256:aaa".to_string(),
+        blob_id: BlobId::new(42),
+    };
+
+    // First ParserStarted emits event + effect.
+    let out1 = state.apply_input(DomainInput::ParserStarted(ps.clone()))?;
+    assert!(
+        out1.events
+            .iter()
+            .any(|e| matches!(e.event, DomainEvent::ParserStarted { .. }))
+    );
+    assert!(
+        out1.effects
+            .iter()
+            .any(|e| matches!(e, MaestriaEffect::PersistEvent { .. }))
+    );
+
+    // Second ParserStarted with identical metadata emits nothing.
+    let out2 = state.apply_input(DomainInput::ParserStarted(ps))?;
+    assert!(
+        out2.events.is_empty(),
+        "identical ParserStarted emits no events"
+    );
+    assert!(
+        out2.effects.is_empty(),
+        "identical ParserStarted emits no effects"
+    );
+    Ok(())
+}
+
+#[test]
+fn parser_started_differing_metadata_emits_replacement() -> Result<(), DomainError> {
+    let mut state = KernelState::new();
+
+    let ps1 = ParserStarted {
+        artifact_id: ArtifactId::new(1),
+        title: "Notes".to_string(),
+        source_path: "/tmp/notes.md".to_string(),
+        content_hash: "sha256:aaa".to_string(),
+        blob_id: BlobId::new(42),
+    };
+    state.apply_input(DomainInput::ParserStarted(ps1))?;
+
+    // Differing metadata (changed hash) emits event + effect.
+    let ps2 = ParserStarted {
+        artifact_id: ArtifactId::new(1),
+        title: "Notes".to_string(),
+        source_path: "/tmp/notes.md".to_string(),
+        content_hash: "sha256:bbb".to_string(),
+        blob_id: BlobId::new(99),
+    };
+    let out = state.apply_input(DomainInput::ParserStarted(ps2.clone()))?;
+    assert!(
+        out.events
+            .iter()
+            .any(|e| matches!(e.event, DomainEvent::ParserStarted { .. })),
+        "differing metadata emits ParserStarted event"
+    );
+    assert!(
+        out.effects
+            .iter()
+            .any(|e| matches!(e, MaestriaEffect::PersistEvent { .. })),
+        "differing metadata emits PersistEvent"
+    );
+
+    // pending_parsers should hold the new metadata.
+    let stored = &state.pending_parsers[&ArtifactId::new(1)];
+    assert_eq!(stored.content_hash, "sha256:bbb");
+    assert_eq!(stored.blob_id, BlobId::new(99));
+    Ok(())
+}
+
+#[test]
+fn artifact_detected_with_active_pending_parser_is_noop() -> Result<(), DomainError> {
+    let mut state = KernelState::new();
+
+    // Set up a pending parser with a known hash.
+    state.apply_input(DomainInput::ParserStarted(ParserStarted {
+        artifact_id: ArtifactId::new(1),
+        title: "Notes".to_string(),
+        source_path: "/tmp/notes.md".to_string(),
+        content_hash: "sha256:aaa".to_string(),
+        blob_id: BlobId::new(42),
+    }))?;
+
+    // Identical ArtifactDetected with same hash as pending parser → no-op.
+    let out = state.apply_input(DomainInput::ArtifactDetected(ArtifactDetected {
+        artifact_id: ArtifactId::new(1),
+        title: "Notes".to_string(),
+        source_path: "/tmp/notes.md".to_string(),
+        source_bytes: vec![1, 2, 3],
+        content_hash: "sha256:aaa".to_string(),
+    }))?;
+
+    assert!(
+        out.effects.is_empty(),
+        "identical detection with active pending parser is no-op"
+    );
+    Ok(())
+}
+
+#[test]
+fn artifact_detected_different_hash_with_pending_parser_proceeds() -> Result<(), DomainError> {
+    let mut state = KernelState::new();
+
+    // Set up a pending parser with hash aaa.
+    state.apply_input(DomainInput::ParserStarted(ParserStarted {
+        artifact_id: ArtifactId::new(1),
+        title: "Notes".to_string(),
+        source_path: "/tmp/notes.md".to_string(),
+        content_hash: "sha256:aaa".to_string(),
+        blob_id: BlobId::new(42),
+    }))?;
+
+    // Different hash → should still emit ParseArtifact effect (changed content).
+    let out = state.apply_input(DomainInput::ArtifactDetected(ArtifactDetected {
+        artifact_id: ArtifactId::new(1),
+        title: "Notes".to_string(),
+        source_path: "/tmp/notes.md".to_string(),
+        source_bytes: vec![4, 5, 6],
+        content_hash: "sha256:bbb".to_string(),
+    }))?;
+
+    assert!(
+        out.effects
+            .iter()
+            .any(|e| matches!(e, MaestriaEffect::ParseArtifact(..))),
+        "changed hash detection with pending parser still emits ParseArtifact"
+    );
+    Ok(())
 }
 #[test]
 fn kernel_does_not_depend_on_forbidden_runtime_crates_or_operators() {

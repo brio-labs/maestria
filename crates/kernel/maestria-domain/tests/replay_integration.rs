@@ -916,7 +916,7 @@ fn replay_parser_started_multiple_entries() -> Result<(), DomainError> {
 }
 
 #[test]
-fn replay_artifact_parsed_cleans_pending_parsers() -> Result<(), DomainError> {
+fn replay_artifact_parsed_retains_pending_parsers() -> Result<(), DomainError> {
     let mut state = KernelState::new();
     // Full reconstruction: ArtifactRegistered → ParserStarted → ArtifactParsed
     state.apply_event(DomainEventEnvelope {
@@ -940,7 +940,7 @@ fn replay_artifact_parsed_cleans_pending_parsers() -> Result<(), DomainError> {
     })?;
     assert!(state.pending_parsers.contains_key(&ArtifactId::new(1)));
 
-    // ArtifactParsed signals successful parse — pending_parsers must be cleaned.
+    // ArtifactParsed must NOT clear pending_parsers — only ArtifactIndexed does.
     state.apply_event(DomainEventEnvelope {
         id: EventId::new(3),
         sequence: SequenceNumber::new(3),
@@ -951,14 +951,14 @@ fn replay_artifact_parsed_cleans_pending_parsers() -> Result<(), DomainError> {
     })?;
 
     assert!(
-        state.pending_parsers.is_empty(),
-        "ArtifactParsed replay must clean pending_parsers"
+        state.pending_parsers.contains_key(&ArtifactId::new(1)),
+        "ArtifactParsed replay must NOT clean pending_parsers"
     );
     Ok(())
 }
 
 #[test]
-fn replay_artifact_parsed_zero_chunks_cleans_pending_parsers() -> Result<(), DomainError> {
+fn replay_artifact_parsed_zero_chunks_retains_pending_parsers() -> Result<(), DomainError> {
     let mut state = KernelState::new();
     // Full reconstruction: ArtifactRegistered → ParserStarted → ArtifactParsed(chunks_added=0)
     state.apply_event(DomainEventEnvelope {
@@ -982,7 +982,7 @@ fn replay_artifact_parsed_zero_chunks_cleans_pending_parsers() -> Result<(), Dom
     })?;
     assert!(state.pending_parsers.contains_key(&ArtifactId::new(1)));
 
-    // ArtifactParsed with chunks_added=0 still cleans pending_parsers.
+    // ArtifactParsed with chunks_added=0 must NOT clean pending_parsers.
     state.apply_event(DomainEventEnvelope {
         id: EventId::new(3),
         sequence: SequenceNumber::new(3),
@@ -993,9 +993,52 @@ fn replay_artifact_parsed_zero_chunks_cleans_pending_parsers() -> Result<(), Dom
     })?;
 
     assert!(
-        state.pending_parsers.is_empty(),
-        "ArtifactParsed with chunks_added=0 must clean pending_parsers on replay"
+        state.pending_parsers.contains_key(&ArtifactId::new(1)),
+        "ArtifactParsed with chunks_added=0 must NOT clean pending_parsers on replay"
     );
+    Ok(())
+}
+
+#[test]
+fn replay_search_completed_preserves_pending_parsers() -> Result<(), DomainError> {
+    let mut state = KernelState::new();
+    // Set up: artifact exists and parser is in-flight.
+    state.apply_event(DomainEventEnvelope {
+        id: EventId::new(1),
+        sequence: SequenceNumber::new(1),
+        event: DomainEvent::ArtifactRegistered {
+            artifact_id: ArtifactId::new(1),
+            title: "Notes".to_string(),
+        },
+    })?;
+    state.apply_event(DomainEventEnvelope {
+        id: EventId::new(2),
+        sequence: SequenceNumber::new(2),
+        event: DomainEvent::ParserStarted {
+            artifact_id: ArtifactId::new(1),
+            title: "Notes".to_string(),
+            source_path: "/tmp/notes.md".to_string(),
+            content_hash: "sha256:abc".to_string(),
+            blob_id: BlobId::new(42),
+        },
+    })?;
+    assert!(state.pending_parsers.contains_key(&ArtifactId::new(1)));
+
+    // SearchCompleted arrives for the same artifact — must NOT clear pending_parsers.
+    state.apply_event(DomainEventEnvelope {
+        id: EventId::new(3),
+        sequence: SequenceNumber::new(3),
+        event: DomainEvent::SearchCompleted {
+            artifact_id: ArtifactId::new(1),
+            cards_added: 3,
+        },
+    })?;
+
+    assert!(
+        state.pending_parsers.contains_key(&ArtifactId::new(1)),
+        "SearchCompleted must preserve pending_parsers for in-flight parser recovery"
+    );
+    assert_eq!(state.pending_parsers.len(), 1);
     Ok(())
 }
 
@@ -1045,6 +1088,73 @@ fn replay_parser_started_via_convenience() -> Result<(), DomainError> {
     assert_eq!(
         replayed.pending_parsers[&ArtifactId::new(1)].blob_id,
         BlobId::new(7)
+    );
+    Ok(())
+}
+
+#[test]
+fn replay_artifact_indexed_clears_pending_parsers() -> Result<(), DomainError> {
+    let mut state = KernelState::new();
+    // Full chain: ArtifactRegistered → ParserStarted → ChunkRegistered
+    // → ArtifactParsed → FullTextIndexed → ArtifactIndexed.
+    state.apply_event(DomainEventEnvelope {
+        id: EventId::new(1),
+        sequence: SequenceNumber::new(1),
+        event: DomainEvent::ArtifactRegistered {
+            artifact_id: ArtifactId::new(1),
+            title: "Notes".to_string(),
+        },
+    })?;
+    state.apply_event(DomainEventEnvelope {
+        id: EventId::new(2),
+        sequence: SequenceNumber::new(2),
+        event: DomainEvent::ParserStarted {
+            artifact_id: ArtifactId::new(1),
+            title: "Notes".to_string(),
+            source_path: "/tmp/notes.md".to_string(),
+            content_hash: "sha256:abc".to_string(),
+            blob_id: BlobId::new(42),
+        },
+    })?;
+    assert!(state.pending_parsers.contains_key(&ArtifactId::new(1)));
+
+    // Register a chunk so the FullTextIndexed → ArtifactIndexed chain works.
+    state.apply_event(DomainEventEnvelope {
+        id: EventId::new(3),
+        sequence: SequenceNumber::new(3),
+        event: DomainEvent::ChunkRegistered {
+            chunk_id: ChunkId::new(10),
+            artifact_id: ArtifactId::new(1),
+            order: 0,
+            text: "hello".to_string(),
+        },
+    })?;
+
+    // ArtifactParsed must NOT clear pending_parsers.
+    state.apply_event(DomainEventEnvelope {
+        id: EventId::new(4),
+        sequence: SequenceNumber::new(4),
+        event: DomainEvent::ArtifactParsed {
+            artifact_id: ArtifactId::new(1),
+            chunks_added: 1,
+        },
+    })?;
+    assert!(
+        state.pending_parsers.contains_key(&ArtifactId::new(1)),
+        "ArtifactParsed must not clear pending_parsers"
+    );
+
+    // ArtifactIndexed (terminal) MUST clear pending_parsers.
+    state.apply_event(DomainEventEnvelope {
+        id: EventId::new(5),
+        sequence: SequenceNumber::new(5),
+        event: DomainEvent::ArtifactIndexed {
+            artifact_id: ArtifactId::new(1),
+        },
+    })?;
+    assert!(
+        !state.pending_parsers.contains_key(&ArtifactId::new(1)),
+        "ArtifactIndexed must clear pending_parsers on replay"
     );
     Ok(())
 }

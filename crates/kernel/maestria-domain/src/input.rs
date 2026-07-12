@@ -215,8 +215,16 @@ impl KernelState {
                         && a.index_status == IndexStatus::Indexed
                 });
 
-                if unchanged {
-                    // Equal indexed hash — terminal no-op
+                // Also guard against duplicate detections while a parser is
+                // already in-flight with the same content_hash — avoids
+                // redundant ParseArtifact effects.
+                let pending_unchanged = self
+                    .pending_parsers
+                    .get(&input.artifact_id)
+                    .is_some_and(|p| p.content_hash == input.content_hash);
+
+                if unchanged || pending_unchanged {
+                    // Equal indexed hash or identical pending parse — terminal no-op
                 } else {
                     // Store pending metadata in-memory only; no persisted events yet.
                     // The artifact is committed only on successful ParserCompleted.
@@ -258,7 +266,16 @@ impl KernelState {
                 }
             }
             DomainInput::StartFullTextIndex(input) => {
-                self.handle_start_full_text_index(&input)?;
+                let generated = self.handle_start_full_text_index(&input)?;
+                // If the handler terminalized (crash-after-evidence recovery),
+                // push the ArtifactIndexed event before checking pending chunks.
+                for envelope in generated {
+                    output.events.push(envelope.clone());
+                    output
+                        .effects
+                        .push(MaestriaEffect::PersistEvent { envelope });
+                }
+                // Only emit IndexFullText effects for chunks still pending.
                 for chunk in self.chunks.values() {
                     if chunk.artifact_id == input.artifact_id
                         && self.pending_full_text.contains(&chunk.id)
@@ -307,6 +324,16 @@ impl KernelState {
                 }
             }
             DomainInput::ParserStarted(input) => {
+                // Idempotent: identical metadata must not emit duplicate events.
+                if let Some(existing) = self.pending_parsers.get(&input.artifact_id)
+                    && existing.title == input.title
+                    && existing.source_path == input.source_path
+                    && existing.content_hash == input.content_hash
+                    && existing.blob_id == input.blob_id
+                {
+                    // Identical metadata — skip duplicate event and effect.
+                    return Ok(output);
+                }
                 // Record durable pending-parser metadata; emitted as a PersistEvent
                 // so that restart can find this artifact if parsing never finishes.
                 self.pending_parsers

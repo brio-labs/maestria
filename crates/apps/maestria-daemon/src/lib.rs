@@ -26,6 +26,14 @@ fn pending_start_full_text(state: &KernelState) -> Vec<DomainInput> {
     let mut artifacts: BTreeSet<ArtifactId> = BTreeSet::new();
     for chunk_id in &state.pending_full_text {
         if let Some(chunk) = state.chunks.get(chunk_id) {
+            // Skip artifacts that have a pending parser — the resumed
+            // parser flow owns completion, evidence, and index ordering
+            // and emits its own StartFullTextIndex afterward.  Issuing a
+            // separate StartFullTextIndex here could make chunks terminal
+            // before resumed evidence is recorded.
+            if state.pending_parsers.contains_key(&chunk.artifact_id) {
+                continue;
+            }
             artifacts.insert(chunk.artifact_id);
         }
     }
@@ -239,7 +247,8 @@ mod projection_recovery_tests;
 mod tests {
     use super::*;
     use maestria_domain::{
-        ArtifactDetected, ChunkId, MaestriaEffect, ParserResult, RegisterChunkInput,
+        ArtifactDetected, BlobId, ChunkId, MaestriaEffect, ParserResult, ParserStarted,
+        RegisterChunkInput,
     };
 
     #[test]
@@ -396,6 +405,96 @@ mod tests {
 
         let inputs = pending_start_full_text(&state);
         assert!(inputs.is_empty(), "orphan chunk ids should be skipped");
+    }
+
+    #[test]
+    fn pending_start_full_text_excludes_pending_parser_artifacts() {
+        // Regression: artifacts with pending parser metadata must not
+        // receive a StartFullTextIndex during recovery — the resumed
+        // parser flow owns completion, evidence, and index ordering and
+        // emits its own StartFullTextIndex afterward.  Issuing a separate
+        // StartFullTextIndex here could make chunks terminal before
+        // resumed evidence is recorded.
+
+        let mut state = KernelState::new();
+        let artifact_a = ArtifactId::new(1);
+        let artifact_b = ArtifactId::new(2);
+
+        // Set up both artifacts with chunks via the normal domain flow so
+        // pending_full_text is populated.
+        for (artifact_id, title) in [(artifact_a, "a.md"), (artifact_b, "b.md")] {
+            state
+                .apply_input(DomainInput::ArtifactDetected(ArtifactDetected {
+                    artifact_id,
+                    title: title.to_string(),
+                    source_path: format!("/tmp/{title}"),
+                    source_bytes: vec![1, 2, 3],
+                    content_hash: "sha256:abc".to_string(),
+                }))
+                .expect("register artifact");
+
+            state
+                .apply_input(DomainInput::ParserCompleted(ParserResult {
+                    artifact_id,
+                    chunks: vec![RegisterChunkInput {
+                        chunk_id: ChunkId::new(if artifact_id == artifact_a { 10 } else { 20 }),
+                        artifact_id,
+                        order: 0,
+                        text: "text".to_string(),
+                    }],
+                    cards: Vec::new(),
+                }))
+                .expect("parser completed");
+        }
+
+        // After ParserCompleted, pending_parsers is empty.  Simulate a
+        // re-ingestion crash: artifact_a was re-ingested (ParserStarted
+        // replayed, pending_parsers set) but the process crashed before
+        // ParserCompleted.  Old chunks from the prior parse still have
+        // pending_full_text entries.
+        state.pending_parsers.insert(
+            artifact_a,
+            ParserStarted {
+                artifact_id: artifact_a,
+                title: "a.md".to_string(),
+                source_path: "/tmp/a.md".to_string(),
+                content_hash: "sha256:abc".to_string(),
+                blob_id: BlobId::new(100),
+            },
+        );
+
+        assert!(
+            state.pending_full_text.len() >= 2,
+            "both artifacts have pending chunks"
+        );
+        assert!(
+            state.pending_parsers.contains_key(&artifact_a),
+            "artifact_a has a pending parser"
+        );
+        assert!(
+            !state.pending_parsers.contains_key(&artifact_b),
+            "artifact_b has no pending parser"
+        );
+
+        let inputs = pending_start_full_text(&state);
+
+        // Only artifact_b receives StartFullTextIndex.
+        // artifact_a is excluded because the resumed parser flow will
+        // handle completion, evidence, and its own index dispatch.
+        assert_eq!(
+            inputs.len(),
+            1,
+            "only artifact_b should get StartFullTextIndex"
+        );
+        match &inputs[0] {
+            DomainInput::StartFullTextIndex(start) => {
+                assert_eq!(
+                    start.artifact_id, artifact_b,
+                    "artifact_b gets StartFullTextIndex (no pending parser)"
+                );
+            }
+            other => panic!("expected StartFullTextIndex, got {other:?}"),
+        }
     }
 }
 

@@ -51,7 +51,7 @@ fn pure_input_with_effect_completion_is_replay_consistent() -> Result<(), Box<dy
     let path = PathBuf::from("notes/full-cycle.md");
     let bytes = b"# Full Cycle\n\nParagraph one.\n\nParagraph two.\n".to_vec();
 
-    let detected = build_artifact_detected_input(&path, bytes)?;
+    let detected = build_artifact_detected_input(&path, bytes.clone())?;
 
     let maestria_domain::DomainInput::ArtifactDetected(ArtifactDetected {
         artifact_id,
@@ -71,8 +71,11 @@ fn pure_input_with_effect_completion_is_replay_consistent() -> Result<(), Box<dy
 
     // Parser completed
     use maestria_domain::{
-        ChunkId, CreateCardInput, DomainInput, LogicalTick, ParserResult, RegisterChunkInput,
+        ChunkId, ContentRange, CreateCardInput, DomainInput, EvidenceKind, LogicalTick,
+        ParserResult, RecordEvidenceInput, RegisterChunkInput, content_hash, evidence_id_for,
     };
+    let source_hash = content_hash(&bytes);
+    let source_path = path.to_string_lossy().into_owned();
     let chunk_id_0 = ChunkId::new(701);
     let chunk_id_1 = ChunkId::new(702);
     state.apply_input(DomainInput::ParserCompleted(ParserResult {
@@ -98,6 +101,24 @@ fn pure_input_with_effect_completion_is_replay_consistent() -> Result<(), Box<dy
             body: "Two paragraphs.".to_string(),
         }],
     }))?;
+    for (order, excerpt) in ["Paragraph one.", "Paragraph two."].into_iter().enumerate() {
+        state.apply_input(DomainInput::RecordEvidence(RecordEvidenceInput {
+            evidence_id: evidence_id_for(*artifact_id, order as u32),
+            artifact_id: *artifact_id,
+            claim_id: None,
+            kind: EvidenceKind::FileSpan {
+                path: source_path.clone(),
+                range: ContentRange {
+                    start: order + 1,
+                    end: order + 1,
+                },
+                content_hash: source_hash.clone(),
+                snapshot: None,
+            },
+            excerpt: excerpt.to_string(),
+            observed_at: LogicalTick::new(1),
+        }))?;
+    }
 
     // Full-text indexing completes for both chunks.
     state.apply_input(DomainInput::FullTextIndexCompleted(

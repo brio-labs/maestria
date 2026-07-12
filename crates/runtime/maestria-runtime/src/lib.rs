@@ -1,9 +1,9 @@
 use maestria_domain::{
-    ApprovalDecision, Artifact, DomainEvent, DomainInput, EvidenceKind, FullTextIndexCompleted,
-    HarnessRunCompleted, IndexStatus, KernelState, LogicalTick, MaestriaEffect, ParserResult,
-    ParserStarted, RecordEvidenceInput, RecordValidationReportInput, RegisterChunkInput,
-    StartFullTextIndex, ValidationCompleted, ValidationReportId, content_hash, evidence_id_for,
-    excerpt_for, line_range_for_chunk,
+    ApprovalDecision, Artifact, ArtifactId, BlobId, DomainEvent, DomainEventEnvelope, DomainInput,
+    EvidenceKind, FullTextIndexCompleted, HarnessRunCompleted, IndexStatus, KernelState,
+    LogicalTick, MaestriaEffect, ParserResult, ParserStarted, RecordEvidenceInput,
+    RecordValidationReportInput, RegisterChunkInput, StartFullTextIndex, ValidationCompleted,
+    ValidationReportId, content_hash, evidence_id_for, excerpt_for, line_range_for_chunk,
 };
 use maestria_governance::{
     ApprovalGate, ApprovalRequest, AutonomyProfile, ClassifyRisk, PolicyDecision, Scope, ScopeGuard,
@@ -172,10 +172,10 @@ impl MaestriaRuntime {
                                 next_validation_report_id.fetch_add(1, Ordering::Relaxed),
                             );
                         }
-                        let Ok(permit) = semaphore.clone().acquire_owned().await else {
-                            tracing::warn!("Effect executor semaphore closed");
-                            break;
-                        };
+                        // PersistEvent must execute synchronously without consuming a
+                        // semaphore permit. Otherwise a non-persist effect (e.g.
+                        // ParseArtifact) holding the only permit at max_concurrent_effects=1
+                        // would deadlock waiting for the PersistEvent it just enqueued.
                         let persist_event =
                             matches!(&effect, MaestriaEffect::PersistEvent { .. });
                         let context = EffectExecutionContext {
@@ -191,7 +191,6 @@ impl MaestriaRuntime {
 
                         if persist_event {
                             let success = Self::execute_with_retries(effect, context).await;
-                            drop(permit);
                             if !success {
                                 tracing::error!(
                                     "fatal event persistence failure; stopping runtime"
@@ -202,6 +201,10 @@ impl MaestriaRuntime {
                             continue;
                         }
 
+                        let Ok(permit) = semaphore.clone().acquire_owned().await else {
+                            tracing::warn!("Effect executor semaphore closed");
+                            break;
+                        };
                         tokio::spawn(async move {
                             Self::execute_with_retries(effect, context).await;
                             drop(permit);
@@ -263,6 +266,7 @@ impl MaestriaRuntime {
                     context.scope.clone(),
                     context.state.clone(),
                     context.input_tx.clone(),
+                    Some(context.default_effect_timeout),
                 )
                 .await;
 
@@ -288,6 +292,7 @@ impl MaestriaRuntime {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn execute_effect(
         effect: MaestriaEffect,
         adapters: Arc<Adapters>,
@@ -296,6 +301,7 @@ impl MaestriaRuntime {
         configured_scope: Scope,
         state: Arc<RwLock<KernelState>>,
         input_tx: mpsc::Sender<DomainInput>,
+        persistence_barrier_timeout: Option<Duration>,
     ) -> bool {
         let scope = ScopeGuard::new(configured_scope);
         let risk = governance.classifier.classify(&effect, &scope);
@@ -555,6 +561,31 @@ impl MaestriaRuntime {
                         "parser started",
                     )
                     .await;
+
+                    // Persistence barrier: wait until the ParserStarted event is
+                    // observable in the event log before proceeding to parse. This
+                    // closes the crash window where the parser could start before
+                    // the durable resume marker is committed.
+                    // Only active when the runtime path supplies a timeout (production);
+                    // direct unit-test calls skip this via None.
+                    if let Some(barrier_timeout) = persistence_barrier_timeout {
+                        let capped = barrier_timeout.min(Duration::from_secs(30));
+                        let persisted = Self::wait_for_parser_started_persistence(
+                            &*adapters.event_log,
+                            artifact.id,
+                            blob_id,
+                            &source_hash,
+                            capped,
+                        )
+                        .await;
+                        if !persisted {
+                            tracing::error!(
+                                artifact_id = %artifact.id,
+                                "ParserStarted persistence barrier failed; not parsing"
+                            );
+                            return false;
+                        }
+                    }
                 }
 
                 // Compute the source text from the parse bytes before they are moved
@@ -901,6 +932,74 @@ impl MaestriaRuntime {
         true
     }
 
+    /// Polls the event log for a persisted ParserStarted envelope matching
+    /// `artifact_id`, `blob_id`, _and_ `content_hash`. Returns `true` once
+    /// the event is observable, or `false` on timeout / scan error.
+    /// Uses deterministic backoff to avoid busy-waiting while the domain
+    /// loop commits the event.
+    async fn wait_for_parser_started_persistence(
+        event_log: &dyn EventLog,
+        artifact_id: ArtifactId,
+        blob_id: BlobId,
+        content_hash_val: &str,
+        barrier_timeout: Duration,
+    ) -> bool {
+        // Scan all events — EventFilter artifact_id filtering may not cover
+        // ParserStarted in every EventLog implementation.
+        let contains_started = |entries: &[DomainEventEnvelope]| -> bool {
+            entries.iter().any(|e| {
+                matches!(
+                    &e.event,
+                    DomainEvent::ParserStarted {
+                        artifact_id: id,
+                        blob_id: bid,
+                        content_hash: ch,
+                        ..
+                    } if *id == artifact_id
+                        && *bid == blob_id
+                        && ch == content_hash_val
+                )
+            })
+        };
+
+        // Immediate check without sleeping.
+        match event_log.scan(EventFilter { artifact_id: None }) {
+            Ok(events) if contains_started(&events) => return true,
+            Err(error) => {
+                tracing::error!(%error, "failed to scan event log for ParserStarted barrier");
+                return false;
+            }
+            _ => {}
+        }
+
+        let deadline = tokio::time::Instant::now() + barrier_timeout;
+        let mut backoff_ms: u64 = 1;
+
+        loop {
+            if tokio::time::Instant::now() >= deadline {
+                tracing::warn!(
+                    artifact_id = %artifact_id,
+                    %blob_id,
+                    timeout_ms = barrier_timeout.as_millis(),
+                    "ParserStarted persistence barrier timed out; not parsing"
+                );
+                return false;
+            }
+
+            tokio::time::sleep(Duration::from_millis(backoff_ms.min(500))).await;
+            backoff_ms = backoff_ms.saturating_mul(2);
+
+            match event_log.scan(EventFilter { artifact_id: None }) {
+                Ok(events) if contains_started(&events) => return true,
+                Err(error) => {
+                    tracing::error!(%error, "failed to scan event log during ParserStarted barrier");
+                    return false;
+                }
+                _ => {}
+            }
+        }
+    }
+
     async fn send_input(
         input_tx: &mpsc::Sender<DomainInput>,
         input: DomainInput,
@@ -912,6 +1011,8 @@ impl MaestriaRuntime {
     }
 }
 
+#[cfg(test)]
+mod runtime_barrier_tests;
 #[cfg(test)]
 mod runtime_blob_tests;
 #[cfg(test)]

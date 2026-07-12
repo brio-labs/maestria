@@ -1,5 +1,6 @@
 use std::collections::BTreeSet;
 
+use crate::provenance::evidence_id_for;
 use crate::types::*;
 
 impl KernelState {
@@ -721,37 +722,50 @@ impl KernelState {
             generated.push(pending_event);
         }
 
-        // Resume path: no pending_artifacts (in-memory only, lost on restart),
-        // but pending_parsers survived via replay. Create the artifact from the
-        // durable parser metadata so chunk/card registration has a home.
-        if !self.artifacts.contains_key(&input.artifact_id)
-            && let Some(parser) = self.pending_parsers.get(&input.artifact_id).cloned()
-        {
-            self.artifacts.insert(
-                input.artifact_id,
-                Artifact::with_title(input.artifact_id, parser.title.clone()),
-            );
-            let register_event = self.emit_event(DomainEvent::ArtifactRegistered {
-                artifact_id: input.artifact_id,
-                title: parser.title.clone(),
-            });
-            generated.push(register_event);
-            if let Some(artifact) = self.artifacts.get_mut(&input.artifact_id) {
-                artifact.content_hash = Some(parser.content_hash.clone());
-                artifact.index_status = IndexStatus::Pending;
+        // Resume/recovery path: no pending_artifacts (in-memory only, lost on
+        // restart), but pending_parsers survived via replay. Ensure the artifact
+        // exists and has correct Pending status, regardless of whether
+        // ArtifactRegistered was already replayed (crash between ArtifactRegistered
+        // and PendingIndex event append).
+        if let Some(parser) = self.pending_parsers.get(&input.artifact_id).cloned() {
+            use std::collections::btree_map::Entry;
+            if let Entry::Vacant(entry) = self.artifacts.entry(input.artifact_id) {
+                entry.insert(Artifact::with_title(
+                    input.artifact_id,
+                    parser.title.clone(),
+                ));
+                let register_event = self.emit_event(DomainEvent::ArtifactRegistered {
+                    artifact_id: input.artifact_id,
+                    title: parser.title.clone(),
+                });
+                generated.push(register_event);
+            } else if let Some(artifact) = self.artifacts.get_mut(&input.artifact_id) {
+                // Artifact exists from replayed ArtifactRegistered. Ensure title
+                // is populated — ParserStarted may carry a richer title.
+                if artifact.title.is_empty() && !parser.title.is_empty() {
+                    artifact.title = parser.title.clone();
+                }
             }
-            let pending_event = self.emit_event(DomainEvent::PendingIndex {
-                artifact_id: input.artifact_id,
-                content_hash: parser.content_hash,
-            });
-            generated.push(pending_event);
+            // Transition to Pending if not already Pending with the same hash.
+            // Indexed/Unindexed states are not silently skipped.
+            if let Some(artifact) = self.artifacts.get_mut(&input.artifact_id) {
+                let needs_pending = artifact.index_status != IndexStatus::Pending
+                    || artifact.content_hash.as_deref() != Some(&parser.content_hash);
+                if needs_pending {
+                    artifact.content_hash = Some(parser.content_hash.clone());
+                    artifact.index_status = IndexStatus::Pending;
+                    let pending_event = self.emit_event(DomainEvent::PendingIndex {
+                        artifact_id: input.artifact_id,
+                        content_hash: parser.content_hash,
+                    });
+                    generated.push(pending_event);
+                }
+            }
         }
 
-        // Remove durable pending-parser metadata now that parsing succeeded.
-        // On fresh ingestion this drops the ParserStarted entry; on resume it
-        // drops the entry reconstructed from replay. Either way the artifact
-        // is no longer stranded.
-        self.pending_parsers.remove(&input.artifact_id);
+        // pending_parsers is NOT removed here — it stays until terminal
+        // ArtifactIndexed, so a crash before evidence/indexing leaves the
+        // parser retryable on the next resume.
 
         if !self.artifacts.contains_key(&input.artifact_id) {
             return Err(DomainError::MissingArtifact {
@@ -779,6 +793,7 @@ impl KernelState {
             }
         }
 
+        let mut new_cards = 0u32;
         for card in input.cards {
             if let Some(existing) = self.cards.get(&card.card_id) {
                 if existing.artifact_id != card.artifact_id
@@ -792,14 +807,19 @@ impl KernelState {
                 }
             } else {
                 generated.push(self.handle_create_card(card)?);
+                new_cards += 1;
             }
         }
 
-        let parsed = self.emit_event(DomainEvent::ArtifactParsed {
-            artifact_id: input.artifact_id,
-            chunks_added: new_chunks,
-        });
-        generated.push(parsed);
+        let already_parsed = self.parsed_artifact_ids.contains(&input.artifact_id);
+        if new_chunks > 0 || new_cards > 0 || !already_parsed {
+            let parsed = self.emit_event(DomainEvent::ArtifactParsed {
+                artifact_id: input.artifact_id,
+                chunks_added: new_chunks,
+            });
+            generated.push(parsed);
+            self.parsed_artifact_ids.insert(input.artifact_id);
+        }
 
         Ok(generated)
     }
@@ -942,13 +962,35 @@ impl KernelState {
     pub(super) fn handle_start_full_text_index(
         &mut self,
         input: &StartFullTextIndex,
-    ) -> Result<(), DomainError> {
+    ) -> Result<Vec<DomainEventEnvelope>, DomainError> {
         if !self.artifacts.contains_key(&input.artifact_id) {
             return Err(DomainError::MissingArtifact {
                 id: input.artifact_id,
             });
         }
-        Ok(())
+        // Crash-after-evidence recovery: all FullTextIndexed events replayed
+        // but ArtifactIndexed lost. If artifact is still Pending and no chunks
+        // remain unindexed, terminalize now — but only when evidence coverage
+        // is complete (one evidence per chunk). Otherwise leave Pending so
+        // retry/resume can regenerate evidence.
+        let mut generated = Vec::new();
+        if let Some(artifact) = self.artifacts.get(&input.artifact_id)
+            && artifact.index_status == IndexStatus::Pending
+        {
+            let has_pending = self.chunks.values().any(|c| {
+                c.artifact_id == input.artifact_id && self.pending_full_text.contains(&c.id)
+            });
+            if !has_pending && self.evidence_complete_for(input.artifact_id) {
+                if let Some(artifact) = self.artifacts.get_mut(&input.artifact_id) {
+                    artifact.index_status = IndexStatus::Indexed;
+                }
+                generated.push(self.emit_event(DomainEvent::ArtifactIndexed {
+                    artifact_id: input.artifact_id,
+                }));
+                self.pending_parsers.remove(&input.artifact_id);
+            }
+        }
+        Ok(generated)
     }
     pub(super) fn handle_full_text_index_completed(
         &mut self,
@@ -985,16 +1027,37 @@ impl KernelState {
                 c.artifact_id == input.artifact_id && self.pending_full_text.contains(&c.id)
             });
 
-            if all_done {
+            if all_done && self.evidence_complete_for(input.artifact_id) {
                 if let Some(artifact) = self.artifacts.get_mut(&input.artifact_id) {
                     artifact.index_status = IndexStatus::Indexed;
                 }
                 generated.push(self.emit_event(DomainEvent::ArtifactIndexed {
                     artifact_id: input.artifact_id,
                 }));
+                // Terminal indexing frees the pending parser entry so a crash
+                // after ArtifactIndexed does not re-trigger parsing on resume.
+                self.pending_parsers.remove(&input.artifact_id);
             }
         }
 
         Ok(generated)
+    }
+
+    /// Returns `true` when every chunk of `artifact_id` has a corresponding
+    /// evidence record whose ID matches the deterministic `evidence_id_for`
+    /// mapping and whose `artifact_id` field matches. Zero-chunk artifacts
+    /// trivially satisfy the check.
+    pub(crate) fn evidence_complete_for(&self, artifact_id: ArtifactId) -> bool {
+        for chunk in self.chunks.values() {
+            if chunk.artifact_id != artifact_id {
+                continue;
+            }
+            let expected_id = evidence_id_for(chunk.artifact_id, chunk.order);
+            match self.evidences.get(&expected_id) {
+                Some(ev) if ev.artifact_id == artifact_id => continue,
+                _ => return false,
+            }
+        }
+        true
     }
 }

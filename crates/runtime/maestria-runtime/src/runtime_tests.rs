@@ -282,6 +282,7 @@ async fn persist_event_dispatches_chunk_card_evidence_to_repositories() {
             Scope::default(),
             Arc::new(RwLock::new(state.clone())),
             input_tx.clone(),
+            None,
         )
         .await;
         assert!(result, "persist of {:?} should succeed", envelope.event);
@@ -300,5 +301,88 @@ async fn persist_event_dispatches_chunk_card_evidence_to_repositories() {
             .get(evidence_id)
             .is_ok_and(|value| value.is_some()),
         "evidence should be persisted"
+    );
+}
+
+#[tokio::test]
+async fn parse_artifact_no_deadlock_at_max_concurrency_one() {
+    use maestria_domain::{ArtifactDetected, content_hash};
+
+    let event_log = Arc::new(InMemoryEventLog::new());
+    let adapters = Adapters {
+        event_log: event_log.clone(),
+        blob_store: Arc::new(InMemoryBlobStore::new()),
+        search_index: Arc::new(InMemoryFullTextIndex::new()),
+        harness: Arc::new(InMemoryHarnessAdapter::new()),
+        parser: Arc::new(InMemoryParser::new()),
+        artifact_repo: Arc::new(InMemoryArtifactRepository::new()),
+        chunk_repo: Arc::new(InMemoryChunkRepository::new()),
+        card_repo: Arc::new(InMemoryCardRepository::new()),
+        evidence_repo: Arc::new(InMemoryEvidenceRepository::new()),
+        vector_index: Arc::new(InMemoryVectorIndex::new()),
+        graph_index: Arc::new(InMemoryGraphIndex::new()),
+        web_fetcher: Arc::new(InMemoryWebFetcher::new()),
+    };
+    let governance = Governance {
+        classifier: Arc::new(DefaultRiskClassifier),
+        approval_gate: Arc::new(DefaultApprovalGate),
+    };
+    let (runtime, input_rx) = MaestriaRuntime::new(
+        RuntimeConfig {
+            max_concurrent_effects: 1,
+            default_effect_timeout: Duration::from_secs(5),
+            max_retries: 0,
+            ..RuntimeConfig::default()
+        },
+        KernelState::new(),
+        adapters,
+        governance,
+    );
+    let input_tx = runtime.handle().input_tx;
+    let shutdown = CancellationToken::new();
+    let run = tokio::spawn(runtime.run(input_rx, shutdown.clone()));
+
+    let source_bytes = b"fn main() {}".to_vec();
+    let source_hash = content_hash(&source_bytes);
+    let artifact_id = ArtifactId::new(1);
+
+    // Send ArtifactDetected input — the domain loop produces a
+    // ParseArtifact effect, whose handler enqueues ParserStarted and
+    // then runs the persistence barrier. With max_concurrent_effects=1,
+    // the barrier must not deadlock waiting for the PersistEvent.
+    input_tx
+        .send(DomainInput::ArtifactDetected(ArtifactDetected {
+            artifact_id,
+            title: "deadlock-test".to_string(),
+            source_path: "/repo/deadlock.rs".to_string(),
+            source_bytes,
+            content_hash: source_hash,
+        }))
+        .await
+        .expect("ArtifactDetected input should be accepted");
+
+    // Wait for the ParserStarted event to be persisted (proves no deadlock).
+    let barrier_passed = tokio::time::timeout(Duration::from_secs(3), async {
+        loop {
+            let events = event_log
+                .scan(EventFilter { artifact_id: None })
+                .expect("event scan");
+            if events.iter().any(|e| {
+                matches!(&e.event, DomainEvent::ParserStarted { artifact_id: id, .. } if *id == artifact_id)
+            }) {
+                break true;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await;
+
+    shutdown.cancel();
+    let _ = tokio::time::timeout(Duration::from_secs(1), run).await;
+
+    let no_deadlock = matches!(barrier_passed, Ok(true));
+    assert!(
+        no_deadlock,
+        "ParserStarted persistence barrier must not deadlock at max_concurrent_effects=1"
     );
 }

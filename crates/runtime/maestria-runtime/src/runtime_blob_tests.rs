@@ -74,6 +74,7 @@ async fn store_blob_passes_exact_payload_bytes() {
         Scope::default(),
         Arc::new(RwLock::new(KernelState::new())),
         input_tx,
+        None,
     )
     .await;
 
@@ -145,6 +146,7 @@ async fn parse_artifact_calls_blob_put_exactly_once() {
         Scope::default(),
         Arc::new(RwLock::new(KernelState::new())),
         input_tx,
+        None,
     )
     .await;
 
@@ -229,6 +231,7 @@ async fn parse_artifact_retry_skips_existing_evidence() {
         Scope::default(),
         Arc::new(RwLock::new(state)),
         input_tx,
+        None,
     )
     .await;
 

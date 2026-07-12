@@ -61,6 +61,7 @@ async fn parse_artifact_passes_exact_source_path_and_bytes() {
         Scope::default(),
         Arc::new(RwLock::new(KernelState::new())),
         input_tx,
+        None,
     )
     .await;
 
@@ -169,6 +170,7 @@ async fn parse_artifact_empty_bytes_returns_failure() {
         Scope::default(),
         Arc::new(RwLock::new(KernelState::new())),
         input_tx,
+        None,
     )
     .await;
 
@@ -243,6 +245,7 @@ async fn parse_artifact_unsupported_parser_returns_failure() {
         Scope::default(),
         Arc::new(RwLock::new(KernelState::new())),
         input_tx,
+        None,
     )
     .await;
 
@@ -289,6 +292,7 @@ async fn parse_artifact_staged_ingestion_constructs_ephemeral_context() {
         Scope::default(),
         Arc::new(RwLock::new(KernelState::new())),
         input_tx,
+        None,
     )
     .await;
 
@@ -387,6 +391,7 @@ async fn parse_artifact_repository_error_returns_failure() {
         Scope::default(),
         Arc::new(RwLock::new(KernelState::new())),
         input_tx,
+        None,
     )
     .await;
 

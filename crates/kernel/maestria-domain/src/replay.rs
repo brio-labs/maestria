@@ -600,13 +600,21 @@ impl KernelState {
                     },
                 );
             }
-            DomainEvent::ArtifactParsed { artifact_id, .. }
-            | DomainEvent::SearchCompleted { artifact_id, .. } => {
+            DomainEvent::ArtifactParsed { artifact_id, .. } => {
                 if !self.artifacts.contains_key(artifact_id) {
                     return Err(DomainError::MissingArtifact { id: *artifact_id });
                 }
-                // Successful parse resolves any pending parser entry.
-                self.pending_parsers.remove(artifact_id);
+                // pending_parsers is NOT removed here — it stays until
+                // terminal ArtifactIndexed so a crash before evidence
+                // leaves the parser retryable.
+                // Mark as parsed so resume duplicate suppression works.
+                self.parsed_artifact_ids.insert(*artifact_id);
+            }
+            DomainEvent::SearchCompleted { artifact_id, .. } => {
+                if !self.artifacts.contains_key(artifact_id) {
+                    return Err(DomainError::MissingArtifact { id: *artifact_id });
+                }
+                // SearchCompleted must never touch pending parser metadata.
             }
             DomainEvent::PendingIndex {
                 artifact_id,
@@ -652,6 +660,8 @@ impl KernelState {
                     });
                 }
                 artifact.index_status = IndexStatus::Indexed;
+                // Terminal indexing frees the pending parser entry.
+                self.pending_parsers.remove(artifact_id);
             }
             DomainEvent::HarnessRunCompleted { task_id, .. } => {
                 if let Some(task_id) = task_id

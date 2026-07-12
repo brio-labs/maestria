@@ -66,6 +66,7 @@ async fn resume_parse_uses_existing_blob_and_skips_storage() {
         Scope::default(),
         Arc::new(RwLock::new(KernelState::new())),
         input_tx,
+        None,
     )
     .await;
 
@@ -139,6 +140,7 @@ async fn resume_parse_missing_blob_returns_failure() {
         Scope::default(),
         Arc::new(RwLock::new(KernelState::new())),
         input_tx,
+        None,
     )
     .await;
 
@@ -200,6 +202,7 @@ async fn fresh_parse_sends_parser_started_with_correct_blob_identity() {
         Scope::default(),
         Arc::new(RwLock::new(KernelState::new())),
         input_tx,
+        None,
     )
     .await;
 
