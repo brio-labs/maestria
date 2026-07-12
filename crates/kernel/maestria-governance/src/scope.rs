@@ -156,6 +156,11 @@ impl Scope {
         self.web_allowed
     }
 
+    /// Returns the read roots suitable for harness adapter path validation.
+    pub fn readable_roots(&self) -> &[PathBuf] {
+        &self.read_roots
+    }
+
     // ── new containment surface ──────────────────────────────────
 
     /// Strictly check that `path` is lexically contained within at least
@@ -217,6 +222,10 @@ impl ScopeGuard {
 
     pub fn web_allowed(&self) -> bool {
         self.scope.web_allowed()
+    }
+
+    pub fn readable_roots(&self) -> &[PathBuf] {
+        self.scope.readable_roots()
     }
 
     // ── new containment delegation ───────────────────────────────

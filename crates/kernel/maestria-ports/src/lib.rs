@@ -6,13 +6,14 @@
 //! without depending on a specific runtime, database, search engine, parser, or
 //! harness implementation.
 
-use std::{fmt, path::PathBuf, time::Duration};
+use std::{fmt, future::Future, path::PathBuf, pin::Pin, time::Duration};
 
 use maestria_domain::{
     Artifact, ArtifactId, BlobId, Card, CardId, Chunk, ChunkId, CreateCardInput, DomainEvent,
-    DomainEventEnvelope, Evidence, EvidenceId, HarnessRunId, Relation, RelationEndpoint,
-    RelationId,
+    DomainEventEnvelope, Evidence, EvidenceId, Relation, RelationEndpoint, RelationId,
 };
+
+pub use maestria_domain::HarnessRunId;
 
 pub const PORTS_VERSION: &str = "0.1.0";
 
@@ -196,14 +197,13 @@ pub struct HarnessRequest {
     pub working_directory: PathBuf,
     pub duration_budget: Duration,
     pub class: HarnessCommandClass,
+    pub readable_roots: Vec<PathBuf>,
 }
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HarnessOutcome {
     pub run_id: HarnessRunId,
     pub command: String,
     pub exit_code: i32,
-    pub scope_checked: bool,
     pub stdout: Vec<u8>,
     pub stderr: Vec<u8>,
     pub duration: Duration,
@@ -214,9 +214,11 @@ pub struct HarnessOutcome {
 
 pub trait HarnessAdapter: Send + Sync {
     fn capabilities(&self) -> Result<HarnessCapabilities, PortError>;
-    fn execute(&self, request: HarnessRequest) -> Result<HarnessOutcome, PortError>;
+    fn execute(
+        &self,
+        request: HarnessRequest,
+    ) -> Pin<Box<dyn Future<Output = Result<HarnessOutcome, PortError>> + Send + '_>>;
 }
-
 pub trait GraphIndex: Send + Sync {
     fn insert_relation(&self, relation: Relation) -> Result<(), PortError>;
     fn get_relations_for(&self, endpoint: RelationEndpoint) -> Result<Vec<Relation>, PortError>;

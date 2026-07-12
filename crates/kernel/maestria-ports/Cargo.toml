@@ -9,3 +9,6 @@ contract-tests = []
 
 [dependencies]
 maestria_domain = { package = "maestria-domain", path = "../maestria-domain" }
+
+[dev-dependencies]
+tokio = { version = "1.37", features = ["rt", "macros"] }

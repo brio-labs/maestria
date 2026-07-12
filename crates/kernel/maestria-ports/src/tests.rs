@@ -201,9 +201,9 @@ fn in_memory_parser_satisfies_contract() {
     assert_parser_round_trip(&InMemoryParser::new());
 }
 
-#[test]
-fn in_memory_harness_adapter_satisfies_contract() {
-    assert_harness_adapter_round_trip(&InMemoryHarnessAdapter::new());
+#[tokio::test]
+async fn in_memory_harness_adapter_satisfies_contract() {
+    assert_harness_adapter_round_trip(&InMemoryHarnessAdapter::new()).await;
 }
 
 #[test]

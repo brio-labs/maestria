@@ -93,6 +93,65 @@ struct EffectExecutionContext {
     max_retries: u32,
 }
 
+// ── shell grammar validation ──────────────────────────────────────────
+
+/// Allowed shell commands for governed harness execution.
+const ALLOWED_COMMANDS: &[&str] = &["echo", "pwd", "cat"];
+
+/// Prohibited shell metacharacters and redirection operators.
+const PROHIBITED_CHARS: &[char] = &[
+    '|', '&', ';', '$', '`', '(', ')', '{', '}', '<', '>', '\\', '!', '~', '*', '?',
+];
+
+/// Returns `true` when `command` uses only the allowed grammar:
+/// - starts with `echo`, `pwd`, or `cat`
+/// - contains no shell metacharacters, redirection, or newlines
+fn is_shell_grammar_allowed(command: &str) -> bool {
+    let trimmed = command.trim();
+    if trimmed.is_empty() {
+        return false;
+    }
+
+    // Reject embedded newlines
+    if trimmed.contains('\n') || trimmed.contains('\r') {
+        return false;
+    }
+
+    // Reject prohibited metacharacters
+    if trimmed.contains(PROHIBITED_CHARS) {
+        return false;
+    }
+
+    // Must start with an allowed command word
+    let first_word = trimmed.split_ascii_whitespace().next().map_or("", |w| w);
+    ALLOWED_COMMANDS.contains(&first_word)
+}
+
+/// Extract the path arguments from a `cat` command.
+/// Skips option tokens (leading `-`) and the `--` separator.
+/// Returns empty vec for non-cat commands.
+fn cat_path_args(command: &str) -> Vec<&str> {
+    let trimmed = command.trim();
+    let mut tokens = trimmed.split_ascii_whitespace();
+    match tokens.next() {
+        Some("cat") => tokens.filter(|t| !t.starts_with('-')).collect(),
+        _ => Vec::new(),
+    }
+}
+
+/// Determine a working directory that is contained within the configured scope.
+/// Falls back to the current working directory when no roots are configured
+/// (unrestricted scope).
+fn resolve_working_directory(scope: &Scope) -> PathBuf {
+    if let Some(root) = scope.readable_roots().first() {
+        return root.clone();
+    }
+    // Scope with zero roots is unrestricted; use current directory.
+    match std::env::current_dir() {
+        Ok(d) => d,
+        Err(_) => PathBuf::from("."),
+    }
+}
 impl MaestriaRuntime {
     pub fn new(
         mut config: RuntimeConfig,
@@ -752,17 +811,45 @@ impl MaestriaRuntime {
                         return true;
                     }
                 };
+
+                // ── grammar restriction ──────────────────────────────────
+                if !is_shell_grammar_allowed(&request.command) {
+                    tracing::warn!(
+                        command = %request.command,
+                        "command violates shell grammar restrictions; not spawning"
+                    );
+                    return true;
+                }
+
+                // ── cat path containment ─────────────────────────────────
+                if class == HarnessCommandClass::Shell && request.command.trim().starts_with("cat")
+                {
+                    for arg in cat_path_args(&request.command) {
+                        let path = PathBuf::from(arg);
+                        if let Err(containment_err) = scope.check_read_containment(&path) {
+                            tracing::warn!(
+                                path = %path.display(),
+                                ?containment_err,
+                                "cat path outside readable roots; not spawning"
+                            );
+                            return true;
+                        }
+                    }
+                }
+
+                // ── working directory ────────────────────────────────────
+                let working_directory = resolve_working_directory(scope.scope());
+
                 let harness_request = HarnessRequest {
                     run_id: request.run_id,
                     command: request.command.clone(),
-                    working_directory: match std::env::current_dir() {
-                        Ok(p) => p,
-                        Err(_) => PathBuf::from("."),
-                    },
+                    working_directory,
                     duration_budget: Duration::from_secs(60),
                     class,
+                    readable_roots: scope.readable_roots().to_vec(),
                 };
-                match adapters.harness.execute(harness_request) {
+
+                match adapters.harness.execute(harness_request).await {
                     Ok(outcome) => {
                         let mut output = String::from_utf8_lossy(&outcome.stdout).into_owned();
                         if !outcome.stderr.is_empty() {
@@ -1008,6 +1095,8 @@ mod runtime_barrier_tests;
 mod runtime_blob_tests;
 #[cfg(test)]
 mod runtime_evidence_tests;
+#[cfg(test)]
+mod runtime_harness_tests;
 #[cfg(test)]
 mod runtime_parse_tests;
 #[cfg(test)]

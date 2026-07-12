@@ -525,7 +525,7 @@ pub fn assert_parser_round_trip(parser: &impl Parser) {
     ));
 }
 
-pub fn assert_harness_adapter_round_trip(harness: &impl HarnessAdapter) {
+pub async fn assert_harness_adapter_round_trip(harness: &impl HarnessAdapter) {
     let capabilities = harness.capabilities().expect("capabilities");
     assert!(capabilities.read_enabled);
     assert!(capabilities.write_enabled);
@@ -542,23 +542,27 @@ pub fn assert_harness_adapter_round_trip(harness: &impl HarnessAdapter) {
             working_directory: PathBuf::from("/tmp"),
             duration_budget: Duration::from_secs(1),
             class: HarnessCommandClass::Shell,
+            readable_roots: vec![],
         })
+        .await
         .expect("execute command");
 
     assert_eq!(outcome.run_id, HarnessRunId::new(7));
     assert_eq!(outcome.command, "echo ok");
     assert_eq!(outcome.exit_code, 0);
-    assert!(outcome.scope_checked);
     assert_eq!(outcome.stdout, b"executed echo ok".to_vec());
 
     assert!(matches!(
-        harness.execute(HarnessRequest {
-            run_id: HarnessRunId::new(8),
-            command: " ".to_string(),
-            working_directory: PathBuf::from("/tmp"),
-            duration_budget: Duration::from_secs(1),
-            class: HarnessCommandClass::Shell,
-        }),
+        harness
+            .execute(HarnessRequest {
+                run_id: HarnessRunId::new(8),
+                command: " ".to_string(),
+                working_directory: PathBuf::from("/tmp"),
+                duration_budget: Duration::from_secs(1),
+                class: HarnessCommandClass::Shell,
+                readable_roots: vec![],
+            })
+            .await,
         Err(PortError::InvalidInput { .. })
     ));
 }
