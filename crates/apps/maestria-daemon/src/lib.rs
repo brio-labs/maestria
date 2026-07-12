@@ -71,11 +71,11 @@ pub fn build_runtime(
     let card_repo = sqlite_store.clone();
     let evidence_repo = sqlite_store.clone();
     let vector_index = Arc::new(
-        SqliteVectorIndex::open(&layout.vector_index_dir.join("projection.db"))
+        SqliteVectorIndex::open(layout.vector_index_dir.join("projection.db"))
             .with_context(|| format!("open vector index {}", layout.vector_index_dir.display()))?,
     );
     let graph_index = Arc::new(
-        SqliteGraphIndex::open(&layout.graph_index_dir.join("projection.db"))
+        SqliteGraphIndex::open(layout.graph_index_dir.join("projection.db"))
             .with_context(|| format!("open graph index {}", layout.graph_index_dir.display()))?,
     );
     let web_fetcher = Arc::new(UreqWebFetcher::new());
