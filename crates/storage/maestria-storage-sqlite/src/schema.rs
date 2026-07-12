@@ -7,6 +7,19 @@ use crate::schema_validation::*;
 /// Current storage schema version supported by this adapter.
 pub(crate) const CURRENT_SCHEMA_VERSION: i64 = 3;
 
+/// Ensures the `artifacts` table carries the v3 columns `content_hash` and `index_status`.
+fn ensure_artifact_v3_columns(connection: &Connection) -> Result<(), PortError> {
+    if !table_has_column(connection, "artifacts", "content_hash")? {
+        connection
+            .execute_batch(
+                "ALTER TABLE artifacts ADD COLUMN content_hash TEXT;
+                 ALTER TABLE artifacts ADD COLUMN index_status TEXT NOT NULL DEFAULT 'unindexed';",
+            )
+            .map_err(to_port_error)?;
+    }
+    Ok(())
+}
+
 pub(crate) fn migrate(connection: &mut Connection) -> Result<(), PortError> {
     let transaction = connection.transaction().map_err(to_port_error)?;
 
@@ -135,6 +148,7 @@ pub(crate) fn migrate(connection: &mut Connection) -> Result<(), PortError> {
                     )
                     .map_err(to_port_error)?;
             }
+            ensure_artifact_v3_columns(&transaction)?;
 
             transaction
                 .execute(
@@ -156,14 +170,7 @@ pub(crate) fn migrate(connection: &mut Connection) -> Result<(), PortError> {
                     message: "malformed sqlite schema: missing payload_version column".to_string(),
                 });
             }
-            if !table_has_column(&transaction, "artifacts", "content_hash")? {
-                transaction
-                    .execute_batch(
-                        "ALTER TABLE artifacts ADD COLUMN content_hash TEXT;
-                         ALTER TABLE artifacts ADD COLUMN index_status TEXT NOT NULL DEFAULT 'unindexed';",
-                    )
-                    .map_err(to_port_error)?;
-            }
+            ensure_artifact_v3_columns(&transaction)?;
             transaction
                 .execute(
                     "INSERT OR IGNORE INTO schema_version (version) VALUES (?1)",
@@ -222,6 +229,7 @@ pub(crate) fn migrate(connection: &mut Connection) -> Result<(), PortError> {
             } else {
                 validate_columns(&transaction, &DOMAIN_EVENTS_V2_COLUMNS)?;
             }
+            ensure_artifact_v3_columns(&transaction)?;
 
             transaction
                 .execute(

@@ -604,8 +604,15 @@ impl KernelState {
                 if !self.artifacts.contains_key(artifact_id) {
                     return Err(DomainError::MissingArtifact { id: *artifact_id });
                 }
-                if !self.chunks.contains_key(chunk_id) {
-                    return Err(DomainError::MissingChunk { id: *chunk_id });
+                let chunk = self
+                    .chunks
+                    .get(chunk_id)
+                    .ok_or(DomainError::MissingChunk { id: *chunk_id })?;
+                if chunk.artifact_id != *artifact_id {
+                    return Err(DomainError::ArtifactMismatch {
+                        expected: *artifact_id,
+                        actual: chunk.artifact_id,
+                    });
                 }
                 self.pending_full_text.remove(chunk_id);
             }
@@ -614,6 +621,14 @@ impl KernelState {
                     .artifacts
                     .get_mut(artifact_id)
                     .ok_or(DomainError::MissingArtifact { id: *artifact_id })?;
+                let has_pending = self.chunks.values().any(|c| {
+                    c.artifact_id == *artifact_id && self.pending_full_text.contains(&c.id)
+                });
+                if has_pending {
+                    return Err(DomainError::PendingChunksExist {
+                        artifact_id: *artifact_id,
+                    });
+                }
                 artifact.index_status = IndexStatus::Indexed;
             }
             DomainEvent::HarnessRunCompleted { task_id, .. } => {

@@ -5,7 +5,7 @@ use crate::types::{
     OpenChunkEvidenceInput, OpenEvidenceInput, OpenEvidenceOutput, SearchInput, SearchOutput,
 };
 
-use maestria_domain::{Evidence, EvidenceKind};
+use maestria_domain::{Evidence, EvidenceKind, IndexStatus};
 use maestria_ports::SearchQuery;
 
 pub(super) fn search<'a>(ports: &CorePorts<'a>, input: SearchInput) -> CoreResult<SearchOutput> {
@@ -22,6 +22,9 @@ pub(super) fn search<'a>(ports: &CorePorts<'a>, input: SearchInput) -> CoreResul
                 .ok_or_else(|| CoreError::NotFound {
                     message: format!("artifact {} for search hit", hit.chunk.artifact_id),
                 })?;
+        if artifact.index_status != IndexStatus::Indexed {
+            continue;
+        }
         let chunk = ports
             .chunks
             .get(hit.chunk.chunk_id)?
@@ -63,6 +66,14 @@ pub(super) fn open_evidence<'a>(
             .ok_or_else(|| CoreError::NotFound {
                 message: format!("artifact {} for evidence", evidence.artifact_id),
             })?;
+    if artifact.index_status != IndexStatus::Indexed {
+        return Err(CoreError::NotFound {
+            message: format!(
+                "artifact {} not indexed (status {:?})",
+                artifact.id, artifact.index_status
+            ),
+        });
+    }
     Ok(OpenEvidenceOutput { artifact, evidence })
 }
 

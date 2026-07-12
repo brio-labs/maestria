@@ -900,6 +900,9 @@ pub enum DomainError {
     ValidationWarningsForbidden {
         task_id: TaskId,
     },
+    PendingChunksExist {
+        artifact_id: ArtifactId,
+    },
 }
 
 impl fmt::Display for DomainError {
@@ -977,6 +980,12 @@ impl fmt::Display for DomainError {
                 write!(
                     f,
                     "task {task_id} completed verified but validation report has warnings"
+                )
+            }
+            Self::PendingChunksExist { artifact_id } => {
+                write!(
+                    f,
+                    "artifact {artifact_id} still has pending full-text chunks"
                 )
             }
         }

@@ -304,15 +304,23 @@ async fn index_path(instance_dir: PathBuf, path: PathBuf, recursive: bool) -> Re
         // Wait for the artifact to reach terminal persisted state.
         let result = timeout(index_timeout, async {
             loop {
-                let state = maestria_daemon::load_kernel_state(&layout)
-                    .with_context(|| "reload kernel state for indexing wait")?;
-                if let Some(artifact) = state.artifacts.get(&artifact_id)
-                    && artifact.index_status == IndexStatus::Indexed
+                match maestria_daemon::load_kernel_state(&layout)
+                    .with_context(|| "reload kernel state for indexing wait")
                 {
-                    println!("indexed artifact={} path={}", artifact.id, file.display());
-                    return Ok::<_, anyhow::Error>(());
+                    Ok(state) => {
+                        if let Some(artifact) = state.artifacts.get(&artifact_id)
+                            && artifact.index_status == IndexStatus::Indexed
+                        {
+                            println!("indexed artifact={} path={}", artifact.id, file.display());
+                            return Ok::<_, anyhow::Error>(());
+                        }
+                        sleep(Duration::from_millis(100)).await;
+                    }
+                    Err(error) if is_db_locked(&error) => {
+                        sleep(Duration::from_millis(25)).await;
+                    }
+                    Err(error) => return Err(error),
                 }
-                tokio::time::sleep(Duration::from_millis(100)).await;
             }
         })
         .await;
@@ -1105,5 +1113,20 @@ mod tests {
                 "missing task workspace child directory: {subdirectory}"
             );
         }
+    }
+
+    #[test]
+    fn is_db_locked_identifies_lock_and_busy_errors() {
+        let locked = anyhow!("database is locked");
+        assert!(is_db_locked(&locked));
+
+        let busy = anyhow!("database is busy");
+        assert!(is_db_locked(&busy));
+
+        let locked_variant = anyhow!("SQLite error: locked");
+        assert!(is_db_locked(&locked_variant));
+
+        let other = anyhow!("file not found");
+        assert!(!is_db_locked(&other));
     }
 }

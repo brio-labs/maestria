@@ -170,3 +170,257 @@ fn search_and_open_evidence_with_directly_seeded_artifact() -> Result<(), Box<dy
         evidence_id_1,
     )
 }
+
+/// Seed adapters with an artifact at the given `index_status`, then invoke
+/// `f` with the assembled `CoreServices` and seeded ids.  All repositories
+/// stay alive for the duration of the call so the borrowed `CoreServices`
+/// reference remains valid.
+fn seed_with_status(
+    status: IndexStatus,
+    f: impl FnOnce(
+        &CoreServices,
+        ArtifactId,
+        ChunkId,
+        ChunkId,
+        EvidenceId,
+        EvidenceId,
+    ) -> Result<(), Box<dyn std::error::Error>>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let artifact_repo = InMemoryArtifactRepository::new();
+    let chunk_repo = InMemoryChunkRepository::new();
+    let evidence_repo = InMemoryEvidenceRepository::new();
+    let blob_store = InMemoryBlobStore::new();
+    let search_index = InMemoryFullTextIndex::new();
+    let events = InMemoryEventLog::new();
+    let parser = InMemoryParser::new();
+    let cards = InMemoryCardRepository::new();
+    let artifact_id = ArtifactId::new(7);
+    let chunk_id_0 = ChunkId::new(701);
+    let chunk_id_1 = ChunkId::new(702);
+    let evidence_id_0 = maestria_domain::evidence_id_for(artifact_id, 0);
+    let evidence_id_1 = maestria_domain::evidence_id_for(artifact_id, 1);
+
+    let source_text = "alpha-token paragraph.\n\nbeta-token paragraph.\n";
+    let blob_id = blob_store.put(source_text.as_bytes().to_vec())?;
+
+    artifact_repo.put(Artifact {
+        id: artifact_id,
+        title: "multi.md".to_string(),
+        chunk_ids: [chunk_id_0, chunk_id_1].into(),
+        card_ids: Default::default(),
+        claim_ids: Default::default(),
+        evidence_ids: [evidence_id_0, evidence_id_1].into(),
+        index_status: status,
+        content_hash: None,
+    })?;
+
+    let chunk_0 = Chunk {
+        id: chunk_id_0,
+        artifact_id,
+        order: 0,
+        text: "alpha-token paragraph.".to_string(),
+    };
+    let chunk_1 = Chunk {
+        id: chunk_id_1,
+        artifact_id,
+        order: 1,
+        text: "beta-token paragraph.".to_string(),
+    };
+    chunk_repo.put(chunk_0.clone())?;
+    chunk_repo.put(chunk_1.clone())?;
+
+    let content_hash = maestria_core::content_hash(source_text.as_bytes());
+    let evidence_0 = Evidence {
+        id: evidence_id_0,
+        artifact_id,
+        claim_id: None,
+        kind: EvidenceKind::FileSpan {
+            path: "notes/multi.md".to_string(),
+            range: maestria_domain::ContentRange { start: 1, end: 1 },
+            content_hash: content_hash.clone(),
+            snapshot: Some(blob_id),
+        },
+        excerpt: "alpha-token paragraph.".to_string(),
+        observed_at: maestria_domain::LogicalTick::new(1),
+    };
+    let evidence_1 = Evidence {
+        id: evidence_id_1,
+        artifact_id,
+        claim_id: None,
+        kind: EvidenceKind::FileSpan {
+            path: "notes/multi.md".to_string(),
+            range: maestria_domain::ContentRange { start: 3, end: 3 },
+            content_hash: content_hash.clone(),
+            snapshot: Some(blob_id),
+        },
+        excerpt: "beta-token paragraph.".to_string(),
+        observed_at: maestria_domain::LogicalTick::new(1),
+    };
+    evidence_repo.put(evidence_0.clone())?;
+    evidence_repo.put(evidence_1.clone())?;
+
+    search_index.index_chunks(vec![
+        IndexedChunk {
+            artifact_id,
+            chunk_id: chunk_id_0,
+            text: chunk_0.text.clone(),
+        },
+        IndexedChunk {
+            artifact_id,
+            chunk_id: chunk_id_1,
+            text: chunk_1.text.clone(),
+        },
+    ])?;
+
+    let core = seed_and_build_services(CorePorts {
+        artifacts: &artifact_repo,
+        chunks: &chunk_repo,
+        cards: &cards,
+        evidence: &evidence_repo,
+        events: &events,
+        parser: &parser,
+        search_index: &search_index,
+        blobs: &blob_store,
+    });
+
+    f(
+        &core,
+        artifact_id,
+        chunk_id_0,
+        chunk_id_1,
+        evidence_id_0,
+        evidence_id_1,
+    )
+}
+
+#[test]
+fn search_excludes_pending_artifact() -> Result<(), Box<dyn std::error::Error>> {
+    seed_with_status(
+        IndexStatus::Pending,
+        |core, _artifact_id, _chunk_id_0, _chunk_id_1, _evidence_id_0, _evidence_id_1| {
+            let search_result = core.search(SearchInput {
+                query: "beta-token".to_string(),
+                limit: 5,
+            })?;
+
+            assert!(
+                search_result.hits.is_empty(),
+                "pending artifact hits must be excluded, got {}",
+                search_result.hits.len()
+            );
+            Ok(())
+        },
+    )
+}
+
+#[test]
+fn search_excludes_unindexed_artifact() -> Result<(), Box<dyn std::error::Error>> {
+    seed_with_status(
+        IndexStatus::Unindexed,
+        |core, _artifact_id, _chunk_id_0, _chunk_id_1, _evidence_id_0, _evidence_id_1| {
+            let search_result = core.search(SearchInput {
+                query: "beta-token".to_string(),
+                limit: 5,
+            })?;
+
+            assert!(
+                search_result.hits.is_empty(),
+                "unindexed artifact hits must be excluded, got {}",
+                search_result.hits.len()
+            );
+            Ok(())
+        },
+    )
+}
+
+#[test]
+fn open_evidence_rejects_pending_artifact() -> Result<(), Box<dyn std::error::Error>> {
+    seed_with_status(
+        IndexStatus::Pending,
+        |core, _artifact_id, _chunk_id_0, _chunk_id_1, evidence_id_0, _evidence_id_1| {
+            let result = core.open_evidence(OpenEvidenceInput {
+                evidence_id: evidence_id_0,
+            });
+
+            assert!(
+                result.is_err(),
+                "opening evidence for a pending artifact must fail"
+            );
+
+            let err = result.unwrap_err();
+            let msg = err.to_string();
+            assert!(
+                msg.contains("not indexed"),
+                "error must mention not indexed, got: {msg}"
+            );
+            Ok(())
+        },
+    )
+}
+
+#[test]
+fn open_evidence_rejects_unindexed_artifact() -> Result<(), Box<dyn std::error::Error>> {
+    seed_with_status(
+        IndexStatus::Unindexed,
+        |core, _artifact_id, _chunk_id_0, _chunk_id_1, evidence_id_0, _evidence_id_1| {
+            let result = core.open_evidence(OpenEvidenceInput {
+                evidence_id: evidence_id_0,
+            });
+
+            assert!(
+                result.is_err(),
+                "opening evidence for an unindexed artifact must fail"
+            );
+
+            let err = result.unwrap_err();
+            let msg = err.to_string();
+            assert!(
+                msg.contains("not indexed"),
+                "error must mention not indexed, got: {msg}"
+            );
+            Ok(())
+        },
+    )
+}
+
+#[test]
+fn open_chunk_evidence_rejects_pending_artifact() -> Result<(), Box<dyn std::error::Error>> {
+    seed_with_status(
+        IndexStatus::Pending,
+        |core, _artifact_id, chunk_id_0, _chunk_id_1, _evidence_id_0, _evidence_id_1| {
+            let result = core.open_chunk_evidence(OpenChunkEvidenceInput {
+                chunk_id: chunk_id_0,
+            });
+
+            assert!(
+                result.is_err(),
+                "opening chunk evidence for a pending artifact must fail"
+            );
+
+            let err = result.unwrap_err();
+            let msg = err.to_string();
+            assert!(
+                msg.contains("not indexed"),
+                "error must mention not indexed, got: {msg}"
+            );
+            Ok(())
+        },
+    )
+}
+
+#[test]
+fn terminal_success_with_indexed_artifact() -> Result<(), Box<dyn std::error::Error>> {
+    seed_with_status(
+        IndexStatus::Indexed,
+        |core, artifact_id, chunk_id_0, chunk_id_1, evidence_id_0, evidence_id_1| {
+            assert_directly_seeded_retrieval(
+                core,
+                artifact_id,
+                chunk_id_0,
+                chunk_id_1,
+                evidence_id_0,
+                evidence_id_1,
+            )
+        },
+    )
+}

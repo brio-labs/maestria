@@ -1,5 +1,6 @@
 use super::*;
 use crate::schema::{CURRENT_SCHEMA_VERSION, migrate};
+use crate::schema_validation::table_has_column;
 use maestria_domain::*;
 use maestria_ports::contract_tests;
 use maestria_ports::*;
@@ -846,4 +847,74 @@ fn artifact_index_status_round_trips_through_repository() {
         ArtifactRepository::get(&store, ArtifactId::new(1)).expect("get"),
         Some(artifact)
     );
+}
+
+#[test]
+fn legacy_v1_migration_adds_content_hash_and_index_status() -> Result<(), Box<dyn std::error::Error>>
+{
+    let directory = tempfile::tempdir()?;
+    let path = directory.path().join("v1-legacy.db");
+
+    // Seed a v1-style database: artifacts table without content_hash/index_status,
+    // domain_events without payload_version, and no schema_version table.
+    {
+        let connection = Connection::open(&path)?;
+        connection.execute_batch(
+            "CREATE TABLE artifacts (
+                 id INTEGER NOT NULL PRIMARY KEY,
+                 title TEXT NOT NULL
+             );
+             CREATE TABLE domain_events (
+                 id INTEGER NOT NULL PRIMARY KEY,
+                 sequence INTEGER NOT NULL UNIQUE,
+                 event_kind TEXT NOT NULL,
+                 artifact_id INTEGER,
+                 payload_json TEXT NOT NULL
+             );",
+        )?;
+    }
+
+    // Opening should migrate the v1 schema to v3, adding the missing columns.
+    let store = SqliteStore::open(&path)?;
+
+    // Verify the migration added both v3 columns.
+    {
+        let connection = store.lock()?;
+        assert!(table_has_column(&connection, "artifacts", "content_hash")?);
+        assert!(table_has_column(&connection, "artifacts", "index_status")?);
+
+        let version: i64 = connection
+            .query_row("SELECT MAX(version) FROM schema_version", [], |row| {
+                row.get(0)
+            })
+            .map_err(to_port_error)?;
+        assert_eq!(version, CURRENT_SCHEMA_VERSION);
+    }
+
+    // Reopen and verify idempotence: columns still present and version unchanged.
+    drop(store);
+    let store = SqliteStore::open(&path)?;
+    {
+        let connection = store.lock()?;
+        assert!(table_has_column(&connection, "artifacts", "content_hash")?);
+        assert!(table_has_column(&connection, "artifacts", "index_status")?);
+
+        let version: i64 = connection
+            .query_row("SELECT MAX(version) FROM schema_version", [], |row| {
+                row.get(0)
+            })
+            .map_err(to_port_error)?;
+        assert_eq!(version, CURRENT_SCHEMA_VERSION);
+    }
+
+    // Exercise the new columns through the repository API.
+    let mut a = artifact(1);
+    a.content_hash = Some("sha256:abc123def456".to_string());
+    a.index_status = IndexStatus::Pending;
+    ArtifactRepository::put(&store, a.clone())?;
+    let stored = ArtifactRepository::get(&store, ArtifactId::new(1))?.expect("artifact must exist");
+    assert_eq!(stored.content_hash, Some("sha256:abc123def456".to_string()));
+    assert_eq!(stored.index_status, IndexStatus::Pending);
+
+    Ok(())
 }

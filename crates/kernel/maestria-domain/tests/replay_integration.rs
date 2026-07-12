@@ -741,3 +741,109 @@ fn replay_ingestion_orphan_chunk_rejected() -> Result<(), DomainError> {
     ));
     Ok(())
 }
+
+#[test]
+fn replay_full_text_indexed_rejects_mismatched_chunk_artifact() -> Result<(), DomainError> {
+    let mut state = KernelState::new();
+
+    // Set up: artifact 1 owns chunk 10, artifact 2 is separate
+    state.apply_event(DomainEventEnvelope {
+        id: EventId::new(1),
+        sequence: SequenceNumber::new(1),
+        event: DomainEvent::ArtifactRegistered {
+            artifact_id: ArtifactId::new(1),
+            title: "Artifact A".to_string(),
+        },
+    })?;
+    state.apply_event(DomainEventEnvelope {
+        id: EventId::new(2),
+        sequence: SequenceNumber::new(2),
+        event: DomainEvent::ArtifactRegistered {
+            artifact_id: ArtifactId::new(2),
+            title: "Artifact B".to_string(),
+        },
+    })?;
+    state.apply_event(DomainEventEnvelope {
+        id: EventId::new(3),
+        sequence: SequenceNumber::new(3),
+        event: DomainEvent::ChunkRegistered {
+            chunk_id: ChunkId::new(10),
+            artifact_id: ArtifactId::new(1),
+            order: 0,
+            text: "a".to_string(),
+        },
+    })?;
+
+    // FullTextIndexed mismatches: chunk 10 belongs to artifact 1, not artifact 2
+    let err = state
+        .apply_event(DomainEventEnvelope {
+            id: EventId::new(4),
+            sequence: SequenceNumber::new(4),
+            event: DomainEvent::FullTextIndexed {
+                artifact_id: ArtifactId::new(2),
+                chunk_id: ChunkId::new(10),
+            },
+        })
+        .expect_err("mismatched chunk artifact must be rejected");
+
+    assert!(matches!(
+        err,
+        DomainError::ArtifactMismatch {
+            expected: ArtifactId(2),
+            actual: ArtifactId(1),
+        }
+    ));
+    Ok(())
+}
+
+#[test]
+fn replay_artifact_indexed_rejects_pending_chunks() -> Result<(), DomainError> {
+    let mut state = KernelState::new();
+
+    // Set up: artifact with a pending chunk
+    state.apply_event(DomainEventEnvelope {
+        id: EventId::new(1),
+        sequence: SequenceNumber::new(1),
+        event: DomainEvent::ArtifactRegistered {
+            artifact_id: ArtifactId::new(1),
+            title: "Test".to_string(),
+        },
+    })?;
+    state.apply_event(DomainEventEnvelope {
+        id: EventId::new(2),
+        sequence: SequenceNumber::new(2),
+        event: DomainEvent::PendingIndex {
+            artifact_id: ArtifactId::new(1),
+            content_hash: "sha256:abc".to_string(),
+        },
+    })?;
+    state.apply_event(DomainEventEnvelope {
+        id: EventId::new(3),
+        sequence: SequenceNumber::new(3),
+        event: DomainEvent::ChunkRegistered {
+            chunk_id: ChunkId::new(10),
+            artifact_id: ArtifactId::new(1),
+            order: 0,
+            text: "content".to_string(),
+        },
+    })?;
+
+    // ArtifactIndexed when chunks are still pending must be rejected
+    let err = state
+        .apply_event(DomainEventEnvelope {
+            id: EventId::new(4),
+            sequence: SequenceNumber::new(4),
+            event: DomainEvent::ArtifactIndexed {
+                artifact_id: ArtifactId::new(1),
+            },
+        })
+        .expect_err("ArtifactIndexed with pending chunks must be rejected");
+
+    assert!(matches!(
+        err,
+        DomainError::PendingChunksExist {
+            artifact_id: ArtifactId(1),
+        }
+    ));
+    Ok(())
+}
