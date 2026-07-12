@@ -12,20 +12,10 @@ impl KernelState {
         match input {
             DomainInput::RegisterArtifact(input) => {
                 let event = self.handle_register_artifact(input)?;
-                let payload = match &event.event {
-                    DomainEvent::ArtifactRegistered { title, .. } => title.clone(),
-                    _ => String::new(),
-                };
                 output.events.push(event.clone());
                 output.effects.push(MaestriaEffect::PersistEvent {
-                    envelope: event.clone(),
+                    envelope: event,
                 });
-                output
-                    .effects
-                    .push(MaestriaEffect::StoreBlob(StoreBlobRequest {
-                        artifact_id: event_id_to_artifact(&event),
-                        payload,
-                    }));
             }
             DomainInput::RegisterChunk(input) => {
                 let event = self.handle_register_chunk(input.clone())?;
@@ -217,15 +207,32 @@ impl KernelState {
                 }
             }
             DomainInput::ArtifactDetected(input) => {
-                let cmd = RegisterArtifactInput {
-                    artifact_id: input.artifact_id,
-                    title: input.title,
-                };
-                let event = self.handle_register_artifact(cmd)?;
-                output.events.push(event.clone());
-                output
-                    .effects
-                    .push(MaestriaEffect::PersistEvent { envelope: event });
+                if self.artifacts.contains_key(&input.artifact_id) {
+                    // Already preflighted — no events/effects for unchanged content
+                } else {
+                    let event = self.handle_register_artifact(RegisterArtifactInput {
+                        artifact_id: input.artifact_id,
+                        title: input.title,
+                    })?;
+                    let blob = input.source_bytes.clone();
+                    output.events.push(event.clone());
+                    output.effects.push(MaestriaEffect::PersistEvent {
+                        envelope: event,
+                    });
+                    output.effects.push(MaestriaEffect::StoreBlob(
+                        StoreBlobRequest {
+                            artifact_id: input.artifact_id,
+                            payload: blob.clone(),
+                        },
+                    ));
+                    output.effects.push(MaestriaEffect::ParseArtifact(
+                        ParseArtifactRequest {
+                            artifact_id: input.artifact_id,
+                            source_path: input.source_path,
+                            source_bytes: blob,
+                        },
+                    ));
+                }
             }
             DomainInput::ParserCompleted(input) => {
                 let generated = self.handle_parser_completed(input)?;
@@ -292,16 +299,5 @@ impl KernelState {
         };
         self.event_log.push(envelope.clone());
         envelope
-    }
-}
-
-fn event_id_to_artifact(event: &DomainEventEnvelope) -> ArtifactId {
-    match event.event {
-        DomainEvent::ArtifactRegistered { artifact_id, .. } => artifact_id,
-        DomainEvent::ChunkRegistered { artifact_id, .. } => artifact_id,
-        DomainEvent::CardCreated { artifact_id, .. } => artifact_id,
-        DomainEvent::ClaimCreated { artifact_id, .. } => artifact_id,
-        DomainEvent::EvidenceRecorded { artifact_id, .. } => artifact_id,
-        _ => ArtifactId::new(0),
     }
 }

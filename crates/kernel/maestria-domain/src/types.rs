@@ -510,12 +510,14 @@ pub struct PersistStateRequest {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StoreBlobRequest {
     pub artifact_id: ArtifactId,
-    pub payload: String,
+    pub payload: Vec<u8>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ParseArtifactRequest {
     pub artifact_id: ArtifactId,
+    pub source_path: String,
+    pub source_bytes: Vec<u8>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -717,6 +719,8 @@ pub struct UserIntent {
 pub struct ArtifactDetected {
     pub artifact_id: ArtifactId,
     pub title: String,
+    pub source_path: String,
+    pub source_bytes: Vec<u8>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

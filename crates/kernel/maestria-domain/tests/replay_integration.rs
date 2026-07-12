@@ -540,3 +540,200 @@ fn test_task_completion_status_mismatch() -> Result<(), DomainError> {
     ));
     Ok(())
 }
+
+#[test]
+fn replay_ingestion_flow_state_parity() -> Result<(), DomainError> {
+    let mut state = KernelState::new();
+    state.apply_input(DomainInput::ArtifactDetected(ArtifactDetected {
+        artifact_id: ArtifactId::new(1),
+        title: "Doc".to_string(),
+        source_path: String::new(),
+        source_bytes: Vec::new(),
+    }))?;
+    state.apply_input(DomainInput::ParserCompleted(ParserResult {
+        artifact_id: ArtifactId::new(1),
+        chunks: vec![RegisterChunkInput {
+            chunk_id: ChunkId::new(10),
+            artifact_id: ArtifactId::new(1),
+            order: 0,
+            text: "content".to_string(),
+        }],
+        cards: Vec::new(),
+    }))?;
+
+    let replayed = replay_events(&state.event_log)?;
+    assert_eq!(state, replayed);
+    Ok(())
+}
+
+#[test]
+fn replay_ingestion_flow_with_multiple_chunks() -> Result<(), DomainError> {
+    let mut state = KernelState::new();
+    state.apply_input(DomainInput::ArtifactDetected(ArtifactDetected {
+        artifact_id: ArtifactId::new(1),
+        title: "Big Doc".to_string(),
+        source_path: String::new(),
+        source_bytes: Vec::new(),
+    }))?;
+    state.apply_input(DomainInput::ParserCompleted(ParserResult {
+        artifact_id: ArtifactId::new(1),
+        chunks: vec![
+            RegisterChunkInput {
+                chunk_id: ChunkId::new(10),
+                artifact_id: ArtifactId::new(1),
+                order: 0,
+                text: "chunk a".to_string(),
+            },
+            RegisterChunkInput {
+                chunk_id: ChunkId::new(11),
+                artifact_id: ArtifactId::new(1),
+                order: 1,
+                text: "chunk b".to_string(),
+            },
+            RegisterChunkInput {
+                chunk_id: ChunkId::new(12),
+                artifact_id: ArtifactId::new(1),
+                order: 2,
+                text: "chunk c".to_string(),
+            },
+        ],
+        cards: vec![
+            CreateCardInput {
+                card_id: CardId::new(20),
+                artifact_id: ArtifactId::new(1),
+                title: "Card 1".to_string(),
+                body: "Alpha".to_string(),
+            },
+            CreateCardInput {
+                card_id: CardId::new(21),
+                artifact_id: ArtifactId::new(1),
+                title: "Card 2".to_string(),
+                body: "Beta".to_string(),
+            },
+        ],
+    }))?;
+
+    let replayed = replay_events(&state.event_log)?;
+    assert_eq!(state, replayed);
+    assert_eq!(replayed.chunks.len(), 3);
+    assert_eq!(replayed.cards.len(), 2);
+    assert_eq!(
+        replayed
+            .artifacts
+            .get(&ArtifactId::new(1))
+            .ok_or(DomainError::MissingArtifact {
+                id: ArtifactId::new(1),
+            })?
+            .chunk_ids
+            .len(),
+        3
+    );
+    Ok(())
+}
+
+#[test]
+fn replay_ingestion_detection_only() -> Result<(), DomainError> {
+    let mut state = KernelState::new();
+    state.apply_input(DomainInput::ArtifactDetected(ArtifactDetected {
+        artifact_id: ArtifactId::new(1),
+        title: "Pending".to_string(),
+        source_path: String::new(),
+        source_bytes: Vec::new(),
+    }))?;
+    let replayed = replay_events(&state.event_log)?;
+    assert_eq!(state, replayed);
+    assert!(replayed.chunks.is_empty());
+    assert!(replayed.cards.is_empty());
+    assert_eq!(replayed.event_log.len(), 1);
+    Ok(())
+}
+#[test]
+fn replay_ingestion_duplicate_chunk_rejected() -> Result<(), DomainError> {
+    let mut state = KernelState::new();
+    state.apply_input(DomainInput::ArtifactDetected(ArtifactDetected {
+        artifact_id: ArtifactId::new(1),
+        title: "Doc".to_string(),
+        source_path: String::new(),
+        source_bytes: Vec::new(),
+    }))?;
+    state.apply_input(DomainInput::ParserCompleted(ParserResult {
+        artifact_id: ArtifactId::new(1),
+        chunks: vec![RegisterChunkInput {
+            chunk_id: ChunkId::new(10),
+            artifact_id: ArtifactId::new(1),
+            order: 0,
+            text: "unique".to_string(),
+        }],
+        cards: Vec::new(),
+    }))?;
+
+    // event_log now has: ArtifactRegistered (id=1), ChunkRegistered (id=2), ArtifactParsed (id=3)
+    let next_id = state.event_log.len() as u64 + 1;
+    let duplicate_chunk = DomainEventEnvelope {
+        id: EventId::new(next_id),
+        sequence: SequenceNumber::new(next_id),
+        event: DomainEvent::ChunkRegistered {
+            chunk_id: ChunkId::new(10),
+            artifact_id: ArtifactId::new(1),
+            order: 0,
+            text: "duplicate".to_string(),
+        },
+    };
+    let err = state
+        .apply_event(duplicate_chunk)
+        .expect_err("duplicate chunk in replay must error");
+    assert!(matches!(
+        err,
+        DomainError::DuplicateId {
+            kind: "chunk",
+            id: 10,
+        }
+    ));
+    Ok(())
+}
+
+#[test]
+fn replay_ingestion_parser_without_detection_rejected() -> Result<(), DomainError> {
+    let next_id = 1u64;
+    let orphan_artparsed = DomainEventEnvelope {
+        id: EventId::new(next_id),
+        sequence: SequenceNumber::new(next_id),
+        event: DomainEvent::ArtifactParsed {
+            artifact_id: ArtifactId::new(99),
+            chunks_added: 0,
+        },
+    };
+    let mut state = KernelState::new();
+    let err = state
+        .apply_event(orphan_artparsed)
+        .expect_err("ArtifactParsed without artifact must error");
+    assert!(matches!(
+        err,
+        DomainError::MissingArtifact { id } if id == ArtifactId::new(99)
+    ));
+    assert!(state.event_log.is_empty());
+    Ok(())
+}
+
+#[test]
+fn replay_ingestion_orphan_chunk_rejected() -> Result<(), DomainError> {
+    let mut state = KernelState::new();
+    let orphan_chunk = DomainEventEnvelope {
+        id: EventId::new(1),
+        sequence: SequenceNumber::new(1),
+        event: DomainEvent::ChunkRegistered {
+            chunk_id: ChunkId::new(1),
+            artifact_id: ArtifactId::new(99),
+            order: 0,
+            text: "orphan".to_string(),
+        },
+    };
+    let err = state
+        .apply_event(orphan_chunk)
+        .expect_err("ChunkRegistered without artifact must error");
+    assert!(matches!(
+        err,
+        DomainError::MissingArtifact { id } if id == ArtifactId::new(99)
+    ));
+    Ok(())
+}

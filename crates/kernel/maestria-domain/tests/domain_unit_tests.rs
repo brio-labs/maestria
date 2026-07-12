@@ -6,6 +6,8 @@ fn sample_inputs() -> Vec<DomainInput> {
         DomainInput::ArtifactDetected(ArtifactDetected {
             artifact_id: ArtifactId::new(1),
             title: "Project Notes".to_string(),
+            source_path: "notes.txt".to_string(),
+            source_bytes: b"project notes content".to_vec(),
         }),
         DomainInput::ParserCompleted(ParserResult {
             artifact_id: ArtifactId::new(1),
@@ -990,6 +992,260 @@ fn replay_events_are_equivalent() -> Result<(), DomainError> {
     assert_eq!(state.event_log, replayed.event_log);
     assert_eq!(state.artifacts.len(), replayed.artifacts.len());
     assert_eq!(state.claims.len(), replayed.claims.len());
+    Ok(())
+}
+
+#[test]
+fn preflight_artifact_detected_creates_artifact() -> Result<(), DomainError> {
+    let mut state = KernelState::new();
+    let output = state.apply_input(DomainInput::ArtifactDetected(ArtifactDetected {
+        artifact_id: ArtifactId::new(1),
+        title: "Notes".to_string(),
+        source_path: String::new(),
+        source_bytes: Vec::new(),
+    }))?;
+
+    assert!(state.artifacts.contains_key(&ArtifactId::new(1)));
+    assert_eq!(
+        state.artifacts[&ArtifactId::new(1)].title,
+        "Notes"
+    );
+    assert_eq!(output.events.len(), 1);
+    assert!(matches!(
+        &output.events[0].event,
+        DomainEvent::ArtifactRegistered {
+            artifact_id: ArtifactId(1),
+            ..
+        }
+    ));
+    Ok(())
+}
+
+#[test]
+fn preflight_duplicate_is_noop() -> Result<(), DomainError> {
+    let mut state = KernelState::new();
+    state.apply_input(DomainInput::ArtifactDetected(ArtifactDetected {
+        artifact_id: ArtifactId::new(1),
+        title: "Notes".to_string(),
+        source_path: String::new(),
+        source_bytes: Vec::new(),
+    }))?;
+
+    // A duplicate preflight for the same artifact_id is a no-op
+    let output = state.apply_input(DomainInput::ArtifactDetected(ArtifactDetected {
+        artifact_id: ArtifactId::new(1),
+        title: "Notes".to_string(),
+        source_path: String::new(),
+        source_bytes: Vec::new(),
+    }))?;
+
+    assert_eq!(output.events.len(), 0, "no events for unchanged preflight");
+    assert_eq!(output.effects.len(), 0, "no effects for unchanged preflight");
+    Ok(())
+}
+
+#[test]
+fn detection_without_parser_leaves_no_chunks_or_cards() -> Result<(), DomainError> {
+    let mut state = KernelState::new();
+    state.apply_input(DomainInput::ArtifactDetected(ArtifactDetected {
+        artifact_id: ArtifactId::new(1),
+        title: "Notes".to_string(),
+        source_path: String::new(),
+        source_bytes: Vec::new(),
+    }))?;
+    assert!(state.artifacts.contains_key(&ArtifactId::new(1)));
+    assert!(state.chunks.is_empty(), "no chunks before parsing");
+    assert!(state.cards.is_empty(), "no cards before parsing");
+    let artifact = &state.artifacts[&ArtifactId::new(1)];
+    assert!(
+        artifact.chunk_ids.is_empty(),
+        "artifact references no chunks before parsing"
+    );
+    Ok(())
+}
+
+#[test]
+fn parser_without_prior_detection_is_rejected() -> Result<(), DomainError> {
+    let mut state = KernelState::new();
+    let err = state
+        .apply_input(DomainInput::ParserCompleted(ParserResult {
+            artifact_id: ArtifactId::new(1),
+            chunks: vec![RegisterChunkInput {
+                chunk_id: ChunkId::new(10),
+                artifact_id: ArtifactId::new(1),
+                order: 0,
+                text: "lonely chunk".to_string(),
+            }],
+            cards: Vec::new(),
+        }))
+        .expect_err("parser without detection must error");
+    assert!(matches!(err, DomainError::MissingArtifact { id } if id == ArtifactId::new(1)));
+    Ok(())
+}
+
+#[test]
+fn full_ingestion_flow_detection_then_parsing() -> Result<(), DomainError> {
+    let mut state = KernelState::new();
+    // Preflight
+    state.apply_input(DomainInput::ArtifactDetected(ArtifactDetected {
+        artifact_id: ArtifactId::new(1),
+        title: "Notes".to_string(),
+        source_path: String::new(),
+        source_bytes: Vec::new(),
+    }))?;
+    let output = state.apply_input(DomainInput::ParserCompleted(ParserResult {
+        artifact_id: ArtifactId::new(1),
+        chunks: vec![
+            RegisterChunkInput {
+                chunk_id: ChunkId::new(10),
+                artifact_id: ArtifactId::new(1),
+                order: 0,
+                text: "first chunk".to_string(),
+            },
+            RegisterChunkInput {
+                chunk_id: ChunkId::new(11),
+                artifact_id: ArtifactId::new(1),
+                order: 1,
+                text: "second chunk".to_string(),
+            },
+        ],
+        cards: vec![
+            CreateCardInput {
+                card_id: CardId::new(20),
+                artifact_id: ArtifactId::new(1),
+                title: "Summary".to_string(),
+                body: "Document summary".to_string(),
+            },
+        ],
+    }))?;
+
+    // Artifact references chunks and cards
+    let artifact = &state.artifacts[&ArtifactId::new(1)];
+    assert_eq!(artifact.chunk_ids.len(), 2);
+    assert_eq!(artifact.card_ids.len(), 1);
+    assert!(state.chunks.contains_key(&ChunkId::new(10)));
+    assert!(state.chunks.contains_key(&ChunkId::new(11)));
+    assert!(state.cards.contains_key(&CardId::new(20)));
+
+    // Events include: 2 chunks, 1 card, 1 ArtifactParsed
+    let chunk_reg_count = output
+        .events
+        .iter()
+        .filter(|e| matches!(e.event, DomainEvent::ChunkRegistered { .. }))
+        .count();
+    let card_created_count = output
+        .events
+        .iter()
+        .filter(|e| matches!(e.event, DomainEvent::CardCreated { .. }))
+        .count();
+    let parsed_count = output
+        .events
+        .iter()
+        .filter(|e| matches!(e.event, DomainEvent::ArtifactParsed { .. }))
+        .count();
+
+    assert_eq!(chunk_reg_count, 2, "two chunk events");
+    assert_eq!(card_created_count, 1, "one card event");
+    assert_eq!(parsed_count, 1, "one artifact-parsed terminal event");
+
+    Ok(())
+}
+
+#[test]
+fn ingestion_replay_from_detection_only() -> Result<(), DomainError> {
+    let inputs = vec![DomainInput::ArtifactDetected(ArtifactDetected {
+        artifact_id: ArtifactId::new(1),
+        title: "Notes".to_string(),
+        source_path: String::new(),
+        source_bytes: Vec::new(),
+    })];
+    let (state, events, _effects) = replay_inputs(&inputs)?;
+    assert!(state.artifacts.contains_key(&ArtifactId::new(1)));
+    assert!(state.chunks.is_empty());
+    assert_eq!(events.len(), 1);
+
+    // Replay the events into a fresh state
+    let replayed = replay_events(&events)?;
+    assert_eq!(state, replayed);
+    Ok(())
+}
+
+#[test]
+fn ingestion_replay_full_flow_reconstructs_state() -> Result<(), DomainError> {
+    let inputs = vec![
+        DomainInput::ArtifactDetected(ArtifactDetected {
+            artifact_id: ArtifactId::new(1),
+            title: "Notes".to_string(),
+            source_path: String::new(),
+            source_bytes: Vec::new(),
+        }),
+        DomainInput::ParserCompleted(ParserResult {
+            artifact_id: ArtifactId::new(1),
+            chunks: vec![
+                RegisterChunkInput {
+                    chunk_id: ChunkId::new(10),
+                    artifact_id: ArtifactId::new(1),
+                    order: 0,
+                    text: "chunk one".to_string(),
+                },
+                RegisterChunkInput {
+                    chunk_id: ChunkId::new(11),
+                    artifact_id: ArtifactId::new(1),
+                    order: 1,
+                    text: "chunk two".to_string(),
+                },
+            ],
+            cards: vec![CreateCardInput {
+                card_id: CardId::new(20),
+                artifact_id: ArtifactId::new(1),
+                title: "Summary".to_string(),
+                body: "Parsed doc".to_string(),
+            }],
+        }),
+    ];
+    let (state, events, _effects) = replay_inputs(&inputs)?;
+
+    assert_eq!(state.artifacts.len(), 1);
+    assert_eq!(state.chunks.len(), 2);
+    assert_eq!(state.cards.len(), 1);
+
+    // Replay from events produces identical state
+    let replayed = replay_events(&events)?;
+    assert_eq!(state, replayed);
+    Ok(())
+}
+
+#[test]
+fn ingestion_replay_rejects_duplicate_detection_events() -> Result<(), DomainError> {
+    let event = DomainEventEnvelope {
+        id: EventId::new(1),
+        sequence: SequenceNumber::new(1),
+        event: DomainEvent::ArtifactRegistered {
+            artifact_id: ArtifactId::new(1),
+            title: "Notes".to_string(),
+        },
+    };
+    let mut state = KernelState::new();
+    state.apply_event(event.clone())?;
+
+    let duplicate = DomainEventEnvelope {
+        id: EventId::new(2),
+        sequence: SequenceNumber::new(2),
+        event: DomainEvent::ArtifactRegistered {
+            artifact_id: ArtifactId::new(1),
+            title: "Notes".to_string(),
+        },
+    };
+    let err = state
+        .apply_event(duplicate)
+        .expect_err("duplicate artifact registration in replay must error");
+    assert!(matches!(
+        err,
+        DomainError::DuplicateId {
+            kind: "artifact",
+            id: 1,
+        }
+    ));
     Ok(())
 }
 
