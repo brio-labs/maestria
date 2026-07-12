@@ -67,6 +67,9 @@ pub fn build_runtime(
     let event_log = sqlite_store.clone();
     let artifact_repo = sqlite_store.clone();
     let harness = Arc::new(InMemoryHarnessAdapter::default());
+    let chunk_repo = sqlite_store.clone();
+    let card_repo = sqlite_store.clone();
+    let evidence_repo = sqlite_store.clone();
     let vector_index = Arc::new(
         SqliteVectorIndex::open(&layout.vector_index_dir.join("projection.db"))
             .with_context(|| format!("open vector index {}", layout.vector_index_dir.display()))?,
@@ -84,6 +87,9 @@ pub fn build_runtime(
         parser,
         harness,
         artifact_repo,
+        chunk_repo,
+        card_repo,
+        evidence_repo,
         vector_index,
         graph_index,
         web_fetcher,
