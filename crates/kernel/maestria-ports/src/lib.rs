@@ -91,6 +91,14 @@ pub struct IndexedChunk {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IndexedCard {
+    pub artifact_id: ArtifactId,
+    pub card_id: CardId,
+    pub title: String,
+    pub body: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SearchQuery {
     pub q: String,
     pub limit: usize,
@@ -102,9 +110,17 @@ pub struct SearchHit {
     pub score: u32,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CardHit {
+    pub card: IndexedCard,
+    pub score: u32,
+}
+
 pub trait FullTextIndex: Send + Sync {
     fn index_chunks(&self, chunks: Vec<IndexedChunk>) -> Result<(), PortError>;
     fn search(&self, query: SearchQuery) -> Result<Vec<SearchHit>, PortError>;
+    fn index_cards(&self, cards: Vec<IndexedCard>) -> Result<(), PortError>;
+    fn search_cards(&self, query: SearchQuery) -> Result<Vec<CardHit>, PortError>;
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

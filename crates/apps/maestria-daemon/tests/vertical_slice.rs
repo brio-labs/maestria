@@ -195,16 +195,16 @@ async fn vertical_slice_init_index_search_evidence() {
         .expect("search after restart");
 
     assert!(
-        !results.hits.is_empty(),
+        !results.pack.chunks.is_empty(),
         "search after restart should return results"
     );
     assert!(
-        results.hits[0].chunk.text.contains("GraphRAG")
-            || results.hits[0].chunk.text.contains("graph"),
+        results.pack.chunks[0].chunk.text.contains("GraphRAG")
+            || results.pack.chunks[0].chunk.text.contains("graph"),
         "result should contain query terms"
     );
     assert_eq!(
-        results.hits[0].chunk.id, first_chunk_id,
+        results.pack.chunks[0].chunk.id, first_chunk_id,
         "chunk id should be stable across restart"
     );
 

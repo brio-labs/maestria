@@ -12,8 +12,8 @@ use maestria_memory::MemoryService;
 use maestria_ports::{
     ArtifactRepository, BlobStore, CardRepository, ChunkRepository, EventFilter, EventLog,
     EvidenceRepository, FileHandle, FileMetadata, FullTextIndex, GraphIndex, HarnessAdapter,
-    HarnessCommandClass, HarnessRequest, IndexedChunk, ParseContext, Parser, PortError, SourceSpan,
-    VectorEmbedding, VectorIndex, WebFetcher,
+    HarnessCommandClass, HarnessRequest, IndexedCard, IndexedChunk, ParseContext, Parser,
+    PortError, SourceSpan, VectorEmbedding, VectorIndex, WebFetcher,
 };
 use maestria_validation::{ValidationContext, ValidationRunner};
 use std::{
@@ -749,6 +749,26 @@ impl MaestriaRuntime {
                     tracing::warn!(chunk_id = %request.chunk_id, "chunk missing for full-text index");
                     return true;
                 };
+                let artifact_cards: Vec<IndexedCard> = {
+                    let state = state.read().await;
+                    state
+                        .cards
+                        .values()
+                        .filter(|c| c.artifact_id == request.artifact_id)
+                        .map(|c| IndexedCard {
+                            artifact_id: c.artifact_id,
+                            card_id: c.id,
+                            title: c.title.clone(),
+                            body: c.body.clone(),
+                        })
+                        .collect()
+                };
+                if !artifact_cards.is_empty()
+                    && let Err(error) = adapters.search_index.index_cards(artifact_cards)
+                {
+                    tracing::error!(artifact_id = %request.artifact_id, %error, "failed to index cards");
+                    return false;
+                }
                 if let Err(error) = adapters.search_index.index_chunks(vec![IndexedChunk {
                     artifact_id: request.artifact_id,
                     chunk_id: request.chunk_id,
@@ -1100,6 +1120,8 @@ impl MaestriaRuntime {
 mod runtime_barrier_tests;
 #[cfg(test)]
 mod runtime_blob_tests;
+#[cfg(test)]
+mod runtime_card_index_tests;
 #[cfg(test)]
 mod runtime_evidence_tests;
 #[cfg(test)]

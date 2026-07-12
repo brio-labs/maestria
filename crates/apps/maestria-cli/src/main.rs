@@ -477,13 +477,28 @@ fn search(instance_dir: PathBuf, query: String, limit: usize) -> Result<()> {
     });
 
     let output = core.search(SearchInput { query, limit })?;
-    for hit in output.hits {
+    let pack = output.pack;
+
+    // Card rows first, then chunk rows.
+    for card_hit in &pack.cards {
+        println!(
+            "card score={} artifact={} card={} title={} body={}",
+            card_hit.score,
+            card_hit.artifact.id,
+            card_hit.card.id,
+            card_hit.card.title,
+            card_hit.card.body,
+        );
+    }
+
+    for hit in &pack.chunks {
         let source = source_label(&hit.evidence);
         println!(
-            "score={} artifact={} chunk={} {} snippet={}",
+            "score={} artifact={} chunk={} evidence={} {} snippet={}",
             hit.score,
             hit.artifact.id,
             hit.chunk.id,
+            hit.evidence.id,
             source,
             hit.chunk
                 .text

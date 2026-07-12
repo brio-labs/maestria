@@ -7,8 +7,10 @@
 
 use std::{fs, path::Path, sync::Mutex};
 
-use maestria_domain::{ArtifactId, ChunkId};
-use maestria_ports::{FullTextIndex, IndexedChunk, PortError, SearchHit, SearchQuery};
+use maestria_domain::{ArtifactId, CardId, ChunkId};
+use maestria_ports::{
+    CardHit, FullTextIndex, IndexedCard, IndexedChunk, PortError, SearchHit, SearchQuery,
+};
 use tantivy::{
     Index, IndexReader, IndexWriter, ReloadPolicy, TantivyDocument, Term,
     collector::TopDocs,
@@ -25,6 +27,11 @@ const FIELD_KEY: &str = "chunk_key";
 const FIELD_ARTIFACT_ID: &str = "artifact_id";
 const FIELD_CHUNK_ID: &str = "chunk_id";
 const FIELD_TEXT: &str = "text";
+const FIELD_CARD_KEY: &str = "card_key";
+const FIELD_CARD_ARTIFACT_ID: &str = "card_artifact_id";
+const FIELD_CARD_ID: &str = "card_id";
+const FIELD_CARD_TITLE: &str = "card_title";
+const FIELD_CARD_BODY: &str = "card_body";
 
 /// Tantivy implementation of the [`FullTextIndex`] projection port.
 pub struct TantivyFullTextIndex {
@@ -34,12 +41,16 @@ pub struct TantivyFullTextIndex {
     fields: IndexFields,
 }
 
-#[derive(Clone, Copy)]
 struct IndexFields {
     key: Field,
     artifact_id: Field,
     chunk_id: Field,
     text: Field,
+    card_key: Field,
+    card_artifact_id: Field,
+    card_id: Field,
+    card_title: Field,
+    card_body: Field,
 }
 
 impl TantivyFullTextIndex {
@@ -117,6 +128,54 @@ impl TantivyFullTextIndex {
             text,
         })
     }
+
+    fn card_document(&self, card: &IndexedCard) -> TantivyDocument {
+        doc!(
+            self.fields.card_key => card_key(card.artifact_id, card.card_id),
+            self.fields.card_artifact_id => card.artifact_id.value(),
+            self.fields.card_id => card.card_id.value(),
+            self.fields.card_title => card.title.clone(),
+            self.fields.card_body => card.body.clone(),
+        )
+    }
+
+    fn read_card(&self, document: &TantivyDocument) -> Result<IndexedCard, PortError> {
+        let artifact_id = document
+            .get_first(self.fields.card_artifact_id)
+            .and_then(|value| value.as_u64())
+            .map(ArtifactId::new)
+            .ok_or_else(|| PortError::Internal {
+                message: "indexed card is missing artifact id".to_string(),
+            })?;
+        let card_id = document
+            .get_first(self.fields.card_id)
+            .and_then(|value| value.as_u64())
+            .map(CardId::new)
+            .ok_or_else(|| PortError::Internal {
+                message: "indexed card is missing card id".to_string(),
+            })?;
+        let title = document
+            .get_first(self.fields.card_title)
+            .and_then(|value| value.as_str())
+            .map(str::to_string)
+            .ok_or_else(|| PortError::Internal {
+                message: "indexed card is missing title".to_string(),
+            })?;
+        let body = document
+            .get_first(self.fields.card_body)
+            .and_then(|value| value.as_str())
+            .map(str::to_string)
+            .ok_or_else(|| PortError::Internal {
+                message: "indexed card is missing body".to_string(),
+            })?;
+
+        Ok(IndexedCard {
+            artifact_id,
+            card_id,
+            title,
+            body,
+        })
+    }
 }
 
 impl FullTextIndex for TantivyFullTextIndex {
@@ -178,6 +237,78 @@ impl FullTextIndex for TantivyFullTextIndex {
 
         Ok(hits)
     }
+
+    fn index_cards(&self, cards: Vec<IndexedCard>) -> Result<(), PortError> {
+        let mut writer = self.writer.lock().map_err(|_| PortError::Internal {
+            message: "tantivy writer lock poisoned".to_string(),
+        })?;
+
+        for card in cards {
+            writer.delete_term(Term::from_field_text(
+                self.fields.card_key,
+                &card_key(card.artifact_id, card.card_id),
+            ));
+            writer
+                .add_document(self.card_document(&card))
+                .map_err(to_port_error)?;
+        }
+
+        writer.commit().map_err(to_port_error)?;
+        self.reader.reload().map_err(to_port_error)
+    }
+
+    fn search_cards(&self, query: SearchQuery) -> Result<Vec<CardHit>, PortError> {
+        let trimmed = query.q.trim();
+        if trimmed.is_empty() {
+            return Err(PortError::InvalidInput {
+                message: "search query must not be empty".to_string(),
+            });
+        }
+        if query.limit == 0 {
+            return Ok(Vec::new());
+        }
+
+        let searcher = self.reader.searcher();
+        let parser = QueryParser::for_index(
+            &self.index,
+            vec![self.fields.card_title, self.fields.card_body],
+        );
+        let parsed_query =
+            parser
+                .parse_query(trimmed)
+                .map_err(|error| PortError::InvalidInput {
+                    message: format!("invalid search query: {error}"),
+                })?;
+        let top_docs = searcher
+            .search(
+                &parsed_query,
+                &TopDocs::with_limit(query.limit).order_by_score(),
+            )
+            .map_err(to_port_error)?;
+
+        let mut scored: Vec<(u32, String, IndexedCard)> = Vec::with_capacity(top_docs.len());
+        for (score, address) in top_docs {
+            let document = searcher
+                .doc::<TantivyDocument>(address)
+                .map_err(to_port_error)?;
+            let doc_key = document
+                .get_first(self.fields.card_key)
+                .and_then(|value| value.as_str())
+                .map(str::to_string)
+                .ok_or_else(|| PortError::Internal {
+                    message: "indexed card is missing card key".to_string(),
+                })?;
+            scored.push((score_to_u32(score), doc_key, self.read_card(&document)?));
+        }
+
+        // Deterministic ordering: descending score, ascending key for ties.
+        scored.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.cmp(&b.1)));
+
+        Ok(scored
+            .into_iter()
+            .map(|(score, _key, card)| CardHit { card, score })
+            .collect())
+    }
 }
 
 fn schema() -> Schema {
@@ -186,13 +317,18 @@ fn schema() -> Schema {
         .set_tokenizer("default")
         .set_index_option(IndexRecordOption::WithFreqsAndPositions);
     let text_options = TextOptions::default()
-        .set_indexing_options(text_indexing)
+        .set_indexing_options(text_indexing.clone())
         .set_stored();
 
     builder.add_text_field(FIELD_KEY, STRING | STORED);
     builder.add_u64_field(FIELD_ARTIFACT_ID, FAST | STORED);
     builder.add_u64_field(FIELD_CHUNK_ID, FAST | STORED);
-    builder.add_text_field(FIELD_TEXT, text_options);
+    builder.add_text_field(FIELD_TEXT, text_options.clone());
+    builder.add_text_field(FIELD_CARD_KEY, STRING | STORED);
+    builder.add_u64_field(FIELD_CARD_ARTIFACT_ID, FAST | STORED);
+    builder.add_u64_field(FIELD_CARD_ID, FAST | STORED);
+    builder.add_text_field(FIELD_CARD_TITLE, text_options.clone());
+    builder.add_text_field(FIELD_CARD_BODY, text_options);
     builder.build()
 }
 
@@ -202,6 +338,11 @@ fn load_fields(schema: Schema) -> Result<IndexFields, PortError> {
         artifact_id: schema_field(&schema, FIELD_ARTIFACT_ID)?,
         chunk_id: schema_field(&schema, FIELD_CHUNK_ID)?,
         text: schema_field(&schema, FIELD_TEXT)?,
+        card_key: schema_field(&schema, FIELD_CARD_KEY)?,
+        card_artifact_id: schema_field(&schema, FIELD_CARD_ARTIFACT_ID)?,
+        card_id: schema_field(&schema, FIELD_CARD_ID)?,
+        card_title: schema_field(&schema, FIELD_CARD_TITLE)?,
+        card_body: schema_field(&schema, FIELD_CARD_BODY)?,
     })
 }
 
@@ -213,6 +354,10 @@ fn schema_field(schema: &Schema, name: &str) -> Result<Field, PortError> {
 
 fn chunk_key(artifact_id: ArtifactId, chunk_id: ChunkId) -> String {
     format!("{}:{}", artifact_id.value(), chunk_id.value())
+}
+
+fn card_key(artifact_id: ArtifactId, card_id: CardId) -> String {
+    format!("card:{}:{}", artifact_id.value(), card_id.value())
 }
 
 fn score_to_u32(score: f32) -> u32 {
@@ -241,141 +386,6 @@ fn to_io_port_error(error: std::io::Error) -> PortError {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    use maestria_ports::SearchQuery;
-    use tempfile::TempDir;
-
-    fn chunk(artifact_id: u64, chunk_id: u64, text: &str) -> IndexedChunk {
-        IndexedChunk {
-            artifact_id: ArtifactId::new(artifact_id),
-            chunk_id: ChunkId::new(chunk_id),
-            text: text.to_string(),
-        }
-    }
-
-    #[test]
-    fn index_search_returns_source_openable_chunk_metadata() {
-        let index = TantivyFullTextIndex::in_memory().expect("create in-memory index");
-
-        index
-            .index_chunks(vec![
-                chunk(7, 70, "alpha source chunk"),
-                chunk(8, 80, "beta unrelated chunk"),
-            ])
-            .expect("index chunks");
-
-        let hits = index
-            .search(SearchQuery {
-                q: "alpha".to_string(),
-                limit: 10,
-            })
-            .expect("search chunks");
-
-        assert_eq!(hits.len(), 1);
-        assert_eq!(hits[0].chunk.artifact_id, ArtifactId::new(7));
-        assert_eq!(hits[0].chunk.chunk_id, ChunkId::new(70));
-        assert_eq!(hits[0].chunk.text, "alpha source chunk");
-        assert!(hits[0].score > 0);
-    }
-
-    #[test]
-    fn limit_is_honored() {
-        let index = TantivyFullTextIndex::in_memory().expect("create in-memory index");
-
-        index
-            .index_chunks(vec![
-                chunk(1, 10, "shared term one"),
-                chunk(1, 11, "shared term two"),
-                chunk(1, 12, "shared term three"),
-            ])
-            .expect("index chunks");
-
-        let hits = index
-            .search(SearchQuery {
-                q: "shared".to_string(),
-                limit: 2,
-            })
-            .expect("search chunks");
-
-        assert_eq!(hits.len(), 2);
-    }
-
-    #[test]
-    fn empty_query_is_invalid() {
-        let index = TantivyFullTextIndex::in_memory().expect("create in-memory index");
-
-        let result = index.search(SearchQuery {
-            q: "  \t  ".to_string(),
-            limit: 10,
-        });
-
-        assert!(matches!(result, Err(PortError::InvalidInput { .. })));
-    }
-
-    #[test]
-    fn reindexing_same_chunk_replaces_without_duplicate_hits() {
-        let index = TantivyFullTextIndex::in_memory().expect("create in-memory index");
-
-        index
-            .index_chunks(vec![chunk(2, 20, "original searchable text")])
-            .expect("index original chunk");
-        index
-            .index_chunks(vec![chunk(2, 20, "updated searchable text")])
-            .expect("reindex chunk");
-
-        let hits = index
-            .search(SearchQuery {
-                q: "searchable".to_string(),
-                limit: 10,
-            })
-            .expect("search chunks");
-
-        assert_eq!(hits.len(), 1);
-        assert_eq!(hits[0].chunk.artifact_id, ArtifactId::new(2));
-        assert_eq!(hits[0].chunk.chunk_id, ChunkId::new(20));
-        assert_eq!(hits[0].chunk.text, "updated searchable text");
-    }
-
-    #[test]
-    fn no_results_for_missing_term() {
-        let index = TantivyFullTextIndex::in_memory().expect("create in-memory index");
-
-        index
-            .index_chunks(vec![chunk(3, 30, "present words only")])
-            .expect("index chunks");
-
-        let hits = index
-            .search(SearchQuery {
-                q: "absent".to_string(),
-                limit: 10,
-            })
-            .expect("search chunks");
-
-        assert!(hits.is_empty());
-    }
-
-    #[test]
-    fn directory_backed_index_can_be_reopened() {
-        let directory = TempDir::new().expect("create temp directory");
-        let index = TantivyFullTextIndex::open(directory.path()).expect("open directory index");
-        index
-            .index_chunks(vec![chunk(4, 40, "durable indexed text")])
-            .expect("index chunk");
-        drop(index);
-
-        let reopened =
-            TantivyFullTextIndex::open(directory.path()).expect("reopen directory index");
-        let hits = reopened
-            .search(SearchQuery {
-                q: "durable".to_string(),
-                limit: 10,
-            })
-            .expect("search chunks");
-
-        assert_eq!(hits.len(), 1);
-        assert_eq!(hits[0].chunk.artifact_id, ArtifactId::new(4));
-        assert_eq!(hits[0].chunk.chunk_id, ChunkId::new(40));
-    }
-}
+mod card_tests;
+#[cfg(test)]
+mod tests;

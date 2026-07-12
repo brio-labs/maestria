@@ -2,19 +2,53 @@ use crate::error::{CoreError, CoreResult};
 use crate::ports::CorePorts;
 use crate::provenance::{content_hash, evidence_id_for};
 use crate::types::{
-    OpenChunkEvidenceInput, OpenEvidenceInput, OpenEvidenceOutput, SearchInput, SearchOutput,
+    EvidencePack, OpenChunkEvidenceInput, OpenEvidenceInput, OpenEvidenceOutput, SearchInput,
+    SearchOutput, SourceGroundedCardHit, SourceGroundedSearchHit,
 };
 
 use maestria_domain::{Evidence, EvidenceKind, IndexStatus};
-use maestria_ports::SearchQuery;
+use maestria_ports::{CardHit, SearchQuery};
 
 pub(super) fn search<'a>(ports: &CorePorts<'a>, input: SearchInput) -> CoreResult<SearchOutput> {
-    let hits = ports.search_index.search(SearchQuery {
-        q: input.query,
+    let query = SearchQuery {
+        q: input.query.clone(),
         limit: input.limit,
-    })?;
-    let mut results = Vec::with_capacity(hits.len());
-    for hit in hits {
+    };
+
+    // 1. Search cards first.
+    let card_hits: Vec<CardHit> = ports.search_index.search_cards(query.clone())?;
+    let mut cards: Vec<SourceGroundedCardHit> = Vec::with_capacity(card_hits.len());
+    let mut seen_evidence: std::collections::BTreeSet<maestria_domain::EvidenceId> =
+        std::collections::BTreeSet::new();
+    let mut evidence_ids: Vec<maestria_domain::EvidenceId> = Vec::new();
+
+    for card_hit in &card_hits {
+        let artifact = ports
+            .artifacts
+            .get(card_hit.card.artifact_id)?
+            .ok_or_else(|| CoreError::NotFound {
+                message: format!("artifact {} for card search hit", card_hit.card.artifact_id),
+            })?;
+        if artifact.index_status != IndexStatus::Indexed {
+            continue;
+        }
+        let card = ports
+            .cards
+            .get(card_hit.card.card_id)?
+            .ok_or_else(|| CoreError::NotFound {
+                message: format!("card {} for card search hit", card_hit.card.card_id),
+            })?;
+        cards.push(SourceGroundedCardHit {
+            artifact,
+            card,
+            score: card_hit.score,
+        });
+    }
+
+    // 2. Search chunks using existing source/evidence validation.
+    let chunk_hits = ports.search_index.search(query)?;
+    let mut hits = Vec::with_capacity(chunk_hits.len());
+    for hit in &chunk_hits {
         let artifact =
             ports
                 .artifacts
@@ -38,14 +72,28 @@ pub(super) fn search<'a>(ports: &CorePorts<'a>, input: SearchInput) -> CoreResul
                 message: format!("evidence for search chunk {}", chunk.id),
             })?;
         verify_source_snapshot(ports, &evidence)?;
-        results.push(crate::types::SourceGroundedSearchHit {
+
+        // Deduplicate evidence IDs in encounter order.
+        if seen_evidence.insert(evidence.id) {
+            evidence_ids.push(evidence.id);
+        }
+
+        hits.push(SourceGroundedSearchHit {
             artifact,
             chunk,
             evidence,
             score: hit.score,
         });
     }
-    Ok(SearchOutput { hits: results })
+
+    Ok(SearchOutput {
+        pack: EvidencePack {
+            query: input.query,
+            cards,
+            chunks: hits,
+            evidence_ids,
+        },
+    })
 }
 
 pub(super) fn open_evidence<'a>(

@@ -343,6 +343,7 @@ pub fn assert_blob_store_round_trip(store: &impl BlobStore) {
 }
 
 pub fn assert_full_text_index_round_trip(index: &impl FullTextIndex) {
+    // --- chunk round-trip (existing) ---
     index
         .index_chunks(vec![
             IndexedChunk {
@@ -372,6 +373,119 @@ pub fn assert_full_text_index_round_trip(index: &impl FullTextIndex) {
 
     assert_eq!(hits.len(), 1);
     assert_eq!(hits[0].chunk.chunk_id, ChunkId::new(11));
+
+    // --- card round-trip ---
+    index
+        .index_cards(vec![
+            IndexedCard {
+                artifact_id: ArtifactId::new(1),
+                card_id: CardId::new(100),
+                title: "Alpha".to_string(),
+                body: "first card".to_string(),
+            },
+            IndexedCard {
+                artifact_id: ArtifactId::new(1),
+                card_id: CardId::new(101),
+                title: "Beta".to_string(),
+                body: "second card with more content".to_string(),
+            },
+            IndexedCard {
+                artifact_id: ArtifactId::new(2),
+                card_id: CardId::new(200),
+                title: "Gamma".to_string(),
+                body: "unrelated".to_string(),
+            },
+        ])
+        .expect("index cards");
+
+    let card_hits = index
+        .search_cards(SearchQuery {
+            q: "card".to_string(),
+            limit: 10,
+        })
+        .expect("search cards");
+
+    assert_eq!(card_hits.len(), 2);
+    // Beta has longer body, so it should rank above Alpha
+    assert_eq!(card_hits[0].card.card_id, CardId::new(101));
+    assert_eq!(card_hits[1].card.card_id, CardId::new(100));
+
+    // --- card replacement: re-index card 100 with updated content ---
+    index
+        .index_cards(vec![IndexedCard {
+            artifact_id: ArtifactId::new(1),
+            card_id: CardId::new(100),
+            title: "Alpha Updated".to_string(),
+            body: "revised first card".to_string(),
+        }])
+        .expect("index replacement cards");
+
+    // Old Beta (card_id=101) should still exist — only card 100 was re-indexed.
+    let beta_hits = index
+        .search_cards(SearchQuery {
+            q: "second".to_string(),
+            limit: 10,
+        })
+        .expect("search after replace");
+    assert_eq!(beta_hits.len(), 1);
+    assert_eq!(beta_hits[0].card.card_id, CardId::new(101));
+
+    let updated_hits = index
+        .search_cards(SearchQuery {
+            q: "revised".to_string(),
+            limit: 10,
+        })
+        .expect("search revised");
+    assert_eq!(updated_hits.len(), 1);
+    assert_eq!(updated_hits[0].card.card_id, CardId::new(100));
+    assert_eq!(updated_hits[0].card.title, "Alpha Updated");
+
+    // --- deterministic tie ordering: same scores, ordered by (artifact_id, card_id) ---
+    index
+        .index_cards(vec![
+            IndexedCard {
+                artifact_id: ArtifactId::new(3),
+                card_id: CardId::new(301),
+                title: "dup".to_string(),
+                body: "same".to_string(),
+            },
+            IndexedCard {
+                artifact_id: ArtifactId::new(3),
+                card_id: CardId::new(302),
+                title: "dup".to_string(),
+                body: "same".to_string(),
+            },
+            IndexedCard {
+                artifact_id: ArtifactId::new(3),
+                card_id: CardId::new(303),
+                title: "dup".to_string(),
+                body: "same".to_string(),
+            },
+        ])
+        .expect("index tie cards");
+
+    let tie_hits = index
+        .search_cards(SearchQuery {
+            q: "dup".to_string(),
+            limit: 10,
+        })
+        .expect("search ties");
+
+    // All three should match; order must be by ascending card_id for ties
+    let tie_ids: Vec<CardId> = tie_hits.iter().map(|h| h.card.card_id).collect();
+    assert_eq!(
+        tie_ids,
+        vec![CardId::new(301), CardId::new(302), CardId::new(303)]
+    );
+
+    // --- empty query returns empty ---
+    let empty = index
+        .search_cards(SearchQuery {
+            q: "zzz_no_match".to_string(),
+            limit: 10,
+        })
+        .expect("empty search");
+    assert!(empty.is_empty());
 }
 
 pub fn assert_vector_index_contract(index: &impl VectorIndex) {

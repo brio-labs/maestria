@@ -5,11 +5,11 @@ use std::{
 };
 
 use super::{
-    Artifact, ArtifactId, BlobId, Card, CardId, Chunk, ChunkId, DomainEvent, DomainEventEnvelope,
-    Evidence, EvidenceId, FileHandle, FileMetadata, GraphIndex, HarnessAdapter,
-    HarnessCapabilities, HarnessCommandClass, HarnessOutcome, HarnessRequest, Parser, PortError,
-    Relation, RelationEndpoint, RelationId, SearchHit, SearchQuery, VectorIndex, VectorSearchHit,
-    VectorSearchQuery, WebFetcher, WebSnapshotData,
+    Artifact, ArtifactId, BlobId, Card, CardHit, CardId, Chunk, ChunkId, DomainEvent,
+    DomainEventEnvelope, Evidence, EvidenceId, FileHandle, FileMetadata, GraphIndex,
+    HarnessAdapter, HarnessCapabilities, HarnessCommandClass, HarnessOutcome, HarnessRequest,
+    Parser, PortError, Relation, RelationEndpoint, RelationId, SearchHit, SearchQuery, VectorIndex,
+    VectorSearchHit, VectorSearchQuery, WebFetcher, WebSnapshotData,
 };
 
 #[derive(Clone, Default)]
@@ -309,6 +309,7 @@ impl super::BlobStore for InMemoryBlobStore {
 #[derive(Clone, Default)]
 pub struct InMemoryFullTextIndex {
     chunks: Arc<Mutex<Vec<super::IndexedChunk>>>,
+    cards: Arc<Mutex<Vec<super::IndexedCard>>>,
 }
 
 impl InMemoryFullTextIndex {
@@ -341,6 +342,49 @@ impl super::FullTextIndex for InMemoryFullTextIndex {
             .collect::<Vec<_>>();
 
         hits.sort_by_key(|b| std::cmp::Reverse(b.score));
+        if hits.len() > query.limit {
+            hits.truncate(query.limit);
+        }
+        Ok(hits)
+    }
+
+    fn index_cards(&self, cards: Vec<super::IndexedCard>) -> Result<(), PortError> {
+        let mut guard = self.cards.lock().map_err(|_| PortError::Internal {
+            message: "index lock poisoned".to_string(),
+        })?;
+        for card in &cards {
+            guard.retain(|c| c.artifact_id != card.artifact_id || c.card_id != card.card_id);
+        }
+        guard.extend(cards);
+        Ok(())
+    }
+
+    fn search_cards(&self, query: SearchQuery) -> Result<Vec<CardHit>, PortError> {
+        let guard = self.cards.lock().map_err(|_| PortError::Internal {
+            message: "index lock poisoned".to_string(),
+        })?;
+        let needle = query.q.to_lowercase();
+        let mut hits: Vec<CardHit> = guard
+            .iter()
+            .filter(|card| {
+                card.title.to_lowercase().contains(&needle)
+                    || card.body.to_lowercase().contains(&needle)
+            })
+            .map(|card| {
+                let score = ((card.title.len() + card.body.len()).min(u32::MAX as usize)) as u32;
+                CardHit {
+                    card: card.clone(),
+                    score,
+                }
+            })
+            .collect();
+
+        hits.sort_by(|a, b| {
+            b.score
+                .cmp(&a.score)
+                .then_with(|| a.card.artifact_id.cmp(&b.card.artifact_id))
+                .then_with(|| a.card.card_id.cmp(&b.card.card_id))
+        });
         if hits.len() > query.limit {
             hits.truncate(query.limit);
         }

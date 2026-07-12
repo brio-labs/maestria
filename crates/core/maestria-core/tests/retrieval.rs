@@ -2,16 +2,17 @@ use maestria_core::{
     CorePorts, CoreServices, OpenChunkEvidenceInput, OpenEvidenceInput, SearchInput,
 };
 use maestria_domain::{
-    Artifact, ArtifactId, Chunk, ChunkId, Evidence, EvidenceId, EvidenceKind, IndexStatus,
+    Artifact, ArtifactId, Card, CardId, Chunk, ChunkId, Evidence, EvidenceId, EvidenceKind,
+    IndexStatus,
 };
 use maestria_ports::{
-    ArtifactRepository, BlobStore, ChunkRepository, EvidenceRepository, FullTextIndex,
-    InMemoryArtifactRepository, InMemoryBlobStore, InMemoryCardRepository, InMemoryChunkRepository,
-    InMemoryEventLog, InMemoryEvidenceRepository, InMemoryFullTextIndex, InMemoryParser,
-    IndexedChunk,
+    ArtifactRepository, BlobStore, CardRepository, ChunkRepository, EvidenceRepository,
+    FullTextIndex, InMemoryArtifactRepository, InMemoryBlobStore, InMemoryCardRepository,
+    InMemoryChunkRepository, InMemoryEventLog, InMemoryEvidenceRepository, InMemoryFullTextIndex,
+    InMemoryParser, IndexedCard, IndexedChunk,
 };
 
-/// Seed an artifact, chunks, evidence, and full-text entries directly through
+/// Seed an artifact, chunks, evidence, cards, and full-text entries directly through
 /// in-memory adapters, then wrap them in a `CoreServices` to exercise retrieval.
 fn seed_and_build_services<'a>(ports: CorePorts<'a>) -> CoreServices<'a> {
     CoreServices::new(ports)
@@ -21,22 +22,38 @@ fn seed_and_build_services<'a>(ports: CorePorts<'a>) -> CoreServices<'a> {
 fn assert_directly_seeded_retrieval(
     core: &CoreServices,
     artifact_id: ArtifactId,
+    card_id: CardId,
     chunk_id_0: ChunkId,
     chunk_id_1: ChunkId,
     evidence_id_0: EvidenceId,
     evidence_id_1: EvidenceId,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    // Search: "beta-token" should match chunk 1.
+    // Search: "beta-token" should match chunk 1 but NOT cards (cards have different text).
     let search_result = core.search(SearchInput {
         query: "beta-token".to_string(),
         limit: 5,
     })?;
-    assert_eq!(search_result.hits.len(), 1);
-    let hit = &search_result.hits[0];
+    assert_eq!(search_result.pack.cards.len(), 0);
+    assert_eq!(search_result.pack.chunks.len(), 1);
+    let hit = &search_result.pack.chunks[0];
     assert_eq!(hit.artifact.id, artifact_id);
     assert_eq!(hit.chunk.id, chunk_id_1);
     assert_eq!(hit.evidence.id, evidence_id_1);
     assert_eq!(hit.evidence.excerpt, "beta-token paragraph.");
+    assert_eq!(search_result.pack.evidence_ids, &[evidence_id_1]);
+    assert_eq!(search_result.pack.query, "beta-token");
+
+    // Search: "card-title" should match the card.
+    let card_result = core.search(SearchInput {
+        query: "card-title".to_string(),
+        limit: 5,
+    })?;
+    assert_eq!(card_result.pack.cards.len(), 1);
+    assert_eq!(card_result.pack.chunks.len(), 0);
+    assert!(card_result.pack.evidence_ids.is_empty());
+    let card_hit = &card_result.pack.cards[0];
+    assert_eq!(card_hit.artifact.id, artifact_id);
+    assert_eq!(card_hit.card.id, card_id);
 
     // Open evidence by evidence id.
     let opened = core.open_evidence(OpenEvidenceInput {
@@ -66,8 +83,9 @@ fn search_and_open_evidence_with_directly_seeded_artifact() -> Result<(), Box<dy
     let search_index = InMemoryFullTextIndex::new();
     let events = InMemoryEventLog::new();
     let parser = InMemoryParser::new();
-    let cards = InMemoryCardRepository::new();
+    let card_repo = InMemoryCardRepository::new();
     let artifact_id = ArtifactId::new(7);
+    let card_id = CardId::new(700);
     let chunk_id_0 = ChunkId::new(701);
     let chunk_id_1 = ChunkId::new(702);
     let evidence_id_0 = maestria_domain::evidence_id_for(artifact_id, 0);
@@ -76,12 +94,22 @@ fn search_and_open_evidence_with_directly_seeded_artifact() -> Result<(), Box<dy
     let source_text = "alpha-token paragraph.\n\nbeta-token paragraph.\n";
     let blob_id = blob_store.put(source_text.as_bytes().to_vec())?;
 
-    // Seed an artifact.
+    // Seed a card.
+    let card = Card {
+        id: card_id,
+        artifact_id,
+        title: "card-title summary".to_string(),
+        body: "card body text".to_string(),
+        claim_ids: Default::default(),
+    };
+    card_repo.put(card.clone())?;
+
+    // Seed an artifact (with card_ids referencing the seeded card).
     artifact_repo.put(Artifact {
         id: artifact_id,
         title: "multi.md".to_string(),
         chunk_ids: [chunk_id_0, chunk_id_1].into(),
-        card_ids: Default::default(),
+        card_ids: [card_id].into(),
         claim_ids: Default::default(),
         evidence_ids: [evidence_id_0, evidence_id_1].into(),
         index_status: IndexStatus::Indexed,
@@ -149,11 +177,19 @@ fn search_and_open_evidence_with_directly_seeded_artifact() -> Result<(), Box<dy
         },
     ])?;
 
+    // Index cards for full-text search.
+    search_index.index_cards(vec![IndexedCard {
+        artifact_id,
+        card_id,
+        title: card.title.clone(),
+        body: card.body.clone(),
+    }])?;
+
     // 2. Build CoreServices around the seeded adapters.
     let core = seed_and_build_services(CorePorts {
         artifacts: &artifact_repo,
         chunks: &chunk_repo,
-        cards: &cards,
+        cards: &card_repo,
         evidence: &evidence_repo,
         events: &events,
         parser: &parser,
@@ -164,6 +200,7 @@ fn search_and_open_evidence_with_directly_seeded_artifact() -> Result<(), Box<dy
     assert_directly_seeded_retrieval(
         &core,
         artifact_id,
+        card_id,
         chunk_id_0,
         chunk_id_1,
         evidence_id_0,
@@ -180,6 +217,7 @@ fn seed_with_status(
     f: impl FnOnce(
         &CoreServices,
         ArtifactId,
+        CardId,
         ChunkId,
         ChunkId,
         EvidenceId,
@@ -193,21 +231,31 @@ fn seed_with_status(
     let search_index = InMemoryFullTextIndex::new();
     let events = InMemoryEventLog::new();
     let parser = InMemoryParser::new();
-    let cards = InMemoryCardRepository::new();
+    let card_repo = InMemoryCardRepository::new();
     let artifact_id = ArtifactId::new(7);
     let chunk_id_0 = ChunkId::new(701);
     let chunk_id_1 = ChunkId::new(702);
     let evidence_id_0 = maestria_domain::evidence_id_for(artifact_id, 0);
+    let card_id = CardId::new(700);
     let evidence_id_1 = maestria_domain::evidence_id_for(artifact_id, 1);
 
     let source_text = "alpha-token paragraph.\n\nbeta-token paragraph.\n";
     let blob_id = blob_store.put(source_text.as_bytes().to_vec())?;
+    // Seed a card.
+    let card = Card {
+        id: card_id,
+        artifact_id,
+        title: "card-title summary".to_string(),
+        body: "card body text".to_string(),
+        claim_ids: Default::default(),
+    };
+    card_repo.put(card.clone())?;
 
     artifact_repo.put(Artifact {
         id: artifact_id,
         title: "multi.md".to_string(),
         chunk_ids: [chunk_id_0, chunk_id_1].into(),
-        card_ids: Default::default(),
+        card_ids: [card_id].into(),
         claim_ids: Default::default(),
         evidence_ids: [evidence_id_0, evidence_id_1].into(),
         index_status: status,
@@ -272,10 +320,18 @@ fn seed_with_status(
         },
     ])?;
 
+    // Index cards for full-text search.
+    search_index.index_cards(vec![IndexedCard {
+        artifact_id,
+        card_id,
+        title: card.title.clone(),
+        body: card.body.clone(),
+    }])?;
+
     let core = seed_and_build_services(CorePorts {
         artifacts: &artifact_repo,
         chunks: &chunk_repo,
-        cards: &cards,
+        cards: &card_repo,
         evidence: &evidence_repo,
         events: &events,
         parser: &parser,
@@ -286,6 +342,7 @@ fn seed_with_status(
     f(
         &core,
         artifact_id,
+        card_id,
         chunk_id_0,
         chunk_id_1,
         evidence_id_0,
@@ -297,16 +354,20 @@ fn seed_with_status(
 fn search_excludes_pending_artifact() -> Result<(), Box<dyn std::error::Error>> {
     seed_with_status(
         IndexStatus::Pending,
-        |core, _artifact_id, _chunk_id_0, _chunk_id_1, _evidence_id_0, _evidence_id_1| {
+        |core, _artifact_id, _card_id, _chunk_id_0, _chunk_id_1, _evidence_id_0, _evidence_id_1| {
             let search_result = core.search(SearchInput {
                 query: "beta-token".to_string(),
                 limit: 5,
             })?;
 
             assert!(
-                search_result.hits.is_empty(),
-                "pending artifact hits must be excluded, got {}",
-                search_result.hits.len()
+                search_result.pack.chunks.is_empty(),
+                "pending artifact chunks must be excluded, got {}",
+                search_result.pack.chunks.len()
+            );
+            assert!(
+                search_result.pack.cards.is_empty(),
+                "pending artifact cards must be excluded"
             );
             Ok(())
         },
@@ -317,16 +378,20 @@ fn search_excludes_pending_artifact() -> Result<(), Box<dyn std::error::Error>> 
 fn search_excludes_unindexed_artifact() -> Result<(), Box<dyn std::error::Error>> {
     seed_with_status(
         IndexStatus::Unindexed,
-        |core, _artifact_id, _chunk_id_0, _chunk_id_1, _evidence_id_0, _evidence_id_1| {
+        |core, _artifact_id, _card_id, _chunk_id_0, _chunk_id_1, _evidence_id_0, _evidence_id_1| {
             let search_result = core.search(SearchInput {
                 query: "beta-token".to_string(),
                 limit: 5,
             })?;
 
             assert!(
-                search_result.hits.is_empty(),
-                "unindexed artifact hits must be excluded, got {}",
-                search_result.hits.len()
+                search_result.pack.chunks.is_empty(),
+                "unindexed artifact chunks must be excluded, got {}",
+                search_result.pack.chunks.len()
+            );
+            assert!(
+                search_result.pack.cards.is_empty(),
+                "unindexed artifact cards must be excluded"
             );
             Ok(())
         },
@@ -337,7 +402,7 @@ fn search_excludes_unindexed_artifact() -> Result<(), Box<dyn std::error::Error>
 fn open_evidence_rejects_pending_artifact() -> Result<(), Box<dyn std::error::Error>> {
     seed_with_status(
         IndexStatus::Pending,
-        |core, _artifact_id, _chunk_id_0, _chunk_id_1, evidence_id_0, _evidence_id_1| {
+        |core, _artifact_id, _card_id, _chunk_id_0, _chunk_id_1, evidence_id_0, _evidence_id_1| {
             let result = core.open_evidence(OpenEvidenceInput {
                 evidence_id: evidence_id_0,
             });
@@ -362,7 +427,7 @@ fn open_evidence_rejects_pending_artifact() -> Result<(), Box<dyn std::error::Er
 fn open_evidence_rejects_unindexed_artifact() -> Result<(), Box<dyn std::error::Error>> {
     seed_with_status(
         IndexStatus::Unindexed,
-        |core, _artifact_id, _chunk_id_0, _chunk_id_1, evidence_id_0, _evidence_id_1| {
+        |core, _artifact_id, _card_id, _chunk_id_0, _chunk_id_1, evidence_id_0, _evidence_id_1| {
             let result = core.open_evidence(OpenEvidenceInput {
                 evidence_id: evidence_id_0,
             });
@@ -387,7 +452,7 @@ fn open_evidence_rejects_unindexed_artifact() -> Result<(), Box<dyn std::error::
 fn open_chunk_evidence_rejects_pending_artifact() -> Result<(), Box<dyn std::error::Error>> {
     seed_with_status(
         IndexStatus::Pending,
-        |core, _artifact_id, chunk_id_0, _chunk_id_1, _evidence_id_0, _evidence_id_1| {
+        |core, _artifact_id, _card_id, chunk_id_0, _chunk_id_1, _evidence_id_0, _evidence_id_1| {
             let result = core.open_chunk_evidence(OpenChunkEvidenceInput {
                 chunk_id: chunk_id_0,
             });
@@ -412,10 +477,11 @@ fn open_chunk_evidence_rejects_pending_artifact() -> Result<(), Box<dyn std::err
 fn terminal_success_with_indexed_artifact() -> Result<(), Box<dyn std::error::Error>> {
     seed_with_status(
         IndexStatus::Indexed,
-        |core, artifact_id, chunk_id_0, chunk_id_1, evidence_id_0, evidence_id_1| {
+        |core, artifact_id, card_id, chunk_id_0, chunk_id_1, evidence_id_0, evidence_id_1| {
             assert_directly_seeded_retrieval(
                 core,
                 artifact_id,
+                card_id,
                 chunk_id_0,
                 chunk_id_1,
                 evidence_id_0,
