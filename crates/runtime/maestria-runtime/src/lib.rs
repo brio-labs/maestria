@@ -1,7 +1,8 @@
 use maestria_domain::{
-    ApprovalDecision, DomainEvent, DomainInput, FullTextIndexCompleted, HarnessRunCompleted,
-    KernelState, MaestriaEffect, ParserResult, RecordValidationReportInput, RegisterChunkInput,
-    ValidationCompleted, ValidationReportId,
+    ApprovalDecision, DomainEvent, DomainInput, EvidenceKind, FullTextIndexCompleted,
+    HarnessRunCompleted, KernelState, LogicalTick, MaestriaEffect, ParserResult,
+    RecordEvidenceInput, RecordValidationReportInput, RegisterChunkInput, ValidationCompleted,
+    ValidationReportId, content_hash, evidence_id_for, excerpt_for, line_range_for_chunk,
 };
 use maestria_governance::{
     ApprovalGate, ApprovalRequest, AutonomyProfile, ClassifyRisk, PolicyDecision, Scope, ScopeGuard,
@@ -435,19 +436,17 @@ impl MaestriaRuntime {
                     "state snapshot requested"
                 );
             }
-            MaestriaEffect::StoreBlob(request) => {
-                match adapters.blob_store.put(request.payload) {
-                    Ok(blob_id) => tracing::debug!(
-                        artifact_id = %request.artifact_id,
-                        %blob_id,
-                        "stored artifact blob"
-                    ),
-                    Err(error) => {
-                        tracing::error!(artifact_id = %request.artifact_id, %error, "failed to store artifact blob");
-                        return false;
-                    }
+            MaestriaEffect::StoreBlob(request) => match adapters.blob_store.put(request.payload) {
+                Ok(blob_id) => tracing::debug!(
+                    artifact_id = %request.artifact_id,
+                    %blob_id,
+                    "stored artifact blob"
+                ),
+                Err(error) => {
+                    tracing::error!(artifact_id = %request.artifact_id, %error, "failed to store artifact blob");
+                    return false;
                 }
-            }
+            },
             MaestriaEffect::ParseArtifact(request) => {
                 let artifact = match adapters.artifact_repo.get(request.artifact_id) {
                     Ok(Some(artifact)) => artifact,
@@ -494,6 +493,46 @@ impl MaestriaRuntime {
                     },
                 ) {
                     Ok(parsed) => {
+                        // Store source bytes to obtain the immutable BlobId for evidence snapshots.
+                        // NOTE: this duplicates the separate StoreBlob effect produced by the domain;
+                        // idempotent blob storage is acceptable for this bounded slice.
+                        let blob_id = match adapters.blob_store.put(request.source_bytes.clone()) {
+                            Ok(id) => id,
+                            Err(error) => {
+                                tracing::error!(artifact_id = %artifact.id, %error, "failed to store source blob for evidence");
+                                return false;
+                            }
+                        };
+                        let source_hash = content_hash(&request.source_bytes);
+                        let source_text = String::from_utf8_lossy(&request.source_bytes);
+                        let observed_at = LogicalTick::new(1);
+                        let mut search_start: usize = 0;
+
+                        for (order, chunk) in parsed.chunks.iter().enumerate() {
+                            let range =
+                                line_range_for_chunk(&source_text, &chunk.text, &mut search_start);
+                            let evidence_id = evidence_id_for(artifact.id, order as u32);
+                            let excerpt = excerpt_for(&chunk.text);
+                            Self::send_input(
+                                &input_tx,
+                                DomainInput::RecordEvidence(RecordEvidenceInput {
+                                    evidence_id,
+                                    artifact_id: artifact.id,
+                                    claim_id: None,
+                                    kind: EvidenceKind::FileSpan {
+                                        path: request.source_path.clone(),
+                                        range,
+                                        content_hash: source_hash.clone(),
+                                        snapshot: Some(blob_id),
+                                    },
+                                    excerpt,
+                                    observed_at,
+                                }),
+                                "record evidence",
+                            )
+                            .await;
+                        }
+
                         let chunks = parsed
                             .chunks
                             .into_iter()
@@ -786,9 +825,9 @@ impl MaestriaRuntime {
 mod tests {
     use super::*;
     use maestria_domain::{
-        Artifact, ArtifactId, BlobId, Chunk, ChunkId, Card, CardId, DomainEventEnvelope,
-        Evidence, EvidenceId, EvidenceKind, EventId, IndexStatus, LogicalTick,
-        ParseArtifactRequest, SequenceNumber, StoreBlobRequest,
+        Artifact, ArtifactId, BlobId, Card, CardId, Chunk, ChunkId, DomainEventEnvelope, EventId,
+        Evidence, EvidenceId, EvidenceKind, IndexStatus, LogicalTick, ParseArtifactRequest,
+        SequenceNumber, StoreBlobRequest,
     };
     use maestria_governance::{DefaultApprovalGate, DefaultRiskClassifier};
     use maestria_ports::{
@@ -798,9 +837,9 @@ mod tests {
         InMemoryFullTextIndex, InMemoryGraphIndex, InMemoryHarnessAdapter, InMemoryParser,
         InMemoryVectorIndex, InMemoryWebFetcher, PortError,
     };
+    use std::collections::BTreeSet;
     use std::sync::Arc;
     use tokio_util::sync::CancellationToken;
-    use std::collections::BTreeSet;
 
     #[derive(Default)]
     struct FailingEventLog;
@@ -1068,6 +1107,35 @@ mod tests {
 
         assert!(result, "ParseArtifact should succeed");
 
+        // First input: RecordEvidence for the single parsed chunk
+        match tokio::time::timeout(Duration::from_secs(1), input_rx.recv()).await {
+            Ok(Some(DomainInput::RecordEvidence(ev))) => {
+                assert_eq!(ev.artifact_id, ArtifactId::new(42));
+                assert_eq!(ev.claim_id, None);
+                assert_eq!(ev.observed_at, LogicalTick::new(1));
+                match &ev.kind {
+                    EvidenceKind::FileSpan {
+                        path,
+                        range,
+                        content_hash,
+                        snapshot,
+                    } => {
+                        assert_eq!(path, "/repo/src/main.rs");
+                        assert_eq!(range.start, 1);
+                        assert_eq!(range.end, 1);
+                        assert!(content_hash.starts_with("sha256:"));
+                        assert!(snapshot.is_some());
+                    }
+                    _ => panic!("expected FileSpan evidence, got {:?}", ev.kind),
+                }
+                assert!(!ev.excerpt.is_empty());
+            }
+            Ok(Some(other)) => panic!("expected RecordEvidence, got {other:?}"),
+            Ok(None) => panic!("channel closed before RecordEvidence"),
+            Err(_) => panic!("timeout waiting for RecordEvidence"),
+        }
+
+        // Second input: ParserCompleted
         match tokio::time::timeout(Duration::from_secs(1), input_rx.recv()).await {
             Ok(Some(DomainInput::ParserCompleted(pr))) => {
                 assert_eq!(pr.artifact_id, ArtifactId::new(42));
