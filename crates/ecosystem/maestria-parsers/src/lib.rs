@@ -9,6 +9,7 @@ use std::path::Path;
 use maestria_domain::{ArtifactId, CardId, ChunkId, CreateCardInput};
 use maestria_ports::{
     FileHandle, FileMetadata, ParseContext, ParsedArtifact, ParsedChunk, Parser, PortError,
+    SourceSpan,
 };
 
 const ID_STRIDE: u64 = 1_000_003;
@@ -243,20 +244,21 @@ fn decode_utf8(bytes: Vec<u8>) -> Result<String, PortError> {
 fn parsed_artifact(
     artifact_id: ArtifactId,
     path: &Path,
-    chunk_texts: Vec<String>,
+    chunks_with_spans: Vec<(String, SourceSpan)>,
 ) -> Result<ParsedArtifact, PortError> {
-    if chunk_texts.is_empty() {
+    if chunks_with_spans.is_empty() {
         return Err(PortError::InvalidInput {
             message: "input file has no textual content".to_string(),
         });
     }
 
-    let mut chunks = Vec::with_capacity(chunk_texts.len());
-    for (order, text) in chunk_texts.into_iter().enumerate() {
+    let mut chunks = Vec::with_capacity(chunks_with_spans.len());
+    for (order, (text, source_span)) in chunks_with_spans.into_iter().enumerate() {
         chunks.push(ParsedChunk {
             chunk_id: chunk_id_for(artifact_id, order)?,
             artifact_id,
             text,
+            source_span,
         });
     }
 
@@ -306,7 +308,7 @@ fn clean_summary_line(line: &str) -> String {
     trimmed.chars().take(96).collect()
 }
 
-fn markdown_chunks(text: &str) -> Vec<String> {
+fn markdown_chunks(text: &str) -> Vec<(String, SourceSpan)> {
     let heading_lines = text
         .lines()
         .enumerate()
@@ -330,23 +332,51 @@ fn is_markdown_heading(line: &str) -> bool {
         }
 }
 
-fn paragraph_chunks(text: &str) -> Vec<String> {
+fn paragraph_chunks(text: &str) -> Vec<(String, SourceSpan)> {
     let mut chunks = Vec::new();
-    let mut current = Vec::new();
+    let mut current: Vec<&str> = Vec::new();
+    let mut para_start: Option<usize> = None;
 
-    for line in text.lines() {
+    for (line_idx, line) in text.lines().enumerate() {
         if line.trim().is_empty() {
-            push_joined_lines(&mut chunks, &mut current);
+            if let Some(start) = para_start.take() {
+                let joined = current.join("\n").trim().to_string();
+                current.clear();
+                if !joined.is_empty() {
+                    chunks.push((
+                        joined,
+                        SourceSpan::TextSpan {
+                            start_line: start + 1,
+                            end_line: line_idx,
+                        },
+                    ));
+                }
+            }
         } else {
+            if para_start.is_none() {
+                para_start = Some(line_idx);
+            }
             current.push(line);
         }
     }
-    push_joined_lines(&mut chunks, &mut current);
+    if let Some(start) = para_start.take() {
+        let joined = current.join("\n").trim().to_string();
+        if !joined.is_empty() {
+            let total_lines = text.lines().count();
+            chunks.push((
+                joined,
+                SourceSpan::TextSpan {
+                    start_line: start + 1,
+                    end_line: total_lines,
+                },
+            ));
+        }
+    }
 
     chunks
 }
 
-fn rust_chunks(text: &str) -> Vec<String> {
+fn rust_chunks(text: &str) -> Vec<(String, SourceSpan)> {
     let mut starts = Vec::new();
     let mut pending_attribute_start = None;
 
@@ -393,7 +423,7 @@ fn is_rust_structural_start(trimmed: &str) -> bool {
         || without_visibility.starts_with("impl")
 }
 
-fn cargo_toml_chunks(text: &str) -> Vec<String> {
+fn cargo_toml_chunks(text: &str) -> Vec<(String, SourceSpan)> {
     let starts = text
         .lines()
         .enumerate()
@@ -412,7 +442,7 @@ fn is_toml_table_header(line: &str) -> bool {
     trimmed.starts_with('[') && trimmed.ends_with(']')
 }
 
-fn ranges_from_starts(text: &str, starts: Vec<usize>) -> Vec<String> {
+fn ranges_from_starts(text: &str, starts: Vec<usize>) -> Vec<(String, SourceSpan)> {
     let lines = text.lines().collect::<Vec<_>>();
     let mut chunks = Vec::new();
 
@@ -431,26 +461,20 @@ fn ranges_from_starts(text: &str, starts: Vec<usize>) -> Vec<String> {
     chunks
 }
 
-fn push_range(chunks: &mut Vec<String>, lines: &[&str], start: usize, end: usize) {
+fn push_range(chunks: &mut Vec<(String, SourceSpan)>, lines: &[&str], start: usize, end: usize) {
     if start >= end {
         return;
     }
 
     let text = lines[start..end].join("\n").trim().to_string();
     if !text.is_empty() {
-        chunks.push(text);
-    }
-}
-
-fn push_joined_lines(chunks: &mut Vec<String>, current: &mut Vec<&str>) {
-    if current.is_empty() {
-        return;
-    }
-
-    let text = current.join("\n").trim().to_string();
-    current.clear();
-    if !text.is_empty() {
-        chunks.push(text);
+        chunks.push((
+            text,
+            SourceSpan::TextSpan {
+                start_line: start + 1,
+                end_line: end,
+            },
+        ));
     }
 }
 

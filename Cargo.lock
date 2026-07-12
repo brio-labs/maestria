@@ -1151,6 +1151,9 @@ checksum = "7ef0d4ed8669f8f8826eb00dc878084aa8f253506c4fd5e8f58f5bce72ddb97e"
 [[package]]
 name = "maestria"
 version = "0.1.0"
+dependencies = [
+ "lopdf",
+]
 
 [[package]]
 name = "maestria-blob-fs"
@@ -1168,6 +1171,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
+ "lopdf",
  "maestria-blob-fs",
  "maestria-core",
  "maestria-daemon",

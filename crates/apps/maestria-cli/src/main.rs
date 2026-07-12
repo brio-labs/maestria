@@ -909,7 +909,7 @@ fn is_supported_index_path(path: &Path) -> bool {
             .and_then(|extension| extension.to_str())
             .map(str::to_ascii_lowercase)
             .as_deref(),
-        Some("md" | "markdown" | "txt" | "text" | "rs")
+        Some("md" | "markdown" | "txt" | "text" | "rs" | "pdf")
     )
 }
 
@@ -1096,6 +1096,47 @@ mod tests {
         assert!(
             error.to_string().contains("unsupported index file type"),
             "unexpected error for unsupported file: {error}"
+        );
+    }
+
+    #[test]
+    fn pdf_is_supported_index_path() {
+        assert!(is_supported_index_path(Path::new("paper.pdf")));
+        assert!(is_supported_index_path(Path::new("paper.PDF")));
+        assert!(is_supported_index_path(Path::new("docs/report.Pdf")));
+    }
+
+    #[test]
+    fn collecting_single_pdf_is_accepted() {
+        let directory = TestDirectory::create();
+        let pdf_file = directory.path().join("paper.pdf");
+        write_file(&pdf_file, "minimal pdf bytes");
+
+        let files =
+            collect_index_files(&pdf_file, false).expect("single PDF files must be accepted");
+
+        assert_eq!(files, vec![pdf_file]);
+    }
+
+    #[test]
+    fn recursive_collection_includes_pdf_files() {
+        let directory = TestDirectory::create();
+        write_file(&directory.path().join("note.md"), "# Normal note");
+        write_file(
+            &directory.path().join("docs/report.pdf"),
+            "minimal pdf bytes",
+        );
+        write_file(
+            &directory.path().join("docs/cache.sqlite"),
+            "opaque database",
+        );
+
+        let files =
+            collect_index_files(directory.path(), true).expect("recursive collection succeeds");
+
+        assert_eq!(
+            relative_files(directory.path(), &files),
+            vec![PathBuf::from("docs/report.pdf"), PathBuf::from("note.md"),]
         );
     }
 

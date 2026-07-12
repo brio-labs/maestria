@@ -15,6 +15,10 @@ ParsedArtifact {
                 4,
             ),
             text: "[package]\nname = \"demo\"\nversion = \"0.1.0\"",
+            source_span: TextSpan {
+                start_line: 1,
+                end_line: 4,
+            },
         },
         ParsedChunk {
             chunk_id: ChunkId(
@@ -24,6 +28,10 @@ ParsedArtifact {
                 4,
             ),
             text: "[dependencies]\nserde = \"1\"",
+            source_span: TextSpan {
+                start_line: 5,
+                end_line: 6,
+            },
         },
     ],
     cards: [

@@ -1,9 +1,9 @@
 use maestria_domain::{
-    ApprovalDecision, Artifact, ArtifactId, BlobId, DomainEvent, DomainEventEnvelope, DomainInput,
-    EvidenceKind, FullTextIndexCompleted, HarnessRunCompleted, IndexStatus, KernelState,
-    LogicalTick, MaestriaEffect, ParserResult, ParserStarted, RecordEvidenceInput,
+    ApprovalDecision, Artifact, ArtifactId, BlobId, ContentRange, DomainEvent, DomainEventEnvelope,
+    DomainInput, EvidenceKind, FullTextIndexCompleted, HarnessRunCompleted, IndexStatus,
+    KernelState, LogicalTick, MaestriaEffect, ParserResult, ParserStarted, RecordEvidenceInput,
     RecordValidationReportInput, RegisterChunkInput, StartFullTextIndex, ValidationCompleted,
-    ValidationReportId, content_hash, evidence_id_for, excerpt_for, line_range_for_chunk,
+    ValidationReportId, content_hash, evidence_id_for, excerpt_for,
 };
 use maestria_governance::{
     ApprovalGate, ApprovalRequest, AutonomyProfile, ClassifyRisk, PolicyDecision, Scope, ScopeGuard,
@@ -12,7 +12,7 @@ use maestria_memory::MemoryService;
 use maestria_ports::{
     ArtifactRepository, BlobStore, CardRepository, ChunkRepository, EventFilter, EventLog,
     EvidenceRepository, FileHandle, FileMetadata, FullTextIndex, GraphIndex, HarnessAdapter,
-    HarnessCommandClass, HarnessRequest, IndexedChunk, ParseContext, Parser, PortError,
+    HarnessCommandClass, HarnessRequest, IndexedChunk, ParseContext, Parser, PortError, SourceSpan,
     VectorEmbedding, VectorIndex, WebFetcher,
 };
 use maestria_validation::{ValidationContext, ValidationRunner};
@@ -647,10 +647,6 @@ impl MaestriaRuntime {
                     }
                 }
 
-                // Compute the source text from the parse bytes before they are moved
-                // into FileHandle. This avoids a second blob-store fetch on resume.
-                let source_text = String::from_utf8_lossy(&parse_bytes).into_owned();
-
                 let file = FileHandle {
                     path,
                     bytes: parse_bytes,
@@ -663,26 +659,37 @@ impl MaestriaRuntime {
                 ) {
                     Ok(parsed) => {
                         let observed_at = LogicalTick::new(1);
-                        let mut search_start: usize = 0;
 
                         // Collect evidence inputs and chunk registrations in a single pass.
                         let mut evidence_inputs: Vec<RecordEvidenceInput> = Vec::new();
                         let mut chunks: Vec<RegisterChunkInput> = Vec::new();
                         for (order, chunk) in parsed.chunks.iter().enumerate() {
                             let evidence_id = evidence_id_for(artifact.id, order as u32);
-                            let range =
-                                line_range_for_chunk(&source_text, &chunk.text, &mut search_start);
                             let excerpt = excerpt_for(&chunk.text);
+                            let kind = match &chunk.source_span {
+                                SourceSpan::TextSpan {
+                                    start_line,
+                                    end_line,
+                                } => EvidenceKind::FileSpan {
+                                    path: request.source_path.clone(),
+                                    range: ContentRange {
+                                        start: *start_line,
+                                        end: *end_line,
+                                    },
+                                    content_hash: source_hash.clone(),
+                                    snapshot: Some(blob_id),
+                                },
+                                SourceSpan::PdfSpan { page } => EvidenceKind::PdfSpan {
+                                    blob: blob_id,
+                                    page_start: *page as u32,
+                                    page_end: *page as u32,
+                                },
+                            };
                             evidence_inputs.push(RecordEvidenceInput {
                                 evidence_id,
                                 artifact_id: artifact.id,
                                 claim_id: None,
-                                kind: EvidenceKind::FileSpan {
-                                    path: request.source_path.clone(),
-                                    range,
-                                    content_hash: source_hash.clone(),
-                                    snapshot: Some(blob_id),
-                                },
+                                kind,
                                 excerpt,
                                 observed_at,
                             });
@@ -1099,6 +1106,8 @@ mod runtime_evidence_tests;
 mod runtime_harness_tests;
 #[cfg(test)]
 mod runtime_parse_tests;
+#[cfg(test)]
+mod runtime_pdf_tests;
 #[cfg(test)]
 mod runtime_resume_tests;
 #[cfg(test)]

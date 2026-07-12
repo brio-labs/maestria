@@ -156,10 +156,19 @@ pub struct ParseContext {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SourceSpan {
+    /// Text chunks carry a 1-based line span (start_line, end_line), both inclusive.
+    TextSpan { start_line: usize, end_line: usize },
+    /// PDF chunks carry the physical page number (1-based).
+    PdfSpan { page: usize },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ParsedChunk {
     pub chunk_id: ChunkId,
     pub artifact_id: ArtifactId,
     pub text: String,
+    pub source_span: SourceSpan,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

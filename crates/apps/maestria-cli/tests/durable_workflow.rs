@@ -61,6 +61,140 @@ fn write_file(parent: &Path, name: &str, contents: &str) {
     fs::write(&path, contents).expect("write test file");
 }
 
+/// Write binary bytes into a file, creating parents as needed.
+fn write_file_bytes(parent: &Path, name: &str, contents: &[u8]) {
+    let path = parent.join(name);
+    if let Some(dir) = path.parent() {
+        fs::create_dir_all(dir).expect("create parent dirs");
+    }
+    fs::write(&path, contents).expect("write test file");
+}
+
+/// Build a minimal valid PDF containing the given text on one page.
+fn create_minimal_pdf(text: &[u8]) -> Vec<u8> {
+    use lopdf::content::{Content, Operation};
+    use lopdf::{Dictionary, Object, Stream};
+
+    let mut doc = lopdf::Document::with_version("1.4");
+    let pages_id = doc.new_object_id();
+    let page_id = doc.new_object_id();
+    let content_id = doc.new_object_id();
+    let font_id = doc.new_object_id();
+
+    // Font dictionary
+    let mut font_dict = Dictionary::new();
+    font_dict.set("Type", Object::Name("Font".into()));
+    font_dict.set("Subtype", Object::Name("Type1".into()));
+    font_dict.set("BaseFont", Object::Name("Courier".into()));
+    doc.objects.insert(font_id, Object::Dictionary(font_dict));
+
+    // Content stream with text
+    let content = Content {
+        operations: vec![
+            Operation::new("BT", vec![]),
+            Operation::new("Tf", vec![Object::Name("F1".into()), Object::Integer(12)]),
+            Operation::new("Td", vec![Object::Integer(72), Object::Integer(700)]),
+            Operation::new(
+                "Tj",
+                vec![Object::String(text.to_vec(), lopdf::StringFormat::Literal)],
+            ),
+            Operation::new("ET", vec![]),
+        ],
+    };
+    doc.objects.insert(
+        content_id,
+        Object::Stream(Stream::new(
+            Dictionary::new(),
+            content.encode().expect("content stream encoding"),
+        )),
+    );
+
+    // Resources dictionary
+    let mut resources = Dictionary::new();
+    let mut fonts = Dictionary::new();
+    fonts.set("F1", Object::Reference(font_id));
+    resources.set("Font", Object::Dictionary(fonts));
+
+    // Page object
+    let mut page = Dictionary::new();
+    page.set("Type", Object::Name("Page".into()));
+    page.set("Parent", Object::Reference(pages_id));
+    page.set(
+        "MediaBox",
+        Object::Array(vec![
+            Object::Integer(0),
+            Object::Integer(0),
+            Object::Integer(612),
+            Object::Integer(792),
+        ]),
+    );
+    page.set("Contents", Object::Reference(content_id));
+    page.set("Resources", Object::Dictionary(resources));
+    doc.objects.insert(page_id, Object::Dictionary(page));
+
+    // Pages object
+    let mut pages = Dictionary::new();
+    pages.set("Type", Object::Name("Pages".into()));
+    pages.set("Kids", Object::Array(vec![Object::Reference(page_id)]));
+    pages.set("Count", Object::Integer(1));
+    doc.objects.insert(pages_id, Object::Dictionary(pages));
+
+    // Catalog
+    let catalog_id = doc.new_object_id();
+    let mut catalog = Dictionary::new();
+    catalog.set("Type", Object::Name("Catalog".into()));
+    catalog.set("Pages", Object::Reference(pages_id));
+    doc.objects.insert(catalog_id, Object::Dictionary(catalog));
+    doc.trailer.set("Root", Object::Reference(catalog_id));
+
+    let mut output = Vec::new();
+    doc.save_to(&mut output).expect("minimal PDF serialization");
+    output
+}
+
+/// Build a minimal PDF with no extractable text (scanned/image-only).
+fn create_no_text_pdf() -> Vec<u8> {
+    use lopdf::{Dictionary, Object};
+
+    let mut doc = lopdf::Document::with_version("1.4");
+    let pages_id = doc.new_object_id();
+    let page_id = doc.new_object_id();
+
+    // Page with no content stream (simulating scanned/image-only PDF)
+    let mut page = Dictionary::new();
+    page.set("Type", Object::Name("Page".into()));
+    page.set("Parent", Object::Reference(pages_id));
+    page.set(
+        "MediaBox",
+        Object::Array(vec![
+            Object::Integer(0),
+            Object::Integer(0),
+            Object::Integer(612),
+            Object::Integer(792),
+        ]),
+    );
+    doc.objects.insert(page_id, Object::Dictionary(page));
+
+    // Pages object
+    let mut pages = Dictionary::new();
+    pages.set("Type", Object::Name("Pages".into()));
+    pages.set("Kids", Object::Array(vec![Object::Reference(page_id)]));
+    pages.set("Count", Object::Integer(1));
+    doc.objects.insert(pages_id, Object::Dictionary(pages));
+
+    // Catalog
+    let catalog_id = doc.new_object_id();
+    let mut catalog = Dictionary::new();
+    catalog.set("Type", Object::Name("Catalog".into()));
+    catalog.set("Pages", Object::Reference(pages_id));
+    doc.objects.insert(catalog_id, Object::Dictionary(catalog));
+    doc.trailer.set("Root", Object::Reference(catalog_id));
+
+    let mut output = Vec::new();
+    doc.save_to(&mut output).expect("minimal PDF serialization");
+    output
+}
+
 /// Assert exit success, return stdout.
 fn assert_ok(args: &[&str]) -> String {
     let (code, stdout, _stderr) = run(args);
@@ -323,5 +457,153 @@ fn query_commands_require_an_initialized_instance() {
     assert!(
         error.contains("instance manifest is missing"),
         "unexpected uninitialized-instance evidence error: {error}"
+    );
+}
+
+#[test]
+fn pdf_indexing_workflow() {
+    // ── Setup ───────────────────────────────────────────────────────────────
+    let workspace = TempDir::new("maestria-test-pdf-workspace");
+    let instance = TempDir::new("maestria-test-pdf-instance");
+
+    // ── 1. Init ─────────────────────────────────────────────────────────────
+    let stdout = assert_ok_lines(
+        &[
+            "init",
+            "-i",
+            &instance.path().to_string_lossy(),
+            "--read-root",
+            &workspace.path().to_string_lossy(),
+        ],
+        2,
+    );
+    assert!(
+        stdout.contains("initialized"),
+        "init stdout missing 'initialized': {stdout}"
+    );
+
+    // ── 2. Index a valid PDF ────────────────────────────────────────────────
+    let pdf_bytes = create_minimal_pdf(b"The system uses a distributed ledger for consensus.");
+    write_file_bytes(workspace.path(), "paper.pdf", &pdf_bytes);
+    let stdout = assert_ok_lines(
+        &[
+            "index",
+            "-i",
+            &instance.path().to_string_lossy(),
+            &workspace.path().join("paper.pdf").to_string_lossy(),
+        ],
+        1,
+    );
+    assert!(
+        stdout.contains("indexed "),
+        "expected 'indexed' in index output: {stdout}"
+    );
+
+    // ── 3. Restart durability: search for PDF content ───────────────────────
+    let stdout = assert_ok_lines(
+        &[
+            "search",
+            "-i",
+            &instance.path().to_string_lossy(),
+            "distributed",
+        ],
+        1,
+    );
+    let output_line = stdout
+        .lines()
+        .next()
+        .expect("search output missing result line");
+    let kv = parse_kv(output_line);
+    let chunk_id_str = kv
+        .iter()
+        .find(|(k, _)| *k == "chunk")
+        .map(|(_, v)| *v)
+        .expect("search output missing chunk=<id>");
+    assert!(
+        chunk_id_str.parse::<u64>().is_ok(),
+        "chunk id not a u64: {chunk_id_str}"
+    );
+
+    // ── 4. Open evidence by chunk id ────────────────────────────────────────
+    let stdout = assert_ok_lines(
+        &[
+            "open-evidence",
+            "-i",
+            &instance.path().to_string_lossy(),
+            "--chunk-id",
+            chunk_id_str,
+        ],
+        3,
+    );
+    // Source label: must show PDF provenance with page numbers
+    assert!(
+        stdout.contains("source=pdf"),
+        "open-evidence missing source=pdf: {stdout}"
+    );
+    assert!(
+        stdout.contains("pages=1-1"),
+        "open-evidence missing pages=1-1: {stdout}"
+    );
+    // Excerpt
+    assert!(
+        stdout.contains("excerpt="),
+        "open-evidence missing excerpt: {stdout}"
+    );
+    let excerpt_line = stdout
+        .lines()
+        .find(|line| line.starts_with("excerpt="))
+        .expect("excerpt line not found");
+    assert!(
+        !excerpt_line["excerpt=".len()..].is_empty(),
+        "excerpt is empty: {excerpt_line}"
+    );
+}
+
+#[test]
+fn pdf_no_text_is_rejected() {
+    // ── Setup ───────────────────────────────────────────────────────────────
+    let workspace = TempDir::new("maestria-test-pdf-empty-workspace");
+    let instance = TempDir::new("maestria-test-pdf-empty-instance");
+
+    assert_ok_lines(
+        &[
+            "init",
+            "-i",
+            &instance.path().to_string_lossy(),
+            "--read-root",
+            &workspace.path().to_string_lossy(),
+        ],
+        2,
+    );
+
+    // ── Write a PDF with no extractable text ────────────────────────────────
+    let empty_pdf = create_no_text_pdf();
+    write_file_bytes(workspace.path(), "scanned.pdf", &empty_pdf);
+
+    // ── Index must fail ─────────────────────────────────────────────────────
+    let err = assert_err(&[
+        "index",
+        "-i",
+        &instance.path().to_string_lossy(),
+        &workspace.path().join("scanned.pdf").to_string_lossy(),
+    ]);
+    assert!(
+        err.contains("timeout") || err.contains("parser failed"),
+        "expected timeout or parser failure for no-text PDF, got: {err}"
+    );
+
+    // ── Restart: search must find nothing for the failed artifact ───────────
+    let stdout = assert_ok_lines(
+        &[
+            "search",
+            "-i",
+            &instance.path().to_string_lossy(),
+            "anything",
+        ],
+        0,
+    );
+    assert!(
+        stdout.trim().is_empty(),
+        "expected no search results for failed PDF, got: {stdout}"
     );
 }

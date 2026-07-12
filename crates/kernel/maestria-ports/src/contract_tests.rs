@@ -510,7 +510,13 @@ pub fn assert_parser_round_trip(parser: &impl Parser) {
     assert_eq!(parsed.artifact_id, ArtifactId::new(7));
     assert_eq!(parsed.chunks.len(), 1);
     assert_eq!(parsed.chunks[0].text, "alpha");
-
+    assert_eq!(
+        parsed.chunks[0].source_span,
+        SourceSpan::TextSpan {
+            start_line: 1,
+            end_line: 1
+        }
+    );
     assert!(matches!(
         parser.parse(
             FileHandle {

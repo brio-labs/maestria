@@ -567,6 +567,10 @@ impl Parser for InMemoryParser {
             chunk_id: ChunkId::new(context.artifact_id.value()),
             artifact_id: context.artifact_id,
             text,
+            source_span: super::SourceSpan::TextSpan {
+                start_line: 1,
+                end_line: 1,
+            },
         };
         Ok(super::ParsedArtifact {
             artifact_id: context.artifact_id,

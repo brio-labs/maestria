@@ -2,6 +2,7 @@
 
 use maestria_ports::{
     FileHandle, FileMetadata, ParseContext, ParsedArtifact, ParsedChunk, Parser, PortError,
+    SourceSpan,
 };
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -29,10 +30,9 @@ impl Parser for PdfParser {
         let doc = lopdf::Document::load_mem(&file.bytes).map_err(|e| PortError::InvalidInput {
             message: format!("PDF parse error: {e}"),
         })?;
-
-        // Extract text page by page
+        // Extract text page by page, tracking page numbers
         let page_nums: Vec<_> = doc.get_pages().keys().copied().collect();
-        let mut chunks = Vec::new();
+        let mut chunks: Vec<(String, u32)> = Vec::new();
 
         for page_num in &page_nums {
             #[allow(clippy::manual_unwrap_or_default)]
@@ -42,7 +42,7 @@ impl Parser for PdfParser {
             };
             let trimmed = text.trim().to_string();
             if !trimmed.is_empty() {
-                chunks.push(trimmed);
+                chunks.push((trimmed, *page_num));
             }
         }
 
@@ -52,13 +52,16 @@ impl Parser for PdfParser {
             });
         }
 
-        // Build chunks with deterministic IDs
+        // Build chunks with deterministic IDs and page-grounded spans
         let mut parsed_chunks = Vec::with_capacity(chunks.len());
-        for (order, text) in chunks.into_iter().enumerate() {
+        for (order, (text, page_num)) in chunks.into_iter().enumerate() {
             parsed_chunks.push(ParsedChunk {
                 chunk_id: crate::chunk_id_for(context.artifact_id, order)?,
                 artifact_id: context.artifact_id,
                 text,
+                source_span: SourceSpan::PdfSpan {
+                    page: page_num as usize,
+                },
             });
         }
 

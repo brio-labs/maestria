@@ -737,14 +737,14 @@ impl KernelState {
                         let expected_id = crate::evidence_id_for(chunk.artifact_id, chunk.order);
                         if let Some(ev) = self.evidences.get(&expected_id) {
                             let is_valid = ev.artifact_id == *artifact_id
-                                && matches!(
+                                && (matches!(
                                     &ev.kind,
                                     EvidenceKind::FileSpan {
                                         content_hash,
                                         snapshot: Some(_),
                                         ..
                                     } if expected_hash == Some(content_hash.as_str())
-                                );
+                                ) || matches!(&ev.kind, EvidenceKind::PdfSpan { .. }));
                             if !is_valid {
                                 to_remove.push((expected_id, ev.artifact_id, ev.claim_id));
                             }

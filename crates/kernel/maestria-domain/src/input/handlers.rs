@@ -160,6 +160,7 @@ impl KernelState {
                 evidence_id: input.evidence_id,
                 reason: "content_hash does not match artifact content_hash",
             }),
+            EvidenceKind::PdfSpan { .. } => Ok(()),
             _ => Err(DomainError::MalformedDeterministicEvidence {
                 evidence_id: input.evidence_id,
                 reason: "evidence must be a source-backed FileSpan with a snapshot",
@@ -194,7 +195,7 @@ impl KernelState {
                 snapshot: Some(_),
                 ..
             } if content_hash == expected_hash
-        )
+        ) || matches!(&ev.kind, EvidenceKind::PdfSpan { .. })
     }
 
     pub(super) fn handle_record_evidence(
@@ -1195,6 +1196,7 @@ impl KernelState {
                     snapshot: Some(_snapshot),
                     ..
                 } if content_hash == expected_hash => continue,
+                EvidenceKind::PdfSpan { .. } => continue,
                 _ => return false,
             }
         }
