@@ -199,4 +199,58 @@ mod tests {
             MemoryPromotionDecision::RequireEvidence { .. }
         ));
     }
+
+    /// ReadOnly allows IndexFullText (rebuildable projection) but still gates risky effects.
+    #[test]
+    fn readonly_allows_full_text_index_but_gates_risky_effects() {
+        let scope = Scope::new(
+            vec![std::path::PathBuf::from("/data")],
+            vec![std::path::PathBuf::from("/data")],
+            vec!["shell".into()],
+            vec!["rm -rf".into()],
+            true,
+        );
+        let guard = ScopeGuard::new(scope);
+        let gate = DefaultApprovalGate;
+
+        // IndexFullText is a rebuildable projection — ReadOnly must allow it.
+        let index_effect =
+            maestria_domain::MaestriaEffect::IndexFullText(maestria_domain::IndexFullTextRequest {
+                artifact_id: maestria_domain::ArtifactId::new(1),
+                chunk_id: maestria_domain::ChunkId::new(10),
+            });
+        let index_req = ApprovalRequest {
+            effect: &index_effect,
+            profile: AutonomyProfile::ReadOnly,
+            scope: &guard,
+        };
+        let index_decision = gate.decide(&index_req);
+        assert!(
+            index_decision.decision.is_allowed(),
+            "IndexFullText must be allowed under ReadOnly (rebuildable projection)"
+        );
+        assert_eq!(index_decision.risk, RiskClass::Low);
+
+        // QueryHarness with destructive commands must still be gated under ReadOnly.
+        let harness_effect =
+            maestria_domain::MaestriaEffect::QueryHarness(maestria_domain::QueryHarnessRequest {
+                run_id: maestria_domain::HarnessRunId::new(1),
+                task_id: None,
+                generation: None,
+                capability: "shell".into(),
+                scope_id: maestria_domain::ScopeId::new(1),
+                approval_id: None,
+                command: "rm -rf /tmp".into(),
+            });
+        let harness_req = ApprovalRequest {
+            effect: &harness_effect,
+            profile: AutonomyProfile::ReadOnly,
+            scope: &guard,
+        };
+        let harness_decision = gate.decide(&harness_req);
+        assert!(
+            !harness_decision.decision.is_allowed(),
+            "QueryHarness with destructive command must be gated under ReadOnly"
+        );
+    }
 }
