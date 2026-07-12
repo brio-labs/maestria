@@ -161,7 +161,7 @@ async fn parse_artifact_calls_blob_put_exactly_once() {
 }
 
 #[tokio::test]
-async fn parse_artifact_retry_skips_existing_evidence() {
+async fn parse_artifact_retry_redrives_existing_evidence() {
     let artifact_id = ArtifactId::new(77);
     let existing_evidence_id = evidence_id_for(artifact_id, 0);
 
@@ -250,17 +250,26 @@ async fn parse_artifact_retry_skips_existing_evidence() {
         Err(_) => panic!("timeout waiting for ParserStarted"),
     }
 
-    // Second input: ParserCompleted (no RecordEvidence for already-present evidence).
+    // Second input: ParserCompleted.
     match tokio::time::timeout(Duration::from_secs(1), input_rx.recv()).await {
         Ok(Some(DomainInput::ParserCompleted(pr))) => {
             assert_eq!(pr.artifact_id, artifact_id);
             assert_eq!(pr.chunks.len(), 1);
         }
-        Ok(Some(DomainInput::RecordEvidence(ev))) => {
-            panic!("unexpected RecordEvidence for already-present evidence_id {ev:?}");
-        }
         Ok(Some(other)) => panic!("expected ParserCompleted, got {other:?}"),
         Ok(None) => panic!("channel closed before ParserCompleted"),
         Err(_) => panic!("timeout waiting for ParserCompleted"),
+    }
+
+    // Existing evidence is re-driven so malformed persisted evidence can be
+    // repaired; valid duplicates are idempotent in the domain reducer.
+    match tokio::time::timeout(Duration::from_secs(1), input_rx.recv()).await {
+        Ok(Some(DomainInput::RecordEvidence(ev))) => {
+            assert_eq!(ev.evidence_id, existing_evidence_id);
+            assert_eq!(ev.artifact_id, artifact_id);
+        }
+        Ok(Some(other)) => panic!("expected RecordEvidence, got {other:?}"),
+        Ok(None) => panic!("channel closed before RecordEvidence"),
+        Err(_) => panic!("timeout waiting for RecordEvidence"),
     }
 }
