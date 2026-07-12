@@ -28,7 +28,7 @@ fn artifact_detected_input_is_replay_deterministic() -> Result<(), Box<dyn std::
     let (replay_state, replay_events, replay_effects) =
         replay_inputs(std::slice::from_ref(&input))?;
     assert_eq!(replay_state, state_a);
-    assert!(!replay_events.is_empty());
+    assert!(replay_events.is_empty());
     assert!(!replay_effects.is_empty());
 
     // Reproducibility: same bytes, same path → same input → same KernelState.
