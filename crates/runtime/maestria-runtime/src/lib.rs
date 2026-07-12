@@ -1338,15 +1338,17 @@ mod tests {
         }
 
         assert!(
-            chunk_repo.get(chunk_id).unwrap().is_some(),
+            chunk_repo.get(chunk_id).is_ok_and(|value| value.is_some()),
             "chunk should be persisted"
         );
         assert!(
-            card_repo.get(card_id).unwrap().is_some(),
+            card_repo.get(card_id).is_ok_and(|value| value.is_some()),
             "card should be persisted"
         );
         assert!(
-            evidence_repo.get(evidence_id).unwrap().is_some(),
+            evidence_repo
+                .get(evidence_id)
+                .is_ok_and(|value| value.is_some()),
             "evidence should be persisted"
         );
     }
