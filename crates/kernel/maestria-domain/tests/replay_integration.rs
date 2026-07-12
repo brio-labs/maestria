@@ -1612,9 +1612,7 @@ fn replay_artifact_indexed_cleans_cross_artifact_evidence_owner() -> Result<(), 
     state.apply_event(DomainEventEnvelope {
         id: EventId::new(9),
         sequence: SequenceNumber::new(9),
-        event: DomainEvent::ArtifactIndexed {
-            artifact_id: art_a,
-        },
+        event: DomainEvent::ArtifactIndexed { artifact_id: art_a },
     })?;
 
     // Evidence must be removed from the global map.
@@ -1682,9 +1680,7 @@ fn replay_artifact_indexed_cleans_cross_artifact_evidence_owner() -> Result<(), 
     state.apply_event(DomainEventEnvelope {
         id: EventId::new(11),
         sequence: SequenceNumber::new(11),
-        event: DomainEvent::ArtifactIndexed {
-            artifact_id: art_a,
-        },
+        event: DomainEvent::ArtifactIndexed { artifact_id: art_a },
     })?;
 
     assert_eq!(

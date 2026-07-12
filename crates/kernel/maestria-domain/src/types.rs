@@ -935,6 +935,10 @@ pub enum DomainError {
     PendingChunksExist {
         artifact_id: ArtifactId,
     },
+    MalformedDeterministicEvidence {
+        evidence_id: EvidenceId,
+        reason: &'static str,
+    },
 }
 
 impl fmt::Display for DomainError {
@@ -1020,6 +1024,13 @@ impl fmt::Display for DomainError {
                     "artifact {artifact_id} still has pending full-text chunks"
                 )
             }
+            Self::MalformedDeterministicEvidence {
+                evidence_id,
+                reason,
+            } => write!(
+                f,
+                "malformed deterministic evidence {evidence_id}: {reason}"
+            ),
         }
     }
 }

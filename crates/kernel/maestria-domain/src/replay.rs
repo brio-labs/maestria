@@ -681,8 +681,7 @@ impl KernelState {
                     // Collect (evidence_id, actual_owner_artifact_id,
                     // claim_id) so we can repair cross-artifact references
                     // and claim reverse-links without borrow conflicts.
-                    let mut to_remove: Vec<(EvidenceId, ArtifactId, Option<ClaimId>)> =
-                        Vec::new();
+                    let mut to_remove: Vec<(EvidenceId, ArtifactId, Option<ClaimId>)> = Vec::new();
                     for chunk in self.chunks.values() {
                         if chunk.artifact_id != *artifact_id {
                             continue;

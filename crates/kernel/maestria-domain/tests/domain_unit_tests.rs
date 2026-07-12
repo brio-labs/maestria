@@ -2503,6 +2503,225 @@ fn record_evidence_rejects_observed_at_mismatch() -> Result<(), DomainError> {
     Ok(())
 }
 
+// ── Deterministic evidence repair / rejection ──────────────────
+
+#[test]
+fn malformed_deterministic_existing_replaced_by_valid_retry() -> Result<(), DomainError> {
+    // When an existing record at a deterministic ID is malformed
+    // (e.g. legacy/corrupt), a valid incoming FileSpan with snapshot
+    // and correct content_hash must replace it.
+    let mut state = KernelState::new();
+    let art_id = ArtifactId::new(1);
+    let det_id = evidence_id_for(art_id, 0);
+    // Set up artifact + chunk so the ID is deterministic.
+    state.apply_input(DomainInput::ArtifactDetected(ArtifactDetected {
+        artifact_id: art_id,
+        title: "Test".to_string(),
+        source_path: "/tmp/test.md".to_string(),
+        source_bytes: vec![1, 2, 3],
+        content_hash: "sha256:abc".to_string(),
+    }))?;
+    state.apply_input(DomainInput::ParserStarted(ParserStarted {
+        artifact_id: art_id,
+        title: "Test".to_string(),
+        source_path: "/tmp/test.md".to_string(),
+        content_hash: "sha256:abc".to_string(),
+        blob_id: BlobId::new(42),
+    }))?;
+    state.apply_input(DomainInput::ParserCompleted(ParserResult {
+        artifact_id: art_id,
+        chunks: vec![RegisterChunkInput {
+            chunk_id: ChunkId::new(10),
+            artifact_id: art_id,
+            order: 0,
+            text: "hello".to_string(),
+        }],
+        cards: Vec::new(),
+    }))?;
+    // First, inject malformed evidence (CommandOutput — wrong kind).
+    // We bypass RecordEvidence's deterministic check by inserting directly.
+    state.evidences.insert(
+        det_id,
+        Evidence {
+            id: det_id,
+            artifact_id: art_id,
+            claim_id: None,
+            kind: EvidenceKind::CommandOutput {
+                harness_run: HarnessRunId::new(1),
+                stream: OutputStream::Stdout,
+                blob: BlobId::new(99),
+            },
+            excerpt: "old".to_string(),
+            observed_at: LogicalTick::new(1),
+        },
+    );
+    if let Some(artifact) = state.artifacts.get_mut(&art_id) {
+        artifact.evidence_ids.insert(det_id);
+    }
+    assert!(state.evidences.contains_key(&det_id));
+
+    // Now retry with valid deterministic evidence.
+    let output = state.apply_input(DomainInput::RecordEvidence(RecordEvidenceInput {
+        evidence_id: det_id,
+        artifact_id: art_id,
+        claim_id: None,
+        kind: EvidenceKind::FileSpan {
+            path: "/tmp/test.md".to_string(),
+            range: ContentRange { start: 0, end: 1 },
+            content_hash: "sha256:abc".to_string(),
+            snapshot: Some(BlobId::new(42)),
+        },
+        excerpt: "hello".to_string(),
+        observed_at: LogicalTick::new(2),
+    }))?;
+    assert!(
+        output
+            .events
+            .iter()
+            .any(|e| matches!(e.event, DomainEvent::EvidenceRecorded { .. })),
+        "replacement must emit EvidenceRecorded"
+    );
+    // Verify the evidence was replaced.
+    let ev = state.evidences.get(&det_id).expect("evidence must exist");
+    assert!(
+        matches!(ev.kind, EvidenceKind::FileSpan { .. }),
+        "replaced evidence must be FileSpan"
+    );
+    assert_eq!(ev.excerpt, "hello");
+    Ok(())
+}
+
+#[test]
+fn valid_deterministic_duplicate_still_rejected() -> Result<(), DomainError> {
+    // A valid existing record at a deterministic ID with different
+    // fields must still return DuplicateId — idempotency is preserved.
+    let mut state = KernelState::new();
+    let art_id = ArtifactId::new(1);
+    let det_id = evidence_id_for(art_id, 0);
+    state.apply_input(DomainInput::ArtifactDetected(ArtifactDetected {
+        artifact_id: art_id,
+        title: "Test".to_string(),
+        source_path: "/tmp/test.md".to_string(),
+        source_bytes: vec![1, 2, 3],
+        content_hash: "sha256:abc".to_string(),
+    }))?;
+    state.apply_input(DomainInput::ParserStarted(ParserStarted {
+        artifact_id: art_id,
+        title: "Test".to_string(),
+        source_path: "/tmp/test.md".to_string(),
+        content_hash: "sha256:abc".to_string(),
+        blob_id: BlobId::new(42),
+    }))?;
+    state.apply_input(DomainInput::ParserCompleted(ParserResult {
+        artifact_id: art_id,
+        chunks: vec![RegisterChunkInput {
+            chunk_id: ChunkId::new(10),
+            artifact_id: art_id,
+            order: 0,
+            text: "hello".to_string(),
+        }],
+        cards: Vec::new(),
+    }))?;
+    // Insert valid deterministic evidence.
+    state.apply_input(DomainInput::RecordEvidence(RecordEvidenceInput {
+        evidence_id: det_id,
+        artifact_id: art_id,
+        claim_id: None,
+        kind: EvidenceKind::FileSpan {
+            path: "/tmp/test.md".to_string(),
+            range: ContentRange { start: 0, end: 1 },
+            content_hash: "sha256:abc".to_string(),
+            snapshot: Some(BlobId::new(42)),
+        },
+        excerpt: "hello".to_string(),
+        observed_at: LogicalTick::new(1),
+    }))?;
+    // Retry with different excerpt — must be rejected.
+    let err = state
+        .apply_input(DomainInput::RecordEvidence(RecordEvidenceInput {
+            evidence_id: det_id,
+            artifact_id: art_id,
+            claim_id: None,
+            kind: EvidenceKind::FileSpan {
+                path: "/tmp/test.md".to_string(),
+                range: ContentRange { start: 0, end: 1 },
+                content_hash: "sha256:abc".to_string(),
+                snapshot: Some(BlobId::new(42)),
+            },
+            excerpt: "different".to_string(),
+            observed_at: LogicalTick::new(1),
+        }))
+        .expect_err("valid duplicate mismatch must error");
+    assert!(
+        matches!(err, DomainError::DuplicateId { kind, id } if kind == "evidence" && id == det_id.value()),
+        "expected DuplicateId, got {:?}",
+        err
+    );
+    Ok(())
+}
+
+#[test]
+fn deterministic_cross_owner_rejected() -> Result<(), DomainError> {
+    // Evidence at a deterministic ID derived from artifact A cannot
+    // be recorded under artifact B.
+    let mut state = KernelState::new();
+    let art_a = ArtifactId::new(1);
+    let art_b = ArtifactId::new(2);
+    let det_id = evidence_id_for(art_a, 0); // deterministic for artifact A
+    // Set up artifact A with a chunk.
+    state.apply_input(DomainInput::ArtifactDetected(ArtifactDetected {
+        artifact_id: art_a,
+        title: "A".to_string(),
+        source_path: "/tmp/a.md".to_string(),
+        source_bytes: vec![1],
+        content_hash: "sha256:abc".to_string(),
+    }))?;
+    state.apply_input(DomainInput::ParserStarted(ParserStarted {
+        artifact_id: art_a,
+        title: "A".to_string(),
+        source_path: "/tmp/a.md".to_string(),
+        content_hash: "sha256:abc".to_string(),
+        blob_id: BlobId::new(1),
+    }))?;
+    state.apply_input(DomainInput::ParserCompleted(ParserResult {
+        artifact_id: art_a,
+        chunks: vec![RegisterChunkInput {
+            chunk_id: ChunkId::new(10),
+            artifact_id: art_a,
+            order: 0,
+            text: "a".to_string(),
+        }],
+        cards: Vec::new(),
+    }))?;
+    // Set up artifact B so MissingArtifact doesn't fire first.
+    state.apply_input(DomainInput::RegisterArtifact(RegisterArtifactInput {
+        artifact_id: art_b,
+        title: "B".to_string(),
+    }))?;
+    // Try to record under artifact B with artifact A's deterministic ID.
+    let err = state
+        .apply_input(DomainInput::RecordEvidence(RecordEvidenceInput {
+            evidence_id: det_id,
+            artifact_id: art_b, // cross-owner
+            claim_id: None,
+            kind: EvidenceKind::FileSpan {
+                path: "/tmp/a.md".to_string(),
+                range: ContentRange { start: 0, end: 1 },
+                content_hash: "sha256:abc".to_string(),
+                snapshot: Some(BlobId::new(42)),
+            },
+            excerpt: "a".to_string(),
+            observed_at: LogicalTick::new(1),
+        }))
+        .expect_err("cross-owner deterministic evidence must be rejected");
+    assert!(
+        matches!(err, DomainError::MalformedDeterministicEvidence { .. }),
+        "expected MalformedDeterministicEvidence, got {:?}",
+        err
+    );
+    Ok(())
+}
+
 #[test]
 fn parser_completed_does_not_emit_index_effects() -> Result<(), DomainError> {
     let mut state = KernelState::new();
@@ -3080,10 +3299,10 @@ fn missing_evidence_keeps_artifact_pending_after_full_text_done() -> Result<(), 
 }
 
 #[test]
-fn non_filespan_evidence_cannot_terminalize() -> Result<(), DomainError> {
-    // Regression: CommandOutput evidence must not satisfy the
-    // evidence-completeness gate. Only source-backed FileSpan with
-    // snapshot + matching content_hash enables terminal indexing.
+fn malformed_deterministic_non_filespan_is_rejected_at_record() -> Result<(), DomainError> {
+    // Regression: CommandOutput evidence at a deterministic evidence ID
+    // (matching a chunk) is rejected at RecordEvidence time because
+    // deterministic evidence must be source-backed FileSpan.
     let mut state = KernelState::new();
     let art_id = ArtifactId::new(1);
     state.apply_input(DomainInput::ArtifactDetected(ArtifactDetected {
@@ -3110,44 +3329,39 @@ fn non_filespan_evidence_cannot_terminalize() -> Result<(), DomainError> {
         }],
         cards: Vec::new(),
     }))?;
-    // Record CommandOutput evidence — wrong kind for terminal gate.
-    state.apply_input(DomainInput::RecordEvidence(RecordEvidenceInput {
-        evidence_id: evidence_id_for(art_id, 0),
-        artifact_id: art_id,
-        claim_id: None,
-        kind: EvidenceKind::CommandOutput {
-            harness_run: HarnessRunId::new(1),
-            stream: OutputStream::Stdout,
-            blob: BlobId::new(99),
-        },
-        excerpt: "out".to_string(),
-        observed_at: LogicalTick::new(1),
-    }))?;
-    // Full-text complete — but evidence is non-FileSpan.
-    state.apply_input(DomainInput::FullTextIndexCompleted(
-        FullTextIndexCompleted {
+    // CommandOutput at deterministic ID — MUST be rejected.
+    let err = state
+        .apply_input(DomainInput::RecordEvidence(RecordEvidenceInput {
+            evidence_id: evidence_id_for(art_id, 0),
             artifact_id: art_id,
-            chunk_id: ChunkId::new(10),
-        },
-    ))?;
-    // Artifact MUST stay Pending — non-FileSpan does not satisfy gate.
-    assert_eq!(
-        state.artifacts[&art_id].index_status,
-        IndexStatus::Pending,
-        "non-FileSpan evidence must not enable terminal indexing"
-    );
+            claim_id: None,
+            kind: EvidenceKind::CommandOutput {
+                harness_run: HarnessRunId::new(1),
+                stream: OutputStream::Stdout,
+                blob: BlobId::new(99),
+            },
+            excerpt: "out".to_string(),
+            observed_at: LogicalTick::new(1),
+        }))
+        .expect_err("CommandOutput at deterministic evidence ID must be rejected");
     assert!(
-        state.pending_parsers.contains_key(&art_id),
-        "pending_parsers must survive when evidence kind is not FileSpan"
+        matches!(err, DomainError::MalformedDeterministicEvidence { .. }),
+        "expected MalformedDeterministicEvidence, got {:?}",
+        err
+    );
+    // No evidence was inserted — state is unchanged.
+    assert!(
+        !state.evidences.contains_key(&evidence_id_for(art_id, 0)),
+        "malformed evidence must not be inserted"
     );
     Ok(())
 }
 
 #[test]
-fn filespan_without_snapshot_cannot_terminalize() -> Result<(), DomainError> {
-    // Regression: FileSpan evidence with snapshot: None must not
-    // satisfy the evidence-completeness gate. Only source-backed
-    // evidence (Some snapshot) enables terminal indexing.
+fn malformed_deterministic_filespan_without_snapshot_is_rejected() -> Result<(), DomainError> {
+    // Regression: FileSpan evidence at a deterministic evidence ID
+    // (matching a chunk) must have snapshot: Some. Missing snapshot
+    // is rejected at RecordEvidence time.
     let mut state = KernelState::new();
     let art_id = ArtifactId::new(1);
     state.apply_input(DomainInput::ArtifactDetected(ArtifactDetected {
@@ -3174,43 +3388,37 @@ fn filespan_without_snapshot_cannot_terminalize() -> Result<(), DomainError> {
         }],
         cards: Vec::new(),
     }))?;
-    // Record FileSpan with snapshot: None — missing source backing.
-    state.apply_input(DomainInput::RecordEvidence(RecordEvidenceInput {
-        evidence_id: evidence_id_for(art_id, 0),
-        artifact_id: art_id,
-        claim_id: None,
-        kind: EvidenceKind::FileSpan {
-            path: "/tmp/test.md".to_string(),
-            range: ContentRange { start: 0, end: 1 },
-            content_hash: "sha256:abc".to_string(),
-            snapshot: None,
-        },
-        excerpt: "hello".to_string(),
-        observed_at: LogicalTick::new(1),
-    }))?;
-    state.apply_input(DomainInput::FullTextIndexCompleted(
-        FullTextIndexCompleted {
+    // FileSpan with snapshot: None — MUST be rejected.
+    let err = state
+        .apply_input(DomainInput::RecordEvidence(RecordEvidenceInput {
+            evidence_id: evidence_id_for(art_id, 0),
             artifact_id: art_id,
-            chunk_id: ChunkId::new(10),
-        },
-    ))?;
-    // Artifact MUST stay Pending — missing snapshot does not satisfy gate.
-    assert_eq!(
-        state.artifacts[&art_id].index_status,
-        IndexStatus::Pending,
-        "FileSpan without snapshot must not enable terminal indexing"
+            claim_id: None,
+            kind: EvidenceKind::FileSpan {
+                path: "/tmp/test.md".to_string(),
+                range: ContentRange { start: 0, end: 1 },
+                content_hash: "sha256:abc".to_string(),
+                snapshot: None,
+            },
+            excerpt: "hello".to_string(),
+            observed_at: LogicalTick::new(1),
+        }))
+        .expect_err("FileSpan without snapshot at deterministic ID must be rejected");
+    assert!(
+        matches!(err, DomainError::MalformedDeterministicEvidence { .. }),
+        "expected MalformedDeterministicEvidence, got {:?}",
+        err
     );
     assert!(
-        state.pending_parsers.contains_key(&art_id),
-        "pending_parsers must survive when evidence snapshot is None"
+        !state.evidences.contains_key(&evidence_id_for(art_id, 0)),
+        "malformed evidence must not be inserted"
     );
     Ok(())
 }
-
 #[test]
-fn filespan_with_wrong_content_hash_cannot_terminalize() -> Result<(), DomainError> {
-    // Regression: FileSpan evidence with content_hash that doesn't match
-    // the artifact's recorded content_hash must not satisfy the gate.
+fn malformed_deterministic_wrong_content_hash_is_rejected() -> Result<(), DomainError> {
+    // Regression: FileSpan evidence at a deterministic evidence ID
+    // must have content_hash matching the artifact's recorded hash.
     let mut state = KernelState::new();
     let art_id = ArtifactId::new(1);
     state.apply_input(DomainInput::ArtifactDetected(ArtifactDetected {
@@ -3237,35 +3445,30 @@ fn filespan_with_wrong_content_hash_cannot_terminalize() -> Result<(), DomainErr
         }],
         cards: Vec::new(),
     }))?;
-    // Record FileSpan with wrong content_hash — doesn't match artifact.
-    state.apply_input(DomainInput::RecordEvidence(RecordEvidenceInput {
-        evidence_id: evidence_id_for(art_id, 0),
-        artifact_id: art_id,
-        claim_id: None,
-        kind: EvidenceKind::FileSpan {
-            path: "/tmp/test.md".to_string(),
-            range: ContentRange { start: 0, end: 1 },
-            content_hash: "sha256:WRONG".to_string(),
-            snapshot: Some(BlobId::new(42)),
-        },
-        excerpt: "hello".to_string(),
-        observed_at: LogicalTick::new(1),
-    }))?;
-    state.apply_input(DomainInput::FullTextIndexCompleted(
-        FullTextIndexCompleted {
+    // FileSpan with wrong content_hash — MUST be rejected.
+    let err = state
+        .apply_input(DomainInput::RecordEvidence(RecordEvidenceInput {
+            evidence_id: evidence_id_for(art_id, 0),
             artifact_id: art_id,
-            chunk_id: ChunkId::new(10),
-        },
-    ))?;
-    // Artifact MUST stay Pending — content_hash mismatch blocks gate.
-    assert_eq!(
-        state.artifacts[&art_id].index_status,
-        IndexStatus::Pending,
-        "FileSpan with wrong content_hash must not enable terminal indexing"
+            claim_id: None,
+            kind: EvidenceKind::FileSpan {
+                path: "/tmp/test.md".to_string(),
+                range: ContentRange { start: 0, end: 1 },
+                content_hash: "sha256:WRONG".to_string(),
+                snapshot: Some(BlobId::new(42)),
+            },
+            excerpt: "hello".to_string(),
+            observed_at: LogicalTick::new(1),
+        }))
+        .expect_err("FileSpan with wrong content_hash at deterministic ID must be rejected");
+    assert!(
+        matches!(err, DomainError::MalformedDeterministicEvidence { .. }),
+        "expected MalformedDeterministicEvidence, got {:?}",
+        err
     );
     assert!(
-        state.pending_parsers.contains_key(&art_id),
-        "pending_parsers must survive when evidence content_hash mismatches artifact"
+        !state.evidences.contains_key(&evidence_id_for(art_id, 0)),
+        "malformed evidence must not be inserted"
     );
     Ok(())
 }
