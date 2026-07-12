@@ -71,128 +71,100 @@ fn write_file_bytes(parent: &Path, name: &str, contents: &[u8]) {
 }
 
 /// Build a minimal valid PDF containing the given text on one page.
+/// Constructs PDF bytes directly — no external PDF crate dependency.
 fn create_minimal_pdf(text: &[u8]) -> Vec<u8> {
-    use lopdf::content::{Content, Operation};
-    use lopdf::{Dictionary, Object, Stream};
+    let text_str = std::str::from_utf8(text).expect("PDF text must be valid UTF-8");
 
-    let mut doc = lopdf::Document::with_version("1.4");
-    let pages_id = doc.new_object_id();
-    let page_id = doc.new_object_id();
-    let content_id = doc.new_object_id();
-    let font_id = doc.new_object_id();
+    // Encode for PDF literal string: escape (, ), and \
+    let mut pdf_text = String::with_capacity(text_str.len() + 8);
+    for ch in text_str.chars() {
+        match ch {
+            '(' => pdf_text.push_str("\\("),
+            ')' => pdf_text.push_str("\\)"),
+            '\\' => pdf_text.push_str("\\\\"),
+            _ => pdf_text.push(ch),
+        }
+    }
 
-    // Font dictionary
-    let mut font_dict = Dictionary::new();
-    font_dict.set("Type", Object::Name("Font".into()));
-    font_dict.set("Subtype", Object::Name("Type1".into()));
-    font_dict.set("BaseFont", Object::Name("Courier".into()));
-    doc.objects.insert(font_id, Object::Dictionary(font_dict));
+    // Content stream — text-drawing operators
+    let content_data = format!("BT\n/F1 12 Tf\n72 700 Td\n({pdf_text}) Tj\nET");
+    let content_len = content_data.len();
 
-    // Content stream with text
-    let content = Content {
-        operations: vec![
-            Operation::new("BT", vec![]),
-            Operation::new("Tf", vec![Object::Name("F1".into()), Object::Integer(12)]),
-            Operation::new("Td", vec![Object::Integer(72), Object::Integer(700)]),
-            Operation::new(
-                "Tj",
-                vec![Object::String(text.to_vec(), lopdf::StringFormat::Literal)],
-            ),
-            Operation::new("ET", vec![]),
-        ],
-    };
-    doc.objects.insert(
-        content_id,
-        Object::Stream(Stream::new(
-            Dictionary::new(),
-            content.encode().expect("content stream encoding"),
-        )),
+    // PDF body objects
+    let font_obj = b"1 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Courier >>\nendobj\n";
+    let content_header = format!("2 0 obj\n<< /Length {content_len} >>\nstream\n");
+    let content_footer = "\nendstream\nendobj\n";
+    let page_obj       = b"3 0 obj\n<< /Type /Page /Parent 4 0 R /MediaBox [0 0 612 792] /Contents 2 0 R /Resources << /Font << /F1 1 0 R >> >> >>\nendobj\n";
+    let pages_obj = b"4 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n";
+    let catalog_obj = b"5 0 obj\n<< /Type /Catalog /Pages 4 0 R >>\nendobj\n";
+
+    let mut buf = Vec::with_capacity(1024);
+
+    // ── header ──
+    buf.extend_from_slice(b"%PDF-1.4\n");
+
+    // ── body objects (track offsets for xref) ──
+    let off_font = buf.len();
+    buf.extend_from_slice(font_obj);
+    let off_content = buf.len();
+    buf.extend_from_slice(content_header.as_bytes());
+    buf.extend_from_slice(content_data.as_bytes());
+    buf.extend_from_slice(content_footer.as_bytes());
+    let off_page = buf.len();
+    buf.extend_from_slice(page_obj);
+    let off_pages = buf.len();
+    buf.extend_from_slice(pages_obj);
+    let off_catalog = buf.len();
+    buf.extend_from_slice(catalog_obj);
+
+    // ── cross-reference table (20-byte entries, CRLF terminated) ──
+    let xref_offset = buf.len();
+    buf.extend_from_slice(b"xref\n0 6\n");
+    buf.extend_from_slice(b"0000000000 65535 f\r\n");
+    buf.extend_from_slice(format!("{off_font:010} 00000 n\r\n").as_bytes());
+    buf.extend_from_slice(format!("{off_content:010} 00000 n\r\n").as_bytes());
+    buf.extend_from_slice(format!("{off_page:010} 00000 n\r\n").as_bytes());
+    buf.extend_from_slice(format!("{off_pages:010} 00000 n\r\n").as_bytes());
+    buf.extend_from_slice(format!("{off_catalog:010} 00000 n\r\n").as_bytes());
+
+    // ── trailer ──
+    buf.extend_from_slice(
+        format!("trailer\n<< /Size 6 /Root 5 0 R >>\nstartxref\n{xref_offset}\n%%EOF\n").as_bytes(),
     );
 
-    // Resources dictionary
-    let mut resources = Dictionary::new();
-    let mut fonts = Dictionary::new();
-    fonts.set("F1", Object::Reference(font_id));
-    resources.set("Font", Object::Dictionary(fonts));
-
-    // Page object
-    let mut page = Dictionary::new();
-    page.set("Type", Object::Name("Page".into()));
-    page.set("Parent", Object::Reference(pages_id));
-    page.set(
-        "MediaBox",
-        Object::Array(vec![
-            Object::Integer(0),
-            Object::Integer(0),
-            Object::Integer(612),
-            Object::Integer(792),
-        ]),
-    );
-    page.set("Contents", Object::Reference(content_id));
-    page.set("Resources", Object::Dictionary(resources));
-    doc.objects.insert(page_id, Object::Dictionary(page));
-
-    // Pages object
-    let mut pages = Dictionary::new();
-    pages.set("Type", Object::Name("Pages".into()));
-    pages.set("Kids", Object::Array(vec![Object::Reference(page_id)]));
-    pages.set("Count", Object::Integer(1));
-    doc.objects.insert(pages_id, Object::Dictionary(pages));
-
-    // Catalog
-    let catalog_id = doc.new_object_id();
-    let mut catalog = Dictionary::new();
-    catalog.set("Type", Object::Name("Catalog".into()));
-    catalog.set("Pages", Object::Reference(pages_id));
-    doc.objects.insert(catalog_id, Object::Dictionary(catalog));
-    doc.trailer.set("Root", Object::Reference(catalog_id));
-
-    let mut output = Vec::new();
-    doc.save_to(&mut output).expect("minimal PDF serialization");
-    output
+    buf
 }
 
-/// Build a minimal PDF with no extractable text (scanned/image-only).
+/// Build a minimal PDF with no extractable text (scanned/image-only page).
+/// Constructs PDF bytes directly — no external PDF crate dependency.
 fn create_no_text_pdf() -> Vec<u8> {
-    use lopdf::{Dictionary, Object};
+    let page_obj = b"1 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>\nendobj\n";
+    let pages_obj = b"2 0 obj\n<< /Type /Pages /Kids [1 0 R] /Count 1 >>\nendobj\n";
+    let catalog_obj = b"3 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n";
 
-    let mut doc = lopdf::Document::with_version("1.4");
-    let pages_id = doc.new_object_id();
-    let page_id = doc.new_object_id();
+    let mut buf = Vec::with_capacity(512);
 
-    // Page with no content stream (simulating scanned/image-only PDF)
-    let mut page = Dictionary::new();
-    page.set("Type", Object::Name("Page".into()));
-    page.set("Parent", Object::Reference(pages_id));
-    page.set(
-        "MediaBox",
-        Object::Array(vec![
-            Object::Integer(0),
-            Object::Integer(0),
-            Object::Integer(612),
-            Object::Integer(792),
-        ]),
+    buf.extend_from_slice(b"%PDF-1.4\n");
+
+    let off_page = buf.len();
+    buf.extend_from_slice(page_obj);
+    let off_pages = buf.len();
+    buf.extend_from_slice(pages_obj);
+    let off_catalog = buf.len();
+    buf.extend_from_slice(catalog_obj);
+
+    let xref_offset = buf.len();
+    buf.extend_from_slice(b"xref\n0 4\n");
+    buf.extend_from_slice(b"0000000000 65535 f\r\n");
+    buf.extend_from_slice(format!("{off_page:010} 00000 n\r\n").as_bytes());
+    buf.extend_from_slice(format!("{off_pages:010} 00000 n\r\n").as_bytes());
+    buf.extend_from_slice(format!("{off_catalog:010} 00000 n\r\n").as_bytes());
+
+    buf.extend_from_slice(
+        format!("trailer\n<< /Size 4 /Root 3 0 R >>\nstartxref\n{xref_offset}\n%%EOF\n").as_bytes(),
     );
-    doc.objects.insert(page_id, Object::Dictionary(page));
 
-    // Pages object
-    let mut pages = Dictionary::new();
-    pages.set("Type", Object::Name("Pages".into()));
-    pages.set("Kids", Object::Array(vec![Object::Reference(page_id)]));
-    pages.set("Count", Object::Integer(1));
-    doc.objects.insert(pages_id, Object::Dictionary(pages));
-
-    // Catalog
-    let catalog_id = doc.new_object_id();
-    let mut catalog = Dictionary::new();
-    catalog.set("Type", Object::Name("Catalog".into()));
-    catalog.set("Pages", Object::Reference(pages_id));
-    doc.objects.insert(catalog_id, Object::Dictionary(catalog));
-    doc.trailer.set("Root", Object::Reference(catalog_id));
-
-    let mut output = Vec::new();
-    doc.save_to(&mut output).expect("minimal PDF serialization");
-    output
+    buf
 }
 
 /// Assert exit success, return stdout.
