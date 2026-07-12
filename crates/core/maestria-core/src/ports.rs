@@ -1,9 +1,7 @@
 use crate::error::CoreResult;
-use crate::ingestion::ingest_file_from_bytes;
 use crate::retrieval::{open_chunk_evidence, open_evidence, search};
 use crate::types::{
-    IngestFileInput, IngestFileOutput, OpenChunkEvidenceInput, OpenEvidenceInput,
-    OpenEvidenceOutput, SearchInput, SearchOutput,
+    OpenChunkEvidenceInput, OpenEvidenceInput, OpenEvidenceOutput, SearchInput, SearchOutput,
 };
 
 use maestria_ports::{
@@ -28,10 +26,6 @@ pub struct CoreServices<'a> {
 impl<'a> CoreServices<'a> {
     pub fn new(ports: CorePorts<'a>) -> Self {
         Self { ports }
-    }
-
-    pub fn ingest_file_from_bytes(&self, input: IngestFileInput) -> CoreResult<IngestFileOutput> {
-        ingest_file_from_bytes(&self.ports, input)
     }
 
     pub fn search(&self, input: SearchInput) -> CoreResult<SearchOutput> {

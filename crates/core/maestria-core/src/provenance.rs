@@ -1,23 +1,11 @@
 use maestria_domain::ArtifactId;
-use maestria_ports::FileMetadata;
 use sha2::{Digest, Sha256};
 
 use std::path::Path;
 
 // Re-export shared pure provenance helpers from the domain kernel.
-pub(crate) use maestria_domain::{evidence_id_for, excerpt_for, line_range_for_chunk};
+pub(crate) use maestria_domain::evidence_id_for;
 pub use maestria_domain::content_hash;
-
-pub(crate) fn file_metadata(path: &Path, size: usize) -> FileMetadata {
-    FileMetadata {
-        path: path.to_path_buf(),
-        size,
-        extension: path
-            .extension()
-            .and_then(|extension| extension.to_str())
-            .map(str::to_ascii_lowercase),
-    }
-}
 
 pub(crate) fn title_for_path(path: &Path) -> String {
     let title = path
@@ -49,8 +37,4 @@ pub fn artifact_id_for(path: &Path, bytes: &[u8]) -> ArtifactId {
 
 pub(crate) fn non_zero_id(value: u64) -> u64 {
     if value == 0 { 1 } else { value }
-}
-
-pub(crate) fn decode_utf8_lossy(bytes: &[u8]) -> String {
-    String::from_utf8_lossy(bytes).into_owned()
 }

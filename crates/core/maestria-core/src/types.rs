@@ -1,24 +1,4 @@
-use maestria_domain::{Artifact, Chunk, Evidence, EvidenceId, LogicalTick};
-use maestria_domain::{ArtifactId, ChunkId};
-use std::path::PathBuf;
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct IngestFileInput {
-    pub path: PathBuf,
-    pub bytes: Vec<u8>,
-    pub observed_at: LogicalTick,
-    pub artifact_id: Option<ArtifactId>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct IngestFileOutput {
-    pub artifact: Artifact,
-    pub chunks: Vec<Chunk>,
-    pub evidence: Vec<Evidence>,
-    pub blob_id: maestria_domain::BlobId,
-    pub content_hash: String,
-    pub unchanged: bool,
-}
+use maestria_domain::{Artifact, Chunk, ChunkId, Evidence, EvidenceId};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SearchInput {

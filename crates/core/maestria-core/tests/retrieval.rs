@@ -1,154 +1,173 @@
 use maestria_core::{
-    CorePorts, CoreServices, IngestFileInput, OpenChunkEvidenceInput, SearchInput,
+    CorePorts, CoreServices, OpenChunkEvidenceInput, OpenEvidenceInput, SearchInput,
 };
-use maestria_domain::{ArtifactId, EvidenceKind, LogicalTick};
+use maestria_domain::{
+    Artifact, ArtifactId, Chunk, ChunkId, Evidence, EvidenceKind, IndexStatus,
+};
 use maestria_ports::{
-    FileHandle, FileMetadata, InMemoryArtifactRepository, InMemoryBlobStore,
-    InMemoryCardRepository, InMemoryChunkRepository, InMemoryEventLog, InMemoryEvidenceRepository,
-    InMemoryFullTextIndex, ParseContext, ParsedArtifact, ParsedChunk, Parser, PortError,
+    ArtifactRepository, BlobStore, ChunkRepository, EvidenceRepository, FullTextIndex,
+    InMemoryArtifactRepository, InMemoryBlobStore, InMemoryCardRepository,
+    InMemoryChunkRepository, InMemoryEventLog, InMemoryEvidenceRepository, InMemoryFullTextIndex,
+    InMemoryParser, IndexedChunk,
 };
 
-#[derive(Clone)]
-struct ParagraphParser;
-
-impl Parser for ParagraphParser {
-    fn id(&self) -> &'static str {
-        "paragraph-parser"
-    }
-
-    fn supports(&self, file: &FileMetadata) -> bool {
-        file.extension.as_deref() == Some("md")
-    }
-
-    fn parse(&self, file: FileHandle, context: ParseContext) -> Result<ParsedArtifact, PortError> {
-        let text = String::from_utf8(file.bytes).map_err(|err| PortError::InvalidInput {
-            message: format!("file bytes are not utf8: {err}"),
-        })?;
-        let mut chunks = Vec::new();
-        for paragraph in text.split("\n\n").filter(|paragraph| !paragraph.is_empty()) {
-            let chunk_index = chunks.len() as u64;
-            chunks.push(ParsedChunk {
-                chunk_id: maestria_domain::ChunkId::new(
-                    context
-                        .artifact_id
-                        .value()
-                        .saturating_mul(100)
-                        .saturating_add(chunk_index)
-                        .saturating_add(1),
-                ),
-                artifact_id: context.artifact_id,
-                text: paragraph.to_string(),
-            });
-        }
-
-        Ok(ParsedArtifact {
-            artifact_id: context.artifact_id,
-            chunks,
-            cards: Vec::new(),
-        })
-    }
+/// Seed an artifact, chunks, evidence, and full-text entries directly through
+/// in-memory adapters, then wrap them in a `CoreServices` to exercise retrieval.
+fn seed_and_build_services<'a>(
+    artifact_repo: &'a InMemoryArtifactRepository,
+    chunk_repo: &'a InMemoryChunkRepository,
+    evidence_repo: &'a InMemoryEvidenceRepository,
+    blob_store: &'a InMemoryBlobStore,
+    search_index: &'a InMemoryFullTextIndex,
+    events: &'a InMemoryEventLog,
+    parser: &'a InMemoryParser,
+    cards: &'a InMemoryCardRepository,
+) -> CoreServices<'a> {
+    CoreServices::new(CorePorts {
+        artifacts: artifact_repo,
+        chunks: chunk_repo,
+        cards,
+        evidence: evidence_repo,
+        events,
+        parser,
+        search_index,
+        blobs: blob_store,
+    })
 }
 
 #[test]
-fn chunk_evidence_lookup_uses_matching_chunk_order_and_source_span()
--> Result<(), Box<dyn std::error::Error>> {
-    let artifacts = InMemoryArtifactRepository::new();
-    let chunks = InMemoryChunkRepository::new();
-    let cards = InMemoryCardRepository::new();
-    let evidence = InMemoryEvidenceRepository::new();
-    let events = InMemoryEventLog::new();
-    let parser = ParagraphParser;
+fn search_and_open_evidence_with_directly_seeded_artifact() -> Result<(), Box<dyn std::error::Error>>
+{
+    // 1. Create adapters and seed directly — no ingestion path.
+    let artifact_repo = InMemoryArtifactRepository::new();
+    let chunk_repo = InMemoryChunkRepository::new();
+    let evidence_repo = InMemoryEvidenceRepository::new();
+    let blob_store = InMemoryBlobStore::new();
     let search_index = InMemoryFullTextIndex::new();
-    let blobs = InMemoryBlobStore::new();
-    let core = CoreServices::new(CorePorts {
-        artifacts: &artifacts,
-        chunks: &chunks,
-        cards: &cards,
-        evidence: &evidence,
-        events: &events,
-        parser: &parser,
-        search_index: &search_index,
-        blobs: &blobs,
-    });
+    let events = InMemoryEventLog::new();
+    let parser = InMemoryParser::new();
+    let cards = InMemoryCardRepository::new();
+    let artifact_id = ArtifactId::new(7);
+    let chunk_id_0 = ChunkId::new(701);
+    let chunk_id_1 = ChunkId::new(702);
+    let evidence_id_0 = maestria_domain::evidence_id_for(artifact_id, 0);
+    let evidence_id_1 = maestria_domain::evidence_id_for(artifact_id, 1);
 
-    let ingested = core.ingest_file_from_bytes(IngestFileInput {
-        path: std::path::PathBuf::from("notes/multi-source.md"),
-        bytes: concat!(
-            "Alpha source span anchors first evidence.\n",
-            "\n",
-            "Beta source span carries beta-token evidence.\n",
-            "\n",
-            "Gamma source span carries gamma-token evidence.\n",
-        )
-        .as_bytes()
-        .to_vec(),
-        observed_at: LogicalTick::new(11),
-        artifact_id: Some(ArtifactId::new(7)),
+    let source_text = "alpha-token paragraph.\n\nbeta-token paragraph.\n";
+    let blob_id = blob_store.put(source_text.as_bytes().to_vec())?;
+
+    // Seed an artifact.
+    artifact_repo.put(Artifact {
+        id: artifact_id,
+        title: "multi.md".to_string(),
+        chunk_ids: [chunk_id_0, chunk_id_1].into(),
+        card_ids: Default::default(),
+        claim_ids: Default::default(),
+        evidence_ids: [evidence_id_0, evidence_id_1].into(),
+        index_status: IndexStatus::Indexed,
+        content_hash: None,
     })?;
 
-    let expected = [
-        ("Alpha source span anchors first evidence.", 1usize),
-        ("Beta source span carries beta-token evidence.", 3usize),
-        ("Gamma source span carries gamma-token evidence.", 5usize),
-    ];
-    assert_eq!(ingested.chunks.len(), expected.len());
-    assert_eq!(ingested.evidence.len(), expected.len());
+    // Seed chunks.
+    let chunk_0 = Chunk {
+        id: chunk_id_0,
+        artifact_id,
+        order: 0,
+        text: "alpha-token paragraph.".to_string(),
+    };
+    let chunk_1 = Chunk {
+        id: chunk_id_1,
+        artifact_id,
+        order: 1,
+        text: "beta-token paragraph.".to_string(),
+    };
+    chunk_repo.put(chunk_0.clone())?;
+    chunk_repo.put(chunk_1.clone())?;
 
-    for (order, ((chunk, evidence), (excerpt, line))) in ingested
-        .chunks
-        .iter()
-        .zip(ingested.evidence.iter())
-        .zip(expected.iter())
-        .enumerate()
-    {
-        assert_eq!(chunk.order, order as u32);
-        assert_eq!(evidence.excerpt, *excerpt);
+    // Seed evidence.
+    let content_hash = maestria_core::content_hash(source_text.as_bytes());
+    let evidence_0 = Evidence {
+        id: evidence_id_0,
+        artifact_id,
+        claim_id: None,
+        kind: EvidenceKind::FileSpan {
+            path: "notes/multi.md".to_string(),
+            range: maestria_domain::ContentRange { start: 1, end: 1 },
+            content_hash: content_hash.clone(),
+            snapshot: Some(blob_id),
+        },
+        excerpt: "alpha-token paragraph.".to_string(),
+        observed_at: maestria_domain::LogicalTick::new(1),
+    };
+    let evidence_1 = Evidence {
+        id: evidence_id_1,
+        artifact_id,
+        claim_id: None,
+        kind: EvidenceKind::FileSpan {
+            path: "notes/multi.md".to_string(),
+            range: maestria_domain::ContentRange { start: 3, end: 3 },
+            content_hash: content_hash.clone(),
+            snapshot: Some(blob_id),
+        },
+        excerpt: "beta-token paragraph.".to_string(),
+        observed_at: maestria_domain::LogicalTick::new(1),
+    };
+    evidence_repo.put(evidence_0.clone())?;
+    evidence_repo.put(evidence_1.clone())?;
 
-        let opened = core.open_chunk_evidence(OpenChunkEvidenceInput { chunk_id: chunk.id })?;
-        assert_eq!(opened.artifact.id, ingested.artifact.id);
-        assert_eq!(opened.evidence.id, evidence.id);
-        assert_eq!(opened.evidence.excerpt, *excerpt);
-        match opened.evidence.kind {
-            EvidenceKind::FileSpan {
-                path,
-                range,
-                content_hash,
-                ..
-            } => {
-                assert_eq!(path, "notes/multi-source.md");
-                assert_eq!(range.start, *line);
-                assert_eq!(range.end, *line);
-                assert_eq!(content_hash, ingested.content_hash);
-            }
-            other => panic!("expected file evidence, got {other:?}"),
-        }
-    }
+    // Index chunks for full-text search.
+    search_index.index_chunks(vec![
+        IndexedChunk {
+            artifact_id,
+            chunk_id: chunk_id_0,
+            text: chunk_0.text.clone(),
+        },
+        IndexedChunk {
+            artifact_id,
+            chunk_id: chunk_id_1,
+            text: chunk_1.text.clone(),
+        },
+    ])?;
 
-    let search = core.search(SearchInput {
-        query: "gamma-token".to_string(),
+    // 2. Build CoreServices around the seeded adapters.
+    let core = seed_and_build_services(
+        &artifact_repo,
+        &chunk_repo,
+        &evidence_repo,
+        &blob_store,
+        &search_index,
+        &events,
+        &parser,
+        &cards,
+    );
+
+    // 3. Exercise retrieval APIs.
+
+    // Search: "beta-token" should match chunk 1.
+    let search_result = core.search(SearchInput {
+        query: "beta-token".to_string(),
         limit: 5,
     })?;
-    assert_eq!(search.hits.len(), 1);
-    let hit = &search.hits[0];
-    assert_eq!(hit.artifact.id, ingested.artifact.id);
-    assert_eq!(hit.chunk.id, ingested.chunks[2].id);
-    let hit_evidence = &hit.evidence;
-    assert_eq!(hit_evidence.id, ingested.evidence[2].id);
-    assert_eq!(hit_evidence.excerpt, expected[2].0);
-    match &hit_evidence.kind {
-        EvidenceKind::FileSpan {
-            path,
-            range,
-            content_hash,
-            ..
-        } => {
-            assert_eq!(path, "notes/multi-source.md");
-            assert_eq!(range.start, expected[2].1);
-            assert_eq!(range.end, expected[2].1);
-            assert_eq!(content_hash, &ingested.content_hash);
-        }
-        other => panic!("expected file evidence, got {other:?}"),
-    }
+    assert_eq!(search_result.hits.len(), 1);
+    let hit = &search_result.hits[0];
+    assert_eq!(hit.artifact.id, artifact_id);
+    assert_eq!(hit.chunk.id, chunk_id_1);
+    assert_eq!(hit.evidence.id, evidence_id_1);
+    assert_eq!(hit.evidence.excerpt, "beta-token paragraph.");
+
+    // Open evidence by evidence id.
+    let opened = core.open_evidence(OpenEvidenceInput {
+        evidence_id: evidence_id_0,
+    })?;
+    assert_eq!(opened.artifact.id, artifact_id);
+    assert_eq!(opened.evidence.id, evidence_id_0);
+    assert_eq!(opened.evidence.excerpt, "alpha-token paragraph.");
+
+    // Open evidence by chunk id.
+    let chunk_opened = core.open_chunk_evidence(OpenChunkEvidenceInput {
+        chunk_id: chunk_id_0,
+    })?;
+    assert_eq!(chunk_opened.evidence.id, evidence_id_0);
 
     Ok(())
 }
