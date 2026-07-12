@@ -40,8 +40,10 @@ pub fn load_kernel_state(layout: &InstanceLayout) -> Result<KernelState> {
 pub fn build_runtime(
     layout: &InstanceLayout,
     state: KernelState,
+    profile: AutonomyProfile,
 ) -> Result<(
     MaestriaRuntime,
+    mpsc::Sender<DomainInput>,
     mpsc::Receiver<DomainInput>,
     CancellationToken,
 )> {
@@ -66,11 +68,11 @@ pub fn build_runtime(
     let artifact_repo = sqlite_store.clone();
     let harness = Arc::new(InMemoryHarnessAdapter::default());
     let vector_index = Arc::new(
-        SqliteVectorIndex::open(&layout.vector_index_dir)
+        SqliteVectorIndex::open(&layout.vector_index_dir.join("projection.db"))
             .with_context(|| format!("open vector index {}", layout.vector_index_dir.display()))?,
     );
     let graph_index = Arc::new(
-        SqliteGraphIndex::open(&layout.graph_index_dir)
+        SqliteGraphIndex::open(&layout.graph_index_dir.join("projection.db"))
             .with_context(|| format!("open graph index {}", layout.graph_index_dir.display()))?,
     );
     let web_fetcher = Arc::new(UreqWebFetcher::new());
@@ -102,20 +104,21 @@ pub fn build_runtime(
         false,
     );
     let config = RuntimeConfig {
-        profile: AutonomyProfile::ReadOnly,
+        profile,
         scope,
         ..Default::default()
     };
 
     let shutdown_token = CancellationToken::new();
     let (runtime, input_rx) = MaestriaRuntime::new(config, state, adapters, governance);
-    Ok((runtime, input_rx, shutdown_token))
+    let input_tx = runtime.handle().input_tx.clone();
+    Ok((runtime, input_tx, input_rx, shutdown_token))
 }
 
 pub async fn run_instance(instance_dir: PathBuf) -> Result<()> {
     let layout = prepare_instance(instance_dir).with_context(|| "prepare instance layout")?;
     let state = load_kernel_state(&layout).with_context(|| "load persisted kernel state")?;
-    let (runtime, input_rx, shutdown_token) = build_runtime(&layout, state)?;
+    let (runtime, _input_tx, input_rx, shutdown_token) = build_runtime(&layout, state, AutonomyProfile::ReadOnly)?;
     let runtime_task = tokio::spawn(runtime.run(input_rx, shutdown_token.clone()));
 
     let root = layout.root.clone();

@@ -1,7 +1,7 @@
 use maestria_domain::{
-    ApprovalDecision, DomainEvent, DomainInput, HarnessRunCompleted, KernelState, MaestriaEffect,
-    ParserResult, RecordValidationReportInput, RegisterChunkInput, ValidationCompleted,
-    ValidationReportId,
+    ApprovalDecision, DomainEvent, DomainInput, FullTextIndexCompleted, HarnessRunCompleted,
+    KernelState, MaestriaEffect, ParserResult, RecordValidationReportInput, RegisterChunkInput,
+    ValidationCompleted, ValidationReportId,
 };
 use maestria_governance::{
     ApprovalGate, ApprovalRequest, AutonomyProfile, ClassifyRisk, PolicyDecision, Scope, ScopeGuard,
@@ -469,6 +469,15 @@ impl MaestriaRuntime {
                     tracing::error!(chunk_id = %request.chunk_id, %error, "failed to index chunk");
                     return false;
                 }
+                Self::send_input(
+                    &input_tx,
+                    DomainInput::FullTextIndexCompleted(FullTextIndexCompleted {
+                        artifact_id: request.artifact_id,
+                        chunk_id: request.chunk_id,
+                    }),
+                    "full-text index completion",
+                )
+                .await;
             }
             MaestriaEffect::IndexVector(request) => {
                 let chunk = {
@@ -707,7 +716,7 @@ impl MaestriaRuntime {
 mod tests {
     use super::*;
     use maestria_domain::{
-        Artifact, ArtifactId, BlobId, ParseArtifactRequest, StoreBlobRequest,
+        Artifact, ArtifactId, BlobId, IndexStatus, ParseArtifactRequest, StoreBlobRequest,
     };
     use maestria_governance::{DefaultApprovalGate, DefaultRiskClassifier};
     use maestria_ports::{
@@ -934,6 +943,8 @@ mod tests {
                 card_ids: BTreeSet::new(),
                 claim_ids: BTreeSet::new(),
                 evidence_ids: BTreeSet::new(),
+                index_status: IndexStatus::Unindexed,
+                content_hash: None,
             })
             .expect("pre-populated artifact should be accepted");
 
@@ -994,6 +1005,8 @@ mod tests {
                 card_ids: BTreeSet::new(),
                 claim_ids: BTreeSet::new(),
                 evidence_ids: BTreeSet::new(),
+                index_status: IndexStatus::Unindexed,
+                content_hash: None,
             })
             .expect("pre-populated artifact should be accepted");
 

@@ -27,7 +27,13 @@ pub(crate) fn title_for_path(path: &Path) -> String {
     }
 }
 
-pub(crate) fn artifact_id_for(path: &Path, bytes: &[u8]) -> ArtifactId {
+/// Deterministically produces an [`ArtifactId`] from a file path and content.
+///
+/// The ID is a stable, content-addressed value suitable for deduplication
+/// and indexing. It hashes the canonical UTF-8 path representation and raw
+/// bytes together using SHA-256, then folds the digest into a `u64`-backed
+/// identifier.
+pub fn artifact_id_for(path: &Path, bytes: &[u8]) -> ArtifactId {
     let mut hasher = Sha256::new();
     hasher.update(path.display().to_string().as_bytes());
     hasher.update([0]);
@@ -48,7 +54,12 @@ pub(crate) fn evidence_id_for(artifact_id: ArtifactId, order: u32) -> EvidenceId
     )
 }
 
-pub(crate) fn content_hash(bytes: &[u8]) -> String {
+/// Deterministically produces a content-addressed hash string.
+///
+/// Returns a `"sha256:<hex>"` string suitable for identifying byte content
+/// without requiring the full bytes. The output is stable across all hosts
+/// and processes.
+pub fn content_hash(bytes: &[u8]) -> String {
     let digest = Sha256::digest(bytes);
     format!("sha256:{}", hex_digest(&digest))
 }

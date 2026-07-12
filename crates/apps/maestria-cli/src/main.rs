@@ -2,14 +2,14 @@ use anyhow::{Context, Result, anyhow};
 use clap::{Parser as ClapParser, Subcommand, ValueEnum};
 use maestria_blob_fs::FsBlobStore;
 use maestria_core::{
-    CorePorts, CoreServices, IngestFileInput, InstanceLayout, InstanceManifest, InstanceService,
-    OpenChunkEvidenceInput, OpenEvidenceInput, SearchInput,
+    CorePorts, CoreServices, InstanceLayout, InstanceManifest, InstanceService,
+    OpenChunkEvidenceInput, OpenEvidenceInput, SearchInput, artifact_id_for, content_hash,
 };
 use maestria_domain::{
-    ArtifactId, ChunkId, DomainInput, EvidenceId, EvidenceKind, KernelState, LogicalTick,
+    ArtifactDetected, ArtifactId, ChunkId, DomainInput, EvidenceId, EvidenceKind, KernelState,
     MemoryCandidate, OpenTaskInput, Task, TaskId, TaskPriority,
 };
-use maestria_governance::{PrivacyExclusions, Scope};
+use maestria_governance::{AutonomyProfile, PrivacyExclusions, Scope};
 use maestria_parsers::ParserRegistry;
 use maestria_search_tantivy::TantivyFullTextIndex;
 use maestria_storage_sqlite::SqliteStore;
@@ -168,7 +168,7 @@ async fn main() -> Result<()> {
             instance_dir,
             path,
             recursive,
-        } => index_path(instance_dir, path, recursive)?,
+        } => index_path(instance_dir, path, recursive).await?,
         Commands::Search {
             instance_dir,
             query,
@@ -225,7 +225,7 @@ fn init_instance(instance_dir: PathBuf, read_roots: Vec<PathBuf>) -> Result<()> 
     Ok(())
 }
 
-fn index_path(instance_dir: PathBuf, path: PathBuf, recursive: bool) -> Result<()> {
+async fn index_path(instance_dir: PathBuf, path: PathBuf, recursive: bool) -> Result<()> {
     let layout = ensure_instance(instance_dir)?;
     let manifest = load_manifest(&layout)?;
     let scope = Scope::new(
@@ -236,20 +236,6 @@ fn index_path(instance_dir: PathBuf, path: PathBuf, recursive: bool) -> Result<(
         false,
     );
     let privacy = PrivacyExclusions::default();
-    let sqlite_store = SqliteStore::open(&layout.database_path)?;
-    let blob_store = FsBlobStore::open(&layout.blobs_dir)?;
-    let search_index = TantivyFullTextIndex::open(&layout.full_text_index_dir)?;
-    let parser = ParserRegistry::with_defaults();
-    let core = CoreServices::new(CorePorts {
-        artifacts: &sqlite_store,
-        chunks: &sqlite_store,
-        cards: &sqlite_store,
-        evidence: &sqlite_store,
-        events: &sqlite_store,
-        parser: &parser,
-        search_index: &search_index,
-        blobs: &blob_store,
-    });
 
     let files = collect_index_files(&path, recursive)?;
     if files.is_empty() {
@@ -259,36 +245,109 @@ fn index_path(instance_dir: PathBuf, path: PathBuf, recursive: bool) -> Result<(
         ));
     }
 
+    // Load persistent kernel state to check which artifacts are already indexed.
+    let initial_state =
+        maestria_daemon::load_kernel_state(&layout)
+            .with_context(|| "load kernel state for indexing")?;
+    let preexisting_state = initial_state.clone();
+
+    // Build a one-shot runtime with a non-critical profile that allows
+    // PersistEvent / StoreBlob / ParseArtifact effects.
+    let (runtime, input_tx, input_rx, shutdown_token) =
+        maestria_daemon::build_runtime(&layout, initial_state, AutonomyProfile::TrustedWorkspace)?;
+
+    let runtime_task = tokio::spawn(runtime.run(input_rx, shutdown_token.clone()));
+
+    let index_timeout = Duration::from_secs(30);
+
     for file in files {
+        // Preserve scope, privacy, and manifest checks before reading.
         if scope.check_read_containment(&file).is_err()
             || privacy.is_excluded(&file)
             || !manifest.allows_source(&file)
         {
+            shutdown_token.cancel();
+            let _ = runtime_task.await;
             return Err(anyhow!(
                 "index path is outside the instance read scope or excluded by policy: {}",
                 file.display()
             ));
         }
+
         let bytes = fs::read(&file)?;
-        let output = core.ingest_file_from_bytes(IngestFileInput {
-            path: file.clone(),
-            bytes,
-            observed_at: LogicalTick::new(1),
-            artifact_id: None,
-        })?;
-        let status = if output.unchanged {
-            "unchanged"
-        } else {
-            "indexed"
-        };
-        println!(
-            "{status} artifact={} chunks={} evidence={} path={}",
-            output.artifact.id,
-            output.chunks.len(),
-            output.evidence.len(),
-            file.display()
-        );
+        let artifact_id = artifact_id_for(&file, &bytes);
+        let hash = content_hash(&bytes);
+        // Check whether this exact artifact was already indexed before this session.
+        {
+            if let Some(artifact) = preexisting_state.artifacts.get(&artifact_id) {
+                if !artifact.chunk_ids.is_empty() {
+                    println!(
+                        "unchanged artifact={} chunks={} evidence={} path={}",
+                        artifact.id,
+                        artifact.chunk_ids.len(),
+                        artifact.evidence_ids.len(),
+                        file.display()
+                    );
+                    continue;
+                }
+            }
+        }
+
+        let title = file
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("unknown")
+            .to_string();
+
+        input_tx
+            .send(DomainInput::ArtifactDetected(ArtifactDetected {
+                artifact_id,
+                title,
+                source_path: file.display().to_string(),
+                source_bytes: bytes,
+                content_hash: hash,
+            }))
+            .await
+            .context("failed to submit artifact to runtime")?;
+
+        // Wait for the artifact to reach terminal persisted state.
+        let start = std::time::Instant::now();
+        let mut indexed = false;
+        loop {
+            if start.elapsed() > index_timeout {
+                break;
+            }
+            let state = maestria_daemon::load_kernel_state(&layout)
+                .with_context(|| "reload kernel state for indexing wait")?;
+            if let Some(artifact) = state.artifacts.get(&artifact_id) {
+                if !artifact.chunk_ids.is_empty() {
+                    println!(
+                        "indexed artifact={} chunks={} evidence={} path={}",
+                        artifact.id,
+                        artifact.chunk_ids.len(),
+                        artifact.evidence_ids.len(),
+                        file.display()
+                    );
+                    indexed = true;
+                    break;
+                }
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+
+        if !indexed {
+            shutdown_token.cancel();
+            let _ = runtime_task.await;
+            return Err(anyhow!(
+                "timeout waiting for artifact indexing: {}",
+                file.display()
+            ));
+        }
     }
+
+    // Clean shutdown.
+    shutdown_token.cancel();
+    let _ = runtime_task.await;
 
     Ok(())
 }
@@ -418,9 +477,9 @@ async fn task_start(
     let task_id = next_task_id(&state);
     create_task_workspace_directories(&layout, task_id)?;
 
-    let (runtime, input_rx, shutdown_token) =
-        maestria_daemon::build_runtime(&layout, state).with_context(|| "build runtime")?;
-    let handle = runtime.handle();
+    let (runtime, input_tx, input_rx, shutdown_token) =
+        maestria_daemon::build_runtime(&layout, state, AutonomyProfile::TrustedWorkspace)
+            .with_context(|| "build runtime")?;
     let runtime_task = tokio::spawn(runtime.run(input_rx, shutdown_token.clone()));
 
     let input = DomainInput::OpenTask(OpenTaskInput {
@@ -429,8 +488,7 @@ async fn task_start(
         priority: priority.into(),
         artifact_id: artifact_id.map(ArtifactId::new),
     });
-    handle
-        .input_tx
+    input_tx
         .send(input)
         .await
         .map_err(|error| anyhow!("failed to queue task open input: {error}"))?;

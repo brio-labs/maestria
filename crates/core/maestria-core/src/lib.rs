@@ -10,7 +10,7 @@ mod ingestion;
 mod instance;
 mod manifest;
 mod ports;
-pub(crate) mod provenance;
+mod provenance;
 mod recovery;
 mod retrieval;
 mod types;
@@ -25,3 +25,5 @@ pub use types::{
     IngestFileInput, IngestFileOutput, OpenChunkEvidenceInput, OpenEvidenceInput,
     OpenEvidenceOutput, SearchInput, SearchOutput, SourceGroundedSearchHit,
 };
+pub use provenance::artifact_id_for;
+pub use provenance::content_hash;
