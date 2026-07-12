@@ -218,31 +218,16 @@ impl KernelState {
                 if unchanged {
                     // Equal indexed hash — terminal no-op
                 } else {
-                    if existing.is_none() {
-                        let register_event =
-                            self.handle_register_artifact(RegisterArtifactInput {
-                                artifact_id: input.artifact_id,
-                                title: input.title.clone(),
-                            })?;
-                        output.events.push(register_event.clone());
-                        output.effects.push(MaestriaEffect::PersistEvent {
-                            envelope: register_event,
-                        });
-                    }
-
-                    if let Some(artifact) = self.artifacts.get_mut(&input.artifact_id) {
-                        artifact.content_hash = Some(input.content_hash.clone());
-                        artifact.index_status = IndexStatus::Pending;
-                    }
-
-                    let pending_event = self.emit_event(DomainEvent::PendingIndex {
-                        artifact_id: input.artifact_id,
-                        content_hash: input.content_hash.clone(),
-                    });
-                    output.events.push(pending_event.clone());
-                    output.effects.push(MaestriaEffect::PersistEvent {
-                        envelope: pending_event,
-                    });
+                    // Store pending metadata in-memory only; no persisted events yet.
+                    // The artifact is committed only on successful ParserCompleted.
+                    self.pending_artifacts.insert(
+                        input.artifact_id,
+                        PendingArtifact {
+                            artifact_id: input.artifact_id,
+                            title: input.title.clone(),
+                            content_hash: input.content_hash.clone(),
+                        },
+                    );
 
                     output
                         .effects

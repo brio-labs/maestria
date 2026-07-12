@@ -689,13 +689,44 @@ impl KernelState {
         &mut self,
         input: ParserResult,
     ) -> Result<Vec<DomainEventEnvelope>, DomainError> {
+        let mut generated = Vec::new();
+
+        // First-time commit: if a pending artifact entry exists, create the
+        // artifact and emit ArtifactRegistered + PendingIndex now. On retry
+        // the pending entry is already consumed, so this runs exactly once per
+        // detection cycle.
+        if let Some(pending) = self.pending_artifacts.remove(&input.artifact_id) {
+            use std::collections::btree_map::Entry;
+            if let Entry::Vacant(entry) = self.artifacts.entry(input.artifact_id) {
+                entry.insert(Artifact::with_title(
+                    input.artifact_id,
+                    pending.title.clone(),
+                ));
+                let register_event = self.emit_event(DomainEvent::ArtifactRegistered {
+                    artifact_id: input.artifact_id,
+                    title: pending.title,
+                });
+                generated.push(register_event);
+            }
+            // Set content_hash and status on the artifact regardless of whether
+            // it was just created or already existed (e.g. from replay).
+            if let Some(artifact) = self.artifacts.get_mut(&input.artifact_id) {
+                artifact.content_hash = Some(pending.content_hash.clone());
+                artifact.index_status = IndexStatus::Pending;
+            }
+            let pending_event = self.emit_event(DomainEvent::PendingIndex {
+                artifact_id: input.artifact_id,
+                content_hash: pending.content_hash,
+            });
+            generated.push(pending_event);
+        }
+
         if !self.artifacts.contains_key(&input.artifact_id) {
             return Err(DomainError::MissingArtifact {
                 id: input.artifact_id,
             });
         }
 
-        let mut generated = Vec::new();
         let mut new_chunks = 0u32;
         for chunk in &input.chunks {
             if let Some(existing) = self.chunks.get(&chunk.chunk_id) {

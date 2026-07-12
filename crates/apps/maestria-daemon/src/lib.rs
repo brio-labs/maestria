@@ -1,9 +1,11 @@
-use std::{fs, path::PathBuf, sync::Arc};
+use std::{collections::BTreeMap, fs, path::PathBuf, sync::Arc};
 
 use anyhow::{Context, Result, anyhow};
 use maestria_blob_fs::FsBlobStore;
 use maestria_core::{InitInstanceInput, InstanceLayout, InstanceService};
-use maestria_domain::{DomainInput, KernelState, replay_events};
+use maestria_domain::{
+    ArtifactId, DomainInput, KernelState, ParserResult, RegisterChunkInput, replay_events,
+};
 use maestria_governance::{AutonomyProfile, DefaultApprovalGate, DefaultRiskClassifier, Scope};
 use maestria_graph_sqlite::SqliteGraphIndex;
 use maestria_parsers::ParserRegistry;
@@ -16,6 +18,35 @@ use maestria_web_evidence::UreqWebFetcher;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use tracing::info;
+
+/// Groups pending full-text chunks by artifact and builds `ParserCompleted` inputs
+/// so the runtime can resume indexing after restart without re-parsing source bytes.
+fn pending_parser_inputs(state: &KernelState) -> Vec<DomainInput> {
+    let mut by_artifact: BTreeMap<ArtifactId, Vec<RegisterChunkInput>> = BTreeMap::new();
+    for chunk_id in &state.pending_full_text {
+        if let Some(chunk) = state.chunks.get(chunk_id) {
+            by_artifact
+                .entry(chunk.artifact_id)
+                .or_default()
+                .push(RegisterChunkInput {
+                    chunk_id: chunk.id,
+                    artifact_id: chunk.artifact_id,
+                    order: chunk.order,
+                    text: chunk.text.clone(),
+                });
+        }
+    }
+    by_artifact
+        .into_iter()
+        .map(|(artifact_id, chunks)| {
+            DomainInput::ParserCompleted(ParserResult {
+                artifact_id,
+                chunks,
+                cards: Vec::new(),
+            })
+        })
+        .collect()
+}
 
 pub fn prepare_instance(instance_dir: PathBuf) -> Result<InstanceLayout> {
     let plan = InstanceService::init_instance(InitInstanceInput { root: instance_dir })?;
@@ -124,8 +155,22 @@ pub fn build_runtime(
 pub async fn run_instance(instance_dir: PathBuf) -> Result<()> {
     let layout = prepare_instance(instance_dir).with_context(|| "prepare instance layout")?;
     let state = load_kernel_state(&layout).with_context(|| "load persisted kernel state")?;
-    let (runtime, _input_tx, input_rx, shutdown_token) =
+
+    // Queue restart recovery inputs before the state is moved into build_runtime
+    let pending = pending_parser_inputs(&state);
+
+    let (runtime, input_tx, input_rx, shutdown_token) =
         build_runtime(&layout, state, AutonomyProfile::ReadOnly)?;
+
+    // Submit pending parser completions so indexing resumes for chunks that
+    // were created but not yet fully indexed before the previous shutdown.
+    for input in pending {
+        input_tx
+            .send(input)
+            .await
+            .map_err(|e| anyhow!("failed to queue restart parser input: {e}"))?;
+    }
+
     let runtime_task = tokio::spawn(runtime.run(input_rx, shutdown_token.clone()));
 
     let root = layout.root.clone();
@@ -140,4 +185,167 @@ pub async fn run_instance(instance_dir: PathBuf) -> Result<()> {
         .with_context(|| "runtime loop join failed")?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use maestria_domain::{ArtifactDetected, ChunkId, MaestriaEffect};
+
+    #[test]
+    fn pending_parser_inputs_groups_by_artifact() {
+        let mut state = KernelState::new();
+        let artifact_id = ArtifactId::new(1);
+
+        state
+            .apply_input(DomainInput::ArtifactDetected(ArtifactDetected {
+                artifact_id,
+                title: "test.md".to_string(),
+                source_path: "/tmp/test.md".to_string(),
+                source_bytes: vec![1, 2, 3],
+                content_hash: "sha256:abc".to_string(),
+            }))
+            .expect("register artifact");
+
+        state
+            .apply_input(DomainInput::ParserCompleted(ParserResult {
+                artifact_id,
+                chunks: vec![
+                    RegisterChunkInput {
+                        chunk_id: ChunkId::new(10),
+                        artifact_id,
+                        order: 0,
+                        text: "chunk a".to_string(),
+                    },
+                    RegisterChunkInput {
+                        chunk_id: ChunkId::new(11),
+                        artifact_id,
+                        order: 1,
+                        text: "chunk b".to_string(),
+                    },
+                ],
+                cards: Vec::new(),
+            }))
+            .expect("parser completed");
+
+        assert_eq!(state.pending_full_text.len(), 2);
+
+        let inputs = pending_parser_inputs(&state);
+        assert_eq!(
+            inputs.len(),
+            1,
+            "should produce one ParserCompleted input per artifact"
+        );
+
+        match &inputs[0] {
+            DomainInput::ParserCompleted(result) => {
+                assert_eq!(result.artifact_id, artifact_id);
+                assert_eq!(result.chunks.len(), 2);
+                assert!(result.cards.is_empty());
+            }
+            other => panic!("expected ParserCompleted, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn pending_parser_inputs_resumes_indexing_without_duplicate_events() {
+        // Simulate a restart scenario: chunks were created (persisted) but
+        // full-text indexing wasn't completed before shutdown. On restart,
+        // pending_parser_inputs produces ParserCompleted inputs whose
+        // idempotent handler skips existing chunks but still emits
+        // IndexFullText effects for unresolved ones.
+
+        let mut state = KernelState::new();
+        let artifact_id = ArtifactId::new(1);
+
+        state
+            .apply_input(DomainInput::ArtifactDetected(ArtifactDetected {
+                artifact_id,
+                title: "notes.md".to_string(),
+                source_path: String::new(),
+                source_bytes: vec![1, 2, 3],
+                content_hash: "sha256:def".to_string(),
+            }))
+            .expect("register artifact");
+
+        let output = state
+            .apply_input(DomainInput::ParserCompleted(ParserResult {
+                artifact_id,
+                chunks: vec![
+                    RegisterChunkInput {
+                        chunk_id: ChunkId::new(20),
+                        artifact_id,
+                        order: 0,
+                        text: "hello".to_string(),
+                    },
+                    RegisterChunkInput {
+                        chunk_id: ChunkId::new(21),
+                        artifact_id,
+                        order: 1,
+                        text: "world".to_string(),
+                    },
+                ],
+                cards: Vec::new(),
+            }))
+            .expect("parser completed");
+
+        assert_eq!(state.pending_full_text.len(), 2);
+        let index_effects: Vec<_> = output
+            .effects
+            .iter()
+            .filter(|e| matches!(e, MaestriaEffect::IndexFullText(_)))
+            .collect();
+        assert_eq!(
+            index_effects.len(),
+            2,
+            "both chunks should have IndexFullText effects"
+        );
+
+        let event_count_before = state.event_log.len();
+
+        // Simulate restart: build pending inputs and apply to the same state
+        let pending_inputs = pending_parser_inputs(&state);
+        assert_eq!(pending_inputs.len(), 1);
+
+        let restart_output = state
+            .apply_input(pending_inputs.into_iter().next().unwrap())
+            .expect("restart parser completed should succeed");
+
+        let event_count_after = state.event_log.len();
+        assert_eq!(
+            event_count_after, event_count_before,
+            "restart parser completed must not produce duplicate events"
+        );
+
+        let restart_index_effects: Vec<_> = restart_output
+            .effects
+            .iter()
+            .filter(|e| matches!(e, MaestriaEffect::IndexFullText(_)))
+            .collect();
+        assert_eq!(
+            restart_index_effects.len(),
+            2,
+            "restart should emit IndexFullText for both pending chunks"
+        );
+
+        assert_eq!(state.pending_full_text.len(), 2);
+    }
+
+    #[test]
+    fn pending_parser_inputs_empty_when_nothing_pending() {
+        let state = KernelState::new();
+        let inputs = pending_parser_inputs(&state);
+        assert!(inputs.is_empty());
+    }
+
+    #[test]
+    fn pending_parser_inputs_skips_orphan_chunk_ids() {
+        // If pending_full_text references a chunk_id not in state.chunks,
+        // the helper should silently skip it.
+        let mut state = KernelState::new();
+        state.pending_full_text.insert(ChunkId::new(999));
+
+        let inputs = pending_parser_inputs(&state);
+        assert!(inputs.is_empty(), "orphan chunk ids should be skipped");
+    }
 }

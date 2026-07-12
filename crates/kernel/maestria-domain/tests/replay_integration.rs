@@ -643,11 +643,16 @@ fn replay_ingestion_detection_only() -> Result<(), DomainError> {
         source_bytes: Vec::new(),
         content_hash: "sha256:abc".to_string(),
     }))?;
-    let replayed = replay_events(&state.event_log)?;
-    assert_eq!(state, replayed);
-    assert!(replayed.chunks.is_empty());
-    assert!(replayed.cards.is_empty());
-    assert_eq!(replayed.event_log.len(), 2);
+    // Detection is a pure preflight — no persisted events, no artifact in
+    // state.artifacts. The pending metadata is in-memory only.
+    assert!(state.event_log.is_empty(), "detection emits no events");
+    assert!(state.artifacts.is_empty());
+    assert!(state.pending_artifacts.contains_key(&ArtifactId::new(1)));
+    assert!(
+        replay_events(&state.event_log)?
+            .pending_artifacts
+            .is_empty()
+    );
     Ok(())
 }
 #[test]

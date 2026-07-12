@@ -96,6 +96,13 @@ impl Artifact {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PendingArtifact {
+    pub artifact_id: ArtifactId,
+    pub title: String,
+    pub content_hash: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Chunk {
     pub id: ChunkId,
     pub artifact_id: ArtifactId,
@@ -993,10 +1000,10 @@ impl fmt::Display for DomainError {
 }
 
 impl std::error::Error for DomainError {}
-
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct KernelState {
     pub artifacts: BTreeMap<ArtifactId, Artifact>,
+    pub pending_artifacts: BTreeMap<ArtifactId, PendingArtifact>,
     pub chunks: BTreeMap<ChunkId, Chunk>,
     pub cards: BTreeMap<CardId, Card>,
     pub evidences: BTreeMap<EvidenceId, Evidence>,

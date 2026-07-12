@@ -1,6 +1,6 @@
 use maestria_domain::{
-    ApprovalDecision, DomainEvent, DomainInput, EvidenceKind, FullTextIndexCompleted,
-    HarnessRunCompleted, KernelState, LogicalTick, MaestriaEffect, ParserResult,
+    ApprovalDecision, Artifact, DomainEvent, DomainInput, EvidenceKind, FullTextIndexCompleted,
+    HarnessRunCompleted, IndexStatus, KernelState, LogicalTick, MaestriaEffect, ParserResult,
     RecordEvidenceInput, RecordValidationReportInput, RegisterChunkInput, ValidationCompleted,
     ValidationReportId, content_hash, evidence_id_for, excerpt_for, line_range_for_chunk,
 };
@@ -16,7 +16,7 @@ use maestria_ports::{
 };
 use maestria_validation::{ValidationContext, ValidationRunner};
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     path::PathBuf,
     sync::{
         Arc,
@@ -446,15 +446,31 @@ impl MaestriaRuntime {
                 let artifact = match adapters.artifact_repo.get(request.artifact_id) {
                     Ok(Some(artifact)) => artifact,
                     Ok(None) => {
-                        let artifact = {
-                            let state = state.read().await;
-                            state.artifacts.get(&request.artifact_id).cloned()
-                        };
-                        let Some(artifact) = artifact else {
-                            tracing::warn!(artifact_id = %request.artifact_id, "artifact missing for parse");
-                            return false;
-                        };
-                        artifact
+                        let state_read = state.read().await;
+                        if let Some(artifact) =
+                            state_read.artifacts.get(&request.artifact_id).cloned()
+                        {
+                            artifact
+                        } else {
+                            // Staged ingestion: no persisted artifact yet. Construct an ephemeral
+                            // typed parse context so the parser can proceed with the request
+                            // metadata. The artifact is committed later by the domain handler
+                            // when it receives ParserCompleted.
+                            tracing::debug!(
+                                artifact_id = %request.artifact_id,
+                                "no persisted artifact; constructing ephemeral context for staged parse"
+                            );
+                            Artifact {
+                                id: request.artifact_id,
+                                title: request.source_path.clone(),
+                                chunk_ids: BTreeSet::new(),
+                                card_ids: BTreeSet::new(),
+                                claim_ids: BTreeSet::new(),
+                                evidence_ids: BTreeSet::new(),
+                                index_status: IndexStatus::default(),
+                                content_hash: None,
+                            }
+                        }
                     }
                     Err(error) => {
                         tracing::error!(artifact_id = %request.artifact_id, %error, "failed to load artifact for parse");
@@ -501,49 +517,48 @@ impl MaestriaRuntime {
                         let observed_at = LogicalTick::new(1);
                         let mut search_start: usize = 0;
 
+                        // Collect evidence inputs and chunk registrations in a single pass.
+                        let mut evidence_inputs: Vec<RecordEvidenceInput> = Vec::new();
+                        let mut chunks: Vec<RegisterChunkInput> = Vec::new();
                         for (order, chunk) in parsed.chunks.iter().enumerate() {
                             let evidence_id = evidence_id_for(artifact.id, order as u32);
                             // Skip evidence IDs already present in replayed state (idempotent retry).
                             {
                                 let state = state.read().await;
-                                if state.evidences.contains_key(&evidence_id) {
-                                    continue;
+                                if !state.evidences.contains_key(&evidence_id) {
+                                    let range = line_range_for_chunk(
+                                        &source_text,
+                                        &chunk.text,
+                                        &mut search_start,
+                                    );
+                                    let excerpt = excerpt_for(&chunk.text);
+                                    evidence_inputs.push(RecordEvidenceInput {
+                                        evidence_id,
+                                        artifact_id: artifact.id,
+                                        claim_id: None,
+                                        kind: EvidenceKind::FileSpan {
+                                            path: request.source_path.clone(),
+                                            range,
+                                            content_hash: source_hash.clone(),
+                                            snapshot: Some(blob_id),
+                                        },
+                                        excerpt,
+                                        observed_at,
+                                    });
                                 }
                             }
-                            let range =
-                                line_range_for_chunk(&source_text, &chunk.text, &mut search_start);
-                            let excerpt = excerpt_for(&chunk.text);
-                            Self::send_input(
-                                &input_tx,
-                                DomainInput::RecordEvidence(RecordEvidenceInput {
-                                    evidence_id,
-                                    artifact_id: artifact.id,
-                                    claim_id: None,
-                                    kind: EvidenceKind::FileSpan {
-                                        path: request.source_path.clone(),
-                                        range,
-                                        content_hash: source_hash.clone(),
-                                        snapshot: Some(blob_id),
-                                    },
-                                    excerpt,
-                                    observed_at,
-                                }),
-                                "record evidence",
-                            )
-                            .await;
-                        }
-
-                        let chunks = parsed
-                            .chunks
-                            .into_iter()
-                            .enumerate()
-                            .map(|(order, chunk)| RegisterChunkInput {
+                            chunks.push(RegisterChunkInput {
                                 chunk_id: chunk.chunk_id,
                                 artifact_id: chunk.artifact_id,
                                 order: (order.min(u32::MAX as usize)) as u32,
-                                text: chunk.text,
-                            })
-                            .collect();
+                                text: chunk.text.clone(),
+                            });
+                        }
+
+                        // Send ParserCompleted first so the domain handler commits the artifact
+                        // (including ArtifactRegistered / PendingIndex) before evidence arrives.
+                        // Evidence inputs follow after the artifact is guaranteed to exist in
+                        // domain state.
                         Self::send_input(
                             &input_tx,
                             DomainInput::ParserCompleted(ParserResult {
@@ -554,6 +569,15 @@ impl MaestriaRuntime {
                             "parser completion",
                         )
                         .await;
+
+                        for evidence in evidence_inputs {
+                            Self::send_input(
+                                &input_tx,
+                                DomainInput::RecordEvidence(evidence),
+                                "record evidence",
+                            )
+                            .await;
+                        }
                     }
                     Err(error) => {
                         tracing::error!(artifact_id = %artifact.id, %error, "parser failed");
@@ -1110,7 +1134,19 @@ mod tests {
 
         assert!(result, "ParseArtifact should succeed");
 
-        // First input: RecordEvidence for the single parsed chunk
+        // First input: ParserCompleted (sent before evidence so the domain can commit the artifact).
+        match tokio::time::timeout(Duration::from_secs(1), input_rx.recv()).await {
+            Ok(Some(DomainInput::ParserCompleted(pr))) => {
+                assert_eq!(pr.artifact_id, ArtifactId::new(42));
+                assert_eq!(pr.chunks.len(), 1);
+                assert_eq!(pr.chunks[0].text, "fn hello() {}");
+            }
+            Ok(Some(other)) => panic!("expected ParserCompleted, got {other:?}"),
+            Ok(None) => panic!("channel closed before ParserCompleted"),
+            Err(_) => panic!("timeout waiting for ParserCompleted"),
+        }
+
+        // Second input: RecordEvidence for the single parsed chunk
         match tokio::time::timeout(Duration::from_secs(1), input_rx.recv()).await {
             Ok(Some(DomainInput::RecordEvidence(ev))) => {
                 assert_eq!(ev.artifact_id, ArtifactId::new(42));
@@ -1136,18 +1172,6 @@ mod tests {
             Ok(Some(other)) => panic!("expected RecordEvidence, got {other:?}"),
             Ok(None) => panic!("channel closed before RecordEvidence"),
             Err(_) => panic!("timeout waiting for RecordEvidence"),
-        }
-
-        // Second input: ParserCompleted
-        match tokio::time::timeout(Duration::from_secs(1), input_rx.recv()).await {
-            Ok(Some(DomainInput::ParserCompleted(pr))) => {
-                assert_eq!(pr.artifact_id, ArtifactId::new(42));
-                assert_eq!(pr.chunks.len(), 1);
-                assert_eq!(pr.chunks[0].text, "fn hello() {}");
-            }
-            Ok(Some(other)) => panic!("expected ParserCompleted, got {other:?}"),
-            Ok(None) => panic!("channel closed before ParserCompleted"),
-            Err(_) => panic!("timeout waiting for ParserCompleted"),
         }
     }
 
@@ -1433,7 +1457,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn parse_artifact_missing_artifact_returns_failure() {
+    async fn parse_artifact_staged_ingestion_constructs_ephemeral_context() {
+        // No artifact in repo or state — staged ingestion path.
         let adapters = Adapters {
             event_log: Arc::new(InMemoryEventLog::new()),
             blob_store: Arc::new(InMemoryBlobStore::new()),
@@ -1441,6 +1466,92 @@ mod tests {
             harness: Arc::new(InMemoryHarnessAdapter::new()),
             parser: Arc::new(InMemoryParser::new()),
             artifact_repo: Arc::new(InMemoryArtifactRepository::new()),
+            chunk_repo: Arc::new(InMemoryChunkRepository::new()),
+            card_repo: Arc::new(InMemoryCardRepository::new()),
+            evidence_repo: Arc::new(InMemoryEvidenceRepository::new()),
+            vector_index: Arc::new(InMemoryVectorIndex::new()),
+            graph_index: Arc::new(InMemoryGraphIndex::new()),
+            web_fetcher: Arc::new(InMemoryWebFetcher::new()),
+        };
+        let governance = Governance {
+            classifier: Arc::new(DefaultRiskClassifier),
+            approval_gate: Arc::new(DefaultApprovalGate),
+        };
+        let (input_tx, mut input_rx) = mpsc::channel(8);
+
+        let artifact_id = ArtifactId::new(99);
+        let result = MaestriaRuntime::execute_effect(
+            MaestriaEffect::ParseArtifact(ParseArtifactRequest {
+                artifact_id,
+                source_path: "/repo/ghost.rs".to_string(),
+                source_bytes: b"fn gone() {}".to_vec(),
+            }),
+            Arc::new(adapters),
+            Arc::new(governance),
+            AutonomyProfile::TrustedWorkspace,
+            Scope::default(),
+            Arc::new(RwLock::new(KernelState::new())),
+            input_tx,
+        )
+        .await;
+
+        assert!(
+            result,
+            "staged ParseArtifact should succeed with ephemeral context"
+        );
+
+        // First input: ParserCompleted (sent before evidence so domain commits the artifact).
+        match tokio::time::timeout(Duration::from_secs(1), input_rx.recv()).await {
+            Ok(Some(DomainInput::ParserCompleted(pr))) => {
+                assert_eq!(pr.artifact_id, artifact_id);
+                assert_eq!(pr.chunks.len(), 1);
+            }
+            Ok(Some(other)) => panic!("expected ParserCompleted, got {other:?}"),
+            Ok(None) => panic!("channel closed before ParserCompleted"),
+            Err(_) => panic!("timeout waiting for ParserCompleted"),
+        }
+
+        // Second input: RecordEvidence for the parsed chunk
+        match tokio::time::timeout(Duration::from_secs(1), input_rx.recv()).await {
+            Ok(Some(DomainInput::RecordEvidence(ev))) => {
+                assert_eq!(ev.artifact_id, artifact_id);
+                assert_eq!(ev.claim_id, None);
+                match &ev.kind {
+                    EvidenceKind::FileSpan { path, snapshot, .. } => {
+                        assert_eq!(path, "/repo/ghost.rs");
+                        assert!(snapshot.is_some(), "evidence must carry a blob snapshot");
+                    }
+                    _ => panic!("expected FileSpan evidence, got {:?}", ev.kind),
+                }
+            }
+            Ok(Some(other)) => panic!("expected RecordEvidence, got {other:?}"),
+            Ok(None) => panic!("channel closed before RecordEvidence"),
+            Err(_) => panic!("timeout waiting for RecordEvidence"),
+        }
+    }
+
+    #[tokio::test]
+    async fn parse_artifact_repository_error_returns_failure() {
+        // Repository errors remain retryable — they must not be swallowed.
+        struct FailingArtifactRepo;
+        impl ArtifactRepository for FailingArtifactRepo {
+            fn get(&self, _id: ArtifactId) -> Result<Option<Artifact>, PortError> {
+                Err(PortError::Downstream {
+                    message: "db unavailable".to_string(),
+                })
+            }
+            fn put(&self, _artifact: Artifact) -> Result<(), PortError> {
+                Ok(())
+            }
+        }
+
+        let adapters = Adapters {
+            event_log: Arc::new(InMemoryEventLog::new()),
+            blob_store: Arc::new(InMemoryBlobStore::new()),
+            search_index: Arc::new(InMemoryFullTextIndex::new()),
+            harness: Arc::new(InMemoryHarnessAdapter::new()),
+            parser: Arc::new(InMemoryParser::new()),
+            artifact_repo: Arc::new(FailingArtifactRepo),
             chunk_repo: Arc::new(InMemoryChunkRepository::new()),
             card_repo: Arc::new(InMemoryCardRepository::new()),
             evidence_repo: Arc::new(InMemoryEvidenceRepository::new()),
@@ -1471,7 +1582,7 @@ mod tests {
 
         assert!(
             !result,
-            "missing artifact should return false so retry policy remains active"
+            "repository error should return false so retry policy remains active"
         );
     }
 
