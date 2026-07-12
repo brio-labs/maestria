@@ -129,6 +129,98 @@ fn validate_recovery_scope_rejects_excluded_source_path() {
 }
 
 #[test]
+fn validate_recovery_scope_rejects_git_config_by_privacy() {
+    let temp = TempDir::create();
+    let root_str = temp.path().to_str().expect("temp path is valid UTF-8");
+    // manifest excludes .env / .env.* / *.pem / *.key / .ssh / .gnupg /
+    // node_modules / target / dist / build / secrets — but NOT .git
+    write_manifest(temp.path(), &[root_str]);
+    let layout = InstanceLayout::for_root(temp.path());
+
+    let git_config = temp.path().join(".git/config");
+    let recovery = make_recovery(&git_config.display().to_string(), 10, ".git/config");
+
+    let error = validate_recovery_scope(&layout, &recovery)
+        .expect_err(".git/config should be rejected by privacy policy");
+    let msg = format!("{error:#}");
+    assert!(
+        msg.contains("privacy policy"),
+        "expected privacy-policy rejection for .git/config, got: {msg}"
+    );
+    assert!(
+        msg.contains(".git/config"),
+        "error should name the offending path, got: {msg}"
+    );
+}
+
+#[test]
+fn validate_recovery_scope_rejects_credentials_by_privacy() {
+    let temp = TempDir::create();
+    let root_str = temp.path().to_str().expect("temp path is valid UTF-8");
+    // manifest does not exclude 'credentials' as a pattern
+    write_manifest(temp.path(), &[root_str]);
+    let layout = InstanceLayout::for_root(temp.path());
+
+    let creds_path = temp.path().join("credentials/tokens.json");
+    let recovery = make_recovery(&creds_path.display().to_string(), 11, "tokens.json");
+
+    let error = validate_recovery_scope(&layout, &recovery)
+        .expect_err("credentials directory should be rejected by privacy policy");
+    let msg = format!("{error:#}");
+    assert!(
+        msg.contains("privacy policy"),
+        "expected privacy-policy rejection for credentials path, got: {msg}"
+    );
+}
+
+#[test]
+fn validate_recovery_scope_rejects_secret_extension_by_privacy() {
+    let temp = TempDir::create();
+    let root_str = temp.path().to_str().expect("temp path is valid UTF-8");
+    // manifest *.pem and *.key patterns exist, but .pfx is not covered
+    write_manifest(temp.path(), &[root_str]);
+    let layout = InstanceLayout::for_root(temp.path());
+
+    for (ext, artifact_id) in [("pfx", 12), ("p12", 13), ("jks", 14), ("keystore", 15)] {
+        let file_path = temp.path().join(format!("certs/bundle.{ext}"));
+        let recovery = make_recovery(
+            &file_path.display().to_string(),
+            artifact_id,
+            &format!("bundle.{ext}"),
+        );
+
+        let error = validate_recovery_scope(&layout, &recovery).expect_err(&format!(
+            ".{ext} extension should be rejected by privacy policy"
+        ));
+        let msg = format!("{error:#}");
+        assert!(
+            msg.contains("privacy policy"),
+            "expected privacy-policy rejection for .{ext}, got: {msg}"
+        );
+    }
+}
+
+#[test]
+fn validate_recovery_scope_rejects_env_extension_by_privacy() {
+    let temp = TempDir::create();
+    let root_str = temp.path().to_str().expect("temp path is valid UTF-8");
+    // manifest has .env and .env.* as patterns, but not *.env extension
+    write_manifest(temp.path(), &[root_str]);
+    let layout = InstanceLayout::for_root(temp.path());
+
+    let env_file = temp.path().join("config/app.env");
+    let recovery = make_recovery(&env_file.display().to_string(), 16, "app.env");
+
+    let error = validate_recovery_scope(&layout, &recovery)
+        .expect_err(".env extension should be rejected by privacy policy");
+    let msg = format!("{error:#}");
+    assert!(
+        msg.contains("privacy policy"),
+        "expected privacy-policy rejection for .env extension, got: {msg}"
+    );
+}
+
+#[test]
 fn validate_recovery_scope_empty_recovery_always_passes() {
     let temp = TempDir::create();
     write_manifest(temp.path(), &["/some/other/root"]);

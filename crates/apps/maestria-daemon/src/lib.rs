@@ -4,7 +4,9 @@ use anyhow::{Context, Result, anyhow};
 use maestria_blob_fs::FsBlobStore;
 use maestria_core::{InitInstanceInput, InstanceLayout, InstanceManifest, InstanceService};
 use maestria_domain::{ArtifactId, DomainInput, KernelState, StartFullTextIndex, replay_events};
-use maestria_governance::{AutonomyProfile, DefaultApprovalGate, DefaultRiskClassifier, Scope};
+use maestria_governance::{
+    AutonomyProfile, DefaultApprovalGate, DefaultRiskClassifier, PrivacyExclusions, Scope,
+};
 use maestria_graph_sqlite::SqliteGraphIndex;
 use maestria_parsers::ParserRegistry;
 use maestria_ports::{
@@ -86,6 +88,7 @@ pub fn validate_recovery_scope(layout: &InstanceLayout, recovery: &RecoveryInput
         .with_context(|| format!("read instance manifest {}", layout.manifest_path.display()))?;
     let manifest = InstanceManifest::decode(&manifest_contents)
         .map_err(|error| anyhow!("parse instance manifest for recovery scope: {error}"))?;
+    let privacy = PrivacyExclusions::default();
 
     for input in &recovery.resume_parsers {
         if let DomainInput::ResumeParser(record) = input {
@@ -94,6 +97,15 @@ pub fn validate_recovery_scope(layout: &InstanceLayout, recovery: &RecoveryInput
                 return Err(anyhow!(
                     "resume parser source path is outside the instance manifest read scope \
                      or excluded by pattern: {} (artifact {} \"{}\")",
+                    record.source_path,
+                    record.artifact_id,
+                    record.title,
+                ));
+            }
+            if privacy.is_excluded(source) {
+                return Err(anyhow!(
+                    "resume parser source path is excluded by privacy policy: \
+                     {} (artifact {} \"{}\")",
                     record.source_path,
                     record.artifact_id,
                     record.title,
