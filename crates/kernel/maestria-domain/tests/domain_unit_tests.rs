@@ -1596,6 +1596,323 @@ fn replay_reconstructs_pending_and_indexed_state() -> Result<(), DomainError> {
 }
 
 #[test]
+fn parser_completed_duplicate_is_idempotent() -> Result<(), DomainError> {
+    let mut state = KernelState::new();
+    state.apply_input(DomainInput::RegisterArtifact(RegisterArtifactInput {
+        artifact_id: ArtifactId::new(1),
+        title: "Doc".to_string(),
+    }))?;
+
+    let parser_result = ParserResult {
+        artifact_id: ArtifactId::new(1),
+        chunks: vec![RegisterChunkInput {
+            chunk_id: ChunkId::new(10),
+            artifact_id: ArtifactId::new(1),
+            order: 0,
+            text: "first chunk".to_string(),
+        }],
+        cards: vec![CreateCardInput {
+            card_id: CardId::new(20),
+            artifact_id: ArtifactId::new(1),
+            title: "Summary".to_string(),
+            body: "Parsed summary".to_string(),
+        }],
+    };
+
+    // First parse: creates chunk, card, ArtifactParsed
+    let output1 = state.apply_input(DomainInput::ParserCompleted(parser_result.clone()))?;
+    assert!(state.chunks.contains_key(&ChunkId::new(10)));
+    assert!(state.cards.contains_key(&CardId::new(20)));
+    let chunk_events_1 = output1
+        .events
+        .iter()
+        .filter(|e| matches!(e.event, DomainEvent::ChunkRegistered { .. }))
+        .count();
+    let card_events_1 = output1
+        .events
+        .iter()
+        .filter(|e| matches!(e.event, DomainEvent::CardCreated { .. }))
+        .count();
+    let parsed_events_1 = output1
+        .events
+        .iter()
+        .filter(|e| matches!(e.event, DomainEvent::ArtifactParsed { .. }))
+        .count();
+    assert_eq!(chunk_events_1, 1, "first parse registers chunk");
+    assert_eq!(card_events_1, 1, "first parse creates card");
+    assert_eq!(parsed_events_1, 1, "first parse emits ArtifactParsed");
+
+    // Second parse with identical data: no duplicate events
+    let output2 = state.apply_input(DomainInput::ParserCompleted(parser_result))?;
+    let chunk_events_2 = output2
+        .events
+        .iter()
+        .filter(|e| matches!(e.event, DomainEvent::ChunkRegistered { .. }))
+        .count();
+    let card_events_2 = output2
+        .events
+        .iter()
+        .filter(|e| matches!(e.event, DomainEvent::CardCreated { .. }))
+        .count();
+    let parsed_events_2 = output2
+        .events
+        .iter()
+        .filter(|e| matches!(e.event, DomainEvent::ArtifactParsed { .. }))
+        .count();
+    assert_eq!(chunk_events_2, 0, "duplicate parse emits no chunk events");
+    assert_eq!(card_events_2, 0, "duplicate parse emits no card events");
+    assert_eq!(
+        parsed_events_2, 0,
+        "duplicate parse emits no ArtifactParsed"
+    );
+    assert!(
+        output2.events.is_empty(),
+        "duplicate parse produces no events at all"
+    );
+    Ok(())
+}
+
+#[test]
+fn parser_completed_rejects_mismatched_chunk() -> Result<(), DomainError> {
+    let mut state = KernelState::new();
+    state.apply_input(DomainInput::RegisterArtifact(RegisterArtifactInput {
+        artifact_id: ArtifactId::new(1),
+        title: "Doc".to_string(),
+    }))?;
+    state.apply_input(DomainInput::ParserCompleted(ParserResult {
+        artifact_id: ArtifactId::new(1),
+        chunks: vec![RegisterChunkInput {
+            chunk_id: ChunkId::new(10),
+            artifact_id: ArtifactId::new(1),
+            order: 0,
+            text: "first chunk".to_string(),
+        }],
+        cards: Vec::new(),
+    }))?;
+
+    // Second parse with same chunk_id but different text
+    let err = state
+        .apply_input(DomainInput::ParserCompleted(ParserResult {
+            artifact_id: ArtifactId::new(1),
+            chunks: vec![RegisterChunkInput {
+                chunk_id: ChunkId::new(10),
+                artifact_id: ArtifactId::new(1),
+                order: 0,
+                text: "different text".to_string(),
+            }],
+            cards: Vec::new(),
+        }))
+        .expect_err("mismatched chunk must error");
+
+    assert!(matches!(err, DomainError::DuplicateId { kind, id: 10 } if kind == "chunk"));
+    Ok(())
+}
+
+#[test]
+fn parser_completed_rejects_mismatched_card() -> Result<(), DomainError> {
+    let mut state = KernelState::new();
+    state.apply_input(DomainInput::RegisterArtifact(RegisterArtifactInput {
+        artifact_id: ArtifactId::new(1),
+        title: "Doc".to_string(),
+    }))?;
+    state.apply_input(DomainInput::ParserCompleted(ParserResult {
+        artifact_id: ArtifactId::new(1),
+        chunks: Vec::new(),
+        cards: vec![CreateCardInput {
+            card_id: CardId::new(20),
+            artifact_id: ArtifactId::new(1),
+            title: "Summary".to_string(),
+            body: "Parsed summary".to_string(),
+        }],
+    }))?;
+
+    // Second parse with same card_id but different body
+    let err = state
+        .apply_input(DomainInput::ParserCompleted(ParserResult {
+            artifact_id: ArtifactId::new(1),
+            chunks: Vec::new(),
+            cards: vec![CreateCardInput {
+                card_id: CardId::new(20),
+                artifact_id: ArtifactId::new(1),
+                title: "Summary".to_string(),
+                body: "different body".to_string(),
+            }],
+        }))
+        .expect_err("mismatched card must error");
+
+    assert!(matches!(err, DomainError::DuplicateId { kind, id: 20 } if kind == "card"));
+    Ok(())
+}
+
+#[test]
+fn record_evidence_duplicate_is_idempotent() -> Result<(), DomainError> {
+    let mut state = KernelState::new();
+    state.apply_input(DomainInput::RegisterArtifact(RegisterArtifactInput {
+        artifact_id: ArtifactId::new(1),
+        title: "Notes".to_string(),
+    }))?;
+
+    let evidence_input = RecordEvidenceInput {
+        evidence_id: EvidenceId::new(40),
+        artifact_id: ArtifactId::new(1),
+        claim_id: None,
+        kind: EvidenceKind::CommandOutput {
+            harness_run: HarnessRunId::new(1),
+            stream: OutputStream::Stdout,
+            blob: BlobId::new(99),
+        },
+        excerpt: "output text".to_string(),
+        observed_at: LogicalTick::new(1),
+    };
+
+    let output1 = state.apply_input(DomainInput::RecordEvidence(evidence_input.clone()))?;
+    assert!(
+        output1
+            .events
+            .iter()
+            .any(|e| matches!(e.event, DomainEvent::EvidenceRecorded { .. }))
+    );
+
+    let output2 = state.apply_input(DomainInput::RecordEvidence(evidence_input))?;
+    assert!(
+        output2.events.is_empty(),
+        "duplicate evidence produces no events"
+    );
+    assert!(
+        output2.effects.is_empty(),
+        "duplicate evidence produces no effects"
+    );
+
+    Ok(())
+}
+
+#[test]
+fn record_evidence_rejects_mismatched_duplicate() -> Result<(), DomainError> {
+    let mut state = KernelState::new();
+    state.apply_input(DomainInput::RegisterArtifact(RegisterArtifactInput {
+        artifact_id: ArtifactId::new(1),
+        title: "Notes".to_string(),
+    }))?;
+    state.apply_input(DomainInput::RecordEvidence(RecordEvidenceInput {
+        evidence_id: EvidenceId::new(40),
+        artifact_id: ArtifactId::new(1),
+        claim_id: None,
+        kind: EvidenceKind::CommandOutput {
+            harness_run: HarnessRunId::new(1),
+            stream: OutputStream::Stdout,
+            blob: BlobId::new(99),
+        },
+        excerpt: "original".to_string(),
+        observed_at: LogicalTick::new(1),
+    }))?;
+
+    let err = state
+        .apply_input(DomainInput::RecordEvidence(RecordEvidenceInput {
+            evidence_id: EvidenceId::new(40),
+            artifact_id: ArtifactId::new(1),
+            claim_id: None,
+            kind: EvidenceKind::CommandOutput {
+                harness_run: HarnessRunId::new(1),
+                stream: OutputStream::Stdout,
+                blob: BlobId::new(99),
+            },
+            excerpt: "different excerpt".to_string(),
+            observed_at: LogicalTick::new(1),
+        }))
+        .expect_err("mismatched evidence must error");
+
+    assert!(matches!(err, DomainError::DuplicateId { kind, id: 40 } if kind == "evidence"));
+    Ok(())
+}
+
+#[test]
+fn parser_completed_retry_emits_index_only_for_pending() -> Result<(), DomainError> {
+    let mut state = KernelState::new();
+    state.apply_input(DomainInput::RegisterArtifact(RegisterArtifactInput {
+        artifact_id: ArtifactId::new(1),
+        title: "Doc".to_string(),
+    }))?;
+
+    // First parse: creates chunks A and B
+    let output1 = state.apply_input(DomainInput::ParserCompleted(ParserResult {
+        artifact_id: ArtifactId::new(1),
+        chunks: vec![
+            RegisterChunkInput {
+                chunk_id: ChunkId::new(10),
+                artifact_id: ArtifactId::new(1),
+                order: 0,
+                text: "chunk a".to_string(),
+            },
+            RegisterChunkInput {
+                chunk_id: ChunkId::new(11),
+                artifact_id: ArtifactId::new(1),
+                order: 1,
+                text: "chunk b".to_string(),
+            },
+        ],
+        cards: Vec::new(),
+    }))?;
+    let index_count_1 = output1
+        .effects
+        .iter()
+        .filter(|e| matches!(e, MaestriaEffect::IndexFullText(_)))
+        .count();
+    assert_eq!(
+        index_count_1, 2,
+        "first parse emits IndexFullText for both chunks"
+    );
+
+    // Resolve one chunk's full-text indexing
+    state.apply_input(DomainInput::FullTextIndexCompleted(
+        FullTextIndexCompleted {
+            artifact_id: ArtifactId::new(1),
+            chunk_id: ChunkId::new(10),
+        },
+    ))?;
+    assert!(!state.pending_full_text.contains(&ChunkId::new(10)));
+    assert!(state.pending_full_text.contains(&ChunkId::new(11)));
+
+    // Retry parser completion with same chunks
+    let output2 = state.apply_input(DomainInput::ParserCompleted(ParserResult {
+        artifact_id: ArtifactId::new(1),
+        chunks: vec![
+            RegisterChunkInput {
+                chunk_id: ChunkId::new(10),
+                artifact_id: ArtifactId::new(1),
+                order: 0,
+                text: "chunk a".to_string(),
+            },
+            RegisterChunkInput {
+                chunk_id: ChunkId::new(11),
+                artifact_id: ArtifactId::new(1),
+                order: 1,
+                text: "chunk b".to_string(),
+            },
+        ],
+        cards: Vec::new(),
+    }))?;
+
+    let index_effects: Vec<_> = output2
+        .effects
+        .iter()
+        .filter(|e| matches!(e, MaestriaEffect::IndexFullText(_)))
+        .collect();
+    assert_eq!(
+        index_effects.len(),
+        1,
+        "retry emits IndexFullText only for pending chunk"
+    );
+    assert!(
+        matches!(&index_effects[0], MaestriaEffect::IndexFullText(req) if req.chunk_id == ChunkId::new(11))
+    );
+    assert!(
+        output2.events.is_empty(),
+        "retry produces no duplicate events"
+    );
+
+    Ok(())
+}
+#[test]
 fn kernel_does_not_depend_on_forbidden_runtime_crates_or_operators() {
     let source = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/lib.rs"));
     let prelude = source

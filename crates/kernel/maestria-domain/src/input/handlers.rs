@@ -109,8 +109,15 @@ impl KernelState {
     pub(super) fn handle_record_evidence(
         &mut self,
         input: RecordEvidenceInput,
-    ) -> Result<DomainEventEnvelope, DomainError> {
-        if self.evidences.contains_key(&input.evidence_id) {
+    ) -> Result<Option<DomainEventEnvelope>, DomainError> {
+        if let Some(existing) = self.evidences.get(&input.evidence_id) {
+            if existing.artifact_id == input.artifact_id
+                && existing.claim_id == input.claim_id
+                && existing.kind == input.kind
+                && existing.excerpt == input.excerpt
+            {
+                return Ok(None);
+            }
             return Err(DomainError::DuplicateId {
                 kind: "evidence",
                 id: input.evidence_id.value(),
@@ -156,14 +163,14 @@ impl KernelState {
             claim.evidence_ids.insert(input.evidence_id);
         }
 
-        Ok(self.emit_event(DomainEvent::EvidenceRecorded {
+        Ok(Some(self.emit_event(DomainEvent::EvidenceRecorded {
             evidence_id: input.evidence_id,
             artifact_id: input.artifact_id,
             claim_id: input.claim_id,
             kind,
             excerpt: input.excerpt,
             observed_at: input.observed_at,
-        }))
+        })))
     }
 
     pub(super) fn handle_create_claim(
@@ -689,22 +696,52 @@ impl KernelState {
         }
 
         let mut generated = Vec::new();
+        let mut new_chunks = 0u32;
         for chunk in &input.chunks {
-            let envelope = self.handle_register_chunk(chunk.clone())?;
-            generated.push(envelope);
-            self.pending_full_text.insert(chunk.chunk_id);
+            if let Some(existing) = self.chunks.get(&chunk.chunk_id) {
+                if existing.artifact_id != chunk.artifact_id
+                    || existing.order != chunk.order
+                    || existing.text != chunk.text
+                {
+                    return Err(DomainError::DuplicateId {
+                        kind: "chunk",
+                        id: chunk.chunk_id.value(),
+                    });
+                }
+            } else {
+                let envelope = self.handle_register_chunk(chunk.clone())?;
+                generated.push(envelope);
+                self.pending_full_text.insert(chunk.chunk_id);
+                new_chunks += 1;
+            }
         }
 
-        let chunks_added = (generated.len().min(u32::MAX as usize)) as u32;
+        let mut cards_added = false;
         for card in input.cards {
-            generated.push(self.handle_create_card(card)?);
+            if let Some(existing) = self.cards.get(&card.card_id) {
+                if existing.artifact_id != card.artifact_id
+                    || existing.title != card.title
+                    || existing.body != card.body
+                {
+                    return Err(DomainError::DuplicateId {
+                        kind: "card",
+                        id: card.card_id.value(),
+                    });
+                }
+            } else {
+                generated.push(self.handle_create_card(card)?);
+                cards_added = true;
+            }
         }
 
-        let parsed = self.emit_event(DomainEvent::ArtifactParsed {
-            artifact_id: input.artifact_id,
-            chunks_added,
-        });
-        generated.push(parsed);
+        if new_chunks > 0 || cards_added {
+            let parsed = self.emit_event(DomainEvent::ArtifactParsed {
+                artifact_id: input.artifact_id,
+                chunks_added: new_chunks,
+            });
+            generated.push(parsed);
+        }
+
         Ok(generated)
     }
 

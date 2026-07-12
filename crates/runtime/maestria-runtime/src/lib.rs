@@ -436,17 +436,12 @@ impl MaestriaRuntime {
                     "state snapshot requested"
                 );
             }
-            MaestriaEffect::StoreBlob(request) => match adapters.blob_store.put(request.payload) {
-                Ok(blob_id) => tracing::debug!(
+            MaestriaEffect::StoreBlob(request) => {
+                tracing::debug!(
                     artifact_id = %request.artifact_id,
-                    %blob_id,
-                    "stored artifact blob"
-                ),
-                Err(error) => {
-                    tracing::error!(artifact_id = %request.artifact_id, %error, "failed to store artifact blob");
-                    return false;
-                }
-            },
+                    "source blob queued for storage during parsing"
+                );
+            }
             MaestriaEffect::ParseArtifact(request) => {
                 let artifact = match adapters.artifact_repo.get(request.artifact_id) {
                     Ok(Some(artifact)) => artifact,
@@ -457,13 +452,13 @@ impl MaestriaRuntime {
                         };
                         let Some(artifact) = artifact else {
                             tracing::warn!(artifact_id = %request.artifact_id, "artifact missing for parse");
-                            return true;
+                            return false;
                         };
                         artifact
                     }
                     Err(error) => {
                         tracing::error!(artifact_id = %request.artifact_id, %error, "failed to load artifact for parse");
-                        return true;
+                        return false;
                     }
                 };
                 let path = PathBuf::from(&request.source_path);
@@ -483,7 +478,7 @@ impl MaestriaRuntime {
                         path = %metadata.path.display(),
                         "parser does not support artifact"
                     );
-                    return true;
+                    return false;
                 }
                 let file = FileHandle { path, bytes };
                 match adapters.parser.parse(
@@ -493,9 +488,7 @@ impl MaestriaRuntime {
                     },
                 ) {
                     Ok(parsed) => {
-                        // Store source bytes to obtain the immutable BlobId for evidence snapshots.
-                        // NOTE: this duplicates the separate StoreBlob effect produced by the domain;
-                        // idempotent blob storage is acceptable for this bounded slice.
+                        // Store source bytes once to obtain the immutable BlobId for evidence snapshots.
                         let blob_id = match adapters.blob_store.put(request.source_bytes.clone()) {
                             Ok(id) => id,
                             Err(error) => {
@@ -509,9 +502,16 @@ impl MaestriaRuntime {
                         let mut search_start: usize = 0;
 
                         for (order, chunk) in parsed.chunks.iter().enumerate() {
+                            let evidence_id = evidence_id_for(artifact.id, order as u32);
+                            // Skip evidence IDs already present in replayed state (idempotent retry).
+                            {
+                                let state = state.read().await;
+                                if state.evidences.contains_key(&evidence_id) {
+                                    continue;
+                                }
+                            }
                             let range =
                                 line_range_for_chunk(&source_text, &chunk.text, &mut search_start);
-                            let evidence_id = evidence_id_for(artifact.id, order as u32);
                             let excerpt = excerpt_for(&chunk.text);
                             Self::send_input(
                                 &input_tx,
@@ -831,11 +831,11 @@ mod tests {
     };
     use maestria_governance::{DefaultApprovalGate, DefaultRiskClassifier};
     use maestria_ports::{
-        CardRepository, ChunkRepository, EventFilter, EventLog, EvidenceRepository,
-        InMemoryArtifactRepository, InMemoryBlobStore, InMemoryCardRepository,
+        CardRepository, ChunkRepository, EventFilter, EventLog, EvidenceRepository, FileHandle,
+        FileMetadata, InMemoryArtifactRepository, InMemoryBlobStore, InMemoryCardRepository,
         InMemoryChunkRepository, InMemoryEventLog, InMemoryEvidenceRepository,
         InMemoryFullTextIndex, InMemoryGraphIndex, InMemoryHarnessAdapter, InMemoryParser,
-        InMemoryVectorIndex, InMemoryWebFetcher, PortError,
+        InMemoryVectorIndex, InMemoryWebFetcher, ParseContext, ParsedArtifact, Parser, PortError,
     };
     use std::collections::BTreeSet;
     use std::sync::Arc;
@@ -1047,8 +1047,11 @@ mod tests {
         assert!(result, "StoreBlob should succeed");
         match recorded.lock() {
             Ok(guard) => {
-                assert_eq!(guard.len(), 1, "exactly one blob stored");
-                assert_eq!(guard[0], expected, "payload bytes preserved end to end");
+                assert_eq!(
+                    guard.len(),
+                    0,
+                    "StoreBlob no longer calls put; blob stored during ParseArtifact"
+                );
             }
             Err(poisoned) => panic!("recording mutex poisoned: {:?}", poisoned),
         }
@@ -1351,5 +1354,282 @@ mod tests {
                 .is_ok_and(|value| value.is_some()),
             "evidence should be persisted"
         );
+    }
+
+    #[tokio::test]
+    async fn parse_artifact_unsupported_parser_returns_failure() {
+        struct RejectingParser;
+        impl Parser for RejectingParser {
+            fn id(&self) -> &'static str {
+                "rejecting"
+            }
+            fn supports(&self, _file: &FileMetadata) -> bool {
+                false
+            }
+            fn parse(
+                &self,
+                _file: FileHandle,
+                _context: ParseContext,
+            ) -> Result<ParsedArtifact, PortError> {
+                Err(PortError::InvalidInput {
+                    message: "never called".into(),
+                })
+            }
+        }
+
+        let artifact_repo = InMemoryArtifactRepository::new();
+        artifact_repo
+            .put(Artifact {
+                id: ArtifactId::new(9),
+                title: "unsupported".into(),
+                chunk_ids: BTreeSet::new(),
+                card_ids: BTreeSet::new(),
+                claim_ids: BTreeSet::new(),
+                evidence_ids: BTreeSet::new(),
+                index_status: IndexStatus::Unindexed,
+                content_hash: None,
+            })
+            .expect("pre-populated artifact should be accepted");
+
+        let adapters = Adapters {
+            event_log: Arc::new(InMemoryEventLog::new()),
+            blob_store: Arc::new(InMemoryBlobStore::new()),
+            search_index: Arc::new(InMemoryFullTextIndex::new()),
+            harness: Arc::new(InMemoryHarnessAdapter::new()),
+            parser: Arc::new(RejectingParser),
+            artifact_repo: Arc::new(artifact_repo),
+            chunk_repo: Arc::new(InMemoryChunkRepository::new()),
+            card_repo: Arc::new(InMemoryCardRepository::new()),
+            evidence_repo: Arc::new(InMemoryEvidenceRepository::new()),
+            vector_index: Arc::new(InMemoryVectorIndex::new()),
+            graph_index: Arc::new(InMemoryGraphIndex::new()),
+            web_fetcher: Arc::new(InMemoryWebFetcher::new()),
+        };
+        let governance = Governance {
+            classifier: Arc::new(DefaultRiskClassifier),
+            approval_gate: Arc::new(DefaultApprovalGate),
+        };
+        let (input_tx, _input_rx) = mpsc::channel(8);
+
+        let result = MaestriaRuntime::execute_effect(
+            MaestriaEffect::ParseArtifact(ParseArtifactRequest {
+                artifact_id: ArtifactId::new(9),
+                source_path: "/repo/data.pdf".to_string(),
+                source_bytes: b"pdf content".to_vec(),
+            }),
+            Arc::new(adapters),
+            Arc::new(governance),
+            AutonomyProfile::TrustedWorkspace,
+            Scope::default(),
+            Arc::new(RwLock::new(KernelState::new())),
+            input_tx,
+        )
+        .await;
+
+        assert!(
+            !result,
+            "unsupported parser should cause ParseArtifact to return false for retry"
+        );
+    }
+
+    #[tokio::test]
+    async fn parse_artifact_missing_artifact_returns_failure() {
+        let adapters = Adapters {
+            event_log: Arc::new(InMemoryEventLog::new()),
+            blob_store: Arc::new(InMemoryBlobStore::new()),
+            search_index: Arc::new(InMemoryFullTextIndex::new()),
+            harness: Arc::new(InMemoryHarnessAdapter::new()),
+            parser: Arc::new(InMemoryParser::new()),
+            artifact_repo: Arc::new(InMemoryArtifactRepository::new()),
+            chunk_repo: Arc::new(InMemoryChunkRepository::new()),
+            card_repo: Arc::new(InMemoryCardRepository::new()),
+            evidence_repo: Arc::new(InMemoryEvidenceRepository::new()),
+            vector_index: Arc::new(InMemoryVectorIndex::new()),
+            graph_index: Arc::new(InMemoryGraphIndex::new()),
+            web_fetcher: Arc::new(InMemoryWebFetcher::new()),
+        };
+        let governance = Governance {
+            classifier: Arc::new(DefaultRiskClassifier),
+            approval_gate: Arc::new(DefaultApprovalGate),
+        };
+        let (input_tx, _input_rx) = mpsc::channel(8);
+
+        let result = MaestriaRuntime::execute_effect(
+            MaestriaEffect::ParseArtifact(ParseArtifactRequest {
+                artifact_id: ArtifactId::new(99),
+                source_path: "/repo/ghost.rs".to_string(),
+                source_bytes: b"fn gone() {}".to_vec(),
+            }),
+            Arc::new(adapters),
+            Arc::new(governance),
+            AutonomyProfile::TrustedWorkspace,
+            Scope::default(),
+            Arc::new(RwLock::new(KernelState::new())),
+            input_tx,
+        )
+        .await;
+
+        assert!(
+            !result,
+            "missing artifact should return false so retry policy remains active"
+        );
+    }
+
+    #[tokio::test]
+    async fn parse_artifact_calls_blob_put_exactly_once() {
+        let recorded: Arc<std::sync::Mutex<Vec<Vec<u8>>>> =
+            Arc::new(std::sync::Mutex::new(Vec::new()));
+        let blob_store = Arc::new(RecordingBlobStore {
+            recorded: recorded.clone(),
+        });
+
+        let artifact_repo = InMemoryArtifactRepository::new();
+        artifact_repo
+            .put(Artifact {
+                id: ArtifactId::new(55),
+                title: "single-put".into(),
+                chunk_ids: BTreeSet::new(),
+                card_ids: BTreeSet::new(),
+                claim_ids: BTreeSet::new(),
+                evidence_ids: BTreeSet::new(),
+                index_status: IndexStatus::Unindexed,
+                content_hash: None,
+            })
+            .expect("pre-populated artifact should be accepted");
+
+        let adapters = Adapters {
+            event_log: Arc::new(InMemoryEventLog::new()),
+            blob_store,
+            search_index: Arc::new(InMemoryFullTextIndex::new()),
+            harness: Arc::new(InMemoryHarnessAdapter::new()),
+            parser: Arc::new(InMemoryParser::new()),
+            artifact_repo: Arc::new(artifact_repo),
+            chunk_repo: Arc::new(InMemoryChunkRepository::new()),
+            card_repo: Arc::new(InMemoryCardRepository::new()),
+            evidence_repo: Arc::new(InMemoryEvidenceRepository::new()),
+            vector_index: Arc::new(InMemoryVectorIndex::new()),
+            graph_index: Arc::new(InMemoryGraphIndex::new()),
+            web_fetcher: Arc::new(InMemoryWebFetcher::new()),
+        };
+        let governance = Governance {
+            classifier: Arc::new(DefaultRiskClassifier),
+            approval_gate: Arc::new(DefaultApprovalGate),
+        };
+        let (input_tx, _input_rx) = mpsc::channel(8);
+
+        let source_bytes = b"single put test content".to_vec();
+        let result = MaestriaRuntime::execute_effect(
+            MaestriaEffect::ParseArtifact(ParseArtifactRequest {
+                artifact_id: ArtifactId::new(55),
+                source_path: "/repo/single.rs".to_string(),
+                source_bytes: source_bytes.clone(),
+            }),
+            Arc::new(adapters),
+            Arc::new(governance),
+            AutonomyProfile::TrustedWorkspace,
+            Scope::default(),
+            Arc::new(RwLock::new(KernelState::new())),
+            input_tx,
+        )
+        .await;
+
+        assert!(result, "ParseArtifact should succeed");
+        match recorded.lock() {
+            Ok(guard) => {
+                assert_eq!(guard.len(), 1, "exactly one blob put per ParseArtifact");
+                assert_eq!(guard[0], source_bytes, "payload matches");
+            }
+            Err(poisoned) => panic!("recording mutex poisoned: {:?}", poisoned),
+        }
+    }
+
+    #[tokio::test]
+    async fn parse_artifact_retry_skips_existing_evidence() {
+        let artifact_id = ArtifactId::new(77);
+        let existing_evidence_id = evidence_id_for(artifact_id, 0);
+
+        let artifact_repo = InMemoryArtifactRepository::new();
+        artifact_repo
+            .put(Artifact {
+                id: artifact_id,
+                title: "retry-test".into(),
+                chunk_ids: BTreeSet::new(),
+                card_ids: BTreeSet::new(),
+                claim_ids: BTreeSet::new(),
+                evidence_ids: BTreeSet::from([existing_evidence_id]),
+                index_status: IndexStatus::Unindexed,
+                content_hash: None,
+            })
+            .expect("pre-populated artifact should be accepted");
+
+        // Pre-populate state with existing evidence to simulate replay/retry.
+        let mut state = KernelState::new();
+        state.evidences.insert(
+            existing_evidence_id,
+            Evidence {
+                id: existing_evidence_id,
+                artifact_id,
+                claim_id: None,
+                kind: EvidenceKind::FileSpan {
+                    path: "/repo/retry.rs".into(),
+                    range: maestria_domain::ContentRange { start: 1, end: 1 },
+                    content_hash: content_hash(b"existing"),
+                    snapshot: Some(BlobId::new(1)),
+                },
+                excerpt: "existing excerpt".into(),
+                observed_at: LogicalTick::new(1),
+            },
+        );
+
+        let adapters = Adapters {
+            event_log: Arc::new(InMemoryEventLog::new()),
+            blob_store: Arc::new(InMemoryBlobStore::new()),
+            search_index: Arc::new(InMemoryFullTextIndex::new()),
+            harness: Arc::new(InMemoryHarnessAdapter::new()),
+            parser: Arc::new(InMemoryParser::new()),
+            artifact_repo: Arc::new(artifact_repo),
+            chunk_repo: Arc::new(InMemoryChunkRepository::new()),
+            card_repo: Arc::new(InMemoryCardRepository::new()),
+            evidence_repo: Arc::new(InMemoryEvidenceRepository::new()),
+            vector_index: Arc::new(InMemoryVectorIndex::new()),
+            graph_index: Arc::new(InMemoryGraphIndex::new()),
+            web_fetcher: Arc::new(InMemoryWebFetcher::new()),
+        };
+        let governance = Governance {
+            classifier: Arc::new(DefaultRiskClassifier),
+            approval_gate: Arc::new(DefaultApprovalGate),
+        };
+        let (input_tx, mut input_rx) = mpsc::channel(8);
+
+        let result = MaestriaRuntime::execute_effect(
+            MaestriaEffect::ParseArtifact(ParseArtifactRequest {
+                artifact_id,
+                source_path: "/repo/retry.rs".to_string(),
+                source_bytes: b"retry content".to_vec(),
+            }),
+            Arc::new(adapters),
+            Arc::new(governance),
+            AutonomyProfile::TrustedWorkspace,
+            Scope::default(),
+            Arc::new(RwLock::new(state)),
+            input_tx,
+        )
+        .await;
+
+        assert!(result, "ParseArtifact should succeed even on retry");
+
+        // First input after retry with existing evidence should be ParserCompleted (no RecordEvidence).
+        match tokio::time::timeout(Duration::from_secs(1), input_rx.recv()).await {
+            Ok(Some(DomainInput::ParserCompleted(pr))) => {
+                assert_eq!(pr.artifact_id, artifact_id);
+                assert_eq!(pr.chunks.len(), 1);
+            }
+            Ok(Some(DomainInput::RecordEvidence(ev))) => {
+                panic!("unexpected RecordEvidence for already-present evidence_id {ev:?}");
+            }
+            Ok(Some(other)) => panic!("expected ParserCompleted, got {other:?}"),
+            Ok(None) => panic!("channel closed before ParserCompleted"),
+            Err(_) => panic!("timeout waiting for ParserCompleted"),
+        }
     }
 }

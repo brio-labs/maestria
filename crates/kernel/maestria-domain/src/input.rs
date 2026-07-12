@@ -51,23 +51,25 @@ impl KernelState {
                     .push(MaestriaEffect::PersistEvent { envelope: event });
             }
             DomainInput::RecordEvidence(input) => {
-                let event = self.handle_record_evidence(input.clone())?;
-                output.events.push(event.clone());
-                output.effects.push(MaestriaEffect::PersistEvent {
-                    envelope: event.clone(),
-                });
-                let claim_id = match event.event {
-                    DomainEvent::EvidenceRecorded { claim_id, .. } => claim_id,
-                    _ => None,
-                };
-                if let Some(claim_id) = claim_id {
-                    output
-                        .effects
-                        .push(MaestriaEffect::RunValidation(RunValidationRequest {
-                            task_id: None,
-                            claim_id: Some(claim_id),
-                            validation_report_id: ValidationReportId::new(0),
-                        }));
+                let maybe_event = self.handle_record_evidence(input.clone())?;
+                if let Some(event) = maybe_event {
+                    output.events.push(event.clone());
+                    output.effects.push(MaestriaEffect::PersistEvent {
+                        envelope: event.clone(),
+                    });
+                    let claim_id = match event.event {
+                        DomainEvent::EvidenceRecorded { claim_id, .. } => claim_id,
+                        _ => None,
+                    };
+                    if let Some(claim_id) = claim_id {
+                        output
+                            .effects
+                            .push(MaestriaEffect::RunValidation(RunValidationRequest {
+                                task_id: None,
+                                claim_id: Some(claim_id),
+                                validation_report_id: ValidationReportId::new(0),
+                            }));
+                    }
                 }
             }
             DomainInput::CreateClaim(input) => {
@@ -242,19 +244,12 @@ impl KernelState {
                         envelope: pending_event,
                     });
 
-                    let blob = input.source_bytes.clone();
-                    output
-                        .effects
-                        .push(MaestriaEffect::StoreBlob(StoreBlobRequest {
-                            artifact_id: input.artifact_id,
-                            payload: blob.clone(),
-                        }));
                     output
                         .effects
                         .push(MaestriaEffect::ParseArtifact(ParseArtifactRequest {
                             artifact_id: input.artifact_id,
                             source_path: input.source_path,
-                            source_bytes: blob,
+                            source_bytes: input.source_bytes,
                         }));
                 }
             }
@@ -269,12 +264,14 @@ impl KernelState {
                         .push(MaestriaEffect::PersistEvent { envelope });
                 }
                 for chunk_id in &chunk_ids {
-                    output
-                        .effects
-                        .push(MaestriaEffect::IndexFullText(IndexFullTextRequest {
-                            artifact_id,
-                            chunk_id: *chunk_id,
-                        }));
+                    if self.pending_full_text.contains(chunk_id) {
+                        output
+                            .effects
+                            .push(MaestriaEffect::IndexFullText(IndexFullTextRequest {
+                                artifact_id,
+                                chunk_id: *chunk_id,
+                            }));
+                    }
                 }
             }
             DomainInput::FullTextIndexCompleted(input) => {
