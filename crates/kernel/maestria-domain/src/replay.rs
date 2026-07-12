@@ -670,6 +670,43 @@ impl KernelState {
                     artifact.index_status = IndexStatus::Indexed;
                     // Terminal indexing frees the pending parser entry.
                     self.pending_parsers.remove(artifact_id);
+                } else {
+                    // Remove each invalid deterministic source-evidence record
+                    // so ResumeParser can regenerate and RecordEvidence can
+                    // replace it without tripping duplicate-ID rejection.
+                    let expected_hash = self
+                        .artifacts
+                        .get(artifact_id)
+                        .and_then(|a| a.content_hash.as_deref());
+                    let mut to_remove: Vec<EvidenceId> = Vec::new();
+                    for chunk in self.chunks.values() {
+                        if chunk.artifact_id != *artifact_id {
+                            continue;
+                        }
+                        let expected_id = crate::evidence_id_for(chunk.artifact_id, chunk.order);
+                        if let Some(ev) = self.evidences.get(&expected_id) {
+                            let is_valid = ev.artifact_id == *artifact_id
+                                && matches!(
+                                    &ev.kind,
+                                    EvidenceKind::FileSpan {
+                                        content_hash,
+                                        snapshot: Some(_),
+                                        ..
+                                    } if expected_hash == Some(content_hash.as_str())
+                                );
+                            if !is_valid {
+                                to_remove.push(expected_id);
+                            }
+                        }
+                    }
+                    if !to_remove.is_empty()
+                        && let Some(artifact) = self.artifacts.get_mut(artifact_id)
+                    {
+                        for id in &to_remove {
+                            self.evidences.remove(id);
+                            artifact.evidence_ids.remove(id);
+                        }
+                    }
                 }
             }
             DomainEvent::HarnessRunCompleted { task_id, .. } => {

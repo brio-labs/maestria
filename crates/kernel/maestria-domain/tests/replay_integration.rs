@@ -1303,3 +1303,195 @@ fn replay_artifact_indexed_rejects_incomplete_evidence() -> Result<(), DomainErr
     );
     Ok(())
 }
+
+#[test]
+fn replay_artifact_indexed_removes_invalid_evidence() -> Result<(), DomainError> {
+    // Regression: when an invalid ArtifactIndexed is replayed with
+    // source-evidence records that fail validation (wrong hash, missing
+    // snapshot, artifact mismatch), those records MUST be removed from
+    // KernelState.evidences and artifact.evidence_ids so that a
+    // subsequent valid RecordEvidence for the same deterministic ID
+    // is accepted instead of rejected as a duplicate.
+    let mut state = KernelState::new();
+    let art_id = ArtifactId::new(1);
+    let det_ev_id = evidence_id_for(art_id, 0);
+
+    state.apply_event(DomainEventEnvelope {
+        id: EventId::new(1),
+        sequence: SequenceNumber::new(1),
+        event: DomainEvent::ArtifactRegistered {
+            artifact_id: art_id,
+            title: "Notes".to_string(),
+        },
+    })?;
+    state.apply_event(DomainEventEnvelope {
+        id: EventId::new(2),
+        sequence: SequenceNumber::new(2),
+        event: DomainEvent::ParserStarted {
+            artifact_id: art_id,
+            title: "Notes".to_string(),
+            source_path: "/tmp/notes.md".to_string(),
+            content_hash: "sha256:abc".to_string(),
+            blob_id: BlobId::new(42),
+        },
+    })?;
+    assert!(state.pending_parsers.contains_key(&art_id));
+
+    state.apply_event(DomainEventEnvelope {
+        id: EventId::new(3),
+        sequence: SequenceNumber::new(3),
+        event: DomainEvent::PendingIndex {
+            artifact_id: art_id,
+            content_hash: "sha256:abc".to_string(),
+        },
+    })?;
+
+    state.apply_event(DomainEventEnvelope {
+        id: EventId::new(4),
+        sequence: SequenceNumber::new(4),
+        event: DomainEvent::ChunkRegistered {
+            chunk_id: ChunkId::new(10),
+            artifact_id: art_id,
+            order: 0,
+            text: "hello".to_string(),
+        },
+    })?;
+
+    // Record deterministic evidence with a WRONG content_hash so
+    // evidence_complete_for returns false but the record exists.
+    state.apply_event(DomainEventEnvelope {
+        id: EventId::new(5),
+        sequence: SequenceNumber::new(5),
+        event: DomainEvent::EvidenceRecorded {
+            evidence_id: det_ev_id,
+            artifact_id: art_id,
+            claim_id: None,
+            kind: EvidenceKind::FileSpan {
+                path: "/tmp/notes.md".to_string(),
+                range: ContentRange { start: 0, end: 1 },
+                content_hash: "sha256:wrong".to_string(),
+                snapshot: Some(BlobId::new(42)),
+            },
+            excerpt: "hello".to_string(),
+            observed_at: LogicalTick::new(1),
+        },
+    })?;
+
+    // Confirm invalid evidence landed in state.
+    assert!(
+        state.evidences.contains_key(&det_ev_id),
+        "invalid evidence must exist before ArtifactIndexed"
+    );
+    assert!(
+        state.artifacts[&art_id].evidence_ids.contains(&det_ev_id),
+        "artifact must track the invalid evidence id"
+    );
+
+    state.apply_event(DomainEventEnvelope {
+        id: EventId::new(6),
+        sequence: SequenceNumber::new(6),
+        event: DomainEvent::FullTextIndexed {
+            artifact_id: art_id,
+            chunk_id: ChunkId::new(10),
+        },
+    })?;
+
+    state.apply_event(DomainEventEnvelope {
+        id: EventId::new(7),
+        sequence: SequenceNumber::new(7),
+        event: DomainEvent::ArtifactParsed {
+            artifact_id: art_id,
+            chunks_added: 1,
+        },
+    })?;
+
+    // ArtifactIndexed with invalid evidence — must NOT terminalize.
+    state.apply_event(DomainEventEnvelope {
+        id: EventId::new(8),
+        sequence: SequenceNumber::new(8),
+        event: DomainEvent::ArtifactIndexed {
+            artifact_id: art_id,
+        },
+    })?;
+
+    // Artifact stays Pending and pending_parsers retained.
+    assert_eq!(
+        state.artifacts[&art_id].index_status,
+        IndexStatus::Pending,
+        "invalid ArtifactIndexed must leave artifact Pending"
+    );
+    assert!(
+        state.pending_parsers.contains_key(&art_id),
+        "pending_parsers must be retained after invalid ArtifactIndexed"
+    );
+    // Invalid evidence MUST be removed from KernelState.evidences.
+    assert!(
+        !state.evidences.contains_key(&det_ev_id),
+        "invalid evidence must be removed from KernelState.evidences"
+    );
+    // Invalid evidence MUST be removed from artifact evidence-ID set.
+    assert!(
+        !state.artifacts[&art_id].evidence_ids.contains(&det_ev_id),
+        "invalid evidence must be removed from artifact evidence-ID set"
+    );
+    // Event log MUST still contain the invalid ArtifactIndexed.
+    assert!(
+        state.event_log.iter().any(|e| matches!(
+            e.event,
+            DomainEvent::ArtifactIndexed {
+                artifact_id: ArtifactId(1)
+            }
+        )),
+        "invalid ArtifactIndexed must be preserved in event log"
+    );
+
+    // Now record a VALID EvidenceRecorded for the same deterministic ID.
+    // This MUST succeed — the invalid record was removed above.
+    state.apply_event(DomainEventEnvelope {
+        id: EventId::new(9),
+        sequence: SequenceNumber::new(9),
+        event: DomainEvent::EvidenceRecorded {
+            evidence_id: det_ev_id,
+            artifact_id: art_id,
+            claim_id: None,
+            kind: EvidenceKind::FileSpan {
+                path: "/tmp/notes.md".to_string(),
+                range: ContentRange { start: 0, end: 1 },
+                content_hash: "sha256:abc".to_string(),
+                snapshot: Some(BlobId::new(42)),
+            },
+            excerpt: "hello".to_string(),
+            observed_at: LogicalTick::new(1),
+        },
+    })?;
+
+    assert!(
+        state.evidences.contains_key(&det_ev_id),
+        "valid evidence must be accepted for the same deterministic ID after removal"
+    );
+    assert!(
+        state.artifacts[&art_id].evidence_ids.contains(&det_ev_id),
+        "artifact must track the replacement evidence id"
+    );
+
+    // Now evidence is complete — ArtifactIndexed should terminalize.
+    state.apply_event(DomainEventEnvelope {
+        id: EventId::new(10),
+        sequence: SequenceNumber::new(10),
+        event: DomainEvent::ArtifactIndexed {
+            artifact_id: art_id,
+        },
+    })?;
+
+    assert_eq!(
+        state.artifacts[&art_id].index_status,
+        IndexStatus::Indexed,
+        "valid ArtifactIndexed after replacement must terminalize"
+    );
+    assert!(
+        !state.pending_parsers.contains_key(&art_id),
+        "pending_parsers must be cleared after valid ArtifactIndexed"
+    );
+
+    Ok(())
+}
