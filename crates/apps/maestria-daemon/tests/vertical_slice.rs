@@ -51,15 +51,11 @@ fn setup_layout(root: &Path, notes_dir: &Path) -> InstanceLayout {
 
 async fn wait_for_indexed(db_path: &Path, artifact_id: ArtifactId) -> bool {
     for _ in 0..60 {
-        match SqliteStore::open(db_path) {
-            Ok(db) => match db.get(artifact_id) {
-                Ok(Some(artifact)) if artifact.index_status == IndexStatus::Indexed => {
-                    return true;
-                }
-                Err(_) => {}
-                _ => {}
-            },
-            Err(_) => {}
+        if let Ok(db) = SqliteStore::open(db_path)
+            && let Ok(Some(artifact)) = db.get(artifact_id)
+            && artifact.index_status == IndexStatus::Indexed
+        {
+            return true;
         }
         tokio::time::sleep(Duration::from_millis(100)).await;
     }

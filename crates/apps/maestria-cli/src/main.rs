@@ -277,22 +277,18 @@ async fn index_path(instance_dir: PathBuf, path: PathBuf, recursive: bool) -> Re
         let artifact_id = artifact_id_for(&file, &bytes);
         let hash = content_hash(&bytes);
         // Check whether this exact artifact was already indexed before this session.
+        if let Some(artifact) = preexisting_state.artifacts.get(&artifact_id)
+            && artifact.content_hash.as_deref() == Some(&hash)
+            && artifact.index_status == IndexStatus::Indexed
         {
-            if let Some(artifact) = preexisting_state.artifacts.get(&artifact_id) {
-                if artifact.content_hash.as_deref() == Some(&hash)
-                    && artifact.index_status == IndexStatus::Indexed
-                {
-                    println!("unchanged artifact={} path={}", artifact.id, file.display());
-                    continue;
-                }
-            }
+            println!("unchanged artifact={} path={}", artifact.id, file.display());
+            continue;
         }
 
-        let title = file
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("unknown")
-            .to_string();
+        let title = match file.file_name().and_then(|n| n.to_str()) {
+            Some(name) => name.to_string(),
+            None => "unknown".to_string(),
+        };
 
         input_tx
             .send(DomainInput::ArtifactDetected(ArtifactDetected {
@@ -306,31 +302,36 @@ async fn index_path(instance_dir: PathBuf, path: PathBuf, recursive: bool) -> Re
             .context("failed to submit artifact to runtime")?;
 
         // Wait for the artifact to reach terminal persisted state.
-        let start = std::time::Instant::now();
-        let mut indexed = false;
-        loop {
-            if start.elapsed() > index_timeout {
-                break;
-            }
-            let state = maestria_daemon::load_kernel_state(&layout)
-                .with_context(|| "reload kernel state for indexing wait")?;
-            if let Some(artifact) = state.artifacts.get(&artifact_id) {
-                if artifact.index_status == IndexStatus::Indexed {
+        let result = timeout(index_timeout, async {
+            loop {
+                let state = maestria_daemon::load_kernel_state(&layout)
+                    .with_context(|| "reload kernel state for indexing wait")?;
+                if let Some(artifact) = state.artifacts.get(&artifact_id)
+                    && artifact.index_status == IndexStatus::Indexed
+                {
                     println!("indexed artifact={} path={}", artifact.id, file.display());
-                    indexed = true;
-                    break;
+                    return Ok::<_, anyhow::Error>(());
                 }
+                tokio::time::sleep(Duration::from_millis(100)).await;
             }
-            tokio::time::sleep(Duration::from_millis(100)).await;
-        }
+        })
+        .await;
 
-        if !indexed {
-            shutdown_token.cancel();
-            let _ = runtime_task.await;
-            return Err(anyhow!(
-                "timeout waiting for artifact indexing: {}",
-                file.display()
-            ));
+        match result {
+            Ok(Ok(())) => {}
+            Ok(Err(error)) => {
+                shutdown_token.cancel();
+                let _ = runtime_task.await;
+                return Err(error);
+            }
+            Err(_elapsed) => {
+                shutdown_token.cancel();
+                let _ = runtime_task.await;
+                return Err(anyhow!(
+                    "timeout waiting for artifact indexing: {}",
+                    file.display()
+                ));
+            }
         }
     }
 
