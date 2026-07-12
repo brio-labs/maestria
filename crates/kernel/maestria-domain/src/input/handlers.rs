@@ -115,6 +115,7 @@ impl KernelState {
                 && existing.claim_id == input.claim_id
                 && existing.kind == input.kind
                 && existing.excerpt == input.excerpt
+                && existing.observed_at == input.observed_at
             {
                 return Ok(None);
             }

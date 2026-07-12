@@ -1846,6 +1846,49 @@ fn record_evidence_rejects_mismatched_duplicate() -> Result<(), DomainError> {
 }
 
 #[test]
+fn record_evidence_rejects_observed_at_mismatch() -> Result<(), DomainError> {
+    let mut state = KernelState::new();
+    state.apply_input(DomainInput::RegisterArtifact(RegisterArtifactInput {
+        artifact_id: ArtifactId::new(1),
+        title: "Notes".to_string(),
+    }))?;
+    state.apply_input(DomainInput::RecordEvidence(RecordEvidenceInput {
+        evidence_id: EvidenceId::new(40),
+        artifact_id: ArtifactId::new(1),
+        claim_id: None,
+        kind: EvidenceKind::CommandOutput {
+            harness_run: HarnessRunId::new(1),
+            stream: OutputStream::Stdout,
+            blob: BlobId::new(99),
+        },
+        excerpt: "same excerpt".to_string(),
+        observed_at: LogicalTick::new(1),
+    }))?;
+
+    let err = state
+        .apply_input(DomainInput::RecordEvidence(RecordEvidenceInput {
+            evidence_id: EvidenceId::new(40),
+            artifact_id: ArtifactId::new(1),
+            claim_id: None,
+            kind: EvidenceKind::CommandOutput {
+                harness_run: HarnessRunId::new(1),
+                stream: OutputStream::Stdout,
+                blob: BlobId::new(99),
+            },
+            excerpt: "same excerpt".to_string(),
+            observed_at: LogicalTick::new(2),
+        }))
+        .expect_err("observed_at mismatch must error");
+
+    assert!(
+        matches!(err, DomainError::DuplicateId { kind, id: 40 } if kind == "evidence"),
+        "expected DuplicateId for evidence, got {:?}",
+        err
+    );
+    Ok(())
+}
+
+#[test]
 fn parser_completed_does_not_emit_index_effects() -> Result<(), DomainError> {
     let mut state = KernelState::new();
     state.apply_input(DomainInput::ArtifactDetected(ArtifactDetected {

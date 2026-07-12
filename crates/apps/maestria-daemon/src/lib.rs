@@ -7,7 +7,10 @@ use maestria_domain::{ArtifactId, DomainInput, KernelState, StartFullTextIndex, 
 use maestria_governance::{AutonomyProfile, DefaultApprovalGate, DefaultRiskClassifier, Scope};
 use maestria_graph_sqlite::SqliteGraphIndex;
 use maestria_parsers::ParserRegistry;
-use maestria_ports::{EventFilter, InMemoryHarnessAdapter};
+use maestria_ports::{
+    ArtifactRepository, CardRepository, ChunkRepository, EventFilter, EvidenceRepository,
+    InMemoryHarnessAdapter,
+};
 use maestria_runtime::{Adapters, Governance, MaestriaRuntime, RuntimeConfig};
 use maestria_search_tantivy::TantivyFullTextIndex;
 use maestria_storage_sqlite::SqliteStore;
@@ -30,6 +33,36 @@ fn pending_start_full_text(state: &KernelState) -> Vec<DomainInput> {
         .into_iter()
         .map(|artifact_id| DomainInput::StartFullTextIndex(StartFullTextIndex { artifact_id }))
         .collect()
+}
+
+/// Reconcile projection repositories from replayed domain truth.
+///
+/// After `load_kernel_state` replays the event log into a `KernelState`,
+/// this helper idempotently upserts every artifact, chunk, card, and
+/// evidence from the replayed state into the SQLite projection tables.
+///
+/// Projection repair never emits domain events and never changes event
+/// truth.  Startup recovery can then search/open evidence even if the
+/// previous process crashed after event append but before a projection
+/// write.
+pub fn reconcile_projections(state: &KernelState, store: &SqliteStore) -> Result<()> {
+    for artifact in state.artifacts.values() {
+        ArtifactRepository::put(store, artifact.clone())
+            .with_context(|| format!("put artifact {}", artifact.id))?;
+    }
+    for chunk in state.chunks.values() {
+        ChunkRepository::put(store, chunk.clone())
+            .with_context(|| format!("put chunk {}", chunk.id))?;
+    }
+    for card in state.cards.values() {
+        CardRepository::put(store, card.clone())
+            .with_context(|| format!("put card {}", card.id))?;
+    }
+    for evidence in state.evidences.values() {
+        EvidenceRepository::put(store, evidence.clone())
+            .with_context(|| format!("put evidence {}", evidence.id))?;
+    }
+    Ok(())
 }
 
 pub fn prepare_instance(instance_dir: PathBuf) -> Result<InstanceLayout> {
@@ -140,6 +173,17 @@ pub async fn run_instance(instance_dir: PathBuf) -> Result<()> {
     let layout = prepare_instance(instance_dir).with_context(|| "prepare instance layout")?;
     let state = load_kernel_state(&layout).with_context(|| "load persisted kernel state")?;
 
+    // Repair projection repositories before runtime start so that
+    // artifact, chunk, card, and evidence lookups succeed even if the
+    // previous process crashed after event append but before a
+    // projection write.
+    {
+        let store = SqliteStore::open(&layout.database_path)
+            .with_context(|| format!("open sqlite store {}", layout.database_path.display()))?;
+        reconcile_projections(&state, &store)
+            .with_context(|| "reconcile projection repositories")?;
+    }
+
     // Compute recovery inputs before state is moved into build_runtime.
     let pending = pending_start_full_text(&state);
 
@@ -170,6 +214,8 @@ pub async fn run_instance(instance_dir: PathBuf) -> Result<()> {
 
     Ok(())
 }
+#[cfg(test)]
+mod projection_recovery_tests;
 
 #[cfg(test)]
 mod tests {
