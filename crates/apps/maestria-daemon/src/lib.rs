@@ -308,7 +308,7 @@ mod tests {
         assert_eq!(pending_inputs.len(), 1);
 
         let restart_output = state
-            .apply_input(pending_inputs.into_iter().next().unwrap())
+            .apply_input(pending_inputs[0].clone())
             .expect("restart parser completed should succeed");
 
         let event_count_after = state.event_log.len();
