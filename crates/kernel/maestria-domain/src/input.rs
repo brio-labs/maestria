@@ -208,7 +208,7 @@ impl KernelState {
             }
             DomainInput::ArtifactDetected(input) => {
                 let existing = self.artifacts.get(&input.artifact_id);
-                let unchanged = existing.map_or(false, |a| {
+                let unchanged = existing.is_some_and(|a| {
                     a.content_hash.as_deref() == Some(&input.content_hash)
                         && a.index_status == IndexStatus::Indexed
                 });
