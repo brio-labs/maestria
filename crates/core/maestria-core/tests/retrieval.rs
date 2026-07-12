@@ -11,26 +11,8 @@ use maestria_ports::{
 
 /// Seed an artifact, chunks, evidence, and full-text entries directly through
 /// in-memory adapters, then wrap them in a `CoreServices` to exercise retrieval.
-fn seed_and_build_services<'a>(
-    artifact_repo: &'a InMemoryArtifactRepository,
-    chunk_repo: &'a InMemoryChunkRepository,
-    evidence_repo: &'a InMemoryEvidenceRepository,
-    blob_store: &'a InMemoryBlobStore,
-    search_index: &'a InMemoryFullTextIndex,
-    events: &'a InMemoryEventLog,
-    parser: &'a InMemoryParser,
-    cards: &'a InMemoryCardRepository,
-) -> CoreServices<'a> {
-    CoreServices::new(CorePorts {
-        artifacts: artifact_repo,
-        chunks: chunk_repo,
-        cards,
-        evidence: evidence_repo,
-        events,
-        parser,
-        search_index,
-        blobs: blob_store,
-    })
+fn seed_and_build_services<'a>(ports: CorePorts<'a>) -> CoreServices<'a> {
+    CoreServices::new(ports)
 }
 
 #[test]
@@ -128,16 +110,16 @@ fn search_and_open_evidence_with_directly_seeded_artifact() -> Result<(), Box<dy
     ])?;
 
     // 2. Build CoreServices around the seeded adapters.
-    let core = seed_and_build_services(
-        &artifact_repo,
-        &chunk_repo,
-        &evidence_repo,
-        &blob_store,
-        &search_index,
-        &events,
-        &parser,
-        &cards,
-    );
+    let core = seed_and_build_services(CorePorts {
+        artifacts: &artifact_repo,
+        chunks: &chunk_repo,
+        cards: &cards,
+        evidence: &evidence_repo,
+        events: &events,
+        parser: &parser,
+        search_index: &search_index,
+        blobs: &blob_store,
+    });
 
     // 3. Exercise retrieval APIs.
 

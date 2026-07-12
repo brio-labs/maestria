@@ -25,7 +25,8 @@ fn artifact_detected_input_is_replay_deterministic() -> Result<(), Box<dyn std::
     assert_eq!(output_a, output_b, "replay must produce identical output");
 
     // Also exercise the batch replay path for the same input.
-    let (replay_state, replay_events, replay_effects) = replay_inputs(&[input.clone()])?;
+    let (replay_state, replay_events, replay_effects) =
+        replay_inputs(std::slice::from_ref(&input))?;
     assert_eq!(replay_state, state_a);
     assert!(!replay_events.is_empty());
     assert!(!replay_effects.is_empty());
