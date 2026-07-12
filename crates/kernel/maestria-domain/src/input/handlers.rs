@@ -689,8 +689,10 @@ impl KernelState {
         }
 
         let mut generated = Vec::new();
-        for chunk in input.chunks {
-            generated.push(self.handle_register_chunk(chunk)?);
+        for chunk in &input.chunks {
+            let envelope = self.handle_register_chunk(chunk.clone())?;
+            generated.push(envelope);
+            self.pending_full_text.insert(chunk.chunk_id);
         }
 
         let chunks_added = (generated.len().min(u32::MAX as usize)) as u32;
@@ -839,5 +841,55 @@ impl KernelState {
             approved: input.approved,
         }));
         Ok(emitted)
+    }
+
+    pub(super) fn handle_full_text_index_completed(
+        &mut self,
+        input: FullTextIndexCompleted,
+    ) -> Result<Vec<DomainEventEnvelope>, DomainError> {
+        if !self.artifacts.contains_key(&input.artifact_id) {
+            return Err(DomainError::MissingArtifact {
+                id: input.artifact_id,
+            });
+        }
+        if !self.chunks.contains_key(&input.chunk_id) {
+            return Err(DomainError::MissingChunk {
+                id: input.chunk_id,
+            });
+        }
+        let chunk = self.chunks.get(&input.chunk_id).ok_or(DomainError::MissingChunk {
+            id: input.chunk_id,
+        })?;
+        if chunk.artifact_id != input.artifact_id {
+            return Err(DomainError::ArtifactMismatch {
+                expected: input.artifact_id,
+                actual: chunk.artifact_id,
+            });
+        }
+
+        let mut generated = Vec::new();
+
+        if self.pending_full_text.remove(&input.chunk_id) {
+            generated.push(self.emit_event(DomainEvent::FullTextIndexed {
+                artifact_id: input.artifact_id,
+                chunk_id: input.chunk_id,
+            }));
+
+            let all_done = !self
+                .chunks
+                .values()
+                .any(|c| c.artifact_id == input.artifact_id && self.pending_full_text.contains(&c.id));
+
+            if all_done {
+                if let Some(artifact) = self.artifacts.get_mut(&input.artifact_id) {
+                    artifact.index_status = IndexStatus::Indexed;
+                }
+                generated.push(self.emit_event(DomainEvent::ArtifactIndexed {
+                    artifact_id: input.artifact_id,
+                }));
+            }
+        }
+
+        Ok(generated)
     }
 }

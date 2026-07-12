@@ -2,7 +2,7 @@ use std::collections::BTreeSet;
 
 use maestria_domain::{
     Artifact, ArtifactId, Card, CardId, Chunk, ChunkId, ClaimId, DomainEventEnvelope, Evidence,
-    EvidenceId, LogicalTick,
+    EvidenceId, IndexStatus, LogicalTick,
 };
 use maestria_ports::{
     ArtifactRepository, CardRepository, ChunkRepository, EventFilter, EventLog, EvidenceRepository,
@@ -20,17 +20,34 @@ use crate::{
 impl ArtifactRepository for crate::SqliteStore {
     fn get(&self, artifact_id: ArtifactId) -> Result<Option<Artifact>, PortError> {
         let connection = self.lock()?;
-        let title = connection
+        let row = connection
             .query_row(
-                "SELECT title FROM artifacts WHERE id = ?1",
+                "SELECT title, content_hash, index_status FROM artifacts WHERE id = ?1",
                 params![u64_to_i64(artifact_id.value())?],
-                |row| row.get::<_, String>(0),
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, Option<String>>(1)?,
+                        row.get::<_, String>(2)?,
+                    ))
+                },
             )
             .optional()
             .map_err(to_port_error)?;
 
-        let Some(title) = title else {
+        let Some((title, content_hash, index_status)) = row else {
             return Ok(None);
+        };
+
+        let index_status = match index_status.as_str() {
+            "unindexed" => IndexStatus::Unindexed,
+            "pending" => IndexStatus::Pending,
+            "indexed" => IndexStatus::Indexed,
+            other => {
+                return Err(PortError::Internal {
+                    message: format!("unknown stored index_status {other}"),
+                });
+            }
         };
 
         Ok(Some(Artifact {
@@ -45,6 +62,8 @@ impl ArtifactRepository for crate::SqliteStore {
                 artifact_id,
                 EvidenceId::new,
             )?,
+            index_status,
+            content_hash,
         }))
     }
 
@@ -53,8 +72,18 @@ impl ArtifactRepository for crate::SqliteStore {
         let transaction = connection.transaction().map_err(to_port_error)?;
         transaction
             .execute(
-                "INSERT INTO artifacts (id, title) VALUES (?1, ?2)\n                 ON CONFLICT(id) DO UPDATE SET title = excluded.title",
-                params![u64_to_i64(artifact.id.value())?, artifact.title],
+                "INSERT INTO artifacts (id, title, content_hash, index_status)
+                 VALUES (?1, ?2, ?3, ?4)
+                 ON CONFLICT(id) DO UPDATE SET
+                     title = excluded.title,
+                     content_hash = excluded.content_hash,
+                     index_status = excluded.index_status",
+                params![
+                    u64_to_i64(artifact.id.value())?,
+                    artifact.title,
+                    artifact.content_hash,
+                    index_status_to_text(artifact.index_status),
+                ],
             )
             .map_err(to_port_error)?;
 
@@ -494,4 +523,12 @@ fn read_evidence(row: &Row<'_>) -> Result<Evidence, PortError> {
         excerpt: row.get::<_, String>(4).map_err(to_port_error)?,
         observed_at: LogicalTick::new(i64_to_u64(row.get::<_, i64>(5).map_err(to_port_error)?)?),
     })
+}
+
+fn index_status_to_text(status: IndexStatus) -> &'static str {
+    match status {
+        IndexStatus::Unindexed => "unindexed",
+        IndexStatus::Pending => "pending",
+        IndexStatus::Indexed => "indexed",
+    }
 }

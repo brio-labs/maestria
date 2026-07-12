@@ -60,6 +60,11 @@ impl KernelState {
                 if let Some(artifact) = self.artifacts.get_mut(artifact_id) {
                     artifact.chunk_ids.insert(*chunk_id);
                 }
+                if let Some(artifact) = self.artifacts.get(artifact_id)
+                    && artifact.index_status == IndexStatus::Pending
+                {
+                    self.pending_full_text.insert(*chunk_id);
+                }
             }
             DomainEvent::CardCreated {
                 card_id,
@@ -580,6 +585,36 @@ impl KernelState {
                 if !self.artifacts.contains_key(artifact_id) {
                     return Err(DomainError::MissingArtifact { id: *artifact_id });
                 }
+            }
+            DomainEvent::PendingIndex {
+                artifact_id,
+                content_hash,
+            } => {
+                let artifact = self
+                    .artifacts
+                    .get_mut(artifact_id)
+                    .ok_or(DomainError::MissingArtifact { id: *artifact_id })?;
+                artifact.content_hash = Some(content_hash.clone());
+                artifact.index_status = IndexStatus::Pending;
+            }
+            DomainEvent::FullTextIndexed {
+                artifact_id,
+                chunk_id,
+            } => {
+                if !self.artifacts.contains_key(artifact_id) {
+                    return Err(DomainError::MissingArtifact { id: *artifact_id });
+                }
+                if !self.chunks.contains_key(chunk_id) {
+                    return Err(DomainError::MissingChunk { id: *chunk_id });
+                }
+                self.pending_full_text.remove(chunk_id);
+            }
+            DomainEvent::ArtifactIndexed { artifact_id } => {
+                let artifact = self
+                    .artifacts
+                    .get_mut(artifact_id)
+                    .ok_or(DomainError::MissingArtifact { id: *artifact_id })?;
+                artifact.index_status = IndexStatus::Indexed;
             }
             DomainEvent::HarnessRunCompleted { task_id, .. } => {
                 if let Some(task_id) = task_id

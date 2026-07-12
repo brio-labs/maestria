@@ -207,18 +207,40 @@ impl KernelState {
                 }
             }
             DomainInput::ArtifactDetected(input) => {
-                if self.artifacts.contains_key(&input.artifact_id) {
-                    // Already preflighted — no events/effects for unchanged content
+                let existing = self.artifacts.get(&input.artifact_id);
+                let unchanged = existing.map_or(false, |a| {
+                    a.content_hash.as_deref() == Some(&input.content_hash) && a.index_status == IndexStatus::Indexed
+                });
+
+                if unchanged {
+                    // Equal indexed hash — terminal no-op
                 } else {
-                    let event = self.handle_register_artifact(RegisterArtifactInput {
+                    if existing.is_none() {
+                        let register_event = self.handle_register_artifact(RegisterArtifactInput {
+                            artifact_id: input.artifact_id,
+                            title: input.title.clone(),
+                        })?;
+                        output.events.push(register_event.clone());
+                        output.effects.push(MaestriaEffect::PersistEvent {
+                            envelope: register_event,
+                        });
+                    }
+
+                    if let Some(artifact) = self.artifacts.get_mut(&input.artifact_id) {
+                        artifact.content_hash = Some(input.content_hash.clone());
+                        artifact.index_status = IndexStatus::Pending;
+                    }
+
+                    let pending_event = self.emit_event(DomainEvent::PendingIndex {
                         artifact_id: input.artifact_id,
-                        title: input.title,
-                    })?;
-                    let blob = input.source_bytes.clone();
-                    output.events.push(event.clone());
-                    output.effects.push(MaestriaEffect::PersistEvent {
-                        envelope: event,
+                        content_hash: input.content_hash.clone(),
                     });
+                    output.events.push(pending_event.clone());
+                    output.effects.push(MaestriaEffect::PersistEvent {
+                        envelope: pending_event,
+                    });
+
+                    let blob = input.source_bytes.clone();
                     output.effects.push(MaestriaEffect::StoreBlob(
                         StoreBlobRequest {
                             artifact_id: input.artifact_id,
@@ -235,7 +257,26 @@ impl KernelState {
                 }
             }
             DomainInput::ParserCompleted(input) => {
+                let artifact_id = input.artifact_id;
+                let chunk_ids: Vec<ChunkId> = input.chunks.iter().map(|c| c.chunk_id).collect();
                 let generated = self.handle_parser_completed(input)?;
+                for envelope in generated {
+                    output.events.push(envelope.clone());
+                    output
+                        .effects
+                        .push(MaestriaEffect::PersistEvent { envelope });
+                }
+                for chunk_id in &chunk_ids {
+                    output
+                        .effects
+                        .push(MaestriaEffect::IndexFullText(IndexFullTextRequest {
+                            artifact_id,
+                            chunk_id: *chunk_id,
+                        }));
+                }
+            }
+            DomainInput::FullTextIndexCompleted(input) => {
+                let generated = self.handle_full_text_index_completed(input)?;
                 for envelope in generated {
                     output.events.push(envelope.clone());
                     output

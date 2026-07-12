@@ -60,6 +60,14 @@ pub struct ContentRange {
     pub end: usize,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum IndexStatus {
+    #[default]
+    Unindexed,
+    Pending,
+    Indexed,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Artifact {
     pub id: ArtifactId,
@@ -68,6 +76,8 @@ pub struct Artifact {
     pub card_ids: BTreeSet<CardId>,
     pub claim_ids: BTreeSet<ClaimId>,
     pub evidence_ids: BTreeSet<EvidenceId>,
+    pub index_status: IndexStatus,
+    pub content_hash: Option<String>,
 }
 
 impl Artifact {
@@ -79,6 +89,8 @@ impl Artifact {
             card_ids: BTreeSet::new(),
             claim_ids: BTreeSet::new(),
             evidence_ids: BTreeSet::new(),
+            index_status: IndexStatus::default(),
+            content_hash: None,
         }
     }
 }
@@ -463,6 +475,17 @@ pub enum DomainEvent {
         artifact_id: ArtifactId,
         chunks_added: u32,
     },
+    PendingIndex {
+        artifact_id: ArtifactId,
+        content_hash: String,
+    },
+    FullTextIndexed {
+        artifact_id: ArtifactId,
+        chunk_id: ChunkId,
+    },
+    ArtifactIndexed {
+        artifact_id: ArtifactId,
+    },
     SearchCompleted {
         artifact_id: ArtifactId,
         cards_added: u32,
@@ -721,6 +744,7 @@ pub struct ArtifactDetected {
     pub title: String,
     pub source_path: String,
     pub source_bytes: Vec<u8>,
+    pub content_hash: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -735,6 +759,12 @@ pub struct SearchResultSet {
     pub artifact_id: ArtifactId,
     pub cards: Vec<CreateCardInput>,
 }
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FullTextIndexCompleted {
+    pub artifact_id: ArtifactId,
+    pub chunk_id: ChunkId,
+}
+
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HarnessRunCompleted {
@@ -776,6 +806,7 @@ pub enum DomainInput {
     RecordValidationReport(RecordValidationReportInput),
 
     UserIntent(UserIntent),
+    FullTextIndexCompleted(FullTextIndexCompleted),
     ArtifactDetected(ArtifactDetected),
     ParserCompleted(ParserResult),
     SearchCompleted(SearchResultSet),
@@ -967,5 +998,6 @@ pub struct KernelState {
     pub memories: BTreeMap<MemoryId, Memory>,
     pub tasks: BTreeMap<TaskId, Task>,
     pub validation_reports: BTreeMap<ValidationReportId, ValidationReportRecord>,
+    pub pending_full_text: BTreeSet<ChunkId>,
     pub event_log: Vec<DomainEventEnvelope>,
 }

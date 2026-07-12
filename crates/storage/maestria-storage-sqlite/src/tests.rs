@@ -49,6 +49,8 @@ fn artifact(id: u64) -> Artifact {
         card_ids: BTreeSet::new(),
         claim_ids: BTreeSet::new(),
         evidence_ids: BTreeSet::new(),
+        index_status: IndexStatus::default(),
+        content_hash: None,
     }
 }
 
@@ -719,4 +721,135 @@ fn evidence_put_rejects_conflicting_overwrite() {
         .expect("get after conflict")
         .expect("evidence must still exist");
     assert_eq!(stored, first);
+}
+
+#[test]
+fn pending_index_event_round_trips() {
+    let store = SqliteStore::in_memory().expect("test setup");
+    let event = DomainEventEnvelope {
+        id: EventId::new(1),
+        sequence: SequenceNumber::new(1),
+        event: DomainEvent::PendingIndex {
+            artifact_id: ArtifactId::new(7),
+            content_hash: "sha256:abc123".to_string(),
+        },
+    };
+    store.append(event.clone()).expect("append");
+    let scanned = store
+        .scan(EventFilter { artifact_id: None })
+        .expect("scan");
+    assert_eq!(scanned, vec![event]);
+}
+
+#[test]
+fn full_text_indexed_event_round_trips() {
+    let store = SqliteStore::in_memory().expect("test setup");
+    let event = DomainEventEnvelope {
+        id: EventId::new(1),
+        sequence: SequenceNumber::new(1),
+        event: DomainEvent::FullTextIndexed {
+            artifact_id: ArtifactId::new(7),
+            chunk_id: ChunkId::new(42),
+        },
+    };
+    store.append(event.clone()).expect("append");
+    let scanned = store
+        .scan(EventFilter { artifact_id: None })
+        .expect("scan");
+    assert_eq!(scanned, vec![event]);
+}
+
+#[test]
+fn artifact_indexed_event_round_trips() {
+    let store = SqliteStore::in_memory().expect("test setup");
+    let event = DomainEventEnvelope {
+        id: EventId::new(1),
+        sequence: SequenceNumber::new(1),
+        event: DomainEvent::ArtifactIndexed {
+            artifact_id: ArtifactId::new(7),
+        },
+    };
+    store.append(event.clone()).expect("append");
+    let scanned = store
+        .scan(EventFilter { artifact_id: None })
+        .expect("scan");
+    assert_eq!(scanned, vec![event]);
+}
+
+#[test]
+fn index_events_filter_by_artifact() {
+    let store = SqliteStore::in_memory().expect("test setup");
+    let pending = DomainEventEnvelope {
+        id: EventId::new(1),
+        sequence: SequenceNumber::new(1),
+        event: DomainEvent::PendingIndex {
+            artifact_id: ArtifactId::new(1),
+            content_hash: "sha256:aaa".to_string(),
+        },
+    };
+    let full_text = DomainEventEnvelope {
+        id: EventId::new(2),
+        sequence: SequenceNumber::new(2),
+        event: DomainEvent::FullTextIndexed {
+            artifact_id: ArtifactId::new(1),
+            chunk_id: ChunkId::new(10),
+        },
+    };
+    let indexed = DomainEventEnvelope {
+        id: EventId::new(3),
+        sequence: SequenceNumber::new(3),
+        event: DomainEvent::ArtifactIndexed {
+            artifact_id: ArtifactId::new(1),
+        },
+    };
+    let other = DomainEventEnvelope {
+        id: EventId::new(4),
+        sequence: SequenceNumber::new(4),
+        event: DomainEvent::ArtifactIndexed {
+            artifact_id: ArtifactId::new(2),
+        },
+    };
+    store.append(pending.clone()).expect("append");
+    store.append(full_text.clone()).expect("append");
+    store.append(indexed.clone()).expect("append");
+    store.append(other.clone()).expect("append");
+
+    let for_artifact_1 = store
+        .scan(EventFilter {
+            artifact_id: Some(ArtifactId::new(1)),
+        })
+        .expect("filtered scan");
+    assert_eq!(for_artifact_1, vec![pending, full_text, indexed]);
+}
+
+#[test]
+fn artifact_index_status_round_trips_through_repository() {
+    let store = SqliteStore::in_memory().expect("test setup");
+
+    // Default artifact has Unindexed status and no content_hash
+    let mut artifact = artifact(1);
+    assert_eq!(artifact.index_status, IndexStatus::Unindexed);
+    assert_eq!(artifact.content_hash, None);
+    ArtifactRepository::put(&store, artifact.clone()).expect("put");
+    assert_eq!(
+        ArtifactRepository::get(&store, ArtifactId::new(1)).expect("get"),
+        Some(artifact.clone())
+    );
+
+    // Update to Pending with a content_hash
+    artifact.index_status = IndexStatus::Pending;
+    artifact.content_hash = Some("sha256:def456".to_string());
+    ArtifactRepository::put(&store, artifact.clone()).expect("put");
+    assert_eq!(
+        ArtifactRepository::get(&store, ArtifactId::new(1)).expect("get"),
+        Some(artifact.clone())
+    );
+
+    // Update to Indexed, keep content_hash
+    artifact.index_status = IndexStatus::Indexed;
+    ArtifactRepository::put(&store, artifact.clone()).expect("put");
+    assert_eq!(
+        ArtifactRepository::get(&store, ArtifactId::new(1)).expect("get"),
+        Some(artifact)
+    );
 }

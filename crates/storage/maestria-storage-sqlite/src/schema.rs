@@ -4,7 +4,7 @@ use rusqlite::{Connection, OptionalExtension, params};
 use crate::{i64_to_u64, to_port_error};
 
 /// Current storage schema version supported by this adapter.
-pub(crate) const CURRENT_SCHEMA_VERSION: i64 = 2;
+pub(crate) const CURRENT_SCHEMA_VERSION: i64 = 3;
 
 pub(crate) fn migrate(connection: &mut Connection) -> Result<(), PortError> {
     let transaction = connection.transaction().map_err(to_port_error)?;
@@ -43,7 +43,9 @@ pub(crate) fn migrate(connection: &mut Connection) -> Result<(), PortError> {
              );
              CREATE TABLE IF NOT EXISTS artifacts (
                  id INTEGER NOT NULL PRIMARY KEY,
-                 title TEXT NOT NULL
+                 title TEXT NOT NULL,
+                 content_hash TEXT,
+                 index_status TEXT NOT NULL DEFAULT 'unindexed'
              );
              CREATE TABLE IF NOT EXISTS artifact_chunks (
                  artifact_id INTEGER NOT NULL,
@@ -151,6 +153,44 @@ pub(crate) fn migrate(connection: &mut Connection) -> Result<(), PortError> {
             } else {
                 return Err(PortError::Internal {
                     message: "malformed sqlite schema: missing payload_version column".to_string(),
+                });
+            }
+            if !table_has_column(&transaction, "artifacts", "content_hash")? {
+                transaction
+                    .execute_batch(
+                        "ALTER TABLE artifacts ADD COLUMN content_hash TEXT;
+                         ALTER TABLE artifacts ADD COLUMN index_status TEXT NOT NULL DEFAULT 'unindexed';",
+                    )
+                    .map_err(to_port_error)?;
+            }
+            transaction
+                .execute(
+                    "INSERT OR IGNORE INTO schema_version (version) VALUES (?1)",
+                    [CURRENT_SCHEMA_VERSION],
+                )
+                .map_err(to_port_error)?;
+        }
+        Some(3) => {
+            if !had_domain_events_table {
+                return Err(PortError::Internal {
+                    message: "malformed sqlite schema: domain_events table missing".to_string(),
+                });
+            }
+            if had_payload_version_column {
+                validate_columns(&transaction, &DOMAIN_EVENTS_V2_COLUMNS)?;
+            } else {
+                return Err(PortError::Internal {
+                    message: "malformed sqlite schema: missing payload_version column".to_string(),
+                });
+            }
+            if !table_has_column(&transaction, "artifacts", "content_hash")? {
+                return Err(PortError::Internal {
+                    message: "malformed sqlite schema: artifacts table missing content_hash column".to_string(),
+                });
+            }
+            if !table_has_column(&transaction, "artifacts", "index_status")? {
+                return Err(PortError::Internal {
+                    message: "malformed sqlite schema: artifacts table missing index_status column".to_string(),
                 });
             }
         }

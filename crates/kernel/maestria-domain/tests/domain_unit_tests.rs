@@ -8,6 +8,7 @@ fn sample_inputs() -> Vec<DomainInput> {
             title: "Project Notes".to_string(),
             source_path: "notes.txt".to_string(),
             source_bytes: b"project notes content".to_vec(),
+            content_hash: "sha256:abc".to_string(),
         }),
         DomainInput::ParserCompleted(ParserResult {
             artifact_id: ArtifactId::new(1),
@@ -998,22 +999,26 @@ fn replay_events_are_equivalent() -> Result<(), DomainError> {
 #[test]
 fn preflight_artifact_detected_creates_artifact() -> Result<(), DomainError> {
     let mut state = KernelState::new();
-    let output = state.apply_input(DomainInput::ArtifactDetected(ArtifactDetected {
-        artifact_id: ArtifactId::new(1),
-        title: "Notes".to_string(),
-        source_path: String::new(),
-        source_bytes: Vec::new(),
-    }))?;
+    let output = state.apply_input(DomainInput::ArtifactDetected(ArtifactDetected { artifact_id: ArtifactId::new(1), title: "Notes".to_string(), source_path: String::new(), source_bytes: Vec::new(), content_hash: "sha256:abc".to_string() }))?;
 
     assert!(state.artifacts.contains_key(&ArtifactId::new(1)));
     assert_eq!(
         state.artifacts[&ArtifactId::new(1)].title,
         "Notes"
     );
-    assert_eq!(output.events.len(), 1);
+    assert_eq!(state.artifacts[&ArtifactId::new(1)].index_status, IndexStatus::Pending);
+    assert_eq!(state.artifacts[&ArtifactId::new(1)].content_hash, Some("sha256:abc".to_string()));
+    assert_eq!(output.events.len(), 2);
     assert!(matches!(
         &output.events[0].event,
         DomainEvent::ArtifactRegistered {
+            artifact_id: ArtifactId(1),
+            ..
+        }
+    ));
+    assert!(matches!(
+        &output.events[1].event,
+        DomainEvent::PendingIndex {
             artifact_id: ArtifactId(1),
             ..
         }
@@ -1022,37 +1027,45 @@ fn preflight_artifact_detected_creates_artifact() -> Result<(), DomainError> {
 }
 
 #[test]
-fn preflight_duplicate_is_noop() -> Result<(), DomainError> {
+fn preflight_duplicate_is_noop_when_indexed() -> Result<(), DomainError> {
     let mut state = KernelState::new();
-    state.apply_input(DomainInput::ArtifactDetected(ArtifactDetected {
-        artifact_id: ArtifactId::new(1),
-        title: "Notes".to_string(),
-        source_path: String::new(),
-        source_bytes: Vec::new(),
-    }))?;
+    // Set up artifact as fully indexed via replay events
+    state.apply_event(DomainEventEnvelope {
+        id: EventId::new(1),
+        sequence: SequenceNumber::new(1),
+        event: DomainEvent::ArtifactRegistered {
+            artifact_id: ArtifactId::new(1),
+            title: "Notes".to_string(),
+        },
+    })?;
+    state.apply_event(DomainEventEnvelope {
+        id: EventId::new(2),
+        sequence: SequenceNumber::new(2),
+        event: DomainEvent::PendingIndex {
+            artifact_id: ArtifactId::new(1),
+            content_hash: "sha256:abc".to_string(),
+        },
+    })?;
+    state.apply_event(DomainEventEnvelope {
+        id: EventId::new(3),
+        sequence: SequenceNumber::new(3),
+        event: DomainEvent::ArtifactIndexed {
+            artifact_id: ArtifactId::new(1),
+        },
+    })?;
 
-    // A duplicate preflight for the same artifact_id is a no-op
-    let output = state.apply_input(DomainInput::ArtifactDetected(ArtifactDetected {
-        artifact_id: ArtifactId::new(1),
-        title: "Notes".to_string(),
-        source_path: String::new(),
-        source_bytes: Vec::new(),
-    }))?;
+    // Re-detection with same hash while Indexed is a no-op
+    let output = state.apply_input(DomainInput::ArtifactDetected(ArtifactDetected { artifact_id: ArtifactId::new(1), title: "Notes".to_string(), source_path: String::new(), source_bytes: Vec::new(), content_hash: "sha256:abc".to_string() }))?;
 
-    assert_eq!(output.events.len(), 0, "no events for unchanged preflight");
-    assert_eq!(output.effects.len(), 0, "no effects for unchanged preflight");
+    assert_eq!(output.events.len(), 0, "no events for unchanged indexed artifact");
+    assert_eq!(output.effects.len(), 0, "no effects for unchanged indexed artifact");
     Ok(())
 }
 
 #[test]
 fn detection_without_parser_leaves_no_chunks_or_cards() -> Result<(), DomainError> {
     let mut state = KernelState::new();
-    state.apply_input(DomainInput::ArtifactDetected(ArtifactDetected {
-        artifact_id: ArtifactId::new(1),
-        title: "Notes".to_string(),
-        source_path: String::new(),
-        source_bytes: Vec::new(),
-    }))?;
+    state.apply_input(DomainInput::ArtifactDetected(ArtifactDetected { artifact_id: ArtifactId::new(1), title: "Notes".to_string(), source_path: String::new(), source_bytes: Vec::new(), content_hash: "sha256:abc".to_string() }))?;
     assert!(state.artifacts.contains_key(&ArtifactId::new(1)));
     assert!(state.chunks.is_empty(), "no chunks before parsing");
     assert!(state.cards.is_empty(), "no cards before parsing");
@@ -1087,12 +1100,7 @@ fn parser_without_prior_detection_is_rejected() -> Result<(), DomainError> {
 fn full_ingestion_flow_detection_then_parsing() -> Result<(), DomainError> {
     let mut state = KernelState::new();
     // Preflight
-    state.apply_input(DomainInput::ArtifactDetected(ArtifactDetected {
-        artifact_id: ArtifactId::new(1),
-        title: "Notes".to_string(),
-        source_path: String::new(),
-        source_bytes: Vec::new(),
-    }))?;
+    state.apply_input(DomainInput::ArtifactDetected(ArtifactDetected { artifact_id: ArtifactId::new(1), title: "Notes".to_string(), source_path: String::new(), source_bytes: Vec::new(), content_hash: "sha256:abc".to_string() }))?;
     let output = state.apply_input(DomainInput::ParserCompleted(ParserResult {
         artifact_id: ArtifactId::new(1),
         chunks: vec![
@@ -1158,12 +1166,13 @@ fn ingestion_replay_from_detection_only() -> Result<(), DomainError> {
         title: "Notes".to_string(),
         source_path: String::new(),
         source_bytes: Vec::new(),
+        content_hash: "sha256:abc".to_string(),
     })];
     let (state, events, _effects) = replay_inputs(&inputs)?;
     assert!(state.artifacts.contains_key(&ArtifactId::new(1)));
     assert!(state.chunks.is_empty());
-    assert_eq!(events.len(), 1);
-
+    assert_eq!(events.len(), 2);
+    assert_eq!(state.artifacts[&ArtifactId::new(1)].index_status, IndexStatus::Pending);
     // Replay the events into a fresh state
     let replayed = replay_events(&events)?;
     assert_eq!(state, replayed);
@@ -1178,6 +1187,7 @@ fn ingestion_replay_full_flow_reconstructs_state() -> Result<(), DomainError> {
             title: "Notes".to_string(),
             source_path: String::new(),
             source_bytes: Vec::new(),
+            content_hash: "sha256:abc".to_string(),
         }),
         DomainInput::ParserCompleted(ParserResult {
             artifact_id: ArtifactId::new(1),
@@ -1246,6 +1256,224 @@ fn ingestion_replay_rejects_duplicate_detection_events() -> Result<(), DomainErr
             id: 1,
         }
     ));
+    Ok(())
+}
+
+
+#[test]
+fn changed_hash_emits_new_pending_index() -> Result<(), DomainError> {
+    let mut state = KernelState::new();
+    // First detection
+    let output1 = state.apply_input(DomainInput::ArtifactDetected(ArtifactDetected {
+        artifact_id: ArtifactId::new(1),
+        title: "Notes".to_string(),
+        source_path: String::new(),
+        source_bytes: vec![1, 2, 3],
+        content_hash: "sha256:aaa".to_string(),
+    }))?;
+    assert_eq!(output1.events.len(), 2);
+
+    // Second detection with different hash
+    let output2 = state.apply_input(DomainInput::ArtifactDetected(ArtifactDetected {
+        artifact_id: ArtifactId::new(1),
+        title: "Notes".to_string(),
+        source_path: String::new(),
+        source_bytes: vec![4, 5, 6],
+        content_hash: "sha256:bbb".to_string(),
+    }))?;
+
+    // Should emit PendingIndex again (but not ArtifactRegistered since artifact exists)
+    assert_eq!(output2.events.len(), 1);
+    assert!(matches!(
+        &output2.events[0].event,
+        DomainEvent::PendingIndex { content_hash, .. } if content_hash == "sha256:bbb"
+    ));
+    assert_eq!(state.artifacts[&ArtifactId::new(1)].content_hash, Some("sha256:bbb".to_string()));
+    assert_eq!(state.artifacts[&ArtifactId::new(1)].index_status, IndexStatus::Pending);
+    Ok(())
+}
+
+#[test]
+fn pending_detection_not_treated_as_unchanged() -> Result<(), DomainError> {
+    let mut state = KernelState::new();
+    // First detection → Pending
+    state.apply_input(DomainInput::ArtifactDetected(ArtifactDetected {
+        artifact_id: ArtifactId::new(1),
+        title: "Notes".to_string(),
+        source_path: String::new(),
+        source_bytes: vec![1, 2, 3],
+        content_hash: "sha256:abc".to_string(),
+    }))?;
+    assert_eq!(state.artifacts[&ArtifactId::new(1)].index_status, IndexStatus::Pending);
+
+    // Second detection with same hash while Pending — must not be no-op
+    let output = state.apply_input(DomainInput::ArtifactDetected(ArtifactDetected {
+        artifact_id: ArtifactId::new(1),
+        title: "Notes".to_string(),
+        source_path: String::new(),
+        source_bytes: vec![1, 2, 3],
+        content_hash: "sha256:abc".to_string(),
+    }))?;
+
+    // Still emits PendingIndex + effects (re-drives the pipeline)
+    assert_eq!(output.events.len(), 1);
+    assert!(matches!(
+        &output.events[0].event,
+        DomainEvent::PendingIndex { .. }
+    ));
+    assert!(!output.effects.is_empty(), "should re-emit store/parse effects");
+    Ok(())
+}
+
+#[test]
+fn full_text_index_partial_feedback() -> Result<(), DomainError> {
+    let mut state = KernelState::new();
+    // Detect
+    state.apply_input(DomainInput::ArtifactDetected(ArtifactDetected {
+        artifact_id: ArtifactId::new(1),
+        title: "Notes".to_string(),
+        source_path: String::new(),
+        source_bytes: vec![1, 2, 3],
+        content_hash: "sha256:abc".to_string(),
+    }))?;
+    // Parse with two chunks
+    state.apply_input(DomainInput::ParserCompleted(ParserResult {
+        artifact_id: ArtifactId::new(1),
+        chunks: vec![
+            RegisterChunkInput { chunk_id: ChunkId::new(10), artifact_id: ArtifactId::new(1), order: 0, text: "a".to_string() },
+            RegisterChunkInput { chunk_id: ChunkId::new(11), artifact_id: ArtifactId::new(1), order: 1, text: "b".to_string() },
+        ],
+        cards: Vec::new(),
+    }))?;
+    // Both chunks are pending
+    assert!(state.pending_full_text.contains(&ChunkId::new(10)));
+    assert!(state.pending_full_text.contains(&ChunkId::new(11)));
+    assert_eq!(state.artifacts[&ArtifactId::new(1)].index_status, IndexStatus::Pending);
+
+    // Full-text index completes for one chunk
+    let output = state.apply_input(DomainInput::FullTextIndexCompleted(FullTextIndexCompleted {
+        artifact_id: ArtifactId::new(1),
+        chunk_id: ChunkId::new(10),
+    }))?;
+
+    // Chunk 10 removed from pending
+    assert!(!state.pending_full_text.contains(&ChunkId::new(10)));
+    assert!(state.pending_full_text.contains(&ChunkId::new(11)));
+    // Still Pending — not all chunks indexed
+    assert_eq!(state.artifacts[&ArtifactId::new(1)].index_status, IndexStatus::Pending);
+    // Emitted FullTextIndexed but not ArtifactIndexed
+    assert_eq!(output.events.len(), 1);
+    assert!(matches!(&output.events[0].event, DomainEvent::FullTextIndexed { chunk_id: ChunkId(10), .. }));
+    Ok(())
+}
+
+#[test]
+fn full_text_index_final_feedback_emits_artifact_indexed() -> Result<(), DomainError> {
+    let mut state = KernelState::new();
+    // Detect + Parse with one chunk
+    state.apply_input(DomainInput::ArtifactDetected(ArtifactDetected {
+        artifact_id: ArtifactId::new(1),
+        title: "Notes".to_string(),
+        source_path: String::new(),
+        source_bytes: vec![1, 2, 3],
+        content_hash: "sha256:abc".to_string(),
+    }))?;
+    state.apply_input(DomainInput::ParserCompleted(ParserResult {
+        artifact_id: ArtifactId::new(1),
+        chunks: vec![
+            RegisterChunkInput { chunk_id: ChunkId::new(10), artifact_id: ArtifactId::new(1), order: 0, text: "a".to_string() },
+        ],
+        cards: Vec::new(),
+    }))?;
+    assert!(state.pending_full_text.contains(&ChunkId::new(10)));
+
+    // Full-text index completes for the only chunk
+    let output = state.apply_input(DomainInput::FullTextIndexCompleted(FullTextIndexCompleted {
+        artifact_id: ArtifactId::new(1),
+        chunk_id: ChunkId::new(10),
+    }))?;
+
+    // All chunks indexed → ArtifactIndexed
+    assert!(state.pending_full_text.is_empty());
+    assert_eq!(state.artifacts[&ArtifactId::new(1)].index_status, IndexStatus::Indexed);
+    assert_eq!(output.events.len(), 2);
+    assert!(matches!(&output.events[0].event, DomainEvent::FullTextIndexed { .. }));
+    assert!(matches!(&output.events[1].event, DomainEvent::ArtifactIndexed { artifact_id: ArtifactId(1) }));
+    Ok(())
+}
+
+#[test]
+fn duplicate_full_text_index_feedback_is_idempotent() -> Result<(), DomainError> {
+    let mut state = KernelState::new();
+    // Detect + Parse
+    state.apply_input(DomainInput::ArtifactDetected(ArtifactDetected {
+        artifact_id: ArtifactId::new(1),
+        title: "Notes".to_string(),
+        source_path: String::new(),
+        source_bytes: vec![1, 2, 3],
+        content_hash: "sha256:abc".to_string(),
+    }))?;
+    state.apply_input(DomainInput::ParserCompleted(ParserResult {
+        artifact_id: ArtifactId::new(1),
+        chunks: vec![
+            RegisterChunkInput { chunk_id: ChunkId::new(10), artifact_id: ArtifactId::new(1), order: 0, text: "a".to_string() },
+        ],
+        cards: Vec::new(),
+    }))?;
+
+    // First feedback
+    let output1 = state.apply_input(DomainInput::FullTextIndexCompleted(FullTextIndexCompleted {
+        artifact_id: ArtifactId::new(1),
+        chunk_id: ChunkId::new(10),
+    }))?;
+    assert_eq!(output1.events.len(), 2); // FullTextIndexed + ArtifactIndexed
+
+    // Second feedback for same chunk — idempotent
+    let output2 = state.apply_input(DomainInput::FullTextIndexCompleted(FullTextIndexCompleted {
+        artifact_id: ArtifactId::new(1),
+        chunk_id: ChunkId::new(10),
+    }))?;
+    assert_eq!(output2.events.len(), 0, "duplicate feedback must be idempotent");
+    assert_eq!(output2.effects.len(), 0);
+    Ok(())
+}
+
+#[test]
+fn replay_reconstructs_pending_and_indexed_state() -> Result<(), DomainError> {
+    let mut state = KernelState::new();
+    // Full flow: detect → parse → index all chunks
+    state.apply_input(DomainInput::ArtifactDetected(ArtifactDetected {
+        artifact_id: ArtifactId::new(1),
+        title: "Notes".to_string(),
+        source_path: String::new(),
+        source_bytes: vec![1, 2, 3],
+        content_hash: "sha256:abc".to_string(),
+    }))?;
+    state.apply_input(DomainInput::ParserCompleted(ParserResult {
+        artifact_id: ArtifactId::new(1),
+        chunks: vec![
+            RegisterChunkInput { chunk_id: ChunkId::new(10), artifact_id: ArtifactId::new(1), order: 0, text: "a".to_string() },
+            RegisterChunkInput { chunk_id: ChunkId::new(11), artifact_id: ArtifactId::new(1), order: 1, text: "b".to_string() },
+        ],
+        cards: Vec::new(),
+    }))?;
+    state.apply_input(DomainInput::FullTextIndexCompleted(FullTextIndexCompleted {
+        artifact_id: ArtifactId::new(1),
+        chunk_id: ChunkId::new(10),
+    }))?;
+    state.apply_input(DomainInput::FullTextIndexCompleted(FullTextIndexCompleted {
+        artifact_id: ArtifactId::new(1),
+        chunk_id: ChunkId::new(11),
+    }))?;
+
+    assert_eq!(state.artifacts[&ArtifactId::new(1)].index_status, IndexStatus::Indexed);
+    assert!(state.pending_full_text.is_empty());
+
+    // Replay events reconstructs identical state
+    let replayed = replay_events(&state.event_log)?;
+    assert_eq!(state, replayed);
+    assert_eq!(replayed.artifacts[&ArtifactId::new(1)].index_status, IndexStatus::Indexed);
+    assert!(replayed.pending_full_text.is_empty());
     Ok(())
 }
 

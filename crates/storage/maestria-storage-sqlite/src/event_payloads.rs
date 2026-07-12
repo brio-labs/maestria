@@ -2,7 +2,8 @@ use crate::payloads::{
     StoredClaimStatus, StoredEvidenceKind, StoredTaskPriority, StoredTaskStatus,
 };
 use maestria_domain::{
-    ArtifactId, DomainEvent, EvidenceId, LogicalTick, RelationEndpoint, TaskId, ValidationReportId,
+    ArtifactId, ChunkId, DomainEvent, EvidenceId, LogicalTick, RelationEndpoint, TaskId,
+    ValidationReportId,
 };
 use maestria_ports::PortError;
 use serde::{Deserialize, Serialize};
@@ -349,6 +350,17 @@ pub(crate) enum StoredEventPayload {
     TickObserved {
         at: u64,
     },
+    PendingIndex {
+        artifact_id: u64,
+        content_hash: String,
+    },
+    FullTextIndexed {
+        artifact_id: u64,
+        chunk_id: u64,
+    },
+    ArtifactIndexed {
+        artifact_id: u64,
+    },
 }
 
 impl StoredEventPayload {
@@ -535,6 +547,23 @@ impl StoredEventPayload {
                 approved: *approved,
             },
             DomainEvent::TickObserved { at } => Self::TickObserved { at: at.value() },
+            DomainEvent::PendingIndex {
+                artifact_id,
+                content_hash,
+            } => Self::PendingIndex {
+                artifact_id: artifact_id.value(),
+                content_hash: content_hash.clone(),
+            },
+            DomainEvent::FullTextIndexed {
+                artifact_id,
+                chunk_id,
+            } => Self::FullTextIndexed {
+                artifact_id: artifact_id.value(),
+                chunk_id: chunk_id.value(),
+            },
+            DomainEvent::ArtifactIndexed { artifact_id } => Self::ArtifactIndexed {
+                artifact_id: artifact_id.value(),
+            },
         }
     }
 
@@ -727,6 +756,23 @@ impl StoredEventPayload {
             Self::TickObserved { at } => DomainEvent::TickObserved {
                 at: LogicalTick::new(at),
             },
+            Self::PendingIndex {
+                artifact_id,
+                content_hash,
+            } => DomainEvent::PendingIndex {
+                artifact_id: ArtifactId::new(artifact_id),
+                content_hash,
+            },
+            Self::FullTextIndexed {
+                artifact_id,
+                chunk_id,
+            } => DomainEvent::FullTextIndexed {
+                artifact_id: ArtifactId::new(artifact_id),
+                chunk_id: ChunkId::new(chunk_id),
+            },
+            Self::ArtifactIndexed { artifact_id } => DomainEvent::ArtifactIndexed {
+                artifact_id: ArtifactId::new(artifact_id),
+            },
         }
     }
 
@@ -755,6 +801,9 @@ impl StoredEventPayload {
             Self::HarnessRunCompleted { .. } => "harness_run_completed",
             Self::ApprovalRecorded { .. } => "approval_recorded",
             Self::TickObserved { .. } => "tick_observed",
+            Self::PendingIndex { .. } => "pending_index",
+            Self::FullTextIndexed { .. } => "full_text_indexed",
+            Self::ArtifactIndexed { .. } => "artifact_indexed",
         }
     }
 
@@ -766,7 +815,10 @@ impl StoredEventPayload {
             | Self::ClaimCreated { artifact_id, .. }
             | Self::EvidenceRecorded { artifact_id, .. }
             | Self::ArtifactParsed { artifact_id, .. }
-            | Self::SearchCompleted { artifact_id, .. } => Some(*artifact_id),
+            | Self::SearchCompleted { artifact_id, .. }
+            | Self::PendingIndex { artifact_id, .. }
+            | Self::FullTextIndexed { artifact_id, .. }
+            | Self::ArtifactIndexed { artifact_id, .. } => Some(*artifact_id),
             Self::TaskOpened {
                 artifact_id: Some(artifact_id),
                 ..

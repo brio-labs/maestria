@@ -12,6 +12,8 @@ pub fn sample_artifact(id: u64) -> Artifact {
         card_ids: Default::default(),
         claim_ids: Default::default(),
         evidence_ids: Default::default(),
+        index_status: Default::default(),
+        content_hash: None,
     }
 }
 

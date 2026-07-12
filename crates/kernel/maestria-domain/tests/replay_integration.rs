@@ -544,12 +544,7 @@ fn test_task_completion_status_mismatch() -> Result<(), DomainError> {
 #[test]
 fn replay_ingestion_flow_state_parity() -> Result<(), DomainError> {
     let mut state = KernelState::new();
-    state.apply_input(DomainInput::ArtifactDetected(ArtifactDetected {
-        artifact_id: ArtifactId::new(1),
-        title: "Doc".to_string(),
-        source_path: String::new(),
-        source_bytes: Vec::new(),
-    }))?;
+    state.apply_input(DomainInput::ArtifactDetected(ArtifactDetected { artifact_id: ArtifactId::new(1), title: "Doc".to_string(), source_path: String::new(), source_bytes: Vec::new(), content_hash: "sha256:abc".to_string() }))?;
     state.apply_input(DomainInput::ParserCompleted(ParserResult {
         artifact_id: ArtifactId::new(1),
         chunks: vec![RegisterChunkInput {
@@ -569,12 +564,7 @@ fn replay_ingestion_flow_state_parity() -> Result<(), DomainError> {
 #[test]
 fn replay_ingestion_flow_with_multiple_chunks() -> Result<(), DomainError> {
     let mut state = KernelState::new();
-    state.apply_input(DomainInput::ArtifactDetected(ArtifactDetected {
-        artifact_id: ArtifactId::new(1),
-        title: "Big Doc".to_string(),
-        source_path: String::new(),
-        source_bytes: Vec::new(),
-    }))?;
+    state.apply_input(DomainInput::ArtifactDetected(ArtifactDetected { artifact_id: ArtifactId::new(1), title: "Big Doc".to_string(), source_path: String::new(), source_bytes: Vec::new(), content_hash: "sha256:abc".to_string() }))?;
     state.apply_input(DomainInput::ParserCompleted(ParserResult {
         artifact_id: ArtifactId::new(1),
         chunks: vec![
@@ -634,28 +624,18 @@ fn replay_ingestion_flow_with_multiple_chunks() -> Result<(), DomainError> {
 #[test]
 fn replay_ingestion_detection_only() -> Result<(), DomainError> {
     let mut state = KernelState::new();
-    state.apply_input(DomainInput::ArtifactDetected(ArtifactDetected {
-        artifact_id: ArtifactId::new(1),
-        title: "Pending".to_string(),
-        source_path: String::new(),
-        source_bytes: Vec::new(),
-    }))?;
+    state.apply_input(DomainInput::ArtifactDetected(ArtifactDetected { artifact_id: ArtifactId::new(1), title: "Pending".to_string(), source_path: String::new(), source_bytes: Vec::new(), content_hash: "sha256:abc".to_string() }))?;
     let replayed = replay_events(&state.event_log)?;
     assert_eq!(state, replayed);
     assert!(replayed.chunks.is_empty());
     assert!(replayed.cards.is_empty());
-    assert_eq!(replayed.event_log.len(), 1);
+    assert_eq!(replayed.event_log.len(), 2);
     Ok(())
 }
 #[test]
 fn replay_ingestion_duplicate_chunk_rejected() -> Result<(), DomainError> {
     let mut state = KernelState::new();
-    state.apply_input(DomainInput::ArtifactDetected(ArtifactDetected {
-        artifact_id: ArtifactId::new(1),
-        title: "Doc".to_string(),
-        source_path: String::new(),
-        source_bytes: Vec::new(),
-    }))?;
+    state.apply_input(DomainInput::ArtifactDetected(ArtifactDetected { artifact_id: ArtifactId::new(1), title: "Doc".to_string(), source_path: String::new(), source_bytes: Vec::new(), content_hash: "sha256:abc".to_string() }))?;
     state.apply_input(DomainInput::ParserCompleted(ParserResult {
         artifact_id: ArtifactId::new(1),
         chunks: vec![RegisterChunkInput {
@@ -667,7 +647,7 @@ fn replay_ingestion_duplicate_chunk_rejected() -> Result<(), DomainError> {
         cards: Vec::new(),
     }))?;
 
-    // event_log now has: ArtifactRegistered (id=1), ChunkRegistered (id=2), ArtifactParsed (id=3)
+    // event_log now has: ArtifactRegistered (id=1), PendingIndex (id=2), ChunkRegistered (id=3), ArtifactParsed (id=4)
     let next_id = state.event_log.len() as u64 + 1;
     let duplicate_chunk = DomainEventEnvelope {
         id: EventId::new(next_id),

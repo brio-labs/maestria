@@ -9,7 +9,7 @@ use crate::types::{IngestFileInput, IngestFileOutput};
 
 use maestria_domain::{
     Artifact, Card, Chunk, CreateCardInput, DomainEvent, DomainEventEnvelope, EventId, Evidence,
-    EvidenceKind, LogicalTick, SequenceNumber,
+    EvidenceKind, IndexStatus, LogicalTick, SequenceNumber,
 };
 use maestria_ports::{EventFilter, FileHandle, IndexedChunk, ParsedArtifact, ParsedChunk};
 
@@ -111,6 +111,8 @@ fn ingest_new_artifact(input: NewArtifactInput<'_>) -> CoreResult<IngestFileOutp
         card_ids: std::collections::BTreeSet::new(),
         claim_ids: std::collections::BTreeSet::new(),
         evidence_ids: std::collections::BTreeSet::new(),
+        index_status: IndexStatus::Unindexed,
+        content_hash: None,
     };
     ports.artifacts.put(artifact.clone())?;
     append_event(
