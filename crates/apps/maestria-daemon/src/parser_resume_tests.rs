@@ -18,7 +18,10 @@ struct TempDir(PathBuf);
 impl TempDir {
     fn new() -> Self {
         let id = NEXT_TEMP_ID.fetch_add(1, Ordering::Relaxed);
-        let dir = std::env::temp_dir().join(format!("maestria-parser-resume-test-{id}"));
+        let dir = std::env::temp_dir().join(format!(
+            "maestria-parser-resume-test-{}-{id}",
+            std::process::id()
+        ));
         fs::create_dir_all(&dir).expect("create temp dir");
         TempDir(dir)
     }
