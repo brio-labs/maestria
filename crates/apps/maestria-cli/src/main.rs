@@ -248,11 +248,29 @@ async fn index_path(instance_dir: PathBuf, path: PathBuf, recursive: bool) -> Re
     // Load persistent kernel state to check which artifacts are already indexed.
     let initial_state = maestria_daemon::load_kernel_state(&layout)
         .with_context(|| "load kernel state for indexing")?;
-    let preexisting_state = initial_state.clone();
 
+    // Repair projection repositories before runtime start so that
+    // artifact, chunk, card, and evidence lookups succeed even if the
+    // previous process crashed after event append but before a
+    // projection write.
+    {
+        let store = SqliteStore::open(&layout.database_path)
+            .with_context(|| format!("open sqlite store {}", layout.database_path.display()))?;
+        maestria_daemon::reconcile_projections(&initial_state, &store)
+            .with_context(|| "reconcile projection repositories")?;
+    }
+
+    let preexisting_state = initial_state.clone();
     // Compute recovery inputs before state is moved into build_runtime.
     // Missing pending blobs surface as an error rather than silently dropping work.
     let recovery = maestria_daemon::recovery_inputs(&initial_state);
+
+    // Validate recovery scope from the instance manifest before touching
+    // blobs or building the runtime.  Out-of-scope and excluded pending
+    // parsers fail fast with a descriptive error.
+    maestria_daemon::validate_recovery_scope(&layout, &recovery)
+        .with_context(|| "validate recovery scope against instance manifest")?;
+
     maestria_daemon::verify_pending_blobs(&layout, &recovery.resume_parsers)
         .with_context(|| "verify pending parser blobs for resume")?;
 
@@ -1252,5 +1270,38 @@ mod tests {
         let recovery = maestria_daemon::recovery_inputs(&state);
         assert!(recovery.resume_parsers.is_empty());
         assert!(recovery.start_full_text.is_empty());
+    }
+
+    /// Verify that `maestria_daemon::reconcile_projections` is callable
+    /// from the CLI context and succeeds on a fresh in-memory store.
+    /// The daemon crate's own `projection_recovery_tests` cover the full
+    /// repair contract (missing artifact, chunk, card, evidence rows).
+    /// This smoke test guards the CLI `index_path` path: the call site
+    /// compiles against the CLI's dependency set and completes without
+    /// error on a realistic kernel state.
+    #[test]
+    fn index_path_reconcile_projections_succeeds_in_cli_context() {
+        let mut state = KernelState::new();
+        let artifact_id = ArtifactId::new(100);
+
+        state
+            .apply_input(DomainInput::ArtifactDetected(ArtifactDetected {
+                artifact_id,
+                title: "cli-repair.md".to_string(),
+                source_path: "/tmp/cli-repair.md".to_string(),
+                source_bytes: vec![9, 8, 7],
+                content_hash: "sha256:cli".to_string(),
+            }))
+            .expect("register artifact");
+
+        let store = SqliteStore::in_memory().expect("open in-memory store");
+
+        // Reconcile with the store — should succeed.
+        maestria_daemon::reconcile_projections(&state, &store)
+            .expect("reconcile should succeed on fresh store");
+
+        // Reconcile again — must be idempotent.
+        maestria_daemon::reconcile_projections(&state, &store)
+            .expect("reconcile should be idempotent");
     }
 }

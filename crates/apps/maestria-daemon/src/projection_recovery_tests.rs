@@ -178,3 +178,101 @@ fn reconcile_projections_does_not_emit_events() {
         "reconcile_projections must not append domain events"
     );
 }
+
+/// Evidence `replace` overwrites a stale or malformed row instead of
+/// failing with a `Conflict` error.  This guards against the case where a
+/// previous crash left a partial evidence row whose fields differ from
+/// the replayed domain truth; `put` would reject the mismatch as a
+/// conflict, but `replace` corrects the row unconditionally.
+///
+/// The test directly exercises the store-level `replace` contract and
+/// then verifies that `reconcile_projections` uses it to overwrite.
+#[test]
+fn reconcile_projections_evidence_replace_overwrites_stale_row() {
+    // Build state with one evidence row.
+    let mut state = KernelState::new();
+    let artifact_id = ArtifactId::new(10);
+    let evidence_id = EvidenceId::new(400);
+
+    // Register the artifact so the state is consistent.
+    state
+        .apply_input(DomainInput::ArtifactDetected(ArtifactDetected {
+            artifact_id,
+            title: "replace-test.md".to_string(),
+            source_path: "/tmp/replace-test.md".to_string(),
+            source_bytes: vec![1, 2, 3],
+            content_hash: "sha256:rrr".to_string(),
+        }))
+        .expect("register artifact");
+
+    let stale_evidence = maestria_domain::Evidence {
+        id: evidence_id,
+        artifact_id,
+        claim_id: None,
+        kind: EvidenceKind::FileSpan {
+            path: "/tmp/replace-test.md".to_string(),
+            range: ContentRange { start: 0, end: 5 },
+            content_hash: "sha256:rrr".to_string(),
+            snapshot: None,
+        },
+        excerpt: "stale excerpt".to_string(),
+        observed_at: LogicalTick::new(1),
+    };
+
+    // Directly insert into state (bypass domain validation for the stale row).
+    state.evidences.insert(evidence_id, stale_evidence.clone());
+
+    let store = SqliteStore::in_memory().expect("open in-memory store");
+
+    // First reconcile writes the stale evidence.
+    reconcile_projections(&state, &store).expect("first reconcile");
+    let stored = EvidenceRepository::get(&store, evidence_id)
+        .expect("get evidence")
+        .expect("evidence should exist");
+    assert_eq!(stored.excerpt, "stale excerpt");
+
+    // Now simulate a replay that corrects the evidence excerpt.
+    let mut corrected_state = KernelState::new();
+    corrected_state
+        .apply_input(DomainInput::ArtifactDetected(ArtifactDetected {
+            artifact_id,
+            title: "replace-test.md".to_string(),
+            source_path: "/tmp/replace-test.md".to_string(),
+            source_bytes: vec![1, 2, 3],
+            content_hash: "sha256:rrr".to_string(),
+        }))
+        .expect("register artifact again");
+
+    let corrected_evidence = maestria_domain::Evidence {
+        id: evidence_id,
+        artifact_id,
+        claim_id: None,
+        kind: EvidenceKind::FileSpan {
+            path: "/tmp/replace-test.md".to_string(),
+            range: ContentRange { start: 0, end: 5 },
+            content_hash: "sha256:rrr".to_string(),
+            snapshot: None,
+        },
+        excerpt: "corrected excerpt".to_string(),
+        observed_at: LogicalTick::new(2),
+    };
+    corrected_state
+        .evidences
+        .insert(evidence_id, corrected_evidence.clone());
+
+    // Second reconcile must overwrite the stale row with the corrected one.
+    reconcile_projections(&corrected_state, &store).expect("second reconcile");
+
+    let corrected = EvidenceRepository::get(&store, evidence_id)
+        .expect("get evidence after replace")
+        .expect("evidence should still exist after replace");
+    assert_eq!(
+        corrected.excerpt, "corrected excerpt",
+        "evidence replace must overwrite stale excerpt"
+    );
+    assert_eq!(
+        corrected.observed_at,
+        LogicalTick::new(2),
+        "evidence replace must update observed_at"
+    );
+}

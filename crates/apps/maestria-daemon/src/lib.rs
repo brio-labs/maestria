@@ -2,7 +2,7 @@ use std::{collections::BTreeSet, fs, path::PathBuf, sync::Arc};
 
 use anyhow::{Context, Result, anyhow};
 use maestria_blob_fs::FsBlobStore;
-use maestria_core::{InitInstanceInput, InstanceLayout, InstanceService};
+use maestria_core::{InitInstanceInput, InstanceLayout, InstanceManifest, InstanceService};
 use maestria_domain::{ArtifactId, DomainInput, KernelState, StartFullTextIndex, replay_events};
 use maestria_governance::{AutonomyProfile, DefaultApprovalGate, DefaultRiskClassifier, Scope};
 use maestria_graph_sqlite::SqliteGraphIndex;
@@ -77,11 +77,41 @@ mod parser_resume;
 use parser_resume::pending_resume_parsers;
 pub use parser_resume::verify_pending_blobs;
 
+/// Validate that every pending `ResumeParser` source path is within the
+/// instance manifest read scope before the daemon touches blobs or runtime
+/// infrastructure.  Out-of-scope and excluded pending parsers fail fast
+/// with a descriptive error, avoiding useless blob reads and runtime work.
+pub fn validate_recovery_scope(layout: &InstanceLayout, recovery: &RecoveryInputs) -> Result<()> {
+    let manifest_contents = fs::read_to_string(&layout.manifest_path)
+        .with_context(|| format!("read instance manifest {}", layout.manifest_path.display()))?;
+    let manifest = InstanceManifest::decode(&manifest_contents)
+        .map_err(|error| anyhow!("parse instance manifest for recovery scope: {error}"))?;
+
+    for input in &recovery.resume_parsers {
+        if let DomainInput::ResumeParser(record) = input {
+            let source = std::path::Path::new(&record.source_path);
+            if !manifest.allows_source(source) {
+                return Err(anyhow!(
+                    "resume parser source path is outside the instance manifest read scope \
+                     or excluded by pattern: {} (artifact {} \"{}\")",
+                    record.source_path,
+                    record.artifact_id,
+                    record.title,
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Reconcile projection repositories from replayed domain truth.
 ///
 /// After `load_kernel_state` replays the event log into a `KernelState`,
-/// this helper idempotently upserts every artifact, chunk, card, and
-/// evidence from the replayed state into the SQLite projection tables.
+/// this helper idempotently upserts every artifact, chunk, and card,
+/// and unconditionally replaces every evidence row from the replayed
+/// state into the SQLite projection tables.  Evidence uses `replace`
+/// so a valid replayed row overwrites a stale, malformed, or partial
+/// row from a prior crash without tripping a `Conflict` error.
 ///
 /// Projection repair never emits domain events and never changes event
 /// truth.  Startup recovery can then search/open evidence even if the
@@ -101,8 +131,8 @@ pub fn reconcile_projections(state: &KernelState, store: &SqliteStore) -> Result
             .with_context(|| format!("put card {}", card.id))?;
     }
     for evidence in state.evidences.values() {
-        EvidenceRepository::put(store, evidence.clone())
-            .with_context(|| format!("put evidence {}", evidence.id))?;
+        EvidenceRepository::replace(store, evidence.clone())
+            .with_context(|| format!("replace evidence {}", evidence.id))?;
     }
     Ok(())
 }
@@ -229,6 +259,12 @@ pub async fn run_instance(instance_dir: PathBuf) -> Result<()> {
     // Compute recovery inputs before state is moved into build_runtime.
     let recovery = recovery_inputs(&state);
 
+    // Validate recovery scope from the instance manifest before touching
+    // blobs or building the runtime.  Out-of-scope and excluded pending
+    // parsers fail fast with a descriptive error.
+    validate_recovery_scope(&layout, &recovery)
+        .with_context(|| "validate recovery scope against instance manifest")?;
+
     // Verify pending parser blobs exist before building the runtime so
     // missing-blob errors surface early instead of silently dropping work.
     verify_pending_blobs(&layout, &recovery.resume_parsers)
@@ -278,3 +314,6 @@ mod parser_resume_tests;
 
 #[cfg(test)]
 mod recovery_input_tests;
+
+#[cfg(test)]
+mod recovery_scope_tests;
