@@ -1682,12 +1682,13 @@ fn parser_completed_duplicate_is_idempotent() -> Result<(), DomainError> {
     assert_eq!(chunk_events_2, 0, "duplicate parse emits no chunk events");
     assert_eq!(card_events_2, 0, "duplicate parse emits no card events");
     assert_eq!(
-        parsed_events_2, 0,
-        "duplicate parse emits no ArtifactParsed"
+        parsed_events_2, 1,
+        "duplicate parse emits ArtifactParsed with chunks_added=0"
     );
-    assert!(
-        output2.events.is_empty(),
-        "duplicate parse produces no events at all"
+    assert_eq!(
+        output2.events.len(),
+        1,
+        "duplicate parse produces only ArtifactParsed"
     );
     Ok(())
 }
@@ -1761,6 +1762,372 @@ fn parser_completed_rejects_mismatched_card() -> Result<(), DomainError> {
         .expect_err("mismatched card must error");
 
     assert!(matches!(err, DomainError::DuplicateId { kind, id: 20 } if kind == "card"));
+    Ok(())
+}
+
+#[test]
+fn parser_started_stores_metadata_and_emits_persist_event() -> Result<(), DomainError> {
+    let mut state = KernelState::new();
+    let output = state.apply_input(DomainInput::ParserStarted(ParserStarted {
+        artifact_id: ArtifactId::new(1),
+        title: "Notes".to_string(),
+        source_path: "/tmp/notes.md".to_string(),
+        content_hash: "sha256:abc".to_string(),
+        blob_id: BlobId::new(42),
+    }))?;
+
+    // Pending-parser metadata is stored in-memory.
+    assert!(state.pending_parsers.contains_key(&ArtifactId::new(1)));
+    let pending = &state.pending_parsers[&ArtifactId::new(1)];
+    assert_eq!(pending.title, "Notes");
+    assert_eq!(pending.source_path, "/tmp/notes.md");
+    assert_eq!(pending.content_hash, "sha256:abc");
+    assert_eq!(pending.blob_id, BlobId::new(42));
+
+    // Exactly one PersistEvent carrying the ParserStarted event.
+    assert_eq!(output.events.len(), 1);
+    assert!(matches!(
+        &output.events[0].event,
+        DomainEvent::ParserStarted {
+            artifact_id: ArtifactId(1),
+            title,
+            source_path,
+            content_hash,
+            blob_id: BlobId(42),
+        } if title == "Notes" && source_path == "/tmp/notes.md" && content_hash == "sha256:abc"
+    ));
+    assert_eq!(output.effects.len(), 1);
+    assert!(matches!(
+        &output.effects[0],
+        MaestriaEffect::PersistEvent { .. }
+    ));
+
+    // No artifact created yet — ParserStarted is pure metadata.
+    assert!(state.artifacts.is_empty());
+    Ok(())
+}
+
+#[test]
+fn resume_parser_emits_parse_artifact_with_source_blob() -> Result<(), DomainError> {
+    let mut state = KernelState::new();
+    // Set up: pending_parsers exists from replay
+    state.pending_parsers.insert(
+        ArtifactId::new(1),
+        ParserStarted {
+            artifact_id: ArtifactId::new(1),
+            title: "Notes".to_string(),
+            source_path: "/tmp/notes.md".to_string(),
+            content_hash: "sha256:abc".to_string(),
+            blob_id: BlobId::new(42),
+        },
+    );
+
+    let output = state.apply_input(DomainInput::ResumeParser(ParserStarted {
+        artifact_id: ArtifactId::new(1),
+        title: "Notes".to_string(),
+        source_path: "/tmp/notes.md".to_string(),
+        content_hash: "sha256:abc".to_string(),
+        blob_id: BlobId::new(42),
+    }))?;
+
+    // No events — ResumeParser re-drives only, no new persisted metadata.
+    assert_eq!(output.events.len(), 0);
+    assert_eq!(output.effects.len(), 1);
+    assert!(matches!(
+        &output.effects[0],
+        MaestriaEffect::ParseArtifact(req)
+            if req.artifact_id == ArtifactId::new(1)
+            && req.source_blob == Some(BlobId::new(42))
+            && req.source_bytes.is_empty()
+    ));
+    Ok(())
+}
+
+#[test]
+fn resume_parser_without_pending_entry_is_rejected() -> Result<(), DomainError> {
+    let mut state = KernelState::new();
+    // pending_parsers is empty — no entry to resume
+    let err = state
+        .apply_input(DomainInput::ResumeParser(ParserStarted {
+            artifact_id: ArtifactId::new(99),
+            title: "Ghost".to_string(),
+            source_path: String::new(),
+            content_hash: "sha256:abc".to_string(),
+            blob_id: BlobId::new(1),
+        }))
+        .expect_err("resume without pending entry must error");
+    assert!(matches!(
+        err,
+        DomainError::MissingArtifact { id } if id == ArtifactId::new(99)
+    ));
+    Ok(())
+}
+
+#[test]
+fn parser_completed_removes_pending_parser() -> Result<(), DomainError> {
+    let mut state = KernelState::new();
+    // Set up: preflight detection + parser started
+    state.apply_input(DomainInput::ArtifactDetected(ArtifactDetected {
+        artifact_id: ArtifactId::new(1),
+        title: "Notes".to_string(),
+        source_path: String::new(),
+        source_bytes: Vec::new(),
+        content_hash: "sha256:abc".to_string(),
+    }))?;
+    state.apply_input(DomainInput::ParserStarted(ParserStarted {
+        artifact_id: ArtifactId::new(1),
+        title: "Notes".to_string(),
+        source_path: String::new(),
+        content_hash: "sha256:abc".to_string(),
+        blob_id: BlobId::new(42),
+    }))?;
+    assert!(state.pending_parsers.contains_key(&ArtifactId::new(1)));
+
+    // Parser completes — pending_parsers must be cleaned up.
+    state.apply_input(DomainInput::ParserCompleted(ParserResult {
+        artifact_id: ArtifactId::new(1),
+        chunks: Vec::new(),
+        cards: Vec::new(),
+    }))?;
+
+    assert!(
+        !state.pending_parsers.contains_key(&ArtifactId::new(1)),
+        "pending_parsers cleaned up on successful parse"
+    );
+    assert!(
+        !state.pending_artifacts.contains_key(&ArtifactId::new(1)),
+        "pending_artifacts also consumed"
+    );
+    Ok(())
+}
+
+#[test]
+fn replay_reconstructs_pending_parsers() -> Result<(), DomainError> {
+    let mut state = KernelState::new();
+    state.apply_event(DomainEventEnvelope {
+        id: EventId::new(1),
+        sequence: SequenceNumber::new(1),
+        event: DomainEvent::ParserStarted {
+            artifact_id: ArtifactId::new(1),
+            title: "Notes".to_string(),
+            source_path: "/tmp/notes.md".to_string(),
+            content_hash: "sha256:abc".to_string(),
+            blob_id: BlobId::new(42),
+        },
+    })?;
+
+    assert!(state.pending_parsers.contains_key(&ArtifactId::new(1)));
+    let pending = &state.pending_parsers[&ArtifactId::new(1)];
+    assert_eq!(pending.title, "Notes");
+    assert_eq!(pending.blob_id, BlobId::new(42));
+    Ok(())
+}
+
+#[test]
+fn replay_artifact_parsed_cleans_up_pending_parsers() -> Result<(), DomainError> {
+    let mut state = KernelState::new();
+    // Set up: artifact registered (from first-time commit) + parser started
+    state.apply_event(DomainEventEnvelope {
+        id: EventId::new(1),
+        sequence: SequenceNumber::new(1),
+        event: DomainEvent::ArtifactRegistered {
+            artifact_id: ArtifactId::new(1),
+            title: "Notes".to_string(),
+        },
+    })?;
+    state.apply_event(DomainEventEnvelope {
+        id: EventId::new(2),
+        sequence: SequenceNumber::new(2),
+        event: DomainEvent::ParserStarted {
+            artifact_id: ArtifactId::new(1),
+            title: "Notes".to_string(),
+            source_path: "/tmp/notes.md".to_string(),
+            content_hash: "sha256:abc".to_string(),
+            blob_id: BlobId::new(42),
+        },
+    })?;
+    assert!(state.pending_parsers.contains_key(&ArtifactId::new(1)));
+
+    // Replay the ArtifactParsed event (emitted on ParserCompleted success)
+    state.apply_event(DomainEventEnvelope {
+        id: EventId::new(3),
+        sequence: SequenceNumber::new(3),
+        event: DomainEvent::ArtifactParsed {
+            artifact_id: ArtifactId::new(1),
+            chunks_added: 0,
+        },
+    })?;
+
+    assert!(
+        !state.pending_parsers.contains_key(&ArtifactId::new(1)),
+        "ArtifactParsed replay cleans up pending parsers"
+    );
+    Ok(())
+}
+
+#[test]
+fn full_ingestion_flow_with_parser_started() -> Result<(), DomainError> {
+    let mut state = KernelState::new();
+
+    // 1. Detection
+    let output = state.apply_input(DomainInput::ArtifactDetected(ArtifactDetected {
+        artifact_id: ArtifactId::new(1),
+        title: "Notes".to_string(),
+        source_path: "/tmp/notes.md".to_string(),
+        source_bytes: vec![1, 2, 3],
+        content_hash: "sha256:abc".to_string(),
+    }))?;
+    assert_eq!(output.events.len(), 0, "detection emits no events");
+    assert!(matches!(
+        &output.effects[0],
+        MaestriaEffect::ParseArtifact(req) if req.source_blob.is_none()
+    ));
+
+    // 2. ParserStarted (runtime stores blob, then reports metadata)
+    let output = state.apply_input(DomainInput::ParserStarted(ParserStarted {
+        artifact_id: ArtifactId::new(1),
+        title: "Notes".to_string(),
+        source_path: "/tmp/notes.md".to_string(),
+        content_hash: "sha256:abc".to_string(),
+        blob_id: BlobId::new(42),
+    }))?;
+    assert!(state.pending_parsers.contains_key(&ArtifactId::new(1)));
+    assert!(matches!(
+        &output.events[0].event,
+        DomainEvent::ParserStarted { .. }
+    ));
+
+    // 3. ParserCompleted — pending_parsers cleaned up, artifact committed.
+    let output = state.apply_input(DomainInput::ParserCompleted(ParserResult {
+        artifact_id: ArtifactId::new(1),
+        chunks: vec![RegisterChunkInput {
+            chunk_id: ChunkId::new(10),
+            artifact_id: ArtifactId::new(1),
+            order: 0,
+            text: "chunk".to_string(),
+        }],
+        cards: Vec::new(),
+    }))?;
+
+    assert!(!state.pending_parsers.contains_key(&ArtifactId::new(1)));
+    assert!(state.artifacts.contains_key(&ArtifactId::new(1)));
+    assert!(state.chunks.contains_key(&ChunkId::new(10)));
+    assert!(output.events.iter().any(|e| matches!(
+        e.event,
+        DomainEvent::ArtifactParsed {
+            artifact_id: ArtifactId(1),
+            ..
+        }
+    )));
+    Ok(())
+}
+
+#[test]
+fn resume_after_crash_replays_and_completes() -> Result<(), DomainError> {
+    // Simulate: ParserStarted event persisted, then crash.
+    // On restart, replay reconstructs pending_parsers, daemon sends ResumeParser,
+    // runtime re-parses, ParserCompleted cleans up.
+    let events = vec![DomainEventEnvelope {
+        id: EventId::new(1),
+        sequence: SequenceNumber::new(1),
+        event: DomainEvent::ParserStarted {
+            artifact_id: ArtifactId::new(1),
+            title: "Notes".to_string(),
+            source_path: "/tmp/notes.md".to_string(),
+            content_hash: "sha256:abc".to_string(),
+            blob_id: BlobId::new(42),
+        },
+    }];
+
+    let mut state = replay_events(&events)?;
+    assert!(state.pending_parsers.contains_key(&ArtifactId::new(1)));
+
+    // Daemon finds pending entry and sends ResumeParser
+    let output = state.apply_input(DomainInput::ResumeParser(ParserStarted {
+        artifact_id: ArtifactId::new(1),
+        title: "Notes".to_string(),
+        source_path: "/tmp/notes.md".to_string(),
+        content_hash: "sha256:abc".to_string(),
+        blob_id: BlobId::new(42),
+    }))?;
+    assert!(matches!(
+        &output.effects[0],
+        MaestriaEffect::ParseArtifact(req)
+            if req.source_blob == Some(BlobId::new(42))
+    ));
+
+    // Parser completes — clean up pending_parsers and create artifact
+    state.apply_input(DomainInput::ParserCompleted(ParserResult {
+        artifact_id: ArtifactId::new(1),
+        chunks: vec![RegisterChunkInput {
+            chunk_id: ChunkId::new(10),
+            artifact_id: ArtifactId::new(1),
+            order: 0,
+            text: "recovered chunk".to_string(),
+        }],
+        cards: Vec::new(),
+    }))?;
+
+    assert!(!state.pending_parsers.contains_key(&ArtifactId::new(1)));
+    assert!(state.artifacts.contains_key(&ArtifactId::new(1)));
+    assert!(state.chunks.contains_key(&ChunkId::new(10)));
+    Ok(())
+}
+
+#[test]
+fn parser_completed_cleanup_idempotent_on_resume_retry() -> Result<(), DomainError> {
+    // On resume, ParserCompleted may be sent multiple times.
+    // Each time it must be idempotent — pending_parsers removed once.
+    let events = vec![DomainEventEnvelope {
+        id: EventId::new(1),
+        sequence: SequenceNumber::new(1),
+        event: DomainEvent::ParserStarted {
+            artifact_id: ArtifactId::new(1),
+            title: "Notes".to_string(),
+            source_path: String::new(),
+            content_hash: "sha256:abc".to_string(),
+            blob_id: BlobId::new(42),
+        },
+    }];
+    let mut state = replay_events(&events)?;
+    state.apply_input(DomainInput::ResumeParser(ParserStarted {
+        artifact_id: ArtifactId::new(1),
+        title: "Notes".to_string(),
+        source_path: String::new(),
+        content_hash: "sha256:abc".to_string(),
+        blob_id: BlobId::new(42),
+    }))?;
+
+    let result = ParserResult {
+        artifact_id: ArtifactId::new(1),
+        chunks: vec![RegisterChunkInput {
+            chunk_id: ChunkId::new(10),
+            artifact_id: ArtifactId::new(1),
+            order: 0,
+            text: "chunk".to_string(),
+        }],
+        cards: Vec::new(),
+    };
+
+    // First ParserCompleted
+    state.apply_input(DomainInput::ParserCompleted(result.clone()))?;
+    assert!(!state.pending_parsers.contains_key(&ArtifactId::new(1)));
+
+    // Second ParserCompleted (retry) — must not error, must remain clean.
+    let output = state.apply_input(DomainInput::ParserCompleted(result))?;
+    assert!(!state.pending_parsers.contains_key(&ArtifactId::new(1)));
+    assert_eq!(
+        output.events.len(),
+        1,
+        "retry ParserCompleted emits ArtifactParsed with chunks_added=0"
+    );
+    assert!(matches!(
+        output.events[0].event,
+        DomainEvent::ArtifactParsed {
+            chunks_added: 0,
+            ..
+        }
+    ));
     Ok(())
 }
 

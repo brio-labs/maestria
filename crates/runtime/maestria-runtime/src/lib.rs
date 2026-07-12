@@ -1,9 +1,9 @@
 use maestria_domain::{
     ApprovalDecision, Artifact, DomainEvent, DomainInput, EvidenceKind, FullTextIndexCompleted,
     HarnessRunCompleted, IndexStatus, KernelState, LogicalTick, MaestriaEffect, ParserResult,
-    RecordEvidenceInput, RecordValidationReportInput, RegisterChunkInput, StartFullTextIndex,
-    ValidationCompleted, ValidationReportId, content_hash, evidence_id_for, excerpt_for,
-    line_range_for_chunk,
+    ParserStarted, RecordEvidenceInput, RecordValidationReportInput, RegisterChunkInput,
+    StartFullTextIndex, ValidationCompleted, ValidationReportId, content_hash, evidence_id_for,
+    excerpt_for, line_range_for_chunk,
 };
 use maestria_governance::{
     ApprovalGate, ApprovalRequest, AutonomyProfile, ClassifyRisk, PolicyDecision, Scope, ScopeGuard,
@@ -453,13 +453,13 @@ impl MaestriaRuntime {
                         {
                             artifact
                         } else {
-                            // Staged ingestion: no persisted artifact yet. Construct an ephemeral
-                            // typed parse context so the parser can proceed with the request
-                            // metadata. The artifact is committed later by the domain handler
-                            // when it receives ParserCompleted.
+                            // Staged ingestion or resume: no persisted artifact yet. Construct an
+                            // ephemeral typed parse context so the parser can proceed with the
+                            // request metadata. The artifact is committed later by the domain
+                            // handler when it receives ParserCompleted.
                             tracing::debug!(
                                 artifact_id = %request.artifact_id,
-                                "no persisted artifact; constructing ephemeral context for staged parse"
+                                "no persisted artifact; constructing ephemeral context for parse"
                             );
                             Artifact {
                                 id: request.artifact_id,
@@ -479,10 +479,42 @@ impl MaestriaRuntime {
                     }
                 };
                 let path = PathBuf::from(&request.source_path);
-                let bytes = request.source_bytes.clone();
+
+                // Determine the bytes to parse and the blob identity.
+                // - Fresh ingestion (source_blob is None): store bytes in the blob store
+                //   exactly once and obtain an immutable BlobId.
+                // - Resume (source_blob is Some): the blob already exists; fetch the exact
+                //   bytes from the blob store to re-drive parsing.
+                let (parse_bytes, blob_id, is_resume) = if let Some(blob_id) = request.source_blob {
+                    match adapters.blob_store.get(blob_id) {
+                        Ok(bytes) => (bytes, blob_id, true),
+                        Err(error) => {
+                            tracing::error!(
+                                artifact_id = %artifact.id,
+                                %blob_id,
+                                %error,
+                                "resume blob missing from store"
+                            );
+                            return false;
+                        }
+                    }
+                } else {
+                    match adapters.blob_store.put(request.source_bytes.clone()) {
+                        Ok(blob_id) => (request.source_bytes.clone(), blob_id, false),
+                        Err(error) => {
+                            tracing::error!(
+                                artifact_id = %artifact.id,
+                                %error,
+                                "failed to store source blob"
+                            );
+                            return false;
+                        }
+                    }
+                };
+
                 let metadata = FileMetadata {
                     path: path.clone(),
-                    size: bytes.len(),
+                    size: parse_bytes.len(),
                     extension: path
                         .extension()
                         .and_then(|extension| extension.to_str())
@@ -497,7 +529,42 @@ impl MaestriaRuntime {
                     );
                     return false;
                 }
-                let file = FileHandle { path, bytes };
+
+                let source_hash = content_hash(&parse_bytes);
+
+                // On fresh ingestion, persist durable ParserStarted metadata so a crash
+                // after this point leaves the parser request recoverable on restart.
+                // Resume paths already have this event persisted; do not duplicate it.
+                if !is_resume {
+                    let title = {
+                        let state_read = state.read().await;
+                        state_read
+                            .pending_artifacts
+                            .get(&request.artifact_id)
+                            .map_or_else(|| artifact.title.clone(), |p| p.title.clone())
+                    };
+                    Self::send_input(
+                        &input_tx,
+                        DomainInput::ParserStarted(ParserStarted {
+                            artifact_id: artifact.id,
+                            title,
+                            source_path: request.source_path.clone(),
+                            content_hash: source_hash.clone(),
+                            blob_id,
+                        }),
+                        "parser started",
+                    )
+                    .await;
+                }
+
+                // Compute the source text from the parse bytes before they are moved
+                // into FileHandle. This avoids a second blob-store fetch on resume.
+                let source_text = String::from_utf8_lossy(&parse_bytes).into_owned();
+
+                let file = FileHandle {
+                    path,
+                    bytes: parse_bytes,
+                };
                 match adapters.parser.parse(
                     file,
                     ParseContext {
@@ -505,16 +572,6 @@ impl MaestriaRuntime {
                     },
                 ) {
                     Ok(parsed) => {
-                        // Store source bytes once to obtain the immutable BlobId for evidence snapshots.
-                        let blob_id = match adapters.blob_store.put(request.source_bytes.clone()) {
-                            Ok(id) => id,
-                            Err(error) => {
-                                tracing::error!(artifact_id = %artifact.id, %error, "failed to store source blob for evidence");
-                                return false;
-                            }
-                        };
-                        let source_hash = content_hash(&request.source_bytes);
-                        let source_text = String::from_utf8_lossy(&request.source_bytes);
                         let observed_at = LogicalTick::new(1);
                         let mut search_start: usize = 0;
 
@@ -525,8 +582,8 @@ impl MaestriaRuntime {
                             let evidence_id = evidence_id_for(artifact.id, order as u32);
                             // Skip evidence IDs already present in replayed state (idempotent retry).
                             {
-                                let state = state.read().await;
-                                if !state.evidences.contains_key(&evidence_id) {
+                                let st = state.read().await;
+                                if !st.evidences.contains_key(&evidence_id) {
                                     let range = line_range_for_chunk(
                                         &source_text,
                                         &chunk.text,
@@ -859,5 +916,7 @@ impl MaestriaRuntime {
 mod runtime_blob_tests;
 #[cfg(test)]
 mod runtime_parse_tests;
+#[cfg(test)]
+mod runtime_resume_tests;
 #[cfg(test)]
 mod runtime_tests;

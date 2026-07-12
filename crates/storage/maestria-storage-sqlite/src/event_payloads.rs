@@ -2,7 +2,7 @@ use crate::payloads::{
     StoredClaimStatus, StoredEvidenceKind, StoredTaskPriority, StoredTaskStatus,
 };
 use maestria_domain::{
-    ArtifactId, ChunkId, DomainEvent, EvidenceId, LogicalTick, RelationEndpoint, TaskId,
+    ArtifactId, BlobId, ChunkId, DomainEvent, EvidenceId, LogicalTick, RelationEndpoint, TaskId,
     ValidationReportId,
 };
 use maestria_ports::PortError;
@@ -361,6 +361,13 @@ pub(crate) enum StoredEventPayload {
     ArtifactIndexed {
         artifact_id: u64,
     },
+    ParserStarted {
+        artifact_id: u64,
+        title: String,
+        source_path: String,
+        content_hash: String,
+        blob_id: u64,
+    },
 }
 
 impl StoredEventPayload {
@@ -563,6 +570,19 @@ impl StoredEventPayload {
             },
             DomainEvent::ArtifactIndexed { artifact_id } => Self::ArtifactIndexed {
                 artifact_id: artifact_id.value(),
+            },
+            DomainEvent::ParserStarted {
+                artifact_id,
+                title,
+                source_path,
+                content_hash,
+                blob_id,
+            } => Self::ParserStarted {
+                artifact_id: artifact_id.value(),
+                title: title.clone(),
+                source_path: source_path.clone(),
+                content_hash: content_hash.clone(),
+                blob_id: blob_id.value(),
             },
         }
     }
@@ -773,6 +793,19 @@ impl StoredEventPayload {
             Self::ArtifactIndexed { artifact_id } => DomainEvent::ArtifactIndexed {
                 artifact_id: ArtifactId::new(artifact_id),
             },
+            Self::ParserStarted {
+                artifact_id,
+                title,
+                source_path,
+                content_hash,
+                blob_id,
+            } => DomainEvent::ParserStarted {
+                artifact_id: ArtifactId::new(artifact_id),
+                title,
+                source_path,
+                content_hash,
+                blob_id: BlobId::new(blob_id),
+            },
         }
     }
 
@@ -804,6 +837,7 @@ impl StoredEventPayload {
             Self::PendingIndex { .. } => "pending_index",
             Self::FullTextIndexed { .. } => "full_text_indexed",
             Self::ArtifactIndexed { .. } => "artifact_indexed",
+            Self::ParserStarted { .. } => "parser_started",
         }
     }
 
@@ -818,7 +852,8 @@ impl StoredEventPayload {
             | Self::SearchCompleted { artifact_id, .. }
             | Self::PendingIndex { artifact_id, .. }
             | Self::FullTextIndexed { artifact_id, .. }
-            | Self::ArtifactIndexed { artifact_id, .. } => Some(*artifact_id),
+            | Self::ArtifactIndexed { artifact_id, .. }
+            | Self::ParserStarted { artifact_id, .. } => Some(*artifact_id),
             Self::TaskOpened {
                 artifact_id: Some(artifact_id),
                 ..

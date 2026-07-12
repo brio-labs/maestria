@@ -580,11 +580,33 @@ impl KernelState {
                     return Err(DomainError::MissingTask { id: *task_id });
                 }
             }
+            DomainEvent::ParserStarted {
+                artifact_id,
+                title,
+                source_path,
+                content_hash,
+                blob_id,
+            } => {
+                // Reconstruct pending-parser metadata so the daemon can find
+                // stranded artifacts on restart and re-drive parsing.
+                self.pending_parsers.insert(
+                    *artifact_id,
+                    ParserStarted {
+                        artifact_id: *artifact_id,
+                        title: title.clone(),
+                        source_path: source_path.clone(),
+                        content_hash: content_hash.clone(),
+                        blob_id: *blob_id,
+                    },
+                );
+            }
             DomainEvent::ArtifactParsed { artifact_id, .. }
             | DomainEvent::SearchCompleted { artifact_id, .. } => {
                 if !self.artifacts.contains_key(artifact_id) {
                     return Err(DomainError::MissingArtifact { id: *artifact_id });
                 }
+                // Successful parse resolves any pending parser entry.
+                self.pending_parsers.remove(artifact_id);
             }
             DomainEvent::PendingIndex {
                 artifact_id,

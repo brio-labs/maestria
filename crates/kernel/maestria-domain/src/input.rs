@@ -235,6 +235,7 @@ impl KernelState {
                             artifact_id: input.artifact_id,
                             source_path: input.source_path,
                             source_bytes: input.source_bytes,
+                            source_blob: None,
                         }));
                 }
             }
@@ -304,6 +305,42 @@ impl KernelState {
                         .effects
                         .push(MaestriaEffect::PersistEvent { envelope });
                 }
+            }
+            DomainInput::ParserStarted(input) => {
+                // Record durable pending-parser metadata; emitted as a PersistEvent
+                // so that restart can find this artifact if parsing never finishes.
+                self.pending_parsers
+                    .insert(input.artifact_id, input.clone());
+                let event = self.emit_event(DomainEvent::ParserStarted {
+                    artifact_id: input.artifact_id,
+                    title: input.title,
+                    source_path: input.source_path,
+                    content_hash: input.content_hash,
+                    blob_id: input.blob_id,
+                });
+                output.events.push(event.clone());
+                output
+                    .effects
+                    .push(MaestriaEffect::PersistEvent { envelope: event });
+            }
+            DomainInput::ResumeParser(input) => {
+                // Idempotent re-drive: check that the pending entry exists (it must
+                // have been reconstructed from replay), then emit a ParseArtifact
+                // effect with the existing blob so the runtime re-parses from the
+                // stored bytes.
+                if !self.pending_parsers.contains_key(&input.artifact_id) {
+                    return Err(DomainError::MissingArtifact {
+                        id: input.artifact_id,
+                    });
+                }
+                output
+                    .effects
+                    .push(MaestriaEffect::ParseArtifact(ParseArtifactRequest {
+                        artifact_id: input.artifact_id,
+                        source_path: input.source_path,
+                        source_bytes: Vec::new(),
+                        source_blob: Some(input.blob_id),
+                    }));
             }
             DomainInput::ClockTick(tick) => {
                 let event = self.emit_event(DomainEvent::TickObserved { at: tick });

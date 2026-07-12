@@ -137,6 +137,7 @@ async fn parse_artifact_calls_blob_put_exactly_once() {
             artifact_id: ArtifactId::new(55),
             source_path: "/repo/single.rs".to_string(),
             source_bytes: source_bytes.clone(),
+            source_blob: None,
         }),
         Arc::new(adapters),
         Arc::new(governance),
@@ -220,6 +221,7 @@ async fn parse_artifact_retry_skips_existing_evidence() {
             artifact_id,
             source_path: "/repo/retry.rs".to_string(),
             source_bytes: b"retry content".to_vec(),
+            source_blob: None,
         }),
         Arc::new(adapters),
         Arc::new(governance),
@@ -232,7 +234,20 @@ async fn parse_artifact_retry_skips_existing_evidence() {
 
     assert!(result, "ParseArtifact should succeed even on retry");
 
-    // First input after retry with existing evidence should be ParserCompleted (no RecordEvidence).
+    // First input after retry: ParserStarted (fresh ingestion sends it before parsing).
+    match tokio::time::timeout(Duration::from_secs(1), input_rx.recv()).await {
+        Ok(Some(DomainInput::ParserStarted(_ps))) => {
+            // ParserStarted acknowledged.
+        }
+        Ok(Some(DomainInput::RecordEvidence(ev))) => {
+            panic!("unexpected RecordEvidence before ParserStarted for evidence_id {ev:?}");
+        }
+        Ok(Some(other)) => panic!("expected ParserStarted, got {other:?}"),
+        Ok(None) => panic!("channel closed before ParserStarted"),
+        Err(_) => panic!("timeout waiting for ParserStarted"),
+    }
+
+    // Second input: ParserCompleted (no RecordEvidence for already-present evidence).
     match tokio::time::timeout(Duration::from_secs(1), input_rx.recv()).await {
         Ok(Some(DomainInput::ParserCompleted(pr))) => {
             assert_eq!(pr.artifact_id, artifact_id);

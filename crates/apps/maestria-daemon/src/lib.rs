@@ -35,6 +35,9 @@ fn pending_start_full_text(state: &KernelState) -> Vec<DomainInput> {
         .collect()
 }
 
+mod parser_resume;
+use parser_resume::{pending_resume_parsers, verify_pending_blobs};
+
 /// Reconcile projection repositories from replayed domain truth.
 ///
 /// After `load_kernel_state` replays the event log into a `KernelState`,
@@ -186,11 +189,26 @@ pub async fn run_instance(instance_dir: PathBuf) -> Result<()> {
 
     // Compute recovery inputs before state is moved into build_runtime.
     let pending = pending_start_full_text(&state);
+    let resume = pending_resume_parsers(&state);
+
+    // Verify pending parser blobs exist before building the runtime so
+    // missing-blob errors surface early instead of silently dropping work.
+    verify_pending_blobs(&layout, &resume)
+        .with_context(|| "verify pending parser blobs for resume")?;
 
     let (runtime, input_tx, input_rx, shutdown_token) =
         build_runtime(&layout, state, AutonomyProfile::ReadOnly)?;
 
     let runtime_task = tokio::spawn(runtime.run(input_rx, shutdown_token.clone()));
+
+    // Submit pending ResumeParser inputs first so that parsing (which
+    // creates chunks) completes before full-text indexing begins.
+    for input in resume {
+        input_tx
+            .send(input)
+            .await
+            .map_err(|e| anyhow!("failed to queue resume parser: {e}"))?;
+    }
 
     // Submit pending StartFullTextIndex inputs after the runtime task has
     // started consuming from `input_rx` to avoid bounded-channel deadlock.
@@ -380,3 +398,6 @@ mod tests {
         assert!(inputs.is_empty(), "orphan chunk ids should be skipped");
     }
 }
+
+#[cfg(test)]
+mod parser_resume_tests;

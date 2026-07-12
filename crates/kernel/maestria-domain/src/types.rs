@@ -530,6 +530,13 @@ pub enum DomainEvent {
     TickObserved {
         at: LogicalTick,
     },
+    ParserStarted {
+        artifact_id: ArtifactId,
+        title: String,
+        source_path: String,
+        content_hash: String,
+        blob_id: BlobId,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -548,6 +555,7 @@ pub struct ParseArtifactRequest {
     pub artifact_id: ArtifactId,
     pub source_path: String,
     pub source_bytes: Vec<u8>,
+    pub source_blob: Option<BlobId>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -755,6 +763,15 @@ pub struct ArtifactDetected {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ParserStarted {
+    pub artifact_id: ArtifactId,
+    pub title: String,
+    pub source_path: String,
+    pub content_hash: String,
+    pub blob_id: BlobId,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ParserResult {
     pub artifact_id: ArtifactId,
     pub chunks: Vec<RegisterChunkInput>,
@@ -820,6 +837,8 @@ pub enum DomainInput {
     FullTextIndexCompleted(FullTextIndexCompleted),
     StartFullTextIndex(StartFullTextIndex),
     ArtifactDetected(ArtifactDetected),
+    ParserStarted(ParserStarted),
+    ResumeParser(ParserStarted),
     ParserCompleted(ParserResult),
     SearchCompleted(SearchResultSet),
     HarnessRunCompleted(HarnessRunCompleted),
@@ -1010,6 +1029,7 @@ impl std::error::Error for DomainError {}
 pub struct KernelState {
     pub artifacts: BTreeMap<ArtifactId, Artifact>,
     pub pending_artifacts: BTreeMap<ArtifactId, PendingArtifact>,
+    pub pending_parsers: BTreeMap<ArtifactId, ParserStarted>,
     pub chunks: BTreeMap<ChunkId, Chunk>,
     pub cards: BTreeMap<CardId, Card>,
     pub evidences: BTreeMap<EvidenceId, Evidence>,

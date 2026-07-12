@@ -110,6 +110,7 @@ pub(super) fn leaked_kind(kind: String) -> Result<&'static str, PortError> {
         "pending_index" => Ok("pending_index"),
         "full_text_indexed" => Ok("full_text_indexed"),
         "artifact_indexed" => Ok("artifact_indexed"),
+        "parser_started" => Ok("parser_started"),
         other => Err(PortError::Internal {
             message: format!("unknown stored event kind {other}"),
         }),

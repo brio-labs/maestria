@@ -53,6 +53,7 @@ async fn parse_artifact_passes_exact_source_path_and_bytes() {
             artifact_id: ArtifactId::new(42),
             source_path: "/repo/src/main.rs".to_string(),
             source_bytes: b"fn hello() {}".to_vec(),
+            source_blob: None,
         }),
         Arc::new(adapters),
         Arc::new(governance),
@@ -65,7 +66,20 @@ async fn parse_artifact_passes_exact_source_path_and_bytes() {
 
     assert!(result, "ParseArtifact should succeed");
 
-    // First input: ParserCompleted (sent before evidence so the domain can commit the artifact).
+    // First input: ParserStarted (sent before parsing so crash-recovery can resume).
+    match tokio::time::timeout(Duration::from_secs(1), input_rx.recv()).await {
+        Ok(Some(DomainInput::ParserStarted(ps))) => {
+            assert_eq!(ps.artifact_id, ArtifactId::new(42));
+            assert_eq!(ps.source_path, "/repo/src/main.rs");
+            assert!(!ps.content_hash.is_empty());
+            assert!(ps.blob_id.value() > 0);
+        }
+        Ok(Some(other)) => panic!("expected ParserStarted, got {other:?}"),
+        Ok(None) => panic!("channel closed before ParserStarted"),
+        Err(_) => panic!("timeout waiting for ParserStarted"),
+    }
+
+    // Second input: ParserCompleted (sent before evidence so the domain can commit the artifact).
     match tokio::time::timeout(Duration::from_secs(1), input_rx.recv()).await {
         Ok(Some(DomainInput::ParserCompleted(pr))) => {
             assert_eq!(pr.artifact_id, ArtifactId::new(42));
@@ -77,7 +91,7 @@ async fn parse_artifact_passes_exact_source_path_and_bytes() {
         Err(_) => panic!("timeout waiting for ParserCompleted"),
     }
 
-    // Second input: RecordEvidence for the single parsed chunk
+    // Third input: RecordEvidence for the single parsed chunk
     match tokio::time::timeout(Duration::from_secs(1), input_rx.recv()).await {
         Ok(Some(DomainInput::RecordEvidence(ev))) => {
             assert_eq!(ev.artifact_id, ArtifactId::new(42));
@@ -147,6 +161,7 @@ async fn parse_artifact_empty_bytes_returns_failure() {
             artifact_id: ArtifactId::new(7),
             source_path: "/repo/empty.rs".to_string(),
             source_bytes: Vec::new(),
+            source_blob: None,
         }),
         Arc::new(adapters),
         Arc::new(governance),
@@ -220,6 +235,7 @@ async fn parse_artifact_unsupported_parser_returns_failure() {
             artifact_id: ArtifactId::new(9),
             source_path: "/repo/data.pdf".to_string(),
             source_bytes: b"pdf content".to_vec(),
+            source_blob: None,
         }),
         Arc::new(adapters),
         Arc::new(governance),
@@ -265,6 +281,7 @@ async fn parse_artifact_staged_ingestion_constructs_ephemeral_context() {
             artifact_id,
             source_path: "/repo/ghost.rs".to_string(),
             source_bytes: b"fn gone() {}".to_vec(),
+            source_blob: None,
         }),
         Arc::new(adapters),
         Arc::new(governance),
@@ -280,7 +297,18 @@ async fn parse_artifact_staged_ingestion_constructs_ephemeral_context() {
         "staged ParseArtifact should succeed with ephemeral context"
     );
 
-    // First input: ParserCompleted (sent before evidence so domain commits the artifact).
+    // First input: ParserStarted (sent before parsing).
+    match tokio::time::timeout(Duration::from_secs(1), input_rx.recv()).await {
+        Ok(Some(DomainInput::ParserStarted(ps))) => {
+            assert_eq!(ps.artifact_id, artifact_id);
+            assert_eq!(ps.source_path, "/repo/ghost.rs");
+        }
+        Ok(Some(other)) => panic!("expected ParserStarted, got {other:?}"),
+        Ok(None) => panic!("channel closed before ParserStarted"),
+        Err(_) => panic!("timeout waiting for ParserStarted"),
+    }
+
+    // Second input: ParserCompleted (sent before evidence so domain commits the artifact).
     match tokio::time::timeout(Duration::from_secs(1), input_rx.recv()).await {
         Ok(Some(DomainInput::ParserCompleted(pr))) => {
             assert_eq!(pr.artifact_id, artifact_id);
@@ -291,7 +319,7 @@ async fn parse_artifact_staged_ingestion_constructs_ephemeral_context() {
         Err(_) => panic!("timeout waiting for ParserCompleted"),
     }
 
-    // Second input: RecordEvidence for the parsed chunk
+    // Third input: RecordEvidence for the parsed chunk
     match tokio::time::timeout(Duration::from_secs(1), input_rx.recv()).await {
         Ok(Some(DomainInput::RecordEvidence(ev))) => {
             assert_eq!(ev.artifact_id, artifact_id);
@@ -312,16 +340,17 @@ async fn parse_artifact_staged_ingestion_constructs_ephemeral_context() {
 
 #[tokio::test]
 async fn parse_artifact_repository_error_returns_failure() {
-    // Repository errors remain retryable — they must not be swallowed.
     struct FailingArtifactRepo;
+
     impl ArtifactRepository for FailingArtifactRepo {
-        fn get(&self, _id: ArtifactId) -> Result<Option<Artifact>, PortError> {
-            Err(PortError::Downstream {
-                message: "db unavailable".to_string(),
-            })
-        }
         fn put(&self, _artifact: Artifact) -> Result<(), PortError> {
             Ok(())
+        }
+
+        fn get(&self, _id: ArtifactId) -> Result<Option<Artifact>, PortError> {
+            Err(PortError::Internal {
+                message: "simulated repo failure".into(),
+            })
         }
     }
 
@@ -350,6 +379,7 @@ async fn parse_artifact_repository_error_returns_failure() {
             artifact_id: ArtifactId::new(99),
             source_path: "/repo/ghost.rs".to_string(),
             source_bytes: b"fn gone() {}".to_vec(),
+            source_blob: None,
         }),
         Arc::new(adapters),
         Arc::new(governance),

@@ -692,10 +692,9 @@ impl KernelState {
     ) -> Result<Vec<DomainEventEnvelope>, DomainError> {
         let mut generated = Vec::new();
 
-        // First-time commit: if a pending artifact entry exists, create the
-        // artifact and emit ArtifactRegistered + PendingIndex now. On retry
-        // the pending entry is already consumed, so this runs exactly once per
-        // detection cycle.
+        // First-time commit from fresh detection (pending_artifacts).
+        // On fresh ingestion this block fires once; on retry or resume
+        // the pending_artifacts entry is absent so this is skipped.
         if let Some(pending) = self.pending_artifacts.remove(&input.artifact_id) {
             use std::collections::btree_map::Entry;
             if let Entry::Vacant(entry) = self.artifacts.entry(input.artifact_id) {
@@ -721,6 +720,38 @@ impl KernelState {
             });
             generated.push(pending_event);
         }
+
+        // Resume path: no pending_artifacts (in-memory only, lost on restart),
+        // but pending_parsers survived via replay. Create the artifact from the
+        // durable parser metadata so chunk/card registration has a home.
+        if !self.artifacts.contains_key(&input.artifact_id)
+            && let Some(parser) = self.pending_parsers.get(&input.artifact_id).cloned()
+        {
+            self.artifacts.insert(
+                input.artifact_id,
+                Artifact::with_title(input.artifact_id, parser.title.clone()),
+            );
+            let register_event = self.emit_event(DomainEvent::ArtifactRegistered {
+                artifact_id: input.artifact_id,
+                title: parser.title.clone(),
+            });
+            generated.push(register_event);
+            if let Some(artifact) = self.artifacts.get_mut(&input.artifact_id) {
+                artifact.content_hash = Some(parser.content_hash.clone());
+                artifact.index_status = IndexStatus::Pending;
+            }
+            let pending_event = self.emit_event(DomainEvent::PendingIndex {
+                artifact_id: input.artifact_id,
+                content_hash: parser.content_hash,
+            });
+            generated.push(pending_event);
+        }
+
+        // Remove durable pending-parser metadata now that parsing succeeded.
+        // On fresh ingestion this drops the ParserStarted entry; on resume it
+        // drops the entry reconstructed from replay. Either way the artifact
+        // is no longer stranded.
+        self.pending_parsers.remove(&input.artifact_id);
 
         if !self.artifacts.contains_key(&input.artifact_id) {
             return Err(DomainError::MissingArtifact {
@@ -748,7 +779,6 @@ impl KernelState {
             }
         }
 
-        let mut cards_added = false;
         for card in input.cards {
             if let Some(existing) = self.cards.get(&card.card_id) {
                 if existing.artifact_id != card.artifact_id
@@ -762,17 +792,14 @@ impl KernelState {
                 }
             } else {
                 generated.push(self.handle_create_card(card)?);
-                cards_added = true;
             }
         }
 
-        if new_chunks > 0 || cards_added {
-            let parsed = self.emit_event(DomainEvent::ArtifactParsed {
-                artifact_id: input.artifact_id,
-                chunks_added: new_chunks,
-            });
-            generated.push(parsed);
-        }
+        let parsed = self.emit_event(DomainEvent::ArtifactParsed {
+            artifact_id: input.artifact_id,
+            chunks_added: new_chunks,
+        });
+        generated.push(parsed);
 
         Ok(generated)
     }
