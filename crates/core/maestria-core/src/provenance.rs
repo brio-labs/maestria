@@ -4,8 +4,8 @@ use sha2::{Digest, Sha256};
 use std::path::Path;
 
 // Re-export shared pure provenance helpers from the domain kernel.
-pub(crate) use maestria_domain::evidence_id_for;
 pub use maestria_domain::content_hash;
+pub(crate) use maestria_domain::evidence_id_for;
 
 pub(crate) fn title_for_path(path: &Path) -> String {
     let title = path

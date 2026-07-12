@@ -13,9 +13,9 @@ impl KernelState {
             DomainInput::RegisterArtifact(input) => {
                 let event = self.handle_register_artifact(input)?;
                 output.events.push(event.clone());
-                output.effects.push(MaestriaEffect::PersistEvent {
-                    envelope: event,
-                });
+                output
+                    .effects
+                    .push(MaestriaEffect::PersistEvent { envelope: event });
             }
             DomainInput::RegisterChunk(input) => {
                 let event = self.handle_register_chunk(input.clone())?;
@@ -209,17 +209,19 @@ impl KernelState {
             DomainInput::ArtifactDetected(input) => {
                 let existing = self.artifacts.get(&input.artifact_id);
                 let unchanged = existing.map_or(false, |a| {
-                    a.content_hash.as_deref() == Some(&input.content_hash) && a.index_status == IndexStatus::Indexed
+                    a.content_hash.as_deref() == Some(&input.content_hash)
+                        && a.index_status == IndexStatus::Indexed
                 });
 
                 if unchanged {
                     // Equal indexed hash — terminal no-op
                 } else {
                     if existing.is_none() {
-                        let register_event = self.handle_register_artifact(RegisterArtifactInput {
-                            artifact_id: input.artifact_id,
-                            title: input.title.clone(),
-                        })?;
+                        let register_event =
+                            self.handle_register_artifact(RegisterArtifactInput {
+                                artifact_id: input.artifact_id,
+                                title: input.title.clone(),
+                            })?;
                         output.events.push(register_event.clone());
                         output.effects.push(MaestriaEffect::PersistEvent {
                             envelope: register_event,
@@ -241,19 +243,19 @@ impl KernelState {
                     });
 
                     let blob = input.source_bytes.clone();
-                    output.effects.push(MaestriaEffect::StoreBlob(
-                        StoreBlobRequest {
+                    output
+                        .effects
+                        .push(MaestriaEffect::StoreBlob(StoreBlobRequest {
                             artifact_id: input.artifact_id,
                             payload: blob.clone(),
-                        },
-                    ));
-                    output.effects.push(MaestriaEffect::ParseArtifact(
-                        ParseArtifactRequest {
+                        }));
+                    output
+                        .effects
+                        .push(MaestriaEffect::ParseArtifact(ParseArtifactRequest {
                             artifact_id: input.artifact_id,
                             source_path: input.source_path,
                             source_bytes: blob,
-                        },
-                    ));
+                        }));
                 }
             }
             DomainInput::ParserCompleted(input) => {

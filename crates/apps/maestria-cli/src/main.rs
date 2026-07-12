@@ -246,9 +246,8 @@ async fn index_path(instance_dir: PathBuf, path: PathBuf, recursive: bool) -> Re
     }
 
     // Load persistent kernel state to check which artifacts are already indexed.
-    let initial_state =
-        maestria_daemon::load_kernel_state(&layout)
-            .with_context(|| "load kernel state for indexing")?;
+    let initial_state = maestria_daemon::load_kernel_state(&layout)
+        .with_context(|| "load kernel state for indexing")?;
     let preexisting_state = initial_state.clone();
 
     // Build a one-shot runtime with a non-critical profile that allows
@@ -317,11 +316,7 @@ async fn index_path(instance_dir: PathBuf, path: PathBuf, recursive: bool) -> Re
                 .with_context(|| "reload kernel state for indexing wait")?;
             if let Some(artifact) = state.artifacts.get(&artifact_id) {
                 if artifact.index_status == IndexStatus::Indexed {
-                    println!(
-                        "indexed artifact={} path={}",
-                        artifact.id,
-                        file.display()
-                    );
+                    println!("indexed artifact={} path={}", artifact.id, file.display());
                     indexed = true;
                     break;
                 }

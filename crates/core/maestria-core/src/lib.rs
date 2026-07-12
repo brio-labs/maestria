@@ -21,9 +21,9 @@ pub use ingestion::build_artifact_detected_input;
 pub use instance::{InitInstanceInput, InitInstancePlan, InstanceLayout, InstanceService};
 pub use manifest::InstanceManifest;
 pub use ports::{CorePorts, CoreServices};
+pub use provenance::artifact_id_for;
+pub use provenance::content_hash;
 pub use types::{
     OpenChunkEvidenceInput, OpenEvidenceInput, OpenEvidenceOutput, SearchInput, SearchOutput,
     SourceGroundedSearchHit,
 };
-pub use provenance::artifact_id_for;
-pub use provenance::content_hash;

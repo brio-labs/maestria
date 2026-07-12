@@ -765,7 +765,6 @@ pub struct FullTextIndexCompleted {
     pub chunk_id: ChunkId,
 }
 
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HarnessRunCompleted {
     pub task_id: Option<TaskId>,

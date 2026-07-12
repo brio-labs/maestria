@@ -735,9 +735,7 @@ fn pending_index_event_round_trips() {
         },
     };
     store.append(event.clone()).expect("append");
-    let scanned = store
-        .scan(EventFilter { artifact_id: None })
-        .expect("scan");
+    let scanned = store.scan(EventFilter { artifact_id: None }).expect("scan");
     assert_eq!(scanned, vec![event]);
 }
 
@@ -753,9 +751,7 @@ fn full_text_indexed_event_round_trips() {
         },
     };
     store.append(event.clone()).expect("append");
-    let scanned = store
-        .scan(EventFilter { artifact_id: None })
-        .expect("scan");
+    let scanned = store.scan(EventFilter { artifact_id: None }).expect("scan");
     assert_eq!(scanned, vec![event]);
 }
 
@@ -770,9 +766,7 @@ fn artifact_indexed_event_round_trips() {
         },
     };
     store.append(event.clone()).expect("append");
-    let scanned = store
-        .scan(EventFilter { artifact_id: None })
-        .expect("scan");
+    let scanned = store.scan(EventFilter { artifact_id: None }).expect("scan");
     assert_eq!(scanned, vec![event]);
 }
 

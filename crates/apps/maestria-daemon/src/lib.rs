@@ -124,7 +124,8 @@ pub fn build_runtime(
 pub async fn run_instance(instance_dir: PathBuf) -> Result<()> {
     let layout = prepare_instance(instance_dir).with_context(|| "prepare instance layout")?;
     let state = load_kernel_state(&layout).with_context(|| "load persisted kernel state")?;
-    let (runtime, _input_tx, input_rx, shutdown_token) = build_runtime(&layout, state, AutonomyProfile::ReadOnly)?;
+    let (runtime, _input_tx, input_rx, shutdown_token) =
+        build_runtime(&layout, state, AutonomyProfile::ReadOnly)?;
     let runtime_task = tokio::spawn(runtime.run(input_rx, shutdown_token.clone()));
 
     let root = layout.root.clone();

@@ -1,14 +1,12 @@
 use maestria_core::{
     CorePorts, CoreServices, OpenChunkEvidenceInput, OpenEvidenceInput, SearchInput,
 };
-use maestria_domain::{
-    Artifact, ArtifactId, Chunk, ChunkId, Evidence, EvidenceKind, IndexStatus,
-};
+use maestria_domain::{Artifact, ArtifactId, Chunk, ChunkId, Evidence, EvidenceKind, IndexStatus};
 use maestria_ports::{
     ArtifactRepository, BlobStore, ChunkRepository, EvidenceRepository, FullTextIndex,
-    InMemoryArtifactRepository, InMemoryBlobStore, InMemoryCardRepository,
-    InMemoryChunkRepository, InMemoryEventLog, InMemoryEvidenceRepository, InMemoryFullTextIndex,
-    InMemoryParser, IndexedChunk,
+    InMemoryArtifactRepository, InMemoryBlobStore, InMemoryCardRepository, InMemoryChunkRepository,
+    InMemoryEventLog, InMemoryEvidenceRepository, InMemoryFullTextIndex, InMemoryParser,
+    IndexedChunk,
 };
 
 /// Seed an artifact, chunks, evidence, and full-text entries directly through

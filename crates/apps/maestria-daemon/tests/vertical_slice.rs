@@ -3,7 +3,7 @@ use maestria_core::{
     CorePorts, CoreServices, InstanceLayout, InstanceService, OpenEvidenceInput, SearchInput,
 };
 use maestria_domain::{
-    content_hash, ArtifactDetected, ArtifactId, DomainInput, IndexStatus, KernelState,
+    ArtifactDetected, ArtifactId, DomainInput, IndexStatus, KernelState, content_hash,
 };
 use maestria_governance::AutonomyProfile;
 use maestria_parsers::ParserRegistry;

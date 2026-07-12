@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use maestria_core::build_artifact_detected_input;
-use maestria_domain::{replay_inputs, ArtifactDetected, KernelState};
+use maestria_domain::{ArtifactDetected, KernelState, replay_inputs};
 
 /// Verify that `build_artifact_detected_input` produces a DomainInput whose
 /// fields reconstruct identically after being replayed through the domain
@@ -11,8 +11,8 @@ fn artifact_detected_input_is_replay_deterministic() -> Result<(), Box<dyn std::
     let path = PathBuf::from("notes/replay.md");
     let bytes = b"# Replay Test\n\nEvidence block for deterministic replay.\n".to_vec();
 
-    let input = build_artifact_detected_input(&path, bytes.clone())
-        .expect("valid input must succeed");
+    let input =
+        build_artifact_detected_input(&path, bytes.clone()).expect("valid input must succeed");
 
     // Apply once.
     let mut state_a = KernelState::new();

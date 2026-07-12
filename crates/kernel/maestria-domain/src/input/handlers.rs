@@ -853,13 +853,12 @@ impl KernelState {
             });
         }
         if !self.chunks.contains_key(&input.chunk_id) {
-            return Err(DomainError::MissingChunk {
-                id: input.chunk_id,
-            });
+            return Err(DomainError::MissingChunk { id: input.chunk_id });
         }
-        let chunk = self.chunks.get(&input.chunk_id).ok_or(DomainError::MissingChunk {
-            id: input.chunk_id,
-        })?;
+        let chunk = self
+            .chunks
+            .get(&input.chunk_id)
+            .ok_or(DomainError::MissingChunk { id: input.chunk_id })?;
         if chunk.artifact_id != input.artifact_id {
             return Err(DomainError::ArtifactMismatch {
                 expected: input.artifact_id,
@@ -875,10 +874,9 @@ impl KernelState {
                 chunk_id: input.chunk_id,
             }));
 
-            let all_done = !self
-                .chunks
-                .values()
-                .any(|c| c.artifact_id == input.artifact_id && self.pending_full_text.contains(&c.id));
+            let all_done = !self.chunks.values().any(|c| {
+                c.artifact_id == input.artifact_id && self.pending_full_text.contains(&c.id)
+            });
 
             if all_done {
                 if let Some(artifact) = self.artifacts.get_mut(&input.artifact_id) {

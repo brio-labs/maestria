@@ -23,11 +23,7 @@ pub fn evidence_id_for(artifact_id: ArtifactId, order: u32) -> EvidenceId {
     )
 }
 
-pub fn line_range_for_chunk(
-    source: &str,
-    chunk: &str,
-    search_start: &mut usize,
-) -> ContentRange {
+pub fn line_range_for_chunk(source: &str, chunk: &str, search_start: &mut usize) -> ContentRange {
     let found = source
         .get(*search_start..)
         .and_then(|tail| tail.find(chunk).map(|offset| *search_start + offset))

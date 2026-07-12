@@ -186,12 +186,14 @@ pub(crate) fn migrate(connection: &mut Connection) -> Result<(), PortError> {
             }
             if !table_has_column(&transaction, "artifacts", "content_hash")? {
                 return Err(PortError::Internal {
-                    message: "malformed sqlite schema: artifacts table missing content_hash column".to_string(),
+                    message: "malformed sqlite schema: artifacts table missing content_hash column"
+                        .to_string(),
                 });
             }
             if !table_has_column(&transaction, "artifacts", "index_status")? {
                 return Err(PortError::Internal {
-                    message: "malformed sqlite schema: artifacts table missing index_status column".to_string(),
+                    message: "malformed sqlite schema: artifacts table missing index_status column"
+                        .to_string(),
                 });
             }
         }
