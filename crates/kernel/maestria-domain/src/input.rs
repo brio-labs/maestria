@@ -239,24 +239,12 @@ impl KernelState {
                 }
             }
             DomainInput::ParserCompleted(input) => {
-                let artifact_id = input.artifact_id;
-                let chunk_ids: Vec<ChunkId> = input.chunks.iter().map(|c| c.chunk_id).collect();
                 let generated = self.handle_parser_completed(input)?;
                 for envelope in generated {
                     output.events.push(envelope.clone());
                     output
                         .effects
                         .push(MaestriaEffect::PersistEvent { envelope });
-                }
-                for chunk_id in &chunk_ids {
-                    if self.pending_full_text.contains(chunk_id) {
-                        output
-                            .effects
-                            .push(MaestriaEffect::IndexFullText(IndexFullTextRequest {
-                                artifact_id,
-                                chunk_id: *chunk_id,
-                            }));
-                    }
                 }
             }
             DomainInput::FullTextIndexCompleted(input) => {
@@ -266,6 +254,21 @@ impl KernelState {
                     output
                         .effects
                         .push(MaestriaEffect::PersistEvent { envelope });
+                }
+            }
+            DomainInput::StartFullTextIndex(input) => {
+                self.handle_start_full_text_index(&input)?;
+                for chunk in self.chunks.values() {
+                    if chunk.artifact_id == input.artifact_id
+                        && self.pending_full_text.contains(&chunk.id)
+                    {
+                        output
+                            .effects
+                            .push(MaestriaEffect::IndexFullText(IndexFullTextRequest {
+                                artifact_id: input.artifact_id,
+                                chunk_id: chunk.id,
+                            }));
+                    }
                 }
             }
             DomainInput::SearchCompleted(input) => {

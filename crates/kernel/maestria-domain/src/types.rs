@@ -773,6 +773,11 @@ pub struct FullTextIndexCompleted {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StartFullTextIndex {
+    pub artifact_id: ArtifactId,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HarnessRunCompleted {
     pub task_id: Option<TaskId>,
     pub command: String,
@@ -813,6 +818,7 @@ pub enum DomainInput {
 
     UserIntent(UserIntent),
     FullTextIndexCompleted(FullTextIndexCompleted),
+    StartFullTextIndex(StartFullTextIndex),
     ArtifactDetected(ArtifactDetected),
     ParserCompleted(ParserResult),
     SearchCompleted(SearchResultSet),

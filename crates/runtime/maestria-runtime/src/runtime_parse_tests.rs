@@ -5,14 +5,12 @@ use maestria_domain::{
 use maestria_governance::{DefaultApprovalGate, DefaultRiskClassifier};
 use maestria_ports::{
     FileHandle, FileMetadata, InMemoryArtifactRepository, InMemoryBlobStore,
-    InMemoryCardRepository, InMemoryChunkRepository, InMemoryEventLog,
-    InMemoryEvidenceRepository, InMemoryFullTextIndex, InMemoryGraphIndex,
-    InMemoryHarnessAdapter, InMemoryParser, InMemoryVectorIndex, InMemoryWebFetcher,
-    ParseContext, ParsedArtifact, Parser, PortError,
+    InMemoryCardRepository, InMemoryChunkRepository, InMemoryEventLog, InMemoryEvidenceRepository,
+    InMemoryFullTextIndex, InMemoryGraphIndex, InMemoryHarnessAdapter, InMemoryParser,
+    InMemoryVectorIndex, InMemoryWebFetcher, ParseContext, ParsedArtifact, Parser, PortError,
 };
 use std::collections::BTreeSet;
 use std::sync::Arc;
-
 
 #[tokio::test]
 async fn parse_artifact_passes_exact_source_path_and_bytes() {
@@ -367,4 +365,3 @@ async fn parse_artifact_repository_error_returns_failure() {
         "repository error should return false so retry policy remains active"
     );
 }
-

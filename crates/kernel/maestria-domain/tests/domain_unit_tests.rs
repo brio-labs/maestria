@@ -1846,15 +1846,17 @@ fn record_evidence_rejects_mismatched_duplicate() -> Result<(), DomainError> {
 }
 
 #[test]
-fn parser_completed_retry_emits_index_only_for_pending() -> Result<(), DomainError> {
+fn parser_completed_does_not_emit_index_effects() -> Result<(), DomainError> {
     let mut state = KernelState::new();
-    state.apply_input(DomainInput::RegisterArtifact(RegisterArtifactInput {
+    state.apply_input(DomainInput::ArtifactDetected(ArtifactDetected {
         artifact_id: ArtifactId::new(1),
         title: "Doc".to_string(),
+        source_path: String::new(),
+        source_bytes: vec![1, 2, 3],
+        content_hash: "sha256:abc".to_string(),
     }))?;
 
-    // First parse: creates chunks A and B
-    let output1 = state.apply_input(DomainInput::ParserCompleted(ParserResult {
+    let output = state.apply_input(DomainInput::ParserCompleted(ParserResult {
         artifact_id: ArtifactId::new(1),
         chunks: vec![
             RegisterChunkInput {
@@ -1872,15 +1874,111 @@ fn parser_completed_retry_emits_index_only_for_pending() -> Result<(), DomainErr
         ],
         cards: Vec::new(),
     }))?;
-    let index_count_1 = output1
+
+    // ParserCompleted registers chunks but emits NO IndexFullText effects
+    let index_effects: Vec<_> = output
         .effects
         .iter()
         .filter(|e| matches!(e, MaestriaEffect::IndexFullText(_)))
-        .count();
-    assert_eq!(
-        index_count_1, 2,
-        "first parse emits IndexFullText for both chunks"
+        .collect();
+    assert!(
+        index_effects.is_empty(),
+        "ParserCompleted must not emit IndexFullText effects"
     );
+    // Both chunks are pending after parse
+    assert!(state.pending_full_text.contains(&ChunkId::new(10)));
+    assert!(state.pending_full_text.contains(&ChunkId::new(11)));
+    Ok(())
+}
+
+#[test]
+fn start_full_text_index_emits_for_pending_chunks() -> Result<(), DomainError> {
+    let mut state = KernelState::new();
+    state.apply_input(DomainInput::ArtifactDetected(ArtifactDetected {
+        artifact_id: ArtifactId::new(1),
+        title: "Doc".to_string(),
+        source_path: String::new(),
+        source_bytes: vec![1, 2, 3],
+        content_hash: "sha256:abc".to_string(),
+    }))?;
+    state.apply_input(DomainInput::ParserCompleted(ParserResult {
+        artifact_id: ArtifactId::new(1),
+        chunks: vec![
+            RegisterChunkInput {
+                chunk_id: ChunkId::new(10),
+                artifact_id: ArtifactId::new(1),
+                order: 0,
+                text: "chunk a".to_string(),
+            },
+            RegisterChunkInput {
+                chunk_id: ChunkId::new(11),
+                artifact_id: ArtifactId::new(1),
+                order: 1,
+                text: "chunk b".to_string(),
+            },
+        ],
+        cards: Vec::new(),
+    }))?;
+
+    // Start full-text index: emits IndexFullText for both pending chunks
+    let output = state.apply_input(DomainInput::StartFullTextIndex(StartFullTextIndex {
+        artifact_id: ArtifactId::new(1),
+    }))?;
+    let index_effects: Vec<_> = output
+        .effects
+        .iter()
+        .filter(|e| matches!(e, MaestriaEffect::IndexFullText(_)))
+        .collect();
+    assert_eq!(
+        index_effects.len(),
+        2,
+        "emits IndexFullText for both chunks"
+    );
+    assert!(
+        matches!(&index_effects[0], MaestriaEffect::IndexFullText(req) if req.chunk_id == ChunkId::new(10))
+    );
+    assert!(
+        matches!(&index_effects[1], MaestriaEffect::IndexFullText(req) if req.chunk_id == ChunkId::new(11))
+    );
+    // Pending set unchanged by StartFullTextIndex (only FullTextIndexCompleted removes)
+    assert!(state.pending_full_text.contains(&ChunkId::new(10)));
+    assert!(state.pending_full_text.contains(&ChunkId::new(11)));
+    Ok(())
+}
+
+#[test]
+fn start_full_text_index_only_pending_chunks_on_retry() -> Result<(), DomainError> {
+    let mut state = KernelState::new();
+    state.apply_input(DomainInput::ArtifactDetected(ArtifactDetected {
+        artifact_id: ArtifactId::new(1),
+        title: "Doc".to_string(),
+        source_path: String::new(),
+        source_bytes: vec![1, 2, 3],
+        content_hash: "sha256:abc".to_string(),
+    }))?;
+    state.apply_input(DomainInput::ParserCompleted(ParserResult {
+        artifact_id: ArtifactId::new(1),
+        chunks: vec![
+            RegisterChunkInput {
+                chunk_id: ChunkId::new(10),
+                artifact_id: ArtifactId::new(1),
+                order: 0,
+                text: "chunk a".to_string(),
+            },
+            RegisterChunkInput {
+                chunk_id: ChunkId::new(11),
+                artifact_id: ArtifactId::new(1),
+                order: 1,
+                text: "chunk b".to_string(),
+            },
+        ],
+        cards: Vec::new(),
+    }))?;
+
+    // First start request emits for both chunks
+    state.apply_input(DomainInput::StartFullTextIndex(StartFullTextIndex {
+        artifact_id: ArtifactId::new(1),
+    }))?;
 
     // Resolve one chunk's full-text indexing
     state.apply_input(DomainInput::FullTextIndexCompleted(
@@ -1892,27 +1990,11 @@ fn parser_completed_retry_emits_index_only_for_pending() -> Result<(), DomainErr
     assert!(!state.pending_full_text.contains(&ChunkId::new(10)));
     assert!(state.pending_full_text.contains(&ChunkId::new(11)));
 
-    // Retry parser completion with same chunks
-    let output2 = state.apply_input(DomainInput::ParserCompleted(ParserResult {
+    // Retry start: emits only for remaining pending chunk
+    let output = state.apply_input(DomainInput::StartFullTextIndex(StartFullTextIndex {
         artifact_id: ArtifactId::new(1),
-        chunks: vec![
-            RegisterChunkInput {
-                chunk_id: ChunkId::new(10),
-                artifact_id: ArtifactId::new(1),
-                order: 0,
-                text: "chunk a".to_string(),
-            },
-            RegisterChunkInput {
-                chunk_id: ChunkId::new(11),
-                artifact_id: ArtifactId::new(1),
-                order: 1,
-                text: "chunk b".to_string(),
-            },
-        ],
-        cards: Vec::new(),
     }))?;
-
-    let index_effects: Vec<_> = output2
+    let index_effects: Vec<_> = output
         .effects
         .iter()
         .filter(|e| matches!(e, MaestriaEffect::IndexFullText(_)))
@@ -1925,12 +2007,90 @@ fn parser_completed_retry_emits_index_only_for_pending() -> Result<(), DomainErr
     assert!(
         matches!(&index_effects[0], MaestriaEffect::IndexFullText(req) if req.chunk_id == ChunkId::new(11))
     );
-    assert!(
-        output2.events.is_empty(),
-        "retry produces no duplicate events"
+    Ok(())
+}
+
+#[test]
+fn start_full_text_index_duplicate_is_idempotent() -> Result<(), DomainError> {
+    let mut state = KernelState::new();
+    state.apply_input(DomainInput::ArtifactDetected(ArtifactDetected {
+        artifact_id: ArtifactId::new(1),
+        title: "Doc".to_string(),
+        source_path: String::new(),
+        source_bytes: vec![1, 2, 3],
+        content_hash: "sha256:abc".to_string(),
+    }))?;
+    state.apply_input(DomainInput::ParserCompleted(ParserResult {
+        artifact_id: ArtifactId::new(1),
+        chunks: vec![RegisterChunkInput {
+            chunk_id: ChunkId::new(10),
+            artifact_id: ArtifactId::new(1),
+            order: 0,
+            text: "chunk a".to_string(),
+        }],
+        cards: Vec::new(),
+    }))?;
+
+    // First start: emits IndexFullText
+    let output1 = state.apply_input(DomainInput::StartFullTextIndex(StartFullTextIndex {
+        artifact_id: ArtifactId::new(1),
+    }))?;
+    assert_eq!(
+        output1
+            .effects
+            .iter()
+            .filter(|e| matches!(e, MaestriaEffect::IndexFullText(_)))
+            .count(),
+        1
     );
 
+    // Second start before resolving: still pending, emits again (idempotent dispatch)
+    let output2 = state.apply_input(DomainInput::StartFullTextIndex(StartFullTextIndex {
+        artifact_id: ArtifactId::new(1),
+    }))?;
+    assert_eq!(
+        output2
+            .effects
+            .iter()
+            .filter(|e| matches!(e, MaestriaEffect::IndexFullText(_)))
+            .count(),
+        1,
+        "duplicate start still emits for pending chunk (idempotent dispatch)"
+    );
+
+    // Resolve the chunk, then start again — no pending chunks, no effects
+    state.apply_input(DomainInput::FullTextIndexCompleted(
+        FullTextIndexCompleted {
+            artifact_id: ArtifactId::new(1),
+            chunk_id: ChunkId::new(10),
+        },
+    ))?;
+
+    let output3 = state.apply_input(DomainInput::StartFullTextIndex(StartFullTextIndex {
+        artifact_id: ArtifactId::new(1),
+    }))?;
+    assert_eq!(
+        output3
+            .effects
+            .iter()
+            .filter(|e| matches!(e, MaestriaEffect::IndexFullText(_)))
+            .count(),
+        0,
+        "start after all indexed emits no effects"
+    );
     Ok(())
+}
+
+#[test]
+fn start_full_text_index_rejects_missing_artifact() {
+    let mut state = KernelState::new();
+    let result = state.apply_input(DomainInput::StartFullTextIndex(StartFullTextIndex {
+        artifact_id: ArtifactId::new(1),
+    }));
+    assert!(matches!(
+        result,
+        Err(DomainError::MissingArtifact { id: ArtifactId(1) })
+    ));
 }
 #[test]
 fn kernel_does_not_depend_on_forbidden_runtime_crates_or_operators() {

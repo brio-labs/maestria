@@ -5,10 +5,9 @@ use maestria_domain::{
 };
 use maestria_governance::{DefaultApprovalGate, DefaultRiskClassifier};
 use maestria_ports::{
-    InMemoryArtifactRepository, InMemoryBlobStore, InMemoryCardRepository,
-    InMemoryChunkRepository, InMemoryEventLog, InMemoryEvidenceRepository,
-    InMemoryFullTextIndex, InMemoryGraphIndex, InMemoryHarnessAdapter, InMemoryParser,
-    InMemoryVectorIndex, InMemoryWebFetcher, PortError,
+    InMemoryArtifactRepository, InMemoryBlobStore, InMemoryCardRepository, InMemoryChunkRepository,
+    InMemoryEventLog, InMemoryEvidenceRepository, InMemoryFullTextIndex, InMemoryGraphIndex,
+    InMemoryHarnessAdapter, InMemoryParser, InMemoryVectorIndex, InMemoryWebFetcher, PortError,
 };
 use std::collections::BTreeSet;
 use std::sync::Arc;
@@ -93,8 +92,7 @@ async fn store_blob_passes_exact_payload_bytes() {
 
 #[tokio::test]
 async fn parse_artifact_calls_blob_put_exactly_once() {
-    let recorded: Arc<std::sync::Mutex<Vec<Vec<u8>>>> =
-        Arc::new(std::sync::Mutex::new(Vec::new()));
+    let recorded: Arc<std::sync::Mutex<Vec<Vec<u8>>>> = Arc::new(std::sync::Mutex::new(Vec::new()));
     let blob_store = Arc::new(RecordingBlobStore {
         recorded: recorded.clone(),
     });

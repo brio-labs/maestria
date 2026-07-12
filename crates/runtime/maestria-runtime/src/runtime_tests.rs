@@ -1,15 +1,14 @@
 use super::*;
 use maestria_domain::{
-    Artifact, ArtifactId, Card, CardId, Chunk, ChunkId, DomainEventEnvelope, EventId,
-    Evidence, EvidenceId, EvidenceKind, IndexStatus, LogicalTick, SequenceNumber,
+    Artifact, ArtifactId, Card, CardId, Chunk, ChunkId, DomainEventEnvelope, EventId, Evidence,
+    EvidenceId, EvidenceKind, IndexStatus, LogicalTick, SequenceNumber,
 };
 use maestria_governance::{DefaultApprovalGate, DefaultRiskClassifier};
 use maestria_ports::{
     CardRepository, ChunkRepository, EventFilter, EventLog, EvidenceRepository,
-    InMemoryArtifactRepository, InMemoryBlobStore, InMemoryCardRepository,
-    InMemoryChunkRepository, InMemoryEventLog, InMemoryEvidenceRepository,
-    InMemoryFullTextIndex, InMemoryGraphIndex, InMemoryHarnessAdapter, InMemoryParser,
-    InMemoryVectorIndex, InMemoryWebFetcher, PortError,
+    InMemoryArtifactRepository, InMemoryBlobStore, InMemoryCardRepository, InMemoryChunkRepository,
+    InMemoryEventLog, InMemoryEvidenceRepository, InMemoryFullTextIndex, InMemoryGraphIndex,
+    InMemoryHarnessAdapter, InMemoryParser, InMemoryVectorIndex, InMemoryWebFetcher, PortError,
 };
 use std::collections::BTreeSet;
 use std::sync::Arc;
@@ -32,7 +31,6 @@ impl EventLog for FailingEventLog {
         Ok(Vec::new())
     }
 }
-
 
 #[tokio::test]
 async fn persist_effects_keep_duplicate_events_in_order() {
@@ -304,4 +302,3 @@ async fn persist_event_dispatches_chunk_card_evidence_to_repositories() {
         "evidence should be persisted"
     );
 }
-

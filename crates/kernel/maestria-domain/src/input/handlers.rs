@@ -911,6 +911,17 @@ impl KernelState {
         Ok(emitted)
     }
 
+    pub(super) fn handle_start_full_text_index(
+        &mut self,
+        input: &StartFullTextIndex,
+    ) -> Result<(), DomainError> {
+        if !self.artifacts.contains_key(&input.artifact_id) {
+            return Err(DomainError::MissingArtifact {
+                id: input.artifact_id,
+            });
+        }
+        Ok(())
+    }
     pub(super) fn handle_full_text_index_completed(
         &mut self,
         input: FullTextIndexCompleted,

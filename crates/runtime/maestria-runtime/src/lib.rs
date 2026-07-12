@@ -1,8 +1,9 @@
 use maestria_domain::{
     ApprovalDecision, Artifact, DomainEvent, DomainInput, EvidenceKind, FullTextIndexCompleted,
     HarnessRunCompleted, IndexStatus, KernelState, LogicalTick, MaestriaEffect, ParserResult,
-    RecordEvidenceInput, RecordValidationReportInput, RegisterChunkInput, ValidationCompleted,
-    ValidationReportId, content_hash, evidence_id_for, excerpt_for, line_range_for_chunk,
+    RecordEvidenceInput, RecordValidationReportInput, RegisterChunkInput, StartFullTextIndex,
+    ValidationCompleted, ValidationReportId, content_hash, evidence_id_for, excerpt_for,
+    line_range_for_chunk,
 };
 use maestria_governance::{
     ApprovalGate, ApprovalRequest, AutonomyProfile, ClassifyRisk, PolicyDecision, Scope, ScopeGuard,
@@ -554,11 +555,11 @@ impl MaestriaRuntime {
                                 text: chunk.text.clone(),
                             });
                         }
-
                         // Send ParserCompleted first so the domain handler commits the artifact
                         // (including ArtifactRegistered / PendingIndex) before evidence arrives.
                         // Evidence inputs follow after the artifact is guaranteed to exist in
-                        // domain state.
+                        // domain state. After evidence is persisted, StartFullTextIndex triggers
+                        // full-text indexing via the domain's deferred gate.
                         Self::send_input(
                             &input_tx,
                             DomainInput::ParserCompleted(ParserResult {
@@ -578,6 +579,15 @@ impl MaestriaRuntime {
                             )
                             .await;
                         }
+
+                        Self::send_input(
+                            &input_tx,
+                            DomainInput::StartFullTextIndex(StartFullTextIndex {
+                                artifact_id: parsed.artifact_id,
+                            }),
+                            "start full-text index",
+                        )
+                        .await;
                     }
                     Err(error) => {
                         tracing::error!(artifact_id = %artifact.id, %error, "parser failed");
@@ -846,8 +856,8 @@ impl MaestriaRuntime {
 }
 
 #[cfg(test)]
-mod runtime_tests;
+mod runtime_blob_tests;
 #[cfg(test)]
 mod runtime_parse_tests;
 #[cfg(test)]
-mod runtime_blob_tests;
+mod runtime_tests;
