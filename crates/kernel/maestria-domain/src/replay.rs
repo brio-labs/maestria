@@ -678,7 +678,11 @@ impl KernelState {
                         .artifacts
                         .get(artifact_id)
                         .and_then(|a| a.content_hash.as_deref());
-                    let mut to_remove: Vec<EvidenceId> = Vec::new();
+                    // Collect (evidence_id, actual_owner_artifact_id,
+                    // claim_id) so we can repair cross-artifact references
+                    // and claim reverse-links without borrow conflicts.
+                    let mut to_remove: Vec<(EvidenceId, ArtifactId, Option<ClaimId>)> =
+                        Vec::new();
                     for chunk in self.chunks.values() {
                         if chunk.artifact_id != *artifact_id {
                             continue;
@@ -695,16 +699,40 @@ impl KernelState {
                                     } if expected_hash == Some(content_hash.as_str())
                                 );
                             if !is_valid {
-                                to_remove.push(expected_id);
+                                to_remove.push((expected_id, ev.artifact_id, ev.claim_id));
                             }
                         }
                     }
-                    if !to_remove.is_empty()
-                        && let Some(artifact) = self.artifacts.get_mut(artifact_id)
-                    {
-                        for id in &to_remove {
+                    if !to_remove.is_empty() {
+                        // Remove all invalid records from the evidence map
+                        // first — no borrow conflict with artifacts or claims.
+                        for (id, _owner, _claim_id) in &to_remove {
                             self.evidences.remove(id);
-                            artifact.evidence_ids.remove(id);
+                        }
+                        // Clean up the ArtifactIndexed target artifact.
+                        if let Some(artifact) = self.artifacts.get_mut(artifact_id) {
+                            for (id, _owner, _claim_id) in &to_remove {
+                                artifact.evidence_ids.remove(id);
+                            }
+                        }
+                        // Clean up each actual owner artifact when it
+                        // differs from the indexed target (cross-artifact
+                        // malformed evidence).
+                        for (id, owner_id, _claim_id) in &to_remove {
+                            if *owner_id != *artifact_id
+                                && let Some(owner) = self.artifacts.get_mut(owner_id)
+                            {
+                                owner.evidence_ids.remove(id);
+                            }
+                        }
+                        // Clean up claim reverse-links so no dangling
+                        // evidence-ID references remain.
+                        for (id, _owner_id, claim_id) in &to_remove {
+                            if let Some(cid) = claim_id
+                                && let Some(claim) = self.claims.get_mut(cid)
+                            {
+                                claim.evidence_ids.remove(id);
+                            }
                         }
                     }
                 }

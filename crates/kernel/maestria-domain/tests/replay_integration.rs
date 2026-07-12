@@ -1495,3 +1495,203 @@ fn replay_artifact_indexed_removes_invalid_evidence() -> Result<(), DomainError>
 
     Ok(())
 }
+
+#[test]
+fn replay_artifact_indexed_cleans_cross_artifact_evidence_owner() -> Result<(), DomainError> {
+    // Regression: when ArtifactIndexed removes an invalid deterministic
+    // evidence record whose artifact_id points to a DIFFERENT artifact
+    // (cross-ownership), the evidence ID must be removed from the actual
+    // owner artifact's evidence_ids as well, not just the indexed target.
+    let mut state = KernelState::new();
+    let art_a = ArtifactId::new(1);
+    let art_b = ArtifactId::new(2);
+    let det_ev_id = evidence_id_for(art_a, 0);
+
+    // ---- Register artifact A (the indexed target) ----
+    state.apply_event(DomainEventEnvelope {
+        id: EventId::new(1),
+        sequence: SequenceNumber::new(1),
+        event: DomainEvent::ArtifactRegistered {
+            artifact_id: art_a,
+            title: "NotesA".to_string(),
+        },
+    })?;
+    state.apply_event(DomainEventEnvelope {
+        id: EventId::new(2),
+        sequence: SequenceNumber::new(2),
+        event: DomainEvent::ParserStarted {
+            artifact_id: art_a,
+            title: "NotesA".to_string(),
+            source_path: "/tmp/a.md".to_string(),
+            content_hash: "sha256:aaa".to_string(),
+            blob_id: BlobId::new(10),
+        },
+    })?;
+    state.apply_event(DomainEventEnvelope {
+        id: EventId::new(3),
+        sequence: SequenceNumber::new(3),
+        event: DomainEvent::PendingIndex {
+            artifact_id: art_a,
+            content_hash: "sha256:aaa".to_string(),
+        },
+    })?;
+    // Chunk for A so the deterministic evidence ID resolves to A's
+    // namespace.
+    state.apply_event(DomainEventEnvelope {
+        id: EventId::new(4),
+        sequence: SequenceNumber::new(4),
+        event: DomainEvent::ChunkRegistered {
+            chunk_id: ChunkId::new(10),
+            artifact_id: art_a,
+            order: 0,
+            text: "hello".to_string(),
+        },
+    })?;
+
+    // ---- Register artifact B (the cross-owner sink) ----
+    state.apply_event(DomainEventEnvelope {
+        id: EventId::new(5),
+        sequence: SequenceNumber::new(5),
+        event: DomainEvent::ArtifactRegistered {
+            artifact_id: art_b,
+            title: "NotesB".to_string(),
+        },
+    })?;
+
+    // ---- Record deterministic evidence for A's chunk but with
+    //      artifact_id = B (cross-ownership).  This simulates a
+    //      malformed evidence record that references the wrong owner. ----
+    state.apply_event(DomainEventEnvelope {
+        id: EventId::new(6),
+        sequence: SequenceNumber::new(6),
+        event: DomainEvent::EvidenceRecorded {
+            evidence_id: det_ev_id,
+            artifact_id: art_b, // wrong owner — should be art_a
+            claim_id: None,
+            kind: EvidenceKind::FileSpan {
+                path: "/tmp/a.md".to_string(),
+                range: ContentRange { start: 0, end: 1 },
+                content_hash: "sha256:aaa".to_string(),
+                snapshot: Some(BlobId::new(10)),
+            },
+            excerpt: "hello".to_string(),
+            observed_at: LogicalTick::new(1),
+        },
+    })?;
+
+    // EvidenceRecorded handler inserted the ID into B's evidence_ids.
+    assert!(
+        state.artifacts[&art_b].evidence_ids.contains(&det_ev_id),
+        "artifact B must track the cross-owned evidence id"
+    );
+    assert!(
+        state.evidences.contains_key(&det_ev_id),
+        "cross-owned evidence must exist in the map"
+    );
+
+    // ---- FullTextIndexed + ArtifactParsed so ArtifactIndexed passes
+    //      pending-chunks guard ----
+    state.apply_event(DomainEventEnvelope {
+        id: EventId::new(7),
+        sequence: SequenceNumber::new(7),
+        event: DomainEvent::FullTextIndexed {
+            artifact_id: art_a,
+            chunk_id: ChunkId::new(10),
+        },
+    })?;
+    state.apply_event(DomainEventEnvelope {
+        id: EventId::new(8),
+        sequence: SequenceNumber::new(8),
+        event: DomainEvent::ArtifactParsed {
+            artifact_id: art_a,
+            chunks_added: 1,
+        },
+    })?;
+
+    // ---- ArtifactIndexed for A — triggers invalid-evidence cleanup ----
+    state.apply_event(DomainEventEnvelope {
+        id: EventId::new(9),
+        sequence: SequenceNumber::new(9),
+        event: DomainEvent::ArtifactIndexed {
+            artifact_id: art_a,
+        },
+    })?;
+
+    // Evidence must be removed from the global map.
+    assert!(
+        !state.evidences.contains_key(&det_ev_id),
+        "cross-owned evidence must be removed from KernelState.evidences"
+    );
+    // Artifact B must no longer reference the removed evidence.
+    assert!(
+        !state.artifacts[&art_b].evidence_ids.contains(&det_ev_id),
+        "artifact B must not reference removed cross-owned evidence"
+    );
+    // Artifact A (target) also clean.
+    assert!(
+        !state.artifacts[&art_a].evidence_ids.contains(&det_ev_id),
+        "artifact A must not reference removed evidence"
+    );
+    // Artifact A stays Pending.
+    assert_eq!(
+        state.artifacts[&art_a].index_status,
+        IndexStatus::Pending,
+        "artifact A must stay Pending after invalid ArtifactIndexed"
+    );
+    // Event log preserved.
+    assert_eq!(state.event_log.len(), 9);
+    assert!(
+        state.event_log.iter().any(|e| matches!(
+            e.event,
+            DomainEvent::ArtifactIndexed {
+                artifact_id: ArtifactId(1)
+            }
+        )),
+        "invalid ArtifactIndexed must be preserved in event log"
+    );
+
+    // ---- Record valid evidence for the same deterministic ID ----
+    state.apply_event(DomainEventEnvelope {
+        id: EventId::new(10),
+        sequence: SequenceNumber::new(10),
+        event: DomainEvent::EvidenceRecorded {
+            evidence_id: det_ev_id,
+            artifact_id: art_a, // correct owner this time
+            claim_id: None,
+            kind: EvidenceKind::FileSpan {
+                path: "/tmp/a.md".to_string(),
+                range: ContentRange { start: 0, end: 1 },
+                content_hash: "sha256:aaa".to_string(),
+                snapshot: Some(BlobId::new(10)),
+            },
+            excerpt: "hello".to_string(),
+            observed_at: LogicalTick::new(1),
+        },
+    })?;
+
+    assert!(
+        state.evidences.contains_key(&det_ev_id),
+        "valid replacement evidence must be accepted"
+    );
+    assert!(
+        state.artifacts[&art_a].evidence_ids.contains(&det_ev_id),
+        "artifact A must track the replacement evidence"
+    );
+
+    // ---- Terminal ArtifactIndexed ----
+    state.apply_event(DomainEventEnvelope {
+        id: EventId::new(11),
+        sequence: SequenceNumber::new(11),
+        event: DomainEvent::ArtifactIndexed {
+            artifact_id: art_a,
+        },
+    })?;
+
+    assert_eq!(
+        state.artifacts[&art_a].index_status,
+        IndexStatus::Indexed,
+        "artifact A must terminalize after valid evidence is recorded"
+    );
+
+    Ok(())
+}
