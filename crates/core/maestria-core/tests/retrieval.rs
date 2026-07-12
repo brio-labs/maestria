@@ -1,7 +1,9 @@
 use maestria_core::{
     CorePorts, CoreServices, OpenChunkEvidenceInput, OpenEvidenceInput, SearchInput,
 };
-use maestria_domain::{Artifact, ArtifactId, Chunk, ChunkId, Evidence, EvidenceKind, IndexStatus};
+use maestria_domain::{
+    Artifact, ArtifactId, Chunk, ChunkId, Evidence, EvidenceId, EvidenceKind, IndexStatus,
+};
 use maestria_ports::{
     ArtifactRepository, BlobStore, ChunkRepository, EvidenceRepository, FullTextIndex,
     InMemoryArtifactRepository, InMemoryBlobStore, InMemoryCardRepository, InMemoryChunkRepository,
@@ -13,6 +15,44 @@ use maestria_ports::{
 /// in-memory adapters, then wrap them in a `CoreServices` to exercise retrieval.
 fn seed_and_build_services<'a>(ports: CorePorts<'a>) -> CoreServices<'a> {
     CoreServices::new(ports)
+}
+
+/// Run the retrieval assertions against a seeded `CoreServices`.
+fn assert_directly_seeded_retrieval(
+    core: &CoreServices,
+    artifact_id: ArtifactId,
+    chunk_id_0: ChunkId,
+    chunk_id_1: ChunkId,
+    evidence_id_0: EvidenceId,
+    evidence_id_1: EvidenceId,
+) -> Result<(), Box<dyn std::error::Error>> {
+    // Search: "beta-token" should match chunk 1.
+    let search_result = core.search(SearchInput {
+        query: "beta-token".to_string(),
+        limit: 5,
+    })?;
+    assert_eq!(search_result.hits.len(), 1);
+    let hit = &search_result.hits[0];
+    assert_eq!(hit.artifact.id, artifact_id);
+    assert_eq!(hit.chunk.id, chunk_id_1);
+    assert_eq!(hit.evidence.id, evidence_id_1);
+    assert_eq!(hit.evidence.excerpt, "beta-token paragraph.");
+
+    // Open evidence by evidence id.
+    let opened = core.open_evidence(OpenEvidenceInput {
+        evidence_id: evidence_id_0,
+    })?;
+    assert_eq!(opened.artifact.id, artifact_id);
+    assert_eq!(opened.evidence.id, evidence_id_0);
+    assert_eq!(opened.evidence.excerpt, "alpha-token paragraph.");
+
+    // Open evidence by chunk id.
+    let chunk_opened = core.open_chunk_evidence(OpenChunkEvidenceInput {
+        chunk_id: chunk_id_0,
+    })?;
+    assert_eq!(chunk_opened.evidence.id, evidence_id_0);
+
+    Ok(())
 }
 
 #[test]
@@ -121,33 +161,12 @@ fn search_and_open_evidence_with_directly_seeded_artifact() -> Result<(), Box<dy
         blobs: &blob_store,
     });
 
-    // 3. Exercise retrieval APIs.
-
-    // Search: "beta-token" should match chunk 1.
-    let search_result = core.search(SearchInput {
-        query: "beta-token".to_string(),
-        limit: 5,
-    })?;
-    assert_eq!(search_result.hits.len(), 1);
-    let hit = &search_result.hits[0];
-    assert_eq!(hit.artifact.id, artifact_id);
-    assert_eq!(hit.chunk.id, chunk_id_1);
-    assert_eq!(hit.evidence.id, evidence_id_1);
-    assert_eq!(hit.evidence.excerpt, "beta-token paragraph.");
-
-    // Open evidence by evidence id.
-    let opened = core.open_evidence(OpenEvidenceInput {
-        evidence_id: evidence_id_0,
-    })?;
-    assert_eq!(opened.artifact.id, artifact_id);
-    assert_eq!(opened.evidence.id, evidence_id_0);
-    assert_eq!(opened.evidence.excerpt, "alpha-token paragraph.");
-
-    // Open evidence by chunk id.
-    let chunk_opened = core.open_chunk_evidence(OpenChunkEvidenceInput {
-        chunk_id: chunk_id_0,
-    })?;
-    assert_eq!(chunk_opened.evidence.id, evidence_id_0);
-
-    Ok(())
+    assert_directly_seeded_retrieval(
+        &core,
+        artifact_id,
+        chunk_id_0,
+        chunk_id_1,
+        evidence_id_0,
+        evidence_id_1,
+    )
 }
