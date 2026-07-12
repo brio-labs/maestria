@@ -611,31 +611,22 @@ impl MaestriaRuntime {
                         let mut chunks: Vec<RegisterChunkInput> = Vec::new();
                         for (order, chunk) in parsed.chunks.iter().enumerate() {
                             let evidence_id = evidence_id_for(artifact.id, order as u32);
-                            // Skip evidence IDs already present in replayed state (idempotent retry).
-                            {
-                                let st = state.read().await;
-                                if !st.evidences.contains_key(&evidence_id) {
-                                    let range = line_range_for_chunk(
-                                        &source_text,
-                                        &chunk.text,
-                                        &mut search_start,
-                                    );
-                                    let excerpt = excerpt_for(&chunk.text);
-                                    evidence_inputs.push(RecordEvidenceInput {
-                                        evidence_id,
-                                        artifact_id: artifact.id,
-                                        claim_id: None,
-                                        kind: EvidenceKind::FileSpan {
-                                            path: request.source_path.clone(),
-                                            range,
-                                            content_hash: source_hash.clone(),
-                                            snapshot: Some(blob_id),
-                                        },
-                                        excerpt,
-                                        observed_at,
-                                    });
-                                }
-                            }
+                            let range =
+                                line_range_for_chunk(&source_text, &chunk.text, &mut search_start);
+                            let excerpt = excerpt_for(&chunk.text);
+                            evidence_inputs.push(RecordEvidenceInput {
+                                evidence_id,
+                                artifact_id: artifact.id,
+                                claim_id: None,
+                                kind: EvidenceKind::FileSpan {
+                                    path: request.source_path.clone(),
+                                    range,
+                                    content_hash: source_hash.clone(),
+                                    snapshot: Some(blob_id),
+                                },
+                                excerpt,
+                                observed_at,
+                            });
                             chunks.push(RegisterChunkInput {
                                 chunk_id: chunk.chunk_id,
                                 artifact_id: chunk.artifact_id,

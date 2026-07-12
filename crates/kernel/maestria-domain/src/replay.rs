@@ -154,12 +154,46 @@ impl KernelState {
                 if !self.artifacts.contains_key(artifact_id) {
                     return Err(DomainError::MissingArtifact { id: *artifact_id });
                 }
-                if self.evidences.contains_key(evidence_id) {
-                    return Err(DomainError::DuplicateId {
-                        kind: "evidence",
-                        id: evidence_id.value(),
-                    });
-                }
+                // Determine what to do with an existing record at this ID.
+                // Read-only decision — mutation happens only after all
+                // validations pass.
+                let should_replace: Option<(ArtifactId, Option<ClaimId>)> =
+                    if let Some(existing) = self.evidences.get(evidence_id) {
+                        let is_deterministic = self.chunks.values().any(|chunk| {
+                            crate::evidence_id_for(chunk.artifact_id, chunk.order) == *evidence_id
+                        });
+                        let existing_is_malformed = is_deterministic
+                            && !self.is_valid_deterministic_record(
+                                existing.id,
+                                existing.artifact_id,
+                                &existing.kind,
+                            );
+                        let incoming_is_valid = is_deterministic
+                            && self.is_valid_deterministic_record(*evidence_id, *artifact_id, kind);
+                        if existing_is_malformed && incoming_is_valid {
+                            Some((existing.artifact_id, existing.claim_id))
+                        } else if existing.artifact_id == *artifact_id
+                            && existing.claim_id == *claim_id
+                            && existing.kind == *kind
+                            && existing.excerpt == *excerpt
+                            && existing.observed_at == *observed_at
+                        {
+                            // Identical valid record — leave state
+                            // unchanged, fall through to event_log.push
+                            // so the replay sequence is preserved.
+                            None
+                        } else {
+                            return Err(DomainError::DuplicateId {
+                                kind: "evidence",
+                                id: evidence_id.value(),
+                            });
+                        }
+                    } else {
+                        None
+                    };
+
+                // Validate incoming claim BEFORE any mutation, so a
+                // failed replacement does not leave state corrupted.
                 if let Some(claim_id) = claim_id {
                     let claim = self
                         .claims
@@ -173,6 +207,20 @@ impl KernelState {
                     }
                 }
 
+                // ── Safe to mutate: remove malformed existing if needed ──
+                if let Some((old_artifact_id, old_claim_id)) = should_replace {
+                    self.evidences.remove(evidence_id);
+                    if let Some(artifact) = self.artifacts.get_mut(&old_artifact_id) {
+                        artifact.evidence_ids.remove(evidence_id);
+                    }
+                    if let Some(cid) = old_claim_id
+                        && let Some(claim) = self.claims.get_mut(&cid)
+                    {
+                        claim.evidence_ids.remove(evidence_id);
+                    }
+                }
+
+                // Insert new evidence and reverse links.
                 self.evidences.insert(
                     *evidence_id,
                     Evidence::new(
@@ -753,6 +801,43 @@ impl KernelState {
 
         self.event_log.push(envelope);
         Ok(())
+    }
+    /// Returns `true` when the record represents a valid deterministic
+    /// source-evidence record: its ID maps to a known chunk, its
+    /// `artifact_id` matches the chunk owner, its kind is `FileSpan`
+    /// with a `Some` snapshot, and its `content_hash` equals the
+    /// artifact's recorded content hash.
+    fn is_valid_deterministic_record(
+        &self,
+        evidence_id: EvidenceId,
+        artifact_id: ArtifactId,
+        kind: &EvidenceKind,
+    ) -> bool {
+        let Some(chunk) = self
+            .chunks
+            .values()
+            .find(|chunk| crate::evidence_id_for(chunk.artifact_id, chunk.order) == evidence_id)
+        else {
+            return false;
+        };
+        if artifact_id != chunk.artifact_id {
+            return false;
+        }
+        let Some(expected_hash) = self
+            .artifacts
+            .get(&chunk.artifact_id)
+            .and_then(|a| a.content_hash.as_deref())
+        else {
+            return false;
+        };
+        matches!(
+            kind,
+            EvidenceKind::FileSpan {
+                content_hash,
+                snapshot: Some(_),
+                ..
+            } if content_hash == expected_hash
+        )
     }
 }
 
