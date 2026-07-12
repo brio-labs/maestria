@@ -341,11 +341,17 @@ impl super::FullTextIndex for InMemoryFullTextIndex {
             })
             .collect::<Vec<_>>();
 
-        hits.sort_by_key(|b| std::cmp::Reverse(b.score));
-        if hits.len() > query.limit {
-            hits.truncate(query.limit);
-        }
-        Ok(hits)
+        hits.sort_by(|a, b| {
+            b.score
+                .cmp(&a.score)
+                .then_with(|| a.chunk.artifact_id.cmp(&b.chunk.artifact_id))
+                .then_with(|| a.chunk.chunk_id.cmp(&b.chunk.chunk_id))
+        });
+        Ok(hits
+            .into_iter()
+            .skip(query.offset)
+            .take(query.limit)
+            .collect())
     }
 
     fn index_cards(&self, cards: Vec<super::IndexedCard>) -> Result<(), PortError> {
@@ -385,10 +391,11 @@ impl super::FullTextIndex for InMemoryFullTextIndex {
                 .then_with(|| a.card.artifact_id.cmp(&b.card.artifact_id))
                 .then_with(|| a.card.card_id.cmp(&b.card.card_id))
         });
-        if hits.len() > query.limit {
-            hits.truncate(query.limit);
-        }
-        Ok(hits)
+        Ok(hits
+            .into_iter()
+            .skip(query.offset)
+            .take(query.limit)
+            .collect())
     }
 }
 

@@ -13,6 +13,7 @@ maestria-domain = { path = "../../kernel/maestria-domain" }
 maestria-blob-fs = { path = "../../storage/maestria-blob-fs" }
 maestria-storage-sqlite = { path = "../../storage/maestria-storage-sqlite" }
 maestria-search-tantivy = { path = "../../storage/maestria-search-tantivy" }
+maestria-ports = { path = "../../kernel/maestria-ports" }
 maestria-parsers = { path = "../../ecosystem/maestria-parsers" }
 
 tokio = { version = "1.37", features = ["full"] }

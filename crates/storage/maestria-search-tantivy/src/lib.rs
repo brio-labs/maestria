@@ -5,6 +5,13 @@
 //! This crate stores only rebuildable indexed chunks. Artifact metadata and blob
 //! contents remain owned by their source repositories.
 
+mod migration;
+mod schema;
+mod search_helpers;
+use migration::{legacy_chunks, schema_has_cards};
+
+use schema::{load_fields, schema};
+use search_helpers::collect_tie_complete;
 use std::{fs, path::Path, sync::Mutex};
 
 use maestria_domain::{ArtifactId, CardId, ChunkId};
@@ -12,14 +19,9 @@ use maestria_ports::{
     CardHit, FullTextIndex, IndexedCard, IndexedChunk, PortError, SearchHit, SearchQuery,
 };
 use tantivy::{
-    Index, IndexReader, IndexWriter, ReloadPolicy, TantivyDocument, Term,
-    collector::TopDocs,
-    doc,
+    Index, IndexReader, IndexWriter, ReloadPolicy, TantivyDocument, Term, doc,
     query::QueryParser,
-    schema::{
-        FAST, Field, IndexRecordOption, STORED, STRING, Schema, TextFieldIndexing, TextOptions,
-        Value,
-    },
+    schema::{Field, Schema, Value},
 };
 
 const WRITER_MEMORY_BUDGET_BYTES: usize = 50_000_000;
@@ -39,6 +41,8 @@ pub struct TantivyFullTextIndex {
     reader: IndexReader,
     writer: Mutex<IndexWriter>,
     fields: IndexFields,
+    card_rebuild_required: Mutex<bool>,
+    card_rebuild_marker: Option<std::path::PathBuf>,
 }
 
 struct IndexFields {
@@ -54,24 +58,71 @@ struct IndexFields {
 }
 
 impl TantivyFullTextIndex {
-    /// Create a short-lived in-memory full-text projection.
     pub fn in_memory() -> Result<Self, PortError> {
-        Self::from_index(Index::create_in_ram(schema()))
+        Self::from_index(Index::create_in_ram(schema()), false, None)
     }
 
-    /// Open or create a directory-backed full-text projection.
     pub fn open(path: impl AsRef<Path>) -> Result<Self, PortError> {
         let path = path.as_ref();
         fs::create_dir_all(path).map_err(to_io_port_error)?;
-        let index = if path.join("meta.json").exists() {
-            Index::open_in_dir(path).map_err(to_port_error)?
-        } else {
-            Index::create_in_dir(path, schema()).map_err(to_port_error)?
-        };
-        Self::from_index(index)
+        let temp_path = path.with_extension("migrating");
+        let backup_path = path.with_extension("legacy");
+        if !path.join("meta.json").exists() {
+            if temp_path.join("meta.json").exists() {
+                fs::remove_dir_all(path).map_err(to_io_port_error)?;
+                fs::rename(&temp_path, path).map_err(to_io_port_error)?;
+            } else if backup_path.join("meta.json").exists() {
+                fs::remove_dir_all(path).map_err(to_io_port_error)?;
+                fs::rename(&backup_path, path).map_err(to_io_port_error)?;
+            }
+        }
+        let marker = path.join(".cards-rebuild");
+        if path.join("meta.json").exists() {
+            let existing = Index::open_in_dir(path).map_err(to_port_error)?;
+            if schema_has_cards(&existing.schema()) {
+                let required = marker.exists();
+                return Self::from_index(existing, required, Some(marker));
+            }
+
+            let chunks = legacy_chunks(&existing)?;
+            drop(existing);
+            let temp_path = path.with_extension("migrating");
+            if temp_path.exists() {
+                fs::remove_dir_all(&temp_path).map_err(to_io_port_error)?;
+            }
+            fs::create_dir_all(&temp_path).map_err(to_io_port_error)?;
+            let temp_marker = temp_path.join(".cards-rebuild");
+            fs::write(&temp_marker, b"pending").map_err(to_io_port_error)?;
+            let rebuilt = Index::create_in_dir(&temp_path, schema()).map_err(to_port_error)?;
+            let projection = Self::from_index(rebuilt, true, Some(temp_marker))?;
+            projection.index_chunks(chunks)?;
+            drop(projection);
+
+            let backup_path = path.with_extension("legacy");
+            if backup_path.exists() {
+                fs::remove_dir_all(&backup_path).map_err(to_io_port_error)?;
+            }
+            fs::rename(path, &backup_path).map_err(to_io_port_error)?;
+            if let Err(error) = fs::rename(&temp_path, path) {
+                let _ = fs::rename(&backup_path, path);
+                return Err(to_io_port_error(error));
+            }
+            let migrated = Index::open_in_dir(path).map_err(to_port_error)?;
+            let projection = Self::from_index(migrated, true, Some(marker));
+            let _ = fs::remove_dir_all(&backup_path);
+            return projection;
+        }
+
+        let index = Index::create_in_dir(path, schema()).map_err(to_port_error)?;
+        let required = marker.exists();
+        Self::from_index(index, required, Some(marker))
     }
 
-    fn from_index(index: Index) -> Result<Self, PortError> {
+    fn from_index(
+        index: Index,
+        card_rebuild_required: bool,
+        card_rebuild_marker: Option<std::path::PathBuf>,
+    ) -> Result<Self, PortError> {
         let fields = load_fields(index.schema())?;
         let reader = index
             .reader_builder()
@@ -87,9 +138,35 @@ impl TantivyFullTextIndex {
             reader,
             writer: Mutex::new(writer),
             fields,
+            card_rebuild_required: Mutex::new(card_rebuild_required),
+            card_rebuild_marker,
         })
     }
-
+    /// Return whether legacy card documents still need rebuilding from truth.
+    pub fn needs_card_rebuild(&self) -> Result<bool, PortError> {
+        self.card_rebuild_required
+            .lock()
+            .map(|required| *required)
+            .map_err(|_| PortError::Internal {
+                message: "card rebuild flag lock poisoned".to_string(),
+            })
+    }
+    /// Mark a complete truth-backed card rebuild as durable.
+    pub fn complete_card_rebuild(&self) -> Result<(), PortError> {
+        if let Some(marker) = &self.card_rebuild_marker
+            && marker.exists()
+        {
+            fs::remove_file(marker).map_err(to_io_port_error)?;
+        }
+        let mut required = self
+            .card_rebuild_required
+            .lock()
+            .map_err(|_| PortError::Internal {
+                message: "card rebuild flag lock poisoned".to_string(),
+            })?;
+        *required = false;
+        Ok(())
+    }
     fn chunk_document(&self, chunk: &IndexedChunk) -> TantivyDocument {
         doc!(
             self.fields.key => chunk_key(chunk.artifact_id, chunk.chunk_id),
@@ -217,25 +294,34 @@ impl FullTextIndex for TantivyFullTextIndex {
                 .map_err(|error| PortError::InvalidInput {
                     message: format!("invalid search query: {error}"),
                 })?;
-        let top_docs = searcher
-            .search(
-                &parsed_query,
-                &TopDocs::with_limit(query.limit).order_by_score(),
-            )
-            .map_err(to_port_error)?;
-        let mut hits = Vec::with_capacity(top_docs.len());
-
+        let top_docs = collect_tie_complete(&searcher, &parsed_query, query.offset, query.limit)?;
+        let mut scored = Vec::with_capacity(top_docs.len());
         for (score, address) in top_docs {
             let document = searcher
                 .doc::<TantivyDocument>(address)
                 .map_err(to_port_error)?;
-            hits.push(SearchHit {
-                chunk: self.read_chunk(&document)?,
-                score: score_to_u32(score),
-            });
+            let chunk = self.read_chunk(&document)?;
+            scored.push((
+                score,
+                chunk.artifact_id.value(),
+                chunk.chunk_id.value(),
+                chunk,
+            ));
         }
-
-        Ok(hits)
+        scored.sort_by(|a, b| {
+            descending_score(a.0, b.0)
+                .then_with(|| a.1.cmp(&b.1))
+                .then_with(|| a.2.cmp(&b.2))
+        });
+        Ok(scored
+            .into_iter()
+            .skip(query.offset)
+            .take(query.limit)
+            .map(|(score, _, _, chunk)| SearchHit {
+                chunk,
+                score: score_to_u32(score),
+            })
+            .collect())
     }
 
     fn index_cards(&self, cards: Vec<IndexedCard>) -> Result<(), PortError> {
@@ -254,7 +340,8 @@ impl FullTextIndex for TantivyFullTextIndex {
         }
 
         writer.commit().map_err(to_port_error)?;
-        self.reader.reload().map_err(to_port_error)
+        self.reader.reload().map_err(to_port_error)?;
+        Ok(())
     }
 
     fn search_cards(&self, query: SearchQuery) -> Result<Vec<CardHit>, PortError> {
@@ -279,71 +366,32 @@ impl FullTextIndex for TantivyFullTextIndex {
                 .map_err(|error| PortError::InvalidInput {
                     message: format!("invalid search query: {error}"),
                 })?;
-        let top_docs = searcher
-            .search(
-                &parsed_query,
-                &TopDocs::with_limit(query.limit).order_by_score(),
-            )
-            .map_err(to_port_error)?;
-
-        let mut scored: Vec<(u32, String, IndexedCard)> = Vec::with_capacity(top_docs.len());
+        let top_docs = collect_tie_complete(&searcher, &parsed_query, query.offset, query.limit)?;
+        let mut scored: Vec<(f32, u64, u64, IndexedCard)> = Vec::with_capacity(top_docs.len());
         for (score, address) in top_docs {
             let document = searcher
                 .doc::<TantivyDocument>(address)
                 .map_err(to_port_error)?;
-            let doc_key = document
-                .get_first(self.fields.card_key)
-                .and_then(|value| value.as_str())
-                .map(str::to_string)
-                .ok_or_else(|| PortError::Internal {
-                    message: "indexed card is missing card key".to_string(),
-                })?;
-            scored.push((score_to_u32(score), doc_key, self.read_card(&document)?));
+            let card = self.read_card(&document)?;
+            scored.push((score, card.artifact_id.value(), card.card_id.value(), card));
         }
 
-        // Deterministic ordering: descending score, ascending key for ties.
-        scored.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.cmp(&b.1)));
-
+        // Deterministic ordering: descending raw score, then numeric IDs.
+        scored.sort_by(|a, b| {
+            descending_score(a.0, b.0)
+                .then_with(|| a.1.cmp(&b.1))
+                .then_with(|| a.2.cmp(&b.2))
+        });
         Ok(scored
             .into_iter()
-            .map(|(score, _key, card)| CardHit { card, score })
+            .skip(query.offset)
+            .take(query.limit)
+            .map(|(score, _, _, card)| CardHit {
+                card,
+                score: score_to_u32(score),
+            })
             .collect())
     }
-}
-
-fn schema() -> Schema {
-    let mut builder = Schema::builder();
-    let text_indexing = TextFieldIndexing::default()
-        .set_tokenizer("default")
-        .set_index_option(IndexRecordOption::WithFreqsAndPositions);
-    let text_options = TextOptions::default()
-        .set_indexing_options(text_indexing.clone())
-        .set_stored();
-
-    builder.add_text_field(FIELD_KEY, STRING | STORED);
-    builder.add_u64_field(FIELD_ARTIFACT_ID, FAST | STORED);
-    builder.add_u64_field(FIELD_CHUNK_ID, FAST | STORED);
-    builder.add_text_field(FIELD_TEXT, text_options.clone());
-    builder.add_text_field(FIELD_CARD_KEY, STRING | STORED);
-    builder.add_u64_field(FIELD_CARD_ARTIFACT_ID, FAST | STORED);
-    builder.add_u64_field(FIELD_CARD_ID, FAST | STORED);
-    builder.add_text_field(FIELD_CARD_TITLE, text_options.clone());
-    builder.add_text_field(FIELD_CARD_BODY, text_options);
-    builder.build()
-}
-
-fn load_fields(schema: Schema) -> Result<IndexFields, PortError> {
-    Ok(IndexFields {
-        key: schema_field(&schema, FIELD_KEY)?,
-        artifact_id: schema_field(&schema, FIELD_ARTIFACT_ID)?,
-        chunk_id: schema_field(&schema, FIELD_CHUNK_ID)?,
-        text: schema_field(&schema, FIELD_TEXT)?,
-        card_key: schema_field(&schema, FIELD_CARD_KEY)?,
-        card_artifact_id: schema_field(&schema, FIELD_CARD_ARTIFACT_ID)?,
-        card_id: schema_field(&schema, FIELD_CARD_ID)?,
-        card_title: schema_field(&schema, FIELD_CARD_TITLE)?,
-        card_body: schema_field(&schema, FIELD_CARD_BODY)?,
-    })
 }
 
 fn schema_field(schema: &Schema, name: &str) -> Result<Field, PortError> {
@@ -358,6 +406,13 @@ fn chunk_key(artifact_id: ArtifactId, chunk_id: ChunkId) -> String {
 
 fn card_key(artifact_id: ArtifactId, card_id: CardId) -> String {
     format!("card:{}:{}", artifact_id.value(), card_id.value())
+}
+
+fn descending_score(left: f32, right: f32) -> std::cmp::Ordering {
+    match right.partial_cmp(&left) {
+        Some(ordering) => ordering,
+        None => std::cmp::Ordering::Equal,
+    }
 }
 
 fn score_to_u32(score: f32) -> u32 {

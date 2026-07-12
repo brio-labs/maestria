@@ -77,6 +77,7 @@ async fn index_full_text_effect_indexes_cards_before_chunks() {
         .search_cards(SearchQuery {
             q: "indexed card".into(),
             limit: 10,
+            offset: 0,
         })
         .expect("search_cards should succeed");
     assert_eq!(card_hits.len(), 1, "one card should match");
@@ -89,6 +90,7 @@ async fn index_full_text_effect_indexes_cards_before_chunks() {
         .search(SearchQuery {
             q: "chunk text".into(),
             limit: 10,
+            offset: 0,
         })
         .expect("search should succeed");
     assert_eq!(chunk_hits.len(), 1, "one chunk should match");
@@ -153,6 +155,7 @@ async fn index_full_text_effect_no_cards_when_state_has_none() {
         .search_cards(SearchQuery {
             q: "anything".into(),
             limit: 10,
+            offset: 0,
         })
         .expect("search_cards should succeed");
     assert!(
@@ -165,6 +168,7 @@ async fn index_full_text_effect_no_cards_when_state_has_none() {
         .search(SearchQuery {
             q: "chunk without cards".into(),
             limit: 10,
+            offset: 0,
         })
         .expect("search should succeed");
     assert_eq!(chunk_hits.len(), 1, "chunk should still be indexed");
@@ -254,6 +258,7 @@ async fn index_full_text_effect_reindexing_is_idempotent() {
         .search_cards(SearchQuery {
             q: "reindexed".into(),
             limit: 10,
+            offset: 0,
         })
         .expect("search_cards should succeed");
     assert_eq!(card_hits.len(), 1, "reindexing must not duplicate cards");

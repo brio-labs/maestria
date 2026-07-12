@@ -31,6 +31,7 @@ fn card_search_returns_indexed_card_metadata() {
         .search_cards(SearchQuery {
             q: "alpha".to_string(),
             limit: 10,
+            offset: 0,
         })
         .expect("search cards");
 
@@ -58,6 +59,7 @@ fn card_search_limit_is_honored() {
         .search_cards(SearchQuery {
             q: "shared".to_string(),
             limit: 2,
+            offset: 0,
         })
         .expect("search cards");
 
@@ -71,6 +73,7 @@ fn card_empty_query_is_invalid() {
     let result = index.search_cards(SearchQuery {
         q: "  \t  ".to_string(),
         limit: 10,
+        offset: 0,
     });
 
     assert!(matches!(result, Err(PortError::InvalidInput { .. })));
@@ -88,6 +91,7 @@ fn card_zero_limit_returns_empty() {
         .search_cards(SearchQuery {
             q: "present".to_string(),
             limit: 0,
+            offset: 0,
         })
         .expect("search cards");
 
@@ -119,6 +123,7 @@ fn card_reindexing_replaces_without_duplicates() {
         .search_cards(SearchQuery {
             q: "searchable".to_string(),
             limit: 10,
+            offset: 0,
         })
         .expect("search cards");
 
@@ -141,6 +146,7 @@ fn card_no_results_for_missing_term() {
         .search_cards(SearchQuery {
             q: "absent".to_string(),
             limit: 10,
+            offset: 0,
         })
         .expect("search cards");
 
@@ -166,6 +172,7 @@ fn card_directory_backed_index_can_be_reopened() {
         .search_cards(SearchQuery {
             q: "durable".to_string(),
             limit: 10,
+            offset: 0,
         })
         .expect("search cards");
 
@@ -193,6 +200,7 @@ fn card_and_chunk_searches_are_isolated() {
         .search_cards(SearchQuery {
             q: "unique".to_string(),
             limit: 10,
+            offset: 0,
         })
         .expect("search cards");
     assert_eq!(card_hits.len(), 1);
@@ -202,6 +210,7 @@ fn card_and_chunk_searches_are_isolated() {
         .search(SearchQuery {
             q: "unique".to_string(),
             limit: 10,
+            offset: 0,
         })
         .expect("search chunks");
     assert_eq!(chunk_hits.len(), 1);

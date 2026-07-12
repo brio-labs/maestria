@@ -502,6 +502,19 @@ fn pdf_indexing_workflow() {
         ],
         2,
     );
+    let search_lines: Vec<&str> = stdout.lines().collect();
+    assert!(
+        search_lines
+            .first()
+            .is_some_and(|line| line.starts_with("card ")),
+        "card result must render before chunks: {stdout}"
+    );
+    assert!(
+        search_lines
+            .get(1)
+            .is_some_and(|line| line.contains("chunk=") && line.contains("evidence=")),
+        "chunk result must follow card with evidence id: {stdout}"
+    );
     let chunk_output_line = stdout
         .lines()
         .find(|line| line.contains("chunk="))

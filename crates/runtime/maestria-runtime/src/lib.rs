@@ -749,25 +749,27 @@ impl MaestriaRuntime {
                     tracing::warn!(chunk_id = %request.chunk_id, "chunk missing for full-text index");
                     return true;
                 };
-                let artifact_cards: Vec<IndexedCard> = {
-                    let state = state.read().await;
-                    state
-                        .cards
-                        .values()
-                        .filter(|c| c.artifact_id == request.artifact_id)
-                        .map(|c| IndexedCard {
-                            artifact_id: c.artifact_id,
-                            card_id: c.id,
-                            title: c.title.clone(),
-                            body: c.body.clone(),
-                        })
-                        .collect()
-                };
-                if !artifact_cards.is_empty()
-                    && let Err(error) = adapters.search_index.index_cards(artifact_cards)
-                {
-                    tracing::error!(artifact_id = %request.artifact_id, %error, "failed to index cards");
-                    return false;
+                if chunk.order == 0 {
+                    let artifact_cards: Vec<IndexedCard> = {
+                        let state = state.read().await;
+                        state
+                            .cards
+                            .values()
+                            .filter(|c| c.artifact_id == request.artifact_id)
+                            .map(|c| IndexedCard {
+                                artifact_id: c.artifact_id,
+                                card_id: c.id,
+                                title: c.title.clone(),
+                                body: c.body.clone(),
+                            })
+                            .collect()
+                    };
+                    if !artifact_cards.is_empty()
+                        && let Err(error) = adapters.search_index.index_cards(artifact_cards)
+                    {
+                        tracing::error!(artifact_id = %request.artifact_id, %error, "failed to index cards");
+                        return false;
+                    }
                 }
                 if let Err(error) = adapters.search_index.index_chunks(vec![IndexedChunk {
                     artifact_id: request.artifact_id,

@@ -368,6 +368,7 @@ pub fn assert_full_text_index_round_trip(index: &impl FullTextIndex) {
         .search(SearchQuery {
             q: "hello".to_string(),
             limit: 1,
+            offset: 0,
         })
         .expect("search hits");
 
@@ -402,6 +403,7 @@ pub fn assert_full_text_index_round_trip(index: &impl FullTextIndex) {
         .search_cards(SearchQuery {
             q: "card".to_string(),
             limit: 10,
+            offset: 0,
         })
         .expect("search cards");
 
@@ -425,6 +427,7 @@ pub fn assert_full_text_index_round_trip(index: &impl FullTextIndex) {
         .search_cards(SearchQuery {
             q: "second".to_string(),
             limit: 10,
+            offset: 0,
         })
         .expect("search after replace");
     assert_eq!(beta_hits.len(), 1);
@@ -434,6 +437,7 @@ pub fn assert_full_text_index_round_trip(index: &impl FullTextIndex) {
         .search_cards(SearchQuery {
             q: "revised".to_string(),
             limit: 10,
+            offset: 0,
         })
         .expect("search revised");
     assert_eq!(updated_hits.len(), 1);
@@ -468,6 +472,7 @@ pub fn assert_full_text_index_round_trip(index: &impl FullTextIndex) {
         .search_cards(SearchQuery {
             q: "dup".to_string(),
             limit: 10,
+            offset: 0,
         })
         .expect("search ties");
 
@@ -483,6 +488,7 @@ pub fn assert_full_text_index_round_trip(index: &impl FullTextIndex) {
         .search_cards(SearchQuery {
             q: "zzz_no_match".to_string(),
             limit: 10,
+            offset: 0,
         })
         .expect("empty search");
     assert!(empty.is_empty());

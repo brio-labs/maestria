@@ -26,6 +26,7 @@ fn index_search_returns_source_openable_chunk_metadata() {
         .search(SearchQuery {
             q: "alpha".to_string(),
             limit: 10,
+            offset: 0,
         })
         .expect("search chunks");
 
@@ -52,6 +53,7 @@ fn limit_is_honored() {
         .search(SearchQuery {
             q: "shared".to_string(),
             limit: 2,
+            offset: 0,
         })
         .expect("search chunks");
 
@@ -65,6 +67,7 @@ fn empty_query_is_invalid() {
     let result = index.search(SearchQuery {
         q: "  \t  ".to_string(),
         limit: 10,
+        offset: 0,
     });
 
     assert!(matches!(result, Err(PortError::InvalidInput { .. })));
@@ -85,6 +88,7 @@ fn reindexing_same_chunk_replaces_without_duplicate_hits() {
         .search(SearchQuery {
             q: "searchable".to_string(),
             limit: 10,
+            offset: 0,
         })
         .expect("search chunks");
 
@@ -106,6 +110,7 @@ fn no_results_for_missing_term() {
         .search(SearchQuery {
             q: "absent".to_string(),
             limit: 10,
+            offset: 0,
         })
         .expect("search chunks");
 
@@ -126,6 +131,7 @@ fn directory_backed_index_can_be_reopened() {
         .search(SearchQuery {
             q: "durable".to_string(),
             limit: 10,
+            offset: 0,
         })
         .expect("search chunks");
 

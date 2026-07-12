@@ -11,6 +11,7 @@ use maestria_domain::{
 };
 use maestria_governance::{AutonomyProfile, PrivacyExclusions, Scope};
 use maestria_parsers::ParserRegistry;
+use maestria_ports::{FullTextIndex, IndexedCard};
 use maestria_search_tantivy::TantivyFullTextIndex;
 use maestria_storage_sqlite::SqliteStore;
 use std::{
@@ -464,6 +465,27 @@ fn search(instance_dir: PathBuf, query: String, limit: usize) -> Result<()> {
     let sqlite_store = SqliteStore::open(&layout.database_path)?;
     let blob_store = FsBlobStore::open(&layout.blobs_dir)?;
     let search_index = TantivyFullTextIndex::open(&layout.full_text_index_dir)?;
+    if search_index.needs_card_rebuild()? {
+        let state = maestria_daemon::load_kernel_state(&layout)?;
+        let cards = state
+            .cards
+            .values()
+            .filter(|card| {
+                state
+                    .artifacts
+                    .get(&card.artifact_id)
+                    .is_some_and(|artifact| artifact.index_status == IndexStatus::Indexed)
+            })
+            .map(|card| IndexedCard {
+                artifact_id: card.artifact_id,
+                card_id: card.id,
+                title: card.title.clone(),
+                body: card.body.clone(),
+            })
+            .collect();
+        search_index.index_cards(cards)?;
+        search_index.complete_card_rebuild()?;
+    }
     let parser = ParserRegistry::with_defaults();
     let core = CoreServices::new(CorePorts {
         artifacts: &sqlite_store,

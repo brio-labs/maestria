@@ -102,6 +102,8 @@ pub struct IndexedCard {
 pub struct SearchQuery {
     pub q: String,
     pub limit: usize,
+    /// Number of matching documents to skip before applying `limit`.
+    pub offset: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

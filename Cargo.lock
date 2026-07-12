@@ -1174,6 +1174,7 @@ dependencies = [
  "maestria-domain",
  "maestria-governance",
  "maestria-parsers",
+ "maestria-ports",
  "maestria-search-tantivy",
  "maestria-storage-sqlite",
  "tokio",
