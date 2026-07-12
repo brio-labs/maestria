@@ -280,6 +280,27 @@ async fn index_path(instance_dir: PathBuf, path: PathBuf, recursive: bool) -> Re
         maestria_daemon::build_runtime(&layout, initial_state, AutonomyProfile::TrustedWorkspace)?;
 
     let runtime_task = tokio::spawn(runtime.run(input_rx, shutdown_token.clone()));
+    // Collect recovery artifact IDs before consuming the recovery struct so
+    // we can drain pending recovery work before shutdown.  Each recovery
+    // artifact must reach terminal IndexStatus::Indexed before the runtime
+    // is cancelled, otherwise unrelated pending work is silently aborted.
+    let recovery_artifact_ids: Vec<ArtifactId> = {
+        let resume_ids = recovery.resume_parsers.iter().filter_map(|input| {
+            if let DomainInput::ResumeParser(r) = input {
+                Some(r.artifact_id)
+            } else {
+                None
+            }
+        });
+        let ft_ids = recovery.start_full_text.iter().filter_map(|input| {
+            if let DomainInput::StartFullTextIndex(s) = input {
+                Some(s.artifact_id)
+            } else {
+                None
+            }
+        });
+        resume_ids.chain(ft_ids).collect()
+    };
 
     // Queue pending ResumeParser inputs first so parsing completes before
     // full-text indexing begins.
@@ -380,6 +401,53 @@ async fn index_path(instance_dir: PathBuf, path: PathBuf, recursive: bool) -> Re
                     "timeout waiting for artifact indexing: {}",
                     file.display()
                 ));
+            }
+        }
+    }
+
+    // Drain every recovery artifact to terminal Indexed state before
+    // shutdown.  Recovery inputs (resumed parsers and restarted full-text
+    // indexing) run concurrently with fresh file processing; this wait
+    // ensures pending recovery work is not silently aborted when the
+    // runtime shuts down.
+    if !recovery_artifact_ids.is_empty() {
+        let recovery_timeout = Duration::from_secs(60);
+        let result = timeout(recovery_timeout, async {
+            loop {
+                match maestria_daemon::load_kernel_state(&layout)
+                    .with_context(|| "reload kernel state for recovery drain")
+                {
+                    Ok(state) => {
+                        if recovery_artifact_ids.iter().all(|id| {
+                            state
+                                .artifacts
+                                .get(id)
+                                .is_some_and(|a| a.index_status == IndexStatus::Indexed)
+                        }) {
+                            return Ok::<_, anyhow::Error>(());
+                        }
+                        sleep(Duration::from_millis(100)).await;
+                    }
+                    Err(error) if is_db_locked(&error) => {
+                        sleep(Duration::from_millis(25)).await;
+                    }
+                    Err(error) => return Err(error),
+                }
+            }
+        })
+        .await;
+
+        match result {
+            Ok(Ok(())) => {}
+            Ok(Err(error)) => {
+                shutdown_token.cancel();
+                let _ = runtime_task.await;
+                return Err(error);
+            }
+            Err(_elapsed) => {
+                shutdown_token.cancel();
+                let _ = runtime_task.await;
+                return Err(anyhow!("timeout waiting for recovery artifact indexing"));
             }
         }
     }
@@ -1270,6 +1338,122 @@ mod tests {
         let recovery = maestria_daemon::recovery_inputs(&state);
         assert!(recovery.resume_parsers.is_empty());
         assert!(recovery.start_full_text.is_empty());
+    }
+    // --- index_path recovery drain ---
+
+    /// Verify that recovery artifact IDs are correctly extracted from
+    /// both `resume_parsers` and `start_full_text` vectors, covering
+    /// the two input kinds the drain loop must await.
+    #[test]
+    fn recovery_artifact_ids_covers_both_input_kinds() {
+        use maestria_domain::{ParserStarted, StartFullTextIndex};
+
+        let recovery = maestria_daemon::RecoveryInputs {
+            resume_parsers: vec![DomainInput::ResumeParser(ParserStarted {
+                artifact_id: ArtifactId::new(10),
+                title: "a.md".to_string(),
+                source_path: "/tmp/a.md".to_string(),
+                content_hash: "sha256:aa".to_string(),
+                blob_id: maestria_domain::BlobId::new(100),
+            })],
+            start_full_text: vec![
+                DomainInput::StartFullTextIndex(StartFullTextIndex {
+                    artifact_id: ArtifactId::new(20),
+                }),
+                DomainInput::StartFullTextIndex(StartFullTextIndex {
+                    artifact_id: ArtifactId::new(30),
+                }),
+            ],
+        };
+
+        let ids: Vec<ArtifactId> = {
+            let resume_ids = recovery.resume_parsers.iter().filter_map(|input| {
+                if let DomainInput::ResumeParser(r) = input {
+                    Some(r.artifact_id)
+                } else {
+                    None
+                }
+            });
+            let ft_ids = recovery.start_full_text.iter().filter_map(|input| {
+                if let DomainInput::StartFullTextIndex(s) = input {
+                    Some(s.artifact_id)
+                } else {
+                    None
+                }
+            });
+            resume_ids.chain(ft_ids).collect()
+        };
+
+        assert_eq!(ids.len(), 3, "three recovery artifact IDs");
+        assert!(ids.contains(&ArtifactId::new(10)), "resume parser ID 10");
+        assert!(ids.contains(&ArtifactId::new(20)), "start full-text ID 20");
+        assert!(ids.contains(&ArtifactId::new(30)), "start full-text ID 30");
+    }
+
+    /// Verify that the recovery drain predicate — "all artifact IDs are
+    /// Indexed" — correctly distinguishes terminal from non-terminal
+    /// states.  This is the same check the drain loop uses each poll
+    /// iteration before shutdown.
+    #[test]
+    fn recovery_drain_all_indexed_predicate() {
+        use maestria_domain::ParserResult;
+
+        let mut state = KernelState::new();
+        let id_a = ArtifactId::new(1);
+        let id_b = ArtifactId::new(2);
+
+        // Register both artifacts through the full pipeline:
+        // ArtifactDetected → ParserCompleted so they land in state.artifacts.
+        for &id in &[id_a, id_b] {
+            state
+                .apply_input(DomainInput::ArtifactDetected(ArtifactDetected {
+                    artifact_id: id,
+                    title: format!("{id}.md"),
+                    source_path: format!("/tmp/{id}.md"),
+                    source_bytes: vec![id.value() as u8],
+                    content_hash: format!("sha256:{id}"),
+                }))
+                .expect("register artifact");
+            state
+                .apply_input(DomainInput::ParserCompleted(ParserResult {
+                    artifact_id: id,
+                    chunks: Vec::new(),
+                    cards: Vec::new(),
+                }))
+                .expect("parser completed");
+        }
+
+        // Predicate: all indexed
+        let all_indexed = |state: &KernelState, ids: &[ArtifactId]| -> bool {
+            ids.iter().all(|id| {
+                state
+                    .artifacts
+                    .get(id)
+                    .is_some_and(|a| a.index_status == IndexStatus::Indexed)
+            })
+        };
+
+        // Neither indexed → false.
+        assert!(!all_indexed(&state, &[id_a, id_b]));
+
+        // Mark only id_a as Indexed → still false.
+        state
+            .artifacts
+            .get_mut(&id_a)
+            .expect("id_a must exist")
+            .index_status = IndexStatus::Indexed;
+        assert!(!all_indexed(&state, &[id_a, id_b]));
+
+        // Mark id_b as Indexed → true.
+        state
+            .artifacts
+            .get_mut(&id_b)
+            .expect("id_b must exist")
+            .index_status = IndexStatus::Indexed;
+        assert!(all_indexed(&state, &[id_a, id_b]));
+
+        // Empty list is vacuously true.
+        assert!(all_indexed(&state, &[]));
     }
 
     /// Verify that `maestria_daemon::reconcile_projections` is callable
