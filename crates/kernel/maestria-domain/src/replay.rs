@@ -658,21 +658,19 @@ impl KernelState {
                         artifact_id: *artifact_id,
                     });
                 }
-                // Replay must apply the same evidence-completeness predicate
-                // as input dispatch: every chunk must have source-backed
-                // FileSpan evidence with matching content_hash and snapshot.
-                // Invalid ArtifactIndexed events (e.g. from a corrupt log)
-                // leave the artifact Pending and retain recovery metadata.
-                if !self.evidence_complete_for(*artifact_id) {
-                    return Ok(());
+                // Only terminalize when evidence is source-backed and complete.
+                // Invalid ArtifactIndexed events (e.g. from a corrupt log) are
+                // still appended to the event log but leave the artifact Pending
+                // and retain recovery metadata so retry/resume can regenerate evidence.
+                if self.evidence_complete_for(*artifact_id) {
+                    let artifact = self
+                        .artifacts
+                        .get_mut(artifact_id)
+                        .ok_or(DomainError::MissingArtifact { id: *artifact_id })?;
+                    artifact.index_status = IndexStatus::Indexed;
+                    // Terminal indexing frees the pending parser entry.
+                    self.pending_parsers.remove(artifact_id);
                 }
-                let artifact = self
-                    .artifacts
-                    .get_mut(artifact_id)
-                    .ok_or(DomainError::MissingArtifact { id: *artifact_id })?;
-                artifact.index_status = IndexStatus::Indexed;
-                // Terminal indexing frees the pending parser entry.
-                self.pending_parsers.remove(artifact_id);
             }
             DomainEvent::HarnessRunCompleted { task_id, .. } => {
                 if let Some(task_id) = task_id

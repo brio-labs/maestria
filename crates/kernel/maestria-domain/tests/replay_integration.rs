@@ -1207,8 +1207,9 @@ fn replay_artifact_indexed_clears_pending_parsers() -> Result<(), DomainError> {
 fn replay_artifact_indexed_rejects_incomplete_evidence() -> Result<(), DomainError> {
     // Regression: when ArtifactIndexed is replayed but no evidence
     // (or non-source-backed evidence) has been recorded, the event
-    // must be silently ignored — artifact stays Pending and
-    // pending_parsers is retained so recovery can retry.
+    // must be appended to the event log for replay identity, but
+    // the artifact stays Pending and pending_parsers is retained
+    // so recovery can retry.
     let mut state = KernelState::new();
     let art_id = ArtifactId::new(1);
     state.apply_event(DomainEventEnvelope {
@@ -1265,7 +1266,8 @@ fn replay_artifact_indexed_rejects_incomplete_evidence() -> Result<(), DomainErr
         },
     })?;
 
-    // ArtifactIndexed with NO evidence — must be silently ignored.
+    // ArtifactIndexed with NO evidence — side effects skipped, but
+    // the event is preserved in the event log for replay identity.
     state.apply_event(DomainEventEnvelope {
         id: EventId::new(6),
         sequence: SequenceNumber::new(6),
@@ -1283,6 +1285,21 @@ fn replay_artifact_indexed_rejects_incomplete_evidence() -> Result<(), DomainErr
     assert!(
         state.pending_parsers.contains_key(&art_id),
         "pending_parsers must be retained when replay ArtifactIndexed has incomplete evidence"
+    );
+    // The event MUST be in the event log even though side effects were skipped.
+    assert!(
+        state.event_log.iter().any(|e| matches!(
+            e.event,
+            DomainEvent::ArtifactIndexed {
+                artifact_id: ArtifactId(1)
+            }
+        )),
+        "ArtifactIndexed event must be preserved in event log for replay identity"
+    );
+    assert_eq!(
+        state.event_log.len(),
+        6,
+        "all 6 replayed events must be in the log"
     );
     Ok(())
 }
