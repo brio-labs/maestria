@@ -6,8 +6,8 @@ use maestria_core::{
     OpenChunkEvidenceInput, OpenEvidenceInput, SearchInput, artifact_id_for, content_hash,
 };
 use maestria_domain::{
-    ArtifactDetected, ArtifactId, ChunkId, DomainInput, EvidenceId, EvidenceKind, KernelState,
-    MemoryCandidate, OpenTaskInput, Task, TaskId, TaskPriority,
+    ArtifactDetected, ArtifactId, ChunkId, DomainInput, EvidenceId, EvidenceKind, IndexStatus,
+    KernelState, MemoryCandidate, OpenTaskInput, Task, TaskId, TaskPriority,
 };
 use maestria_governance::{AutonomyProfile, PrivacyExclusions, Scope};
 use maestria_parsers::ParserRegistry;
@@ -280,14 +280,10 @@ async fn index_path(instance_dir: PathBuf, path: PathBuf, recursive: bool) -> Re
         // Check whether this exact artifact was already indexed before this session.
         {
             if let Some(artifact) = preexisting_state.artifacts.get(&artifact_id) {
-                if !artifact.chunk_ids.is_empty() {
-                    println!(
-                        "unchanged artifact={} chunks={} evidence={} path={}",
-                        artifact.id,
-                        artifact.chunk_ids.len(),
-                        artifact.evidence_ids.len(),
-                        file.display()
-                    );
+                if artifact.content_hash.as_deref() == Some(&hash)
+                    && artifact.index_status == IndexStatus::Indexed
+                {
+                    println!("unchanged artifact={} path={}", artifact.id, file.display());
                     continue;
                 }
             }
@@ -320,12 +316,10 @@ async fn index_path(instance_dir: PathBuf, path: PathBuf, recursive: bool) -> Re
             let state = maestria_daemon::load_kernel_state(&layout)
                 .with_context(|| "reload kernel state for indexing wait")?;
             if let Some(artifact) = state.artifacts.get(&artifact_id) {
-                if !artifact.chunk_ids.is_empty() {
+                if artifact.index_status == IndexStatus::Indexed {
                     println!(
-                        "indexed artifact={} chunks={} evidence={} path={}",
+                        "indexed artifact={} path={}",
                         artifact.id,
-                        artifact.chunk_ids.len(),
-                        artifact.evidence_ids.len(),
                         file.display()
                     );
                     indexed = true;
