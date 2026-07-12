@@ -1045,16 +1045,35 @@ impl KernelState {
 
     /// Returns `true` when every chunk of `artifact_id` has a corresponding
     /// evidence record whose ID matches the deterministic `evidence_id_for`
-    /// mapping and whose `artifact_id` field matches. Zero-chunk artifacts
-    /// trivially satisfy the check.
+    /// mapping, whose `artifact_id` field matches, whose kind is
+    /// `EvidenceKind::FileSpan` with a `Some` snapshot (source-backed), and
+    /// whose `content_hash` equals the artifact's recorded content hash.
+    /// Zero-chunk artifacts trivially satisfy the check.
     pub(crate) fn evidence_complete_for(&self, artifact_id: ArtifactId) -> bool {
+        let Some(artifact) = self.artifacts.get(&artifact_id) else {
+            return false;
+        };
+        let Some(ref expected_hash) = artifact.content_hash else {
+            return false;
+        };
         for chunk in self.chunks.values() {
             if chunk.artifact_id != artifact_id {
                 continue;
             }
             let expected_id = evidence_id_for(chunk.artifact_id, chunk.order);
-            match self.evidences.get(&expected_id) {
-                Some(ev) if ev.artifact_id == artifact_id => continue,
+            let ev = match self.evidences.get(&expected_id) {
+                Some(ev) => ev,
+                None => return false,
+            };
+            if ev.artifact_id != artifact_id {
+                return false;
+            }
+            match &ev.kind {
+                EvidenceKind::FileSpan {
+                    content_hash,
+                    snapshot: Some(_snapshot),
+                    ..
+                } if content_hash == expected_hash => continue,
                 _ => return false,
             }
         }

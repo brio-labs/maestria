@@ -647,10 +647,9 @@ impl KernelState {
                 self.pending_full_text.remove(chunk_id);
             }
             DomainEvent::ArtifactIndexed { artifact_id } => {
-                let artifact = self
-                    .artifacts
-                    .get_mut(artifact_id)
-                    .ok_or(DomainError::MissingArtifact { id: *artifact_id })?;
+                if !self.artifacts.contains_key(artifact_id) {
+                    return Err(DomainError::MissingArtifact { id: *artifact_id });
+                }
                 let has_pending = self.chunks.values().any(|c| {
                     c.artifact_id == *artifact_id && self.pending_full_text.contains(&c.id)
                 });
@@ -659,6 +658,18 @@ impl KernelState {
                         artifact_id: *artifact_id,
                     });
                 }
+                // Replay must apply the same evidence-completeness predicate
+                // as input dispatch: every chunk must have source-backed
+                // FileSpan evidence with matching content_hash and snapshot.
+                // Invalid ArtifactIndexed events (e.g. from a corrupt log)
+                // leave the artifact Pending and retain recovery metadata.
+                if !self.evidence_complete_for(*artifact_id) {
+                    return Ok(());
+                }
+                let artifact = self
+                    .artifacts
+                    .get_mut(artifact_id)
+                    .ok_or(DomainError::MissingArtifact { id: *artifact_id })?;
                 artifact.index_status = IndexStatus::Indexed;
                 // Terminal indexing frees the pending parser entry.
                 self.pending_parsers.remove(artifact_id);

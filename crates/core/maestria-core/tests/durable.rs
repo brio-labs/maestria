@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use maestria_core::build_artifact_detected_input;
-use maestria_domain::{ArtifactDetected, KernelState, replay_inputs};
+use maestria_domain::{ArtifactDetected, BlobId, KernelState, replay_inputs};
 
 /// Verify that `build_artifact_detected_input` produces a DomainInput whose
 /// fields reconstruct identically after being replayed through the domain
@@ -113,7 +113,7 @@ fn pure_input_with_effect_completion_is_replay_consistent() -> Result<(), Box<dy
                     end: order + 1,
                 },
                 content_hash: source_hash.clone(),
-                snapshot: None,
+                snapshot: Some(BlobId::new(42)),
             },
             excerpt: excerpt.to_string(),
             observed_at: LogicalTick::new(1),

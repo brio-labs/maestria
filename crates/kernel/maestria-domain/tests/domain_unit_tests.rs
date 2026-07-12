@@ -1488,7 +1488,7 @@ fn full_text_index_final_feedback_emits_artifact_indexed() -> Result<(), DomainE
             path: "/tmp/notes.md".to_string(),
             range: ContentRange { start: 0, end: 1 },
             content_hash: "sha256:abc".to_string(),
-            snapshot: None,
+            snapshot: Some(BlobId::new(42)),
         },
         excerpt: "a".to_string(),
         observed_at: LogicalTick::new(1),
@@ -1554,7 +1554,7 @@ fn duplicate_full_text_index_feedback_is_idempotent() -> Result<(), DomainError>
             path: "/tmp/notes.md".to_string(),
             range: ContentRange { start: 0, end: 1 },
             content_hash: "sha256:abc".to_string(),
-            snapshot: None,
+            snapshot: Some(BlobId::new(42)),
         },
         excerpt: "a".to_string(),
         observed_at: LogicalTick::new(1),
@@ -1623,7 +1623,7 @@ fn replay_reconstructs_pending_and_indexed_state() -> Result<(), DomainError> {
             path: "/tmp/notes.md".to_string(),
             range: ContentRange { start: 0, end: 1 },
             content_hash: "sha256:abc".to_string(),
-            snapshot: None,
+            snapshot: Some(BlobId::new(42)),
         },
         excerpt: "a".to_string(),
         observed_at: LogicalTick::new(1),
@@ -1636,7 +1636,7 @@ fn replay_reconstructs_pending_and_indexed_state() -> Result<(), DomainError> {
             path: "/tmp/notes.md".to_string(),
             range: ContentRange { start: 1, end: 2 },
             content_hash: "sha256:abc".to_string(),
-            snapshot: None,
+            snapshot: Some(BlobId::new(42)),
         },
         excerpt: "b".to_string(),
         observed_at: LogicalTick::new(1),
@@ -2892,7 +2892,7 @@ fn crash_before_evidence_pending_parsers_survives_for_resume() -> Result<(), Dom
             path: "/tmp/notes.md".to_string(),
             range: ContentRange { start: 0, end: 5 },
             content_hash: "sha256:aaa".to_string(),
-            snapshot: None,
+            snapshot: Some(BlobId::new(42)),
         },
         excerpt: "hello".to_string(),
         observed_at: LogicalTick::new(1),
@@ -3045,7 +3045,7 @@ fn missing_evidence_keeps_artifact_pending_after_full_text_done() -> Result<(), 
             path: "/tmp/notes.md".to_string(),
             range: ContentRange { start: 0, end: 1 },
             content_hash: "sha256:abc".to_string(),
-            snapshot: None,
+            snapshot: Some(BlobId::new(42)),
         },
         excerpt: "a".to_string(),
         observed_at: LogicalTick::new(1),
@@ -3058,7 +3058,7 @@ fn missing_evidence_keeps_artifact_pending_after_full_text_done() -> Result<(), 
             path: "/tmp/notes.md".to_string(),
             range: ContentRange { start: 1, end: 2 },
             content_hash: "sha256:abc".to_string(),
-            snapshot: None,
+            snapshot: Some(BlobId::new(42)),
         },
         excerpt: "b".to_string(),
         observed_at: LogicalTick::new(1),
@@ -3075,6 +3075,197 @@ fn missing_evidence_keeps_artifact_pending_after_full_text_done() -> Result<(), 
             .events
             .iter()
             .any(|e| matches!(e.event, DomainEvent::ArtifactIndexed { .. }))
+    );
+    Ok(())
+}
+
+#[test]
+fn non_filespan_evidence_cannot_terminalize() -> Result<(), DomainError> {
+    // Regression: CommandOutput evidence must not satisfy the
+    // evidence-completeness gate. Only source-backed FileSpan with
+    // snapshot + matching content_hash enables terminal indexing.
+    let mut state = KernelState::new();
+    let art_id = ArtifactId::new(1);
+    state.apply_input(DomainInput::ArtifactDetected(ArtifactDetected {
+        artifact_id: art_id,
+        title: "Test".to_string(),
+        source_path: "/tmp/test.md".to_string(),
+        source_bytes: vec![1, 2, 3],
+        content_hash: "sha256:abc".to_string(),
+    }))?;
+    state.apply_input(DomainInput::ParserStarted(ParserStarted {
+        artifact_id: art_id,
+        title: "Test".to_string(),
+        source_path: "/tmp/test.md".to_string(),
+        content_hash: "sha256:abc".to_string(),
+        blob_id: BlobId::new(42),
+    }))?;
+    state.apply_input(DomainInput::ParserCompleted(ParserResult {
+        artifact_id: art_id,
+        chunks: vec![RegisterChunkInput {
+            chunk_id: ChunkId::new(10),
+            artifact_id: art_id,
+            order: 0,
+            text: "hello".to_string(),
+        }],
+        cards: Vec::new(),
+    }))?;
+    // Record CommandOutput evidence — wrong kind for terminal gate.
+    state.apply_input(DomainInput::RecordEvidence(RecordEvidenceInput {
+        evidence_id: evidence_id_for(art_id, 0),
+        artifact_id: art_id,
+        claim_id: None,
+        kind: EvidenceKind::CommandOutput {
+            harness_run: HarnessRunId::new(1),
+            stream: OutputStream::Stdout,
+            blob: BlobId::new(99),
+        },
+        excerpt: "out".to_string(),
+        observed_at: LogicalTick::new(1),
+    }))?;
+    // Full-text complete — but evidence is non-FileSpan.
+    state.apply_input(DomainInput::FullTextIndexCompleted(
+        FullTextIndexCompleted {
+            artifact_id: art_id,
+            chunk_id: ChunkId::new(10),
+        },
+    ))?;
+    // Artifact MUST stay Pending — non-FileSpan does not satisfy gate.
+    assert_eq!(
+        state.artifacts[&art_id].index_status,
+        IndexStatus::Pending,
+        "non-FileSpan evidence must not enable terminal indexing"
+    );
+    assert!(
+        state.pending_parsers.contains_key(&art_id),
+        "pending_parsers must survive when evidence kind is not FileSpan"
+    );
+    Ok(())
+}
+
+#[test]
+fn filespan_without_snapshot_cannot_terminalize() -> Result<(), DomainError> {
+    // Regression: FileSpan evidence with snapshot: None must not
+    // satisfy the evidence-completeness gate. Only source-backed
+    // evidence (Some snapshot) enables terminal indexing.
+    let mut state = KernelState::new();
+    let art_id = ArtifactId::new(1);
+    state.apply_input(DomainInput::ArtifactDetected(ArtifactDetected {
+        artifact_id: art_id,
+        title: "Test".to_string(),
+        source_path: "/tmp/test.md".to_string(),
+        source_bytes: vec![1, 2, 3],
+        content_hash: "sha256:abc".to_string(),
+    }))?;
+    state.apply_input(DomainInput::ParserStarted(ParserStarted {
+        artifact_id: art_id,
+        title: "Test".to_string(),
+        source_path: "/tmp/test.md".to_string(),
+        content_hash: "sha256:abc".to_string(),
+        blob_id: BlobId::new(42),
+    }))?;
+    state.apply_input(DomainInput::ParserCompleted(ParserResult {
+        artifact_id: art_id,
+        chunks: vec![RegisterChunkInput {
+            chunk_id: ChunkId::new(10),
+            artifact_id: art_id,
+            order: 0,
+            text: "hello".to_string(),
+        }],
+        cards: Vec::new(),
+    }))?;
+    // Record FileSpan with snapshot: None — missing source backing.
+    state.apply_input(DomainInput::RecordEvidence(RecordEvidenceInput {
+        evidence_id: evidence_id_for(art_id, 0),
+        artifact_id: art_id,
+        claim_id: None,
+        kind: EvidenceKind::FileSpan {
+            path: "/tmp/test.md".to_string(),
+            range: ContentRange { start: 0, end: 1 },
+            content_hash: "sha256:abc".to_string(),
+            snapshot: None,
+        },
+        excerpt: "hello".to_string(),
+        observed_at: LogicalTick::new(1),
+    }))?;
+    state.apply_input(DomainInput::FullTextIndexCompleted(
+        FullTextIndexCompleted {
+            artifact_id: art_id,
+            chunk_id: ChunkId::new(10),
+        },
+    ))?;
+    // Artifact MUST stay Pending — missing snapshot does not satisfy gate.
+    assert_eq!(
+        state.artifacts[&art_id].index_status,
+        IndexStatus::Pending,
+        "FileSpan without snapshot must not enable terminal indexing"
+    );
+    assert!(
+        state.pending_parsers.contains_key(&art_id),
+        "pending_parsers must survive when evidence snapshot is None"
+    );
+    Ok(())
+}
+
+#[test]
+fn filespan_with_wrong_content_hash_cannot_terminalize() -> Result<(), DomainError> {
+    // Regression: FileSpan evidence with content_hash that doesn't match
+    // the artifact's recorded content_hash must not satisfy the gate.
+    let mut state = KernelState::new();
+    let art_id = ArtifactId::new(1);
+    state.apply_input(DomainInput::ArtifactDetected(ArtifactDetected {
+        artifact_id: art_id,
+        title: "Test".to_string(),
+        source_path: "/tmp/test.md".to_string(),
+        source_bytes: vec![1, 2, 3],
+        content_hash: "sha256:abc".to_string(),
+    }))?;
+    state.apply_input(DomainInput::ParserStarted(ParserStarted {
+        artifact_id: art_id,
+        title: "Test".to_string(),
+        source_path: "/tmp/test.md".to_string(),
+        content_hash: "sha256:abc".to_string(),
+        blob_id: BlobId::new(42),
+    }))?;
+    state.apply_input(DomainInput::ParserCompleted(ParserResult {
+        artifact_id: art_id,
+        chunks: vec![RegisterChunkInput {
+            chunk_id: ChunkId::new(10),
+            artifact_id: art_id,
+            order: 0,
+            text: "hello".to_string(),
+        }],
+        cards: Vec::new(),
+    }))?;
+    // Record FileSpan with wrong content_hash — doesn't match artifact.
+    state.apply_input(DomainInput::RecordEvidence(RecordEvidenceInput {
+        evidence_id: evidence_id_for(art_id, 0),
+        artifact_id: art_id,
+        claim_id: None,
+        kind: EvidenceKind::FileSpan {
+            path: "/tmp/test.md".to_string(),
+            range: ContentRange { start: 0, end: 1 },
+            content_hash: "sha256:WRONG".to_string(),
+            snapshot: Some(BlobId::new(42)),
+        },
+        excerpt: "hello".to_string(),
+        observed_at: LogicalTick::new(1),
+    }))?;
+    state.apply_input(DomainInput::FullTextIndexCompleted(
+        FullTextIndexCompleted {
+            artifact_id: art_id,
+            chunk_id: ChunkId::new(10),
+        },
+    ))?;
+    // Artifact MUST stay Pending — content_hash mismatch blocks gate.
+    assert_eq!(
+        state.artifacts[&art_id].index_status,
+        IndexStatus::Pending,
+        "FileSpan with wrong content_hash must not enable terminal indexing"
+    );
+    assert!(
+        state.pending_parsers.contains_key(&art_id),
+        "pending_parsers must survive when evidence content_hash mismatches artifact"
     );
     Ok(())
 }

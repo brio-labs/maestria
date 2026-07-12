@@ -1095,8 +1095,9 @@ fn replay_parser_started_via_convenience() -> Result<(), DomainError> {
 #[test]
 fn replay_artifact_indexed_clears_pending_parsers() -> Result<(), DomainError> {
     let mut state = KernelState::new();
-    // Full chain: ArtifactRegistered → ParserStarted → ChunkRegistered
-    // → ArtifactParsed → FullTextIndexed → ArtifactIndexed.
+    // Full chain: ArtifactRegistered → ParserStarted → PendingIndex
+    // → ChunkRegistered → EvidenceRecorded → FullTextIndexed
+    // → ArtifactParsed → ArtifactIndexed.
     state.apply_event(DomainEventEnvelope {
         id: EventId::new(1),
         sequence: SequenceNumber::new(1),
@@ -1118,10 +1119,21 @@ fn replay_artifact_indexed_clears_pending_parsers() -> Result<(), DomainError> {
     })?;
     assert!(state.pending_parsers.contains_key(&ArtifactId::new(1)));
 
-    // Register a chunk so the FullTextIndexed → ArtifactIndexed chain works.
+    // PendingIndex is required to set content_hash on the artifact
+    // so the evidence-completeness gate can match hashes.
     state.apply_event(DomainEventEnvelope {
         id: EventId::new(3),
         sequence: SequenceNumber::new(3),
+        event: DomainEvent::PendingIndex {
+            artifact_id: ArtifactId::new(1),
+            content_hash: "sha256:abc".to_string(),
+        },
+    })?;
+
+    // Register a chunk so the FullTextIndexed → ArtifactIndexed chain works.
+    state.apply_event(DomainEventEnvelope {
+        id: EventId::new(4),
+        sequence: SequenceNumber::new(4),
         event: DomainEvent::ChunkRegistered {
             chunk_id: ChunkId::new(10),
             artifact_id: ArtifactId::new(1),
@@ -1130,10 +1142,41 @@ fn replay_artifact_indexed_clears_pending_parsers() -> Result<(), DomainError> {
         },
     })?;
 
+    // Record source-backed FileSpan evidence with snapshot and
+    // matching content_hash so the evidence-completeness gate passes.
+    state.apply_event(DomainEventEnvelope {
+        id: EventId::new(5),
+        sequence: SequenceNumber::new(5),
+        event: DomainEvent::EvidenceRecorded {
+            evidence_id: evidence_id_for(ArtifactId::new(1), 0),
+            artifact_id: ArtifactId::new(1),
+            claim_id: None,
+            kind: EvidenceKind::FileSpan {
+                path: "/tmp/notes.md".to_string(),
+                range: ContentRange { start: 0, end: 1 },
+                content_hash: "sha256:abc".to_string(),
+                snapshot: Some(BlobId::new(42)),
+            },
+            excerpt: "hello".to_string(),
+            observed_at: LogicalTick::new(1),
+        },
+    })?;
+
+    // FullTextIndexed must be replayed so pending_full_text is empty
+    // when ArtifactIndexed arrives.
+    state.apply_event(DomainEventEnvelope {
+        id: EventId::new(6),
+        sequence: SequenceNumber::new(6),
+        event: DomainEvent::FullTextIndexed {
+            artifact_id: ArtifactId::new(1),
+            chunk_id: ChunkId::new(10),
+        },
+    })?;
+
     // ArtifactParsed must NOT clear pending_parsers.
     state.apply_event(DomainEventEnvelope {
-        id: EventId::new(4),
-        sequence: SequenceNumber::new(4),
+        id: EventId::new(7),
+        sequence: SequenceNumber::new(7),
         event: DomainEvent::ArtifactParsed {
             artifact_id: ArtifactId::new(1),
             chunks_added: 1,
@@ -1144,10 +1187,11 @@ fn replay_artifact_indexed_clears_pending_parsers() -> Result<(), DomainError> {
         "ArtifactParsed must not clear pending_parsers"
     );
 
-    // ArtifactIndexed (terminal) MUST clear pending_parsers.
+    // ArtifactIndexed (terminal) MUST clear pending_parsers when
+    // evidence is complete.
     state.apply_event(DomainEventEnvelope {
-        id: EventId::new(5),
-        sequence: SequenceNumber::new(5),
+        id: EventId::new(8),
+        sequence: SequenceNumber::new(8),
         event: DomainEvent::ArtifactIndexed {
             artifact_id: ArtifactId::new(1),
         },
@@ -1155,6 +1199,90 @@ fn replay_artifact_indexed_clears_pending_parsers() -> Result<(), DomainError> {
     assert!(
         !state.pending_parsers.contains_key(&ArtifactId::new(1)),
         "ArtifactIndexed must clear pending_parsers on replay"
+    );
+    Ok(())
+}
+
+#[test]
+fn replay_artifact_indexed_rejects_incomplete_evidence() -> Result<(), DomainError> {
+    // Regression: when ArtifactIndexed is replayed but no evidence
+    // (or non-source-backed evidence) has been recorded, the event
+    // must be silently ignored — artifact stays Pending and
+    // pending_parsers is retained so recovery can retry.
+    let mut state = KernelState::new();
+    let art_id = ArtifactId::new(1);
+    state.apply_event(DomainEventEnvelope {
+        id: EventId::new(1),
+        sequence: SequenceNumber::new(1),
+        event: DomainEvent::ArtifactRegistered {
+            artifact_id: art_id,
+            title: "Notes".to_string(),
+        },
+    })?;
+    state.apply_event(DomainEventEnvelope {
+        id: EventId::new(2),
+        sequence: SequenceNumber::new(2),
+        event: DomainEvent::ParserStarted {
+            artifact_id: art_id,
+            title: "Notes".to_string(),
+            source_path: "/tmp/notes.md".to_string(),
+            content_hash: "sha256:abc".to_string(),
+            blob_id: BlobId::new(42),
+        },
+    })?;
+    assert!(state.pending_parsers.contains_key(&art_id));
+
+    // No PendingIndex, no EvidenceRecorded → evidence_complete_for is false.
+    // Set content_hash via PendingIndex so the artifact exists but lacks evidence.
+    state.apply_event(DomainEventEnvelope {
+        id: EventId::new(3),
+        sequence: SequenceNumber::new(3),
+        event: DomainEvent::PendingIndex {
+            artifact_id: art_id,
+            content_hash: "sha256:abc".to_string(),
+        },
+    })?;
+
+    // ChunkRegistered so pending_chunks check passes.
+    state.apply_event(DomainEventEnvelope {
+        id: EventId::new(4),
+        sequence: SequenceNumber::new(4),
+        event: DomainEvent::ChunkRegistered {
+            chunk_id: ChunkId::new(10),
+            artifact_id: art_id,
+            order: 0,
+            text: "hello".to_string(),
+        },
+    })?;
+
+    // FullTextIndexed so pending_full_text is clear.
+    state.apply_event(DomainEventEnvelope {
+        id: EventId::new(5),
+        sequence: SequenceNumber::new(5),
+        event: DomainEvent::FullTextIndexed {
+            artifact_id: art_id,
+            chunk_id: ChunkId::new(10),
+        },
+    })?;
+
+    // ArtifactIndexed with NO evidence — must be silently ignored.
+    state.apply_event(DomainEventEnvelope {
+        id: EventId::new(6),
+        sequence: SequenceNumber::new(6),
+        event: DomainEvent::ArtifactIndexed {
+            artifact_id: art_id,
+        },
+    })?;
+
+    // Artifact MUST stay Pending — evidence missing.
+    assert_eq!(
+        state.artifacts[&art_id].index_status,
+        IndexStatus::Pending,
+        "replay ArtifactIndexed without evidence must leave artifact Pending"
+    );
+    assert!(
+        state.pending_parsers.contains_key(&art_id),
+        "pending_parsers must be retained when replay ArtifactIndexed has incomplete evidence"
     );
     Ok(())
 }
