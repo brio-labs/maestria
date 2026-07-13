@@ -136,32 +136,16 @@ impl MaestriaRuntime {
                     }
 
                     if let Some(report_id) = wait_for_report_id {
-                        let timeout = self.config.default_effect_timeout;
-                        let check = async {
-                            loop {
-                                match self.adapters.event_log.scan(maestria_ports::EventFilter { artifact_id: None }) {
-                                    Ok(events) => {
-                                        if events.iter().any(|env| matches!(&env.event, maestria_domain::DomainEvent::ValidationReportCreated { report_id: id, .. } if *id == report_id)) {
-                                            return true;
-                                        }
-                                    }
-                                    Err(e) => {
-                                        tracing::error!(%e, "failed to scan event log during validation report barrier");
-                                        return false;
-                                    }
-                                }
-                                tokio::time::sleep(std::time::Duration::from_millis(5)).await;
-                            }
-                        };
-
-                        let found = match tokio::time::timeout(timeout, check).await {
-                            Ok(true) => true,
-                            Ok(false) | Err(_) => false,
-                        };
-
+                        let found = self
+                            .wait_for_validation_report(report_id, &shutdown_token)
+                            .await;
                         if !found {
-                            tracing::error!("fatal: timeout or error waiting for durable ValidationReportCreated; stopping runtime");
-                            shutdown_token.cancel();
+                            if !shutdown_token.is_cancelled() {
+                                tracing::error!(
+                                    "fatal: timeout or error waiting for durable ValidationReportCreated; stopping runtime"
+                                );
+                                shutdown_token.cancel();
+                            }
                             break;
                         }
                     }
@@ -171,6 +155,54 @@ impl MaestriaRuntime {
         drop(effect_tx);
         shutdown_token.cancel();
         let _ = effect_executor.await;
+    }
+
+    async fn wait_for_validation_report(
+        &self,
+        report_id: maestria_domain::ValidationReportId,
+        shutdown_token: &tokio_util::sync::CancellationToken,
+    ) -> bool {
+        let check = async {
+            loop {
+                if shutdown_token.is_cancelled() {
+                    return false;
+                }
+                match self
+                    .adapters
+                    .event_log
+                    .scan(maestria_ports::EventFilter { artifact_id: None })
+                {
+                    Ok(events) => {
+                        if events.iter().any(|env| {
+                            matches!(
+                                &env.event,
+                                maestria_domain::DomainEvent::ValidationReportCreated {
+                                    report_id: id,
+                                    ..
+                                } if *id == report_id
+                            )
+                        }) {
+                            return true;
+                        }
+                    }
+                    Err(error) => {
+                        tracing::error!(
+                            %error,
+                            "failed to scan event log during validation report barrier"
+                        );
+                        return false;
+                    }
+                }
+                tokio::select! {
+                    () = shutdown_token.cancelled() => return false,
+                    () = tokio::time::sleep(std::time::Duration::from_millis(5)) => {}
+                }
+            }
+        };
+        matches!(
+            tokio::time::timeout(self.config.default_effect_timeout, check).await,
+            Ok(true)
+        )
     }
 
     fn spawn_effect_executor(

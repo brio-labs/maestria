@@ -436,6 +436,16 @@ fn pending_validations_derives_validation_for_validating_tasks_without_reports()
             warnings: vec![],
         },
     ))?;
+    // Re-enter Validating after the first report; the historical report must
+    // not satisfy the new validation cycle.
+    state.apply_input(DomainInput::ChangeTaskStatus(ChangeTaskStatusInput {
+        task_id: TaskId::new(2),
+        to: maestria_domain::TaskStatus::Active,
+    }))?;
+    state.apply_input(DomainInput::ChangeTaskStatus(ChangeTaskStatusInput {
+        task_id: TaskId::new(2),
+        to: maestria_domain::TaskStatus::Validating,
+    }))?;
 
     // Add a third task that is not Validating
     state.apply_input(DomainInput::OpenTask(OpenTaskInput {
@@ -449,21 +459,19 @@ fn pending_validations_derives_validation_for_validating_tasks_without_reports()
 
     assert_eq!(
         recovery.run_validations.len(),
-        1,
-        "Should have exactly one RequestTaskValidation"
+        2,
+        "Should recover both tasks without a report for their current validation cycle"
     );
 
-    assert!(
-        matches!(
-            recovery.run_validations.first(),
-            Some(DomainInput::RequestTaskValidation(_))
-        ),
-        "expected RequestTaskValidation"
-    );
-
-    if let Some(DomainInput::RequestTaskValidation(req)) = recovery.run_validations.first() {
-        assert_eq!(req.task_id, TaskId::new(1));
-    }
+    let validation_task_ids: Vec<_> = recovery
+        .run_validations
+        .iter()
+        .filter_map(|input| match input {
+            DomainInput::RequestTaskValidation(request) => Some(request.task_id),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(validation_task_ids, vec![TaskId::new(1), TaskId::new(2)]);
 
     Ok(())
 }

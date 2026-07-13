@@ -24,11 +24,12 @@ struct ProcessContext<'a> {
     index_timeout: Duration,
 }
 
-/// Collect recovery artifact IDs from the pending inputs, then queue every
-/// resume-parser and full-text-index input onto the runtime channel.
+/// Collect recovery artifact IDs from pending indexing inputs, then queue all
+/// parser, full-text, and validation recovery inputs onto the runtime channel.
 ///
 /// Resume parsers are enqueued first so parsing completes before full-text
-/// indexing begins, preserving bounded-channel ordering.
+/// indexing begins, preserving bounded-channel ordering. Validation requests
+/// follow indexing inputs because they do not depend on artifact draining.
 async fn queue_recovery(
     recovery: RecoveryInputs,
     input_tx: &mpsc::Sender<DomainInput>,
@@ -68,6 +69,14 @@ async fn queue_recovery(
             .send(input)
             .await
             .context("failed to queue restart full-text index")?;
+    }
+
+    // Queue validation requests after indexing recovery inputs.
+    for input in recovery.run_validations {
+        input_tx
+            .send(input)
+            .await
+            .context("failed to queue task validation")?;
     }
 
     Ok(recovery_artifact_ids)
