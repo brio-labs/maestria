@@ -126,6 +126,12 @@ pub(crate) enum StoredEventPayload {
     TickObserved {
         at: u64,
     },
+    SearchExecuted {
+        query: String,
+        limit: u64,
+        evidence_ids: Vec<u64>,
+        at: u64,
+    },
     PendingIndex {
         artifact_id: u64,
         content_hash: String,

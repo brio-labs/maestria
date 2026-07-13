@@ -195,6 +195,14 @@ pub struct ApprovalDecision {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SearchExecutedInput {
+    pub query: String,
+    pub limit: usize,
+    pub evidence_ids: Vec<EvidenceId>,
+    pub at: LogicalTick,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DomainInput {
     RegisterArtifact(RegisterArtifactInput),
     RegisterChunk(RegisterChunkInput),
@@ -225,5 +233,6 @@ pub enum DomainInput {
     HarnessRunCompleted(HarnessRunCompleted),
     ValidationCompleted(ValidationCompleted),
     ApprovalResolved(ApprovalDecision),
+    SearchExecuted(SearchExecutedInput),
     ClockTick(LogicalTick),
 }

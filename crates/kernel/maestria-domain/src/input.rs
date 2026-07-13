@@ -55,6 +55,7 @@ impl KernelState {
             DomainInput::ApprovalResolved(input) => self.process_approval_resolved(input),
             DomainInput::ParserStarted(input) => self.process_parser_started(input),
             DomainInput::ResumeParser(input) => self.process_resume_parser(input),
+            DomainInput::SearchExecuted(input) => self.process_search_executed(input),
             DomainInput::ClockTick(tick) => self.process_clock_tick(tick),
         }
     }

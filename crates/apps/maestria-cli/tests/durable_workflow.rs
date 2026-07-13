@@ -267,6 +267,15 @@ fn assert_search_finds(instance_path: &str, query: &str) -> (String, String) {
     );
     (chunk_id_str.to_string(), evidence_id_str.to_string())
 }
+fn status_event_count(instance_path: &str) -> usize {
+    let (code, stdout, stderr) = run(&["status", "-i", instance_path]);
+    assert_eq!(code, 0, "status failed: {stderr}");
+    stdout
+        .lines()
+        .find_map(|line| line.strip_prefix("events "))
+        .and_then(|value| value.parse().ok())
+        .expect("status output missing events count")
+}
 
 /// Open evidence by id and verify output fields.
 fn assert_open_evidence_ok(instance_path: &str, evidence_id_str: &str) {
@@ -359,7 +368,13 @@ fn durable_cli_workflow() {
     assert_reindex_unchanged(ip.as_ref(), &notes);
 
     // ── 4. Restart durability: search via a new process ─────────────────
+    let events_before_search = status_event_count(ip.as_ref());
     let (_chunk_id, evidence_id) = assert_search_finds(ip.as_ref(), "distributed");
+    assert_eq!(
+        status_event_count(ip.as_ref()),
+        events_before_search + 1,
+        "search must append exactly one audit event before output",
+    );
 
     // ── 5. Open evidence by evidence id (separate process) ──────────────
     assert_open_evidence_ok(ip.as_ref(), &evidence_id);

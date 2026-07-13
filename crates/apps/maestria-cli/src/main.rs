@@ -31,7 +31,7 @@ async fn main() -> Result<()> {
             instance_dir,
             query,
             limit,
-        } => commands::search::run(instance_dir, query, limit)?,
+        } => commands::search::run(instance_dir, query, limit).await?,
         Commands::OpenEvidence {
             instance_dir,
             evidence_id,

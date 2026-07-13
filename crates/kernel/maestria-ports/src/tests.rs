@@ -182,6 +182,35 @@ fn in_memory_event_log_filters_task_artifact_events() -> Result<(), PortError> {
 }
 
 #[test]
+fn in_memory_event_log_roundtrips_search_executed() -> Result<(), PortError> {
+    let log = InMemoryEventLog::new();
+    let envelope = DomainEventEnvelope {
+        id: maestria_domain::EventId::new(1),
+        sequence: maestria_domain::SequenceNumber::new(1),
+        event: DomainEvent::SearchExecuted {
+            query: "audit".to_string(),
+            limit: 3,
+            evidence_ids: vec![maestria_domain::EvidenceId::new(5)],
+            at: maestria_domain::LogicalTick::new(2),
+        },
+    };
+    log.append(envelope.clone())?;
+    // Full scan must return the event.
+    assert_eq!(
+        log.scan(EventFilter { artifact_id: None })?,
+        vec![envelope.clone()]
+    );
+    // Artifact-filtered scan must exclude SearchExecuted (no artifact_id field).
+    assert!(
+        log.scan(EventFilter {
+            artifact_id: Some(maestria_domain::ArtifactId::new(1)),
+        })?
+        .is_empty()
+    );
+    Ok(())
+}
+
+#[test]
 fn in_memory_blob_store_satisfies_contract() {
     assert_blob_store_round_trip(&InMemoryBlobStore::new());
 }
