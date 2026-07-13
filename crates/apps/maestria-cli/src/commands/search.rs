@@ -13,6 +13,7 @@ use std::time::Duration;
 use crate::helpers;
 pub async fn run(instance_dir: PathBuf, query: String, limit: usize) -> Result<()> {
     let layout = helpers::validated_instance(instance_dir)?;
+    let normalized_query = query.trim().to_string();
 
     // ── Search computation phase (local stores, borrowed by CoreServices) ──
     let pack = {
@@ -51,11 +52,15 @@ pub async fn run(instance_dir: PathBuf, query: String, limit: usize) -> Result<(
             search_index: &search_index,
             blobs: &blob_store,
         });
-        let output = core.search(SearchInput { query, limit })?;
+        let output = core.search(SearchInput {
+            query: normalized_query.clone(),
+            limit,
+        })?;
         output.pack
     }; // All local stores and borrows are dropped here.
     let state = maestria_daemon::load_kernel_state(&layout)
         .context("load kernel state for search audit")?;
+    let event_count_before = state.event_log.len();
     let (runtime, input_tx, input_rx, shutdown_token) =
         maestria_daemon::build_runtime(&layout, state, AutonomyProfile::TrustedWorkspace)
             .with_context(|| "build runtime for search audit")?;
@@ -72,9 +77,8 @@ pub async fn run(instance_dir: PathBuf, query: String, limit: usize) -> Result<(
         .send(DomainInput::SearchExecuted(audit_input))
         .await
         .map_err(|err| anyhow::anyhow!("failed to queue search audit input: {err}"))?;
-
-    // Wait for the SearchExecuted event to reach the event log.
-    wait_for_search_executed_persistence(&layout, Duration::from_secs(5)).await?;
+    wait_for_search_executed_persistence(&layout, event_count_before, Duration::from_secs(5))
+        .await?;
 
     shutdown_token.cancel();
     runtime_task
@@ -117,15 +121,17 @@ pub async fn run(instance_dir: PathBuf, query: String, limit: usize) -> Result<(
 /// timeout expires. Returns an error on timeout or scan failure.
 async fn wait_for_search_executed_persistence(
     layout: &maestria_core::InstanceLayout,
+    event_count_before: usize,
     timeout_budget: Duration,
 ) -> Result<()> {
     tokio::time::timeout(timeout_budget, async {
         loop {
             match maestria_daemon::load_kernel_state(layout) {
                 Ok(state) => {
-                    if state.event_log.iter().any(|env| {
+                    let new_events = state.event_log.get(event_count_before..).unwrap_or(&[]);
+                    if new_events.iter().any(|envelope| {
                         matches!(
-                            env.event,
+                            envelope.event,
                             maestria_domain::DomainEvent::SearchExecuted { .. }
                         )
                     }) {
