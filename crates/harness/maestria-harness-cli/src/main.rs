@@ -1,6 +1,10 @@
 use anyhow::Result;
 use clap::Parser;
-use maestria_domain::HarnessRunId;
+use maestria_domain::{HarnessRunId, MaestriaEffect, QueryHarnessRequest, ScopeId};
+use maestria_governance::{
+    ApprovalGate, ApprovalRequest, AutonomyProfile, DefaultApprovalGate, DefaultRiskClassifier,
+    PolicyDecision, Scope, ScopeGuard,
+};
 use maestria_harness::LocalShellHarnessAdapter;
 use maestria_ports::{HarnessAdapter, HarnessCommandClass, HarnessRequest};
 use std::path::PathBuf;
@@ -33,17 +37,40 @@ async fn main() -> Result<()> {
         blocked_paths: vec![],
         blocked_patterns: vec![],
     };
-
-    // Policy Before Action check (I-Policy-BeforeAction)
-    println!(
-        "Governance: Validating command class {:?}...",
-        request.class
-    );
-    if request.class == HarnessCommandClass::Shell && cli.command.contains("rm ") {
-        println!("Governance: Denied. Destructive commands not allowed in test harness.");
+    // Governance authorization — decide before spawn
+    let gate = DefaultApprovalGate;
+    let profile = AutonomyProfile::TrustedWorkspace;
+    let scope = Scope::new(vec![], vec![], vec!["shell".into()], vec![], false);
+    let guard = ScopeGuard::new(scope.clone());
+    if !scope.harness_allowed("shell") {
+        println!("Governance: Denied. Shell harness not permitted by scope.");
         return Ok(());
     }
-    println!("Governance: Approved.\n");
+    let effect = MaestriaEffect::QueryHarness(QueryHarnessRequest {
+        run_id: HarnessRunId::new(1),
+        task_id: None,
+        capability: "shell".to_string(),
+        scope_id: ScopeId::new(1),
+        approval_id: None,
+        command: cli.command.clone(),
+    });
+    let decision = gate.decide(&ApprovalRequest {
+        effect: &effect,
+        profile,
+        scope: &guard,
+    });
+    match decision.decision {
+        PolicyDecision::Deny { reason } => {
+            println!("Governance: Denied. {reason}");
+            return Ok(());
+        }
+        PolicyDecision::RequireApproval { reason } => {
+            println!("Governance: Requires approval. {reason}");
+            return Ok(());
+        }
+        PolicyDecision::Allow => {}
+    }
+    println!("Governance: Approved. Risk: {:?}", decision.risk);
 
     let outcome = adapter.execute(request).await?;
 
