@@ -264,27 +264,54 @@ impl KernelState {
             .get(&input.task_id)
             .ok_or(DomainError::MissingTask { id: input.task_id })?;
 
-        let target = if input.approved {
+        let mut emitted = vec![];
+
+        if input.approved {
+            // For approve: transition Draft→Open→Active, or Open→Active, or Blocked→Active.
             match task.status {
-                TaskStatus::Draft | TaskStatus::Open | TaskStatus::Blocked => TaskStatus::Active,
-                _ => task.status,
+                TaskStatus::Draft => {
+                    let (_, to) = self.handle_change_task_status(input.task_id, TaskStatus::Open)?;
+                    emitted.push(self.emit_event(DomainEvent::TaskStatusChanged {
+                        task_id: input.task_id,
+                        from: TaskStatus::Draft,
+                        to,
+                    }));
+                    let (_, to2) =
+                        self.handle_change_task_status(input.task_id, TaskStatus::Active)?;
+                    emitted.push(self.emit_event(DomainEvent::TaskStatusChanged {
+                        task_id: input.task_id,
+                        from: TaskStatus::Open,
+                        to: to2,
+                    }));
+                }
+                TaskStatus::Open | TaskStatus::Blocked => {
+                    let (from, to) =
+                        self.handle_change_task_status(input.task_id, TaskStatus::Active)?;
+                    if from != to {
+                        emitted.push(self.emit_event(DomainEvent::TaskStatusChanged {
+                            task_id: input.task_id,
+                            from,
+                            to,
+                        }));
+                    }
+                }
+                _ => {}
             }
         } else {
-            TaskStatus::Blocked
-        };
-        let (from, to) = if task.status == target {
-            (task.status, task.status)
-        } else {
-            self.handle_change_task_status(input.task_id, target)?
-        };
-        let mut emitted = vec![];
-        if from != to {
-            emitted.push(self.emit_event(DomainEvent::TaskStatusChanged {
-                task_id: input.task_id,
-                from,
-                to,
-            }));
+            // Deny: transition to Blocked only from states that allow it.
+            if task.status.can_transition_to(TaskStatus::Blocked) {
+                let (from, to) =
+                    self.handle_change_task_status(input.task_id, TaskStatus::Blocked)?;
+                if from != to {
+                    emitted.push(self.emit_event(DomainEvent::TaskStatusChanged {
+                        task_id: input.task_id,
+                        from,
+                        to,
+                    }));
+                }
+            }
         }
+
         emitted.push(self.emit_event(DomainEvent::ApprovalRecorded {
             approval_id: input.approval_id,
             task_id: input.task_id,

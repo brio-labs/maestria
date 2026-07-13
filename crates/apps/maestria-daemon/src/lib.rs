@@ -277,37 +277,29 @@ pub fn reconcile_projections(state: &KernelState, store: &SqliteStore) -> Result
 /// resolved state. If a CLI-initiated resolution persisted the event but crashed
 /// before updating the repo, this repair brings the repo back into consistency.
 pub fn reconcile_approval_repo(state: &KernelState, store: &SqliteStore) -> Result<()> {
-    use maestria_domain::{DomainEvent, LogicalTick, ScopeId};
-    use maestria_ports::{ApprovalRecord, ApprovalRiskLevel, ApprovalRepository, ApprovalStatus};
+    use maestria_domain::DomainEvent;
+    use maestria_ports::ApprovalRepository;
 
     for envelope in &state.event_log {
         if let DomainEvent::ApprovalRecorded {
             approval_id,
-            task_id,
             approved,
+            ..
         } = &envelope.event
         {
-            let id = *approval_id;
-            if id.value() == 0 {
-                continue;
+            // First check if the record exists at all. If it doesn't, the
+            // approval was never persisted (data loss). If it exists but is
+            // already resolved, skip (idempotent). Otherwise, resolve it.
+            let existing = store
+                .find_by_id(*approval_id)
+                .map_err(|e| anyhow::anyhow!("reconcile approval {approval_id}: {e}"))?;
+            if existing.is_none() {
+                anyhow::bail!(
+                    "reconcile: approval record {approval_id} not found in repository; \
+                     event log contains ApprovalRecorded but no matching durable request"
+                );
             }
-            // Ensure the record exists (INSERT OR REPLACE), then resolve.
-            let status = if *approved {
-                ApprovalStatus::Approved
-            } else {
-                ApprovalStatus::Denied
-            };
-            let record = ApprovalRecord {
-                id,
-                task_id: *task_id,
-                effect_kind: "task_activation".to_string(),
-                risk_level: ApprovalRiskLevel::Medium,
-                capability: String::new(),
-                scope_id: ScopeId::new(0),
-                tick: LogicalTick::new(0),
-                status,
-            };
-            let _ = store.save(&record);
+            let _ = store.resolve(*approval_id, *approved);
         }
     }
     Ok(())

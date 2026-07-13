@@ -176,8 +176,8 @@ impl EffectExecutionContext {
             task_id: request.task_id,
             effect_kind: "task_activation".to_string(),
             risk_level,
-            capability: String::new(),
-            scope_id: ScopeId::new(0),
+            capability: "task_activation".to_string(),
+            scope_id: self.scope_id,
             tick,
             status: ApprovalStatus::Pending,
         };

@@ -16,7 +16,7 @@ pub enum Commands {
     Init {
         #[arg(short, long, default_value = ".maestria-dev")]
         instance_dir: PathBuf,
-        #[arg(short, long, value_delimiter = ',', num_args = 1..)]
+        #[arg(long = "read-root", value_delimiter = ',', num_args = 1..)]
         read_roots: Vec<PathBuf>,
     },
     /// Index one local file, or files under a directory with --recursive

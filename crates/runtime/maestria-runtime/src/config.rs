@@ -1,4 +1,4 @@
-use maestria_domain::{DomainInput, KernelState};
+use maestria_domain::{DomainInput, KernelState, ScopeId};
 use maestria_governance::{ApprovalGate, AutonomyProfile, ClassifyRisk, Scope};
 use maestria_ports::{
     ApprovalRepository, ArtifactRepository, BlobStore, CardRepository, ChunkRepository, EventLog,
@@ -12,6 +12,7 @@ use tokio::sync::{RwLock, mpsc};
 pub struct RuntimeConfig {
     pub profile: AutonomyProfile,
     pub scope: Scope,
+    pub scope_id: ScopeId,
     pub input_buffer_size: usize,
     pub max_concurrent_effects: usize,
     pub default_effect_timeout: Duration,
@@ -23,6 +24,7 @@ impl Default for RuntimeConfig {
         Self {
             profile: AutonomyProfile::TrustedWorkspace,
             scope: Scope::default(),
+            scope_id: ScopeId::new(1),
             input_buffer_size: 1024,
             max_concurrent_effects: 16,
             default_effect_timeout: Duration::from_secs(300),
@@ -54,13 +56,13 @@ pub struct Governance {
 
 /// Bundles everything an effect handler needs at execution time.
 /// Produced by `MaestriaRuntime::run` and threaded through handlers
-/// so individual handler signatures stay focused.
 #[derive(Clone)]
 pub struct EffectExecutionContext {
     pub adapters: Arc<Adapters>,
     pub governance: Arc<Governance>,
     pub profile: AutonomyProfile,
     pub scope: Scope,
+    pub scope_id: ScopeId,
     pub state: Arc<RwLock<KernelState>>,
     pub input_tx: mpsc::Sender<DomainInput>,
     pub default_effect_timeout: Duration,
@@ -81,7 +83,7 @@ impl EffectExecutionContext {
             governance,
             profile: AutonomyProfile::TrustedWorkspace,
             scope: Scope::new(vec![], vec![], vec!["shell".into()], vec![], false),
-            state,
+            scope_id: ScopeId::new(1),
             input_tx,
             default_effect_timeout: Duration::from_secs(300),
             max_retries: 3,

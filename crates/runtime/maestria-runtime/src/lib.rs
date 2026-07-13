@@ -131,9 +131,9 @@ impl MaestriaRuntime {
         let max_concurrent_effects = self.config.max_concurrent_effects;
         let default_effect_timeout = self.config.default_effect_timeout;
         let max_retries = self.config.max_retries;
+        let scope_id = self.config.scope_id;
         let next_validation_report_id = Arc::clone(&self.next_validation_report_id);
         let effect_shutdown = shutdown_token.clone();
-
         tokio::spawn(async move {
             let semaphore = Arc::new(tokio::sync::Semaphore::new(max_concurrent_effects));
             let mut in_flight = tokio::task::JoinSet::new();
@@ -153,6 +153,7 @@ impl MaestriaRuntime {
                             governance: Arc::clone(&governance),
                             profile,
                             scope: scope.clone(),
+                            scope_id,
                             state: Arc::clone(&state),
                             input_tx: input_tx.clone(),
                             default_effect_timeout,
