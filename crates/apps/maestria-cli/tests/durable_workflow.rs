@@ -705,6 +705,9 @@ fn task_add_evidence_and_show() {
     assert!(
         task_line.contains(&expected),
         "task show must list linked evidence {evidence_id}: {task_line}"
+    );
+}
+
 // ── Memory proposal process-level tests ─────────────────────────────────────
 
 /// Index a file and parse the evidence id from the search output.

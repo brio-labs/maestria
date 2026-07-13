@@ -39,6 +39,7 @@ pub async fn run_propose(
     }
 
     let layout = helpers::ensure_instance(instance_dir)?;
+    let _instance_lock = maestria_daemon::acquire_instance_write_lock(&layout).await?;
     let state = load_kernel_state_with_retry(
         &layout,
         Duration::from_secs(2),
