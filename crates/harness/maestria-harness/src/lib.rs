@@ -221,11 +221,15 @@ async fn execute_impl(request: HarnessRequest) -> Result<HarnessOutcome, PortErr
         for arg in &argv[1..] {
             let resolved =
                 validate_readable_path(arg, &request.working_directory, &request.readable_roots)?;
-            let check_path = std::fs::canonicalize(&resolved).unwrap_or(resolved);
-            validate_filename_patterns(
-                check_path.to_str().unwrap_or(arg),
-                &request.blocked_patterns,
-            )?;
+            let check_path = match std::fs::canonicalize(&resolved) {
+                Ok(p) => p,
+                Err(_) => resolved,
+            };
+            let path_str = match check_path.to_str() {
+                Some(s) => s,
+                None => arg,
+            };
+            validate_filename_patterns(path_str, &request.blocked_patterns)?;
         }
     }
 
@@ -244,13 +248,19 @@ async fn execute_impl(request: HarnessRequest) -> Result<HarnessOutcome, PortErr
     let mut stderr_handle = child.stderr.take();
 
     let work = async {
-        let (status, stdout_buf, stderr_buf) = tokio::join!(
+        let (status_res, stdout_buf, stderr_buf) = tokio::join!(
             child.wait(),
             drain_opt(&mut stdout_handle),
             drain_opt(&mut stderr_handle),
         );
-        let status = status.map_err(|e| PortError::Internal {
+        let status = status_res.map_err(|e| PortError::Internal {
             message: format!("{program}: {e}"),
+        })?;
+        let stdout_buf = stdout_buf.map_err(|e| PortError::Internal {
+            message: format!("{program}: stdout read error: {e}"),
+        })?;
+        let stderr_buf = stderr_buf.map_err(|e| PortError::Internal {
+            message: format!("{program}: stderr read error: {e}"),
         })?;
         Ok((status, stdout_buf, stderr_buf))
     };
@@ -260,8 +270,10 @@ async fn execute_impl(request: HarnessRequest) -> Result<HarnessOutcome, PortErr
         Ok(Err(e)) => return Err(e),
         Err(_elapsed) => {
             if let Ok(Some(s)) = child.try_wait() {
-                let (out, err) =
+                let (out_r, err_r) =
                     tokio::join!(drain_opt(&mut stdout_handle), drain_opt(&mut stderr_handle),);
+                let out = out_r.unwrap_or_default();
+                let err = err_r.unwrap_or_default();
                 (s, out, err)
             } else {
                 let _ = child.start_kill();
@@ -305,14 +317,16 @@ async fn execute_impl(request: HarnessRequest) -> Result<HarnessOutcome, PortErr
     })
 }
 
-async fn drain_opt<R: tokio::io::AsyncRead + Unpin>(handle: &mut Option<R>) -> Vec<u8> {
+async fn drain_opt<R: tokio::io::AsyncRead + Unpin>(
+    handle: &mut Option<R>,
+) -> Result<Vec<u8>, std::io::Error> {
     match handle.as_mut() {
         Some(r) => {
             let mut buf = Vec::new();
-            let _ = tokio::io::AsyncReadExt::read_to_end(r, &mut buf).await;
-            buf
+            tokio::io::AsyncReadExt::read_to_end(r, &mut buf).await?;
+            Ok(buf)
         }
-        None => Vec::new(),
+        None => Ok(Vec::new()),
     }
 }
 
@@ -370,6 +384,7 @@ fn validate_filename_patterns(raw_path: &str, patterns: &[String]) -> Result<(),
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::Duration;
 
     fn adapter() -> LocalShellHarnessAdapter {
         LocalShellHarnessAdapter
@@ -387,6 +402,8 @@ mod tests {
                 PathBuf::from("/tmp"),
                 PathBuf::from("/dev"),
             ],
+            blocked_paths: vec![],
+            blocked_patterns: vec![],
         }
     }
 
@@ -561,8 +578,7 @@ mod tests {
         assert!(!caps.web_enabled);
         assert_eq!(caps.command_classes, vec![HarnessCommandClass::Shell]);
     }
-
-    // ── filename pattern matching ─────────────────────────────────
+    // ── filename pattern matching tests ────────────────────────────
 
     #[test]
     fn filename_matches_exact() {
@@ -596,8 +612,10 @@ mod tests {
         let mut req = shell_request(&format!("cat {}", keyfile.display()), 5000);
         req.readable_roots = vec![tmp.path().to_path_buf()];
         req.blocked_patterns = vec!["*.key".into()];
-        let result = adapter().execute(req).await;
-        assert!(result.is_err(), "blocked pattern must be rejected");
+        assert!(
+            adapter().execute(req).await.is_err(),
+            "blocked pattern must be rejected"
+        );
     }
 
     #[tokio::test]
@@ -608,7 +626,9 @@ mod tests {
         let mut req = shell_request(&format!("cat {}", envfile.display()), 5000);
         req.readable_roots = vec![tmp.path().to_path_buf()];
         req.blocked_patterns = vec![".env".into()];
-        let result = adapter().execute(req).await;
-        assert!(result.is_err(), ".env pattern must be rejected");
+        assert!(
+            adapter().execute(req).await.is_err(),
+            ".env pattern must be rejected"
+        );
     }
 }
