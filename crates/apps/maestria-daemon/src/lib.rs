@@ -221,6 +221,55 @@ pub fn load_kernel_state(layout: &InstanceLayout) -> Result<KernelState> {
     replay_events(&events).map_err(|error| anyhow!(error))
 }
 
+fn build_adapters(
+    layout: &InstanceLayout,
+    embedding_provider: Option<Arc<dyn maestria_ports::EmbeddingProvider + Send + Sync>>,
+) -> Result<Adapters> {
+    let blob_store = Arc::new(
+        FsBlobStore::open(&layout.blobs_dir)
+            .with_context(|| format!("open blob store {}", layout.blobs_dir.display()))?,
+    );
+    let search_index = Arc::new(
+        TantivyFullTextIndex::open(&layout.full_text_index_dir).with_context(|| {
+            format!(
+                "open full-text index {}",
+                layout.full_text_index_dir.display()
+            )
+        })?,
+    );
+    let parser = Arc::new(ParserRegistry::with_defaults());
+    let sqlite_store = Arc::new(
+        SqliteStore::open(&layout.database_path)
+            .with_context(|| format!("open sqlite store {}", layout.database_path.display()))?,
+    );
+    let vector_index = Arc::new(
+        SqliteVectorIndex::open(layout.vector_index_dir.join("projection.db"))
+            .with_context(|| format!("open vector index {}", layout.vector_index_dir.display()))?,
+    );
+    let graph_index = Arc::new(
+        SqliteGraphIndex::open(layout.graph_index_dir.join("projection.db"))
+            .with_context(|| format!("open graph index {}", layout.graph_index_dir.display()))?,
+    );
+    Ok(Adapters {
+        event_log: sqlite_store.clone(),
+        blob_store,
+        search_index,
+        parser,
+        harness: Arc::new(LocalShellHarnessAdapter),
+        artifact_repo: sqlite_store.clone(),
+        chunk_repo: sqlite_store.clone(),
+        card_repo: sqlite_store.clone(),
+        evidence_repo: sqlite_store.clone(),
+        embedding_provider,
+        vector_index,
+        graph_index,
+        web_fetcher: Arc::new(UreqWebFetcher::new()),
+        id_allocator: sqlite_store.clone(),
+        effect_journal: sqlite_store.clone(),
+        approval_repo: sqlite_store,
+    })
+}
+
 pub fn build_runtime(
     layout: &InstanceLayout,
     state: KernelState,
@@ -250,60 +299,7 @@ pub fn build_runtime(
         ),
         None => None,
     };
-    let blob_store = Arc::new(
-        FsBlobStore::open(&layout.blobs_dir)
-            .with_context(|| format!("open blob store {}", layout.blobs_dir.display()))?,
-    );
-    let search_index = Arc::new(
-        TantivyFullTextIndex::open(&layout.full_text_index_dir).with_context(|| {
-            format!(
-                "open full-text index {}",
-                layout.full_text_index_dir.display()
-            )
-        })?,
-    );
-    let parser = Arc::new(ParserRegistry::with_defaults());
-    let sqlite_store = Arc::new(
-        SqliteStore::open(&layout.database_path)
-            .with_context(|| format!("open sqlite store {}", layout.database_path.display()))?,
-    );
-    let event_log = sqlite_store.clone();
-    let artifact_repo = sqlite_store.clone();
-    let harness = Arc::new(LocalShellHarnessAdapter);
-    let chunk_repo = sqlite_store.clone();
-    let card_repo = sqlite_store.clone();
-    let evidence_repo = sqlite_store.clone();
-    let vector_index = Arc::new(
-        SqliteVectorIndex::open(layout.vector_index_dir.join("projection.db"))
-            .with_context(|| format!("open vector index {}", layout.vector_index_dir.display()))?,
-    );
-    let graph_index = Arc::new(
-        SqliteGraphIndex::open(layout.graph_index_dir.join("projection.db"))
-            .with_context(|| format!("open graph index {}", layout.graph_index_dir.display()))?,
-    );
-    let web_fetcher = Arc::new(UreqWebFetcher::new());
-
-    let id_allocator = sqlite_store.clone();
-    let approval_repo = sqlite_store.clone();
-
-    let adapters = Adapters {
-        event_log,
-        blob_store,
-        search_index,
-        parser,
-        harness,
-        artifact_repo,
-        chunk_repo,
-        card_repo,
-        evidence_repo,
-        embedding_provider,
-        vector_index,
-        graph_index,
-        web_fetcher,
-        id_allocator,
-        effect_journal: sqlite_store.clone(),
-        approval_repo,
-    };
+    let adapters = build_adapters(layout, embedding_provider)?;
     let governance = Governance {
         classifier: Arc::new(DefaultRiskClassifier),
         approval_gate: Arc::new(DefaultApprovalGate),

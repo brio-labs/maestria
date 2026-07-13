@@ -637,7 +637,10 @@ pub fn assert_vector_index_contract(index: &impl VectorIndex) {
         }),
         Err(PortError::InvalidInput { .. })
     ));
-    // Test clear
+    verify_vector_lifecycle(index, prov);
+}
+
+fn verify_vector_lifecycle(index: &impl VectorIndex, prov: impl Fn() -> EmbeddingProvenance) {
     index.clear().expect("clear index");
     let hits_after_clear = index
         .search_similar(VectorSearchQuery {
@@ -650,10 +653,8 @@ pub fn assert_vector_index_contract(index: &impl VectorIndex) {
         "index must be empty after clear"
     );
 
-    // Test clear idempotence
     index.clear().expect("clear index again");
 
-    // Test rebuild (which calls clear then index)
     index
         .rebuild(vec![
             VectorEmbedding {
@@ -682,13 +683,12 @@ pub fn assert_vector_index_contract(index: &impl VectorIndex) {
     );
     assert_eq!(hits_after_rebuild[0].chunk_id, ChunkId::new(11));
 
-    // Test delete_chunks
     index
         .delete_chunks(&[ChunkId::new(10)])
         .expect("delete chunk 10");
     let hits_after_delete = index
         .search_similar(VectorSearchQuery {
-            vector: vec![0.0, 1.0], // chunk 10 was perfect match here
+            vector: vec![0.0, 1.0],
             limit: 10,
         })
         .expect("search after delete");
@@ -703,7 +703,6 @@ pub fn assert_vector_index_contract(index: &impl VectorIndex) {
         "only chunk 11 should remain"
     );
 
-    // Test delete idempotence
     index
         .delete_chunks(&[ChunkId::new(10), ChunkId::new(999)])
         .expect("delete already deleted / non-existent chunk");

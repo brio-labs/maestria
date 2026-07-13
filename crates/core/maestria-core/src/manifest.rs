@@ -77,65 +77,16 @@ impl InstanceManifest {
         lines.join("\n")
     }
     pub fn decode(contents: &str) -> CoreResult<Self> {
-        let mut schema_version = None;
-        let mut root = None;
-        let mut read_roots = Vec::new();
-        let mut excluded_patterns = Vec::new();
-        let mut embedding_enabled = None;
-        let mut embedding_endpoint = None;
-        let mut embedding_model = None;
-        let mut embedding_dimensions = None;
-
-        for line in contents
-            .lines()
-            .map(str::trim)
-            .filter(|line| !line.is_empty())
-        {
-            let (key, value) = line
-                .split_once('=')
-                .ok_or_else(|| CoreError::InvalidInput {
-                    message: format!("invalid instance manifest line: {line}"),
-                })?;
-            if value.is_empty() {
-                return Err(CoreError::InvalidInput {
-                    message: format!("instance manifest value is empty for {key}"),
-                });
-            }
-            match key {
-                "schema_version" => {
-                    schema_version =
-                        Some(value.parse::<u32>().map_err(|_| CoreError::InvalidInput {
-                            message: format!("invalid instance manifest schema version: {value}"),
-                        })?);
-                }
-                "root" => root = Some(PathBuf::from(value)),
-                "read_root" => read_roots.push(PathBuf::from(value)),
-                "excluded_pattern" => excluded_patterns.push(value.to_string()),
-                "embedding_enabled" => {
-                    embedding_enabled =
-                        Some(value.parse::<bool>().map_err(|_| CoreError::InvalidInput {
-                            message: format!("invalid embedding_enabled value: {value}"),
-                        })?);
-                }
-                "embedding_endpoint" => embedding_endpoint = Some(value.to_string()),
-                "embedding_model" => embedding_model = Some(value.to_string()),
-                "embedding_dimensions" => {
-                    embedding_dimensions =
-                        Some(
-                            value
-                                .parse::<usize>()
-                                .map_err(|_| CoreError::InvalidInput {
-                                    message: format!("invalid embedding_dimensions value: {value}"),
-                                })?,
-                        );
-                }
-                other => {
-                    return Err(CoreError::InvalidInput {
-                        message: format!("unknown instance manifest key: {other}"),
-                    });
-                }
-            }
-        }
+        let ManifestFields {
+            schema_version,
+            root,
+            read_roots,
+            excluded_patterns,
+            embedding_enabled,
+            embedding_endpoint,
+            embedding_model,
+            embedding_dimensions,
+        } = parse_manifest_fields(contents)?;
 
         let schema_version = schema_version.ok_or_else(|| CoreError::InvalidInput {
             message: "instance manifest is missing schema_version".to_string(),
@@ -210,6 +161,81 @@ impl InstanceManifest {
             .map(|root| lexical_normalize(root))
             .any(|root| normalized_path.starts_with(root))
     }
+}
+
+struct ManifestFields {
+    schema_version: Option<u32>,
+    root: Option<PathBuf>,
+    read_roots: Vec<PathBuf>,
+    excluded_patterns: Vec<String>,
+    embedding_enabled: Option<bool>,
+    embedding_endpoint: Option<String>,
+    embedding_model: Option<String>,
+    embedding_dimensions: Option<usize>,
+}
+
+fn parse_manifest_fields(contents: &str) -> CoreResult<ManifestFields> {
+    let mut fields = ManifestFields {
+        schema_version: None,
+        root: None,
+        read_roots: Vec::new(),
+        excluded_patterns: Vec::new(),
+        embedding_enabled: None,
+        embedding_endpoint: None,
+        embedding_model: None,
+        embedding_dimensions: None,
+    };
+    for line in contents
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+    {
+        let (key, value) = line
+            .split_once('=')
+            .ok_or_else(|| CoreError::InvalidInput {
+                message: format!("invalid instance manifest line: {line}"),
+            })?;
+        if value.is_empty() {
+            return Err(CoreError::InvalidInput {
+                message: format!("instance manifest value is empty for {key}"),
+            });
+        }
+        match key {
+            "schema_version" => {
+                fields.schema_version =
+                    Some(value.parse::<u32>().map_err(|_| CoreError::InvalidInput {
+                        message: format!("invalid instance manifest schema version: {value}"),
+                    })?);
+            }
+            "root" => fields.root = Some(PathBuf::from(value)),
+            "read_root" => fields.read_roots.push(PathBuf::from(value)),
+            "excluded_pattern" => fields.excluded_patterns.push(value.to_string()),
+            "embedding_enabled" => {
+                fields.embedding_enabled =
+                    Some(value.parse::<bool>().map_err(|_| CoreError::InvalidInput {
+                        message: format!("invalid embedding_enabled value: {value}"),
+                    })?);
+            }
+            "embedding_endpoint" => fields.embedding_endpoint = Some(value.to_string()),
+            "embedding_model" => fields.embedding_model = Some(value.to_string()),
+            "embedding_dimensions" => {
+                fields.embedding_dimensions =
+                    Some(
+                        value
+                            .parse::<usize>()
+                            .map_err(|_| CoreError::InvalidInput {
+                                message: format!("invalid embedding_dimensions value: {value}"),
+                            })?,
+                    );
+            }
+            other => {
+                return Err(CoreError::InvalidInput {
+                    message: format!("unknown instance manifest key: {other}"),
+                });
+            }
+        }
+    }
+    Ok(fields)
 }
 
 fn lexical_normalize(path: &std::path::Path) -> PathBuf {
