@@ -268,6 +268,7 @@ impl MaestriaRuntime {
         let next_validation_report_id = Arc::clone(&self.next_validation_report_id);
         let effect_shutdown = shutdown_token.clone();
         let feedback_acks = Arc::clone(&self.feedback_acks);
+        let embedding_model = self.config.embedding_model.clone();
         tokio::spawn(async move {
             let semaphore = Arc::new(tokio::sync::Semaphore::new(max_concurrent_effects));
             let mut in_flight = tokio::task::JoinSet::new();
@@ -290,6 +291,7 @@ impl MaestriaRuntime {
                             scope_id,
                             state: Arc::clone(&state),
                             input_tx: input_tx.clone(),
+                            embedding_model: embedding_model.clone(),
                             feedback_acks: Arc::clone(&feedback_acks),
                             default_effect_timeout,
                             max_retries,

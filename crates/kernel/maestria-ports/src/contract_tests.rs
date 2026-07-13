@@ -637,8 +637,89 @@ pub fn assert_vector_index_contract(index: &impl VectorIndex) {
         }),
         Err(PortError::InvalidInput { .. })
     ));
-}
+    // Test clear
+    index.clear().expect("clear index");
+    let hits_after_clear = index
+        .search_similar(VectorSearchQuery {
+            vector: vec![1.0, 0.0],
+            limit: 10,
+        })
+        .expect("search after clear");
+    assert!(
+        hits_after_clear.is_empty(),
+        "index must be empty after clear"
+    );
 
+    // Test clear idempotence
+    index.clear().expect("clear index again");
+
+    // Test rebuild (which calls clear then index)
+    index
+        .rebuild(vec![
+            VectorEmbedding {
+                chunk_id: ChunkId::new(10),
+                vector: vec![0.0, 1.0],
+                provenance: prov(),
+            },
+            VectorEmbedding {
+                chunk_id: ChunkId::new(11),
+                vector: vec![1.0, 0.0],
+                provenance: prov(),
+            },
+        ])
+        .expect("rebuild index");
+
+    let hits_after_rebuild = index
+        .search_similar(VectorSearchQuery {
+            vector: vec![1.0, 0.0],
+            limit: 10,
+        })
+        .expect("search after rebuild");
+    assert_eq!(
+        hits_after_rebuild.len(),
+        2,
+        "must have exactly two hits after rebuild"
+    );
+    assert_eq!(hits_after_rebuild[0].chunk_id, ChunkId::new(11));
+
+    // Test delete_chunks
+    index
+        .delete_chunks(&[ChunkId::new(10)])
+        .expect("delete chunk 10");
+    let hits_after_delete = index
+        .search_similar(VectorSearchQuery {
+            vector: vec![0.0, 1.0], // chunk 10 was perfect match here
+            limit: 10,
+        })
+        .expect("search after delete");
+    assert_eq!(
+        hits_after_delete.len(),
+        1,
+        "must have one hit remaining after delete"
+    );
+    assert_eq!(
+        hits_after_delete[0].chunk_id,
+        ChunkId::new(11),
+        "only chunk 11 should remain"
+    );
+
+    // Test delete idempotence
+    index
+        .delete_chunks(&[ChunkId::new(10), ChunkId::new(999)])
+        .expect("delete already deleted / non-existent chunk");
+    let hits_after_idempotent_delete = index
+        .search_similar(VectorSearchQuery {
+            vector: vec![1.0, 0.0],
+            limit: 10,
+        })
+        .expect("search after idempotent delete");
+    assert_eq!(
+        hits_after_idempotent_delete.len(),
+        1,
+        "must still have one hit remaining"
+    );
+    assert_eq!(hits_after_idempotent_delete[0].chunk_id, ChunkId::new(11));
+}
 pub fn assert_parser_round_trip(parser: &impl Parser) {
     assert_eq!(parser.id(), "in-memory-parser");
     assert!(parser.supports(&FileMetadata {

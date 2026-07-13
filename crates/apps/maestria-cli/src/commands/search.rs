@@ -1,13 +1,14 @@
 use anyhow::{Context, Result};
 use maestria_blob_fs::FsBlobStore;
-use maestria_core::{CorePorts, CoreServices, SearchInput};
+use maestria_core::{CorePorts, CoreServices, InstanceService, SearchInput};
 use maestria_domain::{DomainInput, IndexStatus, LogicalTick, SearchExecutedInput};
 use maestria_governance::AutonomyProfile;
 use maestria_parsers::ParserRegistry;
-use maestria_ports::{FullTextIndex, IndexedCard};
+use maestria_ports::{EmbeddingProvider, FullTextIndex, IndexedCard};
 use maestria_search_tantivy::TantivyFullTextIndex;
 use maestria_storage_sqlite::SqliteStore;
-use std::{path::PathBuf, time::Duration};
+use maestria_vector_sqlite::SqliteVectorIndex;
+use std::{fs, path::PathBuf, sync::Arc, time::Duration};
 
 use crate::helpers;
 pub async fn run(instance_dir: PathBuf, query: String, limit: usize) -> Result<()> {
@@ -27,6 +28,20 @@ fn compute_search_pack(
 ) -> Result<maestria_core::EvidencePack> {
     let sqlite_store = SqliteStore::open(&layout.database_path)?;
     let blob_store = FsBlobStore::open(&layout.blobs_dir)?;
+    let manifest_contents = fs::read_to_string(&layout.manifest_path)?;
+    let manifest = InstanceService::parse_manifest(&manifest_contents)?;
+    let embedding_provider: Option<Arc<dyn EmbeddingProvider>> =
+        match manifest.embeddings.as_ref().filter(|config| config.enabled) {
+            Some(config) => Some(Arc::new(
+                maestria_embedding_openai::LocalHttpEmbeddingProvider::new(
+                    &config.endpoint,
+                    &config.model,
+                    Some(config.dimensions),
+                )?,
+            )),
+            None => None,
+        };
+    let vector_index = SqliteVectorIndex::open(layout.vector_index_dir.join("projection.db"))?;
     let search_index = TantivyFullTextIndex::open(&layout.full_text_index_dir)?;
     if search_index.needs_card_rebuild()? {
         let state = maestria_daemon::load_kernel_state(layout)?;
@@ -59,6 +74,8 @@ fn compute_search_pack(
         parser: &parser,
         search_index: &search_index,
         blobs: &blob_store,
+        embedding_provider: embedding_provider.as_deref(),
+        vector_index: Some(&vector_index),
     });
     Ok(core
         .search(SearchInput {

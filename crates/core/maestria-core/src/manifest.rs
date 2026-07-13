@@ -22,11 +22,20 @@ const DEFAULT_EXCLUSIONS: [&str; 11] = [
 /// apply its roots and exclusions through a policy implementation before
 /// reading source bytes.
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EmbeddingConfig {
+    pub enabled: bool,
+    pub endpoint: String,
+    pub model: String,
+    pub dimensions: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InstanceManifest {
     pub schema_version: u32,
     pub root: PathBuf,
     pub read_roots: Vec<PathBuf>,
     pub excluded_patterns: Vec<String>,
+    pub embeddings: Option<EmbeddingConfig>,
 }
 
 impl InstanceManifest {
@@ -39,6 +48,7 @@ impl InstanceManifest {
                 .iter()
                 .map(|item| (*item).to_string())
                 .collect(),
+            embeddings: None,
         }
     }
 
@@ -57,15 +67,24 @@ impl InstanceManifest {
                 .iter()
                 .map(|pattern| format!("excluded_pattern={pattern}")),
         );
+        if let Some(embeddings) = &self.embeddings {
+            lines.push(format!("embedding_enabled={}", embeddings.enabled));
+            lines.push(format!("embedding_endpoint={}", embeddings.endpoint));
+            lines.push(format!("embedding_model={}", embeddings.model));
+            lines.push(format!("embedding_dimensions={}", embeddings.dimensions));
+        }
         lines.push(String::new());
         lines.join("\n")
     }
-
     pub fn decode(contents: &str) -> CoreResult<Self> {
         let mut schema_version = None;
         let mut root = None;
         let mut read_roots = Vec::new();
         let mut excluded_patterns = Vec::new();
+        let mut embedding_enabled = None;
+        let mut embedding_endpoint = None;
+        let mut embedding_model = None;
+        let mut embedding_dimensions = None;
 
         for line in contents
             .lines()
@@ -92,6 +111,24 @@ impl InstanceManifest {
                 "root" => root = Some(PathBuf::from(value)),
                 "read_root" => read_roots.push(PathBuf::from(value)),
                 "excluded_pattern" => excluded_patterns.push(value.to_string()),
+                "embedding_enabled" => {
+                    embedding_enabled =
+                        Some(value.parse::<bool>().map_err(|_| CoreError::InvalidInput {
+                            message: format!("invalid embedding_enabled value: {value}"),
+                        })?);
+                }
+                "embedding_endpoint" => embedding_endpoint = Some(value.to_string()),
+                "embedding_model" => embedding_model = Some(value.to_string()),
+                "embedding_dimensions" => {
+                    embedding_dimensions =
+                        Some(
+                            value
+                                .parse::<usize>()
+                                .map_err(|_| CoreError::InvalidInput {
+                                    message: format!("invalid embedding_dimensions value: {value}"),
+                                })?,
+                        );
+                }
                 other => {
                     return Err(CoreError::InvalidInput {
                         message: format!("unknown instance manifest key: {other}"),
@@ -122,11 +159,39 @@ impl InstanceManifest {
             });
         }
 
+        let embeddings = match (
+            embedding_enabled,
+            embedding_endpoint,
+            embedding_model,
+            embedding_dimensions,
+        ) {
+            (None, None, None, None) => None,
+            (Some(enabled), Some(endpoint), Some(model), Some(dimensions)) => {
+                if enabled && dimensions == 0 {
+                    return Err(CoreError::InvalidInput {
+                        message: "embedding_dimensions must be positive when enabled".to_string(),
+                    });
+                }
+                Some(EmbeddingConfig {
+                    enabled,
+                    endpoint,
+                    model,
+                    dimensions,
+                })
+            }
+            _ => {
+                return Err(CoreError::InvalidInput {
+                    message: "embedding configuration must define enabled, endpoint, model, and dimensions".to_string(),
+                });
+            }
+        };
+
         Ok(Self {
             schema_version,
             root,
             read_roots,
             excluded_patterns,
+            embeddings,
         })
     }
 
@@ -183,10 +248,40 @@ mod tests {
             root: PathBuf::from("/tmp/instance"),
             read_roots: vec![PathBuf::from("/tmp/notes"), PathBuf::from("/tmp/project")],
             excluded_patterns: vec![".env".to_string(), "*.key".to_string()],
+            embeddings: None,
         };
 
         let decoded = InstanceManifest::decode(&manifest.encode()).expect("manifest is valid");
         assert_eq!(decoded, manifest);
+    }
+
+    #[test]
+    fn embedding_configuration_round_trips() {
+        let manifest = InstanceManifest {
+            schema_version: MANIFEST_SCHEMA_VERSION,
+            root: PathBuf::from("/tmp/instance"),
+            read_roots: vec![PathBuf::from("/tmp/instance")],
+            excluded_patterns: vec![".env".to_string()],
+            embeddings: Some(EmbeddingConfig {
+                enabled: true,
+                endpoint: "http://127.0.0.1:8080/v1/embeddings".to_string(),
+                model: "local-model".to_string(),
+                dimensions: 3,
+            }),
+        };
+
+        assert_eq!(
+            InstanceManifest::decode(&manifest.encode()).expect("manifest is valid"),
+            manifest
+        );
+    }
+
+    #[test]
+    fn embedding_configuration_rejects_partial_values() {
+        let contents = "schema_version=1\nroot=/tmp/instance\nread_root=/tmp/instance\n\
+            excluded_pattern=.env\nembedding_enabled=true\n";
+        let result = InstanceManifest::decode(contents);
+        assert!(matches!(result, Err(CoreError::InvalidInput { .. })));
     }
 
     #[test]

@@ -17,6 +17,8 @@ pub struct CorePorts<'a> {
     pub parser: &'a dyn Parser,
     pub search_index: &'a dyn FullTextIndex,
     pub blobs: &'a dyn BlobStore,
+    pub embedding_provider: Option<&'a dyn maestria_ports::EmbeddingProvider>,
+    pub vector_index: Option<&'a dyn maestria_ports::VectorIndex>,
 }
 
 pub struct CoreServices<'a> {

@@ -207,9 +207,31 @@ pub struct VectorSearchHit {
     pub score: f32,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EmbeddingRequest {
+    pub text: String,
+    pub model: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct EmbeddingResponse {
+    pub vector: Vec<f32>,
+    pub model_version: String,
+}
+
+pub trait EmbeddingProvider: Send + Sync {
+    fn embed(&self, request: EmbeddingRequest) -> Result<EmbeddingResponse, PortError>;
+}
+
 pub trait VectorIndex: Send + Sync {
     fn index_embeddings(&self, embeddings: Vec<VectorEmbedding>) -> Result<(), PortError>;
     fn search_similar(&self, query: VectorSearchQuery) -> Result<Vec<VectorSearchHit>, PortError>;
+    fn delete_chunks(&self, chunk_ids: &[ChunkId]) -> Result<(), PortError>;
+    fn clear(&self) -> Result<(), PortError>;
+    fn rebuild(&self, embeddings: Vec<VectorEmbedding>) -> Result<(), PortError> {
+        self.clear()?;
+        self.index_embeddings(embeddings)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

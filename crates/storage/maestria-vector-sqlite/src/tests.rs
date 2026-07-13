@@ -45,6 +45,46 @@ fn round_trips_provenance() -> Result<(), PortError> {
 }
 
 #[test]
+fn unchanged_embedding_does_not_update_projection() -> Result<(), PortError> {
+    let index = SqliteVectorIndex::in_memory()?;
+    let connection = index.connection.lock().map_err(|_| PortError::Internal {
+        message: "vector index lock poisoned".to_string(),
+    })?;
+    connection
+        .execute_batch(
+            "CREATE TABLE vector_write_audit (count INTEGER NOT NULL);
+             INSERT INTO vector_write_audit (count) VALUES (0);
+             CREATE TRIGGER vector_update_audit
+             AFTER UPDATE ON vector_embeddings
+             BEGIN
+                 UPDATE vector_write_audit SET count = count + 1;
+             END;",
+        )
+        .map_err(to_port_error)?;
+    drop(connection);
+
+    let embedding = VectorEmbedding {
+        chunk_id: ChunkId::new(42),
+        vector: vec![1.0, 0.5],
+        provenance: EmbeddingProvenance {
+            content_hash: "hash".to_string(),
+            model_version: "model-v1".to_string(),
+        },
+    };
+    index.index_embeddings(vec![embedding.clone()])?;
+    index.index_embeddings(vec![embedding])?;
+
+    let connection = index.connection.lock().map_err(|_| PortError::Internal {
+        message: "vector index lock poisoned".to_string(),
+    })?;
+    let writes: i64 = connection
+        .query_row("SELECT count FROM vector_write_audit", [], |row| row.get(0))
+        .map_err(to_port_error)?;
+    assert_eq!(writes, 0);
+    Ok(())
+}
+
+#[test]
 fn rejects_unsupported_schema_version() -> Result<(), PortError> {
     let mut conn = Connection::open_in_memory().map_err(to_port_error)?;
     conn.execute_batch(

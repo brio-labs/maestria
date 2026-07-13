@@ -1,6 +1,6 @@
 use std::sync::{Arc, Mutex};
 
-use crate::{PortError, VectorEmbedding, VectorIndex, VectorSearchHit, VectorSearchQuery};
+use crate::{ChunkId, PortError, VectorEmbedding, VectorIndex, VectorSearchHit, VectorSearchQuery};
 
 #[derive(Clone, Default)]
 pub struct InMemoryVectorIndex {
@@ -84,6 +84,22 @@ impl VectorIndex for InMemoryVectorIndex {
         });
         hits.truncate(query.limit as usize);
         Ok(hits)
+    }
+
+    fn delete_chunks(&self, chunk_ids: &[ChunkId]) -> Result<(), PortError> {
+        let mut guard = self.embeddings.lock().map_err(|_| PortError::Internal {
+            message: "vector index lock poisoned".to_string(),
+        })?;
+        guard.retain(|e| !chunk_ids.contains(&e.chunk_id));
+        Ok(())
+    }
+
+    fn clear(&self) -> Result<(), PortError> {
+        let mut guard = self.embeddings.lock().map_err(|_| PortError::Internal {
+            message: "vector index lock poisoned".to_string(),
+        })?;
+        guard.clear();
+        Ok(())
     }
 }
 

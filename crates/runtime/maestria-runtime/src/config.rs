@@ -2,8 +2,8 @@ use maestria_domain::{DomainInput, EventId, HarnessRunId, KernelState, ScopeId};
 use maestria_governance::{ApprovalGate, AutonomyProfile, ClassifyRisk, Scope, ValidationGate};
 use maestria_ports::{
     ApprovalRepository, ArtifactRepository, BlobStore, CardRepository, ChunkRepository,
-    EffectJournal, EventLog, EvidenceRepository, FullTextIndex, GraphIndex, HarnessAdapter,
-    IdAllocator, Parser, VectorIndex, WebFetcher,
+    EffectJournal, EmbeddingProvider, EventLog, EvidenceRepository, FullTextIndex, GraphIndex,
+    HarnessAdapter, IdAllocator, Parser, VectorIndex, WebFetcher,
 };
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
@@ -18,6 +18,7 @@ pub struct RuntimeConfig {
     pub max_concurrent_effects: usize,
     pub default_effect_timeout: Duration,
     pub max_retries: u32,
+    pub embedding_model: Option<String>,
 }
 
 impl Default for RuntimeConfig {
@@ -30,6 +31,7 @@ impl Default for RuntimeConfig {
             max_concurrent_effects: 16,
             default_effect_timeout: Duration::from_secs(300),
             max_retries: 3,
+            embedding_model: None,
         }
     }
 }
@@ -43,6 +45,7 @@ pub struct Adapters {
     pub chunk_repo: Arc<dyn ChunkRepository + Send + Sync>,
     pub card_repo: Arc<dyn CardRepository + Send + Sync>,
     pub evidence_repo: Arc<dyn EvidenceRepository + Send + Sync>,
+    pub embedding_provider: Option<Arc<dyn EmbeddingProvider + Send + Sync>>,
     pub vector_index: Arc<dyn VectorIndex + Send + Sync>,
     pub graph_index: Arc<dyn GraphIndex + Send + Sync>,
     pub web_fetcher: Arc<dyn WebFetcher + Send + Sync>,
@@ -69,6 +72,7 @@ pub struct EffectExecutionContext {
     pub state: Arc<RwLock<KernelState>>,
     pub input_tx: mpsc::Sender<DomainInput>,
     pub feedback_acks: HarnessFeedbackAcks,
+    pub embedding_model: Option<String>,
     pub default_effect_timeout: Duration,
     pub max_retries: u32,
 }
@@ -91,6 +95,7 @@ impl EffectExecutionContext {
             state,
             input_tx,
             feedback_acks: Arc::new(Mutex::new(BTreeMap::new())),
+            embedding_model: None,
             default_effect_timeout: Duration::from_secs(300),
             max_retries: 3,
         }

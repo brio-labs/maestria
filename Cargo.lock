@@ -1172,11 +1172,13 @@ dependencies = [
  "maestria-core",
  "maestria-daemon",
  "maestria-domain",
+ "maestria-embedding-openai",
  "maestria-governance",
  "maestria-parsers",
  "maestria-ports",
  "maestria-search-tantivy",
  "maestria-storage-sqlite",
+ "maestria-vector-sqlite",
  "tokio",
  "tracing-subscriber",
 ]
@@ -1204,6 +1206,7 @@ dependencies = [
  "maestria-blob-fs",
  "maestria-core",
  "maestria-domain",
+ "maestria-embedding-openai",
  "maestria-governance",
  "maestria-graph-sqlite",
  "maestria-harness",
@@ -1225,6 +1228,17 @@ name = "maestria-domain"
 version = "0.1.0"
 dependencies = [
  "sha2",
+]
+
+[[package]]
+name = "maestria-embedding-openai"
+version = "0.1.0"
+dependencies = [
+ "maestria-ports",
+ "serde",
+ "serde_json",
+ "ureq",
+ "url",
 ]
 
 [[package]]
@@ -2417,6 +2431,8 @@ dependencies = [
  "once_cell",
  "rustls",
  "rustls-pki-types",
+ "serde",
+ "serde_json",
  "url",
  "webpki-roots 0.26.11",
 ]

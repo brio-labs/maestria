@@ -19,9 +19,7 @@ use maestria_governance::{
 use maestria_graph_sqlite::SqliteGraphIndex;
 use maestria_harness::LocalShellHarnessAdapter;
 use maestria_parsers::ParserRegistry;
-use maestria_ports::{
-    ArtifactRepository, CardRepository, ChunkRepository, EventFilter, EvidenceRepository,
-};
+use maestria_ports::EventFilter;
 use maestria_runtime::{Adapters, Governance, MaestriaRuntime, RuntimeConfig};
 use maestria_search_tantivy::TantivyFullTextIndex;
 use maestria_storage_sqlite::SqliteStore;
@@ -147,7 +145,9 @@ fn lock_owner_is_dead(path: &PathBuf) -> bool {
 }
 
 mod approval_recovery;
+mod projection_recovery;
 pub use approval_recovery::{reconcile_approval_repo, reconcile_pending_approvals};
+pub use projection_recovery::reconcile_projections;
 mod full_text_recovery;
 pub use full_text_recovery::pending_start_full_text;
 mod parser_resume;
@@ -195,39 +195,6 @@ pub fn validate_recovery_scope(layout: &InstanceLayout, recovery: &RecoveryInput
     Ok(())
 }
 
-/// Reconcile projection repositories from replayed domain truth.
-///
-/// After `load_kernel_state` replays the event log into a `KernelState`,
-/// this helper idempotently upserts every artifact, chunk, and card,
-/// and unconditionally replaces every evidence row from the replayed
-/// state into the SQLite projection tables.  Evidence uses `replace`
-/// so a valid replayed row overwrites a stale, malformed, or partial
-/// row from a prior crash without tripping a `Conflict` error.
-///
-/// Projection repair never emits domain events and never changes event
-/// truth.  Startup recovery can then search/open evidence even if the
-/// previous process crashed after event append but before a projection
-/// write.
-pub fn reconcile_projections(state: &KernelState, store: &SqliteStore) -> Result<()> {
-    for artifact in state.artifacts.values() {
-        ArtifactRepository::put(store, artifact.clone())
-            .with_context(|| format!("put artifact {}", artifact.id))?;
-    }
-    for chunk in state.chunks.values() {
-        ChunkRepository::put(store, chunk.clone())
-            .with_context(|| format!("put chunk {}", chunk.id))?;
-    }
-    for card in state.cards.values() {
-        CardRepository::put(store, card.clone())
-            .with_context(|| format!("put card {}", card.id))?;
-    }
-    for evidence in state.evidences.values() {
-        EvidenceRepository::replace(store, evidence.clone())
-            .with_context(|| format!("replace evidence {}", evidence.id))?;
-    }
-    Ok(())
-}
-
 /// Reconcile the approval repository from replayed domain events.
 ///
 /// After `load_kernel_state` replays the event log, this function scans for
@@ -264,6 +231,25 @@ pub fn build_runtime(
     mpsc::Receiver<DomainInput>,
     CancellationToken,
 )> {
+    let manifest_contents = fs::read_to_string(&layout.manifest_path)
+        .with_context(|| format!("read instance manifest {}", layout.manifest_path.display()))?;
+    let manifest = InstanceService::parse_manifest(&manifest_contents)
+        .map_err(|error| anyhow!("parse instance manifest: {error}"))?;
+    let embedding_model = manifest
+        .embeddings
+        .as_ref()
+        .filter(|config| config.enabled)
+        .map(|config| config.model.clone());
+    let embedding_provider = match manifest.embeddings.as_ref().filter(|config| config.enabled) {
+        Some(config) => Some(
+            Arc::new(maestria_embedding_openai::LocalHttpEmbeddingProvider::new(
+                &config.endpoint,
+                &config.model,
+                Some(config.dimensions),
+            )?) as Arc<dyn maestria_ports::EmbeddingProvider + Send + Sync>,
+        ),
+        None => None,
+    };
     let blob_store = Arc::new(
         FsBlobStore::open(&layout.blobs_dir)
             .with_context(|| format!("open blob store {}", layout.blobs_dir.display()))?,
@@ -310,6 +296,7 @@ pub fn build_runtime(
         chunk_repo,
         card_repo,
         evidence_repo,
+        embedding_provider,
         vector_index,
         graph_index,
         web_fetcher,
@@ -322,10 +309,6 @@ pub fn build_runtime(
         approval_gate: Arc::new(DefaultApprovalGate),
         validation_gate: Arc::new(DefaultValidationGate::new(true)),
     };
-    let manifest_contents = fs::read_to_string(&layout.manifest_path)
-        .with_context(|| format!("read instance manifest {}", layout.manifest_path.display()))?;
-    let manifest = InstanceService::parse_manifest(&manifest_contents)
-        .map_err(|error| anyhow!("parse instance manifest: {error}"))?;
     let default_privacy = PrivacyExclusions::default();
     let mut blocked_patterns = manifest.excluded_patterns.clone();
     blocked_patterns.extend(default_privacy.sensitive_names().iter().cloned());
@@ -346,6 +329,7 @@ pub fn build_runtime(
     let config = RuntimeConfig {
         profile,
         scope,
+        embedding_model,
         ..Default::default()
     };
 
