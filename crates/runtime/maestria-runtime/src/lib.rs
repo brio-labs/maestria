@@ -1,4 +1,5 @@
 mod config;
+mod effect_dispatch;
 mod effect_execution;
 mod harness;
 mod indexing;
@@ -173,17 +174,11 @@ impl MaestriaRuntime {
                             }
                         }
                     };
-                    for effect in effects {
-                        tokio::select! {
-                            () = shutdown_token.cancelled() => break,
-                            result = effect_tx.send(effect) => {
-                                if let Err(error) = result {
-                                    tracing::error!(%error, "failed to dispatch effect");
-                                    shutdown_token.cancel();
-                                    break;
-                                }
-                            }
-                        }
+                    if !self
+                        .dispatch_effects(effects, &effect_tx, &shutdown_token)
+                        .await
+                    {
+                        break;
                     }
                     if let Some(report_id) = wait_for_report_id {
 
