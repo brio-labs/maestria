@@ -301,6 +301,7 @@ fn migrate_from_v3(connection: &Connection, state: &SchemaState) -> Result<(), P
             message: "malformed sqlite schema: domain_events table missing".to_string(),
         });
     }
+    ensure_artifact_v3_columns(connection)?;
     connection
         .execute(
             "INSERT OR IGNORE INTO schema_version (version) VALUES (?1)",
