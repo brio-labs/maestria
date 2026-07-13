@@ -122,7 +122,10 @@ fn lock_owner_is_dead(path: &PathBuf) -> bool {
         .split_once(':')
         .map_or(contents.trim(), |(pid, _)| pid);
     let Ok(pid) = pid_text.parse::<u32>() else {
-        return false;
+        return fs::metadata(path)
+            .and_then(|metadata| metadata.modified())
+            .and_then(|modified| modified.elapsed().map_err(std::io::Error::other))
+            .is_ok_and(|age| age > Duration::from_secs(30));
     };
     #[cfg(target_os = "linux")]
     {
