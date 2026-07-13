@@ -1,5 +1,5 @@
 use super::test_support::*;
-use maestria_governance::{DefaultApprovalGate, DefaultRiskClassifier};
+use maestria_governance::{DefaultApprovalGate, DefaultRiskClassifier, DefaultValidationGate};
 use maestria_ports::{
     InMemoryApprovalRepository, InMemoryArtifactRepository, InMemoryBlobStore,
     InMemoryCardRepository, InMemoryChunkRepository, InMemoryEventLog, InMemoryEvidenceRepository,
@@ -38,5 +38,6 @@ pub fn test_governance() -> Governance {
     Governance {
         classifier: Arc::new(DefaultRiskClassifier),
         approval_gate: Arc::new(DefaultApprovalGate),
+        validation_gate: Arc::new(DefaultValidationGate::new(true)),
     }
 }

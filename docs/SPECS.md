@@ -95,3 +95,18 @@ The CLI durability contract is verified by a black-box integration test that
 invokes separate processes for setup, indexing, search, and evidence opening.
 The test must also cover scope rejection, privacy exclusions, and unchanged
 reindex idempotence without inspecting adapter internals.
+
+## Validation Completion Slice
+
+Task completion follows a two-layer contract:
+
+- the domain requires a persisted, task-matched, passing validation report and
+  enforces warning/status consistency and task transitions;
+- the runtime evaluates the current `Validating` task, persisted report, and
+  proposed completion through the injected governance validation gate before
+  applying `CompleteTaskInput`.
+
+Warning completion is permitted only when the configured validation policy allows
+warnings. A blocked governance decision leaves the task state unchanged. The
+runtime validation tests cover missing, failed, mismatched, warning-policy, and
+successful completion paths.

@@ -39,3 +39,5 @@ pub const GOVERNANCE_VERSION: &str = "0.1.0";
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod validation_tests;

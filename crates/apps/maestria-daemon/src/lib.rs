@@ -12,7 +12,8 @@ use maestria_blob_fs::FsBlobStore;
 use maestria_core::{InitInstanceInput, InstanceLayout, InstanceManifest, InstanceService};
 use maestria_domain::{ArtifactId, DomainInput, KernelState, StartFullTextIndex, replay_events};
 use maestria_governance::{
-    AutonomyProfile, DefaultApprovalGate, DefaultRiskClassifier, PrivacyExclusions, Scope,
+    AutonomyProfile, DefaultApprovalGate, DefaultRiskClassifier, DefaultValidationGate,
+    PrivacyExclusions, Scope,
 };
 use maestria_graph_sqlite::SqliteGraphIndex;
 use maestria_harness::LocalShellHarnessAdapter;
@@ -363,6 +364,7 @@ pub fn build_runtime(
     let governance = Governance {
         classifier: Arc::new(DefaultRiskClassifier),
         approval_gate: Arc::new(DefaultApprovalGate),
+        validation_gate: Arc::new(DefaultValidationGate::new(true)),
     };
     let manifest_contents = fs::read_to_string(&layout.manifest_path)
         .with_context(|| format!("read instance manifest {}", layout.manifest_path.display()))?;

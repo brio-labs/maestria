@@ -4,7 +4,7 @@ use maestria_domain::{
     Artifact, ArtifactId, BlobId, Evidence, EvidenceId, EvidenceKind, IndexStatus, LogicalTick,
     ParseArtifactRequest,
 };
-use maestria_governance::{DefaultApprovalGate, DefaultRiskClassifier};
+use maestria_governance::{DefaultApprovalGate, DefaultRiskClassifier, DefaultValidationGate};
 use maestria_ports::{
     ArtifactRepository, BlobStore, EventLog, InMemoryApprovalRepository,
     InMemoryArtifactRepository, InMemoryBlobStore, InMemoryCardRepository, InMemoryChunkRepository,
@@ -59,6 +59,7 @@ async fn resume_parse_uses_existing_blob_and_skips_storage() {
     let governance = Governance {
         classifier: Arc::new(DefaultRiskClassifier),
         approval_gate: Arc::new(DefaultApprovalGate),
+        validation_gate: Arc::new(DefaultValidationGate::new(true)),
     };
     let (input_tx, mut input_rx) = mpsc::channel(8);
 
@@ -136,6 +137,7 @@ async fn resume_parse_missing_blob_returns_failure() {
     let governance = Governance {
         classifier: Arc::new(DefaultRiskClassifier),
         approval_gate: Arc::new(DefaultApprovalGate),
+        validation_gate: Arc::new(DefaultValidationGate::new(true)),
     };
     let (input_tx, _input_rx) = mpsc::channel(8);
 
@@ -200,6 +202,7 @@ async fn fresh_parse_sends_parser_started_with_correct_blob_identity() {
     let governance = Governance {
         classifier: Arc::new(DefaultRiskClassifier),
         approval_gate: Arc::new(DefaultApprovalGate),
+        validation_gate: Arc::new(DefaultValidationGate::new(true)),
     };
     let (input_tx, mut input_rx) = mpsc::channel(8);
 
@@ -385,6 +388,7 @@ async fn resume_sends_record_evidence_when_evidence_already_in_state() {
     let governance = Governance {
         classifier: Arc::new(DefaultRiskClassifier),
         approval_gate: Arc::new(DefaultApprovalGate),
+        validation_gate: Arc::new(DefaultValidationGate::new(true)),
     };
     let (input_tx, mut input_rx) = mpsc::channel(8);
 

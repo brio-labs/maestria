@@ -1,5 +1,5 @@
 use maestria_domain::{DomainInput, KernelState, ScopeId};
-use maestria_governance::{ApprovalGate, AutonomyProfile, ClassifyRisk, Scope};
+use maestria_governance::{ApprovalGate, AutonomyProfile, ClassifyRisk, Scope, ValidationGate};
 use maestria_ports::{
     ApprovalRepository, ArtifactRepository, BlobStore, CardRepository, ChunkRepository, EventLog,
     EvidenceRepository, FullTextIndex, GraphIndex, HarnessAdapter, IdAllocator, Parser,
@@ -52,6 +52,7 @@ pub struct Adapters {
 pub struct Governance {
     pub classifier: Arc<dyn ClassifyRisk + Send + Sync>,
     pub approval_gate: Arc<dyn ApprovalGate + Send + Sync>,
+    pub validation_gate: Arc<dyn ValidationGate + Send + Sync>,
 }
 
 /// Bundles everything an effect handler needs at execution time.
