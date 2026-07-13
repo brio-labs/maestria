@@ -1,4 +1,5 @@
 use super::*;
+use std::path::PathBuf;
 use std::time::Duration;
 
 fn adapter() -> LocalShellHarnessAdapter {
