@@ -90,8 +90,8 @@ fn journal_started_requires_intent() {
     let store = SqliteStore::in_memory().expect("open sqlite");
     let run_id = HarnessRunId::new(99);
 
-    let err = store.record_started(run_id, 1).unwrap_err();
-    assert!(matches!(err, PortError::NotFound));
+    let result = store.record_started(run_id, 1);
+    assert!(matches!(result, Err(PortError::NotFound)));
 }
 
 #[test]
@@ -99,8 +99,6 @@ fn journal_terminal_requires_in_flight() {
     let store = SqliteStore::in_memory().expect("open sqlite");
     let run_id = HarnessRunId::new(42);
 
-    let err = store
-        .record_terminal(run_id, 1, EffectJournalStatus::Completed)
-        .unwrap_err();
-    assert!(matches!(err, PortError::NotFound));
+    let result = store.record_terminal(run_id, 1, EffectJournalStatus::Completed);
+    assert!(matches!(result, Err(PortError::NotFound)));
 }
