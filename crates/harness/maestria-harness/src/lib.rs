@@ -2,17 +2,15 @@ mod command;
 mod process;
 mod tokenize;
 
+use command::{ALLOWED_PROGRAMS, validate_cat_args};
 use maestria_ports::{
     HarnessAdapter, HarnessCapabilities, HarnessCommandClass, HarnessOutcome, HarnessRequest,
     PortError,
 };
+use process::spawn_and_collect;
 use std::future::Future;
 use std::pin::Pin;
-use command::{
-    validate_cat_args, ALLOWED_PROGRAMS,
-};
-pub(crate) use command::{filename_matches, reject_metachar};
-use process::spawn_and_collect;
+use std::time::SystemTime;
 pub(crate) use tokenize::tokenize;
 
 // ── adapter ────────────────────────────────────────────────────────────────
@@ -65,9 +63,7 @@ async fn execute_impl(request: HarnessRequest) -> Result<HarnessOutcome, PortErr
     }
 
     for arg in &argv {
-        if let Err(e) = command::reject_metachar(arg) {
-            return Err(e);
-        }
+        command::reject_metachar(arg)?;
     }
 
     validate_cat_args(program, &argv, &request)?;

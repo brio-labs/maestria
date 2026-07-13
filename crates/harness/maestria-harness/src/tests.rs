@@ -247,3 +247,4 @@ async fn cat_rejects_dotenv_pattern() {
         ".env pattern must be rejected"
     );
 }
+use crate::command::filename_matches;

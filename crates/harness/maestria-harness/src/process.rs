@@ -1,8 +1,6 @@
 use maestria_ports::{HarnessRequest, PortError};
 use tokio::process::Command;
 
-use crate::command::validate_readable_path;
-
 pub(crate) async fn drain_opt<R: tokio::io::AsyncRead + Unpin>(
     handle: &mut Option<R>,
 ) -> Result<Vec<u8>, std::io::Error> {
