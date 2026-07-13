@@ -25,16 +25,14 @@ impl EffectExecutionContext {
         // ── scope capability gate ────────────────────────────────
         let scope_guard = maestria_governance::ScopeGuard::new(self.scope.clone());
         let scope = scope_guard.scope();
-        if class == HarnessCommandClass::Shell && !scope.harness_allowed("shell") {
-            tracing::warn!("Scope does not allow shell harness; not spawning");
+        if !scope.harness_allowed(&request.capability) {
+            tracing::warn!(capability = %request.capability, "Scope does not allow this harness; not spawning");
             return true;
         }
         if !scope.command_allowed(&request.command) {
             tracing::warn!(command = %request.command, "command blocked by scope; not spawning");
             return true;
         }
-
-        // ── grammar restriction ──────────────────────────────────
         if !is_shell_grammar_allowed(&request.command) {
             tracing::warn!(
                 command = %request.command,

@@ -24,7 +24,10 @@ fn privacy_patterns() -> Vec<String> {
     let privacy = PrivacyExclusions::default();
     let mut patterns: Vec<String> = privacy.sensitive_names().to_vec();
     patterns.extend(
-        privacy.sensitive_extensions().iter().map(|ext| format!("*.{ext}")),
+        privacy
+            .sensitive_extensions()
+            .iter()
+            .map(|ext| format!("*.{ext}")),
     );
     patterns
 }
