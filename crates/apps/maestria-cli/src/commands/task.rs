@@ -36,22 +36,25 @@ pub async fn run_start(
             .with_context(|| "build runtime")?;
     let runtime_task = tokio::spawn(runtime.run(input_rx, shutdown_token.clone()));
 
-    let input = DomainInput::OpenTask(OpenTaskInput {
-        task_id,
-        title,
-        priority: priority.into(),
-        artifact_id: artifact_id.map(ArtifactId::new),
-    });
-    input_tx
-        .send(input)
-        .await
-        .map_err(|error| anyhow!("failed to queue task open input: {error}"))?;
+    let result = async {
+        let input = DomainInput::OpenTask(OpenTaskInput {
+            task_id,
+            title,
+            priority: priority.into(),
+            artifact_id: artifact_id.map(ArtifactId::new),
+        });
+        input_tx
+            .send(input)
+            .await
+            .map_err(|error| anyhow!("failed to queue task open input: {error}"))?;
+        wait_for_task_in_state(&layout, task_id, Duration::from_secs(2)).await
+    }
+    .await;
 
-    let state = wait_for_task_in_state(&layout, task_id, Duration::from_secs(2)).await?;
     shutdown_token.cancel();
-    runtime_task
-        .await
-        .with_context(|| "runtime loop join failed")?;
+    let join_result = runtime_task.await;
+    let state = result?;
+    join_result.with_context(|| "runtime loop join failed")?;
 
     let task = state
         .tasks

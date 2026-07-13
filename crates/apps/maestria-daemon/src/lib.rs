@@ -400,34 +400,38 @@ pub async fn run_instance(instance_dir: PathBuf) -> Result<()> {
 
     let runtime_task = tokio::spawn(runtime.run(input_rx, shutdown_token.clone()));
 
-    // Submit pending ResumeParser inputs first so that parsing (which
-    // creates chunks) completes before full-text indexing begins.
-    for input in recovery.resume_parsers {
-        input_tx
-            .send(input)
+    let result = async {
+        // Submit pending ResumeParser inputs first so that parsing (which
+        // creates chunks) completes before full-text indexing begins.
+        for input in recovery.resume_parsers {
+            input_tx
+                .send(input)
+                .await
+                .map_err(|e| anyhow!("failed to queue resume parser: {e}"))?;
+        }
+
+        // Submit pending StartFullTextIndex inputs after the runtime task has
+        // started consuming from `input_rx` to avoid bounded-channel deadlock.
+        for input in recovery.start_full_text {
+            input_tx
+                .send(input)
+                .await
+                .map_err(|e| anyhow!("failed to queue restart full-text index: {e}"))?;
+        }
+
+        let root = layout.root.clone();
+        info!(root = %root.display(), "runtime started");
+        tokio::signal::ctrl_c()
             .await
-            .map_err(|e| anyhow!("failed to queue resume parser: {e}"))?;
+            .with_context(|| "wait for shutdown signal")
     }
+    .await;
 
-    // Submit pending StartFullTextIndex inputs after the runtime task has
-    // started consuming from `input_rx` to avoid bounded-channel deadlock.
-    for input in recovery.start_full_text {
-        input_tx
-            .send(input)
-            .await
-            .map_err(|e| anyhow!("failed to queue restart full-text index: {e}"))?;
-    }
-
-    let root = layout.root.clone();
-    info!(root = %root.display(), "runtime started");
-
-    tokio::signal::ctrl_c().await?;
-    info!(root = %root.display(), "shutdown requested");
+    info!(root = %layout.root.display(), "shutdown requested");
     shutdown_token.cancel();
-
-    runtime_task
-        .await
-        .with_context(|| "runtime loop join failed")?;
+    let join_result = runtime_task.await;
+    result?;
+    join_result.with_context(|| "runtime loop join failed")?;
 
     Ok(())
 }
