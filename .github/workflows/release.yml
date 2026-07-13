@@ -28,7 +28,7 @@ jobs:
       checks: read
       issues: read
       statuses: read
-    outputs:
+      actions: read
       commit: ${{ steps.validate.outputs.commit }}
     steps:
       - uses: actions/checkout@v7.0.0
@@ -110,26 +110,36 @@ jobs:
           echo
           echo "==> Checking CI status for commit $COMMIT..."
 
-          # Query the main CI workflow by its URL-encoded path.
+          # Query ALL CI workflow runs for this commit (not just completed),
+          # paginate and aggregate, then validate.
           CI_RUNS="$(gh api "repos/${{ github.repository }}/actions/workflows/.github%2Fworkflows%2Fci.yml/runs" \
-            --method GET -f head_sha="$COMMIT" -f per_page=1 -f status="completed" \
-            --jq '.workflow_runs | length')"
+            --method GET -f head_sha="$COMMIT" --paginate \
+            --jq '.workflow_runs' | jq -s 'add')"
 
-          if [ -z "$CI_RUNS" ] || [ "$CI_RUNS" = "0" ]; then
-            echo "::error::No completed CI workflow runs found for commit $COMMIT"
+          if [ -z "$CI_RUNS" ] || [ "$CI_RUNS" = "[]" ]; then
+            echo "::error::No CI workflow runs found for commit $COMMIT"
             exit 1
           fi
 
-          CI_CONCLUSION="$(gh api "repos/${{ github.repository }}/actions/workflows/.github%2Fworkflows%2Fci.yml/runs" \
-            --method GET -f head_sha="$COMMIT" -f per_page=1 -f status="completed" \
-            --jq '.workflow_runs[0].conclusion // "missing"')"
-          echo "  ci.yml: $CI_CONCLUSION"
-
-          if [ "$CI_CONCLUSION" != "success" ]; then
-            echo "::error::CI workflow conclusion is '$CI_CONCLUSION', expected 'success'"
+          # Reject any non-completed runs
+          PENDING="$(echo "$CI_RUNS" | jq -r '[.[] | select(.status != "completed")] | length')"
+          if [ "$PENDING" -gt 0 ]; then
+            echo "::error::$PENDING CI workflow run(s) still in progress"
             exit 1
           fi
-          echo "✓ CI workflow passed"
+
+          # Every completed run must be success
+          NON_SUCCESS="$(echo "$CI_RUNS" | jq -r \
+            '.[] | select(.conclusion != "success") | "  • \(.name // "unknown"): \(.conclusion // "no conclusion")"')"
+          if [ -n "$NON_SUCCESS" ]; then
+            echo "::error::Every CI run must have conclusion 'success'. Non-success runs:"
+            echo "$NON_SUCCESS"
+            exit 1
+          fi
+          SUCCESS_COUNT="$(echo "$CI_RUNS" | jq '[.[] | select(.conclusion == "success")] | length')"
+          echo "✓ All $SUCCESS_COUNT CI workflow runs passed"
+
+          # ── 3. Commit status gate (legacy/external statuses) ──
           echo "==> Checking commit status for $COMMIT..."
 
           COMMIT_STATUSES="$(gh api "repos/${{ github.repository }}/commits/$COMMIT/status" \
@@ -143,11 +153,8 @@ jobs:
               echo "$BAD_STATUS"
               exit 1
             fi
-            STATUS_COUNT="$(echo "$COMMIT_STATUSES" | jq -r '[.[] | select(.state == "success")] | length')"
-            echo "✓ All commit statuses passed ($STATUS_COUNT total)"
-          else
-            echo "✓ No legacy commit statuses (nothing to check)"
           fi
+          echo "✓ Commit statuses ok"
 
           echo
           echo "✓ Preflight complete — release gate is open"
