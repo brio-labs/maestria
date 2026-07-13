@@ -55,6 +55,13 @@ async fn main() -> Result<()> {
             } => {
                 commands::task::run_show(instance_dir, task_id)?;
             }
+            TaskCommands::AddEvidence {
+                instance_dir,
+                task_id,
+                evidence_id,
+            } => {
+                commands::task::run_add_evidence(instance_dir, task_id, evidence_id).await?;
+            }
         },
         Commands::Memory { command } => match command {
             MemoryCommands::Candidates {

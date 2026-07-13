@@ -611,3 +611,84 @@ fn pdf_no_text_is_rejected() {
         "expected no search results for failed PDF, got: {stdout}"
     );
 }
+
+/// Start a task via the CLI and return the task id string.
+fn assert_task_start(instance_path: &str, title: &str) -> String {
+    let args: Vec<&str> = vec!["task", "start", "-i", instance_path, title];
+    let stdout = assert_ok_lines(&args, 1);
+    // Extract the task id from the leading "task=<id>" segment.
+    let line = stdout.trim();
+    let task_prefix = "task=";
+    let task_start = line
+        .find(task_prefix)
+        .expect("task start output missing task=");
+    let after_task = &line[task_start + task_prefix.len()..];
+    let task_id: String = after_task
+        .chars()
+        .take_while(|c| c.is_ascii_digit())
+        .collect();
+    assert!(
+        !task_id.is_empty(),
+        "could not extract task id from: {line}"
+    );
+    task_id
+}
+/// Show a single task and return the stdout line.
+fn assert_task_show(instance_path: &str, task_id: &str) -> String {
+    let stdout = assert_ok_lines(&["task", "show", "-i", instance_path, task_id], 1);
+    stdout.trim().to_string()
+}
+
+#[test]
+fn task_add_evidence_and_show() {
+    let workspace = TempDir::new("maestria-test-workspace");
+    let instance = TempDir::new("maestria-test-instance");
+    let ip = instance.path().to_string_lossy();
+    let wp = workspace.path().to_string_lossy();
+
+    // ── 1. Init ─────────────────────────────────────────────────────────
+    assert_init_ok(ip.as_ref(), wp.as_ref());
+
+    // ── 2. Index a Markdown file ────────────────────────────────────────
+    write_file(
+        workspace.path(),
+        "notes.md",
+        "# Design Notes\n\nThe system uses a distributed ledger for consensus.\n",
+    );
+    let notes = workspace
+        .path()
+        .join("notes.md")
+        .to_string_lossy()
+        .into_owned();
+    assert_index_ok(ip.as_ref(), &notes);
+
+    // ── 3. Search to get evidence id ────────────────────────────────────
+    let (_chunk_id, evidence_id) = assert_search_finds(ip.as_ref(), "distributed");
+
+    // ── 4. Start a task via a new process ───────────────────────────────
+    let task_id = assert_task_start(ip.as_ref(), "Review");
+    assert!(!task_id.is_empty(), "task id must not be empty");
+
+    // ── 5. Add evidence to the task (separate process) ──────────────────
+    let stdout = assert_ok(&[
+        "task",
+        "add-evidence",
+        "-i",
+        ip.as_ref(),
+        &task_id,
+        "--evidence-id",
+        &evidence_id,
+    ]);
+    assert!(
+        stdout.contains("linked evidence="),
+        "add-evidence output missing confirmation: {stdout}"
+    );
+
+    // ── 6. Show task: must include the evidence id (separate process) ───
+    let task_line = assert_task_show(ip.as_ref(), &task_id);
+    let expected = format!("EvidenceId({evidence_id})");
+    assert!(
+        task_line.contains(&expected),
+        "task show must list linked evidence {evidence_id}: {task_line}"
+    );
+}

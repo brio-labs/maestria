@@ -1,6 +1,9 @@
 use anyhow::{Context, Result, anyhow};
 use maestria_core::InstanceLayout;
-use maestria_domain::{ArtifactId, DomainInput, KernelState, OpenTaskInput, Task, TaskId};
+use maestria_domain::{
+    ArtifactId, DomainInput, EvidenceId, KernelState, LinkEvidenceToTaskInput, OpenTaskInput, Task,
+    TaskId,
+};
 use maestria_governance::AutonomyProfile;
 use std::{fs, path::PathBuf, sync::Arc, time::Duration};
 use tokio::time::{sleep, timeout};
@@ -58,6 +61,65 @@ pub async fn run_start(
     println!(
         "task={} title={} status={:?} priority={:?}",
         task.id, task.title, task.status, task.priority
+    );
+
+    Ok(())
+}
+
+pub async fn run_add_evidence(instance_dir: PathBuf, task_id: u64, evidence_id: u64) -> Result<()> {
+    let layout = helpers::ensure_instance(instance_dir)?;
+    let state = load_kernel_state_with_retry(
+        &layout,
+        Duration::from_secs(2),
+        "load kernel state before add-evidence",
+    )
+    .await?;
+    let task_id = TaskId::new(task_id);
+    let evidence_id = EvidenceId::new(evidence_id);
+
+    if !state.tasks.contains_key(&task_id) {
+        return Err(anyhow!("task {} not found", task_id));
+    }
+    if !state.evidences.contains_key(&evidence_id) {
+        return Err(anyhow!("evidence {} not found", evidence_id));
+    }
+
+    let (runtime, input_tx, input_rx, shutdown_token) =
+        maestria_daemon::build_runtime(&layout, state, AutonomyProfile::TrustedWorkspace)
+            .with_context(|| "build runtime")?;
+    let runtime_task = tokio::spawn(runtime.run(input_rx, shutdown_token.clone()));
+
+    let input = DomainInput::LinkEvidenceToTask(LinkEvidenceToTaskInput {
+        task_id,
+        evidence_id,
+    });
+    input_tx
+        .send(input)
+        .await
+        .map_err(|error| anyhow!("failed to queue link-evidence input: {error}"))?;
+
+    let state =
+        wait_for_task_evidence_link(&layout, task_id, evidence_id, Duration::from_secs(2)).await?;
+    shutdown_token.cancel();
+    runtime_task
+        .await
+        .with_context(|| "runtime loop join failed")?;
+
+    let task = state
+        .tasks
+        .get(&task_id)
+        .ok_or_else(|| anyhow!("task {} not found after persistence", task_id))?;
+    if !task.evidence_ids.contains(&evidence_id) {
+        return Err(anyhow!(
+            "evidence {} was not linked to task {} after persistence",
+            evidence_id,
+            task_id
+        ));
+    }
+
+    println!(
+        "linked evidence={evidence_id} to task={task_id} status={:?}",
+        task.status
     );
 
     Ok(())
@@ -191,6 +253,53 @@ async fn wait_for_task_in_state(
             .and_then(|error| error.clone())
             .map_or_else(String::new, |error| format!(" {error}"));
         anyhow!("timed out while waiting for task {task_id} persistence{detail}")
+    })?
+}
+
+async fn wait_for_task_evidence_link(
+    layout: &InstanceLayout,
+    task_id: TaskId,
+    evidence_id: EvidenceId,
+    timeout_budget: Duration,
+) -> Result<KernelState> {
+    let last_error = Arc::new(std::sync::Mutex::new(None::<String>));
+    let last_error_for_wait = last_error.clone();
+    timeout(timeout_budget, async move {
+        loop {
+            match maestria_daemon::load_kernel_state(layout)
+                .with_context(|| "load kernel state while waiting for evidence link persistence")
+            {
+                Ok(state) => {
+                    if let Some(task) = state.tasks.get(&task_id)
+                        && task.evidence_ids.contains(&evidence_id)
+                    {
+                        return Ok(state);
+                    }
+                    sleep(Duration::from_millis(25)).await;
+                }
+                Err(error) if helpers::is_db_locked(&error) => {
+                    if let Ok(mut slot) = last_error_for_wait.lock() {
+                        *slot = Some(error.to_string());
+                    }
+                    sleep(Duration::from_millis(25)).await;
+                }
+                Err(error) => {
+                    if let Ok(mut slot) = last_error_for_wait.lock() {
+                        *slot = Some(error.to_string());
+                    }
+                    return Err(error);
+                }
+            }
+        }
+    })
+    .await
+    .map_err(|_| {
+        let detail = last_error
+            .lock()
+            .ok()
+            .and_then(|error| error.clone())
+            .map_or_else(String::new, |error| format!(" {error}"));
+        anyhow!("timed out while waiting for evidence {evidence_id} link to task {task_id}{detail}")
     })?
 }
 

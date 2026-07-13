@@ -62,6 +62,10 @@ pub enum DomainEvent {
         status: TaskStatus,
         validation_report_id: ValidationReportId,
     },
+    TaskEvidenceLinked {
+        task_id: TaskId,
+        evidence_id: EvidenceId,
+    },
     ClaimValidationUpdated {
         claim_id: ClaimId,
         status: ClaimStatus,

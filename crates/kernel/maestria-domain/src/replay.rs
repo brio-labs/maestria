@@ -47,6 +47,7 @@ impl KernelState {
             | DomainEvent::TaskOpened { .. }
             | DomainEvent::TaskStatusChanged { .. }
             | DomainEvent::TaskCompletionRecorded { .. }
+            | DomainEvent::TaskEvidenceLinked { .. }
             | DomainEvent::RelationCreated { .. }
             | DomainEvent::ValidationReportCreated { .. } => {
                 self.replay_entity_events(&envelope.event)?;
@@ -204,6 +205,10 @@ impl KernelState {
                 status,
                 validation_report_id,
             } => self.apply_task_completion_recorded(*task_id, *status, *validation_report_id),
+            DomainEvent::TaskEvidenceLinked {
+                task_id,
+                evidence_id,
+            } => self.apply_task_evidence_linked(*task_id, *evidence_id),
             DomainEvent::RelationCreated {
                 relation_id,
                 source,

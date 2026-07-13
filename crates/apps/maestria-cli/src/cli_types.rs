@@ -92,6 +92,14 @@ pub enum TaskCommands {
         instance_dir: PathBuf,
         task_id: Option<u64>,
     },
+    /// Link an existing evidence record to a task
+    AddEvidence {
+        #[arg(short, long, default_value = ".maestria-dev")]
+        instance_dir: PathBuf,
+        task_id: u64,
+        #[arg(long)]
+        evidence_id: u64,
+    },
 }
 
 #[derive(Subcommand)]

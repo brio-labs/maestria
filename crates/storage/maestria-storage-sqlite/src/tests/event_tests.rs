@@ -258,3 +258,24 @@ fn strict_v2_payloads_reject_missing_and_unknown_fields() -> Result<(), PortErro
 
     Ok(())
 }
+
+#[test]
+fn task_evidence_linked_event_round_trips() -> Result<(), PortError> {
+    let store = SqliteStore::in_memory()?;
+    let envelope = DomainEventEnvelope {
+        id: EventId::new(1),
+        sequence: SequenceNumber::new(1),
+        event: DomainEvent::TaskEvidenceLinked {
+            task_id: TaskId::new(3),
+            evidence_id: EvidenceId::new(10),
+        },
+    };
+
+    store.append(envelope.clone())?;
+
+    let events = store.scan(EventFilter { artifact_id: None })?;
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0], envelope);
+
+    Ok(())
+}

@@ -190,6 +190,20 @@ impl KernelState {
         Ok(output)
     }
 
+    pub(super) fn process_link_evidence_to_task(
+        &mut self,
+        input: LinkEvidenceToTaskInput,
+    ) -> Result<KernelOutput, DomainError> {
+        let mut output = KernelOutput::default();
+        if let Some(event) = self.handle_link_evidence_to_task(input)? {
+            output.events.push(event.clone());
+            output
+                .effects
+                .push(MaestriaEffect::PersistEvent { envelope: event });
+        }
+        Ok(output)
+    }
+
     pub(super) fn process_create_relation(
         &mut self,
         input: CreateRelationInput,

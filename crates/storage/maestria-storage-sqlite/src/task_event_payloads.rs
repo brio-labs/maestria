@@ -1,6 +1,6 @@
 use super::event_payloads::StoredEventPayload;
 use super::evidence_payloads::{StoredTaskPriority, StoredTaskStatus};
-use maestria_domain::{ArtifactId, DomainEvent, TaskId, ValidationReportId};
+use maestria_domain::{ArtifactId, DomainEvent, EvidenceId, TaskId, ValidationReportId};
 
 impl StoredEventPayload {
     pub(crate) fn try_from_domain_task(event: &DomainEvent) -> Option<Self> {
@@ -29,6 +29,13 @@ impl StoredEventPayload {
                 task_id: task_id.value(),
                 status: StoredTaskStatus::from_domain(*status),
                 validation_report_id: validation_report_id.value(),
+            }),
+            DomainEvent::TaskEvidenceLinked {
+                task_id,
+                evidence_id,
+            } => Some(Self::TaskEvidenceLinked {
+                task_id: task_id.value(),
+                evidence_id: evidence_id.value(),
             }),
             DomainEvent::UserIntentObserved { task_id, title } => Some(Self::UserIntentObserved {
                 task_id: task_id.value(),
@@ -89,6 +96,13 @@ impl StoredEventPayload {
                 status: status.into_domain(),
                 validation_report_id: ValidationReportId::new(validation_report_id),
             }),
+            Self::TaskEvidenceLinked {
+                task_id,
+                evidence_id,
+            } => Ok(DomainEvent::TaskEvidenceLinked {
+                task_id: TaskId::new(task_id),
+                evidence_id: EvidenceId::new(evidence_id),
+            }),
             Self::UserIntentObserved { task_id, title } => Ok(DomainEvent::UserIntentObserved {
                 task_id: TaskId::new(task_id),
                 title,
@@ -126,6 +140,7 @@ impl StoredEventPayload {
             Self::TaskOpened { .. } => Some("task_opened"),
             Self::TaskStatusChanged { .. } => Some("task_status_changed"),
             Self::TaskCompletionRecorded { .. } => Some("task_completion_recorded"),
+            Self::TaskEvidenceLinked { .. } => Some("task_evidence_linked"),
             Self::UserIntentObserved { .. } => Some("user_intent_observed"),
             Self::HarnessRunCompleted { .. } => Some("harness_run_completed"),
             Self::ApprovalRecorded { .. } => Some("approval_recorded"),

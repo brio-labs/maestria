@@ -71,6 +71,12 @@ pub struct LinkEvidenceToClaimInput {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LinkEvidenceToTaskInput {
+    pub task_id: TaskId,
+    pub evidence_id: EvidenceId,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CreateRelationInput {
     pub relation_id: RelationId,
     pub source: RelationEndpoint,
@@ -198,6 +204,7 @@ pub enum DomainInput {
     OpenTask(OpenTaskInput),
     ChangeTaskStatus(ChangeTaskStatusInput),
     CompleteTask(CompleteTaskInput),
+    LinkEvidenceToTask(LinkEvidenceToTaskInput),
     LinkEvidenceToClaim(LinkEvidenceToClaimInput),
     CreateRelation(CreateRelationInput),
     CreateMemoryCandidate(CreateMemoryCandidateInput),

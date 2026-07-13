@@ -55,6 +55,10 @@ pub(crate) enum StoredEventPayload {
         status: StoredTaskStatus,
         validation_report_id: u64,
     },
+    TaskEvidenceLinked {
+        task_id: u64,
+        evidence_id: u64,
+    },
     ClaimValidationUpdated {
         claim_id: u64,
         status: StoredClaimStatus,
