@@ -7,11 +7,16 @@ use crate::types::{
 };
 
 use maestria_domain::{Evidence, EvidenceKind, IndexStatus};
-use maestria_ports::{EmbeddingRequest, SearchQuery, VectorSearchQuery};
+use maestria_ports::{SearchQuery, VectorSearchQuery};
 
-pub(super) fn search<'a>(ports: &CorePorts<'a>, input: SearchInput) -> CoreResult<SearchOutput> {
+pub(super) fn search<'a>(
+    ports: &CorePorts<'a>,
+    input: SearchInput,
+    vector_query: Option<VectorSearchQuery>,
+) -> CoreResult<SearchOutput> {
     let cards = search_cards(ports, &input.query, input.limit)?;
-    let (mut chunks, mut evidence_ids) = search_vector_chunks(ports, &input.query, input.limit)?;
+    let (mut chunks, mut evidence_ids) =
+        search_vector_chunks(ports, &input.query, input.limit, vector_query)?;
     let (full_text_chunks, _) = search_chunks(ports, &input.query, input.limit)?;
     for chunk in full_text_chunks {
         if chunks.len() >= input.limit {
@@ -147,10 +152,12 @@ fn search_chunks(
     }
     Ok((chunks, evidence_ids))
 }
+
 fn search_vector_chunks(
     ports: &CorePorts<'_>,
-    query: &str,
+    _query: &str,
     limit: usize,
+    vector_query: Option<VectorSearchQuery>,
 ) -> CoreResult<(
     Vec<SourceGroundedSearchHit>,
     Vec<maestria_domain::EvidenceId>,
@@ -158,21 +165,13 @@ fn search_vector_chunks(
     if limit == 0 {
         return Ok((Vec::new(), Vec::new()));
     }
-    let (Some(provider), Some(vector_index)) = (ports.embedding_provider, ports.vector_index)
-    else {
+    let Some(vector_query) = vector_query else {
         return Ok((Vec::new(), Vec::new()));
     };
-    let response = match provider.embed(EmbeddingRequest {
-        text: query.to_string(),
-        model: "query".to_string(),
-    }) {
-        Ok(response) => response,
-        Err(_) => return Ok((Vec::new(), Vec::new())),
+    let Some(vector_index) = ports.vector_index else {
+        return Ok((Vec::new(), Vec::new()));
     };
-    let hits = match vector_index.search_similar(VectorSearchQuery {
-        vector: response.vector,
-        limit: limit as u32,
-    }) {
+    let hits = match vector_index.search_similar(vector_query) {
         Ok(hits) => hits,
         Err(_) => return Ok((Vec::new(), Vec::new())),
     };

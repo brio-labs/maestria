@@ -102,6 +102,10 @@ impl MaestriaRuntime {
         }
     }
 
+    pub fn with_graceful_shutdown(mut self) -> Self {
+        self.config.drain_effects_on_shutdown = true;
+        self
+    }
     pub async fn snapshot_state(&self) -> KernelState {
         self.state.read().await.clone()
     }
@@ -112,7 +116,9 @@ impl MaestriaRuntime {
         shutdown_token: tokio_util::sync::CancellationToken,
     ) {
         let (effect_tx, effect_rx) = mpsc::channel::<MaestriaEffect>(self.config.input_buffer_size);
-        let effect_executor = self.spawn_effect_executor(effect_rx, shutdown_token.clone());
+        let effect_shutdown = tokio_util::sync::CancellationToken::new();
+        let effect_executor =
+            self.spawn_effect_executor(effect_rx, effect_shutdown.clone(), shutdown_token.clone());
 
         loop {
             tokio::select! {
@@ -197,7 +203,11 @@ impl MaestriaRuntime {
                 }
             }
         }
+
         drop(effect_tx);
+        if !self.config.drain_effects_on_shutdown {
+            effect_shutdown.cancel();
+        }
         shutdown_token.cancel();
         let _ = effect_executor.await;
     }
@@ -253,7 +263,8 @@ impl MaestriaRuntime {
     fn spawn_effect_executor(
         &self,
         mut receiver: mpsc::Receiver<MaestriaEffect>,
-        shutdown_token: tokio_util::sync::CancellationToken,
+        effect_shutdown: tokio_util::sync::CancellationToken,
+        runtime_shutdown: tokio_util::sync::CancellationToken,
     ) -> tokio::task::JoinHandle<()> {
         let adapters = Arc::clone(&self.adapters);
         let governance = Arc::clone(&self.governance);
@@ -266,7 +277,6 @@ impl MaestriaRuntime {
         let max_retries = self.config.max_retries;
         let scope_id = self.config.scope_id;
         let next_validation_report_id = Arc::clone(&self.next_validation_report_id);
-        let effect_shutdown = shutdown_token.clone();
         let feedback_acks = Arc::clone(&self.feedback_acks);
         let embedding_model = self.config.embedding_model.clone();
         tokio::spawn(async move {
@@ -298,8 +308,8 @@ impl MaestriaRuntime {
                         };
                         if matches!(&effect, MaestriaEffect::PersistEvent { .. }) {
                             if !context.execute_with_retries(effect).await {
-                                tracing::error!("fatal event persistence failure; stopping runtime");
                                 effect_shutdown.cancel();
+                                runtime_shutdown.cancel();
                                 break;
                             }
                             continue;

@@ -19,6 +19,7 @@ pub struct RuntimeConfig {
     pub default_effect_timeout: Duration,
     pub max_retries: u32,
     pub embedding_model: Option<String>,
+    pub drain_effects_on_shutdown: bool,
 }
 
 impl Default for RuntimeConfig {
@@ -32,6 +33,7 @@ impl Default for RuntimeConfig {
             default_effect_timeout: Duration::from_secs(300),
             max_retries: 3,
             embedding_model: None,
+            drain_effects_on_shutdown: false,
         }
     }
 }

@@ -158,11 +158,15 @@ impl VectorIndex for SqliteVectorIndex {
             .prepare(
                 "SELECT chunk_id, embedding
                  FROM vector_embeddings
-                 WHERE dimension = ?1",
+                 WHERE dimension = ?1
+                   AND (?2 IS NULL OR model_version = ?2)",
             )
             .map_err(to_port_error)?;
         let mut rows = statement
-            .query(params![usize_to_i64(query_dimension)?])
+            .query(params![
+                usize_to_i64(query_dimension)?,
+                query.model_version.as_deref(),
+            ])
             .map_err(to_port_error)?;
 
         let mut hits = Vec::new();

@@ -1195,6 +1195,7 @@ dependencies = [
  "maestria-storage-sqlite",
  "sha2",
  "tempfile",
+ "url",
 ]
 
 [[package]]

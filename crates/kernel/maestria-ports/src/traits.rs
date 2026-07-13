@@ -199,6 +199,7 @@ pub struct VectorEmbedding {
 pub struct VectorSearchQuery {
     pub vector: Vec<f32>,
     pub limit: u32,
+    pub model_version: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]

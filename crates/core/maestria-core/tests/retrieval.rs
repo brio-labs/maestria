@@ -6,11 +6,10 @@ use maestria_domain::{
     IndexStatus,
 };
 use maestria_ports::{
-    ArtifactRepository, BlobStore, CardRepository, ChunkRepository, EmbeddingProvider,
-    EmbeddingRequest, EmbeddingResponse, EvidenceRepository, FullTextIndex,
-    InMemoryArtifactRepository, InMemoryBlobStore, InMemoryCardRepository, InMemoryChunkRepository,
-    InMemoryEventLog, InMemoryEvidenceRepository, InMemoryFullTextIndex, InMemoryParser,
-    InMemoryVectorIndex, IndexedCard, IndexedChunk, VectorIndex,
+    ArtifactRepository, BlobStore, CardRepository, ChunkRepository, EvidenceRepository,
+    FullTextIndex, InMemoryArtifactRepository, InMemoryBlobStore, InMemoryCardRepository,
+    InMemoryChunkRepository, InMemoryEventLog, InMemoryEvidenceRepository, InMemoryFullTextIndex,
+    InMemoryParser, InMemoryVectorIndex, IndexedCard, IndexedChunk, VectorIndex, VectorSearchQuery,
 };
 
 /// Seed an artifact, chunks, evidence, cards, and full-text entries directly through
@@ -230,7 +229,6 @@ fn seed_with_status(
         parser: &parser,
         search_index: &search_index,
         blobs: &blob_store,
-        embedding_provider: None,
         vector_index: None,
     });
 
@@ -386,20 +384,6 @@ fn terminal_success_with_indexed_artifact() -> Result<(), Box<dyn std::error::Er
     )
 }
 
-struct FixedEmbeddingProvider;
-
-impl EmbeddingProvider for FixedEmbeddingProvider {
-    fn embed(
-        &self,
-        _request: EmbeddingRequest,
-    ) -> Result<EmbeddingResponse, maestria_ports::PortError> {
-        Ok(EmbeddingResponse {
-            vector: vec![0.0, 1.0],
-            model_version: "test-v1".to_string(),
-        })
-    }
-}
-
 #[test]
 fn vector_search_returns_grounded_nonliteral_match() -> Result<(), Box<dyn std::error::Error>> {
     let artifact_id = ArtifactId::new(800);
@@ -454,7 +438,6 @@ fn vector_search_returns_grounded_nonliteral_match() -> Result<(), Box<dyn std::
             model_version: "test-v1".to_string(),
         },
     }])?;
-    let provider = FixedEmbeddingProvider;
     let core = CoreServices::new(CorePorts {
         artifacts: &artifact_repo,
         chunks: &chunk_repo,
@@ -464,15 +447,21 @@ fn vector_search_returns_grounded_nonliteral_match() -> Result<(), Box<dyn std::
         parser: &parser,
         search_index: &search_index,
         blobs: &blob_store,
-        embedding_provider: Some(&provider),
         vector_index: Some(&vector_index),
     });
 
     let pack = core
-        .search(SearchInput {
-            query: "unrelated query".to_string(),
-            limit: 5,
-        })?
+        .search_with_vector(
+            SearchInput {
+                query: "unrelated query".to_string(),
+                limit: 5,
+            },
+            VectorSearchQuery {
+                vector: vec![0.0, 1.0],
+                limit: 5,
+                model_version: Some("test-v1".to_string()),
+            },
+        )?
         .pack;
     assert_eq!(pack.chunks.len(), 1);
     assert_eq!(pack.chunks[0].chunk.id, chunk_id);

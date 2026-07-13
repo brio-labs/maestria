@@ -50,7 +50,12 @@ impl VectorIndex for InMemoryVectorIndex {
         let q_norm = q_norm_sq.sqrt();
 
         for emb in guard.iter() {
-            if emb.vector.len() != query.vector.len() {
+            if query
+                .model_version
+                .as_deref()
+                .is_some_and(|version| emb.provenance.model_version != version)
+                || emb.vector.len() != query.vector.len()
+            {
                 continue;
             }
 

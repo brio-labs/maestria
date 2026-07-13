@@ -24,7 +24,6 @@ pub fn run(instance_dir: PathBuf, evidence_id: Option<u64>, chunk_id: Option<u64
         parser: &parser,
         search_index: &search_index,
         blobs: &blob_store,
-        embedding_provider: None,
         vector_index: None,
     });
 

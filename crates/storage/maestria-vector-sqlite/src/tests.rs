@@ -199,6 +199,7 @@ fn prevents_nan_scores_from_overflow() -> Result<(), PortError> {
     let hits = index.search_similar(VectorSearchQuery {
         vector: vec![huge_val, huge_val],
         limit: 1,
+        model_version: None,
     })?;
 
     assert_eq!(hits.len(), 1);

@@ -5,7 +5,7 @@ use maestria_domain::{
 };
 use maestria_governance::{ApprovalRequest, PolicyDecision, RiskClass, ScopeGuard};
 use maestria_ports::{ApprovalRecord, ApprovalRiskLevel, ApprovalStatus, VectorEmbedding};
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
 use tokio::sync::mpsc;
 
 // ── dispatch ──────────────────────────────────────────────────────────
@@ -237,13 +237,29 @@ impl EffectExecutionContext {
             };
             (chunk, content_hash)
         };
-        let response = match provider.embed(maestria_ports::EmbeddingRequest {
+        if let Err(error) = self.adapters.vector_index.delete_chunks(&[chunk.id]) {
+            tracing::warn!(
+                chunk_id = %request.chunk_id,
+                %error,
+                "failed to clear stale vector projection; preserving fallback"
+            );
+            return true;
+        }
+        let embedding_request = maestria_ports::EmbeddingRequest {
             text: chunk.text.clone(),
             model,
-        }) {
-            Ok(response) => response,
-            Err(error) => {
+        };
+        let provider = Arc::clone(provider);
+        let response = match tokio::task::spawn_blocking(move || provider.embed(embedding_request))
+            .await
+        {
+            Ok(Ok(response)) => response,
+            Ok(Err(error)) => {
                 tracing::warn!(chunk_id = %request.chunk_id, %error, "embedding provider failed; preserving fallback");
+                return true;
+            }
+            Err(error) => {
+                tracing::warn!(chunk_id = %request.chunk_id, %error, "embedding provider task failed; preserving fallback");
                 return true;
             }
         };

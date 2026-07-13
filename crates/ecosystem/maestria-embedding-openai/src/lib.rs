@@ -271,7 +271,8 @@ mod tests {
                     "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\n\r\n",
                     body.len()
                 )?;
-                stream.write_all(body)
+                stream.write_all(body)?;
+                stream.flush()
             })
         });
         let provider = LocalHttpEmbeddingProvider::new(

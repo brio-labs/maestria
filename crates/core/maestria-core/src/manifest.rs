@@ -1,5 +1,6 @@
 use crate::error::{CoreError, CoreResult};
 use std::path::PathBuf;
+use url::Url;
 
 const MANIFEST_SCHEMA_VERSION: u32 = 1;
 const DEFAULT_EXCLUSIONS: [&str; 11] = [
@@ -118,6 +119,7 @@ impl InstanceManifest {
         ) {
             (None, None, None, None) => None,
             (Some(enabled), Some(endpoint), Some(model), Some(dimensions)) => {
+                validate_embedding_endpoint(&endpoint)?;
                 if enabled && dimensions == 0 {
                     return Err(CoreError::InvalidInput {
                         message: "embedding_dimensions must be positive when enabled".to_string(),
@@ -238,6 +240,23 @@ fn parse_manifest_fields(contents: &str) -> CoreResult<ManifestFields> {
     Ok(fields)
 }
 
+fn validate_embedding_endpoint(endpoint: &str) -> CoreResult<()> {
+    let url = Url::parse(endpoint).map_err(|error| CoreError::InvalidInput {
+        message: format!("invalid embedding endpoint: {error}"),
+    })?;
+    let valid = url.scheme() == "http"
+        && matches!(url.host_str(), Some("127.0.0.1" | "::1" | "[::1]"))
+        && url.path() == "/v1/embeddings"
+        && url.query().is_none()
+        && url.fragment().is_none();
+    if !valid {
+        return Err(CoreError::InvalidInput {
+            message: "embedding endpoint must be an http loopback /v1/embeddings URL".to_string(),
+        });
+    }
+    Ok(())
+}
+
 fn lexical_normalize(path: &std::path::Path) -> PathBuf {
     let mut normalized = PathBuf::new();
     for component in path.components() {
@@ -300,6 +319,16 @@ mod tests {
             InstanceManifest::decode(&manifest.encode()).expect("manifest is valid"),
             manifest
         );
+    }
+
+    #[test]
+    fn embedding_configuration_rejects_remote_endpoint() {
+        let contents = "schema_version=1\nroot=/tmp/instance\nread_root=/tmp/instance\n\
+            excluded_pattern=.env\nembedding_enabled=true\n\
+            embedding_endpoint=https://example.com/v1/embeddings\n\
+            embedding_model=remote\nembedding_dimensions=3\n";
+        let result = InstanceManifest::decode(contents);
+        assert!(matches!(result, Err(CoreError::InvalidInput { .. })));
     }
 
     #[test]

@@ -4,7 +4,9 @@ use maestria_core::{CorePorts, CoreServices, InstanceService, SearchInput};
 use maestria_domain::{DomainInput, IndexStatus, LogicalTick, SearchExecutedInput};
 use maestria_governance::AutonomyProfile;
 use maestria_parsers::ParserRegistry;
-use maestria_ports::{EmbeddingProvider, FullTextIndex, IndexedCard};
+use maestria_ports::{
+    EmbeddingProvider, EmbeddingRequest, FullTextIndex, IndexedCard, VectorSearchQuery,
+};
 use maestria_search_tantivy::TantivyFullTextIndex;
 use maestria_storage_sqlite::SqliteStore;
 use maestria_vector_sqlite::SqliteVectorIndex;
@@ -65,6 +67,19 @@ fn compute_search_pack(
         search_index.complete_card_rebuild()?;
     }
     let parser = ParserRegistry::with_defaults();
+    let vector_query = embedding_provider.as_deref().and_then(|provider| {
+        provider
+            .embed(EmbeddingRequest {
+                text: query.to_string(),
+                model: "query".to_string(),
+            })
+            .ok()
+            .map(|response| VectorSearchQuery {
+                vector: response.vector,
+                limit: limit as u32,
+                model_version: Some(response.model_version),
+            })
+    });
     let core = CoreServices::new(CorePorts {
         artifacts: &sqlite_store,
         chunks: &sqlite_store,
@@ -74,15 +89,17 @@ fn compute_search_pack(
         parser: &parser,
         search_index: &search_index,
         blobs: &blob_store,
-        embedding_provider: embedding_provider.as_deref(),
         vector_index: Some(&vector_index),
     });
-    Ok(core
-        .search(SearchInput {
-            query: query.to_string(),
-            limit,
-        })?
-        .pack)
+    let input = SearchInput {
+        query: query.to_string(),
+        limit,
+    };
+    let output = match vector_query {
+        Some(vector_query) => core.search_with_vector(input, vector_query)?,
+        None => core.search(input)?,
+    };
+    Ok(output.pack)
 }
 
 async fn persist_search_audit(

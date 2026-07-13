@@ -566,6 +566,7 @@ pub fn assert_vector_index_contract(index: &impl VectorIndex) {
         .search_similar(VectorSearchQuery {
             vector: vec![1.0, 0.0],
             limit: 4,
+            model_version: None,
         })
         .expect("equal-score search");
     assert_eq!(equal_score_hits[0].chunk_id, ChunkId::new(1));
@@ -580,6 +581,7 @@ pub fn assert_vector_index_contract(index: &impl VectorIndex) {
         .search_similar(VectorSearchQuery {
             vector: vec![0.0, 0.0],
             limit: 10,
+            model_version: None,
         })
         .expect("all-zero query search");
     assert!(
@@ -605,6 +607,7 @@ pub fn assert_vector_index_contract(index: &impl VectorIndex) {
         .search_similar(VectorSearchQuery {
             vector: vec![1.0, 0.0],
             limit: 10,
+            model_version: None,
         })
         .expect("replacement search");
     let replaced = replacement_hits
@@ -613,7 +616,10 @@ pub fn assert_vector_index_contract(index: &impl VectorIndex) {
         .collect::<Vec<_>>();
     assert_eq!(replaced.len(), 1);
     assert_eq!(replaced[0].score, 1.0);
-
+    verify_vector_validation(index, &prov);
+    verify_vector_lifecycle(index, prov);
+}
+fn verify_vector_validation(index: &impl VectorIndex, prov: &impl Fn() -> EmbeddingProvenance) {
     assert!(matches!(
         index.index_embeddings(vec![VectorEmbedding {
             chunk_id: ChunkId::new(9),
@@ -626,33 +632,32 @@ pub fn assert_vector_index_contract(index: &impl VectorIndex) {
         index.search_similar(VectorSearchQuery {
             vector: vec![f32::NAN],
             limit: 1,
+            model_version: None,
         }),
         Err(PortError::InvalidInput { .. })
     ));
-    // Validate query vector before honoring limit=0.
     assert!(matches!(
         index.search_similar(VectorSearchQuery {
             vector: vec![f32::NAN],
             limit: 0,
+            model_version: None,
         }),
         Err(PortError::InvalidInput { .. })
     ));
-    verify_vector_lifecycle(index, prov);
 }
-
 fn verify_vector_lifecycle(index: &impl VectorIndex, prov: impl Fn() -> EmbeddingProvenance) {
     index.clear().expect("clear index");
     let hits_after_clear = index
         .search_similar(VectorSearchQuery {
             vector: vec![1.0, 0.0],
             limit: 10,
+            model_version: None,
         })
         .expect("search after clear");
     assert!(
         hits_after_clear.is_empty(),
         "index must be empty after clear"
     );
-
     index.clear().expect("clear index again");
 
     index
@@ -669,11 +674,11 @@ fn verify_vector_lifecycle(index: &impl VectorIndex, prov: impl Fn() -> Embeddin
             },
         ])
         .expect("rebuild index");
-
     let hits_after_rebuild = index
         .search_similar(VectorSearchQuery {
             vector: vec![1.0, 0.0],
             limit: 10,
+            model_version: None,
         })
         .expect("search after rebuild");
     assert_eq!(
@@ -690,6 +695,7 @@ fn verify_vector_lifecycle(index: &impl VectorIndex, prov: impl Fn() -> Embeddin
         .search_similar(VectorSearchQuery {
             vector: vec![0.0, 1.0],
             limit: 10,
+            model_version: None,
         })
         .expect("search after delete");
     assert_eq!(
@@ -710,6 +716,7 @@ fn verify_vector_lifecycle(index: &impl VectorIndex, prov: impl Fn() -> Embeddin
         .search_similar(VectorSearchQuery {
             vector: vec![1.0, 0.0],
             limit: 10,
+            model_version: None,
         })
         .expect("search after idempotent delete");
     assert_eq!(

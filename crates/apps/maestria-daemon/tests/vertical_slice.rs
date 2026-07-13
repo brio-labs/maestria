@@ -242,7 +242,6 @@ fn search_and_open_evidence_after_restart(
         parser: &parser,
         search_index: &search,
         blobs: &blobs,
-        embedding_provider: None,
         vector_index: None,
     });
 
