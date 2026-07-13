@@ -383,6 +383,8 @@ mod runtime_card_index_tests;
 #[cfg(test)]
 mod runtime_evidence_tests;
 #[cfg(test)]
+mod runtime_graph_tests;
+#[cfg(test)]
 mod runtime_harness_tests;
 #[cfg(test)]
 mod runtime_parse_tests;

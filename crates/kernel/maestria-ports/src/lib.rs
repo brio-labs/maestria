@@ -27,5 +27,8 @@ pub use in_memory::{
 #[cfg(any(test, feature = "contract-tests"))]
 pub mod contract_tests;
 
+#[cfg(any(test, feature = "contract-tests"))]
+pub mod graph_contract_tests;
+
 #[cfg(test)]
 mod tests;

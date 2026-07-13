@@ -13,6 +13,7 @@ pub(super) fn search<'a>(
     ports: &CorePorts<'a>,
     input: SearchInput,
     vector_query: Option<VectorSearchQuery>,
+    graph_config: Option<crate::types::GraphConfig>,
 ) -> CoreResult<SearchOutput> {
     let cards = search_cards(ports, &input.query, input.limit)?;
     let (mut chunks, mut evidence_ids) =
@@ -29,16 +30,19 @@ pub(super) fn search<'a>(
         evidence_ids.push(evidence_id);
         chunks.push(chunk);
     }
+    let mut pack = EvidencePack {
+        query: input.query.clone(),
+        cards,
+        chunks,
+        evidence_ids,
+    };
 
-    Ok(SearchOutput {
-        pack: EvidencePack {
-            query: input.query,
-            cards,
-            chunks,
-            evidence_ids,
-        },
-    })
+    if let Some(config) = graph_config {
+        pack = crate::graph_retrieval::expand_graph(ports, pack, input.limit, &config)?;
+    }
+    Ok(SearchOutput { pack })
 }
+
 fn search_cards(
     ports: &CorePorts<'_>,
     query: &str,
@@ -272,7 +276,7 @@ pub(super) fn open_chunk_evidence<'a>(
         },
     )
 }
-fn verify_source_snapshot(ports: &CorePorts<'_>, evidence: &Evidence) -> CoreResult<()> {
+pub(super) fn verify_source_snapshot(ports: &CorePorts<'_>, evidence: &Evidence) -> CoreResult<()> {
     let Evidence {
         kind:
             EvidenceKind::FileSpan {

@@ -3,9 +3,11 @@ use maestria_blob_fs::FsBlobStore;
 use maestria_core::{CorePorts, CoreServices, InstanceService, SearchInput};
 use maestria_domain::{DomainInput, IndexStatus, LogicalTick, SearchExecutedInput};
 use maestria_governance::AutonomyProfile;
+use maestria_graph_sqlite::SqliteGraphIndex;
 use maestria_parsers::ParserRegistry;
 use maestria_ports::{
-    EmbeddingProvider, EmbeddingRequest, FullTextIndex, IndexedCard, VectorIndex, VectorSearchQuery,
+    EmbeddingProvider, EmbeddingRequest, FullTextIndex, GraphIndex, IndexedCard, VectorIndex,
+    VectorSearchQuery,
 };
 use maestria_search_tantivy::TantivyFullTextIndex;
 use maestria_storage_sqlite::SqliteStore;
@@ -60,6 +62,13 @@ fn compute_search_pack(
     } else {
         None
     };
+    let graph_index = match SqliteGraphIndex::open(layout.graph_index_dir.join("projection.db")) {
+        Ok(index) => Some(index),
+        Err(error) => {
+            eprintln!("graph projection unavailable; using retrieval-only search: {error}");
+            None
+        }
+    };
     let search_index = TantivyFullTextIndex::open(&layout.full_text_index_dir)?;
     if search_index.needs_card_rebuild()? {
         let state = maestria_daemon::load_kernel_state(layout)?;
@@ -108,6 +117,7 @@ fn compute_search_pack(
         search_index: &search_index,
         blobs: &blob_store,
         vector_index: vector_index.as_ref().map(|index| index as &dyn VectorIndex),
+        graph_index: graph_index.as_ref().map(|index| index as &dyn GraphIndex),
     });
     let input = SearchInput {
         query: query.to_string(),

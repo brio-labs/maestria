@@ -113,6 +113,36 @@ fn assert_relation_created_with_valid_evidence(state: &mut KernelState) -> Resul
     );
     Ok(())
 }
+fn assert_relation_created_without_evidence_skips_graph_update(
+    state: &mut KernelState,
+) -> Result<(), DomainError> {
+    let relation_output = state.apply_input(DomainInput::CreateRelation(CreateRelationInput {
+        relation_id: RelationId::new(71),
+        source: RelationEndpoint::Claim(ClaimId::new(20)),
+        kind: RelationKind::Supports,
+        target: RelationEndpoint::Artifact(ArtifactId::new(1)),
+        evidence_id: None,
+        confidence_milli: 875,
+    }))?;
+    assert_eq!(
+        state.relations.get(&RelationId::new(71)),
+        Some(&Relation {
+            id: RelationId::new(71),
+            source: RelationEndpoint::Claim(ClaimId::new(20)),
+            kind: RelationKind::Supports,
+            target: RelationEndpoint::Artifact(ArtifactId::new(1)),
+            evidence_id: None,
+            confidence_milli: 875,
+        })
+    );
+    assert_eq!(
+        relation_output.effects,
+        vec![MaestriaEffect::PersistEvent {
+            envelope: relation_output.events[0].clone(),
+        }]
+    );
+    Ok(())
+}
 
 fn assert_memory_candidate_created_with_evidence(
     state: &mut KernelState,
@@ -182,6 +212,7 @@ fn relation_and_memory_candidates_are_domain_owned_and_evidence_bound() -> Resul
         })
     );
 
+    assert_relation_created_without_evidence_skips_graph_update(&mut state)?;
     assert_relation_created_with_valid_evidence(&mut state)?;
 
     assert!(matches!(

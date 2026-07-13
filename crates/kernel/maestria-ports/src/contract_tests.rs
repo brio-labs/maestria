@@ -2,10 +2,8 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use super::*;
-use maestria_domain::{
-    ClaimId, ContentRange, EventId, EvidenceKind, LogicalTick, RelationKind, SequenceNumber,
-    ValidationReportId,
-};
+use maestria_domain::ValidationReportId;
+use maestria_domain::{ClaimId, ContentRange, EventId, EvidenceKind, LogicalTick, SequenceNumber};
 
 pub fn sample_artifact(id: u64) -> Artifact {
     Artifact {
@@ -819,64 +817,6 @@ pub async fn assert_harness_adapter_round_trip(harness: &impl HarnessAdapter) {
             .await,
         Err(PortError::InvalidInput { .. })
     ));
-}
-
-pub fn assert_graph_index_contract(index: &impl GraphIndex) {
-    let artifact_ep = RelationEndpoint::Artifact(ArtifactId::new(1));
-    let card_ep = RelationEndpoint::Card(CardId::new(2));
-    let claim_ep = RelationEndpoint::Claim(ClaimId::new(3));
-
-    let mut rel3 = Relation {
-        id: RelationId::new(3),
-        source: artifact_ep,
-        target: card_ep,
-        kind: RelationKind::Contains,
-        evidence_id: None,
-        confidence_milli: 800,
-    };
-    let rel1 = Relation {
-        id: RelationId::new(1),
-        source: card_ep,
-        target: claim_ep,
-        kind: RelationKind::Supports,
-        evidence_id: Some(EvidenceId::new(4)),
-        confidence_milli: 900,
-    };
-    let rel2 = Relation {
-        id: RelationId::new(2),
-        source: artifact_ep,
-        target: claim_ep,
-        kind: RelationKind::Contradicts,
-        evidence_id: None,
-        confidence_milli: 500,
-    };
-
-    // Insert out of order
-    index.insert_relation(rel3.clone()).expect("insert 3");
-    index.insert_relation(rel1.clone()).expect("insert 1");
-    index.insert_relation(rel2.clone()).expect("insert 2");
-
-    // Replace 3
-    rel3.confidence_milli = 950;
-    index.insert_relation(rel3.clone()).expect("replace 3");
-
-    // Query for artifact_ep, which is in rel3 (source) and rel2 (source)
-    // Must be returned in order of RelationId: rel2 then rel3
-    let artifact_rels = index
-        .get_relations_for(artifact_ep)
-        .expect("get relations for artifact");
-    assert_eq!(artifact_rels.len(), 2);
-    assert_eq!(artifact_rels[0], rel2);
-    assert_eq!(artifact_rels[1], rel3);
-
-    // Query for claim_ep, which is in rel1 (target) and rel2 (target)
-    // Must be returned in order of RelationId: rel1 then rel2
-    let claim_rels = index
-        .get_relations_for(claim_ep)
-        .expect("get relations for claim");
-    assert_eq!(claim_rels.len(), 2);
-    assert_eq!(claim_rels[0], rel1);
-    assert_eq!(claim_rels[1], rel2);
 }
 
 pub fn assert_web_fetcher_contract(

@@ -3,7 +3,7 @@ use std::{fmt, future::Future, path::PathBuf, pin::Pin, time::Duration};
 use maestria_domain::{
     ApprovalId, Artifact, ArtifactId, BlobId, Card, CardId, Chunk, ChunkId, ClaimId,
     CreateCardInput, DomainEventEnvelope, Evidence, EvidenceId, LogicalTick, MemoryCandidateId,
-    Relation, RelationEndpoint, ScopeId, TaskId,
+    Relation, RelationEndpoint, RelationId, ScopeId, TaskId,
 };
 
 pub use maestria_domain::HarnessRunId;
@@ -337,6 +337,15 @@ pub trait HarnessAdapter: Send + Sync {
 pub trait GraphIndex: Send + Sync {
     fn insert_relation(&self, relation: Relation) -> Result<(), PortError>;
     fn get_relations_for(&self, endpoint: RelationEndpoint) -> Result<Vec<Relation>, PortError>;
+    fn delete_relations(&self, relation_ids: &[RelationId]) -> Result<(), PortError>;
+    fn clear(&self) -> Result<(), PortError>;
+    fn rebuild(&self, relations: Vec<Relation>) -> Result<(), PortError> {
+        self.clear()?;
+        for relation in relations {
+            self.insert_relation(relation)?;
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

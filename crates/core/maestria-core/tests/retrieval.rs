@@ -1,15 +1,16 @@
 use maestria_core::{
-    CorePorts, CoreServices, OpenChunkEvidenceInput, OpenEvidenceInput, SearchInput,
+    CorePorts, CoreServices, GraphConfig, OpenChunkEvidenceInput, OpenEvidenceInput, SearchInput,
 };
 use maestria_domain::{
     Artifact, ArtifactId, Card, CardId, Chunk, ChunkId, Evidence, EvidenceId, EvidenceKind,
-    IndexStatus,
+    IndexStatus, Relation, RelationEndpoint, RelationId, RelationKind,
 };
 use maestria_ports::{
     ArtifactRepository, BlobStore, CardRepository, ChunkRepository, EvidenceRepository,
-    FullTextIndex, InMemoryArtifactRepository, InMemoryBlobStore, InMemoryCardRepository,
-    InMemoryChunkRepository, InMemoryEventLog, InMemoryEvidenceRepository, InMemoryFullTextIndex,
-    InMemoryParser, InMemoryVectorIndex, IndexedCard, IndexedChunk, VectorIndex, VectorSearchQuery,
+    FullTextIndex, GraphIndex, InMemoryArtifactRepository, InMemoryBlobStore,
+    InMemoryCardRepository, InMemoryChunkRepository, InMemoryEventLog, InMemoryEvidenceRepository,
+    InMemoryFullTextIndex, InMemoryGraphIndex, InMemoryParser, InMemoryVectorIndex, IndexedCard,
+    IndexedChunk, VectorIndex, VectorSearchQuery,
 };
 
 /// Seed an artifact, chunks, evidence, cards, and full-text entries directly through
@@ -70,6 +71,173 @@ fn assert_directly_seeded_retrieval(
     assert_eq!(chunk_opened.evidence.id, evidence_id_0);
 
     Ok(())
+}
+
+struct GraphFixture {
+    artifacts: InMemoryArtifactRepository,
+    chunks: InMemoryChunkRepository,
+    cards: InMemoryCardRepository,
+    evidence: InMemoryEvidenceRepository,
+    blobs: InMemoryBlobStore,
+    events: InMemoryEventLog,
+    parser: InMemoryParser,
+    search: InMemoryFullTextIndex,
+    graph: InMemoryGraphIndex,
+    a: ArtifactId,
+    b: ArtifactId,
+    c: ArtifactId,
+    d: ArtifactId,
+    e: ArtifactId,
+    f: ArtifactId,
+    e_a: EvidenceId,
+    e_b: EvidenceId,
+    e_e: EvidenceId,
+}
+
+impl GraphFixture {
+    fn new() -> Result<Self, Box<dyn std::error::Error>> {
+        let artifacts = InMemoryArtifactRepository::new();
+        let chunks = InMemoryChunkRepository::new();
+        let evidence = InMemoryEvidenceRepository::new();
+        let blobs = InMemoryBlobStore::new();
+        let events = InMemoryEventLog::new();
+        let parser = InMemoryParser::new();
+        let search = InMemoryFullTextIndex::new();
+        let graph = InMemoryGraphIndex::new();
+        let blob_id = blobs.put(b"source".to_vec())?;
+        let content_hash = maestria_core::content_hash(b"source");
+        let seed =
+            |id| seed_graph_artifact(&artifacts, &chunks, &evidence, blob_id, &content_hash, id);
+        let (a, seed_chunk, e_a) = seed(1)?;
+        let (b, _, e_b) = seed(2)?;
+        let (c, _, _) = seed(3)?;
+        let (d, _, _) = seed(4)?;
+        let (e, _, e_e) = seed(5)?;
+        let (f, _, _) = seed(6)?;
+        search.index_chunks(vec![IndexedChunk {
+            artifact_id: a,
+            chunk_id: seed_chunk,
+            text: "seed match".to_string(),
+        }])?;
+        let fixture = Self {
+            artifacts,
+            chunks,
+            cards: InMemoryCardRepository::new(),
+            evidence,
+            blobs,
+            events,
+            parser,
+            search,
+            graph,
+            a,
+            b,
+            c,
+            d,
+            e,
+            f,
+            e_a,
+            e_b,
+            e_e,
+        };
+        fixture.insert_relations()?;
+        Ok(fixture)
+    }
+
+    fn insert_relations(&self) -> Result<(), Box<dyn std::error::Error>> {
+        let relation = |id, source, target, evidence_id, confidence_milli| Relation {
+            id: RelationId::new(id),
+            source: RelationEndpoint::Artifact(source),
+            target: RelationEndpoint::Artifact(target),
+            kind: RelationKind::Contains,
+            evidence_id,
+            confidence_milli,
+        };
+        for relation in [
+            relation(1, self.a, self.b, Some(self.e_a), 1000),
+            relation(2, self.b, self.c, Some(self.e_b), 1000),
+            relation(3, self.a, self.d, None, 1000),
+            relation(4, self.c, self.e, Some(self.e_a), 1000),
+            relation(5, self.e, self.a, Some(self.e_e), 1000),
+            relation(6, self.a, self.f, Some(self.e_a), 500),
+        ] {
+            self.graph.insert_relation(relation)?;
+        }
+        Ok(())
+    }
+
+    fn core(&self, config: GraphConfig) -> CoreServices<'_> {
+        CoreServices::new(CorePorts {
+            artifacts: &self.artifacts,
+            chunks: &self.chunks,
+            cards: &self.cards,
+            evidence: &self.evidence,
+            events: &self.events,
+            parser: &self.parser,
+            search_index: &self.search,
+            blobs: &self.blobs,
+            vector_index: None,
+            graph_index: Some(&self.graph),
+        })
+        .with_graph_config(config)
+    }
+
+    fn core_without_graph(&self) -> CoreServices<'_> {
+        CoreServices::new(CorePorts {
+            artifacts: &self.artifacts,
+            chunks: &self.chunks,
+            cards: &self.cards,
+            evidence: &self.evidence,
+            events: &self.events,
+            parser: &self.parser,
+            search_index: &self.search,
+            blobs: &self.blobs,
+            vector_index: None,
+            graph_index: None,
+        })
+    }
+}
+
+fn seed_graph_artifact(
+    artifacts: &InMemoryArtifactRepository,
+    chunks: &InMemoryChunkRepository,
+    evidence: &InMemoryEvidenceRepository,
+    blob_id: maestria_domain::BlobId,
+    content_hash: &str,
+    id: u64,
+) -> Result<(ArtifactId, ChunkId, EvidenceId), Box<dyn std::error::Error>> {
+    let artifact_id = ArtifactId::new(id);
+    let chunk_id = ChunkId::new(id + 100);
+    let evidence_id = maestria_domain::evidence_id_for(artifact_id, 0);
+    artifacts.put(Artifact {
+        id: artifact_id,
+        title: format!("art_{id}"),
+        chunk_ids: [chunk_id].into(),
+        card_ids: Default::default(),
+        claim_ids: Default::default(),
+        evidence_ids: [evidence_id].into(),
+        index_status: IndexStatus::Indexed,
+        content_hash: Some(content_hash.to_string()),
+    })?;
+    chunks.put(Chunk {
+        id: chunk_id,
+        artifact_id,
+        order: 0,
+        text: "token".to_string(),
+    })?;
+    evidence.put(Evidence {
+        id: evidence_id,
+        artifact_id,
+        claim_id: None,
+        kind: EvidenceKind::FileSpan {
+            path: "file".to_string(),
+            range: maestria_domain::ContentRange { start: 1, end: 1 },
+            content_hash: content_hash.to_string(),
+            snapshot: Some(blob_id),
+        },
+        excerpt: "source".to_string(),
+        observed_at: maestria_domain::LogicalTick::new(1),
+    })?;
+    Ok((artifact_id, chunk_id, evidence_id))
 }
 
 #[test]
@@ -230,6 +398,7 @@ fn seed_with_status(
         search_index: &search_index,
         blobs: &blob_store,
         vector_index: None,
+        graph_index: None,
     });
 
     f(
@@ -450,6 +619,7 @@ fn vector_search_returns_grounded_nonliteral_match() -> Result<(), Box<dyn std::
         search_index: &search_index,
         blobs: &blob_store,
         vector_index: Some(&vector_index),
+        graph_index: None,
     });
 
     let pack = core
@@ -471,5 +641,65 @@ fn vector_search_returns_grounded_nonliteral_match() -> Result<(), Box<dyn std::
     assert_eq!(pack.chunks[0].chunk.id, chunk_id);
     assert_eq!(pack.chunks[0].evidence.id, evidence_id);
     assert_eq!(pack.evidence_ids, vec![evidence_id]);
+    Ok(())
+}
+
+#[test]
+fn test_graph_retrieval_integration() -> Result<(), Box<dyn std::error::Error>> {
+    let fixture = GraphFixture::new()?;
+    let pack = fixture
+        .core(GraphConfig {
+            max_depth: 2,
+            max_results: 10,
+        })
+        .search(SearchInput {
+            query: "seed match".to_string(),
+            limit: 10,
+        })?
+        .pack;
+
+    let chunk_artifacts: Vec<_> = pack.chunks.iter().map(|hit| hit.artifact.id).collect();
+    assert_eq!(chunk_artifacts.len(), 5);
+    assert!(chunk_artifacts.contains(&fixture.a));
+    assert!(chunk_artifacts.contains(&fixture.b));
+    assert!(chunk_artifacts.contains(&fixture.c));
+    assert!(!chunk_artifacts.contains(&fixture.d));
+    assert!(chunk_artifacts.contains(&fixture.e));
+    assert!(chunk_artifacts.contains(&fixture.f));
+    let score_b = pack
+        .chunks
+        .iter()
+        .find(|hit| hit.artifact.id == fixture.b)
+        .map(|hit| hit.score)
+        .ok_or("missing B graph hit")?;
+    let score_f = pack
+        .chunks
+        .iter()
+        .find(|hit| hit.artifact.id == fixture.f)
+        .map(|hit| hit.score)
+        .ok_or("missing F graph hit")?;
+    assert!(score_b > score_f);
+
+    let capped = fixture
+        .core(GraphConfig {
+            max_depth: 3,
+            max_results: 2,
+        })
+        .search(SearchInput {
+            query: "seed match".to_string(),
+            limit: 10,
+        })?
+        .pack;
+    assert_eq!(capped.chunks.len(), 3);
+
+    let fallback = fixture
+        .core_without_graph()
+        .search(SearchInput {
+            query: "seed match".to_string(),
+            limit: 10,
+        })?
+        .pack;
+    assert_eq!(fallback.chunks.len(), 1);
+    assert_eq!(fallback.chunks[0].artifact.id, fixture.a);
     Ok(())
 }

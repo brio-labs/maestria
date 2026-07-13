@@ -1,4 +1,5 @@
 use super::contract_tests::*;
+use super::graph_contract_tests::assert_graph_index_contract;
 use super::*;
 use maestria_domain::{EvidenceKind, LogicalTick, ValidationReportId};
 
@@ -238,4 +239,88 @@ async fn in_memory_harness_adapter_satisfies_contract() {
 #[test]
 fn in_memory_graph_index_satisfies_contract() {
     assert_graph_index_contract(&InMemoryGraphIndex::new());
+}
+
+#[test]
+fn in_memory_graph_index_clear_removes_all_relations() {
+    let index = InMemoryGraphIndex::new();
+    let ep = RelationEndpoint::Artifact(maestria_domain::ArtifactId::new(1));
+    let rel = maestria_domain::Relation {
+        id: maestria_domain::RelationId::new(1),
+        source: ep,
+        target: RelationEndpoint::Card(maestria_domain::CardId::new(2)),
+        kind: maestria_domain::RelationKind::Contains,
+        evidence_id: Some(maestria_domain::EvidenceId::new(3)),
+        confidence_milli: 800,
+    };
+    index.insert_relation(rel.clone()).expect("graph operation");
+    assert_eq!(
+        index.get_relations_for(ep).expect("graph operation").len(),
+        1
+    );
+
+    index.clear().expect("graph operation");
+    assert!(
+        index
+            .get_relations_for(ep)
+            .expect("graph operation")
+            .is_empty()
+    );
+}
+
+#[test]
+fn in_memory_graph_index_delete_relations_ignores_empty_list() {
+    let index = InMemoryGraphIndex::new();
+    let ep = RelationEndpoint::Artifact(maestria_domain::ArtifactId::new(1));
+    let rel = maestria_domain::Relation {
+        id: maestria_domain::RelationId::new(1),
+        source: ep,
+        target: RelationEndpoint::Card(maestria_domain::CardId::new(2)),
+        kind: maestria_domain::RelationKind::Contains,
+        evidence_id: Some(maestria_domain::EvidenceId::new(3)),
+        confidence_milli: 800,
+    };
+    index.insert_relation(rel.clone()).expect("graph operation");
+
+    index.delete_relations(&[]).expect("graph operation");
+    assert_eq!(
+        index.get_relations_for(ep).expect("graph operation").len(),
+        1
+    );
+}
+
+#[test]
+fn in_memory_graph_index_rebuild_preserves_new_relations() {
+    let index = InMemoryGraphIndex::new();
+    let ep = RelationEndpoint::Artifact(maestria_domain::ArtifactId::new(1));
+    let rel1 = maestria_domain::Relation {
+        id: maestria_domain::RelationId::new(1),
+        source: ep,
+        target: RelationEndpoint::Card(maestria_domain::CardId::new(2)),
+        kind: maestria_domain::RelationKind::Contains,
+        evidence_id: Some(maestria_domain::EvidenceId::new(3)),
+        confidence_milli: 800,
+    };
+    let rel2 = maestria_domain::Relation {
+        id: maestria_domain::RelationId::new(2),
+        source: ep,
+        target: RelationEndpoint::Claim(maestria_domain::ClaimId::new(4)),
+        kind: maestria_domain::RelationKind::Supports,
+        evidence_id: Some(maestria_domain::EvidenceId::new(5)),
+        confidence_milli: 900,
+    };
+
+    index
+        .insert_relation(rel1.clone())
+        .expect("graph operation");
+    assert_eq!(
+        index.get_relations_for(ep).expect("graph operation").len(),
+        1
+    );
+
+    index.rebuild(vec![rel2.clone()]).expect("graph operation");
+
+    let current = index.get_relations_for(ep).expect("graph operation");
+    assert_eq!(current.len(), 1);
+    assert_eq!(current[0], rel2);
 }
