@@ -373,12 +373,12 @@ impl KernelState {
         &mut self,
         task_id: Option<TaskId>,
     ) -> Result<(), DomainError> {
-        if let Some(task_id) = task_id {
-            if !self.tasks.contains_key(&task_id) {
-                return Err(DomainError::MissingTask { id: task_id });
+        match task_id {
+            Some(id) if !self.tasks.contains_key(&id) => {
+                return Err(DomainError::MissingTask { id });
             }
+            _ => Ok(()),
         }
-        Ok(())
     }
 
     pub(crate) fn apply_approval_recorded(
@@ -392,16 +392,24 @@ impl KernelState {
             .tasks
             .get_mut(&task_id)
             .ok_or(DomainError::MissingTask { id: task_id })?;
-        // Legacy events (no status fields) only record identity.
-        // Authoritative events must have matching current status.
-        if let (Some(from), Some(to)) = (from_status, to_status) {
-            if from != to && task.status != from {
-                return Err(DomainError::InternalInvariantViolation {
-                    detail: "approval replay: task status does not match from_status",
-                });
+        // Legacy events (None/None) only record identity without status mutation.
+        // Authoritative events (Some/Some) must have matching current status.
+        match (from_status, to_status) {
+            (None, None) => {}
+            (Some(from), Some(to)) => {
+                if task.status != from {
+                    return Err(DomainError::InternalInvariantViolation {
+                        detail: "approval replay: task status does not match from_status",
+                    });
+                }
+                if from != to {
+                    task.status = to;
+                }
             }
-            if from != to {
-                task.status = to;
+            _ => {
+                return Err(DomainError::InternalInvariantViolation {
+                    detail: "approval replay: mixed Some/None from/to status fields",
+                });
             }
         }
         self.resolved_approvals.insert(approval_id);

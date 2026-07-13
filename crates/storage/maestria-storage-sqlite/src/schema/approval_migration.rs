@@ -47,13 +47,7 @@ pub(crate) fn migrate_approval_recorded_payloads(connection: &Connection) -> Res
         let approved: bool = extract_json_bool(payload, "approved")?;
         let status = if approved { "approved" } else { "denied" };
 
-        let (from_status, to_status) = if approved {
-            ("draft", "active")
-        } else {
-            ("draft", "draft")
-        };
-
-        let new_payload = migrate_approval_payload_json(payload, new_id, from_status, to_status)?;
+        let new_payload = migrate_approval_payload_json(payload, new_id)?;
         connection
             .execute(
                 "UPDATE domain_events SET payload_json = ?1 WHERE id = ?2",
@@ -77,19 +71,15 @@ pub(crate) fn migrate_approval_recorded_payloads(connection: &Connection) -> Res
 pub(crate) fn migrate_approval_payload_json(
     payload: &str,
     new_id: i64,
-    from_status: &str,
-    to_status: &str,
 ) -> Result<String, PortError> {
     let marker = "\"approval_recorded\"";
     let pos = payload.find(marker).ok_or_else(|| PortError::Internal {
         message: "malformed approval_recorded legacy payload".to_string(),
     })?;
     let insert_at = pos + marker.len();
-    let mut result = String::with_capacity(payload.len() + 80);
+    let mut result = String::with_capacity(payload.len() + 30);
     result.push_str(&payload[..insert_at]);
-    result.push_str(&format!(
-        ",\"approval_id\":{new_id},\"from_status\":\"{from_status}\",\"to_status\":\"{to_status}\""
-    ));
+    result.push_str(&format!(",\"approval_id\":{new_id}"));
     result.push_str(&payload[insert_at..]);
     Ok(result)
 }
