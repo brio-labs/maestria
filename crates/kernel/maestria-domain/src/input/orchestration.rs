@@ -247,15 +247,6 @@ impl KernelState {
             }
         }
 
-        if input.exit_code != 0
-            && let Some(task_id) = task_id
-        {
-            generated.push(self.emit_event(DomainEvent::ApprovalRecorded {
-                task_id,
-                approved: false,
-            }));
-        }
-
         Ok(generated)
     }
 
@@ -263,6 +254,11 @@ impl KernelState {
         &mut self,
         input: ApprovalDecision,
     ) -> Result<Vec<DomainEventEnvelope>, DomainError> {
+        // Idempotency: already-resolved approvals produce no new events.
+        if self.resolved_approvals.contains(&input.approval_id) {
+            return Ok(vec![]);
+        }
+
         let task = self
             .tasks
             .get(&input.task_id)
@@ -290,9 +286,11 @@ impl KernelState {
             }));
         }
         emitted.push(self.emit_event(DomainEvent::ApprovalRecorded {
+            approval_id: input.approval_id,
             task_id: input.task_id,
             approved: input.approved,
         }));
+        self.resolved_approvals.insert(input.approval_id);
         Ok(emitted)
     }
 
@@ -345,18 +343,23 @@ impl KernelState {
         &mut self,
         task_id: Option<TaskId>,
     ) -> Result<(), DomainError> {
-        if let Some(task_id) = task_id
-            && !self.tasks.contains_key(&task_id)
-        {
-            return Err(DomainError::MissingTask { id: task_id });
+        if let Some(task_id) = task_id {
+            if !self.tasks.contains_key(&task_id) {
+                return Err(DomainError::MissingTask { id: task_id });
+            }
         }
         Ok(())
     }
 
-    pub(crate) fn apply_approval_recorded(&mut self, task_id: TaskId) -> Result<(), DomainError> {
+    pub(crate) fn apply_approval_recorded(
+        &mut self,
+        approval_id: ApprovalId,
+        task_id: TaskId,
+    ) -> Result<(), DomainError> {
         if !self.tasks.contains_key(&task_id) {
             return Err(DomainError::MissingTask { id: task_id });
         }
+        self.resolved_approvals.insert(approval_id);
         Ok(())
     }
 

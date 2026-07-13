@@ -1,7 +1,7 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::{IdAllocator, PortError};
-use maestria_domain::{ClaimId, MemoryCandidateId};
+use maestria_domain::{ApprovalId, ClaimId, MemoryCandidateId};
 
 /// In-memory [`IdAllocator`] for tests and contract verification.
 ///
@@ -11,6 +11,7 @@ use maestria_domain::{ClaimId, MemoryCandidateId};
 pub struct InMemoryIdAllocator {
     claim_counter: AtomicU64,
     candidate_counter: AtomicU64,
+    approval_counter: AtomicU64,
 }
 
 impl InMemoryIdAllocator {
@@ -23,14 +24,18 @@ impl InMemoryIdAllocator {
         self.claim_counter = AtomicU64::new(next);
         self
     }
-
     /// Seed the candidate counter for tests that need predictable IDs.
     pub fn with_candidate_seed(mut self, next: u64) -> Self {
         self.candidate_counter = AtomicU64::new(next);
         self
     }
-}
 
+    /// Seed the approval counter for tests that need predictable IDs.
+    pub fn with_approval_seed(mut self, next: u64) -> Self {
+        self.approval_counter = AtomicU64::new(next);
+        self
+    }
+}
 impl IdAllocator for InMemoryIdAllocator {
     fn allocate_claim_id(&self) -> Result<ClaimId, PortError> {
         let id = self.claim_counter.fetch_add(1, Ordering::SeqCst);
@@ -41,7 +46,13 @@ impl IdAllocator for InMemoryIdAllocator {
         let id = self.candidate_counter.fetch_add(1, Ordering::SeqCst);
         Ok(MemoryCandidateId::new(id + 1))
     }
+
+    fn allocate_approval_id(&self) -> Result<ApprovalId, PortError> {
+        let id = self.approval_counter.fetch_add(1, Ordering::SeqCst);
+        Ok(ApprovalId::new(id + 1))
+    }
 }
+
 
 #[cfg(test)]
 mod tests {

@@ -270,6 +270,48 @@ pub fn reconcile_projections(state: &KernelState, store: &SqliteStore) -> Result
     Ok(())
 }
 
+/// Reconcile the approval repository from replayed domain events.
+///
+/// After `load_kernel_state` replays the event log, this function scans for
+/// `ApprovalRecorded` events and ensures the approval repository reflects the
+/// resolved state. If a CLI-initiated resolution persisted the event but crashed
+/// before updating the repo, this repair brings the repo back into consistency.
+pub fn reconcile_approval_repo(state: &KernelState, store: &SqliteStore) -> Result<()> {
+    use maestria_domain::{DomainEvent, LogicalTick, ScopeId};
+    use maestria_ports::{ApprovalRecord, ApprovalRiskLevel, ApprovalRepository, ApprovalStatus};
+
+    for envelope in &state.event_log {
+        if let DomainEvent::ApprovalRecorded {
+            approval_id,
+            task_id,
+            approved,
+        } = &envelope.event
+        {
+            let id = *approval_id;
+            if id.value() == 0 {
+                continue;
+            }
+            // Ensure the record exists (INSERT OR REPLACE), then resolve.
+            let status = if *approved {
+                ApprovalStatus::Approved
+            } else {
+                ApprovalStatus::Denied
+            };
+            let record = ApprovalRecord {
+                id,
+                task_id: *task_id,
+                effect_kind: "task_activation".to_string(),
+                risk_level: ApprovalRiskLevel::Medium,
+                capability: String::new(),
+                scope_id: ScopeId::new(0),
+                tick: LogicalTick::new(0),
+                status,
+            };
+            let _ = store.save(&record);
+        }
+    }
+    Ok(())
+}
 pub fn prepare_instance(instance_dir: PathBuf) -> Result<InstanceLayout> {
     let plan = InstanceService::init_instance(InitInstanceInput { root: instance_dir })?;
     for directory in &plan.directories {
@@ -333,6 +375,9 @@ pub fn build_runtime(
     );
     let web_fetcher = Arc::new(UreqWebFetcher::new());
 
+    let id_allocator = sqlite_store.clone();
+    let approval_repo = sqlite_store.clone();
+
     let adapters = Adapters {
         event_log,
         blob_store,
@@ -346,6 +391,8 @@ pub fn build_runtime(
         vector_index,
         graph_index,
         web_fetcher,
+        id_allocator,
+        approval_repo,
     };
     let governance = Governance {
         classifier: Arc::new(DefaultRiskClassifier),
@@ -398,8 +445,9 @@ pub async fn run_instance(instance_dir: PathBuf) -> Result<()> {
             .with_context(|| format!("open sqlite store {}", layout.database_path.display()))?;
         reconcile_projections(&state, &store)
             .with_context(|| "reconcile projection repositories")?;
+        reconcile_approval_repo(&state, &store)
+            .with_context(|| "reconcile approval repository")?;
     }
-
     // Compute recovery inputs before state is moved into build_runtime.
     let recovery = recovery_inputs(&state);
 
@@ -465,3 +513,6 @@ mod recovery_input_tests;
 
 #[cfg(test)]
 mod recovery_scope_tests;
+
+#[cfg(test)]
+mod approval_recovery_tests;

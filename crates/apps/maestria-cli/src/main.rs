@@ -7,7 +7,7 @@ mod tests;
 
 use anyhow::Result;
 use clap::Parser as ClapParser;
-use cli_types::{Cli, Commands, MemoryCommands, TaskCommands};
+use cli_types::{ApprovalCommands, Cli, Commands, MemoryCommands, TaskCommands};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -76,6 +76,26 @@ async fn main() -> Result<()> {
             } => {
                 commands::memory::run_propose(instance_dir, text, evidence_id, confidence_milli)
                     .await?
+            }
+        },
+        Commands::Approval { command } => match command {
+            ApprovalCommands::List { instance_dir } => {
+                commands::approval::run_list(instance_dir)?;
+            }
+            ApprovalCommands::Resolve {
+                id,
+                approve,
+                deny,
+                instance_dir,
+            } => {
+                let approved = if approve {
+                    true
+                } else if deny {
+                    false
+                } else {
+                    anyhow::bail!("must specify either --approve or --deny");
+                };
+                commands::approval::run_resolve(instance_dir, id, approved).await?;
             }
         },
     }

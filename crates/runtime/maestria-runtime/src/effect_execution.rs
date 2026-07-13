@@ -1,10 +1,10 @@
 use crate::config::EffectExecutionContext;
 use maestria_domain::{
-    ApprovalDecision, DiagnosticEvent, DomainInput, FetchWebRequest, IndexVectorRequest,
-    MaestriaEffect, RequestApprovalRequest, UpdateGraphRequest,
+    DiagnosticEvent, DomainInput, FetchWebRequest, IndexVectorRequest, LogicalTick,
+    MaestriaEffect, RequestApprovalRequest, ScopeId, UpdateGraphRequest,
 };
-use maestria_governance::{ApprovalRequest, PolicyDecision, ScopeGuard};
-use maestria_ports::VectorEmbedding;
+use maestria_governance::{ApprovalRequest, PolicyDecision, RiskClass, ScopeGuard};
+use maestria_ports::{ApprovalRecord, ApprovalRiskLevel, ApprovalStatus, VectorEmbedding};
 use std::time::Duration;
 use tokio::sync::mpsc;
 
@@ -144,18 +144,54 @@ impl EffectExecutionContext {
             }
         }
     }
-
     async fn handle_request_approval(&self, request: RequestApprovalRequest) -> bool {
-        tracing::info!(task_id = %request.task_id, "approval request requires external decision");
-        Self::send_input(
-            &self.input_tx,
-            DomainInput::ApprovalResolved(ApprovalDecision {
-                task_id: request.task_id,
-                approved: false,
-            }),
-            "approval decision",
-        )
-        .await;
+        let approval_id = match self.adapters.id_allocator.allocate_approval_id() {
+            Ok(id) => id,
+            Err(e) => {
+                tracing::error!(%e, "failed to allocate approval id");
+                return false;
+            }
+        };
+
+        // Compute risk using the governance classifier.
+        let scope_guard = ScopeGuard::new(self.scope.clone());
+        let effect = MaestriaEffect::RequestApproval(RequestApprovalRequest {
+            task_id: request.task_id,
+        });
+        let risk = self.governance.classifier.classify(&effect, &scope_guard);
+        let risk_level = risk_class_to_approval_risk_level(risk);
+
+        let tick = {
+            let state = self.state.read().await;
+            state
+                .event_log
+                .last()
+                .map(|e| e.sequence.value())
+                .map(LogicalTick::new)
+                .unwrap_or(LogicalTick::new(0))
+        };
+
+        let record = ApprovalRecord {
+            id: approval_id,
+            task_id: request.task_id,
+            effect_kind: "task_activation".to_string(),
+            risk_level,
+            capability: String::new(),
+            scope_id: ScopeId::new(0),
+            tick,
+            status: ApprovalStatus::Pending,
+        };
+
+        if let Err(e) = self.adapters.approval_repo.save(&record) {
+            tracing::error!(%e, approval_id=%approval_id, "failed to persist approval request");
+            return false;
+        }
+
+        tracing::info!(
+            approval_id = %approval_id,
+            task_id = %request.task_id,
+            "approval request persisted; awaiting external resolution"
+        );
         true
     }
 
@@ -195,5 +231,14 @@ impl EffectExecutionContext {
             return false;
         }
         true
+    }
+}
+
+fn risk_class_to_approval_risk_level(risk: RiskClass) -> ApprovalRiskLevel {
+    match risk {
+        RiskClass::Low => ApprovalRiskLevel::Low,
+        RiskClass::Medium => ApprovalRiskLevel::Medium,
+        RiskClass::High => ApprovalRiskLevel::High,
+        RiskClass::Critical => ApprovalRiskLevel::Critical,
     }
 }

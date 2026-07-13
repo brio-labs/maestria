@@ -2,7 +2,7 @@ use crate::entities::{
     ClaimStatus, EvidenceKind, RelationEndpoint, RelationKind, TaskPriority, TaskStatus,
 };
 use crate::ids::{
-    ArtifactId, BlobId, CardId, ChunkId, ClaimId, EventId, EvidenceId, LogicalTick,
+    ApprovalId, ArtifactId, BlobId, CardId, ChunkId, ClaimId, EventId, EvidenceId, LogicalTick,
     MemoryCandidateId, MemoryId, RelationId, SequenceNumber, TaskId, ValidationReportId,
 };
 use std::collections::BTreeSet;
@@ -117,6 +117,7 @@ pub enum DomainEvent {
         exit_code: i32,
     },
     ApprovalRecorded {
+        approval_id: ApprovalId,
         task_id: TaskId,
         approved: bool,
     },

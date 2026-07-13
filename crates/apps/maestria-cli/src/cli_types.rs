@@ -16,8 +16,7 @@ pub enum Commands {
     Init {
         #[arg(short, long, default_value = ".maestria-dev")]
         instance_dir: PathBuf,
-        /// Approved root paths that may be indexed by this instance
-        #[arg(long = "read-root")]
+        #[arg(short, long, value_delimiter = ',', num_args = 1..)]
         read_roots: Vec<PathBuf>,
     },
     /// Index one local file, or files under a directory with --recursive
@@ -71,13 +70,17 @@ pub enum Commands {
         #[command(subcommand)]
         command: MemoryCommands,
     },
+    /// Approval request management
+    Approval {
+        #[command(subcommand)]
+        command: ApprovalCommands,
+    },
 }
 
 #[derive(Subcommand)]
 pub enum TaskCommands {
     /// Create a new task in persisted task state
     Start {
-        /// Optional task title when provided from command line args
         title: String,
         #[arg(short, long, default_value = ".maestria-dev")]
         instance_dir: PathBuf,
@@ -113,15 +116,34 @@ pub enum MemoryCommands {
     },
     /// Propose a new memory candidate backed by evidence
     Propose {
-        /// Claim text
         #[arg(short, long)]
         text: String,
-        /// Evidence ids
         #[arg(short = 'e', long, value_delimiter = ',', num_args = 1..)]
         evidence_id: Vec<u64>,
-        /// Confidence in milli-units (0..=1000)
         #[arg(short, long, value_parser = clap::value_parser!(u16).range(0..=1000))]
         confidence_milli: u16,
+        #[arg(short, long, default_value = ".maestria-dev")]
+        instance_dir: PathBuf,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum ApprovalCommands {
+    /// List pending approval requests
+    List {
+        #[arg(short, long, default_value = ".maestria-dev")]
+        instance_dir: PathBuf,
+    },
+    /// Resolve an approval request
+    Resolve {
+        /// Approval request ID
+        id: u64,
+        /// Approve the request
+        #[arg(long, conflicts_with = "deny")]
+        approve: bool,
+        /// Deny the request
+        #[arg(long, conflicts_with = "approve")]
+        deny: bool,
         #[arg(short, long, default_value = ".maestria-dev")]
         instance_dir: PathBuf,
     },

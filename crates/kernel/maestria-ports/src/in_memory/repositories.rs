@@ -4,6 +4,7 @@ use std::{
 };
 
 use crate::{Artifact, ArtifactId, Card, CardId, Chunk, ChunkId, Evidence, EvidenceId, PortError};
+use maestria_domain::ApprovalId;
 
 // ── ArtifactRepository ──────────────────────────────────────────────
 
@@ -176,5 +177,70 @@ impl crate::EvidenceRepository for InMemoryEvidenceRepository {
             .filter(|evidence| evidence.artifact_id == artifact_id)
             .cloned()
             .collect())
+    }
+}
+
+// ── ApprovalRepository ───────────────────────────────────────────────
+
+#[derive(Clone, Default)]
+pub struct InMemoryApprovalRepository {
+    records: Arc<Mutex<BTreeMap<ApprovalId, crate::ApprovalRecord>>>,
+}
+
+impl InMemoryApprovalRepository {
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
+
+impl crate::ApprovalRepository for InMemoryApprovalRepository {
+    fn save(&self, record: &crate::ApprovalRecord) -> Result<(), crate::PortError> {
+        let mut guard = self.records.lock().map_err(|_| crate::PortError::Internal {
+            message: "in-memory approval repo lock poisoned".to_string(),
+        })?;
+        guard.insert(record.id, record.clone());
+        Ok(())
+    }
+
+    fn find_pending(&self) -> Result<Vec<crate::ApprovalRecord>, crate::PortError> {
+        let guard = self.records.lock().map_err(|_| crate::PortError::Internal {
+            message: "in-memory approval repo lock poisoned".to_string(),
+        })?;
+        Ok(guard
+            .values()
+            .filter(|r| r.status == crate::ApprovalStatus::Pending)
+            .cloned()
+            .collect())
+    }
+
+    fn find_by_id(
+        &self,
+        id: ApprovalId,
+    ) -> Result<Option<crate::ApprovalRecord>, crate::PortError> {
+        let guard = self.records.lock().map_err(|_| crate::PortError::Internal {
+            message: "in-memory approval repo lock poisoned".to_string(),
+        })?;
+        Ok(guard.get(&id).cloned())
+    }
+
+    fn resolve(
+        &self,
+        id: ApprovalId,
+        approved: bool,
+    ) -> Result<Option<crate::ApprovalRecord>, crate::PortError> {
+        let mut guard = self.records.lock().map_err(|_| crate::PortError::Internal {
+            message: "in-memory approval repo lock poisoned".to_string(),
+        })?;
+        if let Some(record) = guard.get_mut(&id) {
+            if record.status == crate::ApprovalStatus::Pending {
+                record.status = if approved {
+                    crate::ApprovalStatus::Approved
+                } else {
+                    crate::ApprovalStatus::Denied
+                };
+                return Ok(Some(record.clone()));
+            }
+        }
+        Ok(None)
     }
 }

@@ -120,6 +120,7 @@ pub(crate) enum StoredEventPayload {
         exit_code: i32,
     },
     ApprovalRecorded {
+        approval_id: u64,
         task_id: u64,
         approved: bool,
     },

@@ -1,7 +1,7 @@
 use crate::entities::{EvidenceKind, RelationEndpoint, RelationKind, TaskPriority, TaskStatus};
 use crate::ids::{
-    ArtifactId, BlobId, CardId, ChunkId, ClaimId, EvidenceId, LogicalTick, MemoryCandidateId,
-    MemoryId, RelationId, TaskId, ValidationReportId,
+    ApprovalId, ArtifactId, BlobId, CardId, ChunkId, ClaimId, EvidenceId, LogicalTick,
+    MemoryCandidateId, MemoryId, RelationId, TaskId, ValidationReportId,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -199,6 +199,7 @@ pub struct ValidationCompleted {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ApprovalDecision {
+    pub approval_id: ApprovalId,
     pub task_id: TaskId,
     pub approved: bool,
 }

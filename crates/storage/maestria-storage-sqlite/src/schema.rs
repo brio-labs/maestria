@@ -5,7 +5,7 @@ use crate::to_port_error;
 
 use crate::schema_validation::*;
 /// Current storage schema version supported by this adapter.
-pub(crate) const CURRENT_SCHEMA_VERSION: i64 = 4;
+pub(crate) const CURRENT_SCHEMA_VERSION: i64 = 5;
 
 /// Ensures the `artifacts` table carries the v3 columns `content_hash` and `index_status`.
 fn ensure_artifact_v3_columns(connection: &Connection) -> Result<(), PortError> {
@@ -146,6 +146,16 @@ const BASE_SCHEMA_SQL: &str = "PRAGMA foreign_keys = ON;
      CREATE TABLE IF NOT EXISTS id_counters (
          namespace TEXT PRIMARY KEY,
          next_id INTEGER NOT NULL DEFAULT 1
+     );
+     CREATE TABLE IF NOT EXISTS approval_requests (
+         id INTEGER NOT NULL PRIMARY KEY,
+         task_id INTEGER NOT NULL,
+         effect_kind TEXT NOT NULL,
+         risk_level TEXT NOT NULL,
+         capability TEXT NOT NULL DEFAULT '',
+         scope_id INTEGER NOT NULL DEFAULT 0,
+         tick INTEGER NOT NULL,
+         status TEXT NOT NULL DEFAULT 'pending'
      );";
 
 /// Seeds the per-namespace `id_counters` rows from existing domain events
@@ -198,6 +208,25 @@ pub(crate) fn seed_id_counters(connection: &Connection) -> Result<(), PortError>
             params![next_candidate],
         )
         .map_err(to_port_error)?;
+
+    // Seed approval counter: query approval_requests if the table exists,
+    // otherwise start at 1. Silently skip if table is absent (pre-migration).
+    let max_approval: Option<i64> = connection
+        .query_row(
+            "SELECT MAX(id) FROM approval_requests",
+            [],
+            |row| row.get(0),
+        )
+        .ok();
+    let next_approval = next_counter_value(max_approval, "approval")?;
+    connection
+        .execute(
+            "INSERT INTO id_counters (namespace, next_id) VALUES ('approval', ?1)
+             ON CONFLICT(namespace) DO UPDATE SET next_id = MAX(next_id, excluded.next_id)",
+            params![next_approval],
+        )
+        .map_err(to_port_error)?;
+
     Ok(())
 }
 
@@ -319,8 +348,38 @@ fn migrate_from_v3(connection: &Connection, state: &SchemaState) -> Result<(), P
     Ok(())
 }
 
-/// Validates that a database already at v4 conforms to the expected tables.
-fn validate_at_v4(connection: &Connection, state: &SchemaState) -> Result<(), PortError> {
+/// Migrates a v4 database to v5: adds the `approval_requests` table.
+fn migrate_from_v4(connection: &Connection, state: &SchemaState) -> Result<(), PortError> {
+    if !state.had_domain_events_table {
+        return Err(PortError::Internal {
+            message: "malformed sqlite schema: domain_events table missing".to_string(),
+        });
+    }
+    connection
+        .execute_batch(
+            "CREATE TABLE IF NOT EXISTS approval_requests (
+                id INTEGER NOT NULL PRIMARY KEY,
+                task_id INTEGER NOT NULL,
+                effect_kind TEXT NOT NULL,
+                risk_level TEXT NOT NULL,
+                capability TEXT NOT NULL DEFAULT '',
+                scope_id INTEGER NOT NULL DEFAULT 0,
+                tick INTEGER NOT NULL,
+                status TEXT NOT NULL DEFAULT 'pending'
+            );",
+        )
+        .map_err(to_port_error)?;
+    connection
+        .execute(
+            "INSERT OR IGNORE INTO schema_version (version) VALUES (?1)",
+            [CURRENT_SCHEMA_VERSION],
+        )
+        .map_err(to_port_error)?;
+    Ok(())
+}
+
+/// Validates that a database already at v5 conforms to the expected tables.
+fn validate_at_v5(connection: &Connection, state: &SchemaState) -> Result<(), PortError> {
     if !state.had_domain_events_table {
         return Err(PortError::Internal {
             message: "malformed sqlite schema: domain_events table missing".to_string(),
@@ -343,6 +402,11 @@ fn validate_at_v4(connection: &Connection, state: &SchemaState) -> Result<(), Po
         return Err(PortError::Internal {
             message: "malformed sqlite schema: artifacts table missing index_status column"
                 .to_string(),
+        });
+    }
+    if !table_exists(connection, "approval_requests")? {
+        return Err(PortError::Internal {
+            message: "malformed sqlite schema: approval_requests table missing".to_string(),
         });
     }
     Ok(())
@@ -368,7 +432,8 @@ pub(crate) fn migrate(connection: &mut Connection) -> Result<(), PortError> {
         Some(1) => migrate_from_v1(&transaction, &state)?,
         Some(2) => migrate_from_v2(&transaction, &state)?,
         Some(3) => migrate_from_v3(&transaction, &state)?,
-        Some(4) => validate_at_v4(&transaction, &state)?,
+        Some(4) => migrate_from_v4(&transaction, &state)?,
+        Some(5) => validate_at_v5(&transaction, &state)?,
         Some(version) => {
             return Err(PortError::Internal {
                 message: format!(

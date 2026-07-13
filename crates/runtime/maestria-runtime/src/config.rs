@@ -1,8 +1,9 @@
 use maestria_domain::{DomainInput, KernelState};
 use maestria_governance::{ApprovalGate, AutonomyProfile, ClassifyRisk, Scope};
 use maestria_ports::{
-    ArtifactRepository, BlobStore, CardRepository, ChunkRepository, EventLog, EvidenceRepository,
-    FullTextIndex, GraphIndex, HarnessAdapter, Parser, VectorIndex, WebFetcher,
+    ApprovalRepository, ArtifactRepository, BlobStore, CardRepository, ChunkRepository, EventLog,
+    EvidenceRepository, FullTextIndex, GraphIndex, HarnessAdapter, IdAllocator, Parser,
+    VectorIndex, WebFetcher,
 };
 use std::sync::Arc;
 use std::time::Duration;
@@ -29,7 +30,6 @@ impl Default for RuntimeConfig {
         }
     }
 }
-
 pub struct Adapters {
     pub event_log: Arc<dyn EventLog + Send + Sync>,
     pub blob_store: Arc<dyn BlobStore + Send + Sync>,
@@ -43,6 +43,8 @@ pub struct Adapters {
     pub vector_index: Arc<dyn VectorIndex + Send + Sync>,
     pub graph_index: Arc<dyn GraphIndex + Send + Sync>,
     pub web_fetcher: Arc<dyn WebFetcher + Send + Sync>,
+    pub id_allocator: Arc<dyn IdAllocator + Send + Sync>,
+    pub approval_repo: Arc<dyn ApprovalRepository + Send + Sync>,
 }
 
 pub struct Governance {

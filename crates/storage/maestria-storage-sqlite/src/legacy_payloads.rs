@@ -107,6 +107,7 @@ pub(crate) enum LegacyStoredEventPayload {
         exit_code: i32,
     },
     ApprovalRecorded {
+        approval_id: u64,
         task_id: u64,
         approved: bool,
     },
@@ -198,8 +199,12 @@ impl LegacyStoredEventPayload {
                 command,
                 exit_code,
             }),
-            Self::ApprovalRecorded { task_id, approved } => {
-                Ok(StoredEventPayload::ApprovalRecorded { task_id, approved })
+            Self::ApprovalRecorded { task_id, approved, .. } => {
+                Ok(StoredEventPayload::ApprovalRecorded {
+                    approval_id: 0,
+                    task_id,
+                    approved,
+                })
             }
             Self::TickObserved { at } => Ok(StoredEventPayload::TickObserved { at }),
         }
