@@ -59,9 +59,11 @@ impl EffectExecutionContext {
             run_id: request.run_id,
             command: request.command.clone(),
             working_directory,
-            duration_budget: Duration::from_secs(60),
+            duration_budget: self.default_effect_timeout,
             class,
             readable_roots: scope.readable_roots().to_vec(),
+            blocked_paths: scope.blocked_paths().to_vec(),
+            blocked_patterns: scope.blocked_patterns().to_vec(),
         };
 
         match adapters.harness.execute(harness_request).await {

@@ -97,6 +97,8 @@ pub struct Scope {
     write_roots: Vec<PathBuf>,
     allowed_harnesses: Vec<String>,
     blocked_commands: Vec<String>,
+    blocked_read_paths: Vec<PathBuf>,
+    blocked_patterns: Vec<String>,
     web_allowed: bool,
 }
 
@@ -113,6 +115,8 @@ impl Scope {
             write_roots,
             allowed_harnesses,
             blocked_commands,
+            blocked_read_paths: Vec::new(),
+            blocked_patterns: Vec::new(),
             web_allowed,
         }
     }
@@ -161,7 +165,23 @@ impl Scope {
         &self.read_roots
     }
 
-    // ── new containment surface ──────────────────────────────────
+    pub fn blocked_paths(&self) -> &[PathBuf] {
+        &self.blocked_read_paths
+    }
+
+    pub fn with_blocked_read_paths(mut self, paths: Vec<PathBuf>) -> Self {
+        self.blocked_read_paths = paths;
+        self
+    }
+
+    pub fn blocked_patterns(&self) -> &[String] {
+        &self.blocked_patterns
+    }
+
+    pub fn with_blocked_patterns(mut self, patterns: Vec<String>) -> Self {
+        self.blocked_patterns = patterns;
+        self
+    }
 
     /// Strictly check that `path` is lexically contained within at least
     /// one read or write root.
@@ -228,6 +248,13 @@ impl ScopeGuard {
         self.scope.readable_roots()
     }
 
+    pub fn blocked_paths(&self) -> &[PathBuf] {
+        self.scope.blocked_paths()
+    }
+
+    pub fn blocked_patterns(&self) -> &[String] {
+        self.scope.blocked_patterns()
+    }
     // ── new containment delegation ───────────────────────────────
 
     pub fn check_read_containment(&self, path: &Path) -> Result<(), ContainmentError> {
