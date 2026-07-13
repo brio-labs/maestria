@@ -9,6 +9,7 @@ mod evidence;
 mod handlers;
 mod index;
 mod memory;
+mod memory_replay;
 mod orchestration;
 mod relation;
 mod task;
