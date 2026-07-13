@@ -114,8 +114,14 @@ pub async fn acquire_instance_write_lock(layout: &InstanceLayout) -> Result<Inst
     .map_err(|_| anyhow!("timed out waiting for instance write lock"))?
 }
 fn lock_owner_is_dead(path: &PathBuf) -> bool {
-    let Ok(contents) = fs::read_to_string(path) else {
-        return false;
+    let contents = match fs::read_to_string(path) {
+        Ok(contents) => contents,
+        Err(_) => {
+            return fs::metadata(path)
+                .and_then(|metadata| metadata.modified())
+                .and_then(|modified| modified.elapsed().map_err(std::io::Error::other))
+                .is_ok_and(|age| age > Duration::from_secs(30));
+        }
     };
     let pid_text = contents
         .trim()

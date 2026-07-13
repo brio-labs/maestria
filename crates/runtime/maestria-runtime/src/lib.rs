@@ -80,7 +80,7 @@ impl MaestriaRuntime {
         shutdown_token: tokio_util::sync::CancellationToken,
     ) {
         let (effect_tx, effect_rx) = mpsc::channel::<MaestriaEffect>(self.config.input_buffer_size);
-        self.spawn_effect_executor(effect_rx, shutdown_token.clone());
+        let effect_executor = self.spawn_effect_executor(effect_rx, shutdown_token.clone());
 
         loop {
             tokio::select! {
@@ -112,13 +112,16 @@ impl MaestriaRuntime {
                 }
             }
         }
+        drop(effect_tx);
+        shutdown_token.cancel();
+        let _ = effect_executor.await;
     }
 
     fn spawn_effect_executor(
         &self,
         mut receiver: mpsc::Receiver<MaestriaEffect>,
         shutdown_token: tokio_util::sync::CancellationToken,
-    ) {
+    ) -> tokio::task::JoinHandle<()> {
         let adapters = Arc::clone(&self.adapters);
         let governance = Arc::clone(&self.governance);
         let input_tx = self.input_tx.clone();
@@ -133,6 +136,7 @@ impl MaestriaRuntime {
 
         tokio::spawn(async move {
             let semaphore = Arc::new(tokio::sync::Semaphore::new(max_concurrent_effects));
+            let mut in_flight = tokio::task::JoinSet::new();
             loop {
                 tokio::select! {
                     () = effect_shutdown.cancelled() => break,
@@ -161,15 +165,25 @@ impl MaestriaRuntime {
                             }
                             continue;
                         }
-                        let Ok(permit) = Arc::clone(&semaphore).acquire_owned().await else { break };
-                        tokio::spawn(async move {
+                        let permit = tokio::select! {
+                            () = effect_shutdown.cancelled() => break,
+                            permit = Arc::clone(&semaphore).acquire_owned() => {
+                                match permit {
+                                    Ok(permit) => permit,
+                                    Err(_) => break,
+                                }
+                            }
+                        };
+                        in_flight.spawn(async move {
                             let _ = context.execute_with_retries(effect).await;
                             drop(permit);
                         });
                     }
                 }
             }
-        });
+            in_flight.abort_all();
+            while in_flight.join_next().await.is_some() {}
+        })
     }
 }
 
