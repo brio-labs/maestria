@@ -321,7 +321,7 @@ fn migrate_from_fresh(connection: &Connection, state: &SchemaState) -> Result<()
         validate_columns(connection, &DOMAIN_EVENTS_V2_COLUMNS)?;
     }
     ensure_artifact_v3_columns(connection)?;
-
+    migrate_approval_recorded_payloads(connection)?;
     connection
         .execute(
             "INSERT INTO schema_version (version) VALUES (?1)",

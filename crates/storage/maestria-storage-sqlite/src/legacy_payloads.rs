@@ -211,18 +211,12 @@ impl LegacyStoredEventPayload {
                 let id = approval_id.ok_or_else(|| PortError::Internal {
                     message: "legacy ApprovalRecorded payload missing approval_id".into(),
                 })?;
-                let from = from_status.ok_or_else(|| PortError::Internal {
-                    message: "legacy ApprovalRecorded payload missing from_status".into(),
-                })?;
-                let to = to_status.ok_or_else(|| PortError::Internal {
-                    message: "legacy ApprovalRecorded payload missing to_status".into(),
-                })?;
                 Ok(StoredEventPayload::ApprovalRecorded {
                     approval_id: id,
                     task_id,
                     approved,
-                    from_status: Some(from),
-                    to_status: Some(to),
+                    from_status,
+                    to_status,
                 })
             }
             Self::TickObserved { at } => Ok(StoredEventPayload::TickObserved { at }),

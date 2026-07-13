@@ -374,9 +374,7 @@ impl KernelState {
         task_id: Option<TaskId>,
     ) -> Result<(), DomainError> {
         match task_id {
-            Some(id) if !self.tasks.contains_key(&id) => {
-                return Err(DomainError::MissingTask { id });
-            }
+            Some(id) if !self.tasks.contains_key(&id) => Err(DomainError::MissingTask { id }),
             _ => Ok(()),
         }
     }
