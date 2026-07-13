@@ -132,8 +132,47 @@ impl LegacyStoredEventPayload {
             | Self::MemoryContradicted { .. }
             | Self::MemoryDeprecated { .. }
             | Self::MemorySuperseded { .. } => self.into_v2_memory(),
-            Self::ArtifactRegistered { artifact_id, title } => Ok(StoredEventPayload::ArtifactRegistered { artifact_id, title }),
-            Self::TaskStatusChanged { task_id, from, to } => Ok(StoredEventPayload::TaskStatusChanged { task_id, from, to }),
+            Self::ArtifactRegistered { .. }
+            | Self::TaskStatusChanged { .. }
+            | Self::TaskCompletionRecorded { .. }
+            | Self::ClaimValidationUpdated { .. }
+            | Self::ClaimEvidenceLinked { .. }
+            | Self::TaskEvidenceLinked { .. }
+            | Self::ValidationReportCreated { .. }
+            | Self::UserIntentObserved { .. }
+            | Self::ArtifactParsed { .. }
+            | Self::SearchCompleted { .. }
+            | Self::HarnessRunCompleted { .. }
+            | Self::TickObserved { .. } => self.into_v2_simple(),
+            Self::ApprovalRecorded {
+                approval_id,
+                task_id,
+                approved,
+                from_status,
+                to_status,
+            } => {
+                let id = approval_id.ok_or_else(|| PortError::Internal {
+                    message: "legacy ApprovalRecorded payload missing approval_id".into(),
+                })?;
+                Ok(StoredEventPayload::ApprovalRecorded {
+                    approval_id: id,
+                    task_id,
+                    approved,
+                    from_status,
+                    to_status,
+                })
+            }
+        }
+    }
+
+    fn into_v2_simple(self) -> Result<StoredEventPayload, PortError> {
+        match self {
+            Self::ArtifactRegistered { artifact_id, title } => {
+                Ok(StoredEventPayload::ArtifactRegistered { artifact_id, title })
+            }
+            Self::TaskStatusChanged { task_id, from, to } => {
+                Ok(StoredEventPayload::TaskStatusChanged { task_id, from, to })
+            }
             Self::TaskCompletionRecorded {
                 task_id,
                 status,
@@ -143,7 +182,9 @@ impl LegacyStoredEventPayload {
                 status,
                 validation_report_id,
             }),
-            Self::ClaimValidationUpdated { claim_id, status } => Ok(StoredEventPayload::ClaimValidationUpdated { claim_id, status }),
+            Self::ClaimValidationUpdated { claim_id, status } => {
+                Ok(StoredEventPayload::ClaimValidationUpdated { claim_id, status })
+            }
             Self::ClaimEvidenceLinked {
                 claim_id,
                 evidence_id,
@@ -195,28 +236,10 @@ impl LegacyStoredEventPayload {
                 command,
                 exit_code,
             }),
-            Self::ApprovalRecorded {
-                approval_id,
-                task_id,
-                approved,
-                from_status,
-                to_status,
-            } => {
-                let id = approval_id.ok_or_else(|| PortError::Internal {
-                    message: "legacy ApprovalRecorded payload missing approval_id".into(),
-                })?;
-                Ok(StoredEventPayload::ApprovalRecorded {
-                    approval_id: id,
-                    task_id,
-                    approved,
-                    from_status,
-                    to_status,
-                })
-            }
             Self::TickObserved { at } => Ok(StoredEventPayload::TickObserved { at }),
+            _ => unreachable!("into_v2_simple called on unsupported variant"),
         }
     }
-
     fn unsupported_error(kind: &str, field: &str) -> PortError {
         PortError::InvalidInput {
             message: format!("V1 {kind} event is missing required field(s): {field}"),
