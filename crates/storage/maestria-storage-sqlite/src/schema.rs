@@ -11,9 +11,14 @@ pub(crate) const CURRENT_SCHEMA_VERSION: i64 = 4;
 fn ensure_artifact_v3_columns(connection: &Connection) -> Result<(), PortError> {
     if !table_has_column(connection, "artifacts", "content_hash")? {
         connection
-            .execute_batch(
-                "ALTER TABLE artifacts ADD COLUMN content_hash TEXT;
-                 ALTER TABLE artifacts ADD COLUMN index_status TEXT NOT NULL DEFAULT 'unindexed';",
+            .execute("ALTER TABLE artifacts ADD COLUMN content_hash TEXT", [])
+            .map_err(to_port_error)?;
+    }
+    if !table_has_column(connection, "artifacts", "index_status")? {
+        connection
+            .execute(
+                "ALTER TABLE artifacts ADD COLUMN index_status TEXT NOT NULL DEFAULT 'unindexed'",
+                [],
             )
             .map_err(to_port_error)?;
     }
