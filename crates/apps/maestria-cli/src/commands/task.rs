@@ -72,6 +72,7 @@ pub async fn run_start(
 
 pub async fn run_add_evidence(instance_dir: PathBuf, task_id: u64, evidence_id: u64) -> Result<()> {
     let layout = helpers::ensure_instance(instance_dir)?;
+    let _instance_lock = maestria_daemon::acquire_instance_write_lock(&layout).await?;
     let state = load_kernel_state_with_retry(
         &layout,
         Duration::from_secs(2),
@@ -92,22 +93,23 @@ pub async fn run_add_evidence(instance_dir: PathBuf, task_id: u64, evidence_id: 
         maestria_daemon::build_runtime(&layout, state, AutonomyProfile::TrustedWorkspace)
             .with_context(|| "build runtime")?;
     let runtime_task = tokio::spawn(runtime.run(input_rx, shutdown_token.clone()));
+    let result = async {
+        let input = DomainInput::LinkEvidenceToTask(LinkEvidenceToTaskInput {
+            task_id,
+            evidence_id,
+        });
+        input_tx
+            .send(input)
+            .await
+            .map_err(|error| anyhow!("failed to queue link-evidence input: {error}"))?;
+        wait_for_task_evidence_link(&layout, task_id, evidence_id, Duration::from_secs(2)).await
+    }
+    .await;
 
-    let input = DomainInput::LinkEvidenceToTask(LinkEvidenceToTaskInput {
-        task_id,
-        evidence_id,
-    });
-    input_tx
-        .send(input)
-        .await
-        .map_err(|error| anyhow!("failed to queue link-evidence input: {error}"))?;
-
-    let state =
-        wait_for_task_evidence_link(&layout, task_id, evidence_id, Duration::from_secs(2)).await?;
     shutdown_token.cancel();
-    runtime_task
-        .await
-        .with_context(|| "runtime loop join failed")?;
+    let join_result = runtime_task.await;
+    let state = result?;
+    join_result.with_context(|| "runtime loop join failed")?;
 
     let task = state
         .tasks
