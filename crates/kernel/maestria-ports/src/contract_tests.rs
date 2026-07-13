@@ -534,6 +534,8 @@ fn verify_empty_query(index: &impl FullTextIndex) {
 pub fn assert_vector_index_contract(index: &impl VectorIndex) {
     let prov = || EmbeddingProvenance {
         content_hash: "abcd123".into(),
+        provider_id: "test-provider".into(),
+        model: "test-model".into(),
         model_version: "test-v1".into(),
     };
 
@@ -566,6 +568,8 @@ pub fn assert_vector_index_contract(index: &impl VectorIndex) {
         .search_similar(VectorSearchQuery {
             vector: vec![1.0, 0.0],
             limit: 4,
+            provider_id: None,
+            model: None,
             model_version: None,
         })
         .expect("equal-score search");
@@ -577,10 +581,14 @@ pub fn assert_vector_index_contract(index: &impl VectorIndex) {
             .any(|hit| hit.chunk_id == ChunkId::new(4))
     );
 
+    verify_vector_identity_filter(index);
+
     let zero_query_hits = index
         .search_similar(VectorSearchQuery {
             vector: vec![0.0, 0.0],
             limit: 10,
+            provider_id: None,
+            model: None,
             model_version: None,
         })
         .expect("all-zero query search");
@@ -607,6 +615,8 @@ pub fn assert_vector_index_contract(index: &impl VectorIndex) {
         .search_similar(VectorSearchQuery {
             vector: vec![1.0, 0.0],
             limit: 10,
+            provider_id: None,
+            model: None,
             model_version: None,
         })
         .expect("replacement search");
@@ -618,6 +628,21 @@ pub fn assert_vector_index_contract(index: &impl VectorIndex) {
     assert_eq!(replaced[0].score, 1.0);
     verify_vector_validation(index, &prov);
     verify_vector_lifecycle(index, prov);
+}
+fn verify_vector_identity_filter(index: &impl VectorIndex) {
+    let mismatched_identity_hits = index
+        .search_similar(VectorSearchQuery {
+            vector: vec![1.0, 0.0],
+            limit: 4,
+            provider_id: Some("other-provider".into()),
+            model: Some("other-model".into()),
+            model_version: Some("other-version".into()),
+        })
+        .expect("mismatched identity search");
+    assert!(
+        mismatched_identity_hits.is_empty(),
+        "provider/model/version identity must filter incompatible rows"
+    );
 }
 fn verify_vector_validation(index: &impl VectorIndex, prov: &impl Fn() -> EmbeddingProvenance) {
     assert!(matches!(
@@ -632,6 +657,8 @@ fn verify_vector_validation(index: &impl VectorIndex, prov: &impl Fn() -> Embedd
         index.search_similar(VectorSearchQuery {
             vector: vec![f32::NAN],
             limit: 1,
+            provider_id: None,
+            model: None,
             model_version: None,
         }),
         Err(PortError::InvalidInput { .. })
@@ -640,6 +667,8 @@ fn verify_vector_validation(index: &impl VectorIndex, prov: &impl Fn() -> Embedd
         index.search_similar(VectorSearchQuery {
             vector: vec![f32::NAN],
             limit: 0,
+            provider_id: None,
+            model: None,
             model_version: None,
         }),
         Err(PortError::InvalidInput { .. })
@@ -651,6 +680,8 @@ fn verify_vector_lifecycle(index: &impl VectorIndex, prov: impl Fn() -> Embeddin
         .search_similar(VectorSearchQuery {
             vector: vec![1.0, 0.0],
             limit: 10,
+            provider_id: None,
+            model: None,
             model_version: None,
         })
         .expect("search after clear");
@@ -678,6 +709,8 @@ fn verify_vector_lifecycle(index: &impl VectorIndex, prov: impl Fn() -> Embeddin
         .search_similar(VectorSearchQuery {
             vector: vec![1.0, 0.0],
             limit: 10,
+            provider_id: None,
+            model: None,
             model_version: None,
         })
         .expect("search after rebuild");
@@ -695,6 +728,8 @@ fn verify_vector_lifecycle(index: &impl VectorIndex, prov: impl Fn() -> Embeddin
         .search_similar(VectorSearchQuery {
             vector: vec![0.0, 1.0],
             limit: 10,
+            provider_id: None,
+            model: None,
             model_version: None,
         })
         .expect("search after delete");
@@ -716,6 +751,8 @@ fn verify_vector_lifecycle(index: &impl VectorIndex, prov: impl Fn() -> Embeddin
         .search_similar(VectorSearchQuery {
             vector: vec![1.0, 0.0],
             limit: 10,
+            provider_id: None,
+            model: None,
             model_version: None,
         })
         .expect("search after idempotent delete");

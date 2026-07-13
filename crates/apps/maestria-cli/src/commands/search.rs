@@ -5,7 +5,7 @@ use maestria_domain::{DomainInput, IndexStatus, LogicalTick, SearchExecutedInput
 use maestria_governance::AutonomyProfile;
 use maestria_parsers::ParserRegistry;
 use maestria_ports::{
-    EmbeddingProvider, EmbeddingRequest, FullTextIndex, IndexedCard, VectorSearchQuery,
+    EmbeddingProvider, EmbeddingRequest, FullTextIndex, IndexedCard, VectorIndex, VectorSearchQuery,
 };
 use maestria_search_tantivy::TantivyFullTextIndex;
 use maestria_storage_sqlite::SqliteStore;
@@ -49,7 +49,17 @@ fn compute_search_pack(
             )),
             None => None,
         };
-    let vector_index = SqliteVectorIndex::open(layout.vector_index_dir.join("projection.db"))?;
+    let vector_index = if embedding_provider.is_some() {
+        match SqliteVectorIndex::open(layout.vector_index_dir.join("projection.db")) {
+            Ok(index) => Some(index),
+            Err(error) => {
+                eprintln!("vector projection unavailable; using full-text fallback: {error}");
+                None
+            }
+        }
+    } else {
+        None
+    };
     let search_index = TantivyFullTextIndex::open(&layout.full_text_index_dir)?;
     if search_index.needs_card_rebuild()? {
         let state = maestria_daemon::load_kernel_state(layout)?;
@@ -83,6 +93,8 @@ fn compute_search_pack(
             .map(|response| VectorSearchQuery {
                 vector: response.vector,
                 limit: limit as u32,
+                provider_id: Some(response.provider_id),
+                model: Some(response.model),
                 model_version: Some(response.model_version),
             })
     });
@@ -95,7 +107,7 @@ fn compute_search_pack(
         parser: &parser,
         search_index: &search_index,
         blobs: &blob_store,
-        vector_index: Some(&vector_index),
+        vector_index: vector_index.as_ref().map(|index| index as &dyn VectorIndex),
     });
     let input = SearchInput {
         query: query.to_string(),

@@ -51,9 +51,17 @@ impl VectorIndex for InMemoryVectorIndex {
 
         for emb in guard.iter() {
             if query
-                .model_version
+                .provider_id
                 .as_deref()
-                .is_some_and(|version| emb.provenance.model_version != version)
+                .is_some_and(|provider| emb.provenance.provider_id != provider)
+                || query
+                    .model
+                    .as_deref()
+                    .is_some_and(|model| emb.provenance.model != model)
+                || query
+                    .model_version
+                    .as_deref()
+                    .is_some_and(|version| emb.provenance.model_version != version)
                 || emb.vector.len() != query.vector.len()
             {
                 continue;

@@ -185,6 +185,8 @@ pub trait FullTextIndex: Send + Sync {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EmbeddingProvenance {
     pub content_hash: String,
+    pub provider_id: String,
+    pub model: String,
     pub model_version: String,
 }
 
@@ -199,6 +201,8 @@ pub struct VectorEmbedding {
 pub struct VectorSearchQuery {
     pub vector: Vec<f32>,
     pub limit: u32,
+    pub provider_id: Option<String>,
+    pub model: Option<String>,
     pub model_version: Option<String>,
 }
 
@@ -217,6 +221,8 @@ pub struct EmbeddingRequest {
 #[derive(Debug, Clone, PartialEq)]
 pub struct EmbeddingResponse {
     pub vector: Vec<f32>,
+    pub provider_id: String,
+    pub model: String,
     pub model_version: String,
 }
 

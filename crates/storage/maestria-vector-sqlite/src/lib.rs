@@ -90,12 +90,15 @@ impl VectorIndex for SqliteVectorIndex {
         {
             let mut statement = transaction
                 .prepare(
-                    "INSERT INTO vector_embeddings (chunk_id, dimension, embedding, content_hash, model_version)
-                     VALUES (?1, ?2, ?3, ?4, ?5)
+                    "INSERT INTO vector_embeddings
+                         (chunk_id, dimension, embedding, content_hash, provider_id, model, model_version)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
                      ON CONFLICT(chunk_id) DO UPDATE SET
                          dimension = excluded.dimension,
                          embedding = excluded.embedding,
                          content_hash = excluded.content_hash,
+                         provider_id = excluded.provider_id,
+                         model = excluded.model,
                          model_version = excluded.model_version",
                 )
                 .map_err(to_port_error)?;
@@ -104,7 +107,7 @@ impl VectorIndex for SqliteVectorIndex {
                 let dimension = usize_to_i64(embedding.dimension)?;
                 let unchanged = transaction
                     .query_row(
-                        "SELECT dimension, embedding, content_hash, model_version
+                        "SELECT dimension, embedding, content_hash, provider_id, model, model_version
                          FROM vector_embeddings WHERE chunk_id = ?1",
                         params![u64_to_i64(embedding.chunk_id.value())?],
                         |row| {
@@ -113,17 +116,30 @@ impl VectorIndex for SqliteVectorIndex {
                                 row.get::<_, Vec<u8>>(1)?,
                                 row.get::<_, String>(2)?,
                                 row.get::<_, String>(3)?,
+                                row.get::<_, String>(4)?,
+                                row.get::<_, String>(5)?,
                             ))
                         },
                     )
                     .optional()
                     .map_err(to_port_error)?
-                    .is_some_and(|(stored_dimension, bytes, content_hash, model_version)| {
-                        stored_dimension == dimension
-                            && bytes == embedding.bytes
-                            && content_hash == embedding.content_hash
-                            && model_version == embedding.model_version
-                    });
+                    .is_some_and(
+                        |(
+                            stored_dimension,
+                            bytes,
+                            content_hash,
+                            provider_id,
+                            model,
+                            model_version,
+                        )| {
+                            stored_dimension == dimension
+                                && bytes == embedding.bytes
+                                && content_hash == embedding.content_hash
+                                && provider_id == embedding.provider_id
+                                && model == embedding.model
+                                && model_version == embedding.model_version
+                        },
+                    );
                 if unchanged {
                     continue;
                 }
@@ -133,6 +149,8 @@ impl VectorIndex for SqliteVectorIndex {
                         dimension,
                         embedding.bytes,
                         embedding.content_hash,
+                        embedding.provider_id,
+                        embedding.model,
                         embedding.model_version,
                     ])
                     .map_err(to_port_error)?;
@@ -159,12 +177,16 @@ impl VectorIndex for SqliteVectorIndex {
                 "SELECT chunk_id, embedding
                  FROM vector_embeddings
                  WHERE dimension = ?1
-                   AND (?2 IS NULL OR model_version = ?2)",
+                   AND (?2 IS NULL OR provider_id = ?2)
+                   AND (?3 IS NULL OR model = ?3)
+                   AND (?4 IS NULL OR model_version = ?4)",
             )
             .map_err(to_port_error)?;
         let mut rows = statement
             .query(params![
                 usize_to_i64(query_dimension)?,
+                query.provider_id.as_deref(),
+                query.model.as_deref(),
                 query.model_version.as_deref(),
             ])
             .map_err(to_port_error)?;

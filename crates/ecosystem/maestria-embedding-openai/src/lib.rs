@@ -78,6 +78,8 @@ impl EmbeddingProvider for LocalHttpEmbeddingProvider {
         };
         Ok(EmbeddingResponse {
             vector: first.embedding,
+            provider_id: self.endpoint.to_string(),
+            model: self.model.clone(),
             model_version,
         })
     }
@@ -97,6 +99,7 @@ impl Default for UreqTransport {
         Self {
             agent: ureq::AgentBuilder::new()
                 .timeout(std::time::Duration::from_secs(15))
+                .redirects(0)
                 .build(),
         }
     }

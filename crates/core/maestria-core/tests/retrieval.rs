@@ -435,6 +435,8 @@ fn vector_search_returns_grounded_nonliteral_match() -> Result<(), Box<dyn std::
         vector: vec![0.0, 1.0],
         provenance: maestria_ports::EmbeddingProvenance {
             content_hash: "hash".to_string(),
+            provider_id: "test-provider".to_string(),
+            model: "test-model".to_string(),
             model_version: "test-v1".to_string(),
         },
     }])?;
@@ -459,6 +461,8 @@ fn vector_search_returns_grounded_nonliteral_match() -> Result<(), Box<dyn std::
             VectorSearchQuery {
                 vector: vec![0.0, 1.0],
                 limit: 5,
+                provider_id: Some("test-provider".to_string()),
+                model: Some("test-model".to_string()),
                 model_version: Some("test-v1".to_string()),
             },
         )?

@@ -19,6 +19,8 @@ fn round_trips_provenance() -> Result<(), PortError> {
     let index = SqliteVectorIndex::in_memory()?;
     let provenance = EmbeddingProvenance {
         content_hash: "hash_abcd".into(),
+        provider_id: "test-provider".into(),
+        model: "test-model".into(),
         model_version: "model_v1".into(),
     };
 
@@ -68,6 +70,8 @@ fn unchanged_embedding_does_not_update_projection() -> Result<(), PortError> {
         vector: vec![1.0, 0.5],
         provenance: EmbeddingProvenance {
             content_hash: "hash".to_string(),
+            provider_id: "test-provider".into(),
+            model: "test-model".into(),
             model_version: "model-v1".to_string(),
         },
     };
@@ -163,7 +167,7 @@ fn migrates_version_1_schema_to_current() -> Result<(), PortError> {
     assert_eq!(v, SCHEMA_VERSION);
 
     // Verify new columns exist by doing a dummy insert
-    conn.execute("INSERT INTO vector_embeddings (chunk_id, dimension, embedding, content_hash, model_version) VALUES (1, 1, X'00', 'a', 'b')", []).map_err(to_port_error)?;
+    conn.execute("INSERT INTO vector_embeddings (chunk_id, dimension, embedding, content_hash, provider_id, model, model_version) VALUES (1, 1, X'00', 'a', 'provider', 'model', 'b')", []).map_err(to_port_error)?;
     Ok(())
 }
 
@@ -184,6 +188,8 @@ fn prevents_nan_scores_from_overflow() -> Result<(), PortError> {
     let index = SqliteVectorIndex::in_memory()?;
     let prov = EmbeddingProvenance {
         content_hash: "hash".into(),
+        provider_id: "test-provider".into(),
+        model: "test-model".into(),
         model_version: "v1".into(),
     };
 
@@ -199,6 +205,8 @@ fn prevents_nan_scores_from_overflow() -> Result<(), PortError> {
     let hits = index.search_similar(VectorSearchQuery {
         vector: vec![huge_val, huge_val],
         limit: 1,
+        provider_id: None,
+        model: None,
         model_version: None,
     })?;
 

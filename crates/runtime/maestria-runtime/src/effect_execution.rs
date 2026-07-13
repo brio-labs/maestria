@@ -248,12 +248,12 @@ impl EffectExecutionContext {
             Ok(Ok(response)) => response,
             Ok(Err(error)) => {
                 tracing::warn!(chunk_id = %request.chunk_id, %error, "embedding provider failed; preserving fallback");
-                self.invalidate_vector_projection(request.chunk_id);
+                self.invalidate_vector_projection(request.chunk_id).await;
                 return true;
             }
             Err(error) => {
                 tracing::warn!(chunk_id = %request.chunk_id, %error, "embedding provider task failed; preserving fallback");
-                self.invalidate_vector_projection(request.chunk_id);
+                self.invalidate_vector_projection(request.chunk_id).await;
                 return true;
             }
         };
@@ -262,21 +262,41 @@ impl EffectExecutionContext {
             vector: response.vector,
             provenance: maestria_ports::EmbeddingProvenance {
                 content_hash,
+                provider_id: response.provider_id,
+                model: response.model,
                 model_version: response.model_version,
             },
         };
-        match self.adapters.vector_index.index_embeddings(vec![embedding]) {
-            Ok(()) => true,
-            Err(error) => {
+        let vector_index = Arc::clone(&self.adapters.vector_index);
+        match tokio::task::spawn_blocking(move || vector_index.index_embeddings(vec![embedding]))
+            .await
+        {
+            Ok(Ok(())) => true,
+            Ok(Err(error)) => {
                 tracing::warn!(chunk_id = %request.chunk_id, %error, "vector projection failed; preserving fallback");
+                self.invalidate_vector_projection(request.chunk_id).await;
+                true
+            }
+            Err(error) => {
+                tracing::warn!(chunk_id = %request.chunk_id, %error, "vector projection task failed; preserving fallback");
+                self.invalidate_vector_projection(request.chunk_id).await;
                 true
             }
         }
     }
 
-    fn invalidate_vector_projection(&self, chunk_id: maestria_domain::ChunkId) {
-        if let Err(error) = self.adapters.vector_index.delete_chunks(&[chunk_id]) {
-            tracing::debug!(chunk_id = %chunk_id, %error, "could not invalidate stale vector projection");
+    async fn invalidate_vector_projection(&self, chunk_id: maestria_domain::ChunkId) {
+        let vector_index = Arc::clone(&self.adapters.vector_index);
+        let result =
+            tokio::task::spawn_blocking(move || vector_index.delete_chunks(&[chunk_id])).await;
+        match result {
+            Ok(Ok(())) => {}
+            Ok(Err(error)) => {
+                tracing::debug!(chunk_id = %chunk_id, %error, "could not invalidate stale vector projection");
+            }
+            Err(error) => {
+                tracing::debug!(chunk_id = %chunk_id, %error, "vector invalidation task failed");
+            }
         }
     }
 }

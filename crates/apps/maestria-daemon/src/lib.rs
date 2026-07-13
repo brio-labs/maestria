@@ -374,6 +374,7 @@ pub async fn run_instance(instance_dir: PathBuf) -> Result<()> {
 
     let (runtime, input_tx, input_rx, shutdown_token) =
         build_runtime(&layout, state, AutonomyProfile::ReadOnly)?;
+    let runtime = runtime.with_graceful_shutdown();
 
     let runtime_task = tokio::spawn(runtime.run(input_rx, shutdown_token.clone()));
 
