@@ -1,5 +1,6 @@
 use anyhow::{Context, Result};
 use std::path::PathBuf;
+use std::time::Duration;
 
 use maestria_domain::DomainEvent;
 use maestria_ports::{ApprovalRepository, EventFilter, EventLog};
@@ -35,6 +36,7 @@ pub fn run_list(instance_dir: PathBuf) -> Result<()> {
 pub async fn run_resolve(instance_dir: PathBuf, id: u64, approved: bool) -> Result<()> {
     let layout = helpers::validated_instance(instance_dir)?;
 
+    // Open one persistent connection for validation + event polling.
     let store = SqliteStore::open(&layout.database_path)
         .with_context(|| format!("open sqlite store {}", layout.database_path.display()))?;
     let record = store
@@ -48,7 +50,6 @@ pub async fn run_resolve(instance_dir: PathBuf, id: u64, approved: bool) -> Resu
             record.status
         );
     }
-    drop(store);
 
     let lock = maestria_daemon::acquire_instance_write_lock(&layout)
         .await
@@ -69,41 +70,44 @@ pub async fn run_resolve(instance_dir: PathBuf, id: u64, approved: bool) -> Resu
     };
 
     let runtime_handle = tokio::spawn(runtime.run(input_rx, shutdown_token.clone()));
-    tokio::task::yield_now().await;
 
-    input_tx
+    // Send the approval input.
+    if let Err(e) = input_tx
         .send(maestria_domain::DomainInput::ApprovalResolved(decision))
         .await
-        .context("send approval decision to runtime")?;
+    {
+        shutdown_token.cancel();
+        let join_result = runtime_handle.await;
+        let msg = format!("failed to send approval decision: {e}");
+        if let Err(join_err) = join_result {
+            anyhow::bail!("{msg}; runtime join also failed: {join_err}");
+        }
+        anyhow::bail!("{msg}");
+    }
 
-    // Allow the runtime to process the effect before shutting down.
-    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    // Poll the persistent connection for the ApprovalRecorded event
+    // with a bounded timeout. The runtime uses a separate connection
+    // so there is no lock conflict.
+    let poll_result = tokio::time::timeout(
+        Duration::from_secs(5),
+        poll_for_approval_recorded(&store, approval_id),
+    )
+    .await;
 
     shutdown_token.cancel();
-    let _ = runtime_handle.await;
+    runtime_handle
+        .await
+        .context("runtime task join failed")?;
     drop(lock);
 
-    // Verify the ApprovalRecorded event was persisted.
-    let store = SqliteStore::open(&layout.database_path)
-        .with_context(|| format!("open sqlite store {}", layout.database_path.display()))?;
-    let events = store
-        .scan(EventFilter { artifact_id: None })
-        .context("scan event log")?;
-    let event_observed = events.iter().any(|e| {
-        matches!(
-            &e.event,
-            DomainEvent::ApprovalRecorded {
-                approval_id: id,
-                ..
-            } if *id == approval_id
-        )
-    });
-
-    if !event_observed {
-        anyhow::bail!(
-            "approval decision was not recorded by the domain; \
-             the request may be processed on next daemon start"
-        );
+    match poll_result {
+        Ok(true) => {}
+        Ok(false) | Err(_) => {
+            anyhow::bail!(
+                "approval decision was not recorded by the domain; \
+                 the request may be processed on next daemon start"
+            );
+        }
     }
 
     let resolved = store
@@ -116,4 +120,29 @@ pub async fn run_resolve(instance_dir: PathBuf, id: u64, approved: bool) -> Resu
     let action = if approved { "Approved" } else { "Denied" };
     println!("{action} approval request {id} for task {}.", record.task_id);
     Ok(())
+}
+
+/// Poll a single open store connection for the ApprovalRecorded event.
+/// Returns when found or the future is cancelled by the caller's timeout.
+async fn poll_for_approval_recorded(
+    store: &SqliteStore,
+    approval_id: maestria_domain::ApprovalId,
+) -> bool {
+    loop {
+        match store.scan(EventFilter { artifact_id: None }) {
+            Ok(events) => {
+                if events.iter().any(|e| {
+                    matches!(
+                        &e.event,
+                        DomainEvent::ApprovalRecorded { approval_id: id, .. }
+                            if *id == approval_id
+                    )
+                }) {
+                    return true;
+                }
+            }
+            Err(_) => return false,
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
 }
