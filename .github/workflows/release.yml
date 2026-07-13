@@ -1,14 +1,19 @@
 name: Release
 
 on:
-  push:
-    tags:
-      - "v*"
   workflow_dispatch:
+    inputs:
+      commit:
+        description: 'Main commit SHA to release as v0.1.0'
+        required: true
+        type: string
+
+concurrency:
+  group: release-v0.1.0
+  cancel-in-progress: false
 
 permissions:
   contents: read
-  actions: write
 
 env:
   CARGO_TERM_COLOR: always
@@ -16,12 +21,157 @@ env:
   SCCACHE_GHA_ENABLED: "true"
 
 jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      checks: read
+      issues: read
+      statuses: read
+    outputs:
+      commit: ${{ steps.validate.outputs.commit }}
+    steps:
+      - uses: actions/checkout@v7.0.0
+        with:
+          ref: ${{ inputs.commit }}
+          fetch-depth: 0
+
+      - name: Validate milestone closure and CI checks
+        id: validate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_COMMIT: ${{ inputs.commit }}
+        run: |
+          set -euo pipefail
+          COMMIT="$RELEASE_COMMIT"
+
+          # Require a full 40-character hex SHA
+          if ! [[ "$COMMIT" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::Commit must be a full 40-character hex SHA, got '$COMMIT'"
+            exit 1
+          fi
+
+          # Resolve the commit immutably
+          RESOLVED="$(git rev-parse --verify "$COMMIT^{commit}" 2>/dev/null || echo '')"
+          if [ -z "$RESOLVED" ] || [ "$RESOLVED" != "$COMMIT" ]; then
+            echo "::error::Cannot resolve commit $COMMIT"
+            exit 1
+          fi
+          COMMIT="$RESOLVED"
+
+          # Verify the commit is on origin/main
+          git fetch origin main --depth=100 2>/dev/null || true
+          MAIN_SHA="$(git rev-parse refs/remotes/origin/main 2>/dev/null || echo '')"
+          if [ -z "$MAIN_SHA" ]; then
+            echo "::error::Cannot resolve origin/main"
+            exit 1
+          fi
+          if ! git merge-base --is-ancestor "$COMMIT" "$MAIN_SHA"; then
+            echo "::error::Commit $COMMIT is not an ancestor of origin/main ($MAIN_SHA)"
+            exit 1
+          fi
+          echo "commit=$COMMIT" >> "$GITHUB_OUTPUT"
+          echo "✓ Commit $COMMIT verified on origin/main"
+
+          # ── 1. Milestone gate ──────────────────────────────────
+          echo
+          echo "==> Checking milestone 'v0.1 — MVP Closure'..."
+
+          MILESTONE_JSON="$(gh api "repos/${{ github.repository }}/milestones" \
+            --method GET -f state=all --paginate \
+            --jq '.[] | select(.title == "v0.1 — MVP Closure")')"
+
+          if [ -z "$MILESTONE_JSON" ]; then
+            echo "::error::Milestone 'v0.1 — MVP Closure' not found in this repository"
+            exit 1
+          fi
+
+          MILESTONE_STATE="$(echo "$MILESTONE_JSON" | jq -r '.state')"
+          MILESTONE_TITLE="$(echo "$MILESTONE_JSON" | jq -r '.title')"
+          if [ "$MILESTONE_STATE" != "closed" ]; then
+            echo "::error::Milestone '$MILESTONE_TITLE' is not closed (state: $MILESTONE_STATE)"
+            exit 1
+          fi
+          echo "✓ Milestone '$MILESTONE_TITLE' is closed"
+
+          MILESTONE_NUMBER="$(echo "$MILESTONE_JSON" | jq -r '.number')"
+
+          # Verify every issue in the milestone is closed
+          OPEN_ISSUE="$(gh api "repos/${{ github.repository }}/issues" \
+            --method GET -f milestone="$MILESTONE_NUMBER" -f state="open" -f per_page=1 \
+            --jq '.[0].title // empty')"
+          if [ -n "$OPEN_ISSUE" ]; then
+            echo "::error::Milestone '$MILESTONE_TITLE' has open issues (e.g. '$OPEN_ISSUE')"
+            exit 1
+          fi
+          echo "✓ All issues in milestone '$MILESTONE_TITLE' are closed"
+
+          # ── 2. CI status gate ──────────────────────────────────
+          echo
+          echo "==> Checking CI status for commit $COMMIT..."
+
+          CHECK_SUITES="$(gh api "repos/${{ github.repository }}/commits/$COMMIT/check-suites" \
+            --method GET --paginate --jq '.check_suites' | jq -s 'add')"
+
+          if [ -z "$CHECK_SUITES" ] || [ "$CHECK_SUITES" = "[]" ]; then
+            echo "::error::No check suites found for commit $COMMIT"
+            exit 1
+          fi
+
+          # Reject any non-terminal (in-progress / queued) suites
+          PENDING_COUNT="$(echo "$CHECK_SUITES" | jq -r \
+            '[.[] | select(.status != "completed")] | length')"
+          if [ "$PENDING_COUNT" -gt 0 ]; then
+            echo "::error::$PENDING_COUNT check suite(s) still in progress — wait for CI to finish"
+            exit 1
+          fi
+
+          # Every terminal suite must be success
+          NON_SUCCESS="$(echo "$CHECK_SUITES" | jq -r \
+            '.[] | select(.conclusion != "success") | "  • \(.app.name // "unknown"): \(.conclusion // "no conclusion")"')"
+
+          if [ -n "$NON_SUCCESS" ]; then
+            echo "::error::Every check suite must have conclusion 'success'. Non-success suites:"
+            echo "$NON_SUCCESS"
+            exit 1
+          fi
+
+          SUCCESS_COUNT="$(echo "$CHECK_SUITES" | jq -r '[.[] | select(.conclusion == "success")] | length')"
+          echo "✓ All check suites succeeded ($SUCCESS_COUNT total)"
+
+          # ── 3. Commit status gate (legacy/external statuses) ──
+          echo
+          echo "==> Checking commit status for $COMMIT..."
+
+          COMMIT_STATUSES="$(gh api "repos/${{ github.repository }}/commits/$COMMIT/status" \
+            --method GET --paginate --jq '.statuses' | jq -s 'add')"
+
+          if [ -n "$COMMIT_STATUSES" ] && [ "$COMMIT_STATUSES" != "[]" ]; then
+            BAD_STATUS="$(echo "$COMMIT_STATUSES" | jq -r \
+              '.[] | select(.state != "success") | "  • \(.context // "unknown"): \(.state)"')"
+            if [ -n "$BAD_STATUS" ]; then
+              echo "::error::The following commit statuses are not 'success':"
+              echo "$BAD_STATUS"
+              exit 1
+            fi
+            STATUS_COUNT="$(echo "$COMMIT_STATUSES" | jq -r '[.[] | select(.state == "success")] | length')"
+            echo "✓ All commit statuses passed ($STATUS_COUNT total)"
+          else
+            echo "✓ No legacy commit statuses (nothing to check)"
+          fi
+
+          echo
+          echo "✓ Preflight complete — release gate is open"
+
   verify:
+    needs: [preflight]
     runs-on: ubuntu-latest
     permissions:
       contents: read
     steps:
       - uses: actions/checkout@v7.0.0
+        with:
+          ref: ${{ inputs.commit }}
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
@@ -58,6 +208,8 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v7.0.0
+        with:
+          ref: ${{ inputs.commit }}
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2.9.1
       - uses: mozilla-actions/sccache-action@v0.0.10
@@ -65,20 +217,94 @@ jobs:
         run: cargo build --workspace --all-features --locked
 
   publish:
-    needs: [build]
+    needs: [preflight, build]
     runs-on: ubuntu-latest
     permissions:
       contents: write
       actions: write
     steps:
       - uses: actions/checkout@v7.0.0
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2.9.1
-      - uses: mozilla-actions/sccache-action@v0.0.10
-      - name: Build release artifacts
-        run: |
-          cargo build --workspace --all-features --locked
-      - name: Create GitHub release
-        uses: softprops/action-gh-release@v4
         with:
-          generate_release_notes: true
+          ref: ${{ inputs.commit }}
+
+      - name: Check for existing release
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          COMMIT="${{ needs.preflight.outputs.commit }}"
+
+          if gh release view v0.1.0 --json targetCommitish,isDraft >/dev/null 2>&1; then
+            RELEASE_JSON="$(gh release view v0.1.0 --json targetCommitish,isDraft)"
+            EXISTING_TARGET="$(echo "$RELEASE_JSON" | jq -r '.targetCommitish')"
+            IS_DRAFT="$(echo "$RELEASE_JSON" | jq -r '.isDraft')"
+
+            if [ "$IS_DRAFT" = "true" ]; then
+              if [ "$EXISTING_TARGET" != "$COMMIT" ]; then
+                echo "::error::Draft release v0.1.0 targets $EXISTING_TARGET, not $COMMIT"
+                exit 1
+              fi
+              echo "==> Publishing draft release v0.1.0"
+              gh release edit v0.1.0 --draft=false
+              echo "✓ Draft release v0.1.0 published targeting commit $COMMIT"
+              echo "exists=true" >> "$GITHUB_OUTPUT"
+            elif [ "$EXISTING_TARGET" != "$COMMIT" ]; then
+              echo "::error::Release v0.1.0 exists but targets $EXISTING_TARGET, not $COMMIT"
+              exit 1
+            else
+              echo "✓ Release v0.1.0 already exists targeting commit $COMMIT — nothing to do"
+              echo "exists=true" >> "$GITHUB_OUTPUT"
+            fi
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Set up Rust toolchain
+        if: steps.check.outputs.exists == 'false'
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust dependencies
+        if: steps.check.outputs.exists == 'false'
+        uses: Swatinem/rust-cache@v2.9.1
+
+      - name: Set up sccache
+        if: steps.check.outputs.exists == 'false'
+        uses: mozilla-actions/sccache-action@v0.0.10
+
+      - name: Build release artifacts
+        if: steps.check.outputs.exists == 'false'
+        run: cargo build --workspace --all-features --locked
+
+      - name: Create tag and publish release
+        if: steps.check.outputs.exists == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          COMMIT="${{ needs.preflight.outputs.commit }}"
+
+          # Check whether the tag already exists remotely (peeled to commit SHA)
+          REMOTE_TAG="$(git ls-remote origin "refs/tags/v0.1.0^{}" 2>/dev/null || echo '')"
+          if [ -n "$REMOTE_TAG" ]; then
+            REMOTE_TAG_SHA="$(echo "$REMOTE_TAG" | awk '{print $1}')"
+            if [ "$REMOTE_TAG_SHA" != "$COMMIT" ]; then
+              echo "::error::Remote tag v0.1.0 points to $REMOTE_TAG_SHA, not $COMMIT"
+              exit 1
+            fi
+            echo "✓ Tag v0.1.0 already exists on remote at $COMMIT — creating release only"
+          else
+            echo "==> Creating tag v0.1.0 at commit $COMMIT"
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git tag -a v0.1.0 "$COMMIT" -m "v0.1.0: MVP release"
+            git push origin v0.1.0
+          fi
+
+          echo "==> Publishing release v0.1.0"
+          gh release create v0.1.0 \
+            --target "$COMMIT" \
+            --title "v0.1.0 — MVP Release" \
+            --generate-notes
+
+          echo "✓ Release v0.1.0 published successfully"
