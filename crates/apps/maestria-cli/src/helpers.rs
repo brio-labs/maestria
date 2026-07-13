@@ -167,7 +167,7 @@ pub(crate) fn source_label(evidence: &maestria_domain::Evidence) -> String {
 }
 
 pub(crate) fn is_db_locked(error: &anyhow::Error) -> bool {
-    let message = error.to_string().to_lowercase();
+    let message = format!("{error:#}").to_lowercase();
     message.contains("database is locked")
         || message.contains("database is busy")
         || message.contains("locked")

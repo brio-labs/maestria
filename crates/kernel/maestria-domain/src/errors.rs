@@ -69,6 +69,7 @@ pub enum DomainError {
         actual: u64,
     },
     EmptyIntent,
+    EmptyClaimText,
     InvalidSequence {
         expected: u64,
         actual: u64,
@@ -136,6 +137,7 @@ impl fmt::Display for DomainError {
             Self::ValidationRequired { task_id } => {
                 write!(f, "task {task_id} requires validation before completion")
             }
+            Self::EmptyClaimText => write!(f, "claim text must not be empty"),
             Self::EmptyIntent => write!(f, "user intent must not be empty"),
             Self::EvidenceRequired { kind, id } => {
                 write!(f, "{kind} {id} requires at least one evidence id")

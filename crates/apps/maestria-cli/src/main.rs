@@ -68,6 +68,15 @@ async fn main() -> Result<()> {
                 instance_dir,
                 limit,
             } => commands::memory::run(instance_dir, limit)?,
+            MemoryCommands::Propose {
+                text,
+                evidence_id,
+                confidence_milli,
+                instance_dir,
+            } => {
+                commands::memory::run_propose(instance_dir, text, evidence_id, confidence_milli)
+                    .await?
+            }
         },
     }
 

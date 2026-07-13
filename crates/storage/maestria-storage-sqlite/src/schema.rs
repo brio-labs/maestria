@@ -5,7 +5,7 @@ use crate::to_port_error;
 
 use crate::schema_validation::*;
 /// Current storage schema version supported by this adapter.
-pub(crate) const CURRENT_SCHEMA_VERSION: i64 = 3;
+pub(crate) const CURRENT_SCHEMA_VERSION: i64 = 4;
 
 /// Ensures the `artifacts` table carries the v3 columns `content_hash` and `index_status`.
 fn ensure_artifact_v3_columns(connection: &Connection) -> Result<(), PortError> {
@@ -61,7 +61,8 @@ fn detect_schema_state(connection: &Connection) -> Result<SchemaState, PortError
 }
 
 /// SQL that bootstraps every table for a fresh database (all `IF NOT EXISTS`).
-const BASE_SCHEMA_SQL: &str = "PRAGMA foreign_keys = ON;
+const BASE_SCHEMA_SQL: &str = "PRAGMA journal_mode=WAL;
+PRAGMA foreign_keys = ON;
      CREATE TABLE IF NOT EXISTS schema_version (
          version INTEGER NOT NULL PRIMARY KEY,
          applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -137,7 +138,60 @@ const BASE_SCHEMA_SQL: &str = "PRAGMA foreign_keys = ON;
          payload_version INTEGER NOT NULL DEFAULT 2
      );
      CREATE INDEX IF NOT EXISTS idx_domain_events_artifact_sequence
-         ON domain_events(artifact_id, sequence);";
+         ON domain_events(artifact_id, sequence);
+     CREATE TABLE IF NOT EXISTS id_counters (
+         namespace TEXT PRIMARY KEY,
+         next_id INTEGER NOT NULL DEFAULT 1
+     );";
+
+/// Seeds the per-namespace `id_counters` rows from existing domain events
+/// so that fresh or migrated databases never start at the wrong counter value.
+///
+/// Scans `domain_events` for the maximum `claim_id` and `memory_candidate_id`
+/// already persisted, then seeds each counter at `max_id + 1` (or 1 if no
+/// matching events exist).  Uses `INSERT OR IGNORE` so repeated calls are
+/// idempotent — already-seeded counters are not overwritten.
+fn seed_id_counters(connection: &Connection) -> Result<(), PortError> {
+    use rusqlite::params;
+
+    let max_claim: Option<i64> = connection
+        .query_row(
+            "SELECT MAX(CAST(json_extract(payload_json, '$.claim_id') AS INTEGER))
+             FROM domain_events
+             WHERE event_kind = 'claim_created'",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(to_port_error)?;
+    let next_claim = max_claim.map_or(0i64, |v| v) + 1;
+
+    connection
+        .execute(
+            "INSERT OR IGNORE INTO id_counters (namespace, next_id) VALUES ('claim', ?1)",
+            params![next_claim],
+        )
+        .map_err(to_port_error)?;
+
+    let max_candidate: Option<i64> = connection
+        .query_row(
+            "SELECT MAX(CAST(json_extract(payload_json, '$.candidate_id') AS INTEGER))
+             FROM domain_events
+             WHERE event_kind = 'memory_candidate_created'",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(to_port_error)?;
+    let next_candidate = max_candidate.map_or(0i64, |v| v) + 1;
+
+    connection
+        .execute(
+            "INSERT OR IGNORE INTO id_counters (namespace, next_id) VALUES ('memory_candidate', ?1)",
+            params![next_candidate],
+        )
+        .map_err(to_port_error)?;
+
+    Ok(())
+}
 
 /// Creates every table and index using `CREATE TABLE IF NOT EXISTS` — safe to call
 /// on both fresh and existing databases.
@@ -204,35 +258,6 @@ fn migrate_from_v2(connection: &Connection, state: &SchemaState) -> Result<(), P
     Ok(())
 }
 
-/// Validates that a database already at v3 conforms to the expected columns.
-fn validate_at_v3(connection: &Connection, state: &SchemaState) -> Result<(), PortError> {
-    if !state.had_domain_events_table {
-        return Err(PortError::Internal {
-            message: "malformed sqlite schema: domain_events table missing".to_string(),
-        });
-    }
-    if state.had_payload_version_column {
-        validate_columns(connection, &DOMAIN_EVENTS_V2_COLUMNS)?;
-    } else {
-        return Err(PortError::Internal {
-            message: "malformed sqlite schema: missing payload_version column".to_string(),
-        });
-    }
-    if !table_has_column(connection, "artifacts", "content_hash")? {
-        return Err(PortError::Internal {
-            message: "malformed sqlite schema: artifacts table missing content_hash column"
-                .to_string(),
-        });
-    }
-    if !table_has_column(connection, "artifacts", "index_status")? {
-        return Err(PortError::Internal {
-            message: "malformed sqlite schema: artifacts table missing index_status column"
-                .to_string(),
-        });
-    }
-    Ok(())
-}
-
 /// Migrates a database that has no `schema_version` table (fresh install, or pre-v1
 /// legacy). If `domain_events` already exists it is migrated to v2; otherwise the v2
 /// columns are validated. Artifact v3 columns are ensured, and the current schema
@@ -267,6 +292,53 @@ fn migrate_from_fresh(connection: &Connection, state: &SchemaState) -> Result<()
 }
 
 /// Runs the final post-migration validation suite and commits the transaction.
+/// Validates a v3 database and records the current schema version.
+/// Table creation and counter seeding are handled by the shared
+/// `create_base_schema` / `seed_id_counters` calls in [`migrate`].
+fn migrate_from_v3(connection: &Connection, state: &SchemaState) -> Result<(), PortError> {
+    if !state.had_domain_events_table {
+        return Err(PortError::Internal {
+            message: "malformed sqlite schema: domain_events table missing".to_string(),
+        });
+    }
+    connection
+        .execute(
+            "INSERT OR IGNORE INTO schema_version (version) VALUES (?1)",
+            [CURRENT_SCHEMA_VERSION],
+        )
+        .map_err(to_port_error)?;
+    Ok(())
+}
+
+/// Validates that a database already at v4 conforms to the expected tables.
+fn validate_at_v4(connection: &Connection, state: &SchemaState) -> Result<(), PortError> {
+    if !state.had_domain_events_table {
+        return Err(PortError::Internal {
+            message: "malformed sqlite schema: domain_events table missing".to_string(),
+        });
+    }
+    if state.had_payload_version_column {
+        validate_columns(connection, &DOMAIN_EVENTS_V2_COLUMNS)?;
+    } else {
+        return Err(PortError::Internal {
+            message: "malformed sqlite schema: missing payload_version column".to_string(),
+        });
+    }
+    if !table_has_column(connection, "artifacts", "content_hash")? {
+        return Err(PortError::Internal {
+            message: "malformed sqlite schema: artifacts table missing content_hash column"
+                .to_string(),
+        });
+    }
+    if !table_has_column(connection, "artifacts", "index_status")? {
+        return Err(PortError::Internal {
+            message: "malformed sqlite schema: artifacts table missing index_status column"
+                .to_string(),
+        });
+    }
+    Ok(())
+}
+
 fn finalize_migration(transaction: rusqlite::Transaction) -> Result<(), PortError> {
     validate_domain_events_schema(&transaction)?;
     validate_event_order(&transaction)?;
@@ -281,11 +353,13 @@ pub(crate) fn migrate(connection: &mut Connection) -> Result<(), PortError> {
     let transaction = connection.transaction().map_err(to_port_error)?;
     let state = detect_schema_state(&transaction)?;
     create_base_schema(&transaction)?;
+    seed_id_counters(&transaction)?;
 
     match state.version {
         Some(1) => migrate_from_v1(&transaction, &state)?,
         Some(2) => migrate_from_v2(&transaction, &state)?,
-        Some(3) => validate_at_v3(&transaction, &state)?,
+        Some(3) => migrate_from_v3(&transaction, &state)?,
+        Some(4) => validate_at_v4(&transaction, &state)?,
         Some(version) => {
             return Err(PortError::Internal {
                 message: format!(

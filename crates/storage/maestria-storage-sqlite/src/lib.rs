@@ -9,6 +9,7 @@ use maestria_ports::PortError;
 use rusqlite::{Connection, Error, ErrorCode};
 
 mod events;
+mod id_allocator;
 mod payloads;
 mod repositories;
 mod schema;
@@ -24,6 +25,12 @@ impl SqliteStore {
     /// Open a SQLite database file and apply idempotent schema migrations.
     pub fn open(path: impl AsRef<std::path::Path>) -> Result<Self, PortError> {
         let mut connection = Connection::open(path).map_err(to_port_error)?;
+        connection
+            .busy_timeout(std::time::Duration::from_secs(5))
+            .map_err(to_port_error)?;
+        connection
+            .pragma_update(None, "journal_mode", "WAL")
+            .map_err(to_port_error)?;
         migrate(&mut connection)?;
         Ok(Self {
             connection: std::sync::Mutex::new(connection),
@@ -31,10 +38,14 @@ impl SqliteStore {
     }
 
     /// Open an in-memory SQLite database and apply idempotent schema migrations.
-    ///
-    /// Useful for crate-local tests and short-lived adapters.
     pub fn in_memory() -> Result<Self, PortError> {
         let mut connection = Connection::open_in_memory().map_err(to_port_error)?;
+        connection
+            .busy_timeout(std::time::Duration::from_secs(5))
+            .map_err(to_port_error)?;
+        connection
+            .pragma_update(None, "journal_mode", "WAL")
+            .map_err(to_port_error)?;
         migrate(&mut connection)?;
         Ok(Self {
             connection: std::sync::Mutex::new(connection),

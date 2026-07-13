@@ -35,6 +35,9 @@ impl KernelState {
             DomainInput::CreateMemoryCandidate(input) => {
                 self.process_create_memory_candidate(input)
             }
+            DomainInput::ProposeMemoryCandidate(input) => {
+                self.process_propose_memory_candidate(input)
+            }
             DomainInput::PromoteMemory(input) => self.process_promote_memory(input),
             DomainInput::ContradictMemory(input) => self.process_contradict_memory(input),
             DomainInput::DeprecateMemory(input) => self.process_deprecate_memory(input),

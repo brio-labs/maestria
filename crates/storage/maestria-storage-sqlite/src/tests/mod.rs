@@ -1,5 +1,6 @@
 mod contract_tests;
 mod event_tests;
+mod id_allocator_tests;
 mod index_event_tests;
 mod migration_tests;
 mod repository_tests;

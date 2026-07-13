@@ -111,6 +111,20 @@ pub enum MemoryCommands {
         #[arg(short, long, default_value_t = 20)]
         limit: usize,
     },
+    /// Propose a new memory candidate backed by evidence
+    Propose {
+        /// Claim text
+        #[arg(short, long)]
+        text: String,
+        /// Evidence ids
+        #[arg(short = 'e', long, value_delimiter = ',', num_args = 1..)]
+        evidence_id: Vec<u64>,
+        /// Confidence in milli-units (0..=1000)
+        #[arg(short, long, value_parser = clap::value_parser!(u16).range(0..=1000))]
+        confidence_milli: u16,
+        #[arg(short, long, default_value = ".maestria-dev")]
+        instance_dir: PathBuf,
+    },
 }
 
 #[derive(Clone, Copy, Debug, ValueEnum)]

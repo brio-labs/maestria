@@ -237,6 +237,21 @@ impl KernelState {
         Ok(output)
     }
 
+    pub(super) fn process_propose_memory_candidate(
+        &mut self,
+        input: ProposeMemoryCandidateInput,
+    ) -> Result<KernelOutput, DomainError> {
+        let mut output = KernelOutput::default();
+        let envelopes = self.handle_propose_memory_candidate(input)?;
+        for envelope in &envelopes {
+            output.events.push(envelope.clone());
+            output.effects.push(MaestriaEffect::PersistEvent {
+                envelope: envelope.clone(),
+            });
+        }
+        Ok(output)
+    }
+
     pub(super) fn process_promote_memory(
         &mut self,
         input: PromoteMemoryInput,
