@@ -29,13 +29,13 @@ jobs:
       issues: read
       statuses: read
       actions: read
+    outputs:
       commit: ${{ steps.validate.outputs.commit }}
     steps:
       - uses: actions/checkout@v7.0.0
         with:
           ref: ${{ inputs.commit }}
           fetch-depth: 0
-
       - name: Validate milestone closure and CI checks
         id: validate
         env:
