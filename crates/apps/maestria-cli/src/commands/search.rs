@@ -73,17 +73,28 @@ pub async fn run(instance_dir: PathBuf, query: String, limit: usize) -> Result<(
         at: LogicalTick::new(1),
     };
 
-    input_tx
-        .send(DomainInput::SearchExecuted(audit_input))
-        .await
-        .map_err(|err| anyhow::anyhow!("failed to queue search audit input: {err}"))?;
-    wait_for_search_executed_persistence(&layout, event_count_before, Duration::from_secs(5))
+    let result = async {
+        input_tx
+            .send(DomainInput::SearchExecuted(audit_input))
+            .await
+            .map_err(|err| anyhow::anyhow!("failed to queue search audit input: {err}"))?;
+        wait_for_search_executed_persistence(
+            &layout,
+            event_count_before,
+            &pack.query,
+            limit,
+            &pack.evidence_ids,
+            Duration::from_secs(5),
+        )
         .await?;
+        Ok::<(), anyhow::Error>(())
+    }
+    .await;
 
     shutdown_token.cancel();
-    runtime_task
-        .await
-        .with_context(|| "runtime loop join failed")?;
+    let join_result = runtime_task.await;
+    result?;
+    join_result.with_context(|| "runtime loop join failed")?;
 
     // ── Print results only after successful audit persistence ──
     // Card rows first, then chunk rows.
@@ -117,11 +128,13 @@ pub async fn run(instance_dir: PathBuf, query: String, limit: usize) -> Result<(
     Ok(())
 }
 
-/// Poll the event log until a SearchExecuted event is observed, or the
-/// timeout expires. Returns an error on timeout or scan failure.
+/// Poll the event log until this search's SearchExecuted event is observed.
 async fn wait_for_search_executed_persistence(
     layout: &maestria_core::InstanceLayout,
     event_count_before: usize,
+    expected_query: &str,
+    expected_limit: usize,
+    expected_evidence_ids: &[maestria_domain::EvidenceId],
     timeout_budget: Duration,
 ) -> Result<()> {
     tokio::time::timeout(timeout_budget, async {
@@ -131,8 +144,15 @@ async fn wait_for_search_executed_persistence(
                     let new_events = state.event_log.get(event_count_before..).unwrap_or(&[]);
                     if new_events.iter().any(|envelope| {
                         matches!(
-                            envelope.event,
-                            maestria_domain::DomainEvent::SearchExecuted { .. }
+                            &envelope.event,
+                            maestria_domain::DomainEvent::SearchExecuted {
+                                query,
+                                limit,
+                                evidence_ids,
+                                ..
+                            } if query == expected_query
+                                && *limit == expected_limit
+                                && evidence_ids == expected_evidence_ids
                         )
                     }) {
                         return Ok(());

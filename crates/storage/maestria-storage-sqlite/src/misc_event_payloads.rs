@@ -61,12 +61,20 @@ impl StoredEventPayload {
                 limit,
                 evidence_ids,
                 at,
-            } => Ok(DomainEvent::SearchExecuted {
-                query,
-                limit: limit as usize,
-                evidence_ids: evidence_ids.into_iter().map(EvidenceId::new).collect(),
-                at: LogicalTick::new(at),
-            }),
+            } => match usize::try_from(limit) {
+                Ok(limit) => Ok(DomainEvent::SearchExecuted {
+                    query,
+                    limit,
+                    evidence_ids: evidence_ids.into_iter().map(EvidenceId::new).collect(),
+                    at: LogicalTick::new(at),
+                }),
+                Err(_) => Err(Box::new(Self::SearchExecuted {
+                    query,
+                    limit,
+                    evidence_ids,
+                    at,
+                })),
+            },
             other => Err(Box::new(other)),
         }
     }
