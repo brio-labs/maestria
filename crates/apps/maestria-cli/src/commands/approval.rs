@@ -13,17 +13,16 @@ pub fn run_list(instance_dir: PathBuf) -> Result<()> {
     let store = SqliteStore::open(&layout.database_path)
         .with_context(|| format!("open sqlite store {}", layout.database_path.display()))?;
 
-    // Run crash recovery before listing: if the daemon hasn't started yet
-    // and a previous process crashed before saving the approval record,
-    // reconcile_pending_approvals recreates missing requests for
-    // high-priority Draft/Open tasks.
-    let state =
-        maestria_daemon::load_kernel_state(&layout).context("load kernel state for recovery")?;
-    maestria_daemon::reconcile_pending_approvals(&state, &store, &store)
-        .context("recover pending approvals")?;
-    maestria_daemon::reconcile_approval_repo(&state, &store).context("reconcile approval repo")?;
+    let pending = store
+        .find_pending()
+        .context("failed to query pending approval requests")?;
 
-    let pending = store.find_pending().context("query pending requests")?;
+    if pending.is_empty() {
+        println!("No pending approval requests.");
+        return Ok(());
+    }
+
+    println!("Pending approval requests:\n");
     for req in &pending {
         println!(
             "  ID: {}  Task: {}  Kind: {}  Risk: {:?}  Status: {:?}",
@@ -37,7 +36,6 @@ pub fn run_list(instance_dir: PathBuf) -> Result<()> {
 pub async fn run_resolve(instance_dir: PathBuf, id: u64, approved: bool) -> Result<()> {
     let layout = helpers::validated_instance(instance_dir)?;
 
-    // Open one persistent connection for validation + event polling.
     let store = SqliteStore::open(&layout.database_path)
         .with_context(|| format!("open sqlite store {}", layout.database_path.display()))?;
     let record = store
@@ -70,7 +68,6 @@ pub async fn run_resolve(instance_dir: PathBuf, id: u64, approved: bool) -> Resu
 
     let runtime_handle = tokio::spawn(runtime.run(input_rx, shutdown_token.clone()));
 
-    // Send the approval input.
     if let Err(e) = input_tx
         .send(maestria_domain::DomainInput::ApprovalResolved(decision))
         .await
@@ -84,9 +81,6 @@ pub async fn run_resolve(instance_dir: PathBuf, id: u64, approved: bool) -> Resu
         anyhow::bail!("{msg}");
     }
 
-    // Poll the persistent connection for the ApprovalRecorded event
-    // with a bounded timeout. The runtime uses a separate connection
-    // so there is no lock conflict.
     let poll_result = tokio::time::timeout(
         Duration::from_secs(5),
         poll_for_approval_recorded(&store, approval_id),
@@ -98,9 +92,7 @@ pub async fn run_resolve(instance_dir: PathBuf, id: u64, approved: bool) -> Resu
     drop(lock);
 
     match poll_result {
-        Ok(Ok(true)) => {
-            // Event found — proceed to repo update below.
-        }
+        Ok(Ok(true)) => {}
         Ok(Ok(false)) => {
             anyhow::bail!(
                 "approval decision was not recorded by the domain; \
@@ -133,9 +125,6 @@ pub async fn run_resolve(instance_dir: PathBuf, id: u64, approved: bool) -> Resu
     Ok(())
 }
 
-/// Poll a single open store connection for the ApprovalRecorded event.
-/// Returns Ok(true) when found, Ok(false) when the future is cancelled.
-/// Scan errors are propagated as Err.
 async fn poll_for_approval_recorded(
     store: &SqliteStore,
     approval_id: maestria_domain::ApprovalId,

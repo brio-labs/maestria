@@ -278,8 +278,8 @@ impl KernelState {
                         approval_id: input.approval_id,
                         task_id: input.task_id,
                         approved: true,
-                        from_status: TaskStatus::Draft,
-                        to_status: TaskStatus::Active,
+                        from_status: Some(TaskStatus::Draft),
+                        to_status: Some(TaskStatus::Active),
                     }));
                 }
                 TaskStatus::Open | TaskStatus::Blocked => {
@@ -289,8 +289,8 @@ impl KernelState {
                         approval_id: input.approval_id,
                         task_id: input.task_id,
                         approved: true,
-                        from_status,
-                        to_status,
+                        from_status: Some(from_status),
+                        to_status: Some(to_status),
                     }));
                 }
                 _ => {
@@ -299,8 +299,8 @@ impl KernelState {
                         approval_id: input.approval_id,
                         task_id: input.task_id,
                         approved: true,
-                        from_status,
-                        to_status: from_status,
+                        from_status: Some(from_status),
+                        to_status: Some(from_status),
                     }));
                 }
             }
@@ -315,8 +315,8 @@ impl KernelState {
                 approval_id: input.approval_id,
                 task_id: input.task_id,
                 approved: false,
-                from_status,
-                to_status,
+                from_status: Some(from_status),
+                to_status: Some(to_status),
             }));
         }
 
@@ -385,11 +385,24 @@ impl KernelState {
         &mut self,
         approval_id: ApprovalId,
         task_id: TaskId,
-        _from_status: TaskStatus,
-        to_status: TaskStatus,
+        from_status: Option<TaskStatus>,
+        to_status: Option<TaskStatus>,
     ) -> Result<(), DomainError> {
-        if let Some(task) = self.tasks.get_mut(&task_id) {
-            task.status = to_status;
+        let task = self
+            .tasks
+            .get_mut(&task_id)
+            .ok_or(DomainError::MissingTask { id: task_id })?;
+        // Legacy events (no status fields) only record identity.
+        // Authoritative events must have matching current status.
+        if let (Some(from), Some(to)) = (from_status, to_status) {
+            if from != to && task.status != from {
+                return Err(DomainError::InternalInvariantViolation {
+                    detail: "approval replay: task status does not match from_status",
+                });
+            }
+            if from != to {
+                task.status = to;
+            }
         }
         self.resolved_approvals.insert(approval_id);
         Ok(())

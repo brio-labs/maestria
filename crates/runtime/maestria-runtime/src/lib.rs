@@ -86,7 +86,7 @@ impl MaestriaRuntime {
             tokio::select! {
                 () = shutdown_token.cancelled() => break,
                 msg = input_rx.recv() => {
-                    let Some(mut input) = msg else { break };
+                    let Some(input) = msg else { break };
 
                     // Boundary validation: ApprovalResolved must reference a
                     // valid pending record with a matching task_id before the

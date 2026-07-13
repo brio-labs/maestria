@@ -221,8 +221,8 @@ impl LegacyStoredEventPayload {
                     approval_id: id,
                     task_id,
                     approved,
-                    from_status: from,
-                    to_status: to,
+                    from_status: Some(from),
+                    to_status: Some(to),
                 })
             }
             Self::TickObserved { at } => Ok(StoredEventPayload::TickObserved { at }),

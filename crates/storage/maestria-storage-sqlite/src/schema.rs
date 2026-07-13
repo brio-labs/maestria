@@ -284,6 +284,7 @@ fn migrate_from_v2(connection: &Connection, state: &SchemaState) -> Result<(), P
             message: "malformed sqlite schema: missing payload_version column".to_string(),
         });
     }
+    ensure_artifact_v3_columns(connection)?;
     migrate_approval_recorded_payloads(connection)?;
     connection
         .execute(
@@ -338,6 +339,7 @@ fn migrate_from_v3(connection: &Connection, state: &SchemaState) -> Result<(), P
         });
     }
     ensure_artifact_v3_columns(connection)?;
+    migrate_approval_recorded_payloads(connection)?;
     connection
         .execute(
             "INSERT OR IGNORE INTO schema_version (version) VALUES (?1)",
