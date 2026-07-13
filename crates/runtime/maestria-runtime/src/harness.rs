@@ -3,7 +3,6 @@ use crate::shell_policy::{cat_path_args, is_shell_grammar_allowed, resolve_worki
 use maestria_domain::{DomainInput, HarnessRunCompleted, QueryHarnessRequest};
 use maestria_ports::{HarnessCommandClass, HarnessRequest};
 use std::path::PathBuf;
-use std::time::Duration;
 
 impl EffectExecutionContext {
     /// Execute a harness command on behalf of a task.
