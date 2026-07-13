@@ -401,6 +401,13 @@ impl KernelState {
                     });
                 }
                 if from != to {
+                    let valid = (from == TaskStatus::Draft && to == TaskStatus::Active)
+                        || from.can_transition_to(to);
+                    if !valid {
+                        return Err(DomainError::InternalInvariantViolation {
+                            detail: "approval replay: invalid status transition in ApprovalRecorded",
+                        });
+                    }
                     task.status = to;
                 }
             }
