@@ -334,6 +334,9 @@ fn link_evidence_to_task_succeeds() -> Result<(), DomainError> {
     let replayed = replay_events(&state.event_log)?;
     assert_eq!(state, replayed);
 
+    Ok(())
+}
+
 // ── SearchExecuted audit event ────────────────────────────────────
 
 #[test]
@@ -422,9 +425,13 @@ fn link_evidence_to_task_idempotent() -> Result<(), DomainError> {
     assert!(task.evidence_ids.contains(&EvidenceId::new(10)));
 
     // Duplicate links do not emit another event or persistence effect.
+
     assert!(output.events.is_empty());
     assert!(output.effects.is_empty());
+    Ok(())
+}
 
+#[test]
 fn search_executed_rejects_empty_query() {
     let mut state = KernelState::new();
     let err = state
@@ -499,6 +506,10 @@ fn link_evidence_to_task_missing_evidence_is_rejected() -> Result<(), DomainErro
     }));
 
     assert!(matches!(result, Err(DomainError::MissingEvidence { .. })));
+    Ok(())
+}
+
+#[test]
 fn search_executed_persist_effect_matches_event_envelope() -> Result<(), DomainError> {
     let mut state = KernelState::new();
     let output = state.apply_input(DomainInput::SearchExecuted(SearchExecutedInput {

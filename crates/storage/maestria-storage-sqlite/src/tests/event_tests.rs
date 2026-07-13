@@ -278,6 +278,9 @@ fn task_evidence_linked_event_round_trips() -> Result<(), PortError> {
     assert_eq!(events[0], envelope);
 
     Ok(())
+}
+
+#[test]
 fn search_executed_roundtrips_through_appended_scan() {
     let store = SqliteStore::in_memory().expect("test setup");
     let envelope = DomainEventEnvelope {
