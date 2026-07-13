@@ -66,8 +66,7 @@ fn detect_schema_state(connection: &Connection) -> Result<SchemaState, PortError
 }
 
 /// SQL that bootstraps every table for a fresh database (all `IF NOT EXISTS`).
-const BASE_SCHEMA_SQL: &str = "PRAGMA journal_mode=WAL;
-PRAGMA foreign_keys = ON;
+const BASE_SCHEMA_SQL: &str = "PRAGMA foreign_keys = ON;
      CREATE TABLE IF NOT EXISTS schema_version (
          version INTEGER NOT NULL PRIMARY KEY,
          applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
