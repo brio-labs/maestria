@@ -15,10 +15,10 @@ use maestria_governance::{
     AutonomyProfile, DefaultApprovalGate, DefaultRiskClassifier, PrivacyExclusions, Scope,
 };
 use maestria_graph_sqlite::SqliteGraphIndex;
+use maestria_harness::LocalShellHarnessAdapter;
 use maestria_parsers::ParserRegistry;
 use maestria_ports::{
     ArtifactRepository, CardRepository, ChunkRepository, EventFilter, EvidenceRepository,
-    InMemoryHarnessAdapter,
 };
 use maestria_runtime::{Adapters, Governance, MaestriaRuntime, RuntimeConfig};
 use maestria_search_tantivy::TantivyFullTextIndex;
@@ -319,7 +319,7 @@ pub fn build_runtime(
     );
     let event_log = sqlite_store.clone();
     let artifact_repo = sqlite_store.clone();
-    let harness = Arc::new(InMemoryHarnessAdapter::default());
+    let harness = Arc::new(LocalShellHarnessAdapter);
     let chunk_repo = sqlite_store.clone();
     let card_repo = sqlite_store.clone();
     let evidence_repo = sqlite_store.clone();
@@ -355,13 +355,23 @@ pub fn build_runtime(
         .with_context(|| format!("read instance manifest {}", layout.manifest_path.display()))?;
     let manifest = InstanceService::parse_manifest(&manifest_contents)
         .map_err(|error| anyhow!("parse instance manifest: {error}"))?;
+    let default_privacy = PrivacyExclusions::default();
+    let mut blocked_patterns = manifest.excluded_patterns.clone();
+    blocked_patterns.extend(default_privacy.sensitive_names().iter().cloned());
+    blocked_patterns.extend(
+        default_privacy
+            .sensitive_extensions()
+            .iter()
+            .map(|ext| format!("*.{ext}")),
+    );
     let scope = Scope::new(
         manifest.read_roots,
         Vec::new(),
-        Vec::new(),
+        vec!["shell".into()],
         Vec::new(),
         false,
-    );
+    )
+    .with_blocked_patterns(blocked_patterns);
     let config = RuntimeConfig {
         profile,
         scope,

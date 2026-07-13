@@ -66,7 +66,8 @@ impl EffectExecutionContext {
     /// the semaphore in the run loop; non-persistence effects always
     /// retry on failure up to `max_retries`.
     pub(crate) async fn execute_with_retries(self, effect: MaestriaEffect) -> bool {
-        let result = tokio::time::timeout(self.default_effect_timeout, async {
+        let watchdog = self.default_effect_timeout + Duration::from_secs(5);
+        let result = tokio::time::timeout(watchdog, async {
             let mut attempts = 0;
             loop {
                 let success = self

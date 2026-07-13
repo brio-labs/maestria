@@ -1,6 +1,10 @@
 use anyhow::Result;
 use clap::Parser;
-use maestria_domain::HarnessRunId;
+use maestria_domain::{HarnessRunId, MaestriaEffect, QueryHarnessRequest, ScopeId};
+use maestria_governance::{
+    ApprovalGate, ApprovalRequest, AutonomyProfile, DefaultApprovalGate, PolicyDecision,
+    PrivacyExclusions, Scope, ScopeGuard,
+};
 use maestria_harness::LocalShellHarnessAdapter;
 use maestria_ports::{HarnessAdapter, HarnessCommandClass, HarnessRequest};
 use std::path::PathBuf;
@@ -16,6 +20,18 @@ struct Cli {
     working_directory: PathBuf,
 }
 
+fn privacy_patterns() -> Vec<String> {
+    let privacy = PrivacyExclusions::default();
+    let mut patterns: Vec<String> = privacy.sensitive_names().to_vec();
+    patterns.extend(
+        privacy
+            .sensitive_extensions()
+            .iter()
+            .map(|ext| format!("*.{ext}")),
+    );
+    patterns
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::fmt::init();
@@ -23,25 +39,60 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
     let adapter = LocalShellHarnessAdapter;
 
+    let working_directory = std::fs::canonicalize(&cli.working_directory)?;
+    let scope = Scope::new(
+        vec![working_directory.clone()],
+        vec![],
+        vec!["shell".into()],
+        vec![],
+        false,
+    );
+    let guard = ScopeGuard::new(scope.clone());
+
+    // Governance authorization — decide before spawn
+    if !scope.harness_allowed("shell") {
+        println!("Governance: Denied. Shell harness not permitted by scope.");
+        return Ok(());
+    }
+    let gate = DefaultApprovalGate;
+    let profile = AutonomyProfile::TrustedWorkspace;
+    let effect = MaestriaEffect::QueryHarness(QueryHarnessRequest {
+        run_id: HarnessRunId::new(1),
+        task_id: None,
+        generation: None,
+        capability: "shell".to_string(),
+        scope_id: ScopeId::new(1),
+        approval_id: None,
+        command: cli.command.clone(),
+    });
+    let decision = gate.decide(&ApprovalRequest {
+        effect: &effect,
+        profile,
+        scope: &guard,
+    });
+    match decision.decision {
+        PolicyDecision::Deny { reason } => {
+            println!("Governance: Denied. {reason}");
+            return Ok(());
+        }
+        PolicyDecision::RequireApproval { reason } => {
+            println!("Governance: Requires approval. {reason}");
+            return Ok(());
+        }
+        PolicyDecision::Allow => {}
+    }
+    println!("Governance: Approved. Risk: {:?}", decision.risk);
+
     let request = HarnessRequest {
         run_id: HarnessRunId::new(1),
         command: cli.command.clone(),
-        working_directory: cli.working_directory,
-        duration_budget: Duration::from_secs(60),
+        working_directory,
+        duration_budget: Duration::from_secs(300),
         class: HarnessCommandClass::Shell,
-        readable_roots: vec![],
+        readable_roots: scope.readable_roots().to_vec(),
+        blocked_paths: vec![],
+        blocked_patterns: privacy_patterns(),
     };
-
-    // Policy Before Action check (I-Policy-BeforeAction)
-    println!(
-        "Governance: Validating command class {:?}...",
-        request.class
-    );
-    if request.class == HarnessCommandClass::Shell && cli.command.contains("rm ") {
-        println!("Governance: Denied. Destructive commands not allowed in test harness.");
-        return Ok(());
-    }
-    println!("Governance: Approved.\n");
 
     let outcome = adapter.execute(request).await?;
 

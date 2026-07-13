@@ -3,7 +3,6 @@ use crate::shell_policy::{cat_path_args, is_shell_grammar_allowed, resolve_worki
 use maestria_domain::{DomainInput, HarnessRunCompleted, QueryHarnessRequest};
 use maestria_ports::{HarnessCommandClass, HarnessRequest};
 use std::path::PathBuf;
-use std::time::Duration;
 
 impl EffectExecutionContext {
     /// Execute a harness command on behalf of a task.
@@ -23,7 +22,17 @@ impl EffectExecutionContext {
             }
         };
 
-        // ── grammar restriction ──────────────────────────────────
+        // ── scope capability gate ────────────────────────────────
+        let scope_guard = maestria_governance::ScopeGuard::new(self.scope.clone());
+        let scope = scope_guard.scope();
+        if !scope.harness_allowed(&request.capability) {
+            tracing::warn!(capability = %request.capability, "Scope does not allow this harness; not spawning");
+            return true;
+        }
+        if !scope.command_allowed(&request.command) {
+            tracing::warn!(command = %request.command, "command blocked by scope; not spawning");
+            return true;
+        }
         if !is_shell_grammar_allowed(&request.command) {
             tracing::warn!(
                 command = %request.command,
@@ -33,11 +42,10 @@ impl EffectExecutionContext {
         }
 
         // ── cat path containment ─────────────────────────────────
-        let scope = maestria_governance::ScopeGuard::new(self.scope.clone());
         if class == HarnessCommandClass::Shell && request.command.trim().starts_with("cat") {
             for arg in cat_path_args(&request.command) {
                 let path = PathBuf::from(arg);
-                if let Err(containment_err) = scope.check_read_containment(&path) {
+                if let Err(containment_err) = scope_guard.check_read_containment(&path) {
                     tracing::warn!(
                         path = %path.display(),
                         ?containment_err,
@@ -47,8 +55,7 @@ impl EffectExecutionContext {
                 }
             }
         }
-
-        let working_directory = match resolve_working_directory(scope.scope()) {
+        let working_directory = match resolve_working_directory(scope) {
             Ok(path) => path,
             Err(error) => {
                 tracing::error!(%error, "unable to resolve harness working directory");
@@ -59,9 +66,11 @@ impl EffectExecutionContext {
             run_id: request.run_id,
             command: request.command.clone(),
             working_directory,
-            duration_budget: Duration::from_secs(60),
+            duration_budget: self.default_effect_timeout,
             class,
             readable_roots: scope.readable_roots().to_vec(),
+            blocked_paths: scope.blocked_paths().to_vec(),
+            blocked_patterns: scope.blocked_patterns().to_vec(),
         };
 
         match adapters.harness.execute(harness_request).await {

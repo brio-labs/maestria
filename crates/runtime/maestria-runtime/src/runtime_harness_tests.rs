@@ -113,7 +113,7 @@ async fn query_harness_denies_invalid_grammar_before_spawn() {
         scope: Scope::new(
             vec![PathBuf::from("/workspace")],
             vec![],
-            vec![],
+            vec!["shell".into()],
             vec![],
             false,
         ),
@@ -160,7 +160,7 @@ async fn query_harness_rejects_cat_outside_scope() {
         scope: Scope::new(
             vec![PathBuf::from("/workspace")],
             vec![],
-            vec![],
+            vec!["shell".into()],
             vec![],
             false,
         ),
@@ -207,7 +207,7 @@ async fn query_harness_allows_grammar_compliant_echo() {
         scope: Scope::new(
             vec![PathBuf::from("/workspace")],
             vec![],
-            vec![],
+            vec!["shell".into()],
             vec![],
             false,
         ),
@@ -306,7 +306,7 @@ async fn query_harness_allows_cat_within_scope() {
         scope: Scope::new(
             vec![PathBuf::from("/workspace")],
             vec![],
-            vec![],
+            vec!["shell".into()],
             vec![],
             false,
         ),

@@ -224,6 +224,8 @@ pub struct HarnessRequest {
     pub duration_budget: Duration,
     pub class: HarnessCommandClass,
     pub readable_roots: Vec<PathBuf>,
+    pub blocked_paths: Vec<PathBuf>,
+    pub blocked_patterns: Vec<String>,
 }
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HarnessOutcome {
