@@ -1,7 +1,9 @@
 use anyhow::{Context, Result, anyhow};
 use maestria_core::{InstanceLayout, InstanceManifest, artifact_id_for, content_hash};
 use maestria_daemon::RecoveryInputs;
-use maestria_domain::{ArtifactDetected, ArtifactId, DomainInput, IndexStatus, KernelState};
+use maestria_domain::{
+    ArtifactDetected, ArtifactId, DomainInput, IndexStatus, KernelState, TaskId,
+};
 use maestria_governance::{AutonomyProfile, PrivacyExclusions, Scope};
 use std::{fs, path::PathBuf, time::Duration};
 use tokio::sync::mpsc;
@@ -24,7 +26,7 @@ struct ProcessContext<'a> {
     index_timeout: Duration,
 }
 
-/// Collect recovery artifact IDs from pending indexing inputs, then queue all
+/// Collect recovery artifact IDs and validation task IDs, then queue all
 /// parser, full-text, and validation recovery inputs onto the runtime channel.
 ///
 /// Resume parsers are enqueued first so parsing completes before full-text
@@ -33,9 +35,9 @@ struct ProcessContext<'a> {
 async fn queue_recovery(
     recovery: RecoveryInputs,
     input_tx: &mpsc::Sender<DomainInput>,
-) -> Result<Vec<ArtifactId>> {
-    // Collect recovery artifact IDs before consuming the recovery struct so
-    // we can drain pending recovery work before shutdown.
+) -> Result<(Vec<ArtifactId>, Vec<TaskId>)> {
+    // Collect recovery IDs before consuming the recovery struct so we can
+    // drain pending work before shutting down the one-shot runtime.
     let recovery_artifact_ids: Vec<ArtifactId> = {
         let resume_ids = recovery.resume_parsers.iter().filter_map(|input| {
             if let DomainInput::ResumeParser(r) = input {
@@ -53,6 +55,14 @@ async fn queue_recovery(
         });
         resume_ids.chain(ft_ids).collect()
     };
+    let validation_task_ids: Vec<TaskId> = recovery
+        .run_validations
+        .iter()
+        .filter_map(|input| match input {
+            DomainInput::RequestTaskValidation(request) => Some(request.task_id),
+            _ => None,
+        })
+        .collect();
 
     // Queue pending ResumeParser inputs first so parsing completes before
     // full-text indexing begins.
@@ -79,7 +89,7 @@ async fn queue_recovery(
             .context("failed to queue task validation")?;
     }
 
-    Ok(recovery_artifact_ids)
+    Ok((recovery_artifact_ids, validation_task_ids))
 }
 
 /// Process a single file through read, scope check, duplicate detection,
@@ -201,6 +211,47 @@ async fn drain_recovery(
     }
 }
 
+/// Poll kernel state until every recovered validation task has a durable
+/// validation report, or until `recovery_timeout` elapses.
+async fn drain_validation_recovery(
+    layout: &InstanceLayout,
+    validation_task_ids: &[TaskId],
+    recovery_timeout: Duration,
+) -> Result<()> {
+    let result = timeout(recovery_timeout, async {
+        loop {
+            match maestria_daemon::load_kernel_state(layout)
+                .with_context(|| "reload kernel state for validation recovery drain")
+            {
+                Ok(state) => {
+                    if validation_task_ids.iter().all(|task_id| {
+                        state
+                            .validation_reports
+                            .values()
+                            .any(|report| report.task_id == Some(*task_id))
+                    }) {
+                        return Ok::<_, anyhow::Error>(());
+                    }
+                    sleep(Duration::from_millis(100)).await;
+                }
+                Err(error) if helpers::is_db_locked(&error) => {
+                    sleep(Duration::from_millis(25)).await;
+                }
+                Err(error) => return Err(error),
+            }
+        }
+    })
+    .await;
+
+    match result {
+        Ok(Ok(())) => Ok(()),
+        Ok(Err(error)) => Err(error),
+        Err(_elapsed) => Err(anyhow!(
+            "timeout waiting for recovered task validation reports"
+        )),
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Public command
 // ---------------------------------------------------------------------------
@@ -260,7 +311,8 @@ pub async fn run(instance_dir: PathBuf, path: PathBuf, recursive: bool) -> Resul
     let runtime_task = tokio::spawn(runtime.run(input_rx, shutdown_token.clone()));
 
     let result = async {
-        let recovery_artifact_ids = queue_recovery(recovery, &input_tx).await?;
+        let (recovery_artifact_ids, validation_task_ids) =
+            queue_recovery(recovery, &input_tx).await?;
         let index_timeout = Duration::from_secs(30);
         let ctx = ProcessContext {
             scope: &scope,
@@ -280,6 +332,10 @@ pub async fn run(instance_dir: PathBuf, path: PathBuf, recursive: bool) -> Resul
         // them before shutting down so no pending work is silently aborted.
         if !recovery_artifact_ids.is_empty() {
             drain_recovery(&layout, &recovery_artifact_ids, Duration::from_secs(60)).await?;
+        }
+        if !validation_task_ids.is_empty() {
+            drain_validation_recovery(&layout, &validation_task_ids, Duration::from_secs(60))
+                .await?;
         }
         Ok::<(), anyhow::Error>(())
     }
