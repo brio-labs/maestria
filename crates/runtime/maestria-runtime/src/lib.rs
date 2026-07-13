@@ -5,6 +5,7 @@ mod indexing;
 mod parsing;
 mod persistence;
 mod shell_policy;
+mod supervision;
 mod validation;
 
 #[cfg(test)]
@@ -12,14 +13,15 @@ pub use config::EffectExecutionContext;
 mod approval;
 mod completion;
 use config::EffectExecutionContext as ExecutionContext;
+use config::HarnessFeedbackAcks;
 pub use config::{Adapters, Governance, RuntimeConfig};
 use maestria_domain::{DomainInput, KernelState, MaestriaEffect, ValidationReportId};
+use std::collections::BTreeMap;
 use std::sync::{
-    Arc,
+    Arc, Mutex,
     atomic::{AtomicU64, Ordering},
 };
 use tokio::sync::{RwLock, mpsc};
-
 pub struct MaestriaRuntime {
     config: RuntimeConfig,
     state: Arc<RwLock<KernelState>>,
@@ -27,6 +29,7 @@ pub struct MaestriaRuntime {
     governance: Arc<Governance>,
     input_tx: mpsc::Sender<DomainInput>,
     next_validation_report_id: Arc<AtomicU64>,
+    feedback_acks: HarnessFeedbackAcks,
 }
 
 pub struct RuntimeHandle {
@@ -77,6 +80,7 @@ impl MaestriaRuntime {
                 adapters: Arc::new(adapters),
                 governance: Arc::new(governance),
                 input_tx,
+                feedback_acks: Arc::new(Mutex::new(BTreeMap::new())),
                 next_validation_report_id,
             },
             input_rx,
@@ -154,7 +158,7 @@ impl MaestriaRuntime {
                                         wait_for_report_id = Some(*report_id);
                                     }
                                 }
-                                self.finalize_harness_feedback(harness_feedback);
+                                self.register_harness_feedback(harness_feedback, &output.effects);
                                 output.effects
                             }
                             Err(error) => {
@@ -170,11 +174,11 @@ impl MaestriaRuntime {
                                 if let Err(error) = result {
                                     tracing::error!(%error, "failed to dispatch effect");
                                     shutdown_token.cancel();
+                                    break;
                                 }
                             }
                         }
                     }
-
                     if let Some(report_id) = wait_for_report_id {
 
                         let found = self
@@ -196,47 +200,6 @@ impl MaestriaRuntime {
         drop(effect_tx);
         shutdown_token.cancel();
         let _ = effect_executor.await;
-    }
-    fn check_harness_feedback_boundary(
-        &self,
-        completion: &maestria_domain::HarnessRunCompleted,
-    ) -> bool {
-        match self
-            .adapters
-            .effect_journal
-            .is_current(completion.run_id, completion.generation)
-        {
-            Ok(true) => true,
-            Ok(false) => {
-                tracing::warn!(
-                    run_id = %completion.run_id,
-                    generation = completion.generation,
-                    "harness feedback rejected at runtime boundary"
-                );
-                false
-            }
-            Err(error) => {
-                tracing::error!(%error, "failed to validate harness feedback generation");
-                false
-            }
-        }
-    }
-
-    fn finalize_harness_feedback(&self, feedback: Option<(maestria_domain::HarnessRunId, u64)>) {
-        if let Some((run_id, generation)) = feedback
-            && let Err(error) = self.adapters.effect_journal.record_terminal(
-                run_id,
-                generation,
-                maestria_ports::EffectJournalStatus::Completed,
-            )
-        {
-            tracing::error!(
-                %error,
-                %run_id,
-                generation,
-                "failed to finalize harness feedback"
-            );
-        }
     }
 
     async fn wait_for_validation_report(
@@ -304,6 +267,7 @@ impl MaestriaRuntime {
         let scope_id = self.config.scope_id;
         let next_validation_report_id = Arc::clone(&self.next_validation_report_id);
         let effect_shutdown = shutdown_token.clone();
+        let feedback_acks = Arc::clone(&self.feedback_acks);
         tokio::spawn(async move {
             let semaphore = Arc::new(tokio::sync::Semaphore::new(max_concurrent_effects));
             let mut in_flight = tokio::task::JoinSet::new();
@@ -326,6 +290,7 @@ impl MaestriaRuntime {
                             scope_id,
                             state: Arc::clone(&state),
                             input_tx: input_tx.clone(),
+                            feedback_acks: Arc::clone(&feedback_acks),
                             default_effect_timeout,
                             max_retries,
                         };

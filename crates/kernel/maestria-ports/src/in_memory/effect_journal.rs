@@ -36,9 +36,7 @@ impl EffectJournal for InMemoryEffectJournal {
             entry.run_id == intent.run_id
                 && matches!(
                     entry.status,
-                    EffectJournalStatus::Intent
-                        | EffectJournalStatus::Started
-                        | EffectJournalStatus::FeedbackAccepted
+                    EffectJournalStatus::Intent | EffectJournalStatus::Started
                 )
         }) {
             entry.status = EffectJournalStatus::Superseded;
@@ -136,6 +134,18 @@ impl EffectJournal for InMemoryEffectJournal {
             .cloned()
             .collect())
     }
+    fn is_feedback_accepted(
+        &self,
+        run_id: HarnessRunId,
+        generation: u64,
+    ) -> Result<bool, PortError> {
+        Ok(self
+            .lock()?
+            .iter()
+            .rev()
+            .find(|entry| entry.run_id == run_id && entry.generation == generation)
+            .is_some_and(|entry| entry.status == EffectJournalStatus::FeedbackAccepted))
+    }
 
     fn is_current(&self, run_id: HarnessRunId, generation: u64) -> Result<bool, PortError> {
         Ok(self
@@ -195,6 +205,19 @@ mod tests {
         assert_eq!(second.generation, first.generation + 1);
         assert!(!journal.is_current(first.run_id, first.generation)?);
         assert!(journal.is_current(second.run_id, second.generation)?);
+        Ok(())
+    }
+
+    #[test]
+    fn claimed_feedback_remains_current_when_new_intent_arrives() -> Result<(), PortError> {
+        let journal = InMemoryEffectJournal::default();
+        let first = journal.record_intent(intent(2, None))?;
+        journal.record_started(first.run_id, first.generation)?;
+        journal.claim_feedback(first.run_id, first.generation)?;
+        let second = journal.record_intent(intent(2, None))?;
+        assert_eq!(second.generation, first.generation + 1);
+        assert!(journal.is_feedback_accepted(first.run_id, first.generation)?);
+        assert!(journal.is_current(first.run_id, first.generation)?);
         Ok(())
     }
 

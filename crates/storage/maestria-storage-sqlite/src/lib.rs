@@ -92,6 +92,14 @@ impl EffectJournal for SqliteStore {
         repositories::effect_journal_repo::scan_in_flight(&connection)
     }
 
+    fn is_feedback_accepted(
+        &self,
+        run_id: HarnessRunId,
+        generation: u64,
+    ) -> Result<bool, PortError> {
+        let connection = self.lock()?;
+        repositories::effect_journal_repo::is_feedback_accepted(&connection, run_id, generation)
+    }
     fn is_current(&self, run_id: HarnessRunId, generation: u64) -> Result<bool, PortError> {
         let connection = self.lock()?;
         repositories::effect_journal_repo::is_current(&connection, run_id, generation)

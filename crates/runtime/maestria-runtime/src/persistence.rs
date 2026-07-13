@@ -12,7 +12,34 @@ impl EffectExecutionContext {
         if !self.append_event_with_conflict_resolution(&envelope) {
             return false;
         }
-        self.persist_event_entity(&envelope.event).await
+        let persisted = self.persist_event_entity(&envelope.event).await;
+        if persisted {
+            self.ack_harness_feedback(envelope.id);
+        }
+        persisted
+    }
+    fn ack_harness_feedback(&self, event_id: maestria_domain::EventId) {
+        let feedback = match self.feedback_acks.lock() {
+            Ok(mut pending) => pending.remove(&event_id),
+            Err(_) => {
+                tracing::error!("harness feedback acknowledgement lock poisoned");
+                None
+            }
+        };
+        if let Some((run_id, generation)) = feedback
+            && let Err(error) = self.adapters.effect_journal.record_terminal(
+                run_id,
+                generation,
+                maestria_ports::EffectJournalStatus::Completed,
+            )
+        {
+            tracing::error!(
+                %error,
+                %run_id,
+                generation,
+                "failed to finalize persisted harness feedback"
+            );
+        }
     }
 
     /// Append the envelope to the event log. On conflict, scan to verify

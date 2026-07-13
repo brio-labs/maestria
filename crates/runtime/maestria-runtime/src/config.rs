@@ -1,11 +1,12 @@
-use maestria_domain::{DomainInput, KernelState, ScopeId};
+use maestria_domain::{DomainInput, EventId, HarnessRunId, KernelState, ScopeId};
 use maestria_governance::{ApprovalGate, AutonomyProfile, ClassifyRisk, Scope, ValidationGate};
 use maestria_ports::{
     ApprovalRepository, ArtifactRepository, BlobStore, CardRepository, ChunkRepository,
     EffectJournal, EventLog, EvidenceRepository, FullTextIndex, GraphIndex, HarnessAdapter,
     IdAllocator, Parser, VectorIndex, WebFetcher,
 };
-use std::sync::Arc;
+use std::collections::BTreeMap;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::sync::{RwLock, mpsc};
 
@@ -55,9 +56,9 @@ pub struct Governance {
     pub approval_gate: Arc<dyn ApprovalGate + Send + Sync>,
     pub validation_gate: Arc<dyn ValidationGate + Send + Sync>,
 }
+pub(crate) type HarnessFeedbackAcks = Arc<Mutex<BTreeMap<EventId, (HarnessRunId, u64)>>>;
 
 /// Bundles everything an effect handler needs at execution time.
-/// Produced by `MaestriaRuntime::run` and threaded through handlers
 #[derive(Clone)]
 pub struct EffectExecutionContext {
     pub adapters: Arc<Adapters>,
@@ -67,6 +68,7 @@ pub struct EffectExecutionContext {
     pub scope_id: ScopeId,
     pub state: Arc<RwLock<KernelState>>,
     pub input_tx: mpsc::Sender<DomainInput>,
+    pub feedback_acks: HarnessFeedbackAcks,
     pub default_effect_timeout: Duration,
     pub max_retries: u32,
 }
@@ -88,6 +90,7 @@ impl EffectExecutionContext {
             scope_id: ScopeId::new(1),
             state,
             input_tx,
+            feedback_acks: Arc::new(Mutex::new(BTreeMap::new())),
             default_effect_timeout: Duration::from_secs(300),
             max_retries: 3,
         }

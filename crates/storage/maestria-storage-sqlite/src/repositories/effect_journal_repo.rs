@@ -33,7 +33,7 @@ pub(crate) fn record_intent(
             .execute(
                 "UPDATE effect_journal SET status = 'Superseded' \
                  WHERE run_id = ?1 AND generation = ?2 \
-                 AND status IN ('Intent', 'Started', 'FeedbackAccepted')",
+                 AND status IN ('Intent', 'Started')",
                 params![run_id_i64, prev_gen],
             )
             .map_err(to_port_error)?;
@@ -236,4 +236,22 @@ pub(crate) fn is_current(
         status.as_deref(),
         Some("Intent" | "Started" | "FeedbackAccepted")
     ))
+}
+
+pub(crate) fn is_feedback_accepted(
+    connection: &Connection,
+    run_id: HarnessRunId,
+    generation: u64,
+) -> Result<bool, PortError> {
+    let run_id_i64 = u64_to_i64(run_id.value())?;
+    let generation_i64 = u64_to_i64(generation)?;
+    let status: Option<String> = connection
+        .query_row(
+            "SELECT status FROM effect_journal WHERE run_id = ?1 AND generation = ?2",
+            params![run_id_i64, generation_i64],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(to_port_error)?;
+    Ok(status.as_deref() == Some("FeedbackAccepted"))
 }

@@ -117,6 +117,11 @@ pub trait EffectJournal: Send + Sync {
         status: EffectJournalStatus,
     ) -> Result<(), PortError>;
     fn scan_in_flight(&self) -> Result<Vec<EffectJournalEntry>, PortError>;
+    fn is_feedback_accepted(
+        &self,
+        run_id: HarnessRunId,
+        generation: u64,
+    ) -> Result<bool, PortError>;
     fn is_current(&self, run_id: HarnessRunId, generation: u64) -> Result<bool, PortError>;
 }
 
