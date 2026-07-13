@@ -196,6 +196,8 @@ pub fn recovery_inputs(state: &KernelState) -> RecoveryInputs {
     }
 }
 
+mod approval_recovery;
+pub use approval_recovery::{reconcile_approval_repo, reconcile_pending_approvals};
 mod parser_resume;
 use parser_resume::pending_resume_parsers;
 pub use parser_resume::verify_pending_blobs;
@@ -276,90 +278,6 @@ pub fn reconcile_projections(state: &KernelState, store: &SqliteStore) -> Result
 /// `ApprovalRecorded` events and ensures the approval repository reflects the
 /// resolved state. If a CLI-initiated resolution persisted the event but crashed
 /// before updating the repo, this repair brings the repo back into consistency.
-pub fn reconcile_approval_repo(state: &KernelState, store: &SqliteStore) -> Result<()> {
-    use maestria_domain::DomainEvent;
-    use maestria_ports::ApprovalRepository;
-
-    for envelope in &state.event_log {
-        if let DomainEvent::ApprovalRecorded {
-            approval_id,
-            approved,
-            ..
-        } = &envelope.event
-        {
-            // First check if the record exists at all. If it doesn't, the
-            // approval was never persisted (data loss). If it exists but is
-            // already resolved, skip (idempotent). Otherwise, resolve it.
-            let existing = store
-                .find_by_id(*approval_id)
-                .map_err(|e| anyhow::anyhow!("reconcile approval {approval_id}: {e}"))?;
-            if existing.is_none() {
-                anyhow::bail!(
-                    "reconcile: approval record {approval_id} not found in repository; \
-                     event log contains ApprovalRecorded but no matching durable request"
-                );
-            }
-            if let Err(e) = store.resolve(*approval_id, *approved) {
-                anyhow::bail!("reconcile: resolve approval {approval_id}: {e}");
-            }
-        }
-    }
-
-    Ok(())
-}
-/// Recreate missing approval requests for high-priority tasks that lost their
-/// durable request due to a crash between TaskOpened persistence and
-/// approval_repo.save(). Scans kernel state for Draft/Open tasks with high
-/// priority, checks if any approval record exists for that task ID, and if
-/// not, creates a new pending request. Tasks with an existing Denied record
-/// are skipped (denial is terminal).
-pub fn reconcile_pending_approvals(
-    state: &KernelState,
-    store: &SqliteStore,
-    id_allocator: &dyn maestria_ports::IdAllocator,
-) -> Result<()> {
-    use maestria_domain::{LogicalTick, ScopeId, TaskPriority};
-    use maestria_ports::{ApprovalRecord, ApprovalRepository, ApprovalRiskLevel, ApprovalStatus};
-
-    for task in state.tasks.values() {
-        if task.priority != TaskPriority::High {
-            continue;
-        }
-        if !matches!(
-            task.status,
-            maestria_domain::TaskStatus::Draft | maestria_domain::TaskStatus::Open
-        ) {
-            continue;
-        }
-
-        // Check if any approval record (pending or resolved) exists for this task.
-        let existing = store
-            .find_by_task_id(task.id)
-            .map_err(|e| anyhow::anyhow!("find approvals for task {}: {e}", task.id))?;
-        if !existing.is_empty() {
-            continue;
-        }
-
-        // No record exists — recreate the pending request.
-        let approval_id = id_allocator
-            .allocate_approval_id()
-            .map_err(|e| anyhow::anyhow!("allocate approval id for task {}: {e}", task.id))?;
-        let record = ApprovalRecord {
-            id: approval_id,
-            task_id: task.id,
-            effect_kind: "task_activation".to_string(),
-            risk_level: ApprovalRiskLevel::Medium,
-            capability: "task_activation".to_string(),
-            scope_id: ScopeId::new(1),
-            tick: LogicalTick::new(0),
-            status: ApprovalStatus::Pending,
-        };
-        store
-            .save(&record)
-            .map_err(|e| anyhow::anyhow!("save recreated approval for task {}: {e}", task.id))?;
-    }
-    Ok(())
-}
 pub fn prepare_instance(instance_dir: PathBuf) -> Result<InstanceLayout> {
     let plan = InstanceService::init_instance(InitInstanceInput { root: instance_dir })?;
     for directory in &plan.directories {
