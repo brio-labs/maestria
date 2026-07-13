@@ -197,7 +197,7 @@ pub struct VectorEmbedding {
     pub provenance: EmbeddingProvenance,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct VectorSearchQuery {
     pub vector: Vec<f32>,
     pub limit: u32,

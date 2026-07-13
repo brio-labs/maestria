@@ -19,7 +19,7 @@ use maestria_governance::{
 use maestria_graph_sqlite::SqliteGraphIndex;
 use maestria_harness::LocalShellHarnessAdapter;
 use maestria_parsers::ParserRegistry;
-use maestria_ports::EventFilter;
+use maestria_ports::{EventFilter, InMemoryVectorIndex, VectorIndex};
 use maestria_runtime::{Adapters, Governance, MaestriaRuntime, RuntimeConfig};
 use maestria_search_tantivy::TantivyFullTextIndex;
 use maestria_storage_sqlite::SqliteStore;
@@ -242,10 +242,14 @@ fn build_adapters(
         SqliteStore::open(&layout.database_path)
             .with_context(|| format!("open sqlite store {}", layout.database_path.display()))?,
     );
-    let vector_index = Arc::new(
-        SqliteVectorIndex::open(layout.vector_index_dir.join("projection.db"))
-            .with_context(|| format!("open vector index {}", layout.vector_index_dir.display()))?,
-    );
+    let vector_index: Arc<dyn VectorIndex + Send + Sync> =
+        match SqliteVectorIndex::open(layout.vector_index_dir.join("projection.db")) {
+            Ok(index) => Arc::new(index),
+            Err(error) => {
+                tracing::warn!(%error, "vector projection unavailable; using in-memory fallback");
+                Arc::new(InMemoryVectorIndex::new())
+            }
+        };
     let graph_index = Arc::new(
         SqliteGraphIndex::open(layout.graph_index_dir.join("projection.db"))
             .with_context(|| format!("open graph index {}", layout.graph_index_dir.display()))?,

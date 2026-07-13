@@ -538,29 +538,17 @@ pub fn assert_vector_index_contract(index: &impl VectorIndex) {
         model: "test-model".into(),
         model_version: "test-v1".into(),
     };
-
+    let embedding = |chunk_id, vector| VectorEmbedding {
+        chunk_id: ChunkId::new(chunk_id),
+        vector,
+        provenance: prov(),
+    };
     index
         .index_embeddings(vec![
-            VectorEmbedding {
-                chunk_id: ChunkId::new(2),
-                vector: vec![1.0, 0.0],
-                provenance: prov(),
-            },
-            VectorEmbedding {
-                chunk_id: ChunkId::new(1),
-                vector: vec![1.0, 0.0],
-                provenance: prov(),
-            },
-            VectorEmbedding {
-                chunk_id: ChunkId::new(3),
-                vector: vec![0.0, 1.0],
-                provenance: prov(),
-            },
-            VectorEmbedding {
-                chunk_id: ChunkId::new(4),
-                vector: vec![1.0, 0.0, 0.0],
-                provenance: prov(),
-            },
+            embedding(2, vec![1.0, 0.0]),
+            embedding(1, vec![1.0, 0.0]),
+            embedding(3, vec![0.0, 1.0]),
+            embedding(4, vec![1.0, 0.0, 0.0]),
         ])
         .expect("index embeddings");
 
@@ -568,9 +556,7 @@ pub fn assert_vector_index_contract(index: &impl VectorIndex) {
         .search_similar(VectorSearchQuery {
             vector: vec![1.0, 0.0],
             limit: 4,
-            provider_id: None,
-            model: None,
-            model_version: None,
+            ..Default::default()
         })
         .expect("equal-score search");
     assert_eq!(equal_score_hits[0].chunk_id, ChunkId::new(1));
@@ -587,9 +573,7 @@ pub fn assert_vector_index_contract(index: &impl VectorIndex) {
         .search_similar(VectorSearchQuery {
             vector: vec![0.0, 0.0],
             limit: 10,
-            provider_id: None,
-            model: None,
-            model_version: None,
+            ..Default::default()
         })
         .expect("all-zero query search");
     assert!(
@@ -598,26 +582,16 @@ pub fn assert_vector_index_contract(index: &impl VectorIndex) {
     );
 
     index
-        .index_embeddings(vec![VectorEmbedding {
-            chunk_id: ChunkId::new(7),
-            vector: vec![0.0, 1.0],
-            provenance: prov(),
-        }])
+        .index_embeddings(vec![embedding(7, vec![0.0, 1.0])])
         .expect("initial embedding");
     index
-        .index_embeddings(vec![VectorEmbedding {
-            chunk_id: ChunkId::new(7),
-            vector: vec![1.0, 0.0],
-            provenance: prov(),
-        }])
+        .index_embeddings(vec![embedding(7, vec![1.0, 0.0])])
         .expect("replacement embedding");
     let replacement_hits = index
         .search_similar(VectorSearchQuery {
             vector: vec![1.0, 0.0],
             limit: 10,
-            provider_id: None,
-            model: None,
-            model_version: None,
+            ..Default::default()
         })
         .expect("replacement search");
     let replaced = replacement_hits
@@ -675,14 +649,17 @@ fn verify_vector_validation(index: &impl VectorIndex, prov: &impl Fn() -> Embedd
     ));
 }
 fn verify_vector_lifecycle(index: &impl VectorIndex, prov: impl Fn() -> EmbeddingProvenance) {
+    let embedding = |chunk_id, vector| VectorEmbedding {
+        chunk_id: ChunkId::new(chunk_id),
+        vector,
+        provenance: prov(),
+    };
     index.clear().expect("clear index");
     let hits_after_clear = index
         .search_similar(VectorSearchQuery {
             vector: vec![1.0, 0.0],
             limit: 10,
-            provider_id: None,
-            model: None,
-            model_version: None,
+            ..Default::default()
         })
         .expect("search after clear");
     assert!(
@@ -693,25 +670,15 @@ fn verify_vector_lifecycle(index: &impl VectorIndex, prov: impl Fn() -> Embeddin
 
     index
         .rebuild(vec![
-            VectorEmbedding {
-                chunk_id: ChunkId::new(10),
-                vector: vec![0.0, 1.0],
-                provenance: prov(),
-            },
-            VectorEmbedding {
-                chunk_id: ChunkId::new(11),
-                vector: vec![1.0, 0.0],
-                provenance: prov(),
-            },
+            embedding(10, vec![0.0, 1.0]),
+            embedding(11, vec![1.0, 0.0]),
         ])
         .expect("rebuild index");
     let hits_after_rebuild = index
         .search_similar(VectorSearchQuery {
             vector: vec![1.0, 0.0],
             limit: 10,
-            provider_id: None,
-            model: None,
-            model_version: None,
+            ..Default::default()
         })
         .expect("search after rebuild");
     assert_eq!(
@@ -728,9 +695,7 @@ fn verify_vector_lifecycle(index: &impl VectorIndex, prov: impl Fn() -> Embeddin
         .search_similar(VectorSearchQuery {
             vector: vec![0.0, 1.0],
             limit: 10,
-            provider_id: None,
-            model: None,
-            model_version: None,
+            ..Default::default()
         })
         .expect("search after delete");
     assert_eq!(
@@ -751,9 +716,7 @@ fn verify_vector_lifecycle(index: &impl VectorIndex, prov: impl Fn() -> Embeddin
         .search_similar(VectorSearchQuery {
             vector: vec![1.0, 0.0],
             limit: 10,
-            provider_id: None,
-            model: None,
-            model_version: None,
+            ..Default::default()
         })
         .expect("search after idempotent delete");
     assert_eq!(

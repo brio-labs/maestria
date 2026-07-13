@@ -248,13 +248,11 @@ impl EffectExecutionContext {
             Ok(Ok(response)) => response,
             Ok(Err(error)) => {
                 tracing::warn!(chunk_id = %request.chunk_id, %error, "embedding provider failed; preserving fallback");
-                self.invalidate_vector_projection(request.chunk_id).await;
-                return true;
+                return self.invalidate_vector_projection(request.chunk_id).await;
             }
             Err(error) => {
                 tracing::warn!(chunk_id = %request.chunk_id, %error, "embedding provider task failed; preserving fallback");
-                self.invalidate_vector_projection(request.chunk_id).await;
-                return true;
+                return self.invalidate_vector_projection(request.chunk_id).await;
             }
         };
         let embedding = VectorEmbedding {
@@ -274,28 +272,28 @@ impl EffectExecutionContext {
             Ok(Ok(())) => true,
             Ok(Err(error)) => {
                 tracing::warn!(chunk_id = %request.chunk_id, %error, "vector projection failed; preserving fallback");
-                self.invalidate_vector_projection(request.chunk_id).await;
-                true
+                self.invalidate_vector_projection(request.chunk_id).await
             }
             Err(error) => {
                 tracing::warn!(chunk_id = %request.chunk_id, %error, "vector projection task failed; preserving fallback");
-                self.invalidate_vector_projection(request.chunk_id).await;
-                true
+                self.invalidate_vector_projection(request.chunk_id).await
             }
         }
     }
 
-    async fn invalidate_vector_projection(&self, chunk_id: maestria_domain::ChunkId) {
+    async fn invalidate_vector_projection(&self, chunk_id: maestria_domain::ChunkId) -> bool {
         let vector_index = Arc::clone(&self.adapters.vector_index);
         let result =
             tokio::task::spawn_blocking(move || vector_index.delete_chunks(&[chunk_id])).await;
         match result {
-            Ok(Ok(())) => {}
+            Ok(Ok(())) => true,
             Ok(Err(error)) => {
-                tracing::debug!(chunk_id = %chunk_id, %error, "could not invalidate stale vector projection");
+                tracing::warn!(chunk_id = %chunk_id, %error, "could not invalidate stale vector projection");
+                false
             }
             Err(error) => {
-                tracing::debug!(chunk_id = %chunk_id, %error, "vector invalidation task failed");
+                tracing::warn!(chunk_id = %chunk_id, %error, "vector invalidation task failed");
+                false
             }
         }
     }
