@@ -6,6 +6,9 @@
 //! domain types do not implement or depend on serde.
 
 use maestria_ports::PortError;
+use maestria_ports::{
+    EffectJournal, EffectJournalEntry, EffectJournalIntent, EffectJournalStatus, HarnessRunId,
+};
 use rusqlite::{Connection, Error, ErrorCode};
 
 mod events;
@@ -56,6 +59,38 @@ impl SqliteStore {
         self.connection.lock().map_err(|_| PortError::Internal {
             message: "sqlite connection lock poisoned".to_string(),
         })
+    }
+}
+
+impl EffectJournal for SqliteStore {
+    fn record_intent(&self, intent: EffectJournalIntent) -> Result<EffectJournalEntry, PortError> {
+        let connection = self.lock()?;
+        repositories::effect_journal_repo::record_intent(&connection, intent)
+    }
+
+    fn record_started(&self, run_id: HarnessRunId, generation: u64) -> Result<(), PortError> {
+        let connection = self.lock()?;
+        repositories::effect_journal_repo::record_started(&connection, run_id, generation)
+    }
+
+    fn record_terminal(
+        &self,
+        run_id: HarnessRunId,
+        generation: u64,
+        status: EffectJournalStatus,
+    ) -> Result<(), PortError> {
+        let connection = self.lock()?;
+        repositories::effect_journal_repo::record_terminal(&connection, run_id, generation, status)
+    }
+
+    fn scan_in_flight(&self) -> Result<Vec<EffectJournalEntry>, PortError> {
+        let connection = self.lock()?;
+        repositories::effect_journal_repo::scan_in_flight(&connection)
+    }
+
+    fn is_current(&self, run_id: HarnessRunId, generation: u64) -> Result<bool, PortError> {
+        let connection = self.lock()?;
+        repositories::effect_journal_repo::is_current(&connection, run_id, generation)
     }
 }
 

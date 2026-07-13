@@ -62,10 +62,10 @@ impl EffectExecutionContext {
         }
     }
 
-    /// Retry loop with timeout watchdog. Persistence effects bypass
-    /// the semaphore in the run loop; non-persistence effects always
-    /// retry on failure up to `max_retries`.
+    /// Retry loop with timeout watchdog. Non-idempotent harness effects never
+    /// replay automatically; their journal entry pauses or fails instead.
     pub(crate) async fn execute_with_retries(self, effect: MaestriaEffect) -> bool {
+        let non_idempotent = matches!(&effect, MaestriaEffect::QueryHarness(_));
         let watchdog = self.default_effect_timeout + Duration::from_secs(5);
         let result = tokio::time::timeout(watchdog, async {
             let mut attempts = 0;
@@ -75,7 +75,7 @@ impl EffectExecutionContext {
                     .execute_effect(effect.clone(), Some(self.default_effect_timeout))
                     .await;
 
-                if success || attempts >= self.max_retries {
+                if success || non_idempotent || attempts >= self.max_retries {
                     return success;
                 }
                 attempts += 1;
@@ -100,14 +100,18 @@ impl EffectExecutionContext {
     /// Fire-and-forget send into the domain input channel.
     /// Logs failures but never propagates them — the runtime loop
     /// already has a shutdown path for backpressure.
-    pub(crate) async fn send_input(
+    pub(crate) fn send_input(
         input_tx: &mpsc::Sender<DomainInput>,
         input: DomainInput,
         context: &'static str,
-    ) {
-        if let Err(error) = input_tx.send(input).await {
-            tracing::error!(%error, context, "failed to send domain input");
-        }
+    ) -> Result<(), crate::FeedbackError> {
+        input_tx.try_send(input).map_err(|e| {
+            tracing::error!(error = %e, context, "failed to send domain input (backpressure)");
+            match e {
+                mpsc::error::TrySendError::Full(_) => crate::FeedbackError::CapacityFull,
+                mpsc::error::TrySendError::Closed(_) => crate::FeedbackError::RuntimeShutdown,
+            }
+        })
     }
 
     // ── lightweight handlers ──────────────────────────────────────────

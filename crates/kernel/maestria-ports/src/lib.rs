@@ -19,9 +19,9 @@ pub use traits::*;
 mod in_memory;
 pub use in_memory::{
     InMemoryApprovalRepository, InMemoryArtifactRepository, InMemoryBlobStore,
-    InMemoryCardRepository, InMemoryChunkRepository, InMemoryEventLog, InMemoryEvidenceRepository,
-    InMemoryFullTextIndex, InMemoryGraphIndex, InMemoryHarnessAdapter, InMemoryIdAllocator,
-    InMemoryParser, InMemoryVectorIndex, InMemoryWebFetcher,
+    InMemoryCardRepository, InMemoryChunkRepository, InMemoryEffectJournal, InMemoryEventLog,
+    InMemoryEvidenceRepository, InMemoryFullTextIndex, InMemoryGraphIndex, InMemoryHarnessAdapter,
+    InMemoryIdAllocator, InMemoryParser, InMemoryVectorIndex, InMemoryWebFetcher,
 };
 
 #[cfg(any(test, feature = "contract-tests"))]

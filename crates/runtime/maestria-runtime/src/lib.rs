@@ -33,6 +33,32 @@ pub struct RuntimeHandle {
     pub input_tx: mpsc::Sender<DomainInput>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FeedbackError {
+    CapacityFull,
+    RuntimeShutdown,
+}
+
+impl std::fmt::Display for FeedbackError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            FeedbackError::CapacityFull => write!(f, "capacity full"),
+            FeedbackError::RuntimeShutdown => write!(f, "runtime shutdown"),
+        }
+    }
+}
+
+impl std::error::Error for FeedbackError {}
+
+impl RuntimeHandle {
+    pub fn try_send_feedback(&self, input: DomainInput) -> Result<(), FeedbackError> {
+        self.input_tx.try_send(input).map_err(|e| match e {
+            mpsc::error::TrySendError::Full(_) => FeedbackError::CapacityFull,
+            mpsc::error::TrySendError::Closed(_) => FeedbackError::RuntimeShutdown,
+        })
+    }
+}
+
 impl MaestriaRuntime {
     pub fn new(
         mut config: RuntimeConfig,
@@ -291,20 +317,24 @@ impl MaestriaRuntime {
 
 #[cfg(test)]
 pub mod test_support {
-    pub use super::{Adapters, EffectExecutionContext, Governance, MaestriaRuntime, RuntimeConfig};
+    pub use super::{
+        Adapters, EffectExecutionContext, FeedbackError, Governance, MaestriaRuntime, RuntimeConfig,
+    };
     pub use maestria_domain::{
         DomainEvent, DomainEventEnvelope, DomainInput, KernelState, MaestriaEffect,
         ValidationReportId, content_hash, evidence_id_for,
     };
     pub use maestria_governance::{AutonomyProfile, Scope};
     pub use maestria_ports::{
-        ArtifactRepository, BlobStore, CardRepository, ChunkRepository, EventFilter, EventLog,
+        ArtifactRepository, BlobStore, CardRepository, ChunkRepository, EffectJournal,
+        EffectJournalEntry, EffectJournalIntent, EffectJournalStatus, EventFilter, EventLog,
         EvidenceRepository, FullTextIndex, GraphIndex, HarnessAdapter, HarnessCommandClass,
         HarnessRequest, InMemoryArtifactRepository, InMemoryBlobStore, InMemoryCardRepository,
-        InMemoryChunkRepository, InMemoryEventLog, InMemoryEvidenceRepository,
-        InMemoryFullTextIndex, InMemoryGraphIndex, InMemoryHarnessAdapter, InMemoryParser,
-        InMemoryVectorIndex, InMemoryWebFetcher, IndexedCard, IndexedChunk, ParseContext, Parser,
-        PortError, SourceSpan, VectorEmbedding, VectorIndex, WebFetcher,
+        InMemoryChunkRepository, InMemoryEffectJournal, InMemoryEventLog,
+        InMemoryEvidenceRepository, InMemoryFullTextIndex, InMemoryGraphIndex,
+        InMemoryHarnessAdapter, InMemoryParser, InMemoryVectorIndex, InMemoryWebFetcher,
+        IndexedCard, IndexedChunk, ParseContext, Parser, PortError, SourceSpan, VectorEmbedding,
+        VectorIndex, WebFetcher,
     };
     pub use std::sync::Arc;
     pub use std::time::Duration;
@@ -327,6 +357,8 @@ mod runtime_parse_tests;
 mod runtime_pdf_tests;
 #[cfg(test)]
 mod runtime_resume_tests;
+#[cfg(test)]
+mod runtime_supervision_tests;
 #[cfg(test)]
 mod runtime_tests;
 #[cfg(test)]

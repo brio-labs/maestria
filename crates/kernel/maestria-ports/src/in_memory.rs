@@ -1,4 +1,5 @@
 mod blob_store;
+mod effect_journal;
 mod event_log;
 mod full_text;
 mod graph_index;
@@ -10,6 +11,7 @@ mod vector_index;
 mod web;
 
 pub use blob_store::InMemoryBlobStore;
+pub use effect_journal::InMemoryEffectJournal;
 pub use event_log::InMemoryEventLog;
 pub use full_text::InMemoryFullTextIndex;
 pub use graph_index::InMemoryGraphIndex;

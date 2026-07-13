@@ -146,49 +146,18 @@ fn lock_owner_is_dead(path: &PathBuf) -> bool {
     }
 }
 
-/// Typed container for pending recovery inputs computed from replayed kernel state.
-///
-/// `resume_parsers` carries `ResumeParser` inputs for artifacts whose parsing is
-/// interrupted. `start_full_text` carries `StartFullTextIndex` inputs for artifacts
-/// whose chunks are pending full-text indexing. `run_validations` carries
-/// task-scoped validation requests for `Validating` tasks without reports.
-///
-/// Callers MUST enqueue `resume_parsers` before `start_full_text` so parser
-/// completion creates chunks before full-text indexing begins.
-#[derive(Debug, Clone)]
-pub struct RecoveryInputs {
-    pub resume_parsers: Vec<DomainInput>,
-    pub start_full_text: Vec<DomainInput>,
-    pub run_validations: Vec<DomainInput>,
-}
-
-/// Compute deterministic recovery inputs from replayed kernel state.
-///
-/// Returns `RecoveryInputs` with `ResumeParser` inputs first (derived from
-/// `pending_parsers`) and `StartFullTextIndex` inputs for non-parser-pending
-/// artifacts (derived from `pending_full_text`).
-pub fn recovery_inputs(state: &KernelState) -> RecoveryInputs {
-    let resume_parsers = pending_resume_parsers(state);
-    let start_full_text = pending_start_full_text(state);
-    let run_validations = pending_validations(state);
-    RecoveryInputs {
-        resume_parsers,
-        start_full_text,
-        run_validations,
-    }
-}
-
 mod approval_recovery;
 pub use approval_recovery::{reconcile_approval_repo, reconcile_pending_approvals};
+mod full_text_recovery;
+pub use full_text_recovery::pending_start_full_text;
 mod parser_resume;
-use parser_resume::pending_resume_parsers;
 pub use parser_resume::verify_pending_blobs;
+mod recovery_inputs;
+pub use recovery_inputs::{RecoveryInputs, recovery_inputs};
+mod supervision_recovery;
+pub use supervision_recovery::{RecoveryDiagnostics, supervise_recovery};
 mod validation_recovery;
 pub use validation_recovery::has_current_validation_report;
-use validation_recovery::pending_validations;
-
-mod full_text_recovery;
-use full_text_recovery::pending_start_full_text;
 /// Validate that every pending `ResumeParser` source path is within the
 /// instance manifest read scope before the daemon touches blobs or runtime
 /// infrastructure.  Out-of-scope and excluded pending parsers fail fast
@@ -345,6 +314,7 @@ pub fn build_runtime(
         graph_index,
         web_fetcher,
         id_allocator,
+        effect_journal: sqlite_store.clone(),
         approval_repo,
     };
     let governance = Governance {
@@ -394,17 +364,22 @@ pub async fn run_instance(instance_dir: PathBuf) -> Result<()> {
     // artifact, chunk, card, and evidence lookups succeed even if the
     // previous process crashed after event append but before a
     // projection write.
+    let store = SqliteStore::open(&layout.database_path)
+        .with_context(|| format!("open sqlite store {}", layout.database_path.display()))?;
     {
-        let store = SqliteStore::open(&layout.database_path)
-            .with_context(|| format!("open sqlite store {}", layout.database_path.display()))?;
         reconcile_projections(&state, &store)
             .with_context(|| "reconcile projection repositories")?;
         reconcile_approval_repo(&state, &store).with_context(|| "reconcile approval repository")?;
         reconcile_pending_approvals(&state, &store, &store)
             .with_context(|| "reconcile pending approvals")?;
     }
-    // Compute recovery inputs before state is moved into build_runtime.
-    let recovery = recovery_inputs(&state);
+    // Compute recovery diagnostics and pause in-flight harness effects before state is moved.
+    let diagnostics = supervise_recovery(&state, &store)?;
+    let recovery = diagnostics.inputs;
+    tracing::info!(
+        paused_effects = diagnostics.paused_effects.len(),
+        "recovery diagnostics computed"
+    );
 
     // Validate recovery scope from the instance manifest before touching
     // blobs or building the runtime.  Out-of-scope and excluded pending
@@ -478,3 +453,6 @@ mod recovery_scope_tests;
 
 #[cfg(test)]
 mod approval_recovery_tests;
+
+#[cfg(test)]
+mod runtime_supervision_tests;

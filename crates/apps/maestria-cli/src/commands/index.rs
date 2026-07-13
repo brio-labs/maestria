@@ -281,15 +281,22 @@ pub async fn run(instance_dir: PathBuf, path: PathBuf, recursive: bool) -> Resul
     // artifact, chunk, card, and evidence lookups succeed even if the
     // previous process crashed after event append but before a
     // projection write.
+    let store = maestria_storage_sqlite::SqliteStore::open(&layout.database_path)
+        .with_context(|| format!("open sqlite store {}", layout.database_path.display()))?;
     {
-        let store = maestria_storage_sqlite::SqliteStore::open(&layout.database_path)
-            .with_context(|| format!("open sqlite store {}", layout.database_path.display()))?;
         maestria_daemon::reconcile_projections(&initial_state, &store)
             .with_context(|| "reconcile projection repositories")?;
     }
     let preexisting_state = initial_state.clone();
-    // Compute recovery inputs before state is moved into build_runtime.
-    let recovery = maestria_daemon::recovery_inputs(&initial_state);
+    // Compute recovery diagnostics and pause in-flight harness effects before state is moved.
+    let diagnostics = maestria_daemon::supervise_recovery(&initial_state, &store)?;
+    let recovery = diagnostics.inputs;
+    if !diagnostics.paused_effects.is_empty() {
+        println!(
+            "paused {} in-flight harness effects",
+            diagnostics.paused_effects.len()
+        );
+    }
 
     // Validate recovery scope from the instance manifest before touching
     // blobs or building the runtime.  Out-of-scope and excluded pending

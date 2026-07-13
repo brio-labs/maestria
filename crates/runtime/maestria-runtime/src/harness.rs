@@ -10,15 +10,65 @@ impl EffectExecutionContext {
     /// delegating to the harness adapter. Sends HarnessRunCompleted
     /// back to the domain loop.
     pub(crate) async fn handle_query_harness(&self, request: QueryHarnessRequest) -> bool {
-        let adapters = &self.adapters;
+        let (class, working_directory) = match self.gate_harness_request(&request) {
+            Ok(res) => res,
+            Err(success) => return success,
+        };
 
+        let intent = maestria_ports::EffectJournalIntent {
+            run_id: request.run_id,
+            task_id: request.task_id,
+            capability: request.capability.clone(),
+            command: request.command.clone(),
+            scope_id: self.scope_id,
+            requested_generation: request.generation,
+        };
+
+        let entry = match self.adapters.effect_journal.record_intent(intent) {
+            Ok(e) => e,
+            Err(e) => {
+                tracing::error!(%e, "failed to record harness intent");
+                return false;
+            }
+        };
+
+        if let Err(e) = self
+            .adapters
+            .effect_journal
+            .record_started(request.run_id, entry.generation)
+        {
+            tracing::error!(%e, "failed to record harness start");
+            return false;
+        }
+
+        let scope_guard = maestria_governance::ScopeGuard::new(self.scope.clone());
+        let scope = scope_guard.scope();
+        let harness_request = HarnessRequest {
+            run_id: request.run_id,
+            command: request.command.clone(),
+            working_directory,
+            duration_budget: self.default_effect_timeout,
+            class,
+            readable_roots: scope.readable_roots().to_vec(),
+            blocked_paths: scope.blocked_paths().to_vec(),
+            blocked_patterns: scope.blocked_patterns().to_vec(),
+        };
+
+        self.execute_and_process_harness(request, harness_request, entry.generation)
+            .await
+    }
+
+    fn gate_harness_request(
+        &self,
+        request: &QueryHarnessRequest,
+    ) -> Result<(HarnessCommandClass, PathBuf), bool> {
         let class = match request.capability.as_str() {
             "browser" => HarnessCommandClass::Browser,
             "fetch" | "web" => HarnessCommandClass::Fetch,
             "shell" => HarnessCommandClass::Shell,
             other => {
                 tracing::error!(capability = other, "Unknown harness capability requested");
-                return true;
+                return Err(true);
             }
         };
 
@@ -27,18 +77,18 @@ impl EffectExecutionContext {
         let scope = scope_guard.scope();
         if !scope.harness_allowed(&request.capability) {
             tracing::warn!(capability = %request.capability, "Scope does not allow this harness; not spawning");
-            return true;
+            return Err(true);
         }
         if !scope.command_allowed(&request.command) {
             tracing::warn!(command = %request.command, "command blocked by scope; not spawning");
-            return true;
+            return Err(true);
         }
         if !is_shell_grammar_allowed(&request.command) {
             tracing::warn!(
                 command = %request.command,
                 "command violates shell grammar restrictions; not spawning"
             );
-            return true;
+            return Err(true);
         }
 
         // ── cat path containment ─────────────────────────────────
@@ -51,7 +101,7 @@ impl EffectExecutionContext {
                         ?containment_err,
                         "cat path outside readable roots; not spawning"
                     );
-                    return true;
+                    return Err(true);
                 }
             }
         }
@@ -59,22 +109,38 @@ impl EffectExecutionContext {
             Ok(path) => path,
             Err(error) => {
                 tracing::error!(%error, "unable to resolve harness working directory");
-                return false;
+                return Err(false);
             }
         };
-        let harness_request = HarnessRequest {
-            run_id: request.run_id,
-            command: request.command.clone(),
-            working_directory,
-            duration_budget: self.default_effect_timeout,
-            class,
-            readable_roots: scope.readable_roots().to_vec(),
-            blocked_paths: scope.blocked_paths().to_vec(),
-            blocked_patterns: scope.blocked_patterns().to_vec(),
-        };
 
-        match adapters.harness.execute(harness_request).await {
+        Ok((class, working_directory))
+    }
+
+    async fn execute_and_process_harness(
+        &self,
+        request: QueryHarnessRequest,
+        harness_request: HarnessRequest,
+        generation: u64,
+    ) -> bool {
+        match self.adapters.harness.execute(harness_request).await {
             Ok(outcome) => {
+                // Check if current before accepting feedback
+                match self
+                    .adapters
+                    .effect_journal
+                    .is_current(request.run_id, generation)
+                {
+                    Ok(true) => {}
+                    Ok(false) => {
+                        tracing::warn!(run_id = %request.run_id, %generation, "harness feedback rejected: not current");
+                        return true;
+                    }
+                    Err(e) => {
+                        tracing::error!(%e, "failed to check if harness effect is current");
+                        return false;
+                    }
+                }
+
                 let mut output = String::from_utf8_lossy(&outcome.stdout).into_owned();
                 if !outcome.stderr.is_empty() {
                     if !output.is_empty() {
@@ -82,20 +148,47 @@ impl EffectExecutionContext {
                     }
                     output.push_str(&String::from_utf8_lossy(&outcome.stderr));
                 }
-                Self::send_input(
-                    &self.input_tx,
-                    DomainInput::HarnessRunCompleted(HarnessRunCompleted {
-                        task_id: request.task_id,
-                        command: outcome.command,
-                        exit_code: outcome.exit_code,
-                        output,
-                    }),
-                    "harness completion",
-                )
-                .await;
+
+                let domain_input = DomainInput::HarnessRunCompleted(HarnessRunCompleted {
+                    task_id: request.task_id,
+                    command: outcome.command,
+                    exit_code: outcome.exit_code,
+                    output,
+                });
+
+                // A saturated feedback queue must not replay a non-idempotent
+                // harness command. Pause the completed effect for explicit
+                // operator recovery instead.
+                if let Err(error) =
+                    Self::send_input(&self.input_tx, domain_input, "harness completion")
+                {
+                    tracing::error!(%error, "failed to deliver harness completion; pausing effect");
+                    if let Err(journal_error) = self.adapters.effect_journal.record_terminal(
+                        request.run_id,
+                        generation,
+                        maestria_ports::EffectJournalStatus::Paused,
+                    ) {
+                        tracing::error!(%journal_error, "failed to pause saturated harness effect");
+                    }
+                    return true;
+                }
+
+                if let Err(e) = self.adapters.effect_journal.record_terminal(
+                    request.run_id,
+                    generation,
+                    maestria_ports::EffectJournalStatus::Completed,
+                ) {
+                    tracing::error!(%e, "failed to record terminal harness status");
+                }
+
                 true
             }
             Err(error) => {
+                let _ = self.adapters.effect_journal.record_terminal(
+                    request.run_id,
+                    generation,
+                    maestria_ports::EffectJournalStatus::Failed,
+                );
                 tracing::error!(run_id = %request.run_id, %error, "harness execution failed");
                 false
             }
