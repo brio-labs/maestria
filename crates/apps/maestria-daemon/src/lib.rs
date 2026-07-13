@@ -355,6 +355,15 @@ pub fn build_runtime(
         .with_context(|| format!("read instance manifest {}", layout.manifest_path.display()))?;
     let manifest = InstanceService::parse_manifest(&manifest_contents)
         .map_err(|error| anyhow!("parse instance manifest: {error}"))?;
+    let default_privacy = PrivacyExclusions::default();
+    let mut blocked_patterns = manifest.excluded_patterns.clone();
+    blocked_patterns.extend(default_privacy.sensitive_names().iter().cloned());
+    blocked_patterns.extend(
+        default_privacy
+            .sensitive_extensions()
+            .iter()
+            .map(|ext| format!("*.{ext}")),
+    );
     let scope = Scope::new(
         manifest.read_roots,
         Vec::new(),
@@ -362,7 +371,7 @@ pub fn build_runtime(
         Vec::new(),
         false,
     )
-    .with_blocked_patterns(manifest.excluded_patterns.clone());
+    .with_blocked_patterns(blocked_patterns);
     let config = RuntimeConfig {
         profile,
         scope,

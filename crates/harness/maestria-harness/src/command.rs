@@ -38,6 +38,23 @@ pub(crate) fn validate_readable_path(
             message: format!("path {:?} is blocked by exclusion", raw_path),
         });
     }
+    // Canonicalize the candidate to resolve symlinks, then re-check.
+    if let Ok(real) = std::fs::canonicalize(&candidate) {
+        let real_allowed = readable_roots.iter().any(|root| match root.canonicalize() {
+            Ok(cr) => real.starts_with(&cr),
+            Err(_) => false,
+        });
+        if !real_allowed {
+            return Err(PortError::InvalidInput {
+                message: format!(
+                    "path {:?} resolves to {:?} which escapes readable roots",
+                    raw_path, real
+                ),
+            });
+        }
+        return Ok(real);
+    }
+    // Candidate does not exist — fall back to lexical check.
     let allowed = readable_roots.iter().any(|root| match root.canonicalize() {
         Ok(cr) => normalized.starts_with(&cr),
         Err(_) => false,

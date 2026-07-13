@@ -65,6 +65,16 @@ impl PrivacyExclusions {
         false
     }
 
+    /// Return the configured sensitive names.
+    pub fn sensitive_names(&self) -> &[String] {
+        &self.sensitive_names
+    }
+
+    /// Return the configured sensitive extensions (without leading dot).
+    pub fn sensitive_extensions(&self) -> &[String] {
+        &self.sensitive_extensions
+    }
+
     /// Return the number of configured sensitive names.
     pub fn name_count(&self) -> usize {
         self.sensitive_names.len()
