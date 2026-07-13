@@ -86,7 +86,48 @@ impl MaestriaRuntime {
             tokio::select! {
                 () = shutdown_token.cancelled() => break,
                 msg = input_rx.recv() => {
-                    let Some(input) = msg else { break };
+                    let Some(mut input) = msg else { break };
+
+                    // Boundary validation: ApprovalResolved must reference a
+                    // valid pending record with a matching task_id before the
+                    // domain sees it. Reject mismatches, duplicates, and missing
+                    // records without emitting domain events.
+                    if let DomainInput::ApprovalResolved(ref decision) = input {
+                        match self.adapters.approval_repo.find_by_id(decision.approval_id) {
+                            Ok(None) => {
+                                tracing::warn!(
+                                    approval_id = %decision.approval_id,
+                                    "approval resolve rejected: record not found"
+                                );
+                                continue;
+                            }
+                            Ok(Some(ref record)) if record.status != maestria_ports::ApprovalStatus::Pending => {
+                                tracing::info!(
+                                    approval_id = %decision.approval_id,
+                                    status = ?record.status,
+                                    "approval resolve skipped: already resolved (idempotent)"
+                                );
+                                continue;
+                            }
+                            Ok(Some(ref record)) if record.task_id != decision.task_id => {
+                                tracing::warn!(
+                                    approval_id = %decision.approval_id,
+                                    record_task = %record.task_id,
+                                    input_task = %decision.task_id,
+                                    "approval resolve rejected: task_id mismatch"
+                                );
+                                continue;
+                            }
+                            Ok(Some(_)) => {
+                                // Valid pending record with matching task_id — proceed.
+                            }
+                            Err(e) => {
+                                tracing::error!(%e, approval_id = %decision.approval_id, "approval resolve rejected: repo lookup error");
+                                continue;
+                            }
+                        }
+                    }
+
                     let effects = {
                         let mut state = self.state.write().await;
                         match state.apply_input(input) {

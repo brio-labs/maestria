@@ -53,7 +53,6 @@ impl IdAllocator for InMemoryIdAllocator {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;

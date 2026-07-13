@@ -4,7 +4,7 @@ use std::{
 };
 
 use crate::{Artifact, ArtifactId, Card, CardId, Chunk, ChunkId, Evidence, EvidenceId, PortError};
-use maestria_domain::ApprovalId;
+use maestria_domain::{ApprovalId, TaskId};
 
 // ── ArtifactRepository ──────────────────────────────────────────────
 
@@ -195,17 +195,23 @@ impl InMemoryApprovalRepository {
 
 impl crate::ApprovalRepository for InMemoryApprovalRepository {
     fn save(&self, record: &crate::ApprovalRecord) -> Result<(), crate::PortError> {
-        let mut guard = self.records.lock().map_err(|_| crate::PortError::Internal {
-            message: "in-memory approval repo lock poisoned".to_string(),
-        })?;
+        let mut guard = self
+            .records
+            .lock()
+            .map_err(|_| crate::PortError::Internal {
+                message: "in-memory approval repo lock poisoned".to_string(),
+            })?;
         guard.insert(record.id, record.clone());
         Ok(())
     }
 
     fn find_pending(&self) -> Result<Vec<crate::ApprovalRecord>, crate::PortError> {
-        let guard = self.records.lock().map_err(|_| crate::PortError::Internal {
-            message: "in-memory approval repo lock poisoned".to_string(),
-        })?;
+        let guard = self
+            .records
+            .lock()
+            .map_err(|_| crate::PortError::Internal {
+                message: "in-memory approval repo lock poisoned".to_string(),
+            })?;
         Ok(guard
             .values()
             .filter(|r| r.status == crate::ApprovalStatus::Pending)
@@ -217,9 +223,12 @@ impl crate::ApprovalRepository for InMemoryApprovalRepository {
         &self,
         id: ApprovalId,
     ) -> Result<Option<crate::ApprovalRecord>, crate::PortError> {
-        let guard = self.records.lock().map_err(|_| crate::PortError::Internal {
-            message: "in-memory approval repo lock poisoned".to_string(),
-        })?;
+        let guard = self
+            .records
+            .lock()
+            .map_err(|_| crate::PortError::Internal {
+                message: "in-memory approval repo lock poisoned".to_string(),
+            })?;
         Ok(guard.get(&id).cloned())
     }
 
@@ -228,9 +237,12 @@ impl crate::ApprovalRepository for InMemoryApprovalRepository {
         id: ApprovalId,
         approved: bool,
     ) -> Result<Option<crate::ApprovalRecord>, crate::PortError> {
-        let mut guard = self.records.lock().map_err(|_| crate::PortError::Internal {
-            message: "in-memory approval repo lock poisoned".to_string(),
-        })?;
+        let mut guard = self
+            .records
+            .lock()
+            .map_err(|_| crate::PortError::Internal {
+                message: "in-memory approval repo lock poisoned".to_string(),
+            })?;
         if let Some(record) = guard.get_mut(&id) {
             if record.status == crate::ApprovalStatus::Pending {
                 record.status = if approved {
@@ -242,5 +254,22 @@ impl crate::ApprovalRepository for InMemoryApprovalRepository {
             }
         }
         Ok(None)
+    }
+
+    fn find_by_task_id(
+        &self,
+        task_id: TaskId,
+    ) -> Result<Vec<crate::ApprovalRecord>, crate::PortError> {
+        let guard = self
+            .records
+            .lock()
+            .map_err(|_| crate::PortError::Internal {
+                message: "in-memory approval repo lock poisoned".to_string(),
+            })?;
+        Ok(guard
+            .values()
+            .filter(|r| r.task_id == task_id)
+            .cloned()
+            .collect())
     }
 }

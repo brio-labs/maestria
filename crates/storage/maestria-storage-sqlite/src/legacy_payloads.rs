@@ -107,9 +107,11 @@ pub(crate) enum LegacyStoredEventPayload {
         exit_code: i32,
     },
     ApprovalRecorded {
-        approval_id: u64,
+        approval_id: Option<u64>,
         task_id: u64,
         approved: bool,
+        from_status: Option<StoredTaskStatus>,
+        to_status: Option<StoredTaskStatus>,
     },
     TickObserved {
         at: u64,
@@ -199,11 +201,28 @@ impl LegacyStoredEventPayload {
                 command,
                 exit_code,
             }),
-            Self::ApprovalRecorded { task_id, approved, .. } => {
+            Self::ApprovalRecorded {
+                approval_id,
+                task_id,
+                approved,
+                from_status,
+                to_status,
+            } => {
+                let id = approval_id.ok_or_else(|| PortError::Internal {
+                    message: "legacy ApprovalRecorded payload missing approval_id".into(),
+                })?;
+                let from = from_status.ok_or_else(|| PortError::Internal {
+                    message: "legacy ApprovalRecorded payload missing from_status".into(),
+                })?;
+                let to = to_status.ok_or_else(|| PortError::Internal {
+                    message: "legacy ApprovalRecorded payload missing to_status".into(),
+                })?;
                 Ok(StoredEventPayload::ApprovalRecorded {
-                    approval_id: 0,
+                    approval_id: id,
                     task_id,
                     approved,
+                    from_status: from,
+                    to_status: to,
                 })
             }
             Self::TickObserved { at } => Ok(StoredEventPayload::TickObserved { at }),

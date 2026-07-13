@@ -80,10 +80,7 @@ fn reconciliation_handles_denied_approval() {
         .expect("domain should accept denied approval");
 
     reconcile_approval_repo(&state, &store).expect("reconcile");
-    let record = store
-        .find_by_id(ApprovalId::new(7))
-        .expect("find")
-        .unwrap();
+    let record = store.find_by_id(ApprovalId::new(7)).expect("find").unwrap();
     assert_eq!(record.status, ApprovalStatus::Denied);
 }
 
@@ -104,17 +101,11 @@ fn reconciliation_idempotent_across_restarts() {
         .expect("first resolution");
 
     reconcile_approval_repo(&state, &store).expect("first reconcile");
-    let record = store
-        .find_by_id(ApprovalId::new(1))
-        .expect("find")
-        .unwrap();
+    let record = store.find_by_id(ApprovalId::new(1)).expect("find").unwrap();
     assert_eq!(record.status, ApprovalStatus::Approved);
 
     reconcile_approval_repo(&state, &store).expect("second reconcile");
-    let record2 = store
-        .find_by_id(ApprovalId::new(1))
-        .expect("find")
-        .unwrap();
+    let record2 = store.find_by_id(ApprovalId::new(1)).expect("find").unwrap();
     assert_eq!(record2.status, ApprovalStatus::Approved);
 }
 
@@ -134,7 +125,10 @@ fn reconciliation_errors_on_missing_record() {
         .expect("domain should accept approval");
 
     let result = reconcile_approval_repo(&state, &store);
-    assert!(result.is_err(), "reconciliation must error on missing record");
+    assert!(
+        result.is_err(),
+        "reconciliation must error on missing record"
+    );
     let err = result.unwrap_err().to_string();
     assert!(
         err.contains("not found"),

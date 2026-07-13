@@ -127,7 +127,11 @@ fn create_no_text_pdf() -> Vec<u8> {
 }
 fn assert_ok(args: &[&str]) -> String {
     let (code, stdout, stderr) = run(args);
-    assert_eq!(code, 0, "command failed: {:?}\nstdout: {stdout}\nstderr: {stderr}", args);
+    assert_eq!(
+        code, 0,
+        "command failed: {:?}\nstdout: {stdout}\nstderr: {stderr}",
+        args
+    );
     stdout
 }
 fn assert_ok_lines(args: &[&str], expected_lines: usize) -> String {
@@ -806,15 +810,36 @@ fn approval_list_shows_pending_high_priority_task() {
     let wp = workspace.path().to_string_lossy();
     assert_init_ok(ip.as_ref(), wp.as_ref());
     write_file(workspace.path(), "notes.md", "# Notes\n\nConsensus.\n");
-    let notes = workspace.path().join("notes.md").to_string_lossy().into_owned();
+    let notes = workspace
+        .path()
+        .join("notes.md")
+        .to_string_lossy()
+        .into_owned();
     assert_index_ok(ip.as_ref(), &notes);
 
-    let stdout = assert_ok(&["task", "start", "-i", ip.as_ref(), "--priority", "high", "Review"]);
-    assert!(stdout.contains("task="), "task start output missing task id");
+    let stdout = assert_ok(&[
+        "task",
+        "start",
+        "-i",
+        ip.as_ref(),
+        "--priority",
+        "high",
+        "Review",
+    ]);
+    assert!(
+        stdout.contains("task="),
+        "task start output missing task id"
+    );
 
     let list = assert_ok(&["approval", "list", "-i", ip.as_ref()]);
-    assert!(list.contains("task_activation"), "approval list missing effect kind");
-    assert!(list.contains("Pending"), "approval status should be Pending");
+    assert!(
+        list.contains("task_activation"),
+        "approval list missing effect kind"
+    );
+    assert!(
+        list.contains("Pending"),
+        "approval status should be Pending"
+    );
     assert!(list.contains("Medium"), "risk should be Medium");
 }
 
@@ -826,29 +851,65 @@ fn approval_approve_activates_task() {
     let wp = workspace.path().to_string_lossy();
     assert_init_ok(ip.as_ref(), wp.as_ref());
     write_file(workspace.path(), "notes.md", "# Notes\n\nConsensus.\n");
-    let notes = workspace.path().join("notes.md").to_string_lossy().into_owned();
+    let notes = workspace
+        .path()
+        .join("notes.md")
+        .to_string_lossy()
+        .into_owned();
     assert_index_ok(ip.as_ref(), &notes);
 
-    let task_out = assert_ok(&["task", "start", "-i", ip.as_ref(), "--priority", "high", "Review"]);
-    let task_id: String = task_out.chars().skip_while(|c| !c.is_ascii_digit())
-        .take_while(|c| c.is_ascii_digit()).collect();
+    let task_out = assert_ok(&[
+        "task",
+        "start",
+        "-i",
+        ip.as_ref(),
+        "--priority",
+        "high",
+        "Review",
+    ]);
+    let task_id: String = task_out
+        .chars()
+        .skip_while(|c| !c.is_ascii_digit())
+        .take_while(|c| c.is_ascii_digit())
+        .collect();
     assert!(!task_id.is_empty(), "must extract task ID");
 
     let list = assert_ok(&["approval", "list", "-i", ip.as_ref()]);
-    let approval_id: String = list.lines()
+    let approval_id: String = list
+        .lines()
         .find(|l| l.contains("task_activation"))
         .and_then(|l| l.split_whitespace().nth(1))
-        .unwrap_or_default().to_string();
-    assert!(!approval_id.is_empty(), "must extract approval ID from list");
+        .unwrap_or_default()
+        .to_string();
+    assert!(
+        !approval_id.is_empty(),
+        "must extract approval ID from list"
+    );
 
-    let resolve = assert_ok(&["approval", "resolve", "-i", ip.as_ref(), &approval_id, "--approve"]);
-    assert!(resolve.contains("Approved"), "resolve should confirm approval");
+    let resolve = assert_ok(&[
+        "approval",
+        "resolve",
+        "-i",
+        ip.as_ref(),
+        &approval_id,
+        "--approve",
+    ]);
+    assert!(
+        resolve.contains("Approved"),
+        "resolve should confirm approval"
+    );
 
     let show = assert_ok(&["task", "show", "-i", ip.as_ref(), &task_id]);
-    assert!(show.contains("Active"), "task should be Active after approval");
+    assert!(
+        show.contains("Active"),
+        "task should be Active after approval"
+    );
 
     let list2 = assert_ok(&["approval", "list", "-i", ip.as_ref()]);
-    assert!(!list2.contains("Pending"), "no pending requests after resolution");
+    assert!(
+        !list2.contains("Pending"),
+        "no pending requests after resolution"
+    );
 }
 
 #[test]
@@ -859,24 +920,51 @@ fn approval_deny_blocks_task() {
     let wp = workspace.path().to_string_lossy();
     assert_init_ok(ip.as_ref(), wp.as_ref());
     write_file(workspace.path(), "notes.md", "# Notes\n");
-    let notes = workspace.path().join("notes.md").to_string_lossy().into_owned();
+    let notes = workspace
+        .path()
+        .join("notes.md")
+        .to_string_lossy()
+        .into_owned();
     assert_index_ok(ip.as_ref(), &notes);
 
-    let task_out = assert_ok(&["task", "start", "-i", ip.as_ref(), "--priority", "high", "Review"]);
-    let task_id: String = task_out.chars().skip_while(|c| !c.is_ascii_digit())
-        .take_while(|c| c.is_ascii_digit()).collect();
+    let task_out = assert_ok(&[
+        "task",
+        "start",
+        "-i",
+        ip.as_ref(),
+        "--priority",
+        "high",
+        "Review",
+    ]);
+    let task_id: String = task_out
+        .chars()
+        .skip_while(|c| !c.is_ascii_digit())
+        .take_while(|c| c.is_ascii_digit())
+        .collect();
 
     let list = assert_ok(&["approval", "list", "-i", ip.as_ref()]);
-    let approval_id: String = list.lines()
+    let approval_id: String = list
+        .lines()
         .find(|l| l.contains("task_activation"))
         .and_then(|l| l.split_whitespace().nth(1))
-        .unwrap_or_default().to_string();
+        .unwrap_or_default()
+        .to_string();
 
-    let resolve = assert_ok(&["approval", "resolve", "-i", ip.as_ref(), &approval_id, "--deny"]);
+    let resolve = assert_ok(&[
+        "approval",
+        "resolve",
+        "-i",
+        ip.as_ref(),
+        &approval_id,
+        "--deny",
+    ]);
     assert!(resolve.contains("Denied"), "resolve should confirm denial");
 
     let show = assert_ok(&["task", "show", "-i", ip.as_ref(), &task_id]);
-    assert!(show.contains("Draft"), "task should remain Draft after denial from Draft: {show}");
+    assert!(
+        show.contains("Draft"),
+        "task should remain Draft after denial from Draft: {show}"
+    );
 }
 
 #[test]
@@ -885,10 +973,14 @@ fn approval_resolve_missing_id_errors() {
     let ip = instance.path().to_string_lossy();
     let wp = "/tmp";
     assert_init_ok(ip.as_ref(), wp);
-    let (code, stdout, stderr) = run(&["approval", "resolve", "-i", ip.as_ref(), "999", "--approve"]);
+    let (code, stdout, stderr) =
+        run(&["approval", "resolve", "-i", ip.as_ref(), "999", "--approve"]);
     assert_ne!(code, 0, "resolve missing ID should fail");
     let combined = format!("{stdout}{stderr}");
-    assert!(combined.contains("not found"), "error should mention not found: {combined}");
+    assert!(
+        combined.contains("not found"),
+        "error should mention not found: {combined}"
+    );
 }
 
 #[test]
@@ -899,19 +991,50 @@ fn approval_resolve_duplicate_is_rejected() {
     let wp = workspace.path().to_string_lossy();
     assert_init_ok(ip.as_ref(), wp.as_ref());
     write_file(workspace.path(), "notes.md", "# Notes\n");
-    let notes = workspace.path().join("notes.md").to_string_lossy().into_owned();
+    let notes = workspace
+        .path()
+        .join("notes.md")
+        .to_string_lossy()
+        .into_owned();
     assert_index_ok(ip.as_ref(), &notes);
 
-    assert_ok(&["task", "start", "-i", ip.as_ref(), "--priority", "high", "Review"]);
+    assert_ok(&[
+        "task",
+        "start",
+        "-i",
+        ip.as_ref(),
+        "--priority",
+        "high",
+        "Review",
+    ]);
     let list = assert_ok(&["approval", "list", "-i", ip.as_ref()]);
-    let approval_id: String = list.lines()
+    let approval_id: String = list
+        .lines()
         .find(|l| l.contains("task_activation"))
         .and_then(|l| l.split_whitespace().nth(1))
-        .unwrap_or_default().to_string();
+        .unwrap_or_default()
+        .to_string();
 
-    assert_ok(&["approval", "resolve", "-i", ip.as_ref(), &approval_id, "--approve"]);
-    let (code, stdout, stderr) = run(&["approval", "resolve", "-i", ip.as_ref(), &approval_id, "--deny"]);
+    assert_ok(&[
+        "approval",
+        "resolve",
+        "-i",
+        ip.as_ref(),
+        &approval_id,
+        "--approve",
+    ]);
+    let (code, stdout, stderr) = run(&[
+        "approval",
+        "resolve",
+        "-i",
+        ip.as_ref(),
+        &approval_id,
+        "--deny",
+    ]);
     assert_ne!(code, 0, "duplicate resolve should fail");
     let combined = format!("{stdout}{stderr}");
-    assert!(combined.contains("already resolved"), "error should mention already resolved: {combined}");
+    assert!(
+        combined.contains("already resolved"),
+        "error should mention already resolved: {combined}"
+    );
 }

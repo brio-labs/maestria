@@ -84,6 +84,7 @@ impl EffectExecutionContext {
             profile: AutonomyProfile::TrustedWorkspace,
             scope: Scope::new(vec![], vec![], vec!["shell".into()], vec![], false),
             scope_id: ScopeId::new(1),
+            state,
             input_tx,
             default_effect_timeout: Duration::from_secs(300),
             max_retries: 3,

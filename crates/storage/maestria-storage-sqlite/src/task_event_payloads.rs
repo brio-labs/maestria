@@ -1,6 +1,8 @@
 use super::event_payloads::StoredEventPayload;
 use super::evidence_payloads::{StoredTaskPriority, StoredTaskStatus};
-use maestria_domain::{ApprovalId, ArtifactId, DomainEvent, EvidenceId, TaskId, ValidationReportId};
+use maestria_domain::{
+    ApprovalId, ArtifactId, DomainEvent, EvidenceId, TaskId, ValidationReportId,
+};
 
 impl StoredEventPayload {
     pub(crate) fn try_from_domain_task(event: &DomainEvent) -> Option<Self> {
@@ -54,10 +56,14 @@ impl StoredEventPayload {
                 approval_id,
                 task_id,
                 approved,
+                from_status,
+                to_status,
             } => Some(Self::ApprovalRecorded {
                 approval_id: approval_id.value(),
                 task_id: task_id.value(),
                 approved: *approved,
+                from_status: StoredTaskStatus::from_domain(*from_status),
+                to_status: StoredTaskStatus::from_domain(*to_status),
             }),
             DomainEvent::ValidationReportCreated {
                 report_id,
@@ -125,10 +131,14 @@ impl StoredEventPayload {
                 approval_id,
                 task_id,
                 approved,
+                from_status,
+                to_status,
             } => Ok(DomainEvent::ApprovalRecorded {
                 approval_id: ApprovalId::new(approval_id),
                 task_id: TaskId::new(task_id),
                 approved,
+                from_status: from_status.into_domain(),
+                to_status: to_status.into_domain(),
             }),
             Self::ValidationReportCreated {
                 report_id,

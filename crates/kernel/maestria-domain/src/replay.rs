@@ -148,8 +148,10 @@ impl KernelState {
             DomainEvent::ApprovalRecorded {
                 approval_id,
                 task_id,
+                from_status,
+                to_status,
                 ..
-            } => self.apply_approval_recorded(*approval_id, *task_id),
+            } => self.apply_approval_recorded(*approval_id, *task_id, *from_status, *to_status),
             DomainEvent::TickObserved { .. } => {
                 self.apply_tick_observed();
                 Ok(())

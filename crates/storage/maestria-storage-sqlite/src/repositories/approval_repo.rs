@@ -64,12 +64,9 @@ fn read_approval_row(row: &rusqlite::Row<'_>) -> Result<ApprovalRecord, rusqlite
     let tick =
         u64::try_from(tick).map_err(|_| rusqlite::Error::IntegralValueOutOfRange(6, tick))?;
 
-    let risk_level =
-        risk_from_text(&risk_text).map_err(|e| rusqlite::Error::FromSqlConversionFailure(
-            3,
-            rusqlite::types::Type::Text,
-            Box::new(e),
-        ))?;
+    let risk_level = risk_from_text(&risk_text).map_err(|e| {
+        rusqlite::Error::FromSqlConversionFailure(3, rusqlite::types::Type::Text, Box::new(e))
+    })?;
     let status = status_from_text(&status_text).map_err(|e| {
         rusqlite::Error::FromSqlConversionFailure(7, rusqlite::types::Type::Text, Box::new(e))
     })?;
@@ -145,11 +142,7 @@ impl ApprovalRepository for crate::SqliteStore {
         }
     }
 
-    fn resolve(
-        &self,
-        id: ApprovalId,
-        approved: bool,
-    ) -> Result<Option<ApprovalRecord>, PortError> {
+    fn resolve(&self, id: ApprovalId, approved: bool) -> Result<Option<ApprovalRecord>, PortError> {
         let connection = self.lock()?;
         let new_status = if approved { "approved" } else { "denied" };
         let affected = connection
@@ -177,6 +170,24 @@ impl ApprovalRepository for crate::SqliteStore {
             Some(Err(e)) => Err(to_port_error(e)),
             None => Ok(None),
         }
+    }
+
+    fn find_by_task_id(&self, task_id: TaskId) -> Result<Vec<ApprovalRecord>, PortError> {
+        let connection = self.lock()?;
+        let mut stmt = connection
+            .prepare(
+                "SELECT id, task_id, effect_kind, risk_level, capability, scope_id, tick, status \
+                 FROM approval_requests WHERE task_id = ?1 ORDER BY id",
+            )
+            .map_err(to_port_error)?;
+        let rows = stmt
+            .query_map(params![task_id.value() as i64], read_approval_row)
+            .map_err(to_port_error)?;
+        let mut records = Vec::new();
+        for row in rows {
+            records.push(row.map_err(to_port_error)?);
+        }
+        Ok(records)
     }
 }
 

@@ -301,4 +301,5 @@ pub trait ApprovalRepository: Send + Sync {
     fn find_pending(&self) -> Result<Vec<ApprovalRecord>, PortError>;
     fn find_by_id(&self, id: ApprovalId) -> Result<Option<ApprovalRecord>, PortError>;
     fn resolve(&self, id: ApprovalId, approved: bool) -> Result<Option<ApprovalRecord>, PortError>;
+    fn find_by_task_id(&self, task_id: TaskId) -> Result<Vec<ApprovalRecord>, PortError>;
 }

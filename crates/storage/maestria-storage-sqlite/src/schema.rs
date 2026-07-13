@@ -212,11 +212,9 @@ pub(crate) fn seed_id_counters(connection: &Connection) -> Result<(), PortError>
     // Seed approval counter: query approval_requests if the table exists,
     // otherwise start at 1. Silently skip if table is absent (pre-migration).
     let max_approval: Option<i64> = connection
-        .query_row(
-            "SELECT MAX(id) FROM approval_requests",
-            [],
-            |row| row.get(0),
-        )
+        .query_row("SELECT MAX(id) FROM approval_requests", [], |row| {
+            row.get(0)
+        })
         .ok();
     let next_approval = next_counter_value(max_approval, "approval")?;
     connection
@@ -259,6 +257,7 @@ fn migrate_from_v1(connection: &Connection, state: &SchemaState) -> Result<(), P
             .map_err(to_port_error)?;
     }
     ensure_artifact_v3_columns(connection)?;
+    migrate_approval_recorded_payloads(connection)?;
 
     connection
         .execute(
@@ -285,7 +284,7 @@ fn migrate_from_v2(connection: &Connection, state: &SchemaState) -> Result<(), P
             message: "malformed sqlite schema: missing payload_version column".to_string(),
         });
     }
-    ensure_artifact_v3_columns(connection)?;
+    migrate_approval_recorded_payloads(connection)?;
     connection
         .execute(
             "INSERT OR IGNORE INTO schema_version (version) VALUES (?1)",
@@ -347,6 +346,141 @@ fn migrate_from_v3(connection: &Connection, state: &SchemaState) -> Result<(), P
         .map_err(to_port_error)?;
     Ok(())
 }
+/// Rewrite old ApprovalRecorded payloads that lack `approval_id`,
+/// allocating real IDs from the `id_counters` table.
+fn migrate_approval_recorded_payloads(connection: &Connection) -> Result<(), PortError> {
+    use rusqlite::params;
+
+    // Seed the approval counter so we have a namespace row.
+    connection
+        .execute(
+            "INSERT OR IGNORE INTO id_counters (namespace, next_id)
+             VALUES ('approval', 1)",
+            [],
+        )
+        .map_err(to_port_error)?;
+
+    // Find approval_recorded events whose payload lacks "approval_id".
+    let mut stmt = connection
+        .prepare(
+            "SELECT id, payload_json FROM domain_events
+             WHERE event_kind = 'approval_recorded'
+               AND payload_json NOT LIKE '%\"approval_id\"%'",
+        )
+        .map_err(to_port_error)?;
+
+    let rows: Vec<(i64, String)> = stmt
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+        .map_err(to_port_error)?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(to_port_error)?;
+
+    for (event_id, payload) in &rows {
+        // Allocate a new approval ID.
+        let next: i64 = connection
+            .query_row(
+                "UPDATE id_counters SET next_id = next_id + 1
+                 WHERE namespace = 'approval' RETURNING next_id - 1",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(to_port_error)?;
+        let new_id = next;
+
+        // Extract task_id and approved from the old payload.
+        let task_id: i64 = extract_json_field(payload, "task_id")?;
+        let approved: bool = extract_json_bool(payload, "approved")?;
+        let status = if approved { "approved" } else { "denied" };
+
+        // Derive legacy from/to status from the approved flag.
+        let (from_status, to_status) = if approved {
+            ("draft", "active")
+        } else {
+            ("draft", "draft")
+        };
+
+        // Rewrite the event payload to include approval_id and status fields.
+        let new_payload = migrate_approval_payload_json(payload, new_id, from_status, to_status)?;
+        connection
+            .execute(
+                "UPDATE domain_events SET payload_json = ?1 WHERE id = ?2",
+                params![new_payload, event_id],
+            )
+            .map_err(to_port_error)?;
+
+        // Also insert a row in approval_requests so reconciliation
+        // does not error on a missing record.
+        connection
+            .execute(
+                "INSERT OR IGNORE INTO approval_requests
+                 (id, task_id, effect_kind, risk_level, capability, scope_id, tick, status)
+                 VALUES (?1, ?2, 'legacy_approval', 'medium', 'legacy', 1, 0, ?3)",
+                params![new_id, task_id, status],
+            )
+            .map_err(to_port_error)?;
+    }
+
+    Ok(())
+}
+
+/// Rewrite a legacy ApprovalRecorded payload JSON to include approval_id,
+/// from_status, and to_status fields.
+fn migrate_approval_payload_json(
+    payload: &str,
+    new_id: i64,
+    from_status: &str,
+    to_status: &str,
+) -> Result<String, PortError> {
+    let marker = "\"approval_recorded\"";
+    let pos = payload.find(marker).ok_or_else(|| PortError::Internal {
+        message: "malformed approval_recorded legacy payload".to_string(),
+    })?;
+    let insert_at = pos + marker.len();
+    let mut result = String::with_capacity(payload.len() + 80);
+    result.push_str(&payload[..insert_at]);
+    result.push_str(&format!(
+        ",\"approval_id\":{new_id},\"from_status\":\"{from_status}\",\"to_status\":\"{to_status}\""
+    ));
+    result.push_str(&payload[insert_at..]);
+    Ok(result)
+}
+
+/// Extract an i64 field value from a JSON object string.
+fn extract_json_field(payload: &str, field: &str) -> Result<i64, PortError> {
+    let key = format!("\"{field}\":");
+    let start = payload.find(&key).ok_or_else(|| PortError::Internal {
+        message: format!("missing field {field} in legacy payload"),
+    })?;
+    let after_key = start + key.len();
+    let value_str = &payload[after_key..];
+    let end = value_str
+        .find(|c: char| !c.is_ascii_digit() && c != '-')
+        .unwrap_or(value_str.len());
+    value_str[..end]
+        .parse::<i64>()
+        .map_err(|_| PortError::Internal {
+            message: format!("invalid {field} value in legacy payload"),
+        })
+}
+
+/// Extract a bool field value from a JSON object string.
+fn extract_json_bool(payload: &str, field: &str) -> Result<bool, PortError> {
+    let key = format!("\"{field}\":");
+    let start = payload.find(&key).ok_or_else(|| PortError::Internal {
+        message: format!("missing field {field} in legacy payload"),
+    })?;
+    let after_key = start + key.len();
+    let rest = payload[after_key..].trim_start();
+    if rest.starts_with("true") {
+        Ok(true)
+    } else if rest.starts_with("false") {
+        Ok(false)
+    } else {
+        Err(PortError::Internal {
+            message: format!("invalid {field} bool in legacy payload"),
+        })
+    }
+}
 
 /// Migrates a v4 database to v5: adds the `approval_requests` table.
 fn migrate_from_v4(connection: &Connection, state: &SchemaState) -> Result<(), PortError> {
@@ -369,6 +503,11 @@ fn migrate_from_v4(connection: &Connection, state: &SchemaState) -> Result<(), P
             );",
         )
         .map_err(to_port_error)?;
+
+    // Data migration: old ApprovalRecorded payloads lack approval_id.
+    // Allocate real IDs and rewrite the payload JSON before v5 replay.
+    migrate_approval_recorded_payloads(connection)?;
+
     connection
         .execute(
             "INSERT OR IGNORE INTO schema_version (version) VALUES (?1)",

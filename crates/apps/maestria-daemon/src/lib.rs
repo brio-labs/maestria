@@ -299,8 +299,64 @@ pub fn reconcile_approval_repo(state: &KernelState, store: &SqliteStore) -> Resu
                      event log contains ApprovalRecorded but no matching durable request"
                 );
             }
-            let _ = store.resolve(*approval_id, *approved);
+            if let Err(e) = store.resolve(*approval_id, *approved) {
+                anyhow::bail!("reconcile: resolve approval {approval_id}: {e}");
+            }
         }
+    }
+
+    Ok(())
+}
+/// Recreate missing approval requests for high-priority tasks that lost their
+/// durable request due to a crash between TaskOpened persistence and
+/// approval_repo.save(). Scans kernel state for Draft/Open tasks with high
+/// priority, checks if any approval record exists for that task ID, and if
+/// not, creates a new pending request. Tasks with an existing Denied record
+/// are skipped (denial is terminal).
+pub fn reconcile_pending_approvals(
+    state: &KernelState,
+    store: &SqliteStore,
+    id_allocator: &dyn maestria_ports::IdAllocator,
+) -> Result<()> {
+    use maestria_domain::{LogicalTick, ScopeId, TaskPriority};
+    use maestria_ports::{ApprovalRecord, ApprovalRepository, ApprovalRiskLevel, ApprovalStatus};
+
+    for task in state.tasks.values() {
+        if task.priority != TaskPriority::High {
+            continue;
+        }
+        if !matches!(
+            task.status,
+            maestria_domain::TaskStatus::Draft | maestria_domain::TaskStatus::Open
+        ) {
+            continue;
+        }
+
+        // Check if any approval record (pending or resolved) exists for this task.
+        let existing = store
+            .find_by_task_id(task.id)
+            .map_err(|e| anyhow::anyhow!("find approvals for task {}: {e}", task.id))?;
+        if !existing.is_empty() {
+            continue;
+        }
+
+        // No record exists — recreate the pending request.
+        let approval_id = id_allocator
+            .allocate_approval_id()
+            .map_err(|e| anyhow::anyhow!("allocate approval id for task {}: {e}", task.id))?;
+        let record = ApprovalRecord {
+            id: approval_id,
+            task_id: task.id,
+            effect_kind: "task_activation".to_string(),
+            risk_level: ApprovalRiskLevel::Medium,
+            capability: "task_activation".to_string(),
+            scope_id: ScopeId::new(1),
+            tick: LogicalTick::new(0),
+            status: ApprovalStatus::Pending,
+        };
+        store
+            .save(&record)
+            .map_err(|e| anyhow::anyhow!("save recreated approval for task {}: {e}", task.id))?;
     }
     Ok(())
 }
@@ -437,8 +493,9 @@ pub async fn run_instance(instance_dir: PathBuf) -> Result<()> {
             .with_context(|| format!("open sqlite store {}", layout.database_path.display()))?;
         reconcile_projections(&state, &store)
             .with_context(|| "reconcile projection repositories")?;
-        reconcile_approval_repo(&state, &store)
-            .with_context(|| "reconcile approval repository")?;
+        reconcile_approval_repo(&state, &store).with_context(|| "reconcile approval repository")?;
+        reconcile_pending_approvals(&state, &store, &store)
+            .with_context(|| "reconcile pending approvals")?;
     }
     // Compute recovery inputs before state is moved into build_runtime.
     let recovery = recovery_inputs(&state);

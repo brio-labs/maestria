@@ -15,6 +15,13 @@ impl KernelState {
                 .effects
                 .push(MaestriaEffect::PersistEvent { envelope: entry });
         }
+        if input.priority == TaskPriority::High {
+            output
+                .effects
+                .push(MaestriaEffect::RequestApproval(RequestApprovalRequest {
+                    task_id: input.task_id,
+                }));
+        }
         Ok(output)
     }
 

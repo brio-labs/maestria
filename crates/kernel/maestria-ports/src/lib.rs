@@ -16,14 +16,12 @@ pub const PORTS_VERSION: &str = "0.1.0";
 mod traits;
 pub use traits::*;
 
-
 mod in_memory;
 pub use in_memory::{
     InMemoryApprovalRepository, InMemoryArtifactRepository, InMemoryBlobStore,
-    InMemoryCardRepository, InMemoryChunkRepository, InMemoryEventLog,
-    InMemoryEvidenceRepository, InMemoryFullTextIndex, InMemoryGraphIndex,
-    InMemoryHarnessAdapter, InMemoryIdAllocator, InMemoryParser, InMemoryVectorIndex,
-    InMemoryWebFetcher,
+    InMemoryCardRepository, InMemoryChunkRepository, InMemoryEventLog, InMemoryEvidenceRepository,
+    InMemoryFullTextIndex, InMemoryGraphIndex, InMemoryHarnessAdapter, InMemoryIdAllocator,
+    InMemoryParser, InMemoryVectorIndex, InMemoryWebFetcher,
 };
 
 #[cfg(any(test, feature = "contract-tests"))]

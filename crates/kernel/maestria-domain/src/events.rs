@@ -120,6 +120,8 @@ pub enum DomainEvent {
         approval_id: ApprovalId,
         task_id: TaskId,
         approved: bool,
+        from_status: TaskStatus,
+        to_status: TaskStatus,
     },
     MemoryPromoted {
         memory_id: MemoryId,

@@ -1,7 +1,7 @@
 use crate::config::EffectExecutionContext;
 use maestria_domain::{
-    DiagnosticEvent, DomainInput, FetchWebRequest, IndexVectorRequest, LogicalTick,
-    MaestriaEffect, RequestApprovalRequest, ScopeId, UpdateGraphRequest,
+    DiagnosticEvent, DomainInput, FetchWebRequest, IndexVectorRequest, LogicalTick, MaestriaEffect,
+    RequestApprovalRequest, UpdateGraphRequest,
 };
 use maestria_governance::{ApprovalRequest, PolicyDecision, RiskClass, ScopeGuard};
 use maestria_ports::{ApprovalRecord, ApprovalRiskLevel, ApprovalStatus, VectorEmbedding};

@@ -13,16 +13,17 @@ pub fn run_list(instance_dir: PathBuf) -> Result<()> {
     let store = SqliteStore::open(&layout.database_path)
         .with_context(|| format!("open sqlite store {}", layout.database_path.display()))?;
 
-    let pending = store
-        .find_pending()
-        .context("failed to query pending approval requests")?;
+    // Run crash recovery before listing: if the daemon hasn't started yet
+    // and a previous process crashed before saving the approval record,
+    // reconcile_pending_approvals recreates missing requests for
+    // high-priority Draft/Open tasks.
+    let state =
+        maestria_daemon::load_kernel_state(&layout).context("load kernel state for recovery")?;
+    maestria_daemon::reconcile_pending_approvals(&state, &store, &store)
+        .context("recover pending approvals")?;
+    maestria_daemon::reconcile_approval_repo(&state, &store).context("reconcile approval repo")?;
 
-    if pending.is_empty() {
-        println!("No pending approval requests.");
-        return Ok(());
-    }
-
-    println!("Pending approval requests:\n");
+    let pending = store.find_pending().context("query pending requests")?;
     for req in &pending {
         println!(
             "  ID: {}  Task: {}  Kind: {}  Risk: {:?}  Status: {:?}",
@@ -55,12 +56,10 @@ pub async fn run_resolve(instance_dir: PathBuf, id: u64, approved: bool) -> Resu
         .await
         .context("acquire instance write lock")?;
 
-    let state = maestria_daemon::load_kernel_state(&layout)
-        .context("load kernel state")?;
+    let state = maestria_daemon::load_kernel_state(&layout).context("load kernel state")?;
     let profile = maestria_governance::AutonomyProfile::TrustedWorkspace;
     let (runtime, input_tx, input_rx, shutdown_token) =
-        maestria_daemon::build_runtime(&layout, state, profile)
-            .context("build runtime")?;
+        maestria_daemon::build_runtime(&layout, state, profile).context("build runtime")?;
 
     let approval_id = maestria_domain::ApprovalId::new(id);
     let decision = maestria_domain::ApprovalDecision {
@@ -95,9 +94,7 @@ pub async fn run_resolve(instance_dir: PathBuf, id: u64, approved: bool) -> Resu
     .await;
 
     shutdown_token.cancel();
-    runtime_handle
-        .await
-        .context("runtime task join failed")?;
+    runtime_handle.await.context("runtime task join failed")?;
     drop(lock);
 
     match poll_result {
@@ -129,7 +126,10 @@ pub async fn run_resolve(instance_dir: PathBuf, id: u64, approved: bool) -> Resu
     }
 
     let action = if approved { "Approved" } else { "Denied" };
-    println!("{action} approval request {id} for task {}.", record.task_id);
+    println!(
+        "{action} approval request {id} for task {}.",
+        record.task_id
+    );
     Ok(())
 }
 

@@ -1,9 +1,10 @@
 use super::test_support::*;
 use maestria_governance::{DefaultApprovalGate, DefaultRiskClassifier};
 use maestria_ports::{
-    InMemoryArtifactRepository, InMemoryBlobStore, InMemoryCardRepository, InMemoryChunkRepository,
-    InMemoryEventLog, InMemoryEvidenceRepository, InMemoryFullTextIndex, InMemoryGraphIndex,
-    InMemoryHarnessAdapter, InMemoryParser, InMemoryVectorIndex, InMemoryWebFetcher,
+    InMemoryApprovalRepository, InMemoryArtifactRepository, InMemoryBlobStore,
+    InMemoryCardRepository, InMemoryChunkRepository, InMemoryEventLog, InMemoryEvidenceRepository,
+    InMemoryFullTextIndex, InMemoryGraphIndex, InMemoryHarnessAdapter, InMemoryIdAllocator,
+    InMemoryParser, InMemoryVectorIndex, InMemoryWebFetcher,
 };
 use std::sync::Arc;
 
@@ -27,6 +28,8 @@ pub fn test_adapters() -> Adapters {
         vector_index: Arc::new(InMemoryVectorIndex::new()),
         graph_index: Arc::new(InMemoryGraphIndex::new()),
         web_fetcher: Arc::new(InMemoryWebFetcher::new()),
+        id_allocator: Arc::new(InMemoryIdAllocator::new()),
+        approval_repo: Arc::new(InMemoryApprovalRepository::new()),
     }
 }
 
