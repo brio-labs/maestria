@@ -28,6 +28,7 @@ jobs:
       checks: read
       issues: read
       statuses: read
+      actions: read
     outputs:
       commit: ${{ steps.validate.outputs.commit }}
     steps:
@@ -35,7 +36,6 @@ jobs:
         with:
           ref: ${{ inputs.commit }}
           fetch-depth: 0
-
       - name: Validate milestone closure and CI checks
         id: validate
         env:
@@ -110,37 +110,36 @@ jobs:
           echo
           echo "==> Checking CI status for commit $COMMIT..."
 
-          CHECK_SUITES="$(gh api "repos/${{ github.repository }}/commits/$COMMIT/check-suites" \
-            --method GET --paginate --jq '.check_suites' | jq -s 'add')"
+          # Query ALL CI workflow runs for this commit (not just completed),
+          # paginate and aggregate, then validate.
+          CI_RUNS="$(gh api "repos/${{ github.repository }}/actions/workflows/.github%2Fworkflows%2Fci.yml/runs" \
+            --method GET -f head_sha="$COMMIT" --paginate \
+            --jq '.workflow_runs' | jq -s 'add')"
 
-          if [ -z "$CHECK_SUITES" ] || [ "$CHECK_SUITES" = "[]" ]; then
-            echo "::error::No check suites found for commit $COMMIT"
+          if [ -z "$CI_RUNS" ] || [ "$CI_RUNS" = "[]" ]; then
+            echo "::error::No CI workflow runs found for commit $COMMIT"
             exit 1
           fi
 
-          # Reject any non-terminal (in-progress / queued) suites
-          PENDING_COUNT="$(echo "$CHECK_SUITES" | jq -r \
-            '[.[] | select(.status != "completed")] | length')"
-          if [ "$PENDING_COUNT" -gt 0 ]; then
-            echo "::error::$PENDING_COUNT check suite(s) still in progress — wait for CI to finish"
+          # Reject any non-completed runs
+          PENDING="$(echo "$CI_RUNS" | jq -r '[.[] | select(.status != "completed")] | length')"
+          if [ "$PENDING" -gt 0 ]; then
+            echo "::error::$PENDING CI workflow run(s) still in progress"
             exit 1
           fi
 
-          # Every terminal suite must be success
-          NON_SUCCESS="$(echo "$CHECK_SUITES" | jq -r \
-            '.[] | select(.conclusion != "success") | "  • \(.app.name // "unknown"): \(.conclusion // "no conclusion")"')"
-
+          # Every completed run must be success
+          NON_SUCCESS="$(echo "$CI_RUNS" | jq -r \
+            '.[] | select(.conclusion != "success") | "  • \(.name // "unknown"): \(.conclusion // "no conclusion")"')"
           if [ -n "$NON_SUCCESS" ]; then
-            echo "::error::Every check suite must have conclusion 'success'. Non-success suites:"
+            echo "::error::Every CI run must have conclusion 'success'. Non-success runs:"
             echo "$NON_SUCCESS"
             exit 1
           fi
-
-          SUCCESS_COUNT="$(echo "$CHECK_SUITES" | jq -r '[.[] | select(.conclusion == "success")] | length')"
-          echo "✓ All check suites succeeded ($SUCCESS_COUNT total)"
+          SUCCESS_COUNT="$(echo "$CI_RUNS" | jq '[.[] | select(.conclusion == "success")] | length')"
+          echo "✓ All $SUCCESS_COUNT CI workflow runs passed"
 
           # ── 3. Commit status gate (legacy/external statuses) ──
-          echo
           echo "==> Checking commit status for $COMMIT..."
 
           COMMIT_STATUSES="$(gh api "repos/${{ github.repository }}/commits/$COMMIT/status" \
@@ -154,11 +153,8 @@ jobs:
               echo "$BAD_STATUS"
               exit 1
             fi
-            STATUS_COUNT="$(echo "$COMMIT_STATUSES" | jq -r '[.[] | select(.state == "success")] | length')"
-            echo "✓ All commit statuses passed ($STATUS_COUNT total)"
-          else
-            echo "✓ No legacy commit statuses (nothing to check)"
           fi
+          echo "✓ Commit statuses ok"
 
           echo
           echo "✓ Preflight complete — release gate is open"
