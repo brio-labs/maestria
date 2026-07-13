@@ -17,6 +17,7 @@ maestria-vector-sqlite = { path = "../../storage/maestria-vector-sqlite" }
 maestria-graph-sqlite = { path = "../../storage/maestria-graph-sqlite" }
 maestria-web-evidence = { path = "../../ecosystem/maestria-web-evidence" }
 maestria-parsers = { path = "../../ecosystem/maestria-parsers" }
+maestria-harness = { path = "../../harness/maestria-harness" }
 maestria-ports = { path = "../../kernel/maestria-ports" }
 
 anyhow = "1.0"

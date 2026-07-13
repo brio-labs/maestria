@@ -1206,6 +1206,7 @@ dependencies = [
  "maestria-domain",
  "maestria-governance",
  "maestria-graph-sqlite",
+ "maestria-harness",
  "maestria-parsers",
  "maestria-ports",
  "maestria-runtime",
