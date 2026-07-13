@@ -1,3 +1,6 @@
+use std::path::PathBuf;
+use std::time::Duration;
+
 use super::*;
 use maestria_domain::{
     ClaimId, ContentRange, EventId, EvidenceKind, LogicalTick, RelationKind, SequenceNumber,
@@ -12,6 +15,8 @@ pub fn sample_artifact(id: u64) -> Artifact {
         card_ids: Default::default(),
         claim_ids: Default::default(),
         evidence_ids: Default::default(),
+        index_status: Default::default(),
+        content_hash: None,
     }
 }
 
@@ -174,6 +179,70 @@ pub fn assert_evidence_repository_round_trip(repository: &impl EvidenceRepositor
     );
 }
 
+pub fn assert_evidence_repository_replace_contract(repository: &impl EvidenceRepository) {
+    let original = Evidence {
+        id: EvidenceId::new(50),
+        artifact_id: ArtifactId::new(1),
+        claim_id: None,
+        kind: EvidenceKind::Validation {
+            report_id: ValidationReportId::new(1),
+        },
+        excerpt: "original excerpt".to_string(),
+        observed_at: LogicalTick::new(1),
+    };
+    let replacement = Evidence {
+        id: EvidenceId::new(50),         // same id
+        artifact_id: ArtifactId::new(2), // different artifact
+        claim_id: Some(ClaimId::new(9)),
+        kind: EvidenceKind::Validation {
+            report_id: ValidationReportId::new(2),
+        },
+        excerpt: "replacement excerpt".to_string(),
+        observed_at: LogicalTick::new(2),
+    };
+
+    repository.put(original.clone()).expect("original put");
+    // put with different content must conflict
+    let err = repository.put(replacement.clone()).unwrap_err();
+    assert!(matches!(err, PortError::Conflict { .. }));
+    // original still intact
+    assert_eq!(
+        repository.get(original.id).expect("get"),
+        Some(original.clone())
+    );
+    // replace overwrites even with different content
+    repository
+        .replace(replacement.clone())
+        .expect("replace must succeed despite conflict");
+    assert_eq!(
+        repository.get(replacement.id).expect("get after replace"),
+        Some(replacement.clone())
+    );
+    // replace of identical value is idempotent
+    repository
+        .replace(replacement.clone())
+        .expect("replace identical must succeed");
+    assert_eq!(
+        repository
+            .get(replacement.id)
+            .expect("get after replace identical"),
+        Some(replacement.clone())
+    );
+    // replace on a fresh id acts as insert
+    let fresh = Evidence {
+        id: EvidenceId::new(51),
+        artifact_id: ArtifactId::new(1),
+        claim_id: None,
+        kind: EvidenceKind::Validation {
+            report_id: ValidationReportId::new(3),
+        },
+        excerpt: "fresh".to_string(),
+        observed_at: LogicalTick::new(3),
+    };
+    repository.replace(fresh.clone()).expect("fresh replace");
+    assert_eq!(repository.get(fresh.id).expect("get fresh"), Some(fresh));
+}
+
 pub fn assert_event_log_round_trip(log: &impl EventLog) {
     let event = DomainEventEnvelope {
         id: EventId::new(1),
@@ -277,6 +346,15 @@ pub fn assert_blob_store_round_trip(store: &impl BlobStore) {
 }
 
 pub fn assert_full_text_index_round_trip(index: &impl FullTextIndex) {
+    verify_chunk_round_trip(index);
+    verify_card_round_trip(index);
+    verify_card_replacement(index);
+    verify_tie_ordering(index);
+    verify_empty_query(index);
+}
+
+fn verify_chunk_round_trip(index: &impl FullTextIndex) {
+    // --- chunk round-trip (existing) ---
     index
         .index_chunks(vec![
             IndexedChunk {
@@ -300,12 +378,157 @@ pub fn assert_full_text_index_round_trip(index: &impl FullTextIndex) {
     let hits = index
         .search(SearchQuery {
             q: "hello".to_string(),
-            limit: 1,
+            limit: 10,
+            offset: 0,
         })
         .expect("search hits");
 
-    assert_eq!(hits.len(), 1);
-    assert_eq!(hits[0].chunk.chunk_id, ChunkId::new(11));
+    assert_eq!(hits.len(), 2);
+    let hit_ids: Vec<ChunkId> = hits.iter().map(|hit| hit.chunk.chunk_id).collect();
+    assert!(hit_ids.contains(&ChunkId::new(10)));
+    assert!(hit_ids.contains(&ChunkId::new(11)));
+    let repeated = index
+        .search(SearchQuery {
+            q: "hello".to_string(),
+            limit: 10,
+            offset: 0,
+        })
+        .expect("repeat search hits");
+    assert_eq!(hits, repeated);
+}
+
+fn verify_card_round_trip(index: &impl FullTextIndex) {
+    // --- card round-trip ---
+    index
+        .index_cards(vec![
+            IndexedCard {
+                artifact_id: ArtifactId::new(1),
+                card_id: CardId::new(100),
+                title: "Alpha".to_string(),
+                body: "first card".to_string(),
+            },
+            IndexedCard {
+                artifact_id: ArtifactId::new(1),
+                card_id: CardId::new(101),
+                title: "Beta".to_string(),
+                body: "second card with more content".to_string(),
+            },
+            IndexedCard {
+                artifact_id: ArtifactId::new(2),
+                card_id: CardId::new(200),
+                title: "Gamma".to_string(),
+                body: "unrelated".to_string(),
+            },
+        ])
+        .expect("index cards");
+
+    let card_hits = index
+        .search_cards(SearchQuery {
+            q: "card".to_string(),
+            limit: 10,
+            offset: 0,
+        })
+        .expect("search cards");
+
+    assert_eq!(card_hits.len(), 2);
+    let card_ids: Vec<CardId> = card_hits.iter().map(|hit| hit.card.card_id).collect();
+    assert!(card_ids.contains(&CardId::new(100)));
+    assert!(card_ids.contains(&CardId::new(101)));
+    let repeated = index
+        .search_cards(SearchQuery {
+            q: "card".to_string(),
+            limit: 10,
+            offset: 0,
+        })
+        .expect("repeat card search");
+    assert_eq!(card_hits, repeated);
+}
+
+fn verify_card_replacement(index: &impl FullTextIndex) {
+    // --- card replacement: re-index card 100 with updated content ---
+    index
+        .index_cards(vec![IndexedCard {
+            artifact_id: ArtifactId::new(1),
+            card_id: CardId::new(100),
+            title: "Alpha Updated".to_string(),
+            body: "revised first card".to_string(),
+        }])
+        .expect("index replacement cards");
+
+    // Old Beta (card_id=101) should still exist — only card 100 was re-indexed.
+    let beta_hits = index
+        .search_cards(SearchQuery {
+            q: "second".to_string(),
+            limit: 10,
+            offset: 0,
+        })
+        .expect("search after replace");
+    assert_eq!(beta_hits.len(), 1);
+    assert_eq!(beta_hits[0].card.card_id, CardId::new(101));
+
+    let updated_hits = index
+        .search_cards(SearchQuery {
+            q: "revised".to_string(),
+            limit: 10,
+            offset: 0,
+        })
+        .expect("search revised");
+    assert_eq!(updated_hits.len(), 1);
+    assert_eq!(updated_hits[0].card.card_id, CardId::new(100));
+    assert_eq!(updated_hits[0].card.title, "Alpha Updated");
+}
+
+fn verify_tie_ordering(index: &impl FullTextIndex) {
+    // --- deterministic tie ordering: same scores, ordered by (artifact_id, card_id) ---
+    index
+        .index_cards(vec![
+            IndexedCard {
+                artifact_id: ArtifactId::new(3),
+                card_id: CardId::new(301),
+                title: "dup".to_string(),
+                body: "same".to_string(),
+            },
+            IndexedCard {
+                artifact_id: ArtifactId::new(3),
+                card_id: CardId::new(302),
+                title: "dup".to_string(),
+                body: "same".to_string(),
+            },
+            IndexedCard {
+                artifact_id: ArtifactId::new(3),
+                card_id: CardId::new(303),
+                title: "dup".to_string(),
+                body: "same".to_string(),
+            },
+        ])
+        .expect("index tie cards");
+
+    let tie_hits = index
+        .search_cards(SearchQuery {
+            q: "dup".to_string(),
+            limit: 10,
+            offset: 0,
+        })
+        .expect("search ties");
+
+    // All three should match; order must be by ascending card_id for ties
+    let tie_ids: Vec<CardId> = tie_hits.iter().map(|h| h.card.card_id).collect();
+    assert_eq!(
+        tie_ids,
+        vec![CardId::new(301), CardId::new(302), CardId::new(303)]
+    );
+}
+
+fn verify_empty_query(index: &impl FullTextIndex) {
+    // --- empty query returns empty ---
+    let empty = index
+        .search_cards(SearchQuery {
+            q: "zzz_no_match".to_string(),
+            limit: 10,
+            offset: 0,
+        })
+        .expect("empty search");
+    assert!(empty.is_empty());
 }
 
 pub fn assert_vector_index_contract(index: &impl VectorIndex) {
@@ -444,7 +667,13 @@ pub fn assert_parser_round_trip(parser: &impl Parser) {
     assert_eq!(parsed.artifact_id, ArtifactId::new(7));
     assert_eq!(parsed.chunks.len(), 1);
     assert_eq!(parsed.chunks[0].text, "alpha");
-
+    assert_eq!(
+        parsed.chunks[0].source_span,
+        SourceSpan::TextSpan {
+            start_line: 1,
+            end_line: 1
+        }
+    );
     assert!(matches!(
         parser.parse(
             FileHandle {
@@ -459,7 +688,7 @@ pub fn assert_parser_round_trip(parser: &impl Parser) {
     ));
 }
 
-pub fn assert_harness_adapter_round_trip(harness: &impl HarnessAdapter) {
+pub async fn assert_harness_adapter_round_trip(harness: &impl HarnessAdapter) {
     let capabilities = harness.capabilities().expect("capabilities");
     assert!(capabilities.read_enabled);
     assert!(capabilities.write_enabled);
@@ -476,23 +705,27 @@ pub fn assert_harness_adapter_round_trip(harness: &impl HarnessAdapter) {
             working_directory: PathBuf::from("/tmp"),
             duration_budget: Duration::from_secs(1),
             class: HarnessCommandClass::Shell,
+            readable_roots: vec![],
         })
+        .await
         .expect("execute command");
 
     assert_eq!(outcome.run_id, HarnessRunId::new(7));
     assert_eq!(outcome.command, "echo ok");
     assert_eq!(outcome.exit_code, 0);
-    assert!(outcome.scope_checked);
     assert_eq!(outcome.stdout, b"executed echo ok".to_vec());
 
     assert!(matches!(
-        harness.execute(HarnessRequest {
-            run_id: HarnessRunId::new(8),
-            command: " ".to_string(),
-            working_directory: PathBuf::from("/tmp"),
-            duration_budget: Duration::from_secs(1),
-            class: HarnessCommandClass::Shell,
-        }),
+        harness
+            .execute(HarnessRequest {
+                run_id: HarnessRunId::new(8),
+                command: " ".to_string(),
+                working_directory: PathBuf::from("/tmp"),
+                duration_budget: Duration::from_secs(1),
+                class: HarnessCommandClass::Shell,
+                readable_roots: vec![],
+            })
+            .await,
         Err(PortError::InvalidInput { .. })
     ));
 }

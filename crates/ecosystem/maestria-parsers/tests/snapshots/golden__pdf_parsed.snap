@@ -15,6 +15,9 @@ ParsedArtifact {
                 5,
             ),
             text: "Hello PDF world.",
+            source_span: PdfSpan {
+                page: 1,
+            },
         },
     ],
     cards: [

@@ -15,6 +15,10 @@ ParsedArtifact {
                 1,
             ),
             text: "# Title\n\nIntro paragraph.",
+            source_span: TextSpan {
+                start_line: 1,
+                end_line: 4,
+            },
         },
         ParsedChunk {
             chunk_id: ChunkId(
@@ -24,6 +28,10 @@ ParsedArtifact {
                 1,
             ),
             text: "## Section 1\nContent here.",
+            source_span: TextSpan {
+                start_line: 5,
+                end_line: 7,
+            },
         },
         ParsedChunk {
             chunk_id: ChunkId(
@@ -33,6 +41,10 @@ ParsedArtifact {
                 1,
             ),
             text: "### Subsection\nMore content.",
+            source_span: TextSpan {
+                start_line: 8,
+                end_line: 9,
+            },
         },
     ],
     cards: [

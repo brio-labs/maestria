@@ -7,4 +7,4 @@ publish = false
 
 [dependencies]
 maestria-ports = { version = "0.1.0", path = "../../kernel/maestria-ports" }
-tokio = { version = "1.37", features = ["process", "time", "io-util", "rt"] }
+tokio = { version = "1.37", features = ["process", "time", "io-util", "rt", "macros"] }

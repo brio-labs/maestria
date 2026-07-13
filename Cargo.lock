@@ -1174,6 +1174,7 @@ dependencies = [
  "maestria-domain",
  "maestria-governance",
  "maestria-parsers",
+ "maestria-ports",
  "maestria-search-tantivy",
  "maestria-storage-sqlite",
  "tokio",
@@ -1221,6 +1222,9 @@ dependencies = [
 [[package]]
 name = "maestria-domain"
 version = "0.1.0"
+dependencies = [
+ "sha2",
+]
 
 [[package]]
 name = "maestria-governance"
@@ -1282,6 +1286,7 @@ name = "maestria-ports"
 version = "0.1.0"
 dependencies = [
  "maestria-domain",
+ "tokio",
 ]
 
 [[package]]

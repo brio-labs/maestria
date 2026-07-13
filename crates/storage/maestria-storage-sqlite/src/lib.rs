@@ -12,6 +12,7 @@ mod events;
 mod payloads;
 mod repositories;
 mod schema;
+mod schema_validation;
 use crate::schema::migrate;
 
 /// SQLite-backed implementation of artifact metadata and the domain event log.

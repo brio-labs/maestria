@@ -45,14 +45,14 @@ pub struct DefaultRiskClassifier;
 impl ClassifyRisk for DefaultRiskClassifier {
     fn classify(&self, effect: &MaestriaEffect, scope: &ScopeGuard) -> RiskClass {
         match effect {
+            // Rebuildable projections: low-risk, no user-facing write or action authorization.
             MaestriaEffect::PersistEvent { .. }
             | MaestriaEffect::PersistState(_)
-            | MaestriaEffect::StoreBlob(_)
             | MaestriaEffect::ParseArtifact(_)
-            | MaestriaEffect::EmitDiagnostic(_) => RiskClass::Low,
+            | MaestriaEffect::EmitDiagnostic(_)
+            | MaestriaEffect::IndexFullText(_) => RiskClass::Low,
             MaestriaEffect::RunValidation(_)
             | MaestriaEffect::RequestApproval(_)
-            | MaestriaEffect::IndexFullText(_)
             | MaestriaEffect::IndexVector(_)
             | MaestriaEffect::UpdateGraph(_) => RiskClass::Medium,
             MaestriaEffect::FetchWeb(_) => {

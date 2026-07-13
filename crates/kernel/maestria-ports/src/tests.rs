@@ -69,6 +69,52 @@ fn in_memory_evidence_put_is_idempotent() {
 }
 
 #[test]
+fn in_memory_evidence_repository_satisfies_replace_contract() {
+    assert_evidence_repository_replace_contract(&InMemoryEvidenceRepository::new());
+}
+
+#[test]
+fn in_memory_evidence_replace_overwrites_existing() {
+    let repo = InMemoryEvidenceRepository::new();
+    let original = Evidence {
+        id: EvidenceId::new(300),
+        artifact_id: ArtifactId::new(1),
+        claim_id: None,
+        kind: EvidenceKind::Validation {
+            report_id: ValidationReportId::new(1),
+        },
+        excerpt: "malformed".to_string(),
+        observed_at: LogicalTick::new(1),
+    };
+    repo.put(original.clone()).expect("first put");
+
+    let replacement = Evidence {
+        id: EvidenceId::new(300),
+        artifact_id: ArtifactId::new(1),
+        claim_id: None,
+        kind: EvidenceKind::Validation {
+            report_id: ValidationReportId::new(2),
+        },
+        excerpt: "corrected".to_string(),
+        observed_at: LogicalTick::new(2),
+    };
+
+    // put rejects different content
+    let err = repo.put(replacement.clone()).unwrap_err();
+    assert!(matches!(err, PortError::Conflict { .. }));
+
+    // replace succeeds with different content
+    repo.replace(replacement.clone())
+        .expect("replace must overwrite");
+
+    let stored = repo
+        .get(EvidenceId::new(300))
+        .expect("get after replace")
+        .expect("evidence must exist");
+    assert_eq!(stored, replacement);
+}
+
+#[test]
 fn in_memory_evidence_put_rejects_conflicting_overwrite() {
     let repo = InMemoryEvidenceRepository::new();
     let first = Evidence {
@@ -155,9 +201,9 @@ fn in_memory_parser_satisfies_contract() {
     assert_parser_round_trip(&InMemoryParser::new());
 }
 
-#[test]
-fn in_memory_harness_adapter_satisfies_contract() {
-    assert_harness_adapter_round_trip(&InMemoryHarnessAdapter::new());
+#[tokio::test]
+async fn in_memory_harness_adapter_satisfies_contract() {
+    assert_harness_adapter_round_trip(&InMemoryHarnessAdapter::new()).await;
 }
 
 #[test]

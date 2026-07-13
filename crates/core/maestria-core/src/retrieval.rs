@@ -2,47 +2,138 @@ use crate::error::{CoreError, CoreResult};
 use crate::ports::CorePorts;
 use crate::provenance::{content_hash, evidence_id_for};
 use crate::types::{
-    OpenChunkEvidenceInput, OpenEvidenceInput, OpenEvidenceOutput, SearchInput, SearchOutput,
+    EvidencePack, OpenChunkEvidenceInput, OpenEvidenceInput, OpenEvidenceOutput, SearchInput,
+    SearchOutput, SourceGroundedCardHit, SourceGroundedSearchHit,
 };
 
-use maestria_domain::{Evidence, EvidenceKind};
+use maestria_domain::{Evidence, EvidenceKind, IndexStatus};
 use maestria_ports::SearchQuery;
 
 pub(super) fn search<'a>(ports: &CorePorts<'a>, input: SearchInput) -> CoreResult<SearchOutput> {
-    let hits = ports.search_index.search(SearchQuery {
-        q: input.query,
-        limit: input.limit,
-    })?;
-    let mut results = Vec::with_capacity(hits.len());
-    for hit in hits {
-        let artifact =
-            ports
-                .artifacts
-                .get(hit.chunk.artifact_id)?
-                .ok_or_else(|| CoreError::NotFound {
-                    message: format!("artifact {} for search hit", hit.chunk.artifact_id),
-                })?;
-        let chunk = ports
-            .chunks
-            .get(hit.chunk.chunk_id)?
-            .ok_or_else(|| CoreError::NotFound {
-                message: format!("chunk {} for search hit", hit.chunk.chunk_id),
-            })?;
-        let evidence = ports
-            .evidence
-            .get(evidence_id_for(chunk.artifact_id, chunk.order))?
-            .ok_or_else(|| CoreError::NotFound {
-                message: format!("evidence for search chunk {}", chunk.id),
-            })?;
-        verify_source_snapshot(ports, &evidence)?;
-        results.push(crate::types::SourceGroundedSearchHit {
-            artifact,
-            chunk,
-            evidence,
-            score: hit.score,
-        });
+    let cards = search_cards(ports, &input.query, input.limit)?;
+    let (chunks, evidence_ids) = search_chunks(ports, &input.query, input.limit)?;
+
+    Ok(SearchOutput {
+        pack: EvidencePack {
+            query: input.query,
+            cards,
+            chunks,
+            evidence_ids,
+        },
+    })
+}
+fn search_cards(
+    ports: &CorePorts<'_>,
+    query: &str,
+    limit: usize,
+) -> CoreResult<Vec<SourceGroundedCardHit>> {
+    if limit == 0 {
+        return Ok(Vec::new());
     }
-    Ok(SearchOutput { hits: results })
+    let mut offset = 0;
+    let mut cards = Vec::with_capacity(limit);
+    loop {
+        let page = ports.search_index.search_cards(SearchQuery {
+            q: query.to_string(),
+            limit,
+            offset,
+        })?;
+        if page.is_empty() {
+            break;
+        }
+        for hit in &page {
+            if cards.len() >= limit {
+                break;
+            }
+            let Some(artifact) = ports.artifacts.get(hit.card.artifact_id)? else {
+                continue;
+            };
+            if artifact.index_status != IndexStatus::Indexed {
+                continue;
+            }
+            let Some(card) = ports.cards.get(hit.card.card_id)? else {
+                continue;
+            };
+            if card.artifact_id != hit.card.artifact_id {
+                continue;
+            }
+            cards.push(SourceGroundedCardHit {
+                artifact,
+                card,
+                score: hit.score,
+            });
+        }
+        if cards.len() >= limit || page.len() < limit {
+            break;
+        }
+        offset = offset.saturating_add(page.len());
+    }
+    Ok(cards)
+}
+
+fn search_chunks(
+    ports: &CorePorts<'_>,
+    query: &str,
+    limit: usize,
+) -> CoreResult<(
+    Vec<SourceGroundedSearchHit>,
+    Vec<maestria_domain::EvidenceId>,
+)> {
+    if limit == 0 {
+        return Ok((Vec::new(), Vec::new()));
+    }
+    let mut offset = 0;
+    let mut chunks = Vec::with_capacity(limit);
+    let mut seen_evidence = std::collections::BTreeSet::new();
+    let mut evidence_ids = Vec::with_capacity(limit);
+    loop {
+        let page = ports.search_index.search(SearchQuery {
+            q: query.to_string(),
+            limit,
+            offset,
+        })?;
+        if page.is_empty() {
+            break;
+        }
+        for hit in &page {
+            if chunks.len() >= limit {
+                break;
+            }
+            let Some(artifact) = ports.artifacts.get(hit.chunk.artifact_id)? else {
+                continue;
+            };
+            if artifact.index_status != IndexStatus::Indexed {
+                continue;
+            }
+            let Some(chunk) = ports.chunks.get(hit.chunk.chunk_id)? else {
+                continue;
+            };
+            if chunk.artifact_id != hit.chunk.artifact_id || chunk.artifact_id != artifact.id {
+                continue;
+            }
+            let Some(evidence) = ports
+                .evidence
+                .get(evidence_id_for(chunk.artifact_id, chunk.order))?
+            else {
+                continue;
+            };
+            verify_source_snapshot(ports, &evidence)?;
+            if seen_evidence.insert(evidence.id) {
+                evidence_ids.push(evidence.id);
+            }
+            chunks.push(SourceGroundedSearchHit {
+                artifact,
+                chunk,
+                evidence,
+                score: hit.score,
+            });
+        }
+        if chunks.len() >= limit || page.len() < limit {
+            break;
+        }
+        offset = offset.saturating_add(page.len());
+    }
+    Ok((chunks, evidence_ids))
 }
 
 pub(super) fn open_evidence<'a>(
@@ -63,6 +154,14 @@ pub(super) fn open_evidence<'a>(
             .ok_or_else(|| CoreError::NotFound {
                 message: format!("artifact {} for evidence", evidence.artifact_id),
             })?;
+    if artifact.index_status != IndexStatus::Indexed {
+        return Err(CoreError::NotFound {
+            message: format!(
+                "artifact {} not indexed (status {:?})",
+                artifact.id, artifact.index_status
+            ),
+        });
+    }
     Ok(OpenEvidenceOutput { artifact, evidence })
 }
 

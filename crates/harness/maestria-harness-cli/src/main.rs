@@ -29,6 +29,7 @@ async fn main() -> Result<()> {
         working_directory: cli.working_directory,
         duration_budget: Duration::from_secs(60),
         class: HarnessCommandClass::Shell,
+        readable_roots: vec![],
     };
 
     // Policy Before Action check (I-Policy-BeforeAction)
@@ -42,7 +43,7 @@ async fn main() -> Result<()> {
     }
     println!("Governance: Approved.\n");
 
-    let outcome = adapter.execute(request)?;
+    let outcome = adapter.execute(request).await?;
 
     println!("Exit code: {}", outcome.exit_code);
     println!("Duration: {:?}", outcome.duration);

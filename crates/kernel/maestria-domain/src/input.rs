@@ -1,5 +1,18 @@
 use crate::types::*;
+mod artifact;
+mod card;
+mod claim;
+mod dispatch;
+mod dispatch_complex;
+mod dispatch_crud;
+mod evidence;
 mod handlers;
+mod index;
+mod memory;
+mod orchestration;
+mod relation;
+mod task;
+mod validation;
 
 impl KernelState {
     pub fn new() -> Self {
@@ -7,279 +20,42 @@ impl KernelState {
     }
 
     pub fn apply_input(&mut self, input: DomainInput) -> Result<KernelOutput, DomainError> {
-        let mut output = KernelOutput::default();
-
         match input {
-            DomainInput::RegisterArtifact(input) => {
-                let event = self.handle_register_artifact(input)?;
-                let payload = match &event.event {
-                    DomainEvent::ArtifactRegistered { title, .. } => title.clone(),
-                    _ => String::new(),
-                };
-                output.events.push(event.clone());
-                output.effects.push(MaestriaEffect::PersistEvent {
-                    envelope: event.clone(),
-                });
-                output
-                    .effects
-                    .push(MaestriaEffect::StoreBlob(StoreBlobRequest {
-                        artifact_id: event_id_to_artifact(&event),
-                        payload,
-                    }));
-            }
-            DomainInput::RegisterChunk(input) => {
-                let event = self.handle_register_chunk(input.clone())?;
-                output.events.push(event.clone());
-                output.effects.push(MaestriaEffect::PersistEvent {
-                    envelope: event.clone(),
-                });
-                if let DomainEvent::ChunkRegistered {
-                    artifact_id,
-                    chunk_id,
-                    ..
-                } = event.event
-                {
-                    output
-                        .effects
-                        .push(MaestriaEffect::IndexFullText(IndexFullTextRequest {
-                            artifact_id,
-                            chunk_id,
-                        }));
-                    output
-                        .effects
-                        .push(MaestriaEffect::IndexVector(IndexVectorRequest {
-                            artifact_id,
-                            chunk_id,
-                        }));
-                }
-            }
-            DomainInput::CreateCard(input) => {
-                let event = self.handle_create_card(input.clone())?;
-                output.events.push(event.clone());
-                output
-                    .effects
-                    .push(MaestriaEffect::PersistEvent { envelope: event });
-            }
-            DomainInput::RecordEvidence(input) => {
-                let event = self.handle_record_evidence(input.clone())?;
-                output.events.push(event.clone());
-                output.effects.push(MaestriaEffect::PersistEvent {
-                    envelope: event.clone(),
-                });
-                let claim_id = match event.event {
-                    DomainEvent::EvidenceRecorded { claim_id, .. } => claim_id,
-                    _ => None,
-                };
-                if let Some(claim_id) = claim_id {
-                    output
-                        .effects
-                        .push(MaestriaEffect::RunValidation(RunValidationRequest {
-                            task_id: None,
-                            claim_id: Some(claim_id),
-                            validation_report_id: ValidationReportId::new(0),
-                        }));
-                }
-            }
-            DomainInput::CreateClaim(input) => {
-                let event = self.handle_create_claim(input.clone())?;
-                output.events.push(event.clone());
-                output.effects.push(MaestriaEffect::PersistEvent {
-                    envelope: event.clone(),
-                });
-                output
-                    .effects
-                    .push(MaestriaEffect::RunValidation(RunValidationRequest {
-                        task_id: None,
-                        claim_id: Some(input.claim_id),
-                        validation_report_id: ValidationReportId::new(0),
-                    }));
-            }
-            DomainInput::OpenTask(input) => {
-                let event = self.handle_open_task(input.clone())?;
-                output.events.push(event.clone());
-                output.effects.push(MaestriaEffect::PersistEvent {
-                    envelope: event.clone(),
-                });
-                if input.priority == TaskPriority::High {
-                    let task_id = match event.event {
-                        DomainEvent::TaskOpened { task_id, .. } => task_id,
-                        _ => input.task_id,
-                    };
-                    output
-                        .effects
-                        .push(MaestriaEffect::RequestApproval(RequestApprovalRequest {
-                            task_id,
-                        }));
-                }
-            }
-            DomainInput::ChangeTaskStatus(input) => {
-                let (from, to) = self.handle_change_task_status(input.task_id, input.to)?;
-                let event = self.emit_event(DomainEvent::TaskStatusChanged {
-                    task_id: input.task_id,
-                    from,
-                    to,
-                });
-                output.events.push(event.clone());
-                output
-                    .effects
-                    .push(MaestriaEffect::PersistEvent { envelope: event });
-            }
-            DomainInput::CompleteTask(input) => {
-                let event = self.handle_complete_task(input)?;
-                output.events.push(event.clone());
-                output.effects.push(MaestriaEffect::PersistEvent {
-                    envelope: event.clone(),
-                });
-                output
-                    .effects
-                    .push(MaestriaEffect::PersistState(PersistStateRequest {
-                        reason: "validated task completion".to_string(),
-                    }));
-            }
-            DomainInput::LinkEvidenceToClaim(input) => {
-                let claim_id = input.claim_id;
-                let event = self.handle_link_evidence_to_claim(input.clone())?;
-                output.events.push(event.clone());
-                output
-                    .effects
-                    .push(MaestriaEffect::PersistEvent { envelope: event });
-                output
-                    .effects
-                    .push(MaestriaEffect::RunValidation(RunValidationRequest {
-                        task_id: None,
-                        claim_id: Some(claim_id),
-                        validation_report_id: ValidationReportId::new(0),
-                    }));
-            }
-            DomainInput::CreateRelation(input) => {
-                let event = self.handle_create_relation(input)?;
-                output.events.push(event.clone());
-                output.effects.push(MaestriaEffect::PersistEvent {
-                    envelope: event.clone(),
-                });
-                if let DomainEvent::RelationCreated { relation_id, .. } = event.event {
-                    output
-                        .effects
-                        .push(MaestriaEffect::UpdateGraph(UpdateGraphRequest {
-                            relation_id,
-                        }));
-                }
-            }
+            DomainInput::RegisterArtifact(input) => self.process_register_artifact(input),
+            DomainInput::RegisterChunk(input) => self.process_register_chunk(input),
+            DomainInput::CreateCard(input) => self.process_create_card(input),
+            DomainInput::RecordEvidence(input) => self.process_record_evidence(input),
+            DomainInput::CreateClaim(input) => self.process_create_claim(input),
+            DomainInput::OpenTask(input) => self.process_open_task(input),
+            DomainInput::ChangeTaskStatus(input) => self.process_change_task_status(input),
+            DomainInput::CompleteTask(input) => self.process_complete_task(input),
+            DomainInput::LinkEvidenceToClaim(input) => self.process_link_evidence_to_claim(input),
+            DomainInput::CreateRelation(input) => self.process_create_relation(input),
             DomainInput::CreateMemoryCandidate(input) => {
-                let event = self.handle_create_memory_candidate(input)?;
-                output.events.push(event.clone());
-                output
-                    .effects
-                    .push(MaestriaEffect::PersistEvent { envelope: event });
+                self.process_create_memory_candidate(input)
             }
-            DomainInput::PromoteMemory(input) => {
-                let event = self.handle_promote_memory(input)?;
-                output.events.push(event.clone());
-                output.effects.push(MaestriaEffect::PersistEvent {
-                    envelope: event.clone(),
-                });
-            }
-            DomainInput::ContradictMemory(input) => {
-                let event = self.handle_contradict_memory(input)?;
-                output.events.push(event.clone());
-                output.effects.push(MaestriaEffect::PersistEvent {
-                    envelope: event.clone(),
-                });
-            }
-            DomainInput::DeprecateMemory(input) => {
-                let event = self.handle_deprecate_memory(input)?;
-                output.events.push(event.clone());
-                output.effects.push(MaestriaEffect::PersistEvent {
-                    envelope: event.clone(),
-                });
-            }
-            DomainInput::SupersedeMemory(input) => {
-                let event = self.handle_supersede_memory(input)?;
-                output.events.push(event.clone());
-                output.effects.push(MaestriaEffect::PersistEvent {
-                    envelope: event.clone(),
-                });
-            }
+            DomainInput::PromoteMemory(input) => self.process_promote_memory(input),
+            DomainInput::ContradictMemory(input) => self.process_contradict_memory(input),
+            DomainInput::DeprecateMemory(input) => self.process_deprecate_memory(input),
+            DomainInput::SupersedeMemory(input) => self.process_supersede_memory(input),
             DomainInput::RecordValidationReport(input) => {
-                let event = self.handle_record_validation_report(input)?;
-                output.events.push(event.clone());
-                output.effects.push(MaestriaEffect::PersistEvent {
-                    envelope: event.clone(),
-                });
+                self.process_record_validation_report(input)
             }
-            DomainInput::UserIntent(input) => {
-                let event = self.handle_user_intent(input.clone())?;
-                for entry in event {
-                    output.events.push(entry.clone());
-                    output
-                        .effects
-                        .push(MaestriaEffect::PersistEvent { envelope: entry });
-                }
+            DomainInput::UserIntent(input) => self.process_user_intent(input),
+            DomainInput::ArtifactDetected(input) => self.process_artifact_detected(input),
+            DomainInput::ParserCompleted(input) => self.process_parser_completed(input),
+            DomainInput::FullTextIndexCompleted(input) => {
+                self.process_full_text_index_completed(input)
             }
-            DomainInput::ArtifactDetected(input) => {
-                let cmd = RegisterArtifactInput {
-                    artifact_id: input.artifact_id,
-                    title: input.title,
-                };
-                let event = self.handle_register_artifact(cmd)?;
-                output.events.push(event.clone());
-                output
-                    .effects
-                    .push(MaestriaEffect::PersistEvent { envelope: event });
-            }
-            DomainInput::ParserCompleted(input) => {
-                let generated = self.handle_parser_completed(input)?;
-                for envelope in generated {
-                    output.events.push(envelope.clone());
-                    output
-                        .effects
-                        .push(MaestriaEffect::PersistEvent { envelope });
-                }
-            }
-            DomainInput::SearchCompleted(input) => {
-                let generated = self.handle_search_completed(input)?;
-                for envelope in generated {
-                    output.events.push(envelope.clone());
-                    output
-                        .effects
-                        .push(MaestriaEffect::PersistEvent { envelope });
-                }
-            }
-            DomainInput::HarnessRunCompleted(input) => {
-                let generated = self.handle_harness_completed(input)?;
-                for envelope in generated {
-                    output.events.push(envelope.clone());
-                    output
-                        .effects
-                        .push(MaestriaEffect::PersistEvent { envelope });
-                }
-            }
-            DomainInput::ValidationCompleted(input) => {
-                let event = self.handle_validation_completed(input)?;
-                output.events.push(event.clone());
-                output
-                    .effects
-                    .push(MaestriaEffect::PersistEvent { envelope: event });
-            }
-            DomainInput::ApprovalResolved(input) => {
-                let envelopes = self.handle_approval_resolved(input)?;
-                for envelope in envelopes {
-                    output.events.push(envelope.clone());
-                    output
-                        .effects
-                        .push(MaestriaEffect::PersistEvent { envelope });
-                }
-            }
-            DomainInput::ClockTick(tick) => {
-                let event = self.emit_event(DomainEvent::TickObserved { at: tick });
-                output.events.push(event.clone());
-                output
-                    .effects
-                    .push(MaestriaEffect::PersistEvent { envelope: event });
-            }
+            DomainInput::StartFullTextIndex(input) => self.process_start_full_text_index(input),
+            DomainInput::SearchCompleted(input) => self.process_search_completed(input),
+            DomainInput::HarnessRunCompleted(input) => self.process_harness_run_completed(input),
+            DomainInput::ValidationCompleted(input) => self.process_validation_completed(input),
+            DomainInput::ApprovalResolved(input) => self.process_approval_resolved(input),
+            DomainInput::ParserStarted(input) => self.process_parser_started(input),
+            DomainInput::ResumeParser(input) => self.process_resume_parser(input),
+            DomainInput::ClockTick(tick) => self.process_clock_tick(tick),
         }
-
-        Ok(output)
     }
 
     fn emit_event(&mut self, event: DomainEvent) -> DomainEventEnvelope {
@@ -292,16 +68,5 @@ impl KernelState {
         };
         self.event_log.push(envelope.clone());
         envelope
-    }
-}
-
-fn event_id_to_artifact(event: &DomainEventEnvelope) -> ArtifactId {
-    match event.event {
-        DomainEvent::ArtifactRegistered { artifact_id, .. } => artifact_id,
-        DomainEvent::ChunkRegistered { artifact_id, .. } => artifact_id,
-        DomainEvent::CardCreated { artifact_id, .. } => artifact_id,
-        DomainEvent::ClaimCreated { artifact_id, .. } => artifact_id,
-        DomainEvent::EvidenceRecorded { artifact_id, .. } => artifact_id,
-        _ => ArtifactId::new(0),
     }
 }

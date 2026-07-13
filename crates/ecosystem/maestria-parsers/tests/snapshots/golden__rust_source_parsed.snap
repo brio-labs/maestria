@@ -15,6 +15,10 @@ ParsedArtifact {
                 3,
             ),
             text: "use std::fmt;",
+            source_span: TextSpan {
+                start_line: 1,
+                end_line: 2,
+            },
         },
         ParsedChunk {
             chunk_id: ChunkId(
@@ -24,6 +28,10 @@ ParsedArtifact {
                 3,
             ),
             text: "pub struct Thing;",
+            source_span: TextSpan {
+                start_line: 3,
+                end_line: 4,
+            },
         },
         ParsedChunk {
             chunk_id: ChunkId(
@@ -33,6 +41,10 @@ ParsedArtifact {
                 3,
             ),
             text: "impl Thing {",
+            source_span: TextSpan {
+                start_line: 5,
+                end_line: 5,
+            },
         },
         ParsedChunk {
             chunk_id: ChunkId(
@@ -42,6 +54,10 @@ ParsedArtifact {
                 3,
             ),
             text: "pub fn new() -> Self { Self }\n}",
+            source_span: TextSpan {
+                start_line: 6,
+                end_line: 8,
+            },
         },
         ParsedChunk {
             chunk_id: ChunkId(
@@ -51,6 +67,10 @@ ParsedArtifact {
                 3,
             ),
             text: "#[test]\nfn makes_thing() {}",
+            source_span: TextSpan {
+                start_line: 9,
+                end_line: 10,
+            },
         },
     ],
     cards: [

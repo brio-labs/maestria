@@ -61,6 +61,112 @@ fn write_file(parent: &Path, name: &str, contents: &str) {
     fs::write(&path, contents).expect("write test file");
 }
 
+/// Write binary bytes into a file, creating parents as needed.
+fn write_file_bytes(parent: &Path, name: &str, contents: &[u8]) {
+    let path = parent.join(name);
+    if let Some(dir) = path.parent() {
+        fs::create_dir_all(dir).expect("create parent dirs");
+    }
+    fs::write(&path, contents).expect("write test file");
+}
+
+/// Build a minimal valid PDF containing the given text on one page.
+/// Constructs PDF bytes directly — no external PDF crate dependency.
+fn create_minimal_pdf(text: &[u8]) -> Vec<u8> {
+    let text_str = std::str::from_utf8(text).expect("PDF text must be valid UTF-8");
+
+    // Encode for PDF literal string: escape (, ), and \
+    let mut pdf_text = String::with_capacity(text_str.len() + 8);
+    for ch in text_str.chars() {
+        match ch {
+            '(' => pdf_text.push_str("\\("),
+            ')' => pdf_text.push_str("\\)"),
+            '\\' => pdf_text.push_str("\\\\"),
+            _ => pdf_text.push(ch),
+        }
+    }
+
+    // Content stream — text-drawing operators
+    let content_data = format!("BT\n/F1 12 Tf\n72 700 Td\n({pdf_text}) Tj\nET");
+    let content_len = content_data.len();
+
+    // PDF body objects
+    let font_obj = b"1 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Courier >>\nendobj\n";
+    let content_header = format!("2 0 obj\n<< /Length {content_len} >>\nstream\n");
+    let content_footer = "\nendstream\nendobj\n";
+    let page_obj       = b"3 0 obj\n<< /Type /Page /Parent 4 0 R /MediaBox [0 0 612 792] /Contents 2 0 R /Resources << /Font << /F1 1 0 R >> >> >>\nendobj\n";
+    let pages_obj = b"4 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n";
+    let catalog_obj = b"5 0 obj\n<< /Type /Catalog /Pages 4 0 R >>\nendobj\n";
+
+    let mut buf = Vec::with_capacity(1024);
+
+    // ── header ──
+    buf.extend_from_slice(b"%PDF-1.4\n");
+
+    // ── body objects (track offsets for xref) ──
+    let off_font = buf.len();
+    buf.extend_from_slice(font_obj);
+    let off_content = buf.len();
+    buf.extend_from_slice(content_header.as_bytes());
+    buf.extend_from_slice(content_data.as_bytes());
+    buf.extend_from_slice(content_footer.as_bytes());
+    let off_page = buf.len();
+    buf.extend_from_slice(page_obj);
+    let off_pages = buf.len();
+    buf.extend_from_slice(pages_obj);
+    let off_catalog = buf.len();
+    buf.extend_from_slice(catalog_obj);
+
+    // ── cross-reference table (20-byte entries, CRLF terminated) ──
+    let xref_offset = buf.len();
+    buf.extend_from_slice(b"xref\n0 6\n");
+    buf.extend_from_slice(b"0000000000 65535 f\r\n");
+    buf.extend_from_slice(format!("{off_font:010} 00000 n\r\n").as_bytes());
+    buf.extend_from_slice(format!("{off_content:010} 00000 n\r\n").as_bytes());
+    buf.extend_from_slice(format!("{off_page:010} 00000 n\r\n").as_bytes());
+    buf.extend_from_slice(format!("{off_pages:010} 00000 n\r\n").as_bytes());
+    buf.extend_from_slice(format!("{off_catalog:010} 00000 n\r\n").as_bytes());
+
+    // ── trailer ──
+    buf.extend_from_slice(
+        format!("trailer\n<< /Size 6 /Root 5 0 R >>\nstartxref\n{xref_offset}\n%%EOF\n").as_bytes(),
+    );
+
+    buf
+}
+
+/// Build a minimal PDF with no extractable text (scanned/image-only page).
+/// Constructs PDF bytes directly — no external PDF crate dependency.
+fn create_no_text_pdf() -> Vec<u8> {
+    let page_obj = b"1 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>\nendobj\n";
+    let pages_obj = b"2 0 obj\n<< /Type /Pages /Kids [1 0 R] /Count 1 >>\nendobj\n";
+    let catalog_obj = b"3 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n";
+
+    let mut buf = Vec::with_capacity(512);
+
+    buf.extend_from_slice(b"%PDF-1.4\n");
+
+    let off_page = buf.len();
+    buf.extend_from_slice(page_obj);
+    let off_pages = buf.len();
+    buf.extend_from_slice(pages_obj);
+    let off_catalog = buf.len();
+    buf.extend_from_slice(catalog_obj);
+
+    let xref_offset = buf.len();
+    buf.extend_from_slice(b"xref\n0 4\n");
+    buf.extend_from_slice(b"0000000000 65535 f\r\n");
+    buf.extend_from_slice(format!("{off_page:010} 00000 n\r\n").as_bytes());
+    buf.extend_from_slice(format!("{off_pages:010} 00000 n\r\n").as_bytes());
+    buf.extend_from_slice(format!("{off_catalog:010} 00000 n\r\n").as_bytes());
+
+    buf.extend_from_slice(
+        format!("trailer\n<< /Size 4 /Root 3 0 R >>\nstartxref\n{xref_offset}\n%%EOF\n").as_bytes(),
+    );
+
+    buf
+}
+
 /// Assert exit success, return stdout.
 fn assert_ok(args: &[&str]) -> String {
     let (code, stdout, _stderr) = run(args);
@@ -102,23 +208,9 @@ fn parse_kv(line: &str) -> Vec<(&str, &str)> {
         .collect()
 }
 
-#[test]
-fn durable_cli_workflow() {
-    // ── Setup ───────────────────────────────────────────────────────────────
-    let workspace = TempDir::new("maestria-test-workspace");
-    let instance = TempDir::new("maestria-test-instance");
-
-    // ── 1. Init ─────────────────────────────────────────────────────────────
-    let stdout = assert_ok_lines(
-        &[
-            "init",
-            "-i",
-            &instance.path().to_string_lossy(),
-            "--read-root",
-            &workspace.path().to_string_lossy(),
-        ],
-        2,
-    );
+/// Run init and verify the output.
+fn assert_init_ok(instance_path: &str, read_root: &str) {
+    let stdout = assert_ok_lines(&["init", "-i", instance_path, "--read-root", read_root], 2);
     assert!(
         stdout.contains("initialized"),
         "init stdout missing 'initialized': {stdout}"
@@ -127,57 +219,34 @@ fn durable_cli_workflow() {
         stdout.contains("manifest"),
         "init stdout missing 'manifest': {stdout}"
     );
+}
 
-    // ── 2. Index a Markdown file ────────────────────────────────────────────
-    write_file(
-        workspace.path(),
-        "notes.md",
-        "# Design Notes\n\nThe system uses a distributed ledger for consensus.\n",
-    );
-    let stdout = assert_ok_lines(
-        &[
-            "index",
-            "-i",
-            &instance.path().to_string_lossy(),
-            &workspace.path().join("notes.md").to_string_lossy(),
-        ],
-        1,
-    );
+/// Index a file and verify "indexed" appears.
+fn assert_index_ok(instance_path: &str, file: &str) {
+    let stdout = assert_ok_lines(&["index", "-i", instance_path, file], 1);
     assert!(
         stdout.contains("indexed "),
         "expected 'indexed' in index output: {stdout}"
     );
+}
 
-    // ── 3. Re-index: must report unchanged ──────────────────────────────────
-    let stdout = assert_ok_lines(
-        &[
-            "index",
-            "-i",
-            &instance.path().to_string_lossy(),
-            &workspace.path().join("notes.md").to_string_lossy(),
-        ],
-        1,
-    );
+/// Re-index and verify "unchanged" appears.
+fn assert_reindex_unchanged(instance_path: &str, file: &str) {
+    let stdout = assert_ok_lines(&["index", "-i", instance_path, file], 1);
     assert!(
         stdout.contains("unchanged "),
         "expected 'unchanged' in re-index output: {stdout}"
     );
+}
 
-    // ── 4. Restart durability: search via a new process ─────────────────────
-    let stdout = assert_ok_lines(
-        &[
-            "search",
-            "-i",
-            &instance.path().to_string_lossy(),
-            "distributed",
-        ],
-        1,
-    );
-    let output_line = stdout
+/// Search and parse chunk + evidence ids from output. Returns (chunk_id, evidence_id).
+fn assert_search_finds(instance_path: &str, query: &str) -> (String, String) {
+    let stdout = assert_ok_lines(&["search", "-i", instance_path, query], 1);
+    let chunk_output_line = stdout
         .lines()
-        .next()
-        .expect("search output missing result line");
-    let kv = parse_kv(output_line);
+        .find(|line| line.contains("chunk="))
+        .expect("search output missing chunk line");
+    let kv = parse_kv(chunk_output_line);
     let chunk_id_str = kv
         .iter()
         .find(|(k, _)| *k == "chunk")
@@ -187,19 +256,38 @@ fn durable_cli_workflow() {
         chunk_id_str.parse::<u64>().is_ok(),
         "chunk id not a u64: {chunk_id_str}"
     );
+    let evidence_id_str = kv
+        .iter()
+        .find(|(k, _)| *k == "evidence")
+        .map(|(_, v)| *v)
+        .expect("search output missing evidence=<id>");
+    assert!(
+        evidence_id_str.parse::<u64>().is_ok(),
+        "evidence id not a u64: {evidence_id_str}"
+    );
+    (chunk_id_str.to_string(), evidence_id_str.to_string())
+}
 
-    // ── 5. Open evidence by chunk id (separate process) ─────────────────────
+/// Open evidence by id and verify output fields.
+fn assert_open_evidence_ok(instance_path: &str, evidence_id_str: &str) {
     let stdout = assert_ok_lines(
         &[
             "open-evidence",
             "-i",
-            &instance.path().to_string_lossy(),
-            "--chunk-id",
-            chunk_id_str,
+            instance_path,
+            "--evidence-id",
+            evidence_id_str,
         ],
         3,
     );
-    // Source path
+    let evidence_line = stdout
+        .lines()
+        .find(|line| line.starts_with("evidence="))
+        .expect("evidence line not found");
+    assert!(
+        evidence_line.contains(evidence_id_str),
+        "open-evidence should echo evidence id {evidence_id_str}: {stdout}"
+    );
     assert!(
         stdout.contains("source=file"),
         "open-evidence missing source=file: {stdout}"
@@ -208,7 +296,6 @@ fn durable_cli_workflow() {
         stdout.contains("notes.md"),
         "open-evidence missing source path: {stdout}"
     );
-    // Excerpt
     assert!(
         stdout.contains("excerpt="),
         "open-evidence missing excerpt: {stdout}"
@@ -221,39 +308,76 @@ fn durable_cli_workflow() {
         !excerpt_line["excerpt=".len()..].is_empty(),
         "excerpt is empty: {excerpt_line}"
     );
-    // Hash
     assert!(
         stdout.contains("hash="),
         "open-evidence missing hash: {stdout}"
     );
+}
 
-    // ── 6. Reject file outside the approved root ────────────────────────────
-    let outside = TempDir::new("maestria-test-outside");
-    write_file(outside.path(), "sneaky.md", "# sneaky\n");
-    let err = assert_err(&[
-        "index",
-        "-i",
-        &instance.path().to_string_lossy(),
-        &outside.path().join("sneaky.md").to_string_lossy(),
-    ]);
+/// Attempt indexing a file outside the read scope and verify rejection.
+fn assert_reject_outside(instance_path: &str, file: &str) {
+    let err = assert_err(&["index", "-i", instance_path, file]);
     assert!(
         err.contains("outside the instance read scope") || err.contains("excluded by policy"),
         "expected scope rejection, got: {err}"
     );
+}
 
-    // ── 7. Reject excluded .env file ────────────────────────────────────────
-    write_file(workspace.path(), ".env", "SECRET=do_not_index");
-    let err = assert_err(&[
-        "index",
-        "-i",
-        &instance.path().to_string_lossy(),
-        &workspace.path().join(".env").to_string_lossy(),
-    ]);
+/// Attempt indexing an excluded .env file and verify rejection.
+fn assert_reject_env(instance_path: &str, file: &str) {
+    let err = assert_err(&["index", "-i", instance_path, file]);
     assert!(
         err.contains("excluded by privacy policy")
             || err.contains("outside the instance read scope"),
         "expected exclusion rejection for .env, got: {err}"
     );
+}
+#[test]
+fn durable_cli_workflow() {
+    let workspace = TempDir::new("maestria-test-workspace");
+    let instance = TempDir::new("maestria-test-instance");
+    let ip = instance.path().to_string_lossy();
+    let wp = workspace.path().to_string_lossy();
+
+    // ── 1. Init ─────────────────────────────────────────────────────────
+    assert_init_ok(ip.as_ref(), wp.as_ref());
+
+    // ── 2. Index a Markdown file ────────────────────────────────────────
+    write_file(
+        workspace.path(),
+        "notes.md",
+        "# Design Notes\n\nThe system uses a distributed ledger for consensus.\n",
+    );
+    let notes = workspace
+        .path()
+        .join("notes.md")
+        .to_string_lossy()
+        .into_owned();
+    assert_index_ok(ip.as_ref(), &notes);
+
+    // ── 3. Re-index: must report unchanged ──────────────────────────────
+    assert_reindex_unchanged(ip.as_ref(), &notes);
+
+    // ── 4. Restart durability: search via a new process ─────────────────
+    let (_chunk_id, evidence_id) = assert_search_finds(ip.as_ref(), "distributed");
+
+    // ── 5. Open evidence by evidence id (separate process) ──────────────
+    assert_open_evidence_ok(ip.as_ref(), &evidence_id);
+
+    // ── 6. Reject file outside the approved root ────────────────────────
+    let outside = TempDir::new("maestria-test-outside");
+    write_file(outside.path(), "sneaky.md", "# sneaky\n");
+    let sneaky = outside
+        .path()
+        .join("sneaky.md")
+        .to_string_lossy()
+        .into_owned();
+    assert_reject_outside(ip.as_ref(), &sneaky);
+
+    // ── 7. Reject excluded .env file ────────────────────────────────────
+    write_file(workspace.path(), ".env", "SECRET=do_not_index");
+    let env_file = workspace.path().join(".env").to_string_lossy().into_owned();
+    assert_reject_env(ip.as_ref(), &env_file);
 }
 
 #[test]
@@ -323,5 +447,167 @@ fn query_commands_require_an_initialized_instance() {
     assert!(
         error.contains("instance manifest is missing"),
         "unexpected uninitialized-instance evidence error: {error}"
+    );
+}
+
+#[test]
+fn pdf_indexing_workflow() {
+    // ── Setup ───────────────────────────────────────────────────────────────
+    let workspace = TempDir::new("maestria-test-pdf-workspace");
+    let instance = TempDir::new("maestria-test-pdf-instance");
+
+    // ── 1. Init ─────────────────────────────────────────────────────────────
+    let stdout = assert_ok_lines(
+        &[
+            "init",
+            "-i",
+            &instance.path().to_string_lossy(),
+            "--read-root",
+            &workspace.path().to_string_lossy(),
+        ],
+        2,
+    );
+    assert!(
+        stdout.contains("initialized"),
+        "init stdout missing 'initialized': {stdout}"
+    );
+
+    // ── 2. Index a valid PDF ────────────────────────────────────────────────
+    let pdf_bytes = create_minimal_pdf(b"The system uses a distributed ledger for consensus.");
+    write_file_bytes(workspace.path(), "paper.pdf", &pdf_bytes);
+    let stdout = assert_ok_lines(
+        &[
+            "index",
+            "-i",
+            &instance.path().to_string_lossy(),
+            &workspace.path().join("paper.pdf").to_string_lossy(),
+        ],
+        1,
+    );
+    assert!(
+        stdout.contains("indexed "),
+        "expected 'indexed' in index output: {stdout}"
+    );
+
+    // ── 3. Restart durability: search for PDF content ───────────────────────
+    // Find the chunk line (card body may not match this query).
+    let stdout = assert_ok_lines(
+        &[
+            "search",
+            "-i",
+            &instance.path().to_string_lossy(),
+            "distributed",
+        ],
+        2,
+    );
+    let search_lines: Vec<&str> = stdout.lines().collect();
+    assert!(
+        search_lines
+            .first()
+            .is_some_and(|line| line.starts_with("card ")),
+        "card result must render before chunks: {stdout}"
+    );
+    assert!(
+        search_lines
+            .get(1)
+            .is_some_and(|line| line.contains("chunk=") && line.contains("evidence=")),
+        "chunk result must follow card with evidence id: {stdout}"
+    );
+    let chunk_output_line = stdout
+        .lines()
+        .find(|line| line.contains("chunk="))
+        .expect("search output missing chunk line");
+    let kv = parse_kv(chunk_output_line);
+    let chunk_id_str = kv
+        .iter()
+        .find(|(k, _)| *k == "chunk")
+        .map(|(_, v)| *v)
+        .expect("search output missing chunk=<id>");
+    assert!(
+        chunk_id_str.parse::<u64>().is_ok(),
+        "chunk id not a u64: {chunk_id_str}"
+    );
+
+    // ── 4. Open evidence by chunk id ────────────────────────────────────────
+    let stdout = assert_ok_lines(
+        &[
+            "open-evidence",
+            "-i",
+            &instance.path().to_string_lossy(),
+            "--chunk-id",
+            chunk_id_str,
+        ],
+        3,
+    );
+    // Source label: must show PDF provenance with page numbers
+    assert!(
+        stdout.contains("source=pdf"),
+        "open-evidence missing source=pdf: {stdout}"
+    );
+    assert!(
+        stdout.contains("pages=1-1"),
+        "open-evidence missing pages=1-1: {stdout}"
+    );
+    // Excerpt
+    assert!(
+        stdout.contains("excerpt="),
+        "open-evidence missing excerpt: {stdout}"
+    );
+    let excerpt_line = stdout
+        .lines()
+        .find(|line| line.starts_with("excerpt="))
+        .expect("excerpt line not found");
+    assert!(
+        !excerpt_line["excerpt=".len()..].is_empty(),
+        "excerpt is empty: {excerpt_line}"
+    );
+}
+
+#[test]
+fn pdf_no_text_is_rejected() {
+    // ── Setup ───────────────────────────────────────────────────────────────
+    let workspace = TempDir::new("maestria-test-pdf-empty-workspace");
+    let instance = TempDir::new("maestria-test-pdf-empty-instance");
+
+    assert_ok_lines(
+        &[
+            "init",
+            "-i",
+            &instance.path().to_string_lossy(),
+            "--read-root",
+            &workspace.path().to_string_lossy(),
+        ],
+        2,
+    );
+
+    // ── Write a PDF with no extractable text ────────────────────────────────
+    let empty_pdf = create_no_text_pdf();
+    write_file_bytes(workspace.path(), "scanned.pdf", &empty_pdf);
+
+    // ── Index must fail ─────────────────────────────────────────────────────
+    let err = assert_err(&[
+        "index",
+        "-i",
+        &instance.path().to_string_lossy(),
+        &workspace.path().join("scanned.pdf").to_string_lossy(),
+    ]);
+    assert!(
+        err.contains("timeout") || err.contains("parser failed"),
+        "expected timeout or parser failure for no-text PDF, got: {err}"
+    );
+
+    // ── Restart: search must find nothing for the failed artifact ───────────
+    let stdout = assert_ok_lines(
+        &[
+            "search",
+            "-i",
+            &instance.path().to_string_lossy(),
+            "anything",
+        ],
+        0,
+    );
+    assert!(
+        stdout.trim().is_empty(),
+        "expected no search results for failed PDF, got: {stdout}"
     );
 }

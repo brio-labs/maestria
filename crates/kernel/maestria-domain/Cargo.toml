@@ -5,3 +5,4 @@ license.workspace = true
 version = "0.1.0"
 
 [dependencies]
+sha2 = "0.10"

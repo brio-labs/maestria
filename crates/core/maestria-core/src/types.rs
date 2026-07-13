@@ -1,24 +1,4 @@
-use maestria_domain::{Artifact, Chunk, Evidence, EvidenceId, LogicalTick};
-use maestria_domain::{ArtifactId, ChunkId};
-use std::path::PathBuf;
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct IngestFileInput {
-    pub path: PathBuf,
-    pub bytes: Vec<u8>,
-    pub observed_at: LogicalTick,
-    pub artifact_id: Option<ArtifactId>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct IngestFileOutput {
-    pub artifact: Artifact,
-    pub chunks: Vec<Chunk>,
-    pub evidence: Vec<Evidence>,
-    pub blob_id: maestria_domain::BlobId,
-    pub content_hash: String,
-    pub unchanged: bool,
-}
+use maestria_domain::{Artifact, Card, Chunk, ChunkId, Evidence, EvidenceId};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SearchInput {
@@ -27,8 +7,16 @@ pub struct SearchInput {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EvidencePack {
+    pub query: String,
+    pub cards: Vec<SourceGroundedCardHit>,
+    pub chunks: Vec<SourceGroundedSearchHit>,
+    pub evidence_ids: Vec<EvidenceId>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SearchOutput {
-    pub hits: Vec<SourceGroundedSearchHit>,
+    pub pack: EvidencePack,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -36,6 +24,13 @@ pub struct SourceGroundedSearchHit {
     pub artifact: Artifact,
     pub chunk: Chunk,
     pub evidence: Evidence,
+    pub score: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SourceGroundedCardHit {
+    pub artifact: Artifact,
+    pub card: Card,
     pub score: u32,
 }
 

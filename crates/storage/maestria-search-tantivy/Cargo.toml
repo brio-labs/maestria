@@ -11,3 +11,4 @@ tantivy = "0.26"
 
 [dev-dependencies]
 tempfile = "3"
+maestria-ports = { package = "maestria-ports", path = "../../kernel/maestria-ports", features = ["contract-tests"] }
