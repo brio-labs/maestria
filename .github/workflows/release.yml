@@ -110,24 +110,26 @@ jobs:
           echo
           echo "==> Checking CI status for commit $COMMIT..."
 
-          # Query main CI workflows by name to exclude Release's own runs
-          FAILED=""
-          for WF in "ci.yml" "conventional-commits.yml"; do
-            CONCLUSION="$(gh api "repos/${{ github.repository }}/actions/workflows/$WF/runs" \
-              --method GET -f head_sha="$COMMIT" -f per_page=1 \
-              --jq '.workflow_runs[0].conclusion // "missing"')"
-            echo "  $WF: $CONCLUSION"
-            if [ "$CONCLUSION" != "success" ]; then
-              FAILED="$FAILED $WF"
-            fi
-          done
+          # Query the main CI workflow by its URL-encoded path.
+          CI_RUNS="$(gh api "repos/${{ github.repository }}/actions/workflows/.github%2Fworkflows%2Fci.yml/runs" \
+            --method GET -f head_sha="$COMMIT" -f per_page=1 -f status="completed" \
+            --jq '.workflow_runs | length')"
 
-          if [ -n "$FAILED" ]; then
-            echo "::error::Required CI workflows not successful:$FAILED"
+          if [ -z "$CI_RUNS" ] || [ "$CI_RUNS" = "0" ]; then
+            echo "::error::No completed CI workflow runs found for commit $COMMIT"
             exit 1
           fi
-          echo "✓ Required CI workflows passed"
-          echo
+
+          CI_CONCLUSION="$(gh api "repos/${{ github.repository }}/actions/workflows/.github%2Fworkflows%2Fci.yml/runs" \
+            --method GET -f head_sha="$COMMIT" -f per_page=1 -f status="completed" \
+            --jq '.workflow_runs[0].conclusion // "missing"')"
+          echo "  ci.yml: $CI_CONCLUSION"
+
+          if [ "$CI_CONCLUSION" != "success" ]; then
+            echo "::error::CI workflow conclusion is '$CI_CONCLUSION', expected 'success'"
+            exit 1
+          fi
+          echo "✓ CI workflow passed"
           echo "==> Checking commit status for $COMMIT..."
 
           COMMIT_STATUSES="$(gh api "repos/${{ github.repository }}/commits/$COMMIT/status" \
