@@ -243,15 +243,15 @@ impl crate::ApprovalRepository for InMemoryApprovalRepository {
             .map_err(|_| crate::PortError::Internal {
                 message: "in-memory approval repo lock poisoned".to_string(),
             })?;
-        if let Some(record) = guard.get_mut(&id) {
-            if record.status == crate::ApprovalStatus::Pending {
-                record.status = if approved {
-                    crate::ApprovalStatus::Approved
-                } else {
-                    crate::ApprovalStatus::Denied
-                };
-                return Ok(Some(record.clone()));
-            }
+        if let Some(record) = guard.get_mut(&id)
+            && record.status == crate::ApprovalStatus::Pending
+        {
+            record.status = if approved {
+                crate::ApprovalStatus::Approved
+            } else {
+                crate::ApprovalStatus::Denied
+            };
+            return Ok(Some(record.clone()));
         }
         Ok(None)
     }
