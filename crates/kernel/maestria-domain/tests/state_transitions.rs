@@ -337,6 +337,47 @@ fn link_evidence_to_task_succeeds() -> Result<(), DomainError> {
     Ok(())
 }
 
+// ── SearchExecuted audit event ────────────────────────────────────
+
+#[test]
+fn search_executed_emits_audit_event_with_evidence_ids() -> Result<(), DomainError> {
+    let mut state = KernelState::new();
+    let output = state.apply_input(DomainInput::SearchExecuted(SearchExecutedInput {
+        query: "hello world".to_string(),
+        limit: 10,
+        evidence_ids: vec![EvidenceId::new(1), EvidenceId::new(2)],
+        at: LogicalTick::new(42),
+    }))?;
+
+    assert_eq!(output.events.len(), 1);
+    assert_eq!(output.effects.len(), 1);
+    let envelope = &output.events[0];
+    match &envelope.event {
+        DomainEvent::SearchExecuted {
+            query,
+            limit,
+            evidence_ids,
+            at,
+        } => {
+            assert_eq!(query, "hello world");
+            assert_eq!(*limit, 10);
+            assert_eq!(evidence_ids, &vec![EvidenceId::new(1), EvidenceId::new(2)]);
+            assert_eq!(*at, LogicalTick::new(42));
+        }
+        _ => {
+            return Err(DomainError::InternalInvariantViolation {
+                detail: "expected SearchExecuted event",
+            });
+        }
+    }
+    // Audit events must not mutate any entity collections.
+    assert!(state.artifacts.is_empty());
+    assert!(state.cards.is_empty());
+    assert!(state.evidences.is_empty());
+    assert_eq!(state.event_log.len(), 1);
+    Ok(())
+}
+
 #[test]
 fn link_evidence_to_task_idempotent() -> Result<(), DomainError> {
     let mut state = KernelState::new();
@@ -384,9 +425,38 @@ fn link_evidence_to_task_idempotent() -> Result<(), DomainError> {
     assert!(task.evidence_ids.contains(&EvidenceId::new(10)));
 
     // Duplicate links do not emit another event or persistence effect.
+
     assert!(output.events.is_empty());
     assert!(output.effects.is_empty());
+    Ok(())
+}
 
+#[test]
+fn search_executed_rejects_empty_query() {
+    let mut state = KernelState::new();
+    let err = state
+        .apply_input(DomainInput::SearchExecuted(SearchExecutedInput {
+            query: "   ".to_string(),
+            limit: 5,
+            evidence_ids: vec![],
+            at: LogicalTick::new(1),
+        }))
+        .expect_err("empty query must be rejected");
+    assert!(matches!(err, DomainError::EmptyIntent));
+}
+
+#[test]
+fn search_executed_is_deterministic_on_replay() -> Result<(), DomainError> {
+    let mut state_a = KernelState::new();
+    state_a.apply_input(DomainInput::SearchExecuted(SearchExecutedInput {
+        query: "deterministic".to_string(),
+        limit: 3,
+        evidence_ids: vec![EvidenceId::new(10)],
+        at: LogicalTick::new(7),
+    }))?;
+
+    let replayed = replay_events(&state_a.event_log)?;
+    assert_eq!(state_a, replayed);
     Ok(())
 }
 
@@ -436,5 +506,23 @@ fn link_evidence_to_task_missing_evidence_is_rejected() -> Result<(), DomainErro
     }));
 
     assert!(matches!(result, Err(DomainError::MissingEvidence { .. })));
+    Ok(())
+}
+
+#[test]
+fn search_executed_persist_effect_matches_event_envelope() -> Result<(), DomainError> {
+    let mut state = KernelState::new();
+    let output = state.apply_input(DomainInput::SearchExecuted(SearchExecutedInput {
+        query: "audit".to_string(),
+        limit: 1,
+        evidence_ids: vec![],
+        at: LogicalTick::new(1),
+    }))?;
+
+    let envelope = match output.effects.as_slice() {
+        [MaestriaEffect::PersistEvent { envelope }] => envelope,
+        _ => return Err(DomainError::EmptyIntent),
+    };
+    assert_eq!(envelope, &output.events[0]);
     Ok(())
 }

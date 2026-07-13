@@ -279,3 +279,25 @@ fn task_evidence_linked_event_round_trips() -> Result<(), PortError> {
 
     Ok(())
 }
+
+#[test]
+fn search_executed_roundtrips_through_appended_scan() {
+    let store = SqliteStore::in_memory().expect("test setup");
+    let envelope = DomainEventEnvelope {
+        id: EventId::new(1),
+        sequence: SequenceNumber::new(1),
+        event: DomainEvent::SearchExecuted {
+            query: "test query".to_string(),
+            limit: 5,
+            evidence_ids: vec![EvidenceId::new(10), EvidenceId::new(20)],
+            at: LogicalTick::new(3),
+        },
+    };
+    store
+        .append(envelope.clone())
+        .expect("append search executed");
+    let scanned = store
+        .scan(EventFilter { artifact_id: None })
+        .expect("scan events");
+    assert_eq!(scanned, vec![envelope]);
+}

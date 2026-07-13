@@ -1,6 +1,6 @@
 use super::event_payloads::StoredEventPayload;
 use super::relation_payloads::{StoredRelationEndpoint, StoredRelationKind};
-use maestria_domain::{DomainEvent, LogicalTick};
+use maestria_domain::{DomainEvent, EvidenceId, LogicalTick};
 
 impl StoredEventPayload {
     pub(crate) fn try_from_domain_misc(event: &DomainEvent) -> Option<Self> {
@@ -21,6 +21,17 @@ impl StoredEventPayload {
                 confidence_milli: *confidence_milli,
             }),
             DomainEvent::TickObserved { at } => Some(Self::TickObserved { at: at.value() }),
+            DomainEvent::SearchExecuted {
+                query,
+                limit,
+                evidence_ids,
+                at,
+            } => Some(Self::SearchExecuted {
+                query: query.clone(),
+                limit: *limit as u64,
+                evidence_ids: evidence_ids.iter().map(|id| id.value()).collect(),
+                at: at.value(),
+            }),
             _ => None,
         }
     }
@@ -45,6 +56,25 @@ impl StoredEventPayload {
             Self::TickObserved { at } => Ok(DomainEvent::TickObserved {
                 at: LogicalTick::new(at),
             }),
+            Self::SearchExecuted {
+                query,
+                limit,
+                evidence_ids,
+                at,
+            } => match usize::try_from(limit) {
+                Ok(limit) => Ok(DomainEvent::SearchExecuted {
+                    query,
+                    limit,
+                    evidence_ids: evidence_ids.into_iter().map(EvidenceId::new).collect(),
+                    at: LogicalTick::new(at),
+                }),
+                Err(_) => Err(Box::new(Self::SearchExecuted {
+                    query,
+                    limit,
+                    evidence_ids,
+                    at,
+                })),
+            },
             other => Err(Box::new(other)),
         }
     }
@@ -53,6 +83,7 @@ impl StoredEventPayload {
         match self {
             Self::RelationCreated { .. } => Some("relation_created"),
             Self::TickObserved { .. } => Some("tick_observed"),
+            Self::SearchExecuted { .. } => Some("search_executed"),
             _ => None,
         }
     }

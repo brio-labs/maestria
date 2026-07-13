@@ -144,6 +144,12 @@ pub enum DomainEvent {
     TickObserved {
         at: LogicalTick,
     },
+    SearchExecuted {
+        query: String,
+        limit: usize,
+        evidence_ids: Vec<EvidenceId>,
+        at: LogicalTick,
+    },
     ParserStarted {
         artifact_id: ArtifactId,
         title: String,

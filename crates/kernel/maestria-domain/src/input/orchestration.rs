@@ -296,6 +296,24 @@ impl KernelState {
         Ok(emitted)
     }
 
+    // ── SearchExecuted (audit) ────────────────────────────────────
+
+    pub(super) fn handle_search_executed(
+        &mut self,
+        input: SearchExecutedInput,
+    ) -> Result<DomainEventEnvelope, DomainError> {
+        if input.query.trim().is_empty() {
+            return Err(DomainError::EmptyIntent);
+        }
+        // Audit event: no state mutation, just record the fact.
+        Ok(self.emit_event(DomainEvent::SearchExecuted {
+            query: input.query,
+            limit: input.limit,
+            evidence_ids: input.evidence_ids,
+            at: input.at,
+        }))
+    }
+
     // ── Replay apply ─────────────────────────────────────────────
 
     pub(crate) fn apply_user_intent_observed(
@@ -343,4 +361,12 @@ impl KernelState {
     }
 
     pub(crate) fn apply_tick_observed(&mut self) {}
+
+    pub(crate) fn apply_search_executed(&mut self, query: &str) -> Result<(), DomainError> {
+        if query.trim().is_empty() {
+            return Err(DomainError::EmptyIntent);
+        }
+        // SearchExecuted is a pure audit event — no state mutation on replay.
+        Ok(())
+    }
 }

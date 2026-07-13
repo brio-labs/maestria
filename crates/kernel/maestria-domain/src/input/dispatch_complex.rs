@@ -250,4 +250,17 @@ impl KernelState {
             .push(MaestriaEffect::PersistEvent { envelope: event });
         Ok(output)
     }
+
+    pub(super) fn process_search_executed(
+        &mut self,
+        input: SearchExecutedInput,
+    ) -> Result<KernelOutput, DomainError> {
+        let mut output = KernelOutput::default();
+        let envelope = self.handle_search_executed(input)?;
+        output.events.push(envelope.clone());
+        output
+            .effects
+            .push(MaestriaEffect::PersistEvent { envelope });
+        Ok(output)
+    }
 }

@@ -1,4 +1,11 @@
-use std::{collections::BTreeSet, fs, path::PathBuf, sync::Arc};
+use std::{
+    collections::BTreeSet,
+    fs,
+    io::Write,
+    path::PathBuf,
+    sync::Arc,
+    time::{Duration, SystemTime, UNIX_EPOCH},
+};
 
 use anyhow::{Context, Result, anyhow};
 use maestria_blob_fs::FsBlobStore;
@@ -18,10 +25,124 @@ use maestria_search_tantivy::TantivyFullTextIndex;
 use maestria_storage_sqlite::SqliteStore;
 use maestria_vector_sqlite::SqliteVectorIndex;
 use maestria_web_evidence::UreqWebFetcher;
-use tokio::sync::mpsc;
+use tokio::{
+    sync::mpsc,
+    time::{sleep, timeout},
+};
 use tokio_util::sync::CancellationToken;
 use tracing::info;
-/// Collects distinct artifacts with pending full-text chunks and builds
+pub struct InstanceWriteLock {
+    path: PathBuf,
+    token: String,
+}
+
+impl Drop for InstanceWriteLock {
+    fn drop(&mut self) {
+        let owned =
+            fs::read_to_string(&self.path).is_ok_and(|contents| contents.trim() == self.token);
+        if owned && let Err(error) = fs::remove_file(&self.path) {
+            tracing::warn!(path = %self.path.display(), %error, "failed to release instance write lock");
+        }
+    }
+}
+
+pub fn try_acquire_instance_write_lock(
+    layout: &InstanceLayout,
+) -> Result<Option<InstanceWriteLock>> {
+    let path = layout.system_dir.join("instance-write.lock");
+    match fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&path)
+    {
+        Ok(mut file) => {
+            let nonce = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map_or(0, |duration| duration.as_nanos());
+            let token = format!("{}:{nonce}", std::process::id());
+            if let Err(error) = writeln!(file, "{token}") {
+                let _ = fs::remove_file(&path);
+                return Err(error)
+                    .with_context(|| format!("write instance lock {}", path.display()));
+            }
+            Ok(Some(InstanceWriteLock { path, token }))
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+            if !lock_owner_is_dead(&path) {
+                return Ok(None);
+            }
+            let nonce = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map_or(0, |duration| duration.as_nanos());
+            let quarantine = path.with_extension(format!("stale.{}.{}", std::process::id(), nonce));
+            match fs::hard_link(&path, &quarantine) {
+                Ok(()) => match fs::remove_file(&path) {
+                    Ok(()) => {
+                        fs::remove_file(&quarantine).with_context(|| {
+                            format!("remove stale instance lock {}", quarantine.display())
+                        })?;
+                        try_acquire_instance_write_lock(layout)
+                    }
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                        let _ = fs::remove_file(&quarantine);
+                        try_acquire_instance_write_lock(layout)
+                    }
+                    Err(error) => Err(error)
+                        .with_context(|| format!("remove stale instance lock {}", path.display())),
+                },
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => Ok(None),
+                Err(error) => Err(error)
+                    .with_context(|| format!("quarantine instance lock {}", path.display())),
+            }
+        }
+        Err(error) => {
+            Err(error).with_context(|| format!("create instance lock {}", path.display()))
+        }
+    }
+}
+
+pub async fn acquire_instance_write_lock(layout: &InstanceLayout) -> Result<InstanceWriteLock> {
+    timeout(Duration::from_secs(5), async {
+        loop {
+            if let Some(lock) = try_acquire_instance_write_lock(layout)? {
+                return Ok(lock);
+            }
+            sleep(Duration::from_millis(25)).await;
+        }
+    })
+    .await
+    .map_err(|_| anyhow!("timed out waiting for instance write lock"))?
+}
+fn lock_owner_is_dead(path: &PathBuf) -> bool {
+    let contents = match fs::read_to_string(path) {
+        Ok(contents) => contents,
+        Err(_) => {
+            return fs::metadata(path)
+                .and_then(|metadata| metadata.modified())
+                .and_then(|modified| modified.elapsed().map_err(std::io::Error::other))
+                .is_ok_and(|age| age > Duration::from_secs(30));
+        }
+    };
+    let pid_text = contents
+        .trim()
+        .split_once(':')
+        .map_or(contents.trim(), |(pid, _)| pid);
+    let Ok(pid) = pid_text.parse::<u32>() else {
+        return fs::metadata(path)
+            .and_then(|metadata| metadata.modified())
+            .and_then(|modified| modified.elapsed().map_err(std::io::Error::other))
+            .is_ok_and(|age| age > Duration::from_secs(30));
+    };
+    #[cfg(target_os = "linux")]
+    {
+        !PathBuf::from(format!("/proc/{pid}")).exists()
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = pid;
+        false
+    }
+}
 /// `StartFullTextIndex` inputs so the runtime can resume indexing after
 /// restart without re-parsing source bytes or re-playing `ParserCompleted`.
 fn pending_start_full_text(state: &KernelState) -> Vec<DomainInput> {
@@ -255,6 +376,7 @@ pub fn build_runtime(
 
 pub async fn run_instance(instance_dir: PathBuf) -> Result<()> {
     let layout = prepare_instance(instance_dir).with_context(|| "prepare instance layout")?;
+    let _instance_lock = acquire_instance_write_lock(&layout).await?;
     let state = load_kernel_state(&layout).with_context(|| "load persisted kernel state")?;
 
     // Repair projection repositories before runtime start so that
@@ -287,34 +409,38 @@ pub async fn run_instance(instance_dir: PathBuf) -> Result<()> {
 
     let runtime_task = tokio::spawn(runtime.run(input_rx, shutdown_token.clone()));
 
-    // Submit pending ResumeParser inputs first so that parsing (which
-    // creates chunks) completes before full-text indexing begins.
-    for input in recovery.resume_parsers {
-        input_tx
-            .send(input)
+    let result = async {
+        // Submit pending ResumeParser inputs first so that parsing (which
+        // creates chunks) completes before full-text indexing begins.
+        for input in recovery.resume_parsers {
+            input_tx
+                .send(input)
+                .await
+                .map_err(|e| anyhow!("failed to queue resume parser: {e}"))?;
+        }
+
+        // Submit pending StartFullTextIndex inputs after the runtime task has
+        // started consuming from `input_rx` to avoid bounded-channel deadlock.
+        for input in recovery.start_full_text {
+            input_tx
+                .send(input)
+                .await
+                .map_err(|e| anyhow!("failed to queue restart full-text index: {e}"))?;
+        }
+
+        let root = layout.root.clone();
+        info!(root = %root.display(), "runtime started");
+        tokio::signal::ctrl_c()
             .await
-            .map_err(|e| anyhow!("failed to queue resume parser: {e}"))?;
+            .with_context(|| "wait for shutdown signal")
     }
+    .await;
 
-    // Submit pending StartFullTextIndex inputs after the runtime task has
-    // started consuming from `input_rx` to avoid bounded-channel deadlock.
-    for input in recovery.start_full_text {
-        input_tx
-            .send(input)
-            .await
-            .map_err(|e| anyhow!("failed to queue restart full-text index: {e}"))?;
-    }
-
-    let root = layout.root.clone();
-    info!(root = %root.display(), "runtime started");
-
-    tokio::signal::ctrl_c().await?;
-    info!(root = %root.display(), "shutdown requested");
+    info!(root = %layout.root.display(), "shutdown requested");
     shutdown_token.cancel();
-
-    runtime_task
-        .await
-        .with_context(|| "runtime loop join failed")?;
+    let join_result = runtime_task.await;
+    result?;
+    join_result.with_context(|| "runtime loop join failed")?;
 
     Ok(())
 }
