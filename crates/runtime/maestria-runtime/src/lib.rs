@@ -138,6 +138,7 @@ impl MaestriaRuntime {
             let semaphore = Arc::new(tokio::sync::Semaphore::new(max_concurrent_effects));
             let mut in_flight = tokio::task::JoinSet::new();
             loop {
+                while in_flight.try_join_next().is_some() {}
                 tokio::select! {
                     () = effect_shutdown.cancelled() => break,
                     message = receiver.recv() => {
@@ -181,7 +182,6 @@ impl MaestriaRuntime {
                     }
                 }
             }
-            in_flight.abort_all();
             while in_flight.join_next().await.is_some() {}
         })
     }
