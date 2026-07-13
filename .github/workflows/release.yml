@@ -69,10 +69,10 @@ jobs:
 
           MILESTONE_JSON="$(gh api "repos/${{ github.repository }}/milestones" \
             --method GET -f state=all --paginate \
-            --jq '.[] | select(.title | startswith("v0.1"))')"
+            --jq '.[] | select(.title == "v0.1 — MVP Closure")')"
 
           if [ -z "$MILESTONE_JSON" ]; then
-            echo "::error::Milestone starting with 'v0.1' not found in this repository"
+            echo "::error::Milestone 'v0.1 — MVP Closure' not found in this repository"
             exit 1
           fi
 
