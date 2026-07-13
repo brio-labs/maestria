@@ -203,64 +203,86 @@ async fn execute_impl(request: HarnessRequest) -> Result<HarnessOutcome, PortErr
         reject_metachar(arg)?;
     }
 
-    // ── 2. readable-root validation for cat ────────────────────────────
     if program == "cat" {
+        let mut has_path_arg = false;
         for arg in &argv[1..] {
-            // ignore flags (args starting with `-` are passed through;
-            // the metachar check already blocks `-o+Foo` tricks)
             if arg.starts_with('-') {
-                continue;
+                return Err(PortError::InvalidInput {
+                    message: format!("cat option {arg:?} not allowed; only path operands"),
+                });
             }
-            validate_readable_path(arg, &request.working_directory, &request.readable_roots)?;
+            has_path_arg = true;
+        }
+        if !has_path_arg {
+            return Err(PortError::InvalidInput {
+                message: "cat requires at least one path operand".to_string(),
+            });
+        }
+        for arg in &argv[1..] {
+            let resolved =
+                validate_readable_path(arg, &request.working_directory, &request.readable_roots)?;
+            let check_path = std::fs::canonicalize(&resolved).unwrap_or(resolved);
+            validate_filename_patterns(
+                check_path.to_str().unwrap_or(arg),
+                &request.blocked_patterns,
+            )?;
         }
     }
 
-    // ── 3. spawn with kill_on_drop for cancellation safety ─────────────
-    let mut child = Command::new(program);
-    child
-        .args(&argv[1..])
+    let mut cmd = Command::new(program);
+    cmd.args(&argv[1..])
         .current_dir(&request.working_directory)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
         .kill_on_drop(true);
 
-    let child = child.spawn().map_err(|e| PortError::Internal {
+    let mut child = cmd.spawn().map_err(|e| PortError::Internal {
         message: format!("failed to spawn {program}: {e}"),
     })?;
 
-    // ── 4. race output vs timeout ──────────────────────────────────────
-    // kill_on_drop(true) above ensures the child is killed when the
-    // wait_with_output future is cancelled by the timeout wrapper.
-    let output = match tokio::time::timeout(request.duration_budget, child.wait_with_output()).await
-    {
-        Ok(Ok(output)) => output,
-        Ok(Err(e)) => {
-            return Err(PortError::Internal {
-                message: format!("{program}: {e}"),
-            });
-        }
+    let mut stdout_handle = child.stdout.take();
+    let mut stderr_handle = child.stderr.take();
+
+    let work = async {
+        let (status, stdout_buf, stderr_buf) = tokio::join!(
+            child.wait(),
+            drain_opt(&mut stdout_handle),
+            drain_opt(&mut stderr_handle),
+        );
+        let status = status.map_err(|e| PortError::Internal {
+            message: format!("{program}: {e}"),
+        })?;
+        Ok((status, stdout_buf, stderr_buf))
+    };
+
+    let (status, stdout, stderr) = match tokio::time::timeout(request.duration_budget, work).await {
+        Ok(Ok(tuple)) => tuple,
+        Ok(Err(e)) => return Err(e),
         Err(_elapsed) => {
-            // The timeout fired; the inner future was cancelled, which
-            // dropped the Child struct.  kill_on_drop(true) sends SIGKILL
-            // and waits (best-effort) in the Drop impl.
-            return Err(PortError::Internal {
-                message: format!("{program} timed out after {:?}", request.duration_budget),
-            });
+            if let Ok(Some(s)) = child.try_wait() {
+                let (out, err) =
+                    tokio::join!(drain_opt(&mut stdout_handle), drain_opt(&mut stderr_handle),);
+                (s, out, err)
+            } else {
+                let _ = child.start_kill();
+                let _ = child.wait().await;
+                return Err(PortError::Internal {
+                    message: format!("{program} timed out after {:?}", request.duration_budget),
+                });
+            }
         }
     };
 
-    // ── 5. assemble outcome ────────────────────────────────────────────
     let duration = match start.elapsed() {
         Ok(d) => d,
         Err(_) => std::time::Duration::ZERO,
     };
-    let exit_code = output.status.code().map_or(
+    let exit_code = status.code().map_or(
         {
-            // signal → 128+signal (POSIX convention)
             #[cfg(unix)]
             {
                 use std::os::unix::process::ExitStatusExt;
-                output.status.signal().map_or(-1, |s| 128 + s)
+                status.signal().map_or(-1, |s| 128 + s)
             }
             #[cfg(not(unix))]
             {
@@ -274,8 +296,8 @@ async fn execute_impl(request: HarnessRequest) -> Result<HarnessOutcome, PortErr
         run_id: request.run_id,
         command: request.command,
         exit_code,
-        stdout: output.stdout,
-        stderr: output.stderr,
+        stdout,
+        stderr,
         duration,
         artifacts_created: vec![],
         diff_summary: None,
@@ -283,10 +305,71 @@ async fn execute_impl(request: HarnessRequest) -> Result<HarnessOutcome, PortErr
     })
 }
 
+async fn drain_opt<R: tokio::io::AsyncRead + Unpin>(handle: &mut Option<R>) -> Vec<u8> {
+    match handle.as_mut() {
+        Some(r) => {
+            let mut buf = Vec::new();
+            let _ = tokio::io::AsyncReadExt::read_to_end(r, &mut buf).await;
+            buf
+        }
+        None => Vec::new(),
+    }
+}
+
+fn filename_matches(name: &str, pattern: &str) -> bool {
+    if !pattern.contains('*') && !pattern.contains('?') {
+        return name == pattern;
+    }
+    if pattern == "*" {
+        return true;
+    }
+    glob_match(name, pattern)
+}
+
+fn glob_match(name: &str, pattern: &str) -> bool {
+    let nc: Vec<char> = name.chars().collect();
+    let pc: Vec<char> = pattern.chars().collect();
+    let (n, p) = (nc.len(), pc.len());
+    let mut dp = vec![vec![false; p + 1]; n + 1];
+    dp[0][0] = true;
+    for j in 1..=p {
+        if pc[j - 1] == '*' {
+            dp[0][j] = dp[0][j - 1];
+        }
+    }
+    for i in 1..=n {
+        for j in 1..=p {
+            if pc[j - 1] == '*' {
+                dp[i][j] = dp[i - 1][j] || dp[i][j - 1];
+            } else if pc[j - 1] == '?' || pc[j - 1] == nc[i - 1] {
+                dp[i][j] = dp[i - 1][j - 1];
+            }
+        }
+    }
+    dp[n][p]
+}
+
+fn validate_filename_patterns(raw_path: &str, patterns: &[String]) -> Result<(), PortError> {
+    if patterns.is_empty() {
+        return Ok(());
+    }
+    let path = Path::new(raw_path);
+    for component in path.components() {
+        let name = component.as_os_str().to_string_lossy();
+        for pattern in patterns {
+            if filename_matches(&name, pattern) {
+                return Err(PortError::InvalidInput {
+                    message: format!("path {raw_path:?} matches blocked pattern {pattern:?}"),
+                });
+            }
+        }
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::time::Duration;
 
     fn adapter() -> LocalShellHarnessAdapter {
         LocalShellHarnessAdapter
@@ -477,5 +560,55 @@ mod tests {
         assert!(!caps.write_enabled);
         assert!(!caps.web_enabled);
         assert_eq!(caps.command_classes, vec![HarnessCommandClass::Shell]);
+    }
+
+    // ── filename pattern matching ─────────────────────────────────
+
+    #[test]
+    fn filename_matches_exact() {
+        assert!(filename_matches(".env", ".env"));
+        assert!(!filename_matches(".env", "other"));
+    }
+
+    #[test]
+    fn filename_matches_wildcard_suffix() {
+        assert!(filename_matches("secret.key", "*.key"));
+        assert!(!filename_matches("key.txt", "*.key"));
+    }
+
+    #[test]
+    fn filename_matches_wildcard_prefix() {
+        assert!(filename_matches(".env.prod", ".env.*"));
+        assert!(!filename_matches(".env", ".env.*"));
+    }
+
+    #[test]
+    fn filename_matches_question_wildcard() {
+        assert!(filename_matches("a.key", "?.key"));
+        assert!(!filename_matches("ab.key", "?.key"));
+    }
+
+    #[tokio::test]
+    async fn cat_rejects_blocked_pattern() {
+        let tmp = tempfile::tempdir().unwrap();
+        let keyfile = tmp.path().join("secret.key");
+        std::fs::write(&keyfile, b"keydata").unwrap();
+        let mut req = shell_request(&format!("cat {}", keyfile.display()), 5000);
+        req.readable_roots = vec![tmp.path().to_path_buf()];
+        req.blocked_patterns = vec!["*.key".into()];
+        let result = adapter().execute(req).await;
+        assert!(result.is_err(), "blocked pattern must be rejected");
+    }
+
+    #[tokio::test]
+    async fn cat_rejects_dotenv_pattern() {
+        let tmp = tempfile::tempdir().unwrap();
+        let envfile = tmp.path().join(".env");
+        std::fs::write(&envfile, b"SECRET=xyz").unwrap();
+        let mut req = shell_request(&format!("cat {}", envfile.display()), 5000);
+        req.readable_roots = vec![tmp.path().to_path_buf()];
+        req.blocked_patterns = vec![".env".into()];
+        let result = adapter().execute(req).await;
+        assert!(result.is_err(), ".env pattern must be rejected");
     }
 }
