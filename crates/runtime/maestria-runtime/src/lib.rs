@@ -279,6 +279,7 @@ impl MaestriaRuntime {
         let next_validation_report_id = Arc::clone(&self.next_validation_report_id);
         let feedback_acks = Arc::clone(&self.feedback_acks);
         let embedding_model = self.config.embedding_model.clone();
+        let drain_effects_on_shutdown = self.config.drain_effects_on_shutdown;
         tokio::spawn(async move {
             let semaphore = Arc::new(tokio::sync::Semaphore::new(max_concurrent_effects));
             let mut in_flight = tokio::task::JoinSet::new();
@@ -330,7 +331,11 @@ impl MaestriaRuntime {
                     }
                 }
             }
-            in_flight.shutdown().await;
+            if drain_effects_on_shutdown {
+                while in_flight.join_next().await.is_some() {}
+            } else {
+                in_flight.shutdown().await;
+            }
         })
     }
 }

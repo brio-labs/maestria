@@ -17,7 +17,13 @@ pub async fn run(instance_dir: PathBuf, query: String, limit: usize) -> Result<(
     let layout = helpers::validated_instance(instance_dir)?;
     let _instance_lock = maestria_daemon::acquire_instance_write_lock(&layout).await?;
     let normalized_query = query.trim().to_string();
-    let pack = compute_search_pack(&layout, &normalized_query, limit)?;
+    let search_layout = layout.clone();
+    let search_query = normalized_query.clone();
+    let pack = tokio::task::spawn_blocking(move || {
+        compute_search_pack(&search_layout, &search_query, limit)
+    })
+    .await
+    .map_err(|error| anyhow::anyhow!("search worker failed: {error}"))??;
     persist_search_audit(&layout, &pack, limit).await?;
     print_search_pack(&pack);
     Ok(())
