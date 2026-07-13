@@ -284,10 +284,13 @@ jobs:
           set -euo pipefail
           COMMIT="${{ needs.preflight.outputs.commit }}"
 
-          # Check whether the tag already exists remotely (peeled to commit SHA)
-          REMOTE_TAG="$(git ls-remote origin "refs/tags/v0.1.0^{}" 2>/dev/null || echo '')"
-          if [ -n "$REMOTE_TAG" ]; then
-            REMOTE_TAG_SHA="$(echo "$REMOTE_TAG" | awk '{print $1}')"
+          # Check whether the tag already exists remotely (handle annotated + lightweight)
+          REMOTE_REFS="$(git ls-remote origin "refs/tags/v0.1.0^{}" "refs/tags/v0.1.0" 2>/dev/null || echo '')"
+          if [ -n "$REMOTE_REFS" ]; then
+            REMOTE_TAG_SHA="$(echo "$REMOTE_REFS" | awk '/refs\/tags\/v0\.1\.0\^\{\}$/ {print $1; exit}')"
+            if [ -z "$REMOTE_TAG_SHA" ]; then
+              REMOTE_TAG_SHA="$(echo "$REMOTE_REFS" | awk '/refs\/tags\/v0\.1\.0$/ {print $1; exit}')"
+            fi
             if [ "$REMOTE_TAG_SHA" != "$COMMIT" ]; then
               echo "::error::Remote tag v0.1.0 points to $REMOTE_TAG_SHA, not $COMMIT"
               exit 1
