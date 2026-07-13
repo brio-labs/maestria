@@ -198,6 +198,7 @@ async fn drain_recovery(
 
 pub async fn run(instance_dir: PathBuf, path: PathBuf, recursive: bool) -> Result<()> {
     let layout = helpers::ensure_instance(instance_dir)?;
+    let _instance_lock = maestria_daemon::acquire_instance_write_lock(&layout).await?;
     let manifest = helpers::load_manifest(&layout)?;
     let scope = Scope::new(
         manifest.read_roots.clone(),

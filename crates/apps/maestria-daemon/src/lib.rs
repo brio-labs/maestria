@@ -1,4 +1,4 @@
-use std::{collections::BTreeSet, fs, io::Write, path::PathBuf, sync::Arc};
+use std::{collections::BTreeSet, fs, io::Write, path::PathBuf, sync::Arc, time::Duration};
 
 use anyhow::{Context, Result, anyhow};
 use maestria_blob_fs::FsBlobStore;
@@ -18,7 +18,10 @@ use maestria_search_tantivy::TantivyFullTextIndex;
 use maestria_storage_sqlite::SqliteStore;
 use maestria_vector_sqlite::SqliteVectorIndex;
 use maestria_web_evidence::UreqWebFetcher;
-use tokio::sync::mpsc;
+use tokio::{
+    sync::mpsc,
+    time::{sleep, timeout},
+};
 use tokio_util::sync::CancellationToken;
 use tracing::info;
 
@@ -44,17 +47,33 @@ pub fn try_acquire_instance_write_lock(
         .open(&path)
     {
         Ok(mut file) => {
-            writeln!(file, "{}", std::process::id())
-                .with_context(|| format!("write instance lock {}", path.display()))?;
+            if let Err(error) = writeln!(file, "{}", std::process::id()) {
+                let _ = fs::remove_file(&path);
+                return Err(error)
+                    .with_context(|| format!("write instance lock {}", path.display()));
+            }
             Ok(Some(InstanceWriteLock { path }))
         }
         Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
-            if lock_owner_is_dead(&path) {
-                fs::remove_file(&path)
-                    .with_context(|| format!("remove stale instance lock {}", path.display()))?;
-                try_acquire_instance_write_lock(layout)
-            } else {
-                Ok(None)
+            if !lock_owner_is_dead(&path) {
+                return Ok(None);
+            }
+            let quarantine = path.with_extension(format!("stale.{}", std::process::id()));
+            match fs::rename(&path, &quarantine) {
+                Ok(()) => {
+                    fs::remove_file(&quarantine).with_context(|| {
+                        format!("remove stale instance lock {}", quarantine.display())
+                    })?;
+                    try_acquire_instance_write_lock(layout)
+                }
+                Err(rename_error) if rename_error.kind() == std::io::ErrorKind::NotFound => {
+                    try_acquire_instance_write_lock(layout)
+                }
+                Err(rename_error) if rename_error.kind() == std::io::ErrorKind::AlreadyExists => {
+                    Ok(None)
+                }
+                Err(rename_error) => Err(rename_error)
+                    .with_context(|| format!("quarantine instance lock {}", path.display())),
             }
         }
         Err(error) => {
@@ -62,12 +81,28 @@ pub fn try_acquire_instance_write_lock(
         }
     }
 }
+
+pub async fn acquire_instance_write_lock(layout: &InstanceLayout) -> Result<InstanceWriteLock> {
+    timeout(Duration::from_secs(5), async {
+        loop {
+            if let Some(lock) = try_acquire_instance_write_lock(layout)? {
+                return Ok(lock);
+            }
+            sleep(Duration::from_millis(25)).await;
+        }
+    })
+    .await
+    .map_err(|_| anyhow!("timed out waiting for instance write lock"))?
+}
 fn lock_owner_is_dead(path: &PathBuf) -> bool {
     let Ok(contents) = fs::read_to_string(path) else {
         return false;
     };
     let Ok(pid) = contents.trim().parse::<u32>() else {
-        return false;
+        return fs::metadata(path)
+            .and_then(|metadata| metadata.modified())
+            .and_then(|modified| modified.elapsed().map_err(std::io::Error::other))
+            .is_ok_and(|age| age > Duration::from_secs(30));
     };
     #[cfg(target_os = "linux")]
     {
@@ -312,6 +347,7 @@ pub fn build_runtime(
 
 pub async fn run_instance(instance_dir: PathBuf) -> Result<()> {
     let layout = prepare_instance(instance_dir).with_context(|| "prepare instance layout")?;
+    let _instance_lock = acquire_instance_write_lock(&layout).await?;
     let state = load_kernel_state(&layout).with_context(|| "load persisted kernel state")?;
 
     // Repair projection repositories before runtime start so that

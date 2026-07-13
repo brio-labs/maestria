@@ -1,7 +1,8 @@
 use super::test_support::*;
 use maestria_domain::{
-    Artifact, ArtifactId, Card, CardId, Chunk, ChunkId, DomainEventEnvelope, EventId, Evidence,
-    EvidenceId, EvidenceKind, IndexStatus, LogicalTick, SequenceNumber,
+    Artifact, ArtifactId, Card, CardId, Chunk, ChunkId, DomainEvent, DomainEventEnvelope, EventId,
+    Evidence, EvidenceId, EvidenceKind, IndexStatus, LogicalTick, SearchExecutedInput,
+    SequenceNumber,
 };
 use maestria_ports::{
     CardRepository, ChunkRepository, EventFilter, EventLog, EvidenceRepository,
@@ -354,4 +355,121 @@ async fn parse_artifact_no_deadlock_at_max_concurrency_one() {
         no_deadlock,
         "ParserStarted persistence barrier must not deadlock at max_concurrent_effects=1"
     );
+}
+
+// ── SearchExecuted audit event lifecycle ──────────────────────────
+
+#[tokio::test]
+async fn search_executed_persists_and_is_observable() {
+    let event_log = Arc::new(InMemoryEventLog::new());
+    let adapters = Adapters {
+        event_log: event_log.clone(),
+        ..crate::test_helpers::test_adapters()
+    };
+    let governance = crate::test_helpers::test_governance();
+    let (runtime, input_rx) = MaestriaRuntime::new(
+        RuntimeConfig {
+            max_concurrent_effects: 2,
+            default_effect_timeout: Duration::from_secs(2),
+            max_retries: 0,
+            ..RuntimeConfig::default()
+        },
+        KernelState::new(),
+        adapters,
+        governance,
+    );
+    let input_tx = runtime.handle().input_tx;
+    let shutdown = CancellationToken::new();
+    let run = tokio::spawn(runtime.run(input_rx, shutdown.clone()));
+
+    input_tx
+        .send(DomainInput::SearchExecuted(SearchExecutedInput {
+            query: "audit test".to_string(),
+            limit: 5,
+            evidence_ids: vec![EvidenceId::new(10), EvidenceId::new(20)],
+            at: LogicalTick::new(3),
+        }))
+        .await
+        .expect("search executed input should be accepted");
+
+    // Wait for the event to appear in the event log.
+    tokio::time::timeout(Duration::from_secs(2), async {
+        loop {
+            let events = event_log
+                .scan(EventFilter { artifact_id: None })
+                .expect("event scan");
+            if events
+                .iter()
+                .any(|env| matches!(env.event, DomainEvent::SearchExecuted { .. }))
+            {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("search executed event should be persisted");
+
+    let events = event_log
+        .scan(EventFilter { artifact_id: None })
+        .expect("event scan");
+    assert_eq!(events.len(), 1);
+    match &events[0].event {
+        DomainEvent::SearchExecuted {
+            query,
+            limit,
+            evidence_ids,
+            at,
+        } => {
+            assert_eq!(query, "audit test");
+            assert_eq!(*limit, 5);
+            assert_eq!(
+                evidence_ids,
+                &vec![EvidenceId::new(10), EvidenceId::new(20)]
+            );
+            assert_eq!(*at, LogicalTick::new(3));
+        }
+        _ => panic!("expected SearchExecuted event"),
+    }
+
+    shutdown.cancel();
+    run.await.expect("runtime should shut down");
+}
+
+#[tokio::test]
+async fn search_executed_with_failing_event_log_stops_runtime() {
+    let adapters = Adapters {
+        event_log: Arc::new(FailingEventLog),
+        ..crate::test_helpers::test_adapters()
+    };
+    let governance = crate::test_helpers::test_governance();
+    let (runtime, input_rx) = MaestriaRuntime::new(
+        RuntimeConfig {
+            default_effect_timeout: Duration::from_secs(1),
+            max_retries: 0,
+            ..RuntimeConfig::default()
+        },
+        KernelState::new(),
+        adapters,
+        governance,
+    );
+    let input_tx = runtime.handle().input_tx;
+    let shutdown = CancellationToken::new();
+    let run = tokio::spawn(runtime.run(input_rx, shutdown.clone()));
+
+    input_tx
+        .send(DomainInput::SearchExecuted(SearchExecutedInput {
+            query: "should fail".to_string(),
+            limit: 1,
+            evidence_ids: vec![],
+            at: LogicalTick::new(1),
+        }))
+        .await
+        .expect("search executed input should be accepted before persistence failure");
+
+    tokio::time::timeout(Duration::from_secs(2), run)
+        .await
+        .expect("runtime should stop after fatal persistence failure")
+        .expect("runtime task should join");
+    assert!(shutdown.is_cancelled());
 }
