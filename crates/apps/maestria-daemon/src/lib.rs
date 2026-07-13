@@ -1,4 +1,4 @@
-use std::{collections::BTreeSet, fs, path::PathBuf, sync::Arc};
+use std::{collections::BTreeSet, fs, io::Write, path::PathBuf, sync::Arc};
 
 use anyhow::{Context, Result, anyhow};
 use maestria_blob_fs::FsBlobStore;
@@ -21,7 +21,64 @@ use maestria_web_evidence::UreqWebFetcher;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use tracing::info;
-/// Collects distinct artifacts with pending full-text chunks and builds
+
+pub struct InstanceWriteLock {
+    path: PathBuf,
+}
+
+impl Drop for InstanceWriteLock {
+    fn drop(&mut self) {
+        if let Err(error) = fs::remove_file(&self.path) {
+            tracing::warn!(path = %self.path.display(), %error, "failed to release instance write lock");
+        }
+    }
+}
+
+pub fn try_acquire_instance_write_lock(
+    layout: &InstanceLayout,
+) -> Result<Option<InstanceWriteLock>> {
+    let path = layout.system_dir.join("instance-write.lock");
+    match fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&path)
+    {
+        Ok(mut file) => {
+            writeln!(file, "{}", std::process::id())
+                .with_context(|| format!("write instance lock {}", path.display()))?;
+            Ok(Some(InstanceWriteLock { path }))
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+            if lock_owner_is_dead(&path) {
+                fs::remove_file(&path)
+                    .with_context(|| format!("remove stale instance lock {}", path.display()))?;
+                try_acquire_instance_write_lock(layout)
+            } else {
+                Ok(None)
+            }
+        }
+        Err(error) => {
+            Err(error).with_context(|| format!("create instance lock {}", path.display()))
+        }
+    }
+}
+fn lock_owner_is_dead(path: &PathBuf) -> bool {
+    let Ok(contents) = fs::read_to_string(path) else {
+        return false;
+    };
+    let Ok(pid) = contents.trim().parse::<u32>() else {
+        return false;
+    };
+    #[cfg(target_os = "linux")]
+    {
+        !PathBuf::from(format!("/proc/{pid}")).exists()
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = pid;
+        false
+    }
+}
 /// `StartFullTextIndex` inputs so the runtime can resume indexing after
 /// restart without re-parsing source bytes or re-playing `ParserCompleted`.
 fn pending_start_full_text(state: &KernelState) -> Vec<DomainInput> {

@@ -9,15 +9,31 @@ use maestria_search_tantivy::TantivyFullTextIndex;
 use maestria_storage_sqlite::SqliteStore;
 use std::path::PathBuf;
 use std::time::Duration;
+use tokio::time::{sleep, timeout};
 
 use crate::helpers;
 pub async fn run(instance_dir: PathBuf, query: String, limit: usize) -> Result<()> {
     let layout = helpers::validated_instance(instance_dir)?;
+    let _instance_lock = acquire_instance_write_lock(&layout).await?;
     let normalized_query = query.trim().to_string();
     let pack = compute_search_pack(&layout, &normalized_query, limit)?;
     persist_search_audit(&layout, &pack, limit).await?;
     print_search_pack(&pack);
     Ok(())
+}
+async fn acquire_instance_write_lock(
+    layout: &maestria_core::InstanceLayout,
+) -> Result<maestria_daemon::InstanceWriteLock> {
+    timeout(Duration::from_secs(5), async {
+        loop {
+            if let Some(lock) = maestria_daemon::try_acquire_instance_write_lock(layout)? {
+                return Ok(lock);
+            }
+            sleep(Duration::from_millis(25)).await;
+        }
+    })
+    .await
+    .map_err(|_| anyhow::anyhow!("timed out waiting for instance write lock"))?
 }
 
 fn compute_search_pack(
