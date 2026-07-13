@@ -182,7 +182,7 @@ impl MaestriaRuntime {
                     }
                 }
             }
-            while in_flight.join_next().await.is_some() {}
+            in_flight.shutdown().await;
         })
     }
 }

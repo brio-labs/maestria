@@ -25,6 +25,7 @@ pub(crate) fn validate_readable_path(
     raw_path: &str,
     cwd: &Path,
     readable_roots: &[PathBuf],
+    blocked_paths: &[PathBuf],
 ) -> Result<PathBuf, PortError> {
     let candidate = if Path::new(raw_path).is_absolute() {
         PathBuf::from(raw_path)
@@ -32,6 +33,11 @@ pub(crate) fn validate_readable_path(
         cwd.join(raw_path)
     };
     let normalized = normalize_path(&candidate);
+    if blocked_paths.iter().any(|b| normalized.starts_with(b)) {
+        return Err(PortError::InvalidInput {
+            message: format!("path {:?} is blocked by exclusion", raw_path),
+        });
+    }
     let allowed = readable_roots.iter().any(|root| match root.canonicalize() {
         Ok(cr) => normalized.starts_with(&cr),
         Err(_) => false,
@@ -142,12 +148,25 @@ pub(crate) fn validate_cat_args(
         });
     }
     for arg in &argv[1..] {
-        let resolved =
-            validate_readable_path(arg, &request.working_directory, &request.readable_roots)?;
+        let resolved = validate_readable_path(
+            arg,
+            &request.working_directory,
+            &request.readable_roots,
+            &request.blocked_paths,
+        )?;
         let check_path = match std::fs::canonicalize(&resolved) {
             Ok(p) => p,
             Err(_) => resolved,
         };
+        if request
+            .blocked_paths
+            .iter()
+            .any(|b| check_path.starts_with(b))
+        {
+            return Err(PortError::InvalidInput {
+                message: format!("canonical path {:?} is blocked by exclusion", check_path),
+            });
+        }
         let path_str = match check_path.to_str() {
             Some(s) => s,
             None => arg,
