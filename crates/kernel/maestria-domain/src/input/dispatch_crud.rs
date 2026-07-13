@@ -148,6 +148,15 @@ impl KernelState {
         output
             .effects
             .push(MaestriaEffect::PersistEvent { envelope: event });
+        if input.to == TaskStatus::Validating {
+            output
+                .effects
+                .push(MaestriaEffect::RunValidation(RunValidationRequest {
+                    task_id: Some(input.task_id),
+                    claim_id: None,
+                    validation_report_id: ValidationReportId::new(0),
+                }));
+        }
         Ok(output)
     }
 

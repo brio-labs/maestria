@@ -1,11 +1,12 @@
 use maestria_domain::TaskStatus;
 
-use super::types::{ValidationCheck, ValidationContext, Validator};
+use super::types::{Severity, ValidationCheck, ValidationContext, Validator};
 
 fn passed_check(name: &str, message: &str) -> ValidationCheck {
     ValidationCheck {
         name: name.to_string(),
         passed: true,
+        severity: Severity::Error, // severity doesn't really matter for passed checks, but we'll default to Error
         message: message.to_string(),
     }
 }
@@ -14,6 +15,7 @@ fn failed_check(name: &str, message: impl Into<String>) -> ValidationCheck {
     ValidationCheck {
         name: name.to_string(),
         passed: false,
+        severity: Severity::Error,
         message: message.into(),
     }
 }

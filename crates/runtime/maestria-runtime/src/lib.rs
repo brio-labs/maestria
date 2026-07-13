@@ -109,11 +109,13 @@ impl MaestriaRuntime {
                         match state.apply_input(input) {
                             Ok(output) => output.effects,
                             Err(error) => {
+                                eprintln!("DOMAIN REJECTED INPUT: {:?}", error);
                                 tracing::warn!(%error, "domain rejected input");
                                 Vec::new()
                             }
                         }
                     };
+                    eprintln!("Effects generated: {}", effects.len());
                     for effect in effects {
                         tokio::select! {
                             () = shutdown_token.cancelled() => break,
@@ -121,7 +123,6 @@ impl MaestriaRuntime {
                                 if let Err(error) = result {
                                     tracing::error!(%error, "failed to dispatch effect");
                                     shutdown_token.cancel();
-                                    break;
                                 }
                             }
                         }
@@ -171,7 +172,6 @@ impl MaestriaRuntime {
                             profile,
                             scope: scope.clone(),
                             scope_id,
-
                             state: Arc::clone(&state),
                             input_tx: input_tx.clone(),
                             default_effect_timeout,

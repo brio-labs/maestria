@@ -288,7 +288,7 @@ fn validation_runner_passes_when_all_default_checks_pass() {
 }
 
 #[test]
-fn validation_runner_collects_failures_as_warnings() {
+fn validation_runner_reports_failures_as_errors_not_warnings() {
     let mut fixture = ContextFixture {
         task: Some(task(1, TaskStatus::Active)),
         harness_exit_code: Some(1),
@@ -307,31 +307,74 @@ fn validation_runner_collects_failures_as_warnings() {
 
     assert!(!report.passed);
     assert_eq!(report.checks.len(), 5);
-    assert_eq!(report.warnings.len(), 4);
-    assert!(
-        report
-            .warnings
-            .iter()
-            .any(|message| message.contains("claim"))
+    assert_eq!(report.warnings.len(), 0);
+}
+
+struct DummyWarningValidator;
+impl Validator for DummyWarningValidator {
+    fn name(&self) -> &str {
+        "dummy_warning"
+    }
+    fn validate(&self, _context: &ValidationContext<'_>) -> ValidationCheck {
+        ValidationCheck {
+            name: self.name().to_string(),
+            passed: false,
+            severity: super::types::Severity::Warning,
+            message: "This is a warning".to_string(),
+        }
+    }
+}
+
+struct DummyErrorValidator;
+impl Validator for DummyErrorValidator {
+    fn name(&self) -> &str {
+        "dummy_error"
+    }
+    fn validate(&self, _context: &ValidationContext<'_>) -> ValidationCheck {
+        ValidationCheck {
+            name: self.name().to_string(),
+            passed: false,
+            severity: super::types::Severity::Error,
+            message: "This is an error".to_string(),
+        }
+    }
+}
+
+#[test]
+fn validation_runner_passes_with_warnings() {
+    let fixture = ContextFixture::default();
+    let runner = ValidationRunner::with_validators(vec![Box::new(DummyWarningValidator)]);
+
+    let report = runner.run(
+        ValidationReportId::new(100),
+        Some(TaskId::new(1)),
+        &fixture.context(),
     );
-    assert!(
-        report
-            .warnings
-            .iter()
-            .any(|message| message.contains("Validating"))
+
+    assert!(report.passed);
+    assert_eq!(report.checks.len(), 1);
+    assert_eq!(report.warnings.len(), 1);
+    assert_eq!(report.warnings[0], "This is a warning");
+}
+
+#[test]
+fn validation_runner_fails_with_errors() {
+    let fixture = ContextFixture::default();
+    let runner = ValidationRunner::with_validators(vec![
+        Box::new(DummyWarningValidator),
+        Box::new(DummyErrorValidator),
+    ]);
+
+    let report = runner.run(
+        ValidationReportId::new(100),
+        Some(TaskId::new(1)),
+        &fixture.context(),
     );
-    assert!(
-        report
-            .warnings
-            .iter()
-            .any(|message| message.contains("non-zero"))
-    );
-    assert!(
-        report
-            .warnings
-            .iter()
-            .any(|message| message.contains("memory candidate"))
-    );
+
+    assert!(!report.passed);
+    assert_eq!(report.checks.len(), 2);
+    assert_eq!(report.warnings.len(), 1);
+    assert_eq!(report.warnings[0], "This is a warning");
 }
 
 #[test]

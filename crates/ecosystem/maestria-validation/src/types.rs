@@ -14,10 +14,17 @@ pub struct ValidationReport {
     pub warnings: Vec<String>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Severity {
+    Error,
+    Warning,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ValidationCheck {
     pub name: String,
     pub passed: bool,
+    pub severity: Severity,
     pub message: String,
 }
 

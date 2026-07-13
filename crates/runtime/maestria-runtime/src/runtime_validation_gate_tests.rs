@@ -11,12 +11,24 @@ use std::time::Duration;
 use tokio_util::sync::CancellationToken;
 
 async fn run_complete_task_test(
-    state: KernelState,
+    mut state: KernelState,
     governance: Governance,
     task_id: TaskId,
     report_id: ValidationReportId,
+    seed_events: Vec<DomainEvent>,
 ) -> Result<Vec<maestria_domain::DomainEventEnvelope>, Box<dyn std::error::Error>> {
     let event_log = Arc::new(InMemoryEventLog::new());
+    for event in seed_events {
+        let envelope = maestria_domain::DomainEventEnvelope {
+            id: maestria_domain::EventId::new(state.event_log.len() as u64 + 1),
+            sequence: maestria_domain::SequenceNumber::new(state.event_log.len() as u64 + 1),
+            event,
+        };
+        event_log
+            .append(envelope.clone())
+            .map_err(|e| format!("seed append failed: {:?}", e))?;
+        state.event_log.push(envelope);
+    }
     let adapters = Adapters {
         event_log: event_log.clone(),
         ..test_helpers::test_adapters()
@@ -37,19 +49,45 @@ async fn run_complete_task_test(
         .await
         .map_err(|e| format!("send failed: {}", e))?;
 
-    tokio::time::sleep(Duration::from_millis(50)).await;
+    let sync_tick = maestria_domain::LogicalTick::new(999);
+    input_tx
+        .send(DomainInput::ClockTick(sync_tick))
+        .await
+        .map_err(|e| format!("send tick failed: {}", e))?;
+
+    tokio::time::timeout(Duration::from_secs(2), async {
+        loop {
+            let all_events = event_log
+                .scan(EventFilter { artifact_id: None })
+                .map_err(|e| format!("scan failed: {:?}", e))?;
+            if all_events
+                .iter()
+                .any(|e| matches!(e.event, DomainEvent::TickObserved { at } if at == sync_tick))
+            {
+                return Ok::<(), Box<dyn std::error::Error>>(());
+            }
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .map_err(|_| "timeout waiting for deterministic barrier (ClockTick)")??;
 
     shutdown_token.cancel();
     let _ = runtime_handle.await;
 
-    let events = event_log
+    let all_events = event_log
         .scan(EventFilter { artifact_id: None })
         .map_err(|e| format!("scan failed: {:?}", e))?;
-    Ok(events)
+    let new_events = all_events
+        .into_iter()
+        .filter(|e| matches!(e.event, DomainEvent::TaskCompletionRecorded { .. }))
+        .collect();
+    Ok(new_events)
 }
 
 #[tokio::test]
-async fn task_completion_blocked_by_missing_report() -> Result<(), Box<dyn std::error::Error>> {
+async fn task_completion_blocked_by_missing_durable_report()
+-> Result<(), Box<dyn std::error::Error>> {
     let mut state = KernelState::default();
     let task_id = TaskId::new(1);
     let task = Task {
@@ -62,12 +100,19 @@ async fn task_completion_blocked_by_missing_report() -> Result<(), Box<dyn std::
         evidence_ids: Default::default(),
     };
     state.tasks.insert(task.id, task);
+    let report_id = ValidationReportId::new(99);
+    state.validation_reports.insert(
+        report_id,
+        ValidationReportRecord {
+            task_id: Some(task_id),
+            passed: true,
+            warnings: vec![],
+        },
+    );
 
     let governance = test_helpers::test_governance();
-    let events =
-        run_complete_task_test(state, governance, task_id, ValidationReportId::new(99)).await?;
+    let events = run_complete_task_test(state, governance, task_id, report_id, vec![]).await?;
 
-    // No events should be emitted since it was blocked
     assert!(events.is_empty(), "expected no events, got {:?}", events);
     Ok(())
 }
@@ -86,16 +131,24 @@ async fn task_completion_blocked_by_failed_report() -> Result<(), Box<dyn std::e
         evidence_ids: Default::default(),
     };
     let report_id = ValidationReportId::new(99);
-    let report = ValidationReportRecord {
+    state.tasks.insert(task.id, task);
+    state.validation_reports.insert(
+        report_id,
+        ValidationReportRecord {
+            task_id: Some(task_id),
+            passed: false,
+            warnings: vec![],
+        },
+    );
+
+    let governance = test_helpers::test_governance();
+    let seed = vec![DomainEvent::ValidationReportCreated {
+        report_id,
         task_id: Some(task_id),
         passed: false,
         warnings: vec![],
-    };
-    state.tasks.insert(task.id, task);
-    state.validation_reports.insert(report_id, report);
-
-    let governance = test_helpers::test_governance();
-    let events = run_complete_task_test(state, governance, task_id, report_id).await?;
+    }];
+    let events = run_complete_task_test(state, governance, task_id, report_id, seed).await?;
 
     assert!(events.is_empty(), "expected no events, got {:?}", events);
     Ok(())
@@ -115,16 +168,24 @@ async fn task_completion_blocked_by_mismatched_report() -> Result<(), Box<dyn st
         evidence_ids: Default::default(),
     };
     let report_id = ValidationReportId::new(99);
-    let report = ValidationReportRecord {
+    state.tasks.insert(task.id, task);
+    state.validation_reports.insert(
+        report_id,
+        ValidationReportRecord {
+            task_id: Some(TaskId::new(2)), // mismatch
+            passed: true,
+            warnings: vec![],
+        },
+    );
+
+    let governance = test_helpers::test_governance();
+    let seed = vec![DomainEvent::ValidationReportCreated {
+        report_id,
         task_id: Some(TaskId::new(2)), // mismatch
         passed: true,
         warnings: vec![],
-    };
-    state.tasks.insert(task.id, task);
-    state.validation_reports.insert(report_id, report);
-
-    let governance = test_helpers::test_governance();
-    let events = run_complete_task_test(state, governance, task_id, report_id).await?;
+    }];
+    let events = run_complete_task_test(state, governance, task_id, report_id, seed).await?;
 
     assert!(events.is_empty(), "expected no events, got {:?}", events);
     Ok(())
@@ -144,21 +205,33 @@ async fn task_completion_allowed() -> Result<(), Box<dyn std::error::Error>> {
         evidence_ids: Default::default(),
     };
     let report_id = ValidationReportId::new(99);
-    let report = ValidationReportRecord {
+    state.tasks.insert(task.id, task);
+    state.validation_reports.insert(
+        report_id,
+        ValidationReportRecord {
+            task_id: Some(task_id),
+            passed: true,
+            warnings: vec![],
+        },
+    );
+
+    let governance = test_helpers::test_governance();
+    let seed = vec![DomainEvent::ValidationReportCreated {
+        report_id,
         task_id: Some(task_id),
         passed: true,
         warnings: vec![],
-    };
-    state.tasks.insert(task.id, task);
-    state.validation_reports.insert(report_id, report);
+    }];
+    let events = run_complete_task_test(state, governance, task_id, report_id, seed).await?;
 
-    let governance = test_helpers::test_governance();
-    let events = run_complete_task_test(state, governance, task_id, report_id).await?;
-
-    assert_eq!(events.len(), 1, "expected 1 event, got {:?}", events);
+    if events.len() != 1 {
+        return Err(format!("expected 1 event, got {:?}", events).into());
+    }
     match &events[0].event {
         DomainEvent::TaskCompletionRecorded { status, .. } => {
-            assert_eq!(*status, TaskStatus::CompletedVerified);
+            if *status != TaskStatus::CompletedVerified {
+                return Err(format!("expected CompletedVerified, got {:?}", status).into());
+            }
         }
         other => return Err(format!("expected TaskCompletionRecorded, got {:?}", other).into()),
     }
@@ -180,20 +253,28 @@ async fn task_completion_blocked_by_warnings_when_disallowed()
         evidence_ids: Default::default(),
     };
     let report_id = ValidationReportId::new(99);
-    let report = ValidationReportRecord {
-        task_id: Some(task_id),
-        passed: true,
-        warnings: vec!["some warning".to_string()],
-    };
     state.tasks.insert(task.id, task);
-    state.validation_reports.insert(report_id, report);
+    state.validation_reports.insert(
+        report_id,
+        ValidationReportRecord {
+            task_id: Some(task_id),
+            passed: true,
+            warnings: vec!["some warning".to_string()],
+        },
+    );
 
     let governance = Governance {
         classifier: Arc::new(DefaultRiskClassifier),
         approval_gate: Arc::new(DefaultApprovalGate),
         validation_gate: Arc::new(DefaultValidationGate::new(false)), // DISALLOWED
     };
-    let events = run_complete_task_test(state, governance, task_id, report_id).await?;
+    let seed = vec![DomainEvent::ValidationReportCreated {
+        report_id,
+        task_id: Some(task_id),
+        passed: true,
+        warnings: vec!["some warning".to_string()],
+    }];
+    let events = run_complete_task_test(state, governance, task_id, report_id, seed).await?;
 
     assert!(events.is_empty(), "expected no events, got {:?}", events);
     Ok(())
@@ -214,25 +295,37 @@ async fn task_completion_allowed_with_warnings_when_configured()
         evidence_ids: Default::default(),
     };
     let report_id = ValidationReportId::new(99);
-    let report = ValidationReportRecord {
-        task_id: Some(task_id),
-        passed: true,
-        warnings: vec!["some warning".to_string()],
-    };
     state.tasks.insert(task.id, task);
-    state.validation_reports.insert(report_id, report);
+    state.validation_reports.insert(
+        report_id,
+        ValidationReportRecord {
+            task_id: Some(task_id),
+            passed: true,
+            warnings: vec!["some warning".to_string()],
+        },
+    );
 
     let governance = Governance {
         classifier: Arc::new(DefaultRiskClassifier),
         approval_gate: Arc::new(DefaultApprovalGate),
         validation_gate: Arc::new(DefaultValidationGate::new(true)), // ALLOWED
     };
-    let events = run_complete_task_test(state, governance, task_id, report_id).await?;
+    let seed = vec![DomainEvent::ValidationReportCreated {
+        report_id,
+        task_id: Some(task_id),
+        passed: true,
+        warnings: vec!["some warning".to_string()],
+    }];
+    let events = run_complete_task_test(state, governance, task_id, report_id, seed).await?;
 
-    assert_eq!(events.len(), 1, "expected 1 event, got {:?}", events);
+    if events.len() != 1 {
+        return Err(format!("expected 1 event, got {:?}", events).into());
+    }
     match &events[0].event {
         DomainEvent::TaskCompletionRecorded { status, .. } => {
-            assert_eq!(*status, TaskStatus::CompletedWithWarnings);
+            if *status != TaskStatus::CompletedWithWarnings {
+                return Err(format!("expected CompletedWithWarnings, got {:?}", status).into());
+            }
         }
         other => return Err(format!("expected TaskCompletionRecorded, got {:?}", other).into()),
     }

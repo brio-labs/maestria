@@ -1,6 +1,6 @@
 use maestria_domain::{TaskId, ValidationReportId};
 
-use super::types::{ValidationCheck, ValidationContext, ValidationReport, Validator};
+use super::types::{Severity, ValidationCheck, ValidationContext, ValidationReport, Validator};
 use super::validators::{
     CitationValidator, EvidenceExistenceValidator, HarnessRunValidator, MemoryValidator,
     TaskStateValidator,
@@ -36,10 +36,12 @@ impl ValidationRunner {
             .iter()
             .map(|validator| validator.validate(context))
             .collect();
-        let passed = checks.iter().all(|check| check.passed);
+        let passed = checks
+            .iter()
+            .all(|check| check.passed || check.severity != Severity::Error);
         let warnings = checks
             .iter()
-            .filter(|check| !check.passed)
+            .filter(|check| !check.passed && check.severity == Severity::Warning)
             .map(|check| check.message.clone())
             .collect();
 
