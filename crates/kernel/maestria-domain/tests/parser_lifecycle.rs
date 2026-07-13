@@ -809,7 +809,7 @@ fn artifact_detected_different_hash_with_pending_parser_proceeds() -> Result<(),
     Ok(())
 }
 
-// ── Parser output contract: no index effects from parsing ────────
+// ── Parser output contract: indexing is a separate lifecycle step ──────────
 
 #[test]
 fn parser_completed_does_not_emit_index_effects() -> Result<(), DomainError> {
@@ -841,17 +841,19 @@ fn parser_completed_does_not_emit_index_effects() -> Result<(), DomainError> {
         cards: Vec::new(),
     }))?;
 
-    // ParserCompleted registers chunks but emits NO IndexFullText effects
-    let index_effects: Vec<_> = output
+    let full_text_effects = output
         .effects
         .iter()
-        .filter(|e| matches!(e, MaestriaEffect::IndexFullText(_)))
-        .collect();
-    assert!(
-        index_effects.is_empty(),
-        "ParserCompleted must not emit IndexFullText effects"
-    );
-    // Both chunks are pending after parse
+        .filter(|effect| matches!(effect, MaestriaEffect::IndexFullText(_)))
+        .count();
+    let vector_effects = output
+        .effects
+        .iter()
+        .filter(|effect| matches!(effect, MaestriaEffect::IndexVector(_)))
+        .count();
+    assert_eq!(full_text_effects, 0);
+    assert_eq!(vector_effects, 0);
+    // Both chunks are pending after parse and are indexed by StartFullTextIndex.
     assert!(state.pending_full_text.contains(&ChunkId::new(10)));
     assert!(state.pending_full_text.contains(&ChunkId::new(11)));
     Ok(())

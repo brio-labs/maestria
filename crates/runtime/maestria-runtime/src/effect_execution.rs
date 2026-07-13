@@ -237,14 +237,6 @@ impl EffectExecutionContext {
             };
             (chunk, content_hash)
         };
-        if let Err(error) = self.adapters.vector_index.delete_chunks(&[chunk.id]) {
-            tracing::warn!(
-                chunk_id = %request.chunk_id,
-                %error,
-                "failed to clear stale vector projection; preserving fallback"
-            );
-            return true;
-        }
         let embedding_request = maestria_ports::EmbeddingRequest {
             text: chunk.text.clone(),
             model,
@@ -256,10 +248,12 @@ impl EffectExecutionContext {
             Ok(Ok(response)) => response,
             Ok(Err(error)) => {
                 tracing::warn!(chunk_id = %request.chunk_id, %error, "embedding provider failed; preserving fallback");
+                self.invalidate_vector_projection(request.chunk_id);
                 return true;
             }
             Err(error) => {
                 tracing::warn!(chunk_id = %request.chunk_id, %error, "embedding provider task failed; preserving fallback");
+                self.invalidate_vector_projection(request.chunk_id);
                 return true;
             }
         };
@@ -277,6 +271,12 @@ impl EffectExecutionContext {
                 tracing::warn!(chunk_id = %request.chunk_id, %error, "vector projection failed; preserving fallback");
                 true
             }
+        }
+    }
+
+    fn invalidate_vector_projection(&self, chunk_id: maestria_domain::ChunkId) {
+        if let Err(error) = self.adapters.vector_index.delete_chunks(&[chunk_id]) {
+            tracing::debug!(chunk_id = %chunk_id, %error, "could not invalidate stale vector projection");
         }
     }
 }
