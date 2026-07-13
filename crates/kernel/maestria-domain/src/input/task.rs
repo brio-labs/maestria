@@ -107,7 +107,7 @@ impl KernelState {
     pub(super) fn handle_link_evidence_to_task(
         &mut self,
         input: LinkEvidenceToTaskInput,
-    ) -> Result<DomainEventEnvelope, DomainError> {
+    ) -> Result<Option<DomainEventEnvelope>, DomainError> {
         let task = self
             .tasks
             .get_mut(&input.task_id)
@@ -117,13 +117,14 @@ impl KernelState {
                 id: input.evidence_id,
             });
         }
+        if !task.evidence_ids.insert(input.evidence_id) {
+            return Ok(None);
+        }
 
-        task.evidence_ids.insert(input.evidence_id);
-
-        Ok(self.emit_event(DomainEvent::TaskEvidenceLinked {
+        Ok(Some(self.emit_event(DomainEvent::TaskEvidenceLinked {
             task_id: input.task_id,
             evidence_id: input.evidence_id,
-        }))
+        })))
     }
 
     // ── Replay apply ─────────────────────────────────────────────

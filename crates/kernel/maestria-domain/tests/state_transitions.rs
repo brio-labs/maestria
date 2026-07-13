@@ -383,13 +383,9 @@ fn link_evidence_to_task_idempotent() -> Result<(), DomainError> {
     assert_eq!(task.evidence_ids.len(), 1);
     assert!(task.evidence_ids.contains(&EvidenceId::new(10)));
 
-    // Event is still emitted on duplicate (existing convention)
-    assert!(
-        output
-            .events
-            .iter()
-            .any(|e| matches!(e.event, DomainEvent::TaskEvidenceLinked { .. }))
-    );
+    // Duplicate links do not emit another event or persistence effect.
+    assert!(output.events.is_empty());
+    assert!(output.effects.is_empty());
 
     Ok(())
 }

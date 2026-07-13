@@ -195,11 +195,12 @@ impl KernelState {
         input: LinkEvidenceToTaskInput,
     ) -> Result<KernelOutput, DomainError> {
         let mut output = KernelOutput::default();
-        let event = self.handle_link_evidence_to_task(input)?;
-        output.events.push(event.clone());
-        output
-            .effects
-            .push(MaestriaEffect::PersistEvent { envelope: event });
+        if let Some(event) = self.handle_link_evidence_to_task(input)? {
+            output.events.push(event.clone());
+            output
+                .effects
+                .push(MaestriaEffect::PersistEvent { envelope: event });
+        }
         Ok(output)
     }
 
