@@ -270,10 +270,10 @@ async fn wait_for_task_evidence_link(
                 .with_context(|| "load kernel state while waiting for evidence link persistence")
             {
                 Ok(state) => {
-                    if let Some(task) = state.tasks.get(&task_id) {
-                        if task.evidence_ids.contains(&evidence_id) {
-                            return Ok(state);
-                        }
+                    if let Some(task) = state.tasks.get(&task_id)
+                        && task.evidence_ids.contains(&evidence_id)
+                    {
+                        return Ok(state);
                     }
                     sleep(Duration::from_millis(25)).await;
                 }
