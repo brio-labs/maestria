@@ -2,8 +2,8 @@ use anyhow::Result;
 use clap::Parser;
 use maestria_domain::{HarnessRunId, MaestriaEffect, QueryHarnessRequest, ScopeId};
 use maestria_governance::{
-    ApprovalGate, ApprovalRequest, AutonomyProfile, DefaultApprovalGate, PolicyDecision, Scope,
-    ScopeGuard,
+    ApprovalGate, ApprovalRequest, AutonomyProfile, DefaultApprovalGate, PolicyDecision,
+    PrivacyExclusions, Scope, ScopeGuard,
 };
 use maestria_harness::LocalShellHarnessAdapter;
 use maestria_ports::{HarnessAdapter, HarnessCommandClass, HarnessRequest};
@@ -18,6 +18,15 @@ struct Cli {
 
     #[arg(short, long, default_value = ".")]
     working_directory: PathBuf,
+}
+
+fn privacy_patterns() -> Vec<String> {
+    let privacy = PrivacyExclusions::default();
+    let mut patterns: Vec<String> = privacy.sensitive_names().to_vec();
+    patterns.extend(
+        privacy.sensitive_extensions().iter().map(|ext| format!("*.{ext}")),
+    );
+    patterns
 }
 
 #[tokio::main]
@@ -79,7 +88,7 @@ async fn main() -> Result<()> {
         class: HarnessCommandClass::Shell,
         readable_roots: scope.readable_roots().to_vec(),
         blocked_paths: vec![],
-        blocked_patterns: vec![],
+        blocked_patterns: privacy_patterns(),
     };
 
     let outcome = adapter.execute(request).await?;

@@ -22,6 +22,18 @@ impl EffectExecutionContext {
             }
         };
 
+        // ── scope capability gate ────────────────────────────────
+        let scope_guard = maestria_governance::ScopeGuard::new(self.scope.clone());
+        let scope = scope_guard.scope();
+        if class == HarnessCommandClass::Shell && !scope.harness_allowed("shell") {
+            tracing::warn!("Scope does not allow shell harness; not spawning");
+            return true;
+        }
+        if !scope.command_allowed(&request.command) {
+            tracing::warn!(command = %request.command, "command blocked by scope; not spawning");
+            return true;
+        }
+
         // ── grammar restriction ──────────────────────────────────
         if !is_shell_grammar_allowed(&request.command) {
             tracing::warn!(
@@ -32,11 +44,10 @@ impl EffectExecutionContext {
         }
 
         // ── cat path containment ─────────────────────────────────
-        let scope = maestria_governance::ScopeGuard::new(self.scope.clone());
         if class == HarnessCommandClass::Shell && request.command.trim().starts_with("cat") {
             for arg in cat_path_args(&request.command) {
                 let path = PathBuf::from(arg);
-                if let Err(containment_err) = scope.check_read_containment(&path) {
+                if let Err(containment_err) = scope_guard.check_read_containment(&path) {
                     tracing::warn!(
                         path = %path.display(),
                         ?containment_err,
@@ -46,8 +57,7 @@ impl EffectExecutionContext {
                 }
             }
         }
-
-        let working_directory = match resolve_working_directory(scope.scope()) {
+        let working_directory = match resolve_working_directory(scope) {
             Ok(path) => path,
             Err(error) => {
                 tracing::error!(%error, "unable to resolve harness working directory");
