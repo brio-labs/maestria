@@ -7,6 +7,7 @@ impl IdAllocator for crate::SqliteStore {
     fn allocate_claim_id(&self) -> Result<ClaimId, PortError> {
         let mut connection = self.lock()?;
         let transaction = connection.transaction().map_err(to_port_error)?;
+        crate::schema::seed_id_counters(&transaction)?;
 
         let next: i64 = transaction
             .query_row(
@@ -27,6 +28,7 @@ impl IdAllocator for crate::SqliteStore {
     fn allocate_memory_candidate_id(&self) -> Result<MemoryCandidateId, PortError> {
         let mut connection = self.lock()?;
         let transaction = connection.transaction().map_err(to_port_error)?;
+        crate::schema::seed_id_counters(&transaction)?;
 
         let next: i64 = transaction
             .query_row(

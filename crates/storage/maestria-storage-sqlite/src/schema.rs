@@ -153,25 +153,31 @@ const BASE_SCHEMA_SQL: &str = "PRAGMA foreign_keys = ON;
 ///
 /// Scans `domain_events` for the maximum `claim_id` and `memory_candidate_id`
 /// already persisted, then seeds each counter at `max_id + 1` (or 1 if no
-/// matching events exist).  Uses `INSERT OR IGNORE` so repeated calls are
-/// idempotent — already-seeded counters are not overwritten.
-fn seed_id_counters(connection: &Connection) -> Result<(), PortError> {
+/// matching events exist). Existing counters are advanced but never regressed.
+fn next_counter_value(max_id: Option<i64>, namespace: &str) -> Result<i64, PortError> {
+    max_id.map_or(Ok(1), |value| {
+        value.checked_add(1).ok_or_else(|| PortError::Internal {
+            message: format!("{namespace} id counter exhausted"),
+        })
+    })
+}
+
+pub(crate) fn seed_id_counters(connection: &Connection) -> Result<(), PortError> {
     use rusqlite::params;
 
     let max_claim: Option<i64> = connection
         .query_row(
             "SELECT MAX(CAST(json_extract(payload_json, '$.claim_id') AS INTEGER))
-             FROM domain_events
-             WHERE event_kind = 'claim_created'",
+             FROM domain_events WHERE event_kind = 'claim_created'",
             [],
             |row| row.get(0),
         )
         .map_err(to_port_error)?;
-    let next_claim = max_claim.map_or(0i64, |v| v) + 1;
-
+    let next_claim = next_counter_value(max_claim, "claim")?;
     connection
         .execute(
-            "INSERT OR IGNORE INTO id_counters (namespace, next_id) VALUES ('claim', ?1)",
+            "INSERT INTO id_counters (namespace, next_id) VALUES ('claim', ?1)
+             ON CONFLICT(namespace) DO UPDATE SET next_id = MAX(next_id, excluded.next_id)",
             params![next_claim],
         )
         .map_err(to_port_error)?;
@@ -179,21 +185,19 @@ fn seed_id_counters(connection: &Connection) -> Result<(), PortError> {
     let max_candidate: Option<i64> = connection
         .query_row(
             "SELECT MAX(CAST(json_extract(payload_json, '$.candidate_id') AS INTEGER))
-             FROM domain_events
-             WHERE event_kind = 'memory_candidate_created'",
+             FROM domain_events WHERE event_kind = 'memory_candidate_created'",
             [],
             |row| row.get(0),
         )
         .map_err(to_port_error)?;
-    let next_candidate = max_candidate.map_or(0i64, |v| v) + 1;
-
+    let next_candidate = next_counter_value(max_candidate, "memory_candidate")?;
     connection
         .execute(
-            "INSERT OR IGNORE INTO id_counters (namespace, next_id) VALUES ('memory_candidate', ?1)",
+            "INSERT INTO id_counters (namespace, next_id) VALUES ('memory_candidate', ?1)
+             ON CONFLICT(namespace) DO UPDATE SET next_id = MAX(next_id, excluded.next_id)",
             params![next_candidate],
         )
         .map_err(to_port_error)?;
-
     Ok(())
 }
 
