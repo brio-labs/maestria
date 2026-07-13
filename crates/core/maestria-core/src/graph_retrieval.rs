@@ -47,6 +47,11 @@ pub(super) fn expand_graph(
                 continue;
             }
             let next_score = fused_graph_score(score, relation.confidence_milli, depth + 1);
+            if let Some(evidence_id) = relation.evidence_id
+                && !pack.evidence_ids.contains(&evidence_id)
+            {
+                pack.evidence_ids.push(evidence_id);
+            }
             total_added += 1;
             if project_graph_neighbor(
                 ports,
@@ -74,6 +79,12 @@ pub(super) fn expand_graph(
         let evidence_id = evidence_id_for(hit.chunk.artifact_id, hit.chunk.order);
         if !pack.evidence_ids.contains(&evidence_id) {
             pack.evidence_ids.push(evidence_id);
+        }
+        if !pack
+            .chunks
+            .iter()
+            .any(|existing| existing.chunk.id == hit.chunk.id)
+        {
             pack.chunks.push(hit);
         }
     }

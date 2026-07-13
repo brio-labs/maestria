@@ -63,7 +63,15 @@ fn compute_search_pack(
         None
     };
     let graph_index = match SqliteGraphIndex::open(layout.graph_index_dir.join("projection.db")) {
-        Ok(index) => Some(index),
+        Ok(index) => match maestria_daemon::load_kernel_state(layout)
+            .and_then(|state| maestria_daemon::reconcile_graph_projection(&state, &index))
+        {
+            Ok(()) => Some(index),
+            Err(error) => {
+                eprintln!("graph projection unavailable; using retrieval-only search: {error}");
+                None
+            }
+        },
         Err(error) => {
             eprintln!("graph projection unavailable; using retrieval-only search: {error}");
             None

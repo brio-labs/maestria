@@ -153,7 +153,7 @@ impl GraphFixture {
             confidence_milli,
         };
         for relation in [
-            relation(1, self.a, self.b, Some(self.e_a), 1000),
+            relation(1, self.a, self.b, Some(self.e_e), 1000),
             relation(2, self.b, self.c, Some(self.e_b), 1000),
             relation(3, self.a, self.d, None, 1000),
             relation(4, self.c, self.e, Some(self.e_a), 1000),
@@ -666,6 +666,7 @@ fn test_graph_retrieval_integration() -> Result<(), Box<dyn std::error::Error>> 
     assert!(!chunk_artifacts.contains(&fixture.d));
     assert!(chunk_artifacts.contains(&fixture.e));
     assert!(chunk_artifacts.contains(&fixture.f));
+    assert!(pack.evidence_ids.contains(&fixture.e_e));
     let score_b = pack
         .chunks
         .iter()
