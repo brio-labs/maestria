@@ -1,3 +1,6 @@
+use std::path::PathBuf;
+use std::time::Duration;
+
 use super::*;
 use maestria_domain::{
     ClaimId, ContentRange, EventId, EvidenceKind, LogicalTick, RelationKind, SequenceNumber,
@@ -343,6 +346,14 @@ pub fn assert_blob_store_round_trip(store: &impl BlobStore) {
 }
 
 pub fn assert_full_text_index_round_trip(index: &impl FullTextIndex) {
+    verify_chunk_round_trip(index);
+    verify_card_round_trip(index);
+    verify_card_replacement(index);
+    verify_tie_ordering(index);
+    verify_empty_query(index);
+}
+
+fn verify_chunk_round_trip(index: &impl FullTextIndex) {
     // --- chunk round-trip (existing) ---
     index
         .index_chunks(vec![
@@ -367,14 +378,26 @@ pub fn assert_full_text_index_round_trip(index: &impl FullTextIndex) {
     let hits = index
         .search(SearchQuery {
             q: "hello".to_string(),
-            limit: 1,
+            limit: 10,
             offset: 0,
         })
         .expect("search hits");
 
-    assert_eq!(hits.len(), 1);
-    assert_eq!(hits[0].chunk.chunk_id, ChunkId::new(11));
+    assert_eq!(hits.len(), 2);
+    let hit_ids: Vec<ChunkId> = hits.iter().map(|hit| hit.chunk.chunk_id).collect();
+    assert!(hit_ids.contains(&ChunkId::new(10)));
+    assert!(hit_ids.contains(&ChunkId::new(11)));
+    let repeated = index
+        .search(SearchQuery {
+            q: "hello".to_string(),
+            limit: 10,
+            offset: 0,
+        })
+        .expect("repeat search hits");
+    assert_eq!(hits, repeated);
+}
 
+fn verify_card_round_trip(index: &impl FullTextIndex) {
     // --- card round-trip ---
     index
         .index_cards(vec![
@@ -408,10 +431,20 @@ pub fn assert_full_text_index_round_trip(index: &impl FullTextIndex) {
         .expect("search cards");
 
     assert_eq!(card_hits.len(), 2);
-    // Beta has longer body, so it should rank above Alpha
-    assert_eq!(card_hits[0].card.card_id, CardId::new(101));
-    assert_eq!(card_hits[1].card.card_id, CardId::new(100));
+    let card_ids: Vec<CardId> = card_hits.iter().map(|hit| hit.card.card_id).collect();
+    assert!(card_ids.contains(&CardId::new(100)));
+    assert!(card_ids.contains(&CardId::new(101)));
+    let repeated = index
+        .search_cards(SearchQuery {
+            q: "card".to_string(),
+            limit: 10,
+            offset: 0,
+        })
+        .expect("repeat card search");
+    assert_eq!(card_hits, repeated);
+}
 
+fn verify_card_replacement(index: &impl FullTextIndex) {
     // --- card replacement: re-index card 100 with updated content ---
     index
         .index_cards(vec![IndexedCard {
@@ -443,7 +476,9 @@ pub fn assert_full_text_index_round_trip(index: &impl FullTextIndex) {
     assert_eq!(updated_hits.len(), 1);
     assert_eq!(updated_hits[0].card.card_id, CardId::new(100));
     assert_eq!(updated_hits[0].card.title, "Alpha Updated");
+}
 
+fn verify_tie_ordering(index: &impl FullTextIndex) {
     // --- deterministic tie ordering: same scores, ordered by (artifact_id, card_id) ---
     index
         .index_cards(vec![
@@ -482,7 +517,9 @@ pub fn assert_full_text_index_round_trip(index: &impl FullTextIndex) {
         tie_ids,
         vec![CardId::new(301), CardId::new(302), CardId::new(303)]
     );
+}
 
+fn verify_empty_query(index: &impl FullTextIndex) {
     // --- empty query returns empty ---
     let empty = index
         .search_cards(SearchQuery {

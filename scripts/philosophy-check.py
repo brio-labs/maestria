@@ -12,76 +12,46 @@ THIS_SCRIPT = Path(__file__).resolve()
 DOMAIN_ROOT = ROOT / "crates" / "kernel" / "maestria-domain"
 DOMAIN_SRC = DOMAIN_ROOT / "src"
 DOMAIN_MANIFEST = DOMAIN_ROOT / "Cargo.toml"
+KERNEL_ROOTS = (
+    ROOT / "crates" / "kernel" / "maestria-domain",
+    ROOT / "crates" / "kernel" / "maestria-governance",
+    ROOT / "crates" / "kernel" / "maestria-ports",
+)
 SCAN_EXTS = {".rs", ".toml", ".py", ".yml", ".yaml", ".md"}
 SKIP_DIRS = {".git", "target", "node_modules", "dist", ".direnv", ".venv"}
 SKIP_FILES = {"maestria_brioche_informed_code_architecture_report.md"}
 FORBIDDEN_MARKERS = [r"\bTODO\b", r"\bFIXME\b"]
-FORBIDDEN_DOMAIN_TOKENS = [
+FORBIDDEN_KERNEL_DEPENDENCIES = {
     "tokio",
     "sqlx",
     "reqwest",
     "tantivy",
     "axum",
+    "hyper",
+    "tonic",
+    "actix-web",
+}
+FORBIDDEN_KERNEL_TOKENS = [
     "std::fs",
     "std::process",
     "SystemTime",
     "Instant::now",
 ]
-FORBIDDEN_DOMAIN_FAILURES = ["unwrap(", "expect(", "panic!("]
+FORBIDDEN_DOMAIN_FAILURES = [
+    "unwrap(",
+    "expect(",
+    "panic!(",
+    "unreachable!(",
+    "todo!(",
+    "unimplemented!(",
+]
 MAX_PRODUCTION_LOGICAL_LINES = 400
 MAX_MODULE_PHYSICAL_LINES = 900
-MODULE_SIZE_EXEMPTIONS = {
-    "crates/kernel/maestria-domain/src/types.rs": (
-        "canonical domain type catalog; split requires a coordinated domain API migration"
-    ),
-    "crates/kernel/maestria-domain/src/replay.rs": (
-        "single replay reducer; split requires preserving event ordering and replay proofs"
-    ),
-    "crates/kernel/maestria-domain/src/input/handlers.rs": (
-        "existing transition handler catalog; split requires coordinated domain transition proofs"
-    ),
-    "crates/kernel/maestria-domain/tests/replay_integration.rs": (
-        "existing replay integration suite; split is tracked with the domain test migration"
-    ),
-    "crates/kernel/maestria-domain/tests/domain_unit_tests.rs": (
-        "existing domain behavior suite; split is tracked with the domain test migration"
-    ),
-    "crates/kernel/maestria-ports/src/in_memory.rs": (
-        "existing in-memory adapter catalog; split requires shared contract coordination"
-    ),
-    "crates/kernel/maestria-ports/src/contract_tests.rs": (
-        "existing adapter contract suite; split requires preserving shared contract fixtures"
-    ),
-    "crates/runtime/maestria-runtime/src/lib.rs": (
-        "existing runtime effect loop; split requires coordinated worker lifecycle changes"
-    ),
-    "crates/apps/maestria-cli/src/main.rs": (
-        "existing CLI command catalog; split requires coordinated command registration changes"
-    ),
-    "crates/storage/maestria-storage-sqlite/src/tests.rs": (
-        "existing storage compatibility suite; split requires preserving migration fixtures"
-    ),
-    "crates/storage/maestria-storage-sqlite/src/repositories.rs": (
-        "existing storage repository catalog; split requires coordinated DTO boundary changes"
-    ),
-    "crates/storage/maestria-storage-sqlite/src/event_payloads.rs": (
-        "existing event DTO catalog; split requires preserving replay serialization compatibility"
-    ),
-    "crates/kernel/maestria-governance/src/lib.rs": (
-        "existing governance policy catalog; split requires coordinated public policy API changes"
-    ),
-    "crates/storage/maestria-vector-sqlite/src/lib.rs": (
-        "existing vector projection catalog; split requires preserving adapter migration behavior"
-    ),
-    "crates/storage/maestria-graph-sqlite/src/lib.rs": (
-        "existing graph projection catalog; split requires preserving adapter migration behavior"
-    ),
-    "crates/ecosystem/maestria-parsers/src/lib.rs": (
-        "existing parser registry catalog; split requires coordinated parser contract changes"
-    ),
-    "crates/ecosystem/maestria-validation/src/lib.rs": (
-        "existing validator catalog; split requires preserving validator registration behavior"
-    ),
+MODULE_SIZE_EXEMPTIONS: dict[str, str] = {}
+KERNEL_ALLOWED_DEPENDENCIES = {
+    "maestria-domain": {"sha2"},
+    "maestria-governance": {"maestria_domain"},
+    "maestria-ports": {"maestria_domain"},
 }
 
 
@@ -122,15 +92,85 @@ def scan_markers() -> list[str]:
     return violations
 
 
+def _manifest_dependencies(content: str) -> set[str]:
+    try:
+        import tomllib
+
+        document = tomllib.loads(content)
+    except (tomllib.TOMLDecodeError, ValueError):
+        return set()
+    dependencies = set(document.get("dependencies", {}))
+    for target in document.get("target", {}).values():
+        dependencies.update(target.get("dependencies", {}))
+    return dependencies
+
+
+def scan_kernel_manifests() -> list[str]:
+    violations = []
+    for kernel_root in KERNEL_ROOTS:
+        manifest = kernel_root / "Cargo.toml"
+        content = read_text(manifest)
+        if content is None:
+            violations.append(str(manifest.relative_to(ROOT)))
+            continue
+        dependencies = _manifest_dependencies(content)
+        crate_name = kernel_root.name
+        allowed = KERNEL_ALLOWED_DEPENDENCIES.get(crate_name, set())
+        for dependency in sorted(dependencies & FORBIDDEN_KERNEL_DEPENDENCIES):
+            violations.append(
+                f"{manifest.relative_to(ROOT)} contains forbidden dependency token {dependency}"
+            )
+        for dependency in sorted(
+            dependency
+            for dependency in dependencies
+            if dependency.startswith("maestria_") and dependency not in allowed
+        ):
+            violations.append(
+                f"{manifest.relative_to(ROOT)} contains disallowed kernel dependency {dependency}"
+            )
+    return violations
+
+
+def is_test_source(path: Path) -> bool:
+    return (
+        "tests" in path.parts
+        or path.stem in {"tests", "contract_tests"}
+        or path.stem.endswith("_tests")
+    )
+
+
+def scan_kernel_sources() -> list[str]:
+    violations = []
+    for kernel_root in KERNEL_ROOTS:
+        for source in (kernel_root / "src").rglob("*.rs"):
+            if is_test_source(source):
+                continue
+            content = read_text(source)
+            if content is None:
+                continue
+            production = production_rust(content)
+            rel = source.relative_to(ROOT)
+            for token in FORBIDDEN_KERNEL_TOKENS:
+                if token in production:
+                    violations.append(f"{rel} contains forbidden kernel token {token}")
+            for token in FORBIDDEN_DOMAIN_FAILURES:
+                if token in production:
+                    violations.append(f"{rel} contains forbidden failure token {token}")
+    return violations
+
+
 def scan_domain_manifest() -> list[str]:
     content = read_text(DOMAIN_MANIFEST)
     if content is None:
         return [str(DOMAIN_MANIFEST.relative_to(ROOT))]
-    return [
-        f"{DOMAIN_MANIFEST.relative_to(ROOT)} contains forbidden dependency token {token}"
-        for token in FORBIDDEN_DOMAIN_TOKENS
-        if f"{token} =" in content
-    ]
+    violations = []
+    for dependency in sorted(
+        _manifest_dependencies(content) & FORBIDDEN_KERNEL_DEPENDENCIES
+    ):
+        violations.append(
+            f"{DOMAIN_MANIFEST.relative_to(ROOT)} contains forbidden dependency token {dependency}"
+        )
+    return violations
 
 
 def scan_domain_sources() -> list[str]:
@@ -141,7 +181,7 @@ def scan_domain_sources() -> list[str]:
             continue
         production = production_rust(content)
         rel = source.relative_to(ROOT)
-        for token in FORBIDDEN_DOMAIN_TOKENS:
+        for token in FORBIDDEN_KERNEL_TOKENS:
             if token in production:
                 violations.append(f"{rel} contains forbidden domain token {token}")
         for token in FORBIDDEN_DOMAIN_FAILURES:
@@ -165,15 +205,12 @@ def scan_module_sizes() -> list[str]:
             continue
         rel_path = source.relative_to(ROOT)
         rel = rel_path.as_posix()
-        if rel in MODULE_SIZE_EXEMPTIONS:
-            continue
         content = read_text(source)
         if content is None:
             continue
-        is_test_file = "tests" in rel_path.parts
         logical_lines = logical_line_count(content)
         physical_lines = len(content.splitlines())
-        if not is_test_file and logical_lines > MAX_PRODUCTION_LOGICAL_LINES:
+        if logical_lines > MAX_PRODUCTION_LOGICAL_LINES and not is_test_source(rel_path):
             violations.append(
                 f"{rel} has {logical_lines} module logical lines "
                 f"(limit {MAX_PRODUCTION_LOGICAL_LINES})"
@@ -190,8 +227,8 @@ def main() -> int:
     violations = []
     marker_violations = scan_markers()
     violations.extend(f"{path} contains forbidden task marker" for path in marker_violations)
-    violations.extend(scan_domain_manifest())
-    violations.extend(scan_domain_sources())
+    violations.extend(scan_kernel_manifests())
+    violations.extend(scan_kernel_sources())
     violations.extend(scan_module_sizes())
 
     if violations:

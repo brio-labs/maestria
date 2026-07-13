@@ -1,17 +1,17 @@
-use super::*;
+use super::test_support::*;
 use maestria_domain::{
     Artifact, ArtifactId, Card, CardId, Chunk, ChunkId, DomainEventEnvelope, EventId, Evidence,
     EvidenceId, EvidenceKind, IndexStatus, LogicalTick, SequenceNumber,
 };
-use maestria_governance::{DefaultApprovalGate, DefaultRiskClassifier};
 use maestria_ports::{
     CardRepository, ChunkRepository, EventFilter, EventLog, EvidenceRepository,
-    InMemoryArtifactRepository, InMemoryBlobStore, InMemoryCardRepository, InMemoryChunkRepository,
-    InMemoryEventLog, InMemoryEvidenceRepository, InMemoryFullTextIndex, InMemoryGraphIndex,
-    InMemoryHarnessAdapter, InMemoryParser, InMemoryVectorIndex, InMemoryWebFetcher, PortError,
+    InMemoryArtifactRepository, InMemoryCardRepository, InMemoryChunkRepository, InMemoryEventLog,
+    InMemoryEvidenceRepository, PortError,
 };
 use std::collections::BTreeSet;
 use std::sync::Arc;
+use std::time::Duration;
+use tokio::sync::{RwLock, mpsc};
 use tokio_util::sync::CancellationToken;
 
 #[derive(Default)]
@@ -37,22 +37,9 @@ async fn persist_effects_keep_duplicate_events_in_order() {
     let event_log = Arc::new(InMemoryEventLog::new());
     let adapters = Adapters {
         event_log: event_log.clone(),
-        blob_store: Arc::new(InMemoryBlobStore::new()),
-        search_index: Arc::new(InMemoryFullTextIndex::new()),
-        harness: Arc::new(InMemoryHarnessAdapter::new()),
-        parser: Arc::new(InMemoryParser::new()),
-        artifact_repo: Arc::new(InMemoryArtifactRepository::new()),
-        chunk_repo: Arc::new(InMemoryChunkRepository::new()),
-        card_repo: Arc::new(InMemoryCardRepository::new()),
-        evidence_repo: Arc::new(InMemoryEvidenceRepository::new()),
-        vector_index: Arc::new(InMemoryVectorIndex::new()),
-        graph_index: Arc::new(InMemoryGraphIndex::new()),
-        web_fetcher: Arc::new(InMemoryWebFetcher::new()),
+        ..crate::test_helpers::test_adapters()
     };
-    let governance = Governance {
-        classifier: Arc::new(DefaultRiskClassifier),
-        approval_gate: Arc::new(DefaultApprovalGate),
-    };
+    let governance = crate::test_helpers::test_governance();
     let (runtime, input_rx) = MaestriaRuntime::new(
         RuntimeConfig {
             max_concurrent_effects: 2,
@@ -110,22 +97,9 @@ async fn persist_effects_keep_duplicate_events_in_order() {
 async fn failed_event_persistence_stops_runtime() {
     let adapters = Adapters {
         event_log: Arc::new(FailingEventLog),
-        blob_store: Arc::new(InMemoryBlobStore::new()),
-        search_index: Arc::new(InMemoryFullTextIndex::new()),
-        harness: Arc::new(InMemoryHarnessAdapter::new()),
-        parser: Arc::new(InMemoryParser::new()),
-        artifact_repo: Arc::new(InMemoryArtifactRepository::new()),
-        chunk_repo: Arc::new(InMemoryChunkRepository::new()),
-        card_repo: Arc::new(InMemoryCardRepository::new()),
-        evidence_repo: Arc::new(InMemoryEvidenceRepository::new()),
-        vector_index: Arc::new(InMemoryVectorIndex::new()),
-        graph_index: Arc::new(InMemoryGraphIndex::new()),
-        web_fetcher: Arc::new(InMemoryWebFetcher::new()),
+        ..crate::test_helpers::test_adapters()
     };
-    let governance = Governance {
-        classifier: Arc::new(DefaultRiskClassifier),
-        approval_gate: Arc::new(DefaultApprovalGate),
-    };
+    let governance = crate::test_helpers::test_governance();
     let (runtime, input_rx) = MaestriaRuntime::new(
         RuntimeConfig {
             default_effect_timeout: Duration::from_secs(1),
@@ -152,8 +126,10 @@ async fn failed_event_persistence_stops_runtime() {
     assert!(shutdown.is_cancelled());
 }
 
-#[tokio::test]
-async fn persist_event_dispatches_chunk_card_evidence_to_repositories() {
+/// Builds a KernelState pre-populated with one artifact, chunk, card, and
+/// evidence record, returning the state together with the IDs for later
+/// assertion.
+fn build_persist_test_state() -> (KernelState, ChunkId, CardId, EvidenceId, ArtifactId) {
     let artifact_id = ArtifactId::new(1);
     let chunk_id = ChunkId::new(1);
     let card_id = CardId::new(1);
@@ -201,34 +177,16 @@ async fn persist_event_dispatches_chunk_card_evidence_to_repositories() {
     state.chunks.insert(chunk_id, chunk);
     state.cards.insert(card_id, card);
     state.evidences.insert(evidence_id, evidence);
+    (state, chunk_id, card_id, evidence_id, artifact_id)
+}
 
-    let chunk_repo = Arc::new(InMemoryChunkRepository::new());
-    let card_repo = Arc::new(InMemoryCardRepository::new());
-    let evidence_repo = Arc::new(InMemoryEvidenceRepository::new());
-    let artifact_repo = Arc::new(InMemoryArtifactRepository::new());
-    let event_log = Arc::new(InMemoryEventLog::new());
-
-    let adapters = Adapters {
-        event_log: event_log.clone(),
-        blob_store: Arc::new(InMemoryBlobStore::new()),
-        search_index: Arc::new(InMemoryFullTextIndex::new()),
-        harness: Arc::new(InMemoryHarnessAdapter::new()),
-        parser: Arc::new(InMemoryParser::new()),
-        artifact_repo: artifact_repo.clone(),
-        chunk_repo: chunk_repo.clone(),
-        card_repo: card_repo.clone(),
-        evidence_repo: evidence_repo.clone(),
-        vector_index: Arc::new(InMemoryVectorIndex::new()),
-        graph_index: Arc::new(InMemoryGraphIndex::new()),
-        web_fetcher: Arc::new(InMemoryWebFetcher::new()),
-    };
-    let governance = Governance {
-        classifier: Arc::new(DefaultRiskClassifier),
-        approval_gate: Arc::new(DefaultApprovalGate),
-    };
-    let (input_tx, _input_rx) = mpsc::channel(8);
-
-    let envelopes = vec![
+fn build_persist_test_envelopes(
+    chunk_id: ChunkId,
+    card_id: CardId,
+    evidence_id: EvidenceId,
+    artifact_id: ArtifactId,
+) -> Vec<DomainEventEnvelope> {
+    vec![
         DomainEventEnvelope {
             id: EventId::new(1),
             sequence: SequenceNumber::new(1),
@@ -266,22 +224,46 @@ async fn persist_event_dispatches_chunk_card_evidence_to_repositories() {
                 observed_at: LogicalTick::new(1),
             },
         },
-    ];
+    ]
+}
+#[tokio::test]
+async fn persist_event_dispatches_chunk_card_evidence_to_repositories() {
+    let (state, chunk_id, card_id, evidence_id, artifact_id) = build_persist_test_state();
+
+    let chunk_repo = Arc::new(InMemoryChunkRepository::new());
+    let card_repo = Arc::new(InMemoryCardRepository::new());
+    let evidence_repo = Arc::new(InMemoryEvidenceRepository::new());
+    let artifact_repo = Arc::new(InMemoryArtifactRepository::new());
+    let event_log = Arc::new(InMemoryEventLog::new());
+
+    let adapters = Adapters {
+        event_log: event_log.clone(),
+        artifact_repo: artifact_repo.clone(),
+        chunk_repo: chunk_repo.clone(),
+        card_repo: card_repo.clone(),
+        evidence_repo: evidence_repo.clone(),
+        ..crate::test_helpers::test_adapters()
+    };
+    let governance = crate::test_helpers::test_governance();
+    let (input_tx, _input_rx) = mpsc::channel(8);
+
+    let envelopes = build_persist_test_envelopes(chunk_id, card_id, evidence_id, artifact_id);
 
     let adapters = Arc::new(adapters);
     let governance = Arc::new(governance);
 
     for envelope in &envelopes {
-        let result = MaestriaRuntime::execute_effect(
+        let ctx = EffectExecutionContext::test_default(
+            adapters.clone(),
+            governance.clone(),
+            Arc::new(RwLock::new(state.clone())),
+            input_tx.clone(),
+        );
+        let result = MaestriaRuntime::test_execute_effect(
             MaestriaEffect::PersistEvent {
                 envelope: envelope.clone(),
             },
-            adapters.clone(),
-            governance.clone(),
-            AutonomyProfile::TrustedWorkspace,
-            Scope::default(),
-            Arc::new(RwLock::new(state.clone())),
-            input_tx.clone(),
+            ctx,
             None,
         )
         .await;
@@ -303,6 +285,7 @@ async fn persist_event_dispatches_chunk_card_evidence_to_repositories() {
         "evidence should be persisted"
     );
 }
+
 #[tokio::test]
 async fn parse_artifact_no_deadlock_at_max_concurrency_one() {
     use maestria_domain::{ArtifactDetected, content_hash};
@@ -310,22 +293,9 @@ async fn parse_artifact_no_deadlock_at_max_concurrency_one() {
     let event_log = Arc::new(InMemoryEventLog::new());
     let adapters = Adapters {
         event_log: event_log.clone(),
-        blob_store: Arc::new(InMemoryBlobStore::new()),
-        search_index: Arc::new(InMemoryFullTextIndex::new()),
-        harness: Arc::new(InMemoryHarnessAdapter::new()),
-        parser: Arc::new(InMemoryParser::new()),
-        artifact_repo: Arc::new(InMemoryArtifactRepository::new()),
-        chunk_repo: Arc::new(InMemoryChunkRepository::new()),
-        card_repo: Arc::new(InMemoryCardRepository::new()),
-        evidence_repo: Arc::new(InMemoryEvidenceRepository::new()),
-        vector_index: Arc::new(InMemoryVectorIndex::new()),
-        graph_index: Arc::new(InMemoryGraphIndex::new()),
-        web_fetcher: Arc::new(InMemoryWebFetcher::new()),
+        ..crate::test_helpers::test_adapters()
     };
-    let governance = Governance {
-        classifier: Arc::new(DefaultRiskClassifier),
-        approval_gate: Arc::new(DefaultApprovalGate),
-    };
+    let governance = crate::test_helpers::test_governance();
     let (runtime, input_rx) = MaestriaRuntime::new(
         RuntimeConfig {
             max_concurrent_effects: 1,

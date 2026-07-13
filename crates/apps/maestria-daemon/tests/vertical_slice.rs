@@ -3,7 +3,8 @@ use maestria_core::{
     CorePorts, CoreServices, InstanceLayout, InstanceService, OpenEvidenceInput, SearchInput,
 };
 use maestria_domain::{
-    ArtifactDetected, ArtifactId, DomainInput, IndexStatus, KernelState, content_hash,
+    ArtifactDetected, ArtifactId, ChunkId, DomainInput, EvidenceId, IndexStatus, KernelState,
+    content_hash,
 };
 use maestria_governance::AutonomyProfile;
 use maestria_parsers::ParserRegistry;
@@ -14,6 +15,7 @@ use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
+use tokio_util::sync::CancellationToken;
 struct TempDir(PathBuf);
 
 impl TempDir {
@@ -62,15 +64,25 @@ async fn wait_for_indexed(db_path: &Path, artifact_id: ArtifactId) -> bool {
     false
 }
 
-#[tokio::test]
-async fn vertical_slice_init_index_search_evidence() {
-    let tmp = TempDir::new();
+struct TestEnv {
+    layout: InstanceLayout,
+    input_tx: tokio::sync::mpsc::Sender<DomainInput>,
+    shutdown_token: CancellationToken,
+    runtime_handle: tokio::task::JoinHandle<()>,
+    artifact_id: ArtifactId,
+    hash: String,
+    bytes: Vec<u8>,
+    source_path: String,
+}
+
+fn prepare_test_env(tmp: &TempDir) -> TestEnv {
     let root = tmp.path();
     let notes = root.join("notes");
     fs::create_dir_all(&notes).expect("create notes");
 
     // Write test content
     let test_path = notes.join("graph-rag.md");
+    let source_path = test_path.to_string_lossy().to_string();
     let test_content = "# GraphRAG Survey\n\nGraph Retrieval-Augmented Generation combines knowledge graphs with RAG to improve multi-hop reasoning.\n";
     fs::write(&test_path, test_content).expect("write test file");
 
@@ -87,37 +99,64 @@ async fn vertical_slice_init_index_search_evidence() {
     .expect("build runtime");
 
     let shutdown = shutdown_token.clone();
-    let runtime_task = tokio::spawn(async move {
+    let runtime_handle = tokio::spawn(async move {
         runtime.run(input_rx, shutdown).await;
     });
 
-    // === INDEX via DomainInput ===
     let artifact_id = ArtifactId::new(1);
+
+    TestEnv {
+        layout,
+        input_tx,
+        shutdown_token,
+        runtime_handle,
+        artifact_id,
+        hash,
+        bytes,
+        source_path,
+    }
+}
+
+struct IndexResult {
+    evidence_id: EvidenceId,
+    first_chunk_id: ChunkId,
+    event_count: usize,
+}
+
+async fn index_and_verify_artifact(
+    input_tx: &tokio::sync::mpsc::Sender<DomainInput>,
+    db_path: &Path,
+    artifact_id: ArtifactId,
+    hash: &str,
+    bytes: &[u8],
+    source_path: &str,
+) -> IndexResult {
+    // === INDEX via DomainInput ===
     input_tx
         .send(DomainInput::ArtifactDetected(ArtifactDetected {
             artifact_id,
             title: "graph-rag.md".to_string(),
-            source_path: test_path.to_string_lossy().to_string(),
-            source_bytes: bytes.clone(),
-            content_hash: hash.clone(),
+            source_path: source_path.to_string(),
+            source_bytes: bytes.to_vec(),
+            content_hash: hash.to_string(),
         }))
         .await
         .expect("send ArtifactDetected");
 
     // Wait for IndexStatus::Indexed by polling the event log through a second connection
     assert!(
-        wait_for_indexed(&layout.database_path, artifact_id).await,
+        wait_for_indexed(db_path, artifact_id).await,
         "artifact should reach Indexed status"
     );
 
     // Verify artifact state after indexing
-    let check_db = SqliteStore::open(&layout.database_path).expect("open check db");
+    let check_db = SqliteStore::open(db_path).expect("open check db");
     let artifact = check_db
         .get(artifact_id)
         .expect("get artifact")
         .expect("artifact should exist");
     assert_eq!(artifact.index_status, IndexStatus::Indexed);
-    assert_eq!(artifact.content_hash.as_deref(), Some(hash.as_str()));
+    assert_eq!(artifact.content_hash.as_deref(), Some(hash));
     assert!(!artifact.chunk_ids.is_empty(), "should have chunks");
     assert!(!artifact.evidence_ids.is_empty(), "should have evidence");
 
@@ -125,7 +164,7 @@ async fn vertical_slice_init_index_search_evidence() {
     let first_chunk_id = *artifact.chunk_ids.first().expect("should have chunk");
 
     // Count events for idempotence check
-    let event_count_before = EventLog::scan(
+    let event_count = EventLog::scan(
         &check_db,
         EventFilter {
             artifact_id: Some(artifact_id),
@@ -135,14 +174,30 @@ async fn vertical_slice_init_index_search_evidence() {
     .len();
     drop(check_db);
 
+    IndexResult {
+        evidence_id,
+        first_chunk_id,
+        event_count,
+    }
+}
+
+async fn attempt_idempotent_reindex(
+    input_tx: &tokio::sync::mpsc::Sender<DomainInput>,
+    db_path: &Path,
+    artifact_id: ArtifactId,
+    hash: &str,
+    bytes: &[u8],
+    source_path: &str,
+    expected_event_count: usize,
+) {
     // === IDEMPOTENT RE-INDEX ===
     input_tx
         .send(DomainInput::ArtifactDetected(ArtifactDetected {
             artifact_id,
             title: "graph-rag.md".to_string(),
-            source_path: test_path.to_string_lossy().to_string(),
-            source_bytes: bytes.clone(),
-            content_hash: hash.clone(),
+            source_path: source_path.to_string(),
+            source_bytes: bytes.to_vec(),
+            content_hash: hash.to_string(),
         }))
         .await
         .expect("send duplicate ArtifactDetected");
@@ -150,9 +205,9 @@ async fn vertical_slice_init_index_search_evidence() {
     // Brief wait for the runtime to process the no-op input
     tokio::time::sleep(Duration::from_millis(300)).await;
 
-    let check_db2 = SqliteStore::open(&layout.database_path).expect("re-open check db");
+    let check_db = SqliteStore::open(db_path).expect("re-open check db");
     let event_count_after = EventLog::scan(
-        &check_db2,
+        &check_db,
         EventFilter {
             artifact_id: Some(artifact_id),
         },
@@ -160,15 +215,18 @@ async fn vertical_slice_init_index_search_evidence() {
     .expect("scan events after")
     .len();
     assert_eq!(
-        event_count_after, event_count_before,
+        event_count_after, expected_event_count,
         "re-index should not produce new events for unchanged content"
     );
-    drop(check_db2);
+    drop(check_db);
+}
 
-    // === STOP RUNTIME ===
-    shutdown_token.cancel();
-    runtime_task.await.expect("runtime task completes");
-
+fn search_and_open_evidence_after_restart(
+    layout: &InstanceLayout,
+    artifact_id: ArtifactId,
+    evidence_id: EvidenceId,
+    first_chunk_id: ChunkId,
+) {
     // === RESTART SIMULATION ===
     let sqlite = SqliteStore::open(&layout.database_path).expect("re-open sqlite");
     let blobs = FsBlobStore::open(&layout.blobs_dir).expect("re-open blobs");
@@ -222,4 +280,46 @@ async fn vertical_slice_init_index_search_evidence() {
         "excerpt should contain content"
     );
     assert_eq!(ev.artifact.id, artifact_id, "artifact should match");
+}
+
+#[tokio::test]
+async fn vertical_slice_init_index_search_evidence() {
+    let tmp = TempDir::new();
+    let env = prepare_test_env(&tmp);
+
+    let IndexResult {
+        evidence_id,
+        first_chunk_id,
+        event_count,
+    } = index_and_verify_artifact(
+        &env.input_tx,
+        &env.layout.database_path,
+        env.artifact_id,
+        &env.hash,
+        &env.bytes,
+        &env.source_path,
+    )
+    .await;
+
+    attempt_idempotent_reindex(
+        &env.input_tx,
+        &env.layout.database_path,
+        env.artifact_id,
+        &env.hash,
+        &env.bytes,
+        &env.source_path,
+        event_count,
+    )
+    .await;
+
+    // === STOP RUNTIME ===
+    env.shutdown_token.cancel();
+    env.runtime_handle.await.expect("runtime task completes");
+
+    search_and_open_evidence_after_restart(
+        &env.layout,
+        env.artifact_id,
+        evidence_id,
+        first_chunk_id,
+    );
 }

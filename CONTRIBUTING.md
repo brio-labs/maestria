@@ -53,6 +53,10 @@ rustup component add rustfmt clippy
 - **Explicitness over magic:** gate decisions should be visible in the API and tests.
 - **Small and boring:** prefer straightforward types and explicit data over abstraction layers.
 - **Module boundaries:** each module owns one named responsibility at one architectural layer. Split when a second independently testable concept, representation, lifecycle, or contract appears; use typed APIs, traits, and effects across boundaries instead of appending unrelated code. Public façades expose stable boundaries and re-export implementations.
+- Production Rust functions stay below 100 logical lines; any exception names a time-bounded ADR.
+- Rust source files stay below 900 physical lines, including tests. Split responsibility-specific modules instead of adding exemptions.
+- Every concrete port adapter runs shared contract tests and adapter-specific boundary tests.
+- Runtime lifecycle policy has one owner; application entry points do not duplicate recovery or shutdown orchestration.
 
 ## Commit message format
 

@@ -407,7 +407,6 @@ fn chunk_key(artifact_id: ArtifactId, chunk_id: ChunkId) -> String {
 fn card_key(artifact_id: ArtifactId, card_id: CardId) -> String {
     format!("card:{}:{}", artifact_id.value(), card_id.value())
 }
-
 fn descending_score(left: f32, right: f32) -> std::cmp::Ordering {
     match right.partial_cmp(&left) {
         Some(ordering) => ordering,

@@ -139,10 +139,8 @@ jobs:
       - name: Cache
         uses: Swatinem/rust-cache@v2.9.1
       - uses: mozilla-actions/sccache-action@v0.0.10
-      - name: Run clippy
-        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
-      - name: Enforce core cohesion budgets
-        run: cargo clippy -p maestria-core --no-deps --all-targets --all-features -- -D warnings -D clippy::too_many_lines -D clippy::cognitive_complexity
+      - name: Enforce workspace cohesion budgets
+        run: cargo clippy --workspace --all-targets --all-features -- -D warnings -D clippy::too_many_lines -D clippy::cognitive_complexity
 
   dependency-audit:
     needs: [changes, deny]

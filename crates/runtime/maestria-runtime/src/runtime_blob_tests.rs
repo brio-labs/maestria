@@ -1,16 +1,13 @@
-use super::*;
+use super::test_support::*;
 use maestria_domain::{
     Artifact, ArtifactId, BlobId, Evidence, EvidenceKind, IndexStatus, LogicalTick,
-    ParseArtifactRequest, StoreBlobRequest,
+    ParseArtifactRequest,
 };
-use maestria_governance::{DefaultApprovalGate, DefaultRiskClassifier};
-use maestria_ports::{
-    InMemoryArtifactRepository, InMemoryBlobStore, InMemoryCardRepository, InMemoryChunkRepository,
-    InMemoryEventLog, InMemoryEvidenceRepository, InMemoryFullTextIndex, InMemoryGraphIndex,
-    InMemoryHarnessAdapter, InMemoryParser, InMemoryVectorIndex, InMemoryWebFetcher, PortError,
-};
+use maestria_ports::{ArtifactRepository, BlobStore, InMemoryArtifactRepository, PortError};
 use std::collections::BTreeSet;
 use std::sync::Arc;
+use std::time::Duration;
+use tokio::sync::{RwLock, mpsc};
 
 /// BlobStore that records every `put` payload for later assertion.
 struct RecordingBlobStore {
@@ -37,61 +34,6 @@ impl BlobStore for RecordingBlobStore {
 }
 
 #[tokio::test]
-async fn store_blob_passes_exact_payload_bytes() {
-    let recorded = Arc::new(std::sync::Mutex::new(Vec::new()));
-    let blob_store = Arc::new(RecordingBlobStore {
-        recorded: recorded.clone(),
-    });
-    let adapters = Adapters {
-        event_log: Arc::new(InMemoryEventLog::new()),
-        blob_store,
-        search_index: Arc::new(InMemoryFullTextIndex::new()),
-        harness: Arc::new(InMemoryHarnessAdapter::new()),
-        parser: Arc::new(InMemoryParser::new()),
-        artifact_repo: Arc::new(InMemoryArtifactRepository::new()),
-        chunk_repo: Arc::new(InMemoryChunkRepository::new()),
-        card_repo: Arc::new(InMemoryCardRepository::new()),
-        evidence_repo: Arc::new(InMemoryEvidenceRepository::new()),
-        vector_index: Arc::new(InMemoryVectorIndex::new()),
-        graph_index: Arc::new(InMemoryGraphIndex::new()),
-        web_fetcher: Arc::new(InMemoryWebFetcher::new()),
-    };
-    let governance = Governance {
-        classifier: Arc::new(DefaultRiskClassifier),
-        approval_gate: Arc::new(DefaultApprovalGate),
-    };
-    let (input_tx, _input_rx) = mpsc::channel(8);
-
-    let expected = b"exact payload content".to_vec();
-    let result = MaestriaRuntime::execute_effect(
-        MaestriaEffect::StoreBlob(StoreBlobRequest {
-            artifact_id: ArtifactId::new(1),
-            payload: expected.clone(),
-        }),
-        Arc::new(adapters),
-        Arc::new(governance),
-        AutonomyProfile::TrustedWorkspace,
-        Scope::default(),
-        Arc::new(RwLock::new(KernelState::new())),
-        input_tx,
-        None,
-    )
-    .await;
-
-    assert!(result, "StoreBlob should succeed");
-    match recorded.lock() {
-        Ok(guard) => {
-            assert_eq!(
-                guard.len(),
-                0,
-                "StoreBlob no longer calls put; blob stored during ParseArtifact"
-            );
-        }
-        Err(poisoned) => panic!("recording mutex poisoned: {:?}", poisoned),
-    }
-}
-
-#[tokio::test]
 async fn parse_artifact_calls_blob_put_exactly_once() {
     let recorded: Arc<std::sync::Mutex<Vec<Vec<u8>>>> = Arc::new(std::sync::Mutex::new(Vec::new()));
     let blob_store = Arc::new(RecordingBlobStore {
@@ -113,39 +55,28 @@ async fn parse_artifact_calls_blob_put_exactly_once() {
         .expect("pre-populated artifact should be accepted");
 
     let adapters = Adapters {
-        event_log: Arc::new(InMemoryEventLog::new()),
         blob_store,
-        search_index: Arc::new(InMemoryFullTextIndex::new()),
-        harness: Arc::new(InMemoryHarnessAdapter::new()),
-        parser: Arc::new(InMemoryParser::new()),
         artifact_repo: Arc::new(artifact_repo),
-        chunk_repo: Arc::new(InMemoryChunkRepository::new()),
-        card_repo: Arc::new(InMemoryCardRepository::new()),
-        evidence_repo: Arc::new(InMemoryEvidenceRepository::new()),
-        vector_index: Arc::new(InMemoryVectorIndex::new()),
-        graph_index: Arc::new(InMemoryGraphIndex::new()),
-        web_fetcher: Arc::new(InMemoryWebFetcher::new()),
+        ..crate::test_helpers::test_adapters()
     };
-    let governance = Governance {
-        classifier: Arc::new(DefaultRiskClassifier),
-        approval_gate: Arc::new(DefaultApprovalGate),
-    };
+    let governance = crate::test_helpers::test_governance();
     let (input_tx, _input_rx) = mpsc::channel(8);
 
     let source_bytes = b"single put test content".to_vec();
-    let result = MaestriaRuntime::execute_effect(
+    let ctx = EffectExecutionContext::test_default(
+        Arc::new(adapters),
+        Arc::new(governance),
+        Arc::new(RwLock::new(KernelState::new())),
+        input_tx,
+    );
+    let result = MaestriaRuntime::test_execute_effect(
         MaestriaEffect::ParseArtifact(ParseArtifactRequest {
             artifact_id: ArtifactId::new(55),
             source_path: "/repo/single.rs".to_string(),
             source_bytes: source_bytes.clone(),
             source_blob: None,
         }),
-        Arc::new(adapters),
-        Arc::new(governance),
-        AutonomyProfile::TrustedWorkspace,
-        Scope::default(),
-        Arc::new(RwLock::new(KernelState::new())),
-        input_tx,
+        ctx,
         None,
     )
     .await;
@@ -199,38 +130,26 @@ async fn parse_artifact_retry_redrives_existing_evidence() {
     );
 
     let adapters = Adapters {
-        event_log: Arc::new(InMemoryEventLog::new()),
-        blob_store: Arc::new(InMemoryBlobStore::new()),
-        search_index: Arc::new(InMemoryFullTextIndex::new()),
-        harness: Arc::new(InMemoryHarnessAdapter::new()),
-        parser: Arc::new(InMemoryParser::new()),
         artifact_repo: Arc::new(artifact_repo),
-        chunk_repo: Arc::new(InMemoryChunkRepository::new()),
-        card_repo: Arc::new(InMemoryCardRepository::new()),
-        evidence_repo: Arc::new(InMemoryEvidenceRepository::new()),
-        vector_index: Arc::new(InMemoryVectorIndex::new()),
-        graph_index: Arc::new(InMemoryGraphIndex::new()),
-        web_fetcher: Arc::new(InMemoryWebFetcher::new()),
+        ..crate::test_helpers::test_adapters()
     };
-    let governance = Governance {
-        classifier: Arc::new(DefaultRiskClassifier),
-        approval_gate: Arc::new(DefaultApprovalGate),
-    };
+    let governance = crate::test_helpers::test_governance();
     let (input_tx, mut input_rx) = mpsc::channel(8);
 
-    let result = MaestriaRuntime::execute_effect(
+    let ctx = EffectExecutionContext::test_default(
+        Arc::new(adapters),
+        Arc::new(governance),
+        Arc::new(RwLock::new(state)),
+        input_tx,
+    );
+    let result = MaestriaRuntime::test_execute_effect(
         MaestriaEffect::ParseArtifact(ParseArtifactRequest {
             artifact_id,
             source_path: "/repo/retry.rs".to_string(),
             source_bytes: b"retry content".to_vec(),
             source_blob: None,
         }),
-        Arc::new(adapters),
-        Arc::new(governance),
-        AutonomyProfile::TrustedWorkspace,
-        Scope::default(),
-        Arc::new(RwLock::new(state)),
-        input_tx,
+        ctx,
         None,
     )
     .await;

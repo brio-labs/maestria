@@ -20,18 +20,24 @@ fn ensure_artifact_v3_columns(connection: &Connection) -> Result<(), PortError> 
     Ok(())
 }
 
-pub(crate) fn migrate(connection: &mut Connection) -> Result<(), PortError> {
-    let transaction = connection.transaction().map_err(to_port_error)?;
+/// Captures the pre-migration state of the database.
+struct SchemaState {
+    version: Option<i64>,
+    had_domain_events_table: bool,
+    had_payload_version_column: bool,
+}
 
-    let had_schema_version_table = table_exists(&transaction, "schema_version")?;
-    let had_domain_events_table = table_exists(&transaction, "domain_events")?;
+/// Probes the database for its current schema state before applying any DDL.
+fn detect_schema_state(connection: &Connection) -> Result<SchemaState, PortError> {
+    let had_schema_version_table = table_exists(connection, "schema_version")?;
+    let had_domain_events_table = table_exists(connection, "domain_events")?;
     let had_payload_version_column = if had_domain_events_table {
-        table_has_column(&transaction, "domain_events", "payload_version")?
+        table_has_column(connection, "domain_events", "payload_version")?
     } else {
         false
     };
-    let schema_version = if had_schema_version_table {
-        let maybe_version: Option<i64> = transaction
+    let version = if had_schema_version_table {
+        let maybe_version: Option<i64> = connection
             .query_row("SELECT MAX(version) FROM schema_version", [], |row| {
                 row.get::<_, Option<i64>>(0)
             })
@@ -47,163 +53,239 @@ pub(crate) fn migrate(connection: &mut Connection) -> Result<(), PortError> {
     } else {
         None
     };
+    Ok(SchemaState {
+        version,
+        had_domain_events_table,
+        had_payload_version_column,
+    })
+}
 
-    transaction
-        .execute_batch(
-            "PRAGMA foreign_keys = ON;
-             CREATE TABLE IF NOT EXISTS schema_version (
-                 version INTEGER NOT NULL PRIMARY KEY,
-                 applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-             );
-             CREATE TABLE IF NOT EXISTS artifacts (
-                 id INTEGER NOT NULL PRIMARY KEY,
-                 title TEXT NOT NULL,
-                 content_hash TEXT,
-                 index_status TEXT NOT NULL DEFAULT 'unindexed'
-             );
-             CREATE TABLE IF NOT EXISTS artifact_chunks (
-                 artifact_id INTEGER NOT NULL,
-                 related_id INTEGER NOT NULL,
-                 PRIMARY KEY (artifact_id, related_id),
-                 FOREIGN KEY (artifact_id) REFERENCES artifacts(id) ON DELETE CASCADE
-             );
-             CREATE TABLE IF NOT EXISTS artifact_cards (
-                 artifact_id INTEGER NOT NULL,
-                 related_id INTEGER NOT NULL,
-                 PRIMARY KEY (artifact_id, related_id),
-                 FOREIGN KEY (artifact_id) REFERENCES artifacts(id) ON DELETE CASCADE
-             );
-             CREATE TABLE IF NOT EXISTS artifact_claims (
-                 artifact_id INTEGER NOT NULL,
-                 related_id INTEGER NOT NULL,
-                 PRIMARY KEY (artifact_id, related_id),
-                 FOREIGN KEY (artifact_id) REFERENCES artifacts(id) ON DELETE CASCADE
-             );
-             CREATE TABLE IF NOT EXISTS artifact_evidences (
-                 artifact_id INTEGER NOT NULL,
-                 related_id INTEGER NOT NULL,
-                 PRIMARY KEY (artifact_id, related_id),
-                 FOREIGN KEY (artifact_id) REFERENCES artifacts(id) ON DELETE CASCADE
-             );
-             CREATE TABLE IF NOT EXISTS chunks (
-                 id INTEGER NOT NULL PRIMARY KEY,
-                 artifact_id INTEGER NOT NULL,
-                 chunk_order INTEGER NOT NULL,
-                 text TEXT NOT NULL
-             );
-             CREATE INDEX IF NOT EXISTS idx_chunks_artifact_order
-                 ON chunks(artifact_id, chunk_order, id);
-             CREATE TABLE IF NOT EXISTS cards (
-                 id INTEGER NOT NULL PRIMARY KEY,
-                 artifact_id INTEGER NOT NULL,
-                 title TEXT NOT NULL,
-                 body TEXT NOT NULL
-             );
-             CREATE INDEX IF NOT EXISTS idx_cards_artifact
-                 ON cards(artifact_id, id);
-             CREATE TABLE IF NOT EXISTS card_claims (
-                 card_id INTEGER NOT NULL,
-                 claim_id INTEGER NOT NULL,
-                 PRIMARY KEY (card_id, claim_id),
-                 FOREIGN KEY (card_id) REFERENCES cards(id) ON DELETE CASCADE
-             );
-             CREATE TABLE IF NOT EXISTS evidence (
-                 id INTEGER NOT NULL PRIMARY KEY,
-                 artifact_id INTEGER NOT NULL,
-                 claim_id INTEGER,
-                 kind_json TEXT NOT NULL,
-                 excerpt TEXT NOT NULL,
-                 observed_at INTEGER NOT NULL
-             );
-             CREATE INDEX IF NOT EXISTS idx_evidence_artifact
-                 ON evidence(artifact_id, id);
-             CREATE TABLE IF NOT EXISTS domain_events (
-                 id INTEGER NOT NULL PRIMARY KEY,
-                 sequence INTEGER NOT NULL UNIQUE,
-                 event_kind TEXT NOT NULL,
-                 artifact_id INTEGER,
-                 payload_json TEXT NOT NULL,
-                 payload_version INTEGER NOT NULL DEFAULT 2
-             );
-             CREATE INDEX IF NOT EXISTS idx_domain_events_artifact_sequence
-                 ON domain_events(artifact_id, sequence);",
+/// SQL that bootstraps every table for a fresh database (all `IF NOT EXISTS`).
+const BASE_SCHEMA_SQL: &str = "PRAGMA foreign_keys = ON;
+     CREATE TABLE IF NOT EXISTS schema_version (
+         version INTEGER NOT NULL PRIMARY KEY,
+         applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+     );
+     CREATE TABLE IF NOT EXISTS artifacts (
+         id INTEGER NOT NULL PRIMARY KEY,
+         title TEXT NOT NULL,
+         content_hash TEXT,
+         index_status TEXT NOT NULL DEFAULT 'unindexed'
+     );
+     CREATE TABLE IF NOT EXISTS artifact_chunks (
+         artifact_id INTEGER NOT NULL,
+         related_id INTEGER NOT NULL,
+         PRIMARY KEY (artifact_id, related_id),
+         FOREIGN KEY (artifact_id) REFERENCES artifacts(id) ON DELETE CASCADE
+     );
+     CREATE TABLE IF NOT EXISTS artifact_cards (
+         artifact_id INTEGER NOT NULL,
+         related_id INTEGER NOT NULL,
+         PRIMARY KEY (artifact_id, related_id),
+         FOREIGN KEY (artifact_id) REFERENCES artifacts(id) ON DELETE CASCADE
+     );
+     CREATE TABLE IF NOT EXISTS artifact_claims (
+         artifact_id INTEGER NOT NULL,
+         related_id INTEGER NOT NULL,
+         PRIMARY KEY (artifact_id, related_id),
+         FOREIGN KEY (artifact_id) REFERENCES artifacts(id) ON DELETE CASCADE
+     );
+     CREATE TABLE IF NOT EXISTS artifact_evidences (
+         artifact_id INTEGER NOT NULL,
+         related_id INTEGER NOT NULL,
+         PRIMARY KEY (artifact_id, related_id),
+         FOREIGN KEY (artifact_id) REFERENCES artifacts(id) ON DELETE CASCADE
+     );
+     CREATE TABLE IF NOT EXISTS chunks (
+         id INTEGER NOT NULL PRIMARY KEY,
+         artifact_id INTEGER NOT NULL,
+         chunk_order INTEGER NOT NULL,
+         text TEXT NOT NULL
+     );
+     CREATE INDEX IF NOT EXISTS idx_chunks_artifact_order
+         ON chunks(artifact_id, chunk_order, id);
+     CREATE TABLE IF NOT EXISTS cards (
+         id INTEGER NOT NULL PRIMARY KEY,
+         artifact_id INTEGER NOT NULL,
+         title TEXT NOT NULL,
+         body TEXT NOT NULL
+     );
+     CREATE INDEX IF NOT EXISTS idx_cards_artifact
+         ON cards(artifact_id, id);
+     CREATE TABLE IF NOT EXISTS card_claims (
+         card_id INTEGER NOT NULL,
+         claim_id INTEGER NOT NULL,
+         PRIMARY KEY (card_id, claim_id),
+         FOREIGN KEY (card_id) REFERENCES cards(id) ON DELETE CASCADE
+     );
+     CREATE TABLE IF NOT EXISTS evidence (
+         id INTEGER NOT NULL PRIMARY KEY,
+         artifact_id INTEGER NOT NULL,
+         claim_id INTEGER,
+         kind_json TEXT NOT NULL,
+         excerpt TEXT NOT NULL,
+         observed_at INTEGER NOT NULL
+     );
+     CREATE INDEX IF NOT EXISTS idx_evidence_artifact
+         ON evidence(artifact_id, id);
+     CREATE TABLE IF NOT EXISTS domain_events (
+         id INTEGER NOT NULL PRIMARY KEY,
+         sequence INTEGER NOT NULL UNIQUE,
+         event_kind TEXT NOT NULL,
+         artifact_id INTEGER,
+         payload_json TEXT NOT NULL,
+         payload_version INTEGER NOT NULL DEFAULT 2
+     );
+     CREATE INDEX IF NOT EXISTS idx_domain_events_artifact_sequence
+         ON domain_events(artifact_id, sequence);";
+
+/// Creates every table and index using `CREATE TABLE IF NOT EXISTS` — safe to call
+/// on both fresh and existing databases.
+fn create_base_schema(connection: &Connection) -> Result<(), PortError> {
+    connection
+        .execute_batch(BASE_SCHEMA_SQL)
+        .map_err(to_port_error)
+}
+
+/// Migrates a v1 database to the current version: validates domain_events columns,
+/// adds the `payload_version` column with `DEFAULT 1` if not already present,
+/// ensures artifact v3 columns, and records the new schema version.
+fn migrate_from_v1(connection: &Connection, state: &SchemaState) -> Result<(), PortError> {
+    if !state.had_domain_events_table {
+        return Err(PortError::Internal {
+            message: "malformed sqlite schema: domain_events table missing".to_string(),
+        });
+    }
+
+    if state.had_payload_version_column {
+        validate_columns(connection, &DOMAIN_EVENTS_V2_COLUMNS)?;
+    } else {
+        validate_columns(connection, &DOMAIN_EVENTS_V1_COLUMNS)?;
+        connection
+            .execute_batch(
+                "ALTER TABLE domain_events ADD COLUMN payload_version INTEGER NOT NULL DEFAULT 1;",
+            )
+            .map_err(to_port_error)?;
+    }
+    ensure_artifact_v3_columns(connection)?;
+
+    connection
+        .execute(
+            "INSERT OR IGNORE INTO schema_version (version) VALUES (?1)",
+            [CURRENT_SCHEMA_VERSION],
         )
         .map_err(to_port_error)?;
+    Ok(())
+}
 
-    match schema_version {
-        Some(1) => {
-            if !had_domain_events_table {
-                return Err(PortError::Internal {
-                    message: "malformed sqlite schema: domain_events table missing".to_string(),
-                });
-            }
+/// Migrates a v2 database to the current version: validates domain_events columns
+/// (requiring `payload_version` to exist), ensures artifact v3 columns, and records
+/// the new schema version.
+fn migrate_from_v2(connection: &Connection, state: &SchemaState) -> Result<(), PortError> {
+    if !state.had_domain_events_table {
+        return Err(PortError::Internal {
+            message: "malformed sqlite schema: domain_events table missing".to_string(),
+        });
+    }
+    if state.had_payload_version_column {
+        validate_columns(connection, &DOMAIN_EVENTS_V2_COLUMNS)?;
+    } else {
+        return Err(PortError::Internal {
+            message: "malformed sqlite schema: missing payload_version column".to_string(),
+        });
+    }
+    ensure_artifact_v3_columns(connection)?;
+    connection
+        .execute(
+            "INSERT OR IGNORE INTO schema_version (version) VALUES (?1)",
+            [CURRENT_SCHEMA_VERSION],
+        )
+        .map_err(to_port_error)?;
+    Ok(())
+}
 
-            if had_payload_version_column {
-                validate_columns(&transaction, &DOMAIN_EVENTS_V2_COLUMNS)?;
-            } else {
-                validate_columns(&transaction, &DOMAIN_EVENTS_V1_COLUMNS)?;
-                transaction
-                    .execute_batch(
-                        "ALTER TABLE domain_events ADD COLUMN payload_version INTEGER NOT NULL DEFAULT 1;",
-                    )
-                    .map_err(to_port_error)?;
-            }
-            ensure_artifact_v3_columns(&transaction)?;
+/// Validates that a database already at v3 conforms to the expected columns.
+fn validate_at_v3(connection: &Connection, state: &SchemaState) -> Result<(), PortError> {
+    if !state.had_domain_events_table {
+        return Err(PortError::Internal {
+            message: "malformed sqlite schema: domain_events table missing".to_string(),
+        });
+    }
+    if state.had_payload_version_column {
+        validate_columns(connection, &DOMAIN_EVENTS_V2_COLUMNS)?;
+    } else {
+        return Err(PortError::Internal {
+            message: "malformed sqlite schema: missing payload_version column".to_string(),
+        });
+    }
+    if !table_has_column(connection, "artifacts", "content_hash")? {
+        return Err(PortError::Internal {
+            message: "malformed sqlite schema: artifacts table missing content_hash column"
+                .to_string(),
+        });
+    }
+    if !table_has_column(connection, "artifacts", "index_status")? {
+        return Err(PortError::Internal {
+            message: "malformed sqlite schema: artifacts table missing index_status column"
+                .to_string(),
+        });
+    }
+    Ok(())
+}
 
-            transaction
-                .execute(
-                    "INSERT OR IGNORE INTO schema_version (version) VALUES (?1)",
-                    [CURRENT_SCHEMA_VERSION],
-                )
-                .map_err(to_port_error)?;
-        }
-        Some(2) => {
-            if !had_domain_events_table {
-                return Err(PortError::Internal {
-                    message: "malformed sqlite schema: domain_events table missing".to_string(),
-                });
-            }
-            if had_payload_version_column {
-                validate_columns(&transaction, &DOMAIN_EVENTS_V2_COLUMNS)?;
-            } else {
-                return Err(PortError::Internal {
-                    message: "malformed sqlite schema: missing payload_version column".to_string(),
-                });
-            }
-            ensure_artifact_v3_columns(&transaction)?;
-            transaction
-                .execute(
-                    "INSERT OR IGNORE INTO schema_version (version) VALUES (?1)",
-                    [CURRENT_SCHEMA_VERSION],
-                )
-                .map_err(to_port_error)?;
-        }
-        Some(3) => {
-            if !had_domain_events_table {
-                return Err(PortError::Internal {
-                    message: "malformed sqlite schema: domain_events table missing".to_string(),
-                });
-            }
-            if had_payload_version_column {
-                validate_columns(&transaction, &DOMAIN_EVENTS_V2_COLUMNS)?;
-            } else {
-                return Err(PortError::Internal {
-                    message: "malformed sqlite schema: missing payload_version column".to_string(),
-                });
-            }
-            if !table_has_column(&transaction, "artifacts", "content_hash")? {
-                return Err(PortError::Internal {
-                    message: "malformed sqlite schema: artifacts table missing content_hash column"
+/// Migrates a database that has no `schema_version` table (fresh install, or pre-v1
+/// legacy). If `domain_events` already exists it is migrated to v2; otherwise the v2
+/// columns are validated. Artifact v3 columns are ensured, and the current schema
+/// version is recorded.
+fn migrate_from_fresh(connection: &Connection, state: &SchemaState) -> Result<(), PortError> {
+    if state.had_domain_events_table {
+        if state.had_payload_version_column {
+            return Err(PortError::Internal {
+                message:
+                    "malformed sqlite schema: schema_version table missing for domain_events v2 schema"
                         .to_string(),
-                });
-            }
-            if !table_has_column(&transaction, "artifacts", "index_status")? {
-                return Err(PortError::Internal {
-                    message: "malformed sqlite schema: artifacts table missing index_status column"
-                        .to_string(),
-                });
-            }
+            });
         }
+        validate_columns(connection, &DOMAIN_EVENTS_V1_COLUMNS)?;
+        connection
+            .execute_batch(
+                "ALTER TABLE domain_events ADD COLUMN payload_version INTEGER NOT NULL DEFAULT 1;",
+            )
+            .map_err(to_port_error)?;
+    } else {
+        validate_columns(connection, &DOMAIN_EVENTS_V2_COLUMNS)?;
+    }
+    ensure_artifact_v3_columns(connection)?;
+
+    connection
+        .execute(
+            "INSERT INTO schema_version (version) VALUES (?1)",
+            [CURRENT_SCHEMA_VERSION],
+        )
+        .map_err(to_port_error)?;
+    Ok(())
+}
+
+/// Runs the final post-migration validation suite and commits the transaction.
+fn finalize_migration(transaction: rusqlite::Transaction) -> Result<(), PortError> {
+    validate_domain_events_schema(&transaction)?;
+    validate_event_order(&transaction)?;
+    validate_stored_event_payloads(&transaction)?;
+    transaction.commit().map_err(to_port_error)
+}
+
+/// Applies any necessary schema migrations so the database matches
+/// [`CURRENT_SCHEMA_VERSION`]. Idempotent — safe to call on a database that is
+/// already at the current version.
+pub(crate) fn migrate(connection: &mut Connection) -> Result<(), PortError> {
+    let transaction = connection.transaction().map_err(to_port_error)?;
+    let state = detect_schema_state(&transaction)?;
+    create_base_schema(&transaction)?;
+
+    match state.version {
+        Some(1) => migrate_from_v1(&transaction, &state)?,
+        Some(2) => migrate_from_v2(&transaction, &state)?,
+        Some(3) => validate_at_v3(&transaction, &state)?,
         Some(version) => {
             return Err(PortError::Internal {
                 message: format!(
@@ -211,37 +293,8 @@ pub(crate) fn migrate(connection: &mut Connection) -> Result<(), PortError> {
                 ),
             });
         }
-        None => {
-            if had_domain_events_table {
-                if had_payload_version_column {
-                    return Err(PortError::Internal {
-                        message:
-                            "malformed sqlite schema: schema_version table missing for domain_events v2 schema"
-                                .to_string(),
-                    });
-                }
-                validate_columns(&transaction, &DOMAIN_EVENTS_V1_COLUMNS)?;
-                transaction
-                    .execute_batch(
-                        "ALTER TABLE domain_events ADD COLUMN payload_version INTEGER NOT NULL DEFAULT 1;",
-                    )
-                    .map_err(to_port_error)?;
-            } else {
-                validate_columns(&transaction, &DOMAIN_EVENTS_V2_COLUMNS)?;
-            }
-            ensure_artifact_v3_columns(&transaction)?;
-
-            transaction
-                .execute(
-                    "INSERT INTO schema_version (version) VALUES (?1)",
-                    [CURRENT_SCHEMA_VERSION],
-                )
-                .map_err(to_port_error)?;
-        }
+        None => migrate_from_fresh(&transaction, &state)?,
     }
 
-    validate_domain_events_schema(&transaction)?;
-    validate_event_order(&transaction)?;
-    validate_stored_event_payloads(&transaction)?;
-    transaction.commit().map_err(to_port_error)
+    finalize_migration(transaction)
 }

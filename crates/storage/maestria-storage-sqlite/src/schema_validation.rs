@@ -204,11 +204,11 @@ pub(crate) fn validate_stored_event_payloads(connection: &Connection) -> Result<
                 });
             }
         };
-        if stored_kind != payload.kind() {
+        let payload_kind = payload.kind()?;
+        if stored_kind != payload_kind {
             return Err(PortError::Internal {
                 message: format!(
-                    "event kind column {stored_kind} does not match payload kind {}",
-                    payload.kind()
+                    "event kind column {stored_kind} does not match payload kind {payload_kind}",
                 ),
             });
         }

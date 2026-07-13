@@ -1,6 +1,6 @@
 use super::*;
 
-use maestria_ports::SearchQuery;
+use maestria_ports::{SearchQuery, contract_tests::assert_full_text_index_round_trip};
 use tempfile::TempDir;
 
 fn chunk(artifact_id: u64, chunk_id: u64, text: &str) -> IndexedChunk {
@@ -138,4 +138,10 @@ fn directory_backed_index_can_be_reopened() {
     assert_eq!(hits.len(), 1);
     assert_eq!(hits[0].chunk.artifact_id, ArtifactId::new(4));
     assert_eq!(hits[0].chunk.chunk_id, ChunkId::new(40));
+}
+
+#[test]
+fn satisfies_shared_full_text_index_contract() {
+    let index = TantivyFullTextIndex::in_memory().expect("create in-memory index");
+    assert_full_text_index_round_trip(&index);
 }

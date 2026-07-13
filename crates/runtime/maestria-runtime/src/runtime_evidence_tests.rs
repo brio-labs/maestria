@@ -1,17 +1,12 @@
-use super::*;
+use super::test_support::*;
 use maestria_domain::{
     Artifact, ArtifactId, DomainEventEnvelope, EventId, Evidence, EvidenceId, EvidenceKind,
     IndexStatus, LogicalTick, SequenceNumber,
 };
-use maestria_governance::{DefaultApprovalGate, DefaultRiskClassifier};
-use maestria_ports::{
-    EvidenceRepository, InMemoryArtifactRepository, InMemoryBlobStore, InMemoryCardRepository,
-    InMemoryChunkRepository, InMemoryEventLog, InMemoryEvidenceRepository, InMemoryFullTextIndex,
-    InMemoryGraphIndex, InMemoryHarnessAdapter, InMemoryParser, InMemoryVectorIndex,
-    InMemoryWebFetcher,
-};
+use maestria_ports::{EvidenceRepository, InMemoryEvidenceRepository};
 use std::collections::BTreeSet;
 use std::sync::Arc;
+use tokio::sync::{RwLock, mpsc};
 
 #[tokio::test]
 async fn evidence_recorded_persistence_replaces_malformed_record() {
@@ -66,23 +61,10 @@ async fn evidence_recorded_persistence_replaces_malformed_record() {
     state.evidences.insert(evidence_id, valid_evidence.clone());
 
     let adapters = Adapters {
-        event_log: Arc::new(InMemoryEventLog::new()),
-        blob_store: Arc::new(InMemoryBlobStore::new()),
-        search_index: Arc::new(InMemoryFullTextIndex::new()),
-        harness: Arc::new(InMemoryHarnessAdapter::new()),
-        parser: Arc::new(InMemoryParser::new()),
-        artifact_repo: Arc::new(InMemoryArtifactRepository::new()),
-        chunk_repo: Arc::new(InMemoryChunkRepository::new()),
-        card_repo: Arc::new(InMemoryCardRepository::new()),
         evidence_repo: evidence_repo.clone(),
-        vector_index: Arc::new(InMemoryVectorIndex::new()),
-        graph_index: Arc::new(InMemoryGraphIndex::new()),
-        web_fetcher: Arc::new(InMemoryWebFetcher::new()),
+        ..crate::test_helpers::test_adapters()
     };
-    let governance = Governance {
-        classifier: Arc::new(DefaultRiskClassifier),
-        approval_gate: Arc::new(DefaultApprovalGate),
-    };
+    let governance = crate::test_helpers::test_governance();
     let (input_tx, _input_rx) = mpsc::channel(8);
 
     let envelope = DomainEventEnvelope {
@@ -103,16 +85,17 @@ async fn evidence_recorded_persistence_replaces_malformed_record() {
         },
     };
 
-    let result = MaestriaRuntime::execute_effect(
+    let ctx = EffectExecutionContext::test_default(
+        Arc::new(adapters),
+        Arc::new(governance),
+        Arc::new(RwLock::new(state)),
+        input_tx,
+    );
+    let result = MaestriaRuntime::test_execute_effect(
         MaestriaEffect::PersistEvent {
             envelope: envelope.clone(),
         },
-        Arc::new(adapters),
-        Arc::new(governance),
-        AutonomyProfile::TrustedWorkspace,
-        Scope::default(),
-        Arc::new(RwLock::new(state)),
-        input_tx,
+        ctx,
         None,
     )
     .await;

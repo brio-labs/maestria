@@ -5,11 +5,28 @@
 //! This module is pure and side-effect free. All environment interaction is
 //! represented via `MaestriaEffect` values and executed by a runtime layer.
 
+mod effects;
+mod entities;
+mod errors;
+mod events;
+mod ids;
 mod input;
+mod inputs;
+mod kernel_state;
 mod provenance;
 mod replay;
 mod types;
 
+// Public API — stable boundary types re-exported at crate root.
+// Only `pub` items from each module are re-exported; `pub(crate)` items
+// (constructors, internal constants) remain crate-internal.
+pub use crate::effects::*;
+pub use crate::entities::*;
+pub use crate::errors::*;
+pub use crate::events::*;
+pub use crate::ids::*;
+pub use crate::inputs::*;
+pub use crate::kernel_state::*;
+
 pub use provenance::{content_hash, evidence_id_for, excerpt_for, line_range_for_chunk};
 pub use replay::{replay_events, replay_inputs};
-pub use types::*;

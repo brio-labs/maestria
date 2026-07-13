@@ -1,17 +1,15 @@
-use super::*;
+use super::test_support::*;
 use maestria_domain::{
     Artifact, ArtifactId, DomainEvent, DomainEventEnvelope, EventId, IndexStatus,
     ParseArtifactRequest, SequenceNumber, content_hash,
 };
-use maestria_governance::{DefaultApprovalGate, DefaultRiskClassifier};
 use maestria_ports::{
-    InMemoryArtifactRepository, InMemoryBlobStore, InMemoryCardRepository, InMemoryChunkRepository,
-    InMemoryEventLog, InMemoryEvidenceRepository, InMemoryFullTextIndex, InMemoryGraphIndex,
-    InMemoryHarnessAdapter, InMemoryParser, InMemoryVectorIndex, InMemoryWebFetcher,
+    BlobStore, EventLog, InMemoryArtifactRepository, InMemoryBlobStore, InMemoryEventLog,
 };
 use std::collections::BTreeSet;
 use std::sync::Arc;
 use std::time::Duration;
+use tokio::sync::{RwLock, mpsc};
 
 #[tokio::test]
 async fn parse_artifact_barrier_blocks_parse_until_persistence_observable() {
@@ -48,38 +46,27 @@ async fn parse_artifact_barrier_blocks_parse_until_persistence_observable() {
     let adapters = Adapters {
         event_log: event_log.clone(),
         blob_store: Arc::new(blob_store),
-        search_index: Arc::new(InMemoryFullTextIndex::new()),
-        harness: Arc::new(InMemoryHarnessAdapter::new()),
-        parser: Arc::new(InMemoryParser::new()),
-        artifact_repo: Arc::new(InMemoryArtifactRepository::new()),
-        chunk_repo: Arc::new(InMemoryChunkRepository::new()),
-        card_repo: Arc::new(InMemoryCardRepository::new()),
-        evidence_repo: Arc::new(InMemoryEvidenceRepository::new()),
-        vector_index: Arc::new(InMemoryVectorIndex::new()),
-        graph_index: Arc::new(InMemoryGraphIndex::new()),
-        web_fetcher: Arc::new(InMemoryWebFetcher::new()),
+        ..crate::test_helpers::test_adapters()
     };
-    let governance = Governance {
-        classifier: Arc::new(DefaultRiskClassifier),
-        approval_gate: Arc::new(DefaultApprovalGate),
-    };
+    let governance = crate::test_helpers::test_governance();
     let (input_tx, _input_rx) = mpsc::channel(8);
 
     // With a populated event log, the barrier should find the event and
     // parsing should succeed even with a tight timeout (production path).
-    let result = MaestriaRuntime::execute_effect(
+    let ctx = EffectExecutionContext::test_default(
+        Arc::new(adapters),
+        Arc::new(governance),
+        Arc::new(RwLock::new(KernelState::new())),
+        input_tx,
+    );
+    let result = MaestriaRuntime::test_execute_effect(
         MaestriaEffect::ParseArtifact(ParseArtifactRequest {
             artifact_id,
             source_path: "/repo/barrier.rs".to_string(),
             source_bytes,
             source_blob: None,
         }),
-        Arc::new(adapters),
-        Arc::new(governance),
-        AutonomyProfile::TrustedWorkspace,
-        Scope::default(),
-        Arc::new(RwLock::new(KernelState::new())),
-        input_tx,
+        ctx,
         Some(Duration::from_millis(500)),
     )
     .await;
@@ -114,37 +101,26 @@ async fn parse_artifact_barrier_timeout_without_persistence_returns_failure() {
 
     let adapters = Adapters {
         event_log: event_log.clone(),
-        blob_store: Arc::new(InMemoryBlobStore::new()),
-        search_index: Arc::new(InMemoryFullTextIndex::new()),
-        harness: Arc::new(InMemoryHarnessAdapter::new()),
-        parser: Arc::new(InMemoryParser::new()),
         artifact_repo: Arc::new(artifact_repo),
-        chunk_repo: Arc::new(InMemoryChunkRepository::new()),
-        card_repo: Arc::new(InMemoryCardRepository::new()),
-        evidence_repo: Arc::new(InMemoryEvidenceRepository::new()),
-        vector_index: Arc::new(InMemoryVectorIndex::new()),
-        graph_index: Arc::new(InMemoryGraphIndex::new()),
-        web_fetcher: Arc::new(InMemoryWebFetcher::new()),
+        ..crate::test_helpers::test_adapters()
     };
-    let governance = Governance {
-        classifier: Arc::new(DefaultRiskClassifier),
-        approval_gate: Arc::new(DefaultApprovalGate),
-    };
+    let governance = crate::test_helpers::test_governance();
     let (input_tx, _input_rx) = mpsc::channel(8);
 
-    let result = MaestriaRuntime::execute_effect(
+    let ctx = EffectExecutionContext::test_default(
+        Arc::new(adapters),
+        Arc::new(governance),
+        Arc::new(RwLock::new(KernelState::new())),
+        input_tx,
+    );
+    let result = MaestriaRuntime::test_execute_effect(
         MaestriaEffect::ParseArtifact(ParseArtifactRequest {
             artifact_id,
             source_path: "/repo/timeout.rs".to_string(),
             source_bytes: b"fn main() {}".to_vec(),
             source_blob: None,
         }),
-        Arc::new(adapters),
-        Arc::new(governance),
-        AutonomyProfile::TrustedWorkspace,
-        Scope::default(),
-        Arc::new(RwLock::new(KernelState::new())),
-        input_tx,
+        ctx,
         Some(Duration::from_millis(100)),
     )
     .await;

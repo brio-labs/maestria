@@ -1,17 +1,78 @@
-use super::*;
+use super::test_support::*;
 use maestria_domain::{
     Artifact, ArtifactId, ChunkId, EvidenceKind, IndexStatus, ParseArtifactRequest,
 };
-use maestria_governance::{DefaultApprovalGate, DefaultRiskClassifier};
 use maestria_ports::{
-    FileHandle, FileMetadata, InMemoryArtifactRepository, InMemoryBlobStore,
-    InMemoryCardRepository, InMemoryChunkRepository, InMemoryEventLog, InMemoryEvidenceRepository,
-    InMemoryFullTextIndex, InMemoryGraphIndex, InMemoryHarnessAdapter, InMemoryVectorIndex,
-    InMemoryWebFetcher, ParseContext, ParsedArtifact, ParsedChunk, Parser, PortError, SourceSpan,
+    ArtifactRepository, FileHandle, FileMetadata, InMemoryArtifactRepository, InMemoryEventLog,
+    ParseContext, ParsedArtifact, ParsedChunk, Parser, PortError, SourceSpan,
 };
 use std::collections::BTreeSet;
 use std::sync::Arc;
+use std::time::Duration;
+use tokio::sync::{RwLock, mpsc};
 
+struct PageFivePdfParser;
+impl Parser for PageFivePdfParser {
+    fn id(&self) -> &'static str {
+        "page-five-pdf"
+    }
+    fn supports(&self, file: &FileMetadata) -> bool {
+        file.extension
+            .as_deref()
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("pdf"))
+    }
+    fn parse(&self, _file: FileHandle, context: ParseContext) -> Result<ParsedArtifact, PortError> {
+        let chunks: Vec<ParsedChunk> = [1, 3, 5]
+            .into_iter()
+            .enumerate()
+            .map(|(order, page)| ParsedChunk {
+                chunk_id: ChunkId::new(context.artifact_id.value().wrapping_add(order as u64)),
+                artifact_id: context.artifact_id,
+                text: format!("page {page} content"),
+                source_span: SourceSpan::PdfSpan { page },
+            })
+            .collect();
+        Ok(ParsedArtifact {
+            artifact_id: context.artifact_id,
+            chunks,
+            cards: Vec::new(),
+        })
+    }
+}
+
+async fn assert_pdf_span_evidence(
+    input_rx: &mut mpsc::Receiver<DomainInput>,
+    expected_pages: &[u32],
+) {
+    for (i, expected_page) in expected_pages.iter().enumerate() {
+        match tokio::time::timeout(Duration::from_secs(1), input_rx.recv()).await {
+            Ok(Some(DomainInput::RecordEvidence(ev))) => {
+                assert_eq!(ev.artifact_id, ArtifactId::new(200));
+                match &ev.kind {
+                    EvidenceKind::PdfSpan {
+                        blob,
+                        page_start,
+                        page_end,
+                    } => {
+                        assert!(blob.value() > 0, "blob id must be non-zero");
+                        assert_eq!(
+                            *page_start, *expected_page,
+                            "page_start mismatch for evidence {i}"
+                        );
+                        assert_eq!(
+                            *page_end, *expected_page,
+                            "page_end must match page_start for evidence {i}"
+                        );
+                    }
+                    other => panic!("expected PdfSpan for evidence {i}, got {other:?}"),
+                }
+            }
+            Ok(Some(other)) => panic!("expected RecordEvidence {i}, got {other:?}"),
+            Ok(None) => panic!("channel closed before RecordEvidence {i}"),
+            Err(_) => panic!("timeout waiting for RecordEvidence {i}"),
+        }
+    }
+}
 #[tokio::test]
 async fn pdf_evidence_maps_page_one_to_pdf_span() {
     struct PageOnePdfParser;
@@ -58,38 +119,28 @@ async fn pdf_evidence_maps_page_one_to_pdf_span() {
         .expect("pre-populated artifact should be accepted");
 
     let adapters = Adapters {
-        event_log: Arc::new(InMemoryEventLog::new()),
-        blob_store: Arc::new(InMemoryBlobStore::new()),
-        search_index: Arc::new(InMemoryFullTextIndex::new()),
-        harness: Arc::new(InMemoryHarnessAdapter::new()),
         parser: Arc::new(PageOnePdfParser),
         artifact_repo: Arc::new(artifact_repo),
-        chunk_repo: Arc::new(InMemoryChunkRepository::new()),
-        card_repo: Arc::new(InMemoryCardRepository::new()),
-        evidence_repo: Arc::new(InMemoryEvidenceRepository::new()),
-        vector_index: Arc::new(InMemoryVectorIndex::new()),
-        graph_index: Arc::new(InMemoryGraphIndex::new()),
-        web_fetcher: Arc::new(InMemoryWebFetcher::new()),
+        ..crate::test_helpers::test_adapters()
     };
-    let governance = Governance {
-        classifier: Arc::new(DefaultRiskClassifier),
-        approval_gate: Arc::new(DefaultApprovalGate),
-    };
+    let governance = crate::test_helpers::test_governance();
     let (input_tx, mut input_rx) = mpsc::channel(8);
 
-    let result = MaestriaRuntime::execute_effect(
+    let ctx = EffectExecutionContext::test_default(
+        Arc::new(adapters),
+        Arc::new(governance),
+        Arc::new(RwLock::new(KernelState::new())),
+        input_tx,
+    );
+
+    let result = MaestriaRuntime::test_execute_effect(
         MaestriaEffect::ParseArtifact(ParseArtifactRequest {
             artifact_id: ArtifactId::new(100),
             source_path: "/repo/doc.pdf".to_string(),
             source_bytes: b"%PDF-1.4 fake".to_vec(),
             source_blob: None,
         }),
-        Arc::new(adapters),
-        Arc::new(governance),
-        AutonomyProfile::TrustedWorkspace,
-        Scope::default(),
-        Arc::new(RwLock::new(KernelState::new())),
-        input_tx,
+        ctx,
         None,
     )
     .await;
@@ -133,39 +184,6 @@ async fn pdf_evidence_maps_page_one_to_pdf_span() {
 
 #[tokio::test]
 async fn pdf_evidence_maps_page_n_to_pdf_span() {
-    struct PageFivePdfParser;
-    impl Parser for PageFivePdfParser {
-        fn id(&self) -> &'static str {
-            "page-five-pdf"
-        }
-        fn supports(&self, file: &FileMetadata) -> bool {
-            file.extension
-                .as_deref()
-                .is_some_and(|ext| ext.eq_ignore_ascii_case("pdf"))
-        }
-        fn parse(
-            &self,
-            _file: FileHandle,
-            context: ParseContext,
-        ) -> Result<ParsedArtifact, PortError> {
-            let chunks: Vec<ParsedChunk> = [1, 3, 5]
-                .into_iter()
-                .enumerate()
-                .map(|(order, page)| ParsedChunk {
-                    chunk_id: ChunkId::new(context.artifact_id.value().wrapping_add(order as u64)),
-                    artifact_id: context.artifact_id,
-                    text: format!("page {page} content"),
-                    source_span: SourceSpan::PdfSpan { page },
-                })
-                .collect();
-            Ok(ParsedArtifact {
-                artifact_id: context.artifact_id,
-                chunks,
-                cards: Vec::new(),
-            })
-        }
-    }
-
     let artifact_repo = InMemoryArtifactRepository::new();
     artifact_repo
         .put(Artifact {
@@ -181,38 +199,28 @@ async fn pdf_evidence_maps_page_n_to_pdf_span() {
         .expect("pre-populated artifact should be accepted");
 
     let adapters = Adapters {
-        event_log: Arc::new(InMemoryEventLog::new()),
-        blob_store: Arc::new(InMemoryBlobStore::new()),
-        search_index: Arc::new(InMemoryFullTextIndex::new()),
-        harness: Arc::new(InMemoryHarnessAdapter::new()),
         parser: Arc::new(PageFivePdfParser),
         artifact_repo: Arc::new(artifact_repo),
-        chunk_repo: Arc::new(InMemoryChunkRepository::new()),
-        card_repo: Arc::new(InMemoryCardRepository::new()),
-        evidence_repo: Arc::new(InMemoryEvidenceRepository::new()),
-        vector_index: Arc::new(InMemoryVectorIndex::new()),
-        graph_index: Arc::new(InMemoryGraphIndex::new()),
-        web_fetcher: Arc::new(InMemoryWebFetcher::new()),
+        ..crate::test_helpers::test_adapters()
     };
-    let governance = Governance {
-        classifier: Arc::new(DefaultRiskClassifier),
-        approval_gate: Arc::new(DefaultApprovalGate),
-    };
+    let governance = crate::test_helpers::test_governance();
     let (input_tx, mut input_rx) = mpsc::channel(8);
 
-    let result = MaestriaRuntime::execute_effect(
+    let ctx = EffectExecutionContext::test_default(
+        Arc::new(adapters),
+        Arc::new(governance),
+        Arc::new(RwLock::new(KernelState::new())),
+        input_tx,
+    );
+
+    let result = MaestriaRuntime::test_execute_effect(
         MaestriaEffect::ParseArtifact(ParseArtifactRequest {
             artifact_id: ArtifactId::new(200),
             source_path: "/repo/multi.pdf".to_string(),
             source_bytes: b"%PDF-1.7 multi-page".to_vec(),
             source_blob: None,
         }),
-        Arc::new(adapters),
-        Arc::new(governance),
-        AutonomyProfile::TrustedWorkspace,
-        Scope::default(),
-        Arc::new(RwLock::new(KernelState::new())),
-        input_tx,
+        ctx,
         None,
     )
     .await;
@@ -233,34 +241,7 @@ async fn pdf_evidence_maps_page_n_to_pdf_span() {
 
     // Collect evidence: pages 1, 3, 5 (empty pages 2 and 4 are skipped).
     let expected_pages = [1u32, 3, 5];
-    for (i, expected_page) in expected_pages.iter().enumerate() {
-        match tokio::time::timeout(Duration::from_secs(1), input_rx.recv()).await {
-            Ok(Some(DomainInput::RecordEvidence(ev))) => {
-                assert_eq!(ev.artifact_id, ArtifactId::new(200));
-                match &ev.kind {
-                    EvidenceKind::PdfSpan {
-                        blob,
-                        page_start,
-                        page_end,
-                    } => {
-                        assert!(blob.value() > 0, "blob id must be non-zero");
-                        assert_eq!(
-                            *page_start, *expected_page,
-                            "page_start mismatch for evidence {i}"
-                        );
-                        assert_eq!(
-                            *page_end, *expected_page,
-                            "page_end must match page_start for evidence {i}"
-                        );
-                    }
-                    other => panic!("expected PdfSpan for evidence {i}, got {other:?}"),
-                }
-            }
-            Ok(Some(other)) => panic!("expected RecordEvidence {i}, got {other:?}"),
-            Ok(None) => panic!("channel closed before RecordEvidence {i}"),
-            Err(_) => panic!("timeout waiting for RecordEvidence {i}"),
-        }
-    }
+    assert_pdf_span_evidence(&mut input_rx, &expected_pages).await;
 }
 
 #[tokio::test]
@@ -303,37 +284,28 @@ async fn scanned_pdf_no_extractable_text_fails_before_parser_completed() {
     let event_log = Arc::new(InMemoryEventLog::new());
     let adapters = Adapters {
         event_log: event_log.clone(),
-        blob_store: Arc::new(InMemoryBlobStore::new()),
-        search_index: Arc::new(InMemoryFullTextIndex::new()),
-        harness: Arc::new(InMemoryHarnessAdapter::new()),
         parser: Arc::new(ScannedPdfParser),
         artifact_repo: Arc::new(artifact_repo),
-        chunk_repo: Arc::new(InMemoryChunkRepository::new()),
-        card_repo: Arc::new(InMemoryCardRepository::new()),
-        evidence_repo: Arc::new(InMemoryEvidenceRepository::new()),
-        vector_index: Arc::new(InMemoryVectorIndex::new()),
-        graph_index: Arc::new(InMemoryGraphIndex::new()),
-        web_fetcher: Arc::new(InMemoryWebFetcher::new()),
+        ..crate::test_helpers::test_adapters()
     };
-    let governance = Governance {
-        classifier: Arc::new(DefaultRiskClassifier),
-        approval_gate: Arc::new(DefaultApprovalGate),
-    };
+    let governance = crate::test_helpers::test_governance();
     let (input_tx, mut input_rx) = mpsc::channel(8);
 
-    let result = MaestriaRuntime::execute_effect(
+    let ctx = EffectExecutionContext::test_default(
+        Arc::new(adapters),
+        Arc::new(governance),
+        Arc::new(RwLock::new(KernelState::new())),
+        input_tx,
+    );
+
+    let result = MaestriaRuntime::test_execute_effect(
         MaestriaEffect::ParseArtifact(ParseArtifactRequest {
             artifact_id: ArtifactId::new(300),
             source_path: "/repo/scanned.pdf".to_string(),
             source_bytes: b"%PDF-1.4 scanned image only".to_vec(),
             source_blob: None,
         }),
-        Arc::new(adapters),
-        Arc::new(governance),
-        AutonomyProfile::TrustedWorkspace,
-        Scope::default(),
-        Arc::new(RwLock::new(KernelState::new())),
-        input_tx,
+        ctx,
         None,
     )
     .await;

@@ -1,14 +1,9 @@
-use super::*;
+use super::test_support::*;
 use maestria_domain::{ArtifactId, Card, CardId, Chunk, ChunkId, KernelState, MaestriaEffect};
-use maestria_governance::{DefaultApprovalGate, DefaultRiskClassifier};
-use maestria_ports::{
-    FullTextIndex, InMemoryArtifactRepository, InMemoryBlobStore, InMemoryCardRepository,
-    InMemoryChunkRepository, InMemoryEventLog, InMemoryEvidenceRepository, InMemoryFullTextIndex,
-    InMemoryGraphIndex, InMemoryHarnessAdapter, InMemoryParser, InMemoryVectorIndex,
-    InMemoryWebFetcher, SearchQuery,
-};
+use maestria_ports::{FullTextIndex, InMemoryFullTextIndex, SearchQuery};
 use std::collections::BTreeSet;
 use std::sync::Arc;
+use tokio::sync::{RwLock, mpsc};
 
 #[tokio::test]
 async fn index_full_text_effect_indexes_cards_before_chunks() {
@@ -38,35 +33,22 @@ async fn index_full_text_effect_indexes_cards_before_chunks() {
     let (input_tx, _input_rx) = mpsc::channel(8);
 
     let adapters = Arc::new(Adapters {
-        event_log: Arc::new(InMemoryEventLog::new()),
-        blob_store: Arc::new(InMemoryBlobStore::new()),
         search_index: search_index.clone(),
-        harness: Arc::new(InMemoryHarnessAdapter::new()),
-        parser: Arc::new(InMemoryParser::new()),
-        artifact_repo: Arc::new(InMemoryArtifactRepository::new()),
-        chunk_repo: Arc::new(InMemoryChunkRepository::new()),
-        card_repo: Arc::new(InMemoryCardRepository::new()),
-        evidence_repo: Arc::new(InMemoryEvidenceRepository::new()),
-        vector_index: Arc::new(InMemoryVectorIndex::new()),
-        graph_index: Arc::new(InMemoryGraphIndex::new()),
-        web_fetcher: Arc::new(InMemoryWebFetcher::new()),
+        ..crate::test_helpers::test_adapters()
     });
-    let governance = Arc::new(Governance {
-        classifier: Arc::new(DefaultRiskClassifier),
-        approval_gate: Arc::new(DefaultApprovalGate),
-    });
+    let governance = Arc::new(crate::test_helpers::test_governance());
 
-    let result = MaestriaRuntime::execute_effect(
+    let result = MaestriaRuntime::test_execute_effect(
         MaestriaEffect::IndexFullText(maestria_domain::IndexFullTextRequest {
             artifact_id,
             chunk_id,
         }),
-        adapters.clone(),
-        governance,
-        AutonomyProfile::TrustedWorkspace,
-        Scope::default(),
-        Arc::new(RwLock::new(state)),
-        input_tx,
+        EffectExecutionContext::test_default(
+            adapters.clone(),
+            governance,
+            Arc::new(RwLock::new(state)),
+            input_tx,
+        ),
         None,
     )
     .await;
@@ -116,35 +98,22 @@ async fn index_full_text_effect_no_cards_when_state_has_none() {
     let (input_tx, _input_rx) = mpsc::channel(8);
 
     let adapters = Arc::new(Adapters {
-        event_log: Arc::new(InMemoryEventLog::new()),
-        blob_store: Arc::new(InMemoryBlobStore::new()),
         search_index: search_index.clone(),
-        harness: Arc::new(InMemoryHarnessAdapter::new()),
-        parser: Arc::new(InMemoryParser::new()),
-        artifact_repo: Arc::new(InMemoryArtifactRepository::new()),
-        chunk_repo: Arc::new(InMemoryChunkRepository::new()),
-        card_repo: Arc::new(InMemoryCardRepository::new()),
-        evidence_repo: Arc::new(InMemoryEvidenceRepository::new()),
-        vector_index: Arc::new(InMemoryVectorIndex::new()),
-        graph_index: Arc::new(InMemoryGraphIndex::new()),
-        web_fetcher: Arc::new(InMemoryWebFetcher::new()),
+        ..crate::test_helpers::test_adapters()
     });
-    let governance = Arc::new(Governance {
-        classifier: Arc::new(DefaultRiskClassifier),
-        approval_gate: Arc::new(DefaultApprovalGate),
-    });
+    let governance = Arc::new(crate::test_helpers::test_governance());
 
-    let result = MaestriaRuntime::execute_effect(
+    let result = MaestriaRuntime::test_execute_effect(
         MaestriaEffect::IndexFullText(maestria_domain::IndexFullTextRequest {
             artifact_id,
             chunk_id,
         }),
-        adapters.clone(),
-        governance,
-        AutonomyProfile::TrustedWorkspace,
-        Scope::default(),
-        Arc::new(RwLock::new(state)),
-        input_tx,
+        EffectExecutionContext::test_default(
+            adapters.clone(),
+            governance,
+            Arc::new(RwLock::new(state)),
+            input_tx,
+        ),
         None,
     )
     .await;
@@ -202,23 +171,10 @@ async fn index_full_text_effect_reindexing_is_idempotent() {
     let (input_tx, _input_rx) = mpsc::channel(8);
 
     let adapters = Arc::new(Adapters {
-        event_log: Arc::new(InMemoryEventLog::new()),
-        blob_store: Arc::new(InMemoryBlobStore::new()),
         search_index: search_index.clone(),
-        harness: Arc::new(InMemoryHarnessAdapter::new()),
-        parser: Arc::new(InMemoryParser::new()),
-        artifact_repo: Arc::new(InMemoryArtifactRepository::new()),
-        chunk_repo: Arc::new(InMemoryChunkRepository::new()),
-        card_repo: Arc::new(InMemoryCardRepository::new()),
-        evidence_repo: Arc::new(InMemoryEvidenceRepository::new()),
-        vector_index: Arc::new(InMemoryVectorIndex::new()),
-        graph_index: Arc::new(InMemoryGraphIndex::new()),
-        web_fetcher: Arc::new(InMemoryWebFetcher::new()),
+        ..crate::test_helpers::test_adapters()
     });
-    let governance = Arc::new(Governance {
-        classifier: Arc::new(DefaultRiskClassifier),
-        approval_gate: Arc::new(DefaultApprovalGate),
-    });
+    let governance = Arc::new(crate::test_helpers::test_governance());
 
     let effect = MaestriaEffect::IndexFullText(maestria_domain::IndexFullTextRequest {
         artifact_id,
@@ -226,28 +182,28 @@ async fn index_full_text_effect_reindexing_is_idempotent() {
     });
 
     // First indexing.
-    let result = MaestriaRuntime::execute_effect(
+    let result = MaestriaRuntime::test_execute_effect(
         effect.clone(),
-        adapters.clone(),
-        governance.clone(),
-        AutonomyProfile::TrustedWorkspace,
-        Scope::default(),
-        Arc::new(RwLock::new(state.clone())),
-        input_tx.clone(),
+        EffectExecutionContext::test_default(
+            adapters.clone(),
+            governance.clone(),
+            Arc::new(RwLock::new(state.clone())),
+            input_tx.clone(),
+        ),
         None,
     )
     .await;
     assert!(result, "first IndexFullText should succeed");
 
     // Second indexing (recovery / re-drive).
-    let result = MaestriaRuntime::execute_effect(
+    let result = MaestriaRuntime::test_execute_effect(
         effect,
-        adapters.clone(),
-        governance,
-        AutonomyProfile::TrustedWorkspace,
-        Scope::default(),
-        Arc::new(RwLock::new(state)),
-        input_tx,
+        EffectExecutionContext::test_default(
+            adapters.clone(),
+            governance,
+            Arc::new(RwLock::new(state)),
+            input_tx,
+        ),
         None,
     )
     .await;

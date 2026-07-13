@@ -35,11 +35,11 @@ impl Parser for PdfParser {
         let mut chunks: Vec<(String, u32)> = Vec::new();
 
         for page_num in &page_nums {
-            #[allow(clippy::manual_unwrap_or_default)]
-            let text = match doc.extract_text(&[*page_num]) {
-                Ok(t) => t,
-                Err(_) => String::new(),
-            };
+            let text = doc
+                .extract_text(&[*page_num])
+                .map_err(|error| PortError::InvalidInput {
+                    message: format!("PDF page {page_num} text extraction failed: {error}"),
+                })?;
             let trimmed = text.trim().to_string();
             if !trimmed.is_empty() {
                 chunks.push((trimmed, *page_num));
@@ -56,7 +56,7 @@ impl Parser for PdfParser {
         let mut parsed_chunks = Vec::with_capacity(chunks.len());
         for (order, (text, page_num)) in chunks.into_iter().enumerate() {
             parsed_chunks.push(ParsedChunk {
-                chunk_id: crate::chunk_id_for(context.artifact_id, order)?,
+                chunk_id: crate::chunking::chunk_id_for(context.artifact_id, order)?,
                 artifact_id: context.artifact_id,
                 text,
                 source_span: SourceSpan::PdfSpan {
@@ -65,7 +65,8 @@ impl Parser for PdfParser {
             });
         }
 
-        let card = crate::summary_card_for(context.artifact_id, &file.path, &parsed_chunks);
+        let card =
+            crate::chunking::summary_card_for(context.artifact_id, &file.path, &parsed_chunks);
 
         Ok(ParsedArtifact {
             artifact_id: context.artifact_id,

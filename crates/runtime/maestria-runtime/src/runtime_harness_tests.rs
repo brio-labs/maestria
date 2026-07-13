@@ -1,11 +1,10 @@
-use super::*;
+use super::shell_policy::{cat_path_args, is_shell_grammar_allowed, resolve_working_directory};
+use super::test_support::*;
 use maestria_domain::{DomainInput, KernelState, MaestriaEffect};
-use maestria_governance::{DefaultApprovalGate, DefaultRiskClassifier};
+use maestria_governance::Scope;
 use maestria_ports::{
     HarnessAdapter, HarnessCapabilities, HarnessCommandClass, HarnessOutcome, HarnessRequest,
-    InMemoryArtifactRepository, InMemoryBlobStore, InMemoryCardRepository, InMemoryChunkRepository,
-    InMemoryEventLog, InMemoryEvidenceRepository, InMemoryFullTextIndex, InMemoryGraphIndex,
-    InMemoryParser, InMemoryVectorIndex, InMemoryWebFetcher, PortError,
+    PortError,
 };
 use std::future::Future;
 use std::path::PathBuf;
@@ -14,7 +13,6 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use tokio::sync::{RwLock, mpsc};
-
 // ── harness grammar tests ──────────────────────────────────────────────
 
 #[test]
@@ -77,15 +75,14 @@ fn resolve_working_directory_returns_first_read_root() {
         vec![],
         false,
     );
-    let wd = resolve_working_directory(&scope);
+    let wd = resolve_working_directory(&scope).expect("read root should resolve");
     assert_eq!(wd, PathBuf::from("/workspace"));
 }
 
 #[test]
 fn resolve_working_directory_falls_back_when_no_roots() {
     let scope = Scope::default();
-    let wd = resolve_working_directory(&scope);
-    // When no roots configured, falls back to current directory
+    let wd = resolve_working_directory(&scope).expect("current directory should resolve");
     assert!(!wd.as_os_str().is_empty());
 }
 
@@ -112,23 +109,24 @@ async fn query_harness_denies_invalid_grammar_before_spawn() {
         command: "rm -rf /".to_string(),
     };
 
-    let result = MaestriaRuntime::execute_effect(
-        MaestriaEffect::QueryHarness(request),
-        adapters,
-        governance,
-        AutonomyProfile::TrustedWorkspace,
-        Scope::new(
+    let ctx = EffectExecutionContext {
+        scope: Scope::new(
             vec![PathBuf::from("/workspace")],
             vec![],
             vec![],
             vec![],
             false,
         ),
-        Arc::new(RwLock::new(KernelState::new())),
-        input_tx,
-        None,
-    )
-    .await;
+        ..EffectExecutionContext::test_default(
+            adapters,
+            governance,
+            Arc::new(RwLock::new(KernelState::new())),
+            input_tx,
+        )
+    };
+    let result =
+        MaestriaRuntime::test_execute_effect(MaestriaEffect::QueryHarness(request), ctx, None)
+            .await;
 
     assert!(result, "denied commands should return true (non-fatal)");
     assert!(
@@ -158,23 +156,24 @@ async fn query_harness_rejects_cat_outside_scope() {
         command: "cat /etc/passwd".to_string(),
     };
 
-    let result = MaestriaRuntime::execute_effect(
-        MaestriaEffect::QueryHarness(request),
-        adapters,
-        governance,
-        AutonomyProfile::TrustedWorkspace,
-        Scope::new(
+    let ctx = EffectExecutionContext {
+        scope: Scope::new(
             vec![PathBuf::from("/workspace")],
             vec![],
             vec![],
             vec![],
             false,
         ),
-        Arc::new(RwLock::new(KernelState::new())),
-        input_tx,
-        None,
-    )
-    .await;
+        ..EffectExecutionContext::test_default(
+            adapters,
+            governance,
+            Arc::new(RwLock::new(KernelState::new())),
+            input_tx,
+        )
+    };
+    let result =
+        MaestriaRuntime::test_execute_effect(MaestriaEffect::QueryHarness(request), ctx, None)
+            .await;
 
     assert!(result, "out-of-scope cat should return true (non-fatal)");
     assert!(
@@ -204,23 +203,24 @@ async fn query_harness_allows_grammar_compliant_echo() {
         command: "echo hello world".to_string(),
     };
 
-    let result = MaestriaRuntime::execute_effect(
-        MaestriaEffect::QueryHarness(request),
-        adapters,
-        governance,
-        AutonomyProfile::TrustedWorkspace,
-        Scope::new(
+    let ctx = EffectExecutionContext {
+        scope: Scope::new(
             vec![PathBuf::from("/workspace")],
             vec![],
             vec![],
             vec![],
             false,
         ),
-        Arc::new(RwLock::new(KernelState::new())),
-        input_tx,
-        None,
-    )
-    .await;
+        ..EffectExecutionContext::test_default(
+            adapters,
+            governance,
+            Arc::new(RwLock::new(KernelState::new())),
+            input_tx,
+        )
+    };
+    let result =
+        MaestriaRuntime::test_execute_effect(MaestriaEffect::QueryHarness(request), ctx, None)
+            .await;
 
     assert!(result, "allowed command should succeed");
     assert!(
@@ -261,17 +261,15 @@ async fn query_harness_allows_pwd() {
         command: "pwd".to_string(),
     };
 
-    let result = MaestriaRuntime::execute_effect(
-        MaestriaEffect::QueryHarness(request),
+    let ctx = EffectExecutionContext::test_default(
         adapters,
         governance,
-        AutonomyProfile::TrustedWorkspace,
-        Scope::default(),
         Arc::new(RwLock::new(KernelState::new())),
         input_tx,
-        None,
-    )
-    .await;
+    );
+    let result =
+        MaestriaRuntime::test_execute_effect(MaestriaEffect::QueryHarness(request), ctx, None)
+            .await;
 
     assert!(result);
     assert!(harness_called.load(Ordering::Relaxed));
@@ -304,23 +302,24 @@ async fn query_harness_allows_cat_within_scope() {
         command: "cat /workspace/file.txt".to_string(),
     };
 
-    let result = MaestriaRuntime::execute_effect(
-        MaestriaEffect::QueryHarness(request),
-        adapters,
-        governance,
-        AutonomyProfile::TrustedWorkspace,
-        Scope::new(
+    let ctx = EffectExecutionContext {
+        scope: Scope::new(
             vec![PathBuf::from("/workspace")],
             vec![],
             vec![],
             vec![],
             false,
         ),
-        Arc::new(RwLock::new(KernelState::new())),
-        input_tx,
-        None,
-    )
-    .await;
+        ..EffectExecutionContext::test_default(
+            adapters,
+            governance,
+            Arc::new(RwLock::new(KernelState::new())),
+            input_tx,
+        )
+    };
+    let result =
+        MaestriaRuntime::test_execute_effect(MaestriaEffect::QueryHarness(request), ctx, None)
+            .await;
 
     assert!(result);
     assert!(
@@ -381,24 +380,11 @@ impl HarnessAdapter for SpyHarnessAdapter {
 
 fn test_adapters(harness: Arc<dyn HarnessAdapter + Send + Sync>) -> Arc<Adapters> {
     Arc::new(Adapters {
-        event_log: Arc::new(InMemoryEventLog::new()),
-        blob_store: Arc::new(InMemoryBlobStore::new()),
-        search_index: Arc::new(InMemoryFullTextIndex::new()),
         harness,
-        parser: Arc::new(InMemoryParser::new()),
-        artifact_repo: Arc::new(InMemoryArtifactRepository::new()),
-        chunk_repo: Arc::new(InMemoryChunkRepository::new()),
-        card_repo: Arc::new(InMemoryCardRepository::new()),
-        evidence_repo: Arc::new(InMemoryEvidenceRepository::new()),
-        vector_index: Arc::new(InMemoryVectorIndex::new()),
-        graph_index: Arc::new(InMemoryGraphIndex::new()),
-        web_fetcher: Arc::new(InMemoryWebFetcher::new()),
+        ..crate::test_helpers::test_adapters()
     })
 }
 
 fn test_governance() -> Arc<Governance> {
-    Arc::new(Governance {
-        classifier: Arc::new(DefaultRiskClassifier),
-        approval_gate: Arc::new(DefaultApprovalGate),
-    })
+    Arc::new(crate::test_helpers::test_governance())
 }

@@ -21,6 +21,7 @@ class PhilosophyCheckTests(unittest.TestCase):
             "DOMAIN_ROOT": PHILOSOPHY_CHECK.DOMAIN_ROOT,
             "DOMAIN_SRC": PHILOSOPHY_CHECK.DOMAIN_SRC,
             "DOMAIN_MANIFEST": PHILOSOPHY_CHECK.DOMAIN_MANIFEST,
+            "KERNEL_ROOTS": PHILOSOPHY_CHECK.KERNEL_ROOTS,
         }
 
     def tearDown(self) -> None:
@@ -28,12 +29,18 @@ class PhilosophyCheckTests(unittest.TestCase):
             setattr(PHILOSOPHY_CHECK, name, value)
 
     def configure_root(self, root: Path) -> None:
-        domain_root = root / "crates" / "kernel" / "maestria-domain"
+        kernel_root = root / "crates" / "kernel"
+        domain_root = kernel_root / "maestria-domain"
         setattr(PHILOSOPHY_CHECK, "ROOT", root)
         setattr(PHILOSOPHY_CHECK, "THIS_SCRIPT", root / "scripts" / "philosophy-check.py")
         setattr(PHILOSOPHY_CHECK, "DOMAIN_ROOT", domain_root)
         setattr(PHILOSOPHY_CHECK, "DOMAIN_SRC", domain_root / "src")
         setattr(PHILOSOPHY_CHECK, "DOMAIN_MANIFEST", domain_root / "Cargo.toml")
+        setattr(
+            PHILOSOPHY_CHECK,
+            "KERNEL_ROOTS",
+            tuple(kernel_root / name for name in ("maestria-domain", "maestria-governance", "maestria-ports")),
+        )
 
     def test_scan_markers_reports_task_marker(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -82,6 +89,39 @@ class PhilosophyCheckTests(unittest.TestCase):
             self.assertNotIn(
                 "crates/kernel/maestria-domain/src/lib.rs contains forbidden failure token unwrap(",
                 source_violations,
+            )
+
+    def test_kernel_scan_covers_all_kernel_crates_and_failure_macros(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.configure_root(root)
+            for name in ("maestria-domain", "maestria-governance", "maestria-ports"):
+                crate = root / "crates" / "kernel" / name
+                (crate / "src").mkdir(parents=True)
+                (crate / "Cargo.toml").write_text("[package]\nname = \"test\"\n", encoding="utf-8")
+            governance = root / "crates" / "kernel" / "maestria-governance"
+            (governance / "Cargo.toml").write_text(
+                "[package]\nname = \"test\"\n[dependencies]\nreqwest = \"1\"\n",
+                encoding="utf-8",
+            )
+            (governance / "src" / "lib.rs").write_text(
+                "pub fn invalid() { unreachable!(); }\n",
+                encoding="utf-8",
+            )
+
+            self.assertEqual(
+                PHILOSOPHY_CHECK.scan_kernel_manifests(),
+                [
+                    "crates/kernel/maestria-governance/Cargo.toml "
+                    "contains forbidden dependency token reqwest"
+                ],
+            )
+            self.assertEqual(
+                PHILOSOPHY_CHECK.scan_kernel_sources(),
+                [
+                    "crates/kernel/maestria-governance/src/lib.rs "
+                    "contains forbidden failure token unreachable!("
+                ],
             )
 
 

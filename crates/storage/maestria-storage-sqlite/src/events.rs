@@ -19,11 +19,11 @@ pub(super) struct StoredEvent {
 
 impl StoredEvent {
     pub(super) fn from_domain(envelope: &DomainEventEnvelope) -> Result<Self, PortError> {
-        let payload = StoredEventPayload::from_domain(&envelope.event);
+        let payload = StoredEventPayload::from_domain(&envelope.event)?;
         Ok(Self {
             id: envelope.id.value(),
             sequence: envelope.sequence.value(),
-            kind: payload.kind(),
+            kind: payload.kind()?,
             artifact_id: payload.filter_artifact_id(),
             payload_json: serde_json::to_string(&payload).map_err(crate::json_error)?,
             payload_version: 2,
@@ -47,12 +47,12 @@ impl StoredEvent {
                 });
             }
         }?;
-        if payload.kind() != self.kind {
+        let payload_kind = payload.kind()?;
+        if payload_kind != self.kind {
             return Err(PortError::Internal {
                 message: format!(
                     "stored event kind mismatch: column {}, payload {}",
-                    self.kind,
-                    payload.kind()
+                    self.kind, payload_kind
                 ),
             });
         }
@@ -64,7 +64,7 @@ impl StoredEvent {
         Ok(DomainEventEnvelope {
             id: EventId::new(self.id),
             sequence: SequenceNumber::new(self.sequence),
-            event: payload.into_domain(),
+            event: payload.into_domain()?,
         })
     }
 }

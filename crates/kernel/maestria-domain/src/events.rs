@@ -1,0 +1,150 @@
+use crate::entities::{
+    ClaimStatus, EvidenceKind, RelationEndpoint, RelationKind, TaskPriority, TaskStatus,
+};
+use crate::ids::{
+    ArtifactId, BlobId, CardId, ChunkId, ClaimId, EventId, EvidenceId, LogicalTick,
+    MemoryCandidateId, MemoryId, RelationId, SequenceNumber, TaskId, ValidationReportId,
+};
+use std::collections::BTreeSet;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DomainEventEnvelope {
+    pub id: EventId,
+    pub sequence: SequenceNumber,
+    pub event: DomainEvent,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DomainEvent {
+    ArtifactRegistered {
+        artifact_id: ArtifactId,
+        title: String,
+    },
+    ChunkRegistered {
+        chunk_id: ChunkId,
+        artifact_id: ArtifactId,
+        order: u32,
+        text: String,
+    },
+    CardCreated {
+        card_id: CardId,
+        artifact_id: ArtifactId,
+        title: String,
+        body: String,
+    },
+    ClaimCreated {
+        claim_id: ClaimId,
+        artifact_id: ArtifactId,
+        text: String,
+        evidence_ids: Vec<EvidenceId>,
+    },
+    EvidenceRecorded {
+        evidence_id: EvidenceId,
+        artifact_id: ArtifactId,
+        claim_id: Option<ClaimId>,
+        kind: EvidenceKind,
+        excerpt: String,
+        observed_at: LogicalTick,
+    },
+    TaskOpened {
+        task_id: TaskId,
+        title: String,
+        priority: TaskPriority,
+        artifact_id: Option<ArtifactId>,
+    },
+    TaskStatusChanged {
+        task_id: TaskId,
+        from: TaskStatus,
+        to: TaskStatus,
+    },
+    TaskCompletionRecorded {
+        task_id: TaskId,
+        status: TaskStatus,
+        validation_report_id: ValidationReportId,
+    },
+    ClaimValidationUpdated {
+        claim_id: ClaimId,
+        status: ClaimStatus,
+    },
+    ClaimEvidenceLinked {
+        claim_id: ClaimId,
+        evidence_id: EvidenceId,
+    },
+    RelationCreated {
+        relation_id: RelationId,
+        source: RelationEndpoint,
+        kind: RelationKind,
+        target: RelationEndpoint,
+        evidence_id: Option<EvidenceId>,
+        confidence_milli: u16,
+    },
+    MemoryCandidateCreated {
+        candidate_id: MemoryCandidateId,
+        claim_id: ClaimId,
+        evidence_ids: BTreeSet<EvidenceId>,
+        confidence_milli: u16,
+    },
+    UserIntentObserved {
+        task_id: TaskId,
+        title: String,
+    },
+    ArtifactParsed {
+        artifact_id: ArtifactId,
+        chunks_added: u32,
+    },
+    PendingIndex {
+        artifact_id: ArtifactId,
+        content_hash: String,
+    },
+    FullTextIndexed {
+        artifact_id: ArtifactId,
+        chunk_id: ChunkId,
+    },
+    ArtifactIndexed {
+        artifact_id: ArtifactId,
+    },
+    SearchCompleted {
+        artifact_id: ArtifactId,
+        cards_added: u32,
+    },
+    HarnessRunCompleted {
+        task_id: Option<TaskId>,
+        command: String,
+        exit_code: i32,
+    },
+    ApprovalRecorded {
+        task_id: TaskId,
+        approved: bool,
+    },
+    MemoryPromoted {
+        memory_id: MemoryId,
+        candidate_id: MemoryCandidateId,
+    },
+    MemoryContradicted {
+        memory_id: MemoryId,
+        contradicting_candidate_id: MemoryCandidateId,
+    },
+    MemoryDeprecated {
+        memory_id: MemoryId,
+    },
+    MemorySuperseded {
+        memory_id: MemoryId,
+        by_memory_id: MemoryId,
+    },
+    ValidationReportCreated {
+        report_id: ValidationReportId,
+        task_id: Option<TaskId>,
+        passed: bool,
+        warnings: Vec<String>,
+    },
+    TickObserved {
+        at: LogicalTick,
+    },
+    ParserStarted {
+        artifact_id: ArtifactId,
+        title: String,
+        source_path: String,
+        content_hash: String,
+        blob_id: BlobId,
+    },
+}
