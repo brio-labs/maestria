@@ -5,6 +5,7 @@ mod indexing;
 mod parsing;
 mod persistence;
 mod shell_policy;
+mod supervision;
 mod validation;
 
 #[cfg(test)]
@@ -12,14 +13,15 @@ pub use config::EffectExecutionContext;
 mod approval;
 mod completion;
 use config::EffectExecutionContext as ExecutionContext;
+use config::HarnessFeedbackAcks;
 pub use config::{Adapters, Governance, RuntimeConfig};
 use maestria_domain::{DomainInput, KernelState, MaestriaEffect, ValidationReportId};
+use std::collections::BTreeMap;
 use std::sync::{
-    Arc,
+    Arc, Mutex,
     atomic::{AtomicU64, Ordering},
 };
 use tokio::sync::{RwLock, mpsc};
-
 pub struct MaestriaRuntime {
     config: RuntimeConfig,
     state: Arc<RwLock<KernelState>>,
@@ -27,10 +29,37 @@ pub struct MaestriaRuntime {
     governance: Arc<Governance>,
     input_tx: mpsc::Sender<DomainInput>,
     next_validation_report_id: Arc<AtomicU64>,
+    feedback_acks: HarnessFeedbackAcks,
 }
 
 pub struct RuntimeHandle {
     pub input_tx: mpsc::Sender<DomainInput>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FeedbackError {
+    CapacityFull,
+    RuntimeShutdown,
+}
+
+impl std::fmt::Display for FeedbackError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            FeedbackError::CapacityFull => write!(f, "capacity full"),
+            FeedbackError::RuntimeShutdown => write!(f, "runtime shutdown"),
+        }
+    }
+}
+
+impl std::error::Error for FeedbackError {}
+
+impl RuntimeHandle {
+    pub fn try_send_feedback(&self, input: DomainInput) -> Result<(), FeedbackError> {
+        self.input_tx.try_send(input).map_err(|e| match e {
+            mpsc::error::TrySendError::Full(_) => FeedbackError::CapacityFull,
+            mpsc::error::TrySendError::Closed(_) => FeedbackError::RuntimeShutdown,
+        })
+    }
 }
 
 impl MaestriaRuntime {
@@ -51,6 +80,7 @@ impl MaestriaRuntime {
                 adapters: Arc::new(adapters),
                 governance: Arc::new(governance),
                 input_tx,
+                feedback_acks: Arc::new(Mutex::new(BTreeMap::new())),
                 next_validation_report_id,
             },
             input_rx,
@@ -91,7 +121,9 @@ impl MaestriaRuntime {
                     let Some(input) = msg else { break };
 
                     match &input {
-                        DomainInput::ApprovalResolved(decision) if !self.check_approval_boundary(decision) => {
+                        DomainInput::ApprovalResolved(decision)
+                            if !self.check_approval_boundary(decision) =>
+                        {
                             continue;
                         }
                         DomainInput::CompleteTask(complete_input) => {
@@ -100,9 +132,20 @@ impl MaestriaRuntime {
                                 continue;
                             }
                         }
+                        DomainInput::HarnessRunCompleted(completion)
+                            if !self.check_harness_feedback_boundary(completion) =>
+                        {
+                            continue;
+                        }
                         _ => {}
                     }
 
+                    let harness_feedback = match &input {
+                        DomainInput::HarnessRunCompleted(completion) => {
+                            Some((completion.run_id, completion.generation))
+                        }
+                        _ => None,
+                    };
                     let mut wait_for_report_id = None;
                     let effects = {
                         let mut state = self.state.write().await;
@@ -115,6 +158,7 @@ impl MaestriaRuntime {
                                         wait_for_report_id = Some(*report_id);
                                     }
                                 }
+                                self.register_harness_feedback(harness_feedback, &output.effects);
                                 output.effects
                             }
                             Err(error) => {
@@ -130,12 +174,13 @@ impl MaestriaRuntime {
                                 if let Err(error) = result {
                                     tracing::error!(%error, "failed to dispatch effect");
                                     shutdown_token.cancel();
+                                    break;
                                 }
                             }
                         }
                     }
-
                     if let Some(report_id) = wait_for_report_id {
+
                         let found = self
                             .wait_for_validation_report(report_id, &shutdown_token)
                             .await;
@@ -222,6 +267,7 @@ impl MaestriaRuntime {
         let scope_id = self.config.scope_id;
         let next_validation_report_id = Arc::clone(&self.next_validation_report_id);
         let effect_shutdown = shutdown_token.clone();
+        let feedback_acks = Arc::clone(&self.feedback_acks);
         tokio::spawn(async move {
             let semaphore = Arc::new(tokio::sync::Semaphore::new(max_concurrent_effects));
             let mut in_flight = tokio::task::JoinSet::new();
@@ -244,6 +290,7 @@ impl MaestriaRuntime {
                             scope_id,
                             state: Arc::clone(&state),
                             input_tx: input_tx.clone(),
+                            feedback_acks: Arc::clone(&feedback_acks),
                             default_effect_timeout,
                             max_retries,
                         };
@@ -291,20 +338,24 @@ impl MaestriaRuntime {
 
 #[cfg(test)]
 pub mod test_support {
-    pub use super::{Adapters, EffectExecutionContext, Governance, MaestriaRuntime, RuntimeConfig};
+    pub use super::{
+        Adapters, EffectExecutionContext, FeedbackError, Governance, MaestriaRuntime, RuntimeConfig,
+    };
     pub use maestria_domain::{
         DomainEvent, DomainEventEnvelope, DomainInput, KernelState, MaestriaEffect,
         ValidationReportId, content_hash, evidence_id_for,
     };
     pub use maestria_governance::{AutonomyProfile, Scope};
     pub use maestria_ports::{
-        ArtifactRepository, BlobStore, CardRepository, ChunkRepository, EventFilter, EventLog,
+        ArtifactRepository, BlobStore, CardRepository, ChunkRepository, EffectJournal,
+        EffectJournalEntry, EffectJournalIntent, EffectJournalStatus, EventFilter, EventLog,
         EvidenceRepository, FullTextIndex, GraphIndex, HarnessAdapter, HarnessCommandClass,
         HarnessRequest, InMemoryArtifactRepository, InMemoryBlobStore, InMemoryCardRepository,
-        InMemoryChunkRepository, InMemoryEventLog, InMemoryEvidenceRepository,
-        InMemoryFullTextIndex, InMemoryGraphIndex, InMemoryHarnessAdapter, InMemoryParser,
-        InMemoryVectorIndex, InMemoryWebFetcher, IndexedCard, IndexedChunk, ParseContext, Parser,
-        PortError, SourceSpan, VectorEmbedding, VectorIndex, WebFetcher,
+        InMemoryChunkRepository, InMemoryEffectJournal, InMemoryEventLog,
+        InMemoryEvidenceRepository, InMemoryFullTextIndex, InMemoryGraphIndex,
+        InMemoryHarnessAdapter, InMemoryParser, InMemoryVectorIndex, InMemoryWebFetcher,
+        IndexedCard, IndexedChunk, ParseContext, Parser, PortError, SourceSpan, VectorEmbedding,
+        VectorIndex, WebFetcher,
     };
     pub use std::sync::Arc;
     pub use std::time::Duration;
@@ -327,6 +378,8 @@ mod runtime_parse_tests;
 mod runtime_pdf_tests;
 #[cfg(test)]
 mod runtime_resume_tests;
+#[cfg(test)]
+mod runtime_supervision_tests;
 #[cfg(test)]
 mod runtime_tests;
 #[cfg(test)]

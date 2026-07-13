@@ -197,7 +197,7 @@ impl EffectExecutionContext {
                 .get(&artifact_id)
                 .map_or_else(|| artifact_title.to_owned(), |p| p.title.clone())
         };
-        Self::send_input(
+        if Self::send_input(
             &self.input_tx,
             DomainInput::ParserStarted(ParserStarted {
                 artifact_id,
@@ -208,7 +208,10 @@ impl EffectExecutionContext {
             }),
             "parser started",
         )
-        .await;
+        .is_err()
+        {
+            return false;
+        }
 
         // Persistence barrier: wait until the ParserStarted event is
         // observable in the event log before proceeding to parse. This
@@ -305,7 +308,7 @@ impl EffectExecutionContext {
                 // Evidence inputs follow after the artifact is guaranteed to exist in
                 // domain state. After evidence is persisted, StartFullTextIndex triggers
                 // full-text indexing via the domain's deferred gate.
-                Self::send_input(
+                if Self::send_input(
                     &self.input_tx,
                     DomainInput::ParserCompleted(ParserResult {
                         artifact_id: parsed.artifact_id,
@@ -314,25 +317,34 @@ impl EffectExecutionContext {
                     }),
                     "parser completion",
                 )
-                .await;
+                .is_err()
+                {
+                    return false;
+                }
 
                 for evidence in evidence_inputs {
-                    Self::send_input(
+                    if Self::send_input(
                         &self.input_tx,
                         DomainInput::RecordEvidence(evidence),
                         "record evidence",
                     )
-                    .await;
+                    .is_err()
+                    {
+                        return false;
+                    }
                 }
 
-                Self::send_input(
+                if Self::send_input(
                     &self.input_tx,
                     DomainInput::StartFullTextIndex(StartFullTextIndex {
                         artifact_id: parsed.artifact_id,
                     }),
                     "start full-text index",
                 )
-                .await;
+                .is_err()
+                {
+                    return false;
+                }
             }
             Err(error) => {
                 tracing::error!(artifact_id = %artifact_id, %error, "parser failed");

@@ -1,7 +1,7 @@
 use crate::entities::{EvidenceKind, RelationEndpoint, RelationKind, TaskPriority, TaskStatus};
 use crate::ids::{
-    ApprovalId, ArtifactId, BlobId, CardId, ChunkId, ClaimId, EvidenceId, LogicalTick,
-    MemoryCandidateId, MemoryId, RelationId, TaskId, ValidationReportId,
+    ApprovalId, ArtifactId, BlobId, CardId, ChunkId, ClaimId, EvidenceId, HarnessRunId,
+    LogicalTick, MemoryCandidateId, MemoryId, RelationId, TaskId, ValidationReportId,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -185,6 +185,8 @@ pub struct StartFullTextIndex {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HarnessRunCompleted {
+    pub run_id: HarnessRunId,
+    pub generation: u64,
     pub task_id: Option<TaskId>,
     pub command: String,
     pub exit_code: i32,

@@ -5,28 +5,12 @@ use crate::to_port_error;
 
 mod approval_migration;
 use approval_migration::*;
+mod supervision_migration;
+use supervision_migration::*;
 
 use crate::schema_validation::*;
 /// Current storage schema version supported by this adapter.
-pub(crate) const CURRENT_SCHEMA_VERSION: i64 = 5;
-
-/// Ensures the `artifacts` table carries the v3 columns `content_hash` and `index_status`.
-fn ensure_artifact_v3_columns(connection: &Connection) -> Result<(), PortError> {
-    if !table_has_column(connection, "artifacts", "content_hash")? {
-        connection
-            .execute("ALTER TABLE artifacts ADD COLUMN content_hash TEXT", [])
-            .map_err(to_port_error)?;
-    }
-    if !table_has_column(connection, "artifacts", "index_status")? {
-        connection
-            .execute(
-                "ALTER TABLE artifacts ADD COLUMN index_status TEXT NOT NULL DEFAULT 'unindexed'",
-                [],
-            )
-            .map_err(to_port_error)?;
-    }
-    Ok(())
-}
+pub(crate) const CURRENT_SCHEMA_VERSION: i64 = 6;
 
 /// Captures the pre-migration state of the database.
 struct SchemaState {
@@ -159,6 +143,17 @@ const BASE_SCHEMA_SQL: &str = "PRAGMA foreign_keys = ON;
          scope_id INTEGER NOT NULL DEFAULT 0,
          tick INTEGER NOT NULL,
          status TEXT NOT NULL DEFAULT 'pending'
+     );
+     CREATE TABLE IF NOT EXISTS effect_journal (
+         run_id INTEGER NOT NULL,
+         generation INTEGER NOT NULL,
+         task_id INTEGER,
+         capability TEXT NOT NULL,
+         command TEXT NOT NULL,
+         scope_id INTEGER NOT NULL,
+         requested_generation INTEGER,
+         status TEXT NOT NULL,
+         PRIMARY KEY (run_id, generation)
      );";
 
 /// Seeds the per-namespace `id_counters` rows from existing domain events
@@ -387,8 +382,8 @@ fn migrate_from_v4(connection: &Connection, state: &SchemaState) -> Result<(), P
     Ok(())
 }
 
-/// Validates that a database already at v5 conforms to the expected tables.
-fn validate_at_v5(connection: &Connection, state: &SchemaState) -> Result<(), PortError> {
+/// Validates that a database already at v6 conforms to the expected tables.
+fn validate_at_v6(connection: &Connection, state: &SchemaState) -> Result<(), PortError> {
     if !state.had_domain_events_table {
         return Err(PortError::Internal {
             message: "malformed sqlite schema: domain_events table missing".to_string(),
@@ -418,6 +413,11 @@ fn validate_at_v5(connection: &Connection, state: &SchemaState) -> Result<(), Po
             message: "malformed sqlite schema: approval_requests table missing".to_string(),
         });
     }
+    if !table_exists(connection, "effect_journal")? {
+        return Err(PortError::Internal {
+            message: "malformed sqlite schema: effect_journal table missing".to_string(),
+        });
+    }
     Ok(())
 }
 
@@ -442,7 +442,8 @@ pub(crate) fn migrate(connection: &mut Connection) -> Result<(), PortError> {
         Some(2) => migrate_from_v2(&transaction, &state)?,
         Some(3) => migrate_from_v3(&transaction, &state)?,
         Some(4) => migrate_from_v4(&transaction, &state)?,
-        Some(5) => validate_at_v5(&transaction, &state)?,
+        Some(5) => migrate_from_v5(&transaction, &state)?,
+        Some(6) => validate_at_v6(&transaction, &state)?,
         Some(version) => {
             return Err(PortError::Internal {
                 message: format!(

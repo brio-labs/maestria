@@ -49,7 +49,7 @@ impl EffectExecutionContext {
             tracing::error!(chunk_id = %request.chunk_id, %error, "failed to index chunk");
             return false;
         }
-        Self::send_input(
+        if Self::send_input(
             &self.input_tx,
             DomainInput::FullTextIndexCompleted(FullTextIndexCompleted {
                 artifact_id: request.artifact_id,
@@ -57,7 +57,10 @@ impl EffectExecutionContext {
             }),
             "full-text index completion",
         )
-        .await;
+        .is_err()
+        {
+            return false;
+        }
         true
     }
 }

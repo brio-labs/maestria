@@ -32,3 +32,4 @@ pub(super) fn registered(event_id: u64, sequence: u64, artifact_id: u64) -> Doma
         },
     }
 }
+mod effect_journal_tests;

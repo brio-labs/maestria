@@ -8,9 +8,9 @@ use maestria_governance::{DefaultApprovalGate, DefaultRiskClassifier, DefaultVal
 use maestria_ports::{
     ArtifactRepository, BlobStore, EventLog, InMemoryApprovalRepository,
     InMemoryArtifactRepository, InMemoryBlobStore, InMemoryCardRepository, InMemoryChunkRepository,
-    InMemoryEventLog, InMemoryEvidenceRepository, InMemoryFullTextIndex, InMemoryGraphIndex,
-    InMemoryHarnessAdapter, InMemoryIdAllocator, InMemoryParser, InMemoryVectorIndex,
-    InMemoryWebFetcher,
+    InMemoryEffectJournal, InMemoryEventLog, InMemoryEvidenceRepository, InMemoryFullTextIndex,
+    InMemoryGraphIndex, InMemoryHarnessAdapter, InMemoryIdAllocator, InMemoryParser,
+    InMemoryVectorIndex, InMemoryWebFetcher,
 };
 use std::collections::BTreeSet;
 use std::sync::Arc;
@@ -54,6 +54,7 @@ async fn resume_parse_uses_existing_blob_and_skips_storage() {
         graph_index: Arc::new(InMemoryGraphIndex::new()),
         web_fetcher: Arc::new(InMemoryWebFetcher::new()),
         id_allocator: Arc::new(InMemoryIdAllocator::new()),
+        effect_journal: Arc::new(InMemoryEffectJournal::default()),
         approval_repo: Arc::new(InMemoryApprovalRepository::new()),
     };
     let governance = Governance {
@@ -132,6 +133,7 @@ async fn resume_parse_missing_blob_returns_failure() {
         graph_index: Arc::new(InMemoryGraphIndex::new()),
         web_fetcher: Arc::new(InMemoryWebFetcher::new()),
         id_allocator: Arc::new(InMemoryIdAllocator::new()),
+        effect_journal: Arc::new(InMemoryEffectJournal::default()),
         approval_repo: Arc::new(InMemoryApprovalRepository::new()),
     };
     let governance = Governance {
@@ -197,6 +199,7 @@ async fn fresh_parse_sends_parser_started_with_correct_blob_identity() {
         graph_index: Arc::new(InMemoryGraphIndex::new()),
         web_fetcher: Arc::new(InMemoryWebFetcher::new()),
         id_allocator: Arc::new(InMemoryIdAllocator::new()),
+        effect_journal: Arc::new(InMemoryEffectJournal::default()),
         approval_repo: Arc::new(InMemoryApprovalRepository::new()),
     };
     let governance = Governance {
@@ -383,6 +386,7 @@ async fn resume_sends_record_evidence_when_evidence_already_in_state() {
         graph_index: Arc::new(InMemoryGraphIndex::new()),
         web_fetcher: Arc::new(InMemoryWebFetcher::new()),
         id_allocator: Arc::new(InMemoryIdAllocator::new()),
+        effect_journal: Arc::new(InMemoryEffectJournal::default()),
         approval_repo: Arc::new(InMemoryApprovalRepository::new()),
     };
     let governance = Governance {

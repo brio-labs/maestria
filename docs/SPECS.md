@@ -110,3 +110,23 @@ Warning completion is permitted only when the configured validation policy allow
 warnings. A blocked governance decision leaves the task state unchanged. The
 runtime validation tests cover missing, failed, mismatched, warning-policy, and
 successful completion paths.
+
+## Restart-Safe Runtime Supervision Slice
+
+Non-idempotent harness effects are journaled outside the deterministic domain:
+
+- an `Intent` is durable before adapter execution;
+- `Started` is durable before the harness process begins;
+- feedback is atomically claimed as `FeedbackAccepted` before enqueueing and
+  terminalized only after the runtime applies the matching domain input;
+- terminal states are `Completed`, `Failed`, `Paused`, or `Superseded`;
+- a new generation supersedes every unfinished older generation;
+- in-flight harness effects are paused during daemon recovery and are not
+  replayed without explicit operator approval;
+- harness effects are not automatically retried after adapter execution begins;
+- parser, indexing, and validation work remains idempotent and uses the existing
+  event-log recovery inputs.
+
+Runtime feedback uses non-blocking bounded-channel sends. Saturation and runtime
+shutdown are typed outcomes; non-idempotent work pauses instead of replaying a
+completed adapter action.
