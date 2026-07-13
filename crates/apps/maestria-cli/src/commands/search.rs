@@ -143,17 +143,18 @@ async fn wait_for_search_executed_persistence(
                 Ok(state) => {
                     let new_events = state.event_log.get(event_count_before..).unwrap_or(&[]);
                     if new_events.iter().any(|envelope| {
-                        matches!(
-                            &envelope.event,
-                            maestria_domain::DomainEvent::SearchExecuted {
-                                query,
-                                limit,
-                                evidence_ids,
-                                ..
-                            } if query == expected_query
-                                && *limit == expected_limit
-                                && evidence_ids == expected_evidence_ids
-                        )
+                        envelope.id.value() == event_count_before as u64 + 1
+                            && matches!(
+                                &envelope.event,
+                                maestria_domain::DomainEvent::SearchExecuted {
+                                    query,
+                                    limit,
+                                    evidence_ids,
+                                    ..
+                                } if query == expected_query
+                                    && *limit == expected_limit
+                                    && evidence_ids == expected_evidence_ids
+                            )
                     }) {
                         return Ok(());
                     }

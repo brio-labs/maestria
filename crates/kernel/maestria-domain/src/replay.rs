@@ -141,7 +141,7 @@ impl KernelState {
             DomainEvent::SearchCompleted { artifact_id, .. } => {
                 self.apply_search_completed(*artifact_id)
             }
-            DomainEvent::SearchExecuted { .. } => self.apply_search_executed(),
+            DomainEvent::SearchExecuted { query, .. } => self.apply_search_executed(query),
             DomainEvent::HarnessRunCompleted { task_id, .. } => {
                 self.apply_harness_run_completed(*task_id)
             }

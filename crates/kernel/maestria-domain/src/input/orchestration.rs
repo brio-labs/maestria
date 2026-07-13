@@ -362,7 +362,10 @@ impl KernelState {
 
     pub(crate) fn apply_tick_observed(&mut self) {}
 
-    pub(crate) fn apply_search_executed(&mut self) -> Result<(), DomainError> {
+    pub(crate) fn apply_search_executed(&mut self, query: &str) -> Result<(), DomainError> {
+        if query.trim().is_empty() {
+            return Err(DomainError::EmptyIntent);
+        }
         // SearchExecuted is a pure audit event — no state mutation on replay.
         Ok(())
     }
