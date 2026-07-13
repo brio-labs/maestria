@@ -184,6 +184,7 @@ mod parser_resume;
 use parser_resume::pending_resume_parsers;
 pub use parser_resume::verify_pending_blobs;
 mod validation_recovery;
+pub use validation_recovery::has_current_validation_report;
 use validation_recovery::pending_validations;
 
 mod full_text_recovery;

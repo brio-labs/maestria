@@ -225,10 +225,7 @@ async fn drain_validation_recovery(
             {
                 Ok(state) => {
                     if validation_task_ids.iter().all(|task_id| {
-                        state
-                            .validation_reports
-                            .values()
-                            .any(|report| report.task_id == Some(*task_id))
+                        maestria_daemon::has_current_validation_report(&state, *task_id)
                     }) {
                         return Ok::<_, anyhow::Error>(());
                     }

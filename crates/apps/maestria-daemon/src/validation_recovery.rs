@@ -16,7 +16,7 @@ pub fn pending_validations(state: &KernelState) -> Vec<DomainInput> {
         .collect()
 }
 
-fn has_current_validation_report(state: &KernelState, task_id: TaskId) -> bool {
+pub fn has_current_validation_report(state: &KernelState, task_id: TaskId) -> bool {
     let transition_index = state.event_log.iter().rposition(|envelope| {
         matches!(
             envelope.event,
