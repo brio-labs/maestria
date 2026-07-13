@@ -147,7 +147,7 @@ fn lock_owner_is_dead(path: &PathBuf) -> bool {
 mod approval_recovery;
 mod projection_recovery;
 pub use approval_recovery::{reconcile_approval_repo, reconcile_pending_approvals};
-pub use projection_recovery::reconcile_projections;
+pub use projection_recovery::{reconcile_graph_projection, reconcile_projections};
 mod full_text_recovery;
 pub use full_text_recovery::pending_start_full_text;
 mod parser_resume;
@@ -353,6 +353,10 @@ pub async fn run_instance(instance_dir: PathBuf) -> Result<()> {
     {
         reconcile_projections(&state, &store)
             .with_context(|| "reconcile projection repositories")?;
+        let graph_index = SqliteGraphIndex::open(layout.graph_index_dir.join("projection.db"))
+            .with_context(|| format!("open graph index {}", layout.graph_index_dir.display()))?;
+        reconcile_graph_projection(&state, &graph_index)
+            .with_context(|| "reconcile graph projection")?;
         reconcile_approval_repo(&state, &store).with_context(|| "reconcile approval repository")?;
         reconcile_pending_approvals(&state, &store, &store)
             .with_context(|| "reconcile pending approvals")?;

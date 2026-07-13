@@ -1,0 +1,90 @@
+use super::*;
+use maestria_domain::{ClaimId, EvidenceId, Relation, RelationEndpoint, RelationId, RelationKind};
+
+pub fn assert_graph_index_contract(index: &impl GraphIndex) {
+    let artifact_ep = RelationEndpoint::Artifact(ArtifactId::new(1));
+    let card_ep = RelationEndpoint::Card(CardId::new(2));
+    let claim_ep = RelationEndpoint::Claim(ClaimId::new(3));
+
+    let mut rel3 = Relation {
+        id: RelationId::new(3),
+        source: artifact_ep,
+        target: card_ep,
+        kind: RelationKind::Contains,
+        evidence_id: Some(EvidenceId::new(5)),
+        confidence_milli: 800,
+    };
+    let rel1 = Relation {
+        id: RelationId::new(1),
+        source: card_ep,
+        target: claim_ep,
+        kind: RelationKind::Supports,
+        evidence_id: Some(EvidenceId::new(4)),
+        confidence_milli: 900,
+    };
+    let rel2 = Relation {
+        id: RelationId::new(2),
+        source: artifact_ep,
+        target: claim_ep,
+        kind: RelationKind::Contradicts,
+        evidence_id: Some(EvidenceId::new(6)),
+        confidence_milli: 500,
+    };
+
+    index.insert_relation(rel3.clone()).expect("insert 3");
+    index.insert_relation(rel1.clone()).expect("insert 1");
+    index.insert_relation(rel2.clone()).expect("insert 2");
+
+    rel3.confidence_milli = 950;
+    index.insert_relation(rel3.clone()).expect("replace 3");
+
+    let artifact_rels = index
+        .get_relations_for(artifact_ep)
+        .expect("get relations for artifact");
+    assert_eq!(artifact_rels, vec![rel2.clone(), rel3.clone()]);
+
+    let claim_rels = index
+        .get_relations_for(claim_ep)
+        .expect("get relations for claim");
+    assert_eq!(claim_rels, vec![rel1.clone(), rel2.clone()]);
+
+    index.clear().expect("clear");
+    assert!(
+        index
+            .get_relations_for(artifact_ep)
+            .expect("graph operation")
+            .is_empty()
+    );
+    assert!(
+        index
+            .get_relations_for(card_ep)
+            .expect("graph operation")
+            .is_empty()
+    );
+    assert!(
+        index
+            .get_relations_for(claim_ep)
+            .expect("graph operation")
+            .is_empty()
+    );
+
+    index
+        .rebuild(vec![rel1.clone(), rel2.clone(), rel3.clone()])
+        .expect("rebuild");
+    let rebuilt_rels = index.get_relations_for(claim_ep).expect("graph operation");
+    assert_eq!(rebuilt_rels, vec![rel1.clone(), rel2]);
+
+    index.delete_relations(&[]).expect("empty delete");
+    assert_eq!(
+        index
+            .get_relations_for(claim_ep)
+            .expect("graph operation")
+            .len(),
+        2
+    );
+    index
+        .delete_relations(&[RelationId::new(2)])
+        .expect("delete rel2");
+    let after_delete = index.get_relations_for(claim_ep).expect("graph operation");
+    assert_eq!(after_delete, vec![rel1]);
+}

@@ -35,4 +35,22 @@ impl GraphIndex for InMemoryGraphIndex {
             .cloned()
             .collect())
     }
+
+    fn delete_relations(&self, relation_ids: &[RelationId]) -> Result<(), PortError> {
+        let mut guard = self.relations.lock().map_err(|_| PortError::Internal {
+            message: "graph index lock poisoned".to_string(),
+        })?;
+        for id in relation_ids {
+            guard.remove(id);
+        }
+        Ok(())
+    }
+
+    fn clear(&self) -> Result<(), PortError> {
+        let mut guard = self.relations.lock().map_err(|_| PortError::Internal {
+            message: "graph index lock poisoned".to_string(),
+        })?;
+        guard.clear();
+        Ok(())
+    }
 }

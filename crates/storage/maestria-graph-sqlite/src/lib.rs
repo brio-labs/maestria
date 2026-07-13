@@ -6,9 +6,8 @@
 //! event log remains the source of truth; this adapter only serves `GraphIndex`
 //! reads for projected graph edges.
 //!
-//! Note: Runtime integration and domain replay wiring are deferred to a
-//! subsequent PR; they are not no-ops, but simply out of scope for this
-//! projection layer update.
+//! Runtime wiring owns projection updates; this adapter only persists and
+//! serves rebuildable graph edges.
 
 mod conversion;
 mod migration;
@@ -18,7 +17,7 @@ use migration::migrate;
 use std::path::Path;
 use std::sync::{Mutex, MutexGuard};
 
-use maestria_domain::{Relation, RelationEndpoint};
+use maestria_domain::{Relation, RelationEndpoint, RelationId};
 use maestria_ports::{GraphIndex, PortError};
 use rusqlite::{Connection, params};
 
@@ -132,6 +131,34 @@ impl GraphIndex for SqliteGraphIndex {
         }
         relations.sort_by_key(|r| r.id);
         Ok(relations)
+    }
+
+    fn delete_relations(&self, relation_ids: &[RelationId]) -> Result<(), PortError> {
+        if relation_ids.is_empty() {
+            return Ok(());
+        }
+        let mut connection = self.lock_connection()?;
+        let transaction = connection.transaction().map_err(to_port_error)?;
+        {
+            let mut statement = transaction
+                .prepare("DELETE FROM relations WHERE id = ?1")
+                .map_err(to_port_error)?;
+            for id in relation_ids {
+                statement
+                    .execute(params![id.value().to_string()])
+                    .map_err(to_port_error)?;
+            }
+        }
+        transaction.commit().map_err(to_port_error)?;
+        Ok(())
+    }
+
+    fn clear(&self) -> Result<(), PortError> {
+        let connection = self.lock_connection()?;
+        connection
+            .execute("DELETE FROM relations", params![])
+            .map_err(to_port_error)?;
+        Ok(())
     }
 }
 

@@ -1174,6 +1174,7 @@ dependencies = [
  "maestria-domain",
  "maestria-embedding-openai",
  "maestria-governance",
+ "maestria-graph-sqlite",
  "maestria-parsers",
  "maestria-ports",
  "maestria-search-tantivy",

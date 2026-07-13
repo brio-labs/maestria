@@ -122,9 +122,16 @@ impl EffectExecutionContext {
             state.relations.get(&request.relation_id).cloned()
         };
         let Some(relation) = relation else {
-            tracing::warn!(relation_id = %request.relation_id, "relation missing for graph update");
-            return true;
+            tracing::error!(relation_id = %request.relation_id, "relation missing for graph update");
+            return false;
         };
+        if relation.evidence_id.is_none() {
+            tracing::warn!(
+                relation_id = %request.relation_id,
+                "refusing to project unevidenced relation"
+            );
+            return false;
+        }
         if let Err(error) = self.adapters.graph_index.insert_relation(relation) {
             tracing::error!(relation_id = %request.relation_id, %error, "failed to insert relation into graph");
             return false;

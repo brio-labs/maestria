@@ -49,3 +49,18 @@ pub struct OpenEvidenceOutput {
     pub artifact: Artifact,
     pub evidence: Evidence,
 }
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GraphConfig {
+    pub max_depth: usize,
+    pub max_results: usize,
+}
+
+impl Default for GraphConfig {
+    fn default() -> Self {
+        Self {
+            max_depth: 2,
+            max_results: 10,
+        }
+    }
+}

@@ -125,7 +125,78 @@ fn orders_relations_by_numeric_id_not_lexical() -> Result<(), PortError> {
 #[test]
 fn satisfies_graph_index_contract() -> Result<(), PortError> {
     let index = SqliteGraphIndex::in_memory()?;
-    maestria_ports::contract_tests::assert_graph_index_contract(&index);
+    maestria_ports::graph_contract_tests::assert_graph_index_contract(&index);
+    Ok(())
+}
+
+#[test]
+fn clear_removes_all_relations() -> Result<(), PortError> {
+    let index = SqliteGraphIndex::in_memory()?;
+    let ep = RelationEndpoint::Artifact(ArtifactId::new(1));
+    let rel = Relation {
+        id: RelationId::new(1),
+        source: ep,
+        target: RelationEndpoint::Card(CardId::new(2)),
+        kind: RelationKind::Contains,
+        evidence_id: Some(EvidenceId::new(3)),
+        confidence_milli: 800,
+    };
+    index.insert_relation(rel.clone())?;
+    assert_eq!(index.get_relations_for(ep)?.len(), 1);
+
+    index.clear()?;
+    assert!(index.get_relations_for(ep)?.is_empty());
+    Ok(())
+}
+
+#[test]
+fn delete_relations_ignores_empty_list() -> Result<(), PortError> {
+    let index = SqliteGraphIndex::in_memory()?;
+    let ep = RelationEndpoint::Artifact(ArtifactId::new(1));
+    let rel = Relation {
+        id: RelationId::new(1),
+        source: ep,
+        target: RelationEndpoint::Card(CardId::new(2)),
+        kind: RelationKind::Contains,
+        evidence_id: Some(EvidenceId::new(3)),
+        confidence_milli: 800,
+    };
+    index.insert_relation(rel.clone())?;
+
+    index.delete_relations(&[])?;
+    assert_eq!(index.get_relations_for(ep)?.len(), 1);
+    Ok(())
+}
+
+#[test]
+fn rebuild_preserves_new_relations() -> Result<(), PortError> {
+    let index = SqliteGraphIndex::in_memory()?;
+    let ep = RelationEndpoint::Artifact(ArtifactId::new(1));
+    let rel1 = Relation {
+        id: RelationId::new(1),
+        source: ep,
+        target: RelationEndpoint::Card(CardId::new(2)),
+        kind: RelationKind::Contains,
+        evidence_id: Some(EvidenceId::new(3)),
+        confidence_milli: 800,
+    };
+    let rel2 = Relation {
+        id: RelationId::new(2),
+        source: ep,
+        target: RelationEndpoint::Claim(ClaimId::new(4)),
+        kind: RelationKind::Supports,
+        evidence_id: Some(EvidenceId::new(5)),
+        confidence_milli: 900,
+    };
+
+    index.insert_relation(rel1.clone())?;
+    assert_eq!(index.get_relations_for(ep)?.len(), 1);
+
+    index.rebuild(vec![rel2.clone()])?;
+
+    let current = index.get_relations_for(ep)?;
+    assert_eq!(current.len(), 1);
+    assert_eq!(current[0], rel2);
     Ok(())
 }
 

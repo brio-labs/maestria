@@ -6,6 +6,7 @@
 //! avoids concrete SQL, filesystem, search-engine, and parser implementations.
 
 mod error;
+mod graph_retrieval;
 mod ingestion;
 mod instance;
 mod manifest;
@@ -24,6 +25,6 @@ pub use ports::{CorePorts, CoreServices};
 pub use provenance::artifact_id_for;
 pub use provenance::content_hash;
 pub use types::{
-    EvidencePack, OpenChunkEvidenceInput, OpenEvidenceInput, OpenEvidenceOutput, SearchInput,
-    SearchOutput, SourceGroundedCardHit, SourceGroundedSearchHit,
+    EvidencePack, GraphConfig, OpenChunkEvidenceInput, OpenEvidenceInput, OpenEvidenceOutput,
+    SearchInput, SearchOutput, SourceGroundedCardHit, SourceGroundedSearchHit,
 };

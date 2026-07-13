@@ -223,7 +223,12 @@ impl KernelState {
         output.effects.push(MaestriaEffect::PersistEvent {
             envelope: event.clone(),
         });
-        if let DomainEvent::RelationCreated { relation_id, .. } = event.event {
+        if let DomainEvent::RelationCreated {
+            relation_id,
+            evidence_id: Some(_),
+            ..
+        } = event.event
+        {
             output
                 .effects
                 .push(MaestriaEffect::UpdateGraph(UpdateGraphRequest {

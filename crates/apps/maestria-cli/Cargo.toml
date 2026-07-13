@@ -14,6 +14,7 @@ maestria-blob-fs = { path = "../../storage/maestria-blob-fs" }
 maestria-storage-sqlite = { path = "../../storage/maestria-storage-sqlite" }
 maestria-search-tantivy = { path = "../../storage/maestria-search-tantivy" }
 maestria-vector-sqlite = { path = "../../storage/maestria-vector-sqlite" }
+maestria-graph-sqlite = { path = "../../storage/maestria-graph-sqlite" }
 maestria-embedding-openai = { path = "../../ecosystem/maestria-embedding-openai" }
 maestria-ports = { path = "../../kernel/maestria-ports" }
 maestria-parsers = { path = "../../ecosystem/maestria-parsers" }

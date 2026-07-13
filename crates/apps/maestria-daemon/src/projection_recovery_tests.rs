@@ -3,7 +3,9 @@ use maestria_domain::{
     ArtifactDetected, CardId, ChunkId, ContentRange, CreateCardInput, EvidenceId, EvidenceKind,
     LogicalTick, ParserResult, RecordEvidenceInput, RegisterChunkInput,
 };
-use maestria_ports::{ArtifactRepository, CardRepository, ChunkRepository, EvidenceRepository};
+use maestria_ports::{
+    ArtifactRepository, CardRepository, ChunkRepository, EvidenceRepository, GraphIndex,
+};
 
 /// Fixture carrying entity IDs produced during domain-state setup.
 struct RecoveryTestFixture {
@@ -301,5 +303,52 @@ fn reconcile_projections_evidence_replace_overwrites_stale_row() {
         corrected.observed_at,
         LogicalTick::new(2),
         "evidence replace must update observed_at"
+    );
+}
+
+#[test]
+fn reconcile_graph_projection_repairs_missing_rows_and_filters_unevidenced() {
+    let mut state = KernelState::new();
+    let fixture = build_recovery_domain_state(&mut state);
+    let valid = maestria_domain::Relation {
+        id: maestria_domain::RelationId::new(1),
+        source: maestria_domain::RelationEndpoint::Artifact(fixture.artifact_id),
+        target: maestria_domain::RelationEndpoint::Claim(maestria_domain::ClaimId::new(9)),
+        kind: maestria_domain::RelationKind::Supports,
+        evidence_id: Some(fixture.evidence_id),
+        confidence_milli: 900,
+    };
+    let unevidenced = maestria_domain::Relation {
+        id: maestria_domain::RelationId::new(2),
+        source: maestria_domain::RelationEndpoint::Artifact(fixture.artifact_id),
+        target: maestria_domain::RelationEndpoint::Claim(maestria_domain::ClaimId::new(10)),
+        kind: maestria_domain::RelationKind::Supports,
+        evidence_id: None,
+        confidence_milli: 900,
+    };
+    state.relations.insert(valid.id, valid.clone());
+    state.relations.insert(unevidenced.id, unevidenced);
+
+    let graph = maestria_graph_sqlite::SqliteGraphIndex::in_memory().expect("open graph index");
+    graph
+        .insert_relation(maestria_domain::Relation {
+            id: maestria_domain::RelationId::new(99),
+            source: maestria_domain::RelationEndpoint::Artifact(fixture.artifact_id),
+            target: maestria_domain::RelationEndpoint::Claim(maestria_domain::ClaimId::new(11)),
+            kind: maestria_domain::RelationKind::Supports,
+            evidence_id: Some(fixture.evidence_id),
+            confidence_milli: 1000,
+        })
+        .expect("seed stale graph relation");
+
+    reconcile_graph_projection(&state, &graph).expect("reconcile graph");
+
+    assert_eq!(
+        graph
+            .get_relations_for(maestria_domain::RelationEndpoint::Artifact(
+                fixture.artifact_id
+            ))
+            .expect("read graph relations"),
+        vec![valid]
     );
 }

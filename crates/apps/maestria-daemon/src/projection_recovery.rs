@@ -1,6 +1,8 @@
 use anyhow::{Context, Result};
 use maestria_domain::KernelState;
-use maestria_ports::{ArtifactRepository, CardRepository, ChunkRepository, EvidenceRepository};
+use maestria_ports::{
+    ArtifactRepository, CardRepository, ChunkRepository, EvidenceRepository, GraphIndex,
+};
 use maestria_storage_sqlite::SqliteStore;
 
 /// Reconcile projection repositories from replayed domain truth.
@@ -30,5 +32,23 @@ pub fn reconcile_projections(state: &KernelState, store: &SqliteStore) -> Result
         EvidenceRepository::replace(store, evidence.clone())
             .with_context(|| format!("replace evidence {}", evidence.id))?;
     }
+    Ok(())
+}
+
+/// Rebuild the graph projection from replayed, evidenced relations.
+///
+/// Graph storage is a disposable projection. Clearing and rebuilding it at
+/// startup repairs rows lost after an event was appended but before its graph
+/// effect completed, while unevidenced relations remain intentionally absent.
+pub fn reconcile_graph_projection(state: &KernelState, graph: &impl GraphIndex) -> Result<()> {
+    let relations = state
+        .relations
+        .values()
+        .filter(|relation| relation.evidence_id.is_some())
+        .cloned()
+        .collect();
+    graph
+        .rebuild(relations)
+        .context("rebuild graph projection from domain state")?;
     Ok(())
 }
