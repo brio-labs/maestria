@@ -101,10 +101,21 @@ pub async fn run_resolve(instance_dir: PathBuf, id: u64, approved: bool) -> Resu
     drop(lock);
 
     match poll_result {
-        Ok(true) => {}
-        Ok(false) | Err(_) => {
+        Ok(Ok(true)) => {
+            // Event found — proceed to repo update below.
+        }
+        Ok(Ok(false)) => {
             anyhow::bail!(
                 "approval decision was not recorded by the domain; \
+                 the request may be processed on next daemon start"
+            );
+        }
+        Ok(Err(e)) => {
+            anyhow::bail!("failed to scan event log for approval record: {e}");
+        }
+        Err(_elapsed) => {
+            anyhow::bail!(
+                "timed out waiting for approval decision to be recorded; \
                  the request may be processed on next daemon start"
             );
         }
@@ -123,25 +134,24 @@ pub async fn run_resolve(instance_dir: PathBuf, id: u64, approved: bool) -> Resu
 }
 
 /// Poll a single open store connection for the ApprovalRecorded event.
-/// Returns when found or the future is cancelled by the caller's timeout.
+/// Returns Ok(true) when found, Ok(false) when the future is cancelled.
+/// Scan errors are propagated as Err.
 async fn poll_for_approval_recorded(
     store: &SqliteStore,
     approval_id: maestria_domain::ApprovalId,
-) -> bool {
+) -> Result<bool> {
     loop {
-        match store.scan(EventFilter { artifact_id: None }) {
-            Ok(events) => {
-                if events.iter().any(|e| {
-                    matches!(
-                        &e.event,
-                        DomainEvent::ApprovalRecorded { approval_id: id, .. }
-                            if *id == approval_id
-                    )
-                }) {
-                    return true;
-                }
-            }
-            Err(_) => return false,
+        let events = store
+            .scan(EventFilter { artifact_id: None })
+            .context("scan event log during approval poll")?;
+        if events.iter().any(|e| {
+            matches!(
+                &e.event,
+                DomainEvent::ApprovalRecorded { approval_id: id, .. }
+                    if *id == approval_id
+            )
+        }) {
+            return Ok(true);
         }
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
