@@ -29,6 +29,7 @@ impl KernelState {
             DomainInput::OpenTask(input) => self.process_open_task(input),
             DomainInput::ChangeTaskStatus(input) => self.process_change_task_status(input),
             DomainInput::CompleteTask(input) => self.process_complete_task(input),
+            DomainInput::LinkEvidenceToTask(input) => self.process_link_evidence_to_task(input),
             DomainInput::LinkEvidenceToClaim(input) => self.process_link_evidence_to_claim(input),
             DomainInput::CreateRelation(input) => self.process_create_relation(input),
             DomainInput::CreateMemoryCandidate(input) => {

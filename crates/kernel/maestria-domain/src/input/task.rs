@@ -104,6 +104,28 @@ impl KernelState {
         }))
     }
 
+    pub(super) fn handle_link_evidence_to_task(
+        &mut self,
+        input: LinkEvidenceToTaskInput,
+    ) -> Result<DomainEventEnvelope, DomainError> {
+        let task = self
+            .tasks
+            .get_mut(&input.task_id)
+            .ok_or(DomainError::MissingTask { id: input.task_id })?;
+        if !self.evidences.contains_key(&input.evidence_id) {
+            return Err(DomainError::MissingEvidence {
+                id: input.evidence_id,
+            });
+        }
+
+        task.evidence_ids.insert(input.evidence_id);
+
+        Ok(self.emit_event(DomainEvent::TaskEvidenceLinked {
+            task_id: input.task_id,
+            evidence_id: input.evidence_id,
+        }))
+    }
+
     // ── Replay apply ─────────────────────────────────────────────
 
     pub(crate) fn apply_task_opened(
@@ -211,6 +233,22 @@ impl KernelState {
         }
         task.status = status;
         task.validation_report_id = Some(validation_report_id);
+        Ok(())
+    }
+
+    pub(crate) fn apply_task_evidence_linked(
+        &mut self,
+        task_id: TaskId,
+        evidence_id: EvidenceId,
+    ) -> Result<(), DomainError> {
+        let task = self
+            .tasks
+            .get_mut(&task_id)
+            .ok_or(DomainError::MissingTask { id: task_id })?;
+        if !self.evidences.contains_key(&evidence_id) {
+            return Err(DomainError::MissingEvidence { id: evidence_id });
+        }
+        task.evidence_ids.insert(evidence_id);
         Ok(())
     }
 }

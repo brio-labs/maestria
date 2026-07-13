@@ -92,6 +92,7 @@ pub(super) fn leaked_kind(kind: String) -> Result<&'static str, PortError> {
         "task_opened" => Ok("task_opened"),
         "task_status_changed" => Ok("task_status_changed"),
         "task_completion_recorded" => Ok("task_completion_recorded"),
+        "task_evidence_linked" => Ok("task_evidence_linked"),
         "claim_validation_updated" => Ok("claim_validation_updated"),
         "claim_evidence_linked" => Ok("claim_evidence_linked"),
         "relation_created" => Ok("relation_created"),
