@@ -351,8 +351,6 @@ fn migrate_from_v3(connection: &Connection, state: &SchemaState) -> Result<(), P
         .map_err(to_port_error)?;
     Ok(())
 }
-/// Rewrite old ApprovalRecorded payloads that lack `approval_id`,
-/// allocating real IDs from the `id_counters` table.
 
 /// Migrates a v4 database to v5: adds the `approval_requests` table.
 fn migrate_from_v4(connection: &Connection, state: &SchemaState) -> Result<(), PortError> {

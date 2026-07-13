@@ -1,4 +1,4 @@
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Result, anyhow};
 
 use maestria_domain::{KernelState, LogicalTick, ScopeId};
 use maestria_ports::{

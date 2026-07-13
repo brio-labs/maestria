@@ -233,7 +233,7 @@ mod tests {
 
         let found = store.find_by_id(ApprovalId::new(1))?;
         assert!(found.is_some());
-        assert_eq!(found.unwrap().id, ApprovalId::new(1));
+        assert_eq!(found.expect("record should exist").id, ApprovalId::new(1));
 
         let missing = store.find_by_id(ApprovalId::new(99))?;
         assert!(missing.is_none());
@@ -247,7 +247,10 @@ mod tests {
 
         let resolved = store.resolve(ApprovalId::new(1), true)?;
         assert!(resolved.is_some());
-        assert_eq!(resolved.unwrap().status, ApprovalStatus::Approved);
+        assert_eq!(
+            resolved.expect("record should exist").status,
+            ApprovalStatus::Approved
+        );
 
         let pending = store.find_pending()?;
         assert!(pending.is_empty());
@@ -261,7 +264,10 @@ mod tests {
 
         let resolved = store.resolve(ApprovalId::new(1), false)?;
         assert!(resolved.is_some());
-        assert_eq!(resolved.unwrap().status, ApprovalStatus::Denied);
+        assert_eq!(
+            resolved.expect("record should exist").status,
+            ApprovalStatus::Denied
+        );
         Ok(())
     }
 
@@ -272,13 +278,19 @@ mod tests {
 
         let first = store.resolve(ApprovalId::new(1), true)?;
         assert!(first.is_some());
-        assert_eq!(first.unwrap().status, ApprovalStatus::Approved);
+        assert_eq!(
+            first.expect("record should exist").status,
+            ApprovalStatus::Approved
+        );
 
         let second = store.resolve(ApprovalId::new(1), false)?;
         assert!(second.is_none());
 
         let found = store.find_by_id(ApprovalId::new(1))?;
-        assert_eq!(found.unwrap().status, ApprovalStatus::Approved);
+        assert_eq!(
+            found.expect("record should exist").status,
+            ApprovalStatus::Approved
+        );
         Ok(())
     }
 
@@ -321,7 +333,7 @@ mod tests {
             rec.risk_level = *level;
             store.save(&rec)?;
             let found = store.find_by_id(ApprovalId::new(1))?;
-            assert_eq!(found.unwrap().risk_level, *level);
+            assert_eq!(found.expect("record should exist").risk_level, *level);
         }
         Ok(())
     }

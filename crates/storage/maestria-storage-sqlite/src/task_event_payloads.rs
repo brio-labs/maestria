@@ -62,8 +62,8 @@ impl StoredEventPayload {
                 approval_id: approval_id.value(),
                 task_id: task_id.value(),
                 approved: *approved,
-                from_status: from_status.map(|s| StoredTaskStatus::from_domain(s)),
-                to_status: to_status.map(|s| StoredTaskStatus::from_domain(s)),
+                from_status: from_status.map(StoredTaskStatus::from_domain),
+                to_status: to_status.map(StoredTaskStatus::from_domain),
             }),
             DomainEvent::ValidationReportCreated {
                 report_id,

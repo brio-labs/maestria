@@ -132,12 +132,8 @@ impl LegacyStoredEventPayload {
             | Self::MemoryContradicted { .. }
             | Self::MemoryDeprecated { .. }
             | Self::MemorySuperseded { .. } => self.into_v2_memory(),
-            Self::ArtifactRegistered { artifact_id, title } => {
-                Ok(StoredEventPayload::ArtifactRegistered { artifact_id, title })
-            }
-            Self::TaskStatusChanged { task_id, from, to } => {
-                Ok(StoredEventPayload::TaskStatusChanged { task_id, from, to })
-            }
+            Self::ArtifactRegistered { artifact_id, title } => Ok(StoredEventPayload::ArtifactRegistered { artifact_id, title }),
+            Self::TaskStatusChanged { task_id, from, to } => Ok(StoredEventPayload::TaskStatusChanged { task_id, from, to }),
             Self::TaskCompletionRecorded {
                 task_id,
                 status,
@@ -147,9 +143,7 @@ impl LegacyStoredEventPayload {
                 status,
                 validation_report_id,
             }),
-            Self::ClaimValidationUpdated { claim_id, status } => {
-                Ok(StoredEventPayload::ClaimValidationUpdated { claim_id, status })
-            }
+            Self::ClaimValidationUpdated { claim_id, status } => Ok(StoredEventPayload::ClaimValidationUpdated { claim_id, status }),
             Self::ClaimEvidenceLinked {
                 claim_id,
                 evidence_id,

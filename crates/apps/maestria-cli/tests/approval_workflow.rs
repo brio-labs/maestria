@@ -1,8 +1,20 @@
 mod common;
 use common::*;
 
-// ── Approval workflow tests ──────────────────────────────────────────────
-
+fn extract_approval_id(list_output: &str) -> String {
+    let mut result = String::new();
+    for line in list_output.lines() {
+        if line.contains("task_activation") {
+            let mut words = line.split_whitespace();
+            words.next();
+            if let Some(id) = words.next() {
+                result = id.to_string();
+                break;
+            }
+        }
+    }
+    result
+}
 #[test]
 fn approval_list_shows_pending_high_priority_task() {
     let workspace = TempDir::new("maestria-test-workspace");
@@ -72,12 +84,7 @@ fn approval_approve_activates_task() {
         .collect();
     assert!(!task_id.is_empty(), "must extract task ID");
     let list = assert_ok(&["approval", "list", "-i", ip.as_ref()]);
-    let approval_id: String = list
-        .lines()
-        .find(|l| l.contains("task_activation"))
-        .and_then(|l| l.split_whitespace().nth(1))
-        .unwrap_or_default()
-        .to_string();
+    let approval_id = extract_approval_id(&list);
     assert!(
         !approval_id.is_empty(),
         "must extract approval ID from list"
@@ -135,12 +142,7 @@ fn approval_deny_blocks_task() {
         .take_while(|c| c.is_ascii_digit())
         .collect();
     let list = assert_ok(&["approval", "list", "-i", ip.as_ref()]);
-    let approval_id: String = list
-        .lines()
-        .find(|l| l.contains("task_activation"))
-        .and_then(|l| l.split_whitespace().nth(1))
-        .unwrap_or_default()
-        .to_string();
+    let approval_id = extract_approval_id(&list);
     let resolve = assert_ok(&[
         "approval",
         "resolve",
@@ -197,12 +199,7 @@ fn approval_resolve_duplicate_is_rejected() {
         "Review",
     ]);
     let list = assert_ok(&["approval", "list", "-i", ip.as_ref()]);
-    let approval_id: String = list
-        .lines()
-        .find(|l| l.contains("task_activation"))
-        .and_then(|l| l.split_whitespace().nth(1))
-        .unwrap_or_default()
-        .to_string();
+    let approval_id = extract_approval_id(&list);
     assert_ok(&[
         "approval",
         "resolve",

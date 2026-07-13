@@ -163,12 +163,10 @@ impl EffectExecutionContext {
 
         let tick = {
             let state = self.state.read().await;
-            state
-                .event_log
-                .last()
-                .map(|e| e.sequence.value())
-                .map(LogicalTick::new)
-                .unwrap_or(LogicalTick::new(0))
+            match state.event_log.last() {
+                Some(e) => LogicalTick::new(e.sequence.value()),
+                None => LogicalTick::new(0),
+            }
         };
 
         let record = ApprovalRecord {
