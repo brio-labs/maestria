@@ -110,36 +110,23 @@ jobs:
           echo
           echo "==> Checking CI status for commit $COMMIT..."
 
-          CHECK_SUITES="$(gh api "repos/${{ github.repository }}/commits/$COMMIT/check-suites" \
-            --method GET --paginate --jq '.check_suites' | jq -s 'add')"
+          # Query main CI workflows by name to exclude Release's own runs
+          FAILED=""
+          for WF in "ci.yml" "conventional-commits.yml"; do
+            CONCLUSION="$(gh api "repos/${{ github.repository }}/actions/workflows/$WF/runs" \
+              --method GET -f head_sha="$COMMIT" -f per_page=1 \
+              --jq '.workflow_runs[0].conclusion // "missing"')"
+            echo "  $WF: $CONCLUSION"
+            if [ "$CONCLUSION" != "success" ]; then
+              FAILED="$FAILED $WF"
+            fi
+          done
 
-          if [ -z "$CHECK_SUITES" ] || [ "$CHECK_SUITES" = "[]" ]; then
-            echo "::error::No check suites found for commit $COMMIT"
+          if [ -n "$FAILED" ]; then
+            echo "::error::Required CI workflows not successful:$FAILED"
             exit 1
           fi
-
-          # Reject any non-terminal (in-progress / queued) suites
-          PENDING_COUNT="$(echo "$CHECK_SUITES" | jq -r \
-            '[.[] | select(.status != "completed")] | length')"
-          if [ "$PENDING_COUNT" -gt 0 ]; then
-            echo "::error::$PENDING_COUNT check suite(s) still in progress — wait for CI to finish"
-            exit 1
-          fi
-
-          # Every terminal suite must be success
-          NON_SUCCESS="$(echo "$CHECK_SUITES" | jq -r \
-            '.[] | select(.conclusion != "success") | "  • \(.app.name // "unknown"): \(.conclusion // "no conclusion")"')"
-
-          if [ -n "$NON_SUCCESS" ]; then
-            echo "::error::Every check suite must have conclusion 'success'. Non-success suites:"
-            echo "$NON_SUCCESS"
-            exit 1
-          fi
-
-          SUCCESS_COUNT="$(echo "$CHECK_SUITES" | jq -r '[.[] | select(.conclusion == "success")] | length')"
-          echo "✓ All check suites succeeded ($SUCCESS_COUNT total)"
-
-          # ── 3. Commit status gate (legacy/external statuses) ──
+          echo "✓ Required CI workflows passed"
           echo
           echo "==> Checking commit status for $COMMIT..."
 
