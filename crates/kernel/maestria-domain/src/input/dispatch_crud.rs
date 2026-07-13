@@ -325,4 +325,22 @@ impl KernelState {
         });
         Ok(output)
     }
+
+    pub(super) fn process_request_task_validation(
+        &mut self,
+        input: RequestTaskValidation,
+    ) -> Result<KernelOutput, DomainError> {
+        if !self.tasks.contains_key(&input.task_id) {
+            return Err(DomainError::MissingTask { id: input.task_id });
+        }
+        let mut output = KernelOutput::default();
+        output
+            .effects
+            .push(MaestriaEffect::RunValidation(RunValidationRequest {
+                task_id: Some(input.task_id),
+                claim_id: None,
+                validation_report_id: ValidationReportId::new(0),
+            }));
+        Ok(output)
+    }
 }

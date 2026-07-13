@@ -103,19 +103,26 @@ impl MaestriaRuntime {
                         _ => {}
                     }
 
-
+                    let mut wait_for_report_id = None;
                     let effects = {
                         let mut state = self.state.write().await;
                         match state.apply_input(input) {
-                            Ok(output) => output.effects,
+                            Ok(output) => {
+                                for effect in &output.effects {
+                                    if let maestria_domain::MaestriaEffect::PersistEvent { envelope } = effect
+                                        && let maestria_domain::DomainEvent::ValidationReportCreated { report_id, .. } = &envelope.event
+                                    {
+                                        wait_for_report_id = Some(*report_id);
+                                    }
+                                }
+                                output.effects
+                            }
                             Err(error) => {
-                                eprintln!("DOMAIN REJECTED INPUT: {:?}", error);
                                 tracing::warn!(%error, "domain rejected input");
                                 Vec::new()
                             }
                         }
                     };
-                    eprintln!("Effects generated: {}", effects.len());
                     for effect in effects {
                         tokio::select! {
                             () = shutdown_token.cancelled() => break,
@@ -125,6 +132,37 @@ impl MaestriaRuntime {
                                     shutdown_token.cancel();
                                 }
                             }
+                        }
+                    }
+
+                    if let Some(report_id) = wait_for_report_id {
+                        let timeout = self.config.default_effect_timeout;
+                        let check = async {
+                            loop {
+                                match self.adapters.event_log.scan(maestria_ports::EventFilter { artifact_id: None }) {
+                                    Ok(events) => {
+                                        if events.iter().any(|env| matches!(&env.event, maestria_domain::DomainEvent::ValidationReportCreated { report_id: id, .. } if *id == report_id)) {
+                                            return true;
+                                        }
+                                    }
+                                    Err(e) => {
+                                        tracing::error!(%e, "failed to scan event log during validation report barrier");
+                                        return false;
+                                    }
+                                }
+                                tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+                            }
+                        };
+
+                        let found = match tokio::time::timeout(timeout, check).await {
+                            Ok(true) => true,
+                            Ok(false) | Err(_) => false,
+                        };
+
+                        if !found {
+                            tracing::error!("fatal: timeout or error waiting for durable ValidationReportCreated; stopping runtime");
+                            shutdown_token.cancel();
+                            break;
                         }
                     }
                 }

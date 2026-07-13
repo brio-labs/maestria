@@ -331,3 +331,110 @@ async fn task_completion_allowed_with_warnings_when_configured()
     }
     Ok(())
 }
+
+#[tokio::test]
+async fn back_to_back_record_report_and_complete_task_succeeds()
+-> Result<(), Box<dyn std::error::Error>> {
+    let mut state = KernelState::default();
+    let task_id = TaskId::new(1);
+    let task = Task {
+        id: task_id,
+        title: "test".to_string(),
+        priority: maestria_domain::TaskPriority::Normal,
+        status: TaskStatus::Validating,
+        validation_report_id: None,
+        artifact_ids: Default::default(),
+        evidence_ids: Default::default(),
+    };
+    let report_id = ValidationReportId::new(99);
+    state.tasks.insert(task.id, task);
+    let governance = test_helpers::test_governance();
+    let event_log = Arc::new(InMemoryEventLog::new());
+    let adapters = Adapters {
+        event_log: event_log.clone(),
+        ..test_helpers::test_adapters()
+    };
+
+    let (runtime, input_rx) =
+        MaestriaRuntime::new(RuntimeConfig::default(), state, adapters, governance);
+
+    let input_tx = runtime.handle().input_tx;
+    let shutdown_token = CancellationToken::new();
+    let runtime_handle = tokio::spawn(runtime.run(input_rx, shutdown_token.clone()));
+
+    // Send RecordValidationReport
+    input_tx
+        .send(DomainInput::RecordValidationReport(
+            maestria_domain::RecordValidationReportInput {
+                report_id,
+                task_id: Some(task_id),
+                passed: true,
+                warnings: vec![],
+            },
+        ))
+        .await
+        .map_err(|e| format!("send record report failed: {}", e))?;
+
+    // Send CompleteTask IMMEDIATELY (back-to-back)
+    input_tx
+        .send(DomainInput::CompleteTask(CompleteTaskInput {
+            task_id,
+            validation_report_id: report_id,
+        }))
+        .await
+        .map_err(|e| format!("send complete task failed: {}", e))?;
+
+    // Send ClockTick to synchronize
+    let sync_tick = maestria_domain::LogicalTick::new(999);
+    input_tx
+        .send(DomainInput::ClockTick(sync_tick))
+        .await
+        .map_err(|e| format!("send tick failed: {}", e))?;
+
+    let res = tokio::time::timeout(Duration::from_secs(2), async {
+        loop {
+            let all_events = event_log
+                .scan(EventFilter { artifact_id: None })
+                .map_err(|e| format!("scan failed: {:?}", e))?;
+            if all_events
+                .iter()
+                .any(|e| matches!(e.event, DomainEvent::TickObserved { at } if at == sync_tick))
+            {
+                return Ok::<(), Box<dyn std::error::Error>>(());
+            }
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await;
+    if res.is_err() {
+        return Err("timeout waiting for deterministic barrier (ClockTick)".into());
+    }
+
+    shutdown_token.cancel();
+    let _ = runtime_handle.await;
+
+    let all_events = event_log
+        .scan(EventFilter { artifact_id: None })
+        .map_err(|e| format!("scan failed: {:?}", e))?;
+    let new_events: Vec<_> = all_events
+        .into_iter()
+        .filter(|e| matches!(e.event, DomainEvent::TaskCompletionRecorded { .. }))
+        .collect();
+
+    if new_events.len() != 1 {
+        return Err(format!(
+            "expected 1 TaskCompletionRecorded event, got {:?}",
+            new_events
+        )
+        .into());
+    }
+    match &new_events[0].event {
+        DomainEvent::TaskCompletionRecorded { status, .. } => {
+            if *status != TaskStatus::CompletedVerified {
+                return Err(format!("expected CompletedVerified, got {:?}", status).into());
+            }
+        }
+        other => return Err(format!("expected TaskCompletionRecorded, got {:?}", other).into()),
+    }
+    Ok(())
+}

@@ -26,6 +26,7 @@ impl MaestriaRuntime {
                         warnings,
                     } = &env.event
                         && *report_id == complete_input.validation_report_id
+                        && *task_id == Some(complete_input.task_id)
                     {
                         durable_report = Some(maestria_domain::ValidationReportRecord {
                             task_id: *task_id,

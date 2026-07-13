@@ -46,6 +46,9 @@ impl KernelState {
             DomainInput::RecordValidationReport(input) => {
                 self.process_record_validation_report(input)
             }
+            DomainInput::RequestTaskValidation(input) => {
+                self.process_request_task_validation(input)
+            }
             DomainInput::UserIntent(input) => self.process_user_intent(input),
             DomainInput::ArtifactDetected(input) => self.process_artifact_detected(input),
             DomainInput::ParserCompleted(input) => self.process_parser_completed(input),

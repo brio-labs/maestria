@@ -196,6 +196,10 @@ pub struct ValidationCompleted {
     pub claim_id: ClaimId,
     pub valid: bool,
 }
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RequestTaskValidation {
+    pub task_id: TaskId,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ApprovalDecision {
@@ -232,7 +236,7 @@ pub enum DomainInput {
     DeprecateMemory(DeprecateMemoryInput),
     SupersedeMemory(SupersedeMemoryInput),
     RecordValidationReport(RecordValidationReportInput),
-
+    RequestTaskValidation(RequestTaskValidation),
     UserIntent(UserIntent),
     FullTextIndexCompleted(FullTextIndexCompleted),
     StartFullTextIndex(StartFullTextIndex),

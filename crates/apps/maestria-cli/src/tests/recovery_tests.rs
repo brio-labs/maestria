@@ -98,6 +98,7 @@ fn index_path_recovery_empty_when_no_pending_work() {
     let recovery = maestria_daemon::recovery_inputs(&state);
     assert!(recovery.resume_parsers.is_empty());
     assert!(recovery.start_full_text.is_empty());
+    assert!(recovery.run_validations.is_empty());
 }
 
 /// Verify that recovery artifact IDs are correctly extracted from
@@ -121,6 +122,7 @@ fn recovery_artifact_ids_covers_both_input_kinds() {
                 artifact_id: ArtifactId::new(30),
             }),
         ],
+        run_validations: Vec::new(),
     };
 
     let ids: Vec<ArtifactId> = {

@@ -64,6 +64,7 @@ fn make_recovery(source_path: &str, artifact_id: u64, title: &str) -> RecoveryIn
             blob_id: BlobId::new(artifact_id),
         })],
         start_full_text: Vec::new(),
+        run_validations: Vec::new(),
     }
 }
 
@@ -229,6 +230,7 @@ fn validate_recovery_scope_empty_recovery_always_passes() {
     let recovery = RecoveryInputs {
         resume_parsers: Vec::new(),
         start_full_text: Vec::new(),
+        run_validations: Vec::new(),
     };
 
     validate_recovery_scope(&layout, &recovery)
