@@ -340,6 +340,8 @@ fn harness_completion_rejects_missing_task() -> Result<(), DomainError> {
     let err = state
         .apply_input(DomainInput::HarnessRunCompleted(
             maestria_domain::HarnessRunCompleted {
+                run_id: maestria_domain::HarnessRunId::new(1),
+                generation: 1,
                 task_id: Some(TaskId::new(9)),
                 command: "test".to_string(),
                 exit_code: 1,

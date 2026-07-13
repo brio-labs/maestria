@@ -374,20 +374,26 @@ async fn query_harness_records_lifecycle_and_processes_current_feedback()
 
     assert!(result);
 
-    // Verify that the entry was recorded as Completed
-    let in_flight = adapters.effect_journal.scan_in_flight()?;
-    // The scan_in_flight returns Intent and Started. Completed are not in_flight!
-    // We can't query Completed by ID easily with the InMemory version unless there is a method.
-    // Actually, in_flight only returns Intent and Started. So it should be empty!
-    assert!(in_flight.is_empty(), "there should be no in-flight entries");
-
     let completed = match tokio::time::timeout(Duration::from_millis(500), input_rx.recv()).await {
         Ok(Some(input)) => input,
         Ok(None) => return Err("harness completion channel closed".into()),
         Err(_) => return Err("timed out waiting for harness completion".into()),
     };
 
-    assert!(matches!(completed, DomainInput::HarnessRunCompleted { .. }));
+    let (completed_run_id, completed_generation) = match &completed {
+        DomainInput::HarnessRunCompleted(input) => (input.run_id, input.generation),
+        _ => return Err("expected HarnessRunCompleted input".into()),
+    };
+    adapters.effect_journal.record_terminal(
+        completed_run_id,
+        completed_generation,
+        maestria_ports::EffectJournalStatus::Completed,
+    )?;
+    assert!(
+        adapters.effect_journal.scan_in_flight()?.is_empty(),
+        "acknowledged feedback should not remain in flight"
+    );
+
     Ok(())
 }
 

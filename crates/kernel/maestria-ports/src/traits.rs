@@ -74,6 +74,7 @@ pub trait EventLog: Send + Sync {
 pub enum EffectJournalStatus {
     Intent,
     Started,
+    FeedbackAccepted,
     Completed,
     Failed,
     Paused,
@@ -107,6 +108,8 @@ pub struct EffectJournalEntry {
 pub trait EffectJournal: Send + Sync {
     fn record_intent(&self, intent: EffectJournalIntent) -> Result<EffectJournalEntry, PortError>;
     fn record_started(&self, run_id: HarnessRunId, generation: u64) -> Result<(), PortError>;
+    /// Atomically claims feedback for the current generation before enqueueing it.
+    fn claim_feedback(&self, run_id: HarnessRunId, generation: u64) -> Result<(), PortError>;
     fn record_terminal(
         &self,
         run_id: HarnessRunId,

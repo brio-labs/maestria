@@ -64,13 +64,17 @@ impl SqliteStore {
 
 impl EffectJournal for SqliteStore {
     fn record_intent(&self, intent: EffectJournalIntent) -> Result<EffectJournalEntry, PortError> {
-        let connection = self.lock()?;
-        repositories::effect_journal_repo::record_intent(&connection, intent)
+        let mut connection = self.lock()?;
+        repositories::effect_journal_repo::record_intent(&mut connection, intent)
     }
 
     fn record_started(&self, run_id: HarnessRunId, generation: u64) -> Result<(), PortError> {
         let connection = self.lock()?;
         repositories::effect_journal_repo::record_started(&connection, run_id, generation)
+    }
+    fn claim_feedback(&self, run_id: HarnessRunId, generation: u64) -> Result<(), PortError> {
+        let connection = self.lock()?;
+        repositories::effect_journal_repo::claim_feedback(&connection, run_id, generation)
     }
 
     fn record_terminal(

@@ -117,9 +117,10 @@ Non-idempotent harness effects are journaled outside the deterministic domain:
 
 - an `Intent` is durable before adapter execution;
 - `Started` is durable before the harness process begins;
+- feedback is atomically claimed as `FeedbackAccepted` before enqueueing and
+  terminalized only after the runtime applies the matching domain input;
 - terminal states are `Completed`, `Failed`, `Paused`, or `Superseded`;
-- a new generation supersedes an unfinished older generation;
-- stale generations cannot deliver harness feedback;
+- a new generation supersedes every unfinished older generation;
 - in-flight harness effects are paused during daemon recovery and are not
   replayed without explicit operator approval;
 - harness effects are not automatically retried after adapter execution begins;

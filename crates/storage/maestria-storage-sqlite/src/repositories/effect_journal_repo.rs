@@ -6,13 +6,13 @@ use maestria_ports::{
 use rusqlite::{Connection, OptionalExtension, params};
 
 pub(crate) fn record_intent(
-    connection: &Connection,
+    connection: &mut Connection,
     intent: EffectJournalIntent,
 ) -> Result<EffectJournalEntry, PortError> {
+    let transaction = connection.transaction().map_err(to_port_error)?;
     let run_id_i64 = u64_to_i64(intent.run_id.value())?;
 
-    // First, find max generation for this run_id
-    let max_gen_i64: Option<i64> = connection
+    let max_gen_i64: Option<i64> = transaction
         .query_row(
             "SELECT MAX(generation) FROM effect_journal WHERE run_id = ?1",
             params![run_id_i64],
@@ -28,34 +28,37 @@ pub(crate) fn record_intent(
     };
     let generation_i64 = u64_to_i64(generation)?;
 
-    // Check if the previous generation is still Intent or Started; if so, mark it Superseded
     if let Some(prev_gen) = max_gen_i64 {
-        let prev_status: String = connection
-            .query_row(
-                "SELECT status FROM effect_journal WHERE run_id = ?1 AND generation = ?2",
+        transaction
+            .execute(
+                "UPDATE effect_journal SET status = 'Superseded' \
+                 WHERE run_id = ?1 AND generation = ?2 \
+                 AND status IN ('Intent', 'Started', 'FeedbackAccepted')",
                 params![run_id_i64, prev_gen],
-                |row| row.get(0),
             )
             .map_err(to_port_error)?;
-
-        let is_in_flight = prev_status == "Intent" || prev_status == "Started";
-        if is_in_flight {
-            connection.execute(
-                "UPDATE effect_journal SET status = 'Superseded' WHERE run_id = ?1 AND generation = ?2",
-                params![run_id_i64, prev_gen],
-            ).map_err(to_port_error)?;
-        }
     }
 
-    // Insert the new intent
     let task_id_i64 = optional_u64_to_i64(intent.task_id.map(|t| t.value()))?;
     let scope_id_i64 = u64_to_i64(intent.scope_id.value())?;
     let requested_gen_i64 = optional_u64_to_i64(intent.requested_generation)?;
-
-    connection.execute(
-        "INSERT INTO effect_journal (run_id, generation, task_id, capability, command, scope_id, requested_generation, status) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'Intent')",
-        params![run_id_i64, generation_i64, task_id_i64, intent.capability, intent.command, scope_id_i64, requested_gen_i64],
-    ).map_err(to_port_error)?;
+    transaction
+        .execute(
+            "INSERT INTO effect_journal \
+             (run_id, generation, task_id, capability, command, scope_id, requested_generation, status) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'Intent')",
+            params![
+                run_id_i64,
+                generation_i64,
+                task_id_i64,
+                intent.capability,
+                intent.command,
+                scope_id_i64,
+                requested_gen_i64
+            ],
+        )
+        .map_err(to_port_error)?;
+    transaction.commit().map_err(to_port_error)?;
 
     Ok(EffectJournalEntry {
         run_id: intent.run_id,
@@ -85,6 +88,26 @@ pub(crate) fn record_started(
     }
     Ok(())
 }
+pub(crate) fn claim_feedback(
+    connection: &Connection,
+    run_id: HarnessRunId,
+    generation: u64,
+) -> Result<(), PortError> {
+    let run_id_i64 = u64_to_i64(run_id.value())?;
+    let generation_i64 = u64_to_i64(generation)?;
+    let updated = connection
+        .execute(
+            "UPDATE effect_journal SET status = 'FeedbackAccepted' \
+             WHERE run_id = ?1 AND generation = ?2 \
+             AND status IN ('Intent', 'Started')",
+            params![run_id_i64, generation_i64],
+        )
+        .map_err(to_port_error)?;
+    if updated == 0 {
+        return Err(PortError::NotFound);
+    }
+    Ok(())
+}
 
 pub(crate) fn record_terminal(
     connection: &Connection,
@@ -106,23 +129,31 @@ pub(crate) fn record_terminal(
 
     let run_id_i64 = u64_to_i64(run_id.value())?;
     let generation_i64 = u64_to_i64(generation)?;
-    let updated = connection.execute(
-        "UPDATE effect_journal SET status = ?1 WHERE run_id = ?2 AND generation = ?3 AND status IN ('Intent', 'Started')",
-        params![status_str, run_id_i64, generation_i64],
-    ).map_err(to_port_error)?;
+    let updated = connection
+        .execute(
+            "UPDATE effect_journal SET status = ?1 \
+             WHERE run_id = ?2 AND generation = ?3 \
+             AND status IN ('Intent', 'Started', 'FeedbackAccepted')",
+            params![status_str, run_id_i64, generation_i64],
+        )
+        .map_err(to_port_error)?;
 
     if updated == 0 {
         return Err(PortError::NotFound);
     }
     Ok(())
 }
-
 pub(crate) fn scan_in_flight(
     connection: &Connection,
 ) -> Result<Vec<EffectJournalEntry>, PortError> {
-    let mut stmt = connection.prepare(
-        "SELECT run_id, generation, task_id, capability, command, scope_id, status FROM effect_journal WHERE status IN ('Intent', 'Started') ORDER BY run_id, generation"
-    ).map_err(to_port_error)?;
+    let mut stmt = connection
+        .prepare(
+            "SELECT run_id, generation, task_id, capability, command, scope_id, status \
+             FROM effect_journal \
+             WHERE status IN ('Intent', 'Started', 'FeedbackAccepted') \
+             ORDER BY run_id, generation",
+        )
+        .map_err(to_port_error)?;
 
     let entries = stmt
         .query_map([], |row| {
@@ -165,6 +196,7 @@ pub(crate) fn scan_in_flight(
         let status = match status_str.as_str() {
             "Intent" => EffectJournalStatus::Intent,
             "Started" => EffectJournalStatus::Started,
+            "FeedbackAccepted" => EffectJournalStatus::FeedbackAccepted,
             _ => {
                 return Err(PortError::Internal {
                     message: "invalid status in db".to_string(),
@@ -200,6 +232,8 @@ pub(crate) fn is_current(
         )
         .optional()
         .map_err(to_port_error)?;
-
-    Ok(matches!(status.as_deref(), Some("Intent" | "Started")))
+    Ok(matches!(
+        status.as_deref(),
+        Some("Intent" | "Started" | "FeedbackAccepted")
+    ))
 }

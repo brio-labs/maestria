@@ -36,7 +36,9 @@ impl EffectJournal for InMemoryEffectJournal {
             entry.run_id == intent.run_id
                 && matches!(
                     entry.status,
-                    EffectJournalStatus::Intent | EffectJournalStatus::Started
+                    EffectJournalStatus::Intent
+                        | EffectJournalStatus::Started
+                        | EffectJournalStatus::FeedbackAccepted
                 )
         }) {
             entry.status = EffectJournalStatus::Superseded;
@@ -67,6 +69,22 @@ impl EffectJournal for InMemoryEffectJournal {
         entry.status = EffectJournalStatus::Started;
         Ok(())
     }
+    fn claim_feedback(&self, run_id: HarnessRunId, generation: u64) -> Result<(), PortError> {
+        let mut entries = self.lock()?;
+        let entry = entries
+            .iter_mut()
+            .find(|entry| {
+                entry.run_id == run_id
+                    && entry.generation == generation
+                    && matches!(
+                        entry.status,
+                        EffectJournalStatus::Intent | EffectJournalStatus::Started
+                    )
+            })
+            .ok_or(PortError::NotFound)?;
+        entry.status = EffectJournalStatus::FeedbackAccepted;
+        Ok(())
+    }
 
     fn record_terminal(
         &self,
@@ -93,7 +111,9 @@ impl EffectJournal for InMemoryEffectJournal {
                     && entry.generation == generation
                     && matches!(
                         entry.status,
-                        EffectJournalStatus::Intent | EffectJournalStatus::Started
+                        EffectJournalStatus::Intent
+                            | EffectJournalStatus::Started
+                            | EffectJournalStatus::FeedbackAccepted
                     )
             })
             .ok_or(PortError::NotFound)?;
@@ -108,7 +128,9 @@ impl EffectJournal for InMemoryEffectJournal {
             .filter(|entry| {
                 matches!(
                     entry.status,
-                    EffectJournalStatus::Intent | EffectJournalStatus::Started
+                    EffectJournalStatus::Intent
+                        | EffectJournalStatus::Started
+                        | EffectJournalStatus::FeedbackAccepted
                 )
             })
             .cloned()
@@ -124,7 +146,9 @@ impl EffectJournal for InMemoryEffectJournal {
             .is_some_and(|entry| {
                 matches!(
                     entry.status,
-                    EffectJournalStatus::Intent | EffectJournalStatus::Started
+                    EffectJournalStatus::Intent
+                        | EffectJournalStatus::Started
+                        | EffectJournalStatus::FeedbackAccepted
                 )
             }))
     }

@@ -117,7 +117,9 @@ impl MaestriaRuntime {
                     let Some(input) = msg else { break };
 
                     match &input {
-                        DomainInput::ApprovalResolved(decision) if !self.check_approval_boundary(decision) => {
+                        DomainInput::ApprovalResolved(decision)
+                            if !self.check_approval_boundary(decision) =>
+                        {
                             continue;
                         }
                         DomainInput::CompleteTask(complete_input) => {
@@ -126,9 +128,20 @@ impl MaestriaRuntime {
                                 continue;
                             }
                         }
+                        DomainInput::HarnessRunCompleted(completion)
+                            if !self.check_harness_feedback_boundary(completion) =>
+                        {
+                            continue;
+                        }
                         _ => {}
                     }
 
+                    let harness_feedback = match &input {
+                        DomainInput::HarnessRunCompleted(completion) => {
+                            Some((completion.run_id, completion.generation))
+                        }
+                        _ => None,
+                    };
                     let mut wait_for_report_id = None;
                     let effects = {
                         let mut state = self.state.write().await;
@@ -141,6 +154,7 @@ impl MaestriaRuntime {
                                         wait_for_report_id = Some(*report_id);
                                     }
                                 }
+                                self.finalize_harness_feedback(harness_feedback);
                                 output.effects
                             }
                             Err(error) => {
@@ -162,6 +176,7 @@ impl MaestriaRuntime {
                     }
 
                     if let Some(report_id) = wait_for_report_id {
+
                         let found = self
                             .wait_for_validation_report(report_id, &shutdown_token)
                             .await;
@@ -181,6 +196,47 @@ impl MaestriaRuntime {
         drop(effect_tx);
         shutdown_token.cancel();
         let _ = effect_executor.await;
+    }
+    fn check_harness_feedback_boundary(
+        &self,
+        completion: &maestria_domain::HarnessRunCompleted,
+    ) -> bool {
+        match self
+            .adapters
+            .effect_journal
+            .is_current(completion.run_id, completion.generation)
+        {
+            Ok(true) => true,
+            Ok(false) => {
+                tracing::warn!(
+                    run_id = %completion.run_id,
+                    generation = completion.generation,
+                    "harness feedback rejected at runtime boundary"
+                );
+                false
+            }
+            Err(error) => {
+                tracing::error!(%error, "failed to validate harness feedback generation");
+                false
+            }
+        }
+    }
+
+    fn finalize_harness_feedback(&self, feedback: Option<(maestria_domain::HarnessRunId, u64)>) {
+        if let Some((run_id, generation)) = feedback
+            && let Err(error) = self.adapters.effect_journal.record_terminal(
+                run_id,
+                generation,
+                maestria_ports::EffectJournalStatus::Completed,
+            )
+        {
+            tracing::error!(
+                %error,
+                %run_id,
+                generation,
+                "failed to finalize harness feedback"
+            );
+        }
     }
 
     async fn wait_for_validation_report(

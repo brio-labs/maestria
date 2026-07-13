@@ -124,21 +124,21 @@ impl EffectExecutionContext {
     ) -> bool {
         match self.adapters.harness.execute(harness_request).await {
             Ok(outcome) => {
-                // Check if current before accepting feedback
-                match self
+                // Claim the generation atomically before enqueueing feedback.
+                // A newer intent supersedes this claim and is rejected by the
+                // runtime boundary before the domain can observe stale output.
+                if let Err(error) = self
                     .adapters
                     .effect_journal
-                    .is_current(request.run_id, generation)
+                    .claim_feedback(request.run_id, generation)
                 {
-                    Ok(true) => {}
-                    Ok(false) => {
-                        tracing::warn!(run_id = %request.run_id, %generation, "harness feedback rejected: not current");
-                        return true;
-                    }
-                    Err(e) => {
-                        tracing::error!(%e, "failed to check if harness effect is current");
-                        return false;
-                    }
+                    tracing::warn!(
+                        run_id = %request.run_id,
+                        %generation,
+                        %error,
+                        "harness feedback rejected as stale"
+                    );
+                    return true;
                 }
 
                 let mut output = String::from_utf8_lossy(&outcome.stdout).into_owned();
@@ -150,15 +150,14 @@ impl EffectExecutionContext {
                 }
 
                 let domain_input = DomainInput::HarnessRunCompleted(HarnessRunCompleted {
+                    run_id: request.run_id,
+                    generation,
                     task_id: request.task_id,
                     command: outcome.command,
                     exit_code: outcome.exit_code,
                     output,
                 });
 
-                // A saturated feedback queue must not replay a non-idempotent
-                // harness command. Pause the completed effect for explicit
-                // operator recovery instead.
                 if let Err(error) =
                     Self::send_input(&self.input_tx, domain_input, "harness completion")
                 {
@@ -170,15 +169,6 @@ impl EffectExecutionContext {
                     ) {
                         tracing::error!(%journal_error, "failed to pause saturated harness effect");
                     }
-                    return true;
-                }
-
-                if let Err(e) = self.adapters.effect_journal.record_terminal(
-                    request.run_id,
-                    generation,
-                    maestria_ports::EffectJournalStatus::Completed,
-                ) {
-                    tracing::error!(%e, "failed to record terminal harness status");
                 }
 
                 true
