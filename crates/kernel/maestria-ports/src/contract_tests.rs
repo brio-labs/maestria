@@ -706,6 +706,8 @@ pub async fn assert_harness_adapter_round_trip(harness: &impl HarnessAdapter) {
             duration_budget: Duration::from_secs(1),
             class: HarnessCommandClass::Shell,
             readable_roots: vec![],
+            blocked_paths: vec![],
+            blocked_patterns: vec![],
         })
         .await
         .expect("execute command");
@@ -724,6 +726,8 @@ pub async fn assert_harness_adapter_round_trip(harness: &impl HarnessAdapter) {
                 duration_budget: Duration::from_secs(1),
                 class: HarnessCommandClass::Shell,
                 readable_roots: vec![],
+                blocked_paths: vec![],
+                blocked_patterns: vec![],
             })
             .await,
         Err(PortError::InvalidInput { .. })
