@@ -1,5 +1,5 @@
 use crate::MaestriaRuntime;
-use maestria_domain::{DomainEvent, HarnessRunCompleted, HarnessRunId, MaestriaEffect};
+use maestria_domain::{HarnessRunCompleted, HarnessRunId, MaestriaEffect};
 
 impl MaestriaRuntime {
     pub(super) fn check_harness_feedback_boundary(&self, completion: &HarnessRunCompleted) -> bool {
@@ -32,12 +32,10 @@ impl MaestriaRuntime {
         let Some(feedback) = feedback else {
             return;
         };
-        let event_id = effects.iter().find_map(|effect| match effect {
-            MaestriaEffect::PersistEvent { envelope }
-                if matches!(&envelope.event, DomainEvent::HarnessRunCompleted { .. }) =>
-            {
-                Some(envelope.id)
-            }
+        // The final persistence effect closes the whole domain outcome batch
+        // (HarnessRunCompleted plus any task status transition).
+        let event_id = effects.iter().rev().find_map(|effect| match effect {
+            MaestriaEffect::PersistEvent { envelope } => Some(envelope.id),
             _ => None,
         });
         let Some(event_id) = event_id else {
