@@ -9,6 +9,7 @@ mod evidence;
 mod handlers;
 mod index;
 mod memory;
+mod memory_replay;
 mod orchestration;
 mod relation;
 mod task;
@@ -34,6 +35,9 @@ impl KernelState {
             DomainInput::CreateRelation(input) => self.process_create_relation(input),
             DomainInput::CreateMemoryCandidate(input) => {
                 self.process_create_memory_candidate(input)
+            }
+            DomainInput::ProposeMemoryCandidate(input) => {
+                self.process_propose_memory_candidate(input)
             }
             DomainInput::PromoteMemory(input) => self.process_promote_memory(input),
             DomainInput::ContradictMemory(input) => self.process_contradict_memory(input),

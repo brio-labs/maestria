@@ -1,8 +1,8 @@
 use std::{fmt, future::Future, path::PathBuf, pin::Pin, time::Duration};
 
 use maestria_domain::{
-    Artifact, ArtifactId, BlobId, Card, CardId, Chunk, ChunkId, CreateCardInput,
-    DomainEventEnvelope, Evidence, EvidenceId, Relation, RelationEndpoint,
+    Artifact, ArtifactId, BlobId, Card, CardId, Chunk, ChunkId, ClaimId, CreateCardInput,
+    DomainEventEnvelope, Evidence, EvidenceId, MemoryCandidateId, Relation, RelationEndpoint,
 };
 
 pub use maestria_domain::HarnessRunId;
@@ -66,6 +66,15 @@ pub trait EvidenceRepository: Send + Sync {
 pub trait EventLog: Send + Sync {
     fn append(&self, event: DomainEventEnvelope) -> Result<(), PortError>;
     fn scan(&self, filter: EventFilter) -> Result<Vec<DomainEventEnvelope>, PortError>;
+}
+
+/// Durable per-namespace ID allocation.
+///
+/// Each allocation is atomic and persisted so that concurrent or
+/// post-restart callers never receive the same ID within a namespace.
+pub trait IdAllocator: Send + Sync {
+    fn allocate_claim_id(&self) -> Result<ClaimId, PortError>;
+    fn allocate_memory_candidate_id(&self) -> Result<MemoryCandidateId, PortError>;
 }
 
 pub trait BlobStore: Send + Sync {

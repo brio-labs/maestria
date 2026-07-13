@@ -542,3 +542,5 @@ fn record_evidence_rejects_observed_at_mismatch() -> Result<(), DomainError> {
     );
     Ok(())
 }
+
+// ── Memory proposal (atomic claim + candidate) ────────────────────

@@ -95,6 +95,15 @@ pub struct CreateMemoryCandidateInput {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProposeMemoryCandidateInput {
+    pub claim_id: ClaimId,
+    pub candidate_id: MemoryCandidateId,
+    pub text: String,
+    pub evidence_ids: Vec<EvidenceId>,
+    pub confidence_milli: u16,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PromoteMemoryInput {
     pub memory_id: MemoryId,
     pub candidate_id: MemoryCandidateId,
@@ -209,6 +218,7 @@ pub enum DomainInput {
     CreateCard(CreateCardInput),
     RecordEvidence(RecordEvidenceInput),
     CreateClaim(CreateClaimInput),
+    ProposeMemoryCandidate(ProposeMemoryCandidateInput),
     OpenTask(OpenTaskInput),
     ChangeTaskStatus(ChangeTaskStatusInput),
     CompleteTask(CompleteTaskInput),

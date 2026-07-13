@@ -20,7 +20,8 @@ mod in_memory;
 pub use in_memory::{
     InMemoryArtifactRepository, InMemoryBlobStore, InMemoryCardRepository, InMemoryChunkRepository,
     InMemoryEventLog, InMemoryEvidenceRepository, InMemoryFullTextIndex, InMemoryGraphIndex,
-    InMemoryHarnessAdapter, InMemoryParser, InMemoryVectorIndex, InMemoryWebFetcher,
+    InMemoryHarnessAdapter, InMemoryIdAllocator, InMemoryParser, InMemoryVectorIndex,
+    InMemoryWebFetcher,
 };
 
 #[cfg(any(test, feature = "contract-tests"))]
