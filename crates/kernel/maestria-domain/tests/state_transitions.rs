@@ -282,6 +282,83 @@ fn test_all_legal_task_transitions() -> Result<(), DomainError> {
 
     Ok(())
 }
+#[test]
+fn validating_transition_emits_run_validation_effect() -> Result<(), DomainError> {
+    let mut state = KernelState::new();
+    let task_id = TaskId::new(42);
+
+    // Open task
+    state.apply_input(DomainInput::OpenTask(OpenTaskInput {
+        task_id,
+        title: "Test validation".to_string(),
+        priority: TaskPriority::Normal,
+        artifact_id: None,
+    }))?;
+
+    // Transition to Open
+    let out_open = state.apply_input(DomainInput::ChangeTaskStatus(ChangeTaskStatusInput {
+        task_id,
+        to: TaskStatus::Open,
+    }))?;
+
+    // Assert NO validation effect for non-Validating transition
+    assert!(
+        !out_open
+            .effects
+            .iter()
+            .any(|e| matches!(e, MaestriaEffect::RunValidation(_))),
+        "Should not emit RunValidation effect on Open transition"
+    );
+
+    // Transition to Active
+    let out_active = state.apply_input(DomainInput::ChangeTaskStatus(ChangeTaskStatusInput {
+        task_id,
+        to: TaskStatus::Active,
+    }))?;
+
+    assert!(
+        !out_active
+            .effects
+            .iter()
+            .any(|e| matches!(e, MaestriaEffect::RunValidation(_))),
+        "Should not emit RunValidation effect on Active transition"
+    );
+
+    // Transition to Validating
+    let out_validating =
+        state.apply_input(DomainInput::ChangeTaskStatus(ChangeTaskStatusInput {
+            task_id,
+            to: TaskStatus::Validating,
+        }))?;
+
+    assert_eq!(
+        out_validating.effects.len(),
+        2,
+        "Should emit exactly two effects: PersistEvent and RunValidation"
+    );
+
+    assert!(
+        matches!(
+            out_validating.effects[0],
+            MaestriaEffect::PersistEvent { .. }
+        ),
+        "First effect must be PersistEvent"
+    );
+
+    let req = match &out_validating.effects[1] {
+        MaestriaEffect::RunValidation(req) => req,
+        _ => {
+            return Err(DomainError::InternalInvariantViolation {
+                detail: "Second effect must be RunValidation",
+            });
+        }
+    };
+
+    assert_eq!(req.task_id, Some(task_id));
+    assert_eq!(req.claim_id, None);
+    assert_eq!(req.validation_report_id, ValidationReportId::new(0));
+    Ok(())
+}
 
 // ── Task evidence linking ──────────────────────────────────────────
 

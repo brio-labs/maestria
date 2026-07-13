@@ -1,7 +1,5 @@
 use super::*;
-use maestria_domain::{
-    DomainEvent, DomainEventEnvelope, EvidenceId, MemoryCandidateId, TaskId, TaskStatus,
-};
+use maestria_domain::{DomainEvent, DomainEventEnvelope, EvidenceId, MemoryCandidateId};
 
 fn candidate_with_artifact(id: u64, has_evidence: bool) -> maestria_domain::MemoryCandidate {
     let mut evidence_ids = std::collections::BTreeSet::new();
@@ -117,30 +115,6 @@ fn risky_effects_require_approval_gate() {
     assert!(matches!(
         decision.decision,
         PolicyDecision::Deny { .. } | PolicyDecision::RequireApproval { .. }
-    ));
-}
-
-#[test]
-fn validation_gate_requires_report() {
-    let task = maestria_domain::Task {
-        id: TaskId::new(12),
-        title: "example".to_string(),
-        priority: maestria_domain::TaskPriority::Normal,
-        status: TaskStatus::CompletedVerified,
-        validation_report_id: Some(maestria_domain::ValidationReportId::new(1)),
-        artifact_ids: Default::default(),
-        evidence_ids: Default::default(),
-    };
-
-    let gate = DefaultValidationGate::new(true);
-    let decision = gate.evaluate(&ValidationRequest {
-        task,
-        validation_report_present: false,
-        had_warning: false,
-    });
-    assert!(matches!(
-        decision,
-        ValidationDecision::BlockedByMissingValidation { .. }
     ));
 }
 

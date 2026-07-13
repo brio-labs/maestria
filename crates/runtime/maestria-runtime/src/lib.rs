@@ -9,6 +9,8 @@ mod validation;
 
 #[cfg(test)]
 pub use config::EffectExecutionContext;
+mod approval;
+mod completion;
 use config::EffectExecutionContext as ExecutionContext;
 pub use config::{Adapters, Governance, RuntimeConfig};
 use maestria_domain::{DomainInput, KernelState, MaestriaEffect, ValidationReportId};
@@ -88,50 +90,33 @@ impl MaestriaRuntime {
                 msg = input_rx.recv() => {
                     let Some(input) = msg else { break };
 
-                    // Boundary validation: ApprovalResolved must reference a
-                    // valid pending record with a matching task_id before the
-                    // domain sees it. Reject mismatches, duplicates, and missing
-                    // records without emitting domain events.
-                    if let DomainInput::ApprovalResolved(ref decision) = input {
-                        match self.adapters.approval_repo.find_by_id(decision.approval_id) {
-                            Ok(None) => {
-                                tracing::warn!(
-                                    approval_id = %decision.approval_id,
-                                    "approval resolve rejected: record not found"
-                                );
-                                continue;
-                            }
-                            Ok(Some(ref record)) if record.status != maestria_ports::ApprovalStatus::Pending => {
-                                tracing::info!(
-                                    approval_id = %decision.approval_id,
-                                    status = ?record.status,
-                                    "approval resolve skipped: already resolved (idempotent)"
-                                );
-                                continue;
-                            }
-                            Ok(Some(ref record)) if record.task_id != decision.task_id => {
-                                tracing::warn!(
-                                    approval_id = %decision.approval_id,
-                                    record_task = %record.task_id,
-                                    input_task = %decision.task_id,
-                                    "approval resolve rejected: task_id mismatch"
-                                );
-                                continue;
-                            }
-                            Ok(Some(_)) => {
-                                // Valid pending record with matching task_id — proceed.
-                            }
-                            Err(e) => {
-                                tracing::error!(%e, approval_id = %decision.approval_id, "approval resolve rejected: repo lookup error");
+                    match &input {
+                        DomainInput::ApprovalResolved(decision) if !self.check_approval_boundary(decision) => {
+                            continue;
+                        }
+                        DomainInput::CompleteTask(complete_input) => {
+                            let valid = self.check_completion_validation(complete_input).await;
+                            if !valid {
                                 continue;
                             }
                         }
+                        _ => {}
                     }
 
+                    let mut wait_for_report_id = None;
                     let effects = {
                         let mut state = self.state.write().await;
                         match state.apply_input(input) {
-                            Ok(output) => output.effects,
+                            Ok(output) => {
+                                for effect in &output.effects {
+                                    if let maestria_domain::MaestriaEffect::PersistEvent { envelope } = effect
+                                        && let maestria_domain::DomainEvent::ValidationReportCreated { report_id, .. } = &envelope.event
+                                    {
+                                        wait_for_report_id = Some(*report_id);
+                                    }
+                                }
+                                output.effects
+                            }
                             Err(error) => {
                                 tracing::warn!(%error, "domain rejected input");
                                 Vec::new()
@@ -145,9 +130,23 @@ impl MaestriaRuntime {
                                 if let Err(error) = result {
                                     tracing::error!(%error, "failed to dispatch effect");
                                     shutdown_token.cancel();
-                                    break;
                                 }
                             }
+                        }
+                    }
+
+                    if let Some(report_id) = wait_for_report_id {
+                        let found = self
+                            .wait_for_validation_report(report_id, &shutdown_token)
+                            .await;
+                        if !found {
+                            if !shutdown_token.is_cancelled() {
+                                tracing::error!(
+                                    "fatal: timeout or error waiting for durable ValidationReportCreated; stopping runtime"
+                                );
+                                shutdown_token.cancel();
+                            }
+                            break;
                         }
                     }
                 }
@@ -156,6 +155,54 @@ impl MaestriaRuntime {
         drop(effect_tx);
         shutdown_token.cancel();
         let _ = effect_executor.await;
+    }
+
+    async fn wait_for_validation_report(
+        &self,
+        report_id: maestria_domain::ValidationReportId,
+        shutdown_token: &tokio_util::sync::CancellationToken,
+    ) -> bool {
+        let check = async {
+            loop {
+                if shutdown_token.is_cancelled() {
+                    return false;
+                }
+                match self
+                    .adapters
+                    .event_log
+                    .scan(maestria_ports::EventFilter { artifact_id: None })
+                {
+                    Ok(events) => {
+                        if events.iter().any(|env| {
+                            matches!(
+                                &env.event,
+                                maestria_domain::DomainEvent::ValidationReportCreated {
+                                    report_id: id,
+                                    ..
+                                } if *id == report_id
+                            )
+                        }) {
+                            return true;
+                        }
+                    }
+                    Err(error) => {
+                        tracing::error!(
+                            %error,
+                            "failed to scan event log during validation report barrier"
+                        );
+                        return false;
+                    }
+                }
+                tokio::select! {
+                    () = shutdown_token.cancelled() => return false,
+                    () = tokio::time::sleep(std::time::Duration::from_millis(5)) => {}
+                }
+            }
+        };
+        matches!(
+            tokio::time::timeout(self.config.default_effect_timeout, check).await,
+            Ok(true)
+        )
     }
 
     fn spawn_effect_executor(
@@ -282,5 +329,7 @@ mod runtime_pdf_tests;
 mod runtime_resume_tests;
 #[cfg(test)]
 mod runtime_tests;
+#[cfg(test)]
+mod runtime_validation_gate_tests;
 #[cfg(test)]
 mod test_helpers;

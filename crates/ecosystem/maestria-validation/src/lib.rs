@@ -11,7 +11,7 @@ pub mod types;
 pub mod validators;
 
 pub use runner::ValidationRunner;
-pub use types::{ValidationCheck, ValidationContext, ValidationReport, Validator};
+pub use types::{Severity, ValidationCheck, ValidationContext, ValidationReport, Validator};
 pub use validators::{
     CitationValidator, EvidenceExistenceValidator, HarnessRunValidator, MemoryValidator,
     TaskStateValidator,

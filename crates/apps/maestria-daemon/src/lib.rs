@@ -1,5 +1,4 @@
 use std::{
-    collections::BTreeSet,
     fs,
     io::Write,
     path::PathBuf,
@@ -10,9 +9,12 @@ use std::{
 use anyhow::{Context, Result, anyhow};
 use maestria_blob_fs::FsBlobStore;
 use maestria_core::{InitInstanceInput, InstanceLayout, InstanceManifest, InstanceService};
-use maestria_domain::{ArtifactId, DomainInput, KernelState, StartFullTextIndex, replay_events};
+#[cfg(test)]
+use maestria_domain::ArtifactId;
+use maestria_domain::{DomainInput, KernelState, replay_events};
 use maestria_governance::{
-    AutonomyProfile, DefaultApprovalGate, DefaultRiskClassifier, PrivacyExclusions, Scope,
+    AutonomyProfile, DefaultApprovalGate, DefaultRiskClassifier, DefaultValidationGate,
+    PrivacyExclusions, Scope,
 };
 use maestria_graph_sqlite::SqliteGraphIndex;
 use maestria_harness::LocalShellHarnessAdapter;
@@ -143,43 +145,21 @@ fn lock_owner_is_dead(path: &PathBuf) -> bool {
         false
     }
 }
-/// `StartFullTextIndex` inputs so the runtime can resume indexing after
-/// restart without re-parsing source bytes or re-playing `ParserCompleted`.
-fn pending_start_full_text(state: &KernelState) -> Vec<DomainInput> {
-    let mut artifacts: BTreeSet<ArtifactId> = BTreeSet::new();
-    for chunk_id in &state.pending_full_text {
-        if let Some(chunk) = state.chunks.get(chunk_id) {
-            // Skip artifacts that have a pending parser — the resumed
-            // parser flow owns completion, evidence, and index ordering
-            // and emits its own StartFullTextIndex afterward.  Issuing a
-            // separate StartFullTextIndex here could make chunks terminal
-            // before resumed evidence is recorded.
-            if state.pending_parsers.contains_key(&chunk.artifact_id) {
-                continue;
-            }
-            artifacts.insert(chunk.artifact_id);
-        }
-    }
-    artifacts
-        .into_iter()
-        .map(|artifact_id| DomainInput::StartFullTextIndex(StartFullTextIndex { artifact_id }))
-        .collect()
-}
+
 /// Typed container for pending recovery inputs computed from replayed kernel state.
 ///
-/// `resume_parsers` carries `ResumeParser` inputs for artifacts whose parsing was
-/// interrupted (ParserStarted without ParserCompleted). `start_full_text` carries
-/// `StartFullTextIndex` inputs for artifacts whose chunks are pending full-text
-/// indexing but that are _not_ covered by a pending parser — the parser flow owns
-/// its own index dispatch and emits `StartFullTextIndex` after completion.
+/// `resume_parsers` carries `ResumeParser` inputs for artifacts whose parsing is
+/// interrupted. `start_full_text` carries `StartFullTextIndex` inputs for artifacts
+/// whose chunks are pending full-text indexing. `run_validations` carries
+/// task-scoped validation requests for `Validating` tasks without reports.
 ///
-/// Callers MUST enqueue `resume_parsers` before `start_full_text` to preserve
-/// bounded-channel ordering: parser completion creates chunks, and full-text
-/// indexing needs those chunks to exist.
+/// Callers MUST enqueue `resume_parsers` before `start_full_text` so parser
+/// completion creates chunks before full-text indexing begins.
 #[derive(Debug, Clone)]
 pub struct RecoveryInputs {
     pub resume_parsers: Vec<DomainInput>,
     pub start_full_text: Vec<DomainInput>,
+    pub run_validations: Vec<DomainInput>,
 }
 
 /// Compute deterministic recovery inputs from replayed kernel state.
@@ -190,9 +170,11 @@ pub struct RecoveryInputs {
 pub fn recovery_inputs(state: &KernelState) -> RecoveryInputs {
     let resume_parsers = pending_resume_parsers(state);
     let start_full_text = pending_start_full_text(state);
+    let run_validations = pending_validations(state);
     RecoveryInputs {
         resume_parsers,
         start_full_text,
+        run_validations,
     }
 }
 
@@ -201,7 +183,12 @@ pub use approval_recovery::{reconcile_approval_repo, reconcile_pending_approvals
 mod parser_resume;
 use parser_resume::pending_resume_parsers;
 pub use parser_resume::verify_pending_blobs;
+mod validation_recovery;
+pub use validation_recovery::has_current_validation_report;
+use validation_recovery::pending_validations;
 
+mod full_text_recovery;
+use full_text_recovery::pending_start_full_text;
 /// Validate that every pending `ResumeParser` source path is within the
 /// instance manifest read scope before the daemon touches blobs or runtime
 /// infrastructure.  Out-of-scope and excluded pending parsers fail fast
@@ -363,6 +350,7 @@ pub fn build_runtime(
     let governance = Governance {
         classifier: Arc::new(DefaultRiskClassifier),
         approval_gate: Arc::new(DefaultApprovalGate),
+        validation_gate: Arc::new(DefaultValidationGate::new(true)),
     };
     let manifest_contents = fs::read_to_string(&layout.manifest_path)
         .with_context(|| format!("read instance manifest {}", layout.manifest_path.display()))?;
@@ -451,6 +439,13 @@ pub async fn run_instance(instance_dir: PathBuf) -> Result<()> {
                 .send(input)
                 .await
                 .map_err(|e| anyhow!("failed to queue restart full-text index: {e}"))?;
+        }
+
+        for input in recovery.run_validations {
+            input_tx
+                .send(input)
+                .await
+                .map_err(|e| anyhow!("failed to queue request task validation: {e}"))?;
         }
 
         let root = layout.root.clone();
