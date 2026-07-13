@@ -30,6 +30,8 @@ async fn main() -> Result<()> {
         duration_budget: Duration::from_secs(60),
         class: HarnessCommandClass::Shell,
         readable_roots: vec![],
+        blocked_paths: vec![],
+        blocked_patterns: vec![],
     };
 
     // Policy Before Action check (I-Policy-BeforeAction)

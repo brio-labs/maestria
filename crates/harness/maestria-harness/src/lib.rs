@@ -272,8 +272,14 @@ async fn execute_impl(request: HarnessRequest) -> Result<HarnessOutcome, PortErr
             if let Ok(Some(s)) = child.try_wait() {
                 let (out_r, err_r) =
                     tokio::join!(drain_opt(&mut stdout_handle), drain_opt(&mut stderr_handle),);
-                let out = out_r.unwrap_or_default();
-                let err = err_r.unwrap_or_default();
+                let out = match out_r {
+                    Ok(v) => v,
+                    Err(_) => Vec::new(),
+                };
+                let err = match err_r {
+                    Ok(v) => v,
+                    Err(_) => Vec::new(),
+                };
                 (s, out, err)
             } else {
                 let _ = child.start_kill();
