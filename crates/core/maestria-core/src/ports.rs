@@ -17,6 +17,7 @@ pub struct CorePorts<'a> {
     pub parser: &'a dyn Parser,
     pub search_index: &'a dyn FullTextIndex,
     pub blobs: &'a dyn BlobStore,
+    pub vector_index: Option<&'a dyn maestria_ports::VectorIndex>,
 }
 
 pub struct CoreServices<'a> {
@@ -29,9 +30,16 @@ impl<'a> CoreServices<'a> {
     }
 
     pub fn search(&self, input: SearchInput) -> CoreResult<SearchOutput> {
-        search(&self.ports, input)
+        search(&self.ports, input, None)
     }
 
+    pub fn search_with_vector(
+        &self,
+        input: SearchInput,
+        vector_query: maestria_ports::VectorSearchQuery,
+    ) -> CoreResult<SearchOutput> {
+        search(&self.ports, input, Some(vector_query))
+    }
     pub fn open_evidence(&self, input: OpenEvidenceInput) -> CoreResult<OpenEvidenceOutput> {
         open_evidence(&self.ports, input)
     }

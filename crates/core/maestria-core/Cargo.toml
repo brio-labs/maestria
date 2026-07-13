@@ -8,6 +8,7 @@ publish = false
 [dependencies]
 maestria-domain = { path = "../../kernel/maestria-domain" }
 maestria-ports = { path = "../../kernel/maestria-ports" }
+url = "2"
 sha2 = "0.10"
 [dev-dependencies]
 maestria-blob-fs = { path = "../../storage/maestria-blob-fs" }

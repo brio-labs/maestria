@@ -1,6 +1,6 @@
 use std::sync::{Arc, Mutex};
 
-use crate::{PortError, VectorEmbedding, VectorIndex, VectorSearchHit, VectorSearchQuery};
+use crate::{ChunkId, PortError, VectorEmbedding, VectorIndex, VectorSearchHit, VectorSearchQuery};
 
 #[derive(Clone, Default)]
 pub struct InMemoryVectorIndex {
@@ -50,7 +50,20 @@ impl VectorIndex for InMemoryVectorIndex {
         let q_norm = q_norm_sq.sqrt();
 
         for emb in guard.iter() {
-            if emb.vector.len() != query.vector.len() {
+            if query
+                .provider_id
+                .as_deref()
+                .is_some_and(|provider| emb.provenance.provider_id != provider)
+                || query
+                    .model
+                    .as_deref()
+                    .is_some_and(|model| emb.provenance.model != model)
+                || query
+                    .model_version
+                    .as_deref()
+                    .is_some_and(|version| emb.provenance.model_version != version)
+                || emb.vector.len() != query.vector.len()
+            {
                 continue;
             }
 
@@ -84,6 +97,22 @@ impl VectorIndex for InMemoryVectorIndex {
         });
         hits.truncate(query.limit as usize);
         Ok(hits)
+    }
+
+    fn delete_chunks(&self, chunk_ids: &[ChunkId]) -> Result<(), PortError> {
+        let mut guard = self.embeddings.lock().map_err(|_| PortError::Internal {
+            message: "vector index lock poisoned".to_string(),
+        })?;
+        guard.retain(|e| !chunk_ids.contains(&e.chunk_id));
+        Ok(())
+    }
+
+    fn clear(&self) -> Result<(), PortError> {
+        let mut guard = self.embeddings.lock().map_err(|_| PortError::Internal {
+            message: "vector index lock poisoned".to_string(),
+        })?;
+        guard.clear();
+        Ok(())
     }
 }
 

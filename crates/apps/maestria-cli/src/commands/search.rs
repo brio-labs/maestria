@@ -1,20 +1,29 @@
 use anyhow::{Context, Result};
 use maestria_blob_fs::FsBlobStore;
-use maestria_core::{CorePorts, CoreServices, SearchInput};
+use maestria_core::{CorePorts, CoreServices, InstanceService, SearchInput};
 use maestria_domain::{DomainInput, IndexStatus, LogicalTick, SearchExecutedInput};
 use maestria_governance::AutonomyProfile;
 use maestria_parsers::ParserRegistry;
-use maestria_ports::{FullTextIndex, IndexedCard};
+use maestria_ports::{
+    EmbeddingProvider, EmbeddingRequest, FullTextIndex, IndexedCard, VectorIndex, VectorSearchQuery,
+};
 use maestria_search_tantivy::TantivyFullTextIndex;
 use maestria_storage_sqlite::SqliteStore;
-use std::{path::PathBuf, time::Duration};
+use maestria_vector_sqlite::SqliteVectorIndex;
+use std::{fs, path::PathBuf, sync::Arc, time::Duration};
 
 use crate::helpers;
 pub async fn run(instance_dir: PathBuf, query: String, limit: usize) -> Result<()> {
     let layout = helpers::validated_instance(instance_dir)?;
     let _instance_lock = maestria_daemon::acquire_instance_write_lock(&layout).await?;
     let normalized_query = query.trim().to_string();
-    let pack = compute_search_pack(&layout, &normalized_query, limit)?;
+    let search_layout = layout.clone();
+    let search_query = normalized_query.clone();
+    let pack = tokio::task::spawn_blocking(move || {
+        compute_search_pack(&search_layout, &search_query, limit)
+    })
+    .await
+    .map_err(|error| anyhow::anyhow!("search worker failed: {error}"))??;
     persist_search_audit(&layout, &pack, limit).await?;
     print_search_pack(&pack);
     Ok(())
@@ -27,6 +36,30 @@ fn compute_search_pack(
 ) -> Result<maestria_core::EvidencePack> {
     let sqlite_store = SqliteStore::open(&layout.database_path)?;
     let blob_store = FsBlobStore::open(&layout.blobs_dir)?;
+    let manifest_contents = fs::read_to_string(&layout.manifest_path)?;
+    let manifest = InstanceService::parse_manifest(&manifest_contents)?;
+    let embedding_provider: Option<Arc<dyn EmbeddingProvider>> =
+        match manifest.embeddings.as_ref().filter(|config| config.enabled) {
+            Some(config) => Some(Arc::new(
+                maestria_embedding_openai::LocalHttpEmbeddingProvider::new(
+                    &config.endpoint,
+                    &config.model,
+                    Some(config.dimensions),
+                )?,
+            )),
+            None => None,
+        };
+    let vector_index = if embedding_provider.is_some() {
+        match SqliteVectorIndex::open(layout.vector_index_dir.join("projection.db")) {
+            Ok(index) => Some(index),
+            Err(error) => {
+                eprintln!("vector projection unavailable; using full-text fallback: {error}");
+                None
+            }
+        }
+    } else {
+        None
+    };
     let search_index = TantivyFullTextIndex::open(&layout.full_text_index_dir)?;
     if search_index.needs_card_rebuild()? {
         let state = maestria_daemon::load_kernel_state(layout)?;
@@ -50,6 +83,21 @@ fn compute_search_pack(
         search_index.complete_card_rebuild()?;
     }
     let parser = ParserRegistry::with_defaults();
+    let vector_query = embedding_provider.as_deref().and_then(|provider| {
+        provider
+            .embed(EmbeddingRequest {
+                text: query.to_string(),
+                model: "query".to_string(),
+            })
+            .ok()
+            .map(|response| VectorSearchQuery {
+                vector: response.vector,
+                limit: limit as u32,
+                provider_id: Some(response.provider_id),
+                model: Some(response.model),
+                model_version: Some(response.model_version),
+            })
+    });
     let core = CoreServices::new(CorePorts {
         artifacts: &sqlite_store,
         chunks: &sqlite_store,
@@ -59,13 +107,17 @@ fn compute_search_pack(
         parser: &parser,
         search_index: &search_index,
         blobs: &blob_store,
+        vector_index: vector_index.as_ref().map(|index| index as &dyn VectorIndex),
     });
-    Ok(core
-        .search(SearchInput {
-            query: query.to_string(),
-            limit,
-        })?
-        .pack)
+    let input = SearchInput {
+        query: query.to_string(),
+        limit,
+    };
+    let output = match vector_query {
+        Some(vector_query) => core.search_with_vector(input, vector_query)?,
+        None => core.search(input)?,
+    };
+    Ok(output.pack)
 }
 
 async fn persist_search_audit(

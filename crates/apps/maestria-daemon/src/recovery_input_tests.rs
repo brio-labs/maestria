@@ -59,10 +59,8 @@ fn pending_start_full_text_groups_by_artifact() {
 
 #[test]
 fn pending_start_full_text_resumes_indexing_without_reparse() {
-    // Simulate a restart scenario: chunks were created (persisted) but
-    // full-text indexing wasn't completed before shutdown. On restart,
     // pending_start_full_text produces StartFullTextIndex inputs that
-    // emit IndexFullText effects without re-parsing source bytes.
+    // emit full-text and vector effects without re-parsing source bytes.
 
     let mut state = KernelState::new();
     let artifact_id = ArtifactId::new(1);
@@ -99,17 +97,18 @@ fn pending_start_full_text_resumes_indexing_without_reparse() {
         .expect("parser completed");
 
     assert_eq!(state.pending_full_text.len(), 2);
-    // ParserCompleted no longer emits IndexFullText effects; indexing is
-    // deferred to StartFullTextIndex.
-    let parser_index_effects: Vec<_> = output
+    let parser_full_text_effects = output
         .effects
         .iter()
-        .filter(|e| matches!(e, MaestriaEffect::IndexFullText(_)))
-        .collect();
-    assert!(
-        parser_index_effects.is_empty(),
-        "ParserCompleted must not emit IndexFullText effects"
-    );
+        .filter(|effect| matches!(effect, MaestriaEffect::IndexFullText(_)))
+        .count();
+    let parser_vector_effects = output
+        .effects
+        .iter()
+        .filter(|effect| matches!(effect, MaestriaEffect::IndexVector(_)))
+        .count();
+    assert_eq!(parser_full_text_effects, 0);
+    assert_eq!(parser_vector_effects, 0);
 
     let event_count_before = state.event_log.len();
 
@@ -120,24 +119,24 @@ fn pending_start_full_text_resumes_indexing_without_reparse() {
     let restart_output = state
         .apply_input(pending_inputs[0].clone())
         .expect("restart start full-text index should succeed");
-
-    // StartFullTextIndex emits IndexFullText effects but no new events.
+    // StartFullTextIndex emits full-text and vector effects but no new events.
     let event_count_after = state.event_log.len();
     assert_eq!(
         event_count_after, event_count_before,
         "StartFullTextIndex must not produce duplicate events"
     );
-
-    let restart_index_effects: Vec<_> = restart_output
+    let restart_full_text_effects = restart_output
         .effects
         .iter()
-        .filter(|e| matches!(e, MaestriaEffect::IndexFullText(_)))
-        .collect();
-    assert_eq!(
-        restart_index_effects.len(),
-        2,
-        "StartFullTextIndex should emit IndexFullText for both pending chunks"
-    );
+        .filter(|effect| matches!(effect, MaestriaEffect::IndexFullText(_)))
+        .count();
+    let restart_vector_effects = restart_output
+        .effects
+        .iter()
+        .filter(|effect| matches!(effect, MaestriaEffect::IndexVector(_)))
+        .count();
+    assert_eq!(restart_full_text_effects, 2);
+    assert_eq!(restart_vector_effects, 2);
 
     assert_eq!(state.pending_full_text.len(), 2);
 }

@@ -185,6 +185,8 @@ pub trait FullTextIndex: Send + Sync {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EmbeddingProvenance {
     pub content_hash: String,
+    pub provider_id: String,
+    pub model: String,
     pub model_version: String,
 }
 
@@ -195,10 +197,13 @@ pub struct VectorEmbedding {
     pub provenance: EmbeddingProvenance,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct VectorSearchQuery {
     pub vector: Vec<f32>,
     pub limit: u32,
+    pub provider_id: Option<String>,
+    pub model: Option<String>,
+    pub model_version: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -207,9 +212,33 @@ pub struct VectorSearchHit {
     pub score: f32,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EmbeddingRequest {
+    pub text: String,
+    pub model: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct EmbeddingResponse {
+    pub vector: Vec<f32>,
+    pub provider_id: String,
+    pub model: String,
+    pub model_version: String,
+}
+
+pub trait EmbeddingProvider: Send + Sync {
+    fn embed(&self, request: EmbeddingRequest) -> Result<EmbeddingResponse, PortError>;
+}
+
 pub trait VectorIndex: Send + Sync {
     fn index_embeddings(&self, embeddings: Vec<VectorEmbedding>) -> Result<(), PortError>;
     fn search_similar(&self, query: VectorSearchQuery) -> Result<Vec<VectorSearchHit>, PortError>;
+    fn delete_chunks(&self, chunk_ids: &[ChunkId]) -> Result<(), PortError>;
+    fn clear(&self) -> Result<(), PortError>;
+    fn rebuild(&self, embeddings: Vec<VectorEmbedding>) -> Result<(), PortError> {
+        self.clear()?;
+        self.index_embeddings(embeddings)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

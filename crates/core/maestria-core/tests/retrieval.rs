@@ -9,7 +9,7 @@ use maestria_ports::{
     ArtifactRepository, BlobStore, CardRepository, ChunkRepository, EvidenceRepository,
     FullTextIndex, InMemoryArtifactRepository, InMemoryBlobStore, InMemoryCardRepository,
     InMemoryChunkRepository, InMemoryEventLog, InMemoryEvidenceRepository, InMemoryFullTextIndex,
-    InMemoryParser, IndexedCard, IndexedChunk,
+    InMemoryParser, InMemoryVectorIndex, IndexedCard, IndexedChunk, VectorIndex, VectorSearchQuery,
 };
 
 /// Seed an artifact, chunks, evidence, cards, and full-text entries directly through
@@ -229,6 +229,7 @@ fn seed_with_status(
         parser: &parser,
         search_index: &search_index,
         blobs: &blob_store,
+        vector_index: None,
     });
 
     f(
@@ -381,4 +382,94 @@ fn terminal_success_with_indexed_artifact() -> Result<(), Box<dyn std::error::Er
             )
         },
     )
+}
+
+#[test]
+fn vector_search_returns_grounded_nonliteral_match() -> Result<(), Box<dyn std::error::Error>> {
+    let artifact_id = ArtifactId::new(800);
+    let chunk_id = ChunkId::new(801);
+    let evidence_id = maestria_domain::evidence_id_for(artifact_id, 0);
+    let source = "literal source text\n";
+    let artifact_repo = InMemoryArtifactRepository::new();
+    let chunk_repo = InMemoryChunkRepository::new();
+    let card_repo = InMemoryCardRepository::new();
+    let evidence_repo = InMemoryEvidenceRepository::new();
+    let blob_store = InMemoryBlobStore::new();
+    let events = InMemoryEventLog::new();
+    let parser = InMemoryParser::new();
+    let search_index = InMemoryFullTextIndex::new();
+    let vector_index = InMemoryVectorIndex::new();
+
+    let blob_id = blob_store.put(source.as_bytes().to_vec())?;
+    artifact_repo.put(Artifact {
+        id: artifact_id,
+        title: "semantic.md".to_string(),
+        chunk_ids: [chunk_id].into(),
+        card_ids: Default::default(),
+        claim_ids: Default::default(),
+        evidence_ids: [evidence_id].into(),
+        index_status: IndexStatus::Indexed,
+        content_hash: Some(maestria_core::content_hash(source.as_bytes())),
+    })?;
+    chunk_repo.put(Chunk {
+        id: chunk_id,
+        artifact_id,
+        order: 0,
+        text: "semantic token".to_string(),
+    })?;
+    evidence_repo.put(Evidence {
+        id: evidence_id,
+        artifact_id,
+        claim_id: None,
+        kind: EvidenceKind::FileSpan {
+            path: "semantic.md".to_string(),
+            range: maestria_domain::ContentRange { start: 1, end: 1 },
+            content_hash: maestria_core::content_hash(source.as_bytes()),
+            snapshot: Some(blob_id),
+        },
+        excerpt: "literal source text".to_string(),
+        observed_at: maestria_domain::LogicalTick::new(1),
+    })?;
+    vector_index.index_embeddings(vec![maestria_ports::VectorEmbedding {
+        chunk_id,
+        vector: vec![0.0, 1.0],
+        provenance: maestria_ports::EmbeddingProvenance {
+            content_hash: "hash".to_string(),
+            provider_id: "test-provider".to_string(),
+            model: "test-model".to_string(),
+            model_version: "test-v1".to_string(),
+        },
+    }])?;
+    let core = CoreServices::new(CorePorts {
+        artifacts: &artifact_repo,
+        chunks: &chunk_repo,
+        cards: &card_repo,
+        evidence: &evidence_repo,
+        events: &events,
+        parser: &parser,
+        search_index: &search_index,
+        blobs: &blob_store,
+        vector_index: Some(&vector_index),
+    });
+
+    let pack = core
+        .search_with_vector(
+            SearchInput {
+                query: "unrelated query".to_string(),
+                limit: 5,
+            },
+            VectorSearchQuery {
+                vector: vec![0.0, 1.0],
+                limit: 5,
+                provider_id: Some("test-provider".to_string()),
+                model: Some("test-model".to_string()),
+                model_version: Some("test-v1".to_string()),
+            },
+        )?
+        .pack;
+    assert_eq!(pack.chunks.len(), 1);
+    assert_eq!(pack.chunks[0].chunk.id, chunk_id);
+    assert_eq!(pack.chunks[0].evidence.id, evidence_id);
+    assert_eq!(pack.evidence_ids, vec![evidence_id]);
+    Ok(())
 }

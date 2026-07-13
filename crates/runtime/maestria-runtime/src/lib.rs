@@ -1,4 +1,5 @@
 mod config;
+mod effect_dispatch;
 mod effect_execution;
 mod harness;
 mod indexing;
@@ -102,6 +103,10 @@ impl MaestriaRuntime {
         }
     }
 
+    pub fn with_graceful_shutdown(mut self) -> Self {
+        self.config.drain_effects_on_shutdown = true;
+        self
+    }
     pub async fn snapshot_state(&self) -> KernelState {
         self.state.read().await.clone()
     }
@@ -112,7 +117,9 @@ impl MaestriaRuntime {
         shutdown_token: tokio_util::sync::CancellationToken,
     ) {
         let (effect_tx, effect_rx) = mpsc::channel::<MaestriaEffect>(self.config.input_buffer_size);
-        let effect_executor = self.spawn_effect_executor(effect_rx, shutdown_token.clone());
+        let effect_shutdown = tokio_util::sync::CancellationToken::new();
+        let effect_executor =
+            self.spawn_effect_executor(effect_rx, effect_shutdown.clone(), shutdown_token.clone());
 
         loop {
             tokio::select! {
@@ -167,17 +174,11 @@ impl MaestriaRuntime {
                             }
                         }
                     };
-                    for effect in effects {
-                        tokio::select! {
-                            () = shutdown_token.cancelled() => break,
-                            result = effect_tx.send(effect) => {
-                                if let Err(error) = result {
-                                    tracing::error!(%error, "failed to dispatch effect");
-                                    shutdown_token.cancel();
-                                    break;
-                                }
-                            }
-                        }
+                    if !self
+                        .dispatch_effects(effects, &effect_tx, &shutdown_token)
+                        .await
+                    {
+                        break;
                     }
                     if let Some(report_id) = wait_for_report_id {
 
@@ -197,7 +198,11 @@ impl MaestriaRuntime {
                 }
             }
         }
+
         drop(effect_tx);
+        if !self.config.drain_effects_on_shutdown {
+            effect_shutdown.cancel();
+        }
         shutdown_token.cancel();
         let _ = effect_executor.await;
     }
@@ -253,7 +258,8 @@ impl MaestriaRuntime {
     fn spawn_effect_executor(
         &self,
         mut receiver: mpsc::Receiver<MaestriaEffect>,
-        shutdown_token: tokio_util::sync::CancellationToken,
+        effect_shutdown: tokio_util::sync::CancellationToken,
+        runtime_shutdown: tokio_util::sync::CancellationToken,
     ) -> tokio::task::JoinHandle<()> {
         let adapters = Arc::clone(&self.adapters);
         let governance = Arc::clone(&self.governance);
@@ -266,8 +272,9 @@ impl MaestriaRuntime {
         let max_retries = self.config.max_retries;
         let scope_id = self.config.scope_id;
         let next_validation_report_id = Arc::clone(&self.next_validation_report_id);
-        let effect_shutdown = shutdown_token.clone();
         let feedback_acks = Arc::clone(&self.feedback_acks);
+        let embedding_model = self.config.embedding_model.clone();
+        let drain_effects_on_shutdown = self.config.drain_effects_on_shutdown;
         tokio::spawn(async move {
             let semaphore = Arc::new(tokio::sync::Semaphore::new(max_concurrent_effects));
             let mut in_flight = tokio::task::JoinSet::new();
@@ -290,14 +297,15 @@ impl MaestriaRuntime {
                             scope_id,
                             state: Arc::clone(&state),
                             input_tx: input_tx.clone(),
+                            embedding_model: embedding_model.clone(),
                             feedback_acks: Arc::clone(&feedback_acks),
                             default_effect_timeout,
                             max_retries,
                         };
                         if matches!(&effect, MaestriaEffect::PersistEvent { .. }) {
                             if !context.execute_with_retries(effect).await {
-                                tracing::error!("fatal event persistence failure; stopping runtime");
                                 effect_shutdown.cancel();
+                                runtime_shutdown.cancel();
                                 break;
                             }
                             continue;
@@ -318,7 +326,11 @@ impl MaestriaRuntime {
                     }
                 }
             }
-            in_flight.shutdown().await;
+            if drain_effects_on_shutdown {
+                while in_flight.join_next().await.is_some() {}
+            } else {
+                in_flight.shutdown().await;
+            }
         })
     }
 }

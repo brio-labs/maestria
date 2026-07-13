@@ -7,11 +7,28 @@ use crate::types::{
 };
 
 use maestria_domain::{Evidence, EvidenceKind, IndexStatus};
-use maestria_ports::SearchQuery;
+use maestria_ports::{SearchQuery, VectorSearchQuery};
 
-pub(super) fn search<'a>(ports: &CorePorts<'a>, input: SearchInput) -> CoreResult<SearchOutput> {
+pub(super) fn search<'a>(
+    ports: &CorePorts<'a>,
+    input: SearchInput,
+    vector_query: Option<VectorSearchQuery>,
+) -> CoreResult<SearchOutput> {
     let cards = search_cards(ports, &input.query, input.limit)?;
-    let (chunks, evidence_ids) = search_chunks(ports, &input.query, input.limit)?;
+    let (mut chunks, mut evidence_ids) =
+        search_vector_chunks(ports, &input.query, input.limit, vector_query)?;
+    let (full_text_chunks, _) = search_chunks(ports, &input.query, input.limit)?;
+    for chunk in full_text_chunks {
+        if chunks.len() >= input.limit {
+            break;
+        }
+        let evidence_id = evidence_id_for(chunk.chunk.artifact_id, chunk.chunk.order);
+        if evidence_ids.contains(&evidence_id) {
+            continue;
+        }
+        evidence_ids.push(evidence_id);
+        chunks.push(chunk);
+    }
 
     Ok(SearchOutput {
         pack: EvidencePack {
@@ -134,6 +151,73 @@ fn search_chunks(
         offset = offset.saturating_add(page.len());
     }
     Ok((chunks, evidence_ids))
+}
+
+fn search_vector_chunks(
+    ports: &CorePorts<'_>,
+    _query: &str,
+    limit: usize,
+    vector_query: Option<VectorSearchQuery>,
+) -> CoreResult<(
+    Vec<SourceGroundedSearchHit>,
+    Vec<maestria_domain::EvidenceId>,
+)> {
+    if limit == 0 {
+        return Ok((Vec::new(), Vec::new()));
+    }
+    let Some(vector_query) = vector_query else {
+        return Ok((Vec::new(), Vec::new()));
+    };
+    let Some(vector_index) = ports.vector_index else {
+        return Ok((Vec::new(), Vec::new()));
+    };
+    let hits = match vector_index.search_similar(vector_query) {
+        Ok(hits) => hits,
+        Err(_) => return Ok((Vec::new(), Vec::new())),
+    };
+    let mut chunks = Vec::with_capacity(limit);
+    let mut evidence_ids = Vec::with_capacity(limit);
+    let mut seen_evidence = std::collections::BTreeSet::new();
+    for hit in hits {
+        if chunks.len() >= limit {
+            break;
+        }
+        let Some(chunk) = ports.chunks.get(hit.chunk_id)? else {
+            continue;
+        };
+        let Some(artifact) = ports.artifacts.get(chunk.artifact_id)? else {
+            continue;
+        };
+        if artifact.index_status != IndexStatus::Indexed {
+            continue;
+        }
+        let Some(evidence) = ports
+            .evidence
+            .get(evidence_id_for(chunk.artifact_id, chunk.order))?
+        else {
+            continue;
+        };
+        verify_source_snapshot(ports, &evidence)?;
+        if !seen_evidence.insert(evidence.id) {
+            continue;
+        }
+        evidence_ids.push(evidence.id);
+        chunks.push(SourceGroundedSearchHit {
+            artifact,
+            chunk,
+            evidence,
+            score: vector_score(hit.score),
+        });
+    }
+    Ok((chunks, evidence_ids))
+}
+
+fn vector_score(score: f32) -> u32 {
+    if !score.is_finite() {
+        return 0;
+    }
+    let normalized = ((score as f64 + 1.0) / 2.0).clamp(0.0, 1.0);
+    (normalized * 1_000_000.0) as u32
 }
 
 pub(super) fn open_evidence<'a>(

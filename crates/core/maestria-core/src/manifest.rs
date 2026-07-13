@@ -1,5 +1,6 @@
 use crate::error::{CoreError, CoreResult};
 use std::path::PathBuf;
+use url::Url;
 
 const MANIFEST_SCHEMA_VERSION: u32 = 1;
 const DEFAULT_EXCLUSIONS: [&str; 11] = [
@@ -22,11 +23,20 @@ const DEFAULT_EXCLUSIONS: [&str; 11] = [
 /// apply its roots and exclusions through a policy implementation before
 /// reading source bytes.
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EmbeddingConfig {
+    pub enabled: bool,
+    pub endpoint: String,
+    pub model: String,
+    pub dimensions: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InstanceManifest {
     pub schema_version: u32,
     pub root: PathBuf,
     pub read_roots: Vec<PathBuf>,
     pub excluded_patterns: Vec<String>,
+    pub embeddings: Option<EmbeddingConfig>,
 }
 
 impl InstanceManifest {
@@ -39,6 +49,7 @@ impl InstanceManifest {
                 .iter()
                 .map(|item| (*item).to_string())
                 .collect(),
+            embeddings: None,
         }
     }
 
@@ -57,48 +68,26 @@ impl InstanceManifest {
                 .iter()
                 .map(|pattern| format!("excluded_pattern={pattern}")),
         );
+        if let Some(embeddings) = &self.embeddings {
+            lines.push(format!("embedding_enabled={}", embeddings.enabled));
+            lines.push(format!("embedding_endpoint={}", embeddings.endpoint));
+            lines.push(format!("embedding_model={}", embeddings.model));
+            lines.push(format!("embedding_dimensions={}", embeddings.dimensions));
+        }
         lines.push(String::new());
         lines.join("\n")
     }
-
     pub fn decode(contents: &str) -> CoreResult<Self> {
-        let mut schema_version = None;
-        let mut root = None;
-        let mut read_roots = Vec::new();
-        let mut excluded_patterns = Vec::new();
-
-        for line in contents
-            .lines()
-            .map(str::trim)
-            .filter(|line| !line.is_empty())
-        {
-            let (key, value) = line
-                .split_once('=')
-                .ok_or_else(|| CoreError::InvalidInput {
-                    message: format!("invalid instance manifest line: {line}"),
-                })?;
-            if value.is_empty() {
-                return Err(CoreError::InvalidInput {
-                    message: format!("instance manifest value is empty for {key}"),
-                });
-            }
-            match key {
-                "schema_version" => {
-                    schema_version =
-                        Some(value.parse::<u32>().map_err(|_| CoreError::InvalidInput {
-                            message: format!("invalid instance manifest schema version: {value}"),
-                        })?);
-                }
-                "root" => root = Some(PathBuf::from(value)),
-                "read_root" => read_roots.push(PathBuf::from(value)),
-                "excluded_pattern" => excluded_patterns.push(value.to_string()),
-                other => {
-                    return Err(CoreError::InvalidInput {
-                        message: format!("unknown instance manifest key: {other}"),
-                    });
-                }
-            }
-        }
+        let ManifestFields {
+            schema_version,
+            root,
+            read_roots,
+            excluded_patterns,
+            embedding_enabled,
+            embedding_endpoint,
+            embedding_model,
+            embedding_dimensions,
+        } = parse_manifest_fields(contents)?;
 
         let schema_version = schema_version.ok_or_else(|| CoreError::InvalidInput {
             message: "instance manifest is missing schema_version".to_string(),
@@ -122,11 +111,40 @@ impl InstanceManifest {
             });
         }
 
+        let embeddings = match (
+            embedding_enabled,
+            embedding_endpoint,
+            embedding_model,
+            embedding_dimensions,
+        ) {
+            (None, None, None, None) => None,
+            (Some(enabled), Some(endpoint), Some(model), Some(dimensions)) => {
+                validate_embedding_endpoint(&endpoint)?;
+                if enabled && dimensions == 0 {
+                    return Err(CoreError::InvalidInput {
+                        message: "embedding_dimensions must be positive when enabled".to_string(),
+                    });
+                }
+                Some(EmbeddingConfig {
+                    enabled,
+                    endpoint,
+                    model,
+                    dimensions,
+                })
+            }
+            _ => {
+                return Err(CoreError::InvalidInput {
+                    message: "embedding configuration must define enabled, endpoint, model, and dimensions".to_string(),
+                });
+            }
+        };
+
         Ok(Self {
             schema_version,
             root,
             read_roots,
             excluded_patterns,
+            embeddings,
         })
     }
 
@@ -145,6 +163,98 @@ impl InstanceManifest {
             .map(|root| lexical_normalize(root))
             .any(|root| normalized_path.starts_with(root))
     }
+}
+
+struct ManifestFields {
+    schema_version: Option<u32>,
+    root: Option<PathBuf>,
+    read_roots: Vec<PathBuf>,
+    excluded_patterns: Vec<String>,
+    embedding_enabled: Option<bool>,
+    embedding_endpoint: Option<String>,
+    embedding_model: Option<String>,
+    embedding_dimensions: Option<usize>,
+}
+
+fn parse_manifest_fields(contents: &str) -> CoreResult<ManifestFields> {
+    let mut fields = ManifestFields {
+        schema_version: None,
+        root: None,
+        read_roots: Vec::new(),
+        excluded_patterns: Vec::new(),
+        embedding_enabled: None,
+        embedding_endpoint: None,
+        embedding_model: None,
+        embedding_dimensions: None,
+    };
+    for line in contents
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+    {
+        let (key, value) = line
+            .split_once('=')
+            .ok_or_else(|| CoreError::InvalidInput {
+                message: format!("invalid instance manifest line: {line}"),
+            })?;
+        if value.is_empty() {
+            return Err(CoreError::InvalidInput {
+                message: format!("instance manifest value is empty for {key}"),
+            });
+        }
+        match key {
+            "schema_version" => {
+                fields.schema_version =
+                    Some(value.parse::<u32>().map_err(|_| CoreError::InvalidInput {
+                        message: format!("invalid instance manifest schema version: {value}"),
+                    })?);
+            }
+            "root" => fields.root = Some(PathBuf::from(value)),
+            "read_root" => fields.read_roots.push(PathBuf::from(value)),
+            "excluded_pattern" => fields.excluded_patterns.push(value.to_string()),
+            "embedding_enabled" => {
+                fields.embedding_enabled =
+                    Some(value.parse::<bool>().map_err(|_| CoreError::InvalidInput {
+                        message: format!("invalid embedding_enabled value: {value}"),
+                    })?);
+            }
+            "embedding_endpoint" => fields.embedding_endpoint = Some(value.to_string()),
+            "embedding_model" => fields.embedding_model = Some(value.to_string()),
+            "embedding_dimensions" => {
+                fields.embedding_dimensions =
+                    Some(
+                        value
+                            .parse::<usize>()
+                            .map_err(|_| CoreError::InvalidInput {
+                                message: format!("invalid embedding_dimensions value: {value}"),
+                            })?,
+                    );
+            }
+            other => {
+                return Err(CoreError::InvalidInput {
+                    message: format!("unknown instance manifest key: {other}"),
+                });
+            }
+        }
+    }
+    Ok(fields)
+}
+
+fn validate_embedding_endpoint(endpoint: &str) -> CoreResult<()> {
+    let url = Url::parse(endpoint).map_err(|error| CoreError::InvalidInput {
+        message: format!("invalid embedding endpoint: {error}"),
+    })?;
+    let valid = url.scheme() == "http"
+        && matches!(url.host_str(), Some("127.0.0.1" | "::1" | "[::1]"))
+        && url.path() == "/v1/embeddings"
+        && url.query().is_none()
+        && url.fragment().is_none();
+    if !valid {
+        return Err(CoreError::InvalidInput {
+            message: "embedding endpoint must be an http loopback /v1/embeddings URL".to_string(),
+        });
+    }
+    Ok(())
 }
 
 fn lexical_normalize(path: &std::path::Path) -> PathBuf {
@@ -183,10 +293,50 @@ mod tests {
             root: PathBuf::from("/tmp/instance"),
             read_roots: vec![PathBuf::from("/tmp/notes"), PathBuf::from("/tmp/project")],
             excluded_patterns: vec![".env".to_string(), "*.key".to_string()],
+            embeddings: None,
         };
 
         let decoded = InstanceManifest::decode(&manifest.encode()).expect("manifest is valid");
         assert_eq!(decoded, manifest);
+    }
+
+    #[test]
+    fn embedding_configuration_round_trips() {
+        let manifest = InstanceManifest {
+            schema_version: MANIFEST_SCHEMA_VERSION,
+            root: PathBuf::from("/tmp/instance"),
+            read_roots: vec![PathBuf::from("/tmp/instance")],
+            excluded_patterns: vec![".env".to_string()],
+            embeddings: Some(EmbeddingConfig {
+                enabled: true,
+                endpoint: "http://127.0.0.1:8080/v1/embeddings".to_string(),
+                model: "local-model".to_string(),
+                dimensions: 3,
+            }),
+        };
+
+        assert_eq!(
+            InstanceManifest::decode(&manifest.encode()).expect("manifest is valid"),
+            manifest
+        );
+    }
+
+    #[test]
+    fn embedding_configuration_rejects_remote_endpoint() {
+        let contents = "schema_version=1\nroot=/tmp/instance\nread_root=/tmp/instance\n\
+            excluded_pattern=.env\nembedding_enabled=true\n\
+            embedding_endpoint=https://example.com/v1/embeddings\n\
+            embedding_model=remote\nembedding_dimensions=3\n";
+        let result = InstanceManifest::decode(contents);
+        assert!(matches!(result, Err(CoreError::InvalidInput { .. })));
+    }
+
+    #[test]
+    fn embedding_configuration_rejects_partial_values() {
+        let contents = "schema_version=1\nroot=/tmp/instance\nread_root=/tmp/instance\n\
+            excluded_pattern=.env\nembedding_enabled=true\n";
+        let result = InstanceManifest::decode(contents);
+        assert!(matches!(result, Err(CoreError::InvalidInput { .. })));
     }
 
     #[test]

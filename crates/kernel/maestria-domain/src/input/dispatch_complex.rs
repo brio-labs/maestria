@@ -124,6 +124,12 @@ impl KernelState {
                         artifact_id: input.artifact_id,
                         chunk_id: chunk.id,
                     }));
+                output
+                    .effects
+                    .push(MaestriaEffect::IndexVector(IndexVectorRequest {
+                        artifact_id: input.artifact_id,
+                        chunk_id: chunk.id,
+                    }));
             }
         }
         Ok(output)

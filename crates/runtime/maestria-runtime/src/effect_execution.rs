@@ -5,7 +5,7 @@ use maestria_domain::{
 };
 use maestria_governance::{ApprovalRequest, PolicyDecision, RiskClass, ScopeGuard};
 use maestria_ports::{ApprovalRecord, ApprovalRiskLevel, ApprovalStatus, VectorEmbedding};
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
 use tokio::sync::mpsc;
 
 // ── dispatch ──────────────────────────────────────────────────────────
@@ -207,32 +207,95 @@ impl EffectExecutionContext {
     }
 
     async fn handle_index_vector(&self, request: IndexVectorRequest) -> bool {
-        let chunk = {
-            let state = self.state.read().await;
-            state.chunks.get(&request.chunk_id).cloned()
-        };
-        let Some(chunk) = chunk else {
-            tracing::warn!(chunk_id = %request.chunk_id, "chunk missing for vector index");
+        let Some(provider) = &self.adapters.embedding_provider else {
+            tracing::debug!(chunk_id = %request.chunk_id, "vector indexing disabled");
             return true;
+        };
+        let Some(model) = self
+            .embedding_model
+            .clone()
+            .filter(|model| !model.trim().is_empty())
+        else {
+            tracing::warn!(chunk_id = %request.chunk_id, "vector provider configured without model");
+            return true;
+        };
+        let (chunk, content_hash) = {
+            let state = self.state.read().await;
+            let Some(chunk) = state.chunks.get(&request.chunk_id).cloned() else {
+                return {
+                    tracing::warn!(chunk_id = %request.chunk_id, "chunk missing for vector index");
+                    true
+                };
+            };
+            let content_hash = match state
+                .artifacts
+                .get(&chunk.artifact_id)
+                .and_then(|artifact| artifact.content_hash.clone())
+            {
+                Some(content_hash) => content_hash,
+                None => maestria_domain::content_hash(chunk.text.as_bytes()),
+            };
+            (chunk, content_hash)
+        };
+        let embedding_request = maestria_ports::EmbeddingRequest {
+            text: chunk.text.clone(),
+            model,
+        };
+        let provider = Arc::clone(provider);
+        let response = match tokio::task::spawn_blocking(move || provider.embed(embedding_request))
+            .await
+        {
+            Ok(Ok(response)) => response,
+            Ok(Err(error)) => {
+                tracing::warn!(chunk_id = %request.chunk_id, %error, "embedding provider failed; preserving fallback");
+                return self.invalidate_vector_projection(request.chunk_id).await;
+            }
+            Err(error) => {
+                tracing::warn!(chunk_id = %request.chunk_id, %error, "embedding provider task failed; preserving fallback");
+                return self.invalidate_vector_projection(request.chunk_id).await;
+            }
         };
         let embedding = VectorEmbedding {
             chunk_id: request.chunk_id,
-            vector: Vec::new(),
+            vector: response.vector,
             provenance: maestria_ports::EmbeddingProvenance {
-                content_hash: String::new(),
-                model_version: String::new(),
+                content_hash,
+                provider_id: response.provider_id,
+                model: response.model,
+                model_version: response.model_version,
             },
         };
-        tracing::info!(
-            chunk_id = %request.chunk_id,
-            text_len = chunk.text.len(),
-            "indexing chunk in vector store (no embedding provider configured; storing empty vector)"
-        );
-        if let Err(error) = self.adapters.vector_index.index_embeddings(vec![embedding]) {
-            tracing::error!(chunk_id = %request.chunk_id, %error, "failed to index vector");
-            return false;
+        let vector_index = Arc::clone(&self.adapters.vector_index);
+        match tokio::task::spawn_blocking(move || vector_index.index_embeddings(vec![embedding]))
+            .await
+        {
+            Ok(Ok(())) => true,
+            Ok(Err(error)) => {
+                tracing::warn!(chunk_id = %request.chunk_id, %error, "vector projection failed; preserving fallback");
+                self.invalidate_vector_projection(request.chunk_id).await
+            }
+            Err(error) => {
+                tracing::warn!(chunk_id = %request.chunk_id, %error, "vector projection task failed; preserving fallback");
+                self.invalidate_vector_projection(request.chunk_id).await
+            }
         }
-        true
+    }
+
+    async fn invalidate_vector_projection(&self, chunk_id: maestria_domain::ChunkId) -> bool {
+        let vector_index = Arc::clone(&self.adapters.vector_index);
+        let result =
+            tokio::task::spawn_blocking(move || vector_index.delete_chunks(&[chunk_id])).await;
+        match result {
+            Ok(Ok(())) => true,
+            Ok(Err(error)) => {
+                tracing::warn!(chunk_id = %chunk_id, %error, "could not invalidate stale vector projection");
+                false
+            }
+            Err(error) => {
+                tracing::warn!(chunk_id = %chunk_id, %error, "vector invalidation task failed");
+                false
+            }
+        }
     }
 }
 

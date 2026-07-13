@@ -311,6 +311,7 @@ pub async fn run(instance_dir: PathBuf, path: PathBuf, recursive: bool) -> Resul
     // PersistEvent / ParseArtifact effects.
     let (runtime, input_tx, input_rx, shutdown_token) =
         maestria_daemon::build_runtime(&layout, initial_state, AutonomyProfile::TrustedWorkspace)?;
+    let runtime = runtime.with_graceful_shutdown();
 
     let runtime_task = tokio::spawn(runtime.run(input_rx, shutdown_token.clone()));
 

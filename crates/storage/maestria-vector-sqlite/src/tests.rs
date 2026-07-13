@@ -19,6 +19,8 @@ fn round_trips_provenance() -> Result<(), PortError> {
     let index = SqliteVectorIndex::in_memory()?;
     let provenance = EmbeddingProvenance {
         content_hash: "hash_abcd".into(),
+        provider_id: "test-provider".into(),
+        model: "test-model".into(),
         model_version: "model_v1".into(),
     };
 
@@ -41,6 +43,48 @@ fn round_trips_provenance() -> Result<(), PortError> {
 
     assert_eq!(hash, provenance.content_hash);
     assert_eq!(version, provenance.model_version);
+    Ok(())
+}
+
+#[test]
+fn unchanged_embedding_does_not_update_projection() -> Result<(), PortError> {
+    let index = SqliteVectorIndex::in_memory()?;
+    let connection = index.connection.lock().map_err(|_| PortError::Internal {
+        message: "vector index lock poisoned".to_string(),
+    })?;
+    connection
+        .execute_batch(
+            "CREATE TABLE vector_write_audit (count INTEGER NOT NULL);
+             INSERT INTO vector_write_audit (count) VALUES (0);
+             CREATE TRIGGER vector_update_audit
+             AFTER UPDATE ON vector_embeddings
+             BEGIN
+                 UPDATE vector_write_audit SET count = count + 1;
+             END;",
+        )
+        .map_err(to_port_error)?;
+    drop(connection);
+
+    let embedding = VectorEmbedding {
+        chunk_id: ChunkId::new(42),
+        vector: vec![1.0, 0.5],
+        provenance: EmbeddingProvenance {
+            content_hash: "hash".to_string(),
+            provider_id: "test-provider".into(),
+            model: "test-model".into(),
+            model_version: "model-v1".to_string(),
+        },
+    };
+    index.index_embeddings(vec![embedding.clone()])?;
+    index.index_embeddings(vec![embedding])?;
+
+    let connection = index.connection.lock().map_err(|_| PortError::Internal {
+        message: "vector index lock poisoned".to_string(),
+    })?;
+    let writes: i64 = connection
+        .query_row("SELECT count FROM vector_write_audit", [], |row| row.get(0))
+        .map_err(to_port_error)?;
+    assert_eq!(writes, 0);
     Ok(())
 }
 
@@ -123,7 +167,7 @@ fn migrates_version_1_schema_to_current() -> Result<(), PortError> {
     assert_eq!(v, SCHEMA_VERSION);
 
     // Verify new columns exist by doing a dummy insert
-    conn.execute("INSERT INTO vector_embeddings (chunk_id, dimension, embedding, content_hash, model_version) VALUES (1, 1, X'00', 'a', 'b')", []).map_err(to_port_error)?;
+    conn.execute("INSERT INTO vector_embeddings (chunk_id, dimension, embedding, content_hash, provider_id, model, model_version) VALUES (1, 1, X'00', 'a', 'provider', 'model', 'b')", []).map_err(to_port_error)?;
     Ok(())
 }
 
@@ -144,6 +188,8 @@ fn prevents_nan_scores_from_overflow() -> Result<(), PortError> {
     let index = SqliteVectorIndex::in_memory()?;
     let prov = EmbeddingProvenance {
         content_hash: "hash".into(),
+        provider_id: "test-provider".into(),
+        model: "test-model".into(),
         model_version: "v1".into(),
     };
 
@@ -159,6 +205,9 @@ fn prevents_nan_scores_from_overflow() -> Result<(), PortError> {
     let hits = index.search_similar(VectorSearchQuery {
         vector: vec![huge_val, huge_val],
         limit: 1,
+        provider_id: None,
+        model: None,
+        model_version: None,
     })?;
 
     assert_eq!(hits.len(), 1);

@@ -3,6 +3,7 @@ use maestria_domain::{
     ArtifactDetected, CardId, ChunkId, ContentRange, CreateCardInput, EvidenceId, EvidenceKind,
     LogicalTick, ParserResult, RecordEvidenceInput, RegisterChunkInput,
 };
+use maestria_ports::{ArtifactRepository, CardRepository, ChunkRepository, EvidenceRepository};
 
 /// Fixture carrying entity IDs produced during domain-state setup.
 struct RecoveryTestFixture {

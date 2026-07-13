@@ -10,6 +10,8 @@ pub(crate) struct PreparedEmbedding {
     pub(crate) dimension: usize,
     pub(crate) bytes: Vec<u8>,
     pub(crate) content_hash: String,
+    pub(crate) provider_id: String,
+    pub(crate) model: String,
     pub(crate) model_version: String,
 }
 
@@ -25,6 +27,8 @@ impl TryFrom<VectorEmbedding> for PreparedEmbedding {
             dimension,
             bytes,
             content_hash: embedding.provenance.content_hash,
+            provider_id: embedding.provenance.provider_id,
+            model: embedding.provenance.model,
             model_version: embedding.provenance.model_version,
         })
     }

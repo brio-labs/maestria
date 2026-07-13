@@ -242,6 +242,7 @@ fn search_and_open_evidence_after_restart(
         parser: &parser,
         search_index: &search,
         blobs: &blobs,
+        vector_index: None,
     });
 
     // === SEARCH AFTER RESTART ===
