@@ -49,10 +49,8 @@ async fn main() -> Result<()> {
     let effect = MaestriaEffect::QueryHarness(QueryHarnessRequest {
         run_id: HarnessRunId::new(1),
         task_id: None,
+        generation: None,
         capability: "shell".to_string(),
-        scope_id: ScopeId::new(1),
-        approval_id: None,
-        command: cli.command.clone(),
     });
     let decision = gate.decide(&ApprovalRequest {
         effect: &effect,
