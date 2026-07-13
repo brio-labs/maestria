@@ -11,6 +11,3 @@ tokio = { version = "1.37", features = ["process", "time", "io-util", "rt", "mac
 
 [dev-dependencies]
 tempfile = "3"
-
-[dev-dependencies]
-tempfile = "3"
