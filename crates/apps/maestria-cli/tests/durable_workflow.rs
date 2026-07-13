@@ -126,8 +126,12 @@ fn create_no_text_pdf() -> Vec<u8> {
     buf
 }
 fn assert_ok(args: &[&str]) -> String {
-    let (code, stdout, _stderr) = run(args);
-    assert_eq!(code, 0, "command failed: {:?}\nstdout: {stdout}", args);
+    let (code, stdout, stderr) = run(args);
+    assert_eq!(
+        code, 0,
+        "command failed: {:?}\nstdout: {stdout}\nstderr: {stderr}",
+        args
+    );
     stdout
 }
 fn assert_ok_lines(args: &[&str], expected_lines: usize) -> String {

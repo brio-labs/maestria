@@ -1,3 +1,4 @@
+pub mod approval;
 pub mod doctor;
 pub mod evidence;
 pub mod index;

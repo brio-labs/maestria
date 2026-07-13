@@ -1,6 +1,8 @@
 use super::event_payloads::StoredEventPayload;
 use super::evidence_payloads::{StoredTaskPriority, StoredTaskStatus};
-use maestria_domain::{ArtifactId, DomainEvent, EvidenceId, TaskId, ValidationReportId};
+use maestria_domain::{
+    ApprovalId, ArtifactId, DomainEvent, EvidenceId, TaskId, ValidationReportId,
+};
 
 impl StoredEventPayload {
     pub(crate) fn try_from_domain_task(event: &DomainEvent) -> Option<Self> {
@@ -50,9 +52,18 @@ impl StoredEventPayload {
                 command: command.clone(),
                 exit_code: *exit_code,
             }),
-            DomainEvent::ApprovalRecorded { task_id, approved } => Some(Self::ApprovalRecorded {
+            DomainEvent::ApprovalRecorded {
+                approval_id,
+                task_id,
+                approved,
+                from_status,
+                to_status,
+            } => Some(Self::ApprovalRecorded {
+                approval_id: approval_id.value(),
                 task_id: task_id.value(),
                 approved: *approved,
+                from_status: from_status.map(StoredTaskStatus::from_domain),
+                to_status: to_status.map(StoredTaskStatus::from_domain),
             }),
             DomainEvent::ValidationReportCreated {
                 report_id,
@@ -116,9 +127,18 @@ impl StoredEventPayload {
                 command,
                 exit_code,
             }),
-            Self::ApprovalRecorded { task_id, approved } => Ok(DomainEvent::ApprovalRecorded {
+            Self::ApprovalRecorded {
+                approval_id,
+                task_id,
+                approved,
+                from_status,
+                to_status,
+            } => Ok(DomainEvent::ApprovalRecorded {
+                approval_id: ApprovalId::new(approval_id),
                 task_id: TaskId::new(task_id),
                 approved,
+                from_status: from_status.map(|s| s.into_domain()),
+                to_status: to_status.map(|s| s.into_domain()),
             }),
             Self::ValidationReportCreated {
                 report_id,

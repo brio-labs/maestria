@@ -1,8 +1,9 @@
 use std::{fmt, future::Future, path::PathBuf, pin::Pin, time::Duration};
 
 use maestria_domain::{
-    Artifact, ArtifactId, BlobId, Card, CardId, Chunk, ChunkId, ClaimId, CreateCardInput,
-    DomainEventEnvelope, Evidence, EvidenceId, MemoryCandidateId, Relation, RelationEndpoint,
+    ApprovalId, Artifact, ArtifactId, BlobId, Card, CardId, Chunk, ChunkId, ClaimId,
+    CreateCardInput, DomainEventEnvelope, Evidence, EvidenceId, LogicalTick, MemoryCandidateId,
+    Relation, RelationEndpoint, ScopeId, TaskId,
 };
 
 pub use maestria_domain::HarnessRunId;
@@ -75,6 +76,7 @@ pub trait EventLog: Send + Sync {
 pub trait IdAllocator: Send + Sync {
     fn allocate_claim_id(&self) -> Result<ClaimId, PortError>;
     fn allocate_memory_candidate_id(&self) -> Result<MemoryCandidateId, PortError>;
+    fn allocate_approval_id(&self) -> Result<ApprovalId, PortError>;
 }
 
 pub trait BlobStore: Send + Sync {
@@ -257,7 +259,47 @@ pub struct WebSnapshotData {
     pub url: String,
     pub html: String,
 }
-
 pub trait WebFetcher: Send + Sync {
     fn fetch(&self, url: &str) -> Result<WebSnapshotData, PortError>;
+}
+
+// ── Durable approval request persistence ────────────────────────────────
+
+/// Risk level at the port boundary, independent of governance crate.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ApprovalRiskLevel {
+    Low,
+    Medium,
+    High,
+    Critical,
+}
+
+/// Lifecycle status of a durable approval request.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ApprovalStatus {
+    Pending,
+    Approved,
+    Denied,
+}
+
+/// A durable record of an approval request stored in the repository.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ApprovalRecord {
+    pub id: ApprovalId,
+    pub task_id: TaskId,
+    pub effect_kind: String,
+    pub risk_level: ApprovalRiskLevel,
+    pub capability: String,
+    pub scope_id: ScopeId,
+    pub tick: LogicalTick,
+    pub status: ApprovalStatus,
+}
+
+/// Repository for durable approval requests, independent of governance crate.
+pub trait ApprovalRepository: Send + Sync {
+    fn save(&self, record: &ApprovalRecord) -> Result<(), PortError>;
+    fn find_pending(&self) -> Result<Vec<ApprovalRecord>, PortError>;
+    fn find_by_id(&self, id: ApprovalId) -> Result<Option<ApprovalRecord>, PortError>;
+    fn resolve(&self, id: ApprovalId, approved: bool) -> Result<Option<ApprovalRecord>, PortError>;
+    fn find_by_task_id(&self, task_id: TaskId) -> Result<Vec<ApprovalRecord>, PortError>;
 }

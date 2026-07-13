@@ -4,8 +4,8 @@ use crate::entities::{
 };
 use crate::events::DomainEventEnvelope;
 use crate::ids::{
-    ArtifactId, CardId, ChunkId, ClaimId, EvidenceId, MemoryCandidateId, MemoryId, RelationId,
-    TaskId, ValidationReportId,
+    ApprovalId, ArtifactId, CardId, ChunkId, ClaimId, EvidenceId, MemoryCandidateId, MemoryId,
+    RelationId, TaskId, ValidationReportId,
 };
 use crate::inputs::ParserStarted;
 use std::collections::{BTreeMap, BTreeSet};
@@ -24,6 +24,7 @@ pub struct KernelState {
     pub memories: BTreeMap<MemoryId, Memory>,
     pub tasks: BTreeMap<TaskId, Task>,
     pub validation_reports: BTreeMap<ValidationReportId, ValidationReportRecord>,
+    pub resolved_approvals: BTreeSet<ApprovalId>,
     pub pending_full_text: BTreeSet<ChunkId>,
     pub parsed_artifact_ids: BTreeSet<ArtifactId>,
     pub event_log: Vec<DomainEventEnvelope>,

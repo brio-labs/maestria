@@ -6,10 +6,11 @@ use maestria_domain::{
 };
 use maestria_governance::{DefaultApprovalGate, DefaultRiskClassifier};
 use maestria_ports::{
-    ArtifactRepository, BlobStore, EventLog, InMemoryArtifactRepository, InMemoryBlobStore,
-    InMemoryCardRepository, InMemoryChunkRepository, InMemoryEventLog, InMemoryEvidenceRepository,
-    InMemoryFullTextIndex, InMemoryGraphIndex, InMemoryHarnessAdapter, InMemoryParser,
-    InMemoryVectorIndex, InMemoryWebFetcher,
+    ArtifactRepository, BlobStore, EventLog, InMemoryApprovalRepository,
+    InMemoryArtifactRepository, InMemoryBlobStore, InMemoryCardRepository, InMemoryChunkRepository,
+    InMemoryEventLog, InMemoryEvidenceRepository, InMemoryFullTextIndex, InMemoryGraphIndex,
+    InMemoryHarnessAdapter, InMemoryIdAllocator, InMemoryParser, InMemoryVectorIndex,
+    InMemoryWebFetcher,
 };
 use std::collections::BTreeSet;
 use std::sync::Arc;
@@ -52,6 +53,8 @@ async fn resume_parse_uses_existing_blob_and_skips_storage() {
         vector_index: Arc::new(InMemoryVectorIndex::new()),
         graph_index: Arc::new(InMemoryGraphIndex::new()),
         web_fetcher: Arc::new(InMemoryWebFetcher::new()),
+        id_allocator: Arc::new(InMemoryIdAllocator::new()),
+        approval_repo: Arc::new(InMemoryApprovalRepository::new()),
     };
     let governance = Governance {
         classifier: Arc::new(DefaultRiskClassifier),
@@ -127,6 +130,8 @@ async fn resume_parse_missing_blob_returns_failure() {
         vector_index: Arc::new(InMemoryVectorIndex::new()),
         graph_index: Arc::new(InMemoryGraphIndex::new()),
         web_fetcher: Arc::new(InMemoryWebFetcher::new()),
+        id_allocator: Arc::new(InMemoryIdAllocator::new()),
+        approval_repo: Arc::new(InMemoryApprovalRepository::new()),
     };
     let governance = Governance {
         classifier: Arc::new(DefaultRiskClassifier),
@@ -189,6 +194,8 @@ async fn fresh_parse_sends_parser_started_with_correct_blob_identity() {
         vector_index: Arc::new(InMemoryVectorIndex::new()),
         graph_index: Arc::new(InMemoryGraphIndex::new()),
         web_fetcher: Arc::new(InMemoryWebFetcher::new()),
+        id_allocator: Arc::new(InMemoryIdAllocator::new()),
+        approval_repo: Arc::new(InMemoryApprovalRepository::new()),
     };
     let governance = Governance {
         classifier: Arc::new(DefaultRiskClassifier),
@@ -372,6 +379,8 @@ async fn resume_sends_record_evidence_when_evidence_already_in_state() {
         vector_index: Arc::new(InMemoryVectorIndex::new()),
         graph_index: Arc::new(InMemoryGraphIndex::new()),
         web_fetcher: Arc::new(InMemoryWebFetcher::new()),
+        id_allocator: Arc::new(InMemoryIdAllocator::new()),
+        approval_repo: Arc::new(InMemoryApprovalRepository::new()),
     };
     let governance = Governance {
         classifier: Arc::new(DefaultRiskClassifier),

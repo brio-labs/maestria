@@ -17,8 +17,8 @@ pub use harness::InMemoryHarnessAdapter;
 pub use id_allocator::InMemoryIdAllocator;
 pub use parser::InMemoryParser;
 pub use repositories::{
-    InMemoryArtifactRepository, InMemoryCardRepository, InMemoryChunkRepository,
-    InMemoryEvidenceRepository,
+    InMemoryApprovalRepository, InMemoryArtifactRepository, InMemoryCardRepository,
+    InMemoryChunkRepository, InMemoryEvidenceRepository,
 };
 pub use vector_index::InMemoryVectorIndex;
 pub use web::InMemoryWebFetcher;

@@ -247,15 +247,6 @@ impl KernelState {
             }
         }
 
-        if input.exit_code != 0
-            && let Some(task_id) = task_id
-        {
-            generated.push(self.emit_event(DomainEvent::ApprovalRecorded {
-                task_id,
-                approved: false,
-            }));
-        }
-
         Ok(generated)
     }
 
@@ -263,36 +254,73 @@ impl KernelState {
         &mut self,
         input: ApprovalDecision,
     ) -> Result<Vec<DomainEventEnvelope>, DomainError> {
+        // Idempotency: already-resolved approvals produce no new events.
+        if self.resolved_approvals.contains(&input.approval_id) {
+            return Ok(vec![]);
+        }
+
         let task = self
             .tasks
             .get(&input.task_id)
             .ok_or(DomainError::MissingTask { id: input.task_id })?;
 
-        let target = if input.approved {
-            match task.status {
-                TaskStatus::Draft | TaskStatus::Open | TaskStatus::Blocked => TaskStatus::Active,
-                _ => task.status,
+        let from_status = task.status;
+        let mut emitted = vec![];
+
+        if input.approved {
+            match from_status {
+                TaskStatus::Draft => {
+                    // Two-step domain transition: Draft→Open→Active,
+                    // but emit a single authoritative event.
+                    self.handle_change_task_status(input.task_id, TaskStatus::Open)?;
+                    self.handle_change_task_status(input.task_id, TaskStatus::Active)?;
+                    emitted.push(self.emit_event(DomainEvent::ApprovalRecorded {
+                        approval_id: input.approval_id,
+                        task_id: input.task_id,
+                        approved: true,
+                        from_status: Some(TaskStatus::Draft),
+                        to_status: Some(TaskStatus::Active),
+                    }));
+                }
+                TaskStatus::Open | TaskStatus::Blocked => {
+                    let to_status = TaskStatus::Active;
+                    self.handle_change_task_status(input.task_id, to_status)?;
+                    emitted.push(self.emit_event(DomainEvent::ApprovalRecorded {
+                        approval_id: input.approval_id,
+                        task_id: input.task_id,
+                        approved: true,
+                        from_status: Some(from_status),
+                        to_status: Some(to_status),
+                    }));
+                }
+                _ => {
+                    // Already in terminal state; record without transition.
+                    emitted.push(self.emit_event(DomainEvent::ApprovalRecorded {
+                        approval_id: input.approval_id,
+                        task_id: input.task_id,
+                        approved: true,
+                        from_status: Some(from_status),
+                        to_status: Some(from_status),
+                    }));
+                }
             }
         } else {
-            TaskStatus::Blocked
-        };
-        let (from, to) = if task.status == target {
-            (task.status, task.status)
-        } else {
-            self.handle_change_task_status(input.task_id, target)?
-        };
-        let mut emitted = vec![];
-        if from != to {
-            emitted.push(self.emit_event(DomainEvent::TaskStatusChanged {
+            let to_status = if from_status.can_transition_to(TaskStatus::Blocked) {
+                self.handle_change_task_status(input.task_id, TaskStatus::Blocked)?;
+                TaskStatus::Blocked
+            } else {
+                from_status
+            };
+            emitted.push(self.emit_event(DomainEvent::ApprovalRecorded {
+                approval_id: input.approval_id,
                 task_id: input.task_id,
-                from,
-                to,
+                approved: false,
+                from_status: Some(from_status),
+                to_status: Some(to_status),
             }));
         }
-        emitted.push(self.emit_event(DomainEvent::ApprovalRecorded {
-            task_id: input.task_id,
-            approved: input.approved,
-        }));
+
+        self.resolved_approvals.insert(input.approval_id);
         Ok(emitted)
     }
 
@@ -345,18 +373,51 @@ impl KernelState {
         &mut self,
         task_id: Option<TaskId>,
     ) -> Result<(), DomainError> {
-        if let Some(task_id) = task_id
-            && !self.tasks.contains_key(&task_id)
-        {
-            return Err(DomainError::MissingTask { id: task_id });
+        match task_id {
+            Some(id) if !self.tasks.contains_key(&id) => Err(DomainError::MissingTask { id }),
+            _ => Ok(()),
         }
-        Ok(())
     }
 
-    pub(crate) fn apply_approval_recorded(&mut self, task_id: TaskId) -> Result<(), DomainError> {
-        if !self.tasks.contains_key(&task_id) {
-            return Err(DomainError::MissingTask { id: task_id });
+    pub(crate) fn apply_approval_recorded(
+        &mut self,
+        approval_id: ApprovalId,
+        task_id: TaskId,
+        from_status: Option<TaskStatus>,
+        to_status: Option<TaskStatus>,
+    ) -> Result<(), DomainError> {
+        let task = self
+            .tasks
+            .get_mut(&task_id)
+            .ok_or(DomainError::MissingTask { id: task_id })?;
+        // Legacy events (None/None) only record identity without status mutation.
+        // Authoritative events (Some/Some) must have matching current status.
+        match (from_status, to_status) {
+            (None, None) => {}
+            (Some(from), Some(to)) => {
+                if task.status != from {
+                    return Err(DomainError::InternalInvariantViolation {
+                        detail: "approval replay: task status does not match from_status",
+                    });
+                }
+                if from != to {
+                    let valid = (from == TaskStatus::Draft && to == TaskStatus::Active)
+                        || from.can_transition_to(to);
+                    if !valid {
+                        return Err(DomainError::InternalInvariantViolation {
+                            detail: "approval replay: invalid status transition in ApprovalRecorded",
+                        });
+                    }
+                    task.status = to;
+                }
+            }
+            _ => {
+                return Err(DomainError::InternalInvariantViolation {
+                    detail: "approval replay: mixed Some/None from/to status fields",
+                });
+            }
         }
+        self.resolved_approvals.insert(approval_id);
         Ok(())
     }
 

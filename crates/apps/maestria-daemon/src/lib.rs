@@ -196,6 +196,8 @@ pub fn recovery_inputs(state: &KernelState) -> RecoveryInputs {
     }
 }
 
+mod approval_recovery;
+pub use approval_recovery::{reconcile_approval_repo, reconcile_pending_approvals};
 mod parser_resume;
 use parser_resume::pending_resume_parsers;
 pub use parser_resume::verify_pending_blobs;
@@ -270,6 +272,12 @@ pub fn reconcile_projections(state: &KernelState, store: &SqliteStore) -> Result
     Ok(())
 }
 
+/// Reconcile the approval repository from replayed domain events.
+///
+/// After `load_kernel_state` replays the event log, this function scans for
+/// `ApprovalRecorded` events and ensures the approval repository reflects the
+/// resolved state. If a CLI-initiated resolution persisted the event but crashed
+/// before updating the repo, this repair brings the repo back into consistency.
 pub fn prepare_instance(instance_dir: PathBuf) -> Result<InstanceLayout> {
     let plan = InstanceService::init_instance(InitInstanceInput { root: instance_dir })?;
     for directory in &plan.directories {
@@ -333,6 +341,9 @@ pub fn build_runtime(
     );
     let web_fetcher = Arc::new(UreqWebFetcher::new());
 
+    let id_allocator = sqlite_store.clone();
+    let approval_repo = sqlite_store.clone();
+
     let adapters = Adapters {
         event_log,
         blob_store,
@@ -346,6 +357,8 @@ pub fn build_runtime(
         vector_index,
         graph_index,
         web_fetcher,
+        id_allocator,
+        approval_repo,
     };
     let governance = Governance {
         classifier: Arc::new(DefaultRiskClassifier),
@@ -398,8 +411,10 @@ pub async fn run_instance(instance_dir: PathBuf) -> Result<()> {
             .with_context(|| format!("open sqlite store {}", layout.database_path.display()))?;
         reconcile_projections(&state, &store)
             .with_context(|| "reconcile projection repositories")?;
+        reconcile_approval_repo(&state, &store).with_context(|| "reconcile approval repository")?;
+        reconcile_pending_approvals(&state, &store, &store)
+            .with_context(|| "reconcile pending approvals")?;
     }
-
     // Compute recovery inputs before state is moved into build_runtime.
     let recovery = recovery_inputs(&state);
 
@@ -465,3 +480,6 @@ mod recovery_input_tests;
 
 #[cfg(test)]
 mod recovery_scope_tests;
+
+#[cfg(test)]
+mod approval_recovery_tests;

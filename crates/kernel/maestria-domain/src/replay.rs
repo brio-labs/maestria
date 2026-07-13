@@ -145,7 +145,13 @@ impl KernelState {
             DomainEvent::HarnessRunCompleted { task_id, .. } => {
                 self.apply_harness_run_completed(*task_id)
             }
-            DomainEvent::ApprovalRecorded { task_id, .. } => self.apply_approval_recorded(*task_id),
+            DomainEvent::ApprovalRecorded {
+                approval_id,
+                task_id,
+                from_status,
+                to_status,
+                ..
+            } => self.apply_approval_recorded(*approval_id, *task_id, *from_status, *to_status),
             DomainEvent::TickObserved { .. } => {
                 self.apply_tick_observed();
                 Ok(())

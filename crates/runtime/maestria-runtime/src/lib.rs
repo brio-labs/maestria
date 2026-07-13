@@ -87,6 +87,47 @@ impl MaestriaRuntime {
                 () = shutdown_token.cancelled() => break,
                 msg = input_rx.recv() => {
                     let Some(input) = msg else { break };
+
+                    // Boundary validation: ApprovalResolved must reference a
+                    // valid pending record with a matching task_id before the
+                    // domain sees it. Reject mismatches, duplicates, and missing
+                    // records without emitting domain events.
+                    if let DomainInput::ApprovalResolved(ref decision) = input {
+                        match self.adapters.approval_repo.find_by_id(decision.approval_id) {
+                            Ok(None) => {
+                                tracing::warn!(
+                                    approval_id = %decision.approval_id,
+                                    "approval resolve rejected: record not found"
+                                );
+                                continue;
+                            }
+                            Ok(Some(ref record)) if record.status != maestria_ports::ApprovalStatus::Pending => {
+                                tracing::info!(
+                                    approval_id = %decision.approval_id,
+                                    status = ?record.status,
+                                    "approval resolve skipped: already resolved (idempotent)"
+                                );
+                                continue;
+                            }
+                            Ok(Some(ref record)) if record.task_id != decision.task_id => {
+                                tracing::warn!(
+                                    approval_id = %decision.approval_id,
+                                    record_task = %record.task_id,
+                                    input_task = %decision.task_id,
+                                    "approval resolve rejected: task_id mismatch"
+                                );
+                                continue;
+                            }
+                            Ok(Some(_)) => {
+                                // Valid pending record with matching task_id — proceed.
+                            }
+                            Err(e) => {
+                                tracing::error!(%e, approval_id = %decision.approval_id, "approval resolve rejected: repo lookup error");
+                                continue;
+                            }
+                        }
+                    }
+
                     let effects = {
                         let mut state = self.state.write().await;
                         match state.apply_input(input) {
@@ -131,9 +172,9 @@ impl MaestriaRuntime {
         let max_concurrent_effects = self.config.max_concurrent_effects;
         let default_effect_timeout = self.config.default_effect_timeout;
         let max_retries = self.config.max_retries;
+        let scope_id = self.config.scope_id;
         let next_validation_report_id = Arc::clone(&self.next_validation_report_id);
         let effect_shutdown = shutdown_token.clone();
-
         tokio::spawn(async move {
             let semaphore = Arc::new(tokio::sync::Semaphore::new(max_concurrent_effects));
             let mut in_flight = tokio::task::JoinSet::new();
@@ -153,6 +194,7 @@ impl MaestriaRuntime {
                             governance: Arc::clone(&governance),
                             profile,
                             scope: scope.clone(),
+                            scope_id,
                             state: Arc::clone(&state),
                             input_tx: input_tx.clone(),
                             default_effect_timeout,
