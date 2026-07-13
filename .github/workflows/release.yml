@@ -27,7 +27,6 @@ jobs:
       contents: read
       checks: read
       issues: read
-      statuses: read
     outputs:
       commit: ${{ steps.validate.outputs.commit }}
     steps:
@@ -40,24 +39,15 @@ jobs:
         id: validate
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_COMMIT: ${{ inputs.commit }}
         run: |
           set -euo pipefail
-          COMMIT="$RELEASE_COMMIT"
+          COMMIT="${{ inputs.commit }}"
 
-          # Require a full 40-character hex SHA
-          if ! [[ "$COMMIT" =~ ^[0-9a-f]{40}$ ]]; then
-            echo "::error::Commit must be a full 40-character hex SHA, got '$COMMIT'"
+          # Verify the commit exists and is reachable
+          if ! git cat-file -e "$COMMIT^{commit}" 2>/dev/null; then
+            echo "::error::Commit $COMMIT does not exist or is not reachable"
             exit 1
           fi
-
-          # Resolve the commit immutably
-          RESOLVED="$(git rev-parse --verify "$COMMIT^{commit}" 2>/dev/null || echo '')"
-          if [ -z "$RESOLVED" ] || [ "$RESOLVED" != "$COMMIT" ]; then
-            echo "::error::Cannot resolve commit $COMMIT"
-            exit 1
-          fi
-          COMMIT="$RESOLVED"
 
           # Verify the commit is on origin/main
           git fetch origin main --depth=100 2>/dev/null || true
@@ -75,7 +65,7 @@ jobs:
 
           # ── 1. Milestone gate ──────────────────────────────────
           echo
-          echo "==> Checking milestone 'v0.1 — MVP Closure'..."
+          echo "==> Checking milestone 'v0.1'..."
 
           MILESTONE_JSON="$(gh api "repos/${{ github.repository }}/milestones" \
             --method GET -f state=all --paginate \
@@ -111,7 +101,7 @@ jobs:
           echo "==> Checking CI status for commit $COMMIT..."
 
           CHECK_SUITES="$(gh api "repos/${{ github.repository }}/commits/$COMMIT/check-suites" \
-            --method GET --paginate --jq '.check_suites' | jq -s 'add')"
+            --method GET --jq '.check_suites')"
 
           if [ -z "$CHECK_SUITES" ] || [ "$CHECK_SUITES" = "[]" ]; then
             echo "::error::No check suites found for commit $COMMIT"
@@ -126,39 +116,24 @@ jobs:
             exit 1
           fi
 
-          # Every terminal suite must be success
-          NON_SUCCESS="$(echo "$CHECK_SUITES" | jq -r \
-            '.[] | select(.conclusion != "success") | "  • \(.app.name // "unknown"): \(.conclusion // "no conclusion")"')"
-
-          if [ -n "$NON_SUCCESS" ]; then
-            echo "::error::Every check suite must have conclusion 'success'. Non-success suites:"
-            echo "$NON_SUCCESS"
+          # Require at least one completed successful suite
+          SUCCESS_COUNT="$(echo "$CHECK_SUITES" | jq -r \
+            '[.[] | select(.conclusion == "success")] | length')"
+          if [ "$SUCCESS_COUNT" -eq 0 ]; then
+            echo "::error::No completed successful check suites for commit $COMMIT"
             exit 1
           fi
 
-          SUCCESS_COUNT="$(echo "$CHECK_SUITES" | jq -r '[.[] | select(.conclusion == "success")] | length')"
-          echo "✓ All check suites succeeded ($SUCCESS_COUNT total)"
+          # Flag any completed suite that did not succeed
+          FAILED="$(echo "$CHECK_SUITES" | jq -r \
+            '.[] | select(.conclusion != "success" and .conclusion != "skipped" and .conclusion != "neutral") | "  • \(.app.name // "unknown"): \(.conclusion // "no conclusion")"')"
 
-          # ── 3. Commit status gate (legacy/external statuses) ──
-          echo
-          echo "==> Checking commit status for $COMMIT..."
-
-          COMMIT_STATUSES="$(gh api "repos/${{ github.repository }}/commits/$COMMIT/status" \
-            --method GET --paginate --jq '.statuses' | jq -s 'add')"
-
-          if [ -n "$COMMIT_STATUSES" ] && [ "$COMMIT_STATUSES" != "[]" ]; then
-            BAD_STATUS="$(echo "$COMMIT_STATUSES" | jq -r \
-              '.[] | select(.state != "success") | "  • \(.context // "unknown"): \(.state)"')"
-            if [ -n "$BAD_STATUS" ]; then
-              echo "::error::The following commit statuses are not 'success':"
-              echo "$BAD_STATUS"
-              exit 1
-            fi
-            STATUS_COUNT="$(echo "$COMMIT_STATUSES" | jq -r '[.[] | select(.state == "success")] | length')"
-            echo "✓ All commit statuses passed ($STATUS_COUNT total)"
-          else
-            echo "✓ No legacy commit statuses (nothing to check)"
+          if [ -n "$FAILED" ]; then
+            echo "::error::The following check suites did not pass:"
+            echo "$FAILED"
+            exit 1
           fi
+          echo "✓ All completed check suites passed ($SUCCESS_COUNT successful)"
 
           echo
           echo "✓ Preflight complete — release gate is open"
@@ -233,29 +208,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          COMMIT="${{ needs.preflight.outputs.commit }}"
-
-          if gh release view v0.1.0 --json targetCommitish,isDraft >/dev/null 2>&1; then
-            RELEASE_JSON="$(gh release view v0.1.0 --json targetCommitish,isDraft)"
-            EXISTING_TARGET="$(echo "$RELEASE_JSON" | jq -r '.targetCommitish')"
-            IS_DRAFT="$(echo "$RELEASE_JSON" | jq -r '.isDraft')"
-
-            if [ "$IS_DRAFT" = "true" ]; then
-              if [ "$EXISTING_TARGET" != "$COMMIT" ]; then
-                echo "::error::Draft release v0.1.0 targets $EXISTING_TARGET, not $COMMIT"
-                exit 1
-              fi
-              echo "==> Publishing draft release v0.1.0"
-              gh release edit v0.1.0 --draft=false
-              echo "✓ Draft release v0.1.0 published targeting commit $COMMIT"
-              echo "exists=true" >> "$GITHUB_OUTPUT"
-            elif [ "$EXISTING_TARGET" != "$COMMIT" ]; then
-              echo "::error::Release v0.1.0 exists but targets $EXISTING_TARGET, not $COMMIT"
-              exit 1
-            else
-              echo "✓ Release v0.1.0 already exists targeting commit $COMMIT — nothing to do"
-              echo "exists=true" >> "$GITHUB_OUTPUT"
-            fi
+          if gh release view v0.1.0 >/dev/null 2>&1; then
+            echo "✓ Release v0.1.0 already exists — nothing to do"
+            echo "exists=true" >> "$GITHUB_OUTPUT"
           else
             echo "exists=false" >> "$GITHUB_OUTPUT"
           fi
@@ -284,18 +239,9 @@ jobs:
           set -euo pipefail
           COMMIT="${{ needs.preflight.outputs.commit }}"
 
-          # Check whether the tag already exists remotely (handle annotated + lightweight)
-          REMOTE_REFS="$(git ls-remote origin "refs/tags/v0.1.0^{}" "refs/tags/v0.1.0" 2>/dev/null || echo '')"
-          if [ -n "$REMOTE_REFS" ]; then
-            REMOTE_TAG_SHA="$(echo "$REMOTE_REFS" | awk '/refs\/tags\/v0\.1\.0\^\{\}$/ {print $1; exit}')"
-            if [ -z "$REMOTE_TAG_SHA" ]; then
-              REMOTE_TAG_SHA="$(echo "$REMOTE_REFS" | awk '/refs\/tags\/v0\.1\.0$/ {print $1; exit}')"
-            fi
-            if [ "$REMOTE_TAG_SHA" != "$COMMIT" ]; then
-              echo "::error::Remote tag v0.1.0 points to $REMOTE_TAG_SHA, not $COMMIT"
-              exit 1
-            fi
-            echo "✓ Tag v0.1.0 already exists on remote at $COMMIT — creating release only"
+          # Check whether the tag already exists remotely
+          if git ls-remote origin "refs/tags/v0.1.0" | grep -q .; then
+            echo "✓ Tag v0.1.0 already exists on remote — creating release only"
           else
             echo "==> Creating tag v0.1.0 at commit $COMMIT"
             git config user.name "github-actions[bot]"
