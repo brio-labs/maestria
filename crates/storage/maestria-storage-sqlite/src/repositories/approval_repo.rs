@@ -4,7 +4,7 @@ use maestria_ports::{
 };
 use rusqlite::params;
 
-use crate::to_port_error;
+use crate::{to_port_error, u64_to_i64};
 
 fn risk_to_text(level: ApprovalRiskLevel) -> &'static str {
     match level {
@@ -92,13 +92,13 @@ impl ApprovalRepository for crate::SqliteStore {
                  (id, task_id, effect_kind, risk_level, capability, scope_id, tick, status) \
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
                 params![
-                    record.id.value() as i64,
-                    record.task_id.value() as i64,
+                    u64_to_i64(record.id.value())?,
+                    u64_to_i64(record.task_id.value())?,
                     record.effect_kind,
                     risk_to_text(record.risk_level),
                     record.capability,
-                    record.scope_id.value() as i64,
-                    record.tick.value() as i64,
+                    u64_to_i64(record.scope_id.value())?,
+                    u64_to_i64(record.tick.value())?,
                     status_to_text(record.status),
                 ],
             )
@@ -133,7 +133,7 @@ impl ApprovalRepository for crate::SqliteStore {
             )
             .map_err(to_port_error)?;
         let mut rows = stmt
-            .query_map(params![id.value() as i64], read_approval_row)
+            .query_map(params![u64_to_i64(id.value())?], read_approval_row)
             .map_err(to_port_error)?;
         match rows.next() {
             Some(Ok(record)) => Ok(Some(record)),
@@ -148,7 +148,7 @@ impl ApprovalRepository for crate::SqliteStore {
         let affected = connection
             .execute(
                 "UPDATE approval_requests SET status = ?1 WHERE id = ?2 AND status = 'pending'",
-                params![new_status, id.value() as i64],
+                params![new_status, u64_to_i64(id.value())?],
             )
             .map_err(to_port_error)?;
         if affected == 0 {
@@ -163,7 +163,7 @@ impl ApprovalRepository for crate::SqliteStore {
             )
             .map_err(to_port_error)?;
         let mut rows = stmt
-            .query_map(params![id.value() as i64], read_approval_row)
+            .query_map(params![u64_to_i64(id.value())?], read_approval_row)
             .map_err(to_port_error)?;
         match rows.next() {
             Some(Ok(record)) => Ok(Some(record)),
@@ -181,7 +181,7 @@ impl ApprovalRepository for crate::SqliteStore {
             )
             .map_err(to_port_error)?;
         let rows = stmt
-            .query_map(params![task_id.value() as i64], read_approval_row)
+            .query_map(params![u64_to_i64(task_id.value())?], read_approval_row)
             .map_err(to_port_error)?;
         let mut records = Vec::new();
         for row in rows {
