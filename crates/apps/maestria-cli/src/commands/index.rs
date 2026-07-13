@@ -249,40 +249,33 @@ pub async fn run(instance_dir: PathBuf, path: PathBuf, recursive: bool) -> Resul
 
     let runtime_task = tokio::spawn(runtime.run(input_rx, shutdown_token.clone()));
 
-    let recovery_artifact_ids = queue_recovery(recovery, &input_tx).await?;
+    let result = async {
+        let recovery_artifact_ids = queue_recovery(recovery, &input_tx).await?;
+        let index_timeout = Duration::from_secs(30);
+        let ctx = ProcessContext {
+            scope: &scope,
+            privacy: &privacy,
+            manifest: &manifest,
+            preexisting_state: &preexisting_state,
+            input_tx: &input_tx,
+            layout: &layout,
+            index_timeout,
+        };
 
-    let index_timeout = Duration::from_secs(30);
-
-    let ctx = ProcessContext {
-        scope: &scope,
-        privacy: &privacy,
-        manifest: &manifest,
-        preexisting_state: &preexisting_state,
-        input_tx: &input_tx,
-        layout: &layout,
-        index_timeout,
-    };
-
-    for file in &files {
-        if let Err(error) = process_file(file, &ctx).await {
-            shutdown_token.cancel();
-            let _ = runtime_task.await;
-            return Err(error);
+        for file in &files {
+            process_file(file, &ctx).await?;
         }
-    }
 
-    // Drain every recovery artifact to terminal Indexed state before
-    // shutdown.  Recovery inputs (resumed parsers and restarted full-text
-    // indexing) run concurrently with fresh file processing; this wait
-    // ensures pending recovery work is not silently aborted when the
-    // runtime shuts down.
-    if !recovery_artifact_ids.is_empty()
-        && let Err(error) =
-            drain_recovery(&layout, &recovery_artifact_ids, Duration::from_secs(60)).await
-    {
-        shutdown_token.cancel();
-        let _ = runtime_task.await;
-        return Err(error);
+        // Recovery inputs run concurrently with fresh file processing. Drain
+        // them before shutting down so no pending work is silently aborted.
+        if !recovery_artifact_ids.is_empty() {
+            drain_recovery(&layout, &recovery_artifact_ids, Duration::from_secs(60)).await?;
+        }
+        Ok::<(), anyhow::Error>(())
     }
-    Ok(())
+    .await;
+
+    shutdown_token.cancel();
+    let _ = runtime_task.await;
+    result
 }
