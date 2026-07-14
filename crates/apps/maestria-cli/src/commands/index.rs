@@ -1,10 +1,9 @@
 use anyhow::{Context, Result, anyhow};
 use maestria_core::{InstanceLayout, InstanceManifest, artifact_id_for, content_hash};
-use maestria_daemon::RecoveryInputs;
 use maestria_domain::{
     ArtifactDetected, ArtifactId, DomainInput, IndexStatus, KernelState, TaskId,
 };
-use maestria_governance::{AutonomyProfile, PrivacyExclusions, Scope};
+use maestria_governance::{PrivacyExclusions, Scope};
 use std::{fs, path::PathBuf, time::Duration};
 use tokio::sync::mpsc;
 use tokio::time::{sleep, timeout};
@@ -24,72 +23,6 @@ struct ProcessContext<'a> {
     input_tx: &'a mpsc::Sender<DomainInput>,
     layout: &'a InstanceLayout,
     index_timeout: Duration,
-}
-
-/// Collect recovery artifact IDs and validation task IDs, then queue all
-/// parser, full-text, and validation recovery inputs onto the runtime channel.
-///
-/// Resume parsers are enqueued first so parsing completes before full-text
-/// indexing begins, preserving bounded-channel ordering. Validation requests
-/// follow indexing inputs because they do not depend on artifact draining.
-async fn queue_recovery(
-    recovery: RecoveryInputs,
-    input_tx: &mpsc::Sender<DomainInput>,
-) -> Result<(Vec<ArtifactId>, Vec<TaskId>)> {
-    // Collect recovery IDs before consuming the recovery struct so we can
-    // drain pending work before shutting down the one-shot runtime.
-    let recovery_artifact_ids: Vec<ArtifactId> = {
-        let resume_ids = recovery.resume_parsers.iter().filter_map(|input| {
-            if let DomainInput::ResumeParser(r) = input {
-                Some(r.artifact_id)
-            } else {
-                None
-            }
-        });
-        let ft_ids = recovery.start_full_text.iter().filter_map(|input| {
-            if let DomainInput::StartFullTextIndex(s) = input {
-                Some(s.artifact_id)
-            } else {
-                None
-            }
-        });
-        resume_ids.chain(ft_ids).collect()
-    };
-    let validation_task_ids: Vec<TaskId> = recovery
-        .run_validations
-        .iter()
-        .filter_map(|input| match input {
-            DomainInput::RequestTaskValidation(request) => Some(request.task_id),
-            _ => None,
-        })
-        .collect();
-
-    // Queue pending ResumeParser inputs first so parsing completes before
-    // full-text indexing begins.
-    for input in recovery.resume_parsers {
-        input_tx
-            .send(input)
-            .await
-            .context("failed to queue resume parser")?;
-    }
-
-    // Queue pending StartFullTextIndex inputs after resume parsers.
-    for input in recovery.start_full_text {
-        input_tx
-            .send(input)
-            .await
-            .context("failed to queue restart full-text index")?;
-    }
-
-    // Queue validation requests after indexing recovery inputs.
-    for input in recovery.run_validations {
-        input_tx
-            .send(input)
-            .await
-            .context("failed to queue task validation")?;
-    }
-
-    Ok((recovery_artifact_ids, validation_task_ids))
 }
 
 /// Process a single file through read, scope check, duplicate detection,
@@ -255,7 +188,6 @@ async fn drain_validation_recovery(
 
 pub async fn run(instance_dir: PathBuf, path: PathBuf, recursive: bool) -> Result<()> {
     let layout = helpers::ensure_instance(instance_dir)?;
-    let _instance_lock = maestria_daemon::acquire_instance_write_lock(&layout).await?;
     let manifest = helpers::load_manifest(&layout)?;
     let scope = Scope::new(
         manifest.read_roots.clone(),
@@ -273,54 +205,22 @@ pub async fn run(instance_dir: PathBuf, path: PathBuf, recursive: bool) -> Resul
         ));
     }
 
-    // Load persistent kernel state to check which artifacts are already indexed.
-    let initial_state = maestria_daemon::load_kernel_state(&layout)
-        .with_context(|| "load kernel state for indexing")?;
-
-    // Repair projection repositories before runtime start so that
-    // artifact, chunk, card, and evidence lookups succeed even if the
-    // previous process crashed after event append but before a
-    // projection write.
-    let store = maestria_storage_sqlite::SqliteStore::open(&layout.database_path)
-        .with_context(|| format!("open sqlite store {}", layout.database_path.display()))?;
-    {
-        maestria_daemon::reconcile_projections(&initial_state, &store)
-            .with_context(|| "reconcile projection repositories")?;
-    }
-
-    maestria_daemon::reconcile_vector_projection_for_layout(&layout, &initial_state)
-        .with_context(|| "reconcile vector projection")?;
-    let preexisting_state = initial_state.clone();
-    // Compute recovery diagnostics and pause in-flight harness effects before state is moved.
-    let diagnostics = maestria_daemon::supervise_recovery(&initial_state, &store)?;
-    let recovery = diagnostics.inputs;
-    if !diagnostics.paused_effects.is_empty() {
+    let mut lifecycle = maestria_daemon::InstanceLifecycle::start(
+        layout.clone(),
+        maestria_governance::AutonomyProfile::TrustedWorkspace,
+    )
+    .await?;
+    if lifecycle.paused_effect_count() > 0 {
         println!(
             "paused {} in-flight harness effects",
-            diagnostics.paused_effects.len()
+            lifecycle.paused_effect_count()
         );
     }
-
-    // Validate recovery scope from the instance manifest before touching
-    // blobs or building the runtime.  Out-of-scope and excluded pending
-    // parsers fail fast with a descriptive error.
-    maestria_daemon::validate_recovery_scope(&layout, &recovery)
-        .with_context(|| "validate recovery scope against instance manifest")?;
-
-    maestria_daemon::verify_pending_blobs(&layout, &recovery.resume_parsers)
-        .with_context(|| "verify pending parser blobs for resume")?;
-
-    // Build a one-shot runtime with a non-critical profile that allows
-    // PersistEvent / ParseArtifact effects.
-    let (runtime, input_tx, input_rx, shutdown_token) =
-        maestria_daemon::build_runtime(&layout, initial_state, AutonomyProfile::TrustedWorkspace)?;
-    let runtime = runtime.with_graceful_shutdown();
-
-    let runtime_task = tokio::spawn(runtime.run(input_rx, shutdown_token.clone()));
+    let preexisting_state = lifecycle.state().clone();
+    let input_tx = lifecycle.input_sender();
 
     let result = async {
-        let (recovery_artifact_ids, validation_task_ids) =
-            queue_recovery(recovery, &input_tx).await?;
+        let recovery = lifecycle.queue_recovery().await?;
         let index_timeout = Duration::from_secs(30);
         let ctx = ProcessContext {
             scope: &scope,
@@ -336,20 +236,22 @@ pub async fn run(instance_dir: PathBuf, path: PathBuf, recursive: bool) -> Resul
             process_file(file, &ctx).await?;
         }
 
-        // Recovery inputs run concurrently with fresh file processing. Drain
-        // them before shutting down so no pending work is silently aborted.
-        if !recovery_artifact_ids.is_empty() {
-            drain_recovery(&layout, &recovery_artifact_ids, Duration::from_secs(60)).await?;
+        if !recovery.artifact_ids.is_empty() {
+            drain_recovery(&layout, &recovery.artifact_ids, Duration::from_secs(60)).await?;
         }
-        if !validation_task_ids.is_empty() {
-            drain_validation_recovery(&layout, &validation_task_ids, Duration::from_secs(60))
-                .await?;
+        if !recovery.validation_task_ids.is_empty() {
+            drain_validation_recovery(
+                &layout,
+                &recovery.validation_task_ids,
+                Duration::from_secs(60),
+            )
+            .await?;
         }
         Ok::<(), anyhow::Error>(())
     }
     .await;
 
-    shutdown_token.cancel();
-    let _ = runtime_task.await;
-    result
+    let shutdown_result = lifecycle.shutdown().await;
+    result?;
+    shutdown_result
 }
