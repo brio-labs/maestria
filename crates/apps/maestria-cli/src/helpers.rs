@@ -78,6 +78,12 @@ pub(crate) fn collect_index_files(path: &Path, recursive: bool) -> Result<Vec<Pa
     for result in walker {
         let entry = result?;
         let entry_path = entry.path();
+        if let Some(error) = entry.error() {
+            return Err(anyhow::anyhow!(
+                "index traversal failed at {}: {error}",
+                entry_path.display()
+            ));
+        }
 
         if entry
             .file_type()
@@ -110,7 +116,15 @@ pub(crate) fn is_excluded_index_path(path: &Path) -> bool {
 }
 
 fn is_symlink(path: &Path) -> Result<bool> {
-    Ok(fs::symlink_metadata(path)?.file_type().is_symlink())
+    for ancestor in path.ancestors() {
+        match fs::symlink_metadata(ancestor) {
+            Ok(metadata) if metadata.file_type().is_symlink() => return Ok(true),
+            Ok(_) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error.into()),
+        }
+    }
+    Ok(false)
 }
 
 pub(crate) fn is_supported_index_path(path: &Path) -> bool {
