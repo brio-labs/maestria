@@ -67,28 +67,35 @@ pub(crate) fn collect_index_files(path: &Path, recursive: bool) -> Result<Vec<Pa
     }
 
     let mut files = Vec::new();
-    collect_files_recursive(path, &mut files)?;
-    files.sort();
-    Ok(files)
-}
+    let walker = ignore::WalkBuilder::new(path)
+        .hidden(true)
+        .ignore(true)
+        .git_ignore(true)
+        .require_git(false)
+        .follow_links(false)
+        .build();
 
-pub(crate) fn collect_files_recursive(path: &Path, files: &mut Vec<PathBuf>) -> Result<()> {
-    for entry in fs::read_dir(path)? {
-        let entry = entry?;
-        let path = entry.path();
-        if entry.file_type()?.is_symlink()
-            || is_excluded_index_path(&path)
-            || (path.is_file() && !is_supported_index_path(&path))
+    for result in walker {
+        let entry = result?;
+        let entry_path = entry.path();
+
+        if entry
+            .file_type()
+            .is_some_and(|file_type| file_type.is_symlink())
         {
             continue;
         }
-        if path.is_dir() {
-            collect_files_recursive(&path, files)?;
-        } else if path.is_file() {
-            files.push(path);
+        if is_excluded_index_path(entry_path) {
+            continue;
+        }
+
+        if entry_path.is_file() && is_supported_index_path(entry_path) {
+            files.push(entry_path.to_path_buf());
         }
     }
-    Ok(())
+
+    files.sort();
+    Ok(files)
 }
 
 pub(crate) fn is_excluded_index_path(path: &Path) -> bool {

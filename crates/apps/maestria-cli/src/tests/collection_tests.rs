@@ -278,3 +278,38 @@ fn recursive_collection_skips_excluded_entries_and_keeps_markdown() {
         vec![PathBuf::from("docs/guide.md"), PathBuf::from("note.md")]
     );
 }
+
+#[test]
+fn recursive_collection_respects_gitignore() {
+    let directory = TestDirectory::create();
+    write_file(&directory.path().join("note.md"), "# Normal note");
+    write_file(&directory.path().join("ignored_file.md"), "ignored content");
+    write_file(&directory.path().join(".gitignore"), "ignored_file.md");
+
+    let files = helpers::collect_index_files(directory.path(), true)
+        .expect("recursive collection succeeds");
+
+    assert_eq!(
+        relative_files(directory.path(), &files),
+        vec![PathBuf::from("note.md")]
+    );
+}
+
+#[test]
+fn recursive_collection_skips_hidden_files_and_directories() {
+    let directory = TestDirectory::create();
+    write_file(&directory.path().join("note.md"), "# Normal note");
+    write_file(&directory.path().join(".hidden_file.md"), "hidden");
+    write_file(
+        &directory.path().join(".hidden_dir/file.md"),
+        "hidden inside dir",
+    );
+
+    let files = helpers::collect_index_files(directory.path(), true)
+        .expect("recursive collection succeeds");
+
+    assert_eq!(
+        relative_files(directory.path(), &files),
+        vec![PathBuf::from("note.md")]
+    );
+}

@@ -96,6 +96,18 @@ invokes separate processes for setup, indexing, search, and evidence opening.
 The test must also cover scope rejection, privacy exclusions, and unchanged
 reindex idempotence without inspecting adapter internals.
 
+Recursive indexing is an ignore-aware, privacy-first traversal:
+
+- repository `.gitignore` and `.ignore` rules are honored before file collection;
+- hidden paths are skipped by default to avoid accidental cache and metadata ingestion;
+- symbolic links are never followed, preventing scope escape through linked paths;
+- unsupported files are filtered after traversal without weakening explicit-root errors;
+- collected paths are sorted before indexing so repeated runs remain deterministic.
+
+This traversal behavior is part of the ingestion boundary, not an adapter optimization. It
+protects `I-Scope-ExplicitAutonomy`, `I-Evidence-Immutable`, and deterministic indexing
+without requiring users to maintain an exhaustive cache-directory blocklist.
+
 ## Validation Completion Slice
 
 Task completion follows a two-layer contract:
