@@ -19,7 +19,7 @@ use maestria_governance::{
 use maestria_graph_sqlite::SqliteGraphIndex;
 use maestria_harness::LocalShellHarnessAdapter;
 use maestria_parsers::ParserRegistry;
-use maestria_ports::{EventFilter, InMemoryVectorIndex, VectorIndex};
+use maestria_ports::{EventFilter, VectorIndex};
 use maestria_runtime::{Adapters, Governance, MaestriaRuntime, RuntimeConfig};
 use maestria_search_tantivy::TantivyFullTextIndex;
 use maestria_storage_sqlite::SqliteStore;
@@ -147,7 +147,12 @@ fn lock_owner_is_dead(path: &PathBuf) -> bool {
 mod approval_recovery;
 mod projection_recovery;
 pub use approval_recovery::{reconcile_approval_repo, reconcile_pending_approvals};
-pub use projection_recovery::{reconcile_graph_projection, reconcile_projections};
+pub use projection_recovery::{
+    reconcile_graph_projection, reconcile_projections, reconcile_vector_projection,
+};
+mod vector_startup;
+use vector_startup::build_embedding_provider;
+pub use vector_startup::reconcile_vector_projection_for_layout;
 mod full_text_recovery;
 pub use full_text_recovery::pending_start_full_text;
 mod parser_resume;
@@ -242,14 +247,10 @@ fn build_adapters(
         SqliteStore::open(&layout.database_path)
             .with_context(|| format!("open sqlite store {}", layout.database_path.display()))?,
     );
-    let vector_index: Arc<dyn VectorIndex + Send + Sync> =
-        match SqliteVectorIndex::open(layout.vector_index_dir.join("projection.db")) {
-            Ok(index) => Arc::new(index),
-            Err(error) => {
-                tracing::warn!(%error, "vector projection unavailable; using in-memory fallback");
-                Arc::new(InMemoryVectorIndex::new())
-            }
-        };
+    let vector_index: Arc<dyn VectorIndex + Send + Sync> = Arc::new(
+        SqliteVectorIndex::open(layout.vector_index_dir.join("projection.db"))
+            .with_context(|| format!("open vector index {}", layout.vector_index_dir.display()))?,
+    );
     let graph_index = Arc::new(
         SqliteGraphIndex::open(layout.graph_index_dir.join("projection.db"))
             .with_context(|| format!("open graph index {}", layout.graph_index_dir.display()))?,
@@ -293,16 +294,7 @@ pub fn build_runtime(
         .as_ref()
         .filter(|config| config.enabled)
         .map(|config| config.model.clone());
-    let embedding_provider = match manifest.embeddings.as_ref().filter(|config| config.enabled) {
-        Some(config) => Some(
-            Arc::new(maestria_embedding_openai::LocalHttpEmbeddingProvider::new(
-                &config.endpoint,
-                &config.model,
-                Some(config.dimensions),
-            )?) as Arc<dyn maestria_ports::EmbeddingProvider + Send + Sync>,
-        ),
-        None => None,
-    };
+    let embedding_provider = build_embedding_provider(&manifest)?;
     let adapters = build_adapters(layout, embedding_provider)?;
     let governance = Governance {
         classifier: Arc::new(DefaultRiskClassifier),
@@ -361,6 +353,9 @@ pub async fn run_instance(instance_dir: PathBuf) -> Result<()> {
         reconcile_pending_approvals(&state, &store, &store)
             .with_context(|| "reconcile pending approvals")?;
     }
+
+    // Rebuild vector rows from replayed chunks before starting the runtime.
+    reconcile_vector_projection_for_layout(&layout, &state)?;
     // Compute recovery diagnostics and pause in-flight harness effects before state is moved.
     let diagnostics = supervise_recovery(&state, &store)?;
     let recovery = diagnostics.inputs;

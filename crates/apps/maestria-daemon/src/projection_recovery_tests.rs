@@ -4,7 +4,9 @@ use maestria_domain::{
     LogicalTick, ParserResult, RecordEvidenceInput, RegisterChunkInput,
 };
 use maestria_ports::{
-    ArtifactRepository, CardRepository, ChunkRepository, EvidenceRepository, GraphIndex,
+    ArtifactRepository, CardRepository, ChunkRepository, EmbeddingProvider, EmbeddingRequest,
+    EmbeddingResponse, EvidenceRepository, GraphIndex, PortError, VectorEmbedding, VectorIndex,
+    VectorSearchQuery,
 };
 
 /// Fixture carrying entity IDs produced during domain-state setup.
@@ -83,6 +85,24 @@ fn build_recovery_domain_state(state: &mut KernelState) -> RecoveryTestFixture {
         chunk_id_b,
         card_id,
         evidence_id,
+    }
+}
+
+struct RecoveryEmbeddingProvider;
+
+impl EmbeddingProvider for RecoveryEmbeddingProvider {
+    fn embed(&self, request: EmbeddingRequest) -> Result<EmbeddingResponse, PortError> {
+        let vector = if request.text.contains("first") {
+            vec![1.0, 0.0]
+        } else {
+            vec![0.0, 1.0]
+        };
+        Ok(EmbeddingResponse {
+            vector,
+            provider_id: "recovery-provider".to_string(),
+            model: request.model,
+            model_version: "recovery-v1".to_string(),
+        })
     }
 }
 
@@ -351,4 +371,133 @@ fn reconcile_graph_projection_repairs_missing_rows_and_filters_unevidenced() {
             .expect("read graph relations"),
         vec![valid]
     );
+}
+
+#[test]
+fn reconcile_vector_projection_repairs_missing_and_stale_rows() {
+    let mut state = KernelState::new();
+    let fixture = build_recovery_domain_state(&mut state);
+    let vector_root =
+        std::env::temp_dir().join(format!("maestria-vector-recovery-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&vector_root);
+    fs::create_dir_all(&vector_root).expect("create vector projection directory");
+    let vector_path = vector_root.join("projection.db");
+    let index = SqliteVectorIndex::open(&vector_path).expect("open vector index");
+
+    index
+        .index_embeddings(vec![VectorEmbedding {
+            chunk_id: fixture.chunk_id_a,
+            vector: vec![0.0, 1.0],
+            provenance: maestria_ports::EmbeddingProvenance {
+                content_hash: "stale".to_string(),
+                provider_id: "stale-provider".to_string(),
+                model: "stale-model".to_string(),
+                model_version: "stale-v1".to_string(),
+            },
+        }])
+        .expect("seed stale embedding");
+
+    reconcile_vector_projection(
+        &state,
+        &index,
+        Some(&RecoveryEmbeddingProvider),
+        Some("recovery-model"),
+    )
+    .expect("reconcile vector projection");
+
+    let first_hits = index
+        .search_similar(VectorSearchQuery {
+            vector: vec![1.0, 0.0],
+            limit: 1,
+            provider_id: Some("recovery-provider".to_string()),
+            model: Some("recovery-model".to_string()),
+            model_version: Some("recovery-v1".to_string()),
+        })
+        .expect("search first embedding");
+    assert_eq!(
+        first_hits
+            .iter()
+            .map(|hit| hit.chunk_id)
+            .collect::<Vec<_>>(),
+        vec![fixture.chunk_id_a],
+        "recovery must replace stale provenance and preserve chunk identity"
+    );
+
+    let second_hits = index
+        .search_similar(VectorSearchQuery {
+            vector: vec![0.0, 1.0],
+            limit: 1,
+            provider_id: Some("recovery-provider".to_string()),
+            model: Some("recovery-model".to_string()),
+            model_version: Some("recovery-v1".to_string()),
+        })
+        .expect("search second embedding");
+    assert_eq!(
+        second_hits
+            .iter()
+            .map(|hit| hit.chunk_id)
+            .collect::<Vec<_>>(),
+        vec![fixture.chunk_id_b],
+        "recovery must rebuild chunks missing from the projection"
+    );
+
+    let stale_hits = index
+        .search_similar(VectorSearchQuery {
+            vector: vec![0.0, 1.0],
+            limit: 10,
+            provider_id: Some("stale-provider".to_string()),
+            model: Some("stale-model".to_string()),
+            model_version: Some("stale-v1".to_string()),
+        })
+        .expect("search stale provenance");
+    assert!(
+        stale_hits.is_empty(),
+        "rebuild must remove stale vector provenance"
+    );
+
+    drop(index);
+    let restarted = SqliteVectorIndex::open(&vector_path).expect("reopen vector index");
+    let restarted_hits = restarted
+        .search_similar(VectorSearchQuery {
+            vector: vec![1.0, 0.0],
+            limit: 1,
+            provider_id: Some("recovery-provider".to_string()),
+            model: Some("recovery-model".to_string()),
+            model_version: Some("recovery-v1".to_string()),
+        })
+        .expect("search after restart");
+    assert_eq!(
+        restarted_hits
+            .iter()
+            .map(|hit| hit.chunk_id)
+            .collect::<Vec<_>>(),
+        vec![fixture.chunk_id_a],
+        "vector retrieval must remain stable after reopening the projection"
+    );
+    drop(restarted);
+    let _ = fs::remove_dir_all(&vector_root);
+}
+
+#[test]
+fn build_runtime_fails_on_corrupt_vector_projection() {
+    let root = std::env::temp_dir().join(format!("maestria-corrupt-vector-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&root);
+    let layout = prepare_instance(root.clone()).expect("prepare instance");
+    fs::write(
+        layout.vector_index_dir.join("projection.db"),
+        b"not a sqlite database",
+    )
+    .expect("write corrupt vector projection");
+
+    let result = build_runtime(&layout, KernelState::new(), AutonomyProfile::ReadOnly);
+    let Some(error) = result.err() else {
+        let _ = fs::remove_dir_all(&root);
+        panic!("corrupt vector projection must fail runtime startup");
+    };
+    let message = format!("{error:#}");
+    assert!(
+        message.contains("open vector index"),
+        "startup error must preserve vector index context: {message}"
+    );
+    let _ = fs::remove_dir_all(&root);
 }
