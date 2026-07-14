@@ -182,6 +182,18 @@ jobs:
 
       - name: Tests
         run: cargo test --workspace --all-targets --all-features
+      - name: Doc Tests
+        run: cargo test --workspace --doc --all-features
+
+      - name: Dependency Duplicates
+        run: cargo tree --locked --duplicates
+
+      - name: Machete (Unused dependencies)
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-machete
+      - run: cargo machete
+
 
       - name: Documentation
         run: cargo doc --workspace --no-deps --all-features
@@ -209,8 +221,31 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2.9.1
       - uses: mozilla-actions/sccache-action@v0.0.10
-      - name: Build workspace
-        run: cargo build --workspace --all-features --locked
+      - name: Build release binaries
+        run: cargo build --workspace --all-features --locked --release
+      - name: Package release artifacts
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          TARGET="x86_64-unknown-linux-gnu"
+          VERSION="v0.1.0"
+
+          for binary in maestria-cli maestria-daemon; do
+            if [ ! -f "target/release/$binary" ]; then
+              echo "::error::$binary binary missing"
+              exit 1
+            fi
+            archive="$binary-$VERSION-$TARGET.tar.gz"
+            tar -czf "dist/$archive" -C target/release "$binary"
+          done
+
+          sha256sum dist/*.tar.gz > dist/SHA256SUMS
+      - name: Upload release artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-assets
+          path: dist/
+          if-no-files-found: error
 
   publish:
     needs: [preflight, build]
@@ -255,22 +290,13 @@ jobs:
           else
             echo "exists=false" >> "$GITHUB_OUTPUT"
           fi
-
-      - name: Set up Rust toolchain
+      - name: Download release artifacts
         if: steps.check.outputs.exists == 'false'
-        uses: dtolnay/rust-toolchain@stable
+        uses: actions/download-artifact@v4
+        with:
+          name: release-assets
+          path: dist
 
-      - name: Cache Rust dependencies
-        if: steps.check.outputs.exists == 'false'
-        uses: Swatinem/rust-cache@v2.9.1
-
-      - name: Set up sccache
-        if: steps.check.outputs.exists == 'false'
-        uses: mozilla-actions/sccache-action@v0.0.10
-
-      - name: Build release artifacts
-        if: steps.check.outputs.exists == 'false'
-        run: cargo build --workspace --all-features --locked
 
       - name: Create tag and publish release
         if: steps.check.outputs.exists == 'false'
@@ -304,6 +330,7 @@ jobs:
           gh release create v0.1.0 \
             --target "$COMMIT" \
             --title "v0.1.0 — MVP Release" \
-            --generate-notes
+            --generate-notes \
+            dist/*
 
           echo "✓ Release v0.1.0 published successfully"
