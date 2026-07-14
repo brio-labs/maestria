@@ -30,7 +30,6 @@ use tokio::{
     time::{sleep, timeout},
 };
 use tokio_util::sync::CancellationToken;
-use tracing::info;
 pub struct InstanceWriteLock {
     path: PathBuf,
     token: String,
@@ -163,6 +162,8 @@ mod supervision_recovery;
 pub use supervision_recovery::{RecoveryDiagnostics, supervise_recovery};
 mod validation_recovery;
 pub use validation_recovery::has_current_validation_report;
+mod lifecycle;
+pub use lifecycle::{InstanceLifecycle, RecoveryQueue, run_instance, run_instance_with_shutdown};
 /// Validate that every pending `ResumeParser` source path is within the
 /// instance manifest read scope before the daemon touches blobs or runtime
 /// infrastructure.  Out-of-scope and excluded pending parsers fail fast
@@ -331,98 +332,6 @@ pub fn build_runtime(
     Ok((runtime, input_tx, input_rx, shutdown_token))
 }
 
-pub async fn run_instance(instance_dir: PathBuf) -> Result<()> {
-    let layout = prepare_instance(instance_dir).with_context(|| "prepare instance layout")?;
-    let _instance_lock = acquire_instance_write_lock(&layout).await?;
-    let state = load_kernel_state(&layout).with_context(|| "load persisted kernel state")?;
-
-    // Repair projection repositories before runtime start so that
-    // artifact, chunk, card, and evidence lookups succeed even if the
-    // previous process crashed after event append but before a
-    // projection write.
-    let store = SqliteStore::open(&layout.database_path)
-        .with_context(|| format!("open sqlite store {}", layout.database_path.display()))?;
-    {
-        reconcile_projections(&state, &store)
-            .with_context(|| "reconcile projection repositories")?;
-        let graph_index = SqliteGraphIndex::open(layout.graph_index_dir.join("projection.db"))
-            .with_context(|| format!("open graph index {}", layout.graph_index_dir.display()))?;
-        reconcile_graph_projection(&state, &graph_index)
-            .with_context(|| "reconcile graph projection")?;
-        reconcile_approval_repo(&state, &store).with_context(|| "reconcile approval repository")?;
-        reconcile_pending_approvals(&state, &store, &store)
-            .with_context(|| "reconcile pending approvals")?;
-    }
-
-    // Rebuild vector rows from replayed chunks before starting the runtime.
-    reconcile_vector_projection_for_layout(&layout, &state)?;
-    // Compute recovery diagnostics and pause in-flight harness effects before state is moved.
-    let diagnostics = supervise_recovery(&state, &store)?;
-    let recovery = diagnostics.inputs;
-    tracing::info!(
-        paused_effects = diagnostics.paused_effects.len(),
-        "recovery diagnostics computed"
-    );
-
-    // Validate recovery scope from the instance manifest before touching
-    // blobs or building the runtime.  Out-of-scope and excluded pending
-    // parsers fail fast with a descriptive error.
-    validate_recovery_scope(&layout, &recovery)
-        .with_context(|| "validate recovery scope against instance manifest")?;
-
-    // Verify pending parser blobs exist before building the runtime so
-    // missing-blob errors surface early instead of silently dropping work.
-    verify_pending_blobs(&layout, &recovery.resume_parsers)
-        .with_context(|| "verify pending parser blobs for resume")?;
-
-    let (runtime, input_tx, input_rx, shutdown_token) =
-        build_runtime(&layout, state, AutonomyProfile::ReadOnly)?;
-    let runtime = runtime.with_graceful_shutdown();
-
-    let runtime_task = tokio::spawn(runtime.run(input_rx, shutdown_token.clone()));
-
-    let result = async {
-        // Submit pending ResumeParser inputs first so that parsing (which
-        // creates chunks) completes before full-text indexing begins.
-        for input in recovery.resume_parsers {
-            input_tx
-                .send(input)
-                .await
-                .map_err(|e| anyhow!("failed to queue resume parser: {e}"))?;
-        }
-
-        // Submit pending StartFullTextIndex inputs after the runtime task has
-        // started consuming from `input_rx` to avoid bounded-channel deadlock.
-        for input in recovery.start_full_text {
-            input_tx
-                .send(input)
-                .await
-                .map_err(|e| anyhow!("failed to queue restart full-text index: {e}"))?;
-        }
-
-        for input in recovery.run_validations {
-            input_tx
-                .send(input)
-                .await
-                .map_err(|e| anyhow!("failed to queue request task validation: {e}"))?;
-        }
-
-        let root = layout.root.clone();
-        info!(root = %root.display(), "runtime started");
-        tokio::signal::ctrl_c()
-            .await
-            .with_context(|| "wait for shutdown signal")
-    }
-    .await;
-
-    info!(root = %layout.root.display(), "shutdown requested");
-    shutdown_token.cancel();
-    let join_result = runtime_task.await;
-    result?;
-    join_result.with_context(|| "runtime loop join failed")?;
-
-    Ok(())
-}
 #[cfg(test)]
 mod projection_recovery_tests;
 

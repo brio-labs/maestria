@@ -3,24 +3,33 @@ use maestria_core::{
     CorePorts, CoreServices, InstanceLayout, InstanceService, OpenEvidenceInput, SearchInput,
 };
 use maestria_domain::{
-    ArtifactDetected, ArtifactId, ChunkId, DomainInput, EvidenceId, IndexStatus, KernelState,
-    content_hash,
+    ArtifactDetected, ArtifactId, CardId, ChunkId, DomainInput, EvidenceId, IndexStatus,
+    KernelState, Relation, RelationEndpoint, RelationId, RelationKind, content_hash,
 };
 use maestria_governance::AutonomyProfile;
+use maestria_graph_sqlite::SqliteGraphIndex;
 use maestria_parsers::ParserRegistry;
-use maestria_ports::{ArtifactRepository, EventFilter, EventLog};
+use maestria_ports::{
+    ArtifactRepository, EmbeddingProvenance, EventFilter, EventLog, GraphIndex, VectorEmbedding,
+    VectorIndex, VectorSearchQuery,
+};
 use maestria_search_tantivy::TantivyFullTextIndex;
 use maestria_storage_sqlite::SqliteStore;
+use maestria_vector_sqlite::SqliteVectorIndex;
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 use tokio_util::sync::CancellationToken;
 struct TempDir(PathBuf);
 
+static NEXT_TEMP_DIR: AtomicU64 = AtomicU64::new(0);
+
 impl TempDir {
     fn new() -> Self {
-        let dir = env::temp_dir().join(format!("maestria-test-{}", std::process::id()));
+        let suffix = NEXT_TEMP_DIR.fetch_add(1, Ordering::Relaxed);
+        let dir = env::temp_dir().join(format!("maestria-test-{}-{suffix}", std::process::id()));
         // Best-effort cleanup of any previous run that left the directory
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).expect("create temp dir");
@@ -317,6 +326,102 @@ async fn vertical_slice_init_index_search_evidence() {
     // === STOP RUNTIME ===
     env.shutdown_token.cancel();
     env.runtime_handle.await.expect("runtime task completes");
+
+    search_and_open_evidence_after_restart(
+        &env.layout,
+        env.artifact_id,
+        evidence_id,
+        first_chunk_id,
+    );
+}
+
+#[tokio::test]
+async fn vertical_slice_run_instance_restart_rebuilds_projections() {
+    let tmp = TempDir::new();
+    let env = prepare_test_env(&tmp);
+    let IndexResult {
+        evidence_id,
+        first_chunk_id,
+        ..
+    } = index_and_verify_artifact(
+        &env.input_tx,
+        &env.layout.database_path,
+        env.artifact_id,
+        &env.hash,
+        &env.bytes,
+        &env.source_path,
+    )
+    .await;
+
+    env.shutdown_token.cancel();
+    env.runtime_handle.await.expect("initial runtime completes");
+
+    let stale_relation_id = RelationId::new(999);
+    let graph = SqliteGraphIndex::open(env.layout.graph_index_dir.join("projection.db"))
+        .expect("open graph projection before interruption");
+    graph
+        .insert_relation(Relation {
+            id: stale_relation_id,
+            source: RelationEndpoint::Artifact(env.artifact_id),
+            kind: RelationKind::RelatedTo,
+            target: RelationEndpoint::Card(CardId::new(999)),
+            evidence_id: None,
+            confidence_milli: 1,
+        })
+        .expect("seed stale graph relation");
+
+    let vector = SqliteVectorIndex::open(env.layout.vector_index_dir.join("projection.db"))
+        .expect("open vector projection before interruption");
+    vector
+        .index_embeddings(vec![VectorEmbedding {
+            chunk_id: ChunkId::new(999),
+            vector: vec![1.0, 0.0],
+            provenance: EmbeddingProvenance {
+                content_hash: "stale".into(),
+                provider_id: "stale".into(),
+                model: "stale".into(),
+                model_version: "stale".into(),
+            },
+        }])
+        .expect("seed stale vector row");
+
+    let shutdown = CancellationToken::new();
+    let daemon = tokio::spawn(maestria_daemon::run_instance_with_shutdown(
+        env.layout.root.clone(),
+        shutdown.clone(),
+    ));
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    shutdown.cancel();
+    daemon
+        .await
+        .expect("run_instance task joins")
+        .expect("run_instance completes after shutdown");
+
+    let graph = SqliteGraphIndex::open(env.layout.graph_index_dir.join("projection.db"))
+        .expect("reopen rebuilt graph projection");
+    let relations = graph
+        .get_relations_for(RelationEndpoint::Artifact(env.artifact_id))
+        .expect("read rebuilt graph projection");
+    assert!(
+        relations
+            .iter()
+            .all(|relation| relation.id != stale_relation_id),
+        "recovery should remove stale graph relations"
+    );
+
+    let vector = SqliteVectorIndex::open(env.layout.vector_index_dir.join("projection.db"))
+        .expect("reopen rebuilt vector projection");
+    let hits = vector
+        .search_similar(VectorSearchQuery {
+            vector: vec![1.0, 0.0],
+            limit: 10,
+            ..Default::default()
+        })
+        .expect("read rebuilt vector projection");
+    assert!(
+        hits.is_empty(),
+        "disabled embeddings should clear stale vectors"
+    );
 
     search_and_open_evidence_after_restart(
         &env.layout,
