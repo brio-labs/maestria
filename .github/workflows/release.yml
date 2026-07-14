@@ -279,6 +279,7 @@ jobs:
               echo "==> Publishing draft release v0.1.0"
               gh release edit v0.1.0 --draft=false
               echo "✓ Draft release v0.1.0 published targeting commit $COMMIT"
+              echo "draft=true" >> "$GITHUB_OUTPUT"
               echo "exists=true" >> "$GITHUB_OUTPUT"
             elif [ "$EXISTING_TARGET" != "$COMMIT" ]; then
               echo "::error::Release v0.1.0 exists but targets $EXISTING_TARGET, not $COMMIT"
@@ -291,11 +292,16 @@ jobs:
             echo "exists=false" >> "$GITHUB_OUTPUT"
           fi
       - name: Download release artifacts
-        if: steps.check.outputs.exists == 'false'
+        if: steps.check.outputs.exists == 'false' || steps.check.outputs.draft == 'true'
         uses: actions/download-artifact@v4
         with:
           name: release-assets
           path: dist
+      - name: Upload artifacts to resumed release
+        if: steps.check.outputs.draft == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload v0.1.0 dist/* --clobber
 
 
       - name: Create tag and publish release
