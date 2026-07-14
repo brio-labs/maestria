@@ -99,7 +99,7 @@ reindex idempotence without inspecting adapter internals.
 Recursive indexing is an ignore-aware, privacy-first traversal:
 
 - repository `.gitignore` and `.ignore` rules are honored before file collection;
-- hidden paths are skipped by default to avoid accidental cache and metadata ingestion;
+- hidden descendants are skipped by default (an explicitly selected root remains eligible);
 - symbolic links are never followed, preventing scope escape through linked paths;
 - unsupported files are filtered after traversal without weakening explicit-root errors;
 - collected paths are sorted before indexing so repeated runs remain deterministic.
