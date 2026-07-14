@@ -252,6 +252,12 @@ jobs:
 
           (cd dist && sha256sum *.tar.gz > SHA256SUMS)
           (cd dist && sha256sum -c SHA256SUMS)
+          smoke_dir="$(mktemp -d)"
+          trap 'rm -rf "$smoke_dir"' EXIT
+          tar -xzf "dist/maestria-$VERSION-$TARGET.tar.gz" -C "$smoke_dir"
+          tar -xzf "dist/maestriad-$VERSION-$TARGET.tar.gz" -C "$smoke_dir"
+          "$smoke_dir/maestria" --help >/dev/null
+          "$smoke_dir/maestriad" --help >/dev/null
           tar -tzf "dist/maestria-$VERSION-$TARGET.tar.gz" | grep -Fx 'maestria' >/dev/null
           tar -tzf "dist/maestriad-$VERSION-$TARGET.tar.gz" | grep -Fx 'maestriad' >/dev/null
       - name: Upload release artifacts
