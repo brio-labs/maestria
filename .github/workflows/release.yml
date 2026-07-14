@@ -182,6 +182,32 @@ jobs:
 
       - name: Tests
         run: cargo test --workspace --all-targets --all-features
+      - name: Doc Tests
+        run: cargo test --workspace --doc --all-features
+
+      - name: Dependency Duplicates
+        env:
+          CARGO_TERM_COLOR: never
+          RUSTC_WRAPPER: ""
+        run: |
+          set -euo pipefail
+          DUPES="$(cargo tree --locked --duplicates 2>&1 || true)"
+          FILTERED="$(printf '%s\n' "$DUPES" | sed \
+            '/^[[:space:]]*warning: nothing to print\.$/d; \
+             /^[[:space:]]*To find dependencies that require specific target platforms, try to use option `--target all` first, and then narrow your search scope accordingly\.$/d; \
+             /^[[:space:]]*Updating crates\.io index$/d; /^[[:space:]]*$/d')"
+          if [ -n "$FILTERED" ]; then
+            echo "::error::Duplicate transitive dependencies detected:"
+            echo "$FILTERED"
+            exit 1
+          fi
+
+      - name: Machete (Unused dependencies)
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-machete
+      - run: cargo machete
+
 
       - name: Documentation
         run: cargo doc --workspace --no-deps --all-features
@@ -196,6 +222,8 @@ jobs:
 
       - name: Philosophy check
         run: python3 scripts/philosophy-check.py
+      - name: Repository script tests
+        run: python3 -m unittest discover -s scripts -p 'test_*.py'
 
   build:
     needs: [verify]
@@ -209,20 +237,60 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2.9.1
       - uses: mozilla-actions/sccache-action@v0.0.10
-      - name: Build workspace
-        run: cargo build --workspace --all-features --locked
+      - name: Build release binaries
+        run: cargo build --workspace --all-features --locked --release
+      - name: Package release artifacts
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          TARGET="x86_64-unknown-linux-gnu"
+          VERSION="v0.1.0"
+          export SOURCE_DATE_EPOCH=0
+
+          for binary in maestria-cli maestria-daemon; do
+            if [ ! -f "target/release/$binary" ]; then
+              echo "::error::$binary binary missing"
+              exit 1
+            fi
+            case "$binary" in
+              maestria-cli) published_name="maestria" ;;
+              maestria-daemon) published_name="maestriad" ;;
+              *) echo "::error::unsupported binary $binary"; exit 1 ;;
+            esac
+            cp "target/release/$binary" "dist/$published_name"
+            archive="$published_name-$VERSION-$TARGET.tar.gz"
+            tar --sort=name --mtime='@0' --owner=0 --group=0 --numeric-owner \
+              -cf - -C dist "$published_name" | gzip -n > "dist/$archive"
+            rm "dist/$published_name"
+          done
+
+          (cd dist && sha256sum *.tar.gz > SHA256SUMS)
+          (cd dist && sha256sum -c SHA256SUMS)
+          smoke_dir="$(mktemp -d)"
+          trap 'rm -rf "$smoke_dir"' EXIT
+          tar -xzf "dist/maestria-$VERSION-$TARGET.tar.gz" -C "$smoke_dir"
+          tar -xzf "dist/maestriad-$VERSION-$TARGET.tar.gz" -C "$smoke_dir"
+          "$smoke_dir/maestria" --help >/dev/null
+          "$smoke_dir/maestriad" --help >/dev/null
+          tar -tzf "dist/maestria-$VERSION-$TARGET.tar.gz" | grep -Fx 'maestria' >/dev/null
+          tar -tzf "dist/maestriad-$VERSION-$TARGET.tar.gz" | grep -Fx 'maestriad' >/dev/null
+      - name: Upload release artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-assets
+          path: dist/
+          if-no-files-found: error
 
   publish:
     needs: [preflight, build]
     runs-on: ubuntu-latest
     permissions:
       contents: write
-      actions: write
+      actions: read
     steps:
       - uses: actions/checkout@v7.0.0
         with:
           ref: ${{ inputs.commit }}
-
       - name: Check for existing release
         id: check
         env:
@@ -235,52 +303,50 @@ jobs:
             RELEASE_JSON="$(gh release view v0.1.0 --json targetCommitish,isDraft)"
             EXISTING_TARGET="$(echo "$RELEASE_JSON" | jq -r '.targetCommitish')"
             IS_DRAFT="$(echo "$RELEASE_JSON" | jq -r '.isDraft')"
-
-            if [ "$IS_DRAFT" = "true" ]; then
-              if [ "$EXISTING_TARGET" != "$COMMIT" ]; then
-                echo "::error::Draft release v0.1.0 targets $EXISTING_TARGET, not $COMMIT"
-                exit 1
-              fi
-              echo "==> Publishing draft release v0.1.0"
-              gh release edit v0.1.0 --draft=false
-              echo "✓ Draft release v0.1.0 published targeting commit $COMMIT"
-              echo "exists=true" >> "$GITHUB_OUTPUT"
-            elif [ "$EXISTING_TARGET" != "$COMMIT" ]; then
-              echo "::error::Release v0.1.0 exists but targets $EXISTING_TARGET, not $COMMIT"
+            if [ "$EXISTING_TARGET" != "$COMMIT" ]; then
+              echo "::error::Release v0.1.0 targets $EXISTING_TARGET, not $COMMIT"
               exit 1
+            fi
+            if [ "$IS_DRAFT" = "true" ]; then
+              echo "mode=existing-draft" >> "$GITHUB_OUTPUT"
+              echo "==> Existing draft release targets $COMMIT; assets will be repaired before publishing"
             else
-              echo "✓ Release v0.1.0 already exists targeting commit $COMMIT — nothing to do"
-              echo "exists=true" >> "$GITHUB_OUTPUT"
+              echo "mode=existing" >> "$GITHUB_OUTPUT"
+              echo "==> Existing release targets $COMMIT; assets will be repaired idempotently"
             fi
           else
-            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "mode=create" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Set up Rust toolchain
-        if: steps.check.outputs.exists == 'false'
-        uses: dtolnay/rust-toolchain@stable
+      - name: Download release artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: release-assets
+          path: dist
 
-      - name: Cache Rust dependencies
-        if: steps.check.outputs.exists == 'false'
-        uses: Swatinem/rust-cache@v2.9.1
-
-      - name: Set up sccache
-        if: steps.check.outputs.exists == 'false'
-        uses: mozilla-actions/sccache-action@v0.0.10
-
-      - name: Build release artifacts
-        if: steps.check.outputs.exists == 'false'
-        run: cargo build --workspace --all-features --locked
+      - name: Repair existing release assets
+        if: steps.check.outputs.mode != 'create'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release upload v0.1.0 dist/* --clobber
+          if [ "${{ steps.check.outputs.mode }}" = "existing-draft" ]; then
+            gh release edit v0.1.0 --draft=false
+            echo "✓ Draft release v0.1.0 published with repaired assets"
+          else
+            echo "✓ Existing release v0.1.0 assets repaired"
+          fi
 
       - name: Create tag and publish release
-        if: steps.check.outputs.exists == 'false'
+        if: steps.check.outputs.mode == 'create'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           COMMIT="${{ needs.preflight.outputs.commit }}"
 
-          # Check whether the tag already exists remotely (handle annotated + lightweight)
+          # Check whether the tag already exists remotely (handle annotated + lightweight).
           REMOTE_REFS="$(git ls-remote origin "refs/tags/v0.1.0^{}" "refs/tags/v0.1.0" 2>/dev/null || echo '')"
           if [ -n "$REMOTE_REFS" ]; then
             REMOTE_TAG_SHA="$(echo "$REMOTE_REFS" | awk '/refs\/tags\/v0\.1\.0\^\{\}$/ {print $1; exit}')"
@@ -304,6 +370,6 @@ jobs:
           gh release create v0.1.0 \
             --target "$COMMIT" \
             --title "v0.1.0 — MVP Release" \
-            --generate-notes
-
+            --generate-notes \
+            dist/*
           echo "✓ Release v0.1.0 published successfully"
