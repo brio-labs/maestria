@@ -208,6 +208,8 @@ jobs:
 
       - name: Philosophy check
         run: python3 scripts/philosophy-check.py
+      - name: Repository script tests
+        run: python3 -m unittest discover -s scripts -p 'test_*.py'
 
   build:
     needs: [verify]
@@ -229,35 +231,35 @@ jobs:
           mkdir -p dist
           TARGET="x86_64-unknown-linux-gnu"
           VERSION="v0.1.0"
+          export SOURCE_DATE_EPOCH=0
 
           for binary in maestria-cli maestria-daemon; do
             if [ ! -f "target/release/$binary" ]; then
               echo "::error::$binary binary missing"
               exit 1
             fi
-            archive="$binary-$VERSION-$TARGET.tar.gz"
-            tar -czf "dist/$archive" -C target/release "$binary"
+            case "$binary" in
+              maestria-cli) published_name="maestria" ;;
+              maestria-daemon) published_name="maestriad" ;;
+              *) echo "::error::unsupported binary $binary"; exit 1 ;;
+            esac
+            cp "target/release/$binary" "dist/$published_name"
+            archive="$published_name-$VERSION-$TARGET.tar.gz"
+            tar --sort=name --mtime='@0' --owner=0 --group=0 --numeric-owner \
+              -cf - -C dist "$published_name" | gzip -n > "dist/$archive"
+            rm "dist/$published_name"
           done
 
-          sha256sum dist/*.tar.gz > dist/SHA256SUMS
+          (cd dist && sha256sum *.tar.gz > SHA256SUMS)
+          (cd dist && sha256sum -c SHA256SUMS)
+          tar -tzf "dist/maestria-$VERSION-$TARGET.tar.gz" | grep -Fx 'maestria' >/dev/null
+          tar -tzf "dist/maestriad-$VERSION-$TARGET.tar.gz" | grep -Fx 'maestriad' >/dev/null
       - name: Upload release artifacts
         uses: actions/upload-artifact@v4
         with:
           name: release-assets
           path: dist/
           if-no-files-found: error
-
-  publish:
-    needs: [preflight, build]
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      actions: write
-    steps:
-      - uses: actions/checkout@v7.0.0
-        with:
-          ref: ${{ inputs.commit }}
-
       - name: Check for existing release
         id: check
         env:
@@ -270,49 +272,50 @@ jobs:
             RELEASE_JSON="$(gh release view v0.1.0 --json targetCommitish,isDraft)"
             EXISTING_TARGET="$(echo "$RELEASE_JSON" | jq -r '.targetCommitish')"
             IS_DRAFT="$(echo "$RELEASE_JSON" | jq -r '.isDraft')"
-
-            if [ "$IS_DRAFT" = "true" ]; then
-              if [ "$EXISTING_TARGET" != "$COMMIT" ]; then
-                echo "::error::Draft release v0.1.0 targets $EXISTING_TARGET, not $COMMIT"
-                exit 1
-              fi
-              echo "==> Publishing draft release v0.1.0"
-              gh release edit v0.1.0 --draft=false
-              echo "✓ Draft release v0.1.0 published targeting commit $COMMIT"
-              echo "draft=true" >> "$GITHUB_OUTPUT"
-              echo "exists=true" >> "$GITHUB_OUTPUT"
-            elif [ "$EXISTING_TARGET" != "$COMMIT" ]; then
-              echo "::error::Release v0.1.0 exists but targets $EXISTING_TARGET, not $COMMIT"
+            if [ "$EXISTING_TARGET" != "$COMMIT" ]; then
+              echo "::error::Release v0.1.0 targets $EXISTING_TARGET, not $COMMIT"
               exit 1
+            fi
+            if [ "$IS_DRAFT" = "true" ]; then
+              echo "mode=existing-draft" >> "$GITHUB_OUTPUT"
+              echo "==> Existing draft release targets $COMMIT; assets will be repaired before publishing"
             else
-              echo "✓ Release v0.1.0 already exists targeting commit $COMMIT — nothing to do"
-              echo "exists=true" >> "$GITHUB_OUTPUT"
+              echo "mode=existing" >> "$GITHUB_OUTPUT"
+              echo "==> Existing release targets $COMMIT; assets will be repaired idempotently"
             fi
           else
-            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "mode=create" >> "$GITHUB_OUTPUT"
           fi
+
       - name: Download release artifacts
-        if: steps.check.outputs.exists == 'false' || steps.check.outputs.draft == 'true'
         uses: actions/download-artifact@v4
         with:
           name: release-assets
           path: dist
-      - name: Upload artifacts to resumed release
-        if: steps.check.outputs.draft == 'true'
+
+      - name: Repair existing release assets
+        if: steps.check.outputs.mode != 'create'
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release upload v0.1.0 dist/* --clobber
-
+        run: |
+          set -euo pipefail
+          gh release upload v0.1.0 dist/* --clobber
+          if [ "${{ steps.check.outputs.mode }}" = "existing-draft" ]; then
+            gh release edit v0.1.0 --draft=false
+            echo "✓ Draft release v0.1.0 published with repaired assets"
+          else
+            echo "✓ Existing release v0.1.0 assets repaired"
+          fi
 
       - name: Create tag and publish release
-        if: steps.check.outputs.exists == 'false'
+        if: steps.check.outputs.mode == 'create'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           COMMIT="${{ needs.preflight.outputs.commit }}"
 
-          # Check whether the tag already exists remotely (handle annotated + lightweight)
+          # Check whether the tag already exists remotely (handle annotated + lightweight).
           REMOTE_REFS="$(git ls-remote origin "refs/tags/v0.1.0^{}" "refs/tags/v0.1.0" 2>/dev/null || echo '')"
           if [ -n "$REMOTE_REFS" ]; then
             REMOTE_TAG_SHA="$(echo "$REMOTE_REFS" | awk '/refs\/tags\/v0\.1\.0\^\{\}$/ {print $1; exit}')"
@@ -338,5 +341,4 @@ jobs:
             --title "v0.1.0 — MVP Release" \
             --generate-notes \
             dist/*
-
           echo "✓ Release v0.1.0 published successfully"
