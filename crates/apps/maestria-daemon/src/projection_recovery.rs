@@ -1,7 +1,8 @@
 use anyhow::{Context, Result};
 use maestria_domain::KernelState;
 use maestria_ports::{
-    ArtifactRepository, CardRepository, ChunkRepository, EvidenceRepository, GraphIndex,
+    ArtifactRepository, CardRepository, ChunkRepository, EmbeddingProvider, EmbeddingRequest,
+    EvidenceRepository, GraphIndex, VectorEmbedding, VectorIndex,
 };
 use maestria_storage_sqlite::SqliteStore;
 
@@ -50,5 +51,71 @@ pub fn reconcile_graph_projection(state: &KernelState, graph: &impl GraphIndex) 
     graph
         .rebuild(relations)
         .context("rebuild graph projection from domain state")?;
+    Ok(())
+}
+/// Rebuild the vector projection from replayed chunks and the configured
+/// embedding provider.
+///
+/// Vector rows are disposable and never determine domain truth. When
+/// embeddings are disabled, rebuilding with an empty set removes stale rows.
+/// When embeddings are enabled, every replayed chunk is embedded in stable
+/// `ChunkId` order and the provider response supplies its provenance.
+pub fn reconcile_vector_projection(
+    state: &KernelState,
+    vector_index: &(dyn VectorIndex + Send + Sync),
+    embedding_provider: Option<&(dyn EmbeddingProvider + Send + Sync)>,
+    embedding_model: Option<&str>,
+) -> Result<()> {
+    let embeddings = match (embedding_provider, embedding_model) {
+        (None, None) => Vec::new(),
+        (Some(provider), Some(model)) if !model.trim().is_empty() => state
+            .chunks
+            .values()
+            .map(|chunk| {
+                let content_hash = match state
+                    .artifacts
+                    .get(&chunk.artifact_id)
+                    .and_then(|artifact| artifact.content_hash.clone())
+                {
+                    Some(content_hash) => content_hash,
+                    None => maestria_domain::content_hash(chunk.text.as_bytes()),
+                };
+                let response = provider
+                    .embed(EmbeddingRequest {
+                        text: chunk.text.clone(),
+                        model: model.to_string(),
+                    })
+                    .map_err(|error| anyhow::anyhow!("embed chunk {}: {error}", chunk.id))?;
+                Ok(VectorEmbedding {
+                    chunk_id: chunk.id,
+                    vector: response.vector,
+                    provenance: maestria_ports::EmbeddingProvenance {
+                        content_hash,
+                        provider_id: response.provider_id,
+                        model: response.model,
+                        model_version: response.model_version,
+                    },
+                })
+            })
+            .collect::<Result<Vec<_>>>()?,
+        (Some(_), Some(_)) => {
+            return Err(anyhow::anyhow!(
+                "vector projection recovery requires a non-empty embedding model"
+            ));
+        }
+        (Some(_), None) => {
+            return Err(anyhow::anyhow!(
+                "vector projection recovery has an embedding provider but no model"
+            ));
+        }
+        (None, Some(_)) => {
+            return Err(anyhow::anyhow!(
+                "vector projection recovery has an embedding model but no provider"
+            ));
+        }
+    };
+    vector_index
+        .rebuild(embeddings)
+        .context("rebuild vector projection from domain state")?;
     Ok(())
 }

@@ -287,6 +287,9 @@ pub async fn run(instance_dir: PathBuf, path: PathBuf, recursive: bool) -> Resul
         maestria_daemon::reconcile_projections(&initial_state, &store)
             .with_context(|| "reconcile projection repositories")?;
     }
+
+    maestria_daemon::reconcile_vector_projection_for_layout(&layout, &initial_state)
+        .with_context(|| "reconcile vector projection")?;
     let preexisting_state = initial_state.clone();
     // Compute recovery diagnostics and pause in-flight harness effects before state is moved.
     let diagnostics = maestria_daemon::supervise_recovery(&initial_state, &store)?;

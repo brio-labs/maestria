@@ -31,6 +31,27 @@ pub async fn run(instance_dir: PathBuf, query: String, limit: usize) -> Result<(
     Ok(())
 }
 
+fn open_reconciled_vector_index(
+    layout: &maestria_core::InstanceLayout,
+    state: &maestria_domain::KernelState,
+    manifest: &maestria_core::InstanceManifest,
+    embedding_provider: Option<&(dyn EmbeddingProvider + Send + Sync)>,
+) -> Result<Option<SqliteVectorIndex>> {
+    let Some(provider) = embedding_provider else {
+        return Ok(None);
+    };
+    let index = SqliteVectorIndex::open(layout.vector_index_dir.join("projection.db"))
+        .with_context(|| format!("open vector index {}", layout.vector_index_dir.display()))?;
+    let model = manifest
+        .embeddings
+        .as_ref()
+        .filter(|config| config.enabled)
+        .map(|config| config.model.as_str());
+    maestria_daemon::reconcile_vector_projection(state, &index, Some(provider), model)
+        .with_context(|| "reconcile vector projection before search")?;
+    Ok(Some(index))
+}
+
 fn compute_search_pack(
     layout: &maestria_core::InstanceLayout,
     query: &str,
@@ -40,7 +61,8 @@ fn compute_search_pack(
     let blob_store = FsBlobStore::open(&layout.blobs_dir)?;
     let manifest_contents = fs::read_to_string(&layout.manifest_path)?;
     let manifest = InstanceService::parse_manifest(&manifest_contents)?;
-    let embedding_provider: Option<Arc<dyn EmbeddingProvider>> =
+    let state = maestria_daemon::load_kernel_state(layout)?;
+    let embedding_provider: Option<Arc<dyn EmbeddingProvider + Send + Sync>> =
         match manifest.embeddings.as_ref().filter(|config| config.enabled) {
             Some(config) => Some(Arc::new(
                 maestria_embedding_openai::LocalHttpEmbeddingProvider::new(
@@ -51,21 +73,10 @@ fn compute_search_pack(
             )),
             None => None,
         };
-    let vector_index = if embedding_provider.is_some() {
-        match SqliteVectorIndex::open(layout.vector_index_dir.join("projection.db")) {
-            Ok(index) => Some(index),
-            Err(error) => {
-                eprintln!("vector projection unavailable; using full-text fallback: {error}");
-                None
-            }
-        }
-    } else {
-        None
-    };
+    let vector_index =
+        open_reconciled_vector_index(layout, &state, &manifest, embedding_provider.as_deref())?;
     let graph_index = match SqliteGraphIndex::open(layout.graph_index_dir.join("projection.db")) {
-        Ok(index) => match maestria_daemon::load_kernel_state(layout)
-            .and_then(|state| maestria_daemon::reconcile_graph_projection(&state, &index))
-        {
+        Ok(index) => match maestria_daemon::reconcile_graph_projection(&state, &index) {
             Ok(()) => Some(index),
             Err(error) => {
                 eprintln!("graph projection unavailable; using retrieval-only search: {error}");
@@ -79,7 +90,6 @@ fn compute_search_pack(
     };
     let search_index = TantivyFullTextIndex::open(&layout.full_text_index_dir)?;
     if search_index.needs_card_rebuild()? {
-        let state = maestria_daemon::load_kernel_state(layout)?;
         let cards: Vec<IndexedCard> = state
             .cards
             .values()
