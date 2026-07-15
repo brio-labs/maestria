@@ -51,6 +51,7 @@ async fn parse_artifact_calls_blob_put_exactly_once() {
             evidence_ids: BTreeSet::new(),
             index_status: IndexStatus::Unindexed,
             content_hash: None,
+            parse_status: None,
         })
         .expect("pre-populated artifact should be accepted");
 
@@ -99,7 +100,7 @@ async fn parse_artifact_retry_redrives_existing_evidence() {
     let artifact_repo = InMemoryArtifactRepository::new();
     artifact_repo
         .put(Artifact {
-            id: artifact_id,
+            id: ArtifactId::new(77),
             title: "retry-test".into(),
             chunk_ids: BTreeSet::new(),
             card_ids: BTreeSet::new(),
@@ -107,6 +108,7 @@ async fn parse_artifact_retry_redrives_existing_evidence() {
             evidence_ids: BTreeSet::from([existing_evidence_id]),
             index_status: IndexStatus::Unindexed,
             content_hash: None,
+            parse_status: None,
         })
         .expect("pre-populated artifact should be accepted");
 

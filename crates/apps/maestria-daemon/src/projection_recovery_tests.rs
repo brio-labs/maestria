@@ -3,8 +3,9 @@
 use super::*;
 use maestria_domain::{
     ArtifactDetected, ArtifactVersionId, CardId, ChunkId, ContentHash, ContentRange,
-    CreateCardInput, EvidenceId, EvidenceKind, LogicalTick, ParserResult, RecordEvidenceInput,
-    RegisterChunkInput, StructureNode, StructureNodeId, StructureNodeType,
+    CreateCardInput, EvidenceId, EvidenceKind, LogicalTick, ParseStatus, ParserResult,
+    RecordEvidenceInput, RegisterChunkInput, SourceSpan, StructureNode, StructureNodeId,
+    StructureNodeType,
 };
 use maestria_ports::{
     ArtifactRepository, CardRepository, ChunkRepository, EmbeddingProvider, EmbeddingRequest,
@@ -22,6 +23,7 @@ struct RecoveryTestFixture {
 }
 
 /// Build the domain-state snapshot that a crash-replay would reconstruct.
+#[allow(clippy::too_many_lines)]
 fn build_recovery_domain_state(state: &mut KernelState) -> RecoveryTestFixture {
     let artifact_id = ArtifactId::new(1);
     let chunk_id_a = ChunkId::new(100);
@@ -45,24 +47,44 @@ fn build_recovery_domain_state(state: &mut KernelState) -> RecoveryTestFixture {
             artifact_id,
             artifact_version_id: ArtifactVersionId::new(artifact_id.value()),
             content_hash: ContentHash::new("sha256:".to_owned() + &"0".repeat(64)).unwrap(),
-            tree_root_id: StructureNodeId::new(chunk_id_a.value()),
-            tree_nodes: vec![StructureNode {
-                id: StructureNodeId::new(chunk_id_a.value()),
-                parent_id: None,
-                sibling_id: None,
-                node_type: StructureNodeType::Document,
-                source_range: ContentRange { start: 0, end: 0 },
-                page: None,
-                section_path: vec![],
-                parser_generation: "test".to_string(),
-                schema_generation: "1".to_string(),
-                language: None,
-            }],
+            status: ParseStatus::Parsed,
+            tree_root_id: Some(StructureNodeId::new(chunk_id_a.value())),
+            tree_nodes: vec![
+                StructureNode {
+                    id: StructureNodeId::new(chunk_id_a.value()),
+                    parent_id: None,
+                    sibling_id: None,
+                    node_type: StructureNodeType::Document,
+                    source_range: ContentRange { start: 0, end: 0 },
+                    page: None,
+                    section_path: vec![],
+                    parser_generation: "test".to_string(),
+                    schema_generation: "1".to_string(),
+                    language: None,
+                },
+                StructureNode {
+                    id: StructureNodeId::new(chunk_id_b.value()),
+                    parent_id: Some(StructureNodeId::new(chunk_id_a.value())),
+                    sibling_id: None,
+                    node_type: StructureNodeType::Paragraph,
+                    source_range: ContentRange { start: 0, end: 0 },
+                    page: None,
+                    section_path: vec![],
+                    parser_generation: "test".to_string(),
+                    schema_generation: "1".to_string(),
+                    language: None,
+                },
+            ],
             chunks: vec![
                 RegisterChunkInput {
                     chunk_id: chunk_id_a,
                     artifact_id,
                     node_id: StructureNodeId::new(chunk_id_a.value()),
+                    source_span: SourceSpan::TextSpan {
+                        start_line: 1,
+                        end_line: 1,
+                    },
+                    representations: vec![],
                     order: 0,
                     text: "first chunk".to_string(),
                 },
@@ -70,6 +92,11 @@ fn build_recovery_domain_state(state: &mut KernelState) -> RecoveryTestFixture {
                     chunk_id: chunk_id_b,
                     artifact_id,
                     node_id: StructureNodeId::new(chunk_id_b.value()),
+                    source_span: SourceSpan::TextSpan {
+                        start_line: 1,
+                        end_line: 1,
+                    },
+                    representations: vec![],
                     order: 1,
                     text: "second chunk".to_string(),
                 },
@@ -77,6 +104,11 @@ fn build_recovery_domain_state(state: &mut KernelState) -> RecoveryTestFixture {
             cards: vec![CreateCardInput {
                 card_id,
                 artifact_id,
+                node_id: StructureNodeId::new(chunk_id_a.value()),
+                source_span: SourceSpan::TextSpan {
+                    start_line: 1,
+                    end_line: 1,
+                },
                 title: "test card".to_string(),
                 body: "card body".to_string(),
             }],

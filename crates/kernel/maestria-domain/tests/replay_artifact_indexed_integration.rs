@@ -61,6 +61,12 @@ fn replay_setup_artifact(
     state.apply_event(new_envelope(
         4,
         DomainEvent::ChunkRegistered {
+            node_id: maestria_domain::StructureNodeId::new(1),
+            source_span: maestria_domain::SourceSpan::TextSpan {
+                start_line: 1,
+                end_line: 1,
+            },
+            representations: vec![],
             chunk_id,
             artifact_id: art_id,
             order: 0,
@@ -166,6 +172,12 @@ fn replay_artifact_indexed_clears_pending_parsers() -> Result<(), DomainError> {
         id: EventId::new(4),
         sequence: SequenceNumber::new(4),
         event: DomainEvent::ChunkRegistered {
+            node_id: maestria_domain::StructureNodeId::new(1),
+            source_span: maestria_domain::SourceSpan::TextSpan {
+                start_line: 1,
+                end_line: 1,
+            },
+            representations: vec![],
             chunk_id: ChunkId::new(10),
             artifact_id: ArtifactId::new(1),
             order: 0,
@@ -209,6 +221,7 @@ fn replay_artifact_indexed_clears_pending_parsers() -> Result<(), DomainError> {
         id: EventId::new(7),
         sequence: SequenceNumber::new(7),
         event: DomainEvent::ArtifactParsed {
+            status: maestria_domain::ParseStatus::Parsed,
             artifact_id: ArtifactId::new(1),
             chunks_added: 1,
         },
@@ -280,6 +293,12 @@ fn replay_artifact_indexed_rejects_incomplete_evidence() -> Result<(), DomainErr
         id: EventId::new(4),
         sequence: SequenceNumber::new(4),
         event: DomainEvent::ChunkRegistered {
+            node_id: maestria_domain::StructureNodeId::new(1),
+            source_span: maestria_domain::SourceSpan::TextSpan {
+                start_line: 1,
+                end_line: 1,
+            },
+            representations: vec![],
             chunk_id: ChunkId::new(10),
             artifact_id: art_id,
             order: 0,
@@ -400,6 +419,7 @@ fn replay_artifact_indexed_removes_invalid_evidence() -> Result<(), DomainError>
     state.apply_event(new_envelope(
         7,
         DomainEvent::ArtifactParsed {
+            status: maestria_domain::ParseStatus::Parsed,
             artifact_id: art_id,
             chunks_added: 1,
         },
@@ -495,6 +515,7 @@ fn assert_cross_owned_cleanup(
     state.apply_event(new_envelope(
         8,
         DomainEvent::ArtifactParsed {
+            status: maestria_domain::ParseStatus::Parsed,
             artifact_id: art_a,
             chunks_added: 1,
         },

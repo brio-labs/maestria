@@ -3,6 +3,43 @@
 use crate::types::{ArtifactId, ContentRange, EvidenceId};
 use sha2::{Digest, Sha256};
 
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, ::serde::Serialize, ::serde::Deserialize,
+)]
+pub enum ParseStatus {
+    Parsed,
+    Unsupported,
+    Failed,
+    MetadataOnly,
+    NeedsOcr,
+    Quarantined,
+}
+
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, ::serde::Serialize, ::serde::Deserialize,
+)]
+pub enum RepresentationKind {
+    Raw,
+    Retrieval,
+    Contextual,
+    Summary,
+    Visual,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, ::serde::Serialize, ::serde::Deserialize)]
+pub struct ParsedRepresentation {
+    pub kind: RepresentationKind,
+    pub content: String,
+}
+
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, ::serde::Serialize, ::serde::Deserialize,
+)]
+pub enum SourceSpan {
+    TextSpan { start_line: usize, end_line: usize },
+    PdfSpan { page: usize },
+}
+
 /// Deterministically produces a content-addressed hash string.
 ///
 /// Returns a `"sha256:<hex>"` string suitable for identifying byte content

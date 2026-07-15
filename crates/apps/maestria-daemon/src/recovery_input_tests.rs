@@ -4,8 +4,8 @@ use super::*;
 use maestria_domain::{
     ArtifactDetected, ArtifactId, ArtifactVersionId, BlobId, ChangeTaskStatusInput, ChunkId,
     ContentHash, ContentRange, DomainInput, KernelState, MaestriaEffect, OpenTaskInput,
-    ParserResult, ParserStarted, RegisterChunkInput, StructureNode, StructureNodeId,
-    StructureNodeType, TaskId,
+    ParseStatus, ParserResult, ParserStarted, RegisterChunkInput, SourceSpan, StructureNode,
+    StructureNodeId, StructureNodeType, TaskId,
 };
 
 #[test]
@@ -28,7 +28,8 @@ fn pending_start_full_text_groups_by_artifact() {
             artifact_id,
             artifact_version_id: ArtifactVersionId::new(artifact_id.value()),
             content_hash: ContentHash::new("sha256:".to_owned() + &"0".repeat(64)).unwrap(),
-            tree_root_id: StructureNodeId::new(10),
+            status: ParseStatus::Parsed,
+            tree_root_id: Some(StructureNodeId::new(10)),
             tree_nodes: vec![StructureNode {
                 id: StructureNodeId::new(10),
                 parent_id: None,
@@ -46,6 +47,11 @@ fn pending_start_full_text_groups_by_artifact() {
                     chunk_id: ChunkId::new(10),
                     artifact_id,
                     node_id: StructureNodeId::new(10),
+                    source_span: SourceSpan::TextSpan {
+                        start_line: 1,
+                        end_line: 1,
+                    },
+                    representations: vec![],
                     order: 0,
                     text: "chunk a".to_string(),
                 },
@@ -53,6 +59,11 @@ fn pending_start_full_text_groups_by_artifact() {
                     chunk_id: ChunkId::new(11),
                     artifact_id,
                     node_id: StructureNodeId::new(11),
+                    source_span: SourceSpan::TextSpan {
+                        start_line: 1,
+                        end_line: 1,
+                    },
+                    representations: vec![],
                     order: 1,
                     text: "chunk b".to_string(),
                 },
@@ -101,7 +112,8 @@ fn pending_start_full_text_resumes_indexing_without_reparse() {
             artifact_id,
             artifact_version_id: ArtifactVersionId::new(artifact_id.value()),
             content_hash: ContentHash::new("sha256:".to_owned() + &"0".repeat(64)).unwrap(),
-            tree_root_id: StructureNodeId::new(20),
+            status: ParseStatus::Parsed,
+            tree_root_id: Some(StructureNodeId::new(20)),
             tree_nodes: vec![StructureNode {
                 id: StructureNodeId::new(20),
                 parent_id: None,
@@ -119,6 +131,11 @@ fn pending_start_full_text_resumes_indexing_without_reparse() {
                     chunk_id: ChunkId::new(20),
                     artifact_id,
                     node_id: StructureNodeId::new(20),
+                    source_span: SourceSpan::TextSpan {
+                        start_line: 1,
+                        end_line: 1,
+                    },
+                    representations: vec![],
                     order: 0,
                     text: "hello".to_string(),
                 },
@@ -126,6 +143,11 @@ fn pending_start_full_text_resumes_indexing_without_reparse() {
                     chunk_id: ChunkId::new(21),
                     artifact_id,
                     node_id: StructureNodeId::new(21),
+                    source_span: SourceSpan::TextSpan {
+                        start_line: 1,
+                        end_line: 1,
+                    },
+                    representations: vec![],
                     order: 1,
                     text: "world".to_string(),
                 },
@@ -228,7 +250,12 @@ fn pending_start_full_text_excludes_pending_parser_artifacts() {
                 artifact_id,
                 artifact_version_id: ArtifactVersionId::new(artifact_id.value()),
                 content_hash: ContentHash::new("sha256:".to_owned() + &"0".repeat(64)).unwrap(),
-                tree_root_id: StructureNodeId::new(if artifact_id == artifact_a { 10 } else { 20 }),
+                status: ParseStatus::Parsed,
+                tree_root_id: Some(StructureNodeId::new(if artifact_id == artifact_a {
+                    10
+                } else {
+                    20
+                })),
                 tree_nodes: vec![StructureNode {
                     id: StructureNodeId::new(if artifact_id == artifact_a { 10 } else { 20 }),
                     parent_id: None,
@@ -245,6 +272,11 @@ fn pending_start_full_text_excludes_pending_parser_artifacts() {
                     chunk_id: ChunkId::new(if artifact_id == artifact_a { 10 } else { 20 }),
                     artifact_id,
                     node_id: StructureNodeId::new(if artifact_id == artifact_a { 10 } else { 20 }),
+                    source_span: SourceSpan::TextSpan {
+                        start_line: 1,
+                        end_line: 1,
+                    },
+                    representations: vec![],
                     order: 0,
                     text: "text".to_string(),
                 }],
@@ -346,7 +378,8 @@ fn recovery_inputs_derives_both_kinds_from_state() {
             artifact_id: artifact_b,
             artifact_version_id: ArtifactVersionId::new(artifact_b.value()),
             content_hash: ContentHash::new("sha256:".to_owned() + &"0".repeat(64)).unwrap(),
-            tree_root_id: StructureNodeId::new(20),
+            status: ParseStatus::Parsed,
+            tree_root_id: Some(StructureNodeId::new(20)),
             tree_nodes: vec![StructureNode {
                 id: StructureNodeId::new(20),
                 parent_id: None,
@@ -363,6 +396,11 @@ fn recovery_inputs_derives_both_kinds_from_state() {
                 chunk_id: ChunkId::new(20),
                 artifact_id: artifact_b,
                 node_id: StructureNodeId::new(20),
+                source_span: SourceSpan::TextSpan {
+                    start_line: 1,
+                    end_line: 1,
+                },
+                representations: vec![],
                 order: 0,
                 text: "text".to_string(),
             }],
@@ -415,7 +453,8 @@ fn recovery_inputs_excludes_parser_pending_from_full_text() {
             artifact_id,
             artifact_version_id: ArtifactVersionId::new(artifact_id.value()),
             content_hash: ContentHash::new("sha256:".to_owned() + &"0".repeat(64)).unwrap(),
-            tree_root_id: StructureNodeId::new(10),
+            status: ParseStatus::Parsed,
+            tree_root_id: Some(StructureNodeId::new(10)),
             tree_nodes: vec![StructureNode {
                 id: StructureNodeId::new(10),
                 parent_id: None,
@@ -432,6 +471,11 @@ fn recovery_inputs_excludes_parser_pending_from_full_text() {
                 chunk_id: ChunkId::new(10),
                 artifact_id,
                 node_id: StructureNodeId::new(10),
+                source_span: SourceSpan::TextSpan {
+                    start_line: 1,
+                    end_line: 1,
+                },
+                representations: vec![],
                 order: 0,
                 text: "text".to_string(),
             }],

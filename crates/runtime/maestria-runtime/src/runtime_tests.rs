@@ -2,7 +2,7 @@ use super::test_support::*;
 use maestria_domain::{
     Artifact, ArtifactId, Card, CardId, Chunk, ChunkId, DomainEvent, DomainEventEnvelope, EventId,
     Evidence, EvidenceId, EvidenceKind, IndexStatus, LogicalTick, SearchExecutedInput,
-    SequenceNumber,
+    SequenceNumber, SourceSpan, StructureNodeId,
 };
 use maestria_ports::{
     CardRepository, ChunkRepository, EventFilter, EventLog, EvidenceRepository,
@@ -145,16 +145,28 @@ fn build_persist_test_state() -> (KernelState, ChunkId, CardId, EvidenceId, Arti
         evidence_ids: [evidence_id].into(),
         index_status: IndexStatus::Unindexed,
         content_hash: None,
+        parse_status: None,
     };
     let chunk = Chunk {
         id: chunk_id,
         artifact_id,
+        node_id: StructureNodeId::new(0),
+        source_span: SourceSpan::TextSpan {
+            start_line: 1,
+            end_line: 1,
+        },
+        representations: vec![],
         order: 0,
         text: "chunk text".into(),
     };
     let card = Card {
         id: card_id,
         artifact_id,
+        node_id: StructureNodeId::new(0),
+        source_span: SourceSpan::TextSpan {
+            start_line: 1,
+            end_line: 1,
+        },
         title: "card title".into(),
         body: "card body".into(),
         claim_ids: BTreeSet::new(),
@@ -194,6 +206,12 @@ fn build_persist_test_envelopes(
             event: DomainEvent::ChunkRegistered {
                 chunk_id,
                 artifact_id,
+                node_id: StructureNodeId::new(0),
+                source_span: SourceSpan::TextSpan {
+                    start_line: 1,
+                    end_line: 1,
+                },
+                representations: vec![],
                 order: 0,
                 text: "chunk text".into(),
             },
@@ -204,6 +222,11 @@ fn build_persist_test_envelopes(
             event: DomainEvent::CardCreated {
                 card_id,
                 artifact_id,
+                node_id: StructureNodeId::new(0),
+                source_span: SourceSpan::TextSpan {
+                    start_line: 1,
+                    end_line: 1,
+                },
                 title: "card title".into(),
                 body: "card body".into(),
             },

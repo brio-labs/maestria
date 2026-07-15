@@ -15,6 +15,8 @@ pub struct RegisterChunkInput {
     pub chunk_id: ChunkId,
     pub artifact_id: ArtifactId,
     pub node_id: crate::types::StructureNodeId,
+    pub source_span: crate::provenance::SourceSpan,
+    pub representations: Vec<crate::provenance::ParsedRepresentation>,
     pub order: u32,
     pub text: String,
 }
@@ -23,6 +25,8 @@ pub struct RegisterChunkInput {
 pub struct CreateCardInput {
     pub card_id: CardId,
     pub artifact_id: ArtifactId,
+    pub node_id: crate::types::StructureNodeId,
+    pub source_span: crate::provenance::SourceSpan,
     pub title: String,
     pub body: String,
 }
@@ -165,7 +169,8 @@ pub struct ParserResult {
     pub artifact_id: ArtifactId,
     pub artifact_version_id: crate::ids::ArtifactVersionId,
     pub content_hash: crate::search::ContentHash,
-    pub tree_root_id: crate::ids::StructureNodeId,
+    pub status: crate::provenance::ParseStatus,
+    pub tree_root_id: Option<crate::ids::StructureNodeId>,
     pub tree_nodes: Vec<crate::search::StructureNode>,
     pub chunks: Vec<RegisterChunkInput>,
     pub cards: Vec<CreateCardInput>,

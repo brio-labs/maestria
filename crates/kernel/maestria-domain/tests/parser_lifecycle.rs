@@ -2,6 +2,30 @@ use maestria_domain::*;
 #[path = "common/fixtures.rs"]
 mod fixtures;
 
+fn count_chunk_events(output: &KernelOutput) -> usize {
+    output
+        .events
+        .iter()
+        .filter(|e| matches!(e.event, DomainEvent::ChunkRegistered { .. }))
+        .count()
+}
+
+fn count_card_events(output: &KernelOutput) -> usize {
+    output
+        .events
+        .iter()
+        .filter(|e| matches!(e.event, DomainEvent::CardCreated { .. }))
+        .count()
+}
+
+fn count_parsed_events(output: &KernelOutput) -> usize {
+    output
+        .events
+        .iter()
+        .filter(|e| matches!(e.event, DomainEvent::ArtifactParsed { .. }))
+        .count()
+}
+
 // ── Parser lifecycle: completed, started, idempotency ─────────────
 
 #[test]
@@ -13,12 +37,18 @@ fn parser_completed_duplicate_is_idempotent() -> Result<(), DomainError> {
     }))?;
 
     let parser_result = ParserResult {
+        status: maestria_domain::ParseStatus::Parsed,
         artifact_id: ArtifactId::new(1),
         artifact_version_id: ArtifactVersionId::new(1),
         content_hash: fixtures::test_content_hash(),
-        tree_root_id: StructureNodeId::new(10),
+        tree_root_id: Some(StructureNodeId::new(10)),
         tree_nodes: vec![fixtures::tree_root_node(StructureNodeId::new(10))],
         chunks: vec![RegisterChunkInput {
+            source_span: maestria_domain::SourceSpan::TextSpan {
+                start_line: 1,
+                end_line: 1,
+            },
+            representations: vec![],
             chunk_id: ChunkId::new(10),
             artifact_id: ArtifactId::new(1),
             node_id: StructureNodeId::new(10),
@@ -26,6 +56,11 @@ fn parser_completed_duplicate_is_idempotent() -> Result<(), DomainError> {
             text: "first chunk".to_string(),
         }],
         cards: vec![CreateCardInput {
+            node_id: StructureNodeId::new(10),
+            source_span: maestria_domain::SourceSpan::TextSpan {
+                start_line: 1,
+                end_line: 1,
+            },
             card_id: CardId::new(20),
             artifact_id: ArtifactId::new(1),
             title: "Summary".to_string(),
@@ -37,46 +72,33 @@ fn parser_completed_duplicate_is_idempotent() -> Result<(), DomainError> {
     let output1 = state.apply_input(DomainInput::ParserCompleted(parser_result.clone()))?;
     assert!(state.chunks.contains_key(&ChunkId::new(10)));
     assert!(state.cards.contains_key(&CardId::new(20)));
-    let chunk_events_1 = output1
-        .events
-        .iter()
-        .filter(|e| matches!(e.event, DomainEvent::ChunkRegistered { .. }))
-        .count();
-    let card_events_1 = output1
-        .events
-        .iter()
-        .filter(|e| matches!(e.event, DomainEvent::CardCreated { .. }))
-        .count();
-    let parsed_events_1 = output1
-        .events
-        .iter()
-        .filter(|e| matches!(e.event, DomainEvent::ArtifactParsed { .. }))
-        .count();
-    assert_eq!(chunk_events_1, 1, "first parse registers chunk");
-    assert_eq!(card_events_1, 1, "first parse creates card");
-    assert_eq!(parsed_events_1, 1, "first parse emits ArtifactParsed");
+    assert_eq!(
+        count_chunk_events(&output1),
+        1,
+        "first parse registers chunk"
+    );
+    assert_eq!(count_card_events(&output1), 1, "first parse creates card");
+    assert_eq!(
+        count_parsed_events(&output1),
+        1,
+        "first parse emits ArtifactParsed"
+    );
 
     // Second parse with identical data: no duplicate events
     let output2 = state.apply_input(DomainInput::ParserCompleted(parser_result))?;
-    let chunk_events_2 = output2
-        .events
-        .iter()
-        .filter(|e| matches!(e.event, DomainEvent::ChunkRegistered { .. }))
-        .count();
-    let card_events_2 = output2
-        .events
-        .iter()
-        .filter(|e| matches!(e.event, DomainEvent::CardCreated { .. }))
-        .count();
-    let parsed_events_2 = output2
-        .events
-        .iter()
-        .filter(|e| matches!(e.event, DomainEvent::ArtifactParsed { .. }))
-        .count();
-    assert_eq!(chunk_events_2, 0, "duplicate parse emits no chunk events");
-    assert_eq!(card_events_2, 0, "duplicate parse emits no card events");
     assert_eq!(
-        parsed_events_2, 0,
+        count_chunk_events(&output2),
+        0,
+        "duplicate parse emits no chunk events"
+    );
+    assert_eq!(
+        count_card_events(&output2),
+        0,
+        "duplicate parse emits no card events"
+    );
+    assert_eq!(
+        count_parsed_events(&output2),
+        0,
         "duplicate parse with no new chunks/cards emits no ArtifactParsed"
     );
     assert_eq!(
@@ -95,12 +117,18 @@ fn parser_completed_rejects_mismatched_chunk() -> Result<(), DomainError> {
         title: "Doc".to_string(),
     }))?;
     state.apply_input(DomainInput::ParserCompleted(ParserResult {
+        status: maestria_domain::ParseStatus::Parsed,
         artifact_id: ArtifactId::new(1),
         artifact_version_id: ArtifactVersionId::new(1),
         content_hash: fixtures::test_content_hash(),
-        tree_root_id: StructureNodeId::new(10),
+        tree_root_id: Some(StructureNodeId::new(10)),
         tree_nodes: vec![fixtures::tree_root_node(StructureNodeId::new(10))],
         chunks: vec![RegisterChunkInput {
+            source_span: maestria_domain::SourceSpan::TextSpan {
+                start_line: 1,
+                end_line: 1,
+            },
+            representations: vec![],
             chunk_id: ChunkId::new(10),
             artifact_id: ArtifactId::new(1),
             node_id: StructureNodeId::new(10),
@@ -113,12 +141,18 @@ fn parser_completed_rejects_mismatched_chunk() -> Result<(), DomainError> {
     // Second parse with same chunk_id but different text
     let err = state
         .apply_input(DomainInput::ParserCompleted(ParserResult {
+            status: maestria_domain::ParseStatus::Parsed,
             artifact_id: ArtifactId::new(1),
             artifact_version_id: ArtifactVersionId::new(1),
             content_hash: fixtures::test_content_hash(),
-            tree_root_id: StructureNodeId::new(10),
+            tree_root_id: Some(StructureNodeId::new(10)),
             tree_nodes: vec![fixtures::tree_root_node(StructureNodeId::new(10))],
             chunks: vec![RegisterChunkInput {
+                source_span: maestria_domain::SourceSpan::TextSpan {
+                    start_line: 1,
+                    end_line: 1,
+                },
+                representations: vec![],
                 chunk_id: ChunkId::new(10),
                 artifact_id: ArtifactId::new(1),
                 node_id: StructureNodeId::new(10),
@@ -141,13 +175,33 @@ fn parser_completed_rejects_mismatched_card() -> Result<(), DomainError> {
         title: "Doc".to_string(),
     }))?;
     state.apply_input(DomainInput::ParserCompleted(ParserResult {
+        status: maestria_domain::ParseStatus::Parsed,
         artifact_id: ArtifactId::new(1),
         artifact_version_id: ArtifactVersionId::new(1),
         content_hash: fixtures::test_content_hash(),
-        tree_root_id: StructureNodeId::new(0),
-        tree_nodes: vec![fixtures::tree_root_node(StructureNodeId::new(0))],
+        tree_root_id: Some(StructureNodeId::new(0)),
+        tree_nodes: vec![
+            fixtures::tree_root_node(StructureNodeId::new(0)),
+            maestria_domain::StructureNode {
+                id: StructureNodeId::new(1),
+                parent_id: Some(StructureNodeId::new(0)),
+                sibling_id: None,
+                node_type: maestria_domain::StructureNodeType::Paragraph,
+                source_range: maestria_domain::ContentRange { start: 0, end: 0 },
+                page: None,
+                section_path: vec![],
+                parser_generation: "test".to_string(),
+                schema_generation: "1".to_string(),
+                language: None,
+            },
+        ],
         chunks: Vec::new(),
         cards: vec![CreateCardInput {
+            node_id: maestria_domain::StructureNodeId::new(1),
+            source_span: maestria_domain::SourceSpan::TextSpan {
+                start_line: 1,
+                end_line: 1,
+            },
             card_id: CardId::new(20),
             artifact_id: ArtifactId::new(1),
             title: "Summary".to_string(),
@@ -158,13 +212,33 @@ fn parser_completed_rejects_mismatched_card() -> Result<(), DomainError> {
     // Second parse with same card_id but different body
     let err = state
         .apply_input(DomainInput::ParserCompleted(ParserResult {
+            status: maestria_domain::ParseStatus::Parsed,
             artifact_id: ArtifactId::new(1),
             artifact_version_id: ArtifactVersionId::new(1),
             content_hash: fixtures::test_content_hash(),
-            tree_root_id: StructureNodeId::new(0),
-            tree_nodes: vec![fixtures::tree_root_node(StructureNodeId::new(0))],
+            tree_root_id: Some(StructureNodeId::new(0)),
+            tree_nodes: vec![
+                fixtures::tree_root_node(StructureNodeId::new(0)),
+                maestria_domain::StructureNode {
+                    id: StructureNodeId::new(1),
+                    parent_id: Some(StructureNodeId::new(0)),
+                    sibling_id: None,
+                    node_type: maestria_domain::StructureNodeType::Paragraph,
+                    source_range: maestria_domain::ContentRange { start: 0, end: 0 },
+                    page: None,
+                    section_path: vec![],
+                    parser_generation: "test".to_string(),
+                    schema_generation: "1".to_string(),
+                    language: None,
+                },
+            ],
             chunks: Vec::new(),
             cards: vec![CreateCardInput {
+                node_id: maestria_domain::StructureNodeId::new(1),
+                source_span: maestria_domain::SourceSpan::TextSpan {
+                    start_line: 1,
+                    end_line: 1,
+                },
                 card_id: CardId::new(20),
                 artifact_id: ArtifactId::new(1),
                 title: "Summary".to_string(),
@@ -297,10 +371,11 @@ fn parser_completed_removes_pending_parser() -> Result<(), DomainError> {
 
     // Parser completes — pending_parsers survives until ArtifactIndexed.
     let output = state.apply_input(DomainInput::ParserCompleted(ParserResult {
+        status: maestria_domain::ParseStatus::Parsed,
         artifact_id: ArtifactId::new(1),
         artifact_version_id: ArtifactVersionId::new(1),
         content_hash: fixtures::test_content_hash(),
-        tree_root_id: StructureNodeId::new(0),
+        tree_root_id: Some(StructureNodeId::new(0)),
         tree_nodes: vec![fixtures::tree_root_node(StructureNodeId::new(0))],
         chunks: Vec::new(),
         cards: Vec::new(),
@@ -318,6 +393,7 @@ fn parser_completed_removes_pending_parser() -> Result<(), DomainError> {
     assert!(output.events.iter().any(|e| matches!(
         e.event,
         DomainEvent::ArtifactParsed {
+            status: _,
             chunks_added: 0,
             ..
         }
@@ -376,6 +452,7 @@ fn replay_artifact_parsed_cleans_up_pending_parsers() -> Result<(), DomainError>
         id: EventId::new(3),
         sequence: SequenceNumber::new(3),
         event: DomainEvent::ArtifactParsed {
+            status: maestria_domain::ParseStatus::Parsed,
             artifact_id: ArtifactId::new(1),
             chunks_added: 0,
         },
@@ -422,12 +499,18 @@ fn full_ingestion_flow_with_parser_started() -> Result<(), DomainError> {
 
     // 3. ParserCompleted — pending_parsers retained until ArtifactIndexed.
     let output = state.apply_input(DomainInput::ParserCompleted(ParserResult {
+        status: maestria_domain::ParseStatus::Parsed,
         artifact_id: ArtifactId::new(1),
         artifact_version_id: ArtifactVersionId::new(1),
         content_hash: fixtures::test_content_hash(),
-        tree_root_id: StructureNodeId::new(10),
+        tree_root_id: Some(StructureNodeId::new(10)),
         tree_nodes: vec![fixtures::tree_root_node(StructureNodeId::new(10))],
         chunks: vec![RegisterChunkInput {
+            source_span: maestria_domain::SourceSpan::TextSpan {
+                start_line: 1,
+                end_line: 1,
+            },
+            representations: vec![],
             chunk_id: ChunkId::new(10),
             artifact_id: ArtifactId::new(1),
             node_id: StructureNodeId::new(10),
@@ -446,6 +529,7 @@ fn full_ingestion_flow_with_parser_started() -> Result<(), DomainError> {
     assert!(output.events.iter().any(|e| matches!(
         e.event,
         DomainEvent::ArtifactParsed {
+            status: _,
             artifact_id: ArtifactId(1),
             ..
         }
@@ -495,12 +579,18 @@ fn parser_completed_resume_with_artifact_registered_restores_pending_index()
 
     // Act: ParserCompleted on resume.
     let output = state.apply_input(DomainInput::ParserCompleted(ParserResult {
+        status: maestria_domain::ParseStatus::Parsed,
         artifact_id: ArtifactId::new(1),
         artifact_version_id: ArtifactVersionId::new(1),
         content_hash: fixtures::test_content_hash(),
-        tree_root_id: StructureNodeId::new(10),
+        tree_root_id: Some(StructureNodeId::new(10)),
         tree_nodes: vec![fixtures::tree_root_node(StructureNodeId::new(10))],
         chunks: vec![RegisterChunkInput {
+            source_span: maestria_domain::SourceSpan::TextSpan {
+                start_line: 1,
+                end_line: 1,
+            },
+            representations: vec![],
             chunk_id: ChunkId::new(10),
             artifact_id: ArtifactId::new(1),
             node_id: StructureNodeId::new(10),
@@ -540,6 +630,7 @@ fn parser_completed_resume_with_artifact_registered_restores_pending_index()
         matches!(
             e.event,
             DomainEvent::ArtifactParsed {
+                status: _,
                 chunks_added: 1,
                 ..
             }
@@ -602,12 +693,18 @@ fn parser_completed_resume_pending_same_hash_is_idempotent() -> Result<(), Domai
 
     // Act: ParserCompleted retry.
     let result = ParserResult {
+        status: maestria_domain::ParseStatus::Parsed,
         artifact_id: ArtifactId::new(1),
         artifact_version_id: ArtifactVersionId::new(1),
         content_hash: fixtures::test_content_hash(),
-        tree_root_id: StructureNodeId::new(10),
+        tree_root_id: Some(StructureNodeId::new(10)),
         tree_nodes: vec![fixtures::tree_root_node(StructureNodeId::new(10))],
         chunks: vec![RegisterChunkInput {
+            source_span: maestria_domain::SourceSpan::TextSpan {
+                start_line: 1,
+                end_line: 1,
+            },
+            representations: vec![],
             chunk_id: ChunkId::new(10),
             artifact_id: ArtifactId::new(1),
             node_id: StructureNodeId::new(10),
@@ -634,7 +731,7 @@ fn parser_completed_resume_pending_same_hash_is_idempotent() -> Result<(), Domai
     let has_parsed = output
         .events
         .iter()
-        .any(|e| matches!(e.event, DomainEvent::ArtifactParsed { .. }));
+        .any(|e| matches!(e.event, DomainEvent::ArtifactParsed { status: _, .. }));
     assert!(has_parsed, "ArtifactParsed still emitted");
 
     // Assert: pending_parsers retained (cleared only at ArtifactIndexed).
@@ -655,10 +752,11 @@ fn parser_completed_first_zero_output_emits_artifact_parsed() -> Result<(), Doma
 
     // First parse with zero chunks/cards must still emit ArtifactParsed.
     let output = state.apply_input(DomainInput::ParserCompleted(ParserResult {
+        status: maestria_domain::ParseStatus::Parsed,
         artifact_id: ArtifactId::new(1),
         artifact_version_id: ArtifactVersionId::new(1),
         content_hash: fixtures::test_content_hash(),
-        tree_root_id: StructureNodeId::new(0),
+        tree_root_id: Some(StructureNodeId::new(0)),
         tree_nodes: vec![fixtures::tree_root_node(StructureNodeId::new(0))],
         chunks: Vec::new(),
         cards: Vec::new(),
@@ -667,7 +765,7 @@ fn parser_completed_first_zero_output_emits_artifact_parsed() -> Result<(), Doma
     let parsed_count = output
         .events
         .iter()
-        .filter(|e| matches!(e.event, DomainEvent::ArtifactParsed { .. }))
+        .filter(|e| matches!(e.event, DomainEvent::ArtifactParsed { status: _, .. }))
         .count();
     assert_eq!(
         parsed_count, 1,
@@ -685,10 +783,11 @@ fn parser_completed_duplicate_zero_output_suppresses_artifact_parsed() -> Result
     }))?;
 
     let empty_result = ParserResult {
+        status: maestria_domain::ParseStatus::Parsed,
         artifact_id: ArtifactId::new(1),
         artifact_version_id: ArtifactVersionId::new(1),
         content_hash: fixtures::test_content_hash(),
-        tree_root_id: StructureNodeId::new(0),
+        tree_root_id: Some(StructureNodeId::new(0)),
         tree_nodes: vec![fixtures::tree_root_node(StructureNodeId::new(0))],
         chunks: Vec::new(),
         cards: Vec::new(),
@@ -700,7 +799,7 @@ fn parser_completed_duplicate_zero_output_suppresses_artifact_parsed() -> Result
         output1
             .events
             .iter()
-            .any(|e| matches!(e.event, DomainEvent::ArtifactParsed { .. }))
+            .any(|e| matches!(e.event, DomainEvent::ArtifactParsed { status: _, .. }))
     );
 
     // Second parse with same zero data — must suppress duplicate ArtifactParsed.
@@ -708,7 +807,7 @@ fn parser_completed_duplicate_zero_output_suppresses_artifact_parsed() -> Result
     let parsed2 = output2
         .events
         .iter()
-        .filter(|e| matches!(e.event, DomainEvent::ArtifactParsed { .. }))
+        .filter(|e| matches!(e.event, DomainEvent::ArtifactParsed { status: _, .. }))
         .count();
     assert_eq!(
         parsed2, 0,

@@ -16,8 +16,9 @@ pub fn sample_artifact(id: u64) -> Artifact {
         card_ids: Default::default(),
         claim_ids: Default::default(),
         evidence_ids: Default::default(),
-        index_status: Default::default(),
+        index_status: maestria_domain::IndexStatus::Unindexed,
         content_hash: None,
+        parse_status: None,
     }
 }
 
@@ -44,18 +45,36 @@ pub fn assert_chunk_repository_round_trip(repository: &impl ChunkRepository) {
         artifact_id: ArtifactId::new(1),
         order: 2,
         text: "second".to_string(),
+        node_id: maestria_domain::StructureNodeId::new(0),
+        source_span: maestria_domain::SourceSpan::TextSpan {
+            start_line: 1,
+            end_line: 2,
+        },
+        representations: vec![],
     };
     let second = Chunk {
         id: ChunkId::new(11),
         artifact_id: ArtifactId::new(1),
         order: 1,
         text: "first".to_string(),
+        node_id: maestria_domain::StructureNodeId::new(0),
+        source_span: maestria_domain::SourceSpan::TextSpan {
+            start_line: 1,
+            end_line: 2,
+        },
+        representations: vec![],
     };
     let unrelated = Chunk {
         id: ChunkId::new(12),
         artifact_id: ArtifactId::new(2),
         order: 0,
         text: "other".to_string(),
+        node_id: maestria_domain::StructureNodeId::new(0),
+        source_span: maestria_domain::SourceSpan::TextSpan {
+            start_line: 1,
+            end_line: 2,
+        },
+        representations: vec![],
     };
 
     repository.put(first.clone()).expect("first chunk put");
@@ -85,6 +104,11 @@ pub fn assert_card_repository_round_trip(repository: &impl CardRepository) {
         title: "bravo".to_string(),
         body: "body b".to_string(),
         claim_ids: [ClaimId::new(3), ClaimId::new(1)].into(),
+        node_id: maestria_domain::StructureNodeId::new(0),
+        source_span: maestria_domain::SourceSpan::TextSpan {
+            start_line: 1,
+            end_line: 2,
+        },
     };
     let second = Card {
         id: CardId::new(21),
@@ -92,6 +116,11 @@ pub fn assert_card_repository_round_trip(repository: &impl CardRepository) {
         title: "alpha".to_string(),
         body: "body a".to_string(),
         claim_ids: Default::default(),
+        node_id: maestria_domain::StructureNodeId::new(0),
+        source_span: maestria_domain::SourceSpan::TextSpan {
+            start_line: 1,
+            end_line: 2,
+        },
     };
     let unrelated = Card {
         id: CardId::new(22),
@@ -99,6 +128,11 @@ pub fn assert_card_repository_round_trip(repository: &impl CardRepository) {
         title: "other".to_string(),
         body: "body".to_string(),
         claim_ids: Default::default(),
+        node_id: maestria_domain::StructureNodeId::new(0),
+        source_span: maestria_domain::SourceSpan::TextSpan {
+            start_line: 1,
+            end_line: 2,
+        },
     };
 
     repository.put(first.clone()).expect("first card put");

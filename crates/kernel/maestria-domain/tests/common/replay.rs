@@ -12,10 +12,11 @@ fn sample_inputs() -> Vec<DomainInput> {
             content_hash: "sha256:abc".to_string(),
         }),
         DomainInput::ParserCompleted(ParserResult {
+            status: maestria_domain::ParseStatus::Parsed,
             artifact_id: ArtifactId::new(1),
             artifact_version_id: ArtifactVersionId::new(1),
             content_hash: ContentHash::new("sha256:".to_owned() + &"0".repeat(64)).unwrap(),
-            tree_root_id: StructureNodeId::new(10),
+            tree_root_id: Some(StructureNodeId::new(10)),
             tree_nodes: vec![StructureNode {
                 id: StructureNodeId::new(10),
                 parent_id: None,
@@ -30,6 +31,11 @@ fn sample_inputs() -> Vec<DomainInput> {
             }],
             chunks: vec![
                 RegisterChunkInput {
+                    source_span: maestria_domain::SourceSpan::TextSpan {
+                        start_line: 1,
+                        end_line: 1,
+                    },
+                    representations: vec![],
                     chunk_id: ChunkId::new(10),
                     artifact_id: ArtifactId::new(1),
                     node_id: StructureNodeId::new(10),
@@ -37,6 +43,11 @@ fn sample_inputs() -> Vec<DomainInput> {
                     text: "first chunk".to_string(),
                 },
                 RegisterChunkInput {
+                    source_span: maestria_domain::SourceSpan::TextSpan {
+                        start_line: 1,
+                        end_line: 1,
+                    },
+                    representations: vec![],
                     chunk_id: ChunkId::new(11),
                     artifact_id: ArtifactId::new(1),
                     node_id: StructureNodeId::new(11),
@@ -53,6 +64,11 @@ fn sample_inputs() -> Vec<DomainInput> {
             evidence_ids: Vec::new(),
         }),
         DomainInput::CreateCard(CreateCardInput {
+            node_id: maestria_domain::StructureNodeId::new(1),
+            source_span: maestria_domain::SourceSpan::TextSpan {
+                start_line: 1,
+                end_line: 1,
+            },
             card_id: CardId::new(30),
             artifact_id: ArtifactId::new(1),
             title: "Summary".to_string(),

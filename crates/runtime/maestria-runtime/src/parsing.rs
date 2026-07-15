@@ -1,4 +1,5 @@
 use crate::config::EffectExecutionContext;
+use crate::parser_mapping::{domain_parse_status, domain_representation, domain_source_span};
 use crate::persistence::wait_for_parser_started_persistence;
 use maestria_domain::{
     Artifact, ArtifactId, BlobId, ContentRange, DomainInput, EvidenceKind, LogicalTick,
@@ -103,6 +104,7 @@ impl EffectExecutionContext {
                         evidence_ids: BTreeSet::new(),
                         index_status: maestria_domain::IndexStatus::default(),
                         content_hash: None,
+                        parse_status: None,
                     })
                 }
             }
@@ -262,75 +264,115 @@ impl EffectExecutionContext {
             .parse(file, ParseContext { artifact_id })
         {
             Ok(parsed) => {
-                if parsed.status != maestria_ports::ParseStatus::Parsed {
+                let parser_status = parsed.status;
+                let indexable = parser_status == maestria_ports::ParseStatus::Parsed;
+                let status = domain_parse_status(parser_status.clone());
+                if !indexable {
                     tracing::warn!(
                         artifact_id = %artifact_id.value(),
-                        status = ?parsed.status,
+                        status = ?parser_status,
                         "parser returned a non-indexable status"
                     );
-                    return false;
                 }
                 let observed_at = LogicalTick::new(1);
 
-                // Collect evidence inputs and chunk registrations in a single pass.
                 let mut evidence_inputs: Vec<RecordEvidenceInput> = Vec::new();
                 let mut chunks: Vec<RegisterChunkInput> = Vec::new();
-                for (order, chunk) in parsed.chunks.iter().enumerate() {
-                    let evidence_id = evidence_id_for(artifact_id, order as u32);
-                    let excerpt = excerpt_for(&chunk.text);
-                    let kind = match &chunk.source_span {
-                        SourceSpan::TextSpan {
-                            start_line,
-                            end_line,
-                        } => EvidenceKind::FileSpan {
-                            path: request.source_path.clone(),
-                            range: ContentRange {
-                                start: *start_line,
-                                end: *end_line,
+                if indexable {
+                    for (order, chunk) in parsed.chunks.iter().enumerate() {
+                        let evidence_id = evidence_id_for(artifact_id, order as u32);
+                        let excerpt = excerpt_for(&chunk.text);
+                        let kind = match &chunk.source_span {
+                            SourceSpan::TextSpan {
+                                start_line,
+                                end_line,
+                            } => EvidenceKind::FileSpan {
+                                path: request.source_path.clone(),
+                                range: ContentRange {
+                                    start: *start_line,
+                                    end: *end_line,
+                                },
+                                content_hash: source_hash.clone(),
+                                snapshot: Some(blob_id),
                             },
-                            content_hash: source_hash.clone(),
-                            snapshot: Some(blob_id),
-                        },
-                        SourceSpan::PdfSpan { page } => EvidenceKind::PdfSpan {
-                            blob: blob_id,
-                            page_start: *page as u32,
-                            page_end: *page as u32,
-                        },
-                    };
-                    evidence_inputs.push(RecordEvidenceInput {
-                        evidence_id,
-                        artifact_id,
-                        claim_id: None,
-                        kind,
-                        excerpt,
-                        observed_at,
-                    });
-                    chunks.push(RegisterChunkInput {
-                        chunk_id: chunk.chunk_id,
-                        artifact_id: chunk.artifact_id,
-                        node_id: chunk.node_id,
-                        order: (order.min(u32::MAX as usize)) as u32,
-                        text: chunk.text.clone(),
-                    });
+                            SourceSpan::PdfSpan { page } => {
+                                let page = match u32::try_from(*page) {
+                                    Ok(page) => page,
+                                    Err(_) => {
+                                        tracing::error!(
+                                            artifact_id = %artifact_id,
+                                            page = *page,
+                                            "parser PDF page exceeds domain evidence range"
+                                        );
+                                        return false;
+                                    }
+                                };
+                                EvidenceKind::PdfSpan {
+                                    blob: blob_id,
+                                    page_start: page,
+                                    page_end: page,
+                                }
+                            }
+                        };
+                        evidence_inputs.push(RecordEvidenceInput {
+                            evidence_id,
+                            artifact_id,
+                            claim_id: None,
+                            kind,
+                            excerpt,
+                            observed_at,
+                        });
+                        chunks.push(RegisterChunkInput {
+                            chunk_id: chunk.chunk_id,
+                            artifact_id: chunk.artifact_id,
+                            node_id: chunk.node_id,
+                            source_span: domain_source_span(&chunk.source_span),
+                            representations: chunk
+                                .representations
+                                .iter()
+                                .map(domain_representation)
+                                .collect(),
+                            order: (order.min(u32::MAX as usize)) as u32,
+                            text: chunk.text.clone(),
+                        });
+                    }
+                } else if !parsed.chunks.is_empty() || !parsed.cards.is_empty() {
+                    tracing::error!(
+                        artifact_id = %artifact_id.value(),
+                        "non-indexable parser result contains indexable records"
+                    );
+                    return false;
                 }
-                let cards = parsed
-                    .cards
-                    .into_iter()
-                    .map(|parsed_card| parsed_card.card)
-                    .collect();
-                // Send ParserCompleted first so the domain handler commits the artifact
-                // (including ArtifactRegistered / PendingIndex) before evidence arrives.
-                // Evidence inputs follow after the artifact is guaranteed to exist in
-                // domain state. After evidence is persisted, StartFullTextIndex triggers
-                // full-text indexing via the domain's deferred gate.
+                let cards = if indexable {
+                    parsed
+                        .cards
+                        .into_iter()
+                        .map(|parsed_card| {
+                            let mut card = parsed_card.card;
+                            card.node_id = parsed_card.node_id;
+                            card.source_span = domain_source_span(&parsed_card.source_span);
+                            card
+                        })
+                        .collect()
+                } else {
+                    Vec::new()
+                };
+                let parser_artifact_id = parsed.artifact_id;
+                let tree_root_id = indexable.then_some(parsed.tree.root_id);
+                let tree_nodes = if indexable {
+                    parsed.tree.nodes
+                } else {
+                    Vec::new()
+                };
                 if Self::send_input(
                     &self.input_tx,
                     DomainInput::ParserCompleted(ParserResult {
-                        artifact_id: parsed.artifact_id,
+                        artifact_id: parser_artifact_id,
                         artifact_version_id: parsed.artifact_version_id,
                         content_hash: parsed.content_hash,
-                        tree_root_id: parsed.tree.root_id,
-                        tree_nodes: parsed.tree.nodes,
+                        status,
+                        tree_root_id,
+                        tree_nodes,
                         chunks,
                         cards,
                     }),
@@ -339,6 +381,10 @@ impl EffectExecutionContext {
                 .is_err()
                 {
                     return false;
+                }
+
+                if !indexable {
+                    return true;
                 }
 
                 for evidence in evidence_inputs {
@@ -356,7 +402,7 @@ impl EffectExecutionContext {
                 if Self::send_input(
                     &self.input_tx,
                     DomainInput::StartFullTextIndex(StartFullTextIndex {
-                        artifact_id: parsed.artifact_id,
+                        artifact_id: parser_artifact_id,
                     }),
                     "start full-text index",
                 )

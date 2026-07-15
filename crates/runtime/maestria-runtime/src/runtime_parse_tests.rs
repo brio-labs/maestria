@@ -24,6 +24,7 @@ async fn parse_artifact_passes_exact_source_path_and_bytes() {
             evidence_ids: BTreeSet::new(),
             index_status: IndexStatus::Unindexed,
             content_hash: None,
+            parse_status: None,
         })
         .expect("pre-populated artifact should be accepted");
 
@@ -121,9 +122,9 @@ async fn parse_artifact_empty_bytes_returns_failure() {
             evidence_ids: BTreeSet::new(),
             index_status: IndexStatus::Unindexed,
             content_hash: None,
+            parse_status: None,
         })
         .expect("pre-populated artifact should be accepted");
-
     let adapters = Adapters {
         artifact_repo: Arc::new(artifact_repo),
         ..crate::test_helpers::test_adapters()
@@ -151,7 +152,6 @@ async fn parse_artifact_empty_bytes_returns_failure() {
 
     assert!(!result, "ParseArtifact with empty bytes should fail");
 }
-
 #[tokio::test]
 async fn parse_artifact_unsupported_parser_returns_failure() {
     struct RejectingParser;
@@ -172,7 +172,6 @@ async fn parse_artifact_unsupported_parser_returns_failure() {
             })
         }
     }
-
     let artifact_repo = InMemoryArtifactRepository::new();
     artifact_repo
         .put(Artifact {
@@ -184,12 +183,11 @@ async fn parse_artifact_unsupported_parser_returns_failure() {
             evidence_ids: BTreeSet::new(),
             index_status: IndexStatus::Unindexed,
             content_hash: None,
+            parse_status: None,
         })
         .expect("pre-populated artifact should be accepted");
-
     let adapters = Adapters {
         parser: Arc::new(RejectingParser),
-        artifact_repo: Arc::new(artifact_repo),
         ..crate::test_helpers::test_adapters()
     };
     let governance = crate::test_helpers::test_governance();

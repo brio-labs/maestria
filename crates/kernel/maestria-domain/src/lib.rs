@@ -29,6 +29,6 @@ pub use crate::ids::*;
 pub use crate::inputs::*;
 pub use crate::kernel_state::*;
 
+pub use crate::provenance::*;
 pub use crate::search::*;
-pub use provenance::{content_hash, evidence_id_for, excerpt_for, line_range_for_chunk};
 pub use replay::{replay_events, replay_inputs};

@@ -7,10 +7,12 @@ mod approval_migration;
 use approval_migration::*;
 mod supervision_migration;
 use supervision_migration::*;
+mod provenance_migration;
+use provenance_migration::*;
 
 use crate::schema_validation::*;
 /// Current storage schema version supported by this adapter.
-pub(crate) const CURRENT_SCHEMA_VERSION: i64 = 6;
+pub(crate) const CURRENT_SCHEMA_VERSION: i64 = 7;
 
 /// Captures the pre-migration state of the database.
 struct SchemaState {
@@ -62,7 +64,8 @@ const BASE_SCHEMA_SQL: &str = "PRAGMA foreign_keys = ON;
          id INTEGER NOT NULL PRIMARY KEY,
          title TEXT NOT NULL,
          content_hash TEXT,
-         index_status TEXT NOT NULL DEFAULT 'unindexed'
+         index_status TEXT NOT NULL DEFAULT 'unindexed',
+         parse_status TEXT
      );
      CREATE TABLE IF NOT EXISTS artifact_chunks (
          artifact_id INTEGER NOT NULL,
@@ -92,7 +95,10 @@ const BASE_SCHEMA_SQL: &str = "PRAGMA foreign_keys = ON;
          id INTEGER NOT NULL PRIMARY KEY,
          artifact_id INTEGER NOT NULL,
          chunk_order INTEGER NOT NULL,
-         text TEXT NOT NULL
+         text TEXT NOT NULL,
+         node_id INTEGER,
+         source_span_json TEXT,
+         representations_json TEXT
      );
      CREATE INDEX IF NOT EXISTS idx_chunks_artifact_order
          ON chunks(artifact_id, chunk_order, id);
@@ -100,7 +106,9 @@ const BASE_SCHEMA_SQL: &str = "PRAGMA foreign_keys = ON;
          id INTEGER NOT NULL PRIMARY KEY,
          artifact_id INTEGER NOT NULL,
          title TEXT NOT NULL,
-         body TEXT NOT NULL
+         body TEXT NOT NULL,
+         node_id INTEGER,
+         source_span_json TEXT
      );
      CREATE INDEX IF NOT EXISTS idx_cards_artifact
          ON cards(artifact_id, id);
@@ -382,45 +390,6 @@ fn migrate_from_v4(connection: &Connection, state: &SchemaState) -> Result<(), P
     Ok(())
 }
 
-/// Validates that a database already at v6 conforms to the expected tables.
-fn validate_at_v6(connection: &Connection, state: &SchemaState) -> Result<(), PortError> {
-    if !state.had_domain_events_table {
-        return Err(PortError::Internal {
-            message: "malformed sqlite schema: domain_events table missing".to_string(),
-        });
-    }
-    if state.had_payload_version_column {
-        validate_columns(connection, &DOMAIN_EVENTS_V2_COLUMNS)?;
-    } else {
-        return Err(PortError::Internal {
-            message: "malformed sqlite schema: missing payload_version column".to_string(),
-        });
-    }
-    if !table_has_column(connection, "artifacts", "content_hash")? {
-        return Err(PortError::Internal {
-            message: "malformed sqlite schema: artifacts table missing content_hash column"
-                .to_string(),
-        });
-    }
-    if !table_has_column(connection, "artifacts", "index_status")? {
-        return Err(PortError::Internal {
-            message: "malformed sqlite schema: artifacts table missing index_status column"
-                .to_string(),
-        });
-    }
-    if !table_exists(connection, "approval_requests")? {
-        return Err(PortError::Internal {
-            message: "malformed sqlite schema: approval_requests table missing".to_string(),
-        });
-    }
-    if !table_exists(connection, "effect_journal")? {
-        return Err(PortError::Internal {
-            message: "malformed sqlite schema: effect_journal table missing".to_string(),
-        });
-    }
-    Ok(())
-}
-
 fn finalize_migration(transaction: rusqlite::Transaction) -> Result<(), PortError> {
     validate_domain_events_schema(&transaction)?;
     validate_event_order(&transaction)?;
@@ -437,13 +406,16 @@ pub(crate) fn migrate(connection: &mut Connection) -> Result<(), PortError> {
     create_base_schema(&transaction)?;
     seed_id_counters(&transaction)?;
 
+    ensure_provenance_v7_columns(&transaction)?;
+
     match state.version {
         Some(1) => migrate_from_v1(&transaction, &state)?,
         Some(2) => migrate_from_v2(&transaction, &state)?,
         Some(3) => migrate_from_v3(&transaction, &state)?,
         Some(4) => migrate_from_v4(&transaction, &state)?,
         Some(5) => migrate_from_v5(&transaction, &state)?,
-        Some(6) => validate_at_v6(&transaction, &state)?,
+        Some(6) => migrate_from_v6(&transaction, &state)?,
+        Some(7) => validate_at_v7(&transaction, &state)?,
         Some(version) => {
             return Err(PortError::Internal {
                 message: format!(

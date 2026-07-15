@@ -37,6 +37,7 @@ async fn resume_parse_uses_existing_blob_and_skips_storage() {
             evidence_ids: BTreeSet::new(),
             index_status: IndexStatus::Unindexed,
             content_hash: None,
+            parse_status: None,
         })
         .expect("pre-populated artifact should be accepted");
 
@@ -117,6 +118,7 @@ async fn resume_parse_missing_blob_returns_failure() {
             evidence_ids: BTreeSet::new(),
             index_status: IndexStatus::Unindexed,
             content_hash: None,
+            parse_status: None,
         })
         .expect("pre-populated artifact should be accepted");
 
@@ -184,6 +186,7 @@ async fn fresh_parse_sends_parser_started_with_correct_blob_identity() {
             evidence_ids: BTreeSet::new(),
             index_status: IndexStatus::Unindexed,
             content_hash: None,
+            parse_status: None,
         })
         .expect("pre-populated artifact should be accepted");
 
@@ -361,6 +364,7 @@ async fn resume_sends_record_evidence_when_evidence_already_in_state() {
             evidence_ids: BTreeSet::new(),
             index_status: IndexStatus::Unindexed,
             content_hash: None,
+            parse_status: None,
         })
         .expect("pre-populated artifact should be accepted");
 

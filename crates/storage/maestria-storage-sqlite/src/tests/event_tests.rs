@@ -27,6 +27,12 @@ fn event_append_scan_order_and_filter() {
             artifact_id: ArtifactId::new(7),
             order: 0,
             text: "chunk".to_string(),
+            node_id: maestria_domain::StructureNodeId::new(0),
+            source_span: maestria_domain::SourceSpan::TextSpan {
+                start_line: 1,
+                end_line: 2,
+            },
+            representations: vec![],
         },
     };
     let out_of_order = DomainEventEnvelope {

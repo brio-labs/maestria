@@ -18,6 +18,7 @@ pub(super) fn artifact(id: u64) -> Artifact {
         claim_ids: BTreeSet::new(),
         evidence_ids: BTreeSet::new(),
         index_status: IndexStatus::default(),
+        parse_status: None,
         content_hash: None,
     }
 }

@@ -17,6 +17,11 @@ fn test_replay_artifact_chunk_card_evidence() -> Result<(), DomainError> {
     }))?;
 
     state.apply_input(DomainInput::RegisterChunk(RegisterChunkInput {
+        source_span: maestria_domain::SourceSpan::TextSpan {
+            start_line: 1,
+            end_line: 1,
+        },
+        representations: vec![],
         chunk_id,
         artifact_id: art_id,
         node_id: StructureNodeId::new(1),
@@ -25,6 +30,11 @@ fn test_replay_artifact_chunk_card_evidence() -> Result<(), DomainError> {
     }))?;
 
     state.apply_input(DomainInput::CreateCard(CreateCardInput {
+        node_id: maestria_domain::StructureNodeId::new(1),
+        source_span: maestria_domain::SourceSpan::TextSpan {
+            start_line: 1,
+            end_line: 1,
+        },
         card_id,
         artifact_id: art_id,
         title: "card title".to_string(),
@@ -81,6 +91,12 @@ fn test_replay_duplicate_rejection() -> Result<(), DomainError> {
         id: EventId::new(2),
         sequence: SequenceNumber::new(2),
         event: DomainEvent::ChunkRegistered {
+            node_id: maestria_domain::StructureNodeId::new(1),
+            source_span: maestria_domain::SourceSpan::TextSpan {
+                start_line: 1,
+                end_line: 1,
+            },
+            representations: vec![],
             chunk_id: ChunkId::new(1),
             artifact_id: art_id,
             order: 1,

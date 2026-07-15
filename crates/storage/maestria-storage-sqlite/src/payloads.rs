@@ -25,6 +25,13 @@ pub(crate) mod memory_event_payloads;
 #[path = "misc_event_payloads.rs"]
 pub(crate) mod misc_event_payloads;
 
+#[path = "provenance_payloads.rs"]
+pub(crate) mod provenance_payloads;
+
+pub(crate) use provenance_payloads::{
+    StoredParseStatus, StoredParsedRepresentation, StoredSourceSpan, default_status_parsed,
+};
+
 pub(crate) use event_payloads::StoredEventPayload;
 pub(crate) use evidence_payloads::StoredEvidenceKind;
 pub(crate) use legacy_payloads::LegacyStoredEventPayload;

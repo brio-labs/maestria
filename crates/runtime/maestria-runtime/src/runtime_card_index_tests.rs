@@ -1,5 +1,8 @@
 use super::test_support::*;
-use maestria_domain::{ArtifactId, Card, CardId, Chunk, ChunkId, KernelState, MaestriaEffect};
+use maestria_domain::{
+    ArtifactId, Card, CardId, Chunk, ChunkId, KernelState, MaestriaEffect, SourceSpan,
+    StructureNodeId,
+};
 use maestria_ports::{FullTextIndex, InMemoryFullTextIndex, SearchQuery};
 use std::collections::BTreeSet;
 use std::sync::Arc;
@@ -14,12 +17,23 @@ async fn index_full_text_effect_indexes_cards_before_chunks() {
     let chunk = Chunk {
         id: chunk_id,
         artifact_id,
+        node_id: StructureNodeId::new(0),
+        source_span: SourceSpan::TextSpan {
+            start_line: 1,
+            end_line: 1,
+        },
+        representations: vec![],
         order: 0,
         text: "chunk text for indexing".into(),
     };
     let card = Card {
         id: card_id,
         artifact_id,
+        node_id: StructureNodeId::new(0),
+        source_span: SourceSpan::TextSpan {
+            start_line: 1,
+            end_line: 1,
+        },
         title: "indexed card title".into(),
         body: "indexed card body".into(),
         claim_ids: BTreeSet::new(),
@@ -86,6 +100,12 @@ async fn index_full_text_effect_no_cards_when_state_has_none() {
     let chunk = Chunk {
         id: chunk_id,
         artifact_id,
+        node_id: StructureNodeId::new(0),
+        source_span: SourceSpan::TextSpan {
+            start_line: 1,
+            end_line: 1,
+        },
+        representations: vec![],
         order: 0,
         text: "chunk without cards".into(),
     };
@@ -152,12 +172,23 @@ async fn index_full_text_effect_reindexing_is_idempotent() {
     let chunk = Chunk {
         id: chunk_id,
         artifact_id,
+        node_id: StructureNodeId::new(0),
+        source_span: SourceSpan::TextSpan {
+            start_line: 1,
+            end_line: 1,
+        },
+        representations: vec![],
         order: 0,
         text: "reindexed chunk".into(),
     };
     let card = Card {
         id: card_id,
         artifact_id,
+        node_id: StructureNodeId::new(0),
+        source_span: SourceSpan::TextSpan {
+            start_line: 1,
+            end_line: 1,
+        },
         title: "reindexed card".into(),
         body: "reindexed body".into(),
         claim_ids: BTreeSet::new(),

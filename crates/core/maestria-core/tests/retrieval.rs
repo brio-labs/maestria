@@ -3,7 +3,7 @@ use maestria_core::{
 };
 use maestria_domain::{
     Artifact, ArtifactId, Card, CardId, Chunk, ChunkId, Evidence, EvidenceId, EvidenceKind,
-    IndexStatus, Relation, RelationEndpoint, RelationId, RelationKind,
+    IndexStatus, Relation, RelationEndpoint, RelationId, RelationKind, SourceSpan, StructureNodeId,
 };
 use maestria_ports::{
     ArtifactRepository, BlobStore, CardRepository, ChunkRepository, EvidenceRepository,
@@ -217,10 +217,17 @@ fn seed_graph_artifact(
         evidence_ids: [evidence_id].into(),
         index_status: IndexStatus::Indexed,
         content_hash: Some(content_hash.to_string()),
+        parse_status: None,
     })?;
     chunks.put(Chunk {
         id: chunk_id,
         artifact_id,
+        node_id: StructureNodeId::new(0),
+        source_span: SourceSpan::TextSpan {
+            start_line: 1,
+            end_line: 1,
+        },
+        representations: vec![],
         order: 0,
         text: "token".to_string(),
     })?;
@@ -293,6 +300,7 @@ fn seed_file_evidence(
 /// `f` with the assembled `CoreServices` and seeded ids.  All repositories
 /// stay alive for the duration of the call so the borrowed `CoreServices`
 /// reference remains valid.
+#[allow(clippy::too_many_lines)]
 fn seed_with_status(
     status: IndexStatus,
     f: impl FnOnce(
@@ -326,6 +334,11 @@ fn seed_with_status(
     let card = Card {
         id: card_id,
         artifact_id,
+        node_id: StructureNodeId::new(0),
+        source_span: SourceSpan::TextSpan {
+            start_line: 1,
+            end_line: 1,
+        },
         title: "card-title summary".to_string(),
         body: "card body text".to_string(),
         claim_ids: Default::default(),
@@ -341,17 +354,30 @@ fn seed_with_status(
         evidence_ids: [evidence_id_0, evidence_id_1].into(),
         index_status: status,
         content_hash: None,
+        parse_status: None,
     })?;
 
     let chunk_0 = Chunk {
         id: chunk_id_0,
         artifact_id,
+        node_id: StructureNodeId::new(0),
+        source_span: SourceSpan::TextSpan {
+            start_line: 1,
+            end_line: 1,
+        },
+        representations: vec![],
         order: 0,
         text: "alpha-token paragraph.".to_string(),
     };
     let chunk_1 = Chunk {
         id: chunk_id_1,
         artifact_id,
+        node_id: StructureNodeId::new(0),
+        source_span: SourceSpan::TextSpan {
+            start_line: 1,
+            end_line: 1,
+        },
+        representations: vec![],
         order: 1,
         text: "beta-token paragraph.".to_string(),
     };
@@ -554,6 +580,7 @@ fn terminal_success_with_indexed_artifact() -> Result<(), Box<dyn std::error::Er
 }
 
 #[test]
+#[allow(clippy::too_many_lines)]
 fn vector_search_returns_grounded_nonliteral_match() -> Result<(), Box<dyn std::error::Error>> {
     let artifact_id = ArtifactId::new(800);
     let chunk_id = ChunkId::new(801);
@@ -579,10 +606,29 @@ fn vector_search_returns_grounded_nonliteral_match() -> Result<(), Box<dyn std::
         evidence_ids: [evidence_id].into(),
         index_status: IndexStatus::Indexed,
         content_hash: Some(maestria_core::content_hash(source.as_bytes())),
+        parse_status: None,
     })?;
     chunk_repo.put(Chunk {
         id: chunk_id,
         artifact_id,
+        node_id: StructureNodeId::new(0),
+        source_span: SourceSpan::TextSpan {
+            start_line: 1,
+            end_line: 1,
+        },
+        representations: vec![],
+        order: 0,
+        text: "semantic token".to_string(),
+    })?;
+    chunk_repo.put(Chunk {
+        id: chunk_id,
+        artifact_id,
+        node_id: StructureNodeId::new(0),
+        source_span: SourceSpan::TextSpan {
+            start_line: 1,
+            end_line: 1,
+        },
+        representations: vec![],
         order: 0,
         text: "semantic token".to_string(),
     })?;

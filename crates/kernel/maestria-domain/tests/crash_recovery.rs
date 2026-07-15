@@ -40,12 +40,18 @@ fn resume_after_crash_replays_and_completes() -> Result<(), DomainError> {
 
     // Parser completes — clean up pending_parsers and create artifact
     state.apply_input(DomainInput::ParserCompleted(ParserResult {
+        status: maestria_domain::ParseStatus::Parsed,
         artifact_id: ArtifactId::new(1),
         artifact_version_id: ArtifactVersionId::new(1),
         content_hash: fixtures::test_content_hash(),
-        tree_root_id: StructureNodeId::new(10),
+        tree_root_id: Some(StructureNodeId::new(10)),
         tree_nodes: vec![fixtures::tree_root_node(StructureNodeId::new(10))],
         chunks: vec![RegisterChunkInput {
+            source_span: maestria_domain::SourceSpan::TextSpan {
+                start_line: 1,
+                end_line: 1,
+            },
+            representations: vec![],
             chunk_id: ChunkId::new(10),
             artifact_id: ArtifactId::new(1),
             node_id: StructureNodeId::new(10),
@@ -89,12 +95,18 @@ fn parser_completed_cleanup_idempotent_on_resume_retry() -> Result<(), DomainErr
     }))?;
 
     let result = ParserResult {
+        status: maestria_domain::ParseStatus::Parsed,
         artifact_id: ArtifactId::new(1),
         artifact_version_id: ArtifactVersionId::new(1),
         content_hash: fixtures::test_content_hash(),
-        tree_root_id: StructureNodeId::new(10),
+        tree_root_id: Some(StructureNodeId::new(10)),
         tree_nodes: vec![fixtures::tree_root_node(StructureNodeId::new(10))],
         chunks: vec![RegisterChunkInput {
+            source_span: maestria_domain::SourceSpan::TextSpan {
+                start_line: 1,
+                end_line: 1,
+            },
+            representations: vec![],
             chunk_id: ChunkId::new(10),
             artifact_id: ArtifactId::new(1),
             node_id: StructureNodeId::new(10),
@@ -147,6 +159,11 @@ fn crash_before_evidence_pending_parsers_survives_for_resume() -> Result<(), Dom
     }))?;
 
     let chunk_input = RegisterChunkInput {
+        source_span: maestria_domain::SourceSpan::TextSpan {
+            start_line: 1,
+            end_line: 1,
+        },
+        representations: vec![],
         chunk_id: ChunkId::new(10),
         artifact_id: ArtifactId::new(1),
         node_id: StructureNodeId::new(10),
@@ -154,6 +171,11 @@ fn crash_before_evidence_pending_parsers_survives_for_resume() -> Result<(), Dom
         text: "hello".to_string(),
     };
     let card_input = CreateCardInput {
+        node_id: maestria_domain::StructureNodeId::new(10),
+        source_span: maestria_domain::SourceSpan::TextSpan {
+            start_line: 1,
+            end_line: 1,
+        },
         card_id: CardId::new(20),
         artifact_id: ArtifactId::new(1),
         title: "Summary".to_string(),
@@ -161,10 +183,11 @@ fn crash_before_evidence_pending_parsers_survives_for_resume() -> Result<(), Dom
     };
 
     state.apply_input(DomainInput::ParserCompleted(ParserResult {
+        status: maestria_domain::ParseStatus::Parsed,
         artifact_id: ArtifactId::new(1),
         artifact_version_id: ArtifactVersionId::new(1),
         content_hash: fixtures::test_content_hash(),
-        tree_root_id: StructureNodeId::new(10),
+        tree_root_id: Some(StructureNodeId::new(10)),
         tree_nodes: vec![fixtures::tree_root_node(StructureNodeId::new(10))],
         chunks: vec![chunk_input.clone()],
         cards: vec![card_input.clone()],
@@ -178,10 +201,11 @@ fn crash_before_evidence_pending_parsers_survives_for_resume() -> Result<(), Dom
 
     // Simulate resume: re-run identical ParserCompleted (idempotent).
     let output_resume = state.apply_input(DomainInput::ParserCompleted(ParserResult {
+        status: maestria_domain::ParseStatus::Parsed,
         artifact_id: ArtifactId::new(1),
         artifact_version_id: ArtifactVersionId::new(1),
         content_hash: fixtures::test_content_hash(),
-        tree_root_id: StructureNodeId::new(10),
+        tree_root_id: Some(StructureNodeId::new(10)),
         tree_nodes: vec![fixtures::tree_root_node(StructureNodeId::new(10))],
         chunks: vec![chunk_input],
         cards: vec![card_input],
@@ -191,7 +215,7 @@ fn crash_before_evidence_pending_parsers_survives_for_resume() -> Result<(), Dom
     let parsed_on_resume = output_resume
         .events
         .iter()
-        .filter(|e| matches!(e.event, DomainEvent::ArtifactParsed { .. }))
+        .filter(|e| matches!(e.event, DomainEvent::ArtifactParsed { status: _, .. }))
         .count();
     assert_eq!(
         parsed_on_resume, 0,
@@ -258,10 +282,11 @@ fn ingest_artifact_full(
         blob_id: setup.blob_id,
     }))?;
     let _ = state.apply_input(DomainInput::ParserCompleted(ParserResult {
+        status: maestria_domain::ParseStatus::Parsed,
         artifact_id: setup.art_id,
         artifact_version_id: ArtifactVersionId::new(setup.art_id.value()),
         content_hash: fixtures::test_content_hash(),
-        tree_root_id: StructureNodeId::new(10),
+        tree_root_id: Some(StructureNodeId::new(10)),
         tree_nodes: vec![fixtures::tree_root_node(StructureNodeId::new(10))],
         chunks: setup.chunks,
         cards: Vec::new(),
@@ -383,6 +408,11 @@ fn missing_evidence_keeps_artifact_pending_after_full_text_done() -> Result<(), 
             blob_id: BlobId::new(42),
             chunks: vec![
                 RegisterChunkInput {
+                    source_span: maestria_domain::SourceSpan::TextSpan {
+                        start_line: 1,
+                        end_line: 1,
+                    },
+                    representations: vec![],
                     chunk_id: ChunkId::new(10),
                     artifact_id: art_id,
                     node_id: StructureNodeId::new(10),
@@ -390,6 +420,11 @@ fn missing_evidence_keeps_artifact_pending_after_full_text_done() -> Result<(), 
                     text: "a".to_string(),
                 },
                 RegisterChunkInput {
+                    source_span: maestria_domain::SourceSpan::TextSpan {
+                        start_line: 1,
+                        end_line: 1,
+                    },
+                    representations: vec![],
                     chunk_id: ChunkId::new(11),
                     artifact_id: art_id,
                     node_id: StructureNodeId::new(11),

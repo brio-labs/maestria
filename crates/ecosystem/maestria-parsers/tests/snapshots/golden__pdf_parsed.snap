@@ -96,6 +96,12 @@ ParsedArtifact {
                 artifact_id: ArtifactId(
                     5,
                 ),
+                node_id: StructureNodeId(
+                    5000015,
+                ),
+                source_span: PdfSpan {
+                    page: 1,
+                },
                 title: "Hello PDF world.",
                 body: "Parsed 1 textual chunk from paper.pdf.",
             },

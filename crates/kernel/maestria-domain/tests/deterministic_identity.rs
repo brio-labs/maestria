@@ -28,12 +28,18 @@ fn malformed_deterministic_existing_replaced_by_valid_retry() -> Result<(), Doma
         blob_id: BlobId::new(42),
     }))?;
     state.apply_input(DomainInput::ParserCompleted(ParserResult {
+        status: maestria_domain::ParseStatus::Parsed,
         artifact_id: art_id,
         artifact_version_id: ArtifactVersionId::new(art_id.value()),
         content_hash: fixtures::test_content_hash(),
-        tree_root_id: StructureNodeId::new(10),
+        tree_root_id: Some(StructureNodeId::new(10)),
         tree_nodes: vec![fixtures::tree_root_node(StructureNodeId::new(10))],
         chunks: vec![RegisterChunkInput {
+            source_span: maestria_domain::SourceSpan::TextSpan {
+                start_line: 1,
+                end_line: 1,
+            },
+            representations: vec![],
             chunk_id: ChunkId::new(10),
             artifact_id: art_id,
             node_id: StructureNodeId::new(10),
@@ -117,12 +123,18 @@ fn valid_deterministic_duplicate_still_rejected() -> Result<(), DomainError> {
         blob_id: BlobId::new(42),
     }))?;
     state.apply_input(DomainInput::ParserCompleted(ParserResult {
+        status: maestria_domain::ParseStatus::Parsed,
         artifact_id: art_id,
         artifact_version_id: ArtifactVersionId::new(art_id.value()),
         content_hash: fixtures::test_content_hash(),
-        tree_root_id: StructureNodeId::new(10),
+        tree_root_id: Some(StructureNodeId::new(10)),
         tree_nodes: vec![fixtures::tree_root_node(StructureNodeId::new(10))],
         chunks: vec![RegisterChunkInput {
+            source_span: maestria_domain::SourceSpan::TextSpan {
+                start_line: 1,
+                end_line: 1,
+            },
+            representations: vec![],
             chunk_id: ChunkId::new(10),
             artifact_id: art_id,
             node_id: StructureNodeId::new(10),
@@ -193,12 +205,18 @@ fn deterministic_cross_owner_rejected() -> Result<(), DomainError> {
         blob_id: BlobId::new(1),
     }))?;
     state.apply_input(DomainInput::ParserCompleted(ParserResult {
+        status: maestria_domain::ParseStatus::Parsed,
         artifact_id: art_a,
         artifact_version_id: ArtifactVersionId::new(art_a.value()),
         content_hash: fixtures::test_content_hash(),
-        tree_root_id: StructureNodeId::new(10),
+        tree_root_id: Some(StructureNodeId::new(10)),
         tree_nodes: vec![fixtures::tree_root_node(StructureNodeId::new(10))],
         chunks: vec![RegisterChunkInput {
+            source_span: maestria_domain::SourceSpan::TextSpan {
+                start_line: 1,
+                end_line: 1,
+            },
+            representations: vec![],
             chunk_id: ChunkId::new(10),
             artifact_id: art_a,
             node_id: StructureNodeId::new(10),
@@ -258,12 +276,18 @@ fn malformed_deterministic_non_filespan_is_rejected_at_record() -> Result<(), Do
         blob_id: BlobId::new(42),
     }))?;
     state.apply_input(DomainInput::ParserCompleted(ParserResult {
+        status: maestria_domain::ParseStatus::Parsed,
         artifact_id: art_id,
         artifact_version_id: ArtifactVersionId::new(art_id.value()),
         content_hash: fixtures::test_content_hash(),
-        tree_root_id: StructureNodeId::new(10),
+        tree_root_id: Some(StructureNodeId::new(10)),
         tree_nodes: vec![fixtures::tree_root_node(StructureNodeId::new(10))],
         chunks: vec![RegisterChunkInput {
+            source_span: maestria_domain::SourceSpan::TextSpan {
+                start_line: 1,
+                end_line: 1,
+            },
+            representations: vec![],
             chunk_id: ChunkId::new(10),
             artifact_id: art_id,
             node_id: StructureNodeId::new(10),
@@ -322,12 +346,18 @@ fn malformed_deterministic_filespan_without_snapshot_is_rejected() -> Result<(),
         blob_id: BlobId::new(42),
     }))?;
     state.apply_input(DomainInput::ParserCompleted(ParserResult {
+        status: maestria_domain::ParseStatus::Parsed,
         artifact_id: art_id,
         artifact_version_id: ArtifactVersionId::new(art_id.value()),
         content_hash: fixtures::test_content_hash(),
-        tree_root_id: StructureNodeId::new(10),
+        tree_root_id: Some(StructureNodeId::new(10)),
         tree_nodes: vec![fixtures::tree_root_node(StructureNodeId::new(10))],
         chunks: vec![RegisterChunkInput {
+            source_span: maestria_domain::SourceSpan::TextSpan {
+                start_line: 1,
+                end_line: 1,
+            },
+            representations: vec![],
             chunk_id: ChunkId::new(10),
             artifact_id: art_id,
             node_id: StructureNodeId::new(10),
@@ -385,12 +415,18 @@ fn malformed_deterministic_wrong_content_hash_is_rejected() -> Result<(), Domain
         blob_id: BlobId::new(42),
     }))?;
     state.apply_input(DomainInput::ParserCompleted(ParserResult {
+        status: maestria_domain::ParseStatus::Parsed,
         artifact_id: art_id,
         artifact_version_id: ArtifactVersionId::new(art_id.value()),
         content_hash: fixtures::test_content_hash(),
-        tree_root_id: StructureNodeId::new(10),
+        tree_root_id: Some(StructureNodeId::new(10)),
         tree_nodes: vec![fixtures::tree_root_node(StructureNodeId::new(10))],
         chunks: vec![RegisterChunkInput {
+            source_span: maestria_domain::SourceSpan::TextSpan {
+                start_line: 1,
+                end_line: 1,
+            },
+            representations: vec![],
             chunk_id: ChunkId::new(10),
             artifact_id: art_id,
             node_id: StructureNodeId::new(10),
@@ -464,6 +500,7 @@ fn malformed_to_valid_replacement_events(
             id: EventId::new(4),
             sequence: SequenceNumber::new(4),
             event: DomainEvent::ArtifactParsed {
+                status: maestria_domain::ParseStatus::Parsed,
                 artifact_id: art_id,
                 chunks_added: 1,
             },
@@ -472,6 +509,12 @@ fn malformed_to_valid_replacement_events(
             id: EventId::new(5),
             sequence: SequenceNumber::new(5),
             event: DomainEvent::ChunkRegistered {
+                node_id: maestria_domain::StructureNodeId::new(1),
+                source_span: maestria_domain::SourceSpan::TextSpan {
+                    start_line: 1,
+                    end_line: 1,
+                },
+                representations: vec![],
                 chunk_id,
                 artifact_id: art_id,
                 order: 0,
@@ -587,6 +630,7 @@ fn replay_events_valid_duplicate_evidence_still_errors() -> Result<(), DomainErr
             id: EventId::new(4),
             sequence: SequenceNumber::new(4),
             event: DomainEvent::ArtifactParsed {
+                status: maestria_domain::ParseStatus::Parsed,
                 artifact_id: art_id,
                 chunks_added: 1,
             },
@@ -595,6 +639,12 @@ fn replay_events_valid_duplicate_evidence_still_errors() -> Result<(), DomainErr
             id: EventId::new(5),
             sequence: SequenceNumber::new(5),
             event: DomainEvent::ChunkRegistered {
+                node_id: maestria_domain::StructureNodeId::new(1),
+                source_span: maestria_domain::SourceSpan::TextSpan {
+                    start_line: 1,
+                    end_line: 1,
+                },
+                representations: vec![],
                 chunk_id,
                 artifact_id: art_id,
                 order: 0,

@@ -39,6 +39,7 @@ pub struct Artifact {
     pub evidence_ids: BTreeSet<EvidenceId>,
     pub index_status: IndexStatus,
     pub content_hash: Option<String>,
+    pub parse_status: Option<crate::provenance::ParseStatus>,
 }
 
 impl Artifact {
@@ -52,6 +53,7 @@ impl Artifact {
             evidence_ids: BTreeSet::new(),
             index_status: IndexStatus::default(),
             content_hash: None,
+            parse_status: None,
         }
     }
 }
@@ -67,15 +69,29 @@ pub struct PendingArtifact {
 pub struct Chunk {
     pub id: ChunkId,
     pub artifact_id: ArtifactId,
+    pub node_id: crate::ids::StructureNodeId,
+    pub source_span: crate::provenance::SourceSpan,
+    pub representations: Vec<crate::provenance::ParsedRepresentation>,
     pub order: u32,
     pub text: String,
 }
 
 impl Chunk {
-    pub(crate) fn new(id: ChunkId, artifact_id: ArtifactId, order: u32, text: String) -> Self {
+    pub(crate) fn new(
+        id: ChunkId,
+        artifact_id: ArtifactId,
+        node_id: crate::ids::StructureNodeId,
+        source_span: crate::provenance::SourceSpan,
+        representations: Vec<crate::provenance::ParsedRepresentation>,
+        order: u32,
+        text: String,
+    ) -> Self {
         Self {
             id,
             artifact_id,
+            node_id,
+            source_span,
+            representations,
             order,
             text,
         }
@@ -86,16 +102,27 @@ impl Chunk {
 pub struct Card {
     pub id: CardId,
     pub artifact_id: ArtifactId,
+    pub node_id: crate::ids::StructureNodeId,
+    pub source_span: crate::provenance::SourceSpan,
     pub title: String,
     pub body: String,
     pub claim_ids: BTreeSet<ClaimId>,
 }
 
 impl Card {
-    pub(crate) fn new(id: CardId, artifact_id: ArtifactId, title: String, body: String) -> Self {
+    pub(crate) fn new(
+        id: CardId,
+        artifact_id: ArtifactId,
+        node_id: crate::ids::StructureNodeId,
+        source_span: crate::provenance::SourceSpan,
+        title: String,
+        body: String,
+    ) -> Self {
         Self {
             id,
             artifact_id,
+            node_id,
+            source_span,
             title,
             body,
             claim_ids: BTreeSet::new(),

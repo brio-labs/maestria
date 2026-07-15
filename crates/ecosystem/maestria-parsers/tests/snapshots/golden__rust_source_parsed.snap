@@ -311,6 +311,13 @@ ParsedArtifact {
                 artifact_id: ArtifactId(
                     3,
                 ),
+                node_id: StructureNodeId(
+                    3000009,
+                ),
+                source_span: TextSpan {
+                    start_line: 1,
+                    end_line: 2,
+                },
                 title: "use std::fmt;",
                 body: "Parsed 5 textual chunks from lib.rs.",
             },

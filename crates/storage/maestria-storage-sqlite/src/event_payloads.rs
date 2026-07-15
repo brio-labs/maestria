@@ -16,12 +16,22 @@ pub(crate) enum StoredEventPayload {
     ChunkRegistered {
         chunk_id: u64,
         artifact_id: u64,
+        #[serde(default)]
+        node_id: u64,
+        #[serde(default)]
+        source_span: crate::payloads::StoredSourceSpan,
+        #[serde(default)]
+        representations: Vec<crate::payloads::StoredParsedRepresentation>,
         order: u32,
         text: String,
     },
     CardCreated {
         card_id: u64,
         artifact_id: u64,
+        #[serde(default)]
+        node_id: u64,
+        #[serde(default)]
+        source_span: crate::payloads::StoredSourceSpan,
         title: String,
         body: String,
     },
@@ -108,6 +118,8 @@ pub(crate) enum StoredEventPayload {
     },
     ArtifactParsed {
         artifact_id: u64,
+        #[serde(default = "crate::payloads::default_status_parsed")]
+        status: crate::payloads::StoredParseStatus,
         chunks_added: u32,
     },
     DocumentTreeCaptured {

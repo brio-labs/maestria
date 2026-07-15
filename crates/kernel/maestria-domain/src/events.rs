@@ -26,12 +26,17 @@ pub enum DomainEvent {
     ChunkRegistered {
         chunk_id: ChunkId,
         artifact_id: ArtifactId,
+        node_id: crate::ids::StructureNodeId,
+        source_span: crate::provenance::SourceSpan,
+        representations: Vec<crate::provenance::ParsedRepresentation>,
         order: u32,
         text: String,
     },
     CardCreated {
         card_id: CardId,
         artifact_id: ArtifactId,
+        node_id: crate::ids::StructureNodeId,
+        source_span: crate::provenance::SourceSpan,
         title: String,
         body: String,
     },
@@ -97,6 +102,7 @@ pub enum DomainEvent {
     },
     ArtifactParsed {
         artifact_id: ArtifactId,
+        status: crate::provenance::ParseStatus,
         chunks_added: u32,
     },
     DocumentTreeCaptured {

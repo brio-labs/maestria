@@ -139,6 +139,7 @@ impl EffectExecutionContext {
                 }
             }
             DomainEvent::PendingIndex { artifact_id, .. }
+            | DomainEvent::ArtifactParsed { artifact_id, .. }
             | DomainEvent::ArtifactIndexed { artifact_id } => {
                 let artifact = {
                     let state = self.state.read().await;
