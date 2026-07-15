@@ -3,6 +3,9 @@ use std::fmt;
 
 use crate::ContentRange;
 use crate::ids::*;
+#[path = "search_outcome.rs"]
+mod search_outcome;
+pub use search_outcome::*;
 
 /// Module-level invariants:
 /// - `ContentHash` always starts with a recognized algorithm prefix (e.g., `sha256:`).
@@ -23,6 +26,9 @@ pub enum SearchCompatibilityError {
     InvalidBudget(&'static str),
     InvalidContentHash(&'static str),
     InvalidFingerprint(&'static str),
+    InvalidSourceSpan(&'static str),
+    InvalidCoverage(&'static str),
+    InvalidModalitySet(&'static str),
 }
 
 impl fmt::Display for SearchCompatibilityError {
@@ -45,6 +51,9 @@ impl fmt::Display for SearchCompatibilityError {
             Self::InvalidFingerprint(msg) => {
                 write!(f, "Invalid retrieval model fingerprint: {}", msg)
             }
+            Self::InvalidSourceSpan(msg) => write!(f, "Invalid evidence span: {}", msg),
+            Self::InvalidCoverage(msg) => write!(f, "Invalid evidence coverage: {}", msg),
+            Self::InvalidModalitySet(msg) => write!(f, "Invalid modality set: {}", msg),
         }
     }
 }
@@ -206,10 +215,35 @@ pub enum SourceLocation {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(try_from = "EvidenceSpanDto")]
 pub struct EvidenceSpan {
     pub node_id: Option<StructureNodeId>,
     pub location: SourceLocation,
     pub range: ContentRange,
+}
+
+#[derive(Deserialize)]
+struct EvidenceSpanDto {
+    node_id: Option<StructureNodeId>,
+    location: SourceLocation,
+    range: ContentRange,
+}
+
+impl TryFrom<EvidenceSpanDto> for EvidenceSpan {
+    type Error = SearchCompatibilityError;
+
+    fn try_from(dto: EvidenceSpanDto) -> Result<Self, Self::Error> {
+        if dto.range.start > dto.range.end {
+            return Err(SearchCompatibilityError::InvalidSourceSpan(
+                "range start must not exceed range end",
+            ));
+        }
+        Ok(Self {
+            node_id: dto.node_id,
+            location: dto.location,
+            range: dto.range,
+        })
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -234,7 +268,7 @@ pub enum FreshnessRequirement {
     MaximumAgeDays(u32),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum Modality {
     Text,
     Image,
@@ -246,8 +280,38 @@ pub enum Modality {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(try_from = "ModalitySetDto")]
 pub struct ModalitySet {
-    pub values: Vec<Modality>,
+    values: Vec<Modality>,
+}
+
+#[derive(Deserialize)]
+struct ModalitySetDto {
+    values: Vec<Modality>,
+}
+
+impl TryFrom<ModalitySetDto> for ModalitySet {
+    type Error = SearchCompatibilityError;
+
+    fn try_from(dto: ModalitySetDto) -> Result<Self, Self::Error> {
+        let mut values = dto.values;
+        values.sort();
+        values.dedup();
+        Ok(Self { values })
+    }
+}
+
+impl ModalitySet {
+    pub fn new(values: Vec<Modality>) -> Self {
+        let mut values = values;
+        values.sort();
+        values.dedup();
+        Self { values }
+    }
+
+    pub fn values(&self) -> &[Modality] {
+        &self.values
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -332,95 +396,4 @@ pub struct SearchPlan {
     pub stop_conditions: StopConditions,
     pub evidence_requirements: EvidenceRequirements,
     pub fingerprint: RetrievalModelFingerprint,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct RetrievalScoreSet {
-    pub bm25: u32,
-    pub semantic_similarity: u32,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum TrustLabel {
-    Verified,
-    Unverified,
-    Disputed,
-    Deprecated,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum FreshnessStatus {
-    UpToDate,
-    Stale,
-    Unknown,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum RetrievalReason {
-    ExactMatch,
-    SemanticSimilarity,
-    CitationLink,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct EvidenceCandidate {
-    pub evidence_id: EvidenceId,
-    pub artifact_version: ArtifactVersionId,
-    pub source_span: EvidenceSpan,
-    pub scores: RetrievalScoreSet,
-    pub trust: TrustLabel,
-    pub freshness: FreshnessStatus,
-    pub duplicate_cluster: Option<DuplicateClusterId>,
-    pub reasons: Vec<RetrievalReason>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct EvidenceCoverage {
-    pub percent_covered: u8,
-    pub gaps_identified: Vec<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ConflictSet {
-    pub id: ConflictSetId,
-    pub candidates: Vec<EvidenceCandidate>,
-}
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum SearchStatus {
-    Success,
-    PartialResults,
-    Timeout,
-    ExhaustedBudget,
-    DeniedByPolicy,
-    QuarantinedForReview,
-    Abstained,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct SearchOutcome {
-    pub trace: SearchTraceId,
-    pub fingerprint: RetrievalModelFingerprint,
-    pub index_generation: IndexGenerationId,
-    pub status: SearchStatus,
-    pub evidence: Vec<EvidenceCandidate>,
-    pub coverage: EvidenceCoverage,
-    pub conflicts: Vec<ConflictSet>,
-}
-
-impl SearchOutcome {
-    pub fn verify_compatibility(&self, plan: &SearchPlan) -> Result<(), SearchCompatibilityError> {
-        if self.fingerprint != plan.fingerprint {
-            return Err(SearchCompatibilityError::ModelFingerprintMismatch {
-                expected: plan.fingerprint.clone(),
-                found: self.fingerprint.clone(),
-            });
-        }
-        if self.index_generation != plan.index_generation {
-            return Err(SearchCompatibilityError::IndexGenerationMismatch {
-                expected: plan.index_generation,
-                found: self.index_generation,
-            });
-        }
-        Ok(())
-    }
 }

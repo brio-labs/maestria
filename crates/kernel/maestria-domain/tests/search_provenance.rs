@@ -17,9 +17,7 @@ fn plan() -> SearchPlan {
         corpus_snapshot: CorpusSnapshotId::new(11),
         index_generation: IndexGenerationId::new(13),
         freshness: FreshnessRequirement::MaximumAgeDays(30),
-        modalities: ModalitySet {
-            values: vec![Modality::Text, Modality::Code],
-        },
+        modalities: ModalitySet::new(vec![Modality::Code, Modality::Text, Modality::Text]),
         stages: vec![SearchStage::InitialRetrieval, SearchStage::Reranking],
         budgets: SearchBudget::new(2_000, 5_000).expect("valid budget"),
         stop_conditions: StopConditions {
@@ -160,4 +158,17 @@ fn invalid_budget_and_content_hash_are_typed_errors() {
         RetrievalModelFingerprint::new("  ".to_owned()),
         Err(SearchCompatibilityError::InvalidFingerprint(_))
     ));
+}
+
+#[test]
+fn serde_rejects_invalid_spans_and_coverage() {
+    let invalid_span = r#"{
+        "node_id": null,
+        "location": {"File": {"path": "notes.md", "start_line": 4, "end_line": 3}},
+        "range": {"start": 8, "end": 2}
+    }"#;
+    assert!(serde_json::from_str::<EvidenceSpan>(invalid_span).is_err());
+
+    let invalid_coverage = r#"{"percent_covered":101,"gaps_identified":[]}"#;
+    assert!(serde_json::from_str::<EvidenceCoverage>(invalid_coverage).is_err());
 }
