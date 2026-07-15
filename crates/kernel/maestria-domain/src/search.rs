@@ -248,11 +248,17 @@ impl TryFrom<EvidenceSpanDto> for EvidenceSpan {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SearchIntent {
-    Navigational,
-    Informational,
-    Transactional,
-    Exploratory,
-    FactVerification,
+    ExactLookup,
+    FactualLocal,
+    SemanticDiscovery,
+    CompositionalConstraints,
+    MultiHop,
+    CorpusSynthesis,
+    RepositoryCode,
+    VisualDocument,
+    TemporalMemory,
+    CurrentWeb,
+    ContradictionAudit,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

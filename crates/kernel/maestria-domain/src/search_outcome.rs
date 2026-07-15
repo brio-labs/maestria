@@ -83,13 +83,15 @@ pub struct ConflictSet {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SearchStatus {
-    Success,
-    PartialResults,
-    Timeout,
-    ExhaustedBudget,
+    Answerable,
+    AnswerableWithWarnings,
+    EvidenceIncomplete,
+    SourcesConflict,
+    StaleEvidenceOnly,
+    NoEvidenceFound,
+    Abstained,
     DeniedByPolicy,
     QuarantinedForReview,
-    Abstained,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

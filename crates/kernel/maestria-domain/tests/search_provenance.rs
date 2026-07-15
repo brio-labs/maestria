@@ -12,7 +12,7 @@ fn plan() -> SearchPlan {
     SearchPlan {
         query_id: QueryId::new(7),
         original_query: "What changed?".to_owned(),
-        intent: SearchIntent::FactVerification,
+        intent: SearchIntent::FactualLocal,
         scope: CorpusScope::Global,
         corpus_snapshot: CorpusSnapshotId::new(11),
         index_generation: IndexGenerationId::new(13),
@@ -73,7 +73,7 @@ fn outcome() -> SearchOutcome {
         fingerprint: RetrievalModelFingerprint::new("model:v1".to_owned())
             .expect("valid fingerprint"),
         index_generation: IndexGenerationId::new(13),
-        status: SearchStatus::Success,
+        status: SearchStatus::Answerable,
         evidence: vec![candidate()],
         coverage: EvidenceCoverage {
             percent_covered: 100,
