@@ -1,4 +1,6 @@
 use maestria_domain::*;
+#[path = "common/fixtures.rs"]
+mod fixtures;
 
 // ── Crash recovery and resume flows ───────────────────────────────
 
@@ -39,9 +41,14 @@ fn resume_after_crash_replays_and_completes() -> Result<(), DomainError> {
     // Parser completes — clean up pending_parsers and create artifact
     state.apply_input(DomainInput::ParserCompleted(ParserResult {
         artifact_id: ArtifactId::new(1),
+        artifact_version_id: ArtifactVersionId::new(1),
+        content_hash: fixtures::test_content_hash(),
+        tree_root_id: StructureNodeId::new(10),
+        tree_nodes: vec![fixtures::tree_root_node(StructureNodeId::new(10))],
         chunks: vec![RegisterChunkInput {
             chunk_id: ChunkId::new(10),
             artifact_id: ArtifactId::new(1),
+            node_id: StructureNodeId::new(10),
             order: 0,
             text: "recovered chunk".to_string(),
         }],
@@ -83,9 +90,14 @@ fn parser_completed_cleanup_idempotent_on_resume_retry() -> Result<(), DomainErr
 
     let result = ParserResult {
         artifact_id: ArtifactId::new(1),
+        artifact_version_id: ArtifactVersionId::new(1),
+        content_hash: fixtures::test_content_hash(),
+        tree_root_id: StructureNodeId::new(10),
+        tree_nodes: vec![fixtures::tree_root_node(StructureNodeId::new(10))],
         chunks: vec![RegisterChunkInput {
             chunk_id: ChunkId::new(10),
             artifact_id: ArtifactId::new(1),
+            node_id: StructureNodeId::new(10),
             order: 0,
             text: "chunk".to_string(),
         }],
@@ -100,17 +112,14 @@ fn parser_completed_cleanup_idempotent_on_resume_retry() -> Result<(), DomainErr
     );
 
     // Second ParserCompleted (retry) — must not error, must remain clean.
-    // With no new chunks/cards, the duplicate ArtifactParsed is suppressed.
+    // The tree was committed during the first pass, so no duplicate
+    // lifecycle event is emitted.
     let output = state.apply_input(DomainInput::ParserCompleted(result))?;
     assert!(
         state.pending_parsers.contains_key(&ArtifactId::new(1)),
         "pending_parsers retained after retry"
     );
-    assert_eq!(
-        output.events.len(),
-        0,
-        "retry ParserCompleted with no new chunks/cards emits no events"
-    );
+    assert!(output.events.is_empty(), "retry emits no duplicate events");
     Ok(())
 }
 
@@ -140,6 +149,7 @@ fn crash_before_evidence_pending_parsers_survives_for_resume() -> Result<(), Dom
     let chunk_input = RegisterChunkInput {
         chunk_id: ChunkId::new(10),
         artifact_id: ArtifactId::new(1),
+        node_id: StructureNodeId::new(10),
         order: 0,
         text: "hello".to_string(),
     };
@@ -152,6 +162,10 @@ fn crash_before_evidence_pending_parsers_survives_for_resume() -> Result<(), Dom
 
     state.apply_input(DomainInput::ParserCompleted(ParserResult {
         artifact_id: ArtifactId::new(1),
+        artifact_version_id: ArtifactVersionId::new(1),
+        content_hash: fixtures::test_content_hash(),
+        tree_root_id: StructureNodeId::new(10),
+        tree_nodes: vec![fixtures::tree_root_node(StructureNodeId::new(10))],
         chunks: vec![chunk_input.clone()],
         cards: vec![card_input.clone()],
     }))?;
@@ -165,6 +179,10 @@ fn crash_before_evidence_pending_parsers_survives_for_resume() -> Result<(), Dom
     // Simulate resume: re-run identical ParserCompleted (idempotent).
     let output_resume = state.apply_input(DomainInput::ParserCompleted(ParserResult {
         artifact_id: ArtifactId::new(1),
+        artifact_version_id: ArtifactVersionId::new(1),
+        content_hash: fixtures::test_content_hash(),
+        tree_root_id: StructureNodeId::new(10),
+        tree_nodes: vec![fixtures::tree_root_node(StructureNodeId::new(10))],
         chunks: vec![chunk_input],
         cards: vec![card_input],
     }))?;
@@ -241,6 +259,10 @@ fn ingest_artifact_full(
     }))?;
     let _ = state.apply_input(DomainInput::ParserCompleted(ParserResult {
         artifact_id: setup.art_id,
+        artifact_version_id: ArtifactVersionId::new(setup.art_id.value()),
+        content_hash: fixtures::test_content_hash(),
+        tree_root_id: StructureNodeId::new(10),
+        tree_nodes: vec![fixtures::tree_root_node(StructureNodeId::new(10))],
         chunks: setup.chunks,
         cards: Vec::new(),
     }))?;
@@ -363,12 +385,14 @@ fn missing_evidence_keeps_artifact_pending_after_full_text_done() -> Result<(), 
                 RegisterChunkInput {
                     chunk_id: ChunkId::new(10),
                     artifact_id: art_id,
+                    node_id: StructureNodeId::new(10),
                     order: 0,
                     text: "a".to_string(),
                 },
                 RegisterChunkInput {
                     chunk_id: ChunkId::new(11),
                     artifact_id: art_id,
+                    node_id: StructureNodeId::new(11),
                     order: 1,
                     text: "b".to_string(),
                 },

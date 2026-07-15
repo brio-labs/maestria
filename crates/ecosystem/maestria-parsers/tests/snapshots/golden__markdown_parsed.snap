@@ -6,6 +6,122 @@ ParsedArtifact {
     artifact_id: ArtifactId(
         1,
     ),
+    artifact_version_id: ArtifactVersionId(
+        12159268966963697068,
+    ),
+    content_hash: ContentHash(
+        "sha256:a8be66b3f04d55ac5ae0c3ec2b13d752caa38e912341b987600cecafb38382d6",
+    ),
+    tree: DocumentTree {
+        root_id: StructureNodeId(
+            1000003,
+        ),
+        nodes: [
+            StructureNode {
+                id: StructureNodeId(
+                    1000003,
+                ),
+                parent_id: None,
+                sibling_id: None,
+                node_type: Document,
+                source_range: ContentRange {
+                    start: 1,
+                    end: 9,
+                },
+                page: None,
+                section_path: [],
+                parser_generation: "markdown-parser",
+                schema_generation: "1.0",
+                language: Some(
+                    "markdown",
+                ),
+            },
+            StructureNode {
+                id: StructureNodeId(
+                    1000004,
+                ),
+                parent_id: Some(
+                    StructureNodeId(
+                        1000003,
+                    ),
+                ),
+                sibling_id: Some(
+                    StructureNodeId(
+                        1000005,
+                    ),
+                ),
+                node_type: Section,
+                source_range: ContentRange {
+                    start: 1,
+                    end: 4,
+                },
+                page: None,
+                section_path: [
+                    "Title",
+                ],
+                parser_generation: "markdown-parser",
+                schema_generation: "1.0",
+                language: Some(
+                    "markdown",
+                ),
+            },
+            StructureNode {
+                id: StructureNodeId(
+                    1000005,
+                ),
+                parent_id: Some(
+                    StructureNodeId(
+                        1000003,
+                    ),
+                ),
+                sibling_id: Some(
+                    StructureNodeId(
+                        1000006,
+                    ),
+                ),
+                node_type: Section,
+                source_range: ContentRange {
+                    start: 5,
+                    end: 7,
+                },
+                page: None,
+                section_path: [
+                    "Section 1",
+                ],
+                parser_generation: "markdown-parser",
+                schema_generation: "1.0",
+                language: Some(
+                    "markdown",
+                ),
+            },
+            StructureNode {
+                id: StructureNodeId(
+                    1000006,
+                ),
+                parent_id: Some(
+                    StructureNodeId(
+                        1000003,
+                    ),
+                ),
+                sibling_id: None,
+                node_type: Section,
+                source_range: ContentRange {
+                    start: 8,
+                    end: 9,
+                },
+                page: None,
+                section_path: [
+                    "Subsection",
+                ],
+                parser_generation: "markdown-parser",
+                schema_generation: "1.0",
+                language: Some(
+                    "markdown",
+                ),
+            },
+        ],
+    },
+    status: Parsed,
     chunks: [
         ParsedChunk {
             chunk_id: ChunkId(
@@ -14,7 +130,20 @@ ParsedArtifact {
             artifact_id: ArtifactId(
                 1,
             ),
+            node_id: StructureNodeId(
+                1000004,
+            ),
             text: "# Title\n\nIntro paragraph.",
+            representations: [
+                ParsedRepresentation {
+                    kind: Raw,
+                    content: "# Title\n\nIntro paragraph.\n\n",
+                },
+                ParsedRepresentation {
+                    kind: Retrieval,
+                    content: "# Title\n\nIntro paragraph.",
+                },
+            ],
             source_span: TextSpan {
                 start_line: 1,
                 end_line: 4,
@@ -27,7 +156,20 @@ ParsedArtifact {
             artifact_id: ArtifactId(
                 1,
             ),
+            node_id: StructureNodeId(
+                1000005,
+            ),
             text: "## Section 1\nContent here.",
+            representations: [
+                ParsedRepresentation {
+                    kind: Raw,
+                    content: "## Section 1\nContent here.\n\n",
+                },
+                ParsedRepresentation {
+                    kind: Retrieval,
+                    content: "## Section 1\nContent here.",
+                },
+            ],
             source_span: TextSpan {
                 start_line: 5,
                 end_line: 7,
@@ -40,7 +182,20 @@ ParsedArtifact {
             artifact_id: ArtifactId(
                 1,
             ),
+            node_id: StructureNodeId(
+                1000006,
+            ),
             text: "### Subsection\nMore content.",
+            representations: [
+                ParsedRepresentation {
+                    kind: Raw,
+                    content: "### Subsection\nMore content.\n",
+                },
+                ParsedRepresentation {
+                    kind: Retrieval,
+                    content: "### Subsection\nMore content.",
+                },
+            ],
             source_span: TextSpan {
                 start_line: 8,
                 end_line: 9,
@@ -48,15 +203,24 @@ ParsedArtifact {
         },
     ],
     cards: [
-        CreateCardInput {
-            card_id: CardId(
-                1900004,
+        ParsedCard {
+            card: CreateCardInput {
+                card_id: CardId(
+                    1900004,
+                ),
+                artifact_id: ArtifactId(
+                    1,
+                ),
+                title: "Title",
+                body: "Parsed 3 textual chunks from guide.md.",
+            },
+            node_id: StructureNodeId(
+                1000003,
             ),
-            artifact_id: ArtifactId(
-                1,
-            ),
-            title: "Title",
-            body: "Parsed 3 textual chunks from guide.md.",
+            source_span: TextSpan {
+                start_line: 1,
+                end_line: 4,
+            },
         },
     ],
 }

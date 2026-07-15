@@ -1,3 +1,6 @@
+#![allow(clippy::disallowed_methods)]
+#![allow(clippy::too_many_lines)]
+
 use super::test_support::*;
 use maestria_domain::{
     Artifact, ArtifactId, ChunkId, EvidenceKind, IndexStatus, ParseArtifactRequest,
@@ -28,14 +31,40 @@ impl Parser for PageFivePdfParser {
             .map(|(order, page)| ParsedChunk {
                 chunk_id: ChunkId::new(context.artifact_id.value().wrapping_add(order as u64)),
                 artifact_id: context.artifact_id,
+                node_id: maestria_domain::StructureNodeId::new(order as u64),
                 text: format!("page {page} content"),
+                representations: vec![],
                 source_span: SourceSpan::PdfSpan { page },
             })
             .collect();
+        let tree = maestria_ports::DocumentTree::new(
+            maestria_domain::StructureNodeId::new(0),
+            vec![maestria_domain::StructureNode {
+                id: maestria_domain::StructureNodeId::new(0),
+                parent_id: None,
+                sibling_id: None,
+                node_type: maestria_domain::StructureNodeType::Document,
+                source_range: maestria_domain::ContentRange { start: 0, end: 100 },
+                page: None,
+                section_path: vec![],
+                parser_generation: "1".to_string(),
+                schema_generation: "1".to_string(),
+                language: None,
+            }],
+        )
+        .unwrap();
         Ok(ParsedArtifact {
             artifact_id: context.artifact_id,
+            artifact_version_id: maestria_domain::ArtifactVersionId::new(1),
+            content_hash: maestria_domain::ContentHash::new(
+                "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+                    .to_string(),
+            )
+            .unwrap(),
+            tree,
+            status: maestria_ports::ParseStatus::Parsed,
             chunks,
-            cards: Vec::new(),
+            cards: vec![],
         })
     }
 }
@@ -93,13 +122,39 @@ async fn pdf_evidence_maps_page_one_to_pdf_span() {
             let chunk = ParsedChunk {
                 chunk_id: ChunkId::new(context.artifact_id.value()),
                 artifact_id: context.artifact_id,
+                node_id: maestria_domain::StructureNodeId::new(1),
                 text: "page one content".to_string(),
+                representations: vec![],
                 source_span: SourceSpan::PdfSpan { page: 1 },
             };
+            let tree = maestria_ports::DocumentTree::new(
+                maestria_domain::StructureNodeId::new(0),
+                vec![maestria_domain::StructureNode {
+                    id: maestria_domain::StructureNodeId::new(0),
+                    parent_id: None,
+                    sibling_id: None,
+                    node_type: maestria_domain::StructureNodeType::Document,
+                    source_range: maestria_domain::ContentRange { start: 0, end: 100 },
+                    page: None,
+                    section_path: vec![],
+                    parser_generation: "1".to_string(),
+                    schema_generation: "1".to_string(),
+                    language: None,
+                }],
+            )
+            .unwrap();
             Ok(ParsedArtifact {
                 artifact_id: context.artifact_id,
+                artifact_version_id: maestria_domain::ArtifactVersionId::new(1),
+                content_hash: maestria_domain::ContentHash::new(
+                    "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+                        .to_string(),
+                )
+                .unwrap(),
+                tree,
+                status: maestria_ports::ParseStatus::Parsed,
                 chunks: vec![chunk],
-                cards: Vec::new(),
+                cards: vec![],
             })
         }
     }

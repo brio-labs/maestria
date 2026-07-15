@@ -19,6 +19,7 @@ fn test_replay_artifact_chunk_card_evidence() -> Result<(), DomainError> {
     state.apply_input(DomainInput::RegisterChunk(RegisterChunkInput {
         chunk_id,
         artifact_id: art_id,
+        node_id: StructureNodeId::new(1),
         order: 0,
         text: "chunk text".to_string(),
     }))?;

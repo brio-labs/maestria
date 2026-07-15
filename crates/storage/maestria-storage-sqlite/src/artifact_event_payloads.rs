@@ -1,5 +1,7 @@
 use super::event_payloads::StoredEventPayload;
-use maestria_domain::{ArtifactId, BlobId, ChunkId, DomainEvent};
+use maestria_domain::{
+    ArtifactId, ArtifactVersionId, BlobId, ChunkId, DomainEvent, StructureNodeId,
+};
 
 impl StoredEventPayload {
     pub(crate) fn try_from_domain_artifact(event: &DomainEvent) -> Option<Self> {
@@ -44,6 +46,19 @@ impl StoredEventPayload {
                 source_path: source_path.clone(),
                 content_hash: content_hash.clone(),
                 blob_id: blob_id.value(),
+            }),
+            DomainEvent::DocumentTreeCaptured {
+                artifact_id,
+                artifact_version_id,
+                content_hash,
+                root_id,
+                nodes,
+            } => Some(Self::DocumentTreeCaptured {
+                artifact_id: artifact_id.value(),
+                artifact_version_id: artifact_version_id.value(),
+                content_hash: content_hash.clone(),
+                root_id: root_id.value(),
+                nodes: nodes.clone(),
             }),
             DomainEvent::ArtifactParsed {
                 artifact_id,
@@ -123,6 +138,19 @@ impl StoredEventPayload {
                 content_hash,
                 blob_id: BlobId::new(blob_id),
             }),
+            Self::DocumentTreeCaptured {
+                artifact_id,
+                artifact_version_id,
+                content_hash,
+                root_id,
+                nodes,
+            } => Ok(DomainEvent::DocumentTreeCaptured {
+                artifact_id: ArtifactId::new(artifact_id),
+                artifact_version_id: ArtifactVersionId::new(artifact_version_id),
+                content_hash,
+                root_id: StructureNodeId::new(root_id),
+                nodes,
+            }),
             Self::ArtifactParsed {
                 artifact_id,
                 chunks_added,
@@ -165,6 +193,7 @@ impl StoredEventPayload {
             Self::CardCreated { .. } => Some("card_created"),
             Self::ParserStarted { .. } => Some("parser_started"),
             Self::ArtifactParsed { .. } => Some("artifact_parsed"),
+            Self::DocumentTreeCaptured { .. } => Some("document_tree_captured"),
             Self::SearchCompleted { .. } => Some("search_completed"),
             Self::PendingIndex { .. } => Some("pending_index"),
             Self::FullTextIndexed { .. } => Some("full_text_indexed"),
@@ -183,7 +212,8 @@ impl StoredEventPayload {
             | Self::PendingIndex { artifact_id, .. }
             | Self::FullTextIndexed { artifact_id, .. }
             | Self::ArtifactIndexed { artifact_id, .. }
-            | Self::ParserStarted { artifact_id, .. } => Some(*artifact_id),
+            | Self::ParserStarted { artifact_id, .. }
+            | Self::DocumentTreeCaptured { artifact_id, .. } => Some(*artifact_id),
             _ => None,
         }
     }

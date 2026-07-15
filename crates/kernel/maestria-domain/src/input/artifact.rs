@@ -144,6 +144,44 @@ impl KernelState {
         Ok(())
     }
 
+    pub(crate) fn apply_document_tree_captured(
+        &mut self,
+        artifact_id: ArtifactId,
+        artifact_version_id: crate::ids::ArtifactVersionId,
+        content_hash: crate::search::ContentHash,
+        root_id: crate::ids::StructureNodeId,
+        nodes: &[crate::search::StructureNode],
+    ) -> Result<(), DomainError> {
+        if !self.artifacts.contains_key(&artifact_id) {
+            return Err(DomainError::MissingArtifact { id: artifact_id });
+        }
+        let node_ids: std::collections::BTreeSet<_> = nodes.iter().map(|node| node.id).collect();
+        if node_ids.len() != nodes.len()
+            || nodes.iter().filter(|node| node.parent_id.is_none()).count() != 1
+            || !nodes
+                .iter()
+                .any(|node| node.id == root_id && node.parent_id.is_none())
+            || nodes.iter().any(|node| {
+                node.parent_id
+                    .is_some_and(|parent| !node_ids.contains(&parent))
+                    || node
+                        .sibling_id
+                        .is_some_and(|sibling| !node_ids.contains(&sibling))
+            })
+        {
+            return Err(DomainError::InternalInvariantViolation {
+                detail: "document tree event failed structural validation",
+            });
+        }
+        self.artifact_versions
+            .insert(artifact_id, artifact_version_id);
+        self.artifact_content_hashes
+            .insert(artifact_id, content_hash);
+        self.document_trees
+            .insert(artifact_id, (root_id, nodes.to_vec()));
+        Ok(())
+    }
+
     pub(crate) fn apply_parser_started(
         &mut self,
         artifact_id: ArtifactId,

@@ -6,6 +6,170 @@ ParsedArtifact {
     artifact_id: ArtifactId(
         3,
     ),
+    artifact_version_id: ArtifactVersionId(
+        12568155199395458208,
+    ),
+    content_hash: ContentHash(
+        "sha256:ae6b0e909df1eca0dd75ed9c003c1ec0111ea6156208dcb4cd292d5ff87bd231",
+    ),
+    tree: DocumentTree {
+        root_id: StructureNodeId(
+            3000009,
+        ),
+        nodes: [
+            StructureNode {
+                id: StructureNodeId(
+                    3000009,
+                ),
+                parent_id: None,
+                sibling_id: None,
+                node_type: Document,
+                source_range: ContentRange {
+                    start: 1,
+                    end: 10,
+                },
+                page: None,
+                section_path: [],
+                parser_generation: "rust-source-v1",
+                schema_generation: "tree-v1",
+                language: Some(
+                    "rust",
+                ),
+            },
+            StructureNode {
+                id: StructureNodeId(
+                    3000010,
+                ),
+                parent_id: Some(
+                    StructureNodeId(
+                        3000009,
+                    ),
+                ),
+                sibling_id: Some(
+                    StructureNodeId(
+                        3000011,
+                    ),
+                ),
+                node_type: Paragraph,
+                source_range: ContentRange {
+                    start: 1,
+                    end: 2,
+                },
+                page: None,
+                section_path: [],
+                parser_generation: "rust-source-v1",
+                schema_generation: "tree-v1",
+                language: Some(
+                    "rust",
+                ),
+            },
+            StructureNode {
+                id: StructureNodeId(
+                    3000011,
+                ),
+                parent_id: Some(
+                    StructureNodeId(
+                        3000009,
+                    ),
+                ),
+                sibling_id: Some(
+                    StructureNodeId(
+                        3000012,
+                    ),
+                ),
+                node_type: Paragraph,
+                source_range: ContentRange {
+                    start: 3,
+                    end: 4,
+                },
+                page: None,
+                section_path: [],
+                parser_generation: "rust-source-v1",
+                schema_generation: "tree-v1",
+                language: Some(
+                    "rust",
+                ),
+            },
+            StructureNode {
+                id: StructureNodeId(
+                    3000012,
+                ),
+                parent_id: Some(
+                    StructureNodeId(
+                        3000009,
+                    ),
+                ),
+                sibling_id: Some(
+                    StructureNodeId(
+                        3000013,
+                    ),
+                ),
+                node_type: Paragraph,
+                source_range: ContentRange {
+                    start: 5,
+                    end: 5,
+                },
+                page: None,
+                section_path: [],
+                parser_generation: "rust-source-v1",
+                schema_generation: "tree-v1",
+                language: Some(
+                    "rust",
+                ),
+            },
+            StructureNode {
+                id: StructureNodeId(
+                    3000013,
+                ),
+                parent_id: Some(
+                    StructureNodeId(
+                        3000009,
+                    ),
+                ),
+                sibling_id: Some(
+                    StructureNodeId(
+                        3000014,
+                    ),
+                ),
+                node_type: Paragraph,
+                source_range: ContentRange {
+                    start: 6,
+                    end: 8,
+                },
+                page: None,
+                section_path: [],
+                parser_generation: "rust-source-v1",
+                schema_generation: "tree-v1",
+                language: Some(
+                    "rust",
+                ),
+            },
+            StructureNode {
+                id: StructureNodeId(
+                    3000014,
+                ),
+                parent_id: Some(
+                    StructureNodeId(
+                        3000009,
+                    ),
+                ),
+                sibling_id: None,
+                node_type: Paragraph,
+                source_range: ContentRange {
+                    start: 9,
+                    end: 10,
+                },
+                page: None,
+                section_path: [],
+                parser_generation: "rust-source-v1",
+                schema_generation: "tree-v1",
+                language: Some(
+                    "rust",
+                ),
+            },
+        ],
+    },
+    status: Parsed,
     chunks: [
         ParsedChunk {
             chunk_id: ChunkId(
@@ -14,7 +178,20 @@ ParsedArtifact {
             artifact_id: ArtifactId(
                 3,
             ),
+            node_id: StructureNodeId(
+                3000010,
+            ),
             text: "use std::fmt;",
+            representations: [
+                ParsedRepresentation {
+                    kind: Raw,
+                    content: "use std::fmt;\n\n",
+                },
+                ParsedRepresentation {
+                    kind: Retrieval,
+                    content: "use std::fmt;",
+                },
+            ],
             source_span: TextSpan {
                 start_line: 1,
                 end_line: 2,
@@ -27,7 +204,20 @@ ParsedArtifact {
             artifact_id: ArtifactId(
                 3,
             ),
+            node_id: StructureNodeId(
+                3000011,
+            ),
             text: "pub struct Thing;",
+            representations: [
+                ParsedRepresentation {
+                    kind: Raw,
+                    content: "pub struct Thing;\n\n",
+                },
+                ParsedRepresentation {
+                    kind: Retrieval,
+                    content: "pub struct Thing;",
+                },
+            ],
             source_span: TextSpan {
                 start_line: 3,
                 end_line: 4,
@@ -40,7 +230,20 @@ ParsedArtifact {
             artifact_id: ArtifactId(
                 3,
             ),
+            node_id: StructureNodeId(
+                3000012,
+            ),
             text: "impl Thing {",
+            representations: [
+                ParsedRepresentation {
+                    kind: Raw,
+                    content: "impl Thing {\n",
+                },
+                ParsedRepresentation {
+                    kind: Retrieval,
+                    content: "impl Thing {",
+                },
+            ],
             source_span: TextSpan {
                 start_line: 5,
                 end_line: 5,
@@ -53,7 +256,20 @@ ParsedArtifact {
             artifact_id: ArtifactId(
                 3,
             ),
+            node_id: StructureNodeId(
+                3000013,
+            ),
             text: "pub fn new() -> Self { Self }\n}",
+            representations: [
+                ParsedRepresentation {
+                    kind: Raw,
+                    content: "    pub fn new() -> Self { Self }\n}\n\n",
+                },
+                ParsedRepresentation {
+                    kind: Retrieval,
+                    content: "pub fn new() -> Self { Self }\n}",
+                },
+            ],
             source_span: TextSpan {
                 start_line: 6,
                 end_line: 8,
@@ -66,7 +282,20 @@ ParsedArtifact {
             artifact_id: ArtifactId(
                 3,
             ),
+            node_id: StructureNodeId(
+                3000014,
+            ),
             text: "#[test]\nfn makes_thing() {}",
+            representations: [
+                ParsedRepresentation {
+                    kind: Raw,
+                    content: "#[test]\nfn makes_thing() {}\n",
+                },
+                ParsedRepresentation {
+                    kind: Retrieval,
+                    content: "#[test]\nfn makes_thing() {}",
+                },
+            ],
             source_span: TextSpan {
                 start_line: 9,
                 end_line: 10,
@@ -74,15 +303,24 @@ ParsedArtifact {
         },
     ],
     cards: [
-        CreateCardInput {
-            card_id: CardId(
-                3900010,
+        ParsedCard {
+            card: CreateCardInput {
+                card_id: CardId(
+                    3900010,
+                ),
+                artifact_id: ArtifactId(
+                    3,
+                ),
+                title: "use std::fmt;",
+                body: "Parsed 5 textual chunks from lib.rs.",
+            },
+            node_id: StructureNodeId(
+                3000009,
             ),
-            artifact_id: ArtifactId(
-                3,
-            ),
-            title: "use std::fmt;",
-            body: "Parsed 5 textual chunks from lib.rs.",
+            source_span: TextSpan {
+                start_line: 1,
+                end_line: 2,
+            },
         },
     ],
 }

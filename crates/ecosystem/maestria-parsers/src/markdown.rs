@@ -25,9 +25,18 @@ impl Parser for MarkdownParser {
     }
 
     fn parse(&self, file: FileHandle, context: ParseContext) -> Result<ParsedArtifact, PortError> {
+        let bytes = file.bytes.clone();
         let text = decode_utf8(file.bytes)?;
         let chunks = markdown_chunks(&text);
-        parsed_artifact(context.artifact_id, &file.path, chunks)
+        parsed_artifact(
+            context.artifact_id,
+            &file.path,
+            &bytes,
+            chunks,
+            self.id().to_string(),
+            "1.0".to_string(),
+            Some("markdown".to_string()),
+        )
     }
 }
 

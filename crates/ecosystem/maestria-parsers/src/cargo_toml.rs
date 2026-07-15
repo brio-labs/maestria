@@ -26,9 +26,17 @@ impl Parser for CargoTomlParser {
     }
 
     fn parse(&self, file: FileHandle, context: ParseContext) -> Result<ParsedArtifact, PortError> {
-        let text = decode_utf8(file.bytes)?;
+        let text = decode_utf8(file.bytes.clone())?;
         let chunks = cargo_toml_chunks(&text);
-        parsed_artifact(context.artifact_id, &file.path, chunks)
+        parsed_artifact(
+            context.artifact_id,
+            &file.path,
+            &file.bytes,
+            chunks,
+            "cargo-toml-v1".to_string(),
+            "tree-v1".to_string(),
+            Some("toml".to_string()),
+        )
     }
 }
 

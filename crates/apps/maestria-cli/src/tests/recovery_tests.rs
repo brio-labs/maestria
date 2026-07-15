@@ -1,6 +1,9 @@
+#![allow(clippy::disallowed_methods)]
+
 use maestria_domain::{
-    ArtifactDetected, ArtifactId, BlobId, ChunkId, DomainInput, IndexStatus, KernelState,
-    ParserResult, ParserStarted, RegisterChunkInput, StartFullTextIndex,
+    ArtifactDetected, ArtifactId, ArtifactVersionId, BlobId, ChunkId, ContentHash, DomainInput,
+    IndexStatus, KernelState, ParserResult, ParserStarted, RegisterChunkInput, StartFullTextIndex,
+    StructureNodeId,
 };
 
 /// Verify that `recovery_inputs` — as called by `index_path` before
@@ -42,9 +45,25 @@ fn index_path_recovery_derives_pending_inputs_with_correct_filter() {
     state
         .apply_input(DomainInput::ParserCompleted(ParserResult {
             artifact_id: artifact_b,
+            artifact_version_id: ArtifactVersionId::new(artifact_b.value()),
+            content_hash: ContentHash::new("sha256:".to_owned() + &"0".repeat(64)).unwrap(),
+            tree_root_id: StructureNodeId::new(20),
+            tree_nodes: vec![maestria_domain::StructureNode {
+                id: maestria_domain::StructureNodeId::new(20),
+                parent_id: None,
+                sibling_id: None,
+                node_type: maestria_domain::StructureNodeType::Document,
+                source_range: maestria_domain::ContentRange { start: 0, end: 0 },
+                page: None,
+                section_path: vec![],
+                parser_generation: "test".to_string(),
+                schema_generation: "1".to_string(),
+                language: None,
+            }],
             chunks: vec![RegisterChunkInput {
                 chunk_id: ChunkId::new(20),
                 artifact_id: artifact_b,
+                node_id: maestria_domain::StructureNodeId::new(20),
                 order: 0,
                 text: "hello".to_string(),
             }],
@@ -174,6 +193,21 @@ fn recovery_drain_all_indexed_predicate() {
         state
             .apply_input(DomainInput::ParserCompleted(ParserResult {
                 artifact_id: id,
+                artifact_version_id: ArtifactVersionId::new(id.value()),
+                content_hash: ContentHash::new("sha256:".to_owned() + &"0".repeat(64)).unwrap(),
+                tree_root_id: maestria_domain::StructureNodeId::new(0),
+                tree_nodes: vec![maestria_domain::StructureNode {
+                    id: maestria_domain::StructureNodeId::new(0),
+                    parent_id: None,
+                    sibling_id: None,
+                    node_type: maestria_domain::StructureNodeType::Document,
+                    source_range: maestria_domain::ContentRange { start: 0, end: 0 },
+                    page: None,
+                    section_path: vec![],
+                    parser_generation: "test".to_string(),
+                    schema_generation: "1".to_string(),
+                    language: None,
+                }],
                 chunks: Vec::new(),
                 cards: Vec::new(),
             }))

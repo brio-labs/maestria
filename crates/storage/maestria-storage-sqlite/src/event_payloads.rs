@@ -110,6 +110,13 @@ pub(crate) enum StoredEventPayload {
         artifact_id: u64,
         chunks_added: u32,
     },
+    DocumentTreeCaptured {
+        artifact_id: u64,
+        artifact_version_id: u64,
+        content_hash: maestria_domain::ContentHash,
+        root_id: u64,
+        nodes: Vec<maestria_domain::StructureNode>,
+    },
     SearchCompleted {
         artifact_id: u64,
         cards_added: u32,

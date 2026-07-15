@@ -1,10 +1,13 @@
 use crate::entities::{
     ClaimStatus, EvidenceKind, RelationEndpoint, RelationKind, TaskPriority, TaskStatus,
 };
+use crate::ids::StructureNodeId;
 use crate::ids::{
-    ApprovalId, ArtifactId, BlobId, CardId, ChunkId, ClaimId, EventId, EvidenceId, LogicalTick,
-    MemoryCandidateId, MemoryId, RelationId, SequenceNumber, TaskId, ValidationReportId,
+    ApprovalId, ArtifactId, ArtifactVersionId, BlobId, CardId, ChunkId, ClaimId, EventId,
+    EvidenceId, LogicalTick, MemoryCandidateId, MemoryId, RelationId, SequenceNumber, TaskId,
+    ValidationReportId,
 };
+use crate::search::{ContentHash, StructureNode};
 use std::collections::BTreeSet;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -95,6 +98,13 @@ pub enum DomainEvent {
     ArtifactParsed {
         artifact_id: ArtifactId,
         chunks_added: u32,
+    },
+    DocumentTreeCaptured {
+        artifact_id: ArtifactId,
+        artifact_version_id: ArtifactVersionId,
+        content_hash: ContentHash,
+        root_id: StructureNodeId,
+        nodes: Vec<StructureNode>,
     },
     PendingIndex {
         artifact_id: ArtifactId,

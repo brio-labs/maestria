@@ -1,7 +1,10 @@
+#![allow(clippy::disallowed_methods)]
+
 use super::*;
 use maestria_domain::{
-    ArtifactDetected, CardId, ChunkId, ContentRange, CreateCardInput, EvidenceId, EvidenceKind,
-    LogicalTick, ParserResult, RecordEvidenceInput, RegisterChunkInput,
+    ArtifactDetected, ArtifactVersionId, CardId, ChunkId, ContentHash, ContentRange,
+    CreateCardInput, EvidenceId, EvidenceKind, LogicalTick, ParserResult, RecordEvidenceInput,
+    RegisterChunkInput, StructureNode, StructureNodeId, StructureNodeType,
 };
 use maestria_ports::{
     ArtifactRepository, CardRepository, ChunkRepository, EmbeddingProvider, EmbeddingRequest,
@@ -40,16 +43,33 @@ fn build_recovery_domain_state(state: &mut KernelState) -> RecoveryTestFixture {
     state
         .apply_input(DomainInput::ParserCompleted(ParserResult {
             artifact_id,
+            artifact_version_id: ArtifactVersionId::new(artifact_id.value()),
+            content_hash: ContentHash::new("sha256:".to_owned() + &"0".repeat(64)).unwrap(),
+            tree_root_id: StructureNodeId::new(chunk_id_a.value()),
+            tree_nodes: vec![StructureNode {
+                id: StructureNodeId::new(chunk_id_a.value()),
+                parent_id: None,
+                sibling_id: None,
+                node_type: StructureNodeType::Document,
+                source_range: ContentRange { start: 0, end: 0 },
+                page: None,
+                section_path: vec![],
+                parser_generation: "test".to_string(),
+                schema_generation: "1".to_string(),
+                language: None,
+            }],
             chunks: vec![
                 RegisterChunkInput {
                     chunk_id: chunk_id_a,
                     artifact_id,
+                    node_id: StructureNodeId::new(chunk_id_a.value()),
                     order: 0,
                     text: "first chunk".to_string(),
                 },
                 RegisterChunkInput {
                     chunk_id: chunk_id_b,
                     artifact_id,
+                    node_id: StructureNodeId::new(chunk_id_b.value()),
                     order: 1,
                     text: "second chunk".to_string(),
                 },
