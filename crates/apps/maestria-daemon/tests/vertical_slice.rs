@@ -367,6 +367,7 @@ async fn vertical_slice_run_instance_restart_rebuilds_projections() {
             target: RelationEndpoint::Card(CardId::new(999)),
             evidence_id: None,
             confidence_milli: 1,
+            security: maestria_domain::SecurityMetadata::default(),
         })
         .expect("seed stale graph relation");
 

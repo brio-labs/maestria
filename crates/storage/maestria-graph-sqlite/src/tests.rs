@@ -16,6 +16,10 @@ fn returns_relations_matching_either_endpoint() -> Result<(), PortError> {
         target: RelationEndpoint::Artifact(ArtifactId::new(1)),
         evidence_id: Some(EvidenceId::new(40)),
         confidence_milli: 875,
+        security: maestria_domain::SecurityMetadata {
+            prompt_injection_risk: true,
+            ..maestria_domain::SecurityMetadata::default()
+        },
     };
 
     index.insert_relation(relation.clone())?;
@@ -46,6 +50,7 @@ fn insert_relation_updates_existing_row() -> Result<(), PortError> {
         target: RelationEndpoint::Artifact(ArtifactId::new(1)),
         evidence_id: Some(EvidenceId::new(40)),
         confidence_milli: 875,
+        security: maestria_domain::SecurityMetadata::default(),
     };
     let updated = Relation {
         id: RelationId::new(7),
@@ -54,6 +59,7 @@ fn insert_relation_updates_existing_row() -> Result<(), PortError> {
         target: RelationEndpoint::Card(CardId::new(9)),
         evidence_id: None,
         confidence_milli: 600,
+        security: maestria_domain::SecurityMetadata::default(),
     };
 
     index.insert_relation(first)?;
@@ -101,6 +107,7 @@ fn orders_relations_by_numeric_id_not_lexical() -> Result<(), PortError> {
         target: RelationEndpoint::Artifact(ArtifactId::new(2)),
         evidence_id: None,
         confidence_milli: 1000,
+        security: maestria_domain::SecurityMetadata::default(),
     };
     let relation_2 = Relation {
         id: RelationId::new(2),
@@ -109,6 +116,7 @@ fn orders_relations_by_numeric_id_not_lexical() -> Result<(), PortError> {
         target: RelationEndpoint::Artifact(ArtifactId::new(3)),
         evidence_id: None,
         confidence_milli: 1000,
+        security: maestria_domain::SecurityMetadata::default(),
     };
 
     // Insert in arbitrary order
@@ -140,6 +148,7 @@ fn clear_removes_all_relations() -> Result<(), PortError> {
         kind: RelationKind::Contains,
         evidence_id: Some(EvidenceId::new(3)),
         confidence_milli: 800,
+        security: maestria_domain::SecurityMetadata::default(),
     };
     index.insert_relation(rel.clone())?;
     assert_eq!(index.get_relations_for(ep)?.len(), 1);
@@ -160,6 +169,7 @@ fn delete_relations_ignores_empty_list() -> Result<(), PortError> {
         kind: RelationKind::Contains,
         evidence_id: Some(EvidenceId::new(3)),
         confidence_milli: 800,
+        security: maestria_domain::SecurityMetadata::default(),
     };
     index.insert_relation(rel.clone())?;
 
@@ -179,6 +189,7 @@ fn rebuild_preserves_new_relations() -> Result<(), PortError> {
         kind: RelationKind::Contains,
         evidence_id: Some(EvidenceId::new(3)),
         confidence_milli: 800,
+        security: maestria_domain::SecurityMetadata::default(),
     };
     let rel2 = Relation {
         id: RelationId::new(2),
@@ -187,6 +198,7 @@ fn rebuild_preserves_new_relations() -> Result<(), PortError> {
         kind: RelationKind::Supports,
         evidence_id: Some(EvidenceId::new(5)),
         confidence_milli: 900,
+        security: maestria_domain::SecurityMetadata::default(),
     };
 
     index.insert_relation(rel1.clone())?;

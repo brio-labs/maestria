@@ -3,7 +3,7 @@ use rusqlite::{Connection, OptionalExtension};
 
 use super::conversion::to_port_error;
 
-pub(super) const SCHEMA_VERSION: i64 = 1;
+pub(super) const SCHEMA_VERSION: i64 = 2;
 
 pub(super) fn migrate(connection: &mut Connection) -> Result<(), PortError> {
     let tx = connection.transaction().map_err(to_port_error)?;
@@ -27,6 +27,7 @@ pub(super) fn migrate(connection: &mut Connection) -> Result<(), PortError> {
 
     match current_version {
         Some(v) if v == SCHEMA_VERSION => {}
+        Some(1) => migrate_v1_to_v2(&tx)?,
         Some(v) => {
             return Err(PortError::Internal {
                 message: format!("unsupported graph projection schema version {v}"),
@@ -37,16 +38,30 @@ pub(super) fn migrate(connection: &mut Connection) -> Result<(), PortError> {
         }
     }
 
-    validate_relations_columns(&tx)?;
+    validate_relations_columns(&tx, 9)?;
     validate_relations_indexes(&tx)?;
 
     tx.commit().map_err(to_port_error)?;
     Ok(())
 }
+fn migrate_v1_to_v2(conn: &Connection) -> Result<(), PortError> {
+    validate_relations_columns(conn, 8)?;
+    conn.execute(
+        "ALTER TABLE relations ADD COLUMN security_json TEXT NOT NULL DEFAULT '{\"trust_zone\":\"Untrusted\",\"authority\":\"External\",\"integrity\":\"Unverified\",\"sensitivity\":\"Internal\",\"review_status\":\"Unreviewed\",\"quarantined\":false,\"prompt_injection_risk\":false,\"poisoning_flags\":[],\"read_allowed\":true,\"write_allowed\":false,\"scope_id\":null}'",
+        [],
+    )
+    .map_err(to_port_error)?;
+    conn.execute(
+        "UPDATE graph_projection_schema SET version = 2 WHERE id = 1",
+        [],
+    )
+    .map_err(to_port_error)?;
+    Ok(())
+}
 
 fn create_initial_schema(conn: &Connection) -> Result<(), PortError> {
     conn.execute_batch(
-        "CREATE TABLE relations (
+        r#"CREATE TABLE relations (
              id TEXT PRIMARY KEY,
              source_type TEXT NOT NULL,
              source_id TEXT NOT NULL,
@@ -54,18 +69,19 @@ fn create_initial_schema(conn: &Connection) -> Result<(), PortError> {
              target_type TEXT NOT NULL,
              target_id TEXT NOT NULL,
              evidence_id TEXT,
-             confidence_milli INTEGER NOT NULL
+             confidence_milli INTEGER NOT NULL,
+             security_json TEXT NOT NULL DEFAULT '{"trust_zone":"Untrusted","authority":"External","integrity":"Unverified","sensitivity":"Internal","review_status":"Unreviewed","quarantined":false,"prompt_injection_risk":false,"poisoning_flags":[],"read_allowed":true,"write_allowed":false,"scope_id":null}'
          );
          CREATE INDEX idx_relations_source
              ON relations(source_type, source_id);
          CREATE INDEX idx_relations_target
              ON relations(target_type, target_id);
-         INSERT INTO graph_projection_schema (id, version) VALUES (1, 1);",
+         INSERT INTO graph_projection_schema (id, version) VALUES (1, 2);"#,
     )
     .map_err(to_port_error)
 }
 
-fn validate_relations_columns(conn: &Connection) -> Result<(), PortError> {
+fn validate_relations_columns(conn: &Connection, expected: usize) -> Result<(), PortError> {
     let mut col_stmt = conn
         .prepare("PRAGMA table_info(relations)")
         .map_err(to_port_error)?;
@@ -80,13 +96,14 @@ fn validate_relations_columns(conn: &Connection) -> Result<(), PortError> {
             "id" | "source_type" | "source_id" | "kind" | "target_type" | "target_id"
             | "evidence_id" => ty == "TEXT",
             "confidence_milli" => ty == "INTEGER",
+            "security_json" => ty == "TEXT",
             _ => false,
         };
         if valid {
             cols_found += 1;
         }
     }
-    if cols_found != 8 {
+    if cols_found != expected {
         return Err(PortError::Internal {
             message: "relations table is malformed or missing columns".to_string(),
         });

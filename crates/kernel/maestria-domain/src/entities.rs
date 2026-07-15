@@ -2,6 +2,7 @@ use crate::ids::{
     ArtifactId, BlobId, CardId, ChunkId, ClaimId, EvidenceId, HarnessRunId, LogicalTick,
     MemoryCandidateId, MemoryId, RelationId, TaskId, ValidationReportId,
 };
+use crate::security::SecurityMetadata;
 use std::collections::BTreeSet;
 
 #[derive(
@@ -40,6 +41,7 @@ pub struct Artifact {
     pub index_status: IndexStatus,
     pub content_hash: Option<String>,
     pub parse_status: Option<crate::provenance::ParseStatus>,
+    pub security: SecurityMetadata,
 }
 
 impl Artifact {
@@ -54,6 +56,7 @@ impl Artifact {
             index_status: IndexStatus::default(),
             content_hash: None,
             parse_status: None,
+            security: SecurityMetadata::default(),
         }
     }
 }
@@ -107,6 +110,7 @@ pub struct Card {
     pub title: String,
     pub body: String,
     pub claim_ids: BTreeSet<ClaimId>,
+    pub security: SecurityMetadata,
 }
 
 impl Card {
@@ -117,6 +121,7 @@ impl Card {
         source_span: crate::provenance::SourceSpan,
         title: String,
         body: String,
+        security: SecurityMetadata,
     ) -> Self {
         Self {
             id,
@@ -126,6 +131,7 @@ impl Card {
             title,
             body,
             claim_ids: BTreeSet::new(),
+            security,
         }
     }
 }
@@ -190,6 +196,7 @@ pub struct Evidence {
     pub kind: EvidenceKind,
     pub excerpt: String,
     pub observed_at: LogicalTick,
+    pub security: SecurityMetadata,
 }
 
 impl Evidence {
@@ -200,6 +207,7 @@ impl Evidence {
         kind: EvidenceKind,
         excerpt: String,
         observed_at: LogicalTick,
+        security: SecurityMetadata,
     ) -> Self {
         Self {
             id,
@@ -208,6 +216,7 @@ impl Evidence {
             kind,
             excerpt,
             observed_at,
+            security,
         }
     }
 }
@@ -228,16 +237,23 @@ pub struct Claim {
     pub text: String,
     pub status: ClaimStatus,
     pub evidence_ids: BTreeSet<EvidenceId>,
+    pub security: SecurityMetadata,
 }
 
 impl Claim {
-    pub(crate) fn new(id: ClaimId, artifact_id: ArtifactId, text: String) -> Self {
+    pub(crate) fn new(
+        id: ClaimId,
+        artifact_id: ArtifactId,
+        text: String,
+        security: SecurityMetadata,
+    ) -> Self {
         Self {
             id,
             artifact_id,
             text,
             status: ClaimStatus::Draft,
             evidence_ids: BTreeSet::new(),
+            security,
         }
     }
 }
@@ -250,6 +266,7 @@ pub struct Relation {
     pub target: RelationEndpoint,
     pub evidence_id: Option<EvidenceId>,
     pub confidence_milli: u16,
+    pub security: SecurityMetadata,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -289,6 +306,7 @@ pub struct MemoryCandidate {
     pub claim_id: ClaimId,
     pub evidence_ids: BTreeSet<EvidenceId>,
     pub confidence_milli: u16,
+    pub security: SecurityMetadata,
 }
 
 impl MemoryCandidate {
@@ -312,6 +330,7 @@ pub struct Memory {
     pub claim_id: ClaimId,
     pub evidence_ids: BTreeSet<EvidenceId>,
     pub status: MemoryStatus,
+    pub security: SecurityMetadata,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]

@@ -105,6 +105,7 @@ impl EffectExecutionContext {
                         index_status: maestria_domain::IndexStatus::default(),
                         content_hash: None,
                         parse_status: None,
+                        security: maestria_domain::SecurityMetadata::default(),
                     })
                 }
             }
@@ -321,6 +322,7 @@ impl EffectExecutionContext {
                             kind,
                             excerpt,
                             observed_at,
+                            security: None,
                         });
                         chunks.push(RegisterChunkInput {
                             chunk_id: chunk.chunk_id,

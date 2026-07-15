@@ -1,3 +1,4 @@
+use crate::security::SecurityMetadata;
 use crate::types::*;
 
 impl KernelState {
@@ -19,6 +20,10 @@ impl KernelState {
             });
         }
 
+        let mut security = SecurityMetadata::from_optional(input.security);
+        if let Some(artifact) = self.artifacts.get(&input.artifact_id) {
+            security = security.taint_from(&artifact.security);
+        }
         self.cards.insert(
             input.card_id,
             Card::new(
@@ -28,6 +33,7 @@ impl KernelState {
                 input.source_span,
                 input.title.clone(),
                 input.body.clone(),
+                security.clone(),
             ),
         );
 
@@ -42,11 +48,13 @@ impl KernelState {
             source_span: input.source_span,
             title: input.title,
             body: input.body,
+            security,
         }))
     }
 
     // ── Replay apply ─────────────────────────────────────────────
 
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn apply_card_created(
         &mut self,
         card_id: CardId,
@@ -55,6 +63,7 @@ impl KernelState {
         source_span: crate::provenance::SourceSpan,
         title: &str,
         body: &str,
+        security: &SecurityMetadata,
     ) -> Result<(), DomainError> {
         if !self.artifacts.contains_key(&artifact_id) {
             return Err(DomainError::MissingArtifact { id: artifact_id });
@@ -74,6 +83,7 @@ impl KernelState {
                 source_span,
                 title.to_string(),
                 body.to_string(),
+                security.clone(),
             ),
         );
         if let Some(artifact) = self.artifacts.get_mut(&artifact_id) {

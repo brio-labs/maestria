@@ -10,6 +10,7 @@ fn parser_completed_registers_chunks_and_cards() -> Result<(), DomainError> {
     state.apply_input(DomainInput::RegisterArtifact(RegisterArtifactInput {
         artifact_id: ArtifactId::new(1),
         title: "Project Notes".to_string(),
+        security: None,
     }))?;
 
     let output = state.apply_input(DomainInput::ParserCompleted(ParserResult {
@@ -41,6 +42,7 @@ fn parser_completed_registers_chunks_and_cards() -> Result<(), DomainError> {
             artifact_id: ArtifactId::new(1),
             title: "Summary".to_string(),
             body: "Parsed summary".to_string(),
+            security: None,
         }],
     }))?;
 
@@ -257,6 +259,7 @@ fn test_all_legal_task_transitions() -> Result<(), DomainError> {
     state.apply_input(DomainInput::RegisterArtifact(RegisterArtifactInput {
         artifact_id: art_id,
         title: "Test".to_string(),
+        security: None,
     }))?;
 
     // Open task
@@ -391,6 +394,7 @@ fn link_evidence_to_task_succeeds() -> Result<(), DomainError> {
     state.apply_input(DomainInput::RegisterArtifact(RegisterArtifactInput {
         artifact_id: ArtifactId::new(1),
         title: "Notes".to_string(),
+        security: None,
     }))?;
     state.apply_input(DomainInput::RecordEvidence(RecordEvidenceInput {
         evidence_id: EvidenceId::new(10),
@@ -404,6 +408,7 @@ fn link_evidence_to_task_succeeds() -> Result<(), DomainError> {
         },
         excerpt: "first chunk".to_string(),
         observed_at: LogicalTick::new(1),
+        security: None,
     }))?;
     state.apply_input(DomainInput::OpenTask(OpenTaskInput {
         task_id: TaskId::new(3),
@@ -484,6 +489,7 @@ fn link_evidence_to_task_idempotent() -> Result<(), DomainError> {
     state.apply_input(DomainInput::RegisterArtifact(RegisterArtifactInput {
         artifact_id: ArtifactId::new(1),
         title: "Notes".to_string(),
+        security: None,
     }))?;
     state.apply_input(DomainInput::RecordEvidence(RecordEvidenceInput {
         evidence_id: EvidenceId::new(10),
@@ -497,6 +503,7 @@ fn link_evidence_to_task_idempotent() -> Result<(), DomainError> {
         },
         excerpt: "first chunk".to_string(),
         observed_at: LogicalTick::new(1),
+        security: None,
     }))?;
     state.apply_input(DomainInput::OpenTask(OpenTaskInput {
         task_id: TaskId::new(3),
@@ -566,6 +573,7 @@ fn link_evidence_to_missing_task_is_rejected() -> Result<(), DomainError> {
     state.apply_input(DomainInput::RegisterArtifact(RegisterArtifactInput {
         artifact_id: ArtifactId::new(1),
         title: "Notes".to_string(),
+        security: None,
     }))?;
     state.apply_input(DomainInput::RecordEvidence(RecordEvidenceInput {
         evidence_id: EvidenceId::new(10),
@@ -579,6 +587,7 @@ fn link_evidence_to_missing_task_is_rejected() -> Result<(), DomainError> {
         },
         excerpt: "first chunk".to_string(),
         observed_at: LogicalTick::new(1),
+        security: None,
     }))?;
 
     let result = state.apply_input(DomainInput::LinkEvidenceToTask(LinkEvidenceToTaskInput {

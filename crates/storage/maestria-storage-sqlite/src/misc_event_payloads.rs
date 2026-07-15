@@ -12,6 +12,7 @@ impl StoredEventPayload {
                 target,
                 evidence_id,
                 confidence_milli,
+                security,
             } => Some(Self::RelationCreated {
                 relation_id: relation_id.value(),
                 source: StoredRelationEndpoint::from_domain(source),
@@ -19,6 +20,7 @@ impl StoredEventPayload {
                 target: StoredRelationEndpoint::from_domain(target),
                 evidence_id: evidence_id.map(|id| id.value()),
                 confidence_milli: *confidence_milli,
+                security: security.clone(),
             }),
             DomainEvent::TickObserved { at } => Some(Self::TickObserved { at: at.value() }),
             DomainEvent::SearchExecuted {
@@ -45,6 +47,7 @@ impl StoredEventPayload {
                 target,
                 evidence_id,
                 confidence_milli,
+                security,
             } => Ok(DomainEvent::RelationCreated {
                 relation_id: maestria_domain::RelationId::new(relation_id),
                 source: source.into_domain(),
@@ -52,6 +55,7 @@ impl StoredEventPayload {
                 target: target.into_domain(),
                 evidence_id: evidence_id.map(maestria_domain::EvidenceId::new),
                 confidence_milli,
+                security,
             }),
             Self::TickObserved { at } => Ok(DomainEvent::TickObserved {
                 at: LogicalTick::new(at),

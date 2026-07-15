@@ -11,6 +11,7 @@ fn propose_memory_candidate_creates_claim_and_candidate_atomically() -> Result<(
     state.apply_input(DomainInput::RegisterArtifact(RegisterArtifactInput {
         artifact_id: ArtifactId::new(1),
         title: "Project Notes".to_string(),
+        security: None,
     }))?;
     state.apply_input(DomainInput::RecordEvidence(RecordEvidenceInput {
         evidence_id: EvidenceId::new(40),
@@ -19,6 +20,7 @@ fn propose_memory_candidate_creates_claim_and_candidate_atomically() -> Result<(
         kind: file_span_kind(),
         excerpt: "first chunk".to_string(),
         observed_at: LogicalTick::new(12),
+        security: None,
     }))?;
 
     let output = state.apply_input(DomainInput::ProposeMemoryCandidate(
@@ -28,6 +30,7 @@ fn propose_memory_candidate_creates_claim_and_candidate_atomically() -> Result<(
             text: "The project uses Rust".to_string(),
             evidence_ids: vec![EvidenceId::new(40)],
             confidence_milli: 750,
+            security: None,
         },
     ))?;
 
@@ -96,6 +99,7 @@ fn propose_memory_candidate_rejects_empty_text() -> Result<(), DomainError> {
     state.apply_input(DomainInput::RegisterArtifact(RegisterArtifactInput {
         artifact_id: ArtifactId::new(1),
         title: "Notes".to_string(),
+        security: None,
     }))?;
     state.apply_input(DomainInput::RecordEvidence(RecordEvidenceInput {
         evidence_id: EvidenceId::new(40),
@@ -104,6 +108,7 @@ fn propose_memory_candidate_rejects_empty_text() -> Result<(), DomainError> {
         kind: file_span_kind(),
         excerpt: "text".to_string(),
         observed_at: LogicalTick::new(0),
+        security: None,
     }))?;
 
     let err = state
@@ -114,6 +119,7 @@ fn propose_memory_candidate_rejects_empty_text() -> Result<(), DomainError> {
                 text: "   ".to_string(),
                 evidence_ids: vec![EvidenceId::new(40)],
                 confidence_milli: 500,
+                security: None,
             },
         ))
         .expect_err("empty text must be rejected");
@@ -134,6 +140,7 @@ fn propose_memory_candidate_rejects_invalid_confidence() -> Result<(), DomainErr
     state.apply_input(DomainInput::RegisterArtifact(RegisterArtifactInput {
         artifact_id: ArtifactId::new(1),
         title: "Notes".to_string(),
+        security: None,
     }))?;
     state.apply_input(DomainInput::RecordEvidence(RecordEvidenceInput {
         evidence_id: EvidenceId::new(40),
@@ -142,6 +149,7 @@ fn propose_memory_candidate_rejects_invalid_confidence() -> Result<(), DomainErr
         kind: file_span_kind(),
         excerpt: "text".to_string(),
         observed_at: LogicalTick::new(0),
+        security: None,
     }))?;
 
     let err = state
@@ -152,6 +160,7 @@ fn propose_memory_candidate_rejects_invalid_confidence() -> Result<(), DomainErr
                 text: "valid claim".to_string(),
                 evidence_ids: vec![EvidenceId::new(40)],
                 confidence_milli: 1001,
+                security: None,
             },
         ))
         .expect_err("confidence > 1000 must be rejected");
@@ -171,6 +180,7 @@ fn propose_memory_candidate_rejects_missing_evidence() -> Result<(), DomainError
     state.apply_input(DomainInput::RegisterArtifact(RegisterArtifactInput {
         artifact_id: ArtifactId::new(1),
         title: "Notes".to_string(),
+        security: None,
     }))?;
 
     let err = state
@@ -181,6 +191,7 @@ fn propose_memory_candidate_rejects_missing_evidence() -> Result<(), DomainError
                 text: "valid claim".to_string(),
                 evidence_ids: vec![EvidenceId::new(99)],
                 confidence_milli: 500,
+                security: None,
             },
         ))
         .expect_err("missing evidence must be rejected");
@@ -203,6 +214,7 @@ fn propose_memory_candidate_rejects_empty_evidence() -> Result<(), DomainError> 
                 text: "valid claim".to_string(),
                 evidence_ids: Vec::new(),
                 confidence_milli: 500,
+                security: None,
             },
         ))
         .expect_err("empty evidence must be rejected");
@@ -216,12 +228,14 @@ fn propose_memory_candidate_rejects_duplicate_claim_id() -> Result<(), DomainErr
     state.apply_input(DomainInput::RegisterArtifact(RegisterArtifactInput {
         artifact_id: ArtifactId::new(1),
         title: "Notes".to_string(),
+        security: None,
     }))?;
     state.apply_input(DomainInput::CreateClaim(CreateClaimInput {
         claim_id: ClaimId::new(20),
         artifact_id: ArtifactId::new(1),
         text: "existing claim".to_string(),
         evidence_ids: Vec::new(),
+        security: None,
     }))?;
     state.apply_input(DomainInput::RecordEvidence(RecordEvidenceInput {
         evidence_id: EvidenceId::new(40),
@@ -230,6 +244,7 @@ fn propose_memory_candidate_rejects_duplicate_claim_id() -> Result<(), DomainErr
         kind: file_span_kind(),
         excerpt: "text".to_string(),
         observed_at: LogicalTick::new(0),
+        security: None,
     }))?;
 
     let err = state
@@ -240,6 +255,7 @@ fn propose_memory_candidate_rejects_duplicate_claim_id() -> Result<(), DomainErr
                 text: "new proposal".to_string(),
                 evidence_ids: vec![EvidenceId::new(40)],
                 confidence_milli: 500,
+                security: None,
             },
         ))
         .expect_err("duplicate claim_id must be rejected");
@@ -258,6 +274,7 @@ fn propose_memory_candidate_rejects_duplicate_candidate_id() -> Result<(), Domai
         kind: file_span_kind(),
         excerpt: "text".to_string(),
         observed_at: LogicalTick::new(0),
+        security: None,
     }))?;
     state.apply_input(DomainInput::CreateMemoryCandidate(
         CreateMemoryCandidateInput {
@@ -265,6 +282,7 @@ fn propose_memory_candidate_rejects_duplicate_candidate_id() -> Result<(), Domai
             claim_id: ClaimId::new(20),
             evidence_ids: vec![EvidenceId::new(40)],
             confidence_milli: 500,
+            security: None,
         },
     ))?;
 
@@ -276,6 +294,7 @@ fn propose_memory_candidate_rejects_duplicate_candidate_id() -> Result<(), Domai
                 text: "new proposal".to_string(),
                 evidence_ids: vec![EvidenceId::new(40)],
                 confidence_milli: 500,
+                security: None,
             },
         ))
         .expect_err("duplicate candidate_id must be rejected");
@@ -289,10 +308,12 @@ fn propose_memory_candidate_rejects_artifact_mismatch() -> Result<(), DomainErro
     state.apply_input(DomainInput::RegisterArtifact(RegisterArtifactInput {
         artifact_id: ArtifactId::new(1),
         title: "Notes".to_string(),
+        security: None,
     }))?;
     state.apply_input(DomainInput::RegisterArtifact(RegisterArtifactInput {
         artifact_id: ArtifactId::new(2),
         title: "Other Notes".to_string(),
+        security: None,
     }))?;
     state.apply_input(DomainInput::RecordEvidence(RecordEvidenceInput {
         evidence_id: EvidenceId::new(40),
@@ -301,6 +322,7 @@ fn propose_memory_candidate_rejects_artifact_mismatch() -> Result<(), DomainErro
         kind: file_span_kind(),
         excerpt: "text".to_string(),
         observed_at: LogicalTick::new(0),
+        security: None,
     }))?;
     state.apply_input(DomainInput::RecordEvidence(RecordEvidenceInput {
         evidence_id: EvidenceId::new(41),
@@ -309,6 +331,7 @@ fn propose_memory_candidate_rejects_artifact_mismatch() -> Result<(), DomainErro
         kind: file_span_kind(),
         excerpt: "text".to_string(),
         observed_at: LogicalTick::new(0),
+        security: None,
     }))?;
 
     let err = state
@@ -319,6 +342,7 @@ fn propose_memory_candidate_rejects_artifact_mismatch() -> Result<(), DomainErro
                 text: "valid claim".to_string(),
                 evidence_ids: vec![EvidenceId::new(40), EvidenceId::new(41)],
                 confidence_milli: 500,
+                security: None,
             },
         ))
         .expect_err("artifact mismatch must be rejected");
@@ -337,6 +361,7 @@ fn propose_memory_candidate_rejects_evidence_bound_to_other_claim() -> Result<()
         kind: file_span_kind(),
         excerpt: "text".to_string(),
         observed_at: LogicalTick::new(0),
+        security: None,
     }))?;
 
     let err = state
@@ -347,6 +372,7 @@ fn propose_memory_candidate_rejects_evidence_bound_to_other_claim() -> Result<()
                 text: "new proposal".to_string(),
                 evidence_ids: vec![EvidenceId::new(40)],
                 confidence_milli: 500,
+                security: None,
             },
         ))
         .expect_err("evidence bound to other claim must be rejected");
@@ -362,6 +388,7 @@ fn propose_memory_candidate_survives_replay() -> Result<(), DomainError> {
     state.apply_input(DomainInput::RegisterArtifact(RegisterArtifactInput {
         artifact_id: ArtifactId::new(1),
         title: "Notes".to_string(),
+        security: None,
     }))?;
     state.apply_input(DomainInput::RecordEvidence(RecordEvidenceInput {
         evidence_id: EvidenceId::new(40),
@@ -370,6 +397,7 @@ fn propose_memory_candidate_survives_replay() -> Result<(), DomainError> {
         kind: file_span_kind(),
         excerpt: "text".to_string(),
         observed_at: LogicalTick::new(0),
+        security: None,
     }))?;
 
     let _ = state.apply_input(DomainInput::ProposeMemoryCandidate(
@@ -379,6 +407,7 @@ fn propose_memory_candidate_survives_replay() -> Result<(), DomainError> {
             text: "The project uses Rust".to_string(),
             evidence_ids: vec![EvidenceId::new(40)],
             confidence_milli: 750,
+            security: None,
         },
     ))?;
 
@@ -409,6 +438,7 @@ fn propose_memory_candidate_does_not_promote() -> Result<(), DomainError> {
     state.apply_input(DomainInput::RegisterArtifact(RegisterArtifactInput {
         artifact_id: ArtifactId::new(1),
         title: "Notes".to_string(),
+        security: None,
     }))?;
     state.apply_input(DomainInput::RecordEvidence(RecordEvidenceInput {
         evidence_id: EvidenceId::new(40),
@@ -417,6 +447,7 @@ fn propose_memory_candidate_does_not_promote() -> Result<(), DomainError> {
         kind: file_span_kind(),
         excerpt: "text".to_string(),
         observed_at: LogicalTick::new(0),
+        security: None,
     }))?;
 
     state.apply_input(DomainInput::ProposeMemoryCandidate(
@@ -426,6 +457,7 @@ fn propose_memory_candidate_does_not_promote() -> Result<(), DomainError> {
             text: "The project uses Rust".to_string(),
             evidence_ids: vec![EvidenceId::new(40)],
             confidence_milli: 950,
+            security: None,
         },
     ))?;
 

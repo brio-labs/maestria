@@ -171,6 +171,7 @@ async fn pdf_evidence_maps_page_one_to_pdf_span() {
             index_status: IndexStatus::Unindexed,
             content_hash: None,
             parse_status: None,
+            security: maestria_domain::SecurityMetadata::default(),
         })
         .expect("pre-populated artifact should be accepted");
 
@@ -252,6 +253,7 @@ async fn pdf_evidence_maps_page_n_to_pdf_span() {
             index_status: IndexStatus::Unindexed,
             content_hash: None,
             parse_status: None,
+            security: maestria_domain::SecurityMetadata::default(),
         })
         .expect("pre-populated artifact should be accepted");
 
@@ -336,6 +338,7 @@ async fn scanned_pdf_no_extractable_text_fails_before_parser_completed() {
             index_status: IndexStatus::Unindexed,
             content_hash: None,
             parse_status: None,
+            security: maestria_domain::SecurityMetadata::default(),
         })
         .expect("pre-populated artifact should be accepted");
 

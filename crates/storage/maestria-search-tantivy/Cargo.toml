@@ -7,6 +7,7 @@ version = "0.1.0"
 [dependencies]
 maestria_domain = { package = "maestria-domain", path = "../../kernel/maestria-domain" }
 maestria_ports = { package = "maestria-ports", path = "../../kernel/maestria-ports" }
+maestria_governance = { package = "maestria-governance", path = "../../kernel/maestria-governance" }
 tantivy = "0.26"
 
 [dev-dependencies]

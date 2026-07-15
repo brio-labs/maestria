@@ -9,6 +9,7 @@ rust-version.workspace = true
 maestria_domain = { package = "maestria-domain", path = "../../kernel/maestria-domain" }
 maestria_ports = { package = "maestria-ports", path = "../../kernel/maestria-ports" }
 rusqlite = { version = "0.32", features = ["bundled"] }
+serde_json = "1.0"
 
 [dev-dependencies]
 maestria_ports = { package = "maestria-ports", path = "../../kernel/maestria-ports", features = ["contract-tests"] }

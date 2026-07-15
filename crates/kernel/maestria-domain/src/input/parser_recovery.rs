@@ -1,3 +1,4 @@
+use crate::security::SecurityMetadata;
 use std::collections::{BTreeSet, btree_map::Entry};
 
 use crate::types::*;
@@ -14,13 +15,13 @@ impl KernelState {
         let mut generated = Vec::new();
         if let Some(pending) = self.pending_artifacts.remove(&input.artifact_id) {
             if let Entry::Vacant(entry) = self.artifacts.entry(input.artifact_id) {
-                entry.insert(Artifact::with_title(
-                    input.artifact_id,
-                    pending.title.clone(),
-                ));
+                let mut artifact = Artifact::with_title(input.artifact_id, pending.title.clone());
+                artifact.security = SecurityMetadata::default();
+                entry.insert(artifact);
                 let register_event = self.emit_event(DomainEvent::ArtifactRegistered {
                     artifact_id: input.artifact_id,
                     title: pending.title,
+                    security: SecurityMetadata::default(),
                 });
                 generated.push(register_event);
             }
@@ -45,13 +46,13 @@ impl KernelState {
         let mut generated = Vec::new();
         if let Some(parser) = self.pending_parsers.get(&input.artifact_id).cloned() {
             if let Entry::Vacant(entry) = self.artifacts.entry(input.artifact_id) {
-                entry.insert(Artifact::with_title(
-                    input.artifact_id,
-                    parser.title.clone(),
-                ));
+                let mut artifact = Artifact::with_title(input.artifact_id, parser.title.clone());
+                artifact.security = SecurityMetadata::default();
+                entry.insert(artifact);
                 let register_event = self.emit_event(DomainEvent::ArtifactRegistered {
                     artifact_id: input.artifact_id,
                     title: parser.title.clone(),
+                    security: SecurityMetadata::default(),
                 });
                 generated.push(register_event);
             } else if let Some(artifact) = self.artifacts.get_mut(&input.artifact_id)

@@ -64,6 +64,7 @@ fn parsed_result(status: ParseStatus) -> ParserResult {
                 },
                 title: "Document".to_owned(),
                 body: "A source-backed summary".to_owned(),
+                security: None,
             }]
         } else {
             Vec::new()

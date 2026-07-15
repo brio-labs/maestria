@@ -52,6 +52,7 @@ async fn parse_artifact_calls_blob_put_exactly_once() {
             index_status: IndexStatus::Unindexed,
             content_hash: None,
             parse_status: None,
+            security: maestria_domain::SecurityMetadata::default(),
         })
         .expect("pre-populated artifact should be accepted");
 
@@ -109,6 +110,7 @@ async fn parse_artifact_retry_redrives_existing_evidence() {
             index_status: IndexStatus::Unindexed,
             content_hash: None,
             parse_status: None,
+            security: maestria_domain::SecurityMetadata::default(),
         })
         .expect("pre-populated artifact should be accepted");
 
@@ -128,6 +130,7 @@ async fn parse_artifact_retry_redrives_existing_evidence() {
             },
             excerpt: "existing excerpt".into(),
             observed_at: LogicalTick::new(1),
+            security: maestria_domain::SecurityMetadata::default(),
         },
     );
 

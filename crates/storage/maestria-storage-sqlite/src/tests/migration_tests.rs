@@ -132,6 +132,7 @@ fn legacy_event_rows_migrate_and_reject_lossy_payloads() -> Result<(), Box<dyn s
             event: DomainEvent::ArtifactRegistered {
                 artifact_id: ArtifactId::new(1),
                 title: "legacy".to_string(),
+                security: SecurityMetadata::default(),
             },
         }]
     );
@@ -279,6 +280,88 @@ fn legacy_v1_migration_adds_content_hash_and_index_status() -> Result<(), Box<dy
     let stored = ArtifactRepository::get(&store, ArtifactId::new(1))?.expect("artifact must exist");
     assert_eq!(stored.content_hash, Some("sha256:abc123def456".to_string()));
     assert_eq!(stored.index_status, IndexStatus::Pending);
+
+    Ok(())
+}
+
+#[test]
+fn legacy_v7_migration_adds_security_json_and_defaults() -> Result<(), Box<dyn std::error::Error>> {
+    let directory = tempfile::tempdir()?;
+    let path = directory.path().join("v7-legacy.db");
+
+    // Seed a v7-style database
+    {
+        let connection = Connection::open(&path)?;
+        connection.execute_batch(
+            "CREATE TABLE artifacts (
+                 id INTEGER NOT NULL PRIMARY KEY,
+                 title TEXT NOT NULL,
+                 content_hash TEXT,
+                 index_status TEXT NOT NULL DEFAULT 'unindexed',
+                 parse_status TEXT
+             );
+             CREATE TABLE cards (
+                 id INTEGER NOT NULL PRIMARY KEY,
+                 artifact_id INTEGER NOT NULL,
+                 title TEXT NOT NULL,
+                 body TEXT NOT NULL,
+                 node_id INTEGER,
+                 source_span_json TEXT
+             );
+             CREATE TABLE evidence (
+                 id INTEGER NOT NULL PRIMARY KEY,
+                 artifact_id INTEGER NOT NULL,
+                 claim_id INTEGER,
+                 kind_json TEXT NOT NULL,
+                 excerpt TEXT NOT NULL,
+                 observed_at INTEGER NOT NULL
+             );
+             CREATE TABLE domain_events (
+                 id INTEGER NOT NULL PRIMARY KEY,
+                 sequence INTEGER NOT NULL UNIQUE,
+                 event_kind TEXT NOT NULL,
+                 artifact_id INTEGER,
+                 payload_json TEXT NOT NULL,
+                 payload_version INTEGER NOT NULL DEFAULT 2
+             );
+             CREATE TABLE schema_version (
+                 version INTEGER NOT NULL PRIMARY KEY,
+                 applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+             );
+             INSERT INTO schema_version (version) VALUES (7);
+             ",
+        )?;
+    }
+
+    let store = SqliteStore::open(&path)?;
+
+    // Verify the migration added v8 columns
+    {
+        let connection = store.lock()?;
+        assert!(table_has_column(&connection, "artifacts", "security_json")?);
+        assert!(table_has_column(&connection, "cards", "security_json")?);
+        assert!(table_has_column(&connection, "evidence", "security_json")?);
+
+        let version: i64 = connection
+            .query_row("SELECT MAX(version) FROM schema_version", [], |row| {
+                row.get(0)
+            })
+            .map_err(to_port_error)?;
+        assert_eq!(version, CURRENT_SCHEMA_VERSION);
+    }
+
+    // Verify defaults map correctly
+    {
+        let connection = store.lock()?;
+        connection.execute("INSERT INTO artifacts (id, title) VALUES (1, 'test')", [])?;
+        let security_json: String = connection.query_row(
+            "SELECT security_json FROM artifacts WHERE id = 1",
+            [],
+            |row| row.get(0),
+        )?;
+        let sec: maestria_domain::SecurityMetadata = serde_json::from_str(&security_json)?;
+        assert_eq!(sec, maestria_domain::SecurityMetadata::default());
+    }
 
     Ok(())
 }

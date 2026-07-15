@@ -180,6 +180,7 @@ fn crash_before_evidence_pending_parsers_survives_for_resume() -> Result<(), Dom
         artifact_id: ArtifactId::new(1),
         title: "Summary".to_string(),
         body: "body".to_string(),
+        security: None,
     };
 
     state.apply_input(DomainInput::ParserCompleted(ParserResult {
@@ -235,6 +236,7 @@ fn crash_before_evidence_pending_parsers_survives_for_resume() -> Result<(), Dom
         },
         excerpt: "hello".to_string(),
         observed_at: LogicalTick::new(1),
+        security: None,
     }))?;
 
     // Now simulate terminal indexing clearing pending_parsers.
@@ -321,6 +323,7 @@ fn record_file_span_evidence(
         },
         excerpt: setup.excerpt.clone(),
         observed_at: LogicalTick::new(setup.tick),
+        security: None,
     }))?;
     Ok(())
 }

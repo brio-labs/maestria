@@ -8,6 +8,7 @@ use crate::ids::{
     ValidationReportId,
 };
 use crate::search::{ContentHash, StructureNode};
+use crate::security::SecurityMetadata;
 use std::collections::BTreeSet;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -22,6 +23,7 @@ pub enum DomainEvent {
     ArtifactRegistered {
         artifact_id: ArtifactId,
         title: String,
+        security: SecurityMetadata,
     },
     ChunkRegistered {
         chunk_id: ChunkId,
@@ -39,12 +41,14 @@ pub enum DomainEvent {
         source_span: crate::provenance::SourceSpan,
         title: String,
         body: String,
+        security: SecurityMetadata,
     },
     ClaimCreated {
         claim_id: ClaimId,
         artifact_id: ArtifactId,
         text: String,
         evidence_ids: Vec<EvidenceId>,
+        security: SecurityMetadata,
     },
     EvidenceRecorded {
         evidence_id: EvidenceId,
@@ -53,6 +57,7 @@ pub enum DomainEvent {
         kind: EvidenceKind,
         excerpt: String,
         observed_at: LogicalTick,
+        security: SecurityMetadata,
     },
     TaskOpened {
         task_id: TaskId,
@@ -89,12 +94,14 @@ pub enum DomainEvent {
         target: RelationEndpoint,
         evidence_id: Option<EvidenceId>,
         confidence_milli: u16,
+        security: SecurityMetadata,
     },
     MemoryCandidateCreated {
         candidate_id: MemoryCandidateId,
         claim_id: ClaimId,
         evidence_ids: BTreeSet<EvidenceId>,
         confidence_milli: u16,
+        security: SecurityMetadata,
     },
     UserIntentObserved {
         task_id: TaskId,
@@ -142,6 +149,7 @@ pub enum DomainEvent {
     MemoryPromoted {
         memory_id: MemoryId,
         candidate_id: MemoryCandidateId,
+        security: SecurityMetadata,
     },
     MemoryContradicted {
         memory_id: MemoryId,

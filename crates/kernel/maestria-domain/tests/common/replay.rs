@@ -2,6 +2,7 @@
 
 use maestria_domain::*;
 
+#[allow(clippy::too_many_lines)]
 fn sample_inputs() -> Vec<DomainInput> {
     vec![
         DomainInput::ArtifactDetected(ArtifactDetected {
@@ -62,6 +63,7 @@ fn sample_inputs() -> Vec<DomainInput> {
             artifact_id: ArtifactId::new(1),
             text: "Claim from evidence".to_string(),
             evidence_ids: Vec::new(),
+            security: None,
         }),
         DomainInput::CreateCard(CreateCardInput {
             node_id: maestria_domain::StructureNodeId::new(1),
@@ -73,6 +75,7 @@ fn sample_inputs() -> Vec<DomainInput> {
             artifact_id: ArtifactId::new(1),
             title: "Summary".to_string(),
             body: "Summarize project notes".to_string(),
+            security: None,
         }),
         DomainInput::RecordEvidence(RecordEvidenceInput {
             evidence_id: EvidenceId::new(40),
@@ -86,6 +89,7 @@ fn sample_inputs() -> Vec<DomainInput> {
             },
             excerpt: "first chunk".to_string(),
             observed_at: LogicalTick::new(12),
+            security: None,
         }),
         DomainInput::LinkEvidenceToClaim(LinkEvidenceToClaimInput {
             claim_id: ClaimId::new(20),

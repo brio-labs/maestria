@@ -28,6 +28,7 @@ async fn evidence_recorded_persistence_replaces_malformed_record() {
         },
         excerpt: "malformed excerpt".into(),
         observed_at: LogicalTick::new(1),
+        security: maestria_domain::SecurityMetadata::default(),
     };
     evidence_repo
         .put(malformed.clone())
@@ -43,6 +44,7 @@ async fn evidence_recorded_persistence_replaces_malformed_record() {
         index_status: IndexStatus::Unindexed,
         content_hash: None,
         parse_status: None,
+        security: maestria_domain::SecurityMetadata::default(),
     };
     let valid_evidence = Evidence {
         id: evidence_id,
@@ -56,6 +58,7 @@ async fn evidence_recorded_persistence_replaces_malformed_record() {
         },
         excerpt: "valid excerpt".into(),
         observed_at: LogicalTick::new(2),
+        security: maestria_domain::SecurityMetadata::default(),
     };
     let mut state = KernelState::new();
     state.artifacts.insert(artifact_id, artifact);
@@ -83,6 +86,7 @@ async fn evidence_recorded_persistence_replaces_malformed_record() {
             },
             excerpt: "valid excerpt".into(),
             observed_at: LogicalTick::new(2),
+            security: maestria_domain::SecurityMetadata::default(),
         },
     };
 

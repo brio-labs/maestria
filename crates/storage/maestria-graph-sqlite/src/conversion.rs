@@ -1,6 +1,6 @@
 use maestria_domain::{
     ArtifactId, CardId, ClaimId, EvidenceId, MemoryId, Relation, RelationEndpoint, RelationId,
-    RelationKind, TaskId,
+    RelationKind, SecurityMetadata, TaskId,
 };
 use maestria_ports::PortError;
 use rusqlite::Row;
@@ -14,6 +14,11 @@ pub(super) fn read_relation(row: &Row<'_>) -> Result<Relation, PortError> {
     let target_id = row.get::<_, String>(5).map_err(to_port_error)?;
     let evidence_id = row.get::<_, Option<String>>(6).map_err(to_port_error)?;
     let confidence_milli = row.get::<_, i64>(7).map_err(to_port_error)?;
+    let security_json = row.get::<_, String>(8).map_err(to_port_error)?;
+    let security: SecurityMetadata =
+        serde_json::from_str(&security_json).map_err(|error| PortError::Internal {
+            message: format!("deserialize relation security: {error}"),
+        })?;
 
     Ok(Relation {
         id: parse_relation_id(&id)?,
@@ -22,6 +27,7 @@ pub(super) fn read_relation(row: &Row<'_>) -> Result<Relation, PortError> {
         target: relation_endpoint_from_parts(&target_type, &target_id)?,
         evidence_id: evidence_id.as_deref().map(parse_evidence_id).transpose()?,
         confidence_milli: i64_to_u16(confidence_milli, "confidence_milli")?,
+        security,
     })
 }
 

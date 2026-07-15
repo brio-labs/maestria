@@ -78,9 +78,10 @@ impl GraphIndex for SqliteGraphIndex {
                      target_type,
                      target_id,
                      evidence_id,
-                     confidence_milli
+                     confidence_milli,
+                     security_json
                  )
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
                  ON CONFLICT(id) DO UPDATE SET
                      source_type = excluded.source_type,
                      source_id = excluded.source_id,
@@ -88,7 +89,8 @@ impl GraphIndex for SqliteGraphIndex {
                      target_type = excluded.target_type,
                      target_id = excluded.target_id,
                      evidence_id = excluded.evidence_id,
-                     confidence_milli = excluded.confidence_milli",
+                     confidence_milli = excluded.confidence_milli,
+                     security_json = excluded.security_json",
                 params![
                     relation.id.value().to_string(),
                     source_type,
@@ -98,6 +100,11 @@ impl GraphIndex for SqliteGraphIndex {
                     target_id,
                     evidence_id,
                     confidence_milli,
+                    serde_json::to_string(&relation.security).map_err(|error| {
+                        PortError::Internal {
+                            message: format!("serialize relation security: {error}"),
+                        }
+                    })?,
                 ],
             )
             .map_err(to_port_error)?;
@@ -116,7 +123,8 @@ impl GraphIndex for SqliteGraphIndex {
                         target_type,
                         target_id,
                         evidence_id,
-                        confidence_milli
+                        confidence_milli,
+                        security_json
                  FROM relations
                  WHERE (source_type = ?1 AND source_id = ?2)
                     OR (target_type = ?1 AND target_id = ?2)",

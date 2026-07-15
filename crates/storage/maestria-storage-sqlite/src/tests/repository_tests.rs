@@ -82,6 +82,7 @@ fn brain_state_round_trips_and_lists_deterministically() {
             end_line: 2,
         },
         claim_ids: [ClaimId::new(5), ClaimId::new(3)].into(),
+        security: SecurityMetadata::default(),
     };
     let evidence = Evidence {
         id: EvidenceId::new(30),
@@ -95,6 +96,7 @@ fn brain_state_round_trips_and_lists_deterministically() {
         },
         excerpt: "grounded excerpt".to_string(),
         observed_at: LogicalTick::new(4),
+        security: SecurityMetadata::default(),
     };
 
     ChunkRepository::put(&store, late.clone()).expect("late chunk put");
@@ -142,6 +144,7 @@ fn evidence_kind_persists_without_domain_serde() {
         },
         excerpt: "stderr excerpt".to_string(),
         observed_at: LogicalTick::new(5),
+        security: SecurityMetadata::default(),
     };
     let validation = Evidence {
         id: EvidenceId::new(32),
@@ -152,6 +155,7 @@ fn evidence_kind_persists_without_domain_serde() {
         },
         excerpt: "validation excerpt".to_string(),
         observed_at: LogicalTick::new(6),
+        security: SecurityMetadata::default(),
     };
 
     EvidenceRepository::put(&store, command.clone()).expect("command evidence put");
@@ -175,6 +179,7 @@ fn evidence_put_is_idempotent() {
         },
         excerpt: "test excerpt".to_string(),
         observed_at: LogicalTick::new(1),
+        security: SecurityMetadata::default(),
     };
     EvidenceRepository::put(&store, evidence.clone()).expect("first put must succeed");
     EvidenceRepository::put(&store, evidence.clone()).expect("identical retry must succeed");
@@ -196,6 +201,7 @@ fn evidence_put_rejects_conflicting_overwrite() {
         },
         excerpt: "original".to_string(),
         observed_at: LogicalTick::new(1),
+        security: SecurityMetadata::default(),
     };
     EvidenceRepository::put(&store, first.clone()).expect("first put must succeed");
 
@@ -208,6 +214,7 @@ fn evidence_put_rejects_conflicting_overwrite() {
         },
         excerpt: "different".to_string(),
         observed_at: LogicalTick::new(2),
+        security: SecurityMetadata::default(),
     };
     let err = EvidenceRepository::put(&store, conflict).unwrap_err();
     assert!(
@@ -233,6 +240,7 @@ fn evidence_replace_overwrites_existing() {
         },
         excerpt: "malformed".to_string(),
         observed_at: LogicalTick::new(1),
+        security: SecurityMetadata::default(),
     };
     EvidenceRepository::put(&store, original.clone()).expect("first put");
 
@@ -245,6 +253,7 @@ fn evidence_replace_overwrites_existing() {
         },
         excerpt: "corrected".to_string(),
         observed_at: LogicalTick::new(2),
+        security: SecurityMetadata::default(),
     };
 
     // put rejects different content
@@ -272,6 +281,7 @@ fn artifact_index_status_round_trips_through_repository() {
     let store = SqliteStore::in_memory().expect("test setup");
 
     // Default artifact has Unindexed status and no content_hash
+
     let mut artifact = artifact(1);
     assert_eq!(artifact.index_status, IndexStatus::Unindexed);
     assert_eq!(artifact.content_hash, None);
@@ -297,4 +307,67 @@ fn artifact_index_status_round_trips_through_repository() {
         ArtifactRepository::get(&store, ArtifactId::new(1)).expect("get"),
         Some(artifact)
     );
+}
+
+#[test]
+fn security_metadata_round_trips() {
+    let store = SqliteStore::in_memory().expect("test setup");
+    let mut a = artifact(1);
+
+    let sec = maestria_domain::SecurityMetadata {
+        trust_zone: maestria_domain::TrustZone::System,
+        authority: maestria_domain::Authority::System,
+        integrity: maestria_domain::IntegrityState::Verified,
+        sensitivity: maestria_domain::Sensitivity::Internal,
+        review_status: maestria_domain::ReviewStatus::Approved,
+        quarantined: true,
+        prompt_injection_risk: true,
+        poisoning_flags: vec!["test".to_string()],
+        read_allowed: true,
+        write_allowed: true,
+        scope_id: None,
+    };
+    a.security = sec.clone();
+
+    ArtifactRepository::put(&store, a.clone()).expect("put");
+    let fetched = ArtifactRepository::get(&store, a.id)
+        .expect("get")
+        .expect("missing");
+    assert_eq!(fetched.security, sec);
+
+    let card = Card {
+        id: CardId::new(2),
+        artifact_id: a.id,
+        node_id: maestria_domain::StructureNodeId::new(1),
+        source_span: maestria_domain::SourceSpan::TextSpan {
+            start_line: 1,
+            end_line: 2,
+        },
+        title: "Test Card".to_string(),
+        body: "Card body".to_string(),
+        claim_ids: std::collections::BTreeSet::new(),
+        security: sec.clone(),
+    };
+    CardRepository::put(&store, card.clone()).expect("put card");
+    let fetched_card = CardRepository::get(&store, card.id)
+        .expect("get card")
+        .expect("missing card");
+    assert_eq!(fetched_card.security, sec);
+
+    let evidence = Evidence {
+        id: EvidenceId::new(3),
+        artifact_id: a.id,
+        claim_id: None,
+        kind: maestria_domain::EvidenceKind::Validation {
+            report_id: maestria_domain::ValidationReportId::new(1),
+        },
+        excerpt: "evidence body".to_string(),
+        observed_at: LogicalTick::new(1),
+        security: sec.clone(),
+    };
+    EvidenceRepository::put(&store, evidence.clone()).expect("put evidence");
+    let fetched_ev = EvidenceRepository::get(&store, evidence.id)
+        .expect("get ev")
+        .expect("missing ev");
+    assert_eq!(fetched_ev.security, sec);
 }

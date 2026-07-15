@@ -12,6 +12,7 @@ fn candidate_with_artifact(id: u64, has_evidence: bool) -> maestria_domain::Memo
         claim_id: maestria_domain::ClaimId::new(id),
         evidence_ids,
         confidence_milli: 900,
+        security: maestria_domain::SecurityMetadata::default(),
     }
 }
 
@@ -52,6 +53,7 @@ fn approval_profile_changes_decision_without_domain_changes() {
             event: DomainEvent::ArtifactRegistered {
                 artifact_id: maestria_domain::ArtifactId::new(1),
                 title: "notes".to_string(),
+                security: maestria_domain::SecurityMetadata::default(),
             },
         },
     };
@@ -131,6 +133,17 @@ fn memory_promotion_gate_requires_evidence() {
         decision,
         MemoryPromotionDecision::RequireEvidence { .. }
     ));
+}
+
+#[test]
+fn memory_promotion_denies_tainted_candidate() {
+    let mut candidate = candidate_with_artifact(43, true);
+    candidate.security.prompt_injection_risk = true;
+    let decision = DefaultMemoryPromotionGate.evaluate(&MemoryPromotionRequest {
+        candidate,
+        user_approved: true,
+    });
+    assert!(matches!(decision, MemoryPromotionDecision::Deny { .. }));
 }
 
 /// ReadOnly allows IndexFullText (rebuildable projection) but still gates risky effects.

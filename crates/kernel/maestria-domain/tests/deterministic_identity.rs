@@ -63,6 +63,7 @@ fn malformed_deterministic_existing_replaced_by_valid_retry() -> Result<(), Doma
             },
             excerpt: "old".to_string(),
             observed_at: LogicalTick::new(1),
+            security: maestria_domain::SecurityMetadata::default(),
         },
     );
     if let Some(artifact) = state.artifacts.get_mut(&art_id) {
@@ -83,6 +84,7 @@ fn malformed_deterministic_existing_replaced_by_valid_retry() -> Result<(), Doma
         },
         excerpt: "hello".to_string(),
         observed_at: LogicalTick::new(2),
+        security: None,
     }))?;
     assert!(
         output
@@ -156,6 +158,7 @@ fn valid_deterministic_duplicate_still_rejected() -> Result<(), DomainError> {
         },
         excerpt: "hello".to_string(),
         observed_at: LogicalTick::new(1),
+        security: None,
     }))?;
     // Retry with different excerpt — must be rejected.
     let err = state
@@ -171,6 +174,7 @@ fn valid_deterministic_duplicate_still_rejected() -> Result<(), DomainError> {
             },
             excerpt: "different".to_string(),
             observed_at: LogicalTick::new(1),
+            security: None,
         }))
         .expect_err("valid duplicate mismatch must error");
     assert!(
@@ -229,6 +233,7 @@ fn deterministic_cross_owner_rejected() -> Result<(), DomainError> {
     state.apply_input(DomainInput::RegisterArtifact(RegisterArtifactInput {
         artifact_id: art_b,
         title: "B".to_string(),
+        security: None,
     }))?;
     // Try to record under artifact B with artifact A's deterministic ID.
     let err = state
@@ -244,6 +249,7 @@ fn deterministic_cross_owner_rejected() -> Result<(), DomainError> {
             },
             excerpt: "a".to_string(),
             observed_at: LogicalTick::new(1),
+            security: None,
         }))
         .expect_err("cross-owner deterministic evidence must be rejected");
     assert!(
@@ -309,6 +315,7 @@ fn malformed_deterministic_non_filespan_is_rejected_at_record() -> Result<(), Do
             },
             excerpt: "out".to_string(),
             observed_at: LogicalTick::new(1),
+            security: None,
         }))
         .expect_err("CommandOutput at deterministic evidence ID must be rejected");
     assert!(
@@ -380,6 +387,7 @@ fn malformed_deterministic_filespan_without_snapshot_is_rejected() -> Result<(),
             },
             excerpt: "hello".to_string(),
             observed_at: LogicalTick::new(1),
+            security: None,
         }))
         .expect_err("FileSpan without snapshot at deterministic ID must be rejected");
     assert!(
@@ -449,6 +457,7 @@ fn malformed_deterministic_wrong_content_hash_is_rejected() -> Result<(), Domain
             },
             excerpt: "hello".to_string(),
             observed_at: LogicalTick::new(1),
+            security: None,
         }))
         .expect_err("FileSpan with wrong content_hash at deterministic ID must be rejected");
     assert!(
@@ -475,6 +484,7 @@ fn malformed_to_valid_replacement_events(
             event: DomainEvent::ArtifactRegistered {
                 artifact_id: art_id,
                 title: "Test".to_string(),
+                security: maestria_domain::SecurityMetadata::default(),
             },
         },
         DomainEventEnvelope {
@@ -536,6 +546,7 @@ fn malformed_to_valid_replacement_events(
                 },
                 excerpt: "old".to_string(),
                 observed_at: LogicalTick::new(1),
+                security: maestria_domain::SecurityMetadata::default(),
             },
         },
         // Valid replacement (FileSpan with snapshot and correct hash).
@@ -554,6 +565,7 @@ fn malformed_to_valid_replacement_events(
                 },
                 excerpt: "hello".to_string(),
                 observed_at: LogicalTick::new(2),
+                security: maestria_domain::SecurityMetadata::default(),
             },
         },
     ]
@@ -592,6 +604,7 @@ fn replay_events_malformed_to_valid_evidence_replacement() -> Result<(), DomainE
 }
 
 #[test]
+#[allow(clippy::too_many_lines)]
 fn replay_events_valid_duplicate_evidence_still_errors() -> Result<(), DomainError> {
     // A valid deterministic evidence record followed by a *different*
     // valid record at the same ID must still fail replay.
@@ -605,6 +618,7 @@ fn replay_events_valid_duplicate_evidence_still_errors() -> Result<(), DomainErr
             event: DomainEvent::ArtifactRegistered {
                 artifact_id: art_id,
                 title: "Test".to_string(),
+                security: maestria_domain::SecurityMetadata::default(),
             },
         },
         DomainEventEnvelope {
@@ -667,6 +681,7 @@ fn replay_events_valid_duplicate_evidence_still_errors() -> Result<(), DomainErr
                 },
                 excerpt: "hello".to_string(),
                 observed_at: LogicalTick::new(1),
+                security: maestria_domain::SecurityMetadata::default(),
             },
         },
         // Different valid evidence at same ID — must error.
@@ -685,6 +700,7 @@ fn replay_events_valid_duplicate_evidence_still_errors() -> Result<(), DomainErr
                 },
                 excerpt: "different".to_string(),
                 observed_at: LogicalTick::new(2),
+                security: maestria_domain::SecurityMetadata::default(),
             },
         },
     ];

@@ -4,6 +4,8 @@
 
 use std::collections::BTreeMap;
 
+#[cfg(test)]
+use maestria_domain::{Authority, SecurityMetadata, TrustZone};
 use maestria_domain::{
     Claim, ClaimId, Memory, MemoryCandidate, MemoryCandidateId, MemoryId, MemoryStatus,
 };
@@ -54,6 +56,7 @@ impl MemoryService {
                 claim_id: input.candidate.claim_id,
                 evidence_ids: input.candidate.evidence_ids,
                 status: MemoryStatus::Active,
+                security: input.candidate.security,
             }),
             MemoryPromotionDecision::RequireEvidence { reason } => {
                 PromoteMemoryOutput::RequiresEvidence { reason }
@@ -182,6 +185,11 @@ mod tests {
             claim_id: ClaimId::new(claim_id),
             evidence_ids: evidence_ids(evidence),
             confidence_milli: 900,
+            security: SecurityMetadata {
+                trust_zone: TrustZone::Verified,
+                authority: Authority::User,
+                ..SecurityMetadata::default()
+            },
         }
     }
 
@@ -192,6 +200,7 @@ mod tests {
             claim_id: ClaimId::new(claim_id),
             evidence_ids: evidence_ids(&[id]),
             status,
+            security: SecurityMetadata::default(),
         }
     }
 
@@ -202,6 +211,7 @@ mod tests {
             text: text.to_string(),
             status: ClaimStatus::Verified,
             evidence_ids: evidence_ids(&[1]),
+            security: SecurityMetadata::default(),
         }
     }
 
@@ -224,6 +234,7 @@ mod tests {
                 claim_id: candidate.claim_id,
                 evidence_ids: candidate.evidence_ids,
                 status: MemoryStatus::Active,
+                security: candidate.security.clone(),
             })
         );
     }

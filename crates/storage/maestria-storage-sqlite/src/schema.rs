@@ -9,11 +9,12 @@ mod supervision_migration;
 use supervision_migration::*;
 mod provenance_migration;
 use provenance_migration::*;
+mod security_migration;
+use security_migration::*;
 
 use crate::schema_validation::*;
 /// Current storage schema version supported by this adapter.
-pub(crate) const CURRENT_SCHEMA_VERSION: i64 = 7;
-
+pub(crate) const CURRENT_SCHEMA_VERSION: i64 = 8;
 /// Captures the pre-migration state of the database.
 struct SchemaState {
     version: Option<i64>,
@@ -55,7 +56,7 @@ fn detect_schema_state(connection: &Connection) -> Result<SchemaState, PortError
 }
 
 /// SQL that bootstraps every table for a fresh database (all `IF NOT EXISTS`).
-const BASE_SCHEMA_SQL: &str = "PRAGMA foreign_keys = ON;
+const BASE_SCHEMA_SQL: &str = r#"PRAGMA foreign_keys = ON;
      CREATE TABLE IF NOT EXISTS schema_version (
          version INTEGER NOT NULL PRIMARY KEY,
          applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -65,7 +66,8 @@ const BASE_SCHEMA_SQL: &str = "PRAGMA foreign_keys = ON;
          title TEXT NOT NULL,
          content_hash TEXT,
          index_status TEXT NOT NULL DEFAULT 'unindexed',
-         parse_status TEXT
+         parse_status TEXT,
+         security_json TEXT NOT NULL DEFAULT '{"trust_zone":"Untrusted","authority":"External","integrity":"Unverified","sensitivity":"Internal","review_status":"Unreviewed","quarantined":false,"prompt_injection_risk":false,"poisoning_flags":[],"read_allowed":true,"write_allowed":false,"scope_id":null}'
      );
      CREATE TABLE IF NOT EXISTS artifact_chunks (
          artifact_id INTEGER NOT NULL,
@@ -108,7 +110,8 @@ const BASE_SCHEMA_SQL: &str = "PRAGMA foreign_keys = ON;
          title TEXT NOT NULL,
          body TEXT NOT NULL,
          node_id INTEGER,
-         source_span_json TEXT
+         source_span_json TEXT,
+         security_json TEXT NOT NULL DEFAULT '{"trust_zone":"Untrusted","authority":"External","integrity":"Unverified","sensitivity":"Internal","review_status":"Unreviewed","quarantined":false,"prompt_injection_risk":false,"poisoning_flags":[],"read_allowed":true,"write_allowed":false,"scope_id":null}'
      );
      CREATE INDEX IF NOT EXISTS idx_cards_artifact
          ON cards(artifact_id, id);
@@ -124,7 +127,8 @@ const BASE_SCHEMA_SQL: &str = "PRAGMA foreign_keys = ON;
          claim_id INTEGER,
          kind_json TEXT NOT NULL,
          excerpt TEXT NOT NULL,
-         observed_at INTEGER NOT NULL
+         observed_at INTEGER NOT NULL,
+         security_json TEXT NOT NULL DEFAULT '{"trust_zone":"Untrusted","authority":"External","integrity":"Unverified","sensitivity":"Internal","review_status":"Unreviewed","quarantined":false,"prompt_injection_risk":false,"poisoning_flags":[],"read_allowed":true,"write_allowed":false,"scope_id":null}'
      );
      CREATE INDEX IF NOT EXISTS idx_evidence_artifact
          ON evidence(artifact_id, id);
@@ -162,7 +166,7 @@ const BASE_SCHEMA_SQL: &str = "PRAGMA foreign_keys = ON;
          requested_generation INTEGER,
          status TEXT NOT NULL,
          PRIMARY KEY (run_id, generation)
-     );";
+     );"#;
 
 /// Seeds the per-namespace `id_counters` rows from existing domain events
 /// so that fresh or migrated databases never start at the wrong counter value.
@@ -407,6 +411,7 @@ pub(crate) fn migrate(connection: &mut Connection) -> Result<(), PortError> {
     seed_id_counters(&transaction)?;
 
     ensure_provenance_v7_columns(&transaction)?;
+    ensure_security_v8_columns(&transaction)?;
 
     match state.version {
         Some(1) => migrate_from_v1(&transaction, &state)?,
@@ -415,7 +420,8 @@ pub(crate) fn migrate(connection: &mut Connection) -> Result<(), PortError> {
         Some(4) => migrate_from_v4(&transaction, &state)?,
         Some(5) => migrate_from_v5(&transaction, &state)?,
         Some(6) => migrate_from_v6(&transaction, &state)?,
-        Some(7) => validate_at_v7(&transaction, &state)?,
+        Some(7) => migrate_from_v7(&transaction, &state)?,
+        Some(8) => validate_at_v8(&transaction, &state)?,
         Some(version) => {
             return Err(PortError::Internal {
                 message: format!(

@@ -111,6 +111,7 @@ fn build_recovery_domain_state(state: &mut KernelState) -> RecoveryTestFixture {
                 },
                 title: "test card".to_string(),
                 body: "card body".to_string(),
+                security: None,
             }],
         }))
         .expect("parser completed");
@@ -128,6 +129,7 @@ fn build_recovery_domain_state(state: &mut KernelState) -> RecoveryTestFixture {
             },
             excerpt: "first chu".to_string(),
             observed_at: LogicalTick::new(7),
+            security: None,
         }))
         .expect("record evidence");
 
@@ -318,6 +320,7 @@ fn reconcile_projections_evidence_replace_overwrites_stale_row() {
         },
         excerpt: "stale excerpt".to_string(),
         observed_at: LogicalTick::new(1),
+        security: maestria_domain::SecurityMetadata::default(),
     };
 
     // Directly insert into state (bypass domain validation for the stale row).
@@ -356,6 +359,7 @@ fn reconcile_projections_evidence_replace_overwrites_stale_row() {
         },
         excerpt: "corrected excerpt".to_string(),
         observed_at: LogicalTick::new(2),
+        security: maestria_domain::SecurityMetadata::default(),
     };
     corrected_state
         .evidences
@@ -389,6 +393,7 @@ fn reconcile_graph_projection_repairs_missing_rows_and_filters_unevidenced() {
         kind: maestria_domain::RelationKind::Supports,
         evidence_id: Some(fixture.evidence_id),
         confidence_milli: 900,
+        security: maestria_domain::SecurityMetadata::default(),
     };
     let unevidenced = maestria_domain::Relation {
         id: maestria_domain::RelationId::new(2),
@@ -397,6 +402,7 @@ fn reconcile_graph_projection_repairs_missing_rows_and_filters_unevidenced() {
         kind: maestria_domain::RelationKind::Supports,
         evidence_id: None,
         confidence_milli: 900,
+        security: maestria_domain::SecurityMetadata::default(),
     };
     state.relations.insert(valid.id, valid.clone());
     state.relations.insert(unevidenced.id, unevidenced);
@@ -410,6 +416,7 @@ fn reconcile_graph_projection_repairs_missing_rows_and_filters_unevidenced() {
             kind: maestria_domain::RelationKind::Supports,
             evidence_id: Some(fixture.evidence_id),
             confidence_milli: 1000,
+            security: maestria_domain::SecurityMetadata::default(),
         })
         .expect("seed stale graph relation");
 

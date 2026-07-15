@@ -64,9 +64,11 @@ impl KernelState {
 
     fn replay_artifact_events(&mut self, event: &DomainEvent) -> Result<(), DomainError> {
         match event {
-            DomainEvent::ArtifactRegistered { artifact_id, title } => {
-                self.apply_artifact_registered(*artifact_id, title)
-            }
+            DomainEvent::ArtifactRegistered {
+                artifact_id,
+                title,
+                security,
+            } => self.apply_artifact_registered(*artifact_id, title, security),
             DomainEvent::ChunkRegistered {
                 chunk_id,
                 artifact_id,
@@ -136,16 +138,19 @@ impl KernelState {
                 claim_id,
                 evidence_ids,
                 confidence_milli,
+                security,
             } => self.apply_memory_candidate_created(
                 *candidate_id,
                 *claim_id,
                 evidence_ids,
                 *confidence_milli,
+                security,
             ),
             DomainEvent::MemoryPromoted {
                 memory_id,
                 candidate_id,
-            } => self.apply_memory_promoted(*memory_id, *candidate_id),
+                security,
+            } => self.apply_memory_promoted(*memory_id, *candidate_id, security),
             DomainEvent::MemoryContradicted {
                 memory_id,
                 contradicting_candidate_id,
@@ -198,15 +203,23 @@ impl KernelState {
                 source_span,
                 title,
                 body,
-            } => {
-                self.apply_card_created(*card_id, *artifact_id, *node_id, *source_span, title, body)
-            }
+                security,
+            } => self.apply_card_created(
+                *card_id,
+                *artifact_id,
+                *node_id,
+                *source_span,
+                title,
+                body,
+                security,
+            ),
             DomainEvent::ClaimCreated {
                 claim_id,
                 artifact_id,
                 text,
                 evidence_ids,
-            } => self.apply_claim_created(*claim_id, *artifact_id, text, evidence_ids),
+                security,
+            } => self.apply_claim_created(*claim_id, *artifact_id, text, evidence_ids, security),
             DomainEvent::ClaimValidationUpdated { claim_id, status } => {
                 self.apply_claim_validation_updated(*claim_id, status)
             }
@@ -221,6 +234,7 @@ impl KernelState {
                 kind,
                 excerpt,
                 observed_at,
+                security,
             } => self.apply_evidence_recorded(
                 *evidence_id,
                 *artifact_id,
@@ -228,6 +242,7 @@ impl KernelState {
                 kind,
                 excerpt,
                 *observed_at,
+                security,
             ),
             DomainEvent::TaskOpened {
                 task_id,
@@ -254,6 +269,7 @@ impl KernelState {
                 target,
                 evidence_id,
                 confidence_milli,
+                security,
             } => self.apply_relation_created(
                 *relation_id,
                 *source,
@@ -261,6 +277,7 @@ impl KernelState {
                 *target,
                 *evidence_id,
                 *confidence_milli,
+                security,
             ),
             DomainEvent::ValidationReportCreated {
                 report_id,

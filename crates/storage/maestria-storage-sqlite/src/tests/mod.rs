@@ -20,6 +20,7 @@ pub(super) fn artifact(id: u64) -> Artifact {
         index_status: IndexStatus::default(),
         parse_status: None,
         content_hash: None,
+        security: SecurityMetadata::default(),
     }
 }
 
@@ -30,6 +31,7 @@ pub(super) fn registered(event_id: u64, sequence: u64, artifact_id: u64) -> Doma
         event: DomainEvent::ArtifactRegistered {
             artifact_id: ArtifactId::new(artifact_id),
             title: format!("artifact {artifact_id}"),
+            security: SecurityMetadata::default(),
         },
     }
 }

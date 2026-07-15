@@ -10,11 +10,13 @@ impl StoredEventPayload {
                 artifact_id,
                 text,
                 evidence_ids,
+                security,
             } => Some(Self::ClaimCreated {
                 claim_id: claim_id.value(),
                 artifact_id: artifact_id.value(),
                 text: text.clone(),
                 evidence_ids: evidence_ids.iter().map(|id| id.value()).collect(),
+                security: security.clone(),
             }),
             DomainEvent::ClaimValidationUpdated { claim_id, status } => {
                 Some(Self::ClaimValidationUpdated {
@@ -36,12 +38,14 @@ impl StoredEventPayload {
                 kind,
                 excerpt,
                 observed_at,
+                security,
             } => Some(Self::EvidenceRecorded {
                 evidence_id: evidence_id.value(),
                 artifact_id: artifact_id.value(),
                 claim_id: claim_id.map(|id| id.value()),
                 evidence_kind: StoredEvidenceKind::from_domain(kind),
                 excerpt: excerpt.clone(),
+                security: security.clone(),
                 observed_at: observed_at.value(),
             }),
             _ => None,
@@ -55,11 +59,13 @@ impl StoredEventPayload {
                 artifact_id,
                 text,
                 evidence_ids,
+                security,
             } => Ok(DomainEvent::ClaimCreated {
                 claim_id: maestria_domain::ClaimId::new(claim_id),
                 artifact_id: ArtifactId::new(artifact_id),
                 text,
                 evidence_ids: evidence_ids.into_iter().map(EvidenceId::new).collect(),
+                security,
             }),
             Self::ClaimValidationUpdated { claim_id, status } => {
                 Ok(DomainEvent::ClaimValidationUpdated {
@@ -81,12 +87,14 @@ impl StoredEventPayload {
                 evidence_kind,
                 excerpt,
                 observed_at,
+                security,
             } => Ok(DomainEvent::EvidenceRecorded {
                 evidence_id: EvidenceId::new(evidence_id),
                 artifact_id: ArtifactId::new(artifact_id),
                 claim_id: claim_id.map(maestria_domain::ClaimId::new),
                 kind: evidence_kind.into_domain(),
                 excerpt,
+                security,
                 observed_at: LogicalTick::new(observed_at),
             }),
             other => Err(Box::new(other)),

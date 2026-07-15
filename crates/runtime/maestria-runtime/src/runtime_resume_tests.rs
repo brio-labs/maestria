@@ -38,6 +38,7 @@ async fn resume_parse_uses_existing_blob_and_skips_storage() {
             index_status: IndexStatus::Unindexed,
             content_hash: None,
             parse_status: None,
+            security: maestria_domain::SecurityMetadata::default(),
         })
         .expect("pre-populated artifact should be accepted");
 
@@ -119,6 +120,7 @@ async fn resume_parse_missing_blob_returns_failure() {
             index_status: IndexStatus::Unindexed,
             content_hash: None,
             parse_status: None,
+            security: maestria_domain::SecurityMetadata::default(),
         })
         .expect("pre-populated artifact should be accepted");
 
@@ -187,6 +189,7 @@ async fn fresh_parse_sends_parser_started_with_correct_blob_identity() {
             index_status: IndexStatus::Unindexed,
             content_hash: None,
             parse_status: None,
+            security: maestria_domain::SecurityMetadata::default(),
         })
         .expect("pre-populated artifact should be accepted");
 
@@ -290,6 +293,7 @@ fn populate_resume_event_log_and_state(
             },
             excerpt: "stale".to_string(),
             observed_at: LogicalTick::new(1),
+            security: maestria_domain::SecurityMetadata::default(),
         },
     );
 }
@@ -365,6 +369,7 @@ async fn resume_sends_record_evidence_when_evidence_already_in_state() {
             index_status: IndexStatus::Unindexed,
             content_hash: None,
             parse_status: None,
+            security: maestria_domain::SecurityMetadata::default(),
         })
         .expect("pre-populated artifact should be accepted");
 

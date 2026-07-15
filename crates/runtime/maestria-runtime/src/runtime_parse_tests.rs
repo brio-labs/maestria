@@ -25,6 +25,7 @@ async fn parse_artifact_passes_exact_source_path_and_bytes() {
             index_status: IndexStatus::Unindexed,
             content_hash: None,
             parse_status: None,
+            security: maestria_domain::SecurityMetadata::default(),
         })
         .expect("pre-populated artifact should be accepted");
 
@@ -123,6 +124,7 @@ async fn parse_artifact_empty_bytes_returns_failure() {
             index_status: IndexStatus::Unindexed,
             content_hash: None,
             parse_status: None,
+            security: maestria_domain::SecurityMetadata::default(),
         })
         .expect("pre-populated artifact should be accepted");
     let adapters = Adapters {
@@ -184,6 +186,7 @@ async fn parse_artifact_unsupported_parser_returns_failure() {
             index_status: IndexStatus::Unindexed,
             content_hash: None,
             parse_status: None,
+            security: maestria_domain::SecurityMetadata::default(),
         })
         .expect("pre-populated artifact should be accepted");
     let adapters = Adapters {

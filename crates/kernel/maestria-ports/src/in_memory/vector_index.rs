@@ -99,6 +99,83 @@ impl VectorIndex for InMemoryVectorIndex {
         Ok(hits)
     }
 
+    fn search_similar_filtered(
+        &self,
+        query: VectorSearchQuery,
+        filter: &dyn Fn(ChunkId) -> bool,
+    ) -> Result<Vec<VectorSearchHit>, PortError> {
+        validate_vector_values(&query.vector, "query vector")?;
+        if query.limit == 0 {
+            return Ok(Vec::new());
+        }
+
+        let guard = self.embeddings.lock().map_err(|_| PortError::Internal {
+            message: "vector index lock poisoned".to_string(),
+        })?;
+        let mut hits = Vec::new();
+
+        let q_norm_sq: f64 = query.vector.iter().map(|&v| (v as f64) * (v as f64)).sum();
+        if q_norm_sq == 0.0 {
+            return Ok(Vec::new());
+        }
+        let q_norm = q_norm_sq.sqrt();
+
+        for emb in guard.iter() {
+            if let Some(model) = &query.model
+                && &emb.provenance.model != model
+            {
+                continue;
+            }
+            if let Some(version) = &query.model_version
+                && &emb.provenance.model_version != version
+            {
+                continue;
+            }
+            if let Some(provider) = &query.provider_id
+                && &emb.provenance.provider_id != provider
+            {
+                continue;
+            }
+
+            if emb.vector.len() != query.vector.len() {
+                continue;
+            }
+            if !filter(emb.chunk_id) {
+                continue;
+            }
+
+            let v_norm_sq: f64 = emb.vector.iter().map(|&v| (v as f64) * (v as f64)).sum();
+            if v_norm_sq == 0.0 {
+                continue;
+            }
+            let v_norm = v_norm_sq.sqrt();
+
+            let dot: f64 = query
+                .vector
+                .iter()
+                .zip(emb.vector.iter())
+                .map(|(&q, &v)| (q as f64) * (v as f64))
+                .sum();
+            let cosine = (dot / (q_norm * v_norm)) as f32;
+
+            hits.push(VectorSearchHit {
+                chunk_id: emb.chunk_id,
+                score: cosine,
+            });
+        }
+
+        hits.sort_by(|left, right| {
+            let order = match right.score.partial_cmp(&left.score) {
+                Some(order) => order,
+                None => std::cmp::Ordering::Equal,
+            };
+            order.then_with(|| left.chunk_id.cmp(&right.chunk_id))
+        });
+
+        hits.truncate(query.limit as usize);
+        Ok(hits)
+    }
+
     fn delete_chunks(&self, chunk_ids: &[ChunkId]) -> Result<(), PortError> {
         let mut guard = self.embeddings.lock().map_err(|_| PortError::Internal {
             message: "vector index lock poisoned".to_string(),

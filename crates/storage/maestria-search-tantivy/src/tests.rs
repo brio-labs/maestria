@@ -1,6 +1,8 @@
 use super::*;
 
-use maestria_ports::{SearchQuery, contract_tests::assert_full_text_index_round_trip};
+use maestria_ports::{
+    FullTextIndex, SearchQuery, contract_tests::assert_full_text_index_round_trip,
+};
 use tempfile::TempDir;
 
 fn chunk(artifact_id: u64, chunk_id: u64, text: &str) -> IndexedChunk {
@@ -58,6 +60,30 @@ fn limit_is_honored() {
         .expect("search chunks");
 
     assert_eq!(hits.len(), 2);
+}
+
+#[test]
+fn filtered_search_excludes_denied_chunk_before_scoring() {
+    let index = TantivyFullTextIndex::in_memory().expect("create in-memory index");
+    index
+        .index_chunks(vec![
+            chunk(1, 10, "shared searchable term"),
+            chunk(1, 11, "shared searchable term"),
+        ])
+        .expect("index chunks");
+
+    let hits = index
+        .search_filtered(
+            SearchQuery {
+                q: "shared".to_string(),
+                limit: 10,
+                offset: 0,
+            },
+            &|chunk_id, _| chunk_id == ChunkId::new(10),
+        )
+        .expect("filtered search");
+    assert_eq!(hits.len(), 1);
+    assert_eq!(hits[0].chunk.chunk_id, ChunkId::new(10));
 }
 
 #[test]

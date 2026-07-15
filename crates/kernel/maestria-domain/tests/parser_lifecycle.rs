@@ -34,6 +34,7 @@ fn parser_completed_duplicate_is_idempotent() -> Result<(), DomainError> {
     state.apply_input(DomainInput::RegisterArtifact(RegisterArtifactInput {
         artifact_id: ArtifactId::new(1),
         title: "Doc".to_string(),
+        security: None,
     }))?;
 
     let parser_result = ParserResult {
@@ -65,6 +66,7 @@ fn parser_completed_duplicate_is_idempotent() -> Result<(), DomainError> {
             artifact_id: ArtifactId::new(1),
             title: "Summary".to_string(),
             body: "Parsed summary".to_string(),
+            security: None,
         }],
     };
 
@@ -115,6 +117,7 @@ fn parser_completed_rejects_mismatched_chunk() -> Result<(), DomainError> {
     state.apply_input(DomainInput::RegisterArtifact(RegisterArtifactInput {
         artifact_id: ArtifactId::new(1),
         title: "Doc".to_string(),
+        security: None,
     }))?;
     state.apply_input(DomainInput::ParserCompleted(ParserResult {
         status: maestria_domain::ParseStatus::Parsed,
@@ -173,6 +176,7 @@ fn parser_completed_rejects_mismatched_card() -> Result<(), DomainError> {
     state.apply_input(DomainInput::RegisterArtifact(RegisterArtifactInput {
         artifact_id: ArtifactId::new(1),
         title: "Doc".to_string(),
+        security: None,
     }))?;
     state.apply_input(DomainInput::ParserCompleted(ParserResult {
         status: maestria_domain::ParseStatus::Parsed,
@@ -206,6 +210,7 @@ fn parser_completed_rejects_mismatched_card() -> Result<(), DomainError> {
             artifact_id: ArtifactId::new(1),
             title: "Summary".to_string(),
             body: "Parsed summary".to_string(),
+            security: None,
         }],
     }))?;
 
@@ -243,6 +248,7 @@ fn parser_completed_rejects_mismatched_card() -> Result<(), DomainError> {
                 artifact_id: ArtifactId::new(1),
                 title: "Summary".to_string(),
                 body: "different body".to_string(),
+                security: None,
             }],
         }))
         .expect_err("mismatched card must error");
@@ -433,6 +439,7 @@ fn replay_artifact_parsed_cleans_up_pending_parsers() -> Result<(), DomainError>
         event: DomainEvent::ArtifactRegistered {
             artifact_id: ArtifactId::new(1),
             title: "Notes".to_string(),
+            security: SecurityMetadata::default(),
         },
     })?;
     state.apply_event(DomainEventEnvelope {
@@ -552,6 +559,7 @@ fn parser_completed_resume_with_artifact_registered_restores_pending_index()
             event: DomainEvent::ArtifactRegistered {
                 artifact_id: ArtifactId::new(1),
                 title: "Notes".to_string(),
+                security: SecurityMetadata::default(),
             },
         },
         DomainEventEnvelope {
@@ -656,6 +664,7 @@ fn parser_completed_resume_pending_same_hash_is_idempotent() -> Result<(), Domai
             event: DomainEvent::ArtifactRegistered {
                 artifact_id: ArtifactId::new(1),
                 title: "Notes".to_string(),
+                security: SecurityMetadata::default(),
             },
         },
         DomainEventEnvelope {
@@ -748,6 +757,7 @@ fn parser_completed_first_zero_output_emits_artifact_parsed() -> Result<(), Doma
     state.apply_input(DomainInput::RegisterArtifact(RegisterArtifactInput {
         artifact_id: ArtifactId::new(1),
         title: "Doc".to_string(),
+        security: None,
     }))?;
 
     // First parse with zero chunks/cards must still emit ArtifactParsed.
@@ -780,6 +790,7 @@ fn parser_completed_duplicate_zero_output_suppresses_artifact_parsed() -> Result
     state.apply_input(DomainInput::RegisterArtifact(RegisterArtifactInput {
         artifact_id: ArtifactId::new(1),
         title: "Doc".to_string(),
+        security: None,
     }))?;
 
     let empty_result = ParserResult {

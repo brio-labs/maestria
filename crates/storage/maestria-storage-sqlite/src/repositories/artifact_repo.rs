@@ -12,7 +12,7 @@ impl ArtifactRepository for crate::SqliteStore {
         let connection = self.lock()?;
         let row = connection
             .query_row(
-                "SELECT title, content_hash, index_status, parse_status FROM artifacts WHERE id = ?1",
+                "SELECT title, content_hash, index_status, parse_status, security_json FROM artifacts WHERE id = ?1",
                 params![u64_to_i64(artifact_id.value())?],
                 |row| {
                     Ok((
@@ -20,13 +20,14 @@ impl ArtifactRepository for crate::SqliteStore {
                         row.get::<_, Option<String>>(1)?,
                         row.get::<_, String>(2)?,
                         row.get::<_, Option<String>>(3)?,
+                        row.get::<_, String>(4)?,
                     ))
                 },
             )
             .optional()
             .map_err(to_port_error)?;
 
-        let Some((title, content_hash, index_status, parse_status)) = row else {
+        let Some((title, content_hash, index_status, parse_status, security_json)) = row else {
             return Ok(None);
         };
 
@@ -71,6 +72,7 @@ impl ArtifactRepository for crate::SqliteStore {
             index_status,
             content_hash,
             parse_status,
+            security: serde_json::from_str(&security_json).map_err(crate::json_error)?,
         }))
     }
 
@@ -79,13 +81,14 @@ impl ArtifactRepository for crate::SqliteStore {
         let transaction = connection.transaction().map_err(to_port_error)?;
         transaction
             .execute(
-                "INSERT INTO artifacts (id, title, content_hash, index_status, parse_status)
-                 VALUES (?1, ?2, ?3, ?4, ?5)
+                "INSERT INTO artifacts (id, title, content_hash, index_status, parse_status, security_json)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)
                  ON CONFLICT(id) DO UPDATE SET
                      title = excluded.title,
                      content_hash = excluded.content_hash,
                      index_status = excluded.index_status,
-                     parse_status = excluded.parse_status",
+                     parse_status = excluded.parse_status,
+                     security_json = excluded.security_json",
                 params![
                     u64_to_i64(artifact.id.value())?,
                     artifact.title,
@@ -100,6 +103,7 @@ impl ArtifactRepository for crate::SqliteStore {
                         Some(maestria_domain::ParseStatus::Quarantined) => "quarantined",
                         None => "none",
                     },
+                    serde_json::to_string(&artifact.security).map_err(crate::json_error)?,
                 ],
             )
             .map_err(to_port_error)?;

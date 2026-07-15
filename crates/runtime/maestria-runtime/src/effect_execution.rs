@@ -3,7 +3,7 @@ use maestria_domain::{
     DiagnosticEvent, DomainInput, FetchWebRequest, IndexVectorRequest, LogicalTick, MaestriaEffect,
     RequestApprovalRequest, UpdateGraphRequest,
 };
-use maestria_governance::{ApprovalRequest, PolicyDecision, RiskClass, ScopeGuard};
+use maestria_governance::{ApprovalRequest, PolicyDecision, RiskClass, ScopeGuard, scan_secrets};
 use maestria_ports::{ApprovalRecord, ApprovalRiskLevel, ApprovalStatus, VectorEmbedding};
 use std::{sync::Arc, time::Duration};
 use tokio::sync::mpsc;
@@ -226,7 +226,7 @@ impl EffectExecutionContext {
             tracing::warn!(chunk_id = %request.chunk_id, "vector provider configured without model");
             return true;
         };
-        let (chunk, content_hash) = {
+        let (chunk, content_hash, security_allowed) = {
             let state = self.state.read().await;
             let Some(chunk) = state.chunks.get(&request.chunk_id).cloned() else {
                 return {
@@ -234,16 +234,34 @@ impl EffectExecutionContext {
                     true
                 };
             };
-            let content_hash = match state
-                .artifacts
-                .get(&chunk.artifact_id)
-                .and_then(|artifact| artifact.content_hash.clone())
-            {
-                Some(content_hash) => content_hash,
-                None => maestria_domain::content_hash(chunk.text.as_bytes()),
+            let (content_hash, security_allowed) = match state.artifacts.get(&chunk.artifact_id) {
+                Some(artifact) => {
+                    let content_hash = match artifact.content_hash.clone() {
+                        Some(content_hash) => content_hash,
+                        None => maestria_domain::content_hash(chunk.text.as_bytes()),
+                    };
+                    (content_hash, artifact.security.retrieval_allowed())
+                }
+                None => (maestria_domain::content_hash(chunk.text.as_bytes()), false),
             };
-            (chunk, content_hash)
+            (chunk, content_hash, security_allowed)
         };
+        if !security_allowed {
+            tracing::warn!(
+                chunk_id = %request.chunk_id,
+                "refusing vector indexing for denied artifact"
+            );
+            return false;
+        }
+        let secret_scan = scan_secrets(&chunk.text);
+        if !secret_scan.is_clean() {
+            tracing::warn!(
+                chunk_id = %request.chunk_id,
+                findings = secret_scan.findings.len(),
+                "refusing embedding for secret-bearing chunk"
+            );
+            return false;
+        }
         let embedding_request = maestria_ports::EmbeddingRequest {
             text: chunk.text.clone(),
             model,

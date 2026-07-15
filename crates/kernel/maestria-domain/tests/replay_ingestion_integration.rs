@@ -59,6 +59,7 @@ fn parser_result_with_multiple_chunks() -> ParserResult {
                 artifact_id: ArtifactId::new(1),
                 title: "Card 1".to_string(),
                 body: "Alpha".to_string(),
+                security: None,
             },
             CreateCardInput {
                 node_id: StructureNodeId::new(10),
@@ -70,6 +71,7 @@ fn parser_result_with_multiple_chunks() -> ParserResult {
                 artifact_id: ArtifactId::new(1),
                 title: "Card 2".to_string(),
                 body: "Beta".to_string(),
+                security: None,
             },
         ],
     }
@@ -327,6 +329,7 @@ fn replay_full_text_indexed_rejects_mismatched_chunk_artifact() -> Result<(), Do
         event: DomainEvent::ArtifactRegistered {
             artifact_id: ArtifactId::new(1),
             title: "Artifact A".to_string(),
+            security: SecurityMetadata::default(),
         },
     })?;
     state.apply_event(DomainEventEnvelope {
@@ -335,6 +338,7 @@ fn replay_full_text_indexed_rejects_mismatched_chunk_artifact() -> Result<(), Do
         event: DomainEvent::ArtifactRegistered {
             artifact_id: ArtifactId::new(2),
             title: "Artifact B".to_string(),
+            security: SecurityMetadata::default(),
         },
     })?;
     state.apply_event(DomainEventEnvelope {
@@ -387,6 +391,7 @@ fn replay_artifact_indexed_rejects_pending_chunks() -> Result<(), DomainError> {
         event: DomainEvent::ArtifactRegistered {
             artifact_id: ArtifactId::new(1),
             title: "Test".to_string(),
+            security: SecurityMetadata::default(),
         },
     })?;
     state.apply_event(DomainEventEnvelope {
@@ -506,6 +511,7 @@ fn replay_artifact_parsed_retains_pending_parsers() -> Result<(), DomainError> {
         event: DomainEvent::ArtifactRegistered {
             artifact_id: ArtifactId::new(1),
             title: "Notes".to_string(),
+            security: SecurityMetadata::default(),
         },
     })?;
     state.apply_event(DomainEventEnvelope {
@@ -549,6 +555,7 @@ fn replay_artifact_parsed_zero_chunks_retains_pending_parsers() -> Result<(), Do
         event: DomainEvent::ArtifactRegistered {
             artifact_id: ArtifactId::new(1),
             title: "Notes".to_string(),
+            security: SecurityMetadata::default(),
         },
     })?;
     state.apply_event(DomainEventEnvelope {
@@ -592,6 +599,7 @@ fn replay_search_completed_preserves_pending_parsers() -> Result<(), DomainError
         event: DomainEvent::ArtifactRegistered {
             artifact_id: ArtifactId::new(1),
             title: "Notes".to_string(),
+            security: SecurityMetadata::default(),
         },
     })?;
     state.apply_event(DomainEventEnvelope {

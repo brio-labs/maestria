@@ -97,6 +97,7 @@ async fn parse_artifact_barrier_timeout_without_persistence_returns_failure() {
             index_status: IndexStatus::Unindexed,
             content_hash: None,
             parse_status: None,
+            security: maestria_domain::SecurityMetadata::default(),
         })
         .expect("pre-populated artifact should be accepted");
 

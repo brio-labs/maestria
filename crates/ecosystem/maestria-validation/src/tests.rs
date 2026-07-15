@@ -3,8 +3,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use super::*;
 use maestria_domain::{
     ArtifactId, BlobId, Claim, ClaimId, ClaimStatus, ContentRange, Evidence, EvidenceId,
-    EvidenceKind, LogicalTick, MemoryCandidate, MemoryCandidateId, Task, TaskId, TaskPriority,
-    TaskStatus, ValidationReportId,
+    EvidenceKind, LogicalTick, MemoryCandidate, MemoryCandidateId, SecurityMetadata, Task, TaskId,
+    TaskPriority, TaskStatus, ValidationReportId,
 };
 
 #[derive(Default)]
@@ -35,6 +35,7 @@ fn claim(id: u64, evidence_ids: impl IntoIterator<Item = EvidenceId>) -> Claim {
         text: format!("claim {id}"),
         status: ClaimStatus::Proposed,
         evidence_ids: evidence_ids.into_iter().collect(),
+        security: SecurityMetadata::default(),
     }
 }
 
@@ -51,6 +52,7 @@ fn evidence(id: u64, claim_id: Option<ClaimId>) -> Evidence {
         },
         excerpt: "evidence excerpt".to_string(),
         observed_at: LogicalTick::new(1),
+        security: SecurityMetadata::default(),
     }
 }
 
@@ -75,6 +77,7 @@ fn memory_candidate(
         claim_id: ClaimId::new(id),
         evidence_ids: evidence_ids.into_iter().collect(),
         confidence_milli: 900,
+        security: SecurityMetadata::default(),
     }
 }
 
@@ -416,6 +419,7 @@ fn evidence_test_helper_uses_blob_type_for_validation_variant_coverage() {
         },
         excerpt: format!("blob {}", BlobId::new(3)),
         observed_at: LogicalTick::new(1),
+        security: SecurityMetadata::default(),
     };
 
     assert_eq!(validation_evidence.id, EvidenceId::new(70));

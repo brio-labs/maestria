@@ -151,6 +151,7 @@ fn pure_input_with_effect_completion_is_replay_consistent() -> Result<(), Box<dy
             },
             title: "Summary".to_string(),
             body: "Two paragraphs.".to_string(),
+            security: None,
         }],
     }))?;
     for (order, excerpt) in ["Paragraph one.", "Paragraph two."].into_iter().enumerate() {
@@ -169,6 +170,7 @@ fn pure_input_with_effect_completion_is_replay_consistent() -> Result<(), Box<dy
             },
             excerpt: excerpt.to_string(),
             observed_at: LogicalTick::new(1),
+            security: None,
         }))?;
     }
 

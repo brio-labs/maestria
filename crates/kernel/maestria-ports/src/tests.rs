@@ -55,6 +55,7 @@ fn in_memory_evidence_put_is_idempotent() {
         },
         excerpt: "test excerpt".to_string(),
         observed_at: LogicalTick::new(1),
+        security: maestria_domain::SecurityMetadata::default(),
     };
     // First insert succeeds
     repo.put(evidence.clone()).expect("first put must succeed");
@@ -86,6 +87,7 @@ fn in_memory_evidence_replace_overwrites_existing() {
         },
         excerpt: "malformed".to_string(),
         observed_at: LogicalTick::new(1),
+        security: maestria_domain::SecurityMetadata::default(),
     };
     repo.put(original.clone()).expect("first put");
 
@@ -98,6 +100,7 @@ fn in_memory_evidence_replace_overwrites_existing() {
         },
         excerpt: "corrected".to_string(),
         observed_at: LogicalTick::new(2),
+        security: maestria_domain::SecurityMetadata::default(),
     };
 
     // put rejects different content
@@ -127,6 +130,7 @@ fn in_memory_evidence_put_rejects_conflicting_overwrite() {
         },
         excerpt: "original".to_string(),
         observed_at: LogicalTick::new(1),
+        security: maestria_domain::SecurityMetadata::default(),
     };
     repo.put(first.clone()).expect("first put must succeed");
 
@@ -139,6 +143,7 @@ fn in_memory_evidence_put_rejects_conflicting_overwrite() {
         },
         excerpt: "different".to_string(),
         observed_at: LogicalTick::new(2),
+        security: maestria_domain::SecurityMetadata::default(),
     };
     let err = repo.put(conflict).unwrap_err();
     assert!(
@@ -252,6 +257,7 @@ fn in_memory_graph_index_clear_removes_all_relations() {
         kind: maestria_domain::RelationKind::Contains,
         evidence_id: Some(maestria_domain::EvidenceId::new(3)),
         confidence_milli: 800,
+        security: maestria_domain::SecurityMetadata::default(),
     };
     index.insert_relation(rel.clone()).expect("graph operation");
     assert_eq!(
@@ -279,6 +285,7 @@ fn in_memory_graph_index_delete_relations_ignores_empty_list() {
         kind: maestria_domain::RelationKind::Contains,
         evidence_id: Some(maestria_domain::EvidenceId::new(3)),
         confidence_milli: 800,
+        security: maestria_domain::SecurityMetadata::default(),
     };
     index.insert_relation(rel.clone()).expect("graph operation");
 
@@ -300,6 +307,7 @@ fn in_memory_graph_index_rebuild_preserves_new_relations() {
         kind: maestria_domain::RelationKind::Contains,
         evidence_id: Some(maestria_domain::EvidenceId::new(3)),
         confidence_milli: 800,
+        security: maestria_domain::SecurityMetadata::default(),
     };
     let rel2 = maestria_domain::Relation {
         id: maestria_domain::RelationId::new(2),
@@ -308,6 +316,7 @@ fn in_memory_graph_index_rebuild_preserves_new_relations() {
         kind: maestria_domain::RelationKind::Supports,
         evidence_id: Some(maestria_domain::EvidenceId::new(5)),
         confidence_milli: 900,
+        security: maestria_domain::SecurityMetadata::default(),
     };
 
     index

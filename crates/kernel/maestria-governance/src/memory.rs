@@ -32,6 +32,11 @@ impl MemoryPromotionGate for DefaultMemoryPromotionGate {
                 reason: "memory candidate must contain at least one evidence id".to_string(),
             };
         }
+        if !request.candidate.security.memory_promotion_allowed() {
+            return MemoryPromotionDecision::Deny {
+                reason: "memory candidate security metadata blocks promotion".to_string(),
+            };
+        }
 
         if request.candidate.confidence_milli < 500 {
             return MemoryPromotionDecision::RequireReview {

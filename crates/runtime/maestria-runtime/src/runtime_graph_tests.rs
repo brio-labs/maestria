@@ -35,6 +35,7 @@ async fn update_graph_inserts_relation_when_present() {
         target: RelationEndpoint::Artifact(ArtifactId::new(2)),
         evidence_id: Some(maestria_domain::EvidenceId::new(7)),
         confidence_milli: 800,
+        security: maestria_domain::SecurityMetadata::default(),
     };
 
     let mut state = KernelState::new();
@@ -109,6 +110,7 @@ async fn update_graph_fails_when_adapter_fails() {
             target: RelationEndpoint::Artifact(ArtifactId::new(2)),
             evidence_id: Some(maestria_domain::EvidenceId::new(7)),
             confidence_milli: 800,
+            security: maestria_domain::SecurityMetadata::default(),
         },
     );
 

@@ -14,6 +14,7 @@ fn test_replay_artifact_chunk_card_evidence() -> Result<(), DomainError> {
     state.apply_input(DomainInput::RegisterArtifact(RegisterArtifactInput {
         artifact_id: art_id,
         title: "Test Artifact".to_string(),
+        security: None,
     }))?;
 
     state.apply_input(DomainInput::RegisterChunk(RegisterChunkInput {
@@ -39,6 +40,7 @@ fn test_replay_artifact_chunk_card_evidence() -> Result<(), DomainError> {
         artifact_id: art_id,
         title: "card title".to_string(),
         body: "card body".to_string(),
+        security: None,
     }))?;
 
     state.apply_input(DomainInput::CreateClaim(CreateClaimInput {
@@ -46,6 +48,7 @@ fn test_replay_artifact_chunk_card_evidence() -> Result<(), DomainError> {
         artifact_id: art_id,
         text: "claim text".to_string(),
         evidence_ids: vec![],
+        security: None,
     }))?;
 
     state.apply_input(DomainInput::RecordEvidence(RecordEvidenceInput {
@@ -60,6 +63,7 @@ fn test_replay_artifact_chunk_card_evidence() -> Result<(), DomainError> {
         },
         excerpt: "excerpt text".to_string(),
         observed_at: LogicalTick::new(0),
+        security: None,
     }))?;
 
     // Now check equality of replay
@@ -79,6 +83,7 @@ fn test_replay_duplicate_rejection() -> Result<(), DomainError> {
         event: DomainEvent::ArtifactRegistered {
             artifact_id: art_id,
             title: "Test Artifact".to_string(),
+            security: maestria_domain::SecurityMetadata::default(),
         },
     };
 
@@ -387,6 +392,7 @@ fn test_relation_constraints() -> Result<(), DomainError> {
         target: RelationEndpoint::Artifact(ArtifactId::new(100)),
         evidence_id: None,
         confidence_milli: 1001, // invalid
+        security: None,
     })) {
         Err(e) => e,
         Ok(_) => return Err(DomainError::EmptyIntent),
@@ -407,6 +413,7 @@ fn test_relation_constraints() -> Result<(), DomainError> {
         target: RelationEndpoint::Artifact(ArtifactId::new(100)),
         evidence_id: None,
         confidence_milli: 500,
+        security: None,
     })) {
         Err(e) => e,
         Ok(_) => return Err(DomainError::EmptyIntent),
@@ -423,6 +430,7 @@ fn test_claim_evidence_constraints() -> Result<(), DomainError> {
     state.apply_input(DomainInput::RegisterArtifact(RegisterArtifactInput {
         artifact_id: art_id,
         title: "A".to_string(),
+        security: None,
     }))?;
 
     let ev_id = EvidenceId::new(1);
@@ -438,6 +446,7 @@ fn test_claim_evidence_constraints() -> Result<(), DomainError> {
         },
         excerpt: "".to_string(),
         observed_at: LogicalTick::new(1),
+        security: None,
     }))?;
 
     let err = match state.apply_input(DomainInput::CreateClaim(CreateClaimInput {
@@ -445,6 +454,7 @@ fn test_claim_evidence_constraints() -> Result<(), DomainError> {
         artifact_id: art_id,
         text: "T".to_string(),
         evidence_ids: vec![ev_id, ev_id], // duplicate
+        security: None,
     })) {
         Err(e) => e,
         Ok(_) => return Err(DomainError::EmptyIntent),
@@ -463,6 +473,7 @@ fn test_claim_evidence_constraints() -> Result<(), DomainError> {
     state.apply_input(DomainInput::RegisterArtifact(RegisterArtifactInput {
         artifact_id: art2_id,
         title: "B".to_string(),
+        security: None,
     }))?;
 
     let err2 = match state.apply_input(DomainInput::CreateClaim(CreateClaimInput {
@@ -470,6 +481,7 @@ fn test_claim_evidence_constraints() -> Result<(), DomainError> {
         artifact_id: art2_id, // mismatch
         text: "T".to_string(),
         evidence_ids: vec![ev_id],
+        security: None,
     })) {
         Err(e) => e,
         Ok(_) => return Err(DomainError::EmptyIntent),

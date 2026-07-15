@@ -212,6 +212,59 @@ impl VectorIndex for SqliteVectorIndex {
         hits.truncate(query.limit as usize);
         Ok(hits)
     }
+    fn search_similar_filtered(
+        &self,
+        query: VectorSearchQuery,
+        filter: &dyn Fn(ChunkId) -> bool,
+    ) -> Result<Vec<VectorSearchHit>, PortError> {
+        validate_vector(&query.vector, "query vector")?;
+        if query.limit == 0 {
+            return Ok(Vec::new());
+        }
+        let q_norm_sq: f64 = query.vector.iter().map(|&v| (v as f64) * (v as f64)).sum();
+        if q_norm_sq == 0.0 {
+            return Ok(Vec::new());
+        }
+        let connection = self.lock_connection()?;
+        let mut statement = connection
+            .prepare(
+                "SELECT chunk_id, embedding
+                 FROM vector_embeddings
+                 WHERE dimension = ?1
+                   AND (?2 IS NULL OR provider_id = ?2)
+                   AND (?3 IS NULL OR model = ?3)
+                   AND (?4 IS NULL OR model_version = ?4)",
+            )
+            .map_err(to_port_error)?;
+        let mut rows = statement
+            .query(params![
+                usize_to_i64(query.vector.len())?,
+                query.provider_id.as_deref(),
+                query.model.as_deref(),
+                query.model_version.as_deref(),
+            ])
+            .map_err(to_port_error)?;
+        let mut hits = Vec::new();
+        while let Some(row) = rows.next().map_err(to_port_error)? {
+            let chunk_id = ChunkId::new(i64_to_u64(row.get::<_, i64>(0).map_err(to_port_error)?)?);
+            if !filter(chunk_id) {
+                continue;
+            }
+            let vector = decode_vector(&row.get::<_, Vec<u8>>(1).map_err(to_port_error)?)?;
+            hits.push(VectorSearchHit {
+                chunk_id,
+                score: cosine_similarity(&query.vector, &vector)?,
+            });
+        }
+        hits.sort_by(|left, right| {
+            right
+                .score
+                .total_cmp(&left.score)
+                .then_with(|| left.chunk_id.value().cmp(&right.chunk_id.value()))
+        });
+        hits.truncate(query.limit as usize);
+        Ok(hits)
+    }
 
     fn delete_chunks(&self, chunk_ids: &[ChunkId]) -> Result<(), PortError> {
         if chunk_ids.is_empty() {

@@ -12,7 +12,7 @@ impl EvidenceRepository for crate::SqliteStore {
         let connection = self.lock()?;
         let mut statement = connection
             .prepare(
-                "SELECT id, artifact_id, claim_id, kind_json, excerpt, observed_at
+                "SELECT id, artifact_id, claim_id, kind_json, excerpt, observed_at, security_json
                  FROM evidence
                  WHERE id = ?1",
             )
@@ -31,7 +31,7 @@ impl EvidenceRepository for crate::SqliteStore {
         // Check for existing evidence with this id
         let mut statement = connection
             .prepare(
-                "SELECT id, artifact_id, claim_id, kind_json, excerpt, observed_at
+                "SELECT id, artifact_id, claim_id, kind_json, excerpt, observed_at, security_json
                  FROM evidence
                  WHERE id = ?1",
             )
@@ -59,8 +59,8 @@ impl EvidenceRepository for crate::SqliteStore {
         connection
             .execute(
                 "INSERT INTO evidence
-                     (id, artifact_id, claim_id, kind_json, excerpt, observed_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                     (id, artifact_id, claim_id, kind_json, excerpt, observed_at, security_json)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
                 params![
                     u64_to_i64(evidence.id.value())?,
                     u64_to_i64(evidence.artifact_id.value())?,
@@ -68,6 +68,7 @@ impl EvidenceRepository for crate::SqliteStore {
                     kind_json,
                     evidence.excerpt,
                     u64_to_i64(evidence.observed_at.value())?,
+                    serde_json::to_string(&evidence.security).map_err(crate::json_error)?,
                 ],
             )
             .map(|_| ())
@@ -81,8 +82,8 @@ impl EvidenceRepository for crate::SqliteStore {
         connection
             .execute(
                 "INSERT OR REPLACE INTO evidence
-                     (id, artifact_id, claim_id, kind_json, excerpt, observed_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                     (id, artifact_id, claim_id, kind_json, excerpt, observed_at, security_json)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
                 params![
                     u64_to_i64(evidence.id.value())?,
                     u64_to_i64(evidence.artifact_id.value())?,
@@ -90,6 +91,7 @@ impl EvidenceRepository for crate::SqliteStore {
                     kind_json,
                     evidence.excerpt,
                     u64_to_i64(evidence.observed_at.value())?,
+                    serde_json::to_string(&evidence.security).map_err(crate::json_error)?,
                 ],
             )
             .map(|_| ())
@@ -100,7 +102,7 @@ impl EvidenceRepository for crate::SqliteStore {
         let connection = self.lock()?;
         let mut statement = connection
             .prepare(
-                "SELECT id, artifact_id, claim_id, kind_json, excerpt, observed_at
+                "SELECT id, artifact_id, claim_id, kind_json, excerpt, observed_at, security_json
                  FROM evidence
                  WHERE artifact_id = ?1
                  ORDER BY id ASC",
@@ -122,6 +124,9 @@ fn read_evidence(row: &Row<'_>) -> Result<Evidence, PortError> {
     let kind = serde_json::from_str::<StoredEvidenceKind>(&kind_json)
         .map_err(json_error)?
         .into_domain();
+    let security_json = row.get::<_, String>(6).map_err(to_port_error)?;
+    let security = serde_json::from_str(&security_json).map_err(crate::json_error)?;
+
     Ok(Evidence {
         id: EvidenceId::new(i64_to_u64(row.get::<_, i64>(0).map_err(to_port_error)?)?),
         artifact_id: ArtifactId::new(i64_to_u64(row.get::<_, i64>(1).map_err(to_port_error)?)?),
@@ -130,5 +135,6 @@ fn read_evidence(row: &Row<'_>) -> Result<Evidence, PortError> {
         kind,
         excerpt: row.get::<_, String>(4).map_err(to_port_error)?,
         observed_at: LogicalTick::new(i64_to_u64(row.get::<_, i64>(5).map_err(to_port_error)?)?),
+        security,
     })
 }

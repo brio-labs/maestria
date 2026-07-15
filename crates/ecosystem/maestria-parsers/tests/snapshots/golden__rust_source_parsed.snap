@@ -320,6 +320,7 @@ ParsedArtifact {
                 },
                 title: "use std::fmt;",
                 body: "Parsed 5 textual chunks from lib.rs.",
+                security: None,
             },
             node_id: StructureNodeId(
                 3000009,
