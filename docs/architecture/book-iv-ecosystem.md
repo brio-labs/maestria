@@ -1,7 +1,8 @@
 # Book IV — Ecosystem, Storage, and Projections
 
 The ecosystem and storage layer provide projections and I/O-backed capabilities, not
-authoritative truth. Domain truth remains in the kernel model.
+authoritative state or external factual authority. Domain state remains in the kernel
+model, while evidence preserves observations without asserting that they are true.
 
 ## Purpose
 

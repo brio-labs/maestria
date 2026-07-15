@@ -63,6 +63,15 @@ CANONICAL_DOC_MARKERS = {
     "docs/ROADMAP.md": ("single canonical", "exit criteria"),
     "docs/RESEARCH.md": ("NON-NORMATIVE", "quality", "energy"),
 }
+CANONICAL_DOC_SECTIONS = {
+    "docs/ARCHITECTURE.md": ("## 2. System Identity", "## 3. Architectural Dependency Direction"),
+    "docs/SEARCH.md": ("## Search Boundary Objects", "## Search Execution Model", "## Budgets and Stop Conditions"),
+    "docs/MEMORY.md": ("## 1. Information Lifecycle", "## 2. Provenance and Staleness", "## 3. Boundaries and Overclaiming"),
+    "docs/SECURITY.md": ("## 2. Security Invariants", "## 5. Taint and Quarantine", "## 6. Prompt Injection as Data"),
+    "docs/OPERATIONS.md": ("## 1. Bounded Runtime Lifecycle", "## 2. State and Recovery", "## 4. Data Evolution"),
+    "docs/ROADMAP.md": ("## Phase 1:", "## Phase 6:"),
+    "docs/RESEARCH.md": ("## 1. Evaluation Framework", "## 3. Promotion Criteria"),
+}
 FORBIDDEN_EXTERNAL_TRUTH_WORDING = (
     "domain owns truth",
     "truth machine",
@@ -99,12 +108,18 @@ def scan_documentation_contract() -> list[str]:
         for marker in markers:
             if marker.casefold() not in lowered:
                 violations.append(f"{relative_path} is missing required marker {marker!r}")
+        for section in CANONICAL_DOC_SECTIONS[relative_path]:
+            if section.casefold() not in lowered:
+                violations.append(f"{relative_path} is missing required section {section!r}")
 
-    for relative_path in CANONICAL_DOC_MARKERS:
-        content = read_text(ROOT / relative_path)
+    for path in (ROOT / "docs").rglob("*.md"):
+        if should_skip(path):
+            continue
+        content = read_text(path)
         if content is None:
             continue
         lowered = content.casefold()
+        relative_path = path.relative_to(ROOT).as_posix()
         for phrase in FORBIDDEN_EXTERNAL_TRUTH_WORDING:
             if phrase in lowered:
                 violations.append(

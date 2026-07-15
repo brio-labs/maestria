@@ -368,7 +368,7 @@ Retrieval providers remain behind adapters. Search plans, outcomes, and traces a
 ### 9.2 Search Invariants
 
 1. Every candidate maps to a source artifact version and evidence span.
-2. Scope, ACL, trust, and freshness filters are applied before final evidence selection.
+2. Scope, ACL, trust, sensitivity, quarantine, and freshness filters are applied before candidate generation, scoring, fusion, reranking, expansion, or evidence packing.
 3. Incompatible model or index fingerprints are never compared.
 4. Duplicate and source-independence information is retained.
 5. Conflicting and counterevidence results are surfaced, not silently collapsed.

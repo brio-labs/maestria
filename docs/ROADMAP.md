@@ -32,17 +32,20 @@ Implement dynamic query routing and bounded multi-stage retrieval.
 Deep structural and contextual understanding of codebases.
 *   **Goals:** Cross-file dependency resolution, type-aware search, and semantic similarity of code blocks.
 *   **Exit Criteria:**
-    *   System can accurately map function call graphs across language boundaries where supported.
-    *   Semantic search surfaces logically equivalent implementations, not just textually similar ones.
+    *   A versioned Rust repository benchmark reports symbol, relation, and exact-span recall for supported language features.
+    *   Live freshness checks detect changed worktree sources without returning stale evidence as current.
+    *   Code retrieval preserves ACL, provenance, and deterministic trace requirements.
 
 ## Phase 5: Visual Documents
-Expand search capabilities to include UI and visual assets.
-*   **Goals:** Retrieve and understand images, diagrams, and UI layouts relevant to codebase queries.
+Expand search capabilities to include visual assets and structured document regions.
+*   **Goals:** Retrieve pages, tables, charts, figures, and visual regions with source coordinates.
 *   **Exit Criteria:**
-    *   Multimodal retrieval successfully maps visual components to their source code implementations.
+    *   A versioned visual-document benchmark reports region recall, citation alignment, and table/figure coverage.
+    *   Visual candidates retain immutable page/region provenance and pass the same scope, trust, and quarantine gates as text.
 
 ## Phase 6: Advanced Research
-Exploration of next-generation retrieval paradigms.
-*   **Goals:** Evaluate experimental architectures.
+Explore additional retrieval paradigms only where measured quality/cost/security frontiers justify them.
+*   **Goals:** Evaluate experimental architectures without turning candidates into permanent defaults.
 *   **Exit Criteria:**
-    *   Successful evaluation of candidates listed in [RESEARCH.md](./RESEARCH.md) against defined quality, latency, memory, privacy, and energy budgets.
+    *   Candidates listed in [RESEARCH.md](./RESEARCH.md) are evaluated against quality, latency, memory, privacy, security, and energy budgets.
+    *   Promotion records include reproducible corpus/index fingerprints, rollback compatibility, and a dated decision.

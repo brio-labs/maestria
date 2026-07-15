@@ -180,13 +180,14 @@ pub struct SearchOutcome {
 
 Possible statuses include:
 
-```text
 answerable
 answerable_with_warnings
 evidence_incomplete
 sources_conflict
 stale_evidence_only
 no_evidence_found
+denied_by_policy
+quarantined_for_review
 abstained
 ```
 

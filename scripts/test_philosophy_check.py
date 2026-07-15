@@ -132,7 +132,8 @@ class PhilosophyCheckTests(unittest.TestCase):
             for relative_path, markers in PHILOSOPHY_CHECK.CANONICAL_DOC_MARKERS.items():
                 path = root / relative_path
                 path.parent.mkdir(parents=True, exist_ok=True)
-                path.write_text("\n".join(markers), encoding="utf-8")
+                sections = PHILOSOPHY_CHECK.CANONICAL_DOC_SECTIONS[relative_path]
+                path.write_text("\n".join((*markers, *sections)), encoding="utf-8")
 
             self.assertEqual(PHILOSOPHY_CHECK.scan_documentation_contract(), [])
 
@@ -151,7 +152,8 @@ class PhilosophyCheckTests(unittest.TestCase):
             for relative_path, markers in PHILOSOPHY_CHECK.CANONICAL_DOC_MARKERS.items():
                 path = root / relative_path
                 path.parent.mkdir(parents=True, exist_ok=True)
-                path.write_text("\n".join(markers), encoding="utf-8")
+                sections = PHILOSOPHY_CHECK.CANONICAL_DOC_SECTIONS[relative_path]
+                path.write_text("\n".join((*markers, *sections)), encoding="utf-8")
 
             architecture = root / "docs" / "ARCHITECTURE.md"
             architecture.write_text(

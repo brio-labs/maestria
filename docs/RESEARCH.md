@@ -6,6 +6,14 @@
 This document tracks experimental candidates for the Maestria search architecture. 
 **Crucially, no model, backend, or specific algorithm listed here is a permanent default.** All candidates are treated as hypotheses.
 
+
+## Legacy Report Status
+
+`maestria_brioche_informed_code_architecture_report.md` is retained as historical
+input and is **non-normative**. Its backend, model, and algorithm examples are
+research candidates only. The canonical contracts are the documents listed in
+[`SPECS.md`](SPECS.md) and the dated candidates in this document.
+
 ## 1. Evaluation Framework
 
 Candidates are evaluated strictly against the Maestria internal corpora. A candidate is eligible for promotion to the [ROADMAP.md](./ROADMAP.md) only if it demonstrates superior performance across the following budgets:
@@ -14,6 +22,7 @@ Candidates are evaluated strictly against the Maestria internal corpora. A candi
 *   **Latency:** P50, P90, and P99 response times for typical query loads.
 *   **Memory:** Peak RAM and VRAM utilization during indexing and retrieval.
 *   **Privacy:** Compliance with local-first processing requirements and data sovereignty guarantees.
+*   **Security:** No ACL leakage, prohibited-candidate exposure, prompt-injection authorization, secret disclosure, or fail-open behavior.
 *   **Energy:** Joules per query or indexing operation (critical for local/edge deployments).
 
 ## 2. Current Candidates (as of 2026-07-14)

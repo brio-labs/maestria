@@ -16,7 +16,7 @@ The system treats information through a strictly phased lifecycle:
 ## 2. Provenance and Staleness
 
 *   **Provenance:** Every promoted memory MUST retain exact lineage. This includes the source document, user interaction, or derived reasoning step that created it.
-*   **Staleness:** Memories are subject to temporal decay. Facts related to volatile context (e.g., "current working branch") decay rapidly, while foundational facts (e.g., "project language is TypeScript") decay slowly or not at all.
+*   **Staleness:** Memories are subject to temporal decay. Facts related to volatile context (e.g., "current working branch") decay rapidly, while relatively stable project metadata decays slowly or not at all unless contradicted.
 *   **Revalidation:** Stale memories accessed during critical operations trigger revalidation protocols before use.
 
 ## 3. Boundaries and Overclaiming
