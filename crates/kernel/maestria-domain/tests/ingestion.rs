@@ -321,38 +321,18 @@ fn full_ingestion_flow_detection_then_parsing() -> Result<(), DomainError> {
     let chunk_reg_count = output
         .events
         .iter()
-        .filter(|e| {
-            matches!(
-                e.event,
-                DomainEvent::ChunkRegistered {
-                    node_id: _,
-                    source_span: _,
-                    representations: _,
-                    ..
-                }
-            )
-        })
+        .filter(|e| matches!(e.event, DomainEvent::ChunkRegistered { .. }))
         .count();
     let card_created_count = output
         .events
         .iter()
-        .filter(|e| {
-            matches!(
-                e.event,
-                DomainEvent::CardCreated {
-                    node_id: _,
-                    source_span: _,
-                    ..
-                }
-            )
-        })
+        .filter(|e| matches!(e.event, DomainEvent::CardCreated { .. }))
         .count();
     let parsed_count = output
         .events
         .iter()
-        .filter(|e| matches!(e.event, DomainEvent::ArtifactParsed { status: _, .. }))
+        .filter(|e| matches!(e.event, DomainEvent::ArtifactParsed { .. }))
         .count();
-
     assert_eq!(chunk_reg_count, 2, "two chunk events");
     assert_eq!(card_created_count, 1, "one card event");
     assert_eq!(parsed_count, 1, "one artifact-parsed terminal event");
