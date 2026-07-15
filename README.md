@@ -247,6 +247,13 @@ python3 scripts/philosophy-check.py
 
 - `docs/PHILOSOPHY.md` — repository doctrine
 - `docs/SPECS.md` — invariant ledger
+- [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) — system boundaries and ownership
+- [`docs/SEARCH.md`](./docs/SEARCH.md) — typed retrieval contracts
+- [`docs/MEMORY.md`](./docs/MEMORY.md) — source-backed memory lifecycle
+- [`docs/SECURITY.md`](./docs/SECURITY.md) — scope, trust, taint, and secrets
+- [`docs/OPERATIONS.md`](./docs/OPERATIONS.md) — runtime lifecycle and recovery
+- [`docs/ROADMAP.md`](./docs/ROADMAP.md) — canonical implementation roadmap
+- [`docs/RESEARCH.md`](./docs/RESEARCH.md) — dated non-normative evaluation candidates
 - [`docs/architecture/`](./docs/architecture/) — architecture books
 - `docs/first-pr-guide.md` — contributor onboarding
 

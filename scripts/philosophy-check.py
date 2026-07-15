@@ -54,6 +54,47 @@ KERNEL_ALLOWED_DEPENDENCIES = {
     "maestria-ports": {"maestria_domain"},
 }
 
+CANONICAL_DOC_MARKERS = {
+    "docs/ARCHITECTURE.md": ("authoritative state", "external factual truth"),
+    "docs/SEARCH.md": ("SearchPlan", "SearchTraceId", "abstention"),
+    "docs/MEMORY.md": ("MemoryCandidate", "provenance", "staleness"),
+    "docs/SECURITY.md": ("prompt injection", "quarantine", "before scoring"),
+    "docs/OPERATIONS.md": ("bounded", "recovery", "projection"),
+    "docs/ROADMAP.md": ("single canonical", "exit criteria"),
+    "docs/RESEARCH.md": ("NON-NORMATIVE", "quality", "security", "energy"),
+}
+CANONICAL_DOC_SECTIONS = {
+    "docs/ARCHITECTURE.md": ("## 2. System Identity", "## 3. Architectural Dependency Direction"),
+    "docs/SEARCH.md": ("## Search Boundary Objects", "## Search Execution Model", "## Budgets and Stop Conditions"),
+    "docs/MEMORY.md": ("## 1. Information Lifecycle", "## 2. Provenance and Staleness", "## 3. Boundaries and Overclaiming"),
+    "docs/SECURITY.md": ("## 2. Security Invariants", "## 5. Taint and Quarantine", "## 6. Prompt Injection as Data"),
+    "docs/OPERATIONS.md": ("## 1. Bounded Runtime Lifecycle", "## 2. State and Recovery", "## 4. Data Evolution"),
+    "docs/ROADMAP.md": ("## Phase 1:", "## Phase 6:"),
+    "docs/RESEARCH.md": ("## 1. Evaluation Framework", "## 3. Promotion Criteria"),
+}
+POLICY_DOC_MARKERS = {
+    "docs/PHILOSOPHY.md": (
+        "41. Search plans",
+        "42. Search traces",
+        "43. Every retrieval lane",
+        "44. Retrieval changes",
+        "45. Normative architecture",
+        "46. Maestria preserves",
+    ),
+    "docs/SPECS.md": (
+        "I-Search-TypedBudgeted",
+        "I-Search-TraceFingerprint",
+        "I-Search-SecurityBeforeScore",
+        "I-Search-Evaluated",
+    ),
+}
+FORBIDDEN_EXTERNAL_TRUTH_WORDING = (
+    "domain owns truth",
+    "truth machine",
+    "truth store",
+    "truth owner",
+)
+
 
 def should_skip(path: Path) -> bool:
     rel = path.relative_to(ROOT)
@@ -70,6 +111,53 @@ def read_text(path: Path) -> str | None:
         return path.read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError):
         return None
+
+def scan_documentation_contract() -> list[str]:
+    violations = []
+    for relative_path, markers in CANONICAL_DOC_MARKERS.items():
+        path = ROOT / relative_path
+        content = read_text(path)
+        if content is None:
+            violations.append(f"{relative_path} is missing or unreadable")
+            continue
+        lowered = content.casefold()
+        for marker in markers:
+            if marker.casefold() not in lowered:
+                violations.append(f"{relative_path} is missing required marker {marker!r}")
+        lines = {line.strip() for line in content.splitlines()}
+        for section in CANONICAL_DOC_SECTIONS[relative_path]:
+            section_found = (
+                any(line.startswith(section) for line in lines)
+                if section.endswith(":")
+                else section in lines
+            )
+            if not section_found:
+                violations.append(f"{relative_path} is missing required section {section!r}")
+
+    for relative_path, markers in POLICY_DOC_MARKERS.items():
+        content = read_text(ROOT / relative_path)
+        if content is None:
+            violations.append(f"{relative_path} is missing or unreadable")
+            continue
+        lowered = content.casefold()
+        for marker in markers:
+            if marker.casefold() not in lowered:
+                violations.append(f"{relative_path} is missing required marker {marker!r}")
+
+    for path in (ROOT / "docs").rglob("*.md"):
+        if should_skip(path):
+            continue
+        content = read_text(path)
+        if content is None:
+            continue
+        lowered = content.casefold()
+        relative_path = path.relative_to(ROOT).as_posix()
+        for phrase in FORBIDDEN_EXTERNAL_TRUTH_WORDING:
+            if phrase in lowered:
+                violations.append(
+                    f"{relative_path} contains prohibited external-truth wording {phrase!r}"
+                )
+    return violations
 
 
 def production_rust(text: str) -> str:
@@ -229,6 +317,7 @@ def main() -> int:
     violations.extend(f"{path} contains forbidden task marker" for path in marker_violations)
     violations.extend(scan_kernel_manifests())
     violations.extend(scan_kernel_sources())
+    violations.extend(scan_documentation_contract())
     violations.extend(scan_module_sizes())
 
     if violations:

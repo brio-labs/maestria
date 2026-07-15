@@ -125,6 +125,74 @@ class PhilosophyCheckTests(unittest.TestCase):
             )
 
 
+    def test_documentation_contract_requires_canonical_markers(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.configure_root(root)
+            for relative_path, markers in PHILOSOPHY_CHECK.CANONICAL_DOC_MARKERS.items():
+                path = root / relative_path
+                path.parent.mkdir(parents=True, exist_ok=True)
+                sections = PHILOSOPHY_CHECK.CANONICAL_DOC_SECTIONS[relative_path]
+                path.write_text("\n".join((*markers, *sections)), encoding="utf-8")
+            for relative_path, markers in PHILOSOPHY_CHECK.POLICY_DOC_MARKERS.items():
+                path = root / relative_path
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text("\n".join(markers), encoding="utf-8")
+
+            self.assertEqual(PHILOSOPHY_CHECK.scan_documentation_contract(), [])
+
+            missing = root / "docs" / "SEARCH.md"
+            missing.write_text("SearchPlan only", encoding="utf-8")
+            violations = PHILOSOPHY_CHECK.scan_documentation_contract()
+            self.assertIn(
+                "docs/SEARCH.md is missing required marker 'SearchTraceId'",
+                violations,
+            )
+            self.assertIn(
+                "docs/SEARCH.md is missing required section '## Search Boundary Objects'",
+                violations,
+            )
+            policy = root / "docs" / "PHILOSOPHY.md"
+            policy.write_text("41. Search plans", encoding="utf-8")
+            policy_violations = PHILOSOPHY_CHECK.scan_documentation_contract()
+            self.assertIn(
+                "docs/PHILOSOPHY.md is missing required marker '42. Search traces'",
+                policy_violations,
+            )
+
+    def test_documentation_contract_rejects_external_truth_wording(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.configure_root(root)
+            for relative_path, markers in PHILOSOPHY_CHECK.CANONICAL_DOC_MARKERS.items():
+                path = root / relative_path
+                path.parent.mkdir(parents=True, exist_ok=True)
+                sections = PHILOSOPHY_CHECK.CANONICAL_DOC_SECTIONS[relative_path]
+                path.write_text("\n".join((*markers, *sections)), encoding="utf-8")
+            for relative_path, markers in PHILOSOPHY_CHECK.POLICY_DOC_MARKERS.items():
+                path = root / relative_path
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text("\n".join(markers), encoding="utf-8")
+
+            architecture = root / "docs" / "ARCHITECTURE.md"
+            architecture.write_text(
+                "authoritative state; external factual truth; domain owns truth",
+                encoding="utf-8",
+            )
+
+            legacy = root / "docs" / "architecture" / "book-iv-ecosystem.md"
+            legacy.parent.mkdir(parents=True, exist_ok=True)
+            legacy.write_text("This projection is a truth owner.", encoding="utf-8")
+            self.assertIn(
+                "docs/architecture/book-iv-ecosystem.md contains prohibited external-truth wording 'truth owner'",
+                PHILOSOPHY_CHECK.scan_documentation_contract(),
+            )
+
+            self.assertIn(
+                "docs/ARCHITECTURE.md contains prohibited external-truth wording 'domain owns truth'",
+                PHILOSOPHY_CHECK.scan_documentation_contract(),
+            )
+
     def test_module_size_scan_reports_unexempt_large_module(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

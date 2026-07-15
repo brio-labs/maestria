@@ -14,7 +14,7 @@ The runtime converts declarative domain intent into external effects.
 1. `I-Runtime-BoundedChannels` — bounded channels with explicit pressure policy.
 2. `I-Runtime-CancelSafe` — cancellation behavior is visible and documented.
 3. `I-Effect-Explicit` — effects are values in domain output.
-4. `I-Harness-NoTruth` — adapters report outcomes; they do not arbitrate truth.
+4. `I-Harness-NoAuthority` — adapters report outcomes; they do not arbitrate external truth or own authoritative state.
 
 ## Recommended structure
 
