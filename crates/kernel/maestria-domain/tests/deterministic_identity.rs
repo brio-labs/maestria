@@ -1,4 +1,6 @@
 use maestria_domain::*;
+#[path = "common/fixtures.rs"]
+mod fixtures;
 
 // ── Deterministic evidence validation and identity ────────────────
 
@@ -27,9 +29,14 @@ fn malformed_deterministic_existing_replaced_by_valid_retry() -> Result<(), Doma
     }))?;
     state.apply_input(DomainInput::ParserCompleted(ParserResult {
         artifact_id: art_id,
+        artifact_version_id: ArtifactVersionId::new(art_id.value()),
+        content_hash: fixtures::test_content_hash(),
+        tree_root_id: StructureNodeId::new(10),
+        tree_nodes: vec![fixtures::tree_root_node(StructureNodeId::new(10))],
         chunks: vec![RegisterChunkInput {
             chunk_id: ChunkId::new(10),
             artifact_id: art_id,
+            node_id: StructureNodeId::new(10),
             order: 0,
             text: "hello".to_string(),
         }],
@@ -111,9 +118,14 @@ fn valid_deterministic_duplicate_still_rejected() -> Result<(), DomainError> {
     }))?;
     state.apply_input(DomainInput::ParserCompleted(ParserResult {
         artifact_id: art_id,
+        artifact_version_id: ArtifactVersionId::new(art_id.value()),
+        content_hash: fixtures::test_content_hash(),
+        tree_root_id: StructureNodeId::new(10),
+        tree_nodes: vec![fixtures::tree_root_node(StructureNodeId::new(10))],
         chunks: vec![RegisterChunkInput {
             chunk_id: ChunkId::new(10),
             artifact_id: art_id,
+            node_id: StructureNodeId::new(10),
             order: 0,
             text: "hello".to_string(),
         }],
@@ -182,9 +194,14 @@ fn deterministic_cross_owner_rejected() -> Result<(), DomainError> {
     }))?;
     state.apply_input(DomainInput::ParserCompleted(ParserResult {
         artifact_id: art_a,
+        artifact_version_id: ArtifactVersionId::new(art_a.value()),
+        content_hash: fixtures::test_content_hash(),
+        tree_root_id: StructureNodeId::new(10),
+        tree_nodes: vec![fixtures::tree_root_node(StructureNodeId::new(10))],
         chunks: vec![RegisterChunkInput {
             chunk_id: ChunkId::new(10),
             artifact_id: art_a,
+            node_id: StructureNodeId::new(10),
             order: 0,
             text: "a".to_string(),
         }],
@@ -242,9 +259,14 @@ fn malformed_deterministic_non_filespan_is_rejected_at_record() -> Result<(), Do
     }))?;
     state.apply_input(DomainInput::ParserCompleted(ParserResult {
         artifact_id: art_id,
+        artifact_version_id: ArtifactVersionId::new(art_id.value()),
+        content_hash: fixtures::test_content_hash(),
+        tree_root_id: StructureNodeId::new(10),
+        tree_nodes: vec![fixtures::tree_root_node(StructureNodeId::new(10))],
         chunks: vec![RegisterChunkInput {
             chunk_id: ChunkId::new(10),
             artifact_id: art_id,
+            node_id: StructureNodeId::new(10),
             order: 0,
             text: "hello".to_string(),
         }],
@@ -301,9 +323,14 @@ fn malformed_deterministic_filespan_without_snapshot_is_rejected() -> Result<(),
     }))?;
     state.apply_input(DomainInput::ParserCompleted(ParserResult {
         artifact_id: art_id,
+        artifact_version_id: ArtifactVersionId::new(art_id.value()),
+        content_hash: fixtures::test_content_hash(),
+        tree_root_id: StructureNodeId::new(10),
+        tree_nodes: vec![fixtures::tree_root_node(StructureNodeId::new(10))],
         chunks: vec![RegisterChunkInput {
             chunk_id: ChunkId::new(10),
             artifact_id: art_id,
+            node_id: StructureNodeId::new(10),
             order: 0,
             text: "hello".to_string(),
         }],
@@ -359,9 +386,14 @@ fn malformed_deterministic_wrong_content_hash_is_rejected() -> Result<(), Domain
     }))?;
     state.apply_input(DomainInput::ParserCompleted(ParserResult {
         artifact_id: art_id,
+        artifact_version_id: ArtifactVersionId::new(art_id.value()),
+        content_hash: fixtures::test_content_hash(),
+        tree_root_id: StructureNodeId::new(10),
+        tree_nodes: vec![fixtures::tree_root_node(StructureNodeId::new(10))],
         chunks: vec![RegisterChunkInput {
             chunk_id: ChunkId::new(10),
             artifact_id: art_id,
+            node_id: StructureNodeId::new(10),
             order: 0,
             text: "hello".to_string(),
         }],

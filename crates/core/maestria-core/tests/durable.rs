@@ -1,3 +1,6 @@
+#![allow(clippy::disallowed_methods)]
+#![allow(clippy::too_many_lines)]
+
 use std::path::PathBuf;
 
 use maestria_core::build_artifact_detected_input;
@@ -71,8 +74,9 @@ fn pure_input_with_effect_completion_is_replay_consistent() -> Result<(), Box<dy
 
     // Parser completed
     use maestria_domain::{
-        ChunkId, ContentRange, CreateCardInput, DomainInput, EvidenceKind, LogicalTick,
-        ParserResult, RecordEvidenceInput, RegisterChunkInput, content_hash, evidence_id_for,
+        ArtifactVersionId, ChunkId, ContentHash, ContentRange, CreateCardInput, DomainInput,
+        EvidenceKind, LogicalTick, ParserResult, RecordEvidenceInput, RegisterChunkInput,
+        StructureNode, StructureNodeId, StructureNodeType, content_hash, evidence_id_for,
     };
     let source_hash = content_hash(&bytes);
     let source_path = path.to_string_lossy().into_owned();
@@ -80,16 +84,33 @@ fn pure_input_with_effect_completion_is_replay_consistent() -> Result<(), Box<dy
     let chunk_id_1 = ChunkId::new(702);
     state.apply_input(DomainInput::ParserCompleted(ParserResult {
         artifact_id: *artifact_id,
+        artifact_version_id: ArtifactVersionId::new(artifact_id.value()),
+        content_hash: ContentHash::new("sha256:".to_owned() + &"0".repeat(64)).unwrap(),
+        tree_root_id: StructureNodeId::new(701),
+        tree_nodes: vec![StructureNode {
+            id: StructureNodeId::new(701),
+            parent_id: None,
+            sibling_id: None,
+            node_type: StructureNodeType::Document,
+            source_range: ContentRange { start: 0, end: 0 },
+            page: None,
+            section_path: vec![],
+            parser_generation: "test".to_string(),
+            schema_generation: "1".to_string(),
+            language: None,
+        }],
         chunks: vec![
             RegisterChunkInput {
                 chunk_id: chunk_id_0,
                 artifact_id: *artifact_id,
+                node_id: StructureNodeId::new(701),
                 order: 0,
                 text: "Paragraph one.".to_string(),
             },
             RegisterChunkInput {
                 chunk_id: chunk_id_1,
                 artifact_id: *artifact_id,
+                node_id: StructureNodeId::new(702),
                 order: 1,
                 text: "Paragraph two.".to_string(),
             },

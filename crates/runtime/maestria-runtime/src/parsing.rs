@@ -242,6 +242,7 @@ impl EffectExecutionContext {
 
     /// Run the parser and emit the resulting domain inputs:
     /// `ParserCompleted`, `RecordEvidence` per chunk, and `StartFullTextIndex`.
+    #[allow(clippy::too_many_lines)]
     async fn parse_and_emit(
         &self,
         request: &ParseArtifactRequest,
@@ -261,6 +262,14 @@ impl EffectExecutionContext {
             .parse(file, ParseContext { artifact_id })
         {
             Ok(parsed) => {
+                if parsed.status != maestria_ports::ParseStatus::Parsed {
+                    tracing::warn!(
+                        artifact_id = %artifact_id.value(),
+                        status = ?parsed.status,
+                        "parser returned a non-indexable status"
+                    );
+                    return false;
+                }
                 let observed_at = LogicalTick::new(1);
 
                 // Collect evidence inputs and chunk registrations in a single pass.
@@ -299,10 +308,16 @@ impl EffectExecutionContext {
                     chunks.push(RegisterChunkInput {
                         chunk_id: chunk.chunk_id,
                         artifact_id: chunk.artifact_id,
+                        node_id: chunk.node_id,
                         order: (order.min(u32::MAX as usize)) as u32,
                         text: chunk.text.clone(),
                     });
                 }
+                let cards = parsed
+                    .cards
+                    .into_iter()
+                    .map(|parsed_card| parsed_card.card)
+                    .collect();
                 // Send ParserCompleted first so the domain handler commits the artifact
                 // (including ArtifactRegistered / PendingIndex) before evidence arrives.
                 // Evidence inputs follow after the artifact is guaranteed to exist in
@@ -312,8 +327,12 @@ impl EffectExecutionContext {
                     &self.input_tx,
                     DomainInput::ParserCompleted(ParserResult {
                         artifact_id: parsed.artifact_id,
+                        artifact_version_id: parsed.artifact_version_id,
+                        content_hash: parsed.content_hash,
+                        tree_root_id: parsed.tree.root_id,
+                        tree_nodes: parsed.tree.nodes,
                         chunks,
-                        cards: parsed.cards,
+                        cards,
                     }),
                     "parser completion",
                 )

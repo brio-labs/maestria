@@ -301,3 +301,41 @@ fn search_executed_roundtrips_through_appended_scan() {
         .expect("scan events");
     assert_eq!(scanned, vec![envelope]);
 }
+
+#[test]
+fn document_tree_captured_event_round_trips() -> Result<(), PortError> {
+    let store = SqliteStore::in_memory()?;
+    let node = StructureNode {
+        id: StructureNodeId::new(42),
+        parent_id: None,
+        sibling_id: None,
+        node_type: maestria_domain::StructureNodeType::Document,
+        source_range: ContentRange { start: 0, end: 100 },
+        page: Some(1),
+        section_path: vec!["Intro".to_string()],
+        parser_generation: "v1".to_string(),
+        schema_generation: "v2".to_string(),
+        language: Some("en".to_string()),
+    };
+
+    let envelope = DomainEventEnvelope {
+        id: EventId::new(1),
+        sequence: SequenceNumber::new(1),
+        event: DomainEvent::DocumentTreeCaptured {
+            artifact_id: ArtifactId::new(3),
+            artifact_version_id: ArtifactVersionId::new(5),
+            content_hash: ContentHash::new(format!("sha256:{}", "a".repeat(64)))
+                .expect("test hash is valid"),
+            root_id: StructureNodeId::new(42),
+            nodes: vec![node],
+        },
+    };
+
+    store.append(envelope.clone())?;
+
+    let events = store.scan(EventFilter { artifact_id: None })?;
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0], envelope);
+
+    Ok(())
+}

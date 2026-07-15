@@ -20,6 +20,7 @@ impl KernelState {
             | DomainEvent::ChunkRegistered { .. }
             | DomainEvent::ParserStarted { .. }
             | DomainEvent::ArtifactParsed { .. }
+            | DomainEvent::DocumentTreeCaptured { .. }
             | DomainEvent::PendingIndex { .. }
             | DomainEvent::FullTextIndexed { .. }
             | DomainEvent::ArtifactIndexed { .. } => {
@@ -85,6 +86,19 @@ impl KernelState {
             DomainEvent::ArtifactParsed { artifact_id, .. } => {
                 self.apply_artifact_parsed(*artifact_id)
             }
+            DomainEvent::DocumentTreeCaptured {
+                artifact_id,
+                artifact_version_id,
+                content_hash,
+                root_id,
+                nodes,
+            } => self.apply_document_tree_captured(
+                *artifact_id,
+                *artifact_version_id,
+                content_hash.clone(),
+                *root_id,
+                nodes,
+            ),
             DomainEvent::PendingIndex {
                 artifact_id,
                 content_hash,

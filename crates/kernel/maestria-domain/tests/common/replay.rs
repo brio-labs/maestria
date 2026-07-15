@@ -1,3 +1,5 @@
+#![allow(clippy::disallowed_methods)]
+
 use maestria_domain::*;
 
 fn sample_inputs() -> Vec<DomainInput> {
@@ -11,16 +13,33 @@ fn sample_inputs() -> Vec<DomainInput> {
         }),
         DomainInput::ParserCompleted(ParserResult {
             artifact_id: ArtifactId::new(1),
+            artifact_version_id: ArtifactVersionId::new(1),
+            content_hash: ContentHash::new("sha256:".to_owned() + &"0".repeat(64)).unwrap(),
+            tree_root_id: StructureNodeId::new(10),
+            tree_nodes: vec![StructureNode {
+                id: StructureNodeId::new(10),
+                parent_id: None,
+                sibling_id: None,
+                node_type: StructureNodeType::Document,
+                source_range: ContentRange { start: 0, end: 0 },
+                page: None,
+                section_path: vec![],
+                parser_generation: "test".to_string(),
+                schema_generation: "test".to_string(),
+                language: None,
+            }],
             chunks: vec![
                 RegisterChunkInput {
                     chunk_id: ChunkId::new(10),
                     artifact_id: ArtifactId::new(1),
+                    node_id: StructureNodeId::new(10),
                     order: 0,
                     text: "first chunk".to_string(),
                 },
                 RegisterChunkInput {
                     chunk_id: ChunkId::new(11),
                     artifact_id: ArtifactId::new(1),
+                    node_id: StructureNodeId::new(11),
                     order: 1,
                     text: "second chunk".to_string(),
                 },

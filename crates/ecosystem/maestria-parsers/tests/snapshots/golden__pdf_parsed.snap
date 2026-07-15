@@ -6,6 +6,60 @@ ParsedArtifact {
     artifact_id: ArtifactId(
         5,
     ),
+    artifact_version_id: ArtifactVersionId(
+        10757647361001419964,
+    ),
+    content_hash: ContentHash(
+        "sha256:954ad747436874bcd51a0043497ba3977210303934437475be10f80a638d83b1",
+    ),
+    tree: DocumentTree {
+        root_id: StructureNodeId(
+            5000015,
+        ),
+        nodes: [
+            StructureNode {
+                id: StructureNodeId(
+                    5000015,
+                ),
+                parent_id: None,
+                sibling_id: None,
+                node_type: Document,
+                source_range: ContentRange {
+                    start: 1,
+                    end: 1,
+                },
+                page: None,
+                section_path: [],
+                parser_generation: "pdf-parser-1",
+                schema_generation: "1",
+                language: None,
+            },
+            StructureNode {
+                id: StructureNodeId(
+                    5000016,
+                ),
+                parent_id: Some(
+                    StructureNodeId(
+                        5000015,
+                    ),
+                ),
+                sibling_id: None,
+                node_type: Paragraph,
+                source_range: ContentRange {
+                    start: 1,
+                    end: 1,
+                },
+                page: Some(
+                    1,
+                ),
+                section_path: [],
+                parser_generation: "pdf-parser-1",
+                schema_generation: "1",
+                language: None,
+            },
+        ],
+    },
+    status: Parsed,
     chunks: [
         ParsedChunk {
             chunk_id: ChunkId(
@@ -14,22 +68,43 @@ ParsedArtifact {
             artifact_id: ArtifactId(
                 5,
             ),
+            node_id: StructureNodeId(
+                5000016,
+            ),
             text: "Hello PDF world.",
+            representations: [
+                ParsedRepresentation {
+                    kind: Raw,
+                    content: "Hello PDF world.",
+                },
+                ParsedRepresentation {
+                    kind: Retrieval,
+                    content: "Hello PDF world.",
+                },
+            ],
             source_span: PdfSpan {
                 page: 1,
             },
         },
     ],
     cards: [
-        CreateCardInput {
-            card_id: CardId(
-                5900016,
+        ParsedCard {
+            card: CreateCardInput {
+                card_id: CardId(
+                    5900016,
+                ),
+                artifact_id: ArtifactId(
+                    5,
+                ),
+                title: "Hello PDF world.",
+                body: "Parsed 1 textual chunk from paper.pdf.",
+            },
+            node_id: StructureNodeId(
+                5000015,
             ),
-            artifact_id: ArtifactId(
-                5,
-            ),
-            title: "Hello PDF world.",
-            body: "Parsed 1 textual chunk from paper.pdf.",
+            source_span: PdfSpan {
+                page: 1,
+            },
         },
     ],
 }

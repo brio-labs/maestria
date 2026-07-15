@@ -6,6 +6,89 @@ ParsedArtifact {
     artifact_id: ArtifactId(
         2,
     ),
+    artifact_version_id: ArtifactVersionId(
+        12065911567053348250,
+    ),
+    content_hash: ContentHash(
+        "sha256:a772baa46d7ddd9adadbf64c8f79405c4f4a932297bbe8707239fb4090eb8ae0",
+    ),
+    tree: DocumentTree {
+        root_id: StructureNodeId(
+            2000006,
+        ),
+        nodes: [
+            StructureNode {
+                id: StructureNodeId(
+                    2000006,
+                ),
+                parent_id: None,
+                sibling_id: None,
+                node_type: Document,
+                source_range: ContentRange {
+                    start: 1,
+                    end: 4,
+                },
+                page: None,
+                section_path: [],
+                parser_generation: "plain-text-parser",
+                schema_generation: "1.0",
+                language: Some(
+                    "text",
+                ),
+            },
+            StructureNode {
+                id: StructureNodeId(
+                    2000007,
+                ),
+                parent_id: Some(
+                    StructureNodeId(
+                        2000006,
+                    ),
+                ),
+                sibling_id: Some(
+                    StructureNodeId(
+                        2000008,
+                    ),
+                ),
+                node_type: Paragraph,
+                source_range: ContentRange {
+                    start: 1,
+                    end: 2,
+                },
+                page: None,
+                section_path: [],
+                parser_generation: "plain-text-parser",
+                schema_generation: "1.0",
+                language: Some(
+                    "text",
+                ),
+            },
+            StructureNode {
+                id: StructureNodeId(
+                    2000008,
+                ),
+                parent_id: Some(
+                    StructureNodeId(
+                        2000006,
+                    ),
+                ),
+                sibling_id: None,
+                node_type: Paragraph,
+                source_range: ContentRange {
+                    start: 4,
+                    end: 4,
+                },
+                page: None,
+                section_path: [],
+                parser_generation: "plain-text-parser",
+                schema_generation: "1.0",
+                language: Some(
+                    "text",
+                ),
+            },
+        ],
+    },
+    status: Parsed,
     chunks: [
         ParsedChunk {
             chunk_id: ChunkId(
@@ -14,7 +97,20 @@ ParsedArtifact {
             artifact_id: ArtifactId(
                 2,
             ),
+            node_id: StructureNodeId(
+                2000007,
+            ),
             text: "First paragraph.\nStill first.",
+            representations: [
+                ParsedRepresentation {
+                    kind: Raw,
+                    content: "First paragraph.\nStill first.\n",
+                },
+                ParsedRepresentation {
+                    kind: Retrieval,
+                    content: "First paragraph.\nStill first.",
+                },
+            ],
             source_span: TextSpan {
                 start_line: 1,
                 end_line: 2,
@@ -27,7 +123,20 @@ ParsedArtifact {
             artifact_id: ArtifactId(
                 2,
             ),
+            node_id: StructureNodeId(
+                2000008,
+            ),
             text: "Second paragraph.",
+            representations: [
+                ParsedRepresentation {
+                    kind: Raw,
+                    content: "Second paragraph.\n",
+                },
+                ParsedRepresentation {
+                    kind: Retrieval,
+                    content: "Second paragraph.",
+                },
+            ],
             source_span: TextSpan {
                 start_line: 4,
                 end_line: 4,
@@ -35,15 +144,24 @@ ParsedArtifact {
         },
     ],
     cards: [
-        CreateCardInput {
-            card_id: CardId(
-                2900007,
+        ParsedCard {
+            card: CreateCardInput {
+                card_id: CardId(
+                    2900007,
+                ),
+                artifact_id: ArtifactId(
+                    2,
+                ),
+                title: "First paragraph.",
+                body: "Parsed 2 textual chunks from notes.txt.",
+            },
+            node_id: StructureNodeId(
+                2000006,
             ),
-            artifact_id: ArtifactId(
-                2,
-            ),
-            title: "First paragraph.",
-            body: "Parsed 2 textual chunks from notes.txt.",
+            source_span: TextSpan {
+                start_line: 1,
+                end_line: 2,
+            },
         },
     ],
 }

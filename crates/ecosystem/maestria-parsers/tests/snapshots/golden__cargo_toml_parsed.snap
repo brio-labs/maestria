@@ -6,6 +6,89 @@ ParsedArtifact {
     artifact_id: ArtifactId(
         4,
     ),
+    artifact_version_id: ArtifactVersionId(
+        3562445153070945877,
+    ),
+    content_hash: ContentHash(
+        "sha256:317058fdf89b16559d39ab9d6522cb5e3e2795970082a7507f475f9fce22723c",
+    ),
+    tree: DocumentTree {
+        root_id: StructureNodeId(
+            4000012,
+        ),
+        nodes: [
+            StructureNode {
+                id: StructureNodeId(
+                    4000012,
+                ),
+                parent_id: None,
+                sibling_id: None,
+                node_type: Document,
+                source_range: ContentRange {
+                    start: 1,
+                    end: 6,
+                },
+                page: None,
+                section_path: [],
+                parser_generation: "cargo-toml-v1",
+                schema_generation: "tree-v1",
+                language: Some(
+                    "toml",
+                ),
+            },
+            StructureNode {
+                id: StructureNodeId(
+                    4000013,
+                ),
+                parent_id: Some(
+                    StructureNodeId(
+                        4000012,
+                    ),
+                ),
+                sibling_id: Some(
+                    StructureNodeId(
+                        4000014,
+                    ),
+                ),
+                node_type: Paragraph,
+                source_range: ContentRange {
+                    start: 1,
+                    end: 4,
+                },
+                page: None,
+                section_path: [],
+                parser_generation: "cargo-toml-v1",
+                schema_generation: "tree-v1",
+                language: Some(
+                    "toml",
+                ),
+            },
+            StructureNode {
+                id: StructureNodeId(
+                    4000014,
+                ),
+                parent_id: Some(
+                    StructureNodeId(
+                        4000012,
+                    ),
+                ),
+                sibling_id: None,
+                node_type: Paragraph,
+                source_range: ContentRange {
+                    start: 5,
+                    end: 6,
+                },
+                page: None,
+                section_path: [],
+                parser_generation: "cargo-toml-v1",
+                schema_generation: "tree-v1",
+                language: Some(
+                    "toml",
+                ),
+            },
+        ],
+    },
+    status: Parsed,
     chunks: [
         ParsedChunk {
             chunk_id: ChunkId(
@@ -14,7 +97,20 @@ ParsedArtifact {
             artifact_id: ArtifactId(
                 4,
             ),
+            node_id: StructureNodeId(
+                4000013,
+            ),
             text: "[package]\nname = \"demo\"\nversion = \"0.1.0\"",
+            representations: [
+                ParsedRepresentation {
+                    kind: Raw,
+                    content: "[package]\nname = \"demo\"\nversion = \"0.1.0\"\n\n",
+                },
+                ParsedRepresentation {
+                    kind: Retrieval,
+                    content: "[package]\nname = \"demo\"\nversion = \"0.1.0\"",
+                },
+            ],
             source_span: TextSpan {
                 start_line: 1,
                 end_line: 4,
@@ -27,7 +123,20 @@ ParsedArtifact {
             artifact_id: ArtifactId(
                 4,
             ),
+            node_id: StructureNodeId(
+                4000014,
+            ),
             text: "[dependencies]\nserde = \"1\"",
+            representations: [
+                ParsedRepresentation {
+                    kind: Raw,
+                    content: "[dependencies]\nserde = \"1\"\n",
+                },
+                ParsedRepresentation {
+                    kind: Retrieval,
+                    content: "[dependencies]\nserde = \"1\"",
+                },
+            ],
             source_span: TextSpan {
                 start_line: 5,
                 end_line: 6,
@@ -35,15 +144,24 @@ ParsedArtifact {
         },
     ],
     cards: [
-        CreateCardInput {
-            card_id: CardId(
-                4900013,
+        ParsedCard {
+            card: CreateCardInput {
+                card_id: CardId(
+                    4900013,
+                ),
+                artifact_id: ArtifactId(
+                    4,
+                ),
+                title: "[package]",
+                body: "Parsed 2 textual chunks from Cargo.toml.",
+            },
+            node_id: StructureNodeId(
+                4000012,
             ),
-            artifact_id: ArtifactId(
-                4,
-            ),
-            title: "[package]",
-            body: "Parsed 2 textual chunks from Cargo.toml.",
+            source_span: TextSpan {
+                start_line: 1,
+                end_line: 4,
+            },
         },
     ],
 }

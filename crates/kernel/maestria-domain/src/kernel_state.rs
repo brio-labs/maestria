@@ -4,17 +4,22 @@ use crate::entities::{
 };
 use crate::events::DomainEventEnvelope;
 use crate::ids::{
-    ApprovalId, ArtifactId, CardId, ChunkId, ClaimId, EvidenceId, MemoryCandidateId, MemoryId,
-    RelationId, TaskId, ValidationReportId,
+    ApprovalId, ArtifactId, ArtifactVersionId, CardId, ChunkId, ClaimId, EvidenceId,
+    MemoryCandidateId, MemoryId, RelationId, StructureNodeId, TaskId, ValidationReportId,
 };
 use crate::inputs::ParserStarted;
+use crate::search::{ContentHash, StructureNode};
 use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct KernelState {
     pub artifacts: BTreeMap<ArtifactId, Artifact>,
+    pub artifact_versions: BTreeMap<ArtifactId, ArtifactVersionId>,
+    pub artifact_content_hashes: BTreeMap<ArtifactId, ContentHash>,
+    pub document_trees: BTreeMap<ArtifactId, (StructureNodeId, Vec<StructureNode>)>,
     pub pending_artifacts: BTreeMap<ArtifactId, PendingArtifact>,
     pub pending_parsers: BTreeMap<ArtifactId, ParserStarted>,
+    pub chunk_nodes: BTreeMap<ChunkId, StructureNodeId>,
     pub chunks: BTreeMap<ChunkId, Chunk>,
     pub cards: BTreeMap<CardId, Card>,
     pub evidences: BTreeMap<EvidenceId, Evidence>,

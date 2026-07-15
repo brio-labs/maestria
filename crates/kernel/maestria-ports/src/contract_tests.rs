@@ -1,9 +1,12 @@
+use maestria_domain::StructureNodeId;
 use std::path::PathBuf;
 use std::time::Duration;
 
 use super::*;
-use maestria_domain::ValidationReportId;
-use maestria_domain::{ClaimId, ContentRange, EventId, EvidenceKind, LogicalTick, SequenceNumber};
+use maestria_domain::{
+    ArtifactId, ArtifactVersionId, ChunkId, ClaimId, ContentRange, EventId, EvidenceKind,
+    LogicalTick, SequenceNumber, ValidationReportId,
+};
 
 pub fn sample_artifact(id: u64) -> Artifact {
     Artifact {
@@ -750,8 +753,17 @@ pub fn assert_parser_round_trip(parser: &impl Parser) {
         .expect("parse utf8 file");
 
     assert_eq!(parsed.artifact_id, ArtifactId::new(7));
+    assert_eq!(parsed.artifact_version_id, ArtifactVersionId::new(7));
+
+    assert_eq!(parsed.status, ParseStatus::Parsed);
+    assert_eq!(parsed.tree.root_id, StructureNodeId::new(7));
+    assert_eq!(parsed.tree.nodes.len(), 1);
+    assert_eq!(parsed.tree.nodes[0].id, StructureNodeId::new(7));
+
     assert_eq!(parsed.chunks.len(), 1);
     assert_eq!(parsed.chunks[0].text, "alpha");
+    assert_eq!(parsed.chunks[0].representations.len(), 2);
+    assert_eq!(parsed.chunks[0].node_id.value(), 7);
     assert_eq!(
         parsed.chunks[0].source_span,
         SourceSpan::TextSpan {

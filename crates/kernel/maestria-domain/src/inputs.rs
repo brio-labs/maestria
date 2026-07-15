@@ -14,6 +14,7 @@ pub struct RegisterArtifactInput {
 pub struct RegisterChunkInput {
     pub chunk_id: ChunkId,
     pub artifact_id: ArtifactId,
+    pub node_id: crate::types::StructureNodeId,
     pub order: u32,
     pub text: String,
 }
@@ -162,6 +163,10 @@ pub struct ParserStarted {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ParserResult {
     pub artifact_id: ArtifactId,
+    pub artifact_version_id: crate::ids::ArtifactVersionId,
+    pub content_hash: crate::search::ContentHash,
+    pub tree_root_id: crate::ids::StructureNodeId,
+    pub tree_nodes: Vec<crate::search::StructureNode>,
     pub chunks: Vec<RegisterChunkInput>,
     pub cards: Vec<CreateCardInput>,
 }

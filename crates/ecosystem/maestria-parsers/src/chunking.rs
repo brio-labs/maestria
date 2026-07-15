@@ -4,7 +4,7 @@ use std::path::Path;
 
 use maestria_domain::{ArtifactId, CardId, ChunkId, CreateCardInput};
 use maestria_ports::{
-    FileHandle, FileMetadata, ParsedArtifact, ParsedChunk, PortError, SourceSpan,
+    FileHandle, FileMetadata, ParsedArtifact, ParsedCard, ParsedChunk, PortError, SourceSpan,
 };
 
 pub(crate) const ID_STRIDE: u64 = 1_000_003;
@@ -73,10 +73,15 @@ pub(crate) fn decode_utf8(bytes: Vec<u8>) -> Result<String, PortError> {
     })
 }
 
+#[allow(clippy::too_many_lines)]
 pub(crate) fn parsed_artifact(
     artifact_id: ArtifactId,
     path: &Path,
+    bytes: &[u8],
     chunks_with_spans: Vec<(String, SourceSpan)>,
+    parser_generation: String,
+    schema_generation: String,
+    language: Option<String>,
 ) -> Result<ParsedArtifact, PortError> {
     if chunks_with_spans.is_empty() {
         return Err(PortError::InvalidInput {
@@ -84,22 +89,61 @@ pub(crate) fn parsed_artifact(
         });
     }
 
-    let mut chunks = Vec::with_capacity(chunks_with_spans.len());
-    for (order, (text, source_span)) in chunks_with_spans.into_iter().enumerate() {
-        chunks.push(ParsedChunk {
-            chunk_id: chunk_id_for(artifact_id, order)?,
-            artifact_id,
-            text,
-            source_span,
-        });
-    }
-
+    let (tree, chunks) = crate::tree_builder::build_tree_and_chunks(
+        artifact_id,
+        bytes,
+        chunks_with_spans,
+        parser_generation,
+        schema_generation,
+        language,
+    )?;
     let card = summary_card_for(artifact_id, path, &chunks);
+    let card_source_span = match chunks.first() {
+        Some(chunk) => chunk.source_span.clone(),
+        None => {
+            return Err(PortError::InvalidInput {
+                message: "parsed artifact has no card evidence span".to_string(),
+            });
+        }
+    };
+    let parsed_card = ParsedCard {
+        card,
+        node_id: tree.root_id,
+        source_span: card_source_span,
+    };
+    let hash_string = maestria_domain::content_hash(bytes);
+    let artifact_version_id = artifact_version_id_for(artifact_id, &hash_string);
+    let content_hash =
+        maestria_domain::ContentHash::new(hash_string).map_err(|e| PortError::InvalidInput {
+            message: format!("invalid content hash: {:?}", e),
+        })?;
+
     Ok(ParsedArtifact {
         artifact_id,
+        artifact_version_id,
+        content_hash,
+        tree,
+        status: maestria_ports::ParseStatus::Parsed,
         chunks,
-        cards: vec![card],
+        cards: vec![parsed_card],
     })
+}
+
+pub(crate) fn artifact_version_id_for(
+    artifact_id: ArtifactId,
+    content_hash: &str,
+) -> maestria_domain::ArtifactVersionId {
+    let digest = content_hash
+        .strip_prefix("sha256:")
+        .map_or("", |digest| digest);
+    let value = match digest
+        .get(..16)
+        .and_then(|prefix| u64::from_str_radix(prefix, 16).ok())
+    {
+        Some(value) if value != 0 => value,
+        _ => artifact_id.value(),
+    };
+    maestria_domain::ArtifactVersionId::new(value)
 }
 
 pub(crate) fn summary_card_for(

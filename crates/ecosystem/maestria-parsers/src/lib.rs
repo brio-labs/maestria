@@ -9,6 +9,7 @@ mod pdf;
 mod plain_text;
 mod registry;
 mod rust_source;
+mod tree_builder;
 
 pub use cargo_toml::CargoTomlParser;
 pub use chunking::{card_id_for, chunk_id_for};
@@ -70,8 +71,11 @@ mod tests {
             chunk_id_for(ArtifactId::new(7), 2).expect("chunk id")
         );
         assert_eq!(parsed.cards.len(), 1);
-        assert_eq!(parsed.cards[0].card_id, card_id_for(ArtifactId::new(7)));
-        assert_eq!(parsed.cards[0].title, "intro");
+        assert_eq!(
+            parsed.cards[0].card.card_id,
+            card_id_for(ArtifactId::new(7))
+        );
+        assert_eq!(parsed.cards[0].card.title, "intro");
     }
 
     #[test]

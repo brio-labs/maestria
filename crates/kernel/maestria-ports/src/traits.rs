@@ -2,8 +2,8 @@ use std::{fmt, future::Future, path::PathBuf, pin::Pin, time::Duration};
 
 use maestria_domain::{
     ApprovalId, Artifact, ArtifactId, BlobId, Card, CardId, Chunk, ChunkId, ClaimId,
-    CreateCardInput, DomainEventEnvelope, Evidence, EvidenceId, LogicalTick, MemoryCandidateId,
-    Relation, RelationEndpoint, RelationId, ScopeId, TaskId,
+    DomainEventEnvelope, Evidence, EvidenceId, LogicalTick, MemoryCandidateId, Relation,
+    RelationEndpoint, RelationId, ScopeId, TaskId,
 };
 
 pub use maestria_domain::HarnessRunId;
@@ -252,40 +252,6 @@ pub struct FileMetadata {
 pub struct FileHandle {
     pub path: PathBuf,
     pub bytes: Vec<u8>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ParseContext {
-    pub artifact_id: ArtifactId,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum SourceSpan {
-    /// Text chunks carry a 1-based line span (start_line, end_line), both inclusive.
-    TextSpan { start_line: usize, end_line: usize },
-    /// PDF chunks carry the physical page number (1-based).
-    PdfSpan { page: usize },
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ParsedChunk {
-    pub chunk_id: ChunkId,
-    pub artifact_id: ArtifactId,
-    pub text: String,
-    pub source_span: SourceSpan,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ParsedArtifact {
-    pub artifact_id: ArtifactId,
-    pub chunks: Vec<ParsedChunk>,
-    pub cards: Vec<CreateCardInput>,
-}
-
-pub trait Parser: Send + Sync {
-    fn id(&self) -> &'static str;
-    fn supports(&self, file: &FileMetadata) -> bool;
-    fn parse(&self, file: FileHandle, context: ParseContext) -> Result<ParsedArtifact, PortError>;
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

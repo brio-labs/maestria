@@ -52,6 +52,13 @@ impl KernelState {
 
         let mut new_chunks = 0u32;
         for chunk in &input.chunks {
+            if !input.tree_nodes.iter().any(|node| node.id == chunk.node_id)
+                && chunk.node_id != StructureNodeId::new(chunk.chunk_id.value())
+            {
+                return Err(DomainError::InternalInvariantViolation {
+                    detail: "parser chunk references a missing document tree node",
+                });
+            }
             if let Some(existing) = self.chunks.get(&chunk.chunk_id) {
                 if existing.artifact_id != chunk.artifact_id
                     || existing.order != chunk.order
@@ -68,6 +75,7 @@ impl KernelState {
                 self.pending_full_text.insert(chunk.chunk_id);
                 new_chunks += 1;
             }
+            self.chunk_nodes.insert(chunk.chunk_id, chunk.node_id);
         }
 
         let mut new_cards = 0u32;
@@ -96,6 +104,28 @@ impl KernelState {
             });
             generated.push(parsed);
             self.parsed_artifact_ids.insert(input.artifact_id);
+        }
+        let tree_changed = self.artifact_versions.get(&input.artifact_id)
+            != Some(&input.artifact_version_id)
+            || self.artifact_content_hashes.get(&input.artifact_id) != Some(&input.content_hash)
+            || !self.document_trees.contains_key(&input.artifact_id);
+        if tree_changed {
+            let tree_event = self.emit_event(DomainEvent::DocumentTreeCaptured {
+                artifact_id: input.artifact_id,
+                artifact_version_id: input.artifact_version_id,
+                content_hash: input.content_hash.clone(),
+                root_id: input.tree_root_id,
+                nodes: input.tree_nodes.clone(),
+            });
+            self.artifact_versions
+                .insert(input.artifact_id, input.artifact_version_id);
+            self.artifact_content_hashes
+                .insert(input.artifact_id, input.content_hash.clone());
+            self.document_trees.insert(
+                input.artifact_id,
+                (input.tree_root_id, input.tree_nodes.clone()),
+            );
+            generated.push(tree_event);
         }
 
         Ok(generated)
