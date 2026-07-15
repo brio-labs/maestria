@@ -70,9 +70,20 @@ impl KernelState {
             DomainEvent::ChunkRegistered {
                 chunk_id,
                 artifact_id,
+                node_id,
+                source_span,
+                representations,
                 order,
                 text,
-            } => self.apply_chunk_registered(*chunk_id, *artifact_id, *order, text),
+            } => self.apply_chunk_registered(RegisterChunkInput {
+                chunk_id: *chunk_id,
+                artifact_id: *artifact_id,
+                node_id: *node_id,
+                source_span: *source_span,
+                representations: representations.clone(),
+                order: *order,
+                text: text.clone(),
+            }),
             DomainEvent::ParserStarted {
                 artifact_id,
                 title,
@@ -83,9 +94,11 @@ impl KernelState {
                 self.apply_parser_started(*artifact_id, title, source_path, content_hash, *blob_id);
                 Ok(())
             }
-            DomainEvent::ArtifactParsed { artifact_id, .. } => {
-                self.apply_artifact_parsed(*artifact_id)
-            }
+            DomainEvent::ArtifactParsed {
+                artifact_id,
+                status,
+                ..
+            } => self.apply_artifact_parsed(*artifact_id, *status),
             DomainEvent::DocumentTreeCaptured {
                 artifact_id,
                 artifact_version_id,
@@ -181,9 +194,13 @@ impl KernelState {
             DomainEvent::CardCreated {
                 card_id,
                 artifact_id,
+                node_id,
+                source_span,
                 title,
                 body,
-            } => self.apply_card_created(*card_id, *artifact_id, title, body),
+            } => {
+                self.apply_card_created(*card_id, *artifact_id, *node_id, *source_span, title, body)
+            }
             DomainEvent::ClaimCreated {
                 claim_id,
                 artifact_id,

@@ -218,6 +218,7 @@ impl LegacyStoredEventPayload {
                 chunks_added,
             } => Ok(StoredEventPayload::ArtifactParsed {
                 artifact_id,
+                status: crate::payloads::default_status_parsed(),
                 chunks_added,
             }),
             Self::SearchCompleted {

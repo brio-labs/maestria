@@ -15,22 +15,32 @@ impl StoredEventPayload {
             DomainEvent::ChunkRegistered {
                 chunk_id,
                 artifact_id,
+                node_id,
+                source_span,
+                representations,
                 order,
                 text,
             } => Some(Self::ChunkRegistered {
                 chunk_id: chunk_id.value(),
                 artifact_id: artifact_id.value(),
+                node_id: node_id.value(),
+                source_span: (*source_span).into(),
+                representations: representations.iter().cloned().map(Into::into).collect(),
                 order: *order,
                 text: text.clone(),
             }),
             DomainEvent::CardCreated {
                 card_id,
                 artifact_id,
+                node_id,
+                source_span,
                 title,
                 body,
             } => Some(Self::CardCreated {
                 card_id: card_id.value(),
                 artifact_id: artifact_id.value(),
+                node_id: node_id.value(),
+                source_span: (*source_span).into(),
                 title: title.clone(),
                 body: body.clone(),
             }),
@@ -62,9 +72,11 @@ impl StoredEventPayload {
             }),
             DomainEvent::ArtifactParsed {
                 artifact_id,
+                status,
                 chunks_added,
             } => Some(Self::ArtifactParsed {
                 artifact_id: artifact_id.value(),
+                status: (*status).into(),
                 chunks_added: *chunks_added,
             }),
             DomainEvent::SearchCompleted {
@@ -106,22 +118,32 @@ impl StoredEventPayload {
             Self::ChunkRegistered {
                 chunk_id,
                 artifact_id,
+                node_id,
+                source_span,
+                representations,
                 order,
                 text,
             } => Ok(DomainEvent::ChunkRegistered {
                 chunk_id: ChunkId::new(chunk_id),
                 artifact_id: ArtifactId::new(artifact_id),
+                node_id: StructureNodeId::new(node_id),
+                source_span: source_span.into(),
+                representations: representations.into_iter().map(Into::into).collect(),
                 order,
                 text,
             }),
             Self::CardCreated {
                 card_id,
                 artifact_id,
+                node_id,
+                source_span,
                 title,
                 body,
             } => Ok(DomainEvent::CardCreated {
                 card_id: maestria_domain::CardId::new(card_id),
                 artifact_id: ArtifactId::new(artifact_id),
+                node_id: StructureNodeId::new(node_id),
+                source_span: source_span.into(),
                 title,
                 body,
             }),
@@ -153,9 +175,11 @@ impl StoredEventPayload {
             }),
             Self::ArtifactParsed {
                 artifact_id,
+                status,
                 chunks_added,
             } => Ok(DomainEvent::ArtifactParsed {
                 artifact_id: ArtifactId::new(artifact_id),
+                status: status.into(),
                 chunks_added,
             }),
             Self::SearchCompleted {

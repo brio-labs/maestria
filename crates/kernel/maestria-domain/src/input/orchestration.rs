@@ -1,5 +1,3 @@
-use std::collections::btree_map::Entry;
-
 use crate::types::*;
 
 impl KernelState {
@@ -50,166 +48,31 @@ impl KernelState {
             });
         }
 
-        let mut new_chunks = 0u32;
-        for chunk in &input.chunks {
-            if !input.tree_nodes.iter().any(|node| node.id == chunk.node_id)
-                && chunk.node_id != StructureNodeId::new(chunk.chunk_id.value())
-            {
-                return Err(DomainError::InternalInvariantViolation {
-                    detail: "parser chunk references a missing document tree node",
-                });
-            }
-            if let Some(existing) = self.chunks.get(&chunk.chunk_id) {
-                if existing.artifact_id != chunk.artifact_id
-                    || existing.order != chunk.order
-                    || existing.text != chunk.text
-                {
-                    return Err(DomainError::DuplicateId {
-                        kind: "chunk",
-                        id: chunk.chunk_id.value(),
-                    });
-                }
-            } else {
-                let envelope = self.handle_register_chunk(chunk.clone())?;
-                generated.push(envelope);
-                self.pending_full_text.insert(chunk.chunk_id);
-                new_chunks += 1;
-            }
-            self.chunk_nodes.insert(chunk.chunk_id, chunk.node_id);
-        }
+        let (new_chunks, new_cards) = self.register_parser_records(&input, &mut generated)?;
 
-        let mut new_cards = 0u32;
-        for card in input.cards {
-            if let Some(existing) = self.cards.get(&card.card_id) {
-                if existing.artifact_id != card.artifact_id
-                    || existing.title != card.title
-                    || existing.body != card.body
-                {
-                    return Err(DomainError::DuplicateId {
-                        kind: "card",
-                        id: card.card_id.value(),
-                    });
-                }
-            } else {
-                generated.push(self.handle_create_card(card)?);
-                new_cards += 1;
-            }
-        }
-
+        let status_changed = self
+            .artifacts
+            .get(&input.artifact_id)
+            .and_then(|artifact| artifact.parse_status)
+            != Some(input.status);
         let already_parsed = self.parsed_artifact_ids.contains(&input.artifact_id);
-        if new_chunks > 0 || new_cards > 0 || !already_parsed {
+        if new_chunks > 0 || new_cards > 0 || !already_parsed || status_changed {
             let parsed = self.emit_event(DomainEvent::ArtifactParsed {
                 artifact_id: input.artifact_id,
+                status: input.status,
                 chunks_added: new_chunks,
             });
             generated.push(parsed);
             self.parsed_artifact_ids.insert(input.artifact_id);
-        }
-        let tree_changed = self.artifact_versions.get(&input.artifact_id)
-            != Some(&input.artifact_version_id)
-            || self.artifact_content_hashes.get(&input.artifact_id) != Some(&input.content_hash)
-            || !self.document_trees.contains_key(&input.artifact_id);
-        if tree_changed {
-            let tree_event = self.emit_event(DomainEvent::DocumentTreeCaptured {
-                artifact_id: input.artifact_id,
-                artifact_version_id: input.artifact_version_id,
-                content_hash: input.content_hash.clone(),
-                root_id: input.tree_root_id,
-                nodes: input.tree_nodes.clone(),
-            });
-            self.artifact_versions
-                .insert(input.artifact_id, input.artifact_version_id);
-            self.artifact_content_hashes
-                .insert(input.artifact_id, input.content_hash.clone());
-            self.document_trees.insert(
-                input.artifact_id,
-                (input.tree_root_id, input.tree_nodes.clone()),
-            );
-            generated.push(tree_event);
-        }
-
-        Ok(generated)
-    }
-
-    // ── ParserCompleted decomposition helpers ──────────────────────────────
-
-    /// First-time commit from fresh detection (pending_artifacts).
-    /// On fresh ingestion this fires once; on retry or resume
-    /// the pending_artifacts entry is absent so this is skipped.
-    fn process_parser_pending_artifacts(
-        &mut self,
-        input: &ParserResult,
-    ) -> Result<Vec<DomainEventEnvelope>, DomainError> {
-        let mut generated = Vec::new();
-        if let Some(pending) = self.pending_artifacts.remove(&input.artifact_id) {
-            if let Entry::Vacant(entry) = self.artifacts.entry(input.artifact_id) {
-                entry.insert(Artifact::with_title(
-                    input.artifact_id,
-                    pending.title.clone(),
-                ));
-                let register_event = self.emit_event(DomainEvent::ArtifactRegistered {
-                    artifact_id: input.artifact_id,
-                    title: pending.title,
-                });
-                generated.push(register_event);
-            }
-            // Set content_hash and status on the artifact regardless of whether
-            // it was just created or already existed (e.g. from replay).
             if let Some(artifact) = self.artifacts.get_mut(&input.artifact_id) {
-                artifact.content_hash = Some(pending.content_hash.clone());
-                artifact.index_status = IndexStatus::Pending;
-            }
-            let pending_event = self.emit_event(DomainEvent::PendingIndex {
-                artifact_id: input.artifact_id,
-                content_hash: pending.content_hash,
-            });
-            generated.push(pending_event);
-        }
-        Ok(generated)
-    }
-
-    /// Resume/recovery path: no pending_artifacts (in-memory only, lost on
-    /// restart), but pending_parsers survived via replay. Ensure the artifact
-    /// exists and has correct Pending status.
-    fn process_parser_pending_parsers(
-        &mut self,
-        input: &ParserResult,
-    ) -> Result<Vec<DomainEventEnvelope>, DomainError> {
-        let mut generated = Vec::new();
-        if let Some(parser) = self.pending_parsers.get(&input.artifact_id).cloned() {
-            if let Entry::Vacant(entry) = self.artifacts.entry(input.artifact_id) {
-                entry.insert(Artifact::with_title(
-                    input.artifact_id,
-                    parser.title.clone(),
-                ));
-                let register_event = self.emit_event(DomainEvent::ArtifactRegistered {
-                    artifact_id: input.artifact_id,
-                    title: parser.title.clone(),
-                });
-                generated.push(register_event);
-            } else if let Some(artifact) = self.artifacts.get_mut(&input.artifact_id) {
-                // Artifact exists from replayed ArtifactRegistered. Ensure title
-                // is populated — ParserStarted may carry a richer title.
-                if artifact.title.is_empty() && !parser.title.is_empty() {
-                    artifact.title = parser.title.clone();
-                }
-            }
-            // Transition to Pending if not already Pending with the same hash.
-            // Indexed/Unindexed states are not silently skipped.
-            if let Some(artifact) = self.artifacts.get_mut(&input.artifact_id) {
-                let needs_pending = artifact.index_status != IndexStatus::Pending
-                    || artifact.content_hash.as_deref() != Some(&parser.content_hash);
-                if needs_pending {
-                    artifact.content_hash = Some(parser.content_hash.clone());
-                    artifact.index_status = IndexStatus::Pending;
-                    let pending_event = self.emit_event(DomainEvent::PendingIndex {
-                        artifact_id: input.artifact_id,
-                        content_hash: parser.content_hash,
-                    });
-                    generated.push(pending_event);
+                artifact.parse_status = Some(input.status);
+                if input.status != crate::provenance::ParseStatus::Parsed {
+                    artifact.index_status = IndexStatus::Unindexed;
                 }
             }
         }
+
+        self.capture_parser_tree(&input, &mut generated)?;
         Ok(generated)
     }
 

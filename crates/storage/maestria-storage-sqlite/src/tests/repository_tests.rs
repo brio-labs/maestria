@@ -52,18 +52,35 @@ fn brain_state_round_trips_and_lists_deterministically() {
         artifact_id: ArtifactId::new(1),
         order: 2,
         text: "late".to_string(),
+        node_id: maestria_domain::StructureNodeId::new(0),
+        source_span: maestria_domain::SourceSpan::TextSpan {
+            start_line: 1,
+            end_line: 2,
+        },
+        representations: vec![],
     };
     let early = Chunk {
         id: ChunkId::new(11),
         artifact_id: ArtifactId::new(1),
         order: 1,
         text: "early".to_string(),
+        node_id: maestria_domain::StructureNodeId::new(0),
+        source_span: maestria_domain::SourceSpan::TextSpan {
+            start_line: 1,
+            end_line: 2,
+        },
+        representations: vec![],
     };
     let card = Card {
         id: CardId::new(20),
         artifact_id: ArtifactId::new(1),
         title: "card".to_string(),
         body: "body".to_string(),
+        node_id: maestria_domain::StructureNodeId::new(0),
+        source_span: maestria_domain::SourceSpan::TextSpan {
+            start_line: 1,
+            end_line: 2,
+        },
         claim_ids: [ClaimId::new(5), ClaimId::new(3)].into(),
     };
     let evidence = Evidence {

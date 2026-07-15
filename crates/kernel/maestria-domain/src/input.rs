@@ -11,6 +11,7 @@ mod index;
 mod memory;
 mod memory_replay;
 mod orchestration;
+mod parser_recovery;
 mod relation;
 mod task;
 mod validation;

@@ -10,7 +10,7 @@ impl CardRepository for crate::SqliteStore {
     fn get(&self, card_id: CardId) -> Result<Option<Card>, PortError> {
         let connection = self.lock()?;
         let mut statement = connection
-            .prepare("SELECT id, artifact_id, title, body FROM cards WHERE id = ?1")
+            .prepare("SELECT id, artifact_id, title, body, node_id, source_span_json FROM cards WHERE id = ?1")
             .map_err(to_port_error)?;
         let mut rows = statement
             .query(params![u64_to_i64(card_id.value())?])
@@ -26,16 +26,20 @@ impl CardRepository for crate::SqliteStore {
         let transaction = connection.transaction().map_err(to_port_error)?;
         transaction
             .execute(
-                "INSERT INTO cards (id, artifact_id, title, body) VALUES (?1, ?2, ?3, ?4)
+                "INSERT INTO cards (id, artifact_id, title, body, node_id, source_span_json) VALUES (?1, ?2, ?3, ?4, ?5, ?6)
                  ON CONFLICT(id) DO UPDATE SET
                      artifact_id = excluded.artifact_id,
                      title = excluded.title,
-                     body = excluded.body",
+                     body = excluded.body,
+                     node_id = excluded.node_id,
+                     source_span_json = excluded.source_span_json",
                 params![
                     u64_to_i64(card.id.value())?,
                     u64_to_i64(card.artifact_id.value())?,
                     card.title,
                     card.body,
+                    u64_to_i64(card.node_id.value())?,
+                    serde_json::to_string(&crate::payloads::provenance_payloads::StoredSourceSpan::from(card.source_span)).map_err(crate::json_error)?,
                 ],
             )
             .map_err(to_port_error)?;
@@ -51,7 +55,7 @@ impl CardRepository for crate::SqliteStore {
         let connection = self.lock()?;
         let mut statement = connection
             .prepare(
-                "SELECT id, artifact_id, title, body
+                "SELECT id, artifact_id, title, body, node_id, source_span_json
                  FROM cards
                  WHERE artifact_id = ?1
                  ORDER BY id ASC",
@@ -70,9 +74,24 @@ impl CardRepository for crate::SqliteStore {
 
 fn read_card(row: &Row<'_>, connection: &Connection) -> Result<Card, PortError> {
     let id = CardId::new(i64_to_u64(row.get::<_, i64>(0).map_err(to_port_error)?)?);
+    let node_id = row
+        .get::<_, Option<i64>>(4)
+        .map_err(to_port_error)?
+        .map_or(0, |value| value);
+    let source_span_json = row.get::<_, Option<String>>(5).map_err(to_port_error)?;
+    let source_span = if let Some(json) = source_span_json {
+        serde_json::from_str::<crate::payloads::provenance_payloads::StoredSourceSpan>(&json)
+            .map_err(crate::json_error)?
+            .into()
+    } else {
+        crate::payloads::provenance_payloads::StoredSourceSpan::default().into()
+    };
+
     Ok(Card {
         id,
         artifact_id: ArtifactId::new(i64_to_u64(row.get::<_, i64>(1).map_err(to_port_error)?)?),
+        node_id: maestria_domain::StructureNodeId::new(i64_to_u64(node_id)?),
+        source_span,
         title: row.get::<_, String>(2).map_err(to_port_error)?,
         body: row.get::<_, String>(3).map_err(to_port_error)?,
         claim_ids: load_card_claims(connection, id)?,

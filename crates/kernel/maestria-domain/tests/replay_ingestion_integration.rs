@@ -2,6 +2,100 @@ use maestria_domain::*;
 #[path = "common/fixtures.rs"]
 mod fixtures;
 
+fn parser_result_with_multiple_chunks() -> ParserResult {
+    ParserResult {
+        status: maestria_domain::ParseStatus::Parsed,
+        artifact_id: ArtifactId::new(1),
+        artifact_version_id: ArtifactVersionId::new(1),
+        content_hash: fixtures::test_content_hash(),
+        tree_root_id: Some(StructureNodeId::new(10)),
+        tree_nodes: vec![fixtures::tree_root_node(StructureNodeId::new(10))],
+        chunks: vec![
+            RegisterChunkInput {
+                source_span: maestria_domain::SourceSpan::TextSpan {
+                    start_line: 1,
+                    end_line: 1,
+                },
+                representations: vec![],
+                chunk_id: ChunkId::new(10),
+                artifact_id: ArtifactId::new(1),
+                node_id: StructureNodeId::new(10),
+                order: 0,
+                text: "chunk a".to_string(),
+            },
+            RegisterChunkInput {
+                source_span: maestria_domain::SourceSpan::TextSpan {
+                    start_line: 1,
+                    end_line: 1,
+                },
+                representations: vec![],
+                chunk_id: ChunkId::new(11),
+                artifact_id: ArtifactId::new(1),
+                node_id: StructureNodeId::new(11),
+                order: 1,
+                text: "chunk b".to_string(),
+            },
+            RegisterChunkInput {
+                source_span: maestria_domain::SourceSpan::TextSpan {
+                    start_line: 1,
+                    end_line: 1,
+                },
+                representations: vec![],
+                chunk_id: ChunkId::new(12),
+                artifact_id: ArtifactId::new(1),
+                node_id: StructureNodeId::new(12),
+                order: 2,
+                text: "chunk c".to_string(),
+            },
+        ],
+        cards: vec![
+            CreateCardInput {
+                node_id: StructureNodeId::new(10),
+                source_span: maestria_domain::SourceSpan::TextSpan {
+                    start_line: 1,
+                    end_line: 1,
+                },
+                card_id: CardId::new(20),
+                artifact_id: ArtifactId::new(1),
+                title: "Card 1".to_string(),
+                body: "Alpha".to_string(),
+            },
+            CreateCardInput {
+                node_id: StructureNodeId::new(10),
+                source_span: maestria_domain::SourceSpan::TextSpan {
+                    start_line: 1,
+                    end_line: 1,
+                },
+                card_id: CardId::new(21),
+                artifact_id: ArtifactId::new(1),
+                title: "Card 2".to_string(),
+                body: "Beta".to_string(),
+            },
+        ],
+    }
+}
+
+fn replay_assert_parity(state: &KernelState) -> Result<KernelState, DomainError> {
+    let replayed = replay_events(&state.event_log)?;
+    assert_eq!(state.artifacts, replayed.artifacts, "artifacts match");
+    assert_eq!(state.chunks, replayed.chunks, "chunks match");
+    assert_eq!(state.cards, replayed.cards, "cards match");
+    assert_eq!(state.event_log, replayed.event_log, "event log matches");
+    assert_eq!(
+        state.pending_full_text, replayed.pending_full_text,
+        "pending full text matches"
+    );
+    assert!(
+        replayed.document_trees.contains_key(&ArtifactId::new(1)),
+        "replay populates document_trees"
+    );
+    assert!(
+        replayed.artifact_versions.contains_key(&ArtifactId::new(1)),
+        "replay populates artifact_versions"
+    );
+    Ok(replayed)
+}
+
 #[test]
 fn replay_ingestion_flow_state_parity() -> Result<(), DomainError> {
     let mut state = KernelState::new();
@@ -13,12 +107,18 @@ fn replay_ingestion_flow_state_parity() -> Result<(), DomainError> {
         content_hash: "sha256:abc".to_string(),
     }))?;
     state.apply_input(DomainInput::ParserCompleted(ParserResult {
+        status: maestria_domain::ParseStatus::Parsed,
         artifact_id: ArtifactId::new(1),
         artifact_version_id: ArtifactVersionId::new(1),
         content_hash: fixtures::test_content_hash(),
-        tree_root_id: StructureNodeId::new(10),
+        tree_root_id: Some(StructureNodeId::new(10)),
         tree_nodes: vec![fixtures::tree_root_node(StructureNodeId::new(10))],
         chunks: vec![RegisterChunkInput {
+            source_span: maestria_domain::SourceSpan::TextSpan {
+                start_line: 1,
+                end_line: 1,
+            },
+            representations: vec![],
             chunk_id: ChunkId::new(10),
             artifact_id: ArtifactId::new(1),
             node_id: StructureNodeId::new(10),
@@ -57,68 +157,11 @@ fn replay_ingestion_flow_with_multiple_chunks() -> Result<(), DomainError> {
         source_bytes: Vec::new(),
         content_hash: "sha256:abc".to_string(),
     }))?;
-    state.apply_input(DomainInput::ParserCompleted(ParserResult {
-        artifact_id: ArtifactId::new(1),
-        artifact_version_id: ArtifactVersionId::new(1),
-        content_hash: fixtures::test_content_hash(),
-        tree_root_id: StructureNodeId::new(10),
-        tree_nodes: vec![fixtures::tree_root_node(StructureNodeId::new(10))],
-        chunks: vec![
-            RegisterChunkInput {
-                chunk_id: ChunkId::new(10),
-                artifact_id: ArtifactId::new(1),
-                node_id: StructureNodeId::new(10),
-                order: 0,
-                text: "chunk a".to_string(),
-            },
-            RegisterChunkInput {
-                chunk_id: ChunkId::new(11),
-                artifact_id: ArtifactId::new(1),
-                node_id: StructureNodeId::new(11),
-                order: 1,
-                text: "chunk b".to_string(),
-            },
-            RegisterChunkInput {
-                chunk_id: ChunkId::new(12),
-                artifact_id: ArtifactId::new(1),
-                node_id: StructureNodeId::new(12),
-                order: 2,
-                text: "chunk c".to_string(),
-            },
-        ],
-        cards: vec![
-            CreateCardInput {
-                card_id: CardId::new(20),
-                artifact_id: ArtifactId::new(1),
-                title: "Card 1".to_string(),
-                body: "Alpha".to_string(),
-            },
-            CreateCardInput {
-                card_id: CardId::new(21),
-                artifact_id: ArtifactId::new(1),
-                title: "Card 2".to_string(),
-                body: "Beta".to_string(),
-            },
-        ],
-    }))?;
+    state.apply_input(DomainInput::ParserCompleted(
+        parser_result_with_multiple_chunks(),
+    ))?;
 
-    let replayed = replay_events(&state.event_log)?;
-    assert_eq!(state.artifacts, replayed.artifacts, "artifacts match");
-    assert_eq!(state.chunks, replayed.chunks, "chunks match");
-    assert_eq!(state.cards, replayed.cards, "cards match");
-    assert_eq!(state.event_log, replayed.event_log, "event log matches");
-    assert_eq!(
-        state.pending_full_text, replayed.pending_full_text,
-        "pending full text matches"
-    );
-    assert!(
-        replayed.document_trees.contains_key(&ArtifactId::new(1)),
-        "replay populates document_trees"
-    );
-    assert!(
-        replayed.artifact_versions.contains_key(&ArtifactId::new(1)),
-        "replay populates artifact_versions"
-    );
+    let replayed = replay_assert_parity(&state)?;
     assert_eq!(replayed.chunks.len(), 3);
     assert_eq!(replayed.cards.len(), 2);
     assert_eq!(
@@ -168,12 +211,18 @@ fn replay_ingestion_duplicate_chunk_rejected() -> Result<(), DomainError> {
         content_hash: "sha256:abc".to_string(),
     }))?;
     state.apply_input(DomainInput::ParserCompleted(ParserResult {
+        status: maestria_domain::ParseStatus::Parsed,
         artifact_id: ArtifactId::new(1),
         artifact_version_id: ArtifactVersionId::new(1),
         content_hash: fixtures::test_content_hash(),
-        tree_root_id: StructureNodeId::new(10),
+        tree_root_id: Some(StructureNodeId::new(10)),
         tree_nodes: vec![fixtures::tree_root_node(StructureNodeId::new(10))],
         chunks: vec![RegisterChunkInput {
+            source_span: maestria_domain::SourceSpan::TextSpan {
+                start_line: 1,
+                end_line: 1,
+            },
+            representations: vec![],
             chunk_id: ChunkId::new(10),
             artifact_id: ArtifactId::new(1),
             node_id: StructureNodeId::new(10),
@@ -189,6 +238,12 @@ fn replay_ingestion_duplicate_chunk_rejected() -> Result<(), DomainError> {
         id: EventId::new(next_id),
         sequence: SequenceNumber::new(next_id),
         event: DomainEvent::ChunkRegistered {
+            node_id: maestria_domain::StructureNodeId::new(1),
+            source_span: maestria_domain::SourceSpan::TextSpan {
+                start_line: 1,
+                end_line: 1,
+            },
+            representations: vec![],
             chunk_id: ChunkId::new(10),
             artifact_id: ArtifactId::new(1),
             order: 0,
@@ -215,6 +270,7 @@ fn replay_ingestion_parser_without_detection_rejected() -> Result<(), DomainErro
         id: EventId::new(next_id),
         sequence: SequenceNumber::new(next_id),
         event: DomainEvent::ArtifactParsed {
+            status: maestria_domain::ParseStatus::Parsed,
             artifact_id: ArtifactId::new(99),
             chunks_added: 0,
         },
@@ -238,6 +294,12 @@ fn replay_ingestion_orphan_chunk_rejected() -> Result<(), DomainError> {
         id: EventId::new(1),
         sequence: SequenceNumber::new(1),
         event: DomainEvent::ChunkRegistered {
+            node_id: maestria_domain::StructureNodeId::new(1),
+            source_span: maestria_domain::SourceSpan::TextSpan {
+                start_line: 1,
+                end_line: 1,
+            },
+            representations: vec![],
             chunk_id: ChunkId::new(1),
             artifact_id: ArtifactId::new(99),
             order: 0,
@@ -279,6 +341,12 @@ fn replay_full_text_indexed_rejects_mismatched_chunk_artifact() -> Result<(), Do
         id: EventId::new(3),
         sequence: SequenceNumber::new(3),
         event: DomainEvent::ChunkRegistered {
+            node_id: maestria_domain::StructureNodeId::new(1),
+            source_span: maestria_domain::SourceSpan::TextSpan {
+                start_line: 1,
+                end_line: 1,
+            },
+            representations: vec![],
             chunk_id: ChunkId::new(10),
             artifact_id: ArtifactId::new(1),
             order: 0,
@@ -333,6 +401,12 @@ fn replay_artifact_indexed_rejects_pending_chunks() -> Result<(), DomainError> {
         id: EventId::new(3),
         sequence: SequenceNumber::new(3),
         event: DomainEvent::ChunkRegistered {
+            node_id: maestria_domain::StructureNodeId::new(1),
+            source_span: maestria_domain::SourceSpan::TextSpan {
+                start_line: 1,
+                end_line: 1,
+            },
+            representations: vec![],
             chunk_id: ChunkId::new(10),
             artifact_id: ArtifactId::new(1),
             order: 0,
@@ -452,6 +526,7 @@ fn replay_artifact_parsed_retains_pending_parsers() -> Result<(), DomainError> {
         id: EventId::new(3),
         sequence: SequenceNumber::new(3),
         event: DomainEvent::ArtifactParsed {
+            status: maestria_domain::ParseStatus::Parsed,
             artifact_id: ArtifactId::new(1),
             chunks_added: 1,
         },
@@ -494,6 +569,7 @@ fn replay_artifact_parsed_zero_chunks_retains_pending_parsers() -> Result<(), Do
         id: EventId::new(3),
         sequence: SequenceNumber::new(3),
         event: DomainEvent::ArtifactParsed {
+            status: maestria_domain::ParseStatus::Parsed,
             artifact_id: ArtifactId::new(1),
             chunks_added: 0,
         },

@@ -120,13 +120,19 @@ fn parser_completed_does_not_emit_index_effects() -> Result<(), DomainError> {
         content_hash: "sha256:abc".to_string(),
     }))?;
     let output = state.apply_input(DomainInput::ParserCompleted(ParserResult {
+        status: maestria_domain::ParseStatus::Parsed,
         artifact_id: ArtifactId::new(1),
         artifact_version_id: ArtifactVersionId::new(1),
         content_hash: fixtures::test_content_hash(),
-        tree_root_id: StructureNodeId::new(10),
+        tree_root_id: Some(StructureNodeId::new(10)),
         tree_nodes: vec![fixtures::tree_root_node(StructureNodeId::new(10))],
         chunks: vec![
             RegisterChunkInput {
+                source_span: maestria_domain::SourceSpan::TextSpan {
+                    start_line: 1,
+                    end_line: 1,
+                },
+                representations: vec![],
                 chunk_id: ChunkId::new(10),
                 artifact_id: ArtifactId::new(1),
                 node_id: StructureNodeId::new(10),
@@ -134,6 +140,11 @@ fn parser_completed_does_not_emit_index_effects() -> Result<(), DomainError> {
                 text: "chunk a".to_string(),
             },
             RegisterChunkInput {
+                source_span: maestria_domain::SourceSpan::TextSpan {
+                    start_line: 1,
+                    end_line: 1,
+                },
+                representations: vec![],
                 chunk_id: ChunkId::new(11),
                 artifact_id: ArtifactId::new(1),
                 node_id: StructureNodeId::new(11),

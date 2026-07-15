@@ -24,6 +24,8 @@ impl KernelState {
             Card::new(
                 input.card_id,
                 input.artifact_id,
+                input.node_id,
+                input.source_span,
                 input.title.clone(),
                 input.body.clone(),
             ),
@@ -36,6 +38,8 @@ impl KernelState {
         Ok(self.emit_event(DomainEvent::CardCreated {
             card_id: input.card_id,
             artifact_id: input.artifact_id,
+            node_id: input.node_id,
+            source_span: input.source_span,
             title: input.title,
             body: input.body,
         }))
@@ -47,6 +51,8 @@ impl KernelState {
         &mut self,
         card_id: CardId,
         artifact_id: ArtifactId,
+        node_id: crate::ids::StructureNodeId,
+        source_span: crate::provenance::SourceSpan,
         title: &str,
         body: &str,
     ) -> Result<(), DomainError> {
@@ -61,7 +67,14 @@ impl KernelState {
         }
         self.cards.insert(
             card_id,
-            Card::new(card_id, artifact_id, title.to_string(), body.to_string()),
+            Card::new(
+                card_id,
+                artifact_id,
+                node_id,
+                source_span,
+                title.to_string(),
+                body.to_string(),
+            ),
         );
         if let Some(artifact) = self.artifacts.get_mut(&artifact_id) {
             artifact.card_ids.insert(card_id);

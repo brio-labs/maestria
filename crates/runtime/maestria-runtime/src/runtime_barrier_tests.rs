@@ -96,6 +96,7 @@ async fn parse_artifact_barrier_timeout_without_persistence_returns_failure() {
             evidence_ids: BTreeSet::new(),
             index_status: IndexStatus::Unindexed,
             content_hash: None,
+            parse_status: None,
         })
         .expect("pre-populated artifact should be accepted");
 

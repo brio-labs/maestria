@@ -152,6 +152,13 @@ ParsedArtifact {
                 artifact_id: ArtifactId(
                     4,
                 ),
+                node_id: StructureNodeId(
+                    4000012,
+                ),
+                source_span: TextSpan {
+                    start_line: 1,
+                    end_line: 4,
+                },
                 title: "[package]",
                 body: "Parsed 2 textual chunks from Cargo.toml.",
             },

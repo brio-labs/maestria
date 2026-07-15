@@ -75,8 +75,9 @@ fn pure_input_with_effect_completion_is_replay_consistent() -> Result<(), Box<dy
     // Parser completed
     use maestria_domain::{
         ArtifactVersionId, ChunkId, ContentHash, ContentRange, CreateCardInput, DomainInput,
-        EvidenceKind, LogicalTick, ParserResult, RecordEvidenceInput, RegisterChunkInput,
-        StructureNode, StructureNodeId, StructureNodeType, content_hash, evidence_id_for,
+        EvidenceKind, LogicalTick, ParseStatus, ParserResult, RecordEvidenceInput,
+        RegisterChunkInput, SourceSpan, StructureNode, StructureNodeId, StructureNodeType,
+        content_hash, evidence_id_for,
     };
     let source_hash = content_hash(&bytes);
     let source_path = path.to_string_lossy().into_owned();
@@ -86,24 +87,44 @@ fn pure_input_with_effect_completion_is_replay_consistent() -> Result<(), Box<dy
         artifact_id: *artifact_id,
         artifact_version_id: ArtifactVersionId::new(artifact_id.value()),
         content_hash: ContentHash::new("sha256:".to_owned() + &"0".repeat(64)).unwrap(),
-        tree_root_id: StructureNodeId::new(701),
-        tree_nodes: vec![StructureNode {
-            id: StructureNodeId::new(701),
-            parent_id: None,
-            sibling_id: None,
-            node_type: StructureNodeType::Document,
-            source_range: ContentRange { start: 0, end: 0 },
-            page: None,
-            section_path: vec![],
-            parser_generation: "test".to_string(),
-            schema_generation: "1".to_string(),
-            language: None,
-        }],
+        status: ParseStatus::Parsed,
+        tree_root_id: Some(StructureNodeId::new(701)),
+        tree_nodes: vec![
+            StructureNode {
+                id: StructureNodeId::new(701),
+                parent_id: None,
+                sibling_id: None,
+                node_type: StructureNodeType::Document,
+                source_range: ContentRange { start: 0, end: 0 },
+                page: None,
+                section_path: vec![],
+                parser_generation: "test".to_string(),
+                schema_generation: "1".to_string(),
+                language: None,
+            },
+            StructureNode {
+                id: StructureNodeId::new(702),
+                parent_id: Some(StructureNodeId::new(701)),
+                sibling_id: None,
+                node_type: StructureNodeType::Paragraph,
+                source_range: ContentRange { start: 0, end: 0 },
+                page: None,
+                section_path: vec![],
+                parser_generation: "test".to_string(),
+                schema_generation: "1".to_string(),
+                language: None,
+            },
+        ],
         chunks: vec![
             RegisterChunkInput {
                 chunk_id: chunk_id_0,
                 artifact_id: *artifact_id,
                 node_id: StructureNodeId::new(701),
+                source_span: SourceSpan::TextSpan {
+                    start_line: 1,
+                    end_line: 1,
+                },
+                representations: vec![],
                 order: 0,
                 text: "Paragraph one.".to_string(),
             },
@@ -111,6 +132,11 @@ fn pure_input_with_effect_completion_is_replay_consistent() -> Result<(), Box<dy
                 chunk_id: chunk_id_1,
                 artifact_id: *artifact_id,
                 node_id: StructureNodeId::new(702),
+                source_span: SourceSpan::TextSpan {
+                    start_line: 1,
+                    end_line: 1,
+                },
+                representations: vec![],
                 order: 1,
                 text: "Paragraph two.".to_string(),
             },
@@ -118,6 +144,11 @@ fn pure_input_with_effect_completion_is_replay_consistent() -> Result<(), Box<dy
         cards: vec![CreateCardInput {
             card_id: maestria_domain::CardId::new(901),
             artifact_id: *artifact_id,
+            node_id: StructureNodeId::new(701),
+            source_span: SourceSpan::TextSpan {
+                start_line: 1,
+                end_line: 1,
+            },
             title: "Summary".to_string(),
             body: "Two paragraphs.".to_string(),
         }],

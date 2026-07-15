@@ -42,6 +42,7 @@ async fn evidence_recorded_persistence_replaces_malformed_record() {
         evidence_ids: [evidence_id].into(),
         index_status: IndexStatus::Unindexed,
         content_hash: None,
+        parse_status: None,
     };
     let valid_evidence = Evidence {
         id: evidence_id,

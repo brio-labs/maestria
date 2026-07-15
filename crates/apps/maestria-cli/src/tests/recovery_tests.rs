@@ -2,8 +2,8 @@
 
 use maestria_domain::{
     ArtifactDetected, ArtifactId, ArtifactVersionId, BlobId, ChunkId, ContentHash, DomainInput,
-    IndexStatus, KernelState, ParserResult, ParserStarted, RegisterChunkInput, StartFullTextIndex,
-    StructureNodeId,
+    IndexStatus, KernelState, ParseStatus, ParserResult, ParserStarted, RegisterChunkInput,
+    SourceSpan, StartFullTextIndex, StructureNodeId,
 };
 
 /// Verify that `recovery_inputs` — as called by `index_path` before
@@ -47,7 +47,8 @@ fn index_path_recovery_derives_pending_inputs_with_correct_filter() {
             artifact_id: artifact_b,
             artifact_version_id: ArtifactVersionId::new(artifact_b.value()),
             content_hash: ContentHash::new("sha256:".to_owned() + &"0".repeat(64)).unwrap(),
-            tree_root_id: StructureNodeId::new(20),
+            status: ParseStatus::Parsed,
+            tree_root_id: Some(StructureNodeId::new(20)),
             tree_nodes: vec![maestria_domain::StructureNode {
                 id: maestria_domain::StructureNodeId::new(20),
                 parent_id: None,
@@ -64,6 +65,11 @@ fn index_path_recovery_derives_pending_inputs_with_correct_filter() {
                 chunk_id: ChunkId::new(20),
                 artifact_id: artifact_b,
                 node_id: maestria_domain::StructureNodeId::new(20),
+                source_span: SourceSpan::TextSpan {
+                    start_line: 1,
+                    end_line: 1,
+                },
+                representations: vec![],
                 order: 0,
                 text: "hello".to_string(),
             }],
@@ -195,7 +201,8 @@ fn recovery_drain_all_indexed_predicate() {
                 artifact_id: id,
                 artifact_version_id: ArtifactVersionId::new(id.value()),
                 content_hash: ContentHash::new("sha256:".to_owned() + &"0".repeat(64)).unwrap(),
-                tree_root_id: maestria_domain::StructureNodeId::new(0),
+                status: ParseStatus::Parsed,
+                tree_root_id: Some(maestria_domain::StructureNodeId::new(0)),
                 tree_nodes: vec![maestria_domain::StructureNode {
                     id: maestria_domain::StructureNodeId::new(0),
                     parent_id: None,

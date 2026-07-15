@@ -2,7 +2,9 @@
 
 use std::path::Path;
 
-use maestria_domain::{ArtifactId, CardId, ChunkId, CreateCardInput};
+use maestria_domain::{
+    ArtifactId, CardId, ChunkId, CreateCardInput, SourceSpan as DomainSourceSpan, StructureNodeId,
+};
 use maestria_ports::{
     FileHandle, FileMetadata, ParsedArtifact, ParsedCard, ParsedChunk, PortError, SourceSpan,
 };
@@ -97,7 +99,6 @@ pub(crate) fn parsed_artifact(
         schema_generation,
         language,
     )?;
-    let card = summary_card_for(artifact_id, path, &chunks);
     let card_source_span = match chunks.first() {
         Some(chunk) => chunk.source_span.clone(),
         None => {
@@ -106,6 +107,9 @@ pub(crate) fn parsed_artifact(
             });
         }
     };
+    let mut card = summary_card_for(artifact_id, path, &chunks);
+    card.node_id = tree.root_id;
+    card.source_span = domain_source_span(&card_source_span);
     let parsed_card = ParsedCard {
         card,
         node_id: tree.root_id,
@@ -166,9 +170,21 @@ pub(crate) fn summary_card_for(
     };
     let unit = if chunks.len() == 1 { "chunk" } else { "chunks" };
 
+    let (node_id, source_span) = match chunks.first() {
+        Some(chunk) => (chunk.node_id, domain_source_span(&chunk.source_span)),
+        None => (
+            StructureNodeId::new(artifact_id.value()),
+            DomainSourceSpan::TextSpan {
+                start_line: 1,
+                end_line: 1,
+            },
+        ),
+    };
     CreateCardInput {
         card_id: card_id_for(artifact_id),
         artifact_id,
+        node_id,
+        source_span,
         title,
         body: format!(
             "Parsed {} textual {} from {}.",
@@ -182,6 +198,19 @@ pub(crate) fn summary_card_for(
 fn clean_summary_line(line: &str) -> String {
     let trimmed = line.trim().trim_start_matches('#').trim();
     trimmed.chars().take(96).collect()
+}
+
+pub(crate) fn domain_source_span(span: &SourceSpan) -> DomainSourceSpan {
+    match span {
+        SourceSpan::TextSpan {
+            start_line,
+            end_line,
+        } => DomainSourceSpan::TextSpan {
+            start_line: *start_line,
+            end_line: *end_line,
+        },
+        SourceSpan::PdfSpan { page } => DomainSourceSpan::PdfSpan { page: *page },
+    }
 }
 
 pub(crate) fn paragraph_chunks(text: &str) -> Vec<(String, SourceSpan)> {

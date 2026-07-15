@@ -211,6 +211,13 @@ ParsedArtifact {
                 artifact_id: ArtifactId(
                     1,
                 ),
+                node_id: StructureNodeId(
+                    1000003,
+                ),
+                source_span: TextSpan {
+                    start_line: 1,
+                    end_line: 4,
+                },
                 title: "Title",
                 body: "Parsed 3 textual chunks from guide.md.",
             },

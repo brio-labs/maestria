@@ -3,6 +3,7 @@ mod effect_dispatch;
 mod effect_execution;
 mod harness;
 mod indexing;
+mod parser_mapping;
 mod parsing;
 mod persistence;
 mod shell_policy;

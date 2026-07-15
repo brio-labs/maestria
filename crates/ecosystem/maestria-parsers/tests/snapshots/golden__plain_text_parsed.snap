@@ -152,6 +152,13 @@ ParsedArtifact {
                 artifact_id: ArtifactId(
                     2,
                 ),
+                node_id: StructureNodeId(
+                    2000006,
+                ),
+                source_span: TextSpan {
+                    start_line: 1,
+                    end_line: 2,
+                },
                 title: "First paragraph.",
                 body: "Parsed 2 textual chunks from notes.txt.",
             },

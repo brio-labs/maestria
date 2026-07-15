@@ -12,20 +12,21 @@ impl ArtifactRepository for crate::SqliteStore {
         let connection = self.lock()?;
         let row = connection
             .query_row(
-                "SELECT title, content_hash, index_status FROM artifacts WHERE id = ?1",
+                "SELECT title, content_hash, index_status, parse_status FROM artifacts WHERE id = ?1",
                 params![u64_to_i64(artifact_id.value())?],
                 |row| {
                     Ok((
                         row.get::<_, String>(0)?,
                         row.get::<_, Option<String>>(1)?,
                         row.get::<_, String>(2)?,
+                        row.get::<_, Option<String>>(3)?,
                     ))
                 },
             )
             .optional()
             .map_err(to_port_error)?;
 
-        let Some((title, content_hash, index_status)) = row else {
+        let Some((title, content_hash, index_status, parse_status)) = row else {
             return Ok(None);
         };
 
@@ -36,6 +37,21 @@ impl ArtifactRepository for crate::SqliteStore {
             other => {
                 return Err(PortError::Internal {
                     message: format!("unknown stored index_status {other}"),
+                });
+            }
+        };
+
+        let parse_status = match parse_status.as_deref() {
+            Some("parsed") => Some(maestria_domain::ParseStatus::Parsed),
+            Some("unsupported") => Some(maestria_domain::ParseStatus::Unsupported),
+            Some("failed") => Some(maestria_domain::ParseStatus::Failed),
+            Some("metadata_only") => Some(maestria_domain::ParseStatus::MetadataOnly),
+            Some("needs_ocr") => Some(maestria_domain::ParseStatus::NeedsOcr),
+            Some("quarantined") => Some(maestria_domain::ParseStatus::Quarantined),
+            None | Some("none") | Some("") => None,
+            Some(other) => {
+                return Err(PortError::Internal {
+                    message: format!("unknown stored parse_status {other}"),
                 });
             }
         };
@@ -54,6 +70,7 @@ impl ArtifactRepository for crate::SqliteStore {
             )?,
             index_status,
             content_hash,
+            parse_status,
         }))
     }
 
@@ -62,17 +79,27 @@ impl ArtifactRepository for crate::SqliteStore {
         let transaction = connection.transaction().map_err(to_port_error)?;
         transaction
             .execute(
-                "INSERT INTO artifacts (id, title, content_hash, index_status)
-                 VALUES (?1, ?2, ?3, ?4)
+                "INSERT INTO artifacts (id, title, content_hash, index_status, parse_status)
+                 VALUES (?1, ?2, ?3, ?4, ?5)
                  ON CONFLICT(id) DO UPDATE SET
                      title = excluded.title,
                      content_hash = excluded.content_hash,
-                     index_status = excluded.index_status",
+                     index_status = excluded.index_status,
+                     parse_status = excluded.parse_status",
                 params![
                     u64_to_i64(artifact.id.value())?,
                     artifact.title,
                     artifact.content_hash,
                     index_status_to_text(artifact.index_status),
+                    match artifact.parse_status {
+                        Some(maestria_domain::ParseStatus::Parsed) => "parsed",
+                        Some(maestria_domain::ParseStatus::Unsupported) => "unsupported",
+                        Some(maestria_domain::ParseStatus::Failed) => "failed",
+                        Some(maestria_domain::ParseStatus::MetadataOnly) => "metadata_only",
+                        Some(maestria_domain::ParseStatus::NeedsOcr) => "needs_ocr",
+                        Some(maestria_domain::ParseStatus::Quarantined) => "quarantined",
+                        None => "none",
+                    },
                 ],
             )
             .map_err(to_port_error)?;

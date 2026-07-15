@@ -52,10 +52,14 @@ impl KernelState {
         let chunk = Chunk::new(
             input.chunk_id,
             input.artifact_id,
+            input.node_id,
+            input.source_span,
+            input.representations.clone(),
             input.order,
             input.text.clone(),
         );
         self.chunks.insert(input.chunk_id, chunk);
+        self.chunk_nodes.insert(input.chunk_id, input.node_id);
         if let Some(artifact) = self.artifacts.get_mut(&input.artifact_id) {
             artifact.chunk_ids.insert(input.chunk_id);
         }
@@ -63,6 +67,9 @@ impl KernelState {
         Ok(self.emit_event(DomainEvent::ChunkRegistered {
             chunk_id: input.chunk_id,
             artifact_id: input.artifact_id,
+            node_id: input.node_id,
+            source_span: input.source_span,
+            representations: input.representations,
             order: input.order,
             text: input.text,
         }))
@@ -90,41 +97,49 @@ impl KernelState {
 
     pub(crate) fn apply_chunk_registered(
         &mut self,
-        chunk_id: ChunkId,
-        artifact_id: ArtifactId,
-        order: u32,
-        text: &str,
+        input: RegisterChunkInput,
     ) -> Result<(), DomainError> {
-        if !self.artifacts.contains_key(&artifact_id) {
-            return Err(DomainError::MissingArtifact { id: artifact_id });
+        if !self.artifacts.contains_key(&input.artifact_id) {
+            return Err(DomainError::MissingArtifact {
+                id: input.artifact_id,
+            });
         }
-        if self.chunks.contains_key(&chunk_id) {
+        if self.chunks.contains_key(&input.chunk_id) {
             return Err(DomainError::DuplicateId {
                 kind: "chunk",
-                id: chunk_id.value(),
+                id: input.chunk_id.value(),
             });
         }
         if self
             .chunks
             .values()
-            .any(|chunk| chunk.artifact_id == artifact_id && chunk.order == order)
+            .any(|chunk| chunk.artifact_id == input.artifact_id && chunk.order == input.order)
         {
             return Err(DomainError::DuplicateId {
                 kind: "chunk_order",
-                id: chunk_id.value(),
+                id: input.chunk_id.value(),
             });
         }
         self.chunks.insert(
-            chunk_id,
-            Chunk::new(chunk_id, artifact_id, order, text.to_string()),
+            input.chunk_id,
+            Chunk::new(
+                input.chunk_id,
+                input.artifact_id,
+                input.node_id,
+                input.source_span,
+                input.representations,
+                input.order,
+                input.text,
+            ),
         );
-        if let Some(artifact) = self.artifacts.get_mut(&artifact_id) {
-            artifact.chunk_ids.insert(chunk_id);
+        self.chunk_nodes.insert(input.chunk_id, input.node_id);
+        if let Some(artifact) = self.artifacts.get_mut(&input.artifact_id) {
+            artifact.chunk_ids.insert(input.chunk_id);
         }
-        if let Some(artifact) = self.artifacts.get(&artifact_id)
+        if let Some(artifact) = self.artifacts.get(&input.artifact_id)
             && artifact.index_status == IndexStatus::Pending
         {
-            self.pending_full_text.insert(chunk_id);
+            self.pending_full_text.insert(input.chunk_id);
         }
         Ok(())
     }
@@ -132,6 +147,7 @@ impl KernelState {
     pub(crate) fn apply_artifact_parsed(
         &mut self,
         artifact_id: ArtifactId,
+        status: crate::provenance::ParseStatus,
     ) -> Result<(), DomainError> {
         if !self.artifacts.contains_key(&artifact_id) {
             return Err(DomainError::MissingArtifact { id: artifact_id });
@@ -139,7 +155,12 @@ impl KernelState {
         // pending_parsers is NOT removed here — it stays until
         // terminal ArtifactIndexed so a crash before evidence
         // leaves the parser retryable.
-        // Mark as parsed so resume duplicate suppression works.
+        if let Some(artifact) = self.artifacts.get_mut(&artifact_id) {
+            artifact.parse_status = Some(status);
+            if status != crate::provenance::ParseStatus::Parsed {
+                artifact.index_status = IndexStatus::Unindexed;
+            }
+        }
         self.parsed_artifact_ids.insert(artifact_id);
         Ok(())
     }

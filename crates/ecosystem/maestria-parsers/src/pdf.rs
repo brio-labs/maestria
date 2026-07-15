@@ -128,7 +128,7 @@ impl Parser for PdfParser {
         }
         let tree = DocumentTree::new(root_id, nodes)?;
 
-        let card =
+        let mut card =
             crate::chunking::summary_card_for(context.artifact_id, &file.path, &parsed_chunks);
         let card_source_span = match parsed_chunks.first() {
             Some(chunk) => chunk.source_span.clone(),
@@ -138,6 +138,8 @@ impl Parser for PdfParser {
                 });
             }
         };
+        card.node_id = root_id;
+        card.source_span = crate::chunking::domain_source_span(&card_source_span);
         let parsed_card = ParsedCard {
             card,
             node_id: root_id,
