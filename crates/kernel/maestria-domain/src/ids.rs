@@ -4,7 +4,18 @@ pub const DOMAIN_VERSION: &str = "0.1.0";
 
 macro_rules! id_type {
     ($name:ident) => {
-        #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+        #[derive(
+            Debug,
+            Clone,
+            Copy,
+            PartialEq,
+            Eq,
+            PartialOrd,
+            Ord,
+            Hash,
+            ::serde::Serialize,
+            ::serde::Deserialize,
+        )]
         pub struct $name(pub u64);
 
         impl $name {
@@ -43,3 +54,12 @@ id_type!(ApprovalId);
 id_type!(HarnessRunId);
 id_type!(BlobId);
 id_type!(ScopeId);
+id_type!(ArtifactVersionId);
+id_type!(StructureNodeId);
+id_type!(QueryId);
+id_type!(SearchTraceId);
+id_type!(CorpusSnapshotId);
+id_type!(IndexGenerationId);
+id_type!(RetrievalModelFingerprintId);
+id_type!(DuplicateClusterId);
+id_type!(ConflictSetId);

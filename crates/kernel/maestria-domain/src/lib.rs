@@ -15,6 +15,7 @@ mod inputs;
 mod kernel_state;
 mod provenance;
 mod replay;
+mod search;
 mod types;
 
 // Public API — stable boundary types re-exported at crate root.
@@ -28,5 +29,6 @@ pub use crate::ids::*;
 pub use crate::inputs::*;
 pub use crate::kernel_state::*;
 
+pub use crate::search::*;
 pub use provenance::{content_hash, evidence_id_for, excerpt_for, line_range_for_chunk};
 pub use replay::{replay_events, replay_inputs};
