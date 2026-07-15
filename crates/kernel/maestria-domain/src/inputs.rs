@@ -237,6 +237,16 @@ pub struct SearchExecutedInput {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SearchKnowledgeRequested {
+    pub plan: crate::search::SearchPlan,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SearchKnowledgeCompleted {
+    pub outcome: crate::search::SearchOutcome,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DomainInput {
     RegisterArtifact(RegisterArtifactInput),
     RegisterChunk(RegisterChunkInput),
@@ -268,6 +278,8 @@ pub enum DomainInput {
     HarnessRunCompleted(HarnessRunCompleted),
     ValidationCompleted(ValidationCompleted),
     ApprovalResolved(ApprovalDecision),
+    SearchKnowledgeRequested(SearchKnowledgeRequested),
     SearchExecuted(SearchExecutedInput),
+    SearchKnowledgeCompleted(SearchKnowledgeCompleted),
     ClockTick(LogicalTick),
 }

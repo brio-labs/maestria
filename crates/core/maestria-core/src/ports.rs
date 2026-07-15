@@ -3,6 +3,11 @@ use crate::retrieval::{open_chunk_evidence, open_evidence};
 use crate::types::{
     OpenChunkEvidenceInput, OpenEvidenceInput, OpenEvidenceOutput, SearchInput, SearchOutput,
 };
+use maestria_domain::{
+    ArtifactVersionId, ContentHash, ContentRange, EvidenceCandidate, EvidenceCoverage,
+    EvidenceSpan, FreshnessStatus, RetrievalReason, RetrievalScoreSet, SearchOutcome, SearchStatus,
+    SourceLocation, SourceSpan, TrustLabel,
+};
 
 use maestria_ports::{
     ArtifactRepository, BlobStore, CardRepository, ChunkRepository, EventLog, FullTextIndex, Parser,
@@ -25,6 +30,71 @@ pub struct CoreServices<'a> {
     ports: CorePorts<'a>,
     graph_config: Option<crate::types::GraphConfig>,
     retrieval_policy: maestria_governance::RetrievalSecurityPolicy,
+}
+
+fn evidence_candidate_from_hit(
+    hit: crate::types::SourceGroundedSearchHit,
+    reason: &RetrievalReason,
+) -> Option<EvidenceCandidate> {
+    let content_hash = hit.artifact.content_hash.clone()?;
+    if ContentHash::new(content_hash).is_err() {
+        return None;
+    }
+    let (location, range) = match &hit.evidence.kind {
+        maestria_domain::EvidenceKind::FileSpan { path, range, .. } => {
+            let (start_line, end_line) = match hit.chunk.source_span {
+                SourceSpan::TextSpan {
+                    start_line,
+                    end_line,
+                } => (start_line as u32, end_line as u32),
+                SourceSpan::PdfSpan { .. } => return None,
+            };
+            (
+                SourceLocation::File {
+                    path: path.clone(),
+                    start_line,
+                    end_line,
+                },
+                *range,
+            )
+        }
+        maestria_domain::EvidenceKind::PdfSpan {
+            page_start,
+            page_end,
+            ..
+        } => (
+            SourceLocation::Page {
+                page_start: *page_start,
+                page_end: *page_end,
+            },
+            ContentRange { start: 0, end: 1 },
+        ),
+        _ => return None,
+    };
+    let source_span = EvidenceSpan::new(Some(hit.chunk.node_id), location, range).ok()?;
+    let security = hit.artifact.security.taint_from(&hit.evidence.security);
+    let trust = match (&security.trust_zone, &security.integrity) {
+        (
+            maestria_domain::TrustZone::System | maestria_domain::TrustZone::Verified,
+            maestria_domain::IntegrityState::Verified,
+        ) => TrustLabel::Verified,
+        _ => TrustLabel::Unverified,
+    };
+    Some(EvidenceCandidate {
+        evidence_id: hit.evidence.id,
+        // Legacy artifacts have no separate version identity; preserve the
+        // artifact identity rather than inventing a hash-based version.
+        artifact_version: ArtifactVersionId::new(hit.artifact.id.value()),
+        source_span,
+        scores: RetrievalScoreSet {
+            bm25: hit.score,
+            semantic_similarity: 0,
+        },
+        trust,
+        freshness: FreshnessStatus::Unknown,
+        duplicate_cluster: None,
+        reasons: vec![reason.clone()],
+    })
 }
 
 impl<'a> CoreServices<'a> {
@@ -57,6 +127,70 @@ impl<'a> CoreServices<'a> {
             self.graph_config.clone(),
             &self.retrieval_policy,
         )
+    }
+    pub fn search_knowledge(&self, plan: maestria_domain::SearchPlan) -> CoreResult<SearchOutcome> {
+        let output = crate::retrieval::search_with_plan(
+            &self.ports,
+            plan.clone(),
+            None,
+            self.graph_config.clone(),
+            &self.retrieval_policy,
+        )?;
+        let reason = match plan.intent {
+            maestria_domain::SearchIntent::ExactLookup => RetrievalReason::ExactMatch,
+            _ => RetrievalReason::SemanticSimilarity,
+        };
+        let evidence = output
+            .pack
+            .chunks
+            .into_iter()
+            .filter_map(|hit| evidence_candidate_from_hit(hit, &reason))
+            .collect::<Vec<_>>();
+        let enough_corroboration =
+            evidence.len() >= usize::from(plan.evidence_requirements.minimum_corroboration);
+        let primary_sources_ok = !plan.evidence_requirements.require_primary_sources
+            || evidence
+                .iter()
+                .all(|candidate| candidate.trust == TrustLabel::Verified);
+        let status = if evidence.is_empty() {
+            SearchStatus::NoEvidenceFound
+        } else if enough_corroboration && primary_sources_ok {
+            SearchStatus::Answerable
+        } else {
+            SearchStatus::EvidenceIncomplete
+        };
+        let mut gaps_identified = Vec::new();
+        if !enough_corroboration {
+            gaps_identified.push("minimum corroboration not met".to_string());
+        }
+        if !primary_sources_ok {
+            gaps_identified.push("primary-source requirement not met".to_string());
+        }
+        let percent_covered = if evidence.is_empty() {
+            0
+        } else if gaps_identified.is_empty() {
+            100
+        } else {
+            50
+        };
+        let outcome = SearchOutcome {
+            trace: maestria_domain::SearchTraceId::new(plan.query_id.value()),
+            fingerprint: plan.fingerprint.clone(),
+            index_generation: plan.index_generation,
+            status,
+            coverage: EvidenceCoverage {
+                percent_covered,
+                gaps_identified,
+            },
+            conflicts: Vec::new(),
+            evidence,
+        };
+        outcome.verify_compatibility(&plan).map_err(|error| {
+            crate::error::CoreError::InvalidInput {
+                message: error.to_string(),
+            }
+        })?;
+        Ok(outcome)
     }
 
     pub fn search_with_vector(

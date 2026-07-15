@@ -1,0 +1,16 @@
+[package]
+name = "maestria-retrieval"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+maestria-domain = { path = "../../kernel/maestria-domain" }
+maestria-ports = { path = "../../kernel/maestria-ports" }
+async-trait = "0.1.80"
+thiserror = "1.0.59"
+tokio = { version = "1.37.0", features = ["time", "macros", "rt"] }
+
+[dev-dependencies]
+tokio = { version = "1.37.0", features = ["full", "test-util"] }

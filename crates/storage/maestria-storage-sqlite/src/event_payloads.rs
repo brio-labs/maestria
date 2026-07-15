@@ -168,6 +168,9 @@ pub(crate) enum StoredEventPayload {
         evidence_ids: Vec<u64>,
         at: u64,
     },
+    SearchKnowledgeCompleted {
+        outcome: maestria_domain::SearchOutcome,
+    },
     PendingIndex {
         artifact_id: u64,
         content_hash: String,

@@ -69,6 +69,11 @@ pub struct DiagnosticEvent {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SearchKnowledgeRequest {
+    pub plan: crate::search::SearchPlan,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MaestriaEffect {
     PersistEvent { envelope: DomainEventEnvelope },
     PersistState(PersistStateRequest),
@@ -81,6 +86,7 @@ pub enum MaestriaEffect {
     RunValidation(RunValidationRequest),
     RequestApproval(RequestApprovalRequest),
     EmitDiagnostic(DiagnosticEvent),
+    SearchKnowledge(SearchKnowledgeRequest),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]

@@ -276,4 +276,28 @@ impl KernelState {
             .push(MaestriaEffect::PersistEvent { envelope });
         Ok(output)
     }
+
+    pub(super) fn process_search_knowledge_requested(
+        &mut self,
+        input: crate::inputs::SearchKnowledgeRequested,
+    ) -> Result<KernelOutput, DomainError> {
+        let mut output = KernelOutput::default();
+        output.effects.push(MaestriaEffect::SearchKnowledge(
+            crate::effects::SearchKnowledgeRequest { plan: input.plan },
+        ));
+        Ok(output)
+    }
+
+    pub(super) fn process_search_knowledge_completed(
+        &mut self,
+        input: crate::inputs::SearchKnowledgeCompleted,
+    ) -> Result<KernelOutput, DomainError> {
+        let mut output = KernelOutput::default();
+        let envelope = self.handle_search_knowledge_completed(input)?;
+        output.events.push(envelope.clone());
+        output
+            .effects
+            .push(MaestriaEffect::PersistEvent { envelope });
+        Ok(output)
+    }
 }

@@ -34,6 +34,11 @@ impl StoredEventPayload {
                 evidence_ids: evidence_ids.iter().map(|id| id.value()).collect(),
                 at: at.value(),
             }),
+            DomainEvent::SearchKnowledgeCompleted { outcome } => {
+                Some(Self::SearchKnowledgeCompleted {
+                    outcome: outcome.clone(),
+                })
+            }
             _ => None,
         }
     }
@@ -79,12 +84,16 @@ impl StoredEventPayload {
                     at,
                 })),
             },
+            Self::SearchKnowledgeCompleted { outcome } => {
+                Ok(DomainEvent::SearchKnowledgeCompleted { outcome })
+            }
             other => Err(Box::new(other)),
         }
     }
 
     pub(crate) fn try_kind_misc(&self) -> Option<&'static str> {
         match self {
+            Self::SearchKnowledgeCompleted { .. } => Some("search_knowledge_completed"),
             Self::RelationCreated { .. } => Some("relation_created"),
             Self::TickObserved { .. } => Some("tick_observed"),
             Self::SearchExecuted { .. } => Some("search_executed"),

@@ -26,6 +26,7 @@ pub fn test_adapters() -> Adapters {
         card_repo: Arc::new(InMemoryCardRepository::new()),
         evidence_repo: Arc::new(InMemoryEvidenceRepository::new()),
         embedding_provider: None,
+        search_executor: None,
         vector_index: Arc::new(InMemoryVectorIndex::new()),
         graph_index: Arc::new(InMemoryGraphIndex::new()),
         web_fetcher: Arc::new(InMemoryWebFetcher::new()),

@@ -635,3 +635,95 @@ fn search_executed_persist_effect_matches_event_envelope() -> Result<(), DomainE
     assert_eq!(envelope, &output.events[0]);
     Ok(())
 }
+
+#[test]
+fn search_knowledge_completed_emits_event() -> Result<(), DomainError> {
+    let mut state = KernelState::new();
+
+    let outcome: maestria_domain::SearchOutcome = serde_json::from_str(
+        r#"{
+        "trace": 1,
+        "fingerprint": "fp1",
+        "index_generation": 1,
+        "status": "Answerable",
+        "evidence": [],
+        "coverage": {
+            "percent_covered": 100,
+            "gaps_identified": []
+        },
+        "conflicts": []
+    }"#,
+    )
+    .map_err(|_| DomainError::InternalInvariantViolation {
+        detail: "search outcome fixture must deserialize",
+    })?;
+
+    let output = state.apply_input(DomainInput::SearchKnowledgeCompleted(
+        maestria_domain::SearchKnowledgeCompleted {
+            outcome: outcome.clone(),
+        },
+    ))?;
+
+    assert_eq!(output.events.len(), 1);
+    let envelope = &output.events[0];
+    match &envelope.event {
+        DomainEvent::SearchKnowledgeCompleted { outcome: out } => {
+            assert_eq!(out.trace, outcome.trace);
+        }
+        _ => {
+            return Err(DomainError::InternalInvariantViolation {
+                detail: "expected SearchKnowledgeCompleted event",
+            });
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn search_knowledge_request_emits_effect() -> Result<(), DomainError> {
+    let plan = SearchPlan {
+        query_id: QueryId::new(1),
+        original_query: "find notes".to_string(),
+        intent: SearchIntent::ExactLookup,
+        scope: CorpusScope::Global,
+        corpus_snapshot: CorpusSnapshotId::new(1),
+        index_generation: IndexGenerationId::new(1),
+        freshness: FreshnessRequirement::Any,
+        modalities: ModalitySet::new(vec![Modality::Text]),
+        stages: vec![SearchStage::InitialRetrieval],
+        budgets: SearchBudget::new(100, 1_000).map_err(|_| {
+            DomainError::InternalInvariantViolation {
+                detail: "search budget fixture must be valid",
+            }
+        })?,
+        stop_conditions: StopConditions {
+            max_results: 5,
+            min_score_threshold: 0,
+        },
+        evidence_requirements: EvidenceRequirements {
+            require_primary_sources: false,
+            minimum_corroboration: 1,
+        },
+        fingerprint: RetrievalModelFingerprint::new("test-model".to_string()).map_err(|_| {
+            DomainError::InternalInvariantViolation {
+                detail: "search fingerprint fixture must be valid",
+            }
+        })?,
+    };
+    let mut state = KernelState::new();
+    let output = state.apply_input(DomainInput::SearchKnowledgeRequested(
+        SearchKnowledgeRequested { plan: plan.clone() },
+    ))?;
+    match output.effects.as_slice() {
+        [MaestriaEffect::SearchKnowledge(SearchKnowledgeRequest { plan: effect_plan })] => {
+            assert_eq!(effect_plan, &plan);
+        }
+        _ => {
+            return Err(DomainError::InternalInvariantViolation {
+                detail: "expected SearchKnowledge effect",
+            });
+        }
+    }
+    assert!(output.events.is_empty());
+    Ok(())
+}

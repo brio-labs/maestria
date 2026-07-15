@@ -9,6 +9,7 @@ publish = false
 maestria-domain = { path = "../../kernel/maestria-domain" }
 maestria-governance = { path = "../../kernel/maestria-governance" }
 maestria-ports = { path = "../../kernel/maestria-ports" }
+maestria-retrieval = { path = "../../ecosystem/maestria-retrieval" }
 url = "2"
 sha2 = "0.10"
 [dev-dependencies]

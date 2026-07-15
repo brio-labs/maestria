@@ -3,7 +3,7 @@ use maestria_governance::{ApprovalGate, AutonomyProfile, ClassifyRisk, Scope, Va
 use maestria_ports::{
     ApprovalRepository, ArtifactRepository, BlobStore, CardRepository, ChunkRepository,
     EffectJournal, EmbeddingProvider, EventLog, EvidenceRepository, FullTextIndex, GraphIndex,
-    HarnessAdapter, IdAllocator, Parser, VectorIndex, WebFetcher,
+    HarnessAdapter, IdAllocator, Parser, SearchKnowledgeExecutor, VectorIndex, WebFetcher,
 };
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
@@ -48,6 +48,7 @@ pub struct Adapters {
     pub card_repo: Arc<dyn CardRepository + Send + Sync>,
     pub evidence_repo: Arc<dyn EvidenceRepository + Send + Sync>,
     pub embedding_provider: Option<Arc<dyn EmbeddingProvider + Send + Sync>>,
+    pub search_executor: Option<Arc<dyn SearchKnowledgeExecutor + Send + Sync>>,
     pub vector_index: Arc<dyn VectorIndex + Send + Sync>,
     pub graph_index: Arc<dyn GraphIndex + Send + Sync>,
     pub web_fetcher: Arc<dyn WebFetcher + Send + Sync>,

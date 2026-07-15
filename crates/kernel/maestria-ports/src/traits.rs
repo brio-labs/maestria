@@ -3,7 +3,7 @@ use std::{fmt, future::Future, path::PathBuf, pin::Pin, time::Duration};
 use maestria_domain::{
     ApprovalId, Artifact, ArtifactId, BlobId, Card, CardId, Chunk, ChunkId, ClaimId,
     DomainEventEnvelope, Evidence, EvidenceId, LogicalTick, MemoryCandidateId, Relation,
-    RelationEndpoint, RelationId, ScopeId, TaskId,
+    RelationEndpoint, RelationId, ScopeId, SearchOutcome, SearchPlan, TaskId,
 };
 
 pub use maestria_domain::HarnessRunId;
@@ -254,6 +254,14 @@ pub struct EmbeddingResponse {
 
 pub trait EmbeddingProvider: Send + Sync {
     fn embed(&self, request: EmbeddingRequest) -> Result<EmbeddingResponse, PortError>;
+}
+
+/// Executes a typed knowledge search and returns one provenance-bearing outcome.
+pub trait SearchKnowledgeExecutor: Send + Sync {
+    fn search(
+        &self,
+        plan: SearchPlan,
+    ) -> Pin<Box<dyn Future<Output = Result<SearchOutcome, PortError>> + Send + '_>>;
 }
 
 pub trait VectorIndex: Send + Sync {

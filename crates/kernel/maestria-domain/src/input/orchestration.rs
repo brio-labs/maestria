@@ -235,6 +235,15 @@ impl KernelState {
         }))
     }
 
+    pub(super) fn handle_search_knowledge_completed(
+        &mut self,
+        input: crate::inputs::SearchKnowledgeCompleted,
+    ) -> Result<DomainEventEnvelope, DomainError> {
+        Ok(self.emit_event(DomainEvent::SearchKnowledgeCompleted {
+            outcome: input.outcome,
+        }))
+    }
+
     // ── Replay apply ─────────────────────────────────────────────
 
     pub(crate) fn apply_user_intent_observed(
@@ -321,6 +330,10 @@ impl KernelState {
             return Err(DomainError::EmptyIntent);
         }
         // SearchExecuted is a pure audit event — no state mutation on replay.
+        Ok(())
+    }
+
+    pub(crate) fn apply_search_knowledge_completed(&mut self) -> Result<(), DomainError> {
         Ok(())
     }
 }

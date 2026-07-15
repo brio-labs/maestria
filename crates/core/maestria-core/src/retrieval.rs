@@ -1,13 +1,24 @@
 use crate::error::{CoreError, CoreResult};
 use crate::ports::CorePorts;
-use crate::provenance::{content_hash, content_is_safe, evidence_id_for};
-use crate::types::{
-    EvidencePack, OpenChunkEvidenceInput, OpenEvidenceInput, OpenEvidenceOutput, SearchInput,
-    SearchOutput, SourceGroundedCardHit, SourceGroundedSearchHit,
+pub(super) use crate::retrieval_lanes::{
+    open_chunk_evidence, open_evidence, verify_source_snapshot,
 };
+use crate::retrieval_lanes::{search_cards, search_chunks, search_vector_chunks};
+use crate::types::{
+    EvidencePack, SearchInput, SearchOutput, SourceGroundedCardHit, SourceGroundedSearchHit,
+};
+use maestria_ports::VectorSearchQuery;
 
-use maestria_domain::{Evidence, EvidenceKind, IndexStatus};
-use maestria_ports::{SearchQuery, VectorSearchQuery};
+#[derive(Clone)]
+enum RetrievalCandidate {
+    Card(SourceGroundedCardHit),
+    Chunk(SourceGroundedSearchHit),
+    EvidenceId(maestria_domain::EvidenceId),
+}
+
+const CORE_CORPUS_SNAPSHOT: u64 = 1;
+const CORE_INDEX_GENERATION: u64 = 1;
+const CORE_RETRIEVAL_FINGERPRINT: &str = "maestria-core:deterministic-v1";
 
 pub(super) fn search<'a>(
     ports: &CorePorts<'a>,
@@ -16,398 +27,302 @@ pub(super) fn search<'a>(
     graph_config: Option<crate::types::GraphConfig>,
     policy: &maestria_governance::RetrievalSecurityPolicy,
 ) -> CoreResult<SearchOutput> {
-    let cards = search_cards(ports, &input.query, input.limit, policy)?;
-    let (mut chunks, mut evidence_ids) =
-        search_vector_chunks(ports, &input.query, input.limit, vector_query, policy)?;
-    let (full_text_chunks, _) = search_chunks(ports, &input.query, input.limit, policy)?;
-    for chunk in full_text_chunks {
-        if chunks.len() >= input.limit {
-            break;
-        }
-        let evidence_id = evidence_id_for(chunk.chunk.artifact_id, chunk.chunk.order);
-        if evidence_ids.contains(&evidence_id) {
-            continue;
-        }
-        evidence_ids.push(evidence_id);
-        chunks.push(chunk);
-    }
-    let mut pack = EvidencePack {
-        query: input.query.clone(),
-        cards,
-        chunks,
-        evidence_ids,
-    };
-
-    if let Some(config) = graph_config {
-        pack = crate::graph_retrieval::expand_graph(ports, pack, input.limit, &config, policy)?;
-    }
-    Ok(SearchOutput { pack })
+    let plan = build_search_plan(&input)?;
+    execute_pipeline(ports, &input, vector_query, graph_config, policy, &plan)
 }
 
-fn search_cards(
-    ports: &CorePorts<'_>,
-    query: &str,
-    limit: usize,
-    policy: &maestria_governance::RetrievalSecurityPolicy,
-) -> CoreResult<Vec<SourceGroundedCardHit>> {
-    if limit == 0 {
-        return Ok(Vec::new());
-    }
-    let mut offset = 0;
-    let mut cards = Vec::with_capacity(limit);
-    let filter = |card_id: maestria_domain::CardId,
-                  artifact_id: maestria_domain::ArtifactId|
-     -> bool {
-        let Ok(Some(artifact)) = ports.artifacts.get(artifact_id) else {
-            return false;
-        };
-        if policy.evaluate(&artifact.security) != maestria_governance::RetrievalDecision::Allowed {
-            return false;
-        }
-        let Ok(Some(card)) = ports.cards.get(card_id) else {
-            return false;
-        };
-        policy.evaluate(&card.security) == maestria_governance::RetrievalDecision::Allowed
-            && content_is_safe(&card.title)
-            && content_is_safe(&card.body)
-    };
-
-    loop {
-        let page = ports.search_index.search_cards_filtered(
-            SearchQuery {
-                q: query.to_string(),
-                limit,
-                offset,
-            },
-            &filter,
-        )?;
-        if page.is_empty() {
-            break;
-        }
-        for hit in &page {
-            if cards.len() >= limit {
-                break;
-            }
-            let Some(artifact) = ports.artifacts.get(hit.card.artifact_id)? else {
-                continue;
-            };
-            if artifact.index_status != IndexStatus::Indexed {
-                continue;
-            }
-            let Some(card) = ports.cards.get(hit.card.card_id)? else {
-                continue;
-            };
-            if card.artifact_id != hit.card.artifact_id {
-                continue;
-            }
-            cards.push(SourceGroundedCardHit {
-                artifact,
-                card,
-                score: hit.score,
-            });
-        }
-        if cards.len() >= limit || page.len() < limit {
-            break;
-        }
-        offset = offset.saturating_add(page.len());
-    }
-    Ok(cards)
-}
-
-fn search_chunks(
-    ports: &CorePorts<'_>,
-    query: &str,
-    limit: usize,
-    policy: &maestria_governance::RetrievalSecurityPolicy,
-) -> CoreResult<(
-    Vec<SourceGroundedSearchHit>,
-    Vec<maestria_domain::EvidenceId>,
-)> {
-    if limit == 0 {
-        return Ok((Vec::new(), Vec::new()));
-    }
-    let mut offset = 0;
-    let mut chunks = Vec::with_capacity(limit);
-    let mut seen_evidence = std::collections::BTreeSet::new();
-    let mut evidence_ids = Vec::with_capacity(limit);
-
-    let filter = |chunk_id: maestria_domain::ChunkId,
-                  artifact_id: maestria_domain::ArtifactId|
-     -> bool {
-        let Ok(Some(artifact)) = ports.artifacts.get(artifact_id) else {
-            return false;
-        };
-        if policy.evaluate(&artifact.security) != maestria_governance::RetrievalDecision::Allowed {
-            return false;
-        }
-        let Ok(Some(chunk)) = ports.chunks.get(chunk_id) else {
-            return false;
-        };
-        let Ok(Some(evidence)) = ports
-            .evidence
-            .get(evidence_id_for(artifact_id, chunk.order))
-        else {
-            return false;
-        };
-        policy.evaluate(&evidence.security) == maestria_governance::RetrievalDecision::Allowed
-            && content_is_safe(&chunk.text)
-            && content_is_safe(&evidence.excerpt)
-    };
-    loop {
-        let page = ports.search_index.search_filtered(
-            SearchQuery {
-                q: query.to_string(),
-                limit,
-                offset,
-            },
-            &filter,
-        )?;
-        if page.is_empty() {
-            break;
-        }
-        for hit in &page {
-            if chunks.len() >= limit {
-                break;
-            }
-            let Some(artifact) = ports.artifacts.get(hit.chunk.artifact_id)? else {
-                continue;
-            };
-            if artifact.index_status != IndexStatus::Indexed {
-                continue;
-            }
-            let Some(chunk) = ports.chunks.get(hit.chunk.chunk_id)? else {
-                continue;
-            };
-            if chunk.artifact_id != hit.chunk.artifact_id || chunk.artifact_id != artifact.id {
-                continue;
-            }
-            let Some(evidence) = ports
-                .evidence
-                .get(evidence_id_for(chunk.artifact_id, chunk.order))?
-            else {
-                continue;
-            };
-            verify_source_snapshot(ports, &evidence)?;
-            if seen_evidence.insert(evidence.id) {
-                evidence_ids.push(evidence.id);
-            }
-            chunks.push(SourceGroundedSearchHit {
-                artifact,
-                chunk,
-                evidence,
-                score: hit.score,
-            });
-        }
-        if chunks.len() >= limit || page.len() < limit {
-            break;
-        }
-        offset = offset.saturating_add(page.len());
-    }
-    Ok((chunks, evidence_ids))
-}
-
-fn search_vector_chunks(
-    ports: &CorePorts<'_>,
-    _query: &str,
-    limit: usize,
-    vector_query: Option<VectorSearchQuery>,
-    policy: &maestria_governance::RetrievalSecurityPolicy,
-) -> CoreResult<(
-    Vec<SourceGroundedSearchHit>,
-    Vec<maestria_domain::EvidenceId>,
-)> {
-    if limit == 0 {
-        return Ok((Vec::new(), Vec::new()));
-    }
-    let Some(vector_query) = vector_query else {
-        return Ok((Vec::new(), Vec::new()));
-    };
-    let Some(vector_index) = ports.vector_index else {
-        return Ok((Vec::new(), Vec::new()));
-    };
-
-    let filter = |chunk_id: maestria_domain::ChunkId| -> bool {
-        let Ok(Some(chunk)) = ports.chunks.get(chunk_id) else {
-            return false;
-        };
-        if !maestria_governance::scan_secrets(&chunk.text).is_clean() {
-            return false;
-        }
-        let Ok(Some(artifact)) = ports.artifacts.get(chunk.artifact_id) else {
-            return false;
-        };
-        if policy.evaluate(&artifact.security) != maestria_governance::RetrievalDecision::Allowed {
-            return false;
-        }
-        let Ok(Some(evidence)) = ports
-            .evidence
-            .get(evidence_id_for(chunk.artifact_id, chunk.order))
-        else {
-            return false;
-        };
-        policy.evaluate(&evidence.security) == maestria_governance::RetrievalDecision::Allowed
-            && content_is_safe(&chunk.text)
-            && content_is_safe(&evidence.excerpt)
-    };
-
-    let hits = vector_index.search_similar_filtered(vector_query, &filter)?;
-    let mut chunks = Vec::with_capacity(limit);
-    let mut evidence_ids = Vec::with_capacity(limit);
-    let mut seen_evidence = std::collections::BTreeSet::new();
-    for hit in hits {
-        if chunks.len() >= limit {
-            break;
-        }
-        let Some(chunk) = ports.chunks.get(hit.chunk_id)? else {
-            continue;
-        };
-        let Some(artifact) = ports.artifacts.get(chunk.artifact_id)? else {
-            continue;
-        };
-        if artifact.index_status != IndexStatus::Indexed {
-            continue;
-        }
-        let Some(evidence) = ports
-            .evidence
-            .get(evidence_id_for(chunk.artifact_id, chunk.order))?
-        else {
-            continue;
-        };
-        verify_source_snapshot(ports, &evidence)?;
-        if !seen_evidence.insert(evidence.id) {
-            continue;
-        }
-        evidence_ids.push(evidence.id);
-        chunks.push(SourceGroundedSearchHit {
-            artifact,
-            chunk,
-            evidence,
-            score: vector_score(hit.score),
-        });
-    }
-    Ok((chunks, evidence_ids))
-}
-
-fn vector_score(score: f32) -> u32 {
-    if !score.is_finite() {
-        return 0;
-    }
-    let normalized = ((score as f64 + 1.0) / 2.0).clamp(0.0, 1.0);
-    (normalized * 1_000_000.0) as u32
-}
-
-pub(super) fn open_evidence<'a>(
+pub(super) fn search_with_plan<'a>(
     ports: &CorePorts<'a>,
-    input: OpenEvidenceInput,
+    plan: maestria_domain::SearchPlan,
+    vector_query: Option<VectorSearchQuery>,
+    graph_config: Option<crate::types::GraphConfig>,
     policy: &maestria_governance::RetrievalSecurityPolicy,
-) -> CoreResult<OpenEvidenceOutput> {
-    let evidence = ports
-        .evidence
-        .get(input.evidence_id)?
-        .ok_or_else(|| CoreError::NotFound {
-            message: format!("evidence {}", input.evidence_id),
-        })?;
-    if policy.evaluate(&evidence.security) != maestria_governance::RetrievalDecision::Allowed {
-        return Err(CoreError::NotFound {
-            message: "evidence is not available under retrieval policy".to_string(),
-        });
-    }
-    if !maestria_governance::scan_secrets(&evidence.excerpt).is_clean() {
-        return Err(CoreError::NotFound {
-            message: "evidence is not available because it contains secret material".to_string(),
-        });
-    }
-    let artifact =
-        ports
-            .artifacts
-            .get(evidence.artifact_id)?
-            .ok_or_else(|| CoreError::NotFound {
-                message: format!("artifact {} for evidence", evidence.artifact_id),
-            })?;
-    if policy.evaluate(&artifact.security) != maestria_governance::RetrievalDecision::Allowed {
-        return Err(CoreError::NotFound {
-            message: "artifact is not available under retrieval policy".to_string(),
-        });
-    }
-    verify_source_snapshot(ports, &evidence)?;
-    if artifact.index_status != IndexStatus::Indexed {
-        return Err(CoreError::NotFound {
+) -> CoreResult<SearchOutput> {
+    use maestria_domain::{CorpusScope, IndexGenerationId};
+
+    if plan.fingerprint.as_str() != CORE_RETRIEVAL_FINGERPRINT {
+        return Err(CoreError::InvalidInput {
             message: format!(
-                "artifact {} not indexed (status {:?})",
-                artifact.id, artifact.index_status
+                "unsupported retrieval fingerprint {}",
+                plan.fingerprint.as_str()
             ),
         });
     }
-    Ok(OpenEvidenceOutput { artifact, evidence })
-}
+    if plan.index_generation != IndexGenerationId::new(CORE_INDEX_GENERATION) {
+        return Err(CoreError::InvalidInput {
+            message: format!(
+                "unsupported index generation {}",
+                plan.index_generation.value()
+            ),
+        });
+    }
+    let mut effective_policy = policy.clone();
+    match &plan.scope {
+        CorpusScope::Restricted(scopes) => {
+            let [scope_id] = scopes.as_slice() else {
+                return Err(CoreError::InvalidInput {
+                    message: "core retrieval requires exactly one restricted scope".to_string(),
+                });
+            };
+            if let Some(required_scope) = effective_policy.required_scope_id
+                && required_scope != *scope_id
+            {
+                return Err(CoreError::InvalidInput {
+                    message: "search plan scope exceeds the configured retrieval policy"
+                        .to_string(),
+                });
+            }
+            effective_policy.required_scope_id = Some(*scope_id);
+        }
+        CorpusScope::Global => {
+            // A configured policy may narrow a global plan; it is never widened.
+        }
+    }
 
-pub(super) fn open_chunk_evidence<'a>(
-    ports: &CorePorts<'a>,
-    input: OpenChunkEvidenceInput,
-    policy: &maestria_governance::RetrievalSecurityPolicy,
-) -> CoreResult<OpenEvidenceOutput> {
-    let chunk = ports
-        .chunks
-        .get(input.chunk_id)?
-        .ok_or_else(|| CoreError::NotFound {
-            message: format!("chunk {}", input.chunk_id),
-        })?;
-    let evidence = ports
-        .evidence
-        .get(evidence_id_for(chunk.artifact_id, chunk.order))?
-        .ok_or_else(|| CoreError::NotFound {
-            message: format!("evidence for chunk {}", input.chunk_id),
-        })?;
-    open_evidence(
+    if plan.corpus_snapshot.value() != CORE_CORPUS_SNAPSHOT
+        || plan.modalities.values() != [maestria_domain::Modality::Text]
+        || !matches!(
+            plan.intent,
+            maestria_domain::SearchIntent::ExactLookup
+                | maestria_domain::SearchIntent::FactualLocal
+        )
+        || plan.freshness != maestria_domain::FreshnessRequirement::Any
+        || plan.stages != [maestria_domain::SearchStage::InitialRetrieval]
+    {
+        return Err(CoreError::InvalidInput {
+            message: "search plan requests unsupported core retrieval capabilities".to_string(),
+        });
+    }
+    let input = SearchInput {
+        query: plan.original_query.clone(),
+        limit: plan.stop_conditions.max_results as usize,
+    };
+    execute_pipeline(
         ports,
-        OpenEvidenceInput {
-            evidence_id: evidence.id,
-        },
-        policy,
+        &input,
+        vector_query,
+        graph_config,
+        &effective_policy,
+        &plan,
     )
 }
-pub(super) fn verify_source_snapshot(ports: &CorePorts<'_>, evidence: &Evidence) -> CoreResult<()> {
-    let Evidence {
-        kind:
-            EvidenceKind::FileSpan {
-                range,
-                content_hash: expected_hash,
-                snapshot: Some(snapshot),
-                ..
-            },
-        excerpt,
-        ..
-    } = evidence
-    else {
-        return Ok(());
+
+fn build_search_plan(input: &SearchInput) -> CoreResult<maestria_domain::SearchPlan> {
+    use maestria_domain::{
+        CorpusScope, CorpusSnapshotId, EvidenceRequirements, FreshnessRequirement,
+        IndexGenerationId, Modality, ModalitySet, QueryId, RetrievalModelFingerprint, SearchBudget,
+        SearchIntent, SearchPlan, SearchStage, StopConditions,
+    };
+    Ok(SearchPlan {
+        query_id: QueryId::new(1),
+        original_query: input.query.clone(),
+        intent: SearchIntent::ExactLookup,
+        scope: CorpusScope::Global,
+        corpus_snapshot: CorpusSnapshotId::new(CORE_CORPUS_SNAPSHOT),
+        index_generation: IndexGenerationId::new(CORE_INDEX_GENERATION),
+        freshness: FreshnessRequirement::Any,
+        modalities: ModalitySet::new(vec![Modality::Text]),
+        stages: vec![SearchStage::InitialRetrieval],
+        budgets: SearchBudget::new(1000, 30_000).map_err(|error| CoreError::InvalidInput {
+            message: error.to_string(),
+        })?,
+        stop_conditions: StopConditions {
+            max_results: input.limit.saturating_mul(3) as u32,
+            min_score_threshold: 0,
+        },
+        evidence_requirements: EvidenceRequirements {
+            require_primary_sources: false,
+            minimum_corroboration: 1,
+        },
+        fingerprint: RetrievalModelFingerprint::new(CORE_RETRIEVAL_FINGERPRINT.to_string())
+            .map_err(|error| CoreError::InvalidInput {
+                message: error.to_string(),
+            })?,
+    })
+}
+
+type Retriever<'a> = Box<
+    dyn Fn(
+            &maestria_domain::SearchPlan,
+        ) -> maestria_retrieval::RetrievalResult<Vec<RetrievalCandidate>>
+        + 'a,
+>;
+
+fn build_retrievers<'a>(
+    ports: &'a CorePorts<'a>,
+    query: &str,
+    limit: usize,
+    vector_query: Option<VectorSearchQuery>,
+    policy: &'a maestria_governance::RetrievalSecurityPolicy,
+) -> Vec<Retriever<'a>> {
+    let mut retrievers: Vec<Retriever<'_>> = Vec::new();
+    let card_query = query.to_string();
+    retrievers.push(Box::new(move |_| {
+        search_cards(ports, &card_query, limit, policy)
+            .map(|cards| cards.into_iter().map(RetrievalCandidate::Card).collect())
+            .map_err(|error| maestria_retrieval::RetrievalError::Internal(error.to_string()))
+    }));
+    if let Some(vector_query) = vector_query {
+        let vector_query_text = query.to_string();
+        retrievers.push(Box::new(move |_| {
+            search_vector_chunks(
+                ports,
+                &vector_query_text,
+                limit,
+                Some(vector_query.clone()),
+                policy,
+            )
+            .map(|(chunks, _)| chunks.into_iter().map(RetrievalCandidate::Chunk).collect())
+            .map_err(|error| maestria_retrieval::RetrievalError::Internal(error.to_string()))
+        }));
+    }
+    let chunk_query = query.to_string();
+    retrievers.push(Box::new(move |_| {
+        search_chunks(ports, &chunk_query, limit, policy)
+            .map(|(chunks, _)| chunks.into_iter().map(RetrievalCandidate::Chunk).collect())
+            .map_err(|error| maestria_retrieval::RetrievalError::Internal(error.to_string()))
+    }));
+    retrievers
+}
+
+fn build_fusion(
+    limit: usize,
+) -> impl Fn(Vec<Vec<RetrievalCandidate>>) -> maestria_retrieval::RetrievalResult<Vec<RetrievalCandidate>>
+{
+    move |sets| {
+        use std::collections::BTreeSet;
+        let mut cards = Vec::with_capacity(limit);
+        let mut chunks = Vec::with_capacity(limit);
+        let mut card_ids = BTreeSet::new();
+        let mut evidence_ids = BTreeSet::new();
+        for candidate in sets.into_iter().flatten() {
+            match candidate {
+                RetrievalCandidate::Card(hit) if card_ids.insert(hit.card.id) => cards.push(hit),
+                RetrievalCandidate::Chunk(hit) if evidence_ids.insert(hit.evidence.id) => {
+                    chunks.push(hit)
+                }
+                _ => {}
+            }
+        }
+        cards.truncate(limit);
+        chunks.truncate(limit);
+        Ok(cards
+            .into_iter()
+            .map(RetrievalCandidate::Card)
+            .chain(chunks.into_iter().map(RetrievalCandidate::Chunk))
+            .collect())
+    }
+}
+
+fn build_expander<'a>(
+    ports: &'a CorePorts<'a>,
+    query: String,
+    limit: usize,
+    graph_config: Option<crate::types::GraphConfig>,
+    policy: &'a maestria_governance::RetrievalSecurityPolicy,
+) -> impl Fn(
+    Vec<RetrievalCandidate>,
+    &maestria_domain::SearchPlan,
+) -> maestria_retrieval::RetrievalResult<Vec<RetrievalCandidate>>
++ 'a {
+    move |candidates, _| {
+        let Some(config) = &graph_config else {
+            return Ok(candidates);
+        };
+        let mut pack = EvidencePack {
+            query: query.clone(),
+            cards: Vec::new(),
+            chunks: Vec::new(),
+            evidence_ids: Vec::new(),
+        };
+        for candidate in candidates {
+            match candidate {
+                RetrievalCandidate::Card(hit) => pack.cards.push(hit),
+                RetrievalCandidate::Chunk(hit) => {
+                    pack.evidence_ids.push(hit.evidence.id);
+                    pack.chunks.push(hit);
+                }
+                RetrievalCandidate::EvidenceId(id) => pack.evidence_ids.push(id),
+            }
+        }
+        let expanded = crate::graph_retrieval::expand_graph(ports, pack, limit, config, policy)
+            .map_err(|error| maestria_retrieval::RetrievalError::Internal(error.to_string()))?;
+        let mut result = expanded
+            .cards
+            .into_iter()
+            .map(RetrievalCandidate::Card)
+            .chain(expanded.chunks.into_iter().map(RetrievalCandidate::Chunk))
+            .collect::<Vec<_>>();
+        result.extend(
+            expanded
+                .evidence_ids
+                .into_iter()
+                .map(RetrievalCandidate::EvidenceId),
+        );
+        Ok(result)
+    }
+}
+
+fn execute_pipeline<'a>(
+    ports: &'a CorePorts<'a>,
+    input: &SearchInput,
+    vector_query: Option<VectorSearchQuery>,
+    graph_config: Option<crate::types::GraphConfig>,
+    policy: &'a maestria_governance::RetrievalSecurityPolicy,
+    plan: &maestria_domain::SearchPlan,
+) -> CoreResult<SearchOutput> {
+    use maestria_retrieval::SyncPipeline;
+
+    let query = input.query.clone();
+    let min_score_threshold = plan.stop_conditions.min_score_threshold;
+    let evaluator = move |candidates: Vec<RetrievalCandidate>, _: &maestria_domain::SearchPlan| {
+        use std::collections::BTreeSet;
+
+        let mut pack = EvidencePack {
+            query: query.clone(),
+            cards: Vec::new(),
+            chunks: Vec::new(),
+            evidence_ids: Vec::new(),
+        };
+        let mut cards = BTreeSet::new();
+        let mut chunks = BTreeSet::new();
+        for candidate in candidates {
+            match candidate {
+                RetrievalCandidate::Card(hit)
+                    if hit.score >= min_score_threshold && cards.insert(hit.card.id) =>
+                {
+                    pack.cards.push(hit);
+                }
+                RetrievalCandidate::Chunk(hit)
+                    if hit.score >= min_score_threshold && chunks.insert(hit.evidence.id) =>
+                {
+                    pack.evidence_ids.push(hit.evidence.id);
+                    pack.chunks.push(hit);
+                }
+                RetrievalCandidate::EvidenceId(id) if chunks.insert(id) => {
+                    pack.evidence_ids.push(id);
+                }
+                _ => {}
+            }
+        }
+        Ok(SearchOutput { pack })
     };
 
-    let bytes = ports.blobs.get(*snapshot)?;
-    let actual_hash = content_hash(&bytes);
-    if &actual_hash != expected_hash {
-        return Err(CoreError::InvalidInput {
-            message: format!(
-                "evidence {} snapshot hash mismatch: expected {expected_hash}, got {actual_hash}",
-                evidence.id
-            ),
-        });
-    }
-
-    let source = String::from_utf8_lossy(&bytes);
-    let line_count = source.lines().count().max(1);
-    if range.start == 0 || range.end < range.start || range.end > line_count {
-        return Err(CoreError::InvalidInput {
-            message: format!("evidence {} has an invalid source line range", evidence.id),
-        });
-    }
-    let compact_source = source.split_whitespace().collect::<Vec<_>>().join(" ");
-    if !excerpt.is_empty() && !compact_source.contains(excerpt) {
-        return Err(CoreError::InvalidInput {
-            message: format!(
-                "evidence {} excerpt is absent from its source snapshot",
-                evidence.id
-            ),
-        });
-    }
-    Ok(())
+    SyncPipeline::new(
+        build_retrievers(ports, &input.query, input.limit, vector_query, policy),
+        evaluator,
+    )
+    .with_fusion(build_fusion(input.limit))
+    .with_reranker(|candidates, _| Ok(candidates))
+    .with_expander(build_expander(
+        ports,
+        input.query.clone(),
+        input.limit,
+        graph_config,
+        policy,
+    ))
+    .run(plan)
+    .map_err(|error| CoreError::InvalidInput {
+        message: error.to_string(),
+    })
 }

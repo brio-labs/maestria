@@ -51,6 +51,7 @@ impl ClassifyRisk for DefaultRiskClassifier {
             | MaestriaEffect::ParseArtifact(_)
             | MaestriaEffect::EmitDiagnostic(_)
             | MaestriaEffect::IndexFullText(_) => RiskClass::Low,
+            MaestriaEffect::SearchKnowledge(_) => RiskClass::Low,
             MaestriaEffect::RunValidation(_)
             | MaestriaEffect::RequestApproval(_)
             | MaestriaEffect::IndexVector(_)
