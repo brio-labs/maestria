@@ -146,6 +146,7 @@ fn build_persist_test_state() -> (KernelState, ChunkId, CardId, EvidenceId, Arti
         index_status: IndexStatus::Unindexed,
         content_hash: None,
         parse_status: None,
+        security: maestria_domain::SecurityMetadata::default(),
     };
     let chunk = Chunk {
         id: chunk_id,
@@ -170,6 +171,7 @@ fn build_persist_test_state() -> (KernelState, ChunkId, CardId, EvidenceId, Arti
         title: "card title".into(),
         body: "card body".into(),
         claim_ids: BTreeSet::new(),
+        security: maestria_domain::SecurityMetadata::default(),
     };
     let evidence = Evidence {
         id: evidence_id,
@@ -183,6 +185,7 @@ fn build_persist_test_state() -> (KernelState, ChunkId, CardId, EvidenceId, Arti
         },
         excerpt: "excerpt".into(),
         observed_at: LogicalTick::new(1),
+        security: maestria_domain::SecurityMetadata::default(),
     };
 
     let mut state = KernelState::new();
@@ -229,6 +232,7 @@ fn build_persist_test_envelopes(
                 },
                 title: "card title".into(),
                 body: "card body".into(),
+                security: maestria_domain::SecurityMetadata::default(),
             },
         },
         DomainEventEnvelope {
@@ -246,6 +250,7 @@ fn build_persist_test_envelopes(
                 },
                 excerpt: "excerpt".into(),
                 observed_at: LogicalTick::new(1),
+                security: maestria_domain::SecurityMetadata::default(),
             },
         },
     ]

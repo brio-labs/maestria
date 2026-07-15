@@ -1,5 +1,6 @@
 use std::collections::BTreeSet;
 
+use crate::security::SecurityMetadata;
 use crate::types::*;
 
 impl KernelState {
@@ -46,12 +47,19 @@ impl KernelState {
                 id: input.candidate_id.value(),
             });
         }
-
+        let mut security = SecurityMetadata::from_optional(input.security);
+        security = security.taint_from(&claim.security);
+        for ev_id in &evidence_ids {
+            if let Some(ev) = self.evidences.get(ev_id) {
+                security = security.taint_from(&ev.security);
+            }
+        }
         let candidate = MemoryCandidate {
             id: input.candidate_id,
             claim_id: input.claim_id,
             evidence_ids: evidence_ids.clone(),
             confidence_milli: input.confidence_milli,
+            security: security.clone(),
         };
         self.memory_candidates.insert(input.candidate_id, candidate);
         Ok(self.emit_event(DomainEvent::MemoryCandidateCreated {
@@ -59,6 +67,7 @@ impl KernelState {
             claim_id: input.claim_id,
             evidence_ids,
             confidence_milli: input.confidence_milli,
+            security,
         }))
     }
 
@@ -68,14 +77,29 @@ impl KernelState {
     ) -> Result<Vec<DomainEventEnvelope>, DomainError> {
         let (artifact_id, evidence_ids) = self.validate_memory_proposal(&input)?;
 
-        let mut claim = Claim::new(input.claim_id, artifact_id, input.text.clone());
-        for &evidence_id in &evidence_ids {
-            if let Some(evidence) = self.evidences.get_mut(&evidence_id) {
-                evidence.claim_id = Some(input.claim_id);
+        let mut security = SecurityMetadata::from_optional(input.security);
+        if let Some(artifact) = self.artifacts.get(&artifact_id) {
+            security = security.taint_from(&artifact.security);
+        }
+        for ev_id in &evidence_ids {
+            if let Some(ev) = self.evidences.get(ev_id) {
+                security = security.taint_from(&ev.security);
             }
         }
+
+        let mut claim = Claim::new(
+            input.claim_id,
+            artifact_id,
+            input.text.clone(),
+            security.clone(),
+        );
         claim.evidence_ids = evidence_ids.clone();
         self.claims.insert(input.claim_id, claim);
+        for ev_id in &evidence_ids {
+            if let Some(ev) = self.evidences.get_mut(ev_id) {
+                ev.claim_id = Some(input.claim_id);
+            }
+        }
         if let Some(artifact) = self.artifacts.get_mut(&artifact_id) {
             artifact.claim_ids.insert(input.claim_id);
         }
@@ -84,6 +108,7 @@ impl KernelState {
             artifact_id,
             text: input.text,
             evidence_ids: evidence_ids.iter().copied().collect(),
+            security: security.clone(),
         });
 
         self.memory_candidates.insert(
@@ -93,6 +118,7 @@ impl KernelState {
                 claim_id: input.claim_id,
                 evidence_ids: evidence_ids.clone(),
                 confidence_milli: input.confidence_milli,
+                security: security.clone(),
             },
         );
         let candidate_created = self.emit_event(DomainEvent::MemoryCandidateCreated {
@@ -100,6 +126,7 @@ impl KernelState {
             claim_id: input.claim_id,
             evidence_ids,
             confidence_milli: input.confidence_milli,
+            security,
         });
         Ok(vec![claim_created, candidate_created])
     }
@@ -178,6 +205,19 @@ impl KernelState {
         Ok((artifact_id, evidence_ids))
     }
 
+    pub(crate) fn current_memory_security(&self, candidate: &MemoryCandidate) -> SecurityMetadata {
+        let mut security = candidate.security.clone();
+        if let Some(claim) = self.claims.get(&candidate.claim_id) {
+            security = security.taint_from(&claim.security);
+        }
+        for evidence_id in &candidate.evidence_ids {
+            if let Some(evidence) = self.evidences.get(evidence_id) {
+                security = security.taint_from(&evidence.security);
+            }
+        }
+        security
+    }
+
     pub(super) fn handle_promote_memory(
         &mut self,
         input: PromoteMemoryInput,
@@ -207,6 +247,15 @@ impl KernelState {
                 reason: "missing evidence",
             });
         }
+        let security = self.current_memory_security(candidate);
+        if !security.memory_promotion_allowed() {
+            return Err(DomainError::MemoryCandidateIneligibleForPromotion {
+                candidate_id: candidate.id,
+                confidence_milli: candidate.confidence_milli,
+                minimum_confidence_milli: MIN_PROMOTION_CONFIDENCE_MILLI,
+                reason: "security metadata blocks promotion",
+            });
+        }
         if candidate.confidence_milli < MIN_PROMOTION_CONFIDENCE_MILLI {
             return Err(DomainError::MemoryCandidateIneligibleForPromotion {
                 candidate_id: candidate.id,
@@ -228,12 +277,14 @@ impl KernelState {
             claim_id: candidate.claim_id,
             evidence_ids: candidate.evidence_ids.clone(),
             status: MemoryStatus::Active,
+            security: security.clone(),
         };
         self.memories.insert(input.memory_id, memory);
 
         Ok(self.emit_event(DomainEvent::MemoryPromoted {
             memory_id: input.memory_id,
             candidate_id: input.candidate_id,
+            security,
         }))
     }
 

@@ -161,6 +161,7 @@ ParsedArtifact {
                 },
                 title: "[package]",
                 body: "Parsed 2 textual chunks from Cargo.toml.",
+                security: None,
             },
             node_id: StructureNodeId(
                 4000012,

@@ -1,3 +1,4 @@
+use crate::security::SecurityMetadata;
 use std::collections::BTreeSet;
 
 use crate::types::*;
@@ -9,6 +10,7 @@ impl KernelState {
         claim_id: ClaimId,
         evidence_ids: &BTreeSet<EvidenceId>,
         confidence_milli: u16,
+        security: &SecurityMetadata,
     ) -> Result<(), DomainError> {
         if confidence_milli > 1000 {
             return Err(DomainError::InvalidConfidence {
@@ -51,6 +53,7 @@ impl KernelState {
                 claim_id,
                 evidence_ids: evidence_ids.clone(),
                 confidence_milli,
+                security: security.clone(),
             },
         );
         Ok(())
@@ -60,6 +63,7 @@ impl KernelState {
         &mut self,
         memory_id: MemoryId,
         candidate_id: MemoryCandidateId,
+        security: &SecurityMetadata,
     ) -> Result<(), DomainError> {
         if self.memories.contains_key(&memory_id) {
             return Err(DomainError::DuplicateId {
@@ -91,6 +95,15 @@ impl KernelState {
                 reason: "missing evidence",
             });
         }
+        let current_security = self.current_memory_security(candidate);
+        if !current_security.memory_promotion_allowed() {
+            return Err(DomainError::MemoryCandidateIneligibleForPromotion {
+                candidate_id: candidate.id,
+                confidence_milli: candidate.confidence_milli,
+                minimum_confidence_milli: MIN_PROMOTION_CONFIDENCE_MILLI,
+                reason: "security metadata blocks promotion",
+            });
+        }
         if candidate.confidence_milli < MIN_PROMOTION_CONFIDENCE_MILLI {
             return Err(DomainError::MemoryCandidateIneligibleForPromotion {
                 candidate_id: candidate.id,
@@ -107,6 +120,7 @@ impl KernelState {
                 claim_id: candidate.claim_id,
                 evidence_ids: candidate.evidence_ids.clone(),
                 status: MemoryStatus::Active,
+                security: current_security.taint_from(security),
             },
         );
         Ok(())

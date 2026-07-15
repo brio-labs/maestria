@@ -161,6 +161,7 @@ ParsedArtifact {
                 },
                 title: "First paragraph.",
                 body: "Parsed 2 textual chunks from notes.txt.",
+                security: None,
             },
             node_id: StructureNodeId(
                 2000006,

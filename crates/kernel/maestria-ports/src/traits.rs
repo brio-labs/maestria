@@ -180,6 +180,32 @@ pub trait FullTextIndex: Send + Sync {
     fn search(&self, query: SearchQuery) -> Result<Vec<SearchHit>, PortError>;
     fn index_cards(&self, cards: Vec<IndexedCard>) -> Result<(), PortError>;
     fn search_cards(&self, query: SearchQuery) -> Result<Vec<CardHit>, PortError>;
+
+    /// Execute a search, applying a pre-score filter to candidates.
+    /// If an adapter cannot perform pre-filtering natively, it MUST return an error
+    /// rather than silently ignoring the filter.
+    fn search_filtered(
+        &self,
+        query: SearchQuery,
+        filter: &dyn Fn(ChunkId, ArtifactId) -> bool,
+    ) -> Result<Vec<SearchHit>, PortError> {
+        let _ = (query, filter);
+        Err(PortError::Internal {
+            message: "search_filtered not supported by this index".into(),
+        })
+    }
+
+    /// Execute a card search, applying a pre-score filter.
+    fn search_cards_filtered(
+        &self,
+        query: SearchQuery,
+        filter: &dyn Fn(CardId, ArtifactId) -> bool,
+    ) -> Result<Vec<CardHit>, PortError> {
+        let _ = (query, filter);
+        Err(PortError::Internal {
+            message: "search_cards_filtered not supported by this index".into(),
+        })
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -233,6 +259,18 @@ pub trait EmbeddingProvider: Send + Sync {
 pub trait VectorIndex: Send + Sync {
     fn index_embeddings(&self, embeddings: Vec<VectorEmbedding>) -> Result<(), PortError>;
     fn search_similar(&self, query: VectorSearchQuery) -> Result<Vec<VectorSearchHit>, PortError>;
+
+    /// Execute a vector search, applying a pre-score filter.
+    fn search_similar_filtered(
+        &self,
+        query: VectorSearchQuery,
+        filter: &dyn Fn(ChunkId) -> bool,
+    ) -> Result<Vec<VectorSearchHit>, PortError> {
+        let _ = (query, filter);
+        Err(PortError::Internal {
+            message: "search_similar_filtered not supported by this index".into(),
+        })
+    }
     fn delete_chunks(&self, chunk_ids: &[ChunkId]) -> Result<(), PortError>;
     fn clear(&self) -> Result<(), PortError>;
     fn rebuild(&self, embeddings: Vec<VectorEmbedding>) -> Result<(), PortError> {

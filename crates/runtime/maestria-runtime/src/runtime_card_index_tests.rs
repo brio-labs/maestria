@@ -1,12 +1,27 @@
 use super::test_support::*;
 use maestria_domain::{
-    ArtifactId, Card, CardId, Chunk, ChunkId, KernelState, MaestriaEffect, SourceSpan,
+    Artifact, ArtifactId, Card, CardId, Chunk, ChunkId, KernelState, MaestriaEffect, SourceSpan,
     StructureNodeId,
 };
 use maestria_ports::{FullTextIndex, InMemoryFullTextIndex, SearchQuery};
 use std::collections::BTreeSet;
 use std::sync::Arc;
 use tokio::sync::{RwLock, mpsc};
+
+fn artifact_fixture(id: ArtifactId) -> Artifact {
+    Artifact {
+        id,
+        title: "artifact".into(),
+        chunk_ids: BTreeSet::new(),
+        card_ids: BTreeSet::new(),
+        claim_ids: BTreeSet::new(),
+        evidence_ids: BTreeSet::new(),
+        index_status: Default::default(),
+        content_hash: None,
+        parse_status: None,
+        security: maestria_domain::SecurityMetadata::default(),
+    }
+}
 
 #[tokio::test]
 async fn index_full_text_effect_indexes_cards_before_chunks() {
@@ -37,9 +52,13 @@ async fn index_full_text_effect_indexes_cards_before_chunks() {
         title: "indexed card title".into(),
         body: "indexed card body".into(),
         claim_ids: BTreeSet::new(),
+        security: maestria_domain::SecurityMetadata::default(),
     };
 
     let mut state = KernelState::new();
+    state
+        .artifacts
+        .insert(artifact_id, artifact_fixture(artifact_id));
     state.chunks.insert(chunk_id, chunk);
     state.cards.insert(card_id, card);
 
@@ -111,6 +130,9 @@ async fn index_full_text_effect_no_cards_when_state_has_none() {
     };
 
     let mut state = KernelState::new();
+    state
+        .artifacts
+        .insert(artifact_id, artifact_fixture(artifact_id));
     state.chunks.insert(chunk_id, chunk);
     // No cards inserted.
 
@@ -192,9 +214,13 @@ async fn index_full_text_effect_reindexing_is_idempotent() {
         title: "reindexed card".into(),
         body: "reindexed body".into(),
         claim_ids: BTreeSet::new(),
+        security: maestria_domain::SecurityMetadata::default(),
     };
 
     let mut state = KernelState::new();
+    state
+        .artifacts
+        .insert(artifact_id, artifact_fixture(artifact_id));
     state.chunks.insert(chunk_id, chunk);
     state.cards.insert(card_id, card);
 
@@ -250,4 +276,58 @@ async fn index_full_text_effect_reindexing_is_idempotent() {
         .expect("search_cards should succeed");
     assert_eq!(card_hits.len(), 1, "reindexing must not duplicate cards");
     assert_eq!(card_hits[0].card.card_id, card_id);
+}
+
+#[tokio::test]
+async fn index_full_text_rejects_secret_bearing_chunk() {
+    let artifact_id = ArtifactId::new(9);
+    let chunk_id = ChunkId::new(90);
+    let mut state = KernelState::new();
+    state.chunks.insert(
+        chunk_id,
+        Chunk {
+            id: chunk_id,
+            artifact_id,
+            node_id: StructureNodeId::new(0),
+            source_span: SourceSpan::TextSpan {
+                start_line: 1,
+                end_line: 1,
+            },
+            representations: vec![],
+            order: 0,
+            text: "password=do-not-index".into(),
+        },
+    );
+
+    let search_index = Arc::new(InMemoryFullTextIndex::new());
+    let (input_tx, _input_rx) = mpsc::channel(8);
+    let result = MaestriaRuntime::test_execute_effect(
+        MaestriaEffect::IndexFullText(maestria_domain::IndexFullTextRequest {
+            artifact_id,
+            chunk_id,
+        }),
+        EffectExecutionContext::test_default(
+            Arc::new(Adapters {
+                search_index: search_index.clone(),
+                ..crate::test_helpers::test_adapters()
+            }),
+            Arc::new(crate::test_helpers::test_governance()),
+            Arc::new(RwLock::new(state)),
+            input_tx,
+        ),
+        None,
+    )
+    .await;
+
+    assert!(!result);
+    assert!(
+        search_index
+            .search(SearchQuery {
+                q: "do-not-index".into(),
+                limit: 10,
+                offset: 0,
+            })
+            .expect("search should succeed")
+            .is_empty()
+    );
 }

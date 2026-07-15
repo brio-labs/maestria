@@ -1230,6 +1230,7 @@ version = "0.1.0"
 dependencies = [
  "maestria-blob-fs",
  "maestria-domain",
+ "maestria-governance",
  "maestria-parsers",
  "maestria-ports",
  "maestria-search-tantivy",
@@ -1299,6 +1300,7 @@ dependencies = [
  "maestria-domain",
  "maestria-ports",
  "rusqlite",
+ "serde_json",
 ]
 
 [[package]]
@@ -1370,6 +1372,7 @@ name = "maestria-search-tantivy"
 version = "0.1.0"
 dependencies = [
  "maestria-domain",
+ "maestria-governance",
  "maestria-ports",
  "tantivy",
  "tempfile",

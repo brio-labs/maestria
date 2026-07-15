@@ -38,6 +38,7 @@ fn replay_setup_artifact(
         DomainEvent::ArtifactRegistered {
             artifact_id: art_id,
             title: title.to_string(),
+            security: SecurityMetadata::default(),
         },
     ))?;
     state.apply_event(new_envelope(
@@ -141,6 +142,7 @@ fn replay_artifact_indexed_clears_pending_parsers() -> Result<(), DomainError> {
         event: DomainEvent::ArtifactRegistered {
             artifact_id: ArtifactId::new(1),
             title: "Notes".to_string(),
+            security: SecurityMetadata::default(),
         },
     })?;
     state.apply_event(DomainEventEnvelope {
@@ -202,6 +204,7 @@ fn replay_artifact_indexed_clears_pending_parsers() -> Result<(), DomainError> {
             },
             excerpt: "hello".to_string(),
             observed_at: LogicalTick::new(1),
+            security: SecurityMetadata::default(),
         },
     })?;
 
@@ -262,6 +265,7 @@ fn replay_artifact_indexed_rejects_incomplete_evidence() -> Result<(), DomainErr
         event: DomainEvent::ArtifactRegistered {
             artifact_id: art_id,
             title: "Notes".to_string(),
+            security: SecurityMetadata::default(),
         },
     })?;
     state.apply_event(DomainEventEnvelope {
@@ -395,6 +399,7 @@ fn replay_artifact_indexed_removes_invalid_evidence() -> Result<(), DomainError>
             },
             excerpt: "hello".to_string(),
             observed_at: LogicalTick::new(1),
+            security: SecurityMetadata::default(),
         },
     ))?;
 
@@ -451,6 +456,7 @@ fn replay_artifact_indexed_removes_invalid_evidence() -> Result<(), DomainError>
             },
             excerpt: "hello".to_string(),
             observed_at: LogicalTick::new(1),
+            security: SecurityMetadata::default(),
         },
     ))?;
 
@@ -492,6 +498,7 @@ fn record_cross_owned_evidence(
             },
             excerpt: "hello".to_string(),
             observed_at: LogicalTick::new(1),
+            security: SecurityMetadata::default(),
         },
     ))?;
     Ok(())
@@ -565,6 +572,7 @@ fn replay_artifact_indexed_cleans_cross_artifact_evidence_owner() -> Result<(), 
         DomainEvent::ArtifactRegistered {
             artifact_id: art_b,
             title: "NotesB".to_string(),
+            security: SecurityMetadata::default(),
         },
     ))?;
 
@@ -588,6 +596,7 @@ fn replay_artifact_indexed_cleans_cross_artifact_evidence_owner() -> Result<(), 
             },
             excerpt: "hello".to_string(),
             observed_at: LogicalTick::new(1),
+            security: SecurityMetadata::default(),
         },
     ))?;
 

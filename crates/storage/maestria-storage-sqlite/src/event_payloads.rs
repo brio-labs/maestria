@@ -12,6 +12,8 @@ pub(crate) enum StoredEventPayload {
     ArtifactRegistered {
         artifact_id: u64,
         title: String,
+        #[serde(default)]
+        security: maestria_domain::SecurityMetadata,
     },
     ChunkRegistered {
         chunk_id: u64,
@@ -34,12 +36,16 @@ pub(crate) enum StoredEventPayload {
         source_span: crate::payloads::StoredSourceSpan,
         title: String,
         body: String,
+        #[serde(default)]
+        security: maestria_domain::SecurityMetadata,
     },
     ClaimCreated {
         claim_id: u64,
         artifact_id: u64,
         text: String,
         evidence_ids: Vec<u64>,
+        #[serde(default)]
+        security: maestria_domain::SecurityMetadata,
     },
     EvidenceRecorded {
         evidence_id: u64,
@@ -48,6 +54,8 @@ pub(crate) enum StoredEventPayload {
         evidence_kind: StoredEvidenceKind,
         excerpt: String,
         observed_at: u64,
+        #[serde(default)]
+        security: maestria_domain::SecurityMetadata,
     },
     TaskOpened {
         task_id: u64,
@@ -84,16 +92,22 @@ pub(crate) enum StoredEventPayload {
         target: StoredRelationEndpoint,
         evidence_id: Option<u64>,
         confidence_milli: u16,
+        #[serde(default)]
+        security: maestria_domain::SecurityMetadata,
     },
     MemoryCandidateCreated {
         candidate_id: u64,
         claim_id: u64,
         evidence_ids: Vec<u64>,
         confidence_milli: u16,
+        #[serde(default)]
+        security: maestria_domain::SecurityMetadata,
     },
     MemoryPromoted {
         memory_id: u64,
         candidate_id: u64,
+        #[serde(default)]
+        security: maestria_domain::SecurityMetadata,
     },
     MemoryContradicted {
         memory_id: u64,

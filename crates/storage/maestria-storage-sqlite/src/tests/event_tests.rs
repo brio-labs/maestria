@@ -85,6 +85,7 @@ fn artifact_filter_includes_evidence_and_search_events() {
             },
             excerpt: "excerpt".to_string(),
             observed_at: LogicalTick::new(1),
+            security: SecurityMetadata::default(),
         },
     };
     let search = DomainEventEnvelope {

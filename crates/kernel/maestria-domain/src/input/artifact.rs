@@ -1,3 +1,4 @@
+use crate::security::SecurityMetadata;
 use crate::types::*;
 
 impl KernelState {
@@ -13,13 +14,18 @@ impl KernelState {
                 id: input.artifact_id.value(),
             });
         }
+        let security = SecurityMetadata::from_optional(input.security);
         self.artifacts.insert(
             input.artifact_id,
             Artifact::with_title(input.artifact_id, input.title.clone()),
         );
+        if let Some(artifact) = self.artifacts.get_mut(&input.artifact_id) {
+            artifact.security = security.clone();
+        }
         Ok(self.emit_event(DomainEvent::ArtifactRegistered {
             artifact_id: input.artifact_id,
             title: input.title,
+            security,
         }))
     }
 
@@ -81,6 +87,7 @@ impl KernelState {
         &mut self,
         artifact_id: ArtifactId,
         title: &str,
+        security: &SecurityMetadata,
     ) -> Result<(), DomainError> {
         if self.artifacts.contains_key(&artifact_id) {
             return Err(DomainError::DuplicateId {
@@ -92,6 +99,9 @@ impl KernelState {
             artifact_id,
             Artifact::with_title(artifact_id, title.to_string()),
         );
+        if let Some(artifact) = self.artifacts.get_mut(&artifact_id) {
+            artifact.security = security.clone();
+        }
         Ok(())
     }
 

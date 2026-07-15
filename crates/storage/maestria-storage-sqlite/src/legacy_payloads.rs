@@ -1,3 +1,4 @@
+use maestria_domain::SecurityMetadata;
 use maestria_ports::PortError;
 use serde::{Deserialize, Serialize};
 
@@ -168,7 +169,11 @@ impl LegacyStoredEventPayload {
     fn into_v2_simple(self) -> Result<StoredEventPayload, PortError> {
         match self {
             Self::ArtifactRegistered { artifact_id, title } => {
-                Ok(StoredEventPayload::ArtifactRegistered { artifact_id, title })
+                Ok(StoredEventPayload::ArtifactRegistered {
+                    artifact_id,
+                    title,
+                    security: SecurityMetadata::default(),
+                })
             }
             Self::TaskStatusChanged { task_id, from, to } => {
                 Ok(StoredEventPayload::TaskStatusChanged { task_id, from, to })
@@ -282,6 +287,7 @@ impl LegacyStoredEventPayload {
                 claim_id,
                 evidence_ids,
                 confidence_milli,
+                security: SecurityMetadata::default(),
             }),
             Self::MemoryPromoted {
                 memory_id,
@@ -289,6 +295,7 @@ impl LegacyStoredEventPayload {
             } => Ok(StoredEventPayload::MemoryPromoted {
                 memory_id,
                 candidate_id,
+                security: SecurityMetadata::default(),
             }),
             Self::MemoryContradicted {
                 memory_id,

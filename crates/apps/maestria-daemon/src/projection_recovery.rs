@@ -1,11 +1,11 @@
 use anyhow::{Context, Result};
 use maestria_domain::KernelState;
+use maestria_governance::scan_secrets;
 use maestria_ports::{
     ArtifactRepository, CardRepository, ChunkRepository, EmbeddingProvider, EmbeddingRequest,
     EvidenceRepository, GraphIndex, VectorEmbedding, VectorIndex,
 };
 use maestria_storage_sqlite::SqliteStore;
-
 /// Reconcile projection repositories from replayed domain truth.
 ///
 /// After `load_kernel_state` replays the event log, this helper idempotently upserts every artifact,
@@ -71,6 +71,13 @@ pub fn reconcile_vector_projection(
         (Some(provider), Some(model)) if !model.trim().is_empty() => state
             .chunks
             .values()
+            .filter(|chunk| {
+                let artifact_allowed = state
+                    .artifacts
+                    .get(&chunk.artifact_id)
+                    .is_some_and(|artifact| artifact.security.retrieval_allowed());
+                artifact_allowed && scan_secrets(&chunk.text).is_clean()
+            })
             .map(|chunk| {
                 let content_hash = match state
                     .artifacts

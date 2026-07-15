@@ -25,6 +25,7 @@ fn evidence_kind_preserves_provenance_and_triggers_claim_validation() -> Result<
         kind: kind.clone(),
         excerpt: "stderr: assertion failed".to_string(),
         observed_at: LogicalTick::new(12),
+        security: None,
     }))?;
 
     assert!(matches!(
@@ -88,6 +89,7 @@ fn assert_relation_created_with_valid_evidence(state: &mut KernelState) -> Resul
         target: RelationEndpoint::Artifact(ArtifactId::new(1)),
         evidence_id: Some(EvidenceId::new(40)),
         confidence_milli: 875,
+        security: None,
     }))?;
     assert_eq!(
         state.relations.get(&RelationId::new(70)),
@@ -98,6 +100,7 @@ fn assert_relation_created_with_valid_evidence(state: &mut KernelState) -> Resul
             target: RelationEndpoint::Artifact(ArtifactId::new(1)),
             evidence_id: Some(EvidenceId::new(40)),
             confidence_milli: 875,
+            security: SecurityMetadata::default(),
         })
     );
     assert_eq!(
@@ -123,6 +126,7 @@ fn assert_relation_created_without_evidence_skips_graph_update(
         target: RelationEndpoint::Artifact(ArtifactId::new(1)),
         evidence_id: None,
         confidence_milli: 875,
+        security: None,
     }))?;
     assert_eq!(
         state.relations.get(&RelationId::new(71)),
@@ -133,6 +137,7 @@ fn assert_relation_created_without_evidence_skips_graph_update(
             target: RelationEndpoint::Artifact(ArtifactId::new(1)),
             evidence_id: None,
             confidence_milli: 875,
+            security: SecurityMetadata::default(),
         })
     );
     assert_eq!(
@@ -153,6 +158,7 @@ fn assert_memory_candidate_created_with_evidence(
             claim_id: ClaimId::new(20),
             evidence_ids: vec![EvidenceId::new(40), EvidenceId::new(40)],
             confidence_milli: 720,
+            security: None,
         },
     ))?;
     assert!(matches!(
@@ -189,6 +195,7 @@ fn relation_and_memory_candidates_are_domain_owned_and_evidence_bound() -> Resul
     register_artifact_and_claim(&mut state)?;
     state.apply_input(DomainInput::RecordEvidence(RecordEvidenceInput {
         evidence_id: EvidenceId::new(40),
+        security: None,
         artifact_id: ArtifactId::new(1),
         claim_id: Some(ClaimId::new(20)),
         kind: file_span_kind(),
@@ -200,6 +207,7 @@ fn relation_and_memory_candidates_are_domain_owned_and_evidence_bound() -> Resul
         state
             .apply_input(DomainInput::CreateRelation(CreateRelationInput {
                 relation_id: RelationId::new(99),
+                security: None,
                 source: RelationEndpoint::Claim(ClaimId::new(20)),
                 kind: RelationKind::Supports,
                 target: RelationEndpoint::Artifact(ArtifactId::new(1)),
@@ -222,6 +230,7 @@ fn relation_and_memory_candidates_are_domain_owned_and_evidence_bound() -> Resul
                 claim_id: ClaimId::new(20),
                 evidence_ids: Vec::new(),
                 confidence_milli: 720,
+                security: None,
             },
         )),
         Err(DomainError::EvidenceRequired {
@@ -259,6 +268,7 @@ fn promote_memory_creates_active_memory_from_candidate() -> Result<(), DomainErr
             event: DomainEvent::MemoryPromoted {
                 memory_id,
                 candidate_id,
+                ..
             },
             ..
         }] if *memory_id == MemoryId::new(100)
@@ -300,6 +310,7 @@ fn contradict_memory_marks_memory_contradicted() -> Result<(), DomainError> {
             claim_id: ClaimId::new(20),
             evidence_ids: vec![EvidenceId::new(40)],
             confidence_milli: 650,
+            security: None,
         },
     ))?;
     promote_memory(&mut state, MemoryId::new(100), MemoryCandidateId::new(90))?;
@@ -371,6 +382,11 @@ fn supersede_memory_marks_memory_superseded() -> Result<(), DomainError> {
             claim_id: ClaimId::new(20),
             evidence_ids: vec![EvidenceId::new(40)],
             confidence_milli: 650,
+            security: Some(SecurityMetadata {
+                trust_zone: TrustZone::Verified,
+                authority: Authority::User,
+                ..SecurityMetadata::default()
+            }),
         },
     ))?;
     promote_memory(&mut state, MemoryId::new(100), MemoryCandidateId::new(90))?;
@@ -456,6 +472,7 @@ fn record_evidence_duplicate_is_idempotent() -> Result<(), DomainError> {
     state.apply_input(DomainInput::RegisterArtifact(RegisterArtifactInput {
         artifact_id: ArtifactId::new(1),
         title: "Notes".to_string(),
+        security: None,
     }))?;
 
     let evidence_input = RecordEvidenceInput {
@@ -469,6 +486,7 @@ fn record_evidence_duplicate_is_idempotent() -> Result<(), DomainError> {
         },
         excerpt: "output text".to_string(),
         observed_at: LogicalTick::new(1),
+        security: None,
     };
 
     let output1 = state.apply_input(DomainInput::RecordEvidence(evidence_input.clone()))?;
@@ -498,6 +516,7 @@ fn record_evidence_rejects_mismatched_duplicate() -> Result<(), DomainError> {
     state.apply_input(DomainInput::RegisterArtifact(RegisterArtifactInput {
         artifact_id: ArtifactId::new(1),
         title: "Notes".to_string(),
+        security: None,
     }))?;
     state.apply_input(DomainInput::RecordEvidence(RecordEvidenceInput {
         evidence_id: EvidenceId::new(40),
@@ -510,6 +529,7 @@ fn record_evidence_rejects_mismatched_duplicate() -> Result<(), DomainError> {
         },
         excerpt: "original".to_string(),
         observed_at: LogicalTick::new(1),
+        security: None,
     }))?;
 
     let err = state
@@ -524,6 +544,7 @@ fn record_evidence_rejects_mismatched_duplicate() -> Result<(), DomainError> {
             },
             excerpt: "different excerpt".to_string(),
             observed_at: LogicalTick::new(1),
+            security: None,
         }))
         .expect_err("mismatched evidence must error");
 
@@ -537,6 +558,7 @@ fn record_evidence_rejects_observed_at_mismatch() -> Result<(), DomainError> {
     state.apply_input(DomainInput::RegisterArtifact(RegisterArtifactInput {
         artifact_id: ArtifactId::new(1),
         title: "Notes".to_string(),
+        security: None,
     }))?;
     state.apply_input(DomainInput::RecordEvidence(RecordEvidenceInput {
         evidence_id: EvidenceId::new(40),
@@ -549,6 +571,7 @@ fn record_evidence_rejects_observed_at_mismatch() -> Result<(), DomainError> {
         },
         excerpt: "same excerpt".to_string(),
         observed_at: LogicalTick::new(1),
+        security: None,
     }))?;
 
     let err = state
@@ -563,6 +586,7 @@ fn record_evidence_rejects_observed_at_mismatch() -> Result<(), DomainError> {
             },
             excerpt: "same excerpt".to_string(),
             observed_at: LogicalTick::new(2),
+            security: None,
         }))
         .expect_err("observed_at mismatch must error");
 

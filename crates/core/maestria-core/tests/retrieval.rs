@@ -5,6 +5,7 @@ use maestria_domain::{
     Artifact, ArtifactId, Card, CardId, Chunk, ChunkId, Evidence, EvidenceId, EvidenceKind,
     IndexStatus, Relation, RelationEndpoint, RelationId, RelationKind, SourceSpan, StructureNodeId,
 };
+use maestria_governance::RetrievalSecurityPolicy;
 use maestria_ports::{
     ArtifactRepository, BlobStore, CardRepository, ChunkRepository, EvidenceRepository,
     FullTextIndex, GraphIndex, InMemoryArtifactRepository, InMemoryBlobStore,
@@ -89,6 +90,7 @@ struct GraphFixture {
     d: ArtifactId,
     e: ArtifactId,
     f: ArtifactId,
+    chunk_a: ChunkId,
     e_a: EvidenceId,
     e_b: EvidenceId,
     e_e: EvidenceId,
@@ -134,6 +136,7 @@ impl GraphFixture {
             c,
             d,
             e,
+            chunk_a: seed_chunk,
             f,
             e_a,
             e_b,
@@ -151,6 +154,7 @@ impl GraphFixture {
             kind: RelationKind::Contains,
             evidence_id,
             confidence_milli,
+            security: maestria_domain::SecurityMetadata::default(),
         };
         for relation in [
             relation(1, self.a, self.b, Some(self.e_e), 1000),
@@ -218,6 +222,7 @@ fn seed_graph_artifact(
         index_status: IndexStatus::Indexed,
         content_hash: Some(content_hash.to_string()),
         parse_status: None,
+        security: maestria_domain::SecurityMetadata::default(),
     })?;
     chunks.put(Chunk {
         id: chunk_id,
@@ -243,6 +248,7 @@ fn seed_graph_artifact(
         },
         excerpt: "source".to_string(),
         observed_at: maestria_domain::LogicalTick::new(1),
+        security: maestria_domain::SecurityMetadata::default(),
     })?;
     Ok((artifact_id, chunk_id, evidence_id))
 }
@@ -291,6 +297,7 @@ fn seed_file_evidence(
             },
             excerpt: excerpt.to_string(),
             observed_at: maestria_domain::LogicalTick::new(1),
+            security: maestria_domain::SecurityMetadata::default(),
         })?;
     }
     Ok(())
@@ -342,6 +349,7 @@ fn seed_with_status(
         title: "card-title summary".to_string(),
         body: "card body text".to_string(),
         claim_ids: Default::default(),
+        security: maestria_domain::SecurityMetadata::default(),
     };
     card_repo.put(card.clone())?;
 
@@ -355,6 +363,7 @@ fn seed_with_status(
         index_status: status,
         content_hash: None,
         parse_status: None,
+        security: maestria_domain::SecurityMetadata::default(),
     })?;
 
     let chunk_0 = Chunk {
@@ -601,6 +610,7 @@ fn vector_search_returns_grounded_nonliteral_match() -> Result<(), Box<dyn std::
         id: artifact_id,
         title: "semantic.md".to_string(),
         chunk_ids: [chunk_id].into(),
+        security: maestria_domain::SecurityMetadata::default(),
         card_ids: Default::default(),
         claim_ids: Default::default(),
         evidence_ids: [evidence_id].into(),
@@ -644,6 +654,7 @@ fn vector_search_returns_grounded_nonliteral_match() -> Result<(), Box<dyn std::
         },
         excerpt: "literal source text".to_string(),
         observed_at: maestria_domain::LogicalTick::new(1),
+        security: maestria_domain::SecurityMetadata::default(),
     })?;
     vector_index.index_embeddings(vec![maestria_ports::VectorEmbedding {
         chunk_id,
@@ -748,5 +759,42 @@ fn test_graph_retrieval_integration() -> Result<(), Box<dyn std::error::Error>> 
         .pack;
     assert_eq!(fallback.chunks.len(), 1);
     assert_eq!(fallback.chunks[0].artifact.id, fixture.a);
+    Ok(())
+}
+
+#[test]
+fn retrieval_policy_filters_before_scoring() -> Result<(), Box<dyn std::error::Error>> {
+    let fixture = GraphFixture::new()?;
+    let policy =
+        RetrievalSecurityPolicy::new().require_trust_zone(maestria_domain::TrustZone::System);
+    let pack = fixture
+        .core_without_graph()
+        .with_retrieval_policy(policy)
+        .search(SearchInput {
+            query: "seed match".to_string(),
+            limit: 10,
+        })?
+        .pack;
+
+    assert!(pack.cards.is_empty());
+    assert!(pack.chunks.is_empty());
+    assert!(pack.evidence_ids.is_empty());
+    let restricted_core = fixture.core_without_graph().with_retrieval_policy(
+        RetrievalSecurityPolicy::new().require_trust_zone(maestria_domain::TrustZone::System),
+    );
+    assert!(
+        restricted_core
+            .open_evidence(OpenEvidenceInput {
+                evidence_id: fixture.e_a,
+            })
+            .is_err()
+    );
+    assert!(
+        restricted_core
+            .open_chunk_evidence(OpenChunkEvidenceInput {
+                chunk_id: fixture.chunk_a,
+            })
+            .is_err()
+    );
     Ok(())
 }

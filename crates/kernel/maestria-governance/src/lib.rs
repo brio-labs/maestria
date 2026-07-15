@@ -12,6 +12,7 @@ mod approval;
 mod autonomy;
 mod memory;
 mod privacy;
+mod retrieval;
 mod risk;
 mod scope;
 mod validation;
@@ -24,7 +25,8 @@ pub use memory::{
     DefaultMemoryPromotionGate, MemoryPromotionDecision, MemoryPromotionGate,
     MemoryPromotionRequest,
 };
-pub use privacy::PrivacyExclusions;
+pub use privacy::{PrivacyExclusions, SecretFinding, SecretKind, SecretScan, scan_secrets};
+pub use retrieval::{RetrievalDecision, RetrievalSecurityPolicy};
 pub use risk::{ClassifyRisk, DefaultRiskClassifier, PolicyDecision, RiskClass};
 pub use scope::{ContainmentError, Scope, ScopeGuard};
 pub use validation::{

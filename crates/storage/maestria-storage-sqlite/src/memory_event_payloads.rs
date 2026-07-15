@@ -9,6 +9,7 @@ impl StoredEventPayload {
                 claim_id,
                 evidence_ids,
                 confidence_milli,
+                security,
             } => Some(Self::MemoryCandidateCreated {
                 candidate_id: candidate_id.value(),
                 claim_id: claim_id.value(),
@@ -17,13 +18,16 @@ impl StoredEventPayload {
                     .map(|evidence_id| evidence_id.value())
                     .collect(),
                 confidence_milli: *confidence_milli,
+                security: security.clone(),
             }),
             DomainEvent::MemoryPromoted {
                 memory_id,
                 candidate_id,
+                security,
             } => Some(Self::MemoryPromoted {
                 memory_id: memory_id.value(),
                 candidate_id: candidate_id.value(),
+                security: security.clone(),
             }),
             DomainEvent::MemoryContradicted {
                 memory_id,
@@ -53,6 +57,7 @@ impl StoredEventPayload {
                 claim_id,
                 evidence_ids,
                 confidence_milli,
+                security,
             } => Ok(DomainEvent::MemoryCandidateCreated {
                 candidate_id: maestria_domain::MemoryCandidateId::new(candidate_id),
                 claim_id: maestria_domain::ClaimId::new(claim_id),
@@ -61,13 +66,16 @@ impl StoredEventPayload {
                     .map(maestria_domain::EvidenceId::new)
                     .collect(),
                 confidence_milli,
+                security,
             }),
             Self::MemoryPromoted {
                 memory_id,
                 candidate_id,
+                security,
             } => Ok(DomainEvent::MemoryPromoted {
                 memory_id: maestria_domain::MemoryId::new(memory_id),
                 candidate_id: maestria_domain::MemoryCandidateId::new(candidate_id),
+                security,
             }),
             Self::MemoryContradicted {
                 memory_id,

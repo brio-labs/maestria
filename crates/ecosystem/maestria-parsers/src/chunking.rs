@@ -192,6 +192,7 @@ pub(crate) fn summary_card_for(
             unit,
             path.display()
         ),
+        security: None,
     }
 }
 

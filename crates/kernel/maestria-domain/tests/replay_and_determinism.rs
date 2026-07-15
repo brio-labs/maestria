@@ -5,18 +5,28 @@ use common::{file_span_kind, run_replay_once};
 
 // ── Replay determinism and event reconstruction ───────────────────
 
+fn trusted_security() -> SecurityMetadata {
+    SecurityMetadata {
+        trust_zone: TrustZone::Verified,
+        authority: Authority::User,
+        ..SecurityMetadata::default()
+    }
+}
+
 #[test]
 fn replay_events_reconstructs_new_memory_event_state() -> Result<(), DomainError> {
     let inputs = vec![
         DomainInput::RegisterArtifact(RegisterArtifactInput {
             artifact_id: ArtifactId::new(1),
             title: "Project Notes".to_string(),
+            security: Some(trusted_security()),
         }),
         DomainInput::CreateClaim(CreateClaimInput {
             claim_id: ClaimId::new(20),
             artifact_id: ArtifactId::new(1),
             text: "Claim from evidence".to_string(),
             evidence_ids: Vec::new(),
+            security: Some(trusted_security()),
         }),
         DomainInput::RecordEvidence(RecordEvidenceInput {
             evidence_id: EvidenceId::new(40),
@@ -25,18 +35,21 @@ fn replay_events_reconstructs_new_memory_event_state() -> Result<(), DomainError
             kind: file_span_kind(),
             excerpt: "first chunk".to_string(),
             observed_at: LogicalTick::new(12),
+            security: Some(trusted_security()),
         }),
         DomainInput::CreateMemoryCandidate(CreateMemoryCandidateInput {
             candidate_id: MemoryCandidateId::new(90),
             claim_id: ClaimId::new(20),
             evidence_ids: vec![EvidenceId::new(40)],
             confidence_milli: 720,
+            security: Some(trusted_security()),
         }),
         DomainInput::CreateMemoryCandidate(CreateMemoryCandidateInput {
             candidate_id: MemoryCandidateId::new(91),
             claim_id: ClaimId::new(20),
             evidence_ids: vec![EvidenceId::new(40)],
             confidence_milli: 650,
+            security: Some(trusted_security()),
         }),
         DomainInput::PromoteMemory(PromoteMemoryInput {
             memory_id: MemoryId::new(100),
@@ -105,12 +118,14 @@ fn deterministic_shape_inputs() -> Vec<DomainInput> {
         DomainInput::RegisterArtifact(RegisterArtifactInput {
             artifact_id: ArtifactId::new(1),
             title: "Project Notes".to_string(),
+            security: None,
         }),
         DomainInput::CreateClaim(CreateClaimInput {
             claim_id: ClaimId::new(20),
             artifact_id: ArtifactId::new(1),
             text: "Claim from evidence".to_string(),
             evidence_ids: Vec::new(),
+            security: None,
         }),
         DomainInput::RecordEvidence(RecordEvidenceInput {
             evidence_id: EvidenceId::new(40),
@@ -119,6 +134,7 @@ fn deterministic_shape_inputs() -> Vec<DomainInput> {
             kind: file_span_kind(),
             excerpt: "first chunk".to_string(),
             observed_at: LogicalTick::new(12),
+            security: None,
         }),
         DomainInput::OpenTask(OpenTaskInput {
             task_id: TaskId::new(50),
@@ -155,12 +171,14 @@ fn deterministic_shape_inputs() -> Vec<DomainInput> {
             target: RelationEndpoint::Task(TaskId::new(50)),
             evidence_id: Some(EvidenceId::new(40)),
             confidence_milli: 875,
+            security: None,
         }),
         DomainInput::CreateMemoryCandidate(CreateMemoryCandidateInput {
             candidate_id: MemoryCandidateId::new(90),
             claim_id: ClaimId::new(20),
             evidence_ids: vec![EvidenceId::new(40)],
             confidence_milli: 720,
+            security: None,
         }),
     ]
 }

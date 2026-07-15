@@ -6,21 +6,18 @@
 //! contents remain owned by their source repositories.
 
 mod migration;
+mod operations;
 mod schema;
 mod search_helpers;
+use maestria_governance::scan_secrets;
 use migration::{legacy_chunks, schema_has_cards};
-
-use schema::{load_fields, schema};
-use search_helpers::collect_tie_complete;
+use schema::{load_fields, schema, supports_filtered_queries};
 use std::{fs, path::Path, sync::Mutex};
 
 use maestria_domain::{ArtifactId, CardId, ChunkId};
-use maestria_ports::{
-    CardHit, FullTextIndex, IndexedCard, IndexedChunk, PortError, SearchHit, SearchQuery,
-};
+use maestria_ports::{FullTextIndex, IndexedCard, IndexedChunk, PortError};
 use tantivy::{
-    Index, IndexReader, IndexWriter, ReloadPolicy, TantivyDocument, Term, doc,
-    query::QueryParser,
+    Index, IndexReader, IndexWriter, ReloadPolicy, TantivyDocument, doc,
     schema::{Field, Schema, Value},
 };
 
@@ -79,12 +76,15 @@ impl TantivyFullTextIndex {
         let marker = path.join(".cards-rebuild");
         if path.join("meta.json").exists() {
             let existing = Index::open_in_dir(path).map_err(to_port_error)?;
-            if schema_has_cards(&existing.schema()) {
+            if schema_has_cards(&existing.schema()) && supports_filtered_queries(&existing.schema())
+            {
                 let required = marker.exists();
                 return Self::from_index(existing, required, Some(marker));
             }
-
-            let chunks = legacy_chunks(&existing)?;
+            let chunks = legacy_chunks(&existing)?
+                .into_iter()
+                .filter(|chunk| scan_secrets(&chunk.text).is_clean())
+                .collect();
             drop(existing);
             let temp_path = path.with_extension("migrating");
             if temp_path.exists() {
@@ -252,145 +252,6 @@ impl TantivyFullTextIndex {
             title,
             body,
         })
-    }
-}
-
-impl FullTextIndex for TantivyFullTextIndex {
-    fn index_chunks(&self, chunks: Vec<IndexedChunk>) -> Result<(), PortError> {
-        let mut writer = self.writer.lock().map_err(|_| PortError::Internal {
-            message: "tantivy writer lock poisoned".to_string(),
-        })?;
-
-        for chunk in chunks {
-            writer.delete_term(Term::from_field_text(
-                self.fields.key,
-                &chunk_key(chunk.artifact_id, chunk.chunk_id),
-            ));
-            writer
-                .add_document(self.chunk_document(&chunk))
-                .map_err(to_port_error)?;
-        }
-
-        writer.commit().map_err(to_port_error)?;
-        self.reader.reload().map_err(to_port_error)
-    }
-
-    fn search(&self, query: SearchQuery) -> Result<Vec<SearchHit>, PortError> {
-        let trimmed = query.q.trim();
-        if trimmed.is_empty() {
-            return Err(PortError::InvalidInput {
-                message: "search query must not be empty".to_string(),
-            });
-        }
-        if query.limit == 0 {
-            return Ok(Vec::new());
-        }
-
-        let searcher = self.reader.searcher();
-        let parser = QueryParser::for_index(&self.index, vec![self.fields.text]);
-        let parsed_query =
-            parser
-                .parse_query(trimmed)
-                .map_err(|error| PortError::InvalidInput {
-                    message: format!("invalid search query: {error}"),
-                })?;
-        let top_docs = collect_tie_complete(&searcher, &parsed_query, query.offset, query.limit)?;
-        let mut scored = Vec::with_capacity(top_docs.len());
-        for (score, address) in top_docs {
-            let document = searcher
-                .doc::<TantivyDocument>(address)
-                .map_err(to_port_error)?;
-            let chunk = self.read_chunk(&document)?;
-            scored.push((
-                score,
-                chunk.artifact_id.value(),
-                chunk.chunk_id.value(),
-                chunk,
-            ));
-        }
-        scored.sort_by(|a, b| {
-            descending_score(a.0, b.0)
-                .then_with(|| a.1.cmp(&b.1))
-                .then_with(|| a.2.cmp(&b.2))
-        });
-        Ok(scored
-            .into_iter()
-            .skip(query.offset)
-            .take(query.limit)
-            .map(|(score, _, _, chunk)| SearchHit {
-                chunk,
-                score: score_to_u32(score),
-            })
-            .collect())
-    }
-
-    fn index_cards(&self, cards: Vec<IndexedCard>) -> Result<(), PortError> {
-        let mut writer = self.writer.lock().map_err(|_| PortError::Internal {
-            message: "tantivy writer lock poisoned".to_string(),
-        })?;
-
-        for card in cards {
-            writer.delete_term(Term::from_field_text(
-                self.fields.card_key,
-                &card_key(card.artifact_id, card.card_id),
-            ));
-            writer
-                .add_document(self.card_document(&card))
-                .map_err(to_port_error)?;
-        }
-
-        writer.commit().map_err(to_port_error)?;
-        self.reader.reload().map_err(to_port_error)?;
-        Ok(())
-    }
-
-    fn search_cards(&self, query: SearchQuery) -> Result<Vec<CardHit>, PortError> {
-        let trimmed = query.q.trim();
-        if trimmed.is_empty() {
-            return Err(PortError::InvalidInput {
-                message: "search query must not be empty".to_string(),
-            });
-        }
-        if query.limit == 0 {
-            return Ok(Vec::new());
-        }
-
-        let searcher = self.reader.searcher();
-        let parser = QueryParser::for_index(
-            &self.index,
-            vec![self.fields.card_title, self.fields.card_body],
-        );
-        let parsed_query =
-            parser
-                .parse_query(trimmed)
-                .map_err(|error| PortError::InvalidInput {
-                    message: format!("invalid search query: {error}"),
-                })?;
-        let top_docs = collect_tie_complete(&searcher, &parsed_query, query.offset, query.limit)?;
-        let mut scored: Vec<(f32, u64, u64, IndexedCard)> = Vec::with_capacity(top_docs.len());
-        for (score, address) in top_docs {
-            let document = searcher
-                .doc::<TantivyDocument>(address)
-                .map_err(to_port_error)?;
-            let card = self.read_card(&document)?;
-            scored.push((score, card.artifact_id.value(), card.card_id.value(), card));
-        }
-
-        // Deterministic ordering: descending raw score, then numeric IDs.
-        scored.sort_by(|a, b| {
-            descending_score(a.0, b.0)
-                .then_with(|| a.1.cmp(&b.1))
-                .then_with(|| a.2.cmp(&b.2))
-        });
-        Ok(scored
-            .into_iter()
-            .skip(query.offset)
-            .take(query.limit)
-            .map(|(score, _, _, card)| CardHit {
-                card,
-                score: score_to_u32(score),
-            })
-            .collect())
     }
 }
 

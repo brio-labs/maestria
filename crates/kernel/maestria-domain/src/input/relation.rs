@@ -1,3 +1,4 @@
+use crate::security::SecurityMetadata;
 use crate::types::*;
 
 impl KernelState {
@@ -45,6 +46,13 @@ impl KernelState {
         };
         validate_endpoint(&input.source)?;
         validate_endpoint(&input.target)?;
+        let endpoint_security = |endpoint: &RelationEndpoint| match endpoint {
+            RelationEndpoint::Artifact(id) => self.artifacts.get(id).map(|v| &v.security),
+            RelationEndpoint::Claim(id) => self.claims.get(id).map(|v| &v.security),
+            RelationEndpoint::Task(_) => None,
+            RelationEndpoint::Memory(id) => self.memories.get(id).map(|v| &v.security),
+            RelationEndpoint::Card(id) => self.cards.get(id).map(|v| &v.security),
+        };
         if self.relations.contains_key(&input.relation_id) {
             return Err(DomainError::DuplicateId {
                 kind: "relation",
@@ -56,6 +64,18 @@ impl KernelState {
         {
             return Err(DomainError::MissingEvidence { id: evidence_id });
         }
+        let mut security = SecurityMetadata::from_optional(input.security);
+        if let Some(source_security) = endpoint_security(&input.source) {
+            security = security.taint_from(source_security);
+        }
+        if let Some(target_security) = endpoint_security(&input.target) {
+            security = security.taint_from(target_security);
+        }
+        if let Some(evidence_id) = input.evidence_id
+            && let Some(evidence) = self.evidences.get(&evidence_id)
+        {
+            security = security.taint_from(&evidence.security);
+        }
         let relation = Relation {
             id: input.relation_id,
             source: input.source,
@@ -63,6 +83,7 @@ impl KernelState {
             target: input.target,
             evidence_id: input.evidence_id,
             confidence_milli: input.confidence_milli,
+            security: security.clone(),
         };
         self.relations.insert(input.relation_id, relation);
         Ok(self.emit_event(DomainEvent::RelationCreated {
@@ -72,11 +93,13 @@ impl KernelState {
             target: input.target,
             evidence_id: input.evidence_id,
             confidence_milli: input.confidence_milli,
+            security,
         }))
     }
 
     // ── Replay apply ─────────────────────────────────────────────
 
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn apply_relation_created(
         &mut self,
         relation_id: RelationId,
@@ -85,6 +108,7 @@ impl KernelState {
         target: RelationEndpoint,
         evidence_id: Option<EvidenceId>,
         confidence_milli: u16,
+        security: &SecurityMetadata,
     ) -> Result<(), DomainError> {
         if confidence_milli > 1000 {
             return Err(DomainError::InvalidConfidence {
@@ -144,6 +168,7 @@ impl KernelState {
                 target,
                 evidence_id,
                 confidence_milli,
+                security: security.clone(),
             },
         );
         Ok(())

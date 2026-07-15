@@ -1,4 +1,5 @@
 use crate::provenance::evidence_id_for;
+use crate::security::SecurityMetadata;
 use crate::types::*;
 
 impl KernelState {
@@ -239,6 +240,15 @@ impl KernelState {
         }
 
         let kind = input.kind.clone();
+        let mut security = SecurityMetadata::from_optional(input.security);
+        if let Some(artifact) = self.artifacts.get(&input.artifact_id) {
+            security = security.taint_from(&artifact.security);
+        }
+        if let Some(claim_id) = input.claim_id
+            && let Some(claim) = self.claims.get(&claim_id)
+        {
+            security = security.taint_from(&claim.security);
+        }
         self.evidences.insert(
             input.evidence_id,
             Evidence::new(
@@ -248,6 +258,7 @@ impl KernelState {
                 kind.clone(),
                 input.excerpt.clone(),
                 input.observed_at,
+                security.clone(),
             ),
         );
 
@@ -267,11 +278,13 @@ impl KernelState {
             kind,
             excerpt: input.excerpt,
             observed_at: input.observed_at,
+            security,
         })))
     }
 
     // ── Replay apply ─────────────────────────────────────────────
 
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn apply_evidence_recorded(
         &mut self,
         evidence_id: EvidenceId,
@@ -280,6 +293,7 @@ impl KernelState {
         kind: &EvidenceKind,
         excerpt: &str,
         observed_at: LogicalTick,
+        security: &SecurityMetadata,
     ) -> Result<(), DomainError> {
         if !self.artifacts.contains_key(&artifact_id) {
             return Err(DomainError::MissingArtifact { id: artifact_id });
@@ -361,13 +375,15 @@ impl KernelState {
                 kind.clone(),
                 excerpt.to_string(),
                 observed_at,
+                security.clone(),
             ),
         );
+
         if let Some(artifact) = self.artifacts.get_mut(&artifact_id) {
             artifact.evidence_ids.insert(evidence_id);
         }
-        if let Some(claim_id) = claim_id
-            && let Some(claim) = self.claims.get_mut(&claim_id)
+        if let Some(cid) = claim_id
+            && let Some(claim) = self.claims.get_mut(&cid)
         {
             claim.evidence_ids.insert(evidence_id);
         }

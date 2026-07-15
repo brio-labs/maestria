@@ -59,6 +59,7 @@ fn record_file_evidence(
         },
         excerpt: excerpt.to_string(),
         observed_at: LogicalTick::new(1),
+        security: None,
     }))?;
     Ok(())
 }
@@ -142,6 +143,7 @@ fn preflight_duplicate_is_noop_when_indexed() -> Result<(), DomainError> {
         event: DomainEvent::ArtifactRegistered {
             artifact_id: ArtifactId::new(1),
             title: "Notes".to_string(),
+            security: maestria_domain::SecurityMetadata::default(),
         },
     })?;
     state.apply_event(DomainEventEnvelope {
@@ -288,6 +290,7 @@ fn two_chunk_parser_result(first: &str, second: &str, card_body: &str) -> Parser
             artifact_id: ArtifactId::new(1),
             title: "Summary".to_string(),
             body: card_body.to_string(),
+            security: None,
         }],
     }
 }
@@ -428,6 +431,7 @@ fn ingestion_replay_full_flow_reconstructs_state() -> Result<(), DomainError> {
                 artifact_id: ArtifactId::new(1),
                 title: "Summary".to_string(),
                 body: "Parsed doc".to_string(),
+                security: None,
             }],
         }),
     ];
@@ -473,6 +477,7 @@ fn ingestion_replay_rejects_duplicate_detection_events() -> Result<(), DomainErr
         event: DomainEvent::ArtifactRegistered {
             artifact_id: ArtifactId::new(1),
             title: "Notes".to_string(),
+            security: maestria_domain::SecurityMetadata::default(),
         },
     };
     let mut state = KernelState::new();
@@ -484,6 +489,7 @@ fn ingestion_replay_rejects_duplicate_detection_events() -> Result<(), DomainErr
         event: DomainEvent::ArtifactRegistered {
             artifact_id: ArtifactId::new(1),
             title: "Notes".to_string(),
+            security: maestria_domain::SecurityMetadata::default(),
         },
     };
     let err = state
@@ -746,6 +752,7 @@ fn full_text_index_final_feedback_emits_artifact_indexed() -> Result<(), DomainE
         },
         excerpt: "a".to_string(),
         observed_at: LogicalTick::new(1),
+        security: None,
     }))?;
     assert!(state.pending_full_text.contains(&ChunkId::new(10)));
 
@@ -823,6 +830,7 @@ fn duplicate_full_text_index_feedback_is_idempotent() -> Result<(), DomainError>
         },
         excerpt: "a".to_string(),
         observed_at: LogicalTick::new(1),
+        security: None,
     }))?;
 
     // First feedback

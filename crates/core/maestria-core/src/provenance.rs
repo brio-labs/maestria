@@ -38,3 +38,6 @@ pub fn artifact_id_for(path: &Path, bytes: &[u8]) -> ArtifactId {
 pub(crate) fn non_zero_id(value: u64) -> u64 {
     if value == 0 { 1 } else { value }
 }
+pub(crate) fn content_is_safe(text: &str) -> bool {
+    maestria_governance::scan_secrets(text).is_clean()
+}

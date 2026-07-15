@@ -85,6 +85,7 @@ pub async fn run_propose(
                 .map(|&id| maestria_domain::EvidenceId::new(id))
                 .collect(),
             confidence_milli,
+            security: None,
         });
         input_tx
             .send(input)

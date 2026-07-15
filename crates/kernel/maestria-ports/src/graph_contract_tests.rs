@@ -13,6 +13,7 @@ pub fn assert_graph_index_contract(index: &impl GraphIndex) {
         kind: RelationKind::Contains,
         evidence_id: Some(EvidenceId::new(5)),
         confidence_milli: 800,
+        security: maestria_domain::SecurityMetadata::default(),
     };
     let rel1 = Relation {
         id: RelationId::new(1),
@@ -21,6 +22,7 @@ pub fn assert_graph_index_contract(index: &impl GraphIndex) {
         kind: RelationKind::Supports,
         evidence_id: Some(EvidenceId::new(4)),
         confidence_milli: 900,
+        security: maestria_domain::SecurityMetadata::default(),
     };
     let rel2 = Relation {
         id: RelationId::new(2),
@@ -29,6 +31,7 @@ pub fn assert_graph_index_contract(index: &impl GraphIndex) {
         kind: RelationKind::Contradicts,
         evidence_id: Some(EvidenceId::new(6)),
         confidence_milli: 500,
+        security: maestria_domain::SecurityMetadata::default(),
     };
 
     index.insert_relation(rel3.clone()).expect("insert 3");

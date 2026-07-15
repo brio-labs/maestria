@@ -4,10 +4,12 @@ use crate::ids::{
     LogicalTick, MemoryCandidateId, MemoryId, RelationId, TaskId, ValidationReportId,
 };
 
+use crate::security::SecurityMetadata;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RegisterArtifactInput {
     pub artifact_id: ArtifactId,
     pub title: String,
+    pub security: Option<SecurityMetadata>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -29,6 +31,7 @@ pub struct CreateCardInput {
     pub source_span: crate::provenance::SourceSpan,
     pub title: String,
     pub body: String,
+    pub security: Option<SecurityMetadata>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -39,6 +42,7 @@ pub struct RecordEvidenceInput {
     pub kind: EvidenceKind,
     pub excerpt: String,
     pub observed_at: LogicalTick,
+    pub security: Option<SecurityMetadata>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -47,6 +51,7 @@ pub struct CreateClaimInput {
     pub artifact_id: ArtifactId,
     pub text: String,
     pub evidence_ids: Vec<EvidenceId>,
+    pub security: Option<SecurityMetadata>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -89,6 +94,7 @@ pub struct CreateRelationInput {
     pub target: RelationEndpoint,
     pub evidence_id: Option<EvidenceId>,
     pub confidence_milli: u16,
+    pub security: Option<SecurityMetadata>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -97,6 +103,7 @@ pub struct CreateMemoryCandidateInput {
     pub claim_id: ClaimId,
     pub evidence_ids: Vec<EvidenceId>,
     pub confidence_milli: u16,
+    pub security: Option<SecurityMetadata>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -106,6 +113,7 @@ pub struct ProposeMemoryCandidateInput {
     pub text: String,
     pub evidence_ids: Vec<EvidenceId>,
     pub confidence_milli: u16,
+    pub security: Option<SecurityMetadata>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

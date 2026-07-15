@@ -19,6 +19,7 @@ pub fn sample_artifact(id: u64) -> Artifact {
         index_status: maestria_domain::IndexStatus::Unindexed,
         content_hash: None,
         parse_status: None,
+        security: maestria_domain::SecurityMetadata::default(),
     }
 }
 
@@ -109,6 +110,7 @@ pub fn assert_card_repository_round_trip(repository: &impl CardRepository) {
             start_line: 1,
             end_line: 2,
         },
+        security: maestria_domain::SecurityMetadata::default(),
     };
     let second = Card {
         id: CardId::new(21),
@@ -121,6 +123,7 @@ pub fn assert_card_repository_round_trip(repository: &impl CardRepository) {
             start_line: 1,
             end_line: 2,
         },
+        security: maestria_domain::SecurityMetadata::default(),
     };
     let unrelated = Card {
         id: CardId::new(22),
@@ -133,6 +136,7 @@ pub fn assert_card_repository_round_trip(repository: &impl CardRepository) {
             start_line: 1,
             end_line: 2,
         },
+        security: maestria_domain::SecurityMetadata::default(),
     };
 
     repository.put(first.clone()).expect("first card put");
@@ -168,6 +172,7 @@ pub fn assert_evidence_repository_round_trip(repository: &impl EvidenceRepositor
         },
         excerpt: "source excerpt".to_string(),
         observed_at: LogicalTick::new(9),
+        security: maestria_domain::SecurityMetadata::default(),
     };
     let validation = Evidence {
         id: EvidenceId::new(41),
@@ -178,6 +183,7 @@ pub fn assert_evidence_repository_round_trip(repository: &impl EvidenceRepositor
         },
         excerpt: "validated".to_string(),
         observed_at: LogicalTick::new(10),
+        security: maestria_domain::SecurityMetadata::default(),
     };
     let unrelated = Evidence {
         id: EvidenceId::new(42),
@@ -188,6 +194,7 @@ pub fn assert_evidence_repository_round_trip(repository: &impl EvidenceRepositor
         },
         excerpt: "other".to_string(),
         observed_at: LogicalTick::new(11),
+        security: maestria_domain::SecurityMetadata::default(),
     };
 
     repository.put(file.clone()).expect("file evidence put");
@@ -224,6 +231,7 @@ pub fn assert_evidence_repository_replace_contract(repository: &impl EvidenceRep
         },
         excerpt: "original excerpt".to_string(),
         observed_at: LogicalTick::new(1),
+        security: maestria_domain::SecurityMetadata::default(),
     };
     let replacement = Evidence {
         id: EvidenceId::new(50),         // same id
@@ -234,6 +242,7 @@ pub fn assert_evidence_repository_replace_contract(repository: &impl EvidenceRep
         },
         excerpt: "replacement excerpt".to_string(),
         observed_at: LogicalTick::new(2),
+        security: maestria_domain::SecurityMetadata::default(),
     };
 
     repository.put(original.clone()).expect("original put");
@@ -273,6 +282,7 @@ pub fn assert_evidence_repository_replace_contract(repository: &impl EvidenceRep
         },
         excerpt: "fresh".to_string(),
         observed_at: LogicalTick::new(3),
+        security: maestria_domain::SecurityMetadata::default(),
     };
     repository.replace(fresh.clone()).expect("fresh replace");
     assert_eq!(repository.get(fresh.id).expect("get fresh"), Some(fresh));
@@ -285,6 +295,7 @@ pub fn assert_event_log_round_trip(log: &impl EventLog) {
         event: DomainEvent::ArtifactRegistered {
             artifact_id: ArtifactId::new(1),
             title: "notes".to_string(),
+            security: maestria_domain::SecurityMetadata::default(),
         },
     };
     let evidence = DomainEventEnvelope {
@@ -302,6 +313,7 @@ pub fn assert_event_log_round_trip(log: &impl EventLog) {
             },
             excerpt: "excerpt".to_string(),
             observed_at: LogicalTick::new(0),
+            security: maestria_domain::SecurityMetadata::default(),
         },
     };
     let search = DomainEventEnvelope {
@@ -318,6 +330,7 @@ pub fn assert_event_log_round_trip(log: &impl EventLog) {
         event: DomainEvent::ArtifactRegistered {
             artifact_id: ArtifactId::new(2),
             title: "other".to_string(),
+            security: maestria_domain::SecurityMetadata::default(),
         },
     };
 

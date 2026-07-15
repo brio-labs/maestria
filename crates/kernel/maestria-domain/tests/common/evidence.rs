@@ -4,12 +4,14 @@ pub fn register_artifact_and_claim(state: &mut KernelState) -> Result<(), Domain
     state.apply_input(DomainInput::RegisterArtifact(RegisterArtifactInput {
         artifact_id: ArtifactId::new(1),
         title: "Project Notes".to_string(),
+        security: None,
     }))?;
     state.apply_input(DomainInput::CreateClaim(CreateClaimInput {
         claim_id: ClaimId::new(20),
         artifact_id: ArtifactId::new(1),
         text: "Claim from evidence".to_string(),
         evidence_ids: Vec::new(),
+        security: None,
     }))?;
     Ok(())
 }
@@ -28,6 +30,21 @@ pub fn state_with_memory_candidate(
 ) -> Result<KernelState, DomainError> {
     let mut state = KernelState::new();
     register_artifact_and_claim(&mut state)?;
+    let trusted_security = SecurityMetadata {
+        trust_zone: TrustZone::Verified,
+        authority: Authority::User,
+        ..SecurityMetadata::default()
+    };
+    state
+        .artifacts
+        .get_mut(&ArtifactId::new(1))
+        .expect("artifact fixture")
+        .security = trusted_security.clone();
+    state
+        .claims
+        .get_mut(&ClaimId::new(20))
+        .expect("claim fixture")
+        .security = trusted_security.clone();
     state.apply_input(DomainInput::RecordEvidence(RecordEvidenceInput {
         evidence_id: EvidenceId::new(40),
         artifact_id: ArtifactId::new(1),
@@ -35,6 +52,7 @@ pub fn state_with_memory_candidate(
         kind: file_span_kind(),
         excerpt: "first chunk".to_string(),
         observed_at: LogicalTick::new(12),
+        security: Some(trusted_security.clone()),
     }))?;
     state.apply_input(DomainInput::CreateMemoryCandidate(
         CreateMemoryCandidateInput {
@@ -42,6 +60,11 @@ pub fn state_with_memory_candidate(
             claim_id: ClaimId::new(20),
             evidence_ids: vec![EvidenceId::new(40)],
             confidence_milli: 720,
+            security: Some(SecurityMetadata {
+                trust_zone: TrustZone::Verified,
+                authority: Authority::User,
+                ..SecurityMetadata::default()
+            }),
         },
     ))?;
     Ok(state)

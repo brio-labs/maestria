@@ -3,6 +3,7 @@ use maestria_blob_fs::FsBlobStore;
 use maestria_core::{CorePorts, CoreServices, InstanceService, SearchInput};
 use maestria_domain::{DomainInput, IndexStatus, LogicalTick, SearchExecutedInput};
 use maestria_governance::AutonomyProfile;
+use maestria_governance::scan_secrets;
 use maestria_graph_sqlite::SqliteGraphIndex;
 use maestria_parsers::ParserRegistry;
 use maestria_ports::{
@@ -98,6 +99,8 @@ fn compute_search_pack(
                     .artifacts
                     .get(&card.artifact_id)
                     .is_some_and(|artifact| artifact.index_status == IndexStatus::Indexed)
+                    && scan_secrets(&card.title).is_clean()
+                    && scan_secrets(&card.body).is_clean()
             })
             .map(|card| IndexedCard {
                 artifact_id: card.artifact_id,
@@ -110,21 +113,25 @@ fn compute_search_pack(
         search_index.complete_card_rebuild()?;
     }
     let parser = ParserRegistry::with_defaults();
-    let vector_query = embedding_provider.as_deref().and_then(|provider| {
-        provider
-            .embed(EmbeddingRequest {
-                text: query.to_string(),
-                model: "query".to_string(),
-            })
-            .ok()
-            .map(|response| VectorSearchQuery {
-                vector: response.vector,
-                limit: limit as u32,
-                provider_id: Some(response.provider_id),
-                model: Some(response.model),
-                model_version: Some(response.model_version),
-            })
-    });
+    let vector_query = if scan_secrets(query).is_clean() {
+        embedding_provider.as_deref().and_then(|provider| {
+            provider
+                .embed(EmbeddingRequest {
+                    text: query.to_string(),
+                    model: "query".to_string(),
+                })
+                .ok()
+                .map(|response| VectorSearchQuery {
+                    vector: response.vector,
+                    limit: limit as u32,
+                    provider_id: Some(response.provider_id),
+                    model: Some(response.model),
+                    model_version: Some(response.model_version),
+                })
+        })
+    } else {
+        None
+    };
     let core = CoreServices::new(CorePorts {
         artifacts: &sqlite_store,
         chunks: &sqlite_store,

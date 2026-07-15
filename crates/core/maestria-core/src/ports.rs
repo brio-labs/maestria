@@ -24,6 +24,7 @@ pub struct CorePorts<'a> {
 pub struct CoreServices<'a> {
     ports: CorePorts<'a>,
     graph_config: Option<crate::types::GraphConfig>,
+    retrieval_policy: maestria_governance::RetrievalSecurityPolicy,
 }
 
 impl<'a> CoreServices<'a> {
@@ -31,7 +32,16 @@ impl<'a> CoreServices<'a> {
         Self {
             ports,
             graph_config: Some(crate::types::GraphConfig::default()),
+            retrieval_policy: maestria_governance::RetrievalSecurityPolicy::default(),
         }
+    }
+
+    pub fn with_retrieval_policy(
+        mut self,
+        policy: maestria_governance::RetrievalSecurityPolicy,
+    ) -> Self {
+        self.retrieval_policy = policy;
+        self
     }
 
     pub fn with_graph_config(mut self, config: crate::types::GraphConfig) -> Self {
@@ -40,7 +50,13 @@ impl<'a> CoreServices<'a> {
     }
 
     pub fn search(&self, input: SearchInput) -> CoreResult<SearchOutput> {
-        crate::retrieval::search(&self.ports, input, None, self.graph_config.clone())
+        crate::retrieval::search(
+            &self.ports,
+            input,
+            None,
+            self.graph_config.clone(),
+            &self.retrieval_policy,
+        )
     }
 
     pub fn search_with_vector(
@@ -53,16 +69,17 @@ impl<'a> CoreServices<'a> {
             input,
             Some(vector_query),
             self.graph_config.clone(),
+            &self.retrieval_policy,
         )
     }
     pub fn open_evidence(&self, input: OpenEvidenceInput) -> CoreResult<OpenEvidenceOutput> {
-        open_evidence(&self.ports, input)
+        open_evidence(&self.ports, input, &self.retrieval_policy)
     }
 
     pub fn open_chunk_evidence(
         &self,
         input: OpenChunkEvidenceInput,
     ) -> CoreResult<OpenEvidenceOutput> {
-        open_chunk_evidence(&self.ports, input)
+        open_chunk_evidence(&self.ports, input, &self.retrieval_policy)
     }
 }

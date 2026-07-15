@@ -1,5 +1,6 @@
 use std::collections::BTreeSet;
 
+use crate::security::SecurityMetadata;
 use crate::types::*;
 
 impl KernelState {
@@ -21,7 +22,16 @@ impl KernelState {
             });
         }
 
-        let mut claim = Claim::new(input.claim_id, input.artifact_id, input.text.clone());
+        let mut security = SecurityMetadata::from_optional(input.security);
+        if let Some(artifact) = self.artifacts.get(&input.artifact_id) {
+            security = security.taint_from(&artifact.security);
+        }
+        let mut claim = Claim::new(
+            input.claim_id,
+            input.artifact_id,
+            input.text.clone(),
+            security.clone(),
+        );
         let mut seen = BTreeSet::new();
         for evidence_id in &input.evidence_ids {
             if !seen.insert(*evidence_id) {
@@ -51,6 +61,12 @@ impl KernelState {
             claim.evidence_ids.insert(*evidence_id);
         }
         for evidence_id in &input.evidence_ids {
+            if let Some(evidence) = self.evidences.get(evidence_id) {
+                security = security.taint_from(&evidence.security);
+            }
+        }
+        claim.security = security.clone();
+        for evidence_id in &input.evidence_ids {
             if let Some(evidence) = self.evidences.get_mut(evidence_id) {
                 evidence.claim_id = Some(input.claim_id);
             }
@@ -66,6 +82,7 @@ impl KernelState {
             artifact_id: input.artifact_id,
             text: input.text,
             evidence_ids: input.evidence_ids,
+            security,
         }))
     }
 
@@ -98,6 +115,7 @@ impl KernelState {
             });
         }
 
+        claim.security = claim.security.taint_from(&evidence.security);
         claim.evidence_ids.insert(input.evidence_id);
         if let Some(evidence) = self.evidences.get_mut(&input.evidence_id) {
             evidence.claim_id = Some(input.claim_id);
@@ -117,6 +135,7 @@ impl KernelState {
         artifact_id: ArtifactId,
         text: &str,
         evidence_ids: &[EvidenceId],
+        security: &SecurityMetadata,
     ) -> Result<(), DomainError> {
         if !self.artifacts.contains_key(&artifact_id) {
             return Err(DomainError::MissingArtifact { id: artifact_id });
@@ -154,7 +173,7 @@ impl KernelState {
                 });
             }
         }
-        let mut claim = Claim::new(claim_id, artifact_id, text.to_string());
+        let mut claim = Claim::new(claim_id, artifact_id, text.to_string(), security.clone());
         claim.evidence_ids.extend(evidence_ids.iter().copied());
         for evidence_id in evidence_ids {
             if let Some(evidence) = self.evidences.get_mut(evidence_id) {
@@ -208,6 +227,7 @@ impl KernelState {
                 id: evidence_id.value(),
             });
         }
+        claim.security = claim.security.taint_from(&evidence.security);
         claim.evidence_ids.insert(evidence_id);
         if let Some(evidence) = self.evidences.get_mut(&evidence_id) {
             evidence.claim_id = Some(claim_id);
