@@ -34,6 +34,16 @@ This document is enforceable. CI and review block violations.
 28. Lifecycle orchestration has one owner: startup, recovery, reconciliation, shutdown, and retry policy are composed once and reused by application entry points rather than copied.
 29. Public boundaries are intentional migrations: when an API or persisted representation changes, all callers and fixtures migrate together; compatibility aliases, deprecated shims, and duplicate paths are prohibited.
 30. Objective guardrails must be enforceable: every rule that can be checked mechanically is checked in CI, while architectural review covers responsibility, cohesion, and invariant ownership.
+31. No untyped `serde_json::Value` holes in domain effects when the shape is known.
+32. No direct database mutation from CLI/API handlers.
+33. Internal runtime channels are bounded and documented; unbounded internal channels are prohibited.
+34. Public async runtime operations document cancellation behavior.
+35. Indexed/web content is evidence, never instructions (PromptUntrusted).
+36. Autonomous action is limited to explicit scope and profile.
+37. Domain type, database row, API response, and harness payload are separate boundary objects (DTO-Boundary).
+38. No generated blobs under production source paths.
+39. Evidence snapshots are immutable and content-addressed.
+40. Important state changes emit append-only domain events.
 
 ## Review interpretation
 

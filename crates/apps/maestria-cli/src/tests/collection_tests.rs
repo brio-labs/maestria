@@ -58,6 +58,16 @@ fn symlink_file(target: &Path, link: &Path) -> io::Result<()> {
     std::os::windows::fs::symlink_file(target, link)
 }
 
+#[cfg(unix)]
+fn symlink_dir(target: &Path, link: &Path) -> io::Result<()> {
+    std::os::unix::fs::symlink(target, link)
+}
+
+#[cfg(windows)]
+fn symlink_dir(target: &Path, link: &Path) -> io::Result<()> {
+    std::os::windows::fs::symlink_dir(target, link)
+}
+
 fn symlink_unavailable(error: &io::Error) -> bool {
     matches!(
         error.kind(),
@@ -218,6 +228,33 @@ fn collecting_single_symlink_is_rejected_and_recursive_collection_skips_it() {
 }
 
 #[test]
+fn collecting_path_with_symlinked_parent_is_rejected() {
+    let directory = TestDirectory::create();
+    let outside = TestDirectory::create();
+    let link = directory.path().join("linked");
+    let linked_note = link.join("note.md");
+    write_file(&outside.path().join("note.md"), "# Outside note");
+
+    match symlink_dir(outside.path(), &link) {
+        Ok(()) => {}
+        Err(error) if symlink_unavailable(&error) => return,
+        Err(error) => panic!(
+            "create directory symlink {} -> {}: {error}",
+            link.display(),
+            outside.path().display()
+        ),
+    }
+
+    let error = helpers::collect_index_files(&linked_note, false)
+        .expect_err("paths through symlinked parents must not be indexed");
+
+    assert!(
+        error.to_string().contains("symlink"),
+        "unexpected symlink-parent error: {error}"
+    );
+}
+
+#[test]
 fn recursive_collection_skips_unsupported_files_and_keeps_supported_markdown() {
     let directory = TestDirectory::create();
     write_file(&directory.path().join("note.md"), "# Normal note");
@@ -276,5 +313,55 @@ fn recursive_collection_skips_excluded_entries_and_keeps_markdown() {
     assert_eq!(
         relative_files,
         vec![PathBuf::from("docs/guide.md"), PathBuf::from("note.md")]
+    );
+}
+
+#[test]
+fn recursive_collection_respects_gitignore() {
+    let directory = TestDirectory::create();
+    write_file(&directory.path().join("note.md"), "# Normal note");
+    write_file(&directory.path().join("ignored_file.md"), "ignored content");
+    write_file(&directory.path().join(".gitignore"), "ignored_file.md");
+
+    let files = helpers::collect_index_files(directory.path(), true)
+        .expect("recursive collection succeeds");
+
+    assert_eq!(
+        relative_files(directory.path(), &files),
+        vec![PathBuf::from("note.md")]
+    );
+}
+
+#[test]
+fn recursive_collection_propagates_ignore_file_errors() {
+    let directory = TestDirectory::create();
+    write_file(&directory.path().join("note.md"), "# Normal note");
+    write_file(&directory.path().join(".gitignore"), "{malformed");
+
+    let error = helpers::collect_index_files(directory.path(), true)
+        .expect_err("malformed ignore files must fail traversal");
+
+    assert!(
+        error.to_string().contains("traversal failed"),
+        "unexpected traversal error: {error}"
+    );
+}
+
+#[test]
+fn recursive_collection_skips_hidden_files_and_directories() {
+    let directory = TestDirectory::create();
+    write_file(&directory.path().join("note.md"), "# Normal note");
+    write_file(&directory.path().join(".hidden_file.md"), "hidden");
+    write_file(
+        &directory.path().join(".hidden_dir/file.md"),
+        "hidden inside dir",
+    );
+
+    let files = helpers::collect_index_files(directory.path(), true)
+        .expect("recursive collection succeeds");
+
+    assert_eq!(
+        relative_files(directory.path(), &files),
+        vec![PathBuf::from("note.md")]
     );
 }
