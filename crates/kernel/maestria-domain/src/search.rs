@@ -1,17 +1,13 @@
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
-use crate::ContentRange;
 use crate::ids::*;
 #[path = "search_outcome.rs"]
 mod search_outcome;
 pub use search_outcome::*;
-
-/// Module-level invariants:
-/// - `ContentHash` always starts with a recognized algorithm prefix (e.g., `sha256:`).
-/// - `ArtifactVersion` holds a globally unique `ArtifactVersionId` and matches its `ContentHash`.
-/// - `SearchBudget` values are strictly positive and constructors reject invalid combinations via `SearchCompatibilityError`.
-/// - Search generation footprints must match across plan and outcome; a mismatch yields `SearchCompatibilityError`.
+#[path = "search_source.rs"]
+mod search_source;
+pub use search_source::*;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SearchCompatibilityError {
@@ -162,87 +158,6 @@ impl TryFrom<ArtifactVersionDto> for ArtifactVersion {
             dto.artifact_id,
             dto.content_hash,
         ))
-    }
-}
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum StructureNodeType {
-    Document,
-    Section,
-    Paragraph,
-    List,
-    ListItem,
-    Table,
-    Figure,
-    Code,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct StructureNode {
-    pub id: StructureNodeId,
-    pub parent_id: Option<StructureNodeId>,
-    pub sibling_id: Option<StructureNodeId>,
-    pub node_type: StructureNodeType,
-    pub source_range: ContentRange,
-    pub page: Option<u32>,
-    pub section_path: Vec<String>,
-    pub parser_generation: String,
-    pub schema_generation: String,
-    pub language: Option<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum SourceLocation {
-    File {
-        path: String,
-        start_line: u32,
-        end_line: u32,
-    },
-    Page {
-        page_start: u32,
-        page_end: u32,
-    },
-    Region {
-        page: u32,
-        x: u32,
-        y: u32,
-        width: u32,
-        height: u32,
-    },
-    Symbol {
-        path: String,
-        qualified_name: String,
-    },
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(try_from = "EvidenceSpanDto")]
-pub struct EvidenceSpan {
-    pub node_id: Option<StructureNodeId>,
-    pub location: SourceLocation,
-    pub range: ContentRange,
-}
-
-#[derive(Deserialize)]
-struct EvidenceSpanDto {
-    node_id: Option<StructureNodeId>,
-    location: SourceLocation,
-    range: ContentRange,
-}
-
-impl TryFrom<EvidenceSpanDto> for EvidenceSpan {
-    type Error = SearchCompatibilityError;
-
-    fn try_from(dto: EvidenceSpanDto) -> Result<Self, Self::Error> {
-        if dto.range.start > dto.range.end {
-            return Err(SearchCompatibilityError::InvalidSourceSpan(
-                "range start must not exceed range end",
-            ));
-        }
-        Ok(Self {
-            node_id: dto.node_id,
-            location: dto.location,
-            range: dto.range,
-        })
     }
 }
 

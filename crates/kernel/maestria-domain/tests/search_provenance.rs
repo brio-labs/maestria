@@ -47,15 +47,16 @@ fn candidate() -> EvidenceCandidate {
     EvidenceCandidate {
         evidence_id: EvidenceId::new(23),
         artifact_version: ArtifactVersionId::new(19),
-        source_span: EvidenceSpan {
-            node_id: Some(StructureNodeId::new(29)),
-            location: SourceLocation::File {
+        source_span: EvidenceSpan::new(
+            Some(StructureNodeId::new(29)),
+            SourceLocation::File {
                 path: "notes/research.md".to_owned(),
                 start_line: 4,
                 end_line: 8,
             },
-            range: ContentRange { start: 32, end: 96 },
-        },
+            ContentRange { start: 32, end: 96 },
+        )
+        .expect("valid source span"),
         scores: RetrievalScoreSet {
             bm25: 91,
             semantic_similarity: 88,
