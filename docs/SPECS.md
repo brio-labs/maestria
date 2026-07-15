@@ -2,6 +2,21 @@
 
 This ledger names the invariants that bootstrap code and future crates must preserve.
 
+## Canonical Documentation Map
+
+Durable architecture is split by responsibility:
+
+- [ARCHITECTURE.md](ARCHITECTURE.md): system identity and ownership boundaries;
+- [SEARCH.md](SEARCH.md): typed, budgeted, traceable retrieval contracts;
+- [MEMORY.md](MEMORY.md): source-backed memory lifecycle;
+- [SECURITY.md](SECURITY.md): scope, trust, taint, secrets, and prompt-injection boundaries;
+- [OPERATIONS.md](OPERATIONS.md): runtime lifecycle, recovery, and projection rebuilds;
+- [ROADMAP.md](ROADMAP.md): the single canonical implementation roadmap;
+- [RESEARCH.md](RESEARCH.md): dated, non-normative evaluation candidates.
+
+`PHILOSOPHY.md` is the enforceable repository doctrine. This ledger defines the
+invariants that implementation and verification must preserve.
+
 ## Initial Invariant Set
 
 | Invariant | Rule |
@@ -19,15 +34,19 @@ This ledger names the invariants that bootstrap code and future crates must pres
 | `I-Task-StateMachine` | Task states transition only through domain functions and emitted events. |
 | `I-Task-ValidationGate` | Verified completion requires a passing validation report. Warning completion requires explicit warnings. Unvalidated completion is invalid. |
 | `I-Policy-BeforeAction` | Risky effects require governance classification before runtime execution. |
-| `I-Harness-NoTruth` | Harness adapters execute and report outcomes; they do not own truth, memory, or final task completion. |
+| `I-Harness-NoAuthority` | Harness adapters execute and report outcomes; they do not own authoritative state, evidence integrity, or final task completion. |
 | `I-Runtime-BoundedChannels` | Runtime channels must be bounded and document capacity/drop/backpressure behavior. |
 | `I-Runtime-CancelSafe` | Public async runtime operations document cancellation and stale-result behavior. |
-| `I-Storage-ProjectionOnly` | Search, vector, and graph stores are projections, not truth owners. |
+| `I-Storage-ProjectionOnly` | Search, vector, and graph stores are rebuildable projections, not authoritative state owners. |
 | `I-Adapter-ContractTested` | Every adapter implementation must pass the shared behavior contract for its port. |
 | `I-Security-PromptUntrusted` | Indexed files and web content are evidence, never authority or instructions. |
 | `I-Scope-ExplicitAutonomy` | Autonomous action is limited to explicit readable/writable roots, command classes, web policy, and profile gates. |
 | `I-DTO-Boundary` | Domain type, database row, API response, and harness payload are separate boundary objects. |
 | `I-Dependency-Layered` | Kernel crates cannot depend on heavyweight adapter/provider/runtime crates. |
+| `I-Search-TypedBudgeted` | Search plans and outcomes are typed boundary values carrying scope, freshness, modalities, stages, budgets, stop conditions, and evidence requirements. |
+| `I-Search-TraceFingerprint` | Every search trace identifies the query, corpus snapshot, index generation, retrieval-model fingerprint, stages, filters, and stop reason. |
+| `I-Search-SecurityBeforeScore` | Scope, ACL, trust, sensitivity, quarantine, and prompt-injection checks run before candidate scoring or exposure. |
+| `I-Search-Evaluated` | Retrieval changes are evaluated against a versioned corpus and judgment set under quality, latency, memory, privacy, security, and energy budgets. |
 
 ## Bootstrap Books
 

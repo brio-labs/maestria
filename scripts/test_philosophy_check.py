@@ -125,6 +125,45 @@ class PhilosophyCheckTests(unittest.TestCase):
             )
 
 
+    def test_documentation_contract_requires_canonical_markers(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.configure_root(root)
+            for relative_path, markers in PHILOSOPHY_CHECK.CANONICAL_DOC_MARKERS.items():
+                path = root / relative_path
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text("\n".join(markers), encoding="utf-8")
+
+            self.assertEqual(PHILOSOPHY_CHECK.scan_documentation_contract(), [])
+
+            missing = root / "docs" / "SEARCH.md"
+            missing.write_text("SearchPlan only", encoding="utf-8")
+            violations = PHILOSOPHY_CHECK.scan_documentation_contract()
+            self.assertIn(
+                "docs/SEARCH.md is missing required marker 'SearchTraceId'",
+                violations,
+            )
+
+    def test_documentation_contract_rejects_external_truth_wording(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.configure_root(root)
+            for relative_path, markers in PHILOSOPHY_CHECK.CANONICAL_DOC_MARKERS.items():
+                path = root / relative_path
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text("\n".join(markers), encoding="utf-8")
+
+            architecture = root / "docs" / "ARCHITECTURE.md"
+            architecture.write_text(
+                "authoritative state; external factual truth; domain owns truth",
+                encoding="utf-8",
+            )
+
+            self.assertIn(
+                "docs/ARCHITECTURE.md contains prohibited external-truth wording 'domain owns truth'",
+                PHILOSOPHY_CHECK.scan_documentation_contract(),
+            )
+
     def test_module_size_scan_reports_unexempt_large_module(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

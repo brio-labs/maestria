@@ -54,6 +54,22 @@ KERNEL_ALLOWED_DEPENDENCIES = {
     "maestria-ports": {"maestria_domain"},
 }
 
+CANONICAL_DOC_MARKERS = {
+    "docs/ARCHITECTURE.md": ("authoritative state", "external factual truth"),
+    "docs/SEARCH.md": ("SearchPlan", "SearchTraceId", "abstention"),
+    "docs/MEMORY.md": ("MemoryCandidate", "provenance", "staleness"),
+    "docs/SECURITY.md": ("prompt injection", "quarantine", "before scoring"),
+    "docs/OPERATIONS.md": ("bounded", "recovery", "projection"),
+    "docs/ROADMAP.md": ("single canonical", "exit criteria"),
+    "docs/RESEARCH.md": ("NON-NORMATIVE", "quality", "energy"),
+}
+FORBIDDEN_EXTERNAL_TRUTH_WORDING = (
+    "domain owns truth",
+    "truth machine",
+    "truth store",
+    "truth owner",
+)
+
 
 def should_skip(path: Path) -> bool:
     rel = path.relative_to(ROOT)
@@ -70,6 +86,31 @@ def read_text(path: Path) -> str | None:
         return path.read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError):
         return None
+
+def scan_documentation_contract() -> list[str]:
+    violations = []
+    for relative_path, markers in CANONICAL_DOC_MARKERS.items():
+        path = ROOT / relative_path
+        content = read_text(path)
+        if content is None:
+            violations.append(f"{relative_path} is missing or unreadable")
+            continue
+        lowered = content.casefold()
+        for marker in markers:
+            if marker.casefold() not in lowered:
+                violations.append(f"{relative_path} is missing required marker {marker!r}")
+
+    for relative_path in CANONICAL_DOC_MARKERS:
+        content = read_text(ROOT / relative_path)
+        if content is None:
+            continue
+        lowered = content.casefold()
+        for phrase in FORBIDDEN_EXTERNAL_TRUTH_WORDING:
+            if phrase in lowered:
+                violations.append(
+                    f"{relative_path} contains prohibited external-truth wording {phrase!r}"
+                )
+    return violations
 
 
 def production_rust(text: str) -> str:
@@ -229,6 +270,7 @@ def main() -> int:
     violations.extend(f"{path} contains forbidden task marker" for path in marker_violations)
     violations.extend(scan_kernel_manifests())
     violations.extend(scan_kernel_sources())
+    violations.extend(scan_documentation_contract())
     violations.extend(scan_module_sizes())
 
     if violations:
