@@ -11,8 +11,8 @@ This document tracks experimental candidates for the Maestria search architectur
 
 `maestria_brioche_informed_code_architecture_report.md` is retained as historical
 input and is **non-normative**. Its backend, model, and algorithm examples are
-research candidates only. The canonical contracts are the documents listed in
-[`SPECS.md`](SPECS.md) and the dated candidates in this document.
+research candidates only. Canonical contracts are the documents listed in
+[`SPECS.md`](SPECS.md); this document contains dated candidates only.
 
 ## 1. Evaluation Framework
 
