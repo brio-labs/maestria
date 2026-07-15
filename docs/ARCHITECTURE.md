@@ -317,9 +317,11 @@ required evidence coverage
 ```rust
 pub struct SearchPlan {
     pub query_id: QueryId,
+    pub original_query: String,
     pub intent: SearchIntent,
     pub scope: CorpusScope,
     pub snapshot: CorpusSnapshotId,
+    pub index_generation: IndexGenerationId,
     pub freshness: FreshnessRequirement,
     pub modalities: ModalitySet,
     pub stages: Vec<SearchStage>,
@@ -360,6 +362,7 @@ pub struct SearchOutcome {
     pub coverage: EvidenceCoverage,
     pub conflicts: Vec<ConflictSet>,
     pub trace: SearchTraceId,
+    pub status: SearchStatus,
 }
 ```
 

@@ -61,7 +61,7 @@ CANONICAL_DOC_MARKERS = {
     "docs/SECURITY.md": ("prompt injection", "quarantine", "before scoring"),
     "docs/OPERATIONS.md": ("bounded", "recovery", "projection"),
     "docs/ROADMAP.md": ("single canonical", "exit criteria"),
-    "docs/RESEARCH.md": ("NON-NORMATIVE", "quality", "energy"),
+    "docs/RESEARCH.md": ("NON-NORMATIVE", "quality", "security", "energy"),
 }
 CANONICAL_DOC_SECTIONS = {
     "docs/ARCHITECTURE.md": ("## 2. System Identity", "## 3. Architectural Dependency Direction"),
@@ -71,6 +71,22 @@ CANONICAL_DOC_SECTIONS = {
     "docs/OPERATIONS.md": ("## 1. Bounded Runtime Lifecycle", "## 2. State and Recovery", "## 4. Data Evolution"),
     "docs/ROADMAP.md": ("## Phase 1:", "## Phase 6:"),
     "docs/RESEARCH.md": ("## 1. Evaluation Framework", "## 3. Promotion Criteria"),
+}
+POLICY_DOC_MARKERS = {
+    "docs/PHILOSOPHY.md": (
+        "41. Search plans",
+        "42. Search traces",
+        "43. Every retrieval lane",
+        "44. Retrieval changes",
+        "45. Normative architecture",
+        "46. Maestria preserves",
+    ),
+    "docs/SPECS.md": (
+        "I-Search-TypedBudgeted",
+        "I-Search-TraceFingerprint",
+        "I-Search-SecurityBeforeScore",
+        "I-Search-Evaluated",
+    ),
 }
 FORBIDDEN_EXTERNAL_TRUTH_WORDING = (
     "domain owns truth",
@@ -108,9 +124,25 @@ def scan_documentation_contract() -> list[str]:
         for marker in markers:
             if marker.casefold() not in lowered:
                 violations.append(f"{relative_path} is missing required marker {marker!r}")
+        lines = {line.strip() for line in content.splitlines()}
         for section in CANONICAL_DOC_SECTIONS[relative_path]:
-            if section.casefold() not in lowered:
+            section_found = (
+                any(line.startswith(section) for line in lines)
+                if section.endswith(":")
+                else section in lines
+            )
+            if not section_found:
                 violations.append(f"{relative_path} is missing required section {section!r}")
+
+    for relative_path, markers in POLICY_DOC_MARKERS.items():
+        content = read_text(ROOT / relative_path)
+        if content is None:
+            violations.append(f"{relative_path} is missing or unreadable")
+            continue
+        lowered = content.casefold()
+        for marker in markers:
+            if marker.casefold() not in lowered:
+                violations.append(f"{relative_path} is missing required marker {marker!r}")
 
     for path in (ROOT / "docs").rglob("*.md"):
         if should_skip(path):

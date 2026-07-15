@@ -180,6 +180,7 @@ pub struct SearchOutcome {
 
 Possible statuses include:
 
+```text
 answerable
 answerable_with_warnings
 evidence_incomplete

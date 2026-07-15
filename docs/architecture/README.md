@@ -10,6 +10,8 @@ This directory tracks the long-form architecture notes by subsystem.
 The repository-level canonical contracts are:
 
 - [ARCHITECTURE](../ARCHITECTURE.md)
+- [SPECS](../SPECS.md)
+- [PHILOSOPHY](../PHILOSOPHY.md)
 - [SEARCH](../SEARCH.md)
 - [MEMORY](../MEMORY.md)
 - [SECURITY](../SECURITY.md)

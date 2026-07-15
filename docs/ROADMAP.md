@@ -24,7 +24,7 @@ Introduce additional candidate lanes only when they improve the deterministic ba
 Implement dynamic query routing and bounded multi-stage retrieval.
 *   **Goals:** Select deterministic, lexical, semantic, graph, temporal, code, or visual lanes by typed intent and available budget.
 *   **Exit Criteria:**
-    *   Routing and decomposition are evaluated against a versioned judgment set and never bypass scope, trust, or ACL filters.
+    *   Routing and decomposition are evaluated against a versioned judgment set and never bypass scope, ACL, trust, sensitivity, quarantine, or prompt-injection filters before scoring or exposure.
     *   Every plan has explicit budgets, stopping conditions, evidence coverage, and abstention behavior.
     *   Implementation of the observation/candidate/promotion lifecycle detailed in [MEMORY.md](./MEMORY.md).
 
@@ -35,6 +35,7 @@ Deep structural and contextual understanding of codebases.
     *   A versioned Rust repository benchmark reports symbol, relation, and exact-span recall for supported language features.
     *   Live freshness checks detect changed worktree sources without returning stale evidence as current.
     *   Code retrieval preserves ACL, provenance, and deterministic trace requirements.
+    *   The phase uses the shared Rule 44 evaluation contract: quality, latency, memory, privacy, security, and energy are measured on the versioned corpus.
 
 ## Phase 5: Visual Documents
 Expand search capabilities to include visual assets and structured document regions.
@@ -42,6 +43,7 @@ Expand search capabilities to include visual assets and structured document regi
 *   **Exit Criteria:**
     *   A versioned visual-document benchmark reports region recall, citation alignment, and table/figure coverage.
     *   Visual candidates retain immutable page/region provenance and pass the same scope, trust, and quarantine gates as text.
+    *   The phase uses the shared Rule 44 evaluation contract: quality, latency, memory, privacy, security, and energy are measured on the versioned corpus.
 
 ## Phase 6: Advanced Research
 Explore additional retrieval paradigms only where measured quality/cost/security frontiers justify them.

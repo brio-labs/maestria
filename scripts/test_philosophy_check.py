@@ -134,6 +134,10 @@ class PhilosophyCheckTests(unittest.TestCase):
                 path.parent.mkdir(parents=True, exist_ok=True)
                 sections = PHILOSOPHY_CHECK.CANONICAL_DOC_SECTIONS[relative_path]
                 path.write_text("\n".join((*markers, *sections)), encoding="utf-8")
+            for relative_path, markers in PHILOSOPHY_CHECK.POLICY_DOC_MARKERS.items():
+                path = root / relative_path
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text("\n".join(markers), encoding="utf-8")
 
             self.assertEqual(PHILOSOPHY_CHECK.scan_documentation_contract(), [])
 
@@ -142,6 +146,10 @@ class PhilosophyCheckTests(unittest.TestCase):
             violations = PHILOSOPHY_CHECK.scan_documentation_contract()
             self.assertIn(
                 "docs/SEARCH.md is missing required marker 'SearchTraceId'",
+                violations,
+            )
+            self.assertIn(
+                "docs/SEARCH.md is missing required section '## Search Boundary Objects'",
                 violations,
             )
 
@@ -154,11 +162,23 @@ class PhilosophyCheckTests(unittest.TestCase):
                 path.parent.mkdir(parents=True, exist_ok=True)
                 sections = PHILOSOPHY_CHECK.CANONICAL_DOC_SECTIONS[relative_path]
                 path.write_text("\n".join((*markers, *sections)), encoding="utf-8")
+            for relative_path, markers in PHILOSOPHY_CHECK.POLICY_DOC_MARKERS.items():
+                path = root / relative_path
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text("\n".join(markers), encoding="utf-8")
 
             architecture = root / "docs" / "ARCHITECTURE.md"
             architecture.write_text(
                 "authoritative state; external factual truth; domain owns truth",
                 encoding="utf-8",
+            )
+
+            legacy = root / "docs" / "architecture" / "book-iv-ecosystem.md"
+            legacy.parent.mkdir(parents=True, exist_ok=True)
+            legacy.write_text("This projection is a truth owner.", encoding="utf-8")
+            self.assertIn(
+                "docs/architecture/book-iv-ecosystem.md contains prohibited external-truth wording 'truth owner'",
+                PHILOSOPHY_CHECK.scan_documentation_contract(),
             )
 
             self.assertIn(
