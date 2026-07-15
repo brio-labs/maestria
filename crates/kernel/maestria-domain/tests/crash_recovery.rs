@@ -215,7 +215,7 @@ fn crash_before_evidence_pending_parsers_survives_for_resume() -> Result<(), Dom
     let parsed_on_resume = output_resume
         .events
         .iter()
-        .filter(|e| matches!(e.event, DomainEvent::ArtifactParsed { status: _, .. }))
+        .filter(|e| matches!(e.event, DomainEvent::ArtifactParsed { .. }))
         .count();
     assert_eq!(
         parsed_on_resume, 0,
