@@ -731,7 +731,7 @@ fn parser_completed_resume_pending_same_hash_is_idempotent() -> Result<(), Domai
     let has_parsed = output
         .events
         .iter()
-        .any(|e| matches!(e.event, DomainEvent::ArtifactParsed { status: _, .. }));
+        .any(|e| matches!(e.event, DomainEvent::ArtifactParsed { .. }));
     assert!(has_parsed, "ArtifactParsed still emitted");
 
     // Assert: pending_parsers retained (cleared only at ArtifactIndexed).
@@ -765,7 +765,7 @@ fn parser_completed_first_zero_output_emits_artifact_parsed() -> Result<(), Doma
     let parsed_count = output
         .events
         .iter()
-        .filter(|e| matches!(e.event, DomainEvent::ArtifactParsed { status: _, .. }))
+        .filter(|e| matches!(e.event, DomainEvent::ArtifactParsed { .. }))
         .count();
     assert_eq!(
         parsed_count, 1,
@@ -799,7 +799,7 @@ fn parser_completed_duplicate_zero_output_suppresses_artifact_parsed() -> Result
         output1
             .events
             .iter()
-            .any(|e| matches!(e.event, DomainEvent::ArtifactParsed { status: _, .. }))
+            .any(|e| matches!(e.event, DomainEvent::ArtifactParsed { .. }))
     );
 
     // Second parse with same zero data — must suppress duplicate ArtifactParsed.
@@ -807,7 +807,7 @@ fn parser_completed_duplicate_zero_output_suppresses_artifact_parsed() -> Result
     let parsed2 = output2
         .events
         .iter()
-        .filter(|e| matches!(e.event, DomainEvent::ArtifactParsed { status: _, .. }))
+        .filter(|e| matches!(e.event, DomainEvent::ArtifactParsed { .. }))
         .count();
     assert_eq!(
         parsed2, 0,
