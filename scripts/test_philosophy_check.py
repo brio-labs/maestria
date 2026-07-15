@@ -152,6 +152,13 @@ class PhilosophyCheckTests(unittest.TestCase):
                 "docs/SEARCH.md is missing required section '## Search Boundary Objects'",
                 violations,
             )
+            policy = root / "docs" / "PHILOSOPHY.md"
+            policy.write_text("41. Search plans", encoding="utf-8")
+            policy_violations = PHILOSOPHY_CHECK.scan_documentation_contract()
+            self.assertIn(
+                "docs/PHILOSOPHY.md is missing required marker '42. Search traces'",
+                policy_violations,
+            )
 
     def test_documentation_contract_rejects_external_truth_wording(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
