@@ -17,6 +17,7 @@ members = [
     "crates/ecosystem/maestria-validation",
     "crates/ecosystem/maestria-web-evidence",
     "crates/harness/maestria-harness",
+    "crates/ecosystem/maestria-retrieval",
     "crates/harness/maestria-harness-cli",
     "crates/kernel/maestria-domain",
     "crates/kernel/maestria-governance",

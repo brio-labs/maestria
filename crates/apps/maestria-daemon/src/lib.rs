@@ -1,3 +1,5 @@
+mod search_executor;
+
 use std::{
     fs,
     io::Write,
@@ -19,12 +21,13 @@ use maestria_governance::{
 use maestria_graph_sqlite::SqliteGraphIndex;
 use maestria_harness::LocalShellHarnessAdapter;
 use maestria_parsers::ParserRegistry;
-use maestria_ports::{EventFilter, VectorIndex};
+use maestria_ports::{EventFilter, SearchKnowledgeExecutor, VectorIndex};
 use maestria_runtime::{Adapters, Governance, MaestriaRuntime, RuntimeConfig};
 use maestria_search_tantivy::TantivyFullTextIndex;
 use maestria_storage_sqlite::SqliteStore;
 use maestria_vector_sqlite::SqliteVectorIndex;
 use maestria_web_evidence::UreqWebFetcher;
+use search_executor::CoreSearchExecutor;
 use tokio::{
     sync::mpsc,
     time::{sleep, timeout},
@@ -256,6 +259,22 @@ fn build_adapters(
         SqliteGraphIndex::open(layout.graph_index_dir.join("projection.db"))
             .with_context(|| format!("open graph index {}", layout.graph_index_dir.display()))?,
     );
+    let search_executor: Arc<dyn SearchKnowledgeExecutor + Send + Sync> =
+        Arc::new(CoreSearchExecutor {
+            artifacts: sqlite_store.clone(),
+            chunks: sqlite_store.clone(),
+            cards: sqlite_store.clone(),
+            evidence: sqlite_store.clone(),
+            events: sqlite_store.clone(),
+            parser: parser.clone(),
+            search_index: search_index.clone(),
+            blobs: blob_store.clone(),
+            vector_index: vector_index.clone(),
+            graph_index: graph_index.clone(),
+            retrieval_policy: maestria_governance::RetrievalSecurityPolicy::default()
+                .require_read_allowed(true)
+                .allow_unscoped_items(true),
+        });
     Ok(Adapters {
         event_log: sqlite_store.clone(),
         blob_store,
@@ -267,9 +286,10 @@ fn build_adapters(
         card_repo: sqlite_store.clone(),
         evidence_repo: sqlite_store.clone(),
         embedding_provider,
+        web_fetcher: Arc::new(UreqWebFetcher::new()),
         vector_index,
         graph_index,
-        web_fetcher: Arc::new(UreqWebFetcher::new()),
+        search_executor: Some(search_executor),
         id_allocator: sqlite_store.clone(),
         effect_journal: sqlite_store.clone(),
         approval_repo: sqlite_store,

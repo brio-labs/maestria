@@ -310,6 +310,38 @@ fn search_executed_roundtrips_through_appended_scan() {
 }
 
 #[test]
+fn search_knowledge_completed_roundtrips_through_appended_scan() -> Result<(), PortError> {
+    let store = SqliteStore::in_memory()?;
+    let outcome = SearchOutcome {
+        trace: SearchTraceId::new(7),
+        fingerprint: RetrievalModelFingerprint::new("test-model".to_string()).map_err(|error| {
+            PortError::Internal {
+                message: error.to_string(),
+            }
+        })?,
+        index_generation: IndexGenerationId::new(3),
+        status: SearchStatus::NoEvidenceFound,
+        evidence: Vec::new(),
+        coverage: EvidenceCoverage {
+            percent_covered: 0,
+            gaps_identified: vec!["no evidence".to_string()],
+        },
+        conflicts: Vec::new(),
+    };
+    let envelope = DomainEventEnvelope {
+        id: EventId::new(1),
+        sequence: SequenceNumber::new(1),
+        event: DomainEvent::SearchKnowledgeCompleted { outcome },
+    };
+    store.append(envelope.clone())?;
+    assert_eq!(
+        store.scan(EventFilter { artifact_id: None })?,
+        vec![envelope]
+    );
+    Ok(())
+}
+
+#[test]
 fn document_tree_captured_event_round_trips() -> Result<(), PortError> {
     let store = SqliteStore::in_memory()?;
     let node = StructureNode {

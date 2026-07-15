@@ -13,6 +13,7 @@ mod manifest;
 mod ports;
 mod provenance;
 mod retrieval;
+mod retrieval_lanes;
 mod types;
 
 pub const CORE_VERSION: &str = "0.1.0";

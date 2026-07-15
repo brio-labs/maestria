@@ -1,7 +1,8 @@
 use crate::config::EffectExecutionContext;
 use maestria_domain::{
-    DiagnosticEvent, DomainInput, FetchWebRequest, IndexVectorRequest, LogicalTick, MaestriaEffect,
-    RequestApprovalRequest, UpdateGraphRequest,
+    CorpusScope, DiagnosticEvent, DomainInput, FetchWebRequest, IndexVectorRequest, LogicalTick,
+    MaestriaEffect, RequestApprovalRequest, SearchKnowledgeCompleted, SearchKnowledgeRequest,
+    UpdateGraphRequest,
 };
 use maestria_governance::{ApprovalRequest, PolicyDecision, RiskClass, ScopeGuard, scan_secrets};
 use maestria_ports::{ApprovalRecord, ApprovalRiskLevel, ApprovalStatus, VectorEmbedding};
@@ -59,6 +60,7 @@ impl EffectExecutionContext {
             MaestriaEffect::EmitDiagnostic(diagnostic) => {
                 self.handle_emit_diagnostic(diagnostic).await
             }
+            MaestriaEffect::SearchKnowledge(request) => self.handle_search_knowledge(request).await,
         }
     }
 
@@ -115,6 +117,42 @@ impl EffectExecutionContext {
     }
 
     // ── lightweight handlers ──────────────────────────────────────────
+
+    async fn handle_search_knowledge(&self, request: SearchKnowledgeRequest) -> bool {
+        let Some(executor) = &self.adapters.search_executor else {
+            tracing::error!("search knowledge effect has no configured executor");
+            return false;
+        };
+        let mut plan = request.plan;
+        match &mut plan.scope {
+            CorpusScope::Global => {
+                plan.scope = CorpusScope::Restricted(vec![self.scope_id]);
+            }
+            CorpusScope::Restricted(scopes) if scopes.as_slice() != [self.scope_id] => {
+                tracing::error!("search knowledge request exceeds runtime scope");
+                return false;
+            }
+            CorpusScope::Restricted(_) => {}
+        }
+        match executor.search(plan.clone()).await {
+            Ok(outcome) => {
+                if let Err(error) = outcome.verify_compatibility(&plan) {
+                    tracing::error!(%error, "search outcome is incompatible with request plan");
+                    return false;
+                }
+                Self::send_input(
+                    &self.input_tx,
+                    DomainInput::SearchKnowledgeCompleted(SearchKnowledgeCompleted { outcome }),
+                    "search knowledge completion",
+                )
+                .is_ok()
+            }
+            Err(error) => {
+                tracing::error!(%error, "knowledge search failed");
+                false
+            }
+        }
+    }
 
     async fn handle_update_graph(&self, request: UpdateGraphRequest) -> bool {
         let relation = {

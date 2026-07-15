@@ -184,4 +184,7 @@ pub enum DomainEvent {
         content_hash: String,
         blob_id: BlobId,
     },
+    SearchKnowledgeCompleted {
+        outcome: crate::search::SearchOutcome,
+    },
 }

@@ -64,6 +64,12 @@ impl KernelState {
             DomainInput::ParserStarted(input) => self.process_parser_started(input),
             DomainInput::ResumeParser(input) => self.process_resume_parser(input),
             DomainInput::SearchExecuted(input) => self.process_search_executed(input),
+            DomainInput::SearchKnowledgeRequested(input) => {
+                self.process_search_knowledge_requested(input)
+            }
+            DomainInput::SearchKnowledgeCompleted(input) => {
+                self.process_search_knowledge_completed(input)
+            }
             DomainInput::ClockTick(tick) => self.process_clock_tick(tick),
         }
     }

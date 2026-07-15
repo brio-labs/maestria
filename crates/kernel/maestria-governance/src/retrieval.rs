@@ -14,6 +14,8 @@ pub struct RetrievalSecurityPolicy {
     pub max_sensitivity: Option<Sensitivity>,
     pub require_read_allowed: bool,
     pub required_scope_id: Option<ScopeId>,
+    /// Permit legacy records without scope metadata in an instance-local store.
+    pub allow_unscoped_items: bool,
 }
 
 impl RetrievalSecurityPolicy {
@@ -41,6 +43,10 @@ impl RetrievalSecurityPolicy {
         self
     }
 
+    pub fn allow_unscoped_items(mut self, allow: bool) -> Self {
+        self.allow_unscoped_items = allow;
+        self
+    }
     /// Evaluates the metadata against the policy constraints.
     pub fn evaluate(&self, metadata: &SecurityMetadata) -> RetrievalDecision {
         // Core retrieval rule: always reject quarantined or rejected items
@@ -83,7 +89,7 @@ impl RetrievalSecurityPolicy {
                         req_scope, item_scope
                     ));
                 }
-            } else {
+            } else if !self.allow_unscoped_items {
                 return RetrievalDecision::Denied("Item has no scope_id".into());
             }
         }

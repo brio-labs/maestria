@@ -109,6 +109,7 @@ pub(super) fn leaked_kind(kind: String) -> Result<&'static str, PortError> {
         "approval_recorded" => Ok("approval_recorded"),
         "tick_observed" => Ok("tick_observed"),
         "search_executed" => Ok("search_executed"),
+        "search_knowledge_completed" => Ok("search_knowledge_completed"),
         "pending_index" => Ok("pending_index"),
         "full_text_indexed" => Ok("full_text_indexed"),
         "artifact_indexed" => Ok("artifact_indexed"),
