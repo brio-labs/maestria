@@ -13,8 +13,8 @@ use crate::ids::*;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SearchCompatibilityError {
     ModelFingerprintMismatch {
-        expected: RetrievalModelFingerprintId,
-        found: RetrievalModelFingerprintId,
+        expected: RetrievalModelFingerprint,
+        found: RetrievalModelFingerprint,
     },
     IndexGenerationMismatch {
         expected: IndexGenerationId,
@@ -22,6 +22,7 @@ pub enum SearchCompatibilityError {
     },
     InvalidBudget(&'static str),
     InvalidContentHash(&'static str),
+    InvalidFingerprint(&'static str),
 }
 
 impl fmt::Display for SearchCompatibilityError {
@@ -30,8 +31,8 @@ impl fmt::Display for SearchCompatibilityError {
             Self::ModelFingerprintMismatch { expected, found } => write!(
                 f,
                 "Incompatible retrieval model fingerprint: expected {}, found {}",
-                expected.value(),
-                found.value()
+                expected.as_str(),
+                found.as_str()
             ),
             Self::IndexGenerationMismatch { expected, found } => write!(
                 f,
@@ -41,20 +42,52 @@ impl fmt::Display for SearchCompatibilityError {
             ),
             Self::InvalidBudget(msg) => write!(f, "Invalid budget: {}", msg),
             Self::InvalidContentHash(msg) => write!(f, "Invalid content hash: {}", msg),
+            Self::InvalidFingerprint(msg) => {
+                write!(f, "Invalid retrieval model fingerprint: {}", msg)
+            }
         }
     }
 }
 
 impl std::error::Error for SearchCompatibilityError {}
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub struct RetrievalModelFingerprint(String);
+
+impl RetrievalModelFingerprint {
+    pub fn new(value: String) -> Result<Self, SearchCompatibilityError> {
+        if value.trim().is_empty() {
+            return Err(SearchCompatibilityError::InvalidFingerprint(
+                "value must not be empty",
+            ));
+        }
+        Ok(Self(value))
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(try_from = "String")]
 pub struct ContentHash(String);
+
+impl TryFrom<String> for ContentHash {
+    type Error = SearchCompatibilityError;
+
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        ContentHash::new(value)
+    }
+}
 
 impl ContentHash {
     pub fn new(hash: String) -> Result<Self, SearchCompatibilityError> {
-        if !hash.starts_with("sha256:") {
+        if !hash
+            .strip_prefix("sha256:")
+            .is_some_and(|digest| !digest.is_empty())
+        {
             return Err(SearchCompatibilityError::InvalidContentHash(
-                "Must start with sha256:",
+                "Must start with sha256: and include a digest",
             ));
         }
         Ok(Self(hash))
@@ -66,6 +99,7 @@ impl ContentHash {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(try_from = "ArtifactVersionDto")]
 pub struct ArtifactVersion {
     id: ArtifactVersionId,
     artifact_id: ArtifactId,
@@ -94,6 +128,24 @@ impl ArtifactVersion {
     }
 }
 
+#[derive(Deserialize)]
+struct ArtifactVersionDto {
+    id: ArtifactVersionId,
+    artifact_id: ArtifactId,
+    content_hash: ContentHash,
+}
+
+impl TryFrom<ArtifactVersionDto> for ArtifactVersion {
+    type Error = SearchCompatibilityError;
+
+    fn try_from(dto: ArtifactVersionDto) -> Result<Self, Self::Error> {
+        Ok(ArtifactVersion::new(
+            dto.id,
+            dto.artifact_id,
+            dto.content_hash,
+        ))
+    }
+}
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum StructureNodeType {
     Document,
@@ -196,11 +248,25 @@ pub enum SearchStage {
     Filtering,
     Synthesis,
 }
-
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(try_from = "SearchBudgetDto")]
 pub struct SearchBudget {
     max_tokens: u32,
     max_latency_ms: u32,
+}
+
+#[derive(Deserialize)]
+struct SearchBudgetDto {
+    max_tokens: u32,
+    max_latency_ms: u32,
+}
+
+impl TryFrom<SearchBudgetDto> for SearchBudget {
+    type Error = SearchCompatibilityError;
+
+    fn try_from(dto: SearchBudgetDto) -> Result<Self, Self::Error> {
+        SearchBudget::new(dto.max_tokens, dto.max_latency_ms)
+    }
 }
 
 impl SearchBudget {
@@ -256,7 +322,7 @@ pub struct SearchPlan {
     pub budgets: SearchBudget,
     pub stop_conditions: StopConditions,
     pub evidence_requirements: EvidenceRequirements,
-    pub fingerprint: RetrievalModelFingerprintId,
+    pub fingerprint: RetrievalModelFingerprint,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -323,7 +389,7 @@ pub enum SearchStatus {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SearchOutcome {
     pub trace_id: SearchTraceId,
-    pub fingerprint: RetrievalModelFingerprintId,
+    pub fingerprint: RetrievalModelFingerprint,
     pub index_generation: IndexGenerationId,
     pub status: SearchStatus,
     pub coverage: EvidenceCoverage,
@@ -335,8 +401,8 @@ impl SearchOutcome {
     pub fn verify_compatibility(&self, plan: &SearchPlan) -> Result<(), SearchCompatibilityError> {
         if self.fingerprint != plan.fingerprint {
             return Err(SearchCompatibilityError::ModelFingerprintMismatch {
-                expected: plan.fingerprint,
-                found: self.fingerprint,
+                expected: plan.fingerprint.clone(),
+                found: self.fingerprint.clone(),
             });
         }
         if self.index_generation != plan.index_generation {

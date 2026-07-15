@@ -60,6 +60,5 @@ id_type!(QueryId);
 id_type!(SearchTraceId);
 id_type!(CorpusSnapshotId);
 id_type!(IndexGenerationId);
-id_type!(RetrievalModelFingerprintId);
 id_type!(DuplicateClusterId);
 id_type!(ConflictSetId);

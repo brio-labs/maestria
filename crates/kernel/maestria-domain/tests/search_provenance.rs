@@ -1,11 +1,11 @@
 use maestria_domain::{
-    ArtifactId, ArtifactVersion, ArtifactVersionId, ConflictSet, ConflictSetId, ContentRange,
-    ContentHash, CorpusScope, CorpusSnapshotId, DuplicateClusterId, EvidenceCandidate,
+    ArtifactId, ArtifactVersion, ArtifactVersionId, ConflictSet, ConflictSetId, ContentHash,
+    ContentRange, CorpusScope, CorpusSnapshotId, DuplicateClusterId, EvidenceCandidate,
     EvidenceCoverage, EvidenceRequirements, EvidenceSpan, FreshnessRequirement, FreshnessStatus,
-    IndexGenerationId, Modality, ModalitySet, QueryId, RetrievalModelFingerprintId,
-    RetrievalReason, RetrievalScoreSet, SearchBudget, SearchCompatibilityError, SearchIntent,
-    SearchOutcome, SearchPlan, SearchStage, SearchStatus, SearchTraceId, SourceLocation,
-    StopConditions, StructureNodeId, TrustLabel,
+    IndexGenerationId, Modality, ModalitySet, QueryId, RetrievalModelFingerprint, RetrievalReason,
+    RetrievalScoreSet, SearchBudget, SearchCompatibilityError, SearchIntent, SearchOutcome,
+    SearchPlan, SearchStage, SearchStatus, SearchTraceId, SourceLocation, StopConditions,
+    StructureNodeId, TrustLabel,
 };
 
 fn plan() -> SearchPlan {
@@ -30,7 +30,8 @@ fn plan() -> SearchPlan {
             require_primary_sources: true,
             minimum_corroboration: 2,
         },
-        fingerprint: RetrievalModelFingerprintId::new(17),
+        fingerprint: RetrievalModelFingerprint::new("model:v1".to_owned())
+            .expect("valid fingerprint"),
     }
 }
 
@@ -64,7 +65,8 @@ fn candidate() -> EvidenceCandidate {
 fn outcome() -> SearchOutcome {
     SearchOutcome {
         trace_id: SearchTraceId::new(37),
-        fingerprint: RetrievalModelFingerprintId::new(17),
+        fingerprint: RetrievalModelFingerprint::new("model:v1".to_owned())
+            .expect("valid fingerprint"),
         index_generation: IndexGenerationId::new(13),
         status: SearchStatus::Success,
         coverage: EvidenceCoverage {
@@ -87,12 +89,18 @@ fn plan_and_outcome_serialize_deterministically_and_round_trip() {
     let plan_json = serde_json::to_string(&plan).expect("plan serializes");
     let outcome_json = serde_json::to_string(&outcome).expect("outcome serializes");
 
-    assert_eq!(plan_json, serde_json::to_string(&plan).expect("plan re-serializes"));
+    assert_eq!(
+        plan_json,
+        serde_json::to_string(&plan).expect("plan re-serializes")
+    );
     assert_eq!(
         outcome_json,
         serde_json::to_string(&outcome).expect("outcome re-serializes")
     );
-    assert_eq!(plan, serde_json::from_str(&plan_json).expect("plan round trips"));
+    assert_eq!(
+        plan,
+        serde_json::from_str(&plan_json).expect("plan round trips")
+    );
     assert_eq!(
         outcome,
         serde_json::from_str(&outcome_json).expect("outcome round trips")
@@ -106,13 +114,14 @@ fn compatibility_rejects_model_and_index_mismatches() {
 
     assert_eq!(outcome.verify_compatibility(&plan), Ok(()));
 
-    outcome.fingerprint = RetrievalModelFingerprintId::new(43);
+    outcome.fingerprint =
+        RetrievalModelFingerprint::new("model:v2".to_owned()).expect("valid fingerprint");
     assert!(matches!(
         outcome.verify_compatibility(&plan),
         Err(SearchCompatibilityError::ModelFingerprintMismatch { .. })
     ));
 
-    outcome.fingerprint = plan.fingerprint;
+    outcome.fingerprint = plan.fingerprint.clone();
     outcome.index_generation = IndexGenerationId::new(47);
     assert!(matches!(
         outcome.verify_compatibility(&plan),
@@ -129,5 +138,9 @@ fn invalid_budget_and_content_hash_are_typed_errors() {
     assert!(matches!(
         ContentHash::new("md5:abc".to_owned()),
         Err(SearchCompatibilityError::InvalidContentHash(_))
+    ));
+    assert!(matches!(
+        RetrievalModelFingerprint::new("  ".to_owned()),
+        Err(SearchCompatibilityError::InvalidFingerprint(_))
     ));
 }
