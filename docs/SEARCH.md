@@ -80,6 +80,7 @@ pub struct SearchPlan {
     pub intent: SearchIntent,
     pub scope: CorpusScope,
     pub snapshot: CorpusSnapshotId,
+    pub index_generation: IndexGenerationId,
     pub freshness: FreshnessRequirement,
     pub modalities: ModalitySet,
     pub stages: Vec<SearchStage>,
