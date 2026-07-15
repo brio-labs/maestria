@@ -1,11 +1,11 @@
 use maestria_domain::{
     ArtifactId, ArtifactVersion, ArtifactVersionId, ConflictSet, ConflictSetId, ContentHash,
     ContentRange, CorpusScope, CorpusSnapshotId, DuplicateClusterId, EvidenceCandidate,
-    EvidenceCoverage, EvidenceRequirements, EvidenceSpan, FreshnessRequirement, FreshnessStatus,
-    IndexGenerationId, Modality, ModalitySet, QueryId, RetrievalModelFingerprint, RetrievalReason,
-    RetrievalScoreSet, SearchBudget, SearchCompatibilityError, SearchIntent, SearchOutcome,
-    SearchPlan, SearchStage, SearchStatus, SearchTraceId, SourceLocation, StopConditions,
-    StructureNodeId, TrustLabel,
+    EvidenceCoverage, EvidenceId, EvidenceRequirements, EvidenceSpan, FreshnessRequirement,
+    FreshnessStatus, IndexGenerationId, Modality, ModalitySet, QueryId, RetrievalModelFingerprint,
+    RetrievalReason, RetrievalScoreSet, SearchBudget, SearchCompatibilityError, SearchIntent,
+    SearchOutcome, SearchPlan, SearchStage, SearchStatus, SearchTraceId, SourceLocation,
+    StopConditions, StructureNodeId, TrustLabel,
 };
 
 fn plan() -> SearchPlan {
@@ -34,14 +34,21 @@ fn plan() -> SearchPlan {
             .expect("valid fingerprint"),
     }
 }
+fn artifact_version() -> ArtifactVersion {
+    ArtifactVersion::new(
+        ArtifactVersionId::new(19),
+        ArtifactId::new(23),
+        ContentHash::new(
+            "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef".to_owned(),
+        )
+        .expect("valid hash"),
+    )
+}
 
 fn candidate() -> EvidenceCandidate {
     EvidenceCandidate {
-        artifact_version: ArtifactVersion::new(
-            ArtifactVersionId::new(19),
-            ArtifactId::new(23),
-            ContentHash::new("sha256:abc123".to_owned()).expect("valid hash"),
-        ),
+        evidence_id: EvidenceId::new(23),
+        artifact_version: ArtifactVersionId::new(19),
         source_span: EvidenceSpan {
             node_id: Some(StructureNodeId::new(29)),
             location: SourceLocation::File {
@@ -51,11 +58,11 @@ fn candidate() -> EvidenceCandidate {
             },
             range: ContentRange { start: 32, end: 96 },
         },
-        retrieval_score: RetrievalScoreSet {
+        scores: RetrievalScoreSet {
             bm25: 91,
             semantic_similarity: 88,
         },
-        trust_label: TrustLabel::Verified,
+        trust: TrustLabel::Verified,
         freshness: FreshnessStatus::UpToDate,
         duplicate_cluster: Some(DuplicateClusterId::new(31)),
         reasons: vec![RetrievalReason::ExactMatch, RetrievalReason::CitationLink],
@@ -64,11 +71,12 @@ fn candidate() -> EvidenceCandidate {
 
 fn outcome() -> SearchOutcome {
     SearchOutcome {
-        trace_id: SearchTraceId::new(37),
+        trace: SearchTraceId::new(37),
         fingerprint: RetrievalModelFingerprint::new("model:v1".to_owned())
             .expect("valid fingerprint"),
         index_generation: IndexGenerationId::new(13),
         status: SearchStatus::Success,
+        evidence: vec![candidate()],
         coverage: EvidenceCoverage {
             percent_covered: 100,
             gaps_identified: Vec::new(),
@@ -77,7 +85,6 @@ fn outcome() -> SearchOutcome {
             id: ConflictSetId::new(41),
             candidates: vec![candidate()],
         }],
-        candidates: vec![candidate()],
     }
 }
 
@@ -86,6 +93,8 @@ fn plan_and_outcome_serialize_deterministically_and_round_trip() {
     let plan = plan();
     let outcome = outcome();
 
+    let version = artifact_version();
+    let version_json = serde_json::to_string(&version).expect("version serializes");
     let plan_json = serde_json::to_string(&plan).expect("plan serializes");
     let outcome_json = serde_json::to_string(&outcome).expect("outcome serializes");
 
@@ -98,12 +107,20 @@ fn plan_and_outcome_serialize_deterministically_and_round_trip() {
         serde_json::to_string(&outcome).expect("outcome re-serializes")
     );
     assert_eq!(
+        version_json,
+        serde_json::to_string(&version).expect("version re-serializes")
+    );
+    assert_eq!(
         plan,
         serde_json::from_str(&plan_json).expect("plan round trips")
     );
     assert_eq!(
         outcome,
         serde_json::from_str(&outcome_json).expect("outcome round trips")
+    );
+    assert_eq!(
+        version,
+        serde_json::from_str(&version_json).expect("version round trips")
     );
 }
 

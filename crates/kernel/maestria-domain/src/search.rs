@@ -51,7 +51,16 @@ impl fmt::Display for SearchCompatibilityError {
 
 impl std::error::Error for SearchCompatibilityError {}
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(try_from = "String")]
 pub struct RetrievalModelFingerprint(String);
+
+impl TryFrom<String> for RetrievalModelFingerprint {
+    type Error = SearchCompatibilityError;
+
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        RetrievalModelFingerprint::new(value)
+    }
+}
 
 impl RetrievalModelFingerprint {
     pub fn new(value: String) -> Result<Self, SearchCompatibilityError> {
@@ -82,12 +91,12 @@ impl TryFrom<String> for ContentHash {
 
 impl ContentHash {
     pub fn new(hash: String) -> Result<Self, SearchCompatibilityError> {
-        if !hash
-            .strip_prefix("sha256:")
-            .is_some_and(|digest| !digest.is_empty())
-        {
+        let valid_digest = hash.strip_prefix("sha256:").is_some_and(|digest| {
+            digest.len() == 64 && digest.bytes().all(|byte| byte.is_ascii_hexdigit())
+        });
+        if !valid_digest {
             return Err(SearchCompatibilityError::InvalidContentHash(
-                "Must start with sha256: and include a digest",
+                "Must be sha256: followed by 64 hexadecimal characters",
             ));
         }
         Ok(Self(hash))
@@ -355,10 +364,11 @@ pub enum RetrievalReason {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EvidenceCandidate {
-    pub artifact_version: ArtifactVersion,
+    pub evidence_id: EvidenceId,
+    pub artifact_version: ArtifactVersionId,
     pub source_span: EvidenceSpan,
-    pub retrieval_score: RetrievalScoreSet,
-    pub trust_label: TrustLabel,
+    pub scores: RetrievalScoreSet,
+    pub trust: TrustLabel,
     pub freshness: FreshnessStatus,
     pub duplicate_cluster: Option<DuplicateClusterId>,
     pub reasons: Vec<RetrievalReason>,
@@ -388,13 +398,13 @@ pub enum SearchStatus {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SearchOutcome {
-    pub trace_id: SearchTraceId,
+    pub trace: SearchTraceId,
     pub fingerprint: RetrievalModelFingerprint,
     pub index_generation: IndexGenerationId,
     pub status: SearchStatus,
+    pub evidence: Vec<EvidenceCandidate>,
     pub coverage: EvidenceCoverage,
     pub conflicts: Vec<ConflictSet>,
-    pub candidates: Vec<EvidenceCandidate>,
 }
 
 impl SearchOutcome {
