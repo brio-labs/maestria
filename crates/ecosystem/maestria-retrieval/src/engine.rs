@@ -1,4 +1,7 @@
-use maestria_domain::{EvidenceCandidate, SearchOutcome, SearchPlan};
+use maestria_domain::{
+    EvidenceCandidate, SearchOutcome, SearchPlan, SearchStatus, SearchStopReason, SearchTrace,
+    SearchTraceExpansion,
+};
 use maestria_ports::SearchQuery;
 use std::sync::Arc;
 use std::time::Duration;
@@ -12,6 +15,67 @@ use crate::types::{
 };
 
 type PipelineRetriever<'a, C> = Box<dyn Fn(&SearchPlan) -> RetrievalResult<Vec<C>> + 'a>;
+
+fn ensure_trace(
+    plan: &SearchPlan,
+    mut outcome: SearchOutcome,
+    retrievers: Vec<String>,
+    fusion_enabled: bool,
+    expansion_enabled: bool,
+) -> SearchOutcome {
+    let trace_is_valid = outcome.trace_data.as_ref().is_some_and(|trace| {
+        outcome.trace == trace.deterministic_id()
+            && trace.matches_plan(plan)
+            && trace.retrievers == retrievers
+            && trace.fusion.is_some() == fusion_enabled
+            && trace.expansions.len() == usize::from(expansion_enabled)
+            && trace.matches_evidence(&outcome.evidence)
+    });
+    if trace_is_valid {
+        return outcome;
+    }
+    let stop_reason = match &outcome.status {
+        SearchStatus::NoEvidenceFound => SearchStopReason::NoEvidence,
+        SearchStatus::DeniedByPolicy | SearchStatus::QuarantinedForReview => {
+            SearchStopReason::PolicyDenied
+        }
+        SearchStatus::Abstained => SearchStopReason::Abstained,
+        SearchStatus::EvidenceIncomplete
+        | SearchStatus::StaleEvidenceOnly
+        | SearchStatus::SourcesConflict => SearchStopReason::RequirementsUnmet,
+        _ if outcome.evidence.len() >= plan.stop_conditions.max_results as usize => {
+            SearchStopReason::ResultsLimit
+        }
+        _ => SearchStopReason::EvidenceComplete,
+    };
+    let expansions = expansion_enabled
+        .then_some(SearchTraceExpansion {
+            strategy: "configured".to_string(),
+            added_candidates: None,
+        })
+        .into_iter()
+        .collect();
+    let trace = SearchTrace::from_plan(
+        plan,
+        retrievers,
+        &outcome.evidence,
+        Vec::new(),
+        fusion_enabled.then_some("configured".to_string()),
+        expansions,
+        stop_reason,
+    )
+    .with_gaps_and_conflicts(
+        outcome.coverage.gaps_identified.clone(),
+        outcome
+            .conflicts
+            .iter()
+            .map(|conflict| conflict.id)
+            .collect(),
+    );
+    outcome.trace = trace.deterministic_id();
+    outcome.trace_data = Some(Box::new(trace));
+    outcome
+}
 type PipelineFusion<'a, C> = Box<dyn Fn(Vec<Vec<C>>) -> RetrievalResult<Vec<C>> + 'a>;
 type PipelineStage<'a, C> = Box<dyn Fn(Vec<C>, &SearchPlan) -> RetrievalResult<Vec<C>> + 'a>;
 type PipelineEvaluator<'a, C, O> = Box<dyn Fn(Vec<C>, &SearchPlan) -> RetrievalResult<O> + 'a>;
@@ -89,6 +153,10 @@ impl RetrievalEngine {
             batches.push(batch);
         }
 
+        let retriever_ids = batches
+            .iter()
+            .map(|batch| batch.descriptor.id.clone())
+            .collect::<Vec<_>>();
         let mut ranked = if let Some(fusion) = &self.fusion {
             fusion
                 .fuse(&query, &batches)?
@@ -140,8 +208,15 @@ impl RetrievalEngine {
                 candidates,
             })
             .await?;
-        report.outcome.verify_compatibility(plan)?;
-        Ok(report.outcome)
+        let outcome = ensure_trace(
+            plan,
+            report.outcome,
+            retriever_ids,
+            self.fusion.is_some(),
+            self.expander.is_some(),
+        );
+        outcome.verify_compatibility(plan)?;
+        Ok(outcome)
     }
 }
 
@@ -186,13 +261,18 @@ impl<'a> SyncRetrievalEngine<'a> {
 
     pub fn search_sync(&self, plan: &SearchPlan) -> RetrievalResult<SearchOutcome> {
         let outcome = self.pipeline.run(plan)?;
+        let outcome = ensure_trace(
+            plan,
+            outcome,
+            vec!["sync_pipeline".to_string()],
+            self.pipeline.fusion.is_some(),
+            self.pipeline.expander.is_some(),
+        );
         outcome.verify_compatibility(plan)?;
         Ok(outcome)
     }
 }
 
-/// Synchronous orchestration for adapters whose candidate representation is local
-/// to the application boundary.
 pub struct SyncPipeline<'a, C, O> {
     retrievers: Vec<PipelineRetriever<'a, C>>,
     fusion: Option<PipelineFusion<'a, C>>,

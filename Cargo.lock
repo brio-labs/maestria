@@ -1360,6 +1360,7 @@ dependencies = [
  "async-trait",
  "maestria-domain",
  "maestria-ports",
+ "serde",
  "thiserror 1.0.69",
  "tokio",
 ]

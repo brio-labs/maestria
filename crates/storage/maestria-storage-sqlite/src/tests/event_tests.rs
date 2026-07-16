@@ -314,6 +314,7 @@ fn search_knowledge_completed_roundtrips_through_appended_scan() -> Result<(), P
     let store = SqliteStore::in_memory()?;
     let outcome = SearchOutcome {
         trace: SearchTraceId::new(7),
+        trace_data: None,
         fingerprint: RetrievalModelFingerprint::new("test-model".to_string()).map_err(|error| {
             PortError::Internal {
                 message: error.to_string(),

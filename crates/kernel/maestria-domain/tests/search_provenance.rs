@@ -4,8 +4,8 @@ use maestria_domain::{
     EvidenceCoverage, EvidenceId, EvidenceRequirements, EvidenceSpan, FreshnessRequirement,
     FreshnessStatus, IndexGenerationId, Modality, ModalitySet, QueryId, RetrievalModelFingerprint,
     RetrievalReason, RetrievalScoreSet, SearchBudget, SearchCompatibilityError, SearchIntent,
-    SearchOutcome, SearchPlan, SearchStage, SearchStatus, SearchTraceId, SourceLocation,
-    StopConditions, StructureNodeId, TrustLabel,
+    SearchOutcome, SearchPlan, SearchStage, SearchStatus, SearchStopReason, SearchTrace,
+    SearchTraceFilter, SearchTraceId, SourceLocation, StopConditions, StructureNodeId, TrustLabel,
 };
 
 fn plan() -> SearchPlan {
@@ -71,14 +71,15 @@ fn candidate() -> EvidenceCandidate {
 fn outcome() -> SearchOutcome {
     SearchOutcome {
         trace: SearchTraceId::new(37),
+        trace_data: None,
         fingerprint: RetrievalModelFingerprint::new("model:v1".to_owned())
             .expect("valid fingerprint"),
         index_generation: IndexGenerationId::new(13),
         status: SearchStatus::Answerable,
         evidence: vec![candidate()],
         coverage: EvidenceCoverage {
-            percent_covered: 100,
-            gaps_identified: Vec::new(),
+            percent_covered: 50,
+            gaps_identified: vec!["missing section".to_owned()],
         },
         conflicts: vec![ConflictSet {
             id: ConflictSetId::new(41),
@@ -142,6 +143,41 @@ fn compatibility_rejects_model_and_index_mismatches() {
     assert!(matches!(
         outcome.verify_compatibility(&plan),
         Err(SearchCompatibilityError::IndexGenerationMismatch { .. })
+    ));
+}
+
+#[test]
+fn trace_captures_plan_and_rejects_incompatible_replay() {
+    let plan = plan();
+    let trace = SearchTrace::from_plan(
+        &plan,
+        vec!["cards".to_owned(), "lexical_chunks".to_owned()],
+        &[candidate()],
+        vec![SearchTraceFilter::Acl, SearchTraceFilter::PromptInjection],
+        Some("rrf-fixed-k60".to_owned()),
+        vec![],
+        SearchStopReason::EvidenceComplete,
+    )
+    .with_gaps_and_conflicts(
+        vec!["missing section".to_owned()],
+        vec![ConflictSetId::new(41)],
+    );
+    let mut outcome = outcome();
+    outcome.trace = trace.deterministic_id();
+    outcome.trace_data = Some(Box::new(trace));
+
+    assert_eq!(outcome.verify_compatibility(&plan), Ok(()));
+    let mut incompatible = plan.clone();
+    incompatible.original_query = "different query".to_owned();
+    assert!(matches!(
+        outcome.verify_compatibility(&incompatible),
+        Err(SearchCompatibilityError::TracePlanMismatch(_))
+    ));
+    let mut mismatched_evidence = outcome;
+    mismatched_evidence.evidence.clear();
+    assert!(matches!(
+        mismatched_evidence.verify_compatibility(&plan),
+        Err(SearchCompatibilityError::TracePlanMismatch(_))
     ));
 }
 

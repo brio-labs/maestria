@@ -195,6 +195,25 @@ abstained
 
 An outcome may be useful without being complete. Missing coverage and unresolved conflicts must be explicit.
 
+### Search Trace and Golden Gate
+
+Every runtime-produced `SearchOutcome` carries a typed trace payload in addition
+to its stable `SearchTraceId`. The payload records the original query, plan
+identity, corpus and index fingerprints, retriever route, budgets, candidate
+ranks and scores, pre-scoring security filters, fusion policy, expansion
+summary, missing evidence, conflicts, and deterministic stop reason.
+When a runtime policy is available, its deterministic policy fingerprint is
+included; expansion counts are nullable when an adapter cannot expose the
+pre-expansion delta, rather than claiming a fabricated count.
+`SearchKnowledgeCompleted` event persists this payload with the outcome; older
+event payloads remain readable without trace details.
+
+The versioned golden gate evaluates frozen judgments using deterministic
+Recall@k, nDCG@k, MRR, and exact-span recall metrics alongside latency,
+memory/disk, ACL-leakage, and prompt-injection/poisoning attack-success
+measurements. Configured regressions return an error and therefore fail the
+test/CI gate rather than being printed as advisory metrics.
+
 ## Search Execution Model
 
 The logical execution flow is:

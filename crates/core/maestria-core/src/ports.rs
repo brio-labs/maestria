@@ -6,7 +6,8 @@ use crate::types::{
 use maestria_domain::{
     ArtifactVersionId, ContentHash, ContentRange, EvidenceCandidate, EvidenceCoverage,
     EvidenceSpan, FreshnessStatus, RetrievalReason, RetrievalScoreSet, SearchOutcome, SearchStatus,
-    SourceLocation, SourceSpan, TrustLabel,
+    SearchStopReason, SearchTrace, SearchTraceExpansion, SearchTraceFilter, SourceLocation,
+    SourceSpan, TrustLabel,
 };
 
 use maestria_ports::{
@@ -96,6 +97,85 @@ fn evidence_candidate_from_hit(
         reasons: vec![reason.clone()],
     })
 }
+fn build_search_trace(
+    plan: &maestria_domain::SearchPlan,
+    evidence: &[EvidenceCandidate],
+    status: &SearchStatus,
+    gaps: &[String],
+    expansion_enabled: bool,
+    graph_enabled: bool,
+    policy: &maestria_governance::RetrievalSecurityPolicy,
+) -> SearchTrace {
+    let chunk_lane = if plan.original_query.trim().starts_with('"') {
+        "exact_chunks"
+    } else {
+        "lexical_chunks"
+    };
+    let stop_reason = match status {
+        SearchStatus::NoEvidenceFound => SearchStopReason::NoEvidence,
+        SearchStatus::DeniedByPolicy | SearchStatus::QuarantinedForReview => {
+            SearchStopReason::PolicyDenied
+        }
+        SearchStatus::Abstained => SearchStopReason::Abstained,
+        SearchStatus::EvidenceIncomplete
+        | SearchStatus::StaleEvidenceOnly
+        | SearchStatus::SourcesConflict => SearchStopReason::RequirementsUnmet,
+        _ if evidence.len() >= plan.stop_conditions.max_results as usize => {
+            SearchStopReason::ResultsLimit
+        }
+        _ => SearchStopReason::EvidenceComplete,
+    };
+    let expansions = expansion_enabled
+        .then_some(SearchTraceExpansion {
+            strategy: if graph_enabled {
+                "hierarchy+graph".to_string()
+            } else {
+                "hierarchy".to_string()
+            },
+            added_candidates: None,
+        })
+        .into_iter()
+        .collect();
+    let mut filters = vec![
+        SearchTraceFilter::Quarantine,
+        SearchTraceFilter::PromptInjection,
+    ];
+    if matches!(plan.scope, maestria_domain::CorpusScope::Restricted(_))
+        || policy.required_scope_id.is_some()
+    {
+        filters.push(SearchTraceFilter::Scope);
+    }
+    if policy.require_read_allowed {
+        filters.push(SearchTraceFilter::Acl);
+    }
+    if policy.require_trust_zone.is_some() {
+        filters.push(SearchTraceFilter::Trust);
+    }
+    if policy.max_sensitivity.is_some() {
+        filters.push(SearchTraceFilter::Sensitivity);
+    }
+    if !matches!(plan.freshness, maestria_domain::FreshnessRequirement::Any) {
+        filters.push(SearchTraceFilter::Freshness);
+    }
+    SearchTrace::from_plan(
+        plan,
+        vec!["cards".to_string(), chunk_lane.to_string()],
+        evidence,
+        filters,
+        Some("rrf-fixed-k60".to_string()),
+        expansions,
+        stop_reason,
+    )
+    .with_gaps_and_conflicts(gaps.to_vec(), Vec::new())
+    .with_policy_fingerprint(format!(
+        "trust={:?};sensitivity={:?};read_allowed={};scope={:?};unscoped={}",
+        policy.require_trust_zone,
+        policy.max_sensitivity,
+        policy.require_read_allowed,
+        policy.required_scope_id,
+        policy.allow_unscoped_items,
+    ))
+}
 
 impl<'a> CoreServices<'a> {
     pub fn new(ports: CorePorts<'a>) -> Self {
@@ -173,8 +253,19 @@ impl<'a> CoreServices<'a> {
         } else {
             50
         };
+        let conflicts = Vec::new();
+        let trace_data = build_search_trace(
+            &plan,
+            &evidence,
+            &status,
+            &gaps_identified,
+            self.graph_config.is_some(),
+            self.ports.graph_index.is_some(),
+            &self.retrieval_policy,
+        );
         let outcome = SearchOutcome {
-            trace: maestria_domain::SearchTraceId::new(plan.query_id.value()),
+            trace: trace_data.deterministic_id(),
+            trace_data: Some(Box::new(trace_data)),
             fingerprint: plan.fingerprint.clone(),
             index_generation: plan.index_generation,
             status,
@@ -182,7 +273,7 @@ impl<'a> CoreServices<'a> {
                 percent_covered,
                 gaps_identified,
             },
-            conflicts: Vec::new(),
+            conflicts,
             evidence,
         };
         outcome.verify_compatibility(&plan).map_err(|error| {
