@@ -34,6 +34,7 @@ pub async fn run(instance_dir: PathBuf, query: String, limit: usize) -> Result<(
         "retrieval mode: {}",
         match output.mode {
             RetrievalMode::Hybrid => "hybrid",
+            RetrievalMode::HybridShadow => "hybrid-shadow",
             RetrievalMode::LexicalOnly => "lexical-only",
         }
     );

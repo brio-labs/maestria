@@ -1,10 +1,18 @@
 use maestria_domain::{EvidenceId, EvidenceSpan, SearchOutcome};
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use thiserror::Error;
 #[path = "golden_metrics.rs"]
 mod golden_metrics;
-use golden_metrics::calculate_report;
+pub(crate) use golden_metrics::calculate_report;
+#[path = "golden_comparison.rs"]
+mod golden_comparison;
+pub use golden_comparison::{GoldenComparison, PromotionRecord};
+#[path = "golden_comparison_regressions.rs"]
+mod golden_comparison_regressions;
+#[path = "golden_gate_eval.rs"]
+mod golden_gate_eval;
+pub(crate) use golden_gate_eval::validate_inputs;
 
 /// Fixed-point metric in the inclusive range 0..=10_000.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -13,6 +21,8 @@ pub struct Metric(u32);
 impl Metric {
     pub const ZERO: Self = Self(0);
     pub const ONE: Self = Self(10_000);
+    /// Five percentage points on the fixed-point quality scale.
+    pub const MATERIAL_QUALITY_DELTA: Self = Self(500);
 
     pub fn new(value: u32) -> Option<Self> {
         (value <= Self::ONE.0).then_some(Self(value))
@@ -74,6 +84,21 @@ pub struct ResourceMetrics {
     pub latency_ms: u64,
     pub memory_bytes: u64,
     pub disk_bytes: u64,
+    #[serde(default)]
+    pub ingest_update_ms: Option<u64>,
+    #[serde(default)]
+    pub energy_millijoules: Option<u64>,
+    #[serde(default)]
+    pub telemetry_complete: bool,
+}
+
+impl ResourceMetrics {
+    pub fn measured() -> Self {
+        Self {
+            telemetry_complete: true,
+            ..Self::default()
+        }
+    }
 }
 
 /// Security measurements supplied by retrieval validators.
@@ -81,10 +106,22 @@ pub struct ResourceMetrics {
 pub struct SecurityMetrics {
     pub acl_leakage: u32,
     pub attack_successes: u32,
+    #[serde(default)]
+    pub privacy_violations: u32,
+    #[serde(default)]
+    pub telemetry_complete: bool,
 }
 
-/// Deterministic ranking and operational measurements for one query.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+impl SecurityMetrics {
+    pub fn measured() -> Self {
+        Self {
+            telemetry_complete: true,
+            ..Self::default()
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct GoldenEvaluationReport {
     pub schema_version: u32,
     pub query_id: maestria_domain::QueryId,
@@ -96,27 +133,130 @@ pub struct GoldenEvaluationReport {
     pub security: SecurityMetrics,
 }
 
-/// A query result plus measurements captured by the evaluation harness.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct GoldenObservation {
     pub query_id: maestria_domain::QueryId,
+    pub profile: GoldenProfile,
     pub outcome: SearchOutcome,
     pub resources: ResourceMetrics,
     pub security: SecurityMetrics,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum GoldenProfile {
+    #[serde(rename = "v0.4")]
+    V0_4,
+    #[serde(rename = "v0.5")]
+    V0_5,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum BackendTier {
+    #[serde(rename = "S")]
+    Small,
+    #[serde(rename = "M")]
+    Medium,
+    #[serde(rename = "L")]
+    Large,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AggregatedQualityMetrics {
+    pub mean_recall_at_k: Metric,
+    pub mean_ndcg_at_k: Metric,
+    pub mean_mrr: Metric,
+    pub mean_exact_span_recall: Metric,
+}
+
+impl Default for AggregatedQualityMetrics {
+    fn default() -> Self {
+        Self {
+            mean_recall_at_k: Metric::ZERO,
+            mean_ndcg_at_k: Metric::ZERO,
+            mean_mrr: Metric::ZERO,
+            mean_exact_span_recall: Metric::ZERO,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AggregatedResourceMetrics {
+    pub p50_latency_ms: u64,
+    pub p95_latency_ms: u64,
+    pub p99_latency_ms: u64,
+    pub peak_memory_bytes: u64,
+    pub peak_disk_bytes: u64,
+    pub total_ingest_update_ms: Option<u64>,
+    pub total_energy_millijoules: Option<u64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AggregatedSecurityMetrics {
+    pub total_acl_leakage: u32,
+    pub total_attack_successes: u32,
+    pub total_privacy_violations: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GoldenComparisonReport {
+    pub backend_tier: BackendTier,
+    pub workload: String,
+    pub corpus_snapshot: maestria_domain::CorpusSnapshotId,
+    pub index_generation: maestria_domain::IndexGenerationId,
+    pub fingerprint: maestria_domain::RetrievalModelFingerprint,
+    pub baseline_profile: GoldenProfile,
+    pub candidate_profile: GoldenProfile,
+    pub baseline_quality: AggregatedQualityMetrics,
+    pub candidate_quality: AggregatedQualityMetrics,
+    pub baseline_resources: AggregatedResourceMetrics,
+    pub candidate_resources: AggregatedResourceMetrics,
+    pub baseline_security: AggregatedSecurityMetrics,
+    pub candidate_security: AggregatedSecurityMetrics,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum PromotionDecision {
+    Promote {
+        evaluation_id: String,
+        evaluation_date: String,
+        reason: String,
+    },
+    RetainBaseline {
+        reason: String,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GoldenComparisonResult {
+    pub report: GoldenComparisonReport,
+    pub decision: PromotionDecision,
+}
+
+impl GoldenComparisonResult {
+    pub fn is_promoted(&self) -> bool {
+        matches!(self.decision, PromotionDecision::Promote { .. })
+    }
+}
+
 /// Regression thresholds for a frozen golden corpus.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GoldenGateConfig {
+    pub profile: GoldenProfile,
     pub min_recall_at_k: Metric,
     pub min_ndcg_at_k: Metric,
     pub min_mrr: Metric,
     pub min_exact_span_recall: Metric,
+    pub min_material_quality_delta: Metric,
     pub max_latency_ms: u64,
     pub max_memory_bytes: u64,
     pub max_disk_bytes: u64,
+    #[serde(default)]
+    pub max_ingest_update_ms: Option<u64>,
+    #[serde(default)]
+    pub max_energy_millijoules: Option<u64>,
     pub max_acl_leakage: u32,
     pub max_attack_successes: u32,
+    #[serde(default)]
+    pub max_privacy_violations: u32,
 }
 
 /// A deterministic gate over a versioned set of golden observations.
@@ -147,6 +287,12 @@ pub enum GoldenGateError {
     NoRelevantJudgments(u64),
     #[error("unexpected observation for query {0}")]
     UnexpectedObservation(u64),
+    #[error("query {query_id} uses profile {found:?}, expected {expected:?}")]
+    ProfileMismatch {
+        query_id: u64,
+        expected: GoldenProfile,
+        found: GoldenProfile,
+    },
     #[error("query {query_id} does not match its trace")]
     TraceMismatch { query_id: u64 },
     #[error("query {query_id} returned status {found:?}, expected {expected:?}")]
@@ -157,203 +303,10 @@ pub enum GoldenGateError {
     },
     #[error("query {query_id} failed golden gate: {reason}")]
     Regression { query_id: u64, reason: String },
-}
-
-impl GoldenGate {
-    pub const CURRENT_SCHEMA_VERSION: u32 = 2;
-
-    pub fn evaluate(
-        &self,
-        corpus: &GoldenCorpus,
-        observations: &[GoldenObservation],
-    ) -> Result<Vec<GoldenEvaluationReport>, GoldenGateError> {
-        if self.k == 0 {
-            return Err(GoldenGateError::InvalidK);
-        }
-        if corpus.schema_version != Self::CURRENT_SCHEMA_VERSION {
-            return Err(GoldenGateError::UnsupportedSchema(corpus.schema_version));
-        }
-        let indexed = validate_inputs(corpus, observations)?;
-        let mut reports = Vec::with_capacity(corpus.queries.len());
-        for query in &corpus.queries {
-            let observation = indexed
-                .get(&query.query_id)
-                .ok_or(GoldenGateError::MissingObservation(query.query_id.value()))?;
-            if observation.outcome.status != query.expected_status {
-                return Err(GoldenGateError::StatusMismatch {
-                    query_id: query.query_id.value(),
-                    expected: query.expected_status.clone(),
-                    found: observation.outcome.status.clone(),
-                });
-            }
-            let Some(trace) = observation.outcome.trace_data.as_ref() else {
-                return Err(GoldenGateError::TraceMismatch {
-                    query_id: query.query_id.value(),
-                });
-            };
-            if observation.outcome.fingerprint != corpus.fingerprint
-                || observation.outcome.index_generation != corpus.index_generation
-                || trace.query_id != query.query_id
-                || trace.original_query != query.original_query
-                || trace.corpus_snapshot != corpus.corpus_snapshot
-                || trace.index_generation != corpus.index_generation
-                || trace.fingerprint != corpus.fingerprint
-                || query.expected_plan.query_id != query.query_id
-                || query.expected_plan.original_query != query.original_query
-                || query.expected_plan.corpus_snapshot != corpus.corpus_snapshot
-                || query.expected_plan.index_generation != corpus.index_generation
-                || query.expected_plan.fingerprint != corpus.fingerprint
-                || !trace.matches_plan(&query.expected_plan)
-                || observation.outcome.trace != trace.deterministic_id()
-                || !trace.matches_coverage(
-                    &observation.outcome.coverage,
-                    &observation.outcome.conflicts,
-                    observation.outcome.evidence.len(),
-                )
-                || !trace.matches_evidence(&observation.outcome.evidence)
-                || !trace.matches_outcome(
-                    &observation.outcome.status,
-                    observation.outcome.evidence.len(),
-                )
-            {
-                return Err(GoldenGateError::TraceMismatch {
-                    query_id: query.query_id.value(),
-                });
-            }
-            let report = calculate_report(
-                query,
-                &observation.outcome,
-                observation.resources,
-                observation.security,
-                self.k,
-            );
-            self.check_thresholds(query.query_id.value(), &query.expected_status, &report)?;
-            reports.push(report);
-        }
-        Ok(reports)
-    }
-
-    fn check_thresholds(
-        &self,
-        query_id: u64,
-        expected_status: &maestria_domain::SearchStatus,
-        report: &GoldenEvaluationReport,
-    ) -> Result<(), GoldenGateError> {
-        let empty_expected = matches!(
-            expected_status,
-            maestria_domain::SearchStatus::NoEvidenceFound
-                | maestria_domain::SearchStatus::Abstained
-                | maestria_domain::SearchStatus::DeniedByPolicy
-                | maestria_domain::SearchStatus::QuarantinedForReview
-        );
-        if !empty_expected {
-            let recall = report
-                .recall_at_k
-                .get(&self.k)
-                .copied()
-                .map_or(Metric::ZERO, |value| value);
-            let ndcg = report
-                .ndcg_at_k
-                .get(&self.k)
-                .copied()
-                .map_or(Metric::ZERO, |value| value);
-            let checks = [
-                (recall < self.config.min_recall_at_k, "Recall@k"),
-                (ndcg < self.config.min_ndcg_at_k, "nDCG@k"),
-                (report.mrr < self.config.min_mrr, "MRR"),
-                (
-                    report.exact_span_recall < self.config.min_exact_span_recall,
-                    "exact-span recall",
-                ),
-            ];
-            if let Some((true, name)) = checks.into_iter().find(|(failed, _)| *failed) {
-                return Err(GoldenGateError::Regression {
-                    query_id,
-                    reason: name.to_string(),
-                });
-            }
-        }
-        if report.resources.latency_ms > self.config.max_latency_ms {
-            return Err(regression(query_id, "latency"));
-        }
-        if report.resources.memory_bytes > self.config.max_memory_bytes {
-            return Err(regression(query_id, "memory"));
-        }
-        if report.resources.disk_bytes > self.config.max_disk_bytes {
-            return Err(regression(query_id, "disk"));
-        }
-        if report.security.acl_leakage > self.config.max_acl_leakage {
-            return Err(regression(query_id, "ACL leakage"));
-        }
-        if report.security.attack_successes > self.config.max_attack_successes {
-            return Err(regression(query_id, "attack success"));
-        }
-        Ok(())
-    }
-}
-
-fn validate_inputs<'a>(
-    corpus: &GoldenCorpus,
-    observations: &'a [GoldenObservation],
-) -> Result<BTreeMap<maestria_domain::QueryId, &'a GoldenObservation>, GoldenGateError> {
-    if corpus.queries.is_empty() {
-        return Err(GoldenGateError::EmptyCorpus);
-    }
-    let mut indexed = BTreeMap::new();
-    for observation in observations {
-        if indexed.insert(observation.query_id, observation).is_some() {
-            return Err(GoldenGateError::DuplicateObservation(
-                observation.query_id.value(),
-            ));
-        }
-    }
-    let mut expected_queries = BTreeSet::new();
-    for query in &corpus.queries {
-        if !expected_queries.insert(query.query_id) {
-            return Err(GoldenGateError::DuplicateQuery(query.query_id.value()));
-        }
-        let allows_empty = matches!(
-            &query.expected_status,
-            maestria_domain::SearchStatus::NoEvidenceFound
-                | maestria_domain::SearchStatus::Abstained
-                | maestria_domain::SearchStatus::DeniedByPolicy
-                | maestria_domain::SearchStatus::QuarantinedForReview
-        );
-        if query.judgments.is_empty() && !allows_empty {
-            return Err(GoldenGateError::EmptyJudgments(query.query_id.value()));
-        }
-        if !query
-            .judgments
-            .iter()
-            .any(|judgment| judgment.relevance > 0)
-            && !allows_empty
-        {
-            return Err(GoldenGateError::NoRelevantJudgments(query.query_id.value()));
-        }
-        let mut judgments = BTreeSet::new();
-        for judgment in &query.judgments {
-            if !judgments.insert(judgment.evidence_id) {
-                return Err(GoldenGateError::DuplicateJudgment {
-                    query_id: query.query_id.value(),
-                    evidence_id: judgment.evidence_id.value(),
-                });
-            }
-        }
-    }
-    if let Some(observation) = observations
-        .iter()
-        .find(|observation| !expected_queries.contains(&observation.query_id))
-    {
-        return Err(GoldenGateError::UnexpectedObservation(
-            observation.query_id.value(),
-        ));
-    }
-    Ok(indexed)
-}
-
-fn regression(query_id: u64, reason: &str) -> GoldenGateError {
-    GoldenGateError::Regression {
-        query_id,
-        reason: reason.to_string(),
-    }
+    #[error("baseline and candidate profiles must be v0.4 and v0.5")]
+    InvalidProfilePair,
+    #[error("golden comparison workload must be non-empty")]
+    InvalidWorkload,
+    #[error("promotion requires a non-empty evaluation id and date")]
+    MissingPromotionRecord,
 }

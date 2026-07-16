@@ -22,10 +22,19 @@ pub(super) fn search<'a>(
     vector_query: Option<VectorSearchQuery>,
     graph_config: Option<crate::types::GraphConfig>,
     policy: &maestria_governance::RetrievalSecurityPolicy,
+    hybrid_policy: crate::types::HybridExecutionPolicy,
 ) -> CoreResult<SearchOutput> {
     let plan = build_search_plan(&input)?;
     ensure_generation_is_serveable(ports, plan.index_generation)?;
-    execute_pipeline(ports, &input, vector_query, graph_config, policy, &plan)
+    execute_pipeline(
+        ports,
+        &input,
+        vector_query,
+        graph_config,
+        policy,
+        hybrid_policy,
+        &plan,
+    )
 }
 
 pub(super) fn search_with_plan<'a>(
@@ -34,6 +43,7 @@ pub(super) fn search_with_plan<'a>(
     vector_query: Option<VectorSearchQuery>,
     graph_config: Option<crate::types::GraphConfig>,
     policy: &maestria_governance::RetrievalSecurityPolicy,
+    hybrid_policy: crate::types::HybridExecutionPolicy,
 ) -> CoreResult<SearchOutput> {
     use maestria_domain::{CorpusScope, IndexGenerationId};
 
@@ -101,6 +111,7 @@ pub(super) fn search_with_plan<'a>(
         vector_query,
         graph_config,
         &effective_policy,
+        hybrid_policy,
         &plan,
     )
 }
@@ -250,8 +261,14 @@ fn build_expander<'a>(
     }
 }
 
-fn check_latency(start: std::time::Instant, max_latency_ms: u32) -> CoreResult<()> {
-    if max_latency_ms > 0 && start.elapsed().as_millis() as u64 > u64::from(max_latency_ms) {
+fn check_latency(
+    start: std::time::Instant,
+    excluded: std::time::Duration,
+    max_latency_ms: u32,
+) -> CoreResult<()> {
+    if max_latency_ms > 0
+        && start.elapsed().saturating_sub(excluded).as_millis() as u64 > u64::from(max_latency_ms)
+    {
         Err(CoreError::InvalidInput {
             message: "retrieval latency budget exhausted".to_string(),
         })
@@ -267,26 +284,43 @@ fn execute_pipeline<'a>(
     vector_query: Option<VectorSearchQuery>,
     graph_config: Option<crate::types::GraphConfig>,
     policy: &'a maestria_governance::RetrievalSecurityPolicy,
+    hybrid_policy: crate::types::HybridExecutionPolicy,
     plan: &maestria_domain::SearchPlan,
 ) -> CoreResult<SearchOutput> {
     use std::collections::BTreeSet;
     let start = std::time::Instant::now();
+    let mut excluded = std::time::Duration::ZERO;
+    let active_hybrid = matches!(
+        hybrid_policy,
+        crate::types::HybridExecutionPolicy::Active(_)
+    );
     let max_latency_ms = plan.budgets.max_latency_ms();
-
     let mut runs = vec![run_cards_lane(ports, &input.query, input.limit, policy)];
-    check_latency(start, max_latency_ms)?;
+    let mut fusion_ranked = vec![runs[0].ranked.clone()];
+    check_latency(start, excluded, max_latency_ms)?;
     if vector_query.is_some() {
-        runs.push(run_chunk_lane(
+        let dense_start = std::time::Instant::now();
+        let dense_run = run_chunk_lane(
             ports,
             RetrievalLane::VectorChunks,
             &input.query,
             input.limit,
             vector_query.clone(),
             policy,
-        ));
+        );
+        if active_hybrid {
+            fusion_ranked.push(dense_run.ranked.clone());
+        }
+        runs.push(dense_run);
+        if active_hybrid {
+            check_latency(start, excluded, max_latency_ms)?;
+        } else {
+            // Shadow telemetry must not make the deterministic served path miss its budget.
+            excluded = dense_start.elapsed();
+            check_latency(start, excluded, max_latency_ms)?;
+        }
     }
-    check_latency(start, max_latency_ms)?;
-    runs.push(run_chunk_lane(
+    let lexical_run = run_chunk_lane(
         ports,
         if input.query.trim().starts_with('"')
             && input.query.trim().ends_with('"')
@@ -300,17 +334,13 @@ fn execute_pipeline<'a>(
         input.limit,
         None,
         policy,
-    ));
-    check_latency(start, max_latency_ms)?;
-    let lane_reports = runs
-        .iter()
-        .map(|run| run.report.clone())
-        .collect::<Vec<_>>();
-    let mut candidates = fuse(
-        input.limit,
-        runs.into_iter().map(|run| run.ranked).collect(),
     );
-    check_latency(start, max_latency_ms)?;
+    fusion_ranked.push(lexical_run.ranked.clone());
+    runs.push(lexical_run);
+    check_latency(start, excluded, max_latency_ms)?;
+    let lane_reports = runs.into_iter().map(|run| run.report).collect::<Vec<_>>();
+    let mut candidates = fuse(input.limit, fusion_ranked);
+    check_latency(start, excluded, max_latency_ms)?;
     candidates = build_expander(
         ports,
         input.query.clone(),
@@ -321,7 +351,7 @@ fn execute_pipeline<'a>(
     .map_err(|error| CoreError::InvalidInput {
         message: error.to_string(),
     })?;
-    check_latency(start, max_latency_ms)?;
+    check_latency(start, excluded, max_latency_ms)?;
 
     let mut pack = EvidencePack {
         query: input.query.clone(),
@@ -349,18 +379,29 @@ fn execute_pipeline<'a>(
             _ => {}
         }
     }
-    check_latency(start, max_latency_ms)?;
-    let retrieval_mode = if lane_reports.iter().any(|report| {
-        report.retriever_id == "dense_chunks"
-            && matches!(report.status, crate::types::RetrievalLaneStatus::Succeeded)
-    }) {
-        RetrievalMode::Hybrid
-    } else {
-        RetrievalMode::LexicalOnly
-    };
+    check_latency(start, excluded, max_latency_ms)?;
+    let retrieval_mode = retrieval_mode(&lane_reports, active_hybrid);
     Ok(SearchOutput {
         pack,
         mode: retrieval_mode,
         lane_reports,
     })
+}
+
+fn retrieval_mode(
+    lane_reports: &[crate::types::RetrievalLaneReport],
+    active_hybrid: bool,
+) -> RetrievalMode {
+    if lane_reports.iter().any(|report| {
+        report.retriever_id == "dense_chunks"
+            && matches!(report.status, crate::types::RetrievalLaneStatus::Succeeded)
+    }) {
+        if active_hybrid {
+            RetrievalMode::Hybrid
+        } else {
+            RetrievalMode::HybridShadow
+        }
+    } else {
+        RetrievalMode::LexicalOnly
+    }
 }

@@ -13,13 +13,11 @@ use maestria_ports::{
     InMemoryFullTextIndex, InMemoryGraphIndex, InMemoryParser, InMemoryVectorIndex, IndexedCard,
     IndexedChunk, VectorIndex, VectorSearchQuery,
 };
-
 /// Seed an artifact, chunks, evidence, cards, and full-text entries directly through
 /// in-memory adapters, then wrap them in a `CoreServices` to exercise retrieval.
 fn seed_and_build_services<'a>(ports: CorePorts<'a>) -> CoreServices<'a> {
     CoreServices::new(ports)
 }
-
 /// Run the retrieval assertions against a seeded `CoreServices`.
 fn assert_directly_seeded_retrieval(
     core: &CoreServices,
@@ -676,6 +674,11 @@ fn vector_search_returns_grounded_nonliteral_match() -> Result<(), Box<dyn std::
             },
         },
     }])?;
+    let promotion_record = maestria_core::HybridPromotionRecord::new(
+        "eval-test".to_string(),
+        "2026-07-16".to_string(),
+    )
+    .expect("promotion record must be non-empty");
     let core = CoreServices::new(CorePorts {
         artifacts: &artifact_repo,
         chunks: &chunk_repo,
@@ -687,7 +690,10 @@ fn vector_search_returns_grounded_nonliteral_match() -> Result<(), Box<dyn std::
         blobs: &blob_store,
         vector_index: Some(&vector_index),
         graph_index: None,
-    });
+    })
+    .with_hybrid_policy(maestria_core::HybridExecutionPolicy::Active(
+        promotion_record,
+    ));
 
     let output = core.search_with_vector(
         SearchInput {

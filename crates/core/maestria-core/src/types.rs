@@ -15,9 +15,31 @@ pub struct EvidencePack {
     pub evidence_ids: Vec<EvidenceId>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HybridPromotionRecord {
+    evaluation_id: String,
+    evaluation_date: String,
+}
+
+impl HybridPromotionRecord {
+    pub fn new(evaluation_id: String, evaluation_date: String) -> Option<Self> {
+        (!evaluation_id.trim().is_empty() && !evaluation_date.trim().is_empty()).then_some(Self {
+            evaluation_id,
+            evaluation_date,
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub enum HybridExecutionPolicy {
+    #[default]
+    Shadow,
+    Active(HybridPromotionRecord),
+}
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RetrievalMode {
     LexicalOnly,
+    HybridShadow,
     Hybrid,
 }
 
