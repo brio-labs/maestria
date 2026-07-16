@@ -4,8 +4,8 @@ use crate::types::{
     OpenChunkEvidenceInput, OpenEvidenceInput, OpenEvidenceOutput, SearchInput, SearchOutput,
 };
 use maestria_domain::{
-    ArtifactVersionId, ContentHash, ContentRange, EvidenceCandidate, EvidenceCoverage,
-    EvidenceSpan, FreshnessStatus, RetrievalReason, RetrievalScoreSet, SearchOutcome, SearchStatus,
+    ArtifactVersionId, ContentRange, EvidenceCandidate, EvidenceCoverage, EvidenceSpan,
+    FreshnessStatus, RetrievalReason, RetrievalScoreSet, SearchOutcome, SearchStatus,
     SearchStopReason, SearchTrace, SearchTraceExpansion, SearchTraceFilter, SourceLocation,
     SourceSpan, TrustLabel,
 };
@@ -33,14 +33,11 @@ pub struct CoreServices<'a> {
     retrieval_policy: maestria_governance::RetrievalSecurityPolicy,
 }
 
-fn evidence_candidate_from_hit(
+pub(super) fn evidence_candidate_from_hit(
     hit: crate::types::SourceGroundedSearchHit,
     reason: &RetrievalReason,
+    semantic: bool,
 ) -> Option<EvidenceCandidate> {
-    let content_hash = hit.artifact.content_hash.clone()?;
-    if ContentHash::new(content_hash).is_err() {
-        return None;
-    }
     let (location, range) = match &hit.evidence.kind {
         maestria_domain::EvidenceKind::FileSpan { path, range, .. } => {
             let (start_line, end_line) = match hit.chunk.source_span {
@@ -88,8 +85,8 @@ fn evidence_candidate_from_hit(
         artifact_version: ArtifactVersionId::new(hit.artifact.id.value()),
         source_span,
         scores: RetrievalScoreSet {
-            bm25: hit.score,
-            semantic_similarity: 0,
+            bm25: if semantic { 0 } else { hit.score },
+            semantic_similarity: if semantic { hit.score } else { 0 },
         },
         trust,
         freshness: FreshnessStatus::Unknown,
@@ -97,20 +94,26 @@ fn evidence_candidate_from_hit(
         reasons: vec![reason.clone()],
     })
 }
+struct SearchTraceOptions<'a> {
+    expansion_enabled: bool,
+    graph_enabled: bool,
+    policy: &'a maestria_governance::RetrievalSecurityPolicy,
+    lane_reports: &'a [crate::types::RetrievalLaneReport],
+}
+
 fn build_search_trace(
     plan: &maestria_domain::SearchPlan,
     evidence: &[EvidenceCandidate],
     status: &SearchStatus,
     gaps: &[String],
-    expansion_enabled: bool,
-    graph_enabled: bool,
-    policy: &maestria_governance::RetrievalSecurityPolicy,
+    options: SearchTraceOptions<'_>,
 ) -> SearchTrace {
-    let chunk_lane = if plan.original_query.trim().starts_with('"') {
-        "exact_chunks"
-    } else {
-        "lexical_chunks"
-    };
+    let SearchTraceOptions {
+        expansion_enabled,
+        graph_enabled,
+        policy,
+        lane_reports,
+    } = options;
     let stop_reason = match status {
         SearchStatus::NoEvidenceFound => SearchStopReason::NoEvidence,
         SearchStatus::DeniedByPolicy | SearchStatus::QuarantinedForReview => {
@@ -157,15 +160,36 @@ fn build_search_trace(
     if !matches!(plan.freshness, maestria_domain::FreshnessRequirement::Any) {
         filters.push(SearchTraceFilter::Freshness);
     }
+    let lanes = lane_reports
+        .iter()
+        .map(|report| maestria_domain::SearchTraceLane {
+            retriever_id: report.retriever_id.clone(),
+            status: match &report.status {
+                crate::types::RetrievalLaneStatus::Succeeded => {
+                    maestria_domain::SearchLaneStatus::Succeeded
+                }
+                crate::types::RetrievalLaneStatus::Empty => {
+                    maestria_domain::SearchLaneStatus::Empty
+                }
+                crate::types::RetrievalLaneStatus::Failed { error } => {
+                    maestria_domain::SearchLaneStatus::Failed {
+                        error: error.clone(),
+                    }
+                }
+            },
+            candidates: report.candidates.clone(),
+        })
+        .collect::<Vec<_>>();
     SearchTrace::from_plan(
         plan,
-        vec!["cards".to_string(), chunk_lane.to_string()],
+        lanes.iter().map(|lane| lane.retriever_id.clone()).collect(),
         evidence,
         filters,
         Some("rrf-fixed-k60".to_string()),
         expansions,
         stop_reason,
     )
+    .with_lanes(lanes)
     .with_gaps_and_conflicts(gaps.to_vec(), Vec::new())
     .with_policy_fingerprint(format!(
         "trust={:?};sensitivity={:?};read_allowed={};scope={:?};unscoped={}",
@@ -216,15 +240,15 @@ impl<'a> CoreServices<'a> {
             self.graph_config.clone(),
             &self.retrieval_policy,
         )?;
-        let reason = match plan.intent {
-            maestria_domain::SearchIntent::ExactLookup => RetrievalReason::ExactMatch,
-            _ => RetrievalReason::SemanticSimilarity,
-        };
+        // `search_knowledge` currently executes the lexical lane; its evidence
+        // reasons must describe that lane rather than the requested intent.
+        let reason = RetrievalReason::ExactMatch;
+        let lane_reports = output.lane_reports.clone();
         let evidence = output
             .pack
             .chunks
             .into_iter()
-            .filter_map(|hit| evidence_candidate_from_hit(hit, &reason))
+            .filter_map(|hit| evidence_candidate_from_hit(hit, &reason, false))
             .collect::<Vec<_>>();
         let enough_corroboration =
             evidence.len() >= usize::from(plan.evidence_requirements.minimum_corroboration);
@@ -259,9 +283,12 @@ impl<'a> CoreServices<'a> {
             &evidence,
             &status,
             &gaps_identified,
-            self.graph_config.is_some(),
-            self.ports.graph_index.is_some(),
-            &self.retrieval_policy,
+            SearchTraceOptions {
+                expansion_enabled: self.graph_config.is_some(),
+                graph_enabled: self.ports.graph_index.is_some(),
+                policy: &self.retrieval_policy,
+                lane_reports: &lane_reports,
+            },
         );
         let outcome = SearchOutcome {
             trace: trace_data.deterministic_id(),

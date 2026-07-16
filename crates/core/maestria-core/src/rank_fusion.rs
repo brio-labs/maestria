@@ -32,7 +32,6 @@ pub(super) struct RankedRetrievalCandidate {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 enum CandidateKey {
     Card(CardId),
-    Chunk(EvidenceId),
     Evidence(EvidenceId),
 }
 
@@ -40,15 +39,14 @@ impl RetrievalCandidate {
     fn key(&self) -> CandidateKey {
         match self {
             Self::Card(hit) => CandidateKey::Card(hit.card.id),
-            Self::Chunk(hit) => CandidateKey::Chunk(hit.evidence.id),
+            Self::Chunk(hit) => CandidateKey::Evidence(hit.evidence.id),
             Self::EvidenceId(id) => CandidateKey::Evidence(*id),
         }
     }
     pub(super) fn identity(&self) -> (u8, u64) {
         match self.key() {
             CandidateKey::Card(id) => (0, id.value()),
-            CandidateKey::Chunk(id) => (1, id.value()),
-            CandidateKey::Evidence(id) => (2, id.value()),
+            CandidateKey::Evidence(id) => (1, id.value()),
         }
     }
     pub(super) fn artifact_id(&self) -> Option<ArtifactId> {
@@ -182,6 +180,7 @@ fn prefer_candidate(left: &RetrievalCandidate, right: &RetrievalCandidate) -> bo
             left.lexical_metadata.is_some() && right.lexical_metadata.is_none()
                 || left.score > right.score
         }
+        (RetrievalCandidate::Chunk(_), RetrievalCandidate::EvidenceId(_)) => true,
         _ => false,
     }
 }

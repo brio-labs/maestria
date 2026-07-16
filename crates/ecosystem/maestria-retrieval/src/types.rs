@@ -1,4 +1,4 @@
-use maestria_domain::{EvidenceCandidate, SearchOutcome, SearchPlan};
+use maestria_domain::{EvidenceCandidate, SearchLaneStatus, SearchOutcome, SearchPlan};
 use maestria_ports::SearchQuery;
 use thiserror::Error;
 
@@ -18,6 +18,7 @@ pub struct CandidateRequest {
 pub struct CandidateBatch {
     pub descriptor: RetrieverDescriptor,
     pub candidates: Vec<EvidenceCandidate>,
+    pub status: SearchLaneStatus,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

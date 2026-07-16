@@ -11,6 +11,7 @@ mod graph_retrieval;
 mod hierarchy_expansion;
 mod ingestion;
 mod instance;
+mod lane_fusion;
 mod lexical_helpers;
 mod manifest;
 mod ports;
@@ -31,5 +32,6 @@ pub use provenance::artifact_id_for;
 pub use provenance::content_hash;
 pub use types::{
     EvidencePack, GraphConfig, OpenChunkEvidenceInput, OpenEvidenceInput, OpenEvidenceOutput,
-    RetrievalMode, SearchInput, SearchOutput, SourceGroundedCardHit, SourceGroundedSearchHit,
+    RetrievalLaneReport, RetrievalLaneStatus, RetrievalMode, SearchInput, SearchOutput,
+    SourceGroundedCardHit, SourceGroundedSearchHit,
 };

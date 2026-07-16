@@ -25,6 +25,22 @@ pub enum RetrievalMode {
 pub struct SearchOutput {
     pub pack: EvidencePack,
     pub mode: RetrievalMode,
+    pub lane_reports: Vec<RetrievalLaneReport>,
+}
+/// Status of one candidate-generation lane.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RetrievalLaneStatus {
+    Succeeded,
+    Empty,
+    Failed { error: String },
+}
+
+/// Evidence-bearing details emitted by one retrieval lane.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RetrievalLaneReport {
+    pub retriever_id: String,
+    pub status: RetrievalLaneStatus,
+    pub candidates: Vec<maestria_domain::SearchTraceLaneCandidate>,
 }
 
 #[derive(Debug, Clone, PartialEq)]

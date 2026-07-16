@@ -34,6 +34,10 @@ impl SearchTrace {
         self.policy_fingerprint = Some(policy_fingerprint);
         self
     }
+    pub fn with_lanes(mut self, lanes: Vec<super::SearchTraceLane>) -> Self {
+        self.lanes = lanes;
+        self
+    }
 
     pub fn matches_evidence(&self, evidence: &[EvidenceCandidate]) -> bool {
         self.raw_candidates.len() == evidence.len()
@@ -162,6 +166,20 @@ impl SearchTrace {
             mix(&conflict.value().to_le_bytes());
         }
         mix(format!("{:?}", self.stop_reason).as_bytes());
+        for lane in &self.lanes {
+            mix(lane.retriever_id.as_bytes());
+            mix(format!("{:?}", lane.status).as_bytes());
+            for candidate in &lane.candidates {
+                mix(&candidate.evidence_id.value().to_le_bytes());
+                mix(&candidate.artifact_version.value().to_le_bytes());
+                mix(format!("{:?}", candidate.source_span).as_bytes());
+                mix(&u64::from(candidate.lane_rank).to_le_bytes());
+                mix(format!("{:?}", candidate.duplicate_cluster).as_bytes());
+                mix(&u64::from(candidate.scores.bm25).to_le_bytes());
+                mix(&u64::from(candidate.scores.semantic_similarity).to_le_bytes());
+                mix(format!("{:?}", candidate.reasons).as_bytes());
+            }
+        }
         SearchTraceId::new(hash)
     }
 }
