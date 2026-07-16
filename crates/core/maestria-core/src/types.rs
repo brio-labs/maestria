@@ -1,12 +1,13 @@
 use maestria_domain::{Artifact, Card, Chunk, ChunkId, Evidence, EvidenceId};
+use maestria_ports::LexicalHitMetadata;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct SearchInput {
     pub query: String,
     pub limit: usize,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct EvidencePack {
     pub query: String,
     pub cards: Vec<SourceGroundedCardHit>,
@@ -14,24 +15,26 @@ pub struct EvidencePack {
     pub evidence_ids: Vec<EvidenceId>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct SearchOutput {
     pub pack: EvidencePack,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct SourceGroundedSearchHit {
     pub artifact: Artifact,
     pub chunk: Chunk,
     pub evidence: Evidence,
     pub score: u32,
+    pub lexical_metadata: Option<LexicalHitMetadata>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct SourceGroundedCardHit {
     pub artifact: Artifact,
     pub card: Card,
     pub score: u32,
+    pub lexical_metadata: Option<LexicalHitMetadata>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

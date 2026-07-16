@@ -1,4 +1,9 @@
 use crate::error::{CoreError, CoreResult};
+use crate::lexical_helpers::{
+    CardCandidate, ChunkCandidate, card_candidate_allowed, card_lexical_query,
+    chunk_candidate_allowed, chunk_lexical_query, lexical_score, prepare_lexical_query,
+    snapshot_id_from_evidence, vector_score,
+};
 use crate::ports::CorePorts;
 use crate::provenance::{content_hash, content_is_safe, evidence_id_for};
 use crate::types::{
@@ -6,7 +11,7 @@ use crate::types::{
     SourceGroundedSearchHit,
 };
 use maestria_domain::{Evidence, EvidenceKind, IndexStatus};
-use maestria_ports::{SearchQuery, VectorSearchQuery};
+use maestria_ports::{CardHit, SearchHit, SearchQuery, VectorSearchQuery};
 
 pub(super) fn search_cards(
     ports: &CorePorts<'_>,
@@ -19,32 +24,49 @@ pub(super) fn search_cards(
     }
     let mut offset = 0;
     let mut cards = Vec::with_capacity(limit);
-    let filter = |card_id: maestria_domain::CardId,
-                  artifact_id: maestria_domain::ArtifactId|
-     -> bool {
-        let Ok(Some(artifact)) = ports.artifacts.get(artifact_id) else {
-            return false;
-        };
-        if policy.evaluate(&artifact.security) != maestria_governance::RetrievalDecision::Allowed {
-            return false;
-        }
-        let Ok(Some(card)) = ports.cards.get(card_id) else {
-            return false;
-        };
-        policy.evaluate(&card.security) == maestria_governance::RetrievalDecision::Allowed
-            && content_is_safe(&card.title)
-            && content_is_safe(&card.body)
-    };
+    let filter = |card_id, artifact_id| card_candidate_allowed(ports, card_id, artifact_id, policy);
 
+    let (mode, q) = prepare_lexical_query(query);
     loop {
-        let page = ports.search_index.search_cards_filtered(
-            SearchQuery {
-                q: query.to_string(),
-                limit,
-                offset,
-            },
-            &filter,
-        )?;
+        let page = if ports.search_index.supports_lexical_metadata() {
+            ports
+                .search_index
+                .search_cards_lexical_filtered(
+                    card_lexical_query(&q, limit, offset, mode),
+                    &filter,
+                )?
+                .into_iter()
+                .map(|hit| CardCandidate {
+                    hit: CardHit {
+                        card: maestria_ports::IndexedCard {
+                            artifact_id: hit.card.artifact_id,
+                            card_id: hit.card.card_id,
+                            title: hit.card.title,
+                            body: hit.card.body,
+                        },
+                        score: lexical_score(hit.metadata.raw_score),
+                    },
+                    lexical_metadata: Some(hit.metadata),
+                })
+                .collect::<Vec<_>>()
+        } else {
+            ports
+                .search_index
+                .search_cards_filtered(
+                    SearchQuery {
+                        q: query.to_string(),
+                        limit,
+                        offset,
+                    },
+                    &filter,
+                )?
+                .into_iter()
+                .map(|hit| CardCandidate {
+                    hit,
+                    lexical_metadata: None,
+                })
+                .collect()
+        };
         if page.is_empty() {
             break;
         }
@@ -52,22 +74,23 @@ pub(super) fn search_cards(
             if cards.len() >= limit {
                 break;
             }
-            let Some(artifact) = ports.artifacts.get(hit.card.artifact_id)? else {
+            let Some(artifact) = ports.artifacts.get(hit.hit.card.artifact_id)? else {
                 continue;
             };
             if artifact.index_status != IndexStatus::Indexed {
                 continue;
             }
-            let Some(card) = ports.cards.get(hit.card.card_id)? else {
+            let Some(card) = ports.cards.get(hit.hit.card.card_id)? else {
                 continue;
             };
-            if card.artifact_id != hit.card.artifact_id {
+            if card.artifact_id != hit.hit.card.artifact_id {
                 continue;
             }
             cards.push(SourceGroundedCardHit {
                 artifact,
                 card,
-                score: hit.score,
+                score: hit.hit.score,
+                lexical_metadata: hit.lexical_metadata.clone(),
             });
         }
         if cards.len() >= limit || page.len() < limit {
@@ -94,38 +117,45 @@ pub(super) fn search_chunks(
     let mut chunks = Vec::with_capacity(limit);
     let mut seen_evidence = std::collections::BTreeSet::new();
     let mut evidence_ids = Vec::with_capacity(limit);
-
-    let filter = |chunk_id: maestria_domain::ChunkId,
-                  artifact_id: maestria_domain::ArtifactId|
-     -> bool {
-        let Ok(Some(artifact)) = ports.artifacts.get(artifact_id) else {
-            return false;
-        };
-        if policy.evaluate(&artifact.security) != maestria_governance::RetrievalDecision::Allowed {
-            return false;
-        }
-        let Ok(Some(chunk)) = ports.chunks.get(chunk_id) else {
-            return false;
-        };
-        let Ok(Some(evidence)) = ports
-            .evidence
-            .get(evidence_id_for(artifact_id, chunk.order))
-        else {
-            return false;
-        };
-        policy.evaluate(&evidence.security) == maestria_governance::RetrievalDecision::Allowed
-            && content_is_safe(&chunk.text)
-            && content_is_safe(&evidence.excerpt)
-    };
+    let filter =
+        |chunk_id, artifact_id| chunk_candidate_allowed(ports, chunk_id, artifact_id, policy);
+    let (mode, q) = prepare_lexical_query(query);
     loop {
-        let page = ports.search_index.search_filtered(
-            SearchQuery {
-                q: query.to_string(),
-                limit,
-                offset,
-            },
-            &filter,
-        )?;
+        let page: Vec<ChunkCandidate> = if ports.search_index.supports_lexical_metadata() {
+            ports
+                .search_index
+                .search_lexical_filtered(chunk_lexical_query(&q, limit, offset, mode), &filter)?
+                .into_iter()
+                .map(|hit| ChunkCandidate {
+                    hit: SearchHit {
+                        chunk: maestria_ports::IndexedChunk {
+                            artifact_id: hit.chunk.artifact_id,
+                            chunk_id: hit.chunk.chunk_id,
+                            text: hit.chunk.text,
+                        },
+                        score: lexical_score(hit.metadata.raw_score),
+                    },
+                    lexical_metadata: Some(hit.metadata),
+                })
+                .collect()
+        } else {
+            ports
+                .search_index
+                .search_filtered(
+                    SearchQuery {
+                        q: query.to_string(),
+                        limit,
+                        offset,
+                    },
+                    &filter,
+                )?
+                .into_iter()
+                .map(|hit| ChunkCandidate {
+                    hit,
+                    lexical_metadata: None,
+                })
+                .collect()
+        };
         if page.is_empty() {
             break;
         }
@@ -133,16 +163,16 @@ pub(super) fn search_chunks(
             if chunks.len() >= limit {
                 break;
             }
-            let Some(artifact) = ports.artifacts.get(hit.chunk.artifact_id)? else {
+            let Some(artifact) = ports.artifacts.get(hit.hit.chunk.artifact_id)? else {
                 continue;
             };
             if artifact.index_status != IndexStatus::Indexed {
                 continue;
             }
-            let Some(chunk) = ports.chunks.get(hit.chunk.chunk_id)? else {
+            let Some(chunk) = ports.chunks.get(hit.hit.chunk.chunk_id)? else {
                 continue;
             };
-            if chunk.artifact_id != hit.chunk.artifact_id || chunk.artifact_id != artifact.id {
+            if chunk.artifact_id != hit.hit.chunk.artifact_id || chunk.artifact_id != artifact.id {
                 continue;
             }
             let Some(evidence) = ports
@@ -155,11 +185,16 @@ pub(super) fn search_chunks(
             if seen_evidence.insert(evidence.id) {
                 evidence_ids.push(evidence.id);
             }
+            let lexical_metadata = hit.lexical_metadata.clone().map(|mut metadata| {
+                metadata.snapshot_id = snapshot_id_from_evidence(&evidence);
+                metadata
+            });
             chunks.push(SourceGroundedSearchHit {
                 artifact,
                 chunk,
                 evidence,
-                score: hit.score,
+                score: hit.hit.score,
+                lexical_metadata,
             });
         }
         if chunks.len() >= limit || page.len() < limit {
@@ -247,17 +282,10 @@ pub(super) fn search_vector_chunks(
             chunk,
             evidence,
             score: vector_score(hit.score),
+            lexical_metadata: None,
         });
     }
     Ok((chunks, evidence_ids))
-}
-
-pub(super) fn vector_score(score: f32) -> u32 {
-    if !score.is_finite() {
-        return 0;
-    }
-    let normalized = ((score as f64 + 1.0) / 2.0).clamp(0.0, 1.0);
-    (normalized * 1_000_000.0) as u32
 }
 
 pub(super) fn open_evidence<'a>(

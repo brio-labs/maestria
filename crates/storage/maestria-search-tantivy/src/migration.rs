@@ -8,8 +8,9 @@ use tantivy::{
 };
 
 use super::{
-    FIELD_ARTIFACT_ID, FIELD_CARD_ARTIFACT_ID, FIELD_CARD_BODY, FIELD_CARD_ID, FIELD_CARD_KEY,
-    FIELD_CARD_TITLE, FIELD_CHUNK_ID, FIELD_TEXT, schema_field, to_port_error,
+    FIELD_ARTIFACT_ID, FIELD_CARD_ARTIFACT_ID, FIELD_CARD_BODY, FIELD_CARD_FILENAME, FIELD_CARD_ID,
+    FIELD_CARD_KEY, FIELD_CARD_PATH, FIELD_CARD_SYMBOL, FIELD_CARD_TITLE, FIELD_CHUNK_ID,
+    FIELD_FILENAME, FIELD_PATH, FIELD_SYMBOL, FIELD_TEXT, schema_field, to_port_error,
 };
 
 pub(super) fn schema_has_cards(schema: &Schema) -> bool {
@@ -24,11 +25,25 @@ pub(super) fn schema_has_cards(schema: &Schema) -> bool {
     .all(|name| schema.get_field(name).is_ok())
 }
 
+pub(super) fn schema_has_lexical(schema: &Schema) -> bool {
+    [
+        FIELD_PATH,
+        FIELD_FILENAME,
+        FIELD_SYMBOL,
+        FIELD_CARD_PATH,
+        FIELD_CARD_FILENAME,
+        FIELD_CARD_SYMBOL,
+    ]
+    .iter()
+    .all(|name| schema.get_field(name).is_ok())
+}
+
 pub(super) fn legacy_chunks(index: &Index) -> Result<Vec<IndexedChunk>, PortError> {
     let schema = index.schema();
     let artifact_field = schema_field(&schema, FIELD_ARTIFACT_ID)?;
     let chunk_field = schema_field(&schema, FIELD_CHUNK_ID)?;
     let text_field = schema_field(&schema, FIELD_TEXT)?;
+    let card_id_field = schema.get_field(FIELD_CARD_ID).ok();
     let reader: IndexReader = index
         .reader_builder()
         .reload_policy(ReloadPolicy::OnCommitWithDelay)
@@ -47,26 +62,29 @@ pub(super) fn legacy_chunks(index: &Index) -> Result<Vec<IndexedChunk>, PortErro
         let document = searcher
             .doc::<TantivyDocument>(address)
             .map_err(to_port_error)?;
+        if card_id_field.is_some_and(|field| document.get_first(field).is_some()) {
+            continue;
+        }
         let artifact_id = document
             .get_first(artifact_field)
             .and_then(|value| value.as_u64())
             .map(ArtifactId::new)
-            .ok_or_else(|| PortError::Internal {
-                message: "legacy indexed chunk is missing artifact id".to_string(),
+            .ok_or_else(|| PortError::InvalidInput {
+                message: "legacy chunk is missing artifact id".to_string(),
             })?;
         let chunk_id = document
             .get_first(chunk_field)
             .and_then(|value| value.as_u64())
             .map(ChunkId::new)
-            .ok_or_else(|| PortError::Internal {
-                message: "legacy indexed chunk is missing chunk id".to_string(),
+            .ok_or_else(|| PortError::InvalidInput {
+                message: "legacy chunk is missing chunk id".to_string(),
             })?;
         let text = document
             .get_first(text_field)
             .and_then(|value| value.as_str())
             .map(str::to_string)
-            .ok_or_else(|| PortError::Internal {
-                message: "legacy indexed chunk is missing text".to_string(),
+            .ok_or_else(|| PortError::InvalidInput {
+                message: "legacy chunk is missing text".to_string(),
             })?;
         chunks.push(IndexedChunk {
             artifact_id,

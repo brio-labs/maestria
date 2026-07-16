@@ -1,7 +1,11 @@
 use crate::config::EffectExecutionContext;
-use maestria_domain::{DomainInput, FullTextIndexCompleted, IndexFullTextRequest};
+use maestria_domain::{
+    Chunk, DomainInput, EvidenceKind, FullTextIndexCompleted, IndexFullTextRequest,
+    SecurityMetadata, evidence_id_for,
+};
 use maestria_governance::scan_secrets;
-use maestria_ports::{IndexedCard, IndexedChunk};
+use maestria_ports::{IndexedCard, IndexedChunk, IndexedLexicalCard, IndexedLexicalChunk};
+use std::path::Path;
 
 impl EffectExecutionContext {
     /// Index a chunk in the full-text search index.
@@ -9,32 +13,12 @@ impl EffectExecutionContext {
     /// to the artifact. Sends FullTextIndexCompleted back to the domain
     /// loop after the chunk is indexed.
     pub(crate) async fn handle_index_full_text(&self, request: IndexFullTextRequest) -> bool {
-        let adapters = &self.adapters;
-        let state = &self.state;
+        let (chunk, artifact_security, source_path) =
+            match self.extract_index_metadata(&request).await {
+                Ok(meta) => meta,
+                Err(early_return) => return early_return,
+            };
 
-        let (chunk, artifact_security) = {
-            let state = state.read().await;
-            let Some(chunk) = state.chunks.get(&request.chunk_id).cloned() else {
-                tracing::warn!(chunk_id = %request.chunk_id, "chunk missing for full-text index");
-                return true;
-            };
-            let Some(artifact) = state.artifacts.get(&request.artifact_id) else {
-                tracing::warn!(
-                    artifact_id = %request.artifact_id,
-                    "artifact missing for full-text index"
-                );
-                return false;
-            };
-            if chunk.artifact_id != request.artifact_id {
-                tracing::warn!(
-                    chunk_id = %request.chunk_id,
-                    artifact_id = %request.artifact_id,
-                    "chunk belongs to a different artifact"
-                );
-                return false;
-            }
-            (chunk, artifact.security.clone())
-        };
         if !artifact_security.retrieval_allowed() {
             tracing::warn!(
                 artifact_id = %request.artifact_id,
@@ -51,45 +35,10 @@ impl EffectExecutionContext {
             );
             return false;
         }
-        if chunk.order == 0 {
-            let artifact_cards: Vec<IndexedCard> = {
-                let state = state.read().await;
-                state
-                    .cards
-                    .values()
-                    .filter(|c| c.artifact_id == request.artifact_id)
-                    .map(|c| IndexedCard {
-                        artifact_id: c.artifact_id,
-                        card_id: c.id,
-                        title: c.title.clone(),
-                        body: c.body.clone(),
-                    })
-                    .collect()
-            };
-            for card in &artifact_cards {
-                let title_scan = scan_secrets(&card.title);
-                let body_scan = scan_secrets(&card.body);
-                if !title_scan.is_clean() || !body_scan.is_clean() {
-                    tracing::warn!(
-                        card_id = %card.card_id,
-                        "refusing full-text indexing for secret-bearing card"
-                    );
-                    return false;
-                }
-            }
-            if !artifact_cards.is_empty()
-                && let Err(error) = adapters.search_index.index_cards(artifact_cards)
-            {
-                tracing::error!(artifact_id = %request.artifact_id, %error, "failed to index cards");
-                return false;
-            }
+        if chunk.order == 0 && !self.index_cards_phase(&request, source_path.as_ref()).await {
+            return false;
         }
-        if let Err(error) = adapters.search_index.index_chunks(vec![IndexedChunk {
-            artifact_id: request.artifact_id,
-            chunk_id: request.chunk_id,
-            text: chunk.text,
-        }]) {
-            tracing::error!(chunk_id = %request.chunk_id, %error, "failed to index chunk");
+        if !self.index_chunk_phase(&request, chunk, source_path) {
             return false;
         }
         if Self::send_input(
@@ -103,6 +52,157 @@ impl EffectExecutionContext {
         .is_err()
         {
             return false;
+        }
+        true
+    }
+
+    async fn extract_index_metadata(
+        &self,
+        request: &IndexFullTextRequest,
+    ) -> Result<(Chunk, SecurityMetadata, Option<String>), bool> {
+        let state = self.state.read().await;
+        let Some(chunk) = state.chunks.get(&request.chunk_id).cloned() else {
+            tracing::warn!(chunk_id = %request.chunk_id, "chunk missing for full-text index");
+            return Err(true);
+        };
+        let Some(artifact) = state.artifacts.get(&request.artifact_id) else {
+            tracing::warn!(
+                artifact_id = %request.artifact_id,
+                "artifact missing for full-text index"
+            );
+            return Err(false);
+        };
+        if chunk.artifact_id != request.artifact_id {
+            tracing::warn!(
+                chunk_id = %request.chunk_id,
+                artifact_id = %request.artifact_id,
+                "chunk belongs to a different artifact"
+            );
+            return Err(false);
+        }
+        let source_path = state
+            .evidences
+            .get(&evidence_id_for(request.artifact_id, chunk.order))
+            .and_then(|evidence| match &evidence.kind {
+                EvidenceKind::FileSpan { path, .. } => Some(path.clone()),
+                _ => None,
+            });
+        Ok((chunk, artifact.security.clone(), source_path))
+    }
+
+    async fn index_cards_phase(
+        &self,
+        request: &IndexFullTextRequest,
+        source_path: Option<&String>,
+    ) -> bool {
+        let artifact_cards: Vec<IndexedCard> = {
+            let state = self.state.read().await;
+            state
+                .cards
+                .values()
+                .filter(|c| c.artifact_id == request.artifact_id)
+                .map(|c| IndexedCard {
+                    artifact_id: c.artifact_id,
+                    card_id: c.id,
+                    title: c.title.clone(),
+                    body: c.body.clone(),
+                })
+                .collect()
+        };
+        for card in &artifact_cards {
+            let title_scan = scan_secrets(&card.title);
+            let body_scan = scan_secrets(&card.body);
+            if !title_scan.is_clean() || !body_scan.is_clean() {
+                tracing::warn!(
+                    card_id = %card.card_id,
+                    "refusing full-text indexing for secret-bearing card"
+                );
+                return false;
+            }
+        }
+        if !artifact_cards.is_empty()
+            && let Err(error) = self
+                .adapters
+                .search_index
+                .index_cards(artifact_cards.clone())
+        {
+            tracing::error!(artifact_id = %request.artifact_id, %error, "failed to index cards");
+            return false;
+        }
+        let lexical_cards: Vec<IndexedLexicalCard> = artifact_cards
+            .iter()
+            .map(|card| {
+                let filename = source_path
+                    .and_then(|path| Path::new(path).file_name())
+                    .and_then(|name| name.to_str())
+                    .map(str::to_string);
+                IndexedLexicalCard {
+                    artifact_id: card.artifact_id,
+                    card_id: card.card_id,
+                    title: card.title.clone(),
+                    body: card.body.clone(),
+                    path: source_path.cloned(),
+                    filename,
+                    symbol: None,
+                }
+            })
+            .collect();
+        if self.adapters.search_index.supports_lexical_metadata()
+            && !lexical_cards.is_empty()
+            && let Err(error) = self
+                .adapters
+                .search_index
+                .index_lexical_cards(lexical_cards)
+        {
+            tracing::error!(
+                artifact_id = %request.artifact_id,
+                %error,
+                "failed to index lexical cards"
+            );
+            return false;
+        }
+        true
+    }
+
+    fn index_chunk_phase(
+        &self,
+        request: &IndexFullTextRequest,
+        chunk: Chunk,
+        source_path: Option<String>,
+    ) -> bool {
+        if let Err(error) = self.adapters.search_index.index_chunks(vec![IndexedChunk {
+            artifact_id: request.artifact_id,
+            chunk_id: request.chunk_id,
+            text: chunk.text.clone(),
+        }]) {
+            tracing::error!(chunk_id = %request.chunk_id, %error, "failed to index chunk");
+            return false;
+        }
+        if self.adapters.search_index.supports_lexical_metadata() {
+            let filename = source_path
+                .as_deref()
+                .and_then(|path| Path::new(path).file_name())
+                .and_then(|name| name.to_str())
+                .map(str::to_string);
+            if let Err(error) =
+                self.adapters
+                    .search_index
+                    .index_lexical_chunks(vec![IndexedLexicalChunk {
+                        artifact_id: request.artifact_id,
+                        chunk_id: request.chunk_id,
+                        text: chunk.text,
+                        path: source_path,
+                        filename,
+                        symbol: None,
+                    }])
+            {
+                tracing::error!(
+                    chunk_id = %request.chunk_id,
+                    %error,
+                    "failed to index lexical chunk"
+                );
+                return false;
+            }
         }
         true
     }

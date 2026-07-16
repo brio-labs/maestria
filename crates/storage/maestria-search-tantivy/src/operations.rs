@@ -1,10 +1,13 @@
+use super::lexical_helpers::MAX_LEXICAL_CANDIDATES;
 use super::search_helpers::collect_tie_complete;
 use super::{
     TantivyFullTextIndex, card_key, chunk_key, descending_score, score_to_u32, to_port_error,
 };
 use maestria_domain::{ArtifactId, CardId, ChunkId};
 use maestria_ports::{
-    CardHit, FullTextIndex, IndexedCard, IndexedChunk, PortError, SearchHit, SearchQuery,
+    CardField, CardHit, ChunkField, FullTextIndex, IndexedCard, IndexedChunk, IndexedLexicalCard,
+    IndexedLexicalChunk, LexicalCardHit, LexicalChunkHit, LexicalQuery, PortError, SearchHit,
+    SearchQuery,
 };
 use tantivy::{
     TantivyDocument, Term,
@@ -13,6 +16,9 @@ use tantivy::{
 };
 
 impl FullTextIndex for TantivyFullTextIndex {
+    fn supports_lexical_metadata(&self) -> bool {
+        true
+    }
     fn index_chunks(&self, chunks: Vec<IndexedChunk>) -> Result<(), PortError> {
         let mut writer = self.writer.lock().map_err(|_| PortError::Internal {
             message: "tantivy writer lock poisoned".to_string(),
@@ -156,8 +162,45 @@ impl FullTextIndex for TantivyFullTextIndex {
                 .map_err(to_port_error)?;
         }
         writer.commit().map_err(to_port_error)?;
-        self.reader.reload().map_err(to_port_error)?;
-        Ok(())
+        self.reader.reload().map_err(to_port_error)
+    }
+
+    fn index_lexical_chunks(&self, chunks: Vec<IndexedLexicalChunk>) -> Result<(), PortError> {
+        self.do_index_lexical_chunks(chunks)
+    }
+
+    fn index_lexical_cards(&self, cards: Vec<IndexedLexicalCard>) -> Result<(), PortError> {
+        self.do_index_lexical_cards(cards)
+    }
+
+    fn search_lexical(
+        &self,
+        query: LexicalQuery<ChunkField>,
+    ) -> Result<Vec<LexicalChunkHit>, PortError> {
+        self.do_search_lexical(query)
+    }
+
+    fn search_lexical_filtered(
+        &self,
+        query: LexicalQuery<ChunkField>,
+        filter: &dyn Fn(ChunkId, ArtifactId) -> bool,
+    ) -> Result<Vec<LexicalChunkHit>, PortError> {
+        self.do_search_lexical_filtered(query, Some(filter))
+    }
+
+    fn search_cards_lexical(
+        &self,
+        query: LexicalQuery<CardField>,
+    ) -> Result<Vec<LexicalCardHit>, PortError> {
+        self.do_search_cards_lexical(query)
+    }
+
+    fn search_cards_lexical_filtered(
+        &self,
+        query: LexicalQuery<CardField>,
+        filter: &dyn Fn(CardId, ArtifactId) -> bool,
+    ) -> Result<Vec<LexicalCardHit>, PortError> {
+        self.do_search_cards_lexical_filtered(query, Some(filter))
     }
 
     fn search_cards(&self, query: SearchQuery) -> Result<Vec<CardHit>, PortError> {
@@ -270,7 +313,7 @@ impl FullTextIndex for TantivyFullTextIndex {
 }
 
 impl TantivyFullTextIndex {
-    fn allowed_chunk_keys(
+    pub(crate) fn allowed_chunk_keys(
         &self,
         searcher: &tantivy::Searcher,
         filter: &dyn Fn(ChunkId, ArtifactId) -> bool,
@@ -288,13 +331,18 @@ impl TantivyFullTextIndex {
             }
             let chunk = self.read_chunk(&document)?;
             if filter(chunk.chunk_id, chunk.artifact_id) {
+                if allowed.len() >= MAX_LEXICAL_CANDIDATES {
+                    return Err(PortError::Internal {
+                        message: "filtered lexical candidate set exceeds bounded limit".to_string(),
+                    });
+                }
                 allowed.insert(chunk_key(chunk.artifact_id, chunk.chunk_id));
             }
         }
         Ok(allowed.into_iter().collect())
     }
 
-    fn allowed_card_keys(
+    pub(crate) fn allowed_card_keys(
         &self,
         searcher: &tantivy::Searcher,
         filter: &dyn Fn(CardId, ArtifactId) -> bool,
@@ -312,6 +360,11 @@ impl TantivyFullTextIndex {
             }
             let card = self.read_card(&document)?;
             if filter(card.card_id, card.artifact_id) {
+                if allowed.len() >= MAX_LEXICAL_CANDIDATES {
+                    return Err(PortError::Internal {
+                        message: "filtered lexical candidate set exceeds bounded limit".to_string(),
+                    });
+                }
                 allowed.insert(card_key(card.artifact_id, card.card_id));
             }
         }

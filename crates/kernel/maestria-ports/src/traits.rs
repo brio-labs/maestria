@@ -175,39 +175,6 @@ pub struct CardHit {
     pub score: u32,
 }
 
-pub trait FullTextIndex: Send + Sync {
-    fn index_chunks(&self, chunks: Vec<IndexedChunk>) -> Result<(), PortError>;
-    fn search(&self, query: SearchQuery) -> Result<Vec<SearchHit>, PortError>;
-    fn index_cards(&self, cards: Vec<IndexedCard>) -> Result<(), PortError>;
-    fn search_cards(&self, query: SearchQuery) -> Result<Vec<CardHit>, PortError>;
-
-    /// Execute a search, applying a pre-score filter to candidates.
-    /// If an adapter cannot perform pre-filtering natively, it MUST return an error
-    /// rather than silently ignoring the filter.
-    fn search_filtered(
-        &self,
-        query: SearchQuery,
-        filter: &dyn Fn(ChunkId, ArtifactId) -> bool,
-    ) -> Result<Vec<SearchHit>, PortError> {
-        let _ = (query, filter);
-        Err(PortError::Internal {
-            message: "search_filtered not supported by this index".into(),
-        })
-    }
-
-    /// Execute a card search, applying a pre-score filter.
-    fn search_cards_filtered(
-        &self,
-        query: SearchQuery,
-        filter: &dyn Fn(CardId, ArtifactId) -> bool,
-    ) -> Result<Vec<CardHit>, PortError> {
-        let _ = (query, filter);
-        Err(PortError::Internal {
-            message: "search_cards_filtered not supported by this index".into(),
-        })
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EmbeddingProvenance {
     pub content_hash: String,

@@ -13,8 +13,14 @@ use maestria_domain::{
 
 pub const PORTS_VERSION: &str = "0.1.0";
 
+pub mod lexical;
+pub use lexical::*;
+mod full_text;
+pub use full_text::FullTextIndex;
+
 mod traits;
 pub use traits::*;
+
 mod parsing;
 pub use parsing::*;
 
