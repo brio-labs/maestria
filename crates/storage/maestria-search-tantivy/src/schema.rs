@@ -5,8 +5,9 @@ use tantivy::schema::{
 };
 
 use super::{
-    FIELD_ARTIFACT_ID, FIELD_CARD_ARTIFACT_ID, FIELD_CARD_BODY, FIELD_CARD_ID, FIELD_CARD_KEY,
-    FIELD_CARD_TITLE, FIELD_CHUNK_ID, FIELD_KEY, FIELD_TEXT, IndexFields, schema_field,
+    FIELD_ARTIFACT_ID, FIELD_CARD_ARTIFACT_ID, FIELD_CARD_BODY, FIELD_CARD_FILENAME, FIELD_CARD_ID,
+    FIELD_CARD_KEY, FIELD_CARD_PATH, FIELD_CARD_SYMBOL, FIELD_CARD_TITLE, FIELD_CHUNK_ID,
+    FIELD_FILENAME, FIELD_KEY, FIELD_PATH, FIELD_SYMBOL, FIELD_TEXT, IndexFields, schema_field,
 };
 
 pub(super) fn schema() -> Schema {
@@ -26,7 +27,13 @@ pub(super) fn schema() -> Schema {
     builder.add_u64_field(FIELD_CARD_ARTIFACT_ID, INDEXED | FAST | STORED);
     builder.add_u64_field(FIELD_CARD_ID, INDEXED | FAST | STORED);
     builder.add_text_field(FIELD_CARD_TITLE, text_options.clone());
-    builder.add_text_field(FIELD_CARD_BODY, text_options);
+    builder.add_text_field(FIELD_CARD_BODY, text_options.clone());
+    builder.add_text_field(FIELD_PATH, text_options.clone());
+    builder.add_text_field(FIELD_FILENAME, text_options.clone());
+    builder.add_text_field(FIELD_SYMBOL, text_options.clone());
+    builder.add_text_field(FIELD_CARD_PATH, text_options.clone());
+    builder.add_text_field(FIELD_CARD_FILENAME, text_options.clone());
+    builder.add_text_field(FIELD_CARD_SYMBOL, text_options);
     builder.build()
 }
 
@@ -50,5 +57,11 @@ pub(super) fn load_fields(schema: Schema) -> Result<IndexFields, PortError> {
         card_id: schema_field(&schema, FIELD_CARD_ID)?,
         card_title: schema_field(&schema, FIELD_CARD_TITLE)?,
         card_body: schema_field(&schema, FIELD_CARD_BODY)?,
+        path: schema_field(&schema, FIELD_PATH)?,
+        filename: schema_field(&schema, FIELD_FILENAME)?,
+        symbol: schema_field(&schema, FIELD_SYMBOL)?,
+        card_path: schema_field(&schema, FIELD_CARD_PATH)?,
+        card_filename: schema_field(&schema, FIELD_CARD_FILENAME)?,
+        card_symbol: schema_field(&schema, FIELD_CARD_SYMBOL)?,
     })
 }

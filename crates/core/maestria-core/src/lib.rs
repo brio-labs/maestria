@@ -9,6 +9,7 @@ mod error;
 mod graph_retrieval;
 mod ingestion;
 mod instance;
+mod lexical_helpers;
 mod manifest;
 mod ports;
 mod provenance;

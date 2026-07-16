@@ -5,6 +5,8 @@
 //! This crate stores only rebuildable indexed chunks. Artifact metadata and blob
 //! contents remain owned by their source repositories.
 
+mod lexical_helpers;
+mod lexical_operations;
 mod migration;
 mod operations;
 mod schema;
@@ -16,6 +18,7 @@ use std::{fs, path::Path, sync::Mutex};
 
 use maestria_domain::{ArtifactId, CardId, ChunkId};
 use maestria_ports::{FullTextIndex, IndexedCard, IndexedChunk, PortError};
+use maestria_ports::{IndexedLexicalCard, IndexedLexicalChunk};
 use tantivy::{
     Index, IndexReader, IndexWriter, ReloadPolicy, TantivyDocument, doc,
     schema::{Field, Schema, Value},
@@ -31,6 +34,12 @@ const FIELD_CARD_ARTIFACT_ID: &str = "card_artifact_id";
 const FIELD_CARD_ID: &str = "card_id";
 const FIELD_CARD_TITLE: &str = "card_title";
 const FIELD_CARD_BODY: &str = "card_body";
+const FIELD_PATH: &str = "path";
+const FIELD_FILENAME: &str = "filename";
+const FIELD_SYMBOL: &str = "symbol";
+const FIELD_CARD_PATH: &str = "card_path";
+const FIELD_CARD_FILENAME: &str = "card_filename";
+const FIELD_CARD_SYMBOL: &str = "card_symbol";
 
 /// Tantivy implementation of the [`FullTextIndex`] projection port.
 pub struct TantivyFullTextIndex {
@@ -52,6 +61,12 @@ struct IndexFields {
     card_id: Field,
     card_title: Field,
     card_body: Field,
+    path: Field,
+    filename: Field,
+    symbol: Field,
+    card_path: Field,
+    card_filename: Field,
+    card_symbol: Field,
 }
 
 impl TantivyFullTextIndex {
@@ -76,7 +91,9 @@ impl TantivyFullTextIndex {
         let marker = path.join(".cards-rebuild");
         if path.join("meta.json").exists() {
             let existing = Index::open_in_dir(path).map_err(to_port_error)?;
-            if schema_has_cards(&existing.schema()) && supports_filtered_queries(&existing.schema())
+            if schema_has_cards(&existing.schema())
+                && supports_filtered_queries(&existing.schema())
+                && migration::schema_has_lexical(&existing.schema())
             {
                 let required = marker.exists();
                 return Self::from_index(existing, required, Some(marker));
@@ -176,6 +193,25 @@ impl TantivyFullTextIndex {
         )
     }
 
+    fn lexical_chunk_document(&self, chunk: &IndexedLexicalChunk) -> TantivyDocument {
+        let mut doc = doc!(
+            self.fields.key => chunk_key(chunk.artifact_id, chunk.chunk_id),
+            self.fields.artifact_id => chunk.artifact_id.value(),
+            self.fields.chunk_id => chunk.chunk_id.value(),
+            self.fields.text => chunk.text.clone(),
+        );
+        if let Some(path) = &chunk.path {
+            doc.add_text(self.fields.path, path);
+        }
+        if let Some(filename) = &chunk.filename {
+            doc.add_text(self.fields.filename, filename);
+        }
+        if let Some(symbol) = &chunk.symbol {
+            doc.add_text(self.fields.symbol, symbol);
+        }
+        doc
+    }
+
     fn read_chunk(&self, document: &TantivyDocument) -> Result<IndexedChunk, PortError> {
         let artifact_id = document
             .get_first(self.fields.artifact_id)
@@ -205,6 +241,32 @@ impl TantivyFullTextIndex {
             text,
         })
     }
+    fn read_lexical_chunk(
+        &self,
+        document: &TantivyDocument,
+    ) -> Result<IndexedLexicalChunk, PortError> {
+        let base = self.read_chunk(document)?;
+        let path = document
+            .get_first(self.fields.path)
+            .and_then(|value| value.as_str())
+            .map(str::to_string);
+        let filename = document
+            .get_first(self.fields.filename)
+            .and_then(|value| value.as_str())
+            .map(str::to_string);
+        let symbol = document
+            .get_first(self.fields.symbol)
+            .and_then(|value| value.as_str())
+            .map(str::to_string);
+        Ok(IndexedLexicalChunk {
+            artifact_id: base.artifact_id,
+            chunk_id: base.chunk_id,
+            text: base.text,
+            path,
+            filename,
+            symbol,
+        })
+    }
 
     fn card_document(&self, card: &IndexedCard) -> TantivyDocument {
         doc!(
@@ -214,6 +276,26 @@ impl TantivyFullTextIndex {
             self.fields.card_title => card.title.clone(),
             self.fields.card_body => card.body.clone(),
         )
+    }
+
+    fn lexical_card_document(&self, card: &IndexedLexicalCard) -> TantivyDocument {
+        let mut doc = doc!(
+            self.fields.card_key => card_key(card.artifact_id, card.card_id),
+            self.fields.card_artifact_id => card.artifact_id.value(),
+            self.fields.card_id => card.card_id.value(),
+            self.fields.card_title => card.title.clone(),
+            self.fields.card_body => card.body.clone(),
+        );
+        if let Some(path) = &card.path {
+            doc.add_text(self.fields.card_path, path);
+        }
+        if let Some(filename) = &card.filename {
+            doc.add_text(self.fields.card_filename, filename);
+        }
+        if let Some(symbol) = &card.symbol {
+            doc.add_text(self.fields.card_symbol, symbol);
+        }
+        doc
     }
 
     fn read_card(&self, document: &TantivyDocument) -> Result<IndexedCard, PortError> {
@@ -251,6 +333,33 @@ impl TantivyFullTextIndex {
             card_id,
             title,
             body,
+        })
+    }
+    fn read_lexical_card(
+        &self,
+        document: &TantivyDocument,
+    ) -> Result<IndexedLexicalCard, PortError> {
+        let base = self.read_card(document)?;
+        let path = document
+            .get_first(self.fields.card_path)
+            .and_then(|value| value.as_str())
+            .map(str::to_string);
+        let filename = document
+            .get_first(self.fields.card_filename)
+            .and_then(|value| value.as_str())
+            .map(str::to_string);
+        let symbol = document
+            .get_first(self.fields.card_symbol)
+            .and_then(|value| value.as_str())
+            .map(str::to_string);
+        Ok(IndexedLexicalCard {
+            artifact_id: base.artifact_id,
+            card_id: base.card_id,
+            title: base.title,
+            body: base.body,
+            path,
+            filename,
+            symbol,
         })
     }
 }

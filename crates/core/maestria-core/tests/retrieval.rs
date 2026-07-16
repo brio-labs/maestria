@@ -798,3 +798,47 @@ fn retrieval_policy_filters_before_scoring() -> Result<(), Box<dyn std::error::E
     );
     Ok(())
 }
+
+#[test]
+fn exact_lexical_path_is_invoked_and_denied_candidates_excluded()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fixture = GraphFixture::new()?;
+
+    // Test exact lookup via quotes
+    let pack = fixture
+        .core_without_graph()
+        .search(SearchInput {
+            query: "\"seed match\"".to_string(),
+            limit: 10,
+        })?
+        .pack;
+
+    assert_eq!(
+        pack.chunks.len(),
+        1,
+        "exact lexical path should return the matching chunk"
+    );
+    assert_eq!(pack.chunks[0].chunk.id, fixture.chunk_a);
+    assert!(
+        pack.chunks[0].lexical_metadata.is_some(),
+        "lexical lane metadata must reach grounded results"
+    );
+
+    // Test denied candidates are excluded on exact lookup
+    let policy =
+        RetrievalSecurityPolicy::new().require_trust_zone(maestria_domain::TrustZone::System);
+    let restricted_pack = fixture
+        .core_without_graph()
+        .with_retrieval_policy(policy)
+        .search(SearchInput {
+            query: "\"seed match\"".to_string(),
+            limit: 10,
+        })?
+        .pack;
+
+    assert!(
+        restricted_pack.chunks.is_empty(),
+        "exact lookup must exclude denied candidates"
+    );
+    Ok(())
+}

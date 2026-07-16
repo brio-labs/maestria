@@ -8,7 +8,9 @@ pub(super) fn collect_tie_complete(
     offset: usize,
     limit: usize,
 ) -> Result<Vec<(f32, DocAddress)>, super::PortError> {
-    let requested = offset.saturating_add(limit);
+    let total_docs = searcher.num_docs() as usize;
+    let safe_limit = limit.min(total_docs).max(1);
+    let requested = offset.saturating_add(limit).min(total_docs);
     if requested == 0 {
         return Ok(Vec::new());
     }
@@ -27,7 +29,7 @@ pub(super) fn collect_tie_complete(
         let page = searcher
             .search(
                 query,
-                &TopDocs::with_limit(limit)
+                &TopDocs::with_limit(safe_limit)
                     .and_offset(next_offset)
                     .order_by_score(),
             )
@@ -48,7 +50,7 @@ pub(super) fn collect_tie_complete(
         if found_lower || !found_boundary {
             break;
         }
-        next_offset = next_offset.saturating_add(limit);
+        next_offset = next_offset.saturating_add(safe_limit);
     }
     Ok(documents)
 }

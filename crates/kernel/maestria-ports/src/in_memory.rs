@@ -5,6 +5,7 @@ mod full_text;
 mod graph_index;
 mod harness;
 mod id_allocator;
+mod lexical;
 mod parser;
 mod repositories;
 mod vector_index;

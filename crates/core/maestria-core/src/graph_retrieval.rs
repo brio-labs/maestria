@@ -162,6 +162,7 @@ fn project_graph_neighbor(
                 artifact,
                 card,
                 score,
+                lexical_metadata: None,
             });
             Ok(true)
         }
@@ -201,6 +202,7 @@ fn project_graph_neighbor(
                 chunk,
                 evidence,
                 score,
+                lexical_metadata: None,
             });
             Ok(true)
         }
