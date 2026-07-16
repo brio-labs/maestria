@@ -131,6 +131,11 @@ fn build_search_plan(input: &SearchInput) -> CoreResult<maestria_domain::SearchP
         evidence_requirements: EvidenceRequirements {
             require_primary_sources: false,
             minimum_corroboration: 1,
+            required_claims: vec![],
+            required_subquestions: vec![],
+            minimum_sources: 0,
+            minimum_documents: 0,
+            minimum_sections: 0,
         },
         fingerprint: RetrievalModelFingerprint::new(CORE_RETRIEVAL_FINGERPRINT.to_string())
             .map_err(|error| CoreError::InvalidInput {

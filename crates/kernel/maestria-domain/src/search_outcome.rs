@@ -44,6 +44,8 @@ pub struct EvidenceCandidate {
     pub freshness: FreshnessStatus,
     pub duplicate_cluster: Option<DuplicateClusterId>,
     pub reasons: Vec<RetrievalReason>,
+    #[serde(default)]
+    pub coverage_keys: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -51,26 +53,55 @@ pub struct EvidenceCandidate {
 pub struct EvidenceCoverage {
     pub percent_covered: u8,
     pub gaps_identified: Vec<String>,
+    #[serde(default)]
+    pub required_claims: Vec<String>,
+    #[serde(default)]
+    pub required_subquestions: Vec<String>,
+    #[serde(default)]
+    pub distinct_sources: usize,
+    #[serde(default)]
+    pub distinct_documents: usize,
+    #[serde(default)]
+    pub distinct_sections: usize,
+    #[serde(default)]
+    pub candidate_coverage_keys: Vec<String>,
 }
 
 #[derive(Deserialize)]
 struct EvidenceCoverageDto {
     percent_covered: u8,
     gaps_identified: Vec<String>,
+    #[serde(default)]
+    required_claims: Vec<String>,
+    #[serde(default)]
+    required_subquestions: Vec<String>,
+    #[serde(default)]
+    distinct_sources: usize,
+    #[serde(default)]
+    distinct_documents: usize,
+    #[serde(default)]
+    distinct_sections: usize,
+    #[serde(default)]
+    candidate_coverage_keys: Vec<String>,
 }
 
 impl TryFrom<EvidenceCoverageDto> for EvidenceCoverage {
     type Error = SearchCompatibilityError;
-
     fn try_from(dto: EvidenceCoverageDto) -> Result<Self, Self::Error> {
         if dto.percent_covered > 100 {
             return Err(SearchCompatibilityError::InvalidCoverage(
                 "percent_covered must be between 0 and 100",
             ));
         }
-        Ok(Self {
+        Ok(EvidenceCoverage {
             percent_covered: dto.percent_covered,
             gaps_identified: dto.gaps_identified,
+            required_claims: dto.required_claims,
+            required_subquestions: dto.required_subquestions,
+            distinct_sources: dto.distinct_sources,
+            distinct_documents: dto.distinct_documents,
+            distinct_sections: dto.distinct_sections,
+            candidate_coverage_keys: dto.candidate_coverage_keys,
         })
     }
 }
@@ -116,6 +147,8 @@ pub struct SearchTraceCandidate {
     pub freshness: FreshnessStatus,
     pub duplicate_cluster: Option<DuplicateClusterId>,
     pub reasons: Vec<RetrievalReason>,
+    #[serde(default)]
+    pub coverage_keys: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -130,6 +163,7 @@ pub enum SearchStopReason {
     EvidenceComplete,
     RequirementsUnmet,
     NoEvidence,
+    LowMarginalGain,
     BudgetExhausted,
     PolicyDenied,
     Abstained,
@@ -195,6 +229,30 @@ pub struct SearchTraceRerank {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SearchTraceDiversityCandidate {
+    pub candidate_id: crate::ids::EvidenceId,
+    pub original_rank: usize,
+    pub selected_rank: Option<usize>,
+    pub duplicate_cluster: Option<DuplicateClusterId>,
+    pub marginal_coverage: u8,
+    #[serde(default)]
+    pub coverage_keys: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SearchTraceDiversity {
+    pub distinct_sources: usize,
+    pub distinct_documents: usize,
+    pub distinct_sections: usize,
+    pub required_claims: Vec<String>,
+    pub required_subquestions: Vec<String>,
+    #[serde(default)]
+    pub covered_keys: Vec<String>,
+    pub stop_reason: SearchStopReason,
+    pub candidates: Vec<SearchTraceDiversityCandidate>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SearchTrace {
     pub query_id: crate::ids::QueryId,
     pub original_query: String,
@@ -222,6 +280,8 @@ pub struct SearchTrace {
     pub lanes: Vec<SearchTraceLane>,
     #[serde(default)]
     pub rerank: Option<SearchTraceRerank>,
+    #[serde(default)]
+    pub diversity: Option<SearchTraceDiversity>,
 }
 
 impl SearchTrace {
@@ -263,6 +323,7 @@ impl SearchTrace {
                     freshness: candidate.freshness.clone(),
                     duplicate_cluster: candidate.duplicate_cluster,
                     reasons: candidate.reasons.clone(),
+                    coverage_keys: candidate.coverage_keys.clone(),
                 })
                 .collect(),
             fusion,
@@ -273,6 +334,7 @@ impl SearchTrace {
             stop_reason,
             lanes: Vec::new(),
             rerank: None,
+            diversity: None,
         }
     }
 }

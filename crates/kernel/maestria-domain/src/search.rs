@@ -304,6 +304,16 @@ pub struct StopConditions {
 pub struct EvidenceRequirements {
     pub require_primary_sources: bool,
     pub minimum_corroboration: u8,
+    #[serde(default)]
+    pub required_claims: Vec<String>,
+    #[serde(default)]
+    pub required_subquestions: Vec<String>,
+    #[serde(default)]
+    pub minimum_sources: usize,
+    #[serde(default)]
+    pub minimum_documents: usize,
+    #[serde(default)]
+    pub minimum_sections: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

@@ -1,6 +1,7 @@
 use super::{
     ConflictSet, ConflictSetId, EvidenceCandidate, EvidenceCoverage, SearchCompatibilityError,
-    SearchOutcome, SearchPlan, SearchStatus, SearchStopReason, SearchTrace, SearchTraceId,
+    SearchOutcome, SearchPlan, SearchStatus, SearchStopReason, SearchTrace, SearchTraceDiversity,
+    SearchTraceId,
 };
 
 impl SearchTrace {
@@ -56,6 +57,7 @@ impl SearchTrace {
                             && traced.freshness == candidate.freshness
                             && traced.duplicate_cluster == candidate.duplicate_cluster
                             && traced.reasons == candidate.reasons
+                            && traced.coverage_keys == candidate.coverage_keys
                     })
                 })
     }
@@ -65,18 +67,24 @@ impl SearchTrace {
             SearchStopReason::ResultsLimit => {
                 matches!(
                     status,
-                    SearchStatus::Answerable | SearchStatus::AnswerableWithWarnings
+                    SearchStatus::Answerable
+                        | SearchStatus::AnswerableWithWarnings
+                        | SearchStatus::EvidenceIncomplete
+                        | SearchStatus::StaleEvidenceOnly
                 ) && evidence_len >= self.stop_conditions.max_results as usize
             }
             SearchStopReason::EvidenceComplete => {
                 matches!(
                     status,
-                    SearchStatus::Answerable | SearchStatus::AnswerableWithWarnings
+                    SearchStatus::Answerable
+                        | SearchStatus::AnswerableWithWarnings
+                        | SearchStatus::StaleEvidenceOnly
                 ) && evidence_len < self.stop_conditions.max_results as usize
             }
             SearchStopReason::RequirementsUnmet => matches!(
                 status,
-                SearchStatus::EvidenceIncomplete
+                SearchStatus::AnswerableWithWarnings
+                    | SearchStatus::EvidenceIncomplete
                     | SearchStatus::StaleEvidenceOnly
                     | SearchStatus::SourcesConflict
             ),
@@ -96,6 +104,15 @@ impl SearchTrace {
                     SearchStatus::EvidenceIncomplete | SearchStatus::StaleEvidenceOnly
                 ) || (*status == SearchStatus::Abstained && evidence_len == 0)
             }
+            SearchStopReason::LowMarginalGain => {
+                matches!(
+                    status,
+                    SearchStatus::Answerable
+                        | SearchStatus::AnswerableWithWarnings
+                        | SearchStatus::EvidenceIncomplete
+                        | SearchStatus::StaleEvidenceOnly
+                )
+            }
         }
     }
 
@@ -110,7 +127,26 @@ impl SearchTrace {
             (_, true) => coverage.percent_covered == 100,
             (_, false) => coverage.percent_covered < 100,
         };
+        let diversity_consistent = match &self.diversity {
+            Some(trace) => {
+                trace.distinct_sources == coverage.distinct_sources
+                    && trace.distinct_documents == coverage.distinct_documents
+                    && trace.distinct_sections == coverage.distinct_sections
+                    && trace.required_claims == coverage.required_claims
+                    && trace.required_subquestions == coverage.required_subquestions
+                    && trace.covered_keys == coverage.candidate_coverage_keys
+            }
+            None => {
+                coverage.distinct_sources == 0
+                    && coverage.distinct_documents == 0
+                    && coverage.distinct_sections == 0
+                    && coverage.required_claims.is_empty()
+                    && coverage.required_subquestions.is_empty()
+                    && coverage.candidate_coverage_keys.is_empty()
+            }
+        };
         percent_consistent
+            && diversity_consistent
             && self.missing_evidence == coverage.gaps_identified
             && self.conflicts
                 == conflicts
@@ -157,6 +193,7 @@ impl SearchTrace {
             mix(format!("{:?}", candidate.freshness).as_bytes());
             mix(format!("{:?}", candidate.duplicate_cluster).as_bytes());
             mix(format!("{:?}", candidate.reasons).as_bytes());
+            mix(format!("{:?}", candidate.coverage_keys).as_bytes());
         }
         mix(format!("{:?}", self.fusion).as_bytes());
         mix(format!("{:?}", self.filters).as_bytes());
@@ -203,7 +240,42 @@ impl SearchTrace {
                 }
             }
         }
+        if let Some(diversity) = &self.diversity {
+            mix_diversity(&mut hash, diversity);
+        }
         SearchTraceId::new(hash)
+    }
+}
+
+fn mix_diversity(hash: &mut u64, diversity: &SearchTraceDiversity) {
+    let mut mix = |bytes: &[u8]| {
+        for byte in bytes {
+            *hash ^= u64::from(*byte);
+            *hash = hash.wrapping_mul(0x100000001b3);
+        }
+    };
+    mix(&(diversity.distinct_sources as u64).to_le_bytes());
+    mix(&(diversity.distinct_documents as u64).to_le_bytes());
+    mix(&(diversity.distinct_sections as u64).to_le_bytes());
+    for claim in &diversity.required_claims {
+        mix(claim.as_bytes());
+    }
+    for subquestion in &diversity.required_subquestions {
+        mix(subquestion.as_bytes());
+    }
+    for key in &diversity.covered_keys {
+        mix(key.as_bytes());
+    }
+    mix(format!("{:?}", diversity.stop_reason).as_bytes());
+    for candidate in &diversity.candidates {
+        mix(&candidate.candidate_id.value().to_le_bytes());
+        mix(&(candidate.original_rank as u64).to_le_bytes());
+        mix(format!("{:?}", candidate.selected_rank).as_bytes());
+        mix(format!("{:?}", candidate.duplicate_cluster).as_bytes());
+        mix(&u64::from(candidate.marginal_coverage).to_le_bytes());
+        for key in &candidate.coverage_keys {
+            mix(key.as_bytes());
+        }
     }
 }
 
@@ -248,6 +320,89 @@ impl SearchOutcome {
                 ));
             }
         }
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        CorpusScope, EvidenceRequirements, FreshnessRequirement, ModalitySet,
+        RetrievalModelFingerprint, SearchBudget, SearchIntent, SearchPlan, StopConditions,
+        ids::{CorpusSnapshotId, IndexGenerationId, QueryId},
+    };
+
+    #[test]
+    fn test_deterministic_id_with_diversity() -> Result<(), SearchCompatibilityError> {
+        let plan = SearchPlan {
+            query_id: QueryId::new(1),
+            original_query: "test".to_string(),
+            intent: SearchIntent::ExactLookup,
+            scope: CorpusScope::Global,
+            corpus_snapshot: CorpusSnapshotId::new(1),
+            index_generation: IndexGenerationId::new(1),
+            freshness: FreshnessRequirement::Any,
+            modalities: ModalitySet::new(vec![]),
+            stages: vec![],
+            budgets: SearchBudget::new(1000, 1000)?,
+            stop_conditions: StopConditions {
+                max_results: 10,
+                min_score_threshold: 0,
+            },
+            evidence_requirements: EvidenceRequirements {
+                required_claims: vec![],
+                required_subquestions: vec![],
+                minimum_sources: 0,
+                minimum_documents: 0,
+                minimum_sections: 0,
+                require_primary_sources: false,
+                minimum_corroboration: 1,
+            },
+            fingerprint: RetrievalModelFingerprint::new("test".to_string())?,
+        };
+
+        let mut trace = SearchTrace::from_plan(
+            &plan,
+            vec![],
+            &[],
+            vec![],
+            None,
+            vec![],
+            SearchStopReason::EvidenceComplete,
+        );
+        let id1 = trace.deterministic_id();
+        trace.diversity = Some(crate::SearchTraceDiversity {
+            distinct_sources: 1,
+            distinct_documents: 1,
+            distinct_sections: 1,
+            required_claims: vec!["claim1".to_string()],
+            required_subquestions: vec![],
+            covered_keys: vec!["claim1".to_string()],
+            stop_reason: SearchStopReason::EvidenceComplete,
+            candidates: vec![],
+        });
+        let id2 = trace.deterministic_id();
+        assert_ne!(id1, id2);
+        let diversity =
+            trace
+                .diversity
+                .as_mut()
+                .ok_or(SearchCompatibilityError::TracePlanMismatch(
+                    "diversity trace fixture missing",
+                ))?;
+        diversity
+            .candidates
+            .push(crate::SearchTraceDiversityCandidate {
+                candidate_id: crate::ids::EvidenceId::new(1),
+                original_rank: 0,
+                selected_rank: Some(0),
+                duplicate_cluster: None,
+                marginal_coverage: 1,
+                coverage_keys: vec!["key1".to_string()],
+            });
+        let id3 = trace.deterministic_id();
+        assert_ne!(id2, id3);
         Ok(())
     }
 }

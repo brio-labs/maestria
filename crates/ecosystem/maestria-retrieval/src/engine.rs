@@ -15,7 +15,6 @@ use crate::types::{
     RetrievalExperiment, RetrievalResult,
 };
 
-use crate::sync::SyncPipeline;
 pub(super) fn ensure_trace(
     plan: &SearchPlan,
     mut outcome: SearchOutcome,
@@ -23,6 +22,7 @@ pub(super) fn ensure_trace(
     fusion_enabled: bool,
     expansion_enabled: bool,
     rerank_trace: Option<maestria_domain::SearchTraceRerank>,
+    diversity_trace: Option<maestria_domain::SearchTraceDiversity>,
 ) -> SearchOutcome {
     let trace_is_valid = outcome.trace_data.as_ref().is_some_and(|trace| {
         outcome.trace == trace.deterministic_id()
@@ -35,6 +35,7 @@ pub(super) fn ensure_trace(
             && trace.lanes == lanes
             && trace.fusion.is_some() == fusion_enabled
             && trace.rerank == rerank_trace
+            && trace.diversity == diversity_trace
             && trace.expansions.len() == usize::from(expansion_enabled)
             && trace.matches_evidence(&outcome.evidence)
     });
@@ -42,18 +43,24 @@ pub(super) fn ensure_trace(
         return outcome;
     }
     let stop_reason = match &outcome.status {
-        SearchStatus::NoEvidenceFound => SearchStopReason::NoEvidence,
         SearchStatus::DeniedByPolicy | SearchStatus::QuarantinedForReview => {
             SearchStopReason::PolicyDenied
         }
         SearchStatus::Abstained => SearchStopReason::Abstained,
-        SearchStatus::EvidenceIncomplete
-        | SearchStatus::StaleEvidenceOnly
-        | SearchStatus::SourcesConflict => SearchStopReason::RequirementsUnmet,
-        _ if outcome.evidence.len() >= plan.stop_conditions.max_results as usize => {
-            SearchStopReason::ResultsLimit
-        }
-        _ => SearchStopReason::EvidenceComplete,
+        SearchStatus::NoEvidenceFound => SearchStopReason::NoEvidence,
+        SearchStatus::SourcesConflict
+        | SearchStatus::EvidenceIncomplete
+        | SearchStatus::StaleEvidenceOnly => SearchStopReason::RequirementsUnmet,
+        _ => diversity_trace.as_ref().map_or_else(
+            || {
+                if outcome.evidence.len() >= plan.stop_conditions.max_results as usize {
+                    SearchStopReason::ResultsLimit
+                } else {
+                    SearchStopReason::EvidenceComplete
+                }
+            },
+            |trace| trace.stop_reason.clone(),
+        ),
     };
     let expansions = expansion_enabled
         .then_some(SearchTraceExpansion {
@@ -81,6 +88,7 @@ pub(super) fn ensure_trace(
             .collect(),
     );
     trace.rerank = rerank_trace;
+    trace.diversity = diversity_trace;
     outcome.trace = trace.deterministic_id();
     outcome.trace_data = Some(Box::new(trace));
     outcome
@@ -278,113 +286,116 @@ impl RetrievalEngine {
             rerank_trace = Some(rerank_res.trace);
         }
 
-        let mut candidates = if let Some(expander) = &self.expander {
-            expander.expand(
-                &ranked,
-                &ExpansionPolicy {
-                    max_results: plan.stop_conditions.max_results as usize,
-                    max_depth: plan.stages.len(),
-                },
-            )?
-        } else {
-            ranked
-                .into_iter()
-                .map(|candidate| candidate.candidate)
-                .collect()
-        };
-        candidates.truncate(plan.stop_conditions.max_results as usize);
-        let report = self
-            .evaluator
-            .evaluate(RetrievalExperiment {
-                plan: plan.clone(),
-                candidates,
-            })
-            .await?;
+        let initial_diversity = crate::diversity::select_candidates(&ranked, plan);
+        let (mut raw_outcome, final_diversity) =
+            run_diversity_stage(plan, initial_diversity, &self.expander, &self.evaluator).await?;
+        raw_outcome.status = reconcile_status(&raw_outcome.status, &final_diversity.status);
+        raw_outcome.coverage = final_diversity.coverage;
         let outcome = ensure_trace(
             plan,
-            report.outcome,
+            raw_outcome,
             lanes,
             self.fusion.is_some(),
             self.expander.is_some(),
             rerank_trace,
+            Some(final_diversity.trace),
         );
         outcome.verify_compatibility(plan)?;
         Ok(outcome)
     }
 }
 
-pub struct SyncRetrievalEngine<'a> {
-    pipeline: SyncPipeline<'a, EvidenceCandidate, SearchOutcome>,
+async fn run_diversity_stage(
+    plan: &SearchPlan,
+    initial: crate::diversity::DiversitySelection,
+    expander: &Option<Arc<dyn ContextExpander>>,
+    evaluator: &Arc<dyn RetrievalEvaluator>,
+) -> RetrievalResult<(SearchOutcome, crate::diversity::DiversitySelection)> {
+    let selected_candidates = initial.candidates.clone();
+    let expansion_policy = ExpansionPolicy {
+        max_results: plan.stop_conditions.max_results as usize,
+        max_depth: plan.stages.len(),
+        selected_seeds: selected_candidates
+            .iter()
+            .map(|candidate| candidate.candidate.clone())
+            .collect(),
+        required_claims: initial.coverage.required_claims.clone(),
+        required_subquestions: initial.coverage.required_subquestions.clone(),
+    };
+    let expanded = if let Some(expander) = expander {
+        expander.expand(&selected_candidates, &expansion_policy)?
+    } else {
+        selected_candidates
+            .iter()
+            .map(|candidate| candidate.candidate.clone())
+            .collect()
+    };
+    let expanded_ranked = expanded
+        .into_iter()
+        .enumerate()
+        .map(|(rank, candidate)| RankedCandidate { candidate, rank })
+        .collect::<Vec<_>>();
+    let final_diversity = crate::diversity::select_candidates(&expanded_ranked, plan);
+    ensure_exact_lineage(&final_diversity.candidates, &selected_candidates)?;
+    let candidates = final_diversity
+        .candidates
+        .iter()
+        .map(|candidate| candidate.candidate.clone())
+        .collect();
+    let report = evaluator
+        .evaluate(RetrievalExperiment {
+            plan: plan.clone(),
+            candidates,
+        })
+        .await?;
+    ensure_exact_lineage_from_evidence(&report.outcome.evidence, &final_diversity.candidates)?;
+    Ok((report.outcome, final_diversity))
 }
 
-impl<'a> SyncRetrievalEngine<'a> {
-    pub fn new<R, V>(retrievers: Vec<R>, evaluator: V) -> Self
-    where
-        R: Fn(&SearchPlan) -> RetrievalResult<Vec<EvidenceCandidate>> + 'a,
-        V: Fn(Vec<EvidenceCandidate>, &SearchPlan) -> RetrievalResult<SearchOutcome> + 'a,
-    {
-        Self {
-            pipeline: SyncPipeline::new(retrievers, evaluator),
-        }
-    }
+fn ensure_exact_lineage(
+    candidates: &[RankedCandidate],
+    seeds: &[RankedCandidate],
+) -> RetrievalResult<()> {
+    let evidence = candidates
+        .iter()
+        .map(|candidate| candidate.candidate.clone())
+        .collect::<Vec<_>>();
+    ensure_exact_lineage_from_evidence(&evidence, seeds)
+}
 
-    pub fn with_fusion<F>(mut self, fusion: F) -> Self
-    where
-        F: Fn(Vec<Vec<EvidenceCandidate>>) -> RetrievalResult<Vec<EvidenceCandidate>> + 'a,
-    {
-        self.pipeline = self.pipeline.with_fusion(fusion);
-        self
-    }
-
-    pub fn with_reranker<F>(mut self, reranker: F) -> Self
-    where
-        F: Fn(Vec<EvidenceCandidate>, &SearchPlan) -> RetrievalResult<Vec<EvidenceCandidate>> + 'a,
-    {
-        self.pipeline = self.pipeline.with_reranker(reranker);
-        self
-    }
-
-    pub fn with_expander<F>(mut self, expander: F) -> Self
-    where
-        F: Fn(Vec<EvidenceCandidate>, &SearchPlan) -> RetrievalResult<Vec<EvidenceCandidate>> + 'a,
-    {
-        self.pipeline = self.pipeline.with_expander(expander);
-        self
-    }
-
-    pub fn search_sync(&self, plan: &SearchPlan) -> RetrievalResult<SearchOutcome> {
-        let outcome = self.pipeline.run(plan)?;
-        let lane = maestria_domain::SearchTraceLane {
-            retriever_id: "sync_pipeline".to_string(),
-            status: if outcome.evidence.is_empty() {
-                maestria_domain::SearchLaneStatus::Empty
-            } else {
-                maestria_domain::SearchLaneStatus::Succeeded
-            },
-            candidates: outcome
-                .evidence
+fn ensure_exact_lineage_from_evidence(
+    evidence: &[EvidenceCandidate],
+    seeds: &[RankedCandidate],
+) -> RetrievalResult<()> {
+    if evidence.len() != seeds.len()
+        || seeds.iter().any(|seed| {
+            !evidence
                 .iter()
-                .enumerate()
-                .map(|(i, c)| maestria_domain::SearchTraceLaneCandidate {
-                    evidence_id: c.evidence_id,
-                    artifact_version: c.artifact_version,
-                    source_span: c.source_span.clone(),
-                    lane_rank: (i + 1) as u32,
-                    duplicate_cluster: c.duplicate_cluster,
-                    scores: c.scores.clone(),
-                    reasons: c.reasons.clone(),
-                })
-                .collect(),
-        };
-        let outcome = ensure_trace(
-            plan,
-            outcome,
-            vec![lane],
-            self.pipeline.fusion_enabled(),
-            self.pipeline.expander_enabled(),
-            None,
-        );
-        outcome.verify_compatibility(plan)?;
-        Ok(outcome)
+                .any(|candidate| candidate == &seed.candidate)
+        })
+    {
+        return Err(RetrievalError::Internal(
+            "evidence stage changed selected candidate lineage".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+pub(super) fn reconcile_status(
+    evaluator_status: &SearchStatus,
+    selector_status: &SearchStatus,
+) -> SearchStatus {
+    match evaluator_status {
+        SearchStatus::SourcesConflict
+        | SearchStatus::DeniedByPolicy
+        | SearchStatus::QuarantinedForReview
+        | SearchStatus::Abstained => evaluator_status.clone(),
+        _ => match selector_status {
+            SearchStatus::NoEvidenceFound
+            | SearchStatus::AnswerableWithWarnings
+            | SearchStatus::EvidenceIncomplete
+            | SearchStatus::StaleEvidenceOnly => selector_status.clone(),
+            _ => evaluator_status.clone(),
+        },
     }
 }

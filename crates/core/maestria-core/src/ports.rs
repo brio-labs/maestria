@@ -4,10 +4,9 @@ use crate::types::{
     OpenChunkEvidenceInput, OpenEvidenceInput, OpenEvidenceOutput, SearchInput, SearchOutput,
 };
 use maestria_domain::{
-    ArtifactVersionId, ContentRange, EvidenceCandidate, EvidenceCoverage, EvidenceSpan,
-    FreshnessStatus, RetrievalReason, RetrievalScoreSet, SearchOutcome, SearchStatus,
-    SearchStopReason, SearchTrace, SearchTraceExpansion, SearchTraceFilter, SourceLocation,
-    SourceSpan, TrustLabel,
+    ArtifactVersionId, ContentRange, EvidenceCandidate, EvidenceSpan, FreshnessStatus,
+    RetrievalReason, RetrievalScoreSet, SearchOutcome, SearchStatus, SearchStopReason, SearchTrace,
+    SearchTraceExpansion, SearchTraceFilter, SourceLocation, SourceSpan, TrustLabel,
 };
 
 use maestria_ports::{
@@ -92,6 +91,7 @@ pub(super) fn evidence_candidate_from_hit(
         freshness: FreshnessStatus::Unknown,
         duplicate_cluster: None,
         reasons: vec![reason.clone()],
+        coverage_keys: Vec::new(),
     })
 }
 struct SearchTraceOptions<'a> {
@@ -99,6 +99,7 @@ struct SearchTraceOptions<'a> {
     graph_enabled: bool,
     policy: &'a maestria_governance::RetrievalSecurityPolicy,
     lane_reports: &'a [crate::types::RetrievalLaneReport],
+    diversity: Option<maestria_domain::SearchTraceDiversity>,
 }
 
 fn build_search_trace(
@@ -113,6 +114,7 @@ fn build_search_trace(
         graph_enabled,
         policy,
         lane_reports,
+        diversity,
     } = options;
     let stop_reason = match status {
         SearchStatus::NoEvidenceFound => SearchStopReason::NoEvidence,
@@ -123,10 +125,16 @@ fn build_search_trace(
         SearchStatus::EvidenceIncomplete
         | SearchStatus::StaleEvidenceOnly
         | SearchStatus::SourcesConflict => SearchStopReason::RequirementsUnmet,
-        _ if evidence.len() >= plan.stop_conditions.max_results as usize => {
-            SearchStopReason::ResultsLimit
-        }
-        _ => SearchStopReason::EvidenceComplete,
+        _ => diversity.as_ref().map_or_else(
+            || {
+                if evidence.len() >= plan.stop_conditions.max_results as usize {
+                    SearchStopReason::ResultsLimit
+                } else {
+                    SearchStopReason::EvidenceComplete
+                }
+            },
+            |trace| trace.stop_reason.clone(),
+        ),
     };
     let expansions = expansion_enabled
         .then_some(SearchTraceExpansion {
@@ -180,7 +188,7 @@ fn build_search_trace(
             candidates: report.candidates.clone(),
         })
         .collect::<Vec<_>>();
-    SearchTrace::from_plan(
+    let mut trace = SearchTrace::from_plan(
         plan,
         lanes.iter().map(|lane| lane.retriever_id.clone()).collect(),
         evidence,
@@ -198,7 +206,36 @@ fn build_search_trace(
         policy.require_read_allowed,
         policy.required_scope_id,
         policy.allow_unscoped_items,
-    ))
+    ));
+    trace.diversity = diversity;
+    trace
+}
+
+fn finish_search_knowledge(
+    plan: &maestria_domain::SearchPlan,
+    evidence: Vec<EvidenceCandidate>,
+    status: SearchStatus,
+    coverage: maestria_domain::EvidenceCoverage,
+    options: SearchTraceOptions<'_>,
+) -> CoreResult<SearchOutcome> {
+    let trace_data =
+        build_search_trace(plan, &evidence, &status, &coverage.gaps_identified, options);
+    let outcome = SearchOutcome {
+        trace: trace_data.deterministic_id(),
+        trace_data: Some(Box::new(trace_data)),
+        fingerprint: plan.fingerprint.clone(),
+        index_generation: plan.index_generation,
+        status,
+        coverage,
+        conflicts: Vec::new(),
+        evidence,
+    };
+    outcome
+        .verify_compatibility(plan)
+        .map_err(|error| crate::error::CoreError::InvalidInput {
+            message: error.to_string(),
+        })?;
+    Ok(outcome)
 }
 
 impl<'a> CoreServices<'a> {
@@ -240,8 +277,7 @@ impl<'a> CoreServices<'a> {
             self.graph_config.clone(),
             &self.retrieval_policy,
         )?;
-        // `search_knowledge` currently executes the lexical lane; its evidence
-        // reasons must describe that lane rather than the requested intent.
+        // The core path exposes lexical evidence through the same diversity contract.
         let reason = RetrievalReason::ExactMatch;
         let lane_reports = output.lane_reports.clone();
         let evidence = output
@@ -250,65 +286,75 @@ impl<'a> CoreServices<'a> {
             .into_iter()
             .filter_map(|hit| evidence_candidate_from_hit(hit, &reason, false))
             .collect::<Vec<_>>();
+        let ranked = evidence
+            .into_iter()
+            .enumerate()
+            .map(|(rank, candidate)| maestria_retrieval::types::RankedCandidate { candidate, rank })
+            .collect::<Vec<_>>();
+        let diversity = maestria_retrieval::diversity::select_candidates(&ranked, &plan);
+        let evidence = diversity
+            .candidates
+            .iter()
+            .map(|candidate| candidate.candidate.clone())
+            .collect::<Vec<_>>();
         let enough_corroboration =
             evidence.len() >= usize::from(plan.evidence_requirements.minimum_corroboration);
         let primary_sources_ok = !plan.evidence_requirements.require_primary_sources
             || evidence
                 .iter()
                 .all(|candidate| candidate.trust == TrustLabel::Verified);
-        let status = if evidence.is_empty() {
+        let diversity_status = diversity.status.clone();
+        let diversity_trace = diversity.trace.clone();
+        let mut coverage = diversity.coverage.clone();
+        let mut status = if evidence.is_empty() {
             SearchStatus::NoEvidenceFound
         } else if enough_corroboration && primary_sources_ok {
             SearchStatus::Answerable
         } else {
             SearchStatus::EvidenceIncomplete
         };
-        let mut gaps_identified = Vec::new();
+        if matches!(
+            diversity_status,
+            SearchStatus::NoEvidenceFound
+                | SearchStatus::EvidenceIncomplete
+                | SearchStatus::StaleEvidenceOnly
+        ) {
+            status = diversity_status;
+        } else if status == SearchStatus::Answerable
+            && diversity_status == SearchStatus::AnswerableWithWarnings
+        {
+            status = SearchStatus::AnswerableWithWarnings;
+        }
         if !enough_corroboration {
-            gaps_identified.push("minimum corroboration not met".to_string());
+            coverage
+                .gaps_identified
+                .push("minimum corroboration not met".to_string());
         }
         if !primary_sources_ok {
-            gaps_identified.push("primary-source requirement not met".to_string());
+            coverage
+                .gaps_identified
+                .push("primary-source requirement not met".to_string());
         }
-        let percent_covered = if evidence.is_empty() {
+        coverage.percent_covered = if evidence.is_empty() {
             0
-        } else if gaps_identified.is_empty() {
+        } else if coverage.gaps_identified.is_empty() {
             100
         } else {
-            50
+            coverage.percent_covered.min(99)
         };
-        let conflicts = Vec::new();
-        let trace_data = build_search_trace(
+        finish_search_knowledge(
             &plan,
-            &evidence,
-            &status,
-            &gaps_identified,
+            evidence,
+            status,
+            coverage,
             SearchTraceOptions {
                 expansion_enabled: self.graph_config.is_some(),
                 graph_enabled: self.ports.graph_index.is_some(),
                 policy: &self.retrieval_policy,
                 lane_reports: &lane_reports,
+                diversity: Some(diversity_trace),
             },
-        );
-        let outcome = SearchOutcome {
-            trace: trace_data.deterministic_id(),
-            trace_data: Some(Box::new(trace_data)),
-            fingerprint: plan.fingerprint.clone(),
-            index_generation: plan.index_generation,
-            status,
-            coverage: EvidenceCoverage {
-                percent_covered,
-                gaps_identified,
-            },
-            conflicts,
-            evidence,
-        };
-        outcome.verify_compatibility(&plan).map_err(|error| {
-            crate::error::CoreError::InvalidInput {
-                message: error.to_string(),
-            }
-        })?;
-        Ok(outcome)
+        )
     }
 
     pub fn search_with_vector(

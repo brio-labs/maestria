@@ -25,6 +25,11 @@ fn plan() -> SearchPlan {
             min_score_threshold: 70,
         },
         evidence_requirements: EvidenceRequirements {
+            required_claims: vec![],
+            required_subquestions: vec![],
+            minimum_sources: 0,
+            minimum_documents: 0,
+            minimum_sections: 0,
             require_primary_sources: true,
             minimum_corroboration: 2,
         },
@@ -65,6 +70,7 @@ fn candidate() -> EvidenceCandidate {
         freshness: FreshnessStatus::UpToDate,
         duplicate_cluster: Some(DuplicateClusterId::new(31)),
         reasons: vec![RetrievalReason::ExactMatch, RetrievalReason::CitationLink],
+        coverage_keys: vec![],
     }
 }
 
@@ -80,6 +86,12 @@ fn outcome() -> SearchOutcome {
         coverage: EvidenceCoverage {
             percent_covered: 50,
             gaps_identified: vec!["missing section".to_owned()],
+            required_claims: vec![],
+            required_subquestions: vec![],
+            distinct_sources: 0,
+            distinct_documents: 0,
+            distinct_sections: 0,
+            candidate_coverage_keys: vec![],
         },
         conflicts: vec![ConflictSet {
             id: ConflictSetId::new(41),

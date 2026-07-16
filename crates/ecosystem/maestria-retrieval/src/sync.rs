@@ -11,6 +11,7 @@ pub struct SyncPipeline<'a, C, O> {
     retrievers: Vec<PipelineRetriever<'a, C>>,
     fusion: Option<PipelineFusion<'a, C>>,
     reranker: Option<PipelineStage<'a, C>>,
+    pre_expander: Option<PipelineStage<'a, C>>,
     expander: Option<PipelineStage<'a, C>>,
     evaluator: PipelineEvaluator<'a, C, O>,
 }
@@ -28,6 +29,7 @@ impl<'a, C, O> SyncPipeline<'a, C, O> {
                 .collect(),
             fusion: None,
             reranker: None,
+            pre_expander: None,
             expander: None,
             evaluator: Box::new(evaluator),
         }
@@ -49,6 +51,13 @@ impl<'a, C, O> SyncPipeline<'a, C, O> {
         self
     }
 
+    pub fn with_pre_expander<F>(mut self, pre_expander: F) -> Self
+    where
+        F: Fn(Vec<C>, &SearchPlan) -> RetrievalResult<Vec<C>> + 'a,
+    {
+        self.pre_expander = Some(Box::new(pre_expander));
+        self
+    }
     pub fn with_expander<F>(mut self, expander: F) -> Self
     where
         F: Fn(Vec<C>, &SearchPlan) -> RetrievalResult<Vec<C>> + 'a,
@@ -94,6 +103,10 @@ impl<'a, C, O> SyncPipeline<'a, C, O> {
         };
         if let Some(reranker) = &self.reranker {
             candidates = reranker(candidates, plan)?;
+            check_timeout()?;
+        }
+        if let Some(pre_expander) = &self.pre_expander {
+            candidates = pre_expander(candidates, plan)?;
             check_timeout()?;
         }
         if let Some(expander) = &self.expander {

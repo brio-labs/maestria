@@ -75,6 +75,9 @@ pub struct RerankLimits {
 pub struct ExpansionPolicy {
     pub max_results: usize,
     pub max_depth: usize,
+    pub selected_seeds: Vec<maestria_domain::EvidenceCandidate>,
+    pub required_claims: Vec<String>,
+    pub required_subquestions: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -102,3 +105,21 @@ pub enum RetrievalError {
 }
 
 pub type RetrievalResult<T> = Result<T, RetrievalError>;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_bounded_expansion_inputs() {
+        let policy = ExpansionPolicy {
+            max_results: 5,
+            max_depth: 2,
+            selected_seeds: vec![],
+            required_claims: vec!["claim".to_string()],
+            required_subquestions: vec![],
+        };
+        assert_eq!(policy.max_results, 5);
+        assert_eq!(policy.required_claims.len(), 1);
+    }
+}
