@@ -6,6 +6,7 @@
 //! avoids concrete SQL, filesystem, search-engine, and parser implementations.
 
 mod error;
+mod generation_gate;
 mod graph_retrieval;
 mod hierarchy_expansion;
 mod ingestion;

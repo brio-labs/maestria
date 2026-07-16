@@ -1,4 +1,5 @@
 use crate::error::{CoreError, CoreResult};
+use crate::generation_gate::ensure_generation_is_serveable;
 use crate::hierarchy_expansion;
 use crate::ports::CorePorts;
 use crate::rank_fusion::{
@@ -23,6 +24,7 @@ pub(super) fn search<'a>(
     policy: &maestria_governance::RetrievalSecurityPolicy,
 ) -> CoreResult<SearchOutput> {
     let plan = build_search_plan(&input)?;
+    ensure_generation_is_serveable(ports, plan.index_generation)?;
     execute_pipeline(ports, &input, vector_query, graph_config, policy, &plan)
 }
 
@@ -51,6 +53,7 @@ pub(super) fn search_with_plan<'a>(
             ),
         });
     }
+    ensure_generation_is_serveable(ports, plan.index_generation)?;
     let mut effective_policy = policy.clone();
     match &plan.scope {
         CorpusScope::Restricted(scopes) => {

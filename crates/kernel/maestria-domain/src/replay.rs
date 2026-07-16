@@ -26,6 +26,10 @@ impl KernelState {
             | DomainEvent::ArtifactIndexed { .. } => {
                 self.replay_artifact_events(&envelope.event)?;
             }
+            DomainEvent::IndexGenerationStarted { .. }
+            | DomainEvent::IndexGenerationTransitioned { .. } => {
+                self.replay_generation_events(&envelope.event)?;
+            }
             DomainEvent::MemoryCandidateCreated { .. }
             | DomainEvent::MemoryPromoted { .. }
             | DomainEvent::MemoryContradicted { .. }
@@ -128,6 +132,32 @@ impl KernelState {
             }
             _ => Err(DomainError::InternalInvariantViolation {
                 detail: "replay_artifact_events: unexpected event variant",
+            }),
+        }
+    }
+    fn replay_generation_events(&mut self, event: &DomainEvent) -> Result<(), DomainError> {
+        match event {
+            DomainEvent::IndexGenerationStarted {
+                id,
+                name,
+                fingerprint,
+                corpus_snapshot,
+            } => self.apply_index_generation_started(
+                *id,
+                name.clone(),
+                *corpus_snapshot,
+                fingerprint.clone(),
+            ),
+            DomainEvent::IndexGenerationTransitioned {
+                id,
+                from,
+                to,
+                replaced_active_id,
+            } => self
+                .apply_index_generation_transitioned(*id, *from, *to, *replaced_active_id)
+                .map(|_| ()),
+            _ => Err(DomainError::InternalInvariantViolation {
+                detail: "replay_generation_events: unexpected event variant",
             }),
         }
     }

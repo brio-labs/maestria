@@ -7,7 +7,7 @@ use maestria_domain::{
 };
 use maestria_governance::RetrievalSecurityPolicy;
 use maestria_ports::{
-    ArtifactRepository, BlobStore, CardRepository, ChunkRepository, EvidenceRepository,
+    ArtifactRepository, BlobStore, CardRepository, ChunkRepository, EventLog, EvidenceRepository,
     FullTextIndex, GraphIndex, InMemoryArtifactRepository, InMemoryBlobStore,
     InMemoryCardRepository, InMemoryChunkRepository, InMemoryEventLog, InMemoryEvidenceRepository,
     InMemoryFullTextIndex, InMemoryGraphIndex, InMemoryParser, InMemoryVectorIndex, IndexedCard,
@@ -840,5 +840,44 @@ fn exact_lexical_path_is_invoked_and_denied_candidates_excluded()
         restricted_pack.chunks.is_empty(),
         "exact lookup must exclude denied candidates"
     );
+    Ok(())
+}
+
+#[test]
+fn inactive_index_generation_cannot_serve() -> Result<(), Box<dyn std::error::Error>> {
+    let fixture = GraphFixture::new()?;
+    fixture
+        .events
+        .append(maestria_domain::DomainEventEnvelope {
+            id: maestria_domain::EventId::new(1),
+            sequence: maestria_domain::SequenceNumber::new(1),
+            event: maestria_domain::DomainEvent::IndexGenerationStarted {
+                id: maestria_domain::IndexGenerationId::new(1),
+                name: maestria_domain::RepresentationName::new("dense_text_v1"),
+                corpus_snapshot: maestria_domain::CorpusSnapshotId::new(1),
+                fingerprint: maestria_domain::IndexFingerprint {
+                    provider: "test".to_string(),
+                    model: "test".to_string(),
+                    revision: "v1".to_string(),
+                    artifact_hash: maestria_domain::ContentHash::new(
+                        "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+                            .to_string(),
+                    )?,
+                    dimensions: 1,
+                    quantization: "f32".to_string(),
+                    query_template_hash: "query".to_string(),
+                    document_template_hash: "document".to_string(),
+                    preprocessing_version: "v1".to_string(),
+                },
+            },
+        })?;
+    let error = fixture
+        .core_without_graph()
+        .search(SearchInput {
+            query: "seed".to_string(),
+            limit: 1,
+        })
+        .expect_err("building generation must not serve");
+    assert!(error.to_string().contains("not active"));
     Ok(())
 }

@@ -1,7 +1,8 @@
 use crate::entities::{EvidenceKind, RelationEndpoint, RelationKind, TaskPriority, TaskStatus};
 use crate::ids::{
     ApprovalId, ArtifactId, BlobId, CardId, ChunkId, ClaimId, EvidenceId, HarnessRunId,
-    LogicalTick, MemoryCandidateId, MemoryId, RelationId, TaskId, ValidationReportId,
+    IndexGenerationId, LogicalTick, MemoryCandidateId, MemoryId, RelationId, TaskId,
+    ValidationReportId,
 };
 
 use crate::security::SecurityMetadata;
@@ -247,6 +248,20 @@ pub struct SearchKnowledgeCompleted {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StartIndexGenerationInput {
+    pub id: IndexGenerationId,
+    pub name: crate::generations::RepresentationName,
+    pub corpus_snapshot: crate::ids::CorpusSnapshotId,
+    pub fingerprint: crate::generations::IndexFingerprint,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TransitionIndexGenerationInput {
+    pub id: IndexGenerationId,
+    pub to: crate::generations::IndexLifecycle,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DomainInput {
     RegisterArtifact(RegisterArtifactInput),
     RegisterChunk(RegisterChunkInput),
@@ -281,5 +296,7 @@ pub enum DomainInput {
     SearchKnowledgeRequested(SearchKnowledgeRequested),
     SearchExecuted(SearchExecutedInput),
     SearchKnowledgeCompleted(SearchKnowledgeCompleted),
+    StartIndexGeneration(StartIndexGenerationInput),
+    TransitionIndexGeneration(TransitionIndexGenerationInput),
     ClockTick(LogicalTick),
 }
