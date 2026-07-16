@@ -7,12 +7,14 @@
 
 mod error;
 mod graph_retrieval;
+mod hierarchy_expansion;
 mod ingestion;
 mod instance;
 mod lexical_helpers;
 mod manifest;
 mod ports;
 mod provenance;
+mod rank_fusion;
 mod retrieval;
 mod retrieval_lanes;
 mod types;

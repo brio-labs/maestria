@@ -1,20 +1,15 @@
 use crate::error::{CoreError, CoreResult};
+use crate::hierarchy_expansion;
 use crate::ports::CorePorts;
+use crate::rank_fusion::{
+    RankedRetrievalCandidate, RetrievalCandidate, RetrievalLane, fuse, rank_expanded, rank_lane,
+};
 pub(super) use crate::retrieval_lanes::{
     open_chunk_evidence, open_evidence, verify_source_snapshot,
 };
 use crate::retrieval_lanes::{search_cards, search_chunks, search_vector_chunks};
-use crate::types::{
-    EvidencePack, SearchInput, SearchOutput, SourceGroundedCardHit, SourceGroundedSearchHit,
-};
+use crate::types::{EvidencePack, SearchInput, SearchOutput};
 use maestria_ports::VectorSearchQuery;
-
-#[derive(Clone)]
-enum RetrievalCandidate {
-    Card(SourceGroundedCardHit),
-    Chunk(SourceGroundedSearchHit),
-    EvidenceId(maestria_domain::EvidenceId),
-}
 
 const CORE_CORPUS_SNAPSHOT: u64 = 1;
 const CORE_INDEX_GENERATION: u64 = 1;
@@ -127,7 +122,7 @@ fn build_search_plan(input: &SearchInput) -> CoreResult<maestria_domain::SearchP
             message: error.to_string(),
         })?,
         stop_conditions: StopConditions {
-            max_results: input.limit.saturating_mul(3) as u32,
+            max_results: u32::try_from(input.limit).map_or(u32::MAX, |value| value),
             min_score_threshold: 0,
         },
         evidence_requirements: EvidenceRequirements {
@@ -144,7 +139,7 @@ fn build_search_plan(input: &SearchInput) -> CoreResult<maestria_domain::SearchP
 type Retriever<'a> = Box<
     dyn Fn(
             &maestria_domain::SearchPlan,
-        ) -> maestria_retrieval::RetrievalResult<Vec<RetrievalCandidate>>
+        ) -> maestria_retrieval::RetrievalResult<Vec<RankedRetrievalCandidate>>
         + 'a,
 >;
 
@@ -159,7 +154,12 @@ fn build_retrievers<'a>(
     let card_query = query.to_string();
     retrievers.push(Box::new(move |_| {
         search_cards(ports, &card_query, limit, policy)
-            .map(|cards| cards.into_iter().map(RetrievalCandidate::Card).collect())
+            .map(|cards| {
+                rank_lane(
+                    RetrievalLane::Cards,
+                    cards.into_iter().map(RetrievalCandidate::Card).collect(),
+                )
+            })
             .map_err(|error| maestria_retrieval::RetrievalError::Internal(error.to_string()))
     }));
     if let Some(vector_query) = vector_query {
@@ -172,14 +172,29 @@ fn build_retrievers<'a>(
                 Some(vector_query.clone()),
                 policy,
             )
-            .map(|(chunks, _)| chunks.into_iter().map(RetrievalCandidate::Chunk).collect())
+            .map(|(chunks, _)| {
+                rank_lane(
+                    RetrievalLane::VectorChunks,
+                    chunks.into_iter().map(RetrievalCandidate::Chunk).collect(),
+                )
+            })
             .map_err(|error| maestria_retrieval::RetrievalError::Internal(error.to_string()))
         }));
     }
+    let chunk_lane = if query.trim().starts_with('"') {
+        RetrievalLane::ExactChunks
+    } else {
+        RetrievalLane::LexicalChunks
+    };
     let chunk_query = query.to_string();
     retrievers.push(Box::new(move |_| {
         search_chunks(ports, &chunk_query, limit, policy)
-            .map(|(chunks, _)| chunks.into_iter().map(RetrievalCandidate::Chunk).collect())
+            .map(|(chunks, _)| {
+                rank_lane(
+                    chunk_lane,
+                    chunks.into_iter().map(RetrievalCandidate::Chunk).collect(),
+                )
+            })
             .map_err(|error| maestria_retrieval::RetrievalError::Internal(error.to_string()))
     }));
     retrievers
@@ -187,31 +202,10 @@ fn build_retrievers<'a>(
 
 fn build_fusion(
     limit: usize,
-) -> impl Fn(Vec<Vec<RetrievalCandidate>>) -> maestria_retrieval::RetrievalResult<Vec<RetrievalCandidate>>
-{
-    move |sets| {
-        use std::collections::BTreeSet;
-        let mut cards = Vec::with_capacity(limit);
-        let mut chunks = Vec::with_capacity(limit);
-        let mut card_ids = BTreeSet::new();
-        let mut evidence_ids = BTreeSet::new();
-        for candidate in sets.into_iter().flatten() {
-            match candidate {
-                RetrievalCandidate::Card(hit) if card_ids.insert(hit.card.id) => cards.push(hit),
-                RetrievalCandidate::Chunk(hit) if evidence_ids.insert(hit.evidence.id) => {
-                    chunks.push(hit)
-                }
-                _ => {}
-            }
-        }
-        cards.truncate(limit);
-        chunks.truncate(limit);
-        Ok(cards
-            .into_iter()
-            .map(RetrievalCandidate::Card)
-            .chain(chunks.into_iter().map(RetrievalCandidate::Chunk))
-            .collect())
-    }
+) -> impl Fn(
+    Vec<Vec<RankedRetrievalCandidate>>,
+) -> maestria_retrieval::RetrievalResult<Vec<RankedRetrievalCandidate>> {
+    move |sets| Ok(fuse(limit, sets))
 }
 
 fn build_expander<'a>(
@@ -221,22 +215,43 @@ fn build_expander<'a>(
     graph_config: Option<crate::types::GraphConfig>,
     policy: &'a maestria_governance::RetrievalSecurityPolicy,
 ) -> impl Fn(
-    Vec<RetrievalCandidate>,
+    Vec<RankedRetrievalCandidate>,
     &maestria_domain::SearchPlan,
-) -> maestria_retrieval::RetrievalResult<Vec<RetrievalCandidate>>
+) -> maestria_retrieval::RetrievalResult<Vec<RankedRetrievalCandidate>>
 + 'a {
-    move |candidates, _| {
+    move |candidates, plan| {
         let Some(config) = &graph_config else {
             return Ok(candidates);
         };
+        let candidates = candidates
+            .into_iter()
+            .filter(|ranked| ranked.priority_score >= plan.stop_conditions.min_score_threshold)
+            .collect::<Vec<_>>();
+        use std::collections::BTreeMap;
+        let priorities: BTreeMap<_, _> = candidates
+            .iter()
+            .map(|ranked| (ranked.candidate.identity(), ranked.priority_score))
+            .collect();
+        let mut artifact_priorities: BTreeMap<maestria_domain::ArtifactId, u32> = BTreeMap::new();
+        for ranked in &candidates {
+            if ranked.priority_score < plan.stop_conditions.min_score_threshold {
+                continue;
+            }
+            if let Some(artifact_id) = ranked.candidate.artifact_id() {
+                artifact_priorities
+                    .entry(artifact_id)
+                    .and_modify(|priority| *priority = (*priority).max(ranked.priority_score))
+                    .or_insert(ranked.priority_score);
+            }
+        }
         let mut pack = EvidencePack {
             query: query.clone(),
             cards: Vec::new(),
             chunks: Vec::new(),
             evidence_ids: Vec::new(),
         };
-        for candidate in candidates {
-            match candidate {
+        for ranked in candidates {
+            match ranked.candidate {
                 RetrievalCandidate::Card(hit) => pack.cards.push(hit),
                 RetrievalCandidate::Chunk(hit) => {
                     pack.evidence_ids.push(hit.evidence.id);
@@ -245,21 +260,57 @@ fn build_expander<'a>(
                 RetrievalCandidate::EvidenceId(id) => pack.evidence_ids.push(id),
             }
         }
-        let expanded = crate::graph_retrieval::expand_graph(ports, pack, limit, config, policy)
+        let expanded = hierarchy_expansion::expand(ports, pack, &query, limit, config, policy)
+            .map_err(|error| maestria_retrieval::RetrievalError::Internal(error.to_string()))?;
+        let expanded = crate::graph_retrieval::expand_graph(ports, expanded, limit, config, policy)
             .map_err(|error| maestria_retrieval::RetrievalError::Internal(error.to_string()))?;
         let mut result = expanded
             .cards
             .into_iter()
             .map(RetrievalCandidate::Card)
             .chain(expanded.chunks.into_iter().map(RetrievalCandidate::Chunk))
+            .chain(
+                expanded
+                    .evidence_ids
+                    .into_iter()
+                    .map(RetrievalCandidate::EvidenceId),
+            )
             .collect::<Vec<_>>();
-        result.extend(
-            expanded
-                .evidence_ids
-                .into_iter()
-                .map(RetrievalCandidate::EvidenceId),
-        );
-        Ok(result)
+        let fallback_priority = priorities
+            .values()
+            .copied()
+            .min()
+            .map_or(0, |score| score / 2);
+        let mut result_priorities = priorities.clone();
+        for candidate in &result {
+            if result_priorities.contains_key(&candidate.identity()) {
+                continue;
+            }
+            let priority = candidate
+                .artifact_id()
+                .and_then(|artifact_id| artifact_priorities.get(&artifact_id).copied())
+                .map_or(fallback_priority, |score| score / 2);
+            result_priorities.insert(candidate.identity(), priority);
+        }
+        result.sort_by(|left, right| {
+            let left_priority = result_priorities
+                .get(&left.identity())
+                .copied()
+                .map_or(0, |score| score);
+            let right_priority = result_priorities
+                .get(&right.identity())
+                .copied()
+                .map_or(0, |score| score);
+            right_priority
+                .cmp(&left_priority)
+                .then_with(|| left.identity().cmp(&right.identity()))
+        });
+        Ok(rank_expanded(
+            RetrievalLane::Hierarchy,
+            result,
+            &result_priorities,
+            fallback_priority,
+        ))
     }
 }
 
@@ -275,7 +326,8 @@ fn execute_pipeline<'a>(
 
     let query = input.query.clone();
     let min_score_threshold = plan.stop_conditions.min_score_threshold;
-    let evaluator = move |candidates: Vec<RetrievalCandidate>, _: &maestria_domain::SearchPlan| {
+    let evaluator = move |candidates: Vec<RankedRetrievalCandidate>,
+                          _: &maestria_domain::SearchPlan| {
         use std::collections::BTreeSet;
 
         let mut pack = EvidencePack {
@@ -286,20 +338,23 @@ fn execute_pipeline<'a>(
         };
         let mut cards = BTreeSet::new();
         let mut chunks = BTreeSet::new();
-        for candidate in candidates {
-            match candidate {
+        for ranked in candidates {
+            let priority_score = ranked.priority_score;
+            match ranked.candidate {
                 RetrievalCandidate::Card(hit)
-                    if hit.score >= min_score_threshold && cards.insert(hit.card.id) =>
+                    if priority_score >= min_score_threshold && cards.insert(hit.card.id) =>
                 {
                     pack.cards.push(hit);
                 }
                 RetrievalCandidate::Chunk(hit)
-                    if hit.score >= min_score_threshold && chunks.insert(hit.evidence.id) =>
+                    if priority_score >= min_score_threshold && chunks.insert(hit.evidence.id) =>
                 {
                     pack.evidence_ids.push(hit.evidence.id);
                     pack.chunks.push(hit);
                 }
-                RetrievalCandidate::EvidenceId(id) if chunks.insert(id) => {
+                RetrievalCandidate::EvidenceId(id)
+                    if priority_score >= min_score_threshold && chunks.insert(id) =>
+                {
                     pack.evidence_ids.push(id);
                 }
                 _ => {}

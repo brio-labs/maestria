@@ -188,7 +188,7 @@ fn assert_reindex_unchanged(instance_path: &str, file: &str) {
     );
 }
 fn assert_search_finds(instance_path: &str, query: &str) -> (String, String) {
-    let stdout = assert_ok_lines(&["search", "-i", instance_path, query], 1);
+    let stdout = assert_ok_lines(&["search", "-i", instance_path, query], 2);
     let chunk_output_line = stdout
         .lines()
         .find(|line| line.contains("chunk="))
