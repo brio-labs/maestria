@@ -300,32 +300,37 @@ impl EffectExecutionContext {
             );
             return false;
         }
+        let Some(identity) = provider.identity() else {
+            tracing::warn!(chunk_id = %request.chunk_id, "embedding provider has no generation identity");
+            return self.invalidate_vector_projection(request.chunk_id).await;
+        };
         let embedding_request = maestria_ports::EmbeddingRequest {
             text: chunk.text.clone(),
             model,
+            kind: maestria_ports::EmbeddingInputKind::Document,
+            identity: identity.clone(),
         };
         let provider = Arc::clone(provider);
-        let response = match tokio::task::spawn_blocking(move || provider.embed(embedding_request))
-            .await
-        {
-            Ok(Ok(response)) => response,
-            Ok(Err(error)) => {
+        let response = match embed_blocking(provider, embedding_request).await {
+            Ok(response) => response,
+            Err(error) => {
                 tracing::warn!(chunk_id = %request.chunk_id, %error, "embedding provider failed; preserving fallback");
                 return self.invalidate_vector_projection(request.chunk_id).await;
             }
-            Err(error) => {
-                tracing::warn!(chunk_id = %request.chunk_id, %error, "embedding provider task failed; preserving fallback");
-                return self.invalidate_vector_projection(request.chunk_id).await;
-            }
         };
+        if response.identity != identity {
+            return self.invalidate_vector_projection(request.chunk_id).await;
+        }
         let embedding = VectorEmbedding {
             chunk_id: request.chunk_id,
             vector: response.vector,
             provenance: maestria_ports::EmbeddingProvenance {
                 content_hash,
+                identity: response.identity,
                 provider_id: response.provider_id,
                 model: response.model,
                 model_version: response.model_version,
+                disclosure: response.disclosure,
             },
         };
         let vector_index = Arc::clone(&self.adapters.vector_index);
@@ -359,6 +364,18 @@ impl EffectExecutionContext {
                 false
             }
         }
+    }
+}
+
+async fn embed_blocking(
+    provider: Arc<dyn maestria_ports::EmbeddingProvider + Send + Sync>,
+    request: maestria_ports::EmbeddingRequest,
+) -> Result<maestria_ports::EmbeddingResponse, maestria_ports::PortError> {
+    match tokio::task::spawn_blocking(move || provider.embed(request)).await {
+        Ok(result) => result,
+        Err(error) => Err(maestria_ports::PortError::Internal {
+            message: format!("embedding provider task failed: {error}"),
+        }),
     }
 }
 

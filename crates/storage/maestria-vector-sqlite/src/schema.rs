@@ -3,7 +3,7 @@ use rusqlite::{Connection, OptionalExtension};
 
 use crate::encoding::to_port_error;
 
-pub(crate) const SCHEMA_VERSION: i64 = 3;
+pub(crate) const SCHEMA_VERSION: i64 = 5;
 pub(crate) const SQLITE_VEC_BOOTSTRAP_SQL: &str =
     "CREATE VIRTUAL TABLE IF NOT EXISTS vec_docs USING vec0(chunk_id TEXT, embedding float[1536])";
 
@@ -52,10 +52,29 @@ pub(crate) fn migrate(connection: &mut Connection) -> Result<(), PortError> {
                 )
                 .map_err(to_port_error)?;
         }
+        if v <= 3 {
+            transaction
+                .execute_batch(
+                    "ALTER TABLE vector_embeddings ADD COLUMN generation_id TEXT NOT NULL DEFAULT '';
+                     ALTER TABLE vector_embeddings ADD COLUMN representation TEXT NOT NULL DEFAULT '';
+                     ALTER TABLE vector_embeddings ADD COLUMN fingerprint TEXT NOT NULL DEFAULT '';
+                     UPDATE vector_projection_schema SET version = 4 WHERE id = 1;",
+                )
+                .map_err(to_port_error)?;
+        }
+        if v <= 4 {
+            transaction
+                .execute_batch(
+                    "ALTER TABLE vector_embeddings ADD COLUMN disclosure_remote INTEGER;
+                     ALTER TABLE vector_embeddings ADD COLUMN retention_policy TEXT;
+                     UPDATE vector_projection_schema SET version = 5 WHERE id = 1;",
+                )
+                .map_err(to_port_error)?;
+        }
     } else {
         transaction
             .execute_batch(
-                "INSERT INTO vector_projection_schema (id, version) VALUES (1, 3);
+                "INSERT INTO vector_projection_schema (id, version) VALUES (1, 5);
                  CREATE TABLE IF NOT EXISTS vector_embeddings (
                      chunk_id INTEGER PRIMARY KEY NOT NULL,
                      dimension INTEGER NOT NULL,
@@ -63,18 +82,22 @@ pub(crate) fn migrate(connection: &mut Connection) -> Result<(), PortError> {
                      content_hash TEXT NOT NULL,
                      provider_id TEXT NOT NULL,
                      model TEXT NOT NULL,
-                     model_version TEXT NOT NULL
+                     model_version TEXT NOT NULL,
+                     generation_id TEXT NOT NULL,
+                     representation TEXT NOT NULL,
+                     fingerprint TEXT NOT NULL,
+                     disclosure_remote INTEGER NOT NULL,
+                     retention_policy TEXT NOT NULL
                  );
                  CREATE INDEX IF NOT EXISTS idx_vector_embeddings_dimension
                      ON vector_embeddings(dimension);",
             )
             .map_err(to_port_error)?;
     }
-
     // verify the schema
     transaction
         .query_row(
-            "SELECT chunk_id, dimension, embedding, content_hash, provider_id, model, model_version
+            "SELECT chunk_id, dimension, embedding, content_hash, provider_id, model, model_version, generation_id, representation, fingerprint, disclosure_remote, retention_policy
              FROM vector_embeddings LIMIT 1",
             [],
             |_| Ok(()),

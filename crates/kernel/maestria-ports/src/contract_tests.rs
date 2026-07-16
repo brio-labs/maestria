@@ -582,9 +582,14 @@ fn verify_empty_query(index: &impl FullTextIndex) {
 pub fn assert_vector_index_contract(index: &impl VectorIndex) {
     let prov = || EmbeddingProvenance {
         content_hash: "abcd123".into(),
+        identity: EmbeddingIdentity::legacy("test-model", 2).expect("legacy identity"),
         provider_id: "test-provider".into(),
         model: "test-model".into(),
         model_version: "test-v1".into(),
+        disclosure: ProviderDisclosure {
+            remote: false,
+            retention: RetentionPolicy::NoRetention,
+        },
     };
     let embedding = |chunk_id, vector| VectorEmbedding {
         chunk_id: ChunkId::new(chunk_id),
@@ -596,10 +601,12 @@ pub fn assert_vector_index_contract(index: &impl VectorIndex) {
             embedding(2, vec![1.0, 0.0]),
             embedding(1, vec![1.0, 0.0]),
             embedding(3, vec![0.0, 1.0]),
-            embedding(4, vec![1.0, 0.0, 0.0]),
         ])
         .expect("index embeddings");
-
+    assert!(matches!(
+        index.index_embeddings(vec![embedding(4, vec![1.0, 0.0, 0.0])]),
+        Err(PortError::InvalidInput { .. })
+    ));
     let equal_score_hits = index
         .search_similar(VectorSearchQuery {
             vector: vec![1.0, 0.0],
@@ -614,7 +621,6 @@ pub fn assert_vector_index_contract(index: &impl VectorIndex) {
             .iter()
             .any(|hit| hit.chunk_id == ChunkId::new(4))
     );
-
     verify_vector_identity_filter(index);
 
     let zero_query_hits = index
@@ -659,6 +665,7 @@ fn verify_vector_identity_filter(index: &impl VectorIndex) {
             provider_id: Some("other-provider".into()),
             model: Some("other-model".into()),
             model_version: Some("other-version".into()),
+            identity: None,
         })
         .expect("mismatched identity search");
     assert!(
@@ -682,6 +689,7 @@ fn verify_vector_validation(index: &impl VectorIndex, prov: &impl Fn() -> Embedd
             provider_id: None,
             model: None,
             model_version: None,
+            identity: None,
         }),
         Err(PortError::InvalidInput { .. })
     ));
@@ -692,6 +700,7 @@ fn verify_vector_validation(index: &impl VectorIndex, prov: &impl Fn() -> Embedd
             provider_id: None,
             model: None,
             model_version: None,
+            identity: None,
         }),
         Err(PortError::InvalidInput { .. })
     ));
@@ -715,7 +724,6 @@ fn verify_vector_lifecycle(index: &impl VectorIndex, prov: impl Fn() -> Embeddin
         "index must be empty after clear"
     );
     index.clear().expect("clear index again");
-
     index
         .rebuild(vec![
             embedding(10, vec![0.0, 1.0]),
@@ -735,7 +743,6 @@ fn verify_vector_lifecycle(index: &impl VectorIndex, prov: impl Fn() -> Embeddin
         "must have exactly two hits after rebuild"
     );
     assert_eq!(hits_after_rebuild[0].chunk_id, ChunkId::new(11));
-
     index
         .delete_chunks(&[ChunkId::new(10)])
         .expect("delete chunk 10");
@@ -756,7 +763,6 @@ fn verify_vector_lifecycle(index: &impl VectorIndex, prov: impl Fn() -> Embeddin
         ChunkId::new(11),
         "only chunk 11 should remain"
     );
-
     index
         .delete_chunks(&[ChunkId::new(10), ChunkId::new(999)])
         .expect("delete already deleted / non-existent chunk");
@@ -786,7 +792,6 @@ pub fn assert_parser_round_trip(parser: &impl Parser) {
         size: 5,
         extension: Some("bin".to_string()),
     }));
-
     let parsed = parser
         .parse(
             FileHandle {
@@ -798,15 +803,12 @@ pub fn assert_parser_round_trip(parser: &impl Parser) {
             },
         )
         .expect("parse utf8 file");
-
     assert_eq!(parsed.artifact_id, ArtifactId::new(7));
     assert_eq!(parsed.artifact_version_id, ArtifactVersionId::new(7));
-
     assert_eq!(parsed.status, ParseStatus::Parsed);
     assert_eq!(parsed.tree.root_id, StructureNodeId::new(7));
     assert_eq!(parsed.tree.nodes.len(), 1);
     assert_eq!(parsed.tree.nodes[0].id, StructureNodeId::new(7));
-
     assert_eq!(parsed.chunks.len(), 1);
     assert_eq!(parsed.chunks[0].text, "alpha");
     assert_eq!(parsed.chunks[0].representations.len(), 2);
@@ -831,7 +833,6 @@ pub fn assert_parser_round_trip(parser: &impl Parser) {
         Err(PortError::InvalidInput { .. })
     ));
 }
-
 pub async fn assert_harness_adapter_round_trip(harness: &impl HarnessAdapter) {
     let capabilities = harness.capabilities().expect("capabilities");
     assert!(capabilities.read_enabled);

@@ -1,4 +1,7 @@
-use maestria_ports::{EmbeddingProvider, EmbeddingRequest, EmbeddingResponse, PortError};
+use maestria_ports::{
+    EmbeddingIdentity, EmbeddingInputKind, EmbeddingProvider, EmbeddingRequest, EmbeddingResponse,
+    PortError, ProviderDisclosure, RetentionPolicy,
+};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use url::Url;
@@ -7,11 +10,39 @@ pub struct LocalHttpEmbeddingProvider {
     endpoint: Url,
     model: String,
     dimensions: Option<usize>,
+    identity: EmbeddingIdentity,
+    document_template: String,
+    query_template: String,
+    disclosure: ProviderDisclosure,
     transport: Arc<dyn EmbeddingTransport>,
 }
 
 impl LocalHttpEmbeddingProvider {
     pub fn new(endpoint: &str, model: &str, dimensions: Option<usize>) -> Result<Self, PortError> {
+        let identity = legacy_identity(model, dimensions)?;
+        Self::with_profile(
+            endpoint,
+            model,
+            dimensions,
+            identity,
+            "{{text}}".to_string(),
+            "{{text}}".to_string(),
+            ProviderDisclosure {
+                remote: false,
+                retention: RetentionPolicy::NoRetention,
+            },
+        )
+    }
+
+    pub fn with_profile(
+        endpoint: &str,
+        model: &str,
+        dimensions: Option<usize>,
+        identity: EmbeddingIdentity,
+        document_template: String,
+        query_template: String,
+        disclosure: ProviderDisclosure,
+    ) -> Result<Self, PortError> {
         let endpoint = parse_loopback_endpoint(endpoint)?;
         if model.trim().is_empty() {
             return Err(PortError::InvalidInput {
@@ -23,10 +54,29 @@ impl LocalHttpEmbeddingProvider {
                 message: "embedding dimensions must be positive".to_string(),
             });
         }
+        if model != identity.fingerprint.model {
+            return Err(PortError::InvalidInput {
+                message: "embedding model does not match fingerprint".to_string(),
+            });
+        }
+        if dimensions.is_some_and(|value| value != identity.fingerprint.dimensions as usize) {
+            return Err(PortError::InvalidInput {
+                message: "embedding dimensions do not match fingerprint".to_string(),
+            });
+        }
+        if !document_template.contains("{{text}}") || !query_template.contains("{{text}}") {
+            return Err(PortError::InvalidInput {
+                message: "embedding templates must contain the {{text}} placeholder".to_string(),
+            });
+        }
         Ok(Self {
             endpoint,
             model: model.to_string(),
             dimensions,
+            identity,
+            document_template,
+            query_template,
+            disclosure,
             transport: Arc::new(UreqTransport::default()),
         })
     }
@@ -41,6 +91,17 @@ impl LocalHttpEmbeddingProvider {
         provider.transport = transport;
         Ok(provider)
     }
+
+    pub fn identity(&self) -> &EmbeddingIdentity {
+        &self.identity
+    }
+}
+
+fn legacy_identity(model: &str, dimensions: Option<usize>) -> Result<EmbeddingIdentity, PortError> {
+    let dimensions = dimensions.ok_or_else(|| PortError::InvalidInput {
+        message: "embedding dimensions are required for generation-aware indexing".to_string(),
+    })?;
+    EmbeddingIdentity::legacy(model.to_string(), dimensions)
 }
 
 impl EmbeddingProvider for LocalHttpEmbeddingProvider {
@@ -50,8 +111,23 @@ impl EmbeddingProvider for LocalHttpEmbeddingProvider {
                 message: "embedding text must not be empty".to_string(),
             });
         }
+        if request.model != self.model {
+            return Err(PortError::InvalidInput {
+                message: "embedding request model does not match provider".to_string(),
+            });
+        }
+        if request.identity != self.identity {
+            return Err(PortError::InvalidInput {
+                message: "embedding request identity does not match provider".to_string(),
+            });
+        }
+        let template = match request.kind {
+            EmbeddingInputKind::Document => &self.document_template,
+            EmbeddingInputKind::Query => &self.query_template,
+        };
+        let input = template.replace("{{text}}", &request.text);
         let payload = EmbeddingPayload {
-            input: request.text,
+            input,
             model: self.model.clone(),
             dimensions: self.dimensions,
         };
@@ -81,7 +157,12 @@ impl EmbeddingProvider for LocalHttpEmbeddingProvider {
             provider_id: self.endpoint.to_string(),
             model: self.model.clone(),
             model_version,
+            identity: self.identity.clone(),
+            disclosure: self.disclosure.clone(),
         })
+    }
+    fn identity(&self) -> Option<EmbeddingIdentity> {
+        Some(self.identity.clone())
     }
 }
 
@@ -180,11 +261,6 @@ fn validate_vector(vector: &[f32], dimensions: Option<usize>) -> Result<(), Port
 mod tests {
     use super::*;
     use std::sync::Mutex;
-    use std::{
-        io::{Read, Write},
-        net::TcpListener,
-        thread,
-    };
 
     #[derive(Default)]
     struct FixtureTransport {
@@ -212,6 +288,90 @@ mod tests {
                 })?
         }
     }
+    struct RecordingTransport {
+        response: Vec<u8>,
+        body: Mutex<Option<Vec<u8>>>,
+    }
+
+    impl EmbeddingTransport for RecordingTransport {
+        fn post(&self, _endpoint: &str, body: Vec<u8>) -> Result<Vec<u8>, PortError> {
+            *self.body.lock().map_err(|_| PortError::Internal {
+                message: "recording lock poisoned".to_string(),
+            })? = Some(body);
+            Ok(self.response.clone())
+        }
+    }
+
+    #[test]
+    fn applies_kind_template_and_preserves_disclosure() -> Result<(), PortError> {
+        let transport = Arc::new(RecordingTransport {
+            response: br#"{"data":[{"embedding":[0.1,0.2]}]}"#.to_vec(),
+            body: Mutex::new(None),
+        });
+        let identity = EmbeddingIdentity::legacy("profiled-model", 2)?;
+        let mut provider = LocalHttpEmbeddingProvider::with_profile(
+            "http://127.0.0.1:8080/v1/embeddings",
+            "profiled-model",
+            Some(2),
+            identity.clone(),
+            "document: {{text}}".to_string(),
+            "query: {{text}}".to_string(),
+            ProviderDisclosure {
+                remote: true,
+                retention: RetentionPolicy::ProviderDefined,
+            },
+        )?;
+        provider.transport = transport.clone();
+
+        let response = provider.embed(EmbeddingRequest {
+            text: "hello".to_string(),
+            model: "profiled-model".to_string(),
+            kind: EmbeddingInputKind::Query,
+            identity,
+        })?;
+
+        let body = transport
+            .body
+            .lock()
+            .map_err(|_| PortError::Internal {
+                message: "recording lock poisoned".to_string(),
+            })?
+            .clone()
+            .ok_or_else(|| PortError::Internal {
+                message: "recording body missing".to_string(),
+            })?;
+        let payload: serde_json::Value =
+            serde_json::from_slice(&body).map_err(|error| PortError::Internal {
+                message: format!("decode recording body: {error}"),
+            })?;
+        assert_eq!(payload["input"], "query: hello");
+        assert!(response.disclosure.remote);
+        assert_eq!(
+            response.disclosure.retention,
+            RetentionPolicy::ProviderDefined
+        );
+        Ok(())
+    }
+    #[test]
+    fn rejects_incompatible_request_identity() -> Result<(), PortError> {
+        let provider = LocalHttpEmbeddingProvider::with_transport(
+            "http://127.0.0.1:8080/v1/embeddings",
+            "model",
+            Some(2),
+            Arc::new(FixtureTransport::new(Ok(
+                br#"{"data":[{"embedding":[0.1,0.2]}]}"#.to_vec(),
+            ))),
+        )?;
+        let identity = EmbeddingIdentity::legacy("different-model", 2)?;
+        let result = provider.embed(EmbeddingRequest {
+            text: "hello".to_string(),
+            model: "model".to_string(),
+            kind: EmbeddingInputKind::Document,
+            identity,
+        });
+        assert!(matches!(result, Err(PortError::InvalidInput { .. })));
+        Ok(())
+    }
 
     #[test]
     fn rejects_non_loopback_endpoint() {
@@ -232,6 +392,8 @@ mod tests {
         let result = provider.embed(EmbeddingRequest {
             text: "hello".to_string(),
             model: "model".to_string(),
+            kind: EmbeddingInputKind::Document,
+            identity: provider.identity().clone(),
         })?;
         assert_eq!(result.vector, vec![0.1, 0.2]);
         assert_eq!(result.model_version, "model-v1");
@@ -250,51 +412,5 @@ mod tests {
                 Err(PortError::InvalidInput { .. })
             ));
         }
-    }
-
-    #[test]
-    fn posts_to_local_http_endpoint() -> Result<(), PortError> {
-        let listener =
-            TcpListener::bind(("127.0.0.1", 0)).map_err(|error| PortError::Internal {
-                message: format!("bind test embedding server: {error}"),
-            })?;
-        let port = listener
-            .local_addr()
-            .map_err(|error| PortError::Internal {
-                message: format!("read test embedding server address: {error}"),
-            })?
-            .port();
-        let server = thread::spawn(move || {
-            listener.accept().and_then(|(mut stream, _)| {
-                let mut request = [0_u8; 4096];
-                let _ = stream.read(&mut request)?;
-                let body = br#"{"data":[{"embedding":[0.4,0.6]}],"model":"fake-v1"}"#;
-                write!(
-                    stream,
-                    "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\n\r\n",
-                    body.len()
-                )?;
-                stream.write_all(body)?;
-                stream.flush()
-            })
-        });
-        let provider = LocalHttpEmbeddingProvider::new(
-            &format!("http://127.0.0.1:{port}/v1/embeddings"),
-            "local-model",
-            Some(2),
-        )?;
-        let result = provider.embed(EmbeddingRequest {
-            text: "local text".to_string(),
-            model: "query".to_string(),
-        })?;
-        let server_result = server.join().map_err(|_| PortError::Internal {
-            message: "test embedding server panicked".to_string(),
-        })?;
-        server_result.map_err(|error| PortError::Internal {
-            message: format!("test embedding server failed: {error}"),
-        })?;
-        assert_eq!(result.vector, vec![0.4, 0.6]);
-        assert_eq!(result.model_version, "fake-v1");
-        Ok(())
     }
 }

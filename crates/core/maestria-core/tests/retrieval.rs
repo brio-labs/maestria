@@ -35,6 +35,10 @@ fn assert_directly_seeded_retrieval(
         query: "beta-token".to_string(),
         limit: 5,
     })?;
+    assert_eq!(
+        search_result.mode,
+        maestria_core::RetrievalMode::LexicalOnly
+    );
     assert_eq!(search_result.pack.cards.len(), 0);
     assert_eq!(search_result.pack.chunks.len(), 1);
     let hit = &search_result.pack.chunks[0];
@@ -661,9 +665,15 @@ fn vector_search_returns_grounded_nonliteral_match() -> Result<(), Box<dyn std::
         vector: vec![0.0, 1.0],
         provenance: maestria_ports::EmbeddingProvenance {
             content_hash: "hash".to_string(),
+            identity: maestria_ports::EmbeddingIdentity::legacy("test-model", 2)
+                .expect("legacy identity"),
             provider_id: "test-provider".to_string(),
             model: "test-model".to_string(),
             model_version: "test-v1".to_string(),
+            disclosure: maestria_ports::ProviderDisclosure {
+                remote: false,
+                retention: maestria_ports::RetentionPolicy::NoRetention,
+            },
         },
     }])?;
     let core = CoreServices::new(CorePorts {
@@ -679,21 +689,22 @@ fn vector_search_returns_grounded_nonliteral_match() -> Result<(), Box<dyn std::
         graph_index: None,
     });
 
-    let pack = core
-        .search_with_vector(
-            SearchInput {
-                query: "unrelated query".to_string(),
-                limit: 5,
-            },
-            VectorSearchQuery {
-                vector: vec![0.0, 1.0],
-                limit: 5,
-                provider_id: Some("test-provider".to_string()),
-                model: Some("test-model".to_string()),
-                model_version: Some("test-v1".to_string()),
-            },
-        )?
-        .pack;
+    let output = core.search_with_vector(
+        SearchInput {
+            query: "unrelated query".to_string(),
+            limit: 5,
+        },
+        VectorSearchQuery {
+            vector: vec![0.0, 1.0],
+            limit: 5,
+            provider_id: Some("test-provider".to_string()),
+            model: Some("test-model".to_string()),
+            model_version: Some("test-v1".to_string()),
+            identity: None,
+        },
+    )?;
+    assert_eq!(output.mode, maestria_core::RetrievalMode::Hybrid);
+    let pack = output.pack;
     assert_eq!(pack.chunks.len(), 1);
     assert_eq!(pack.chunks[0].chunk.id, chunk_id);
     assert_eq!(pack.chunks[0].evidence.id, evidence_id);

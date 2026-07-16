@@ -68,43 +68,58 @@ pub fn reconcile_vector_projection(
 ) -> Result<()> {
     let embeddings = match (embedding_provider, embedding_model) {
         (None, None) => Vec::new(),
-        (Some(provider), Some(model)) if !model.trim().is_empty() => state
-            .chunks
-            .values()
-            .filter(|chunk| {
-                let artifact_allowed = state
-                    .artifacts
-                    .get(&chunk.artifact_id)
-                    .is_some_and(|artifact| artifact.security.retrieval_allowed());
-                artifact_allowed && scan_secrets(&chunk.text).is_clean()
-            })
-            .map(|chunk| {
-                let content_hash = match state
-                    .artifacts
-                    .get(&chunk.artifact_id)
-                    .and_then(|artifact| artifact.content_hash.clone())
-                {
-                    Some(content_hash) => content_hash,
-                    None => maestria_domain::content_hash(chunk.text.as_bytes()),
-                };
-                let response = provider
-                    .embed(EmbeddingRequest {
-                        text: chunk.text.clone(),
-                        model: model.to_string(),
-                    })
-                    .map_err(|error| anyhow::anyhow!("embed chunk {}: {error}", chunk.id))?;
-                Ok(VectorEmbedding {
-                    chunk_id: chunk.id,
-                    vector: response.vector,
-                    provenance: maestria_ports::EmbeddingProvenance {
-                        content_hash,
-                        provider_id: response.provider_id,
-                        model: response.model,
-                        model_version: response.model_version,
-                    },
+        (Some(provider), Some(model)) if !model.trim().is_empty() => {
+            let identity = provider.identity().ok_or_else(|| {
+                anyhow::anyhow!("vector projection recovery provider has no identity")
+            })?;
+            state
+                .chunks
+                .values()
+                .filter(|chunk| {
+                    let artifact_allowed = state
+                        .artifacts
+                        .get(&chunk.artifact_id)
+                        .is_some_and(|artifact| artifact.security.retrieval_allowed());
+                    artifact_allowed && scan_secrets(&chunk.text).is_clean()
                 })
-            })
-            .collect::<Result<Vec<_>>>()?,
+                .map(|chunk| {
+                    let content_hash = match state
+                        .artifacts
+                        .get(&chunk.artifact_id)
+                        .and_then(|artifact| artifact.content_hash.clone())
+                    {
+                        Some(content_hash) => content_hash,
+                        None => maestria_domain::content_hash(chunk.text.as_bytes()),
+                    };
+                    let response = provider
+                        .embed(EmbeddingRequest {
+                            text: chunk.text.clone(),
+                            model: model.to_string(),
+                            kind: maestria_ports::EmbeddingInputKind::Document,
+                            identity: identity.clone(),
+                        })
+                        .map_err(|error| anyhow::anyhow!("embed chunk {}: {error}", chunk.id))?;
+                    if response.identity != identity {
+                        return Err(anyhow::anyhow!(
+                            "embed chunk {} returned an incompatible generation identity",
+                            chunk.id
+                        ));
+                    }
+                    Ok(VectorEmbedding {
+                        chunk_id: chunk.id,
+                        vector: response.vector,
+                        provenance: maestria_ports::EmbeddingProvenance {
+                            content_hash,
+                            identity: response.identity,
+                            provider_id: response.provider_id,
+                            model: response.model,
+                            model_version: response.model_version,
+                            disclosure: response.disclosure,
+                        },
+                    })
+                })
+                .collect::<Result<Vec<_>>>()?
+        }
         (Some(_), Some(_)) => {
             return Err(anyhow::anyhow!(
                 "vector projection recovery requires a non-empty embedding model"

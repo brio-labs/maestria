@@ -1,4 +1,5 @@
 use crate::error::{CoreError, CoreResult};
+use maestria_ports::RetentionPolicy;
 use std::path::PathBuf;
 use url::Url;
 
@@ -28,6 +29,8 @@ pub struct EmbeddingConfig {
     pub endpoint: String,
     pub model: String,
     pub dimensions: usize,
+    pub remote_provider: bool,
+    pub retention_policy: RetentionPolicy,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -71,6 +74,14 @@ impl InstanceManifest {
         if let Some(embeddings) = &self.embeddings {
             lines.push(format!("embedding_enabled={}", embeddings.enabled));
             lines.push(format!("embedding_endpoint={}", embeddings.endpoint));
+            lines.push(format!(
+                "embedding_remote_provider={}",
+                embeddings.remote_provider
+            ));
+            lines.push(format!(
+                "embedding_retention_policy={}",
+                retention_policy_name(&embeddings.retention_policy)
+            ));
             lines.push(format!("embedding_model={}", embeddings.model));
             lines.push(format!("embedding_dimensions={}", embeddings.dimensions));
         }
@@ -87,6 +98,8 @@ impl InstanceManifest {
             embedding_endpoint,
             embedding_model,
             embedding_dimensions,
+            embedding_remote_provider,
+            embedding_retention_policy,
         } = parse_manifest_fields(contents)?;
 
         let schema_version = schema_version.ok_or_else(|| CoreError::InvalidInput {
@@ -125,11 +138,19 @@ impl InstanceManifest {
                         message: "embedding_dimensions must be positive when enabled".to_string(),
                     });
                 }
+                let remote_provider = embedding_remote_provider.is_some_and(|value| value);
+                let retention_policy = parse_retention_policy(
+                    embedding_retention_policy
+                        .as_deref()
+                        .map_or("no_retention", |value| value),
+                )?;
                 Some(EmbeddingConfig {
                     enabled,
                     endpoint,
                     model,
                     dimensions,
+                    remote_provider,
+                    retention_policy,
                 })
             }
             _ => {
@@ -174,6 +195,8 @@ struct ManifestFields {
     embedding_endpoint: Option<String>,
     embedding_model: Option<String>,
     embedding_dimensions: Option<usize>,
+    embedding_remote_provider: Option<bool>,
+    embedding_retention_policy: Option<String>,
 }
 
 fn parse_manifest_fields(contents: &str) -> CoreResult<ManifestFields> {
@@ -186,6 +209,8 @@ fn parse_manifest_fields(contents: &str) -> CoreResult<ManifestFields> {
         embedding_endpoint: None,
         embedding_model: None,
         embedding_dimensions: None,
+        embedding_remote_provider: None,
+        embedding_retention_policy: None,
     };
     for line in contents
         .lines()
@@ -230,6 +255,15 @@ fn parse_manifest_fields(contents: &str) -> CoreResult<ManifestFields> {
                             })?,
                     );
             }
+            "embedding_remote_provider" => {
+                fields.embedding_remote_provider =
+                    Some(value.parse::<bool>().map_err(|_| CoreError::InvalidInput {
+                        message: format!("invalid embedding_remote_provider value: {value}"),
+                    })?);
+            }
+            "embedding_retention_policy" => {
+                fields.embedding_retention_policy = Some(value.to_string());
+            }
             other => {
                 return Err(CoreError::InvalidInput {
                     message: format!("unknown instance manifest key: {other}"),
@@ -240,6 +274,22 @@ fn parse_manifest_fields(contents: &str) -> CoreResult<ManifestFields> {
     Ok(fields)
 }
 
+fn retention_policy_name(policy: &RetentionPolicy) -> &'static str {
+    match policy {
+        RetentionPolicy::NoRetention => "no_retention",
+        RetentionPolicy::ProviderDefined => "provider_defined",
+    }
+}
+
+fn parse_retention_policy(value: &str) -> CoreResult<RetentionPolicy> {
+    match value {
+        "no_retention" => Ok(RetentionPolicy::NoRetention),
+        "provider_defined" => Ok(RetentionPolicy::ProviderDefined),
+        _ => Err(CoreError::InvalidInput {
+            message: format!("invalid embedding_retention_policy value: {value}"),
+        }),
+    }
+}
 fn validate_embedding_endpoint(endpoint: &str) -> CoreResult<()> {
     let url = Url::parse(endpoint).map_err(|error| CoreError::InvalidInput {
         message: format!("invalid embedding endpoint: {error}"),
@@ -312,6 +362,8 @@ mod tests {
                 endpoint: "http://127.0.0.1:8080/v1/embeddings".to_string(),
                 model: "local-model".to_string(),
                 dimensions: 3,
+                remote_provider: false,
+                retention_policy: RetentionPolicy::NoRetention,
             }),
         };
 

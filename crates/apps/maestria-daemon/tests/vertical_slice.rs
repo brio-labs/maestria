@@ -379,9 +379,15 @@ async fn vertical_slice_run_instance_restart_rebuilds_projections() {
             vector: vec![1.0, 0.0],
             provenance: EmbeddingProvenance {
                 content_hash: "stale".into(),
+                identity: maestria_ports::EmbeddingIdentity::legacy("stale", 2)
+                    .expect("legacy identity"),
                 provider_id: "stale".into(),
                 model: "stale".into(),
                 model_version: "stale".into(),
+                disclosure: maestria_ports::ProviderDisclosure {
+                    remote: false,
+                    retention: maestria_ports::RetentionPolicy::NoRetention,
+                },
             },
         }])
         .expect("seed stale vector row");
