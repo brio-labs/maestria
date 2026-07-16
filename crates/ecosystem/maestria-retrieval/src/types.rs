@@ -37,11 +37,38 @@ pub struct RankedCandidate {
 pub struct RerankRequest {
     pub plan: SearchPlan,
     pub candidates: Vec<RankedCandidate>,
+    pub max_latency_ms: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RerankResult {
     pub candidates: Vec<RankedCandidate>,
+    pub trace: maestria_domain::SearchTraceRerank,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RerankScoreComponents {
+    pub relevance: u32,
+    pub constraints: Vec<RerankConstraintScore>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RerankConstraintScore {
+    pub name: String,
+    pub score: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RerankScorerInput {
+    pub plan: SearchPlan,
+    pub candidate: EvidenceCandidate,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RerankLimits {
+    pub input_cap: usize,
+    pub score_cap: usize,
+    pub output_cap: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

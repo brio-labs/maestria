@@ -3,7 +3,8 @@ use maestria_ports::SearchQuery;
 
 use crate::types::{
     CandidateBatch, CandidateRequest, ExpansionPolicy, FusedCandidate, RankedCandidate,
-    RerankRequest, RerankResult, RetrievalError, RetrievalEvaluationReport, RetrievalExperiment,
+    RerankRequest, RerankResult, RerankScoreComponents, RerankScorerInput, RetrievalError,
+    RetrievalEvaluationReport, RetrievalExperiment,
 };
 
 #[async_trait]
@@ -24,6 +25,17 @@ pub trait RankFusion: Send + Sync {
 #[async_trait]
 pub trait CandidateReranker: Send + Sync {
     async fn rerank(&self, request: RerankRequest) -> Result<RerankResult, RetrievalError>;
+}
+
+#[async_trait]
+pub trait RerankScorer: Send + Sync {
+    fn model(&self) -> String;
+    fn fingerprint(&self) -> maestria_domain::RetrievalModelFingerprint;
+    fn compatible_with(&self, plan: &maestria_domain::RetrievalModelFingerprint) -> bool;
+    async fn score(
+        &self,
+        input: RerankScorerInput,
+    ) -> Result<RerankScoreComponents, RetrievalError>;
 }
 
 pub trait ContextExpander: Send + Sync {

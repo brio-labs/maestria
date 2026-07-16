@@ -161,6 +161,40 @@ pub struct SearchTraceLane {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum RerankCandidateStatus {
+    Reranked,
+    SkippedCap,
+    ErrorFallback(String),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SearchTraceConstraintScore {
+    pub name: String,
+    pub score: u32,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SearchTraceRerankCandidate {
+    pub candidate_id: crate::ids::EvidenceId,
+    pub original_rank: usize,
+    pub new_rank: Option<usize>,
+    pub status: RerankCandidateStatus,
+    pub relevance_score: Option<u32>,
+    pub constraint_score: Option<u32>,
+    #[serde(default)]
+    pub constraint_scores: Vec<SearchTraceConstraintScore>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SearchTraceRerank {
+    pub model: String,
+    pub fingerprint: RetrievalModelFingerprint,
+    pub input_cap: usize,
+    pub score_cap: usize,
+    pub output_cap: usize,
+    pub candidates: Vec<SearchTraceRerankCandidate>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SearchTrace {
     pub query_id: crate::ids::QueryId,
     pub original_query: String,
@@ -186,6 +220,8 @@ pub struct SearchTrace {
     pub stop_reason: SearchStopReason,
     #[serde(default)]
     pub lanes: Vec<SearchTraceLane>,
+    #[serde(default)]
+    pub rerank: Option<SearchTraceRerank>,
 }
 
 impl SearchTrace {
@@ -236,6 +272,7 @@ impl SearchTrace {
             conflicts: Vec::new(),
             stop_reason,
             lanes: Vec::new(),
+            rerank: None,
         }
     }
 }
