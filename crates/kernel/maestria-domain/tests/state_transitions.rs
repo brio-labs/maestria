@@ -703,6 +703,11 @@ fn search_knowledge_request_emits_effect() -> Result<(), DomainError> {
         evidence_requirements: EvidenceRequirements {
             require_primary_sources: false,
             minimum_corroboration: 1,
+            required_claims: vec![],
+            required_subquestions: vec![],
+            minimum_sources: 0,
+            minimum_documents: 0,
+            minimum_sections: 0,
         },
         fingerprint: RetrievalModelFingerprint::new("test-model".to_string()).map_err(|_| {
             DomainError::InternalInvariantViolation {

@@ -326,6 +326,12 @@ fn search_knowledge_completed_roundtrips_through_appended_scan() -> Result<(), P
         coverage: EvidenceCoverage {
             percent_covered: 0,
             gaps_identified: vec!["no evidence".to_string()],
+            required_claims: vec![],
+            required_subquestions: vec![],
+            distinct_sources: 0,
+            distinct_documents: 0,
+            distinct_sections: 0,
+            candidate_coverage_keys: vec![],
         },
         conflicts: Vec::new(),
     };

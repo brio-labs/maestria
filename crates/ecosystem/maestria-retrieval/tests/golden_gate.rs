@@ -28,6 +28,11 @@ fn plan() -> SearchPlan {
             min_score_threshold: 0,
         },
         evidence_requirements: EvidenceRequirements {
+            required_claims: vec![],
+            required_subquestions: vec![],
+            minimum_sources: 0,
+            minimum_documents: 0,
+            minimum_sections: 0,
             require_primary_sources: false,
             minimum_corroboration: 1,
         },
@@ -38,6 +43,7 @@ fn plan() -> SearchPlan {
 
 fn candidate(id: u64, start: u32) -> EvidenceCandidate {
     EvidenceCandidate {
+        coverage_keys: vec![],
         evidence_id: EvidenceId::new(id),
         artifact_version: ArtifactVersionId::new(100 + id),
         source_span: EvidenceSpan::new(
@@ -100,6 +106,12 @@ fn observation(
             status,
             evidence,
             coverage: EvidenceCoverage {
+                required_claims: vec![],
+                required_subquestions: vec![],
+                distinct_sources: 0,
+                distinct_documents: 0,
+                distinct_sections: 0,
+                candidate_coverage_keys: vec![],
                 percent_covered: if evidence_empty { 0 } else { 100 },
                 gaps_identified: vec![],
             },

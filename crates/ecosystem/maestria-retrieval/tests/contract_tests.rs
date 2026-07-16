@@ -29,6 +29,11 @@ fn dummy_plan() -> RetrievalResult<SearchPlan> {
             min_score_threshold: 50,
         },
         evidence_requirements: EvidenceRequirements {
+            required_claims: vec![],
+            required_subquestions: vec![],
+            minimum_sources: 0,
+            minimum_documents: 0,
+            minimum_sections: 0,
             require_primary_sources: false,
             minimum_corroboration: 1,
         },
@@ -45,6 +50,12 @@ fn dummy_outcome() -> RetrievalResult<SearchOutcome> {
         status: SearchStatus::Answerable,
         evidence: vec![],
         coverage: EvidenceCoverage {
+            required_claims: vec![],
+            required_subquestions: vec![],
+            distinct_sources: 0,
+            distinct_documents: 0,
+            distinct_sections: 0,
+            candidate_coverage_keys: vec![],
             percent_covered: 0,
             gaps_identified: vec![],
         },
@@ -54,6 +65,7 @@ fn dummy_outcome() -> RetrievalResult<SearchOutcome> {
 
 fn candidate_fixture() -> RetrievalResult<EvidenceCandidate> {
     Ok(EvidenceCandidate {
+        coverage_keys: vec![],
         evidence_id: maestria_domain::EvidenceId::new(23),
         artifact_version: ArtifactVersionId::new(19),
         source_span: EvidenceSpan::new(
@@ -87,7 +99,7 @@ fn test_sync_engine_orchestration() -> RetrievalResult<()> {
     let evaluator = move |_: Vec<EvidenceCandidate>, _: &SearchPlan| Ok(outcome.clone());
     let engine = SyncRetrievalEngine::new(vec![retriever], evaluator);
     let result = engine.search_sync(&plan)?;
-    assert_eq!(result.status, SearchStatus::Answerable);
+    assert_eq!(result.status, SearchStatus::NoEvidenceFound);
     Ok(())
 }
 
@@ -439,6 +451,12 @@ impl RetrievalEvaluator for AsyncEvaluator {
                 status,
                 evidence,
                 coverage: EvidenceCoverage {
+                    required_claims: vec![],
+                    required_subquestions: vec![],
+                    distinct_sources: 0,
+                    distinct_documents: 0,
+                    distinct_sections: 0,
+                    candidate_coverage_keys: vec![],
                     percent_covered: coverage,
                     gaps_identified: vec![],
                 },
