@@ -30,6 +30,7 @@ pub struct CoreServices<'a> {
     ports: CorePorts<'a>,
     graph_config: Option<crate::types::GraphConfig>,
     retrieval_policy: maestria_governance::RetrievalSecurityPolicy,
+    hybrid_policy: crate::types::HybridExecutionPolicy,
 }
 
 pub(super) fn evidence_candidate_from_hit(
@@ -244,6 +245,7 @@ impl<'a> CoreServices<'a> {
             ports,
             graph_config: Some(crate::types::GraphConfig::default()),
             retrieval_policy: maestria_governance::RetrievalSecurityPolicy::default(),
+            hybrid_policy: crate::types::HybridExecutionPolicy::default(),
         }
     }
 
@@ -255,6 +257,10 @@ impl<'a> CoreServices<'a> {
         self
     }
 
+    pub fn with_hybrid_policy(mut self, policy: crate::types::HybridExecutionPolicy) -> Self {
+        self.hybrid_policy = policy;
+        self
+    }
     pub fn with_graph_config(mut self, config: crate::types::GraphConfig) -> Self {
         self.graph_config = Some(config);
         self
@@ -267,6 +273,7 @@ impl<'a> CoreServices<'a> {
             None,
             self.graph_config.clone(),
             &self.retrieval_policy,
+            self.hybrid_policy.clone(),
         )
     }
     pub fn search_knowledge(&self, plan: maestria_domain::SearchPlan) -> CoreResult<SearchOutcome> {
@@ -276,8 +283,8 @@ impl<'a> CoreServices<'a> {
             None,
             self.graph_config.clone(),
             &self.retrieval_policy,
+            self.hybrid_policy.clone(),
         )?;
-        // The core path exposes lexical evidence through the same diversity contract.
         let reason = RetrievalReason::ExactMatch;
         let lane_reports = output.lane_reports.clone();
         let evidence = output
@@ -368,6 +375,7 @@ impl<'a> CoreServices<'a> {
             Some(vector_query),
             self.graph_config.clone(),
             &self.retrieval_policy,
+            self.hybrid_policy.clone(),
         )
     }
     pub fn open_evidence(&self, input: OpenEvidenceInput) -> CoreResult<OpenEvidenceOutput> {

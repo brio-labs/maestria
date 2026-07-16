@@ -7,8 +7,8 @@ use maestria_domain::{
     TrustLabel,
 };
 use maestria_retrieval::golden::{
-    GoldenCorpus, GoldenGate, GoldenGateConfig, GoldenJudgment, GoldenObservation, GoldenQuery,
-    Metric, ResourceMetrics, SecurityMetrics,
+    GoldenCorpus, GoldenGate, GoldenGateConfig, GoldenJudgment, GoldenObservation, GoldenProfile,
+    GoldenQuery, Metric, ResourceMetrics, SecurityMetrics,
 };
 
 fn plan() -> SearchPlan {
@@ -72,6 +72,15 @@ fn observation(
     evidence: Vec<EvidenceCandidate>,
     status: SearchStatus,
 ) -> GoldenObservation {
+    observation_with_profile(plan, evidence, status, GoldenProfile::V0_4)
+}
+
+fn observation_with_profile(
+    plan: &SearchPlan,
+    evidence: Vec<EvidenceCandidate>,
+    status: SearchStatus,
+    profile: GoldenProfile,
+) -> GoldenObservation {
     let evidence_empty = evidence.is_empty();
     let stop_reason = match &status {
         SearchStatus::Abstained => SearchStopReason::Abstained,
@@ -98,6 +107,7 @@ fn observation(
     );
     GoldenObservation {
         query_id: plan.query_id,
+        profile,
         outcome: SearchOutcome {
             trace: trace.deterministic_id(),
             trace_data: Some(Box::new(trace)),
@@ -121,8 +131,11 @@ fn observation(
             latency_ms: 4,
             memory_bytes: 100,
             disk_bytes: 200,
+            ingest_update_ms: None,
+            energy_millijoules: None,
+            telemetry_complete: true,
         },
-        security: SecurityMetrics::default(),
+        security: SecurityMetrics::measured(),
     }
 }
 
@@ -146,15 +159,20 @@ fn permissive_gate() -> GoldenGate {
     GoldenGate {
         k: 10,
         config: GoldenGateConfig {
+            profile: maestria_retrieval::golden::GoldenProfile::V0_4,
             min_recall_at_k: Metric::ZERO,
             min_ndcg_at_k: Metric::ZERO,
             min_mrr: Metric::ZERO,
             min_exact_span_recall: Metric::ZERO,
+            min_material_quality_delta: Metric::ZERO,
             max_latency_ms: 100,
             max_memory_bytes: 1000,
             max_disk_bytes: 1000,
+            max_ingest_update_ms: None,
+            max_energy_millijoules: None,
             max_acl_leakage: 0,
             max_attack_successes: 0,
+            max_privacy_violations: 0,
         },
     }
 }
@@ -406,4 +424,199 @@ fn golden_gate_rejects_invalid_corpus_shapes() {
         permissive_gate().evaluate(&duplicate_judgment, &[]),
         Err(maestria_retrieval::golden::GoldenGateError::DuplicateJudgment { .. })
     ));
+}
+
+fn comparison_config(profile: GoldenProfile) -> GoldenGateConfig {
+    GoldenGateConfig {
+        profile,
+        min_recall_at_k: Metric::ZERO,
+        min_ndcg_at_k: Metric::ZERO,
+        min_mrr: Metric::ZERO,
+        min_exact_span_recall: Metric::ZERO,
+        min_material_quality_delta: Metric::MATERIAL_QUALITY_DELTA,
+        max_latency_ms: 100,
+        max_memory_bytes: 1_000,
+        max_disk_bytes: 1_000,
+        max_ingest_update_ms: Some(100),
+        max_energy_millijoules: Some(1_000),
+        max_acl_leakage: 0,
+        max_attack_successes: 0,
+        max_privacy_violations: 0,
+    }
+}
+
+#[test]
+fn golden_comparison_promotes_only_for_material_quality_improvement() {
+    use maestria_retrieval::golden::{
+        GoldenComparison, GoldenProfile, PromotionDecision, PromotionRecord,
+    };
+    let plan = plan();
+    let first = candidate(1, 0);
+    let second = candidate(2, 1);
+    let corpus = corpus(
+        &plan,
+        vec![
+            GoldenJudgment {
+                evidence_id: first.evidence_id,
+                relevance: 1,
+                exact_span: None,
+            },
+            GoldenJudgment {
+                evidence_id: second.evidence_id,
+                relevance: 1,
+                exact_span: None,
+            },
+        ],
+    );
+    let mut baseline_obs = observation(&plan, vec![first.clone()], SearchStatus::Answerable);
+    baseline_obs.resources.ingest_update_ms = Some(8);
+    baseline_obs.resources.energy_millijoules = Some(12);
+    let mut candidate_obs = observation_with_profile(
+        &plan,
+        vec![first, second],
+        SearchStatus::Answerable,
+        GoldenProfile::V0_5,
+    );
+    candidate_obs.resources.ingest_update_ms = Some(8);
+    candidate_obs.resources.energy_millijoules = Some(12);
+    let result = GoldenComparison {
+        k: 10,
+        tier: maestria_retrieval::golden::BackendTier::Small,
+        workload: "golden-gate-tests".to_string(),
+    }
+    .compare(
+        &corpus,
+        &comparison_config(GoldenProfile::V0_4),
+        &[baseline_obs],
+        &comparison_config(GoldenProfile::V0_5),
+        &[candidate_obs],
+        Some(PromotionRecord {
+            evaluation_id: "eval_id_123".to_string(),
+            evaluation_date: "2026-07-16".to_string(),
+        }),
+    )
+    .expect("comparison should evaluate");
+    assert_eq!(
+        result.report.backend_tier,
+        maestria_retrieval::golden::BackendTier::Small
+    );
+    assert_eq!(result.report.workload, "golden-gate-tests");
+    assert_eq!(result.report.corpus_snapshot, corpus.corpus_snapshot);
+    assert_eq!(result.report.index_generation, corpus.index_generation);
+    assert_eq!(result.report.fingerprint, corpus.fingerprint);
+    match result.decision {
+        PromotionDecision::Promote {
+            evaluation_id,
+            evaluation_date,
+            ..
+        } => {
+            assert_eq!(evaluation_id, "eval_id_123");
+            assert_eq!(evaluation_date, "2026-07-16");
+        }
+        PromotionDecision::RetainBaseline { reason } => panic!("unexpected retention: {reason}"),
+    }
+}
+
+#[test]
+fn golden_comparison_requires_complete_promotion_telemetry() {
+    use maestria_retrieval::golden::{
+        GoldenComparison, GoldenProfile, PromotionDecision, PromotionRecord,
+    };
+    let plan = plan();
+    let first = candidate(1, 0);
+    let second = candidate(2, 1);
+    let corpus = corpus(
+        &plan,
+        vec![
+            GoldenJudgment {
+                evidence_id: first.evidence_id,
+                relevance: 1,
+                exact_span: None,
+            },
+            GoldenJudgment {
+                evidence_id: second.evidence_id,
+                relevance: 1,
+                exact_span: None,
+            },
+        ],
+    );
+    let result = GoldenComparison {
+        k: 10,
+        tier: maestria_retrieval::golden::BackendTier::Small,
+        workload: "golden-gate-tests".to_string(),
+    }
+    .compare(
+        &corpus,
+        &comparison_config(GoldenProfile::V0_4),
+        &[observation(
+            &plan,
+            vec![first.clone()],
+            SearchStatus::Answerable,
+        )],
+        &comparison_config(GoldenProfile::V0_5),
+        &[observation_with_profile(
+            &plan,
+            vec![first, second],
+            SearchStatus::Answerable,
+            GoldenProfile::V0_5,
+        )],
+        Some(PromotionRecord {
+            evaluation_id: "eval_id_telemetry".to_string(),
+            evaluation_date: "2026-07-16".to_string(),
+        }),
+    )
+    .expect("comparison should evaluate");
+    match result.decision {
+        PromotionDecision::RetainBaseline { reason } => {
+            assert!(reason.contains("complete"));
+            assert!(reason.contains("telemetry"));
+        }
+        PromotionDecision::Promote { .. } => panic!("incomplete telemetry must retain baseline"),
+    }
+}
+
+#[test]
+fn golden_comparison_retains_baseline_when_candidate_regresses() {
+    use maestria_retrieval::golden::{GoldenComparison, GoldenProfile, PromotionDecision};
+    let plan = plan();
+    let candidate = candidate(1, 0);
+    let corpus = corpus(
+        &plan,
+        vec![GoldenJudgment {
+            evidence_id: candidate.evidence_id,
+            relevance: 1,
+            exact_span: None,
+        }],
+    );
+    let mut baseline_obs = observation(&plan, vec![candidate.clone()], SearchStatus::Answerable);
+    baseline_obs.resources.latency_ms = 10;
+    let mut candidate_obs = observation_with_profile(
+        &plan,
+        vec![candidate],
+        SearchStatus::Answerable,
+        GoldenProfile::V0_5,
+    );
+    candidate_obs.resources.latency_ms = 20;
+    let result = GoldenComparison {
+        k: 10,
+        tier: maestria_retrieval::golden::BackendTier::Small,
+        workload: "golden-gate-tests".to_string(),
+    }
+    .compare(
+        &corpus,
+        &comparison_config(GoldenProfile::V0_4),
+        &[baseline_obs],
+        &comparison_config(GoldenProfile::V0_5),
+        &[candidate_obs],
+        None,
+    )
+    .expect("comparison should evaluate");
+    match result.decision {
+        PromotionDecision::RetainBaseline { reason } => {
+            assert!(reason.contains("p50_latency_ms"));
+            assert!(reason.contains("p95_latency_ms"));
+            assert!(reason.contains("p99_latency_ms"));
+        }
+        PromotionDecision::Promote { .. } => panic!("regression must retain baseline"),
+    }
 }

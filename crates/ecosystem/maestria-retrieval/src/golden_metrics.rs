@@ -4,7 +4,7 @@ use super::{
 use maestria_domain::{EvidenceId, SearchOutcome};
 use std::collections::{BTreeMap, BTreeSet};
 
-pub(super) fn calculate_report(
+pub(crate) fn calculate_report(
     query: &GoldenQuery,
     outcome: &SearchOutcome,
     resources: ResourceMetrics,

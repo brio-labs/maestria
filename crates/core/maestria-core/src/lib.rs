@@ -31,7 +31,8 @@ pub use ports::{CorePorts, CoreServices};
 pub use provenance::artifact_id_for;
 pub use provenance::content_hash;
 pub use types::{
-    EvidencePack, GraphConfig, OpenChunkEvidenceInput, OpenEvidenceInput, OpenEvidenceOutput,
-    RetrievalLaneReport, RetrievalLaneStatus, RetrievalMode, SearchInput, SearchOutput,
-    SourceGroundedCardHit, SourceGroundedSearchHit,
+    EvidencePack, GraphConfig, HybridExecutionPolicy, HybridPromotionRecord,
+    OpenChunkEvidenceInput, OpenEvidenceInput, OpenEvidenceOutput, RetrievalLaneReport,
+    RetrievalLaneStatus, RetrievalMode, SearchInput, SearchOutput, SourceGroundedCardHit,
+    SourceGroundedSearchHit,
 };
