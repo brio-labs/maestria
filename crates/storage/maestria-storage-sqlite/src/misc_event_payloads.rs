@@ -39,6 +39,28 @@ impl StoredEventPayload {
                     outcome: outcome.clone(),
                 })
             }
+            DomainEvent::IndexGenerationStarted {
+                id,
+                name,
+                corpus_snapshot,
+                fingerprint,
+            } => Some(Self::IndexGenerationStarted {
+                id: id.value(),
+                name: name.clone(),
+                corpus_snapshot: corpus_snapshot.value(),
+                fingerprint: fingerprint.clone(),
+            }),
+            DomainEvent::IndexGenerationTransitioned {
+                id,
+                from,
+                to,
+                replaced_active_id,
+            } => Some(Self::IndexGenerationTransitioned {
+                id: id.value(),
+                from: *from,
+                to: *to,
+                replaced_active_id: replaced_active_id.map(|i| i.value()),
+            }),
             _ => None,
         }
     }
@@ -87,6 +109,28 @@ impl StoredEventPayload {
             Self::SearchKnowledgeCompleted { outcome } => {
                 Ok(DomainEvent::SearchKnowledgeCompleted { outcome })
             }
+            Self::IndexGenerationStarted {
+                id,
+                name,
+                corpus_snapshot,
+                fingerprint,
+            } => Ok(DomainEvent::IndexGenerationStarted {
+                id: maestria_domain::IndexGenerationId::new(id),
+                name,
+                corpus_snapshot: maestria_domain::CorpusSnapshotId::new(corpus_snapshot),
+                fingerprint,
+            }),
+            Self::IndexGenerationTransitioned {
+                id,
+                from,
+                to,
+                replaced_active_id,
+            } => Ok(DomainEvent::IndexGenerationTransitioned {
+                id: maestria_domain::IndexGenerationId::new(id),
+                from,
+                to,
+                replaced_active_id: replaced_active_id.map(maestria_domain::IndexGenerationId::new),
+            }),
             other => Err(Box::new(other)),
         }
     }
@@ -97,6 +141,8 @@ impl StoredEventPayload {
             Self::RelationCreated { .. } => Some("relation_created"),
             Self::TickObserved { .. } => Some("tick_observed"),
             Self::SearchExecuted { .. } => Some("search_executed"),
+            Self::IndexGenerationStarted { .. } => Some("index_generation_started"),
+            Self::IndexGenerationTransitioned { .. } => Some("index_generation_transitioned"),
             _ => None,
         }
     }

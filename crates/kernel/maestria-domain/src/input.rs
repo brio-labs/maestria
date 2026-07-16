@@ -6,6 +6,9 @@ mod dispatch;
 mod dispatch_complex;
 mod dispatch_crud;
 mod evidence;
+mod generation;
+#[cfg(test)]
+mod generation_tests;
 mod handlers;
 mod index;
 mod memory;
@@ -53,6 +56,10 @@ impl KernelState {
             DomainInput::UserIntent(input) => self.process_user_intent(input),
             DomainInput::ArtifactDetected(input) => self.process_artifact_detected(input),
             DomainInput::ParserCompleted(input) => self.process_parser_completed(input),
+            DomainInput::StartIndexGeneration(input) => self.process_start_index_generation(input),
+            DomainInput::TransitionIndexGeneration(input) => {
+                self.process_transition_index_generation(input)
+            }
             DomainInput::FullTextIndexCompleted(input) => {
                 self.process_full_text_index_completed(input)
             }

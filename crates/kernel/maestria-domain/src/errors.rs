@@ -1,7 +1,7 @@
 use crate::entities::TaskStatus;
 use crate::ids::{
-    ArtifactId, CardId, ChunkId, ClaimId, EvidenceId, MemoryCandidateId, MemoryId, RelationId,
-    TaskId, ValidationReportId,
+    ArtifactId, CardId, ChunkId, ClaimId, EvidenceId, IndexGenerationId, MemoryCandidateId,
+    MemoryId, RelationId, TaskId, ValidationReportId,
 };
 use std::fmt;
 
@@ -41,6 +41,9 @@ pub enum DomainError {
     MissingValidationReport {
         id: ValidationReportId,
     },
+    MissingIndexGeneration {
+        id: IndexGenerationId,
+    },
     ValidationReportTaskMismatch {
         report_id: ValidationReportId,
         report_task_id: Option<TaskId>,
@@ -50,6 +53,11 @@ pub enum DomainError {
         task_id: TaskId,
         from: TaskStatus,
         to: TaskStatus,
+    },
+    InvalidGenerationTransition {
+        id: IndexGenerationId,
+        from: crate::generations::IndexLifecycle,
+        to: crate::generations::IndexLifecycle,
     },
     ValidationRequired {
         task_id: TaskId,
@@ -117,6 +125,7 @@ impl fmt::Display for DomainError {
             Self::MissingMemoryCandidate { id } => write!(f, "missing memory candidate {id}"),
             Self::MissingMemory { id } => write!(f, "missing memory {id}"),
             Self::MissingValidationReport { id } => write!(f, "missing validation report {id}"),
+            Self::MissingIndexGeneration { id } => write!(f, "missing index generation {id}"),
             Self::ValidationReportTaskMismatch {
                 report_id,
                 report_task_id,
@@ -133,6 +142,12 @@ impl fmt::Display for DomainError {
             },
             Self::InvalidTaskTransition { task_id, from, to } => {
                 write!(f, "invalid task transition {task_id}: {from:?} -> {to:?}")
+            }
+            Self::InvalidGenerationTransition { id, from, to } => {
+                write!(
+                    f,
+                    "invalid index generation transition for {id}: {from:?} -> {to:?}"
+                )
             }
             Self::ValidationRequired { task_id } => {
                 write!(f, "task {task_id} requires validation before completion")

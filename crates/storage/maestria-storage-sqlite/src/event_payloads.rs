@@ -189,6 +189,18 @@ pub(crate) enum StoredEventPayload {
         content_hash: String,
         blob_id: u64,
     },
+    IndexGenerationStarted {
+        id: u64,
+        name: maestria_domain::RepresentationName,
+        corpus_snapshot: u64,
+        fingerprint: maestria_domain::IndexFingerprint,
+    },
+    IndexGenerationTransitioned {
+        id: u64,
+        from: maestria_domain::IndexLifecycle,
+        to: maestria_domain::IndexLifecycle,
+        replaced_active_id: Option<u64>,
+    },
 }
 
 impl StoredEventPayload {

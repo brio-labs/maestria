@@ -4,8 +4,8 @@ use crate::entities::{
 use crate::ids::StructureNodeId;
 use crate::ids::{
     ApprovalId, ArtifactId, ArtifactVersionId, BlobId, CardId, ChunkId, ClaimId, EventId,
-    EvidenceId, LogicalTick, MemoryCandidateId, MemoryId, RelationId, SequenceNumber, TaskId,
-    ValidationReportId,
+    EvidenceId, IndexGenerationId, LogicalTick, MemoryCandidateId, MemoryId, RelationId,
+    SequenceNumber, TaskId, ValidationReportId,
 };
 use crate::search::{ContentHash, StructureNode};
 use crate::security::SecurityMetadata;
@@ -186,5 +186,17 @@ pub enum DomainEvent {
     },
     SearchKnowledgeCompleted {
         outcome: crate::search::SearchOutcome,
+    },
+    IndexGenerationStarted {
+        id: IndexGenerationId,
+        name: crate::generations::RepresentationName,
+        corpus_snapshot: crate::ids::CorpusSnapshotId,
+        fingerprint: crate::generations::IndexFingerprint,
+    },
+    IndexGenerationTransitioned {
+        id: IndexGenerationId,
+        from: crate::generations::IndexLifecycle,
+        to: crate::generations::IndexLifecycle,
+        replaced_active_id: Option<IndexGenerationId>,
     },
 }
