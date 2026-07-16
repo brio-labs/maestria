@@ -22,6 +22,7 @@ pub(super) fn ensure_trace(
     lanes: Vec<maestria_domain::SearchTraceLane>,
     fusion_enabled: bool,
     expansion_enabled: bool,
+    rerank_trace: Option<maestria_domain::SearchTraceRerank>,
 ) -> SearchOutcome {
     let trace_is_valid = outcome.trace_data.as_ref().is_some_and(|trace| {
         outcome.trace == trace.deterministic_id()
@@ -33,6 +34,7 @@ pub(super) fn ensure_trace(
                     .collect::<Vec<_>>()
             && trace.lanes == lanes
             && trace.fusion.is_some() == fusion_enabled
+            && trace.rerank == rerank_trace
             && trace.expansions.len() == usize::from(expansion_enabled)
             && trace.matches_evidence(&outcome.evidence)
     });
@@ -60,7 +62,7 @@ pub(super) fn ensure_trace(
         })
         .into_iter()
         .collect();
-    let trace = SearchTrace::from_plan(
+    let mut trace = SearchTrace::from_plan(
         plan,
         lanes.iter().map(|l| l.retriever_id.clone()).collect(),
         &outcome.evidence,
@@ -78,6 +80,7 @@ pub(super) fn ensure_trace(
             .map(|conflict| conflict.id)
             .collect(),
     );
+    trace.rerank = rerank_trace;
     outcome.trace = trace.deterministic_id();
     outcome.trace_data = Some(Box::new(trace));
     outcome
@@ -210,7 +213,8 @@ impl RetrievalEngine {
 
     pub async fn search(&self, plan: &SearchPlan) -> RetrievalResult<SearchOutcome> {
         let timeout_ms = plan.budgets.max_latency_ms() as u64;
-        let search = self.search_internal(plan);
+        let started = tokio::time::Instant::now();
+        let search = self.search_internal(plan, started);
         if timeout_ms > 0 {
             tokio::time::timeout(Duration::from_millis(timeout_ms), search)
                 .await
@@ -220,7 +224,11 @@ impl RetrievalEngine {
         }
     }
 
-    async fn search_internal(&self, plan: &SearchPlan) -> RetrievalResult<SearchOutcome> {
+    async fn search_internal(
+        &self,
+        plan: &SearchPlan,
+        started: tokio::time::Instant,
+    ) -> RetrievalResult<SearchOutcome> {
         if self.retrievers.is_empty() {
             return Err(RetrievalError::Internal("No retrievers configured".into()));
         }
@@ -253,14 +261,21 @@ impl RetrievalEngine {
                 .collect()
         };
 
+        let mut rerank_trace = None;
         if let Some(reranker) = &self.reranker {
-            ranked = reranker
+            let elapsed_ms = started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
+            let remaining_ms = u64::from(plan.budgets.max_latency_ms())
+                .saturating_sub(elapsed_ms)
+                .min(u64::from(u32::MAX)) as u32;
+            let rerank_res = reranker
                 .rerank(RerankRequest {
                     plan: plan.clone(),
                     candidates: ranked,
+                    max_latency_ms: remaining_ms,
                 })
-                .await?
-                .candidates;
+                .await?;
+            ranked = rerank_res.candidates;
+            rerank_trace = Some(rerank_res.trace);
         }
 
         let mut candidates = if let Some(expander) = &self.expander {
@@ -291,6 +306,7 @@ impl RetrievalEngine {
             lanes,
             self.fusion.is_some(),
             self.expander.is_some(),
+            rerank_trace,
         );
         outcome.verify_compatibility(plan)?;
         Ok(outcome)
@@ -366,6 +382,7 @@ impl<'a> SyncRetrievalEngine<'a> {
             vec![lane],
             self.pipeline.fusion_enabled(),
             self.pipeline.expander_enabled(),
+            None,
         );
         outcome.verify_compatibility(plan)?;
         Ok(outcome)

@@ -180,6 +180,29 @@ impl SearchTrace {
                 mix(format!("{:?}", candidate.reasons).as_bytes());
             }
         }
+        if let Some(rerank) = &self.rerank {
+            mix(rerank.model.as_bytes());
+            mix(rerank.fingerprint.as_str().as_bytes());
+            let input_cap = rerank.input_cap as u64;
+            let score_cap = rerank.score_cap as u64;
+            let output_cap = rerank.output_cap as u64;
+            mix(&input_cap.to_le_bytes());
+            mix(&score_cap.to_le_bytes());
+            mix(&output_cap.to_le_bytes());
+            for c in &rerank.candidates {
+                mix(&c.candidate_id.value().to_le_bytes());
+                let original_rank = c.original_rank as u64;
+                mix(&original_rank.to_le_bytes());
+                mix(format!("{:?}", c.new_rank).as_bytes());
+                mix(format!("{:?}", c.status).as_bytes());
+                mix(format!("{:?}", c.relevance_score).as_bytes());
+                mix(format!("{:?}", c.constraint_score).as_bytes());
+                for constraint in &c.constraint_scores {
+                    mix(constraint.name.as_bytes());
+                    mix(&u64::from(constraint.score).to_le_bytes());
+                }
+            }
+        }
         SearchTraceId::new(hash)
     }
 }
