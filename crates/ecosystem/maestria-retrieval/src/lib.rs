@@ -1,4 +1,5 @@
 pub mod engine;
+pub mod golden;
 pub mod traits;
 pub mod types;
 

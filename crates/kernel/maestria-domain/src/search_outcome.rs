@@ -95,30 +95,132 @@ pub enum SearchStatus {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SearchTraceFilter {
+    Scope,
+    Acl,
+    Trust,
+    Sensitivity,
+    Quarantine,
+    PromptInjection,
+    Freshness,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SearchTraceCandidate {
+    pub evidence_id: EvidenceId,
+    pub artifact_version: ArtifactVersionId,
+    pub source_span: super::EvidenceSpan,
+    pub rank: u32,
+    pub scores: RetrievalScoreSet,
+    pub trust: TrustLabel,
+    pub freshness: FreshnessStatus,
+    pub duplicate_cluster: Option<DuplicateClusterId>,
+    pub reasons: Vec<RetrievalReason>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SearchTraceExpansion {
+    pub strategy: String,
+    pub added_candidates: Option<u32>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SearchStopReason {
+    ResultsLimit,
+    EvidenceComplete,
+    RequirementsUnmet,
+    NoEvidence,
+    BudgetExhausted,
+    PolicyDenied,
+    Abstained,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SearchTrace {
+    pub query_id: crate::ids::QueryId,
+    pub original_query: String,
+    pub intent: super::SearchIntent,
+    pub scope: super::CorpusScope,
+    pub corpus_snapshot: crate::ids::CorpusSnapshotId,
+    pub index_generation: IndexGenerationId,
+    pub freshness: super::FreshnessRequirement,
+    pub modalities: super::ModalitySet,
+    pub stages: Vec<super::SearchStage>,
+    pub budgets: super::SearchBudget,
+    pub stop_conditions: super::StopConditions,
+    pub evidence_requirements: super::EvidenceRequirements,
+    pub fingerprint: RetrievalModelFingerprint,
+    pub retrievers: Vec<String>,
+    pub policy_fingerprint: Option<String>,
+    pub raw_candidates: Vec<SearchTraceCandidate>,
+    pub fusion: Option<String>,
+    pub filters: Vec<SearchTraceFilter>,
+    pub expansions: Vec<SearchTraceExpansion>,
+    pub missing_evidence: Vec<String>,
+    pub conflicts: Vec<ConflictSetId>,
+    pub stop_reason: SearchStopReason,
+}
+
+impl SearchTrace {
+    pub fn from_plan(
+        plan: &SearchPlan,
+        retrievers: Vec<String>,
+        evidence: &[EvidenceCandidate],
+        filters: Vec<SearchTraceFilter>,
+        fusion: Option<String>,
+        expansions: Vec<SearchTraceExpansion>,
+        stop_reason: SearchStopReason,
+    ) -> Self {
+        Self {
+            query_id: plan.query_id,
+            original_query: plan.original_query.clone(),
+            intent: plan.intent.clone(),
+            scope: plan.scope.clone(),
+            corpus_snapshot: plan.corpus_snapshot,
+            index_generation: plan.index_generation,
+            freshness: plan.freshness.clone(),
+            modalities: plan.modalities.clone(),
+            stages: plan.stages.clone(),
+            evidence_requirements: plan.evidence_requirements.clone(),
+            fingerprint: plan.fingerprint.clone(),
+            retrievers,
+            policy_fingerprint: None,
+            budgets: plan.budgets.clone(),
+            stop_conditions: plan.stop_conditions.clone(),
+            raw_candidates: evidence
+                .iter()
+                .enumerate()
+                .map(|(rank, candidate)| SearchTraceCandidate {
+                    evidence_id: candidate.evidence_id,
+                    artifact_version: candidate.artifact_version,
+                    source_span: candidate.source_span.clone(),
+                    rank: rank as u32,
+                    scores: candidate.scores.clone(),
+                    trust: candidate.trust.clone(),
+                    freshness: candidate.freshness.clone(),
+                    duplicate_cluster: candidate.duplicate_cluster,
+                    reasons: candidate.reasons.clone(),
+                })
+                .collect(),
+            fusion,
+            filters,
+            expansions,
+            missing_evidence: Vec::new(),
+            conflicts: Vec::new(),
+            stop_reason,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SearchOutcome {
     pub trace: SearchTraceId,
+    #[serde(default)]
+    pub trace_data: Option<Box<SearchTrace>>,
     pub fingerprint: RetrievalModelFingerprint,
     pub index_generation: IndexGenerationId,
     pub status: SearchStatus,
     pub evidence: Vec<EvidenceCandidate>,
     pub coverage: EvidenceCoverage,
     pub conflicts: Vec<ConflictSet>,
-}
-
-impl SearchOutcome {
-    pub fn verify_compatibility(&self, plan: &SearchPlan) -> Result<(), SearchCompatibilityError> {
-        if self.fingerprint != plan.fingerprint {
-            return Err(SearchCompatibilityError::ModelFingerprintMismatch {
-                expected: plan.fingerprint.clone(),
-                found: self.fingerprint.clone(),
-            });
-        }
-        if self.index_generation != plan.index_generation {
-            return Err(SearchCompatibilityError::IndexGenerationMismatch {
-                expected: plan.index_generation,
-                found: self.index_generation,
-            });
-        }
-        Ok(())
-    }
 }

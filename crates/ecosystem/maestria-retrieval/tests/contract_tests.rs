@@ -34,12 +34,13 @@ fn dummy_plan() -> RetrievalResult<SearchPlan> {
 fn dummy_outcome() -> RetrievalResult<SearchOutcome> {
     Ok(SearchOutcome {
         trace: SearchTraceId::new(1),
+        trace_data: None,
         fingerprint: RetrievalModelFingerprint::new("dummy-model".into())?,
         index_generation: IndexGenerationId::new(1),
         status: SearchStatus::Answerable,
         evidence: vec![],
         coverage: EvidenceCoverage {
-            percent_covered: 100,
+            percent_covered: 0,
             gaps_identified: vec![],
         },
         conflicts: vec![],
@@ -145,6 +146,7 @@ fn test_provenance_scores_reasons_and_determinism() -> RetrievalResult<()> {
         outcome.evidence = candidates;
         outcome.fingerprint = plan.fingerprint.clone();
         outcome.status = SearchStatus::Answerable;
+        outcome.coverage.percent_covered = if outcome.evidence.is_empty() { 0 } else { 100 };
         Ok(outcome)
     };
     let engine = SyncRetrievalEngine::new(vec![retriever], evaluator);
@@ -194,6 +196,7 @@ fn test_sync_pipeline_bounds_multiple_retrievers() -> RetrievalResult<()> {
         let mut outcome = dummy_outcome()?;
         outcome.evidence = candidates;
         outcome.fingerprint = plan.fingerprint.clone();
+        outcome.coverage.percent_covered = if outcome.evidence.is_empty() { 0 } else { 100 };
         Ok(outcome)
     };
     let engine = SyncRetrievalEngine::new(vec![one_candidate, one_candidate], evaluator);

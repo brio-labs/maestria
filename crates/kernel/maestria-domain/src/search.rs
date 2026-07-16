@@ -7,6 +7,8 @@ mod search_outcome;
 pub use search_outcome::*;
 #[path = "search_source.rs"]
 mod search_source;
+#[path = "search_trace.rs"]
+mod search_trace;
 pub use search_source::*;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -25,6 +27,7 @@ pub enum SearchCompatibilityError {
     InvalidSourceSpan(&'static str),
     InvalidCoverage(&'static str),
     InvalidModalitySet(&'static str),
+    TracePlanMismatch(&'static str),
 }
 
 impl fmt::Display for SearchCompatibilityError {
@@ -50,6 +53,7 @@ impl fmt::Display for SearchCompatibilityError {
             Self::InvalidSourceSpan(msg) => write!(f, "Invalid evidence span: {}", msg),
             Self::InvalidCoverage(msg) => write!(f, "Invalid evidence coverage: {}", msg),
             Self::InvalidModalitySet(msg) => write!(f, "Invalid modality set: {}", msg),
+            Self::TracePlanMismatch(msg) => write!(f, "Search trace does not match plan: {}", msg),
         }
     }
 }
