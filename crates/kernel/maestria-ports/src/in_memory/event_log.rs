@@ -68,6 +68,10 @@ impl crate::EventLog for InMemoryEventLog {
                     artifact_id: current,
                     ..
                 }
+                | DomainEvent::DocumentTreeCaptured {
+                    artifact_id: current,
+                    ..
+                }
                 | DomainEvent::SearchCompleted {
                     artifact_id: current,
                     ..
