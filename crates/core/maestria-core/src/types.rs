@@ -15,9 +15,16 @@ pub struct EvidencePack {
     pub evidence_ids: Vec<EvidenceId>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RetrievalMode {
+    LexicalOnly,
+    Hybrid,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct SearchOutput {
     pub pack: EvidencePack,
+    pub mode: RetrievalMode,
 }
 
 #[derive(Debug, Clone, PartialEq)]

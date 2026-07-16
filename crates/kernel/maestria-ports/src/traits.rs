@@ -1,12 +1,12 @@
 use std::{fmt, future::Future, path::PathBuf, pin::Pin, time::Duration};
 
+pub use maestria_domain::HarnessRunId;
 use maestria_domain::{
     ApprovalId, Artifact, ArtifactId, BlobId, Card, CardId, Chunk, ChunkId, ClaimId,
-    DomainEventEnvelope, Evidence, EvidenceId, LogicalTick, MemoryCandidateId, Relation,
-    RelationEndpoint, RelationId, ScopeId, SearchOutcome, SearchPlan, TaskId,
+    DomainEventEnvelope, Evidence, EvidenceId, IndexFingerprint, IndexGenerationId, LogicalTick,
+    MemoryCandidateId, Relation, RelationEndpoint, RelationId, RepresentationName, ScopeId,
+    SearchOutcome, SearchPlan, TaskId,
 };
-
-pub use maestria_domain::HarnessRunId;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PortError {
@@ -174,13 +174,62 @@ pub struct CardHit {
     pub card: IndexedCard,
     pub score: u32,
 }
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EmbeddingIdentity {
+    pub generation_id: IndexGenerationId,
+    pub fingerprint: IndexFingerprint,
+    pub representation: RepresentationName,
+}
+
+impl EmbeddingIdentity {
+    pub fn legacy(model: impl Into<String>, dimensions: usize) -> Result<Self, PortError> {
+        let artifact_hash = maestria_domain::ContentHash::new(format!("sha256:{}", "0".repeat(64)))
+            .map_err(|error| PortError::Internal {
+                message: format!("create legacy embedding fingerprint: {error}"),
+            })?;
+        Ok(Self {
+            generation_id: IndexGenerationId::new(1),
+            fingerprint: IndexFingerprint {
+                provider: "legacy-local".to_string(),
+                model: model.into(),
+                revision: "legacy".to_string(),
+                artifact_hash,
+                dimensions: dimensions as u32,
+                quantization: "f32".to_string(),
+                query_template_hash: "legacy-query".to_string(),
+                document_template_hash: "legacy-document".to_string(),
+                preprocessing_version: "legacy".to_string(),
+            },
+            representation: RepresentationName::new("dense_text_v1"),
+        })
+    }
+}
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum EmbeddingInputKind {
+    Document,
+    Query,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RetentionPolicy {
+    NoRetention,
+    ProviderDefined,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProviderDisclosure {
+    pub remote: bool,
+    pub retention: RetentionPolicy,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EmbeddingProvenance {
     pub content_hash: String,
+    pub identity: EmbeddingIdentity,
     pub provider_id: String,
     pub model: String,
     pub model_version: String,
+    pub disclosure: ProviderDisclosure,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -197,6 +246,7 @@ pub struct VectorSearchQuery {
     pub provider_id: Option<String>,
     pub model: Option<String>,
     pub model_version: Option<String>,
+    pub identity: Option<EmbeddingIdentity>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -209,6 +259,8 @@ pub struct VectorSearchHit {
 pub struct EmbeddingRequest {
     pub text: String,
     pub model: String,
+    pub kind: EmbeddingInputKind,
+    pub identity: EmbeddingIdentity,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -217,10 +269,14 @@ pub struct EmbeddingResponse {
     pub provider_id: String,
     pub model: String,
     pub model_version: String,
+    pub identity: EmbeddingIdentity,
+    pub disclosure: ProviderDisclosure,
 }
-
 pub trait EmbeddingProvider: Send + Sync {
     fn embed(&self, request: EmbeddingRequest) -> Result<EmbeddingResponse, PortError>;
+    fn identity(&self) -> Option<EmbeddingIdentity> {
+        None
+    }
 }
 
 /// Executes a typed knowledge search and returns one provenance-bearing outcome.

@@ -1,6 +1,8 @@
 use anyhow::{Context, Result};
 use maestria_blob_fs::FsBlobStore;
-use maestria_core::{CorePorts, CoreServices, InstanceService, SearchInput};
+use maestria_core::{
+    CorePorts, CoreServices, InstanceService, RetrievalMode, SearchInput, SearchOutput,
+};
 use maestria_domain::{DomainInput, IndexStatus, LogicalTick, SearchExecutedInput};
 use maestria_governance::AutonomyProfile;
 use maestria_governance::scan_secrets;
@@ -13,7 +15,7 @@ use maestria_ports::{
 use maestria_search_tantivy::TantivyFullTextIndex;
 use maestria_storage_sqlite::SqliteStore;
 use maestria_vector_sqlite::SqliteVectorIndex;
-use std::{fs, path::PathBuf, sync::Arc, time::Duration};
+use std::{fs, path::PathBuf, time::Duration};
 
 use crate::helpers;
 pub async fn run(instance_dir: PathBuf, query: String, limit: usize) -> Result<()> {
@@ -22,13 +24,20 @@ pub async fn run(instance_dir: PathBuf, query: String, limit: usize) -> Result<(
     let normalized_query = query.trim().to_string();
     let search_layout = layout.clone();
     let search_query = normalized_query.clone();
-    let pack = tokio::task::spawn_blocking(move || {
+    let output = tokio::task::spawn_blocking(move || {
         compute_search_pack(&search_layout, &search_query, limit)
     })
     .await
     .map_err(|error| anyhow::anyhow!("search worker failed: {error}"))??;
-    persist_search_audit(&layout, &pack, limit).await?;
-    print_search_pack(&pack);
+    persist_search_audit(&layout, &output.pack, limit).await?;
+    eprintln!(
+        "retrieval mode: {}",
+        match output.mode {
+            RetrievalMode::Hybrid => "hybrid",
+            RetrievalMode::LexicalOnly => "lexical-only",
+        }
+    );
+    print_search_pack(&output.pack);
     Ok(())
 }
 
@@ -48,32 +57,26 @@ fn open_reconciled_vector_index(
         .as_ref()
         .filter(|config| config.enabled)
         .map(|config| config.model.as_str());
-    maestria_daemon::reconcile_vector_projection(state, &index, Some(provider), model)
-        .with_context(|| "reconcile vector projection before search")?;
-    Ok(Some(index))
+    match maestria_daemon::reconcile_vector_projection(state, &index, Some(provider), model) {
+        Ok(()) => Ok(Some(index)),
+        Err(error) => {
+            eprintln!("dense retrieval unavailable; using lexical fallback: {error}");
+            Ok(None)
+        }
+    }
 }
 
 fn compute_search_pack(
     layout: &maestria_core::InstanceLayout,
     query: &str,
     limit: usize,
-) -> Result<maestria_core::EvidencePack> {
+) -> Result<SearchOutput> {
     let sqlite_store = SqliteStore::open(&layout.database_path)?;
     let blob_store = FsBlobStore::open(&layout.blobs_dir)?;
     let manifest_contents = fs::read_to_string(&layout.manifest_path)?;
     let manifest = InstanceService::parse_manifest(&manifest_contents)?;
     let state = maestria_daemon::load_kernel_state(layout)?;
-    let embedding_provider: Option<Arc<dyn EmbeddingProvider + Send + Sync>> =
-        match manifest.embeddings.as_ref().filter(|config| config.enabled) {
-            Some(config) => Some(Arc::new(
-                maestria_embedding_openai::LocalHttpEmbeddingProvider::new(
-                    &config.endpoint,
-                    &config.model,
-                    Some(config.dimensions),
-                )?,
-            )),
-            None => None,
-        };
+    let embedding_provider = maestria_daemon::build_embedding_provider(&manifest, &state)?;
     let vector_index =
         open_reconciled_vector_index(layout, &state, &manifest, embedding_provider.as_deref())?;
     let graph_index = match SqliteGraphIndex::open(layout.graph_index_dir.join("projection.db")) {
@@ -113,25 +116,12 @@ fn compute_search_pack(
         search_index.complete_card_rebuild()?;
     }
     let parser = ParserRegistry::with_defaults();
-    let vector_query = if scan_secrets(query).is_clean() {
-        embedding_provider.as_deref().and_then(|provider| {
-            provider
-                .embed(EmbeddingRequest {
-                    text: query.to_string(),
-                    model: "query".to_string(),
-                })
-                .ok()
-                .map(|response| VectorSearchQuery {
-                    vector: response.vector,
-                    limit: limit as u32,
-                    provider_id: Some(response.provider_id),
-                    model: Some(response.model),
-                    model_version: Some(response.model_version),
-                })
-        })
-    } else {
-        None
-    };
+    let vector_query = build_vector_query(
+        vector_index.is_some(),
+        embedding_provider.as_deref(),
+        query,
+        limit,
+    );
     let core = CoreServices::new(CorePorts {
         artifacts: &sqlite_store,
         chunks: &sqlite_store,
@@ -152,7 +142,49 @@ fn compute_search_pack(
         Some(vector_query) => core.search_with_vector(input, vector_query)?,
         None => core.search(input)?,
     };
-    Ok(output.pack)
+    Ok(output)
+}
+fn build_vector_query(
+    index_available: bool,
+    provider: Option<&(dyn EmbeddingProvider + Send + Sync)>,
+    query: &str,
+    limit: usize,
+) -> Option<VectorSearchQuery> {
+    if !index_available || !scan_secrets(query).is_clean() {
+        if index_available && !scan_secrets(query).is_clean() {
+            eprintln!("dense retrieval skipped for secret-bearing query; using lexical fallback");
+        }
+        return None;
+    }
+    let provider = provider?;
+    let identity = match provider.identity() {
+        Some(identity) => identity,
+        None => {
+            eprintln!(
+                "dense retrieval unavailable; using lexical fallback: provider has no generation identity"
+            );
+            return None;
+        }
+    };
+    match provider.embed(EmbeddingRequest {
+        text: query.to_string(),
+        model: identity.fingerprint.model.clone(),
+        kind: maestria_ports::EmbeddingInputKind::Query,
+        identity,
+    }) {
+        Ok(response) => Some(VectorSearchQuery {
+            vector: response.vector,
+            limit: limit as u32,
+            provider_id: Some(response.provider_id),
+            model: Some(response.model),
+            model_version: Some(response.model_version),
+            identity: Some(response.identity),
+        }),
+        Err(error) => {
+            eprintln!("dense retrieval unavailable; using lexical fallback: {error}");
+            None
+        }
+    }
 }
 
 async fn persist_search_audit(

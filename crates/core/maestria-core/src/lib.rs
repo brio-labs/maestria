@@ -31,5 +31,5 @@ pub use provenance::artifact_id_for;
 pub use provenance::content_hash;
 pub use types::{
     EvidencePack, GraphConfig, OpenChunkEvidenceInput, OpenEvidenceInput, OpenEvidenceOutput,
-    SearchInput, SearchOutput, SourceGroundedCardHit, SourceGroundedSearchHit,
+    RetrievalMode, SearchInput, SearchOutput, SourceGroundedCardHit, SourceGroundedSearchHit,
 };

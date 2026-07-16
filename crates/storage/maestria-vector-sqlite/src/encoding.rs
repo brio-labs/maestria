@@ -1,6 +1,7 @@
 use std::mem::size_of;
 
 use maestria_domain::ChunkId;
+use maestria_domain::IndexFingerprint;
 use maestria_ports::{PortError, VectorEmbedding};
 
 pub(crate) const F32_BYTES: usize = size_of::<f32>();
@@ -13,6 +14,11 @@ pub(crate) struct PreparedEmbedding {
     pub(crate) provider_id: String,
     pub(crate) model: String,
     pub(crate) model_version: String,
+    pub(crate) generation_id: String,
+    pub(crate) representation: String,
+    pub(crate) fingerprint: String,
+    pub(crate) disclosure_remote: bool,
+    pub(crate) retention_policy: String,
 }
 
 impl TryFrom<VectorEmbedding> for PreparedEmbedding {
@@ -21,6 +27,12 @@ impl TryFrom<VectorEmbedding> for PreparedEmbedding {
     fn try_from(embedding: VectorEmbedding) -> Result<Self, Self::Error> {
         validate_vector(&embedding.vector, "embedding vector")?;
         let dimension = embedding.vector.len();
+        if dimension != embedding.provenance.identity.fingerprint.dimensions as usize {
+            return Err(PortError::InvalidInput {
+                message: "embedding vector dimension does not match its identity fingerprint"
+                    .into(),
+            });
+        }
         let bytes = encode_vector(&embedding.vector)?;
         Ok(Self {
             chunk_id: embedding.chunk_id,
@@ -30,8 +42,41 @@ impl TryFrom<VectorEmbedding> for PreparedEmbedding {
             provider_id: embedding.provenance.provider_id,
             model: embedding.provenance.model,
             model_version: embedding.provenance.model_version,
+            generation_id: embedding
+                .provenance
+                .identity
+                .generation_id
+                .value()
+                .to_string(),
+            disclosure_remote: embedding.provenance.disclosure.remote,
+            retention_policy: match embedding.provenance.disclosure.retention {
+                maestria_ports::RetentionPolicy::NoRetention => "no_retention".to_string(),
+                maestria_ports::RetentionPolicy::ProviderDefined => "provider_defined".to_string(),
+            },
+            representation: embedding.provenance.identity.representation.0.clone(),
+            fingerprint: serialize_fingerprint(&embedding.provenance.identity.fingerprint),
         })
     }
+}
+
+pub(crate) fn serialize_fingerprint(f: &IndexFingerprint) -> String {
+    let mut serialized = String::new();
+    let mut append = |value: &str| {
+        serialized.push_str(&value.len().to_string());
+        serialized.push(':');
+        serialized.push_str(value);
+    };
+    let dimensions = f.dimensions.to_string();
+    append(&f.provider);
+    append(&f.model);
+    append(&f.revision);
+    append(f.artifact_hash.as_str());
+    append(&dimensions);
+    append(&f.quantization);
+    append(&f.query_template_hash);
+    append(&f.document_template_hash);
+    append(&f.preprocessing_version);
+    serialized
 }
 
 pub(crate) fn validate_vector(vector: &[f32], label: &str) -> Result<(), PortError> {
@@ -129,5 +174,27 @@ pub(crate) fn usize_to_i64(value: usize) -> Result<i64, PortError> {
 pub(crate) fn to_port_error(error: rusqlite::Error) -> PortError {
     PortError::Internal {
         message: format!("sqlite vector projection error: {error}"),
+    }
+}
+#[cfg(test)]
+mod tests {
+    use super::serialize_fingerprint;
+    use maestria_ports::EmbeddingIdentity;
+
+    #[test]
+    fn fingerprint_serialization_is_collision_free_for_delimiters() {
+        let base = EmbeddingIdentity::legacy("model", 2)
+            .expect("legacy identity")
+            .fingerprint;
+        let mut first = base.clone();
+        first.provider = "a:b".to_string();
+        first.model = "c".to_string();
+        let mut second = base;
+        second.provider = "a".to_string();
+        second.model = "b:c".to_string();
+        assert_ne!(
+            serialize_fingerprint(&first),
+            serialize_fingerprint(&second)
+        );
     }
 }

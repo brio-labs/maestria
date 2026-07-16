@@ -9,7 +9,7 @@ pub(super) use crate::retrieval_lanes::{
     open_chunk_evidence, open_evidence, verify_source_snapshot,
 };
 use crate::retrieval_lanes::{search_cards, search_chunks, search_vector_chunks};
-use crate::types::{EvidencePack, SearchInput, SearchOutput};
+use crate::types::{EvidencePack, RetrievalMode, SearchInput, SearchOutput};
 use maestria_ports::VectorSearchQuery;
 
 const CORE_CORPUS_SNAPSHOT: u64 = 1;
@@ -329,6 +329,11 @@ fn execute_pipeline<'a>(
 
     let query = input.query.clone();
     let min_score_threshold = plan.stop_conditions.min_score_threshold;
+    let retrieval_mode = if vector_query.is_some() && ports.vector_index.is_some() {
+        RetrievalMode::Hybrid
+    } else {
+        RetrievalMode::LexicalOnly
+    };
     let evaluator = move |candidates: Vec<RankedRetrievalCandidate>,
                           _: &maestria_domain::SearchPlan| {
         use std::collections::BTreeSet;
@@ -363,7 +368,10 @@ fn execute_pipeline<'a>(
                 _ => {}
             }
         }
-        Ok(SearchOutput { pack })
+        Ok(SearchOutput {
+            pack,
+            mode: retrieval_mode,
+        })
     };
 
     SyncPipeline::new(

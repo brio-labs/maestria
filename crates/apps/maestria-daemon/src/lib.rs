@@ -153,8 +153,7 @@ pub use projection_recovery::{
     reconcile_graph_projection, reconcile_projections, reconcile_vector_projection,
 };
 mod vector_startup;
-use vector_startup::build_embedding_provider;
-pub use vector_startup::reconcile_vector_projection_for_layout;
+pub use vector_startup::{build_embedding_provider, reconcile_vector_projection_for_layout};
 mod full_text_recovery;
 pub use full_text_recovery::pending_start_full_text;
 mod parser_resume;
@@ -315,7 +314,7 @@ pub fn build_runtime(
         .as_ref()
         .filter(|config| config.enabled)
         .map(|config| config.model.clone());
-    let embedding_provider = build_embedding_provider(&manifest)?;
+    let embedding_provider = build_embedding_provider(&manifest, &state)?;
     let adapters = build_adapters(layout, embedding_provider)?;
     let governance = Governance {
         classifier: Arc::new(DefaultRiskClassifier),

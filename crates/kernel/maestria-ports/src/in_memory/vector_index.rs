@@ -17,6 +17,14 @@ impl VectorIndex for InMemoryVectorIndex {
     fn index_embeddings(&self, embeddings: Vec<VectorEmbedding>) -> Result<(), PortError> {
         for embedding in &embeddings {
             validate_vector_values(&embedding.vector, "embedding vector")?;
+            if embedding.vector.len()
+                != embedding.provenance.identity.fingerprint.dimensions as usize
+            {
+                return Err(PortError::InvalidInput {
+                    message: "embedding vector dimension does not match its identity fingerprint"
+                        .to_string(),
+                });
+            }
         }
 
         let mut guard = self.embeddings.lock().map_err(|_| PortError::Internal {
@@ -34,6 +42,7 @@ impl VectorIndex for InMemoryVectorIndex {
 
     fn search_similar(&self, query: VectorSearchQuery) -> Result<Vec<VectorSearchHit>, PortError> {
         validate_vector_values(&query.vector, "query vector")?;
+        validate_query_identity(&query)?;
         if query.limit == 0 {
             return Ok(Vec::new());
         }
@@ -62,6 +71,10 @@ impl VectorIndex for InMemoryVectorIndex {
                     .model_version
                     .as_deref()
                     .is_some_and(|version| emb.provenance.model_version != version)
+                || query
+                    .identity
+                    .as_ref()
+                    .is_some_and(|identity| emb.provenance.identity != *identity)
                 || emb.vector.len() != query.vector.len()
             {
                 continue;
@@ -105,6 +118,7 @@ impl VectorIndex for InMemoryVectorIndex {
         filter: &dyn Fn(ChunkId) -> bool,
     ) -> Result<Vec<VectorSearchHit>, PortError> {
         validate_vector_values(&query.vector, "query vector")?;
+        validate_query_identity(&query)?;
         if query.limit == 0 {
             return Ok(Vec::new());
         }
@@ -133,6 +147,11 @@ impl VectorIndex for InMemoryVectorIndex {
             }
             if let Some(provider) = &query.provider_id
                 && &emb.provenance.provider_id != provider
+            {
+                continue;
+            }
+            if let Some(identity) = &query.identity
+                && emb.provenance.identity != *identity
             {
                 continue;
             }
@@ -202,6 +221,16 @@ fn validate_vector_values(vector: &[f32], label: &str) -> Result<(), PortError> 
     if vector.iter().any(|value| !value.is_finite()) {
         return Err(PortError::InvalidInput {
             message: format!("{label} must contain only finite values"),
+        });
+    }
+    Ok(())
+}
+fn validate_query_identity(query: &VectorSearchQuery) -> Result<(), PortError> {
+    if let Some(identity) = &query.identity
+        && identity.fingerprint.dimensions as usize != query.vector.len()
+    {
+        return Err(PortError::InvalidInput {
+            message: "query vector dimension does not match identity fingerprint".to_string(),
         });
     }
     Ok(())

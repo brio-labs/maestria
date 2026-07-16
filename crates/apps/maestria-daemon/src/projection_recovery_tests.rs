@@ -156,7 +156,16 @@ impl EmbeddingProvider for RecoveryEmbeddingProvider {
             provider_id: "recovery-provider".to_string(),
             model: request.model,
             model_version: "recovery-v1".to_string(),
+            identity: request.identity,
+            disclosure: maestria_ports::ProviderDisclosure {
+                remote: false,
+                retention: maestria_ports::RetentionPolicy::NoRetention,
+            },
         })
+    }
+
+    fn identity(&self) -> Option<maestria_ports::EmbeddingIdentity> {
+        maestria_ports::EmbeddingIdentity::legacy("recovery-model", 2).ok()
     }
 }
 
@@ -433,6 +442,7 @@ fn reconcile_graph_projection_repairs_missing_rows_and_filters_unevidenced() {
 }
 
 #[test]
+#[allow(clippy::too_many_lines)]
 fn reconcile_vector_projection_repairs_missing_and_stale_rows() {
     let mut state = KernelState::new();
     let fixture = build_recovery_domain_state(&mut state);
@@ -449,9 +459,15 @@ fn reconcile_vector_projection_repairs_missing_and_stale_rows() {
             vector: vec![0.0, 1.0],
             provenance: maestria_ports::EmbeddingProvenance {
                 content_hash: "stale".to_string(),
+                identity: maestria_ports::EmbeddingIdentity::legacy("stale-model", 2)
+                    .expect("legacy identity"),
                 provider_id: "stale-provider".to_string(),
                 model: "stale-model".to_string(),
                 model_version: "stale-v1".to_string(),
+                disclosure: maestria_ports::ProviderDisclosure {
+                    remote: false,
+                    retention: maestria_ports::RetentionPolicy::NoRetention,
+                },
             },
         }])
         .expect("seed stale embedding");
@@ -471,6 +487,7 @@ fn reconcile_vector_projection_repairs_missing_and_stale_rows() {
             provider_id: Some("recovery-provider".to_string()),
             model: Some("recovery-model".to_string()),
             model_version: Some("recovery-v1".to_string()),
+            identity: None,
         })
         .expect("search first embedding");
     assert_eq!(
@@ -489,6 +506,7 @@ fn reconcile_vector_projection_repairs_missing_and_stale_rows() {
             provider_id: Some("recovery-provider".to_string()),
             model: Some("recovery-model".to_string()),
             model_version: Some("recovery-v1".to_string()),
+            identity: None,
         })
         .expect("search second embedding");
     assert_eq!(
@@ -507,6 +525,7 @@ fn reconcile_vector_projection_repairs_missing_and_stale_rows() {
             provider_id: Some("stale-provider".to_string()),
             model: Some("stale-model".to_string()),
             model_version: Some("stale-v1".to_string()),
+            identity: None,
         })
         .expect("search stale provenance");
     assert!(
@@ -523,6 +542,7 @@ fn reconcile_vector_projection_repairs_missing_and_stale_rows() {
             provider_id: Some("recovery-provider".to_string()),
             model: Some("recovery-model".to_string()),
             model_version: Some("recovery-v1".to_string()),
+            identity: None,
         })
         .expect("search after restart");
     assert_eq!(
