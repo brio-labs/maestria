@@ -1,3 +1,4 @@
+use async_trait::async_trait;
 use maestria_domain::{
     ArtifactVersionId, ContentRange, CorpusScope, CorpusSnapshotId, EvidenceCandidate,
     EvidenceCoverage, EvidenceRequirements, EvidenceSpan, FreshnessRequirement, FreshnessStatus,
@@ -5,7 +6,11 @@ use maestria_domain::{
     RetrievalScoreSet, SearchBudget, SearchIntent, SearchOutcome, SearchPlan, SearchStage,
     SearchStatus, SearchTraceId, SourceLocation, StopConditions, StructureNodeId, TrustLabel,
 };
-use maestria_retrieval::{RetrievalError, RetrievalResult, engine::SyncRetrievalEngine};
+use maestria_retrieval::{
+    CandidateRetriever, FixedKRrf, RetrievalEngine, RetrievalError, RetrievalEvaluator,
+    RetrievalResult, SyncRetrievalEngine,
+};
+use std::sync::Arc;
 
 fn dummy_plan() -> RetrievalResult<SearchPlan> {
     Ok(SearchPlan {
@@ -202,5 +207,287 @@ fn test_sync_pipeline_bounds_multiple_retrievers() -> RetrievalResult<()> {
     let engine = SyncRetrievalEngine::new(vec![one_candidate, one_candidate], evaluator);
     let outcome = engine.search_sync(&plan)?;
     assert_eq!(outcome.evidence.len(), 1);
+    Ok(())
+}
+
+#[test]
+fn test_fixed_k_rrf_overlap_non_summing() -> RetrievalResult<()> {
+    use maestria_domain::{DuplicateClusterId, EvidenceId, SearchLaneStatus};
+    use maestria_retrieval::FixedKRrf;
+    use maestria_retrieval::traits::RankFusion;
+    use maestria_retrieval::types::{CandidateBatch, RetrieverDescriptor};
+
+    let plan = dummy_plan()?;
+    let query = maestria_ports::SearchQuery {
+        q: plan.original_query.clone(),
+        limit: 10,
+        offset: 0,
+    };
+
+    let mut c1 = candidate_fixture()?;
+    c1.evidence_id = EvidenceId::new(1);
+    c1.duplicate_cluster = Some(DuplicateClusterId::new(100));
+    c1.scores.bm25 = 100;
+    c1.scores.semantic_similarity = 0;
+
+    let mut c2 = candidate_fixture()?;
+    c2.evidence_id = EvidenceId::new(2);
+    c2.duplicate_cluster = None;
+    c2.scores.bm25 = 90;
+
+    let mut c3 = candidate_fixture()?;
+    c3.evidence_id = EvidenceId::new(3);
+    c3.duplicate_cluster = Some(DuplicateClusterId::new(100)); // overlap with c1
+    c3.scores.semantic_similarity = 80;
+
+    let batch1 = CandidateBatch {
+        descriptor: RetrieverDescriptor {
+            id: "lexical".into(),
+            modality: "text".into(),
+        },
+        candidates: vec![c1.clone(), c2.clone()],
+        status: SearchLaneStatus::Succeeded,
+    };
+
+    let batch2 = CandidateBatch {
+        descriptor: RetrieverDescriptor {
+            id: "dense".into(),
+            modality: "text".into(),
+        },
+        candidates: vec![c3.clone()],
+        status: SearchLaneStatus::Succeeded,
+    };
+
+    let rrf = FixedKRrf::new(60);
+    let fused = rrf.fuse(&query, &[batch1, batch2])?;
+
+    assert_eq!(
+        fused.len(),
+        2,
+        "Cluster 100 merged c1 and c3 into one candidate"
+    );
+    let best = &fused[0];
+
+    // RRF of cluster 100: rank 0 in batch 1 (1/61) + rank 0 in batch 2 (1/61) = 2/61 = 0.032786
+    // RRF of exact 2: rank 1 in batch 1 (1/62) = 0.016129
+    let cluster = best
+        .candidate
+        .duplicate_cluster
+        .ok_or(RetrievalError::Internal("missing duplicate cluster".into()))?;
+    assert_eq!(cluster, DuplicateClusterId::new(100));
+    assert!(best.fused_score > fused[1].fused_score);
+
+    // Assert non-summing: the fused score is NOT a sum of bm25 + semantic_similarity.
+    // 0.032786 * 10_000_000 = 327868
+    assert_eq!(best.fused_score, 327868);
+    Ok(())
+}
+
+#[test]
+fn test_fixed_k_rrf_deterministic_tie_ordering() -> RetrievalResult<()> {
+    use maestria_domain::{EvidenceId, SearchLaneStatus};
+    use maestria_retrieval::FixedKRrf;
+    use maestria_retrieval::traits::RankFusion;
+    use maestria_retrieval::types::{CandidateBatch, RetrieverDescriptor};
+
+    let query = maestria_ports::SearchQuery {
+        q: "".into(),
+        limit: 10,
+        offset: 0,
+    };
+
+    let mut c1 = candidate_fixture()?;
+    c1.evidence_id = EvidenceId::new(2);
+    c1.duplicate_cluster = None;
+
+    let mut c2 = candidate_fixture()?;
+    c2.evidence_id = EvidenceId::new(1);
+    c2.duplicate_cluster = None;
+
+    // Both at rank 0 in their respective batches, identical scores, so RRF is identical.
+    // Should tie-break by Identity ascending (EvidenceId 1 before 2).
+    let batch1 = CandidateBatch {
+        descriptor: RetrieverDescriptor {
+            id: "lane1".into(),
+            modality: "text".into(),
+        },
+        candidates: vec![c1.clone()],
+        status: SearchLaneStatus::Succeeded,
+    };
+    let batch2 = CandidateBatch {
+        descriptor: RetrieverDescriptor {
+            id: "lane2".into(),
+            modality: "text".into(),
+        },
+        candidates: vec![c2.clone()],
+        status: SearchLaneStatus::Succeeded,
+    };
+
+    let rrf = FixedKRrf::new(60);
+    let fused = rrf.fuse(&query, &[batch1, batch2])?;
+
+    assert_eq!(fused.len(), 2);
+    assert_eq!(fused[0].fused_score, fused[1].fused_score);
+    assert_eq!(fused[1].candidate.evidence_id, EvidenceId::new(2));
+    Ok(())
+}
+
+#[test]
+fn test_empty_and_failed_lanes_skip_without_error() -> RetrievalResult<()> {
+    use maestria_domain::{EvidenceId, SearchLaneStatus};
+    use maestria_retrieval::FixedKRrf;
+    use maestria_retrieval::traits::RankFusion;
+    use maestria_retrieval::types::{CandidateBatch, RetrieverDescriptor};
+
+    let query = maestria_ports::SearchQuery {
+        q: "".into(),
+        limit: 10,
+        offset: 0,
+    };
+
+    let mut c1 = candidate_fixture()?;
+    c1.evidence_id = EvidenceId::new(1);
+    c1.duplicate_cluster = None;
+
+    let batch_failed = CandidateBatch {
+        descriptor: RetrieverDescriptor {
+            id: "failed".into(),
+            modality: "text".into(),
+        },
+        candidates: vec![],
+        status: SearchLaneStatus::Failed {
+            error: "timeout".into(),
+        },
+    };
+
+    let batch_empty = CandidateBatch {
+        descriptor: RetrieverDescriptor {
+            id: "empty".into(),
+            modality: "text".into(),
+        },
+        candidates: vec![],
+        status: SearchLaneStatus::Empty,
+    };
+
+    let batch_succ = CandidateBatch {
+        descriptor: RetrieverDescriptor {
+            id: "succ".into(),
+            modality: "text".into(),
+        },
+        candidates: vec![c1.clone()],
+        status: SearchLaneStatus::Succeeded,
+    };
+
+    let rrf = FixedKRrf::new(60);
+    let fused = rrf.fuse(&query, &[batch_failed, batch_empty, batch_succ])?;
+
+    assert_eq!(fused[0].candidate.evidence_id, EvidenceId::new(1));
+    Ok(())
+}
+struct AsyncLane {
+    id: &'static str,
+    fail: bool,
+    candidate: Option<EvidenceCandidate>,
+}
+
+#[async_trait]
+impl CandidateRetriever for AsyncLane {
+    fn descriptor(&self) -> maestria_retrieval::types::RetrieverDescriptor {
+        maestria_retrieval::types::RetrieverDescriptor {
+            id: self.id.to_string(),
+            modality: "text".to_string(),
+        }
+    }
+
+    async fn retrieve(
+        &self,
+        _request: maestria_retrieval::types::CandidateRequest,
+    ) -> Result<maestria_retrieval::types::CandidateBatch, maestria_retrieval::RetrievalError> {
+        if self.fail {
+            return Err(RetrievalError::Internal("dense unavailable".to_string()));
+        }
+        Ok(maestria_retrieval::types::CandidateBatch {
+            descriptor: self.descriptor(),
+            candidates: self.candidate.clone().into_iter().collect(),
+            status: maestria_domain::SearchLaneStatus::Succeeded,
+        })
+    }
+}
+
+struct AsyncEvaluator;
+
+#[async_trait]
+impl RetrievalEvaluator for AsyncEvaluator {
+    async fn evaluate(
+        &self,
+        experiment: maestria_retrieval::types::RetrievalExperiment,
+    ) -> RetrievalResult<maestria_retrieval::types::RetrievalEvaluationReport> {
+        let evidence = experiment.candidates;
+        let status = if evidence.is_empty() {
+            SearchStatus::NoEvidenceFound
+        } else {
+            SearchStatus::Answerable
+        };
+        let coverage = if evidence.is_empty() { 0 } else { 100 };
+        Ok(maestria_retrieval::types::RetrievalEvaluationReport {
+            evaluated_candidates: evidence.len(),
+            outcome: SearchOutcome {
+                trace: SearchTraceId::new(0),
+                trace_data: None,
+                fingerprint: experiment.plan.fingerprint.clone(),
+                index_generation: experiment.plan.index_generation,
+                status,
+                evidence,
+                coverage: EvidenceCoverage {
+                    percent_covered: coverage,
+                    gaps_identified: vec![],
+                },
+                conflicts: vec![],
+            },
+        })
+    }
+}
+
+#[tokio::test]
+async fn failed_lane_is_degraded_without_losing_successful_evidence() -> RetrievalResult<()> {
+    let plan = dummy_plan()?;
+    let engine = RetrievalEngine::new(
+        vec![
+            Arc::new(AsyncLane {
+                id: "lexical",
+                fail: false,
+                candidate: Some(candidate_fixture()?),
+            }),
+            Arc::new(AsyncLane {
+                id: "dense",
+                fail: true,
+                candidate: None,
+            }),
+        ],
+        Arc::new(AsyncEvaluator),
+    )
+    .with_fusion(Arc::new(FixedKRrf::new(60)));
+
+    let outcome = engine.search(&plan).await?;
+    assert_eq!(outcome.evidence.len(), 1);
+    let trace = outcome
+        .trace_data
+        .ok_or(RetrievalError::Internal("missing search trace".into()))?;
+    assert_eq!(
+        trace
+            .lanes
+            .iter()
+            .map(|lane| lane.retriever_id.as_str())
+            .collect::<Vec<_>>(),
+        vec!["lexical", "dense"]
+    );
+    assert!(matches!(
+        trace.lanes[0].status,
+        maestria_domain::SearchLaneStatus::Succeeded
+    ));
+    assert!(matches!(
+        trace.lanes[1].status,
+        maestria_domain::SearchLaneStatus::Failed { .. }
+    ));
     Ok(())
 }

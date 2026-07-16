@@ -5,6 +5,7 @@ use maestria_domain::{
 use maestria_ports::SearchQuery;
 use std::sync::Arc;
 use std::time::Duration;
+use tokio::task::JoinSet;
 
 use crate::traits::{
     CandidateReranker, CandidateRetriever, ContextExpander, RankFusion, RetrievalEvaluator,
@@ -14,19 +15,23 @@ use crate::types::{
     RetrievalExperiment, RetrievalResult,
 };
 
-type PipelineRetriever<'a, C> = Box<dyn Fn(&SearchPlan) -> RetrievalResult<Vec<C>> + 'a>;
-
-fn ensure_trace(
+use crate::sync::SyncPipeline;
+pub(super) fn ensure_trace(
     plan: &SearchPlan,
     mut outcome: SearchOutcome,
-    retrievers: Vec<String>,
+    lanes: Vec<maestria_domain::SearchTraceLane>,
     fusion_enabled: bool,
     expansion_enabled: bool,
 ) -> SearchOutcome {
     let trace_is_valid = outcome.trace_data.as_ref().is_some_and(|trace| {
         outcome.trace == trace.deterministic_id()
             && trace.matches_plan(plan)
-            && trace.retrievers == retrievers
+            && trace.retrievers
+                == lanes
+                    .iter()
+                    .map(|l| l.retriever_id.clone())
+                    .collect::<Vec<_>>()
+            && trace.lanes == lanes
             && trace.fusion.is_some() == fusion_enabled
             && trace.expansions.len() == usize::from(expansion_enabled)
             && trace.matches_evidence(&outcome.evidence)
@@ -57,13 +62,14 @@ fn ensure_trace(
         .collect();
     let trace = SearchTrace::from_plan(
         plan,
-        retrievers,
+        lanes.iter().map(|l| l.retriever_id.clone()).collect(),
         &outcome.evidence,
         Vec::new(),
         fusion_enabled.then_some("configured".to_string()),
         expansions,
         stop_reason,
     )
+    .with_lanes(lanes)
     .with_gaps_and_conflicts(
         outcome.coverage.gaps_identified.clone(),
         outcome
@@ -76,9 +82,6 @@ fn ensure_trace(
     outcome.trace_data = Some(Box::new(trace));
     outcome
 }
-type PipelineFusion<'a, C> = Box<dyn Fn(Vec<Vec<C>>) -> RetrievalResult<Vec<C>> + 'a>;
-type PipelineStage<'a, C> = Box<dyn Fn(Vec<C>, &SearchPlan) -> RetrievalResult<Vec<C>> + 'a>;
-type PipelineEvaluator<'a, C, O> = Box<dyn Fn(Vec<C>, &SearchPlan) -> RetrievalResult<O> + 'a>;
 
 pub struct RetrievalEngine {
     retrievers: Vec<Arc<dyn CandidateRetriever>>,
@@ -86,6 +89,94 @@ pub struct RetrievalEngine {
     reranker: Option<Arc<dyn CandidateReranker>>,
     expander: Option<Arc<dyn ContextExpander>>,
     evaluator: Arc<dyn RetrievalEvaluator>,
+}
+
+async fn collect_batches(
+    retrievers: &[Arc<dyn CandidateRetriever>],
+    plan: &SearchPlan,
+    query: &SearchQuery,
+) -> RetrievalResult<Vec<crate::types::CandidateBatch>> {
+    let mut tasks = JoinSet::new();
+    for (index, retriever) in retrievers.iter().enumerate() {
+        let retriever = Arc::clone(retriever);
+        let request = CandidateRequest {
+            plan: plan.clone(),
+            query: query.clone(),
+        };
+        let descriptor = retriever.descriptor();
+        tasks.spawn(async move { (index, descriptor, retriever.retrieve(request).await) });
+    }
+
+    let mut completed = std::iter::repeat_with(|| None)
+        .take(retrievers.len())
+        .collect::<Vec<_>>();
+    while let Some(result) = tasks.join_next().await {
+        let (index, descriptor, result) = result
+            .map_err(|error| RetrievalError::Internal(format!("retriever task failed: {error}")))?;
+        let batch = match result {
+            Ok(mut batch) => {
+                batch
+                    .candidates
+                    .truncate(plan.stop_conditions.max_results as usize);
+                batch.descriptor = descriptor;
+                if !matches!(
+                    batch.status,
+                    maestria_domain::SearchLaneStatus::Failed { .. }
+                ) {
+                    batch.status = if batch.candidates.is_empty() {
+                        maestria_domain::SearchLaneStatus::Empty
+                    } else {
+                        maestria_domain::SearchLaneStatus::Succeeded
+                    };
+                }
+                batch
+            }
+            Err(RetrievalError::Cancelled) => return Err(RetrievalError::Cancelled),
+            Err(error) => crate::types::CandidateBatch {
+                descriptor,
+                candidates: Vec::new(),
+                status: maestria_domain::SearchLaneStatus::Failed {
+                    error: error.to_string(),
+                },
+            },
+        };
+        completed[index] = Some(batch);
+    }
+
+    completed
+        .into_iter()
+        .map(|batch| {
+            batch.ok_or_else(|| {
+                RetrievalError::Internal("retriever task produced no result".to_string())
+            })
+        })
+        .collect()
+}
+
+fn trace_lanes(batches: &[crate::types::CandidateBatch]) -> Vec<maestria_domain::SearchTraceLane> {
+    batches
+        .iter()
+        .map(|batch| maestria_domain::SearchTraceLane {
+            retriever_id: batch.descriptor.id.clone(),
+            status: batch.status.clone(),
+            candidates: batch
+                .candidates
+                .iter()
+                .enumerate()
+                .map(
+                    |(rank, candidate)| maestria_domain::SearchTraceLaneCandidate {
+                        evidence_id: candidate.evidence_id,
+                        artifact_version: candidate.artifact_version,
+                        source_span: candidate.source_span.clone(),
+                        lane_rank: (rank + 1) as u32,
+                        duplicate_cluster: candidate.duplicate_cluster,
+                        scores: candidate.scores.clone(),
+                        reasons: candidate.reasons.clone(),
+                    },
+                )
+                .collect(),
+        })
+        .collect()
 }
 
 impl RetrievalEngine {
@@ -138,25 +229,8 @@ impl RetrievalEngine {
             limit: plan.stop_conditions.max_results as usize,
             offset: 0,
         };
-        let mut batches = Vec::with_capacity(self.retrievers.len());
-        for retriever in &self.retrievers {
-            let request = CandidateRequest {
-                plan: plan.clone(),
-                query: query.clone(),
-            };
-            let descriptor = retriever.descriptor();
-            let mut batch = retriever.retrieve(request).await?;
-            batch
-                .candidates
-                .truncate(plan.stop_conditions.max_results as usize);
-            batch.descriptor = descriptor;
-            batches.push(batch);
-        }
-
-        let retriever_ids = batches
-            .iter()
-            .map(|batch| batch.descriptor.id.clone())
-            .collect::<Vec<_>>();
+        let batches = collect_batches(&self.retrievers, plan, &query).await?;
+        let lanes = trace_lanes(&batches);
         let mut ranked = if let Some(fusion) = &self.fusion {
             fusion
                 .fuse(&query, &batches)?
@@ -170,6 +244,9 @@ impl RetrievalEngine {
         } else {
             batches
                 .into_iter()
+                .filter(|batch| {
+                    matches!(batch.status, maestria_domain::SearchLaneStatus::Succeeded)
+                })
                 .flat_map(|batch| batch.candidates)
                 .enumerate()
                 .map(|(rank, candidate)| RankedCandidate { candidate, rank })
@@ -211,7 +288,7 @@ impl RetrievalEngine {
         let outcome = ensure_trace(
             plan,
             report.outcome,
-            retriever_ids,
+            lanes,
             self.fusion.is_some(),
             self.expander.is_some(),
         );
@@ -261,107 +338,36 @@ impl<'a> SyncRetrievalEngine<'a> {
 
     pub fn search_sync(&self, plan: &SearchPlan) -> RetrievalResult<SearchOutcome> {
         let outcome = self.pipeline.run(plan)?;
+        let lane = maestria_domain::SearchTraceLane {
+            retriever_id: "sync_pipeline".to_string(),
+            status: if outcome.evidence.is_empty() {
+                maestria_domain::SearchLaneStatus::Empty
+            } else {
+                maestria_domain::SearchLaneStatus::Succeeded
+            },
+            candidates: outcome
+                .evidence
+                .iter()
+                .enumerate()
+                .map(|(i, c)| maestria_domain::SearchTraceLaneCandidate {
+                    evidence_id: c.evidence_id,
+                    artifact_version: c.artifact_version,
+                    source_span: c.source_span.clone(),
+                    lane_rank: (i + 1) as u32,
+                    duplicate_cluster: c.duplicate_cluster,
+                    scores: c.scores.clone(),
+                    reasons: c.reasons.clone(),
+                })
+                .collect(),
+        };
         let outcome = ensure_trace(
             plan,
             outcome,
-            vec!["sync_pipeline".to_string()],
-            self.pipeline.fusion.is_some(),
-            self.pipeline.expander.is_some(),
+            vec![lane],
+            self.pipeline.fusion_enabled(),
+            self.pipeline.expander_enabled(),
         );
         outcome.verify_compatibility(plan)?;
         Ok(outcome)
-    }
-}
-
-pub struct SyncPipeline<'a, C, O> {
-    retrievers: Vec<PipelineRetriever<'a, C>>,
-    fusion: Option<PipelineFusion<'a, C>>,
-    reranker: Option<PipelineStage<'a, C>>,
-    expander: Option<PipelineStage<'a, C>>,
-    evaluator: PipelineEvaluator<'a, C, O>,
-}
-
-impl<'a, C, O> SyncPipeline<'a, C, O> {
-    pub fn new<R, V>(retrievers: Vec<R>, evaluator: V) -> Self
-    where
-        R: Fn(&SearchPlan) -> RetrievalResult<Vec<C>> + 'a,
-        V: Fn(Vec<C>, &SearchPlan) -> RetrievalResult<O> + 'a,
-    {
-        Self {
-            retrievers: retrievers
-                .into_iter()
-                .map(|retriever| Box::new(retriever) as _)
-                .collect(),
-            fusion: None,
-            reranker: None,
-            expander: None,
-            evaluator: Box::new(evaluator),
-        }
-    }
-
-    pub fn with_fusion<F>(mut self, fusion: F) -> Self
-    where
-        F: Fn(Vec<Vec<C>>) -> RetrievalResult<Vec<C>> + 'a,
-    {
-        self.fusion = Some(Box::new(fusion));
-        self
-    }
-
-    pub fn with_reranker<F>(mut self, reranker: F) -> Self
-    where
-        F: Fn(Vec<C>, &SearchPlan) -> RetrievalResult<Vec<C>> + 'a,
-    {
-        self.reranker = Some(Box::new(reranker));
-        self
-    }
-
-    pub fn with_expander<F>(mut self, expander: F) -> Self
-    where
-        F: Fn(Vec<C>, &SearchPlan) -> RetrievalResult<Vec<C>> + 'a,
-    {
-        self.expander = Some(Box::new(expander));
-        self
-    }
-
-    #[allow(clippy::disallowed_methods)]
-    pub fn run(&self, plan: &SearchPlan) -> RetrievalResult<O> {
-        let start = std::time::Instant::now();
-        let timeout_ms = plan.budgets.max_latency_ms() as u64;
-        let check_timeout = || -> RetrievalResult<()> {
-            if timeout_ms > 0 && start.elapsed().as_millis() as u64 > timeout_ms {
-                Err(RetrievalError::Timeout)
-            } else {
-                Ok(())
-            }
-        };
-        if self.retrievers.is_empty() {
-            return Err(RetrievalError::Internal("No retrievers configured".into()));
-        }
-        let mut sets = Vec::with_capacity(self.retrievers.len());
-        for retriever in &self.retrievers {
-            let mut set = retriever(plan)?;
-            set.truncate(plan.stop_conditions.max_results as usize);
-            sets.push(set);
-            check_timeout()?;
-        }
-        let mut candidates = if let Some(fusion) = &self.fusion {
-            let fused = fusion(sets)?;
-            check_timeout()?;
-            fused
-        } else {
-            sets.into_iter().flatten().collect()
-        };
-        if let Some(reranker) = &self.reranker {
-            candidates = reranker(candidates, plan)?;
-            check_timeout()?;
-        }
-        if let Some(expander) = &self.expander {
-            candidates = expander(candidates, plan)?;
-            check_timeout()?;
-        }
-        candidates.truncate(plan.stop_conditions.max_results as usize);
-        let output = (self.evaluator)(candidates, plan)?;
-        check_timeout()?;
-        Ok(output)
     }
 }

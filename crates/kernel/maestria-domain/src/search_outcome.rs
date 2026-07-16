@@ -136,6 +136,31 @@ pub enum SearchStopReason {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SearchTraceLaneCandidate {
+    pub evidence_id: EvidenceId,
+    pub artifact_version: ArtifactVersionId,
+    pub source_span: super::EvidenceSpan,
+    pub lane_rank: u32,
+    pub duplicate_cluster: Option<DuplicateClusterId>,
+    pub scores: RetrievalScoreSet,
+    pub reasons: Vec<RetrievalReason>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SearchLaneStatus {
+    Succeeded,
+    Empty,
+    Failed { error: String },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SearchTraceLane {
+    pub retriever_id: String,
+    pub status: SearchLaneStatus,
+    pub candidates: Vec<SearchTraceLaneCandidate>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SearchTrace {
     pub query_id: crate::ids::QueryId,
     pub original_query: String,
@@ -159,6 +184,8 @@ pub struct SearchTrace {
     pub missing_evidence: Vec<String>,
     pub conflicts: Vec<ConflictSetId>,
     pub stop_reason: SearchStopReason,
+    #[serde(default)]
+    pub lanes: Vec<SearchTraceLane>,
 }
 
 impl SearchTrace {
@@ -208,6 +235,7 @@ impl SearchTrace {
             missing_evidence: Vec::new(),
             conflicts: Vec::new(),
             stop_reason,
+            lanes: Vec::new(),
         }
     }
 }

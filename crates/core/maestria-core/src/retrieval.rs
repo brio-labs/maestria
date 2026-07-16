@@ -1,14 +1,14 @@
 use crate::error::{CoreError, CoreResult};
 use crate::generation_gate::ensure_generation_is_serveable;
 use crate::hierarchy_expansion;
+use crate::lane_fusion::{run_cards_lane, run_chunk_lane};
 use crate::ports::CorePorts;
 use crate::rank_fusion::{
-    RankedRetrievalCandidate, RetrievalCandidate, RetrievalLane, fuse, rank_expanded, rank_lane,
+    RankedRetrievalCandidate, RetrievalCandidate, RetrievalLane, fuse, rank_expanded,
 };
 pub(super) use crate::retrieval_lanes::{
     open_chunk_evidence, open_evidence, verify_source_snapshot,
 };
-use crate::retrieval_lanes::{search_cards, search_chunks, search_vector_chunks};
 use crate::types::{EvidencePack, RetrievalMode, SearchInput, SearchOutput};
 use maestria_ports::VectorSearchQuery;
 
@@ -139,78 +139,6 @@ fn build_search_plan(input: &SearchInput) -> CoreResult<maestria_domain::SearchP
     })
 }
 
-type Retriever<'a> = Box<
-    dyn Fn(
-            &maestria_domain::SearchPlan,
-        ) -> maestria_retrieval::RetrievalResult<Vec<RankedRetrievalCandidate>>
-        + 'a,
->;
-
-fn build_retrievers<'a>(
-    ports: &'a CorePorts<'a>,
-    query: &str,
-    limit: usize,
-    vector_query: Option<VectorSearchQuery>,
-    policy: &'a maestria_governance::RetrievalSecurityPolicy,
-) -> Vec<Retriever<'a>> {
-    let mut retrievers: Vec<Retriever<'_>> = Vec::new();
-    let card_query = query.to_string();
-    retrievers.push(Box::new(move |_| {
-        search_cards(ports, &card_query, limit, policy)
-            .map(|cards| {
-                rank_lane(
-                    RetrievalLane::Cards,
-                    cards.into_iter().map(RetrievalCandidate::Card).collect(),
-                )
-            })
-            .map_err(|error| maestria_retrieval::RetrievalError::Internal(error.to_string()))
-    }));
-    if let Some(vector_query) = vector_query {
-        let vector_query_text = query.to_string();
-        retrievers.push(Box::new(move |_| {
-            search_vector_chunks(
-                ports,
-                &vector_query_text,
-                limit,
-                Some(vector_query.clone()),
-                policy,
-            )
-            .map(|(chunks, _)| {
-                rank_lane(
-                    RetrievalLane::VectorChunks,
-                    chunks.into_iter().map(RetrievalCandidate::Chunk).collect(),
-                )
-            })
-            .map_err(|error| maestria_retrieval::RetrievalError::Internal(error.to_string()))
-        }));
-    }
-    let chunk_lane = if query.trim().starts_with('"') {
-        RetrievalLane::ExactChunks
-    } else {
-        RetrievalLane::LexicalChunks
-    };
-    let chunk_query = query.to_string();
-    retrievers.push(Box::new(move |_| {
-        search_chunks(ports, &chunk_query, limit, policy)
-            .map(|(chunks, _)| {
-                rank_lane(
-                    chunk_lane,
-                    chunks.into_iter().map(RetrievalCandidate::Chunk).collect(),
-                )
-            })
-            .map_err(|error| maestria_retrieval::RetrievalError::Internal(error.to_string()))
-    }));
-    retrievers
-}
-
-fn build_fusion(
-    limit: usize,
-) -> impl Fn(
-    Vec<Vec<RankedRetrievalCandidate>>,
-) -> maestria_retrieval::RetrievalResult<Vec<RankedRetrievalCandidate>> {
-    move |sets| Ok(fuse(limit, sets))
-}
-
 fn build_expander<'a>(
     ports: &'a CorePorts<'a>,
     query: String,
@@ -317,6 +245,17 @@ fn build_expander<'a>(
     }
 }
 
+fn check_latency(start: std::time::Instant, max_latency_ms: u32) -> CoreResult<()> {
+    if max_latency_ms > 0 && start.elapsed().as_millis() as u64 > u64::from(max_latency_ms) {
+        Err(CoreError::InvalidInput {
+            message: "retrieval latency budget exhausted".to_string(),
+        })
+    } else {
+        Ok(())
+    }
+}
+
+#[allow(clippy::disallowed_methods)]
 fn execute_pipeline<'a>(
     ports: &'a CorePorts<'a>,
     input: &SearchInput,
@@ -325,70 +264,98 @@ fn execute_pipeline<'a>(
     policy: &'a maestria_governance::RetrievalSecurityPolicy,
     plan: &maestria_domain::SearchPlan,
 ) -> CoreResult<SearchOutput> {
-    use maestria_retrieval::SyncPipeline;
+    use std::collections::BTreeSet;
+    let start = std::time::Instant::now();
+    let max_latency_ms = plan.budgets.max_latency_ms();
 
-    let query = input.query.clone();
-    let min_score_threshold = plan.stop_conditions.min_score_threshold;
-    let retrieval_mode = if vector_query.is_some() && ports.vector_index.is_some() {
-        RetrievalMode::Hybrid
-    } else {
-        RetrievalMode::LexicalOnly
-    };
-    let evaluator = move |candidates: Vec<RankedRetrievalCandidate>,
-                          _: &maestria_domain::SearchPlan| {
-        use std::collections::BTreeSet;
-
-        let mut pack = EvidencePack {
-            query: query.clone(),
-            cards: Vec::new(),
-            chunks: Vec::new(),
-            evidence_ids: Vec::new(),
-        };
-        let mut cards = BTreeSet::new();
-        let mut chunks = BTreeSet::new();
-        for ranked in candidates {
-            let priority_score = ranked.priority_score;
-            match ranked.candidate {
-                RetrievalCandidate::Card(hit)
-                    if priority_score >= min_score_threshold && cards.insert(hit.card.id) =>
-                {
-                    pack.cards.push(hit);
-                }
-                RetrievalCandidate::Chunk(hit)
-                    if priority_score >= min_score_threshold && chunks.insert(hit.evidence.id) =>
-                {
-                    pack.evidence_ids.push(hit.evidence.id);
-                    pack.chunks.push(hit);
-                }
-                RetrievalCandidate::EvidenceId(id)
-                    if priority_score >= min_score_threshold && chunks.insert(id) =>
-                {
-                    pack.evidence_ids.push(id);
-                }
-                _ => {}
-            }
-        }
-        Ok(SearchOutput {
-            pack,
-            mode: retrieval_mode,
-        })
-    };
-
-    SyncPipeline::new(
-        build_retrievers(ports, &input.query, input.limit, vector_query, policy),
-        evaluator,
-    )
-    .with_fusion(build_fusion(input.limit))
-    .with_reranker(|candidates, _| Ok(candidates))
-    .with_expander(build_expander(
+    let mut runs = vec![run_cards_lane(ports, &input.query, input.limit, policy)];
+    check_latency(start, max_latency_ms)?;
+    if vector_query.is_some() {
+        runs.push(run_chunk_lane(
+            ports,
+            RetrievalLane::VectorChunks,
+            &input.query,
+            input.limit,
+            vector_query.clone(),
+            policy,
+        ));
+    }
+    check_latency(start, max_latency_ms)?;
+    runs.push(run_chunk_lane(
+        ports,
+        if input.query.trim().starts_with('"')
+            && input.query.trim().ends_with('"')
+            && input.query.trim().len() >= 2
+        {
+            RetrievalLane::ExactChunks
+        } else {
+            RetrievalLane::LexicalChunks
+        },
+        &input.query,
+        input.limit,
+        None,
+        policy,
+    ));
+    check_latency(start, max_latency_ms)?;
+    let lane_reports = runs
+        .iter()
+        .map(|run| run.report.clone())
+        .collect::<Vec<_>>();
+    let mut candidates = fuse(
+        input.limit,
+        runs.into_iter().map(|run| run.ranked).collect(),
+    );
+    check_latency(start, max_latency_ms)?;
+    candidates = build_expander(
         ports,
         input.query.clone(),
         input.limit,
         graph_config,
         policy,
-    ))
-    .run(plan)
+    )(candidates, plan)
     .map_err(|error| CoreError::InvalidInput {
         message: error.to_string(),
+    })?;
+    check_latency(start, max_latency_ms)?;
+
+    let mut pack = EvidencePack {
+        query: input.query.clone(),
+        cards: Vec::new(),
+        chunks: Vec::new(),
+        evidence_ids: Vec::new(),
+    };
+    let mut cards = BTreeSet::new();
+    let mut chunks = BTreeSet::new();
+    for ranked in candidates.into_iter().take(input.limit) {
+        if ranked.priority_score < plan.stop_conditions.min_score_threshold {
+            continue;
+        }
+        match ranked.candidate {
+            RetrievalCandidate::Card(hit) if cards.insert(hit.card.id) => {
+                pack.cards.push(hit);
+            }
+            RetrievalCandidate::Chunk(hit) if chunks.insert(hit.evidence.id) => {
+                pack.evidence_ids.push(hit.evidence.id);
+                pack.chunks.push(hit);
+            }
+            RetrievalCandidate::EvidenceId(id) if chunks.insert(id) => {
+                pack.evidence_ids.push(id);
+            }
+            _ => {}
+        }
+    }
+    check_latency(start, max_latency_ms)?;
+    let retrieval_mode = if lane_reports.iter().any(|report| {
+        report.retriever_id == "dense_chunks"
+            && matches!(report.status, crate::types::RetrievalLaneStatus::Succeeded)
+    }) {
+        RetrievalMode::Hybrid
+    } else {
+        RetrievalMode::LexicalOnly
+    };
+    Ok(SearchOutput {
+        pack,
+        mode: retrieval_mode,
+        lane_reports,
     })
 }

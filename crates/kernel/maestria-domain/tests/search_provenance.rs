@@ -180,6 +180,94 @@ fn trace_captures_plan_and_rejects_incompatible_replay() {
         Err(SearchCompatibilityError::TracePlanMismatch(_))
     ));
 }
+#[test]
+fn trace_lane_changes_alter_deterministic_identity() -> Result<(), Box<dyn std::error::Error>> {
+    use maestria_domain::{SearchLaneStatus, SearchTraceLane, SearchTraceLaneCandidate};
+    let plan = plan();
+    let mut trace = SearchTrace::from_plan(
+        &plan,
+        vec![],
+        &[],
+        vec![],
+        None,
+        vec![],
+        SearchStopReason::EvidenceComplete,
+    );
+    let id_without_lanes = trace.deterministic_id();
+
+    trace = trace.with_lanes(vec![SearchTraceLane {
+        retriever_id: "lexical".to_owned(),
+        status: SearchLaneStatus::Succeeded,
+        candidates: vec![SearchTraceLaneCandidate {
+            evidence_id: EvidenceId::new(42),
+            artifact_version: ArtifactVersionId::new(10),
+            source_span: EvidenceSpan::new(
+                None,
+                SourceLocation::File {
+                    path: "test".to_owned(),
+                    start_line: 1,
+                    end_line: 2,
+                },
+                maestria_domain::ContentRange { start: 0, end: 10 },
+            )?,
+            lane_rank: 1,
+            duplicate_cluster: None,
+            scores: RetrievalScoreSet {
+                bm25: 1,
+                semantic_similarity: 0,
+            },
+            reasons: vec![],
+        }],
+    }]);
+    let id_with_succeeded_lane = trace.deterministic_id();
+    assert_ne!(id_without_lanes, id_with_succeeded_lane);
+
+    trace = trace.with_lanes(vec![SearchTraceLane {
+        retriever_id: "lexical".to_owned(),
+        status: SearchLaneStatus::Failed {
+            error: "timeout".to_owned(),
+        },
+        candidates: vec![],
+    }]);
+    let id_with_failed_lane = trace.deterministic_id();
+    assert_ne!(id_with_succeeded_lane, id_with_failed_lane);
+    Ok(())
+}
+
+#[test]
+fn trace_lanes_serialize_and_deserialize_without_fallback() -> Result<(), Box<dyn std::error::Error>>
+{
+    use maestria_domain::{SearchLaneStatus, SearchTraceLane};
+    let plan = plan();
+    let trace = SearchTrace::from_plan(
+        &plan,
+        vec![],
+        &[],
+        vec![],
+        None,
+        vec![],
+        SearchStopReason::EvidenceComplete,
+    )
+    .with_lanes(vec![SearchTraceLane {
+        retriever_id: "dense".to_owned(),
+        status: SearchLaneStatus::Failed {
+            error: "unreachable".to_owned(),
+        },
+        candidates: vec![],
+    }]);
+
+    let json = serde_json::to_string(&trace)?;
+    assert!(json.contains("Failed"));
+    assert!(json.contains("unreachable"));
+
+    let round_tripped: SearchTrace = serde_json::from_str(&json)?;
+    assert_eq!(round_tripped.lanes.len(), 1);
+    assert!(matches!(
+        round_tripped.lanes[0].status,
+        SearchLaneStatus::Failed { .. }
+    ));
+    Ok(())
+}
 
 #[test]
 fn invalid_budget_and_content_hash_are_typed_errors() {
