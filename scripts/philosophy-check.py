@@ -45,7 +45,10 @@ FORBIDDEN_DOMAIN_FAILURES = [
     "todo!(",
     "unimplemented!(",
 ]
-FORBIDDEN_RUST_LINT_BYPASSES = [r"#\s*!?\s*\[\s*allow\b"]
+FORBIDDEN_RUST_LINT_BYPASSES = [
+    r"#\s*!?\s*\[\s*allow\b",
+    r"#\s*!?\s*\[\s*cfg_attr\s*\([^]]*\ballow\b",
+]
 FORBIDDEN_RUST_METHODS = [
     (
         r"\.(?:unwrap|expect|unwrap_err|expect_err|unwrap_or|unwrap_or_else|unwrap_or_default)\s*\(",

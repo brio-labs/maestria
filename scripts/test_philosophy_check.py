@@ -65,6 +65,22 @@ class PhilosophyCheckTests(unittest.TestCase):
                 ["crates/apps/example/src/lib.rs"],
             )
 
+    def test_scan_rust_lint_bypasses_reports_cfg_attr_allow(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.configure_root(root)
+            source = root / "crates" / "apps" / "example" / "src" / "lib.rs"
+            source.parent.mkdir(parents=True)
+            source.write_text(
+                '#[cfg_attr(test, allow(dead_code))]\nfn example() {}\n',
+                encoding="utf-8",
+            )
+
+            self.assertEqual(
+                PHILOSOPHY_CHECK.scan_rust_lint_bypasses(),
+                ["crates/apps/example/src/lib.rs"],
+            )
+
     def test_scan_rust_forbidden_methods_reports_option_fallback(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
