@@ -230,7 +230,7 @@ where it left off without data loss or duplicate work.
 cargo fmt --all -- --check
 
 # Linting
-cargo clippy --workspace --all-targets --all-features -- -D warnings -D clippy::too_many_lines -D clippy::cognitive_complexity -D clippy::unwrap_used -D clippy::expect_used -D clippy::panic
+cargo clippy --workspace --all-targets --all-features -- -D warnings -D clippy::too_many_lines -D clippy::cognitive_complexity -D clippy::unwrap_used -D clippy::expect_used -D clippy::panic -D clippy::disallowed_methods
 
 # Tests
 cargo test --workspace --all-targets --all-features

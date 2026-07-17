@@ -32,7 +32,7 @@ rustup component add rustfmt clippy
 4. Run quality gates locally (minimum):
    ```bash
    cargo fmt --all -- --check
-   cargo clippy --workspace --all-targets --all-features -- -D warnings -D clippy::too_many_lines -D clippy::cognitive_complexity -D clippy::unwrap_used -D clippy::expect_used -D clippy::panic
+   cargo clippy --workspace --all-targets --all-features -- -D warnings -D clippy::too_many_lines -D clippy::cognitive_complexity -D clippy::unwrap_used -D clippy::expect_used -D clippy::panic -D clippy::disallowed_methods
    cargo test --workspace --all-targets --all-features
    cargo test --workspace --doc --all-features
    cargo doc --workspace --no-deps --all-features
