@@ -197,9 +197,10 @@ jobs:
           set -euo pipefail
           DUPES="$(cargo tree --locked --duplicates 2>&1 || true)"
           FILTERED="$(printf '%s\n' "$DUPES" | sed \
-            '/^[[:space:]]*warning: nothing to print\.$/d; \
-             /^[[:space:]]*To find dependencies that require specific target platforms, try to use option `--target all` first, and then narrow your search scope accordingly\.$/d; \
-             /^[[:space:]]*Updating crates\.io index$/d; /^[[:space:]]*$/d')"
+            -e '/^[[:space:]]*warning: nothing to print\.$/d' \
+            -e '/^[[:space:]]*To find dependencies that require specific target platforms, try to use option `--target all` first, and then narrow your search scope accordingly\.$/d' \
+            -e '/^[[:space:]]*Updating crates\.io index$/d' \
+            -e '/^[[:space:]]*$/d')"
           if [ -n "$FILTERED" ]; then
             echo "::error::Duplicate transitive dependencies detected:"
             echo "$FILTERED"
