@@ -5,6 +5,25 @@ use maestria_domain::ArtifactId;
 use maestria_parsers::*;
 use maestria_ports::{FileHandle, ParseContext, Parser};
 
+fn assert_debug_snapshot<T: std::fmt::Debug>(
+    name: &str,
+    value: &T,
+    function_name: &str,
+    expression: &str,
+    assertion_line: u32,
+) -> Result<(), Box<dyn Error>> {
+    let rendered = format!("{value:#?}");
+    insta::_macro_support::assert_snapshot(
+        (name.to_owned(), rendered.as_str()).into(),
+        insta::_get_workspace_root!().as_path(),
+        function_name,
+        module_path!(),
+        file!(),
+        assertion_line,
+        expression,
+    )
+}
+
 #[test]
 fn markdown_golden_snapshot() -> Result<(), Box<dyn Error>> {
     let input =
@@ -18,7 +37,13 @@ fn markdown_golden_snapshot() -> Result<(), Box<dyn Error>> {
             artifact_id: ArtifactId::new(1),
         },
     )?;
-    insta::assert_debug_snapshot!("markdown_parsed", &parsed);
+    assert_debug_snapshot(
+        "markdown_parsed",
+        &parsed,
+        concat!(module_path!(), "::markdown_golden_snapshot"),
+        stringify!(&parsed),
+        line!(),
+    )?;
     Ok(())
 }
 
@@ -34,7 +59,13 @@ fn plain_text_golden_snapshot() -> Result<(), Box<dyn Error>> {
             artifact_id: ArtifactId::new(2),
         },
     )?;
-    insta::assert_debug_snapshot!("plain_text_parsed", &parsed);
+    assert_debug_snapshot(
+        "plain_text_parsed",
+        &parsed,
+        concat!(module_path!(), "::plain_text_golden_snapshot"),
+        stringify!(&parsed),
+        line!(),
+    )?;
     Ok(())
 }
 
@@ -50,7 +81,13 @@ fn rust_source_golden_snapshot() -> Result<(), Box<dyn Error>> {
             artifact_id: ArtifactId::new(3),
         },
     )?;
-    insta::assert_debug_snapshot!("rust_source_parsed", &parsed);
+    assert_debug_snapshot(
+        "rust_source_parsed",
+        &parsed,
+        concat!(module_path!(), "::rust_source_golden_snapshot"),
+        stringify!(&parsed),
+        line!(),
+    )?;
     Ok(())
 }
 
@@ -67,7 +104,13 @@ fn cargo_toml_golden_snapshot() -> Result<(), Box<dyn Error>> {
             artifact_id: ArtifactId::new(4),
         },
     )?;
-    insta::assert_debug_snapshot!("cargo_toml_parsed", &parsed);
+    assert_debug_snapshot(
+        "cargo_toml_parsed",
+        &parsed,
+        concat!(module_path!(), "::cargo_toml_golden_snapshot"),
+        stringify!(&parsed),
+        line!(),
+    )?;
     Ok(())
 }
 #[test]
@@ -82,7 +125,13 @@ fn pdf_golden_snapshot() -> Result<(), Box<dyn Error>> {
             artifact_id: ArtifactId::new(5),
         },
     )?;
-    insta::assert_debug_snapshot!("pdf_parsed", &parsed);
+    assert_debug_snapshot(
+        "pdf_parsed",
+        &parsed,
+        concat!(module_path!(), "::pdf_golden_snapshot"),
+        stringify!(&parsed),
+        line!(),
+    )?;
     Ok(())
 }
 

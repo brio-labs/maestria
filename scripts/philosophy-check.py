@@ -46,6 +46,15 @@ FORBIDDEN_DOMAIN_FAILURES = [
     "unimplemented!(",
 ]
 FORBIDDEN_RUST_LINT_BYPASSES = [r"#\s*!?\s*\[\s*allow\b"]
+FORBIDDEN_RUST_METHODS = [
+    (
+        r"\.(?:unwrap|expect|unwrap_err|expect_err|unwrap_or|unwrap_or_else|unwrap_or_default)\s*\(",
+        "a forbidden Option/Result failure method",
+    ),
+    (r"\b(?:HashMap|HashSet)::new\s*\(", "a forbidden hash collection constructor"),
+    (r"\bstd::time::Instant::now\s*\(", "a forbidden wall-clock instant"),
+    (r"\.swap_remove\s*\(", "a forbidden swap_remove call"),
+]
 MAX_PRODUCTION_LOGICAL_LINES = 400
 MAX_MODULE_PHYSICAL_LINES = 900
 MODULE_SIZE_EXEMPTIONS: dict[str, str] = {}
@@ -195,6 +204,20 @@ def scan_rust_lint_bypasses() -> list[str]:
     return violations
 
 
+def scan_rust_forbidden_methods() -> list[str]:
+    violations = []
+    for source in ROOT.rglob("*.rs"):
+        if should_skip(source):
+            continue
+        content = read_text(source)
+        if content is None:
+            continue
+        for pattern, description in FORBIDDEN_RUST_METHODS:
+            if re.search(pattern, content):
+                violations.append(f"{source.relative_to(ROOT)} contains {description}")
+    return violations
+
+
 def _manifest_dependencies(content: str) -> set[str]:
     try:
         import tomllib
@@ -337,6 +360,7 @@ def main() -> int:
     violations.extend(
         f"{path} contains a Rust lint-bypass attribute" for path in scan_rust_lint_bypasses()
     )
+    violations.extend(scan_rust_forbidden_methods())
 
     if violations:
         print("philosophy-check failed:")

@@ -65,6 +65,22 @@ class PhilosophyCheckTests(unittest.TestCase):
                 ["crates/apps/example/src/lib.rs"],
             )
 
+    def test_scan_rust_forbidden_methods_reports_option_fallback(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.configure_root(root)
+            source = root / "crates" / "apps" / "example" / "src" / "lib.rs"
+            source.parent.mkdir(parents=True)
+            source.write_text(
+                "fn example(value: Option<u8>) { let _ = value.unwrap_or_default(); }\n",
+                encoding="utf-8",
+            )
+
+            self.assertEqual(
+                PHILOSOPHY_CHECK.scan_rust_forbidden_methods(),
+                ["crates/apps/example/src/lib.rs contains a forbidden Option/Result failure method"],
+            )
+
     def test_domain_scan_reports_runtime_tokens_and_production_failures(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
