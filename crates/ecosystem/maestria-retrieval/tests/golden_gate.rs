@@ -152,6 +152,7 @@ fn corpus(
             expected_status: SearchStatus::Answerable,
             original_query: plan.original_query.clone(),
             judgments,
+            expected_trace: None,
         }],
     })
 }

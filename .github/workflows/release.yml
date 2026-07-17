@@ -182,6 +182,10 @@ jobs:
 
       - name: Tests
         run: cargo test --workspace --all-targets --all-features
+      - name: Frozen golden gate
+        run: |
+          cargo test -p maestria-retrieval --test golden_fixture
+          cargo test -p maestria-core --test golden_gate
       - name: Doc Tests
         run: cargo test --workspace --doc --all-features
 

@@ -1,4 +1,4 @@
-use maestria_domain::{EvidenceId, EvidenceSpan, SearchOutcome};
+use maestria_domain::{EvidenceId, EvidenceSpan, SearchOutcome, SearchTrace};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use thiserror::Error;
@@ -68,6 +68,9 @@ pub struct GoldenQuery {
     pub expected_plan: maestria_domain::SearchPlan,
     pub expected_status: maestria_domain::SearchStatus,
     pub judgments: Vec<GoldenJudgment>,
+    /// Optional full trace snapshot for route and provenance regression checks.
+    #[serde(default)]
+    pub expected_trace: Option<SearchTrace>,
 }
 
 /// Relevance and exact-span judgment for one evidence item.
@@ -133,13 +136,30 @@ pub struct GoldenEvaluationReport {
     pub security: SecurityMetrics,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct GoldenObservation {
     pub query_id: maestria_domain::QueryId,
     pub profile: GoldenProfile,
     pub outcome: SearchOutcome,
     pub resources: ResourceMetrics,
     pub security: SecurityMetrics,
+}
+
+/// A serialized corpus and its observations for one deterministic evaluation.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GoldenFixture {
+    pub corpus: GoldenCorpus,
+    pub observations: Vec<GoldenObservation>,
+}
+
+impl GoldenFixture {
+    /// Evaluate the persisted fixture with the configured deterministic gate.
+    pub fn evaluate(
+        &self,
+        gate: &GoldenGate,
+    ) -> Result<Vec<GoldenEvaluationReport>, GoldenGateError> {
+        gate.evaluate_fixture(self)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
