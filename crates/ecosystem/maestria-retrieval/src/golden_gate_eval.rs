@@ -2,7 +2,15 @@ use super::*;
 use std::collections::{BTreeMap, BTreeSet};
 
 impl GoldenGate {
-    pub const CURRENT_SCHEMA_VERSION: u32 = 2;
+    pub const CURRENT_SCHEMA_VERSION: u32 = 3;
+
+    /// Evaluate a serialized fixture through the same validation path as direct inputs.
+    pub fn evaluate_fixture(
+        &self,
+        fixture: &GoldenFixture,
+    ) -> Result<Vec<GoldenEvaluationReport>, GoldenGateError> {
+        self.evaluate(&fixture.corpus, &fixture.observations)
+    }
 
     pub fn evaluate(
         &self,
@@ -53,6 +61,10 @@ impl GoldenGate {
                 || query.expected_plan.index_generation != corpus.index_generation
                 || query.expected_plan.fingerprint != corpus.fingerprint
                 || !trace.matches_plan(&query.expected_plan)
+                || query
+                    .expected_trace
+                    .as_ref()
+                    .is_some_and(|expected| expected != trace.as_ref())
                 || observation.outcome.trace != trace.deterministic_id()
                 || !trace.matches_coverage(
                     &observation.outcome.coverage,
@@ -81,7 +93,6 @@ impl GoldenGate {
         }
         Ok(reports)
     }
-
     pub(crate) fn check_thresholds(
         &self,
         query_id: u64,

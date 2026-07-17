@@ -183,6 +183,25 @@ jobs:
       - uses: mozilla-actions/sccache-action@v0.0.10
       - name: Run tests
         run: cargo test --workspace --all-targets --all-features
+  golden-gate:
+    needs: [changes]
+    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request' || needs.changes.outputs.rust == 'true'
+    steps:
+      - uses: actions/checkout@v7.0.0
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2.9.1
+      - uses: mozilla-actions/sccache-action@v0.0.10
+      - name: Run frozen golden gate
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            cargo test -p maestria-retrieval --test golden_fixture
+            cargo test -p maestria-core --test golden_gate
+          else
+            cargo test --workspace --all-targets --all-features
+          fi
+
   test-nextest:
     needs: [changes]
     runs-on: ubuntu-latest

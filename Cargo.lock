@@ -1361,6 +1361,7 @@ dependencies = [
  "maestria-governance",
  "maestria-ports",
  "serde",
+ "serde_json",
  "thiserror 1.0.69",
  "tokio",
 ]
