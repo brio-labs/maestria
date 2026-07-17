@@ -243,6 +243,24 @@ impl<'a> CoreServices<'a> {
         self
     }
 
+    pub fn search_plan(&self, input: SearchInput) -> CoreResult<maestria_domain::SearchPlan> {
+        crate::retrieval::build_search_plan(&input, self.graph_config.is_some())
+    }
+
+    pub fn explain_search(&self, input: SearchInput) -> CoreResult<SearchOutcome> {
+        let plan = self.search_plan(input)?;
+        self.search_knowledge(plan)
+    }
+
+    pub fn explain_search_with_vector(
+        &self,
+        input: SearchInput,
+        vector_query: maestria_ports::VectorSearchQuery,
+    ) -> CoreResult<SearchOutcome> {
+        let plan = self.search_plan(input)?;
+        self.search_knowledge_with_vector(plan, Some(vector_query))
+    }
+
     pub fn search(&self, input: SearchInput) -> CoreResult<SearchOutput> {
         crate::retrieval::search(
             &self.ports,
@@ -253,11 +271,20 @@ impl<'a> CoreServices<'a> {
             self.hybrid_policy.clone(),
         )
     }
+
     pub fn search_knowledge(&self, plan: maestria_domain::SearchPlan) -> CoreResult<SearchOutcome> {
+        self.search_knowledge_with_vector(plan, None)
+    }
+
+    fn search_knowledge_with_vector(
+        &self,
+        plan: maestria_domain::SearchPlan,
+        vector_query: Option<maestria_ports::VectorSearchQuery>,
+    ) -> CoreResult<SearchOutcome> {
         let output = crate::retrieval::search_with_plan(
             &self.ports,
             plan.clone(),
-            None,
+            vector_query,
             self.graph_config.clone(),
             &self.retrieval_policy,
             self.hybrid_policy.clone(),

@@ -147,7 +147,7 @@ pub(super) fn search_with_plan<'a>(
     )
 }
 
-fn build_search_plan(
+pub(crate) fn build_search_plan(
     input: &SearchInput,
     filtering_enabled: bool,
 ) -> CoreResult<maestria_domain::SearchPlan> {

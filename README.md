@@ -33,15 +33,23 @@ maestria index -i .maestria-dev ~/Notes/research.md
 # 3) Search indexed chunks
 maestria search -i .maestria-dev "source-grounded phrase"
 
-# 4) Inspect evidence backing a search result
+# 4) Explain a durable search
+maestria search explain -i .maestria-dev "source-grounded phrase"
+
+# 5) Inspect evidence backing a search result
 maestria open-evidence -i .maestria-dev --evidence-id 1
 maestria open-evidence -i .maestria-dev --chunk-id 5
 
-# 5) Check instance health
+# 6) Inspect search/index/task observability
+maestria search trace -i .maestria-dev 42
+maestria index generations -i .maestria-dev
+maestria evidence coverage -i .maestria-dev 7
+
+# 7) Check instance health
 maestria status -i .maestria-dev
 maestria doctor -i .maestria-dev
 
-# 6) Start the daemon
+# 8) Start the daemon
 maestria start -i .maestria-dev
 ```
 
@@ -66,10 +74,12 @@ Omitting `--read-root` defaults to the instance directory itself.
 
 ### `index`
 
-Index a file, or files under a directory with `--recursive`.
+Index a file, files under a directory with `--recursive`, or list index
+generations.
 
 ```
 maestria index [-i <dir>] [-r] <path>
+maestria index generations [-i <dir>]
 ```
 
 | Flag | Description |
@@ -77,12 +87,23 @@ maestria index [-i <dir>] [-r] <path>
 | `-i, --instance-dir` | Instance root directory |
 | `-r, --recursive` | Recurse into subdirectories |
 
+`index generations` reports generation lifecycle, serveability, corpus snapshot,
+and representation fingerprint fields.
+
+The observability names reserve `explain`, `trace`, `compare`, and
+`generations` in their respective command positions. To use one as a direct
+query or path, terminate option and subcommand parsing with `--`, for example
+`maestria search -- trace` or `maestria index -- generations`.
+
 ### `search`
 
-Search indexed local chunks via full-text index.
+Search indexed local chunks or inspect durable search observability.
 
 ```
 maestria search [-i <dir>] [-l <n>] <query>
+maestria search explain [-i <dir>] [-l <n>] <query>
+maestria search trace [-i <dir>] <trace_id>
+maestria search compare [-i <dir>] <experiment_a> <experiment_b>
 ```
 
 | Flag | Description |
@@ -90,7 +111,11 @@ maestria search [-i <dir>] [-l <n>] <query>
 | `-i, --instance-dir` | Instance root directory |
 | `-l, --limit` | Max results (default 10) |
 
-### `open-evidence` / `evidence`
+`search explain` executes a bounded search and prints its plan and trace.
+`search trace` and `search compare` require durable, reproducible trace
+payloads; missing or non-reproducible identifiers fail clearly.
+
+### `open-evidence`
 
 Resolve typed source evidence without launching external programs.
 
@@ -105,6 +130,15 @@ maestria open-evidence [-i <dir>] (--evidence-id <n> | --chunk-id <n>)
 | `--chunk-id` | Look up by chunk id |
 
 `--evidence-id` and `--chunk-id` are mutually exclusive; exactly one is required.
+
+### `evidence`
+
+Show evidence and validation coverage for a task.
+
+```
+maestria evidence coverage [-i <dir>] <task_id>
+```
+
 
 ### `status`
 

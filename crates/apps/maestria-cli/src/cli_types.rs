@@ -19,24 +19,27 @@ pub enum Commands {
         #[arg(long = "read-root", value_delimiter = ',', num_args = 1..)]
         read_roots: Vec<PathBuf>,
     },
-    /// Index one local file, or files under a directory with --recursive
+    /// Index one local file, files under a directory, or inspect index generations
     Index {
+        #[command(subcommand)]
+        command: Option<IndexCommands>,
         #[arg(short, long, default_value = ".maestria-dev")]
         instance_dir: PathBuf,
-        path: PathBuf,
+        path: Option<PathBuf>,
         #[arg(short, long)]
         recursive: bool,
     },
-    /// Search indexed local chunks
+    /// Search indexed local chunks or inspect durable search observability
     Search {
+        #[command(subcommand)]
+        command: Option<SearchCommands>,
         #[arg(short, long, default_value = ".maestria-dev")]
         instance_dir: PathBuf,
-        query: String,
+        query: Option<String>,
         #[arg(short, long, default_value_t = 10)]
         limit: usize,
     },
     /// Resolve typed source evidence without launching external programs
-    #[command(alias = "evidence")]
     OpenEvidence {
         #[arg(short, long, default_value = ".maestria-dev")]
         instance_dir: PathBuf,
@@ -44,6 +47,13 @@ pub enum Commands {
         evidence_id: Option<u64>,
         #[arg(long, conflicts_with = "evidence_id")]
         chunk_id: Option<u64>,
+    },
+    /// Inspect task evidence coverage
+    Evidence {
+        #[command(subcommand)]
+        command: EvidenceCommands,
+        #[arg(short, long, default_value = ".maestria-dev")]
+        instance_dir: PathBuf,
     },
     /// Print local instance health facts
     Status {
@@ -74,6 +84,50 @@ pub enum Commands {
     Approval {
         #[command(subcommand)]
         command: ApprovalCommands,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum SearchCommands {
+    /// Execute a search and print its durable plan and trace details
+    Explain {
+        query: String,
+        #[arg(short, long, default_value = ".maestria-dev")]
+        instance_dir: PathBuf,
+        #[arg(short, long, default_value_t = 10)]
+        limit: usize,
+    },
+    /// Show a persisted search trace by deterministic identifier
+    Trace {
+        trace_id: u64,
+        #[arg(short, long, default_value = ".maestria-dev")]
+        instance_dir: PathBuf,
+    },
+    /// Compare two persisted search traces as an experiment pair
+    Compare {
+        experiment_a: u64,
+        experiment_b: u64,
+        #[arg(short, long, default_value = ".maestria-dev")]
+        instance_dir: PathBuf,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum IndexCommands {
+    /// List persisted index generations and lifecycle states
+    Generations {
+        #[arg(short, long, default_value = ".maestria-dev")]
+        instance_dir: PathBuf,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum EvidenceCommands {
+    /// Show evidence and validation coverage for a task
+    Coverage {
+        task_id: u64,
+        #[arg(short, long, default_value = ".maestria-dev")]
+        instance_dir: PathBuf,
     },
 }
 
