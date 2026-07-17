@@ -1,7 +1,7 @@
 use maestria_domain::{
     ArtifactVersionId, ContentRange, CorpusScope, CorpusSnapshotId, EvidenceCandidate,
     EvidenceCoverage, EvidenceId, EvidenceRequirements, EvidenceSpan, FreshnessRequirement,
-    FreshnessStatus, IndexGenerationId, ModalitySet, QueryId, RetrievalModelFingerprint,
+    FreshnessStatus, IndexGenerationId, Modality, ModalitySet, QueryId, RetrievalModelFingerprint,
     RetrievalReason, RetrievalScoreSet, SearchBudget, SearchIntent, SearchOutcome, SearchPlan,
     SearchStage, SearchStatus, SearchStopReason, SearchTrace, SourceLocation, StopConditions,
     TrustLabel,
@@ -20,7 +20,7 @@ fn plan() -> SearchPlan {
         corpus_snapshot: CorpusSnapshotId::new(11),
         index_generation: IndexGenerationId::new(13),
         freshness: FreshnessRequirement::Any,
-        modalities: ModalitySet::new(vec![]),
+        modalities: ModalitySet::new(vec![Modality::Text]),
         stages: vec![SearchStage::InitialRetrieval],
         budgets: SearchBudget::new(1000, 1000).expect("valid budget"),
         stop_conditions: StopConditions {

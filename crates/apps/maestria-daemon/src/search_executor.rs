@@ -53,8 +53,15 @@ impl SearchKnowledgeExecutor for CoreSearchExecutor {
                 maestria_core::CoreServices::new(ports)
                     .with_retrieval_policy(retrieval_policy)
                     .search_knowledge(plan)
-                    .map_err(|error| PortError::Internal {
-                        message: error.to_string(),
+                    .map_err(|error| {
+                        let message = error.to_string();
+                        match error {
+                            maestria_core::CoreError::SearchPlan(_)
+                            | maestria_core::CoreError::InvalidInput { .. } => {
+                                PortError::InvalidInput { message }
+                            }
+                            _ => PortError::Internal { message },
+                        }
                     })
             })
             .await

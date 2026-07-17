@@ -2,26 +2,29 @@ use async_trait::async_trait;
 use maestria_domain::{
     ArtifactVersionId, ContentRange, CorpusScope, CorpusSnapshotId, EvidenceCandidate,
     EvidenceCoverage, EvidenceRequirements, EvidenceSpan, FreshnessRequirement, FreshnessStatus,
-    IndexGenerationId, ModalitySet, QueryId, RetrievalModelFingerprint, RetrievalReason,
-    RetrievalScoreSet, SearchBudget, SearchIntent, SearchOutcome, SearchPlan, SearchStage,
+    IndexGenerationId, Modality, ModalitySet, QueryId, RetrievalModelFingerprint, RetrievalReason,
+    RetrievalScoreSet, ScopeId, SearchBudget, SearchIntent, SearchOutcome, SearchPlan, SearchStage,
     SearchStatus, SearchTraceId, SourceLocation, StopConditions, StructureNodeId, TrustLabel,
 };
 use maestria_retrieval::{
     CandidateRetriever, FixedKRrf, RetrievalEngine, RetrievalError, RetrievalEvaluator,
     RetrievalResult, SyncRetrievalEngine,
 };
-use std::sync::Arc;
+use std::sync::{
+    Arc,
+    atomic::{AtomicUsize, Ordering},
+};
 
 fn dummy_plan() -> RetrievalResult<SearchPlan> {
     Ok(SearchPlan {
         query_id: QueryId::new(1),
         original_query: "test query".to_string(),
-        intent: SearchIntent::ExactLookup,
+        intent: SearchIntent::FactualLocal,
         scope: CorpusScope::Global,
         corpus_snapshot: CorpusSnapshotId::new(1),
         index_generation: IndexGenerationId::new(1),
         freshness: FreshnessRequirement::Any,
-        modalities: ModalitySet::new(vec![]),
+        modalities: ModalitySet::new(vec![Modality::Text]),
         stages: vec![SearchStage::InitialRetrieval],
         budgets: SearchBudget::new(1000, 100)?,
         stop_conditions: StopConditions {
@@ -140,7 +143,7 @@ fn test_fingerprint_compatibility_pass() -> RetrievalResult<()> {
 #[test]
 fn test_scope_acl_filtering() -> RetrievalResult<()> {
     let mut plan = dummy_plan()?;
-    plan.scope = CorpusScope::Restricted(vec![]);
+    plan.scope = CorpusScope::Restricted(vec![ScopeId::new(1)]);
     let retriever = |p: &SearchPlan| -> RetrievalResult<Vec<EvidenceCandidate>> {
         match p.scope {
             CorpusScope::Restricted(_) => Ok(vec![]),
@@ -426,6 +429,32 @@ impl CandidateRetriever for AsyncLane {
     }
 }
 
+struct CountingWebLane {
+    calls: Arc<AtomicUsize>,
+}
+
+#[async_trait]
+impl CandidateRetriever for CountingWebLane {
+    fn descriptor(&self) -> maestria_retrieval::types::RetrieverDescriptor {
+        maestria_retrieval::types::RetrieverDescriptor {
+            id: "web".to_string(),
+            modality: "web".to_string(),
+        }
+    }
+
+    async fn retrieve(
+        &self,
+        _request: maestria_retrieval::types::CandidateRequest,
+    ) -> Result<maestria_retrieval::types::CandidateBatch, RetrievalError> {
+        self.calls.fetch_add(1, Ordering::SeqCst);
+        Ok(maestria_retrieval::types::CandidateBatch {
+            descriptor: self.descriptor(),
+            candidates: Vec::new(),
+            status: maestria_domain::SearchLaneStatus::Empty,
+        })
+    }
+}
+
 struct AsyncEvaluator;
 
 #[async_trait]
@@ -507,6 +536,35 @@ async fn failed_lane_is_degraded_without_losing_successful_evidence() -> Retriev
         trace.lanes[1].status,
         maestria_domain::SearchLaneStatus::Failed { .. }
     ));
+    Ok(())
+}
+
+#[tokio::test]
+async fn web_budget_applies_across_deterministic_rewrites() -> RetrievalResult<()> {
+    let mut plan = dummy_plan()?;
+    plan.original_query = "latest web PR".to_string();
+    plan.intent = SearchIntent::CurrentWeb;
+    plan.modalities = ModalitySet::new(vec![Modality::Web]);
+    plan.budgets = SearchBudget::with_limits(1000, 1000, 8, 3, 1)?;
+    let calls = Arc::new(AtomicUsize::new(0));
+    let engine = RetrievalEngine::new(
+        vec![Arc::new(CountingWebLane {
+            calls: Arc::clone(&calls),
+        })],
+        Arc::new(AsyncEvaluator),
+    );
+
+    let outcome = engine.search(&plan).await?;
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    let trace = outcome
+        .trace_data
+        .ok_or(RetrievalError::Internal("missing search trace".into()))?;
+    assert!(trace.lanes.iter().any(|lane| {
+        matches!(
+            lane.status,
+            maestria_domain::SearchLaneStatus::Failed { .. }
+        )
+    }));
     Ok(())
 }
 

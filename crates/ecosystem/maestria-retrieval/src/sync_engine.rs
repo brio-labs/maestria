@@ -3,7 +3,7 @@ use maestria_domain::{
     SearchTraceLaneCandidate,
 };
 
-use crate::engine::{ensure_trace, reconcile_status};
+use crate::engine::{EnsureTraceOptions, ensure_trace, reconcile_status};
 use crate::sync::SyncPipeline;
 use crate::types::{RankedCandidate, RetrievalResult};
 
@@ -31,6 +31,13 @@ impl<'a> SyncRetrievalEngine<'a> {
                     .collect())
             });
         Self { pipeline }
+    }
+    pub fn with_query_retriever<F>(mut self, retriever: F) -> Self
+    where
+        F: Fn(&SearchPlan, &str) -> RetrievalResult<Vec<EvidenceCandidate>> + 'a,
+    {
+        self.pipeline = self.pipeline.with_query_retriever(retriever);
+        self
     }
 
     pub fn with_fusion<F>(mut self, fusion: F) -> Self
@@ -96,14 +103,28 @@ impl<'a> SyncRetrievalEngine<'a> {
                 })
                 .collect(),
         };
+        let rewrites = if self.pipeline.query_rewrites_enabled() {
+            crate::engine::rewrite_session(plan).trace_records()
+        } else {
+            crate::rewrite::QueryRewriteSession::with_limits(
+                &plan.original_query,
+                plan.budgets.max_tokens() as usize,
+                plan.budgets.max_latency_ms(),
+                plan.budgets.max_queries(),
+            )
+            .trace_records()
+        };
         let outcome = ensure_trace(
             plan,
             outcome,
             vec![lane],
-            self.pipeline.fusion_enabled(),
-            self.pipeline.expander_enabled(),
-            None,
-            Some(diversity.trace),
+            EnsureTraceOptions {
+                fusion_enabled: self.pipeline.fusion_enabled(),
+                expansion_enabled: self.pipeline.expander_enabled(),
+                rerank_trace: None,
+                diversity_trace: Some(diversity.trace),
+                rewrites,
+            },
         );
         outcome.verify_compatibility(plan)?;
         Ok(outcome)

@@ -11,6 +11,7 @@
 mod approval;
 mod autonomy;
 mod memory;
+mod plan_validation;
 mod privacy;
 mod retrieval;
 mod risk;
@@ -25,6 +26,7 @@ pub use memory::{
     DefaultMemoryPromotionGate, MemoryPromotionDecision, MemoryPromotionGate,
     MemoryPromotionRequest,
 };
+pub use plan_validation::{SearchCapabilities, SearchPlanValidationError, SearchPlanValidator};
 pub use privacy::{PrivacyExclusions, SecretFinding, SecretKind, SecretScan, scan_secrets};
 pub use retrieval::{RetrievalDecision, RetrievalSecurityPolicy};
 pub use risk::{ClassifyRisk, DefaultRiskClassifier, PolicyDecision, RiskClass};
@@ -39,6 +41,8 @@ pub const GOVERNANCE_VERSION: &str = "0.1.0";
 
 // ── tests ────────────────────────────────────────────────────────────
 
+#[cfg(test)]
+mod plan_validation_tests;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]

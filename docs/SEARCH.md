@@ -38,6 +38,8 @@ It does not define a permanent model, database, vector index, ranking algorithm,
 8. Search implementations are replaceable until benchmark results justify a choice.
 9. No model name, public leaderboard, or architecture diagram proves that retrieval works for Maestria.
 10. Material retrieval changes require evaluation against a versioned Maestria query set.
+11. Original query identity is immutable; rewrites are additional typed retrieval views.
+12. Deterministic expansions precede model proposals, and stage roles restrict where each rewrite may execute.
 
 ## Domain State and External Truth
 
@@ -200,19 +202,47 @@ An outcome may be useful without being complete. Missing coverage and unresolved
 Every runtime-produced `SearchOutcome` carries a typed trace payload in addition
 to its stable `SearchTraceId`. The payload records the original query, plan
 identity, corpus and index fingerprints, retriever route, budgets, candidate
-ranks and scores, pre-scoring security filters, fusion policy, expansion
-summary, missing evidence, conflicts, and deterministic stop reason.
+ranks and scores, pre-scoring security filters, fusion policy, typed rewrite
+origins and stage roles, expansion summary, missing evidence, conflicts, and
+deterministic stop reason.
 When a runtime policy is available, its deterministic policy fingerprint is
 included; expansion counts are nullable when an adapter cannot expose the
 pre-expansion delta, rather than claiming a fabricated count.
 `SearchKnowledgeCompleted` event persists this payload with the outcome; older
 event payloads remain readable without trace details.
+`SearchTraceId` uses a versioned deterministic identity seed. New traces use
+identity version 2; traces serialized before this field existed default to the
+legacy identity algorithm so their historical IDs remain verifiable.
+
 
 The versioned golden gate evaluates frozen judgments using deterministic
 Recall@k, nDCG@k, MRR, and exact-span recall metrics alongside latency,
 memory/disk, ACL-leakage, and prompt-injection/poisoning attack-success
 measurements. Configured regressions return an error and therefore fail the
 test/CI gate rather than being printed as advisory metrics.
+
+## Query Rewriting and Stage Roles
+
+The original query is preserved in every rewrite session and trace. Rewrites
+are additional retrieval views, never replacements for the user's query.
+
+Each rewrite records:
+
+```text
+origin: original | deterministic | model proposal | feedback | missing slot
+stage: initial retrieval | reranking | iterative retrieval
+token estimate
+latency budget units
+proposal status
+```
+
+Deterministic alias, identifier, path, symbol, entity, and date/version
+expansions are ordered before model proposals. The full original query and
+deterministic views may participate in initial retrieval. Constraint subqueries
+are restricted to reranking, while missing-slot queries require a named,
+non-empty missing evidence slot and belong only to iterative retrieval.
+Model-generated proposals remain untrusted until plan, capability, scope,
+security, freshness, snapshot, and budget validation succeeds.
 
 ## Search Execution Model
 
@@ -233,7 +263,7 @@ query request
   → stop, continue, live-verify, or abstain
 ```
 
-This is a capability graph, not a mandatory fixed pipeline. Stages may be skipped, repeated, or reordered when the plan and policy permit it.
+This is a capability graph, not a mandatory fixed pipeline. Stages may be skipped when the plan and policy permit it; executable plans use the canonical order declared by the validator, and unsupported stage orderings are rejected before effects.
 
 ### Candidate Retrieval Lanes
 

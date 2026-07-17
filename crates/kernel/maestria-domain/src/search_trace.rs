@@ -1,8 +1,9 @@
 use super::{
     ConflictSet, ConflictSetId, EvidenceCandidate, EvidenceCoverage, SearchCompatibilityError,
-    SearchOutcome, SearchPlan, SearchStatus, SearchStopReason, SearchTrace, SearchTraceDiversity,
-    SearchTraceId,
+    SearchOutcome, SearchPlan, SearchStatus, SearchStopReason, SearchTrace,
 };
+
+mod search_trace_identity;
 
 impl SearchTrace {
     pub fn matches_plan(&self, plan: &SearchPlan) -> bool {
@@ -155,127 +156,128 @@ impl SearchTrace {
                     .collect::<Vec<_>>()
     }
 
-    pub fn deterministic_id(&self) -> SearchTraceId {
-        let mut hash = 0xcbf29ce484222325u64;
-        let mut mix = |bytes: &[u8]| {
-            for byte in bytes {
-                hash ^= u64::from(*byte);
-                hash = hash.wrapping_mul(0x100000001b3);
+    pub fn validate_rewrites(&self) -> Result<(), SearchCompatibilityError> {
+        if self.rewrites.is_empty() {
+            return if self.identity_version == 0 {
+                Ok(())
+            } else {
+                Err(SearchCompatibilityError::TracePlanMismatch(
+                    "search trace is missing rewrite provenance",
+                ))
+            };
+        }
+        let mut original_seen = false;
+        let mut model_seen = false;
+        let mut token_total = 0_u64;
+        let mut latency_total = 0_u64;
+        for rewrite in &self.rewrites {
+            let (next_original, next_model) =
+                self.validate_rewrite_record(rewrite, original_seen, model_seen)?;
+            original_seen = next_original;
+            model_seen = next_model;
+            token_total = token_total.saturating_add(u64::from(rewrite.accounting.token_estimate));
+            latency_total =
+                latency_total.saturating_add(u64::from(rewrite.accounting.latency_budget_units));
+        }
+        if !original_seen
+            || self.rewrites.len() > self.budgets.max_queries() as usize
+            || token_total > u64::from(self.budgets.max_tokens())
+            || latency_total > u64::from(self.budgets.max_latency_ms())
+        {
+            return Err(SearchCompatibilityError::TracePlanMismatch(
+                "rewrite trace exceeds its plan budget",
+            ));
+        }
+        Ok(())
+    }
+
+    fn validate_rewrite_record(
+        &self,
+        rewrite: &super::SearchTraceRewrite,
+        original_seen: bool,
+        model_seen: bool,
+    ) -> Result<(bool, bool), SearchCompatibilityError> {
+        if !original_seen && rewrite.origin != super::SearchRewriteOrigin::Original {
+            return Err(SearchCompatibilityError::TracePlanMismatch(
+                "rewrite trace must begin with the original query",
+            ));
+        }
+        let expected_tokens = rewrite.query.split_whitespace().count().max(1);
+        if rewrite.accounting.token_estimate as usize != expected_tokens
+            || rewrite.accounting.latency_budget_units == 0
+        {
+            return Err(SearchCompatibilityError::TracePlanMismatch(
+                "rewrite accounting is invalid",
+            ));
+        }
+        if rewrite.accounting.is_proposal
+            != (rewrite.origin == super::SearchRewriteOrigin::ModelProposal)
+        {
+            return Err(SearchCompatibilityError::TracePlanMismatch(
+                "rewrite proposal accounting is invalid",
+            ));
+        }
+        let mut original_seen = original_seen;
+        let mut model_seen = model_seen;
+        match rewrite.origin {
+            super::SearchRewriteOrigin::Original => {
+                if original_seen
+                    || rewrite.query != self.original_query
+                    || rewrite.stage != super::SearchRewriteStage::InitialRetrieval
+                {
+                    return Err(SearchCompatibilityError::TracePlanMismatch(
+                        "original rewrite identity is invalid",
+                    ));
+                }
+                original_seen = true;
             }
-        };
-        mix(&self.query_id.value().to_le_bytes());
-        mix(self.original_query.as_bytes());
-        mix(format!("{:?}", self.intent).as_bytes());
-        mix(format!("{:?}", self.scope).as_bytes());
-        mix(format!("{:?}", self.freshness).as_bytes());
-        mix(format!("{:?}", self.modalities).as_bytes());
-        mix(format!("{:?}", self.stages).as_bytes());
-        mix(format!("{:?}", self.evidence_requirements).as_bytes());
-        mix(&self.corpus_snapshot.value().to_le_bytes());
-        mix(&self.index_generation.value().to_le_bytes());
-        mix(self.fingerprint.as_str().as_bytes());
-        for retriever in &self.retrievers {
-            mix(retriever.as_bytes());
-        }
-        mix(format!("{:?}", self.policy_fingerprint).as_bytes());
-        mix(&u64::from(self.budgets.max_tokens()).to_le_bytes());
-        mix(&u64::from(self.budgets.max_latency_ms()).to_le_bytes());
-        mix(&u64::from(self.stop_conditions.max_results).to_le_bytes());
-        mix(&u64::from(self.stop_conditions.min_score_threshold).to_le_bytes());
-        for candidate in &self.raw_candidates {
-            mix(&candidate.evidence_id.value().to_le_bytes());
-            mix(&candidate.artifact_version.value().to_le_bytes());
-            mix(format!("{:?}", candidate.source_span).as_bytes());
-            mix(&u64::from(candidate.rank).to_le_bytes());
-            mix(&u64::from(candidate.scores.bm25).to_le_bytes());
-            mix(&u64::from(candidate.scores.semantic_similarity).to_le_bytes());
-            mix(format!("{:?}", candidate.trust).as_bytes());
-            mix(format!("{:?}", candidate.freshness).as_bytes());
-            mix(format!("{:?}", candidate.duplicate_cluster).as_bytes());
-            mix(format!("{:?}", candidate.reasons).as_bytes());
-            mix(format!("{:?}", candidate.coverage_keys).as_bytes());
-        }
-        mix(format!("{:?}", self.fusion).as_bytes());
-        mix(format!("{:?}", self.filters).as_bytes());
-        mix(format!("{:?}", self.expansions).as_bytes());
-        mix(format!("{:?}", self.missing_evidence).as_bytes());
-        for conflict in &self.conflicts {
-            mix(&conflict.value().to_le_bytes());
-        }
-        mix(format!("{:?}", self.stop_reason).as_bytes());
-        for lane in &self.lanes {
-            mix(lane.retriever_id.as_bytes());
-            mix(format!("{:?}", lane.status).as_bytes());
-            for candidate in &lane.candidates {
-                mix(&candidate.evidence_id.value().to_le_bytes());
-                mix(&candidate.artifact_version.value().to_le_bytes());
-                mix(format!("{:?}", candidate.source_span).as_bytes());
-                mix(&u64::from(candidate.lane_rank).to_le_bytes());
-                mix(format!("{:?}", candidate.duplicate_cluster).as_bytes());
-                mix(&u64::from(candidate.scores.bm25).to_le_bytes());
-                mix(&u64::from(candidate.scores.semantic_similarity).to_le_bytes());
-                mix(format!("{:?}", candidate.reasons).as_bytes());
+            super::SearchRewriteOrigin::Deterministic => {
+                if rewrite.stage != super::SearchRewriteStage::InitialRetrieval || model_seen {
+                    return Err(SearchCompatibilityError::TracePlanMismatch(
+                        "deterministic rewrites must precede model proposals",
+                    ));
+                }
             }
-        }
-        if let Some(rerank) = &self.rerank {
-            mix(rerank.model.as_bytes());
-            mix(rerank.fingerprint.as_str().as_bytes());
-            let input_cap = rerank.input_cap as u64;
-            let score_cap = rerank.score_cap as u64;
-            let output_cap = rerank.output_cap as u64;
-            mix(&input_cap.to_le_bytes());
-            mix(&score_cap.to_le_bytes());
-            mix(&output_cap.to_le_bytes());
-            for c in &rerank.candidates {
-                mix(&c.candidate_id.value().to_le_bytes());
-                let original_rank = c.original_rank as u64;
-                mix(&original_rank.to_le_bytes());
-                mix(format!("{:?}", c.new_rank).as_bytes());
-                mix(format!("{:?}", c.status).as_bytes());
-                mix(format!("{:?}", c.relevance_score).as_bytes());
-                mix(format!("{:?}", c.constraint_score).as_bytes());
-                for constraint in &c.constraint_scores {
-                    mix(constraint.name.as_bytes());
-                    mix(&u64::from(constraint.score).to_le_bytes());
+            super::SearchRewriteOrigin::ModelProposal => {
+                if !matches!(
+                    rewrite.stage,
+                    super::SearchRewriteStage::Reranking
+                        | super::SearchRewriteStage::IterativeRetrieval
+                ) {
+                    return Err(SearchCompatibilityError::TracePlanMismatch(
+                        "model rewrite stage is invalid",
+                    ));
+                }
+                model_seen = true;
+            }
+            super::SearchRewriteOrigin::Feedback => {
+                if !matches!(
+                    rewrite.stage,
+                    super::SearchRewriteStage::Reranking
+                        | super::SearchRewriteStage::IterativeRetrieval
+                ) {
+                    return Err(SearchCompatibilityError::TracePlanMismatch(
+                        "feedback rewrite stage is invalid",
+                    ));
+                }
+            }
+            super::SearchRewriteOrigin::MissingSlot => {
+                let Some(slot) = rewrite.missing_slot.as_deref() else {
+                    return Err(SearchCompatibilityError::TracePlanMismatch(
+                        "missing-slot rewrite is not identified",
+                    ));
+                };
+                if rewrite.stage != super::SearchRewriteStage::IterativeRetrieval
+                    || slot.trim().is_empty()
+                    || !self.missing_evidence.iter().any(|gap| gap == slot)
+                {
+                    return Err(SearchCompatibilityError::TracePlanMismatch(
+                        "missing-slot rewrite is not identified",
+                    ));
                 }
             }
         }
-        if let Some(diversity) = &self.diversity {
-            mix_diversity(&mut hash, diversity);
-        }
-        SearchTraceId::new(hash)
-    }
-}
-
-fn mix_diversity(hash: &mut u64, diversity: &SearchTraceDiversity) {
-    let mut mix = |bytes: &[u8]| {
-        for byte in bytes {
-            *hash ^= u64::from(*byte);
-            *hash = hash.wrapping_mul(0x100000001b3);
-        }
-    };
-    mix(&(diversity.distinct_sources as u64).to_le_bytes());
-    mix(&(diversity.distinct_documents as u64).to_le_bytes());
-    mix(&(diversity.distinct_sections as u64).to_le_bytes());
-    for claim in &diversity.required_claims {
-        mix(claim.as_bytes());
-    }
-    for subquestion in &diversity.required_subquestions {
-        mix(subquestion.as_bytes());
-    }
-    for key in &diversity.covered_keys {
-        mix(key.as_bytes());
-    }
-    mix(format!("{:?}", diversity.stop_reason).as_bytes());
-    for candidate in &diversity.candidates {
-        mix(&candidate.candidate_id.value().to_le_bytes());
-        mix(&(candidate.original_rank as u64).to_le_bytes());
-        mix(format!("{:?}", candidate.selected_rank).as_bytes());
-        mix(format!("{:?}", candidate.duplicate_cluster).as_bytes());
-        mix(&u64::from(candidate.marginal_coverage).to_le_bytes());
-        for key in &candidate.coverage_keys {
-            mix(key.as_bytes());
-        }
+        Ok((original_seen, model_seen))
     }
 }
 
@@ -299,6 +301,7 @@ impl SearchOutcome {
                     "trace identity differs",
                 ));
             }
+            trace.validate_rewrites()?;
             if !trace.matches_plan(plan) {
                 return Err(SearchCompatibilityError::TracePlanMismatch(
                     "plan configuration differs",
@@ -325,84 +328,5 @@ impl SearchOutcome {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::{
-        CorpusScope, EvidenceRequirements, FreshnessRequirement, ModalitySet,
-        RetrievalModelFingerprint, SearchBudget, SearchIntent, SearchPlan, StopConditions,
-        ids::{CorpusSnapshotId, IndexGenerationId, QueryId},
-    };
-
-    #[test]
-    fn test_deterministic_id_with_diversity() -> Result<(), SearchCompatibilityError> {
-        let plan = SearchPlan {
-            query_id: QueryId::new(1),
-            original_query: "test".to_string(),
-            intent: SearchIntent::ExactLookup,
-            scope: CorpusScope::Global,
-            corpus_snapshot: CorpusSnapshotId::new(1),
-            index_generation: IndexGenerationId::new(1),
-            freshness: FreshnessRequirement::Any,
-            modalities: ModalitySet::new(vec![]),
-            stages: vec![],
-            budgets: SearchBudget::new(1000, 1000)?,
-            stop_conditions: StopConditions {
-                max_results: 10,
-                min_score_threshold: 0,
-            },
-            evidence_requirements: EvidenceRequirements {
-                required_claims: vec![],
-                required_subquestions: vec![],
-                minimum_sources: 0,
-                minimum_documents: 0,
-                minimum_sections: 0,
-                require_primary_sources: false,
-                minimum_corroboration: 1,
-            },
-            fingerprint: RetrievalModelFingerprint::new("test".to_string())?,
-        };
-
-        let mut trace = SearchTrace::from_plan(
-            &plan,
-            vec![],
-            &[],
-            vec![],
-            None,
-            vec![],
-            SearchStopReason::EvidenceComplete,
-        );
-        let id1 = trace.deterministic_id();
-        trace.diversity = Some(crate::SearchTraceDiversity {
-            distinct_sources: 1,
-            distinct_documents: 1,
-            distinct_sections: 1,
-            required_claims: vec!["claim1".to_string()],
-            required_subquestions: vec![],
-            covered_keys: vec!["claim1".to_string()],
-            stop_reason: SearchStopReason::EvidenceComplete,
-            candidates: vec![],
-        });
-        let id2 = trace.deterministic_id();
-        assert_ne!(id1, id2);
-        let diversity =
-            trace
-                .diversity
-                .as_mut()
-                .ok_or(SearchCompatibilityError::TracePlanMismatch(
-                    "diversity trace fixture missing",
-                ))?;
-        diversity
-            .candidates
-            .push(crate::SearchTraceDiversityCandidate {
-                candidate_id: crate::ids::EvidenceId::new(1),
-                original_rank: 0,
-                selected_rank: Some(0),
-                duplicate_cluster: None,
-                marginal_coverage: 1,
-                coverage_keys: vec!["key1".to_string()],
-            });
-        let id3 = trace.deterministic_id();
-        assert_ne!(id2, id3);
-        Ok(())
-    }
-}
+#[path = "search_trace_tests.rs"]
+mod tests;
