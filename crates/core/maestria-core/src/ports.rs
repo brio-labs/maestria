@@ -103,6 +103,34 @@ struct SearchTraceOptions<'a> {
     diversity: Option<maestria_domain::SearchTraceDiversity>,
 }
 
+fn build_trace_filters(
+    plan: &maestria_domain::SearchPlan,
+    policy: &maestria_governance::RetrievalSecurityPolicy,
+) -> Vec<SearchTraceFilter> {
+    let mut filters = vec![
+        SearchTraceFilter::Quarantine,
+        SearchTraceFilter::PromptInjection,
+    ];
+    if matches!(plan.scope, maestria_domain::CorpusScope::Restricted(_))
+        || policy.required_scope_id.is_some()
+    {
+        filters.push(SearchTraceFilter::Scope);
+    }
+    if policy.require_read_allowed {
+        filters.push(SearchTraceFilter::Acl);
+    }
+    if policy.require_trust_zone.is_some() {
+        filters.push(SearchTraceFilter::Trust);
+    }
+    if policy.max_sensitivity.is_some() {
+        filters.push(SearchTraceFilter::Sensitivity);
+    }
+    if !matches!(plan.freshness, maestria_domain::FreshnessRequirement::Any) {
+        filters.push(SearchTraceFilter::Freshness);
+    }
+    filters
+}
+
 fn build_search_trace(
     plan: &maestria_domain::SearchPlan,
     evidence: &[EvidenceCandidate],
@@ -148,27 +176,7 @@ fn build_search_trace(
         })
         .into_iter()
         .collect();
-    let mut filters = vec![
-        SearchTraceFilter::Quarantine,
-        SearchTraceFilter::PromptInjection,
-    ];
-    if matches!(plan.scope, maestria_domain::CorpusScope::Restricted(_))
-        || policy.required_scope_id.is_some()
-    {
-        filters.push(SearchTraceFilter::Scope);
-    }
-    if policy.require_read_allowed {
-        filters.push(SearchTraceFilter::Acl);
-    }
-    if policy.require_trust_zone.is_some() {
-        filters.push(SearchTraceFilter::Trust);
-    }
-    if policy.max_sensitivity.is_some() {
-        filters.push(SearchTraceFilter::Sensitivity);
-    }
-    if !matches!(plan.freshness, maestria_domain::FreshnessRequirement::Any) {
-        filters.push(SearchTraceFilter::Freshness);
-    }
+    let filters = build_trace_filters(plan, policy);
     let lanes = lane_reports
         .iter()
         .map(|report| maestria_domain::SearchTraceLane {
@@ -189,6 +197,13 @@ fn build_search_trace(
             candidates: report.candidates.clone(),
         })
         .collect::<Vec<_>>();
+    let mut rewrite_session = maestria_retrieval::rewrite::QueryRewriteSession::with_limits(
+        &plan.original_query,
+        plan.budgets.max_tokens() as usize,
+        plan.budgets.max_latency_ms(),
+        plan.budgets.max_queries(),
+    );
+    rewrite_session.expand_deterministic();
     let mut trace = SearchTrace::from_plan(
         plan,
         lanes.iter().map(|lane| lane.retriever_id.clone()).collect(),
@@ -208,6 +223,7 @@ fn build_search_trace(
         policy.required_scope_id,
         policy.allow_unscoped_items,
     ));
+    trace.rewrites = rewrite_session.trace_records();
     trace.diversity = diversity;
     trace
 }

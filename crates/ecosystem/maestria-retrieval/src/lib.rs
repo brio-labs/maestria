@@ -3,6 +3,7 @@ pub mod diversity;
 pub mod engine;
 pub mod fusion;
 pub mod golden;
+pub mod rewrite;
 mod sync;
 mod sync_engine;
 pub mod traits;

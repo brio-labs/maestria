@@ -7,6 +7,7 @@ rust-version.workspace = true
 
 [dependencies]
 maestria-domain = { path = "../../kernel/maestria-domain" }
+maestria-governance = { path = "../../kernel/maestria-governance" }
 maestria-ports = { path = "../../kernel/maestria-ports" }
 async-trait = "0.1.80"
 thiserror = "1.0.59"

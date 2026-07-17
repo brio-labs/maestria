@@ -1,20 +1,75 @@
 use crate::error::{CoreError, CoreResult};
 use crate::generation_gate::ensure_generation_is_serveable;
-use crate::hierarchy_expansion;
-use crate::lane_fusion::{run_cards_lane, run_chunk_lane};
 use crate::ports::CorePorts;
-use crate::rank_fusion::{
-    RankedRetrievalCandidate, RetrievalCandidate, RetrievalLane, fuse, rank_expanded,
-};
 pub(super) use crate::retrieval_lanes::{
     open_chunk_evidence, open_evidence, verify_source_snapshot,
 };
 use crate::types::{EvidencePack, RetrievalMode, SearchInput, SearchOutput};
 use maestria_ports::VectorSearchQuery;
 
+#[path = "retrieval_pipeline.rs"]
+mod retrieval_pipeline;
+
 const CORE_CORPUS_SNAPSHOT: u64 = 1;
 const CORE_INDEX_GENERATION: u64 = 1;
 const CORE_RETRIEVAL_FINGERPRINT: &str = "maestria-core:deterministic-v1";
+
+fn empty_search_output(query: String) -> SearchOutput {
+    SearchOutput {
+        pack: EvidencePack {
+            query,
+            cards: Vec::new(),
+            chunks: Vec::new(),
+            evidence_ids: Vec::new(),
+        },
+        mode: RetrievalMode::LexicalOnly,
+        lane_reports: Vec::new(),
+    }
+}
+
+fn core_search_capabilities(
+    semantic_enabled: bool,
+    filtering_enabled: bool,
+) -> maestria_governance::SearchCapabilities {
+    let max_stages = if filtering_enabled { 2 } else { 1 };
+    let mut capabilities = maestria_governance::SearchCapabilities::core_defaults(
+        maestria_domain::CorpusSnapshotId::new(CORE_CORPUS_SNAPSHOT),
+        maestria_domain::IndexGenerationId::new(CORE_INDEX_GENERATION),
+        (1_000, 30_000),
+    )
+    .max_budgets(1_000, 30_000, 8, max_stages, 0);
+    if semantic_enabled {
+        capabilities = capabilities.with_intent(maestria_domain::SearchIntent::SemanticDiscovery);
+    }
+    if filtering_enabled {
+        capabilities = capabilities.with_stage(maestria_domain::SearchStage::Filtering);
+    }
+    capabilities
+}
+fn validate_core_plan(
+    ports: &CorePorts<'_>,
+    plan: &maestria_domain::SearchPlan,
+    policy: &maestria_governance::RetrievalSecurityPolicy,
+    semantic_enabled: bool,
+    filtering_enabled: bool,
+) -> CoreResult<()> {
+    maestria_governance::SearchPlanValidator::validate(
+        plan,
+        &core_search_capabilities(semantic_enabled, filtering_enabled),
+        policy,
+    )
+    .map_err(CoreError::SearchPlan)?;
+    if plan.fingerprint.as_str() != CORE_RETRIEVAL_FINGERPRINT {
+        return Err(CoreError::InvalidInput {
+            message: format!(
+                "unsupported retrieval fingerprint {}",
+                plan.fingerprint.as_str()
+            ),
+        });
+    }
+    ensure_generation_is_serveable(ports, plan.index_generation)?;
+    Ok(())
+}
 
 pub(super) fn search<'a>(
     ports: &CorePorts<'a>,
@@ -24,9 +79,18 @@ pub(super) fn search<'a>(
     policy: &maestria_governance::RetrievalSecurityPolicy,
     hybrid_policy: crate::types::HybridExecutionPolicy,
 ) -> CoreResult<SearchOutput> {
-    let plan = build_search_plan(&input)?;
-    ensure_generation_is_serveable(ports, plan.index_generation)?;
-    execute_pipeline(
+    if input.limit == 0 {
+        return Ok(empty_search_output(input.query));
+    }
+    let plan = build_search_plan(&input, graph_config.is_some())?;
+    validate_core_plan(
+        ports,
+        &plan,
+        policy,
+        vector_query.is_some(),
+        graph_config.is_some(),
+    )?;
+    retrieval_pipeline::execute_pipeline(
         ports,
         &input,
         vector_query,
@@ -36,7 +100,6 @@ pub(super) fn search<'a>(
         &plan,
     )
 }
-
 pub(super) fn search_with_plan<'a>(
     ports: &CorePorts<'a>,
     plan: maestria_domain::SearchPlan,
@@ -45,67 +108,30 @@ pub(super) fn search_with_plan<'a>(
     policy: &maestria_governance::RetrievalSecurityPolicy,
     hybrid_policy: crate::types::HybridExecutionPolicy,
 ) -> CoreResult<SearchOutput> {
-    use maestria_domain::{CorpusScope, IndexGenerationId};
+    use maestria_domain::CorpusScope;
 
-    if plan.fingerprint.as_str() != CORE_RETRIEVAL_FINGERPRINT {
-        return Err(CoreError::InvalidInput {
-            message: format!(
-                "unsupported retrieval fingerprint {}",
-                plan.fingerprint.as_str()
-            ),
-        });
-    }
-    if plan.index_generation != IndexGenerationId::new(CORE_INDEX_GENERATION) {
-        return Err(CoreError::InvalidInput {
-            message: format!(
-                "unsupported index generation {}",
-                plan.index_generation.value()
-            ),
-        });
-    }
-    ensure_generation_is_serveable(ports, plan.index_generation)?;
+    validate_core_plan(
+        ports,
+        &plan,
+        policy,
+        vector_query.is_some(),
+        graph_config.is_some(),
+    )?;
+
     let mut effective_policy = policy.clone();
-    match &plan.scope {
-        CorpusScope::Restricted(scopes) => {
-            let [scope_id] = scopes.as_slice() else {
-                return Err(CoreError::InvalidInput {
-                    message: "core retrieval requires exactly one restricted scope".to_string(),
-                });
-            };
-            if let Some(required_scope) = effective_policy.required_scope_id
-                && required_scope != *scope_id
-            {
-                return Err(CoreError::InvalidInput {
-                    message: "search plan scope exceeds the configured retrieval policy"
-                        .to_string(),
-                });
-            }
-            effective_policy.required_scope_id = Some(*scope_id);
-        }
-        CorpusScope::Global => {
-            // A configured policy may narrow a global plan; it is never widened.
-        }
-    }
-
-    if plan.corpus_snapshot.value() != CORE_CORPUS_SNAPSHOT
-        || plan.modalities.values() != [maestria_domain::Modality::Text]
-        || !matches!(
-            plan.intent,
-            maestria_domain::SearchIntent::ExactLookup
-                | maestria_domain::SearchIntent::FactualLocal
-        )
-        || plan.freshness != maestria_domain::FreshnessRequirement::Any
-        || plan.stages != [maestria_domain::SearchStage::InitialRetrieval]
-    {
-        return Err(CoreError::InvalidInput {
-            message: "search plan requests unsupported core retrieval capabilities".to_string(),
-        });
+    if let CorpusScope::Restricted(scopes) = &plan.scope {
+        let [scope_id] = scopes.as_slice() else {
+            return Err(CoreError::InvalidInput {
+                message: "core retrieval requires exactly one restricted scope".to_string(),
+            });
+        };
+        effective_policy.required_scope_id = Some(*scope_id);
     }
     let input = SearchInput {
         query: plan.original_query.clone(),
         limit: plan.stop_conditions.max_results as usize,
     };
-    execute_pipeline(
+    retrieval_pipeline::execute_pipeline(
         ports,
         &input,
         vector_query,
@@ -116,7 +142,10 @@ pub(super) fn search_with_plan<'a>(
     )
 }
 
-fn build_search_plan(input: &SearchInput) -> CoreResult<maestria_domain::SearchPlan> {
+fn build_search_plan(
+    input: &SearchInput,
+    filtering_enabled: bool,
+) -> CoreResult<maestria_domain::SearchPlan> {
     use maestria_domain::{
         CorpusScope, CorpusSnapshotId, EvidenceRequirements, FreshnessRequirement,
         IndexGenerationId, Modality, ModalitySet, QueryId, RetrievalModelFingerprint, SearchBudget,
@@ -125,14 +154,25 @@ fn build_search_plan(input: &SearchInput) -> CoreResult<maestria_domain::SearchP
     Ok(SearchPlan {
         query_id: QueryId::new(1),
         original_query: input.query.clone(),
-        intent: SearchIntent::ExactLookup,
+        intent: SearchIntent::classify(&input.query),
         scope: CorpusScope::Global,
         corpus_snapshot: CorpusSnapshotId::new(CORE_CORPUS_SNAPSHOT),
         index_generation: IndexGenerationId::new(CORE_INDEX_GENERATION),
         freshness: FreshnessRequirement::Any,
         modalities: ModalitySet::new(vec![Modality::Text]),
-        stages: vec![SearchStage::InitialRetrieval],
-        budgets: SearchBudget::new(1000, 30_000).map_err(|error| CoreError::InvalidInput {
+        stages: if filtering_enabled {
+            vec![SearchStage::InitialRetrieval, SearchStage::Filtering]
+        } else {
+            vec![SearchStage::InitialRetrieval]
+        },
+        budgets: SearchBudget::with_limits(
+            1000,
+            30_000,
+            8,
+            if filtering_enabled { 2 } else { 1 },
+            0,
+        )
+        .map_err(|error| CoreError::InvalidInput {
             message: error.to_string(),
         })?,
         stop_conditions: StopConditions {
@@ -153,255 +193,4 @@ fn build_search_plan(input: &SearchInput) -> CoreResult<maestria_domain::SearchP
                 message: error.to_string(),
             })?,
     })
-}
-
-fn build_expander<'a>(
-    ports: &'a CorePorts<'a>,
-    query: String,
-    limit: usize,
-    graph_config: Option<crate::types::GraphConfig>,
-    policy: &'a maestria_governance::RetrievalSecurityPolicy,
-) -> impl Fn(
-    Vec<RankedRetrievalCandidate>,
-    &maestria_domain::SearchPlan,
-) -> maestria_retrieval::RetrievalResult<Vec<RankedRetrievalCandidate>>
-+ 'a {
-    move |candidates, plan| {
-        let Some(config) = &graph_config else {
-            return Ok(candidates);
-        };
-        let candidates = candidates
-            .into_iter()
-            .filter(|ranked| ranked.priority_score >= plan.stop_conditions.min_score_threshold)
-            .collect::<Vec<_>>();
-        use std::collections::BTreeMap;
-        let priorities: BTreeMap<_, _> = candidates
-            .iter()
-            .map(|ranked| (ranked.candidate.identity(), ranked.priority_score))
-            .collect();
-        let mut artifact_priorities: BTreeMap<maestria_domain::ArtifactId, u32> = BTreeMap::new();
-        for ranked in &candidates {
-            if ranked.priority_score < plan.stop_conditions.min_score_threshold {
-                continue;
-            }
-            if let Some(artifact_id) = ranked.candidate.artifact_id() {
-                artifact_priorities
-                    .entry(artifact_id)
-                    .and_modify(|priority| *priority = (*priority).max(ranked.priority_score))
-                    .or_insert(ranked.priority_score);
-            }
-        }
-        let mut pack = EvidencePack {
-            query: query.clone(),
-            cards: Vec::new(),
-            chunks: Vec::new(),
-            evidence_ids: Vec::new(),
-        };
-        for ranked in candidates {
-            match ranked.candidate {
-                RetrievalCandidate::Card(hit) => pack.cards.push(hit),
-                RetrievalCandidate::Chunk(hit) => {
-                    pack.evidence_ids.push(hit.evidence.id);
-                    pack.chunks.push(hit);
-                }
-                RetrievalCandidate::EvidenceId(id) => pack.evidence_ids.push(id),
-            }
-        }
-        let expanded = hierarchy_expansion::expand(ports, pack, &query, limit, config, policy)
-            .map_err(|error| maestria_retrieval::RetrievalError::Internal(error.to_string()))?;
-        let expanded = crate::graph_retrieval::expand_graph(ports, expanded, limit, config, policy)
-            .map_err(|error| maestria_retrieval::RetrievalError::Internal(error.to_string()))?;
-        let mut result = expanded
-            .cards
-            .into_iter()
-            .map(RetrievalCandidate::Card)
-            .chain(expanded.chunks.into_iter().map(RetrievalCandidate::Chunk))
-            .chain(
-                expanded
-                    .evidence_ids
-                    .into_iter()
-                    .map(RetrievalCandidate::EvidenceId),
-            )
-            .collect::<Vec<_>>();
-        let fallback_priority = priorities
-            .values()
-            .copied()
-            .min()
-            .map_or(0, |score| score / 2);
-        let mut result_priorities = priorities.clone();
-        for candidate in &result {
-            if result_priorities.contains_key(&candidate.identity()) {
-                continue;
-            }
-            let priority = candidate
-                .artifact_id()
-                .and_then(|artifact_id| artifact_priorities.get(&artifact_id).copied())
-                .map_or(fallback_priority, |score| score / 2);
-            result_priorities.insert(candidate.identity(), priority);
-        }
-        result.sort_by(|left, right| {
-            let left_priority = result_priorities
-                .get(&left.identity())
-                .copied()
-                .map_or(0, |score| score);
-            let right_priority = result_priorities
-                .get(&right.identity())
-                .copied()
-                .map_or(0, |score| score);
-            right_priority
-                .cmp(&left_priority)
-                .then_with(|| left.identity().cmp(&right.identity()))
-        });
-        Ok(rank_expanded(
-            RetrievalLane::Hierarchy,
-            result,
-            &result_priorities,
-            fallback_priority,
-        ))
-    }
-}
-
-fn check_latency(
-    start: std::time::Instant,
-    excluded: std::time::Duration,
-    max_latency_ms: u32,
-) -> CoreResult<()> {
-    if max_latency_ms > 0
-        && start.elapsed().saturating_sub(excluded).as_millis() as u64 > u64::from(max_latency_ms)
-    {
-        Err(CoreError::InvalidInput {
-            message: "retrieval latency budget exhausted".to_string(),
-        })
-    } else {
-        Ok(())
-    }
-}
-
-#[allow(clippy::disallowed_methods)]
-fn execute_pipeline<'a>(
-    ports: &'a CorePorts<'a>,
-    input: &SearchInput,
-    vector_query: Option<VectorSearchQuery>,
-    graph_config: Option<crate::types::GraphConfig>,
-    policy: &'a maestria_governance::RetrievalSecurityPolicy,
-    hybrid_policy: crate::types::HybridExecutionPolicy,
-    plan: &maestria_domain::SearchPlan,
-) -> CoreResult<SearchOutput> {
-    use std::collections::BTreeSet;
-    let start = std::time::Instant::now();
-    let mut excluded = std::time::Duration::ZERO;
-    let active_hybrid = matches!(
-        hybrid_policy,
-        crate::types::HybridExecutionPolicy::Active(_)
-    );
-    let max_latency_ms = plan.budgets.max_latency_ms();
-    let mut runs = vec![run_cards_lane(ports, &input.query, input.limit, policy)];
-    let mut fusion_ranked = vec![runs[0].ranked.clone()];
-    check_latency(start, excluded, max_latency_ms)?;
-    if vector_query.is_some() {
-        let dense_start = std::time::Instant::now();
-        let dense_run = run_chunk_lane(
-            ports,
-            RetrievalLane::VectorChunks,
-            &input.query,
-            input.limit,
-            vector_query.clone(),
-            policy,
-        );
-        if active_hybrid {
-            fusion_ranked.push(dense_run.ranked.clone());
-        }
-        runs.push(dense_run);
-        if active_hybrid {
-            check_latency(start, excluded, max_latency_ms)?;
-        } else {
-            // Shadow telemetry must not make the deterministic served path miss its budget.
-            excluded = dense_start.elapsed();
-            check_latency(start, excluded, max_latency_ms)?;
-        }
-    }
-    let lexical_run = run_chunk_lane(
-        ports,
-        if input.query.trim().starts_with('"')
-            && input.query.trim().ends_with('"')
-            && input.query.trim().len() >= 2
-        {
-            RetrievalLane::ExactChunks
-        } else {
-            RetrievalLane::LexicalChunks
-        },
-        &input.query,
-        input.limit,
-        None,
-        policy,
-    );
-    fusion_ranked.push(lexical_run.ranked.clone());
-    runs.push(lexical_run);
-    check_latency(start, excluded, max_latency_ms)?;
-    let lane_reports = runs.into_iter().map(|run| run.report).collect::<Vec<_>>();
-    let mut candidates = fuse(input.limit, fusion_ranked);
-    check_latency(start, excluded, max_latency_ms)?;
-    candidates = build_expander(
-        ports,
-        input.query.clone(),
-        input.limit,
-        graph_config,
-        policy,
-    )(candidates, plan)
-    .map_err(|error| CoreError::InvalidInput {
-        message: error.to_string(),
-    })?;
-    check_latency(start, excluded, max_latency_ms)?;
-
-    let mut pack = EvidencePack {
-        query: input.query.clone(),
-        cards: Vec::new(),
-        chunks: Vec::new(),
-        evidence_ids: Vec::new(),
-    };
-    let mut cards = BTreeSet::new();
-    let mut chunks = BTreeSet::new();
-    for ranked in candidates.into_iter().take(input.limit) {
-        if ranked.priority_score < plan.stop_conditions.min_score_threshold {
-            continue;
-        }
-        match ranked.candidate {
-            RetrievalCandidate::Card(hit) if cards.insert(hit.card.id) => {
-                pack.cards.push(hit);
-            }
-            RetrievalCandidate::Chunk(hit) if chunks.insert(hit.evidence.id) => {
-                pack.evidence_ids.push(hit.evidence.id);
-                pack.chunks.push(hit);
-            }
-            RetrievalCandidate::EvidenceId(id) if chunks.insert(id) => {
-                pack.evidence_ids.push(id);
-            }
-            _ => {}
-        }
-    }
-    check_latency(start, excluded, max_latency_ms)?;
-    let retrieval_mode = retrieval_mode(&lane_reports, active_hybrid);
-    Ok(SearchOutput {
-        pack,
-        mode: retrieval_mode,
-        lane_reports,
-    })
-}
-
-fn retrieval_mode(
-    lane_reports: &[crate::types::RetrievalLaneReport],
-    active_hybrid: bool,
-) -> RetrievalMode {
-    if lane_reports.iter().any(|report| {
-        report.retriever_id == "dense_chunks"
-            && matches!(report.status, crate::types::RetrievalLaneStatus::Succeeded)
-    }) {
-        if active_hybrid {
-            RetrievalMode::Hybrid
-        } else {
-            RetrievalMode::HybridShadow
-        }
-    } else {
-        RetrievalMode::LexicalOnly
-    }
 }

@@ -2,6 +2,11 @@ use maestria_core::{CorePorts, CoreServices, SearchInput};
 use maestria_domain::{
     Artifact, ArtifactId, Chunk, Evidence, EvidenceKind, IndexStatus, SourceSpan, StructureNodeId,
 };
+use maestria_domain::{
+    CorpusScope, CorpusSnapshotId, EvidenceRequirements, FreshnessRequirement, IndexGenerationId,
+    Modality, ModalitySet, QueryId, RetrievalModelFingerprint, SearchBudget, SearchIntent,
+    SearchPlan, SearchStage, StopConditions,
+};
 use maestria_ports::{
     ArtifactRepository, BlobStore, ChunkRepository, EvidenceRepository, InMemoryArtifactRepository,
     InMemoryBlobStore, InMemoryChunkRepository, InMemoryEventLog, InMemoryEvidenceRepository,
@@ -180,5 +185,80 @@ fn active_mode_serves_dense_fusion() -> Result<(), Box<dyn std::error::Error>> {
     let output = search_with_policy(maestria_core::HybridExecutionPolicy::Active(record))?;
     assert_eq!(output.mode, maestria_core::RetrievalMode::Hybrid);
     assert_eq!(output.pack.chunks.len(), 1);
+    Ok(())
+}
+
+#[test]
+fn knowledge_search_trace_contains_deterministic_rewrites() -> Result<(), Box<dyn std::error::Error>>
+{
+    let (
+        artifact_repo,
+        chunk_repo,
+        evidence_repo,
+        blob_store,
+        events,
+        parser,
+        search_index,
+        _vector_index,
+        _artifact_id,
+        _chunk_id,
+        _evidence_id,
+    ) = seed_vector_fixture()?;
+    let card_repo = maestria_ports::InMemoryCardRepository::new();
+    let core = CoreServices::new(CorePorts {
+        artifacts: &artifact_repo,
+        chunks: &chunk_repo,
+        cards: &card_repo,
+        evidence: &evidence_repo,
+        events: &events,
+        parser: &parser,
+        search_index: &search_index,
+        blobs: &blob_store,
+        vector_index: None,
+        graph_index: None,
+    });
+    let plan = SearchPlan {
+        query_id: QueryId::new(99),
+        original_query: "find PR test".to_string(),
+        intent: SearchIntent::FactualLocal,
+        scope: CorpusScope::Global,
+        corpus_snapshot: CorpusSnapshotId::new(1),
+        index_generation: IndexGenerationId::new(1),
+        freshness: FreshnessRequirement::Any,
+        modalities: ModalitySet::new(vec![Modality::Text]),
+        stages: vec![SearchStage::InitialRetrieval],
+        budgets: SearchBudget::with_limits(1000, 30_000, 8, 1, 0).expect("valid plan budget"),
+        stop_conditions: StopConditions {
+            max_results: 5,
+            min_score_threshold: 0,
+        },
+        evidence_requirements: EvidenceRequirements {
+            require_primary_sources: false,
+            minimum_corroboration: 1,
+            required_claims: Vec::new(),
+            required_subquestions: Vec::new(),
+            minimum_sources: 0,
+            minimum_documents: 0,
+            minimum_sections: 0,
+        },
+        fingerprint: RetrievalModelFingerprint::new("maestria-core:deterministic-v1".to_string())
+            .expect("valid plan fingerprint"),
+    };
+    let mut invalid_plan = plan.clone();
+    invalid_plan.original_query.clear();
+    assert!(core.search_knowledge(invalid_plan).is_err());
+    let outcome = core.search_knowledge(plan)?;
+    let trace = outcome.trace_data.ok_or("trace data missing")?;
+    assert_eq!(trace.original_query, "find PR test");
+    assert!(
+        trace
+            .rewrites
+            .iter()
+            .any(|rewrite| rewrite.origin == maestria_domain::SearchRewriteOrigin::Original)
+    );
+    assert!(trace.rewrites.iter().any(|rewrite| {
+        rewrite.origin == maestria_domain::SearchRewriteOrigin::Deterministic
+            && rewrite.query.contains("Pull Request")
+    }));
     Ok(())
 }

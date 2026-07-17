@@ -1,9 +1,9 @@
 use maestria_domain::{
     ArtifactVersionId, ContentRange, CorpusScope, CorpusSnapshotId, DuplicateClusterId,
     EvidenceCandidate, EvidenceRequirements, EvidenceSpan, FreshnessRequirement, FreshnessStatus,
-    IndexGenerationId, ModalitySet, QueryId, RetrievalModelFingerprint, RetrievalScoreSet,
-    SearchBudget, SearchIntent, SearchPlan, SearchStage, SearchStatus, SourceLocation,
-    StopConditions, StructureNodeId, TrustLabel,
+    IndexGenerationId, Modality, ModalitySet, QueryId, RetrievalModelFingerprint,
+    RetrievalScoreSet, SearchBudget, SearchIntent, SearchPlan, SearchStage, SearchStatus,
+    SourceLocation, StopConditions, StructureNodeId, TrustLabel,
 };
 use maestria_retrieval::diversity::select_candidates;
 use maestria_retrieval::types::RankedCandidate;
@@ -17,7 +17,7 @@ fn plan(requirements: EvidenceRequirements, max_results: u32) -> SearchPlan {
         corpus_snapshot: CorpusSnapshotId::new(1),
         index_generation: IndexGenerationId::new(1),
         freshness: FreshnessRequirement::Any,
-        modalities: ModalitySet::new(vec![]),
+        modalities: ModalitySet::new(vec![Modality::Text]),
         stages: vec![SearchStage::InitialRetrieval],
         budgets: SearchBudget::new(100, 1_000).expect("valid fixture budget"),
         stop_conditions: StopConditions {

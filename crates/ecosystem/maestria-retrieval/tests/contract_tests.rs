@@ -2,8 +2,8 @@ use async_trait::async_trait;
 use maestria_domain::{
     ArtifactVersionId, ContentRange, CorpusScope, CorpusSnapshotId, EvidenceCandidate,
     EvidenceCoverage, EvidenceRequirements, EvidenceSpan, FreshnessRequirement, FreshnessStatus,
-    IndexGenerationId, ModalitySet, QueryId, RetrievalModelFingerprint, RetrievalReason,
-    RetrievalScoreSet, SearchBudget, SearchIntent, SearchOutcome, SearchPlan, SearchStage,
+    IndexGenerationId, Modality, ModalitySet, QueryId, RetrievalModelFingerprint, RetrievalReason,
+    RetrievalScoreSet, ScopeId, SearchBudget, SearchIntent, SearchOutcome, SearchPlan, SearchStage,
     SearchStatus, SearchTraceId, SourceLocation, StopConditions, StructureNodeId, TrustLabel,
 };
 use maestria_retrieval::{
@@ -16,12 +16,12 @@ fn dummy_plan() -> RetrievalResult<SearchPlan> {
     Ok(SearchPlan {
         query_id: QueryId::new(1),
         original_query: "test query".to_string(),
-        intent: SearchIntent::ExactLookup,
+        intent: SearchIntent::FactualLocal,
         scope: CorpusScope::Global,
         corpus_snapshot: CorpusSnapshotId::new(1),
         index_generation: IndexGenerationId::new(1),
         freshness: FreshnessRequirement::Any,
-        modalities: ModalitySet::new(vec![]),
+        modalities: ModalitySet::new(vec![Modality::Text]),
         stages: vec![SearchStage::InitialRetrieval],
         budgets: SearchBudget::new(1000, 100)?,
         stop_conditions: StopConditions {
@@ -140,7 +140,7 @@ fn test_fingerprint_compatibility_pass() -> RetrievalResult<()> {
 #[test]
 fn test_scope_acl_filtering() -> RetrievalResult<()> {
     let mut plan = dummy_plan()?;
-    plan.scope = CorpusScope::Restricted(vec![]);
+    plan.scope = CorpusScope::Restricted(vec![ScopeId::new(1)]);
     let retriever = |p: &SearchPlan| -> RetrievalResult<Vec<EvidenceCandidate>> {
         match p.scope {
             CorpusScope::Restricted(_) => Ok(vec![]),

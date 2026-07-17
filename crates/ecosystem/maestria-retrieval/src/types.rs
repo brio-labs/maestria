@@ -94,6 +94,8 @@ pub struct RetrievalEvaluationReport {
 
 #[derive(Error, Debug)]
 pub enum RetrievalError {
+    #[error("Search plan rejected: {0}")]
+    SearchPlan(#[from] maestria_governance::SearchPlanValidationError),
     #[error("Compatibility error: {0}")]
     Compatibility(#[from] maestria_domain::SearchCompatibilityError),
     #[error("Retrieval cancelled")]

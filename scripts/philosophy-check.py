@@ -80,6 +80,7 @@ POLICY_DOC_MARKERS = {
         "44. Retrieval changes",
         "45. Normative architecture",
         "46. Maestria preserves",
+        "47. Model-generated search plans",
     ),
     "docs/SPECS.md": (
         "I-Search-TypedBudgeted",

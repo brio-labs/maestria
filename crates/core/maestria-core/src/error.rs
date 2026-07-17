@@ -6,6 +6,7 @@ use maestria_ports::PortError;
 pub enum CoreError {
     InvalidInput { message: String },
     NotFound { message: String },
+    SearchPlan(maestria_governance::SearchPlanValidationError),
     Port(PortError),
 }
 
@@ -13,6 +14,7 @@ impl fmt::Display for CoreError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::InvalidInput { message } => write!(f, "invalid input: {message}"),
+            Self::SearchPlan(error) => write!(f, "search plan rejected: {error}"),
             Self::NotFound { message } => write!(f, "not found: {message}"),
             Self::Port(error) => write!(f, "{error}"),
         }

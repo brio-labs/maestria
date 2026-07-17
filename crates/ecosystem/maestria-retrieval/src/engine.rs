@@ -1,29 +1,52 @@
 use maestria_domain::{
-    EvidenceCandidate, SearchOutcome, SearchPlan, SearchStatus, SearchStopReason, SearchTrace,
-    SearchTraceExpansion,
+    SearchOutcome, SearchPlan, SearchStatus, SearchStopReason, SearchTrace, SearchTraceExpansion,
 };
 use maestria_ports::SearchQuery;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::task::JoinSet;
 
 use crate::traits::{
     CandidateReranker, CandidateRetriever, ContextExpander, RankFusion, RetrievalEvaluator,
 };
-use crate::types::{
-    CandidateRequest, ExpansionPolicy, RankedCandidate, RerankRequest, RetrievalError,
-    RetrievalExperiment, RetrievalResult,
-};
+use crate::types::{RankedCandidate, RerankRequest, RetrievalError, RetrievalResult};
+
+#[path = "engine_pipeline.rs"]
+mod engine_pipeline;
+
+pub(super) use engine_pipeline::reconcile_status;
+
+pub(crate) fn rewrite_session(plan: &SearchPlan) -> crate::rewrite::QueryRewriteSession {
+    let mut session = crate::rewrite::QueryRewriteSession::with_limits(
+        &plan.original_query,
+        plan.budgets.max_tokens() as usize,
+        plan.budgets.max_latency_ms(),
+        plan.budgets.max_queries(),
+    );
+    session.expand_deterministic();
+    session
+}
+
+pub(crate) struct EnsureTraceOptions {
+    pub(crate) fusion_enabled: bool,
+    pub(crate) expansion_enabled: bool,
+    pub(crate) rerank_trace: Option<maestria_domain::SearchTraceRerank>,
+    pub(crate) diversity_trace: Option<maestria_domain::SearchTraceDiversity>,
+    pub(crate) rewrites: Vec<maestria_domain::SearchTraceRewrite>,
+}
 
 pub(super) fn ensure_trace(
     plan: &SearchPlan,
     mut outcome: SearchOutcome,
     lanes: Vec<maestria_domain::SearchTraceLane>,
-    fusion_enabled: bool,
-    expansion_enabled: bool,
-    rerank_trace: Option<maestria_domain::SearchTraceRerank>,
-    diversity_trace: Option<maestria_domain::SearchTraceDiversity>,
+    options: EnsureTraceOptions,
 ) -> SearchOutcome {
+    let EnsureTraceOptions {
+        fusion_enabled,
+        expansion_enabled,
+        rerank_trace,
+        diversity_trace,
+        rewrites,
+    } = options;
     let trace_is_valid = outcome.trace_data.as_ref().is_some_and(|trace| {
         outcome.trace == trace.deterministic_id()
             && trace.matches_plan(plan)
@@ -37,6 +60,7 @@ pub(super) fn ensure_trace(
             && trace.rerank == rerank_trace
             && trace.diversity == diversity_trace
             && trace.expansions.len() == usize::from(expansion_enabled)
+            && trace.rewrites == rewrites
             && trace.matches_evidence(&outcome.evidence)
     });
     if trace_is_valid {
@@ -87,6 +111,7 @@ pub(super) fn ensure_trace(
             .map(|conflict| conflict.id)
             .collect(),
     );
+    trace.rewrites = rewrites;
     trace.rerank = rerank_trace;
     trace.diversity = diversity_trace;
     outcome.trace = trace.deterministic_id();
@@ -100,108 +125,110 @@ pub struct RetrievalEngine {
     reranker: Option<Arc<dyn CandidateReranker>>,
     expander: Option<Arc<dyn ContextExpander>>,
     evaluator: Arc<dyn RetrievalEvaluator>,
+    capabilities: maestria_governance::SearchCapabilities,
 }
 
-async fn collect_batches(
+fn capabilities_from_retrievers(
     retrievers: &[Arc<dyn CandidateRetriever>],
-    plan: &SearchPlan,
-    query: &SearchQuery,
-) -> RetrievalResult<Vec<crate::types::CandidateBatch>> {
-    let mut tasks = JoinSet::new();
-    for (index, retriever) in retrievers.iter().enumerate() {
-        let retriever = Arc::clone(retriever);
-        let request = CandidateRequest {
-            plan: plan.clone(),
-            query: query.clone(),
-        };
-        let descriptor = retriever.descriptor();
-        tasks.spawn(async move { (index, descriptor, retriever.retrieve(request).await) });
-    }
+) -> maestria_governance::SearchCapabilities {
+    use maestria_domain::{
+        CorpusSnapshotId, IndexGenerationId, Modality, SearchIntent, SearchStage,
+    };
 
-    let mut completed = std::iter::repeat_with(|| None)
-        .take(retrievers.len())
-        .collect::<Vec<_>>();
-    while let Some(result) = tasks.join_next().await {
-        let (index, descriptor, result) = result
-            .map_err(|error| RetrievalError::Internal(format!("retriever task failed: {error}")))?;
-        let batch = match result {
-            Ok(mut batch) => {
-                batch
-                    .candidates
-                    .truncate(plan.stop_conditions.max_results as usize);
-                batch.descriptor = descriptor;
-                if !matches!(
-                    batch.status,
-                    maestria_domain::SearchLaneStatus::Failed { .. }
-                ) {
-                    batch.status = if batch.candidates.is_empty() {
-                        maestria_domain::SearchLaneStatus::Empty
-                    } else {
-                        maestria_domain::SearchLaneStatus::Succeeded
-                    };
-                }
-                batch
+    let mut capabilities = maestria_governance::SearchCapabilities::new()
+        .with_intent(SearchIntent::ExactLookup)
+        .with_intent(SearchIntent::FactualLocal)
+        .with_stage(SearchStage::InitialRetrieval)
+        .with_snapshot(CorpusSnapshotId::new(1))
+        .with_generation(IndexGenerationId::new(1))
+        .allow_global_scope()
+        .max_scope_ids(u32::MAX)
+        .max_budgets(1_000, 30_000, 8, 3, 0)
+        .with_security_filters();
+    let mut known_modality = false;
+    for retriever in retrievers {
+        match retriever
+            .descriptor()
+            .modality
+            .to_ascii_lowercase()
+            .as_str()
+        {
+            "text" | "lexical" => {
+                capabilities = capabilities.with_modality(Modality::Text);
+                known_modality = true;
             }
-            Err(RetrievalError::Cancelled) => return Err(RetrievalError::Cancelled),
-            Err(error) => crate::types::CandidateBatch {
-                descriptor,
-                candidates: Vec::new(),
-                status: maestria_domain::SearchLaneStatus::Failed {
-                    error: error.to_string(),
-                },
-            },
-        };
-        completed[index] = Some(batch);
+            "code" | "rust" => {
+                capabilities = capabilities
+                    .with_modality(Modality::Code)
+                    .with_intent(SearchIntent::RepositoryCode);
+                known_modality = true;
+            }
+            "image" => {
+                capabilities = capabilities.with_modality(Modality::Image);
+                known_modality = true;
+            }
+            "pdf" => {
+                capabilities = capabilities.with_modality(Modality::Pdf);
+                known_modality = true;
+            }
+            "table" => {
+                capabilities = capabilities.with_modality(Modality::Table);
+                known_modality = true;
+            }
+            "web" => {
+                capabilities = capabilities
+                    .with_modality(Modality::Web)
+                    .with_intent(SearchIntent::CurrentWeb)
+                    .enable_web()
+                    .max_budgets(1_000, 30_000, 8, 3, 1);
+                known_modality = true;
+            }
+            "vector" | "dense" | "semantic" => {
+                capabilities = capabilities
+                    .with_modality(Modality::Text)
+                    .with_intent(SearchIntent::SemanticDiscovery);
+                known_modality = true;
+            }
+            _ => {}
+        }
     }
-
-    completed
-        .into_iter()
-        .map(|batch| {
-            batch.ok_or_else(|| {
-                RetrievalError::Internal("retriever task produced no result".to_string())
-            })
-        })
-        .collect()
-}
-
-fn trace_lanes(batches: &[crate::types::CandidateBatch]) -> Vec<maestria_domain::SearchTraceLane> {
-    batches
-        .iter()
-        .map(|batch| maestria_domain::SearchTraceLane {
-            retriever_id: batch.descriptor.id.clone(),
-            status: batch.status.clone(),
-            candidates: batch
-                .candidates
-                .iter()
-                .enumerate()
-                .map(
-                    |(rank, candidate)| maestria_domain::SearchTraceLaneCandidate {
-                        evidence_id: candidate.evidence_id,
-                        artifact_version: candidate.artifact_version,
-                        source_span: candidate.source_span.clone(),
-                        lane_rank: (rank + 1) as u32,
-                        duplicate_cluster: candidate.duplicate_cluster,
-                        scores: candidate.scores.clone(),
-                        reasons: candidate.reasons.clone(),
-                    },
-                )
-                .collect(),
-        })
-        .collect()
+    if !known_modality {
+        capabilities = capabilities.with_modality(Modality::Text);
+    }
+    capabilities
 }
 
 impl RetrievalEngine {
+    fn validate_plan(&self, plan: &SearchPlan) -> RetrievalResult<()> {
+        maestria_governance::SearchPlanValidator::validate(
+            plan,
+            &self.capabilities,
+            &maestria_governance::RetrievalSecurityPolicy::default(),
+        )
+        .map_err(RetrievalError::SearchPlan)
+    }
+
     pub fn new(
         retrievers: Vec<Arc<dyn CandidateRetriever>>,
         evaluator: Arc<dyn RetrievalEvaluator>,
     ) -> Self {
+        let capabilities = capabilities_from_retrievers(&retrievers);
         Self {
             retrievers,
             fusion: None,
             reranker: None,
             expander: None,
             evaluator,
+            capabilities,
         }
+    }
+
+    pub fn with_capabilities(
+        mut self,
+        capabilities: maestria_governance::SearchCapabilities,
+    ) -> Self {
+        self.capabilities = capabilities;
+        self
     }
 
     pub fn with_fusion(mut self, fusion: Arc<dyn RankFusion>) -> Self {
@@ -211,15 +238,23 @@ impl RetrievalEngine {
 
     pub fn with_reranker(mut self, reranker: Arc<dyn CandidateReranker>) -> Self {
         self.reranker = Some(reranker);
+        self.capabilities = self
+            .capabilities
+            .clone()
+            .with_stage(maestria_domain::SearchStage::Reranking);
         self
     }
 
     pub fn with_expander(mut self, expander: Arc<dyn ContextExpander>) -> Self {
         self.expander = Some(expander);
+        self.capabilities = self
+            .capabilities
+            .clone()
+            .with_stage(maestria_domain::SearchStage::Filtering);
         self
     }
-
     pub async fn search(&self, plan: &SearchPlan) -> RetrievalResult<SearchOutcome> {
+        self.validate_plan(plan)?;
         let timeout_ms = plan.budgets.max_latency_ms() as u64;
         let started = tokio::time::Instant::now();
         let search = self.search_internal(plan, started);
@@ -245,8 +280,23 @@ impl RetrievalEngine {
             limit: plan.stop_conditions.max_results as usize,
             offset: 0,
         };
-        let batches = collect_batches(&self.retrievers, plan, &query).await?;
-        let lanes = trace_lanes(&batches);
+        let session = rewrite_session(plan);
+        let mut batches = Vec::new();
+        for rewrite in session
+            .records()
+            .iter()
+            .filter(|record| record.stage == crate::rewrite::StageRole::InitialRetrieval)
+        {
+            let rewrite_query = SearchQuery {
+                q: rewrite.query.clone(),
+                limit: query.limit,
+                offset: 0,
+            };
+            batches.extend(
+                engine_pipeline::collect_batches(&self.retrievers, plan, &rewrite_query).await?,
+            );
+        }
+        let lanes = engine_pipeline::trace_lanes(&batches);
         let mut ranked = if let Some(fusion) = &self.fusion {
             fusion
                 .fuse(&query, &batches)?
@@ -270,7 +320,10 @@ impl RetrievalEngine {
         };
 
         let mut rerank_trace = None;
-        if let Some(reranker) = &self.reranker {
+        let reranking_enabled = plan
+            .stages
+            .contains(&maestria_domain::SearchStage::Reranking);
+        if reranking_enabled && let Some(reranker) = &self.reranker {
             let elapsed_ms = started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
             let remaining_ms = u64::from(plan.budgets.max_latency_ms())
                 .saturating_sub(elapsed_ms)
@@ -286,116 +339,33 @@ impl RetrievalEngine {
             rerank_trace = Some(rerank_res.trace);
         }
 
+        let expansion_enabled = plan
+            .stages
+            .contains(&maestria_domain::SearchStage::Filtering);
+        let configured_expander = expansion_enabled.then(|| self.expander.clone()).flatten();
         let initial_diversity = crate::diversity::select_candidates(&ranked, plan);
-        let (mut raw_outcome, final_diversity) =
-            run_diversity_stage(plan, initial_diversity, &self.expander, &self.evaluator).await?;
+        let (mut raw_outcome, final_diversity) = engine_pipeline::run_diversity_stage(
+            plan,
+            initial_diversity,
+            &configured_expander,
+            &self.evaluator,
+        )
+        .await?;
         raw_outcome.status = reconcile_status(&raw_outcome.status, &final_diversity.status);
         raw_outcome.coverage = final_diversity.coverage;
         let outcome = ensure_trace(
             plan,
             raw_outcome,
             lanes,
-            self.fusion.is_some(),
-            self.expander.is_some(),
-            rerank_trace,
-            Some(final_diversity.trace),
+            EnsureTraceOptions {
+                fusion_enabled: self.fusion.is_some(),
+                expansion_enabled,
+                rerank_trace,
+                diversity_trace: Some(final_diversity.trace),
+                rewrites: rewrite_session(plan).trace_records(),
+            },
         );
         outcome.verify_compatibility(plan)?;
         Ok(outcome)
-    }
-}
-
-async fn run_diversity_stage(
-    plan: &SearchPlan,
-    initial: crate::diversity::DiversitySelection,
-    expander: &Option<Arc<dyn ContextExpander>>,
-    evaluator: &Arc<dyn RetrievalEvaluator>,
-) -> RetrievalResult<(SearchOutcome, crate::diversity::DiversitySelection)> {
-    let selected_candidates = initial.candidates.clone();
-    let expansion_policy = ExpansionPolicy {
-        max_results: plan.stop_conditions.max_results as usize,
-        max_depth: plan.stages.len(),
-        selected_seeds: selected_candidates
-            .iter()
-            .map(|candidate| candidate.candidate.clone())
-            .collect(),
-        required_claims: initial.coverage.required_claims.clone(),
-        required_subquestions: initial.coverage.required_subquestions.clone(),
-    };
-    let expanded = if let Some(expander) = expander {
-        expander.expand(&selected_candidates, &expansion_policy)?
-    } else {
-        selected_candidates
-            .iter()
-            .map(|candidate| candidate.candidate.clone())
-            .collect()
-    };
-    let expanded_ranked = expanded
-        .into_iter()
-        .enumerate()
-        .map(|(rank, candidate)| RankedCandidate { candidate, rank })
-        .collect::<Vec<_>>();
-    let final_diversity = crate::diversity::select_candidates(&expanded_ranked, plan);
-    ensure_exact_lineage(&final_diversity.candidates, &selected_candidates)?;
-    let candidates = final_diversity
-        .candidates
-        .iter()
-        .map(|candidate| candidate.candidate.clone())
-        .collect();
-    let report = evaluator
-        .evaluate(RetrievalExperiment {
-            plan: plan.clone(),
-            candidates,
-        })
-        .await?;
-    ensure_exact_lineage_from_evidence(&report.outcome.evidence, &final_diversity.candidates)?;
-    Ok((report.outcome, final_diversity))
-}
-
-fn ensure_exact_lineage(
-    candidates: &[RankedCandidate],
-    seeds: &[RankedCandidate],
-) -> RetrievalResult<()> {
-    let evidence = candidates
-        .iter()
-        .map(|candidate| candidate.candidate.clone())
-        .collect::<Vec<_>>();
-    ensure_exact_lineage_from_evidence(&evidence, seeds)
-}
-
-fn ensure_exact_lineage_from_evidence(
-    evidence: &[EvidenceCandidate],
-    seeds: &[RankedCandidate],
-) -> RetrievalResult<()> {
-    if evidence.len() != seeds.len()
-        || seeds.iter().any(|seed| {
-            !evidence
-                .iter()
-                .any(|candidate| candidate == &seed.candidate)
-        })
-    {
-        return Err(RetrievalError::Internal(
-            "evidence stage changed selected candidate lineage".to_string(),
-        ));
-    }
-    Ok(())
-}
-
-pub(super) fn reconcile_status(
-    evaluator_status: &SearchStatus,
-    selector_status: &SearchStatus,
-) -> SearchStatus {
-    match evaluator_status {
-        SearchStatus::SourcesConflict
-        | SearchStatus::DeniedByPolicy
-        | SearchStatus::QuarantinedForReview
-        | SearchStatus::Abstained => evaluator_status.clone(),
-        _ => match selector_status {
-            SearchStatus::NoEvidenceFound
-            | SearchStatus::AnswerableWithWarnings
-            | SearchStatus::EvidenceIncomplete
-            | SearchStatus::StaleEvidenceOnly => selector_status.clone(),
-            _ => evaluator_status.clone(),
-        },
     }
 }

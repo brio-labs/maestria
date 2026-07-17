@@ -1,0 +1,195 @@
+use maestria_domain::{EvidenceCandidate, SearchOutcome, SearchPlan, SearchStatus};
+use maestria_ports::SearchQuery;
+use std::sync::Arc;
+use tokio::task::JoinSet;
+
+use crate::traits::{CandidateRetriever, ContextExpander, RetrievalEvaluator};
+use crate::types::{
+    CandidateRequest, ExpansionPolicy, RankedCandidate, RetrievalError, RetrievalExperiment,
+    RetrievalResult,
+};
+
+pub(super) async fn collect_batches(
+    retrievers: &[Arc<dyn CandidateRetriever>],
+    plan: &SearchPlan,
+    query: &SearchQuery,
+) -> RetrievalResult<Vec<crate::types::CandidateBatch>> {
+    let mut tasks = JoinSet::new();
+    for (index, retriever) in retrievers.iter().enumerate() {
+        let retriever = Arc::clone(retriever);
+        let request = CandidateRequest {
+            plan: plan.clone(),
+            query: query.clone(),
+        };
+        let descriptor = retriever.descriptor();
+        tasks.spawn(async move { (index, descriptor, retriever.retrieve(request).await) });
+    }
+
+    let mut completed = std::iter::repeat_with(|| None)
+        .take(retrievers.len())
+        .collect::<Vec<_>>();
+    while let Some(result) = tasks.join_next().await {
+        let (index, descriptor, result) = result
+            .map_err(|error| RetrievalError::Internal(format!("retriever task failed: {error}")))?;
+        let batch = match result {
+            Ok(mut batch) => {
+                batch
+                    .candidates
+                    .truncate(plan.stop_conditions.max_results as usize);
+                batch.descriptor = descriptor;
+                if !matches!(
+                    batch.status,
+                    maestria_domain::SearchLaneStatus::Failed { .. }
+                ) {
+                    batch.status = if batch.candidates.is_empty() {
+                        maestria_domain::SearchLaneStatus::Empty
+                    } else {
+                        maestria_domain::SearchLaneStatus::Succeeded
+                    };
+                }
+                batch
+            }
+            Err(RetrievalError::Cancelled) => return Err(RetrievalError::Cancelled),
+            Err(error) => crate::types::CandidateBatch {
+                descriptor,
+                candidates: Vec::new(),
+                status: maestria_domain::SearchLaneStatus::Failed {
+                    error: error.to_string(),
+                },
+            },
+        };
+        completed[index] = Some(batch);
+    }
+
+    completed
+        .into_iter()
+        .map(|batch| {
+            batch.ok_or_else(|| {
+                RetrievalError::Internal("retriever task produced no result".to_string())
+            })
+        })
+        .collect()
+}
+
+pub(super) fn trace_lanes(
+    batches: &[crate::types::CandidateBatch],
+) -> Vec<maestria_domain::SearchTraceLane> {
+    batches
+        .iter()
+        .map(|batch| maestria_domain::SearchTraceLane {
+            retriever_id: batch.descriptor.id.clone(),
+            status: batch.status.clone(),
+            candidates: batch
+                .candidates
+                .iter()
+                .enumerate()
+                .map(
+                    |(rank, candidate)| maestria_domain::SearchTraceLaneCandidate {
+                        evidence_id: candidate.evidence_id,
+                        artifact_version: candidate.artifact_version,
+                        source_span: candidate.source_span.clone(),
+                        lane_rank: (rank + 1) as u32,
+                        duplicate_cluster: candidate.duplicate_cluster,
+                        scores: candidate.scores.clone(),
+                        reasons: candidate.reasons.clone(),
+                    },
+                )
+                .collect(),
+        })
+        .collect()
+}
+
+pub(super) async fn run_diversity_stage(
+    plan: &SearchPlan,
+    initial: crate::diversity::DiversitySelection,
+    expander: &Option<Arc<dyn ContextExpander>>,
+    evaluator: &Arc<dyn RetrievalEvaluator>,
+) -> RetrievalResult<(SearchOutcome, crate::diversity::DiversitySelection)> {
+    let selected_candidates = initial.candidates.clone();
+    let expansion_policy = ExpansionPolicy {
+        max_results: plan.stop_conditions.max_results as usize,
+        max_depth: plan.stages.len(),
+        selected_seeds: selected_candidates
+            .iter()
+            .map(|candidate| candidate.candidate.clone())
+            .collect(),
+        required_claims: initial.coverage.required_claims.clone(),
+        required_subquestions: initial.coverage.required_subquestions.clone(),
+    };
+    let expanded = if let Some(expander) = expander {
+        expander.expand(&selected_candidates, &expansion_policy)?
+    } else {
+        selected_candidates
+            .iter()
+            .map(|candidate| candidate.candidate.clone())
+            .collect()
+    };
+    let expanded_ranked = expanded
+        .into_iter()
+        .enumerate()
+        .map(|(rank, candidate)| RankedCandidate { candidate, rank })
+        .collect::<Vec<_>>();
+    let final_diversity = crate::diversity::select_candidates(&expanded_ranked, plan);
+    ensure_exact_lineage(&final_diversity.candidates, &selected_candidates)?;
+    let candidates = final_diversity
+        .candidates
+        .iter()
+        .map(|candidate| candidate.candidate.clone())
+        .collect();
+    let report = evaluator
+        .evaluate(RetrievalExperiment {
+            plan: plan.clone(),
+            candidates,
+        })
+        .await?;
+    ensure_exact_lineage_from_evidence(&report.outcome.evidence, &final_diversity.candidates)?;
+    Ok((report.outcome, final_diversity))
+}
+
+fn ensure_exact_lineage(
+    candidates: &[RankedCandidate],
+    seeds: &[RankedCandidate],
+) -> RetrievalResult<()> {
+    let evidence = candidates
+        .iter()
+        .map(|candidate| candidate.candidate.clone())
+        .collect::<Vec<_>>();
+    ensure_exact_lineage_from_evidence(&evidence, seeds)
+}
+
+fn ensure_exact_lineage_from_evidence(
+    evidence: &[EvidenceCandidate],
+    seeds: &[RankedCandidate],
+) -> RetrievalResult<()> {
+    if evidence.len() != seeds.len()
+        || seeds.iter().any(|seed| {
+            !evidence
+                .iter()
+                .any(|candidate| candidate == &seed.candidate)
+        })
+    {
+        return Err(RetrievalError::Internal(
+            "evidence stage changed selected candidate lineage".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+pub fn reconcile_status(
+    evaluator_status: &SearchStatus,
+    selector_status: &SearchStatus,
+) -> SearchStatus {
+    match evaluator_status {
+        SearchStatus::SourcesConflict
+        | SearchStatus::DeniedByPolicy
+        | SearchStatus::QuarantinedForReview
+        | SearchStatus::Abstained => evaluator_status.clone(),
+        _ => match selector_status {
+            SearchStatus::NoEvidenceFound
+            | SearchStatus::AnswerableWithWarnings
+            | SearchStatus::EvidenceIncomplete
+            | SearchStatus::StaleEvidenceOnly => selector_status.clone(),
+            _ => evaluator_status.clone(),
+        },
+    }
+}

@@ -157,6 +157,39 @@ pub struct SearchTraceExpansion {
     pub added_candidates: Option<u32>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SearchRewriteOrigin {
+    Original,
+    Deterministic,
+    ModelProposal,
+    Feedback,
+    MissingSlot,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SearchRewriteStage {
+    InitialRetrieval,
+    Reranking,
+    IterativeRetrieval,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SearchRewriteAccounting {
+    pub token_estimate: u32,
+    pub latency_budget_units: u32,
+    pub is_proposal: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SearchTraceRewrite {
+    pub query: String,
+    pub origin: SearchRewriteOrigin,
+    pub stage: SearchRewriteStage,
+    pub accounting: SearchRewriteAccounting,
+    #[serde(default)]
+    pub missing_slot: Option<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SearchStopReason {
     ResultsLimit,
@@ -267,12 +300,16 @@ pub struct SearchTrace {
     pub stop_conditions: super::StopConditions,
     pub evidence_requirements: super::EvidenceRequirements,
     pub fingerprint: RetrievalModelFingerprint,
+    #[serde(default)]
+    pub identity_version: u16,
     pub retrievers: Vec<String>,
     pub policy_fingerprint: Option<String>,
     pub raw_candidates: Vec<SearchTraceCandidate>,
     pub fusion: Option<String>,
     pub filters: Vec<SearchTraceFilter>,
     pub expansions: Vec<SearchTraceExpansion>,
+    #[serde(default)]
+    pub rewrites: Vec<SearchTraceRewrite>,
     pub missing_evidence: Vec<String>,
     pub conflicts: Vec<ConflictSetId>,
     pub stop_reason: SearchStopReason,
@@ -297,7 +334,7 @@ impl SearchTrace {
         Self {
             query_id: plan.query_id,
             original_query: plan.original_query.clone(),
-            intent: plan.intent.clone(),
+            intent: plan.intent,
             scope: plan.scope.clone(),
             corpus_snapshot: plan.corpus_snapshot,
             index_generation: plan.index_generation,
@@ -306,6 +343,7 @@ impl SearchTrace {
             stages: plan.stages.clone(),
             evidence_requirements: plan.evidence_requirements.clone(),
             fingerprint: plan.fingerprint.clone(),
+            identity_version: 2,
             retrievers,
             policy_fingerprint: None,
             budgets: plan.budgets.clone(),
@@ -327,6 +365,22 @@ impl SearchTrace {
                 })
                 .collect(),
             fusion,
+            rewrites: vec![SearchTraceRewrite {
+                query: plan.original_query.clone(),
+                origin: SearchRewriteOrigin::Original,
+                stage: SearchRewriteStage::InitialRetrieval,
+                accounting: SearchRewriteAccounting {
+                    token_estimate: plan
+                        .original_query
+                        .split_whitespace()
+                        .count()
+                        .max(1)
+                        .min(u32::MAX as usize) as u32,
+                    latency_budget_units: 1,
+                    is_proposal: false,
+                },
+                missing_slot: None,
+            }],
             filters,
             expansions,
             missing_evidence: Vec::new(),
