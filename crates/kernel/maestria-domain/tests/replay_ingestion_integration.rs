@@ -2,12 +2,22 @@ use maestria_domain::*;
 #[path = "common/fixtures.rs"]
 mod fixtures;
 
-fn parser_result_with_multiple_chunks() -> ParserResult {
-    ParserResult {
+fn require_error<T, E>(
+    result: Result<T, E>,
+    message: &str,
+) -> Result<E, Box<dyn std::error::Error>> {
+    match result {
+        Ok(_) => Err(std::io::Error::other(message).into()),
+        Err(error) => Ok(error),
+    }
+}
+
+fn parser_result_with_multiple_chunks() -> Result<ParserResult, Box<dyn std::error::Error>> {
+    Ok(ParserResult {
         status: maestria_domain::ParseStatus::Parsed,
         artifact_id: ArtifactId::new(1),
         artifact_version_id: ArtifactVersionId::new(1),
-        content_hash: fixtures::test_content_hash(),
+        content_hash: fixtures::test_content_hash()?,
         tree_root_id: Some(StructureNodeId::new(10)),
         tree_nodes: vec![fixtures::tree_root_node(StructureNodeId::new(10))],
         chunks: vec![
@@ -74,7 +84,7 @@ fn parser_result_with_multiple_chunks() -> ParserResult {
                 security: None,
             },
         ],
-    }
+    })
 }
 
 fn replay_assert_parity(state: &KernelState) -> Result<KernelState, DomainError> {
@@ -99,7 +109,7 @@ fn replay_assert_parity(state: &KernelState) -> Result<KernelState, DomainError>
 }
 
 #[test]
-fn replay_ingestion_flow_state_parity() -> Result<(), DomainError> {
+fn replay_ingestion_flow_state_parity() -> Result<(), Box<dyn std::error::Error>> {
     let mut state = KernelState::new();
     state.apply_input(DomainInput::ArtifactDetected(ArtifactDetected {
         artifact_id: ArtifactId::new(1),
@@ -112,7 +122,7 @@ fn replay_ingestion_flow_state_parity() -> Result<(), DomainError> {
         status: maestria_domain::ParseStatus::Parsed,
         artifact_id: ArtifactId::new(1),
         artifact_version_id: ArtifactVersionId::new(1),
-        content_hash: fixtures::test_content_hash(),
+        content_hash: fixtures::test_content_hash()?,
         tree_root_id: Some(StructureNodeId::new(10)),
         tree_nodes: vec![fixtures::tree_root_node(StructureNodeId::new(10))],
         chunks: vec![RegisterChunkInput {
@@ -150,7 +160,7 @@ fn replay_ingestion_flow_state_parity() -> Result<(), DomainError> {
 }
 
 #[test]
-fn replay_ingestion_flow_with_multiple_chunks() -> Result<(), DomainError> {
+fn replay_ingestion_flow_with_multiple_chunks() -> Result<(), Box<dyn std::error::Error>> {
     let mut state = KernelState::new();
     state.apply_input(DomainInput::ArtifactDetected(ArtifactDetected {
         artifact_id: ArtifactId::new(1),
@@ -160,7 +170,7 @@ fn replay_ingestion_flow_with_multiple_chunks() -> Result<(), DomainError> {
         content_hash: "sha256:abc".to_string(),
     }))?;
     state.apply_input(DomainInput::ParserCompleted(
-        parser_result_with_multiple_chunks(),
+        parser_result_with_multiple_chunks()?,
     ))?;
 
     let replayed = replay_assert_parity(&state)?;
@@ -203,7 +213,7 @@ fn replay_ingestion_detection_only() -> Result<(), DomainError> {
     Ok(())
 }
 #[test]
-fn replay_ingestion_duplicate_chunk_rejected() -> Result<(), DomainError> {
+fn replay_ingestion_duplicate_chunk_rejected() -> Result<(), Box<dyn std::error::Error>> {
     let mut state = KernelState::new();
     state.apply_input(DomainInput::ArtifactDetected(ArtifactDetected {
         artifact_id: ArtifactId::new(1),
@@ -216,7 +226,7 @@ fn replay_ingestion_duplicate_chunk_rejected() -> Result<(), DomainError> {
         status: maestria_domain::ParseStatus::Parsed,
         artifact_id: ArtifactId::new(1),
         artifact_version_id: ArtifactVersionId::new(1),
-        content_hash: fixtures::test_content_hash(),
+        content_hash: fixtures::test_content_hash()?,
         tree_root_id: Some(StructureNodeId::new(10)),
         tree_nodes: vec![fixtures::tree_root_node(StructureNodeId::new(10))],
         chunks: vec![RegisterChunkInput {
@@ -252,9 +262,10 @@ fn replay_ingestion_duplicate_chunk_rejected() -> Result<(), DomainError> {
             text: "duplicate".to_string(),
         },
     };
-    let err = state
-        .apply_event(duplicate_chunk)
-        .expect_err("duplicate chunk in replay must error");
+    let err = require_error(
+        state.apply_event(duplicate_chunk),
+        "duplicate chunk in replay must error",
+    )?;
     assert!(matches!(
         err,
         DomainError::DuplicateId {
@@ -266,7 +277,7 @@ fn replay_ingestion_duplicate_chunk_rejected() -> Result<(), DomainError> {
 }
 
 #[test]
-fn replay_ingestion_parser_without_detection_rejected() -> Result<(), DomainError> {
+fn replay_ingestion_parser_without_detection_rejected() -> Result<(), Box<dyn std::error::Error>> {
     let next_id = 1u64;
     let orphan_artparsed = DomainEventEnvelope {
         id: EventId::new(next_id),
@@ -278,9 +289,10 @@ fn replay_ingestion_parser_without_detection_rejected() -> Result<(), DomainErro
         },
     };
     let mut state = KernelState::new();
-    let err = state
-        .apply_event(orphan_artparsed)
-        .expect_err("ArtifactParsed without artifact must error");
+    let err = require_error(
+        state.apply_event(orphan_artparsed),
+        "ArtifactParsed without artifact must error",
+    )?;
     assert!(matches!(
         err,
         DomainError::MissingArtifact { id } if id == ArtifactId::new(99)
@@ -290,7 +302,7 @@ fn replay_ingestion_parser_without_detection_rejected() -> Result<(), DomainErro
 }
 
 #[test]
-fn replay_ingestion_orphan_chunk_rejected() -> Result<(), DomainError> {
+fn replay_ingestion_orphan_chunk_rejected() -> Result<(), Box<dyn std::error::Error>> {
     let mut state = KernelState::new();
     let orphan_chunk = DomainEventEnvelope {
         id: EventId::new(1),
@@ -308,9 +320,10 @@ fn replay_ingestion_orphan_chunk_rejected() -> Result<(), DomainError> {
             text: "orphan".to_string(),
         },
     };
-    let err = state
-        .apply_event(orphan_chunk)
-        .expect_err("ChunkRegistered without artifact must error");
+    let err = require_error(
+        state.apply_event(orphan_chunk),
+        "ChunkRegistered without artifact must error",
+    )?;
     assert!(matches!(
         err,
         DomainError::MissingArtifact { id } if id == ArtifactId::new(99)
@@ -319,7 +332,8 @@ fn replay_ingestion_orphan_chunk_rejected() -> Result<(), DomainError> {
 }
 
 #[test]
-fn replay_full_text_indexed_rejects_mismatched_chunk_artifact() -> Result<(), DomainError> {
+fn replay_full_text_indexed_rejects_mismatched_chunk_artifact()
+-> Result<(), Box<dyn std::error::Error>> {
     let mut state = KernelState::new();
 
     // Set up: artifact 1 owns chunk 10, artifact 2 is separate
@@ -359,16 +373,17 @@ fn replay_full_text_indexed_rejects_mismatched_chunk_artifact() -> Result<(), Do
     })?;
 
     // FullTextIndexed mismatches: chunk 10 belongs to artifact 1, not artifact 2
-    let err = state
-        .apply_event(DomainEventEnvelope {
+    let err = require_error(
+        state.apply_event(DomainEventEnvelope {
             id: EventId::new(4),
             sequence: SequenceNumber::new(4),
             event: DomainEvent::FullTextIndexed {
                 artifact_id: ArtifactId::new(2),
                 chunk_id: ChunkId::new(10),
             },
-        })
-        .expect_err("mismatched chunk artifact must be rejected");
+        }),
+        "mismatched chunk artifact must be rejected",
+    )?;
 
     assert!(matches!(
         err,
@@ -381,7 +396,7 @@ fn replay_full_text_indexed_rejects_mismatched_chunk_artifact() -> Result<(), Do
 }
 
 #[test]
-fn replay_artifact_indexed_rejects_pending_chunks() -> Result<(), DomainError> {
+fn replay_artifact_indexed_rejects_pending_chunks() -> Result<(), Box<dyn std::error::Error>> {
     let mut state = KernelState::new();
 
     // Set up: artifact with a pending chunk
@@ -420,15 +435,16 @@ fn replay_artifact_indexed_rejects_pending_chunks() -> Result<(), DomainError> {
     })?;
 
     // ArtifactIndexed when chunks are still pending must be rejected
-    let err = state
-        .apply_event(DomainEventEnvelope {
+    let err = require_error(
+        state.apply_event(DomainEventEnvelope {
             id: EventId::new(4),
             sequence: SequenceNumber::new(4),
             event: DomainEvent::ArtifactIndexed {
                 artifact_id: ArtifactId::new(1),
             },
-        })
-        .expect_err("ArtifactIndexed with pending chunks must be rejected");
+        }),
+        "ArtifactIndexed with pending chunks must be rejected",
+    )?;
 
     assert!(matches!(
         err,
@@ -634,11 +650,11 @@ fn replay_search_completed_preserves_pending_parsers() -> Result<(), DomainError
 }
 
 #[test]
-fn replay_parser_started_id_is_sequential() -> Result<(), DomainError> {
+fn replay_parser_started_id_is_sequential() -> Result<(), Box<dyn std::error::Error>> {
     let mut state = KernelState::new();
     // ParserStarted replayed with a gap in ID must be rejected.
-    let err = state
-        .apply_event(DomainEventEnvelope {
+    let err = require_error(
+        state.apply_event(DomainEventEnvelope {
             id: EventId::new(5),
             sequence: SequenceNumber::new(5),
             event: DomainEvent::ParserStarted {
@@ -648,8 +664,9 @@ fn replay_parser_started_id_is_sequential() -> Result<(), DomainError> {
                 content_hash: "sha256:abc".to_string(),
                 blob_id: BlobId::new(1),
             },
-        })
-        .expect_err("ParserStarted with non-sequential ID must error");
+        }),
+        "ParserStarted with non-sequential ID must error",
+    )?;
     assert!(matches!(
         err,
         DomainError::InvalidEventId {

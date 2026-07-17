@@ -191,7 +191,7 @@ mod tests {
     use maestria_domain::EvidenceId;
 
     #[test]
-    fn duplicate_candidates_accumulate_reciprocal_rank() {
+    fn duplicate_candidates_accumulate_reciprocal_rank() -> Result<(), Box<dyn std::error::Error>> {
         let first = rank_lane(
             RetrievalLane::LexicalChunks,
             vec![RetrievalCandidate::EvidenceId(EvidenceId::new(1))],
@@ -207,10 +207,11 @@ mod tests {
             super::CandidateKey::Evidence(EvidenceId::new(1))
         );
         assert_eq!(fused[0].rank, 0);
+        Ok(())
     }
 
     #[test]
-    fn ties_are_ordered_by_stable_identity() {
+    fn ties_are_ordered_by_stable_identity() -> Result<(), Box<dyn std::error::Error>> {
         let first = rank_lane(
             RetrievalLane::LexicalChunks,
             vec![RetrievalCandidate::EvidenceId(EvidenceId::new(2))],
@@ -220,22 +221,25 @@ mod tests {
             vec![RetrievalCandidate::EvidenceId(EvidenceId::new(1))],
         );
         let fused = fuse(10, vec![first, second]);
-        let ids: Vec<_> = fused
-            .into_iter()
-            .map(|candidate| match candidate.candidate {
-                RetrievalCandidate::EvidenceId(id) => id,
-                _ => unreachable!(),
-            })
-            .collect();
+        let mut ids = Vec::new();
+        for candidate in fused {
+            if let RetrievalCandidate::EvidenceId(id) = candidate.candidate {
+                ids.push(id);
+            } else {
+                return Err("Expected EvidenceId".into());
+            }
+        }
         assert_eq!(ids, vec![EvidenceId::new(1), EvidenceId::new(2)]);
+        Ok(())
     }
 
     #[test]
-    fn zero_limit_is_a_typed_empty_result() {
+    fn zero_limit_is_a_typed_empty_result() -> Result<(), Box<dyn std::error::Error>> {
         let lane = rank_lane(
             RetrievalLane::LexicalChunks,
             vec![RetrievalCandidate::EvidenceId(EvidenceId::new(1))],
         );
         assert!(fuse(0, vec![lane]).is_empty());
+        Ok(())
     }
 }

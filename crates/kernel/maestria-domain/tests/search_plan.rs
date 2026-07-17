@@ -1,11 +1,13 @@
+use std::error::Error;
+
 use maestria_domain::{
     CorpusScope, CorpusSnapshotId, EvidenceRequirements, FreshnessRequirement, IndexGenerationId,
     Modality, ModalitySet, QueryId, RetrievalModelFingerprint, SearchBudget, SearchIntent,
     SearchPlan, SearchStage, StopConditions,
 };
 
-fn plan() -> SearchPlan {
-    SearchPlan {
+fn plan() -> Result<SearchPlan, Box<dyn Error>> {
+    Ok(SearchPlan {
         query_id: QueryId::new(1),
         original_query: "find local notes".to_string(),
         intent: SearchIntent::FactualLocal,
@@ -15,7 +17,7 @@ fn plan() -> SearchPlan {
         freshness: FreshnessRequirement::Any,
         modalities: ModalitySet::new(vec![Modality::Text]),
         stages: vec![SearchStage::InitialRetrieval],
-        budgets: SearchBudget::with_limits(100, 1000, 2, 1, 0).expect("valid fixture budget"),
+        budgets: SearchBudget::with_limits(100, 1000, 2, 1, 0)?,
         stop_conditions: StopConditions {
             max_results: 5,
             min_score_threshold: 0,
@@ -29,9 +31,8 @@ fn plan() -> SearchPlan {
             minimum_documents: 0,
             minimum_sections: 0,
         },
-        fingerprint: RetrievalModelFingerprint::new("test:v1".to_string())
-            .expect("valid fixture fingerprint"),
-    }
+        fingerprint: RetrievalModelFingerprint::new("test:v1".to_string())?,
+    })
 }
 
 #[test]
@@ -85,33 +86,32 @@ fn every_canonical_intent_classifies_deterministically() {
 }
 
 #[test]
-fn schema_rejects_empty_query_and_repeated_stage() {
-    let mut candidate = plan();
+fn schema_rejects_empty_query_and_repeated_stage() -> Result<(), Box<dyn Error>> {
+    let mut candidate = plan()?;
     candidate.original_query.clear();
     assert!(candidate.validate_schema().is_err());
 
-    let mut candidate = plan();
+    let mut candidate = plan()?;
     candidate.stages = vec![SearchStage::InitialRetrieval, SearchStage::InitialRetrieval];
-    candidate.budgets =
-        SearchBudget::with_limits(100, 1000, 2, 2, 0).expect("valid fixture budget");
+    candidate.budgets = SearchBudget::with_limits(100, 1000, 2, 2, 0)?;
     assert!(candidate.validate_schema().is_err());
 
-    let mut candidate = plan();
+    let mut candidate = plan()?;
     candidate.stages = vec![
         SearchStage::InitialRetrieval,
         SearchStage::Filtering,
         SearchStage::Reranking,
     ];
-    candidate.budgets =
-        SearchBudget::with_limits(100, 1000, 3, 3, 0).expect("valid fixture budget");
+    candidate.budgets = SearchBudget::with_limits(100, 1000, 3, 3, 0)?;
     assert!(candidate.validate_schema().is_err());
+    Ok(())
 }
 
 #[test]
-fn schema_accepts_multi_stage_plan_with_explicit_budget() {
-    let mut candidate = plan();
+fn schema_accepts_multi_stage_plan_with_explicit_budget() -> Result<(), Box<dyn Error>> {
+    let mut candidate = plan()?;
     candidate.stages = vec![SearchStage::InitialRetrieval, SearchStage::Reranking];
-    candidate.budgets =
-        SearchBudget::with_limits(100, 1000, 2, 2, 0).expect("valid fixture budget");
+    candidate.budgets = SearchBudget::with_limits(100, 1000, 2, 2, 0)?;
     assert!(candidate.validate_schema().is_ok());
+    Ok(())
 }

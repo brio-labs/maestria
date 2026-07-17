@@ -5,7 +5,7 @@ mod fixtures;
 // ── Crash recovery and resume flows ───────────────────────────────
 
 #[test]
-fn resume_after_crash_replays_and_completes() -> Result<(), DomainError> {
+fn resume_after_crash_replays_and_completes() -> Result<(), Box<dyn std::error::Error>> {
     // Simulate: ParserStarted event persisted, then crash.
     // On restart, replay reconstructs pending_parsers, daemon sends ResumeParser,
     // runtime re-parses, ParserCompleted cleans up.
@@ -43,7 +43,7 @@ fn resume_after_crash_replays_and_completes() -> Result<(), DomainError> {
         status: maestria_domain::ParseStatus::Parsed,
         artifact_id: ArtifactId::new(1),
         artifact_version_id: ArtifactVersionId::new(1),
-        content_hash: fixtures::test_content_hash(),
+        content_hash: fixtures::test_content_hash()?,
         tree_root_id: Some(StructureNodeId::new(10)),
         tree_nodes: vec![fixtures::tree_root_node(StructureNodeId::new(10))],
         chunks: vec![RegisterChunkInput {
@@ -71,7 +71,7 @@ fn resume_after_crash_replays_and_completes() -> Result<(), DomainError> {
 }
 
 #[test]
-fn parser_completed_cleanup_idempotent_on_resume_retry() -> Result<(), DomainError> {
+fn parser_completed_cleanup_idempotent_on_resume_retry() -> Result<(), Box<dyn std::error::Error>> {
     // On resume, ParserCompleted may be sent multiple times.
     // Each time it must be idempotent — pending_parsers removed once.
     let events = vec![DomainEventEnvelope {
@@ -98,7 +98,7 @@ fn parser_completed_cleanup_idempotent_on_resume_retry() -> Result<(), DomainErr
         status: maestria_domain::ParseStatus::Parsed,
         artifact_id: ArtifactId::new(1),
         artifact_version_id: ArtifactVersionId::new(1),
-        content_hash: fixtures::test_content_hash(),
+        content_hash: fixtures::test_content_hash()?,
         tree_root_id: Some(StructureNodeId::new(10)),
         tree_nodes: vec![fixtures::tree_root_node(StructureNodeId::new(10))],
         chunks: vec![RegisterChunkInput {
@@ -136,7 +136,8 @@ fn parser_completed_cleanup_idempotent_on_resume_retry() -> Result<(), DomainErr
 }
 
 #[test]
-fn crash_before_evidence_pending_parsers_survives_for_resume() -> Result<(), DomainError> {
+fn crash_before_evidence_pending_parsers_survives_for_resume()
+-> Result<(), Box<dyn std::error::Error>> {
     // Simulate: parser completes, emits ArtifactParsed + chunks, but
     // ArtifactIndexed never fires (crash). On resume, replay reconstructs
     // pending_parsers and the parser re-runs idempotently.
@@ -187,7 +188,7 @@ fn crash_before_evidence_pending_parsers_survives_for_resume() -> Result<(), Dom
         status: maestria_domain::ParseStatus::Parsed,
         artifact_id: ArtifactId::new(1),
         artifact_version_id: ArtifactVersionId::new(1),
-        content_hash: fixtures::test_content_hash(),
+        content_hash: fixtures::test_content_hash()?,
         tree_root_id: Some(StructureNodeId::new(10)),
         tree_nodes: vec![fixtures::tree_root_node(StructureNodeId::new(10))],
         chunks: vec![chunk_input.clone()],
@@ -205,7 +206,7 @@ fn crash_before_evidence_pending_parsers_survives_for_resume() -> Result<(), Dom
         status: maestria_domain::ParseStatus::Parsed,
         artifact_id: ArtifactId::new(1),
         artifact_version_id: ArtifactVersionId::new(1),
-        content_hash: fixtures::test_content_hash(),
+        content_hash: fixtures::test_content_hash()?,
         tree_root_id: Some(StructureNodeId::new(10)),
         tree_nodes: vec![fixtures::tree_root_node(StructureNodeId::new(10))],
         chunks: vec![chunk_input],
@@ -268,7 +269,7 @@ struct IngestArtifactSetup {
 fn ingest_artifact_full(
     state: &mut KernelState,
     setup: IngestArtifactSetup,
-) -> Result<(), DomainError> {
+) -> Result<(), Box<dyn std::error::Error>> {
     state.apply_input(DomainInput::ArtifactDetected(ArtifactDetected {
         artifact_id: setup.art_id,
         title: setup.title.clone(),
@@ -287,7 +288,7 @@ fn ingest_artifact_full(
         status: maestria_domain::ParseStatus::Parsed,
         artifact_id: setup.art_id,
         artifact_version_id: ArtifactVersionId::new(setup.art_id.value()),
-        content_hash: fixtures::test_content_hash(),
+        content_hash: fixtures::test_content_hash()?,
         tree_root_id: Some(StructureNodeId::new(10)),
         tree_nodes: vec![fixtures::tree_root_node(StructureNodeId::new(10))],
         chunks: setup.chunks,
@@ -310,7 +311,7 @@ struct FileSpanEvidenceSetup {
 fn record_file_span_evidence(
     state: &mut KernelState,
     setup: FileSpanEvidenceSetup,
-) -> Result<(), DomainError> {
+) -> Result<(), Box<dyn std::error::Error>> {
     let _ = state.apply_input(DomainInput::RecordEvidence(RecordEvidenceInput {
         evidence_id: setup.ev_id,
         artifact_id: setup.art_id,
@@ -335,7 +336,7 @@ fn index_chunk_and_assert_pending(
     art_id: ArtifactId,
     chunk_id: ChunkId,
     expected_chunk: u64,
-) -> Result<(), DomainError> {
+) -> Result<(), Box<dyn std::error::Error>> {
     let output = state.apply_input(DomainInput::FullTextIndexCompleted(
         FullTextIndexCompleted {
             artifact_id: art_id,
@@ -357,7 +358,7 @@ fn index_chunk_and_assert_pending(
 fn record_complete_evidence_and_terminalize(
     state: &mut KernelState,
     art_id: ArtifactId,
-) -> Result<(), DomainError> {
+) -> Result<(), Box<dyn std::error::Error>> {
     for (order, excerpt, range) in [
         (0, "a", ContentRange { start: 0, end: 1 }),
         (1, "b", ContentRange { start: 1, end: 2 }),
@@ -391,7 +392,8 @@ fn record_complete_evidence_and_terminalize(
 }
 
 #[test]
-fn missing_evidence_keeps_artifact_pending_after_full_text_done() -> Result<(), DomainError> {
+fn missing_evidence_keeps_artifact_pending_after_full_text_done()
+-> Result<(), Box<dyn std::error::Error>> {
     // Regression: when all chunks are indexed but no evidence exists for the
     // deterministic evidence IDs, terminalization MUST be blocked. The artifact
     // stays Pending and pending_parsers survives so retry/resume can regenerate

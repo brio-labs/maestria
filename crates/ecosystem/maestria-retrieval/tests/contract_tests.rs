@@ -577,7 +577,7 @@ use maestria_retrieval::types::{
 
 struct MockScorer {
     model: String,
-    fingerprint: String,
+    fingerprint: maestria_domain::RetrievalModelFingerprint,
 }
 
 #[async_trait]
@@ -586,8 +586,7 @@ impl RerankScorer for MockScorer {
         self.model.clone()
     }
     fn fingerprint(&self) -> maestria_domain::RetrievalModelFingerprint {
-        maestria_domain::RetrievalModelFingerprint::new(self.fingerprint.clone())
-            .expect("test fingerprint is valid")
+        self.fingerprint.clone()
     }
 
     fn compatible_with(&self, _plan: &maestria_domain::RetrievalModelFingerprint) -> bool {
@@ -624,7 +623,7 @@ fn create_test_candidate(id: u64, rank: usize) -> RetrievalResult<RankedCandidat
 async fn test_bounded_reranker_limits_and_trace() -> RetrievalResult<()> {
     let scorer = Arc::new(MockScorer {
         model: "mock-scorer".into(),
-        fingerprint: "v1".into(),
+        fingerprint: maestria_domain::RetrievalModelFingerprint::new("v1".to_string())?,
     });
     let limits = RerankLimits {
         input_cap: 5,
@@ -714,7 +713,7 @@ async fn test_bounded_reranker_limits_and_trace() -> RetrievalResult<()> {
 async fn test_bounded_reranker_fallback() -> RetrievalResult<()> {
     let scorer = Arc::new(MockScorer {
         model: "mock-scorer".into(),
-        fingerprint: "v1".into(),
+        fingerprint: maestria_domain::RetrievalModelFingerprint::new("v1".to_string())?,
     });
     let limits = RerankLimits {
         input_cap: 5,
@@ -763,7 +762,7 @@ async fn test_bounded_reranker_fallback() -> RetrievalResult<()> {
 async fn test_bounded_reranker_cancellation() -> RetrievalResult<()> {
     let scorer = Arc::new(MockScorer {
         model: "mock-scorer".into(),
-        fingerprint: "v1".into(),
+        fingerprint: maestria_domain::RetrievalModelFingerprint::new("v1".to_string())?,
     });
     let limits = RerankLimits {
         input_cap: 5,

@@ -8,9 +8,9 @@ use rusqlite::Connection;
 use super::{SqliteVectorIndex, to_port_error};
 use crate::schema::SCHEMA_VERSION;
 #[test]
-fn satisfies_shared_vector_index_contract() -> Result<(), PortError> {
+fn satisfies_shared_vector_index_contract() -> Result<(), Box<dyn std::error::Error>> {
     let index = SqliteVectorIndex::in_memory()?;
-    assert_vector_index_contract(&index);
+    assert_vector_index_contract(&index)?;
     Ok(())
 }
 
@@ -19,7 +19,7 @@ fn round_trips_provenance() -> Result<(), PortError> {
     let index = SqliteVectorIndex::in_memory()?;
     let provenance = EmbeddingProvenance {
         content_hash: "hash_abcd".into(),
-        identity: EmbeddingIdentity::legacy("test-model", 3).expect("legacy identity"),
+        identity: EmbeddingIdentity::legacy("test-model", 3)?,
         provider_id: "test-provider".into(),
         model: "test-model".into(),
         model_version: "model_v1".into(),
@@ -79,7 +79,7 @@ fn unchanged_embedding_does_not_update_projection() -> Result<(), PortError> {
         vector: vec![1.0, 0.5],
         provenance: EmbeddingProvenance {
             content_hash: "hash".to_string(),
-            identity: EmbeddingIdentity::legacy("test-model", 2).expect("legacy identity"),
+            identity: EmbeddingIdentity::legacy("test-model", 2)?,
             provider_id: "test-provider".into(),
             model: "test-model".into(),
             model_version: "model-v1".to_string(),
@@ -202,7 +202,7 @@ fn prevents_nan_scores_from_overflow() -> Result<(), PortError> {
     let index = SqliteVectorIndex::in_memory()?;
     let prov = EmbeddingProvenance {
         content_hash: "hash".into(),
-        identity: EmbeddingIdentity::legacy("test-model", 2).expect("legacy identity"),
+        identity: EmbeddingIdentity::legacy("test-model", 2)?,
         provider_id: "test-provider".into(),
         model: "test-model".into(),
         model_version: "v1".into(),
@@ -251,7 +251,7 @@ fn reopen_persistence_and_mismatch_rejection() -> Result<(), PortError> {
 
     let prov = EmbeddingProvenance {
         content_hash: "hash".into(),
-        identity: EmbeddingIdentity::legacy("test-model", 2).expect("legacy identity"),
+        identity: EmbeddingIdentity::legacy("test-model", 2)?,
         provider_id: "test-provider".into(),
         model: "test-model".into(),
         model_version: "v1".into(),
@@ -309,7 +309,7 @@ fn rebuild_replaces_and_deletes_stale_rows() -> Result<(), PortError> {
     let index = SqliteVectorIndex::in_memory()?;
     let prov = EmbeddingProvenance {
         content_hash: "hash1".into(),
-        identity: EmbeddingIdentity::legacy("test-model", 2).expect("legacy"),
+        identity: EmbeddingIdentity::legacy("test-model", 2)?,
         provider_id: "test-provider".into(),
         model: "test-model".into(),
         model_version: "v1".into(),

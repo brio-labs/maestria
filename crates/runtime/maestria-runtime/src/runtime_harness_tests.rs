@@ -16,26 +16,28 @@ use tokio::sync::{RwLock, mpsc};
 // ── harness grammar tests ──────────────────────────────────────────────
 
 #[test]
-fn grammar_allows_echo_pwd_cat() {
+fn grammar_allows_echo_pwd_cat() -> Result<(), Box<dyn std::error::Error>> {
     assert!(is_shell_grammar_allowed("echo hello world"));
     assert!(is_shell_grammar_allowed("echo"));
     assert!(is_shell_grammar_allowed("pwd"));
     assert!(is_shell_grammar_allowed("cat /tmp/file.txt"));
     assert!(is_shell_grammar_allowed("cat file1.txt file2.txt"));
     assert!(is_shell_grammar_allowed("  echo  spaced  "));
+    Ok(())
 }
 
 #[test]
-fn grammar_rejects_unknown_commands() {
+fn grammar_rejects_unknown_commands() -> Result<(), Box<dyn std::error::Error>> {
     assert!(!is_shell_grammar_allowed("ls"));
     assert!(!is_shell_grammar_allowed("rm -rf /"));
     assert!(!is_shell_grammar_allowed("curl example.com"));
     assert!(!is_shell_grammar_allowed("bash"));
     assert!(!is_shell_grammar_allowed("sh"));
+    Ok(())
 }
 
 #[test]
-fn grammar_rejects_metacharacters() {
+fn grammar_rejects_metacharacters() -> Result<(), Box<dyn std::error::Error>> {
     assert!(!is_shell_grammar_allowed("echo hello | cat"));
     assert!(!is_shell_grammar_allowed("echo hello && pwd"));
     assert!(!is_shell_grammar_allowed("echo $HOME"));
@@ -49,10 +51,11 @@ fn grammar_rejects_metacharacters() {
     assert!(!is_shell_grammar_allowed("echo hello &"));
     assert!(!is_shell_grammar_allowed("echo hello\ncat /etc/passwd"));
     assert!(!is_shell_grammar_allowed("echo hello\\nworld"));
+    Ok(())
 }
 
 #[test]
-fn cat_path_args_extracts_paths() {
+fn cat_path_args_extracts_paths() -> Result<(), Box<dyn std::error::Error>> {
     let args = cat_path_args("cat /tmp/a.txt /tmp/b.txt");
     assert_eq!(args, vec!["/tmp/a.txt", "/tmp/b.txt"]);
 
@@ -64,10 +67,11 @@ fn cat_path_args_extracts_paths() {
 
     let args = cat_path_args("pwd");
     assert!(args.is_empty());
+    Ok(())
 }
 
 #[test]
-fn resolve_working_directory_returns_first_read_root() {
+fn resolve_working_directory_returns_first_read_root() -> Result<(), Box<dyn std::error::Error>> {
     let scope = Scope::new(
         vec![PathBuf::from("/workspace")],
         vec![],
@@ -75,15 +79,17 @@ fn resolve_working_directory_returns_first_read_root() {
         vec![],
         false,
     );
-    let wd = resolve_working_directory(&scope).expect("read root should resolve");
+    let wd = resolve_working_directory(&scope)?;
     assert_eq!(wd, PathBuf::from("/workspace"));
+    Ok(())
 }
 
 #[test]
-fn resolve_working_directory_falls_back_when_no_roots() {
+fn resolve_working_directory_falls_back_when_no_roots() -> Result<(), Box<dyn std::error::Error>> {
     let scope = Scope::default();
-    let wd = resolve_working_directory(&scope).expect("current directory should resolve");
+    let wd = resolve_working_directory(&scope)?;
     assert!(!wd.as_os_str().is_empty());
+    Ok(())
 }
 
 // ── harness governance integration tests ───────────────────────────────
@@ -91,7 +97,8 @@ fn resolve_working_directory_falls_back_when_no_roots() {
 /// Verify that a QueryHarness effect with an invalid command (non-grammar)
 /// returns true (no error) but never invokes the harness adapter.
 #[tokio::test]
-async fn query_harness_denies_invalid_grammar_before_spawn() {
+async fn query_harness_denies_invalid_grammar_before_spawn()
+-> Result<(), Box<dyn std::error::Error>> {
     let harness_called = Arc::new(AtomicBool::new(false));
     let harness = Arc::new(SpyHarnessAdapter::new(harness_called.clone()));
 
@@ -133,12 +140,13 @@ async fn query_harness_denies_invalid_grammar_before_spawn() {
         !harness_called.load(Ordering::Relaxed),
         "harness must not be invoked for denied commands"
     );
+    Ok(())
 }
 
 /// Verify that a cat command targeting a path outside readable roots
 /// is rejected before spawning.
 #[tokio::test]
-async fn query_harness_rejects_cat_outside_scope() {
+async fn query_harness_rejects_cat_outside_scope() -> Result<(), Box<dyn std::error::Error>> {
     let harness_called = Arc::new(AtomicBool::new(false));
     let harness = Arc::new(SpyHarnessAdapter::new(harness_called.clone()));
 
@@ -180,12 +188,13 @@ async fn query_harness_rejects_cat_outside_scope() {
         !harness_called.load(Ordering::Relaxed),
         "harness must not be invoked for out-of-scope cat"
     );
+    Ok(())
 }
 
 /// Verify that an allowed command (echo) proceeds through to the adapter
 /// and produces a HarnessRunCompleted event.
 #[tokio::test]
-async fn query_harness_allows_grammar_compliant_echo() {
+async fn query_harness_allows_grammar_compliant_echo() -> Result<(), Box<dyn std::error::Error>> {
     let harness_called = Arc::new(AtomicBool::new(false));
     let harness = Arc::new(SpyHarnessAdapter::new(harness_called.clone()));
 
@@ -230,20 +239,20 @@ async fn query_harness_allows_grammar_compliant_echo() {
 
     // Verify HarnessRunCompleted was sent
     let completed = tokio::time::timeout(Duration::from_millis(500), input_rx.recv())
-        .await
-        .expect("timed out waiting for HarnessRunCompleted")
-        .expect("HarnessRunCompleted should be sent");
+        .await?
+        .ok_or("HarnessRunCompleted should be sent")?;
 
     assert!(
         matches!(completed, DomainInput::HarnessRunCompleted { .. }),
         "expected HarnessRunCompleted, got {:?}",
         std::mem::discriminant(&completed)
     );
+    Ok(())
 }
 
 /// Verify that pwd command proceeds to the adapter and completion event fires.
 #[tokio::test]
-async fn query_harness_allows_pwd() {
+async fn query_harness_allows_pwd() -> Result<(), Box<dyn std::error::Error>> {
     let harness_called = Arc::new(AtomicBool::new(false));
     let harness = Arc::new(SpyHarnessAdapter::new(harness_called.clone()));
 
@@ -275,11 +284,11 @@ async fn query_harness_allows_pwd() {
     assert!(harness_called.load(Ordering::Relaxed));
 
     let completed = tokio::time::timeout(Duration::from_millis(500), input_rx.recv())
-        .await
-        .expect("timed out")
-        .expect("HarnessRunCompleted should be sent");
+        .await?
+        .ok_or("HarnessRunCompleted should be sent")?;
 
     assert!(matches!(completed, DomainInput::HarnessRunCompleted { .. }));
+    Ok(())
 }
 
 /// Verify that cat with a path inside readable roots succeeds.

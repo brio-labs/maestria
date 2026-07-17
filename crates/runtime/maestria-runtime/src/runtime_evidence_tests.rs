@@ -9,7 +9,8 @@ use std::sync::Arc;
 use tokio::sync::{RwLock, mpsc};
 
 #[tokio::test]
-async fn evidence_recorded_persistence_replaces_malformed_record() {
+async fn evidence_recorded_persistence_replaces_malformed_record()
+-> Result<(), Box<dyn std::error::Error>> {
     let artifact_id = ArtifactId::new(1);
     let evidence_id = EvidenceId::new(1);
 
@@ -30,9 +31,7 @@ async fn evidence_recorded_persistence_replaces_malformed_record() {
         observed_at: LogicalTick::new(1),
         security: maestria_domain::SecurityMetadata::default(),
     };
-    evidence_repo
-        .put(malformed.clone())
-        .expect("pre-populate malformed");
+    evidence_repo.put(malformed.clone())?;
 
     let artifact = Artifact {
         id: artifact_id,
@@ -111,12 +110,12 @@ async fn evidence_recorded_persistence_replaces_malformed_record() {
 
     // The repository must now contain the valid evidence (replaced), not the malformed one.
     let stored = evidence_repo
-        .get(evidence_id)
-        .expect("get after replace")
-        .expect("evidence must exist after replace");
+        .get(evidence_id)?
+        .ok_or("evidence must exist after replace")?;
     assert_eq!(
         stored, valid_evidence,
         "malformed evidence must be replaced by valid evidence"
     );
     assert_ne!(stored, malformed, "malformed evidence must not remain");
+    Ok(())
 }

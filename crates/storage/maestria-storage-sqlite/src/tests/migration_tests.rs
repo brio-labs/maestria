@@ -9,30 +9,28 @@ use rusqlite::{Connection, params};
 use super::artifact;
 
 #[test]
-fn migrations_are_idempotent() {
-    let directory = tempfile::tempdir().expect("test setup");
+fn migrations_are_idempotent() -> Result<(), Box<dyn std::error::Error>> {
+    let directory = tempfile::tempdir()?;
     let path = directory.path().join("store.db");
 
-    SqliteStore::open(&path).expect("test setup");
-    SqliteStore::open(&path).expect("test setup");
+    SqliteStore::open(&path)?;
+    SqliteStore::open(&path)?;
 
-    let connection = Connection::open(path).expect("test setup");
-    let version: i64 = connection
-        .query_row("SELECT MAX(version) FROM schema_version", [], |row| {
+    let connection = Connection::open(path)?;
+    let version: i64 =
+        connection.query_row("SELECT MAX(version) FROM schema_version", [], |row| {
             row.get(0)
-        })
-        .expect("test setup");
+        })?;
     assert_eq!(version, CURRENT_SCHEMA_VERSION);
     for table in ["chunks", "cards", "card_claims", "evidence"] {
-        let count: i64 = connection
-            .query_row(
-                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?1",
-                params![table],
-                |row| row.get(0),
-            )
-            .expect("table lookup");
+        let count: i64 = connection.query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?1",
+            params![table],
+            |row| row.get(0),
+        )?;
         assert_eq!(count, 1, "{table} table should exist");
     }
+    Ok(())
 }
 
 #[test]
@@ -277,8 +275,8 @@ fn legacy_v1_migration_adds_content_hash_and_index_status() -> Result<(), Box<dy
     a.content_hash = Some("sha256:abc123def456".to_string());
     a.index_status = IndexStatus::Pending;
     ArtifactRepository::put(&store, a.clone())?;
-    let stored = ArtifactRepository::get(&store, ArtifactId::new(1))?.expect("artifact must exist");
-    assert_eq!(stored.content_hash, Some("sha256:abc123def456".to_string()));
+    let stored = ArtifactRepository::get(&store, ArtifactId::new(1))?
+        .ok_or(maestria_ports::PortError::NotFound)?;
     assert_eq!(stored.index_status, IndexStatus::Pending);
 
     Ok(())

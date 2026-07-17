@@ -3,7 +3,7 @@ use maestria_domain::*;
 mod fixtures;
 
 #[test]
-fn parser_started_identical_metadata_is_idempotent() -> Result<(), DomainError> {
+fn parser_started_identical_metadata_is_idempotent() -> Result<(), Box<dyn std::error::Error>> {
     let mut state = KernelState::new();
     let ps = ParserStarted {
         artifact_id: ArtifactId::new(1),
@@ -31,7 +31,7 @@ fn parser_started_identical_metadata_is_idempotent() -> Result<(), DomainError> 
 }
 
 #[test]
-fn parser_started_differing_metadata_emits_replacement() -> Result<(), DomainError> {
+fn parser_started_differing_metadata_emits_replacement() -> Result<(), Box<dyn std::error::Error>> {
     let mut state = KernelState::new();
     state.apply_input(DomainInput::ParserStarted(ParserStarted {
         artifact_id: ArtifactId::new(1),
@@ -64,7 +64,8 @@ fn parser_started_differing_metadata_emits_replacement() -> Result<(), DomainErr
 }
 
 #[test]
-fn artifact_detected_with_active_pending_parser_is_noop() -> Result<(), DomainError> {
+fn artifact_detected_with_active_pending_parser_is_noop() -> Result<(), Box<dyn std::error::Error>>
+{
     let mut state = KernelState::new();
     state.apply_input(DomainInput::ParserStarted(ParserStarted {
         artifact_id: ArtifactId::new(1),
@@ -85,7 +86,8 @@ fn artifact_detected_with_active_pending_parser_is_noop() -> Result<(), DomainEr
 }
 
 #[test]
-fn artifact_detected_different_hash_with_pending_parser_proceeds() -> Result<(), DomainError> {
+fn artifact_detected_different_hash_with_pending_parser_proceeds()
+-> Result<(), Box<dyn std::error::Error>> {
     let mut state = KernelState::new();
     state.apply_input(DomainInput::ParserStarted(ParserStarted {
         artifact_id: ArtifactId::new(1),
@@ -110,7 +112,7 @@ fn artifact_detected_different_hash_with_pending_parser_proceeds() -> Result<(),
 }
 
 #[test]
-fn parser_completed_does_not_emit_index_effects() -> Result<(), DomainError> {
+fn parser_completed_does_not_emit_index_effects() -> Result<(), Box<dyn std::error::Error>> {
     let mut state = KernelState::new();
     state.apply_input(DomainInput::ArtifactDetected(ArtifactDetected {
         artifact_id: ArtifactId::new(1),
@@ -123,7 +125,7 @@ fn parser_completed_does_not_emit_index_effects() -> Result<(), DomainError> {
         status: maestria_domain::ParseStatus::Parsed,
         artifact_id: ArtifactId::new(1),
         artifact_version_id: ArtifactVersionId::new(1),
-        content_hash: fixtures::test_content_hash(),
+        content_hash: fixtures::test_content_hash()?,
         tree_root_id: Some(StructureNodeId::new(10)),
         tree_nodes: vec![fixtures::tree_root_node(StructureNodeId::new(10))],
         chunks: vec![

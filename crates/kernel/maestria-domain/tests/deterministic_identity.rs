@@ -2,10 +2,21 @@ use maestria_domain::*;
 #[path = "common/fixtures.rs"]
 mod fixtures;
 
+fn require_error<T, E>(
+    result: Result<T, E>,
+    message: &str,
+) -> Result<E, Box<dyn std::error::Error>> {
+    match result {
+        Ok(_) => Err(std::io::Error::other(message).into()),
+        Err(error) => Ok(error),
+    }
+}
+
 // ── Deterministic evidence validation and identity ────────────────
 
 #[test]
-fn malformed_deterministic_existing_replaced_by_valid_retry() -> Result<(), DomainError> {
+fn malformed_deterministic_existing_replaced_by_valid_retry()
+-> Result<(), Box<dyn std::error::Error>> {
     // When an existing record at a deterministic ID is malformed
     // (e.g. legacy/corrupt), a valid incoming FileSpan with snapshot
     // and correct content_hash must replace it.
@@ -31,7 +42,7 @@ fn malformed_deterministic_existing_replaced_by_valid_retry() -> Result<(), Doma
         status: maestria_domain::ParseStatus::Parsed,
         artifact_id: art_id,
         artifact_version_id: ArtifactVersionId::new(art_id.value()),
-        content_hash: fixtures::test_content_hash(),
+        content_hash: fixtures::test_content_hash()?,
         tree_root_id: Some(StructureNodeId::new(10)),
         tree_nodes: vec![fixtures::tree_root_node(StructureNodeId::new(10))],
         chunks: vec![RegisterChunkInput {
@@ -94,7 +105,7 @@ fn malformed_deterministic_existing_replaced_by_valid_retry() -> Result<(), Doma
         "replacement must emit EvidenceRecorded"
     );
     // Verify the evidence was replaced.
-    let ev = state.evidences.get(&det_id).expect("evidence must exist");
+    let ev = state.evidences.get(&det_id).ok_or("evidence must exist")?;
     assert!(
         matches!(ev.kind, EvidenceKind::FileSpan { .. }),
         "replaced evidence must be FileSpan"
@@ -104,7 +115,7 @@ fn malformed_deterministic_existing_replaced_by_valid_retry() -> Result<(), Doma
 }
 
 #[test]
-fn valid_deterministic_duplicate_still_rejected() -> Result<(), DomainError> {
+fn valid_deterministic_duplicate_still_rejected() -> Result<(), Box<dyn std::error::Error>> {
     // A valid existing record at a deterministic ID with different
     // fields must still return DuplicateId — idempotency is preserved.
     let mut state = KernelState::new();
@@ -128,7 +139,7 @@ fn valid_deterministic_duplicate_still_rejected() -> Result<(), DomainError> {
         status: maestria_domain::ParseStatus::Parsed,
         artifact_id: art_id,
         artifact_version_id: ArtifactVersionId::new(art_id.value()),
-        content_hash: fixtures::test_content_hash(),
+        content_hash: fixtures::test_content_hash()?,
         tree_root_id: Some(StructureNodeId::new(10)),
         tree_nodes: vec![fixtures::tree_root_node(StructureNodeId::new(10))],
         chunks: vec![RegisterChunkInput {
@@ -161,8 +172,8 @@ fn valid_deterministic_duplicate_still_rejected() -> Result<(), DomainError> {
         security: None,
     }))?;
     // Retry with different excerpt — must be rejected.
-    let err = state
-        .apply_input(DomainInput::RecordEvidence(RecordEvidenceInput {
+    let err = require_error(
+        state.apply_input(DomainInput::RecordEvidence(RecordEvidenceInput {
             evidence_id: det_id,
             artifact_id: art_id,
             claim_id: None,
@@ -175,8 +186,9 @@ fn valid_deterministic_duplicate_still_rejected() -> Result<(), DomainError> {
             excerpt: "different".to_string(),
             observed_at: LogicalTick::new(1),
             security: None,
-        }))
-        .expect_err("valid duplicate mismatch must error");
+        })),
+        "valid duplicate mismatch must error",
+    )?;
     assert!(
         matches!(err, DomainError::DuplicateId { kind, id } if kind == "evidence" && id == det_id.value()),
         "expected DuplicateId, got {:?}",
@@ -186,7 +198,7 @@ fn valid_deterministic_duplicate_still_rejected() -> Result<(), DomainError> {
 }
 
 #[test]
-fn deterministic_cross_owner_rejected() -> Result<(), DomainError> {
+fn deterministic_cross_owner_rejected() -> Result<(), Box<dyn std::error::Error>> {
     // Evidence at a deterministic ID derived from artifact A cannot
     // be recorded under artifact B.
     let mut state = KernelState::new();
@@ -212,7 +224,7 @@ fn deterministic_cross_owner_rejected() -> Result<(), DomainError> {
         status: maestria_domain::ParseStatus::Parsed,
         artifact_id: art_a,
         artifact_version_id: ArtifactVersionId::new(art_a.value()),
-        content_hash: fixtures::test_content_hash(),
+        content_hash: fixtures::test_content_hash()?,
         tree_root_id: Some(StructureNodeId::new(10)),
         tree_nodes: vec![fixtures::tree_root_node(StructureNodeId::new(10))],
         chunks: vec![RegisterChunkInput {
@@ -236,8 +248,8 @@ fn deterministic_cross_owner_rejected() -> Result<(), DomainError> {
         security: None,
     }))?;
     // Try to record under artifact B with artifact A's deterministic ID.
-    let err = state
-        .apply_input(DomainInput::RecordEvidence(RecordEvidenceInput {
+    let err = require_error(
+        state.apply_input(DomainInput::RecordEvidence(RecordEvidenceInput {
             evidence_id: det_id,
             artifact_id: art_b, // cross-owner
             claim_id: None,
@@ -250,8 +262,9 @@ fn deterministic_cross_owner_rejected() -> Result<(), DomainError> {
             excerpt: "a".to_string(),
             observed_at: LogicalTick::new(1),
             security: None,
-        }))
-        .expect_err("cross-owner deterministic evidence must be rejected");
+        })),
+        "cross-owner deterministic evidence must be rejected",
+    )?;
     assert!(
         matches!(err, DomainError::MalformedDeterministicEvidence { .. }),
         "expected MalformedDeterministicEvidence, got {:?}",
@@ -261,7 +274,8 @@ fn deterministic_cross_owner_rejected() -> Result<(), DomainError> {
 }
 
 #[test]
-fn malformed_deterministic_non_filespan_is_rejected_at_record() -> Result<(), DomainError> {
+fn malformed_deterministic_non_filespan_is_rejected_at_record()
+-> Result<(), Box<dyn std::error::Error>> {
     // Regression: CommandOutput evidence at a deterministic evidence ID
     // (matching a chunk) is rejected at RecordEvidence time because
     // deterministic evidence must be source-backed FileSpan.
@@ -285,7 +299,7 @@ fn malformed_deterministic_non_filespan_is_rejected_at_record() -> Result<(), Do
         status: maestria_domain::ParseStatus::Parsed,
         artifact_id: art_id,
         artifact_version_id: ArtifactVersionId::new(art_id.value()),
-        content_hash: fixtures::test_content_hash(),
+        content_hash: fixtures::test_content_hash()?,
         tree_root_id: Some(StructureNodeId::new(10)),
         tree_nodes: vec![fixtures::tree_root_node(StructureNodeId::new(10))],
         chunks: vec![RegisterChunkInput {
@@ -303,8 +317,8 @@ fn malformed_deterministic_non_filespan_is_rejected_at_record() -> Result<(), Do
         cards: Vec::new(),
     }))?;
     // CommandOutput at deterministic ID — MUST be rejected.
-    let err = state
-        .apply_input(DomainInput::RecordEvidence(RecordEvidenceInput {
+    let err = require_error(
+        state.apply_input(DomainInput::RecordEvidence(RecordEvidenceInput {
             evidence_id: evidence_id_for(art_id, 0),
             artifact_id: art_id,
             claim_id: None,
@@ -316,8 +330,9 @@ fn malformed_deterministic_non_filespan_is_rejected_at_record() -> Result<(), Do
             excerpt: "out".to_string(),
             observed_at: LogicalTick::new(1),
             security: None,
-        }))
-        .expect_err("CommandOutput at deterministic evidence ID must be rejected");
+        })),
+        "CommandOutput at deterministic evidence ID must be rejected",
+    )?;
     assert!(
         matches!(err, DomainError::MalformedDeterministicEvidence { .. }),
         "expected MalformedDeterministicEvidence, got {:?}",
@@ -332,7 +347,8 @@ fn malformed_deterministic_non_filespan_is_rejected_at_record() -> Result<(), Do
 }
 
 #[test]
-fn malformed_deterministic_filespan_without_snapshot_is_rejected() -> Result<(), DomainError> {
+fn malformed_deterministic_filespan_without_snapshot_is_rejected()
+-> Result<(), Box<dyn std::error::Error>> {
     // Regression: FileSpan evidence at a deterministic evidence ID
     // (matching a chunk) must have snapshot: Some. Missing snapshot
     // is rejected at RecordEvidence time.
@@ -356,7 +372,7 @@ fn malformed_deterministic_filespan_without_snapshot_is_rejected() -> Result<(),
         status: maestria_domain::ParseStatus::Parsed,
         artifact_id: art_id,
         artifact_version_id: ArtifactVersionId::new(art_id.value()),
-        content_hash: fixtures::test_content_hash(),
+        content_hash: fixtures::test_content_hash()?,
         tree_root_id: Some(StructureNodeId::new(10)),
         tree_nodes: vec![fixtures::tree_root_node(StructureNodeId::new(10))],
         chunks: vec![RegisterChunkInput {
@@ -374,8 +390,8 @@ fn malformed_deterministic_filespan_without_snapshot_is_rejected() -> Result<(),
         cards: Vec::new(),
     }))?;
     // FileSpan with snapshot: None — MUST be rejected.
-    let err = state
-        .apply_input(DomainInput::RecordEvidence(RecordEvidenceInput {
+    let err = require_error(
+        state.apply_input(DomainInput::RecordEvidence(RecordEvidenceInput {
             evidence_id: evidence_id_for(art_id, 0),
             artifact_id: art_id,
             claim_id: None,
@@ -388,8 +404,9 @@ fn malformed_deterministic_filespan_without_snapshot_is_rejected() -> Result<(),
             excerpt: "hello".to_string(),
             observed_at: LogicalTick::new(1),
             security: None,
-        }))
-        .expect_err("FileSpan without snapshot at deterministic ID must be rejected");
+        })),
+        "FileSpan without snapshot at deterministic ID must be rejected",
+    )?;
     assert!(
         matches!(err, DomainError::MalformedDeterministicEvidence { .. }),
         "expected MalformedDeterministicEvidence, got {:?}",
@@ -403,7 +420,8 @@ fn malformed_deterministic_filespan_without_snapshot_is_rejected() -> Result<(),
 }
 
 #[test]
-fn malformed_deterministic_wrong_content_hash_is_rejected() -> Result<(), DomainError> {
+fn malformed_deterministic_wrong_content_hash_is_rejected() -> Result<(), Box<dyn std::error::Error>>
+{
     // Regression: FileSpan evidence at a deterministic evidence ID
     // must have content_hash matching the artifact's recorded hash.
     let mut state = KernelState::new();
@@ -426,7 +444,7 @@ fn malformed_deterministic_wrong_content_hash_is_rejected() -> Result<(), Domain
         status: maestria_domain::ParseStatus::Parsed,
         artifact_id: art_id,
         artifact_version_id: ArtifactVersionId::new(art_id.value()),
-        content_hash: fixtures::test_content_hash(),
+        content_hash: fixtures::test_content_hash()?,
         tree_root_id: Some(StructureNodeId::new(10)),
         tree_nodes: vec![fixtures::tree_root_node(StructureNodeId::new(10))],
         chunks: vec![RegisterChunkInput {
@@ -444,8 +462,8 @@ fn malformed_deterministic_wrong_content_hash_is_rejected() -> Result<(), Domain
         cards: Vec::new(),
     }))?;
     // FileSpan with wrong content_hash — MUST be rejected.
-    let err = state
-        .apply_input(DomainInput::RecordEvidence(RecordEvidenceInput {
+    let err = require_error(
+        state.apply_input(DomainInput::RecordEvidence(RecordEvidenceInput {
             evidence_id: evidence_id_for(art_id, 0),
             artifact_id: art_id,
             claim_id: None,
@@ -458,8 +476,9 @@ fn malformed_deterministic_wrong_content_hash_is_rejected() -> Result<(), Domain
             excerpt: "hello".to_string(),
             observed_at: LogicalTick::new(1),
             security: None,
-        }))
-        .expect_err("FileSpan with wrong content_hash at deterministic ID must be rejected");
+        })),
+        "FileSpan with wrong content_hash at deterministic ID must be rejected",
+    )?;
     assert!(
         matches!(err, DomainError::MalformedDeterministicEvidence { .. }),
         "expected MalformedDeterministicEvidence, got {:?}",
@@ -571,7 +590,8 @@ fn malformed_to_valid_replacement_events(
     ]
 }
 #[test]
-fn replay_events_malformed_to_valid_evidence_replacement() -> Result<(), DomainError> {
+fn replay_events_malformed_to_valid_evidence_replacement() -> Result<(), Box<dyn std::error::Error>>
+{
     // When replaying an event log that contains a malformed deterministic
     // evidence record followed by a valid replacement at the same ID,
     // replay_events must replace the malformed record and clean up
@@ -587,7 +607,7 @@ fn replay_events_malformed_to_valid_evidence_replacement() -> Result<(), DomainE
     let ev = replayed
         .evidences
         .get(&ev_id)
-        .expect("evidence must exist after replacement");
+        .ok_or("evidence must exist after replacement")?;
     assert!(
         matches!(ev.kind, EvidenceKind::FileSpan { .. }),
         "replaced evidence must be FileSpan"
@@ -603,15 +623,11 @@ fn replay_events_malformed_to_valid_evidence_replacement() -> Result<(), DomainE
     Ok(())
 }
 
-#[test]
-#[allow(clippy::too_many_lines)]
-fn replay_events_valid_duplicate_evidence_still_errors() -> Result<(), DomainError> {
-    // A valid deterministic evidence record followed by a *different*
-    // valid record at the same ID must still fail replay.
+fn valid_duplicate_evidence_events() -> Vec<DomainEventEnvelope> {
     let art_id = ArtifactId::new(1);
     let chunk_id = ChunkId::new(10);
     let ev_id = evidence_id_for(art_id, 0);
-    let events = vec![
+    vec![
         DomainEventEnvelope {
             id: EventId::new(1),
             sequence: SequenceNumber::new(1),
@@ -703,8 +719,15 @@ fn replay_events_valid_duplicate_evidence_still_errors() -> Result<(), DomainErr
                 security: maestria_domain::SecurityMetadata::default(),
             },
         },
-    ];
-    let err = replay_events(&events).expect_err("duplicate valid evidence must fail");
+    ]
+}
+
+#[test]
+fn replay_events_valid_duplicate_evidence_still_errors() -> Result<(), Box<dyn std::error::Error>> {
+    // A valid deterministic evidence record followed by a *different*
+    // valid record at the same ID must still fail replay.
+    let events = valid_duplicate_evidence_events();
+    let err = require_error(replay_events(&events), "duplicate valid evidence must fail")?;
     assert!(
         matches!(err, DomainError::DuplicateId { kind, .. } if kind == "evidence"),
         "expected DuplicateId evidence error, got {:?}",

@@ -2,6 +2,16 @@ use maestria_domain::*;
 use std::collections::BTreeSet;
 #[path = "common/evidence.rs"]
 mod common;
+
+fn require_error<T, E>(
+    result: Result<T, E>,
+    message: &str,
+) -> Result<E, Box<dyn std::error::Error>> {
+    match result {
+        Ok(_) => Err(std::io::Error::other(message).into()),
+        Err(error) => Ok(error),
+    }
+}
 use common::{
     file_span_kind, promote_memory, register_artifact_and_claim, state_with_memory_candidate,
 };
@@ -9,7 +19,8 @@ use common::{
 // ── Evidence provenance, relations, and memory lifecycle ──────────
 
 #[test]
-fn evidence_kind_preserves_provenance_and_triggers_claim_validation() -> Result<(), DomainError> {
+fn evidence_kind_preserves_provenance_and_triggers_claim_validation()
+-> Result<(), Box<dyn std::error::Error>> {
     let mut state = KernelState::new();
     register_artifact_and_claim(&mut state)?;
     let kind = EvidenceKind::CommandOutput {
@@ -190,7 +201,8 @@ fn assert_memory_candidate_created_with_evidence(
 }
 
 #[test]
-fn relation_and_memory_candidates_are_domain_owned_and_evidence_bound() -> Result<(), DomainError> {
+fn relation_and_memory_candidates_are_domain_owned_and_evidence_bound()
+-> Result<(), Box<dyn std::error::Error>> {
     let mut state = KernelState::new();
     register_artifact_and_claim(&mut state)?;
     state.apply_input(DomainInput::RecordEvidence(RecordEvidenceInput {
@@ -244,7 +256,7 @@ fn relation_and_memory_candidates_are_domain_owned_and_evidence_bound() -> Resul
 }
 
 #[test]
-fn promote_memory_creates_active_memory_from_candidate() -> Result<(), DomainError> {
+fn promote_memory_creates_active_memory_from_candidate() -> Result<(), Box<dyn std::error::Error>> {
     let mut state = state_with_memory_candidate(MemoryCandidateId::new(90))?;
 
     let output = state.apply_input(DomainInput::PromoteMemory(PromoteMemoryInput {
@@ -284,7 +296,7 @@ fn promote_memory_creates_active_memory_from_candidate() -> Result<(), DomainErr
 }
 
 #[test]
-fn promote_memory_rejects_missing_candidate() -> Result<(), DomainError> {
+fn promote_memory_rejects_missing_candidate() -> Result<(), Box<dyn std::error::Error>> {
     let mut state = KernelState::new();
 
     assert_eq!(
@@ -302,7 +314,7 @@ fn promote_memory_rejects_missing_candidate() -> Result<(), DomainError> {
 }
 
 #[test]
-fn contradict_memory_marks_memory_contradicted() -> Result<(), DomainError> {
+fn contradict_memory_marks_memory_contradicted() -> Result<(), Box<dyn std::error::Error>> {
     let mut state = state_with_memory_candidate(MemoryCandidateId::new(90))?;
     state.apply_input(DomainInput::CreateMemoryCandidate(
         CreateMemoryCandidateInput {
@@ -345,7 +357,7 @@ fn contradict_memory_marks_memory_contradicted() -> Result<(), DomainError> {
 }
 
 #[test]
-fn deprecate_memory_marks_memory_deprecated() -> Result<(), DomainError> {
+fn deprecate_memory_marks_memory_deprecated() -> Result<(), Box<dyn std::error::Error>> {
     let mut state = state_with_memory_candidate(MemoryCandidateId::new(90))?;
     promote_memory(&mut state, MemoryId::new(100), MemoryCandidateId::new(90))?;
 
@@ -374,7 +386,7 @@ fn deprecate_memory_marks_memory_deprecated() -> Result<(), DomainError> {
 }
 
 #[test]
-fn supersede_memory_marks_memory_superseded() -> Result<(), DomainError> {
+fn supersede_memory_marks_memory_superseded() -> Result<(), Box<dyn std::error::Error>> {
     let mut state = state_with_memory_candidate(MemoryCandidateId::new(90))?;
     state.apply_input(DomainInput::CreateMemoryCandidate(
         CreateMemoryCandidateInput {
@@ -422,7 +434,7 @@ fn supersede_memory_marks_memory_superseded() -> Result<(), DomainError> {
 }
 
 #[test]
-fn record_validation_report_emits_informational_event() -> Result<(), DomainError> {
+fn record_validation_report_emits_informational_event() -> Result<(), Box<dyn std::error::Error>> {
     let mut state = KernelState::new();
     state.apply_input(DomainInput::OpenTask(OpenTaskInput {
         task_id: TaskId::new(50),
@@ -453,7 +465,7 @@ fn record_validation_report_emits_informational_event() -> Result<(), DomainErro
         assert!(*passed);
         assert_eq!(warnings, &vec!["minor style warning".to_string()]);
     } else {
-        panic!("expected validation report created event");
+        return Err(std::io::Error::other("expected validation report created event").into());
     }
     assert!(
         output
@@ -467,7 +479,7 @@ fn record_validation_report_emits_informational_event() -> Result<(), DomainErro
 // ── Evidence idempotency / duplicate rejection ───────────────────
 
 #[test]
-fn record_evidence_duplicate_is_idempotent() -> Result<(), DomainError> {
+fn record_evidence_duplicate_is_idempotent() -> Result<(), Box<dyn std::error::Error>> {
     let mut state = KernelState::new();
     state.apply_input(DomainInput::RegisterArtifact(RegisterArtifactInput {
         artifact_id: ArtifactId::new(1),
@@ -511,7 +523,7 @@ fn record_evidence_duplicate_is_idempotent() -> Result<(), DomainError> {
 }
 
 #[test]
-fn record_evidence_rejects_mismatched_duplicate() -> Result<(), DomainError> {
+fn record_evidence_rejects_mismatched_duplicate() -> Result<(), Box<dyn std::error::Error>> {
     let mut state = KernelState::new();
     state.apply_input(DomainInput::RegisterArtifact(RegisterArtifactInput {
         artifact_id: ArtifactId::new(1),
@@ -532,8 +544,8 @@ fn record_evidence_rejects_mismatched_duplicate() -> Result<(), DomainError> {
         security: None,
     }))?;
 
-    let err = state
-        .apply_input(DomainInput::RecordEvidence(RecordEvidenceInput {
+    let err = require_error(
+        state.apply_input(DomainInput::RecordEvidence(RecordEvidenceInput {
             evidence_id: EvidenceId::new(40),
             artifact_id: ArtifactId::new(1),
             claim_id: None,
@@ -545,15 +557,16 @@ fn record_evidence_rejects_mismatched_duplicate() -> Result<(), DomainError> {
             excerpt: "different excerpt".to_string(),
             observed_at: LogicalTick::new(1),
             security: None,
-        }))
-        .expect_err("mismatched evidence must error");
+        })),
+        "mismatched evidence must error",
+    )?;
 
     assert!(matches!(err, DomainError::DuplicateId { kind, id: 40 } if kind == "evidence"));
     Ok(())
 }
 
 #[test]
-fn record_evidence_rejects_observed_at_mismatch() -> Result<(), DomainError> {
+fn record_evidence_rejects_observed_at_mismatch() -> Result<(), Box<dyn std::error::Error>> {
     let mut state = KernelState::new();
     state.apply_input(DomainInput::RegisterArtifact(RegisterArtifactInput {
         artifact_id: ArtifactId::new(1),
@@ -574,8 +587,8 @@ fn record_evidence_rejects_observed_at_mismatch() -> Result<(), DomainError> {
         security: None,
     }))?;
 
-    let err = state
-        .apply_input(DomainInput::RecordEvidence(RecordEvidenceInput {
+    let err = require_error(
+        state.apply_input(DomainInput::RecordEvidence(RecordEvidenceInput {
             evidence_id: EvidenceId::new(40),
             artifact_id: ArtifactId::new(1),
             claim_id: None,
@@ -587,8 +600,9 @@ fn record_evidence_rejects_observed_at_mismatch() -> Result<(), DomainError> {
             excerpt: "same excerpt".to_string(),
             observed_at: LogicalTick::new(2),
             security: None,
-        }))
-        .expect_err("observed_at mismatch must error");
+        })),
+        "observed_at mismatch must error",
+    )?;
 
     assert!(
         matches!(err, DomainError::DuplicateId { kind, id: 40 } if kind == "evidence"),

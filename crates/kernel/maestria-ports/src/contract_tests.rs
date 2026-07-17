@@ -23,24 +23,21 @@ pub fn sample_artifact(id: u64) -> Artifact {
     }
 }
 
-pub fn assert_artifact_repository_round_trip(repository: &impl ArtifactRepository) {
+pub fn assert_artifact_repository_round_trip(
+    repository: &impl ArtifactRepository,
+) -> Result<(), Box<dyn std::error::Error>> {
     let artifact = sample_artifact(1);
 
-    repository.put(artifact.clone()).expect("artifact put");
+    repository.put(artifact.clone())?;
 
-    assert_eq!(
-        repository.get(artifact.id).expect("artifact get"),
-        Some(artifact)
-    );
-    assert_eq!(
-        repository
-            .get(ArtifactId::new(99))
-            .expect("missing artifact get"),
-        None
-    );
+    assert_eq!(repository.get(artifact.id)?, Some(artifact));
+    assert_eq!(repository.get(ArtifactId::new(99))?, None);
+    Ok(())
 }
 
-pub fn assert_chunk_repository_round_trip(repository: &impl ChunkRepository) {
+pub fn assert_chunk_repository_round_trip(
+    repository: &impl ChunkRepository,
+) -> Result<(), Box<dyn std::error::Error>> {
     let first = Chunk {
         id: ChunkId::new(10),
         artifact_id: ArtifactId::new(1),
@@ -78,27 +75,22 @@ pub fn assert_chunk_repository_round_trip(repository: &impl ChunkRepository) {
         representations: vec![],
     };
 
-    repository.put(first.clone()).expect("first chunk put");
-    repository.put(second.clone()).expect("second chunk put");
-    repository.put(unrelated).expect("unrelated chunk put");
+    repository.put(first.clone())?;
+    repository.put(second.clone())?;
+    repository.put(unrelated)?;
 
+    assert_eq!(repository.get(first.id)?, Some(first.clone()));
     assert_eq!(
-        repository.get(first.id).expect("chunk get"),
-        Some(first.clone())
-    );
-    assert_eq!(
-        repository
-            .list_for_artifact(ArtifactId::new(1))
-            .expect("chunk list"),
+        repository.list_for_artifact(ArtifactId::new(1))?,
         vec![second, first]
     );
-    assert_eq!(
-        repository.get(ChunkId::new(99)).expect("missing chunk get"),
-        None
-    );
+    assert_eq!(repository.get(ChunkId::new(99))?, None);
+    Ok(())
 }
 
-pub fn assert_card_repository_round_trip(repository: &impl CardRepository) {
+pub fn assert_card_repository_round_trip(
+    repository: &impl CardRepository,
+) -> Result<(), Box<dyn std::error::Error>> {
     let first = Card {
         id: CardId::new(20),
         artifact_id: ArtifactId::new(1),
@@ -139,27 +131,22 @@ pub fn assert_card_repository_round_trip(repository: &impl CardRepository) {
         security: maestria_domain::SecurityMetadata::default(),
     };
 
-    repository.put(first.clone()).expect("first card put");
-    repository.put(second.clone()).expect("second card put");
-    repository.put(unrelated).expect("unrelated card put");
+    repository.put(first.clone())?;
+    repository.put(second.clone())?;
+    repository.put(unrelated)?;
 
+    assert_eq!(repository.get(first.id)?, Some(first.clone()));
     assert_eq!(
-        repository.get(first.id).expect("card get"),
-        Some(first.clone())
-    );
-    assert_eq!(
-        repository
-            .list_for_artifact(ArtifactId::new(1))
-            .expect("card list"),
+        repository.list_for_artifact(ArtifactId::new(1))?,
         vec![first, second]
     );
-    assert_eq!(
-        repository.get(CardId::new(99)).expect("missing card get"),
-        None
-    );
+    assert_eq!(repository.get(CardId::new(99))?, None);
+    Ok(())
 }
 
-pub fn assert_evidence_repository_round_trip(repository: &impl EvidenceRepository) {
+pub fn assert_evidence_repository_round_trip(
+    repository: &impl EvidenceRepository,
+) -> Result<(), Box<dyn std::error::Error>> {
     let file = Evidence {
         id: EvidenceId::new(40),
         artifact_id: ArtifactId::new(1),
@@ -197,31 +184,22 @@ pub fn assert_evidence_repository_round_trip(repository: &impl EvidenceRepositor
         security: maestria_domain::SecurityMetadata::default(),
     };
 
-    repository.put(file.clone()).expect("file evidence put");
-    repository
-        .put(validation.clone())
-        .expect("validation evidence put");
-    repository.put(unrelated).expect("unrelated evidence put");
+    repository.put(file.clone())?;
+    repository.put(validation.clone())?;
+    repository.put(unrelated)?;
 
+    assert_eq!(repository.get(file.id)?, Some(file.clone()));
     assert_eq!(
-        repository.get(file.id).expect("evidence get"),
-        Some(file.clone())
-    );
-    assert_eq!(
-        repository
-            .list_for_artifact(ArtifactId::new(1))
-            .expect("evidence list"),
+        repository.list_for_artifact(ArtifactId::new(1))?,
         vec![file, validation]
     );
-    assert_eq!(
-        repository
-            .get(EvidenceId::new(99))
-            .expect("missing evidence get"),
-        None
-    );
+    assert_eq!(repository.get(EvidenceId::new(99))?, None);
+    Ok(())
 }
 
-pub fn assert_evidence_repository_replace_contract(repository: &impl EvidenceRepository) {
+pub fn assert_evidence_repository_replace_contract(
+    repository: &impl EvidenceRepository,
+) -> Result<(), Box<dyn std::error::Error>> {
     let original = Evidence {
         id: EvidenceId::new(50),
         artifact_id: ArtifactId::new(1),
@@ -245,33 +223,20 @@ pub fn assert_evidence_repository_replace_contract(repository: &impl EvidenceRep
         security: maestria_domain::SecurityMetadata::default(),
     };
 
-    repository.put(original.clone()).expect("original put");
+    repository.put(original.clone())?;
     // put with different content must conflict
-    let err = repository.put(replacement.clone()).unwrap_err();
+    let Err(err) = repository.put(replacement.clone()) else {
+        return Err("expected error".into());
+    };
     assert!(matches!(err, PortError::Conflict { .. }));
     // original still intact
-    assert_eq!(
-        repository.get(original.id).expect("get"),
-        Some(original.clone())
-    );
+    assert_eq!(repository.get(original.id)?, Some(original.clone()));
     // replace overwrites even with different content
-    repository
-        .replace(replacement.clone())
-        .expect("replace must succeed despite conflict");
-    assert_eq!(
-        repository.get(replacement.id).expect("get after replace"),
-        Some(replacement.clone())
-    );
+    repository.replace(replacement.clone())?;
+    assert_eq!(repository.get(replacement.id)?, Some(replacement.clone()));
     // replace of identical value is idempotent
-    repository
-        .replace(replacement.clone())
-        .expect("replace identical must succeed");
-    assert_eq!(
-        repository
-            .get(replacement.id)
-            .expect("get after replace identical"),
-        Some(replacement.clone())
-    );
+    repository.replace(replacement.clone())?;
+    assert_eq!(repository.get(replacement.id)?, Some(replacement.clone()));
     // replace on a fresh id acts as insert
     let fresh = Evidence {
         id: EvidenceId::new(51),
@@ -284,11 +249,12 @@ pub fn assert_evidence_repository_replace_contract(repository: &impl EvidenceRep
         observed_at: LogicalTick::new(3),
         security: maestria_domain::SecurityMetadata::default(),
     };
-    repository.replace(fresh.clone()).expect("fresh replace");
-    assert_eq!(repository.get(fresh.id).expect("get fresh"), Some(fresh));
+    repository.replace(fresh.clone())?;
+    assert_eq!(repository.get(fresh.id)?, Some(fresh));
+    Ok(())
 }
 
-pub fn assert_event_log_round_trip(log: &impl EventLog) {
+pub fn assert_event_log_round_trip(log: &impl EventLog) -> Result<(), Box<dyn std::error::Error>> {
     let event = DomainEventEnvelope {
         id: EventId::new(1),
         sequence: SequenceNumber::new(1),
@@ -334,10 +300,10 @@ pub fn assert_event_log_round_trip(log: &impl EventLog) {
         },
     };
 
-    log.append(event.clone()).expect("event append");
-    log.append(evidence.clone()).expect("evidence event append");
-    log.append(search.clone()).expect("search event append");
-    log.append(unrelated).expect("unrelated event append");
+    log.append(event.clone())?;
+    log.append(evidence.clone())?;
+    log.append(search.clone())?;
+    log.append(unrelated)?;
 
     let out_of_order = DomainEventEnvelope {
         id: EventId::new(6), // next is 5
@@ -346,7 +312,9 @@ pub fn assert_event_log_round_trip(log: &impl EventLog) {
             at: LogicalTick::new(0),
         },
     };
-    let err = log.append(out_of_order).unwrap_err();
+    let Err(err) = log.append(out_of_order) else {
+        return Err("expected error".into());
+    };
     assert!(
         matches!(err, PortError::Conflict { .. }),
         "out of order must return Conflict"
@@ -359,205 +327,191 @@ pub fn assert_event_log_round_trip(log: &impl EventLog) {
             at: LogicalTick::new(0),
         },
     };
-    let err_id = log.append(id_mismatch).unwrap_err();
+    let Err(err_id) = log.append(id_mismatch) else {
+        return Err("expected error".into());
+    };
     assert!(
         matches!(err_id, PortError::Conflict { .. }),
         "id mismatch must return Conflict"
     );
 
-    let all = log
-        .scan(EventFilter { artifact_id: None })
-        .expect("full event scan");
+    let all = log.scan(EventFilter { artifact_id: None })?;
     assert_eq!(all.len(), 4);
 
-    let filtered = log
-        .scan(EventFilter {
-            artifact_id: Some(ArtifactId::new(1)),
-        })
-        .expect("filtered event scan");
+    let filtered = log.scan(EventFilter {
+        artifact_id: Some(ArtifactId::new(1)),
+    })?;
     assert_eq!(filtered, vec![event, evidence, search]);
+    Ok(())
 }
 
-pub fn assert_blob_store_round_trip(store: &impl BlobStore) {
-    let first = store.put(vec![1, 2, 3]).expect("first blob put");
-    let first_duplicate = store.put(vec![1, 2, 3]).expect("duplicate blob put");
-    let second = store.put(vec![4, 5]).expect("second blob put");
+pub fn assert_blob_store_round_trip(
+    store: &impl BlobStore,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let first = store.put(vec![1, 2, 3])?;
+    let first_duplicate = store.put(vec![1, 2, 3])?;
+    let second = store.put(vec![4, 5])?;
 
     assert_eq!(first, first_duplicate);
     assert_ne!(first, second);
-    assert_eq!(store.get(first).expect("first blob get"), vec![1, 2, 3]);
-    assert_eq!(store.get(second).expect("second blob get"), vec![4, 5]);
+    assert_eq!(store.get(first)?, vec![1, 2, 3]);
+    assert_eq!(store.get(second)?, vec![4, 5]);
     assert!(matches!(
         store.get(BlobId::new(99)),
         Err(PortError::NotFound)
     ));
+    Ok(())
 }
 
-pub fn assert_full_text_index_round_trip(index: &impl FullTextIndex) {
-    verify_chunk_round_trip(index);
-    verify_card_round_trip(index);
-    verify_card_replacement(index);
-    verify_tie_ordering(index);
-    verify_empty_query(index);
+pub fn assert_full_text_index_round_trip(
+    index: &impl FullTextIndex,
+) -> Result<(), Box<dyn std::error::Error>> {
+    verify_chunk_round_trip(index)?;
+    verify_card_round_trip(index)?;
+    verify_card_replacement(index)?;
+    verify_tie_ordering(index)?;
+    verify_empty_query(index)?;
+    Ok(())
 }
 
-fn verify_chunk_round_trip(index: &impl FullTextIndex) {
+fn verify_chunk_round_trip(index: &impl FullTextIndex) -> Result<(), Box<dyn std::error::Error>> {
     // --- chunk round-trip (existing) ---
-    index
-        .index_chunks(vec![
-            IndexedChunk {
-                artifact_id: ArtifactId::new(1),
-                chunk_id: ChunkId::new(10),
-                text: "hello short".to_string(),
-            },
-            IndexedChunk {
-                artifact_id: ArtifactId::new(1),
-                chunk_id: ChunkId::new(11),
-                text: "hello search with more ranking text".to_string(),
-            },
-            IndexedChunk {
-                artifact_id: ArtifactId::new(2),
-                chunk_id: ChunkId::new(20),
-                text: "unrelated".to_string(),
-            },
-        ])
-        .expect("index chunks");
+    index.index_chunks(vec![
+        IndexedChunk {
+            artifact_id: ArtifactId::new(1),
+            chunk_id: ChunkId::new(10),
+            text: "hello short".to_string(),
+        },
+        IndexedChunk {
+            artifact_id: ArtifactId::new(1),
+            chunk_id: ChunkId::new(11),
+            text: "hello search with more ranking text".to_string(),
+        },
+        IndexedChunk {
+            artifact_id: ArtifactId::new(2),
+            chunk_id: ChunkId::new(20),
+            text: "unrelated".to_string(),
+        },
+    ])?;
 
-    let hits = index
-        .search(SearchQuery {
-            q: "hello".to_string(),
-            limit: 10,
-            offset: 0,
-        })
-        .expect("search hits");
+    let hits = index.search(SearchQuery {
+        q: "hello".to_string(),
+        limit: 10,
+        offset: 0,
+    })?;
 
     assert_eq!(hits.len(), 2);
     let hit_ids: Vec<ChunkId> = hits.iter().map(|hit| hit.chunk.chunk_id).collect();
     assert!(hit_ids.contains(&ChunkId::new(10)));
     assert!(hit_ids.contains(&ChunkId::new(11)));
-    let repeated = index
-        .search(SearchQuery {
-            q: "hello".to_string(),
-            limit: 10,
-            offset: 0,
-        })
-        .expect("repeat search hits");
+    let repeated = index.search(SearchQuery {
+        q: "hello".to_string(),
+        limit: 10,
+        offset: 0,
+    })?;
     assert_eq!(hits, repeated);
+    Ok(())
 }
 
-fn verify_card_round_trip(index: &impl FullTextIndex) {
+fn verify_card_round_trip(index: &impl FullTextIndex) -> Result<(), Box<dyn std::error::Error>> {
     // --- card round-trip ---
-    index
-        .index_cards(vec![
-            IndexedCard {
-                artifact_id: ArtifactId::new(1),
-                card_id: CardId::new(100),
-                title: "Alpha".to_string(),
-                body: "first card".to_string(),
-            },
-            IndexedCard {
-                artifact_id: ArtifactId::new(1),
-                card_id: CardId::new(101),
-                title: "Beta".to_string(),
-                body: "second card with more content".to_string(),
-            },
-            IndexedCard {
-                artifact_id: ArtifactId::new(2),
-                card_id: CardId::new(200),
-                title: "Gamma".to_string(),
-                body: "unrelated".to_string(),
-            },
-        ])
-        .expect("index cards");
+    index.index_cards(vec![
+        IndexedCard {
+            artifact_id: ArtifactId::new(1),
+            card_id: CardId::new(100),
+            title: "Alpha".to_string(),
+            body: "first card".to_string(),
+        },
+        IndexedCard {
+            artifact_id: ArtifactId::new(1),
+            card_id: CardId::new(101),
+            title: "Beta".to_string(),
+            body: "second card with more content".to_string(),
+        },
+        IndexedCard {
+            artifact_id: ArtifactId::new(2),
+            card_id: CardId::new(200),
+            title: "Gamma".to_string(),
+            body: "unrelated".to_string(),
+        },
+    ])?;
 
-    let card_hits = index
-        .search_cards(SearchQuery {
-            q: "card".to_string(),
-            limit: 10,
-            offset: 0,
-        })
-        .expect("search cards");
+    let card_hits = index.search_cards(SearchQuery {
+        q: "card".to_string(),
+        limit: 10,
+        offset: 0,
+    })?;
 
     assert_eq!(card_hits.len(), 2);
     let card_ids: Vec<CardId> = card_hits.iter().map(|hit| hit.card.card_id).collect();
     assert!(card_ids.contains(&CardId::new(100)));
     assert!(card_ids.contains(&CardId::new(101)));
-    let repeated = index
-        .search_cards(SearchQuery {
-            q: "card".to_string(),
-            limit: 10,
-            offset: 0,
-        })
-        .expect("repeat card search");
+    let repeated = index.search_cards(SearchQuery {
+        q: "card".to_string(),
+        limit: 10,
+        offset: 0,
+    })?;
     assert_eq!(card_hits, repeated);
+    Ok(())
 }
 
-fn verify_card_replacement(index: &impl FullTextIndex) {
+fn verify_card_replacement(index: &impl FullTextIndex) -> Result<(), Box<dyn std::error::Error>> {
     // --- card replacement: re-index card 100 with updated content ---
-    index
-        .index_cards(vec![IndexedCard {
-            artifact_id: ArtifactId::new(1),
-            card_id: CardId::new(100),
-            title: "Alpha Updated".to_string(),
-            body: "revised first card".to_string(),
-        }])
-        .expect("index replacement cards");
+    index.index_cards(vec![IndexedCard {
+        artifact_id: ArtifactId::new(1),
+        card_id: CardId::new(100),
+        title: "Alpha Updated".to_string(),
+        body: "revised first card".to_string(),
+    }])?;
 
     // Old Beta (card_id=101) should still exist — only card 100 was re-indexed.
-    let beta_hits = index
-        .search_cards(SearchQuery {
-            q: "second".to_string(),
-            limit: 10,
-            offset: 0,
-        })
-        .expect("search after replace");
+    let beta_hits = index.search_cards(SearchQuery {
+        q: "second".to_string(),
+        limit: 10,
+        offset: 0,
+    })?;
     assert_eq!(beta_hits.len(), 1);
     assert_eq!(beta_hits[0].card.card_id, CardId::new(101));
 
-    let updated_hits = index
-        .search_cards(SearchQuery {
-            q: "revised".to_string(),
-            limit: 10,
-            offset: 0,
-        })
-        .expect("search revised");
+    let updated_hits = index.search_cards(SearchQuery {
+        q: "revised".to_string(),
+        limit: 10,
+        offset: 0,
+    })?;
     assert_eq!(updated_hits.len(), 1);
     assert_eq!(updated_hits[0].card.card_id, CardId::new(100));
     assert_eq!(updated_hits[0].card.title, "Alpha Updated");
+    Ok(())
 }
 
-fn verify_tie_ordering(index: &impl FullTextIndex) {
+fn verify_tie_ordering(index: &impl FullTextIndex) -> Result<(), Box<dyn std::error::Error>> {
     // --- deterministic tie ordering: same scores, ordered by (artifact_id, card_id) ---
-    index
-        .index_cards(vec![
-            IndexedCard {
-                artifact_id: ArtifactId::new(3),
-                card_id: CardId::new(301),
-                title: "dup".to_string(),
-                body: "same".to_string(),
-            },
-            IndexedCard {
-                artifact_id: ArtifactId::new(3),
-                card_id: CardId::new(302),
-                title: "dup".to_string(),
-                body: "same".to_string(),
-            },
-            IndexedCard {
-                artifact_id: ArtifactId::new(3),
-                card_id: CardId::new(303),
-                title: "dup".to_string(),
-                body: "same".to_string(),
-            },
-        ])
-        .expect("index tie cards");
+    index.index_cards(vec![
+        IndexedCard {
+            artifact_id: ArtifactId::new(3),
+            card_id: CardId::new(301),
+            title: "dup".to_string(),
+            body: "same".to_string(),
+        },
+        IndexedCard {
+            artifact_id: ArtifactId::new(3),
+            card_id: CardId::new(302),
+            title: "dup".to_string(),
+            body: "same".to_string(),
+        },
+        IndexedCard {
+            artifact_id: ArtifactId::new(3),
+            card_id: CardId::new(303),
+            title: "dup".to_string(),
+            body: "same".to_string(),
+        },
+    ])?;
 
-    let tie_hits = index
-        .search_cards(SearchQuery {
-            q: "dup".to_string(),
-            limit: 10,
-            offset: 0,
-        })
-        .expect("search ties");
+    let tie_hits = index.search_cards(SearchQuery {
+        q: "dup".to_string(),
+        limit: 10,
+        offset: 0,
+    })?;
 
     // All three should match; order must be by ascending card_id for ties
     let tie_ids: Vec<CardId> = tie_hits.iter().map(|h| h.card.card_id).collect();
@@ -565,24 +519,27 @@ fn verify_tie_ordering(index: &impl FullTextIndex) {
         tie_ids,
         vec![CardId::new(301), CardId::new(302), CardId::new(303)]
     );
+    Ok(())
 }
 
-fn verify_empty_query(index: &impl FullTextIndex) {
+fn verify_empty_query(index: &impl FullTextIndex) -> Result<(), Box<dyn std::error::Error>> {
     // --- empty query returns empty ---
-    let empty = index
-        .search_cards(SearchQuery {
-            q: "zzz_no_match".to_string(),
-            limit: 10,
-            offset: 0,
-        })
-        .expect("empty search");
+    let empty = index.search_cards(SearchQuery {
+        q: "zzz_no_match".to_string(),
+        limit: 10,
+        offset: 0,
+    })?;
     assert!(empty.is_empty());
+    Ok(())
 }
 
-pub fn assert_vector_index_contract(index: &impl VectorIndex) {
+pub fn assert_vector_index_contract(
+    index: &impl VectorIndex,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let identity = EmbeddingIdentity::legacy("test-model", 2)?;
     let prov = || EmbeddingProvenance {
         content_hash: "abcd123".into(),
-        identity: EmbeddingIdentity::legacy("test-model", 2).expect("legacy identity"),
+        identity: identity.clone(),
         provider_id: "test-provider".into(),
         model: "test-model".into(),
         model_version: "test-v1".into(),
@@ -596,24 +553,20 @@ pub fn assert_vector_index_contract(index: &impl VectorIndex) {
         vector,
         provenance: prov(),
     };
-    index
-        .index_embeddings(vec![
-            embedding(2, vec![1.0, 0.0]),
-            embedding(1, vec![1.0, 0.0]),
-            embedding(3, vec![0.0, 1.0]),
-        ])
-        .expect("index embeddings");
+    index.index_embeddings(vec![
+        embedding(2, vec![1.0, 0.0]),
+        embedding(1, vec![1.0, 0.0]),
+        embedding(3, vec![0.0, 1.0]),
+    ])?;
     assert!(matches!(
         index.index_embeddings(vec![embedding(4, vec![1.0, 0.0, 0.0])]),
         Err(PortError::InvalidInput { .. })
     ));
-    let equal_score_hits = index
-        .search_similar(VectorSearchQuery {
-            vector: vec![1.0, 0.0],
-            limit: 4,
-            ..Default::default()
-        })
-        .expect("equal-score search");
+    let equal_score_hits = index.search_similar(VectorSearchQuery {
+        vector: vec![1.0, 0.0],
+        limit: 4,
+        ..Default::default()
+    })?;
     assert_eq!(equal_score_hits[0].chunk_id, ChunkId::new(1));
     assert_eq!(equal_score_hits[1].chunk_id, ChunkId::new(2));
     assert!(
@@ -621,59 +574,56 @@ pub fn assert_vector_index_contract(index: &impl VectorIndex) {
             .iter()
             .any(|hit| hit.chunk_id == ChunkId::new(4))
     );
-    verify_vector_identity_filter(index);
+    verify_vector_identity_filter(index)?;
 
-    let zero_query_hits = index
-        .search_similar(VectorSearchQuery {
-            vector: vec![0.0, 0.0],
-            limit: 10,
-            ..Default::default()
-        })
-        .expect("all-zero query search");
+    let zero_query_hits = index.search_similar(VectorSearchQuery {
+        vector: vec![0.0, 0.0],
+        limit: 10,
+        ..Default::default()
+    })?;
     assert!(
         zero_query_hits.is_empty(),
         "all-zero query must return no hits"
     );
 
-    index
-        .index_embeddings(vec![embedding(7, vec![0.0, 1.0])])
-        .expect("initial embedding");
-    index
-        .index_embeddings(vec![embedding(7, vec![1.0, 0.0])])
-        .expect("replacement embedding");
-    let replacement_hits = index
-        .search_similar(VectorSearchQuery {
-            vector: vec![1.0, 0.0],
-            limit: 10,
-            ..Default::default()
-        })
-        .expect("replacement search");
+    index.index_embeddings(vec![embedding(7, vec![0.0, 1.0])])?;
+    index.index_embeddings(vec![embedding(7, vec![1.0, 0.0])])?;
+    let replacement_hits = index.search_similar(VectorSearchQuery {
+        vector: vec![1.0, 0.0],
+        limit: 10,
+        ..Default::default()
+    })?;
     let replaced = replacement_hits
         .iter()
         .filter(|hit| hit.chunk_id == ChunkId::new(7))
         .collect::<Vec<_>>();
     assert_eq!(replaced.len(), 1);
     assert_eq!(replaced[0].score, 1.0);
-    verify_vector_validation(index, &prov);
-    verify_vector_lifecycle(index, prov);
+    verify_vector_validation(index, &prov)?;
+    verify_vector_lifecycle(index, prov)?;
+    Ok(())
 }
-fn verify_vector_identity_filter(index: &impl VectorIndex) {
-    let mismatched_identity_hits = index
-        .search_similar(VectorSearchQuery {
-            vector: vec![1.0, 0.0],
-            limit: 4,
-            provider_id: Some("other-provider".into()),
-            model: Some("other-model".into()),
-            model_version: Some("other-version".into()),
-            identity: None,
-        })
-        .expect("mismatched identity search");
+fn verify_vector_identity_filter(
+    index: &impl VectorIndex,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let mismatched_identity_hits = index.search_similar(VectorSearchQuery {
+        vector: vec![1.0, 0.0],
+        limit: 4,
+        provider_id: Some("other-provider".into()),
+        model: Some("other-model".into()),
+        model_version: Some("other-version".into()),
+        identity: None,
+    })?;
     assert!(
         mismatched_identity_hits.is_empty(),
         "provider/model/version identity must filter incompatible rows"
     );
+    Ok(())
 }
-fn verify_vector_validation(index: &impl VectorIndex, prov: &impl Fn() -> EmbeddingProvenance) {
+fn verify_vector_validation(
+    index: &impl VectorIndex,
+    prov: &impl Fn() -> EmbeddingProvenance,
+) -> Result<(), Box<dyn std::error::Error>> {
     assert!(matches!(
         index.index_embeddings(vec![VectorEmbedding {
             chunk_id: ChunkId::new(9),
@@ -704,55 +654,49 @@ fn verify_vector_validation(index: &impl VectorIndex, prov: &impl Fn() -> Embedd
         }),
         Err(PortError::InvalidInput { .. })
     ));
+    Ok(())
 }
-fn verify_vector_lifecycle(index: &impl VectorIndex, prov: impl Fn() -> EmbeddingProvenance) {
+fn verify_vector_lifecycle(
+    index: &impl VectorIndex,
+    prov: impl Fn() -> EmbeddingProvenance,
+) -> Result<(), Box<dyn std::error::Error>> {
     let embedding = |chunk_id, vector| VectorEmbedding {
         chunk_id: ChunkId::new(chunk_id),
         vector,
         provenance: prov(),
     };
-    index.clear().expect("clear index");
-    let hits_after_clear = index
-        .search_similar(VectorSearchQuery {
-            vector: vec![1.0, 0.0],
-            limit: 10,
-            ..Default::default()
-        })
-        .expect("search after clear");
+    index.clear()?;
+    let hits_after_clear = index.search_similar(VectorSearchQuery {
+        vector: vec![1.0, 0.0],
+        limit: 10,
+        ..Default::default()
+    })?;
     assert!(
         hits_after_clear.is_empty(),
         "index must be empty after clear"
     );
-    index.clear().expect("clear index again");
-    index
-        .rebuild(vec![
-            embedding(10, vec![0.0, 1.0]),
-            embedding(11, vec![1.0, 0.0]),
-        ])
-        .expect("rebuild index");
-    let hits_after_rebuild = index
-        .search_similar(VectorSearchQuery {
-            vector: vec![1.0, 0.0],
-            limit: 10,
-            ..Default::default()
-        })
-        .expect("search after rebuild");
+    index.clear()?;
+    index.rebuild(vec![
+        embedding(10, vec![0.0, 1.0]),
+        embedding(11, vec![1.0, 0.0]),
+    ])?;
+    let hits_after_rebuild = index.search_similar(VectorSearchQuery {
+        vector: vec![1.0, 0.0],
+        limit: 10,
+        ..Default::default()
+    })?;
     assert_eq!(
         hits_after_rebuild.len(),
         2,
         "must have exactly two hits after rebuild"
     );
     assert_eq!(hits_after_rebuild[0].chunk_id, ChunkId::new(11));
-    index
-        .delete_chunks(&[ChunkId::new(10)])
-        .expect("delete chunk 10");
-    let hits_after_delete = index
-        .search_similar(VectorSearchQuery {
-            vector: vec![0.0, 1.0],
-            limit: 10,
-            ..Default::default()
-        })
-        .expect("search after delete");
+    index.delete_chunks(&[ChunkId::new(10)])?;
+    let hits_after_delete = index.search_similar(VectorSearchQuery {
+        vector: vec![0.0, 1.0],
+        limit: 10,
+        ..Default::default()
+    })?;
     assert_eq!(
         hits_after_delete.len(),
         1,
@@ -763,24 +707,21 @@ fn verify_vector_lifecycle(index: &impl VectorIndex, prov: impl Fn() -> Embeddin
         ChunkId::new(11),
         "only chunk 11 should remain"
     );
-    index
-        .delete_chunks(&[ChunkId::new(10), ChunkId::new(999)])
-        .expect("delete already deleted / non-existent chunk");
-    let hits_after_idempotent_delete = index
-        .search_similar(VectorSearchQuery {
-            vector: vec![1.0, 0.0],
-            limit: 10,
-            ..Default::default()
-        })
-        .expect("search after idempotent delete");
+    index.delete_chunks(&[ChunkId::new(10), ChunkId::new(999)])?;
+    let hits_after_idempotent_delete = index.search_similar(VectorSearchQuery {
+        vector: vec![1.0, 0.0],
+        limit: 10,
+        ..Default::default()
+    })?;
     assert_eq!(
         hits_after_idempotent_delete.len(),
         1,
         "must still have one hit remaining"
     );
     assert_eq!(hits_after_idempotent_delete[0].chunk_id, ChunkId::new(11));
+    Ok(())
 }
-pub fn assert_parser_round_trip(parser: &impl Parser) {
+pub fn assert_parser_round_trip(parser: &impl Parser) -> Result<(), Box<dyn std::error::Error>> {
     assert_eq!(parser.id(), "in-memory-parser");
     assert!(parser.supports(&FileMetadata {
         path: PathBuf::from("notes.md"),
@@ -792,17 +733,15 @@ pub fn assert_parser_round_trip(parser: &impl Parser) {
         size: 5,
         extension: Some("bin".to_string()),
     }));
-    let parsed = parser
-        .parse(
-            FileHandle {
-                path: PathBuf::from("notes.md"),
-                bytes: b"alpha".to_vec(),
-            },
-            ParseContext {
-                artifact_id: ArtifactId::new(7),
-            },
-        )
-        .expect("parse utf8 file");
+    let parsed = parser.parse(
+        FileHandle {
+            path: PathBuf::from("notes.md"),
+            bytes: b"alpha".to_vec(),
+        },
+        ParseContext {
+            artifact_id: ArtifactId::new(7),
+        },
+    )?;
     assert_eq!(parsed.artifact_id, ArtifactId::new(7));
     assert_eq!(parsed.artifact_version_id, ArtifactVersionId::new(7));
     assert_eq!(parsed.status, ParseStatus::Parsed);
@@ -832,9 +771,12 @@ pub fn assert_parser_round_trip(parser: &impl Parser) {
         ),
         Err(PortError::InvalidInput { .. })
     ));
+    Ok(())
 }
-pub async fn assert_harness_adapter_round_trip(harness: &impl HarnessAdapter) {
-    let capabilities = harness.capabilities().expect("capabilities");
+pub async fn assert_harness_adapter_round_trip(
+    harness: &impl HarnessAdapter,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let capabilities = harness.capabilities()?;
     assert!(capabilities.read_enabled);
     assert!(capabilities.write_enabled);
     assert!(
@@ -854,8 +796,7 @@ pub async fn assert_harness_adapter_round_trip(harness: &impl HarnessAdapter) {
             blocked_paths: vec![],
             blocked_patterns: vec![],
         })
-        .await
-        .expect("execute command");
+        .await?;
 
     assert_eq!(outcome.run_id, HarnessRunId::new(7));
     assert_eq!(outcome.command, "echo ok");
@@ -877,6 +818,7 @@ pub async fn assert_harness_adapter_round_trip(harness: &impl HarnessAdapter) {
             .await,
         Err(PortError::InvalidInput { .. })
     ));
+    Ok(())
 }
 
 pub fn assert_web_fetcher_contract(

@@ -1,6 +1,3 @@
-#![allow(clippy::disallowed_methods)]
-#![allow(clippy::too_many_lines)]
-
 use super::test_support::*;
 use maestria_domain::{
     Artifact, ArtifactId, ChunkId, EvidenceKind, IndexStatus, ParseArtifactRequest,
@@ -51,8 +48,7 @@ impl Parser for PageFivePdfParser {
                 schema_generation: "1".to_string(),
                 language: None,
             }],
-        )
-        .unwrap();
+        )?;
         Ok(ParsedArtifact {
             artifact_id: context.artifact_id,
             artifact_version_id: maestria_domain::ArtifactVersionId::new(1),
@@ -60,7 +56,9 @@ impl Parser for PageFivePdfParser {
                 "sha256:0000000000000000000000000000000000000000000000000000000000000000"
                     .to_string(),
             )
-            .unwrap(),
+            .map_err(|e| maestria_ports::PortError::Internal {
+                message: e.to_string(),
+            })?,
             tree,
             status: maestria_ports::ParseStatus::Parsed,
             chunks,
@@ -69,10 +67,64 @@ impl Parser for PageFivePdfParser {
     }
 }
 
+struct PageOnePdfParser;
+impl Parser for PageOnePdfParser {
+    fn id(&self) -> &'static str {
+        "page-one-pdf"
+    }
+
+    fn supports(&self, file: &FileMetadata) -> bool {
+        file.extension
+            .as_deref()
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("pdf"))
+    }
+
+    fn parse(&self, _file: FileHandle, context: ParseContext) -> Result<ParsedArtifact, PortError> {
+        let chunk = ParsedChunk {
+            chunk_id: ChunkId::new(context.artifact_id.value()),
+            artifact_id: context.artifact_id,
+            node_id: maestria_domain::StructureNodeId::new(1),
+            text: "page one content".to_string(),
+            representations: vec![],
+            source_span: SourceSpan::PdfSpan { page: 1 },
+        };
+        let tree = maestria_ports::DocumentTree::new(
+            maestria_domain::StructureNodeId::new(0),
+            vec![maestria_domain::StructureNode {
+                id: maestria_domain::StructureNodeId::new(0),
+                parent_id: None,
+                sibling_id: None,
+                node_type: maestria_domain::StructureNodeType::Document,
+                source_range: maestria_domain::ContentRange { start: 0, end: 100 },
+                page: None,
+                section_path: vec![],
+                parser_generation: "1".to_string(),
+                schema_generation: "1".to_string(),
+                language: None,
+            }],
+        )?;
+        Ok(ParsedArtifact {
+            artifact_id: context.artifact_id,
+            artifact_version_id: maestria_domain::ArtifactVersionId::new(1),
+            content_hash: maestria_domain::ContentHash::new(
+                "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+                    .to_string(),
+            )
+            .map_err(|e| maestria_ports::PortError::Internal {
+                message: e.to_string(),
+            })?,
+            tree,
+            status: maestria_ports::ParseStatus::Parsed,
+            chunks: vec![chunk],
+            cards: vec![],
+        })
+    }
+}
+
 async fn assert_pdf_span_evidence(
     input_rx: &mut mpsc::Receiver<DomainInput>,
     expected_pages: &[u32],
-) {
+) -> Result<(), Box<dyn std::error::Error>> {
     for (i, expected_page) in expected_pages.iter().enumerate() {
         match tokio::time::timeout(Duration::from_secs(1), input_rx.recv()).await {
             Ok(Some(DomainInput::RecordEvidence(ev))) => {
@@ -93,87 +145,41 @@ async fn assert_pdf_span_evidence(
                             "page_end must match page_start for evidence {i}"
                         );
                     }
-                    other => panic!("expected PdfSpan for evidence {i}, got {other:?}"),
+                    other => {
+                        return Err(
+                            format!("expected PdfSpan for evidence {i}, got {other:?}").into()
+                        );
+                    }
                 }
             }
-            Ok(Some(other)) => panic!("expected RecordEvidence {i}, got {other:?}"),
-            Ok(None) => panic!("channel closed before RecordEvidence {i}"),
-            Err(_) => panic!("timeout waiting for RecordEvidence {i}"),
+            Ok(Some(other)) => {
+                return Err(format!("expected RecordEvidence {i}, got {other:?}").into());
+            }
+            Ok(None) => {
+                return Err(format!("channel closed before RecordEvidence {i}").into());
+            }
+            Err(_) => {
+                return Err(format!("timeout waiting for RecordEvidence {i}").into());
+            }
         }
     }
+    Ok(())
 }
 #[tokio::test]
-async fn pdf_evidence_maps_page_one_to_pdf_span() {
-    struct PageOnePdfParser;
-    impl Parser for PageOnePdfParser {
-        fn id(&self) -> &'static str {
-            "page-one-pdf"
-        }
-        fn supports(&self, file: &FileMetadata) -> bool {
-            file.extension
-                .as_deref()
-                .is_some_and(|ext| ext.eq_ignore_ascii_case("pdf"))
-        }
-        fn parse(
-            &self,
-            _file: FileHandle,
-            context: ParseContext,
-        ) -> Result<ParsedArtifact, PortError> {
-            let chunk = ParsedChunk {
-                chunk_id: ChunkId::new(context.artifact_id.value()),
-                artifact_id: context.artifact_id,
-                node_id: maestria_domain::StructureNodeId::new(1),
-                text: "page one content".to_string(),
-                representations: vec![],
-                source_span: SourceSpan::PdfSpan { page: 1 },
-            };
-            let tree = maestria_ports::DocumentTree::new(
-                maestria_domain::StructureNodeId::new(0),
-                vec![maestria_domain::StructureNode {
-                    id: maestria_domain::StructureNodeId::new(0),
-                    parent_id: None,
-                    sibling_id: None,
-                    node_type: maestria_domain::StructureNodeType::Document,
-                    source_range: maestria_domain::ContentRange { start: 0, end: 100 },
-                    page: None,
-                    section_path: vec![],
-                    parser_generation: "1".to_string(),
-                    schema_generation: "1".to_string(),
-                    language: None,
-                }],
-            )
-            .unwrap();
-            Ok(ParsedArtifact {
-                artifact_id: context.artifact_id,
-                artifact_version_id: maestria_domain::ArtifactVersionId::new(1),
-                content_hash: maestria_domain::ContentHash::new(
-                    "sha256:0000000000000000000000000000000000000000000000000000000000000000"
-                        .to_string(),
-                )
-                .unwrap(),
-                tree,
-                status: maestria_ports::ParseStatus::Parsed,
-                chunks: vec![chunk],
-                cards: vec![],
-            })
-        }
-    }
-
+async fn pdf_evidence_maps_page_one_to_pdf_span() -> Result<(), Box<dyn std::error::Error>> {
     let artifact_repo = InMemoryArtifactRepository::new();
-    artifact_repo
-        .put(Artifact {
-            id: ArtifactId::new(100),
-            title: "pdf-doc".to_string(),
-            chunk_ids: BTreeSet::new(),
-            card_ids: BTreeSet::new(),
-            claim_ids: BTreeSet::new(),
-            evidence_ids: BTreeSet::new(),
-            index_status: IndexStatus::Unindexed,
-            content_hash: None,
-            parse_status: None,
-            security: maestria_domain::SecurityMetadata::default(),
-        })
-        .expect("pre-populated artifact should be accepted");
+    artifact_repo.put(Artifact {
+        id: ArtifactId::new(100),
+        title: "pdf-doc".to_string(),
+        chunk_ids: BTreeSet::new(),
+        card_ids: BTreeSet::new(),
+        claim_ids: BTreeSet::new(),
+        evidence_ids: BTreeSet::new(),
+        index_status: IndexStatus::Unindexed,
+        content_hash: None,
+        parse_status: None,
+        security: maestria_domain::SecurityMetadata::default(),
+    })?;
 
     let adapters = Adapters {
         parser: Arc::new(PageOnePdfParser),
@@ -206,15 +212,13 @@ async fn pdf_evidence_maps_page_one_to_pdf_span() {
 
     // Drain ParserStarted.
     tokio::time::timeout(Duration::from_secs(1), input_rx.recv())
-        .await
-        .expect("timeout")
-        .expect("channel closed before ParserStarted");
+        .await?
+        .ok_or("channel closed before ParserStarted")?;
 
     // Drain ParserCompleted.
     tokio::time::timeout(Duration::from_secs(1), input_rx.recv())
-        .await
-        .expect("timeout")
-        .expect("channel closed before ParserCompleted");
+        .await?
+        .ok_or("channel closed before ParserCompleted")?;
 
     // Third: RecordEvidence must carry PdfSpan with page_start=1, page_end=1.
     match tokio::time::timeout(Duration::from_secs(1), input_rx.recv()).await {
@@ -230,32 +234,31 @@ async fn pdf_evidence_maps_page_one_to_pdf_span() {
                     assert_eq!(*page_start, 1, "page_start must be 1");
                     assert_eq!(*page_end, 1, "page_end must equal page_start");
                 }
-                other => panic!("expected PdfSpan evidence, got {other:?}"),
+                other => return Err(format!("expected PdfSpan evidence, got {other:?}").into()),
             }
         }
-        Ok(Some(other)) => panic!("expected RecordEvidence, got {other:?}"),
-        Ok(None) => panic!("channel closed before RecordEvidence"),
-        Err(_) => panic!("timeout waiting for RecordEvidence"),
+        Ok(Some(other)) => return Err(format!("expected RecordEvidence, got {other:?}").into()),
+        Ok(None) => return Err("channel closed before RecordEvidence".to_string().into()),
+        Err(_) => return Err("timeout waiting for RecordEvidence".to_string().into()),
     }
+    Ok(())
 }
 
 #[tokio::test]
-async fn pdf_evidence_maps_page_n_to_pdf_span() {
+async fn pdf_evidence_maps_page_n_to_pdf_span() -> Result<(), Box<dyn std::error::Error>> {
     let artifact_repo = InMemoryArtifactRepository::new();
-    artifact_repo
-        .put(Artifact {
-            id: ArtifactId::new(200),
-            title: "multi-page-pdf".to_string(),
-            chunk_ids: BTreeSet::new(),
-            card_ids: BTreeSet::new(),
-            claim_ids: BTreeSet::new(),
-            evidence_ids: BTreeSet::new(),
-            index_status: IndexStatus::Unindexed,
-            content_hash: None,
-            parse_status: None,
-            security: maestria_domain::SecurityMetadata::default(),
-        })
-        .expect("pre-populated artifact should be accepted");
+    artifact_repo.put(Artifact {
+        id: ArtifactId::new(200),
+        title: "multi-page-pdf".to_string(),
+        chunk_ids: BTreeSet::new(),
+        card_ids: BTreeSet::new(),
+        claim_ids: BTreeSet::new(),
+        evidence_ids: BTreeSet::new(),
+        index_status: IndexStatus::Unindexed,
+        content_hash: None,
+        parse_status: None,
+        security: maestria_domain::SecurityMetadata::default(),
+    })?;
 
     let adapters = Adapters {
         parser: Arc::new(PageFivePdfParser),
@@ -288,23 +291,23 @@ async fn pdf_evidence_maps_page_n_to_pdf_span() {
 
     // Drain ParserStarted.
     tokio::time::timeout(Duration::from_secs(1), input_rx.recv())
-        .await
-        .expect("timeout")
-        .expect("channel closed before ParserStarted");
+        .await?
+        .ok_or("channel closed before ParserStarted")?;
 
     // Drain ParserCompleted.
     tokio::time::timeout(Duration::from_secs(1), input_rx.recv())
-        .await
-        .expect("timeout")
-        .expect("channel closed before ParserCompleted");
+        .await?
+        .ok_or("channel closed before ParserCompleted")?;
 
     // Collect evidence: pages 1, 3, 5 (empty pages 2 and 4 are skipped).
     let expected_pages = [1u32, 3, 5];
-    assert_pdf_span_evidence(&mut input_rx, &expected_pages).await;
+    assert_pdf_span_evidence(&mut input_rx, &expected_pages).await?;
+    Ok(())
 }
 
 #[tokio::test]
-async fn scanned_pdf_no_extractable_text_fails_before_parser_completed() {
+async fn scanned_pdf_no_extractable_text_fails_before_parser_completed()
+-> Result<(), Box<dyn std::error::Error>> {
     struct ScannedPdfParser;
     impl Parser for ScannedPdfParser {
         fn id(&self) -> &'static str {
@@ -327,20 +330,18 @@ async fn scanned_pdf_no_extractable_text_fails_before_parser_completed() {
     }
 
     let artifact_repo = InMemoryArtifactRepository::new();
-    artifact_repo
-        .put(Artifact {
-            id: ArtifactId::new(300),
-            title: "scanned".to_string(),
-            chunk_ids: BTreeSet::new(),
-            card_ids: BTreeSet::new(),
-            claim_ids: BTreeSet::new(),
-            evidence_ids: BTreeSet::new(),
-            index_status: IndexStatus::Unindexed,
-            content_hash: None,
-            parse_status: None,
-            security: maestria_domain::SecurityMetadata::default(),
-        })
-        .expect("pre-populated artifact should be accepted");
+    artifact_repo.put(Artifact {
+        id: ArtifactId::new(300),
+        title: "scanned".to_string(),
+        chunk_ids: BTreeSet::new(),
+        card_ids: BTreeSet::new(),
+        claim_ids: BTreeSet::new(),
+        evidence_ids: BTreeSet::new(),
+        index_status: IndexStatus::Unindexed,
+        content_hash: None,
+        parse_status: None,
+        security: maestria_domain::SecurityMetadata::default(),
+    })?;
 
     let event_log = Arc::new(InMemoryEventLog::new());
     let adapters = Adapters {
@@ -381,15 +382,18 @@ async fn scanned_pdf_no_extractable_text_fails_before_parser_completed() {
         Ok(Some(DomainInput::ParserStarted(ps))) => {
             assert_eq!(ps.artifact_id, ArtifactId::new(300));
         }
-        Ok(Some(other)) => panic!("expected ParserStarted, got {other:?}"),
-        Ok(None) => panic!("channel closed before ParserStarted"),
-        Err(_) => panic!("timeout waiting for ParserStarted"),
+        Ok(Some(other)) => return Err(format!("expected ParserStarted, got {other:?}").into()),
+        Ok(None) => return Err("channel closed before ParserStarted".to_string().into()),
+        Err(_) => return Err("timeout waiting for ParserStarted".to_string().into()),
     }
 
     // No further events must be emitted after parser failure.
     match tokio::time::timeout(Duration::from_millis(200), input_rx.recv()).await {
-        Ok(Some(msg)) => panic!("unexpected event after parser failure: {msg:?}"),
+        Ok(Some(msg)) => {
+            return Err(format!("unexpected event after parser failure: {msg:?}").into());
+        }
         Ok(None) => {} // channel closed — acceptable
         Err(_) => {}   // timeout — no events, expected
     }
+    Ok(())
 }

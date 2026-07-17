@@ -243,7 +243,9 @@ impl LegacyStoredEventPayload {
                 exit_code,
             }),
             Self::TickObserved { at } => Ok(StoredEventPayload::TickObserved { at }),
-            _ => unreachable!("into_v2_simple called on unsupported variant"),
+            _ => Err(PortError::Internal {
+                message: "into_v2_simple called on unsupported variant".into(),
+            }),
         }
     }
     fn unsupported_error(kind: &str, field: &str) -> PortError {
@@ -271,7 +273,9 @@ impl LegacyStoredEventPayload {
                 "RelationCreated",
                 "source, kind, target, evidence_id, confidence_milli",
             )),
-            _ => unreachable!("into_v2_unsupported called on supported variant"),
+            _ => Err(PortError::Internal {
+                message: "into_v2_unsupported called on supported variant".into(),
+            }),
         }
     }
 
@@ -314,7 +318,9 @@ impl LegacyStoredEventPayload {
                 memory_id,
                 by_memory_id,
             }),
-            _ => unreachable!("into_v2_memory called on non-memory variant"),
+            _ => Err(PortError::Internal {
+                message: "into_v2_memory called on non-memory variant".into(),
+            }),
         }
     }
 }

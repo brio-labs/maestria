@@ -34,7 +34,8 @@ impl EventLog for FailingEventLog {
 }
 
 #[tokio::test]
-async fn persist_effects_keep_duplicate_events_in_order() {
+async fn persist_effects_keep_duplicate_events_in_order() -> Result<(), Box<dyn std::error::Error>>
+{
     let event_log = Arc::new(InMemoryEventLog::new());
     let adapters = Adapters {
         event_log: event_log.clone(),
@@ -58,32 +59,27 @@ async fn persist_effects_keep_duplicate_events_in_order() {
 
     input_tx
         .send(DomainInput::ClockTick(maestria_domain::LogicalTick::new(7)))
-        .await
-        .expect("first tick should be accepted");
+        .await?;
     input_tx
         .send(DomainInput::ClockTick(maestria_domain::LogicalTick::new(7)))
-        .await
-        .expect("second tick should be accepted");
+        .await?;
 
     tokio::time::timeout(Duration::from_secs(2), async {
         loop {
-            if event_log
+            let events = event_log
                 .scan(EventFilter { artifact_id: None })
-                .expect("event scan")
-                .len()
-                == 2
-            {
+                .map_or(Vec::new(), |events| events);
+            if events.len() == 2 {
                 break;
             }
             tokio::task::yield_now().await;
         }
     })
-    .await
-    .expect("persist effects should complete");
+    .await?;
 
     let events = event_log
         .scan(EventFilter { artifact_id: None })
-        .expect("event scan");
+        .map_or(Vec::new(), |events| events);
     assert_eq!(events[0].id.value(), 1);
     assert_eq!(events[0].sequence.value(), 1);
     assert_eq!(events[1].id.value(), 2);
@@ -91,11 +87,12 @@ async fn persist_effects_keep_duplicate_events_in_order() {
     assert_eq!(events[0].event, events[1].event);
 
     shutdown.cancel();
-    run.await.expect("runtime should shut down");
+    run.await?;
+    Ok(())
 }
 
 #[tokio::test]
-async fn failed_event_persistence_stops_runtime() {
+async fn failed_event_persistence_stops_runtime() -> Result<(), Box<dyn std::error::Error>> {
     let adapters = Adapters {
         event_log: Arc::new(FailingEventLog),
         ..crate::test_helpers::test_adapters()
@@ -117,14 +114,11 @@ async fn failed_event_persistence_stops_runtime() {
 
     input_tx
         .send(DomainInput::ClockTick(maestria_domain::LogicalTick::new(1)))
-        .await
-        .expect("tick should be accepted before persistence failure");
+        .await?;
 
-    tokio::time::timeout(Duration::from_secs(2), run)
-        .await
-        .expect("runtime should stop after fatal persistence failure")
-        .expect("runtime task should join");
+    tokio::time::timeout(Duration::from_secs(2), run).await??;
     assert!(shutdown.is_cancelled());
+    Ok(())
 }
 
 /// Builds a KernelState pre-populated with one artifact, chunk, card, and
@@ -256,7 +250,8 @@ fn build_persist_test_envelopes(
     ]
 }
 #[tokio::test]
-async fn persist_event_dispatches_chunk_card_evidence_to_repositories() {
+async fn persist_event_dispatches_chunk_card_evidence_to_repositories()
+-> Result<(), Box<dyn std::error::Error>> {
     let (state, chunk_id, card_id, evidence_id, artifact_id) = build_persist_test_state();
 
     let chunk_repo = Arc::new(InMemoryChunkRepository::new());
@@ -313,10 +308,12 @@ async fn persist_event_dispatches_chunk_card_evidence_to_repositories() {
             .is_ok_and(|value| value.is_some()),
         "evidence should be persisted"
     );
+    Ok(())
 }
 
 #[tokio::test]
-async fn parse_artifact_no_deadlock_at_max_concurrency_one() {
+async fn parse_artifact_no_deadlock_at_max_concurrency_one()
+-> Result<(), Box<dyn std::error::Error>> {
     use maestria_domain::{ArtifactDetected, content_hash};
 
     let event_log = Arc::new(InMemoryEventLog::new());
@@ -356,15 +353,14 @@ async fn parse_artifact_no_deadlock_at_max_concurrency_one() {
             source_bytes,
             content_hash: source_hash,
         }))
-        .await
-        .expect("ArtifactDetected input should be accepted");
+        .await?;
 
     // Wait for the ParserStarted event to be persisted (proves no deadlock).
     let barrier_passed = tokio::time::timeout(Duration::from_secs(3), async {
         loop {
             let events = event_log
                 .scan(EventFilter { artifact_id: None })
-                .expect("event scan");
+                .map_or(Vec::new(), |events| events);
             if events.iter().any(|e| {
                 matches!(&e.event, DomainEvent::ParserStarted { artifact_id: id, .. } if *id == artifact_id)
             }) {
@@ -383,12 +379,13 @@ async fn parse_artifact_no_deadlock_at_max_concurrency_one() {
         no_deadlock,
         "ParserStarted persistence barrier must not deadlock at max_concurrent_effects=1"
     );
+    Ok(())
 }
 
 // ── SearchExecuted audit event lifecycle ──────────────────────────
 
 #[tokio::test]
-async fn search_executed_persists_and_is_observable() {
+async fn search_executed_persists_and_is_observable() -> Result<(), Box<dyn std::error::Error>> {
     let event_log = Arc::new(InMemoryEventLog::new());
     let adapters = Adapters {
         event_log: event_log.clone(),
@@ -417,15 +414,14 @@ async fn search_executed_persists_and_is_observable() {
             evidence_ids: vec![EvidenceId::new(10), EvidenceId::new(20)],
             at: LogicalTick::new(3),
         }))
-        .await
-        .expect("search executed input should be accepted");
+        .await?;
 
     // Wait for the event to appear in the event log.
     tokio::time::timeout(Duration::from_secs(2), async {
         loop {
             let events = event_log
                 .scan(EventFilter { artifact_id: None })
-                .expect("event scan");
+                .map_or(Vec::new(), |events| events);
             if events
                 .iter()
                 .any(|env| matches!(env.event, DomainEvent::SearchExecuted { .. }))
@@ -435,12 +431,11 @@ async fn search_executed_persists_and_is_observable() {
             tokio::task::yield_now().await;
         }
     })
-    .await
-    .expect("search executed event should be persisted");
+    .await?;
 
     let events = event_log
         .scan(EventFilter { artifact_id: None })
-        .expect("event scan");
+        .map_or(Vec::new(), |events| events);
     assert_eq!(events.len(), 1);
     match &events[0].event {
         DomainEvent::SearchExecuted {
@@ -457,15 +452,17 @@ async fn search_executed_persists_and_is_observable() {
             );
             assert_eq!(*at, LogicalTick::new(3));
         }
-        _ => panic!("expected SearchExecuted event"),
+        _ => return Err("expected SearchExecuted event".to_string().into()),
     }
 
     shutdown.cancel();
-    run.await.expect("runtime should shut down");
+    run.await?;
+    Ok(())
 }
 
 #[tokio::test]
-async fn search_executed_with_failing_event_log_stops_runtime() {
+async fn search_executed_with_failing_event_log_stops_runtime()
+-> Result<(), Box<dyn std::error::Error>> {
     let adapters = Adapters {
         event_log: Arc::new(FailingEventLog),
         ..crate::test_helpers::test_adapters()
@@ -492,12 +489,9 @@ async fn search_executed_with_failing_event_log_stops_runtime() {
             evidence_ids: vec![],
             at: LogicalTick::new(1),
         }))
-        .await
-        .expect("search executed input should be accepted before persistence failure");
+        .await?;
 
-    tokio::time::timeout(Duration::from_secs(2), run)
-        .await
-        .expect("runtime should stop after fatal persistence failure")
-        .expect("runtime task should join");
+    tokio::time::timeout(Duration::from_secs(2), run).await??;
     assert!(shutdown.is_cancelled());
+    Ok(())
 }

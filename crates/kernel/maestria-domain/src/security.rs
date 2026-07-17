@@ -74,12 +74,12 @@ impl Default for SecurityMetadata {
 }
 
 impl SecurityMetadata {
-    #[allow(clippy::manual_unwrap_or_default)]
     pub fn from_optional(value: Option<Self>) -> Self {
-        match value {
-            Some(security) => security,
-            None => Self::default(),
+        let mut sec = Self::default();
+        if let Some(v) = value {
+            sec = v;
         }
+        sec
     }
     /// Merges two security metadatas, applying worst-case taint propagation.
     pub fn taint_from(&self, other: &Self) -> Self {

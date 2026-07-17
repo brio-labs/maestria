@@ -1,13 +1,7 @@
 avoid-breaking-exported-api = false
 cognitive-complexity-threshold = 30
-allow-unwrap-in-tests = true
-allow-expect-in-tests = true
-allow-panic-in-tests = true
 
 disallowed-methods = [
-  "std::collections::HashMap::new",
-  "std::collections::HashSet::new",
-  "std::time::Instant::now",
   "std::option::Option::unwrap",
   "std::option::Option::unwrap_or",
   "std::option::Option::unwrap_or_else",
@@ -16,6 +10,9 @@ disallowed-methods = [
   "std::result::Result::unwrap_or",
   "std::result::Result::unwrap_or_else",
   "std::result::Result::unwrap_or_default",
+  "std::collections::HashMap::new",
+  "std::collections::HashSet::new",
+  "std::time::Instant::now",
   "std::vec::Vec::swap_remove",
 ]
 

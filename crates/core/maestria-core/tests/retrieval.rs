@@ -10,10 +10,10 @@ use maestria_ports::{
     ArtifactRepository, BlobStore, CardRepository, ChunkRepository, EventLog, EvidenceRepository,
     FullTextIndex, GraphIndex, InMemoryArtifactRepository, InMemoryBlobStore,
     InMemoryCardRepository, InMemoryChunkRepository, InMemoryEventLog, InMemoryEvidenceRepository,
-    InMemoryFullTextIndex, InMemoryGraphIndex, InMemoryParser, InMemoryVectorIndex, IndexedCard,
-    IndexedChunk, VectorIndex, VectorSearchQuery,
+    InMemoryFullTextIndex, InMemoryGraphIndex, InMemoryParser, IndexedCard, IndexedChunk,
 };
-/// Seed an artifact, chunks, evidence, cards, and full-text entries directly through
+#[path = "common/retrieval_vector.rs"]
+mod retrieval_vector;
 /// in-memory adapters, then wrap them in a `CoreServices` to exercise retrieval.
 fn seed_and_build_services<'a>(ports: CorePorts<'a>) -> CoreServices<'a> {
     CoreServices::new(ports)
@@ -309,7 +309,112 @@ fn seed_file_evidence(
 /// `f` with the assembled `CoreServices` and seeded ids.  All repositories
 /// stay alive for the duration of the call so the borrowed `CoreServices`
 /// reference remains valid.
-#[allow(clippy::too_many_lines)]
+type StatusSeedIds = (ArtifactId, CardId, ChunkId, ChunkId, EvidenceId, EvidenceId);
+fn seed_status_entities(
+    status: IndexStatus,
+    artifact_repo: &InMemoryArtifactRepository,
+    chunk_repo: &InMemoryChunkRepository,
+    card_repo: &InMemoryCardRepository,
+    evidence_repo: &InMemoryEvidenceRepository,
+    blob_store: &InMemoryBlobStore,
+) -> Result<StatusSeedIds, Box<dyn std::error::Error>> {
+    let artifact_id = ArtifactId::new(7);
+    let chunk_id_0 = ChunkId::new(701);
+    let chunk_id_1 = ChunkId::new(702);
+    let evidence_id_0 = maestria_domain::evidence_id_for(artifact_id, 0);
+    let card_id = CardId::new(700);
+    let evidence_id_1 = maestria_domain::evidence_id_for(artifact_id, 1);
+    let source_text = "alpha-token paragraph.\n\nbeta-token paragraph.\n";
+    let blob_id = blob_store.put(source_text.as_bytes().to_vec())?;
+
+    card_repo.put(Card {
+        id: card_id,
+        artifact_id,
+        node_id: StructureNodeId::new(0),
+        source_span: SourceSpan::TextSpan {
+            start_line: 1,
+            end_line: 1,
+        },
+        title: "card-title summary".to_string(),
+        body: "card body text".to_string(),
+        claim_ids: Default::default(),
+        security: maestria_domain::SecurityMetadata::default(),
+    })?;
+    artifact_repo.put(Artifact {
+        id: artifact_id,
+        title: "multi.md".to_string(),
+        chunk_ids: [chunk_id_0, chunk_id_1].into(),
+        card_ids: [card_id].into(),
+        claim_ids: Default::default(),
+        evidence_ids: [evidence_id_0, evidence_id_1].into(),
+        index_status: status,
+        content_hash: None,
+        parse_status: None,
+        security: maestria_domain::SecurityMetadata::default(),
+    })?;
+
+    for (id, order, text) in [
+        (chunk_id_0, 0, "alpha-token paragraph."),
+        (chunk_id_1, 1, "beta-token paragraph."),
+    ] {
+        chunk_repo.put(Chunk {
+            id,
+            artifact_id,
+            node_id: StructureNodeId::new(0),
+            source_span: SourceSpan::TextSpan {
+                start_line: 1,
+                end_line: 1,
+            },
+            representations: vec![],
+            order,
+            text: text.to_string(),
+        })?;
+    }
+    seed_file_evidence(
+        evidence_repo,
+        artifact_id,
+        evidence_id_0,
+        evidence_id_1,
+        blob_id,
+        source_text,
+    )?;
+    Ok((
+        artifact_id,
+        card_id,
+        chunk_id_0,
+        chunk_id_1,
+        evidence_id_0,
+        evidence_id_1,
+    ))
+}
+
+fn seed_status_indexes(
+    search_index: &InMemoryFullTextIndex,
+    artifact_id: ArtifactId,
+    card_id: CardId,
+    chunk_id_0: ChunkId,
+    chunk_id_1: ChunkId,
+) -> Result<(), Box<dyn std::error::Error>> {
+    search_index.index_chunks(vec![
+        IndexedChunk {
+            artifact_id,
+            chunk_id: chunk_id_0,
+            text: "alpha-token paragraph.".to_string(),
+        },
+        IndexedChunk {
+            artifact_id,
+            chunk_id: chunk_id_1,
+            text: "beta-token paragraph.".to_string(),
+        },
+    ])?;
+    search_index.index_cards(vec![IndexedCard {
+        artifact_id,
+        card_id,
+        title: "card-title summary".to_string(),
+        body: "card body text".to_string(),
+    }])?;
+    Ok(())
+}
 fn seed_with_status(
     status: IndexStatus,
     f: impl FnOnce(
@@ -330,100 +435,16 @@ fn seed_with_status(
     let events = InMemoryEventLog::new();
     let parser = InMemoryParser::new();
     let card_repo = InMemoryCardRepository::new();
-    let artifact_id = ArtifactId::new(7);
-    let chunk_id_0 = ChunkId::new(701);
-    let chunk_id_1 = ChunkId::new(702);
-    let evidence_id_0 = maestria_domain::evidence_id_for(artifact_id, 0);
-    let card_id = CardId::new(700);
-    let evidence_id_1 = maestria_domain::evidence_id_for(artifact_id, 1);
-
-    let source_text = "alpha-token paragraph.\n\nbeta-token paragraph.\n";
-    let blob_id = blob_store.put(source_text.as_bytes().to_vec())?;
-    // Seed a card.
-    let card = Card {
-        id: card_id,
-        artifact_id,
-        node_id: StructureNodeId::new(0),
-        source_span: SourceSpan::TextSpan {
-            start_line: 1,
-            end_line: 1,
-        },
-        title: "card-title summary".to_string(),
-        body: "card body text".to_string(),
-        claim_ids: Default::default(),
-        security: maestria_domain::SecurityMetadata::default(),
-    };
-    card_repo.put(card.clone())?;
-
-    artifact_repo.put(Artifact {
-        id: artifact_id,
-        title: "multi.md".to_string(),
-        chunk_ids: [chunk_id_0, chunk_id_1].into(),
-        card_ids: [card_id].into(),
-        claim_ids: Default::default(),
-        evidence_ids: [evidence_id_0, evidence_id_1].into(),
-        index_status: status,
-        content_hash: None,
-        parse_status: None,
-        security: maestria_domain::SecurityMetadata::default(),
-    })?;
-
-    let chunk_0 = Chunk {
-        id: chunk_id_0,
-        artifact_id,
-        node_id: StructureNodeId::new(0),
-        source_span: SourceSpan::TextSpan {
-            start_line: 1,
-            end_line: 1,
-        },
-        representations: vec![],
-        order: 0,
-        text: "alpha-token paragraph.".to_string(),
-    };
-    let chunk_1 = Chunk {
-        id: chunk_id_1,
-        artifact_id,
-        node_id: StructureNodeId::new(0),
-        source_span: SourceSpan::TextSpan {
-            start_line: 1,
-            end_line: 1,
-        },
-        representations: vec![],
-        order: 1,
-        text: "beta-token paragraph.".to_string(),
-    };
-    chunk_repo.put(chunk_0.clone())?;
-    chunk_repo.put(chunk_1.clone())?;
-
-    seed_file_evidence(
-        &evidence_repo,
-        artifact_id,
-        evidence_id_0,
-        evidence_id_1,
-        blob_id,
-        source_text,
-    )?;
-
-    search_index.index_chunks(vec![
-        IndexedChunk {
-            artifact_id,
-            chunk_id: chunk_id_0,
-            text: chunk_0.text.clone(),
-        },
-        IndexedChunk {
-            artifact_id,
-            chunk_id: chunk_id_1,
-            text: chunk_1.text.clone(),
-        },
-    ])?;
-
-    // Index cards for full-text search.
-    search_index.index_cards(vec![IndexedCard {
-        artifact_id,
-        card_id,
-        title: card.title.clone(),
-        body: card.body.clone(),
-    }])?;
+    let (artifact_id, card_id, chunk_id_0, chunk_id_1, evidence_id_0, evidence_id_1) =
+        seed_status_entities(
+            status,
+            &artifact_repo,
+            &chunk_repo,
+            &card_repo,
+            &evidence_repo,
+            &blob_store,
+        )?;
+    seed_status_indexes(&search_index, artifact_id, card_id, chunk_id_0, chunk_id_1)?;
 
     let core = seed_and_build_services(CorePorts {
         artifacts: &artifact_repo,
@@ -506,12 +527,10 @@ fn open_evidence_rejects_pending_artifact() -> Result<(), Box<dyn std::error::Er
                 evidence_id: evidence_id_0,
             });
 
-            assert!(
-                result.is_err(),
-                "opening evidence for a pending artifact must fail"
-            );
-
-            let err = result.unwrap_err();
+            let err = match result {
+                Err(e) => e,
+                Ok(_) => return Err("opening evidence for a pending artifact must fail".into()),
+            };
             let msg = err.to_string();
             assert!(
                 msg.contains("not indexed"),
@@ -531,12 +550,10 @@ fn open_evidence_rejects_unindexed_artifact() -> Result<(), Box<dyn std::error::
                 evidence_id: evidence_id_0,
             });
 
-            assert!(
-                result.is_err(),
-                "opening evidence for an unindexed artifact must fail"
-            );
-
-            let err = result.unwrap_err();
+            let err = match result {
+                Err(e) => e,
+                Ok(_) => return Err("opening evidence for an unindexed artifact must fail".into()),
+            };
             let msg = err.to_string();
             assert!(
                 msg.contains("not indexed"),
@@ -556,12 +573,12 @@ fn open_chunk_evidence_rejects_pending_artifact() -> Result<(), Box<dyn std::err
                 chunk_id: chunk_id_0,
             });
 
-            assert!(
-                result.is_err(),
-                "opening chunk evidence for a pending artifact must fail"
-            );
-
-            let err = result.unwrap_err();
+            let err = match result {
+                Err(e) => e,
+                Ok(_) => {
+                    return Err("opening chunk evidence for a pending artifact must fail".into());
+                }
+            };
             let msg = err.to_string();
             assert!(
                 msg.contains("not indexed"),
@@ -588,134 +605,6 @@ fn terminal_success_with_indexed_artifact() -> Result<(), Box<dyn std::error::Er
             )
         },
     )
-}
-
-#[test]
-#[allow(clippy::too_many_lines)]
-fn vector_search_returns_grounded_nonliteral_match() -> Result<(), Box<dyn std::error::Error>> {
-    let artifact_id = ArtifactId::new(800);
-    let chunk_id = ChunkId::new(801);
-    let evidence_id = maestria_domain::evidence_id_for(artifact_id, 0);
-    let source = "literal source text\n";
-    let artifact_repo = InMemoryArtifactRepository::new();
-    let chunk_repo = InMemoryChunkRepository::new();
-    let card_repo = InMemoryCardRepository::new();
-    let evidence_repo = InMemoryEvidenceRepository::new();
-    let blob_store = InMemoryBlobStore::new();
-    let events = InMemoryEventLog::new();
-    let parser = InMemoryParser::new();
-    let search_index = InMemoryFullTextIndex::new();
-    let vector_index = InMemoryVectorIndex::new();
-
-    let blob_id = blob_store.put(source.as_bytes().to_vec())?;
-    artifact_repo.put(Artifact {
-        id: artifact_id,
-        title: "semantic.md".to_string(),
-        chunk_ids: [chunk_id].into(),
-        security: maestria_domain::SecurityMetadata::default(),
-        card_ids: Default::default(),
-        claim_ids: Default::default(),
-        evidence_ids: [evidence_id].into(),
-        index_status: IndexStatus::Indexed,
-        content_hash: Some(maestria_core::content_hash(source.as_bytes())),
-        parse_status: None,
-    })?;
-    chunk_repo.put(Chunk {
-        id: chunk_id,
-        artifact_id,
-        node_id: StructureNodeId::new(0),
-        source_span: SourceSpan::TextSpan {
-            start_line: 1,
-            end_line: 1,
-        },
-        representations: vec![],
-        order: 0,
-        text: "semantic token".to_string(),
-    })?;
-    chunk_repo.put(Chunk {
-        id: chunk_id,
-        artifact_id,
-        node_id: StructureNodeId::new(0),
-        source_span: SourceSpan::TextSpan {
-            start_line: 1,
-            end_line: 1,
-        },
-        representations: vec![],
-        order: 0,
-        text: "semantic token".to_string(),
-    })?;
-    evidence_repo.put(Evidence {
-        id: evidence_id,
-        artifact_id,
-        claim_id: None,
-        kind: EvidenceKind::FileSpan {
-            path: "semantic.md".to_string(),
-            range: maestria_domain::ContentRange { start: 1, end: 1 },
-            content_hash: maestria_core::content_hash(source.as_bytes()),
-            snapshot: Some(blob_id),
-        },
-        excerpt: "literal source text".to_string(),
-        observed_at: maestria_domain::LogicalTick::new(1),
-        security: maestria_domain::SecurityMetadata::default(),
-    })?;
-    vector_index.index_embeddings(vec![maestria_ports::VectorEmbedding {
-        chunk_id,
-        vector: vec![0.0, 1.0],
-        provenance: maestria_ports::EmbeddingProvenance {
-            content_hash: "hash".to_string(),
-            identity: maestria_ports::EmbeddingIdentity::legacy("test-model", 2)
-                .expect("legacy identity"),
-            provider_id: "test-provider".to_string(),
-            model: "test-model".to_string(),
-            model_version: "test-v1".to_string(),
-            disclosure: maestria_ports::ProviderDisclosure {
-                remote: false,
-                retention: maestria_ports::RetentionPolicy::NoRetention,
-            },
-        },
-    }])?;
-    let promotion_record = maestria_core::HybridPromotionRecord::new(
-        "eval-test".to_string(),
-        "2026-07-16".to_string(),
-    )
-    .expect("promotion record must be non-empty");
-    let core = CoreServices::new(CorePorts {
-        artifacts: &artifact_repo,
-        chunks: &chunk_repo,
-        cards: &card_repo,
-        evidence: &evidence_repo,
-        events: &events,
-        parser: &parser,
-        search_index: &search_index,
-        blobs: &blob_store,
-        vector_index: Some(&vector_index),
-        graph_index: None,
-    })
-    .with_hybrid_policy(maestria_core::HybridExecutionPolicy::Active(
-        promotion_record,
-    ));
-
-    let output = core.search_with_vector(
-        SearchInput {
-            query: "unrelated query".to_string(),
-            limit: 5,
-        },
-        VectorSearchQuery {
-            vector: vec![0.0, 1.0],
-            limit: 5,
-            provider_id: Some("test-provider".to_string()),
-            model: Some("test-model".to_string()),
-            model_version: Some("test-v1".to_string()),
-            identity: None,
-        },
-    )?;
-    assert_eq!(output.mode, maestria_core::RetrievalMode::Hybrid);
-    let pack = output.pack;
-    assert_eq!(pack.chunks.len(), 1);
-    assert_eq!(pack.chunks[0].chunk.id, chunk_id);
-    assert_eq!(pack.chunks[0].evidence.id, evidence_id);
-    assert_eq!(pack.evidence_ids, vec![evidence_id]);
-    Ok(())
 }
 
 #[test]
@@ -888,13 +777,14 @@ fn inactive_index_generation_cannot_serve() -> Result<(), Box<dyn std::error::Er
                 },
             },
         })?;
-    let error = fixture
-        .core_without_graph()
-        .search(SearchInput {
-            query: "seed".to_string(),
-            limit: 1,
-        })
-        .expect_err("building generation must not serve");
+    let result = fixture.core_without_graph().search(SearchInput {
+        query: "seed".to_string(),
+        limit: 1,
+    });
+    let error = match result {
+        Err(e) => e,
+        Ok(_) => return Err("building generation must not serve".into()),
+    };
     assert!(error.to_string().contains("not active"));
     Ok(())
 }

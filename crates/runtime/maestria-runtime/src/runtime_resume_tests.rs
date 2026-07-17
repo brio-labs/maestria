@@ -17,30 +17,27 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{RwLock, mpsc};
 #[tokio::test]
-async fn resume_parse_uses_existing_blob_and_skips_storage() {
+async fn resume_parse_uses_existing_blob_and_skips_storage()
+-> Result<(), Box<dyn std::error::Error>> {
     // Pre-populate the blob store with known bytes so the resume path can
     // fetch them by blob ID instead of storing fresh bytes.
     let blob_store = Arc::new(InMemoryBlobStore::new());
     let resume_bytes = b"resume parse content".to_vec();
-    let blob_id = blob_store
-        .put(resume_bytes.clone())
-        .expect("pre-populate blob");
+    let blob_id = blob_store.put(resume_bytes.clone())?;
 
     let artifact_repo = InMemoryArtifactRepository::new();
-    artifact_repo
-        .put(Artifact {
-            id: ArtifactId::new(200),
-            title: "resume-artifact".into(),
-            chunk_ids: BTreeSet::new(),
-            card_ids: BTreeSet::new(),
-            claim_ids: BTreeSet::new(),
-            evidence_ids: BTreeSet::new(),
-            index_status: IndexStatus::Unindexed,
-            content_hash: None,
-            parse_status: None,
-            security: maestria_domain::SecurityMetadata::default(),
-        })
-        .expect("pre-populated artifact should be accepted");
+    artifact_repo.put(Artifact {
+        id: ArtifactId::new(200),
+        title: "resume-artifact".into(),
+        chunk_ids: BTreeSet::new(),
+        card_ids: BTreeSet::new(),
+        claim_ids: BTreeSet::new(),
+        evidence_ids: BTreeSet::new(),
+        index_status: IndexStatus::Unindexed,
+        content_hash: None,
+        parse_status: None,
+        security: maestria_domain::SecurityMetadata::default(),
+    })?;
 
     let adapters = Adapters {
         event_log: Arc::new(InMemoryEventLog::new()),
@@ -97,33 +94,34 @@ async fn resume_parse_uses_existing_blob_and_skips_storage() {
             assert_eq!(pr.chunks[0].text, "resume parse content");
         }
         Ok(Some(DomainInput::ParserStarted(_))) => {
-            panic!("resume must not send ParserStarted again");
+            return Err("resume must not send ParserStarted again"
+                .to_string()
+                .into());
         }
-        Ok(Some(other)) => panic!("expected ParserCompleted, got {other:?}"),
-        Ok(None) => panic!("channel closed before ParserCompleted"),
-        Err(_) => panic!("timeout waiting for ParserCompleted"),
+        Ok(Some(other)) => return Err(format!("expected ParserCompleted, got {other:?}").into()),
+        Ok(None) => return Err("channel closed before ParserCompleted".to_string().into()),
+        Err(_) => return Err("timeout waiting for ParserCompleted".to_string().into()),
     }
+    Ok(())
 }
 
 #[tokio::test]
-async fn resume_parse_missing_blob_returns_failure() {
+async fn resume_parse_missing_blob_returns_failure() -> Result<(), Box<dyn std::error::Error>> {
     let blob_id = BlobId::new(999);
 
     let artifact_repo = InMemoryArtifactRepository::new();
-    artifact_repo
-        .put(Artifact {
-            id: ArtifactId::new(201),
-            title: "missing-blob-artifact".into(),
-            chunk_ids: BTreeSet::new(),
-            card_ids: BTreeSet::new(),
-            claim_ids: BTreeSet::new(),
-            evidence_ids: BTreeSet::new(),
-            index_status: IndexStatus::Unindexed,
-            content_hash: None,
-            parse_status: None,
-            security: maestria_domain::SecurityMetadata::default(),
-        })
-        .expect("pre-populated artifact should be accepted");
+    artifact_repo.put(Artifact {
+        id: ArtifactId::new(201),
+        title: "missing-blob-artifact".into(),
+        chunk_ids: BTreeSet::new(),
+        card_ids: BTreeSet::new(),
+        claim_ids: BTreeSet::new(),
+        evidence_ids: BTreeSet::new(),
+        index_status: IndexStatus::Unindexed,
+        content_hash: None,
+        parse_status: None,
+        security: maestria_domain::SecurityMetadata::default(),
+    })?;
 
     let adapters = Adapters {
         event_log: Arc::new(InMemoryEventLog::new()),
@@ -173,27 +171,27 @@ async fn resume_parse_missing_blob_returns_failure() {
         !result,
         "resume with missing blob must return false for retry"
     );
+    Ok(())
 }
 
 #[tokio::test]
-async fn fresh_parse_sends_parser_started_with_correct_blob_identity() {
+async fn fresh_parse_sends_parser_started_with_correct_blob_identity()
+-> Result<(), Box<dyn std::error::Error>> {
     let blob_store = Arc::new(InMemoryBlobStore::new());
 
     let artifact_repo = InMemoryArtifactRepository::new();
-    artifact_repo
-        .put(Artifact {
-            id: ArtifactId::new(202),
-            title: "fresh-artifact".into(),
-            chunk_ids: BTreeSet::new(),
-            card_ids: BTreeSet::new(),
-            claim_ids: BTreeSet::new(),
-            evidence_ids: BTreeSet::new(),
-            index_status: IndexStatus::Unindexed,
-            content_hash: None,
-            parse_status: None,
-            security: maestria_domain::SecurityMetadata::default(),
-        })
-        .expect("pre-populated artifact should be accepted");
+    artifact_repo.put(Artifact {
+        id: ArtifactId::new(202),
+        title: "fresh-artifact".into(),
+        chunk_ids: BTreeSet::new(),
+        card_ids: BTreeSet::new(),
+        claim_ids: BTreeSet::new(),
+        evidence_ids: BTreeSet::new(),
+        index_status: IndexStatus::Unindexed,
+        content_hash: None,
+        parse_status: None,
+        security: maestria_domain::SecurityMetadata::default(),
+    })?;
 
     let adapters = Adapters {
         event_log: Arc::new(InMemoryEventLog::new()),
@@ -250,13 +248,14 @@ async fn fresh_parse_sends_parser_started_with_correct_blob_identity() {
             assert_eq!(ps.title, "fresh-artifact");
             assert_eq!(ps.content_hash, content_hash(&source_bytes));
             // Verify the blob is actually in the store.
-            let stored = blob_store.get(ps.blob_id).expect("blob should be in store");
+            let stored = blob_store.get(ps.blob_id)?;
             assert_eq!(stored, source_bytes);
         }
-        Ok(Some(other)) => panic!("expected ParserStarted, got {other:?}"),
-        Ok(None) => panic!("channel closed before ParserStarted"),
-        Err(_) => panic!("timeout waiting for ParserStarted"),
+        Ok(Some(other)) => return Err(format!("expected ParserStarted, got {other:?}").into()),
+        Ok(None) => return Err("channel closed before ParserStarted".to_string().into()),
+        Err(_) => return Err("timeout waiting for ParserStarted".to_string().into()),
     }
+    Ok(())
 }
 
 /// Pre-populates the event log with ParserStarted and the kernel state with a
@@ -269,20 +268,18 @@ fn populate_resume_event_log_and_state(
     ev_id: EvidenceId,
     blob_id: BlobId,
     resume_bytes: &[u8],
-) {
-    event_log
-        .append(DomainEventEnvelope {
-            id: maestria_domain::EventId::new(1),
-            sequence: maestria_domain::SequenceNumber::new(1),
-            event: DomainEvent::ParserStarted {
-                artifact_id: art_id,
-                title: "repair-artifact".to_string(),
-                source_path: "/repo/repair.rs".to_string(),
-                content_hash: maestria_domain::content_hash(resume_bytes),
-                blob_id,
-            },
-        })
-        .expect("append ParserStarted event");
+) -> Result<(), Box<dyn std::error::Error>> {
+    event_log.append(DomainEventEnvelope {
+        id: maestria_domain::EventId::new(1),
+        sequence: maestria_domain::SequenceNumber::new(1),
+        event: DomainEvent::ParserStarted {
+            artifact_id: art_id,
+            title: "repair-artifact".to_string(),
+            source_path: "/repo/repair.rs".to_string(),
+            content_hash: maestria_domain::content_hash(resume_bytes),
+            blob_id,
+        },
+    })?;
     state.evidences.insert(
         ev_id,
         Evidence {
@@ -299,12 +296,12 @@ fn populate_resume_event_log_and_state(
             security: maestria_domain::SecurityMetadata::default(),
         },
     );
+    Ok(())
 }
-
 async fn assert_parser_completed_for_resume(
     input_rx: &mut mpsc::Receiver<DomainInput>,
     art_id: ArtifactId,
-) {
+) -> Result<(), Box<dyn std::error::Error>> {
     match tokio::time::timeout(Duration::from_secs(1), input_rx.recv()).await {
         Ok(Some(DomainInput::ParserCompleted(pr))) => {
             assert_eq!(pr.artifact_id, art_id);
@@ -312,19 +309,22 @@ async fn assert_parser_completed_for_resume(
             assert_eq!(pr.chunks[0].text, "repair evidence test");
         }
         Ok(Some(DomainInput::ParserStarted(_))) => {
-            panic!("resume must not send ParserStarted again");
+            return Err("resume must not send ParserStarted again"
+                .to_string()
+                .into());
         }
-        Ok(Some(other)) => panic!("expected ParserCompleted, got {other:?}"),
-        Ok(None) => panic!("channel closed before ParserCompleted"),
-        Err(_) => panic!("timeout waiting for ParserCompleted"),
+        Ok(Some(other)) => return Err(format!("expected ParserCompleted, got {other:?}").into()),
+        Ok(None) => return Err("channel closed before ParserCompleted".to_string().into()),
+        Err(_) => return Err("timeout waiting for ParserCompleted".to_string().into()),
     }
+    Ok(())
 }
 
 async fn assert_record_evidence_for_repair(
     input_rx: &mut mpsc::Receiver<DomainInput>,
     ev_id: EvidenceId,
     art_id: ArtifactId,
-) {
+) -> Result<(), Box<dyn std::error::Error>> {
     match tokio::time::timeout(Duration::from_secs(1), input_rx.recv()).await {
         Ok(Some(DomainInput::RecordEvidence(ev))) => {
             assert_eq!(ev.evidence_id, ev_id);
@@ -334,16 +334,18 @@ async fn assert_record_evidence_for_repair(
                 EvidenceKind::FileSpan { snapshot, .. } => {
                     assert!(snapshot.is_some(), "evidence must carry a blob snapshot");
                 }
-                _ => panic!("expected FileSpan evidence, got {:?}", ev.kind),
+                _ => return Err(format!("expected FileSpan evidence, got {:?}", ev.kind).into()),
             }
         }
-        Ok(Some(other)) => panic!("expected RecordEvidence, got {other:?}"),
-        Ok(None) => panic!("channel closed before RecordEvidence"),
-        Err(_) => panic!("timeout waiting for RecordEvidence"),
+        Ok(Some(other)) => return Err(format!("expected RecordEvidence, got {other:?}").into()),
+        Ok(None) => return Err("channel closed before RecordEvidence".to_string().into()),
+        Err(_) => return Err("timeout waiting for RecordEvidence".to_string().into()),
     }
+    Ok(())
 }
 #[tokio::test]
-async fn resume_sends_record_evidence_when_evidence_already_in_state() {
+async fn resume_sends_record_evidence_when_evidence_already_in_state()
+-> Result<(), Box<dyn std::error::Error>> {
     // When state already contains an evidence record at a deterministic
     // ID (e.g. from a prior crashed parse), the runtime must still send
     // RecordEvidence so the domain handler can repair/replace a malformed
@@ -356,25 +358,21 @@ async fn resume_sends_record_evidence_when_evidence_already_in_state() {
     // Pre-populate the blob store with known bytes.
     let blob_store = Arc::new(InMemoryBlobStore::new());
     let resume_bytes = b"repair evidence test".to_vec();
-    let blob_id = blob_store
-        .put(resume_bytes.clone())
-        .expect("pre-populate blob");
+    let blob_id = blob_store.put(resume_bytes.clone())?;
 
     let artifact_repo = InMemoryArtifactRepository::new();
-    artifact_repo
-        .put(Artifact {
-            id: art_id,
-            title: "repair-artifact".into(),
-            chunk_ids: BTreeSet::new(),
-            card_ids: BTreeSet::new(),
-            claim_ids: BTreeSet::new(),
-            evidence_ids: BTreeSet::new(),
-            index_status: IndexStatus::Unindexed,
-            content_hash: None,
-            parse_status: None,
-            security: maestria_domain::SecurityMetadata::default(),
-        })
-        .expect("pre-populated artifact should be accepted");
+    artifact_repo.put(Artifact {
+        id: art_id,
+        title: "repair-artifact".into(),
+        chunk_ids: BTreeSet::new(),
+        card_ids: BTreeSet::new(),
+        claim_ids: BTreeSet::new(),
+        evidence_ids: BTreeSet::new(),
+        index_status: IndexStatus::Unindexed,
+        content_hash: None,
+        parse_status: None,
+        security: maestria_domain::SecurityMetadata::default(),
+    })?;
 
     let event_log = Arc::new(InMemoryEventLog::new());
     let mut initial_state = KernelState::new();
@@ -385,7 +383,7 @@ async fn resume_sends_record_evidence_when_evidence_already_in_state() {
         ev_id,
         blob_id,
         &resume_bytes,
-    );
+    )?;
 
     let adapters = Adapters {
         event_log,
@@ -433,6 +431,7 @@ async fn resume_sends_record_evidence_when_evidence_already_in_state() {
 
     assert!(result, "resume ParseArtifact should succeed");
 
-    assert_parser_completed_for_resume(&mut input_rx, art_id).await;
-    assert_record_evidence_for_repair(&mut input_rx, ev_id, art_id).await;
+    assert_parser_completed_for_resume(&mut input_rx, art_id).await?;
+    assert_record_evidence_for_repair(&mut input_rx, ev_id, art_id).await?;
+    Ok(())
 }

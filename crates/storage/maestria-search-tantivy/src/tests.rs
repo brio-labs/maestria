@@ -14,81 +14,73 @@ fn chunk(artifact_id: u64, chunk_id: u64, text: &str) -> IndexedChunk {
 }
 
 #[test]
-fn index_search_returns_source_openable_chunk_metadata() {
-    let index = TantivyFullTextIndex::in_memory().expect("create in-memory index");
+fn index_search_returns_source_openable_chunk_metadata() -> Result<(), Box<dyn std::error::Error>> {
+    let index = TantivyFullTextIndex::in_memory()?;
 
-    index
-        .index_chunks(vec![
-            chunk(7, 70, "alpha source chunk"),
-            chunk(8, 80, "beta unrelated chunk"),
-        ])
-        .expect("index chunks");
+    index.index_chunks(vec![
+        chunk(7, 70, "alpha source chunk"),
+        chunk(8, 80, "beta unrelated chunk"),
+    ])?;
 
-    let hits = index
-        .search(SearchQuery {
-            q: "alpha".to_string(),
-            limit: 10,
-            offset: 0,
-        })
-        .expect("search chunks");
+    let hits = index.search(SearchQuery {
+        q: "alpha".to_string(),
+        limit: 10,
+        offset: 0,
+    })?;
 
     assert_eq!(hits.len(), 1);
     assert_eq!(hits[0].chunk.artifact_id, ArtifactId::new(7));
     assert_eq!(hits[0].chunk.chunk_id, ChunkId::new(70));
     assert_eq!(hits[0].chunk.text, "alpha source chunk");
     assert!(hits[0].score > 0);
+    Ok(())
 }
 
 #[test]
-fn limit_is_honored() {
-    let index = TantivyFullTextIndex::in_memory().expect("create in-memory index");
+fn limit_is_honored() -> Result<(), Box<dyn std::error::Error>> {
+    let index = TantivyFullTextIndex::in_memory()?;
 
-    index
-        .index_chunks(vec![
-            chunk(1, 10, "shared term one"),
-            chunk(1, 11, "shared term two"),
-            chunk(1, 12, "shared term three"),
-        ])
-        .expect("index chunks");
+    index.index_chunks(vec![
+        chunk(1, 10, "shared term one"),
+        chunk(1, 11, "shared term two"),
+        chunk(1, 12, "shared term three"),
+    ])?;
 
-    let hits = index
-        .search(SearchQuery {
-            q: "shared".to_string(),
-            limit: 2,
-            offset: 0,
-        })
-        .expect("search chunks");
+    let hits = index.search(SearchQuery {
+        q: "shared".to_string(),
+        limit: 2,
+        offset: 0,
+    })?;
 
     assert_eq!(hits.len(), 2);
+    Ok(())
 }
 
 #[test]
-fn filtered_search_excludes_denied_chunk_before_scoring() {
-    let index = TantivyFullTextIndex::in_memory().expect("create in-memory index");
-    index
-        .index_chunks(vec![
-            chunk(1, 10, "shared searchable term"),
-            chunk(1, 11, "shared searchable term"),
-        ])
-        .expect("index chunks");
+fn filtered_search_excludes_denied_chunk_before_scoring() -> Result<(), Box<dyn std::error::Error>>
+{
+    let index = TantivyFullTextIndex::in_memory()?;
+    index.index_chunks(vec![
+        chunk(1, 10, "shared searchable term"),
+        chunk(1, 11, "shared searchable term"),
+    ])?;
 
-    let hits = index
-        .search_filtered(
-            SearchQuery {
-                q: "shared".to_string(),
-                limit: 10,
-                offset: 0,
-            },
-            &|chunk_id, _| chunk_id == ChunkId::new(10),
-        )
-        .expect("filtered search");
+    let hits = index.search_filtered(
+        SearchQuery {
+            q: "shared".to_string(),
+            limit: 10,
+            offset: 0,
+        },
+        &|chunk_id, _| chunk_id == ChunkId::new(10),
+    )?;
     assert_eq!(hits.len(), 1);
     assert_eq!(hits[0].chunk.chunk_id, ChunkId::new(10));
+    Ok(())
 }
 
 #[test]
-fn empty_query_is_invalid() {
-    let index = TantivyFullTextIndex::in_memory().expect("create in-memory index");
+fn empty_query_is_invalid() -> Result<(), Box<dyn std::error::Error>> {
+    let index = TantivyFullTextIndex::in_memory()?;
 
     let result = index.search(SearchQuery {
         q: "  \t  ".to_string(),
@@ -97,79 +89,71 @@ fn empty_query_is_invalid() {
     });
 
     assert!(matches!(result, Err(PortError::InvalidInput { .. })));
+    Ok(())
 }
 
 #[test]
-fn reindexing_same_chunk_replaces_without_duplicate_hits() {
-    let index = TantivyFullTextIndex::in_memory().expect("create in-memory index");
+fn reindexing_same_chunk_replaces_without_duplicate_hits() -> Result<(), Box<dyn std::error::Error>>
+{
+    let index = TantivyFullTextIndex::in_memory()?;
 
-    index
-        .index_chunks(vec![chunk(2, 20, "original searchable text")])
-        .expect("index original chunk");
-    index
-        .index_chunks(vec![chunk(2, 20, "updated searchable text")])
-        .expect("reindex chunk");
+    index.index_chunks(vec![chunk(2, 20, "original searchable text")])?;
+    index.index_chunks(vec![chunk(2, 20, "updated searchable text")])?;
 
-    let hits = index
-        .search(SearchQuery {
-            q: "searchable".to_string(),
-            limit: 10,
-            offset: 0,
-        })
-        .expect("search chunks");
+    let hits = index.search(SearchQuery {
+        q: "searchable".to_string(),
+        limit: 10,
+        offset: 0,
+    })?;
 
     assert_eq!(hits.len(), 1);
     assert_eq!(hits[0].chunk.artifact_id, ArtifactId::new(2));
     assert_eq!(hits[0].chunk.chunk_id, ChunkId::new(20));
     assert_eq!(hits[0].chunk.text, "updated searchable text");
+    Ok(())
 }
 
 #[test]
-fn no_results_for_missing_term() {
-    let index = TantivyFullTextIndex::in_memory().expect("create in-memory index");
+fn no_results_for_missing_term() -> Result<(), Box<dyn std::error::Error>> {
+    let index = TantivyFullTextIndex::in_memory()?;
 
-    index
-        .index_chunks(vec![chunk(3, 30, "present words only")])
-        .expect("index chunks");
+    index.index_chunks(vec![chunk(3, 30, "present words only")])?;
 
-    let hits = index
-        .search(SearchQuery {
-            q: "absent".to_string(),
-            limit: 10,
-            offset: 0,
-        })
-        .expect("search chunks");
+    let hits = index.search(SearchQuery {
+        q: "absent".to_string(),
+        limit: 10,
+        offset: 0,
+    })?;
 
     assert!(hits.is_empty());
+    Ok(())
 }
 
 #[test]
-fn directory_backed_index_can_be_reopened() {
-    let directory = TempDir::new().expect("create temp directory");
-    let index = TantivyFullTextIndex::open(directory.path()).expect("open directory index");
-    index
-        .index_chunks(vec![chunk(4, 40, "durable indexed text")])
-        .expect("index chunk");
+fn directory_backed_index_can_be_reopened() -> Result<(), Box<dyn std::error::Error>> {
+    let directory = TempDir::new()?;
+    let index = TantivyFullTextIndex::open(directory.path())?;
+    index.index_chunks(vec![chunk(4, 40, "durable indexed text")])?;
     drop(index);
 
-    let reopened = TantivyFullTextIndex::open(directory.path()).expect("reopen directory index");
-    let hits = reopened
-        .search(SearchQuery {
-            q: "durable".to_string(),
-            limit: 10,
-            offset: 0,
-        })
-        .expect("search chunks");
+    let reopened = TantivyFullTextIndex::open(directory.path())?;
+    let hits = reopened.search(SearchQuery {
+        q: "durable".to_string(),
+        limit: 10,
+        offset: 0,
+    })?;
 
     assert_eq!(hits.len(), 1);
     assert_eq!(hits[0].chunk.artifact_id, ArtifactId::new(4));
     assert_eq!(hits[0].chunk.chunk_id, ChunkId::new(40));
+    Ok(())
 }
 
 #[test]
-fn satisfies_shared_full_text_index_contract() {
-    let index = TantivyFullTextIndex::in_memory().expect("create in-memory index");
-    assert_full_text_index_round_trip(&index);
+fn satisfies_shared_full_text_index_contract() -> Result<(), Box<dyn std::error::Error>> {
+    let index = TantivyFullTextIndex::in_memory()?;
+    assert_full_text_index_round_trip(&index)?;
+    Ok(())
 }
 
 fn lexical_chunk(
@@ -191,133 +175,124 @@ fn lexical_chunk(
 }
 
 #[test]
-fn lexical_index_search_returns_chunk_metadata_contains_match() {
+fn lexical_index_search_returns_chunk_metadata_contains_match()
+-> Result<(), Box<dyn std::error::Error>> {
     use maestria_ports::{ChunkField, FieldSelector, LexicalQuery, MatchMode};
-    let index = TantivyFullTextIndex::in_memory().expect("create in-memory index");
+    let index = TantivyFullTextIndex::in_memory()?;
 
-    index
-        .index_lexical_chunks(vec![
-            lexical_chunk(
-                1,
-                10,
-                "impl search interface",
-                Some("src/search/mod.rs"),
-                Some("mod.rs"),
-                Some("Searcher"),
-            ),
-            lexical_chunk(
-                2,
-                20,
-                "impl tantivy interface",
-                Some("src/tantivy/search.rs"),
-                Some("search.rs"),
-                Some("TantivySearcher"),
-            ),
-        ])
-        .expect("index lexical chunks");
+    index.index_lexical_chunks(vec![
+        lexical_chunk(
+            1,
+            10,
+            "impl search interface",
+            Some("src/search/mod.rs"),
+            Some("mod.rs"),
+            Some("Searcher"),
+        ),
+        lexical_chunk(
+            2,
+            20,
+            "impl tantivy interface",
+            Some("src/tantivy/search.rs"),
+            Some("search.rs"),
+            Some("TantivySearcher"),
+        ),
+    ])?;
 
-    let hits = index
-        .search_lexical(LexicalQuery {
-            q: "search".to_string(),
-            limit: 10,
-            offset: 0,
-            mode: MatchMode::Contains,
-            fields: vec![
-                FieldSelector {
-                    field: ChunkField::Text,
-                    boost: 1.0,
-                },
-                FieldSelector {
-                    field: ChunkField::Path,
-                    boost: 2.0,
-                },
-                FieldSelector {
-                    field: ChunkField::Filename,
-                    boost: 3.0,
-                },
-                FieldSelector {
-                    field: ChunkField::Symbol,
-                    boost: 4.0,
-                },
-            ],
-        })
-        .expect("search lexical");
+    let hits = index.search_lexical(LexicalQuery {
+        q: "search".to_string(),
+        limit: 10,
+        offset: 0,
+        mode: MatchMode::Contains,
+        fields: vec![
+            FieldSelector {
+                field: ChunkField::Text,
+                boost: 1.0,
+            },
+            FieldSelector {
+                field: ChunkField::Path,
+                boost: 2.0,
+            },
+            FieldSelector {
+                field: ChunkField::Filename,
+                boost: 3.0,
+            },
+            FieldSelector {
+                field: ChunkField::Symbol,
+                boost: 4.0,
+            },
+        ],
+    })?;
 
     assert_eq!(hits.len(), 2); // Both chunks match (chunk 1 text, chunk 2 path/filename/symbol)
     // Rank 1 will be chunk 1 (shorter text gives higher score in manual scoring) or chunk 2 (more matched fields? manual scoring only scores one field)
     // But the important part is both are present.
+    Ok(())
 }
 
 #[test]
-fn lexical_contains_matches_inside_symbol_tokens() {
+fn lexical_contains_matches_inside_symbol_tokens() -> Result<(), Box<dyn std::error::Error>> {
     use maestria_ports::{ChunkField, FieldSelector, LexicalQuery, MatchMode};
-    let index = TantivyFullTextIndex::in_memory().expect("create in-memory index");
-    index
-        .index_lexical_chunks(vec![lexical_chunk(
-            9,
-            90,
-            "unrelated",
-            None,
-            None,
-            Some("Searcher"),
-        )])
-        .expect("index lexical chunk");
+    let index = TantivyFullTextIndex::in_memory()?;
+    index.index_lexical_chunks(vec![lexical_chunk(
+        9,
+        90,
+        "unrelated",
+        None,
+        None,
+        Some("Searcher"),
+    )])?;
 
-    let hits = index
-        .search_lexical(LexicalQuery {
-            q: "earch".to_string(),
-            limit: 10,
-            offset: 0,
-            mode: MatchMode::Contains,
-            fields: vec![FieldSelector {
-                field: ChunkField::Symbol,
-                boost: 1.0,
-            }],
-        })
-        .expect("search symbol substring");
+    let hits = index.search_lexical(LexicalQuery {
+        q: "earch".to_string(),
+        limit: 10,
+        offset: 0,
+        mode: MatchMode::Contains,
+        fields: vec![FieldSelector {
+            field: ChunkField::Symbol,
+            boost: 1.0,
+        }],
+    })?;
 
     assert_eq!(hits.len(), 1);
     assert_eq!(hits[0].chunk.symbol.as_deref(), Some("Searcher"));
+    Ok(())
 }
 
 #[test]
-fn lexical_index_search_exact_match() {
+fn lexical_index_search_exact_match() -> Result<(), Box<dyn std::error::Error>> {
     use maestria_ports::{ChunkField, FieldSelector, HitReason, LexicalQuery, MatchMode};
-    let index = TantivyFullTextIndex::in_memory().expect("create in-memory index");
+    let index = TantivyFullTextIndex::in_memory()?;
 
-    index
-        .index_lexical_chunks(vec![
-            lexical_chunk(
-                1,
-                10,
-                "some text",
-                Some("src/search/mod.rs"),
-                Some("mod.rs"),
-                Some("Searcher"),
-            ),
-            lexical_chunk(
-                2,
-                20,
-                "other text",
-                Some("src/tantivy/search.rs"),
-                Some("search.rs"),
-                Some("TantivySearcher"),
-            ),
-        ])
-        .expect("index lexical chunks");
+    index.index_lexical_chunks(vec![
+        lexical_chunk(
+            1,
+            10,
+            "some text",
+            Some("src/search/mod.rs"),
+            Some("mod.rs"),
+            Some("Searcher"),
+        ),
+        lexical_chunk(
+            2,
+            20,
+            "other text",
+            Some("src/tantivy/search.rs"),
+            Some("search.rs"),
+            Some("TantivySearcher"),
+        ),
+    ])?;
 
-    let hits = index
-        .search_lexical(LexicalQuery {
-            q: "mod.rs".to_string(),
-            limit: 10,
-            offset: 0,
-            mode: MatchMode::Exact,
-            fields: vec![FieldSelector {
-                field: ChunkField::Filename,
-                boost: 3.0,
-            }],
-        })
-        .expect("search lexical exact");
+    let hits = index.search_lexical(LexicalQuery {
+        q: "mod.rs".to_string(),
+        limit: 10,
+        offset: 0,
+        mode: MatchMode::Exact,
+        fields: vec![FieldSelector {
+            field: ChunkField::Filename,
+            boost: 3.0,
+        }],
+    })?;
 
     assert_eq!(hits.len(), 1);
     assert_eq!(hits[0].chunk.artifact_id.value(), 1);
@@ -327,66 +302,60 @@ fn lexical_index_search_exact_match() {
             field: "filename".to_string()
         }
     );
+    Ok(())
 }
 
 #[test]
-fn lexical_index_search_exact_whole_field_text() {
+fn lexical_index_search_exact_whole_field_text() -> Result<(), Box<dyn std::error::Error>> {
     use maestria_ports::{ChunkField, FieldSelector, LexicalQuery, MatchMode};
-    let index = TantivyFullTextIndex::in_memory().expect("create in-memory index");
+    let index = TantivyFullTextIndex::in_memory()?;
 
-    index
-        .index_lexical_chunks(vec![
-            lexical_chunk(1, 10, "some exact text", None, None, None),
-            lexical_chunk(2, 20, "exact text", None, None, None),
-        ])
-        .expect("index lexical chunks");
+    index.index_lexical_chunks(vec![
+        lexical_chunk(1, 10, "some exact text", None, None, None),
+        lexical_chunk(2, 20, "exact text", None, None, None),
+    ])?;
 
     // Searching for "exact text" should ONLY match chunk 2. Chunk 1 has extra text.
-    let hits = index
-        .search_lexical(LexicalQuery {
-            q: "exact text".to_string(),
-            limit: 10,
-            offset: 0,
-            mode: MatchMode::Exact,
-            fields: vec![FieldSelector {
-                field: ChunkField::Text,
-                boost: 1.0,
-            }],
-        })
-        .expect("search lexical exact");
+    let hits = index.search_lexical(LexicalQuery {
+        q: "exact text".to_string(),
+        limit: 10,
+        offset: 0,
+        mode: MatchMode::Exact,
+        fields: vec![FieldSelector {
+            field: ChunkField::Text,
+            boost: 1.0,
+        }],
+    })?;
 
     assert_eq!(hits.len(), 1);
     assert_eq!(hits[0].chunk.artifact_id.value(), 2);
+    Ok(())
 }
 
 #[test]
-fn lexical_index_search_metadata_contains() {
+fn lexical_index_search_metadata_contains() -> Result<(), Box<dyn std::error::Error>> {
     use maestria_ports::{ChunkField, FieldSelector, HitReason, LexicalQuery, MatchMode};
-    let index = TantivyFullTextIndex::in_memory().expect("create in-memory index");
+    let index = TantivyFullTextIndex::in_memory()?;
 
-    index
-        .index_lexical_chunks(vec![lexical_chunk(
-            1,
-            10,
-            "text",
-            Some("src/module/sub/file.rs"),
-            None,
-            None,
-        )])
-        .expect("index lexical chunks");
+    index.index_lexical_chunks(vec![lexical_chunk(
+        1,
+        10,
+        "text",
+        Some("src/module/sub/file.rs"),
+        None,
+        None,
+    )])?;
 
-    let hits = index
-        .search_lexical(LexicalQuery {
-            q: "module/sub".to_string(),
-            limit: 10,
-            offset: 0,
-            mode: MatchMode::Contains,
-            fields: vec![FieldSelector {
-                field: ChunkField::Path,
-                boost: 1.0,
-            }],
-        })
-        .expect("search lexical contains");
+    let hits = index.search_lexical(LexicalQuery {
+        q: "module/sub".to_string(),
+        limit: 10,
+        offset: 0,
+        mode: MatchMode::Contains,
+        fields: vec![FieldSelector {
+            field: ChunkField::Path,
+            boost: 1.0,
+        }],
+    })?;
 
     assert_eq!(hits.len(), 1);
     assert_eq!(hits[0].chunk.artifact_id.value(), 1);
@@ -396,75 +365,69 @@ fn lexical_index_search_metadata_contains() {
             field: "path".to_string()
         }
     );
+    Ok(())
 }
 
 #[test]
-fn lexical_search_honors_offset_and_rank() {
+fn lexical_search_honors_offset_and_rank() -> Result<(), Box<dyn std::error::Error>> {
     use maestria_ports::{ChunkField, FieldSelector, LexicalQuery, MatchMode};
-    let index = TantivyFullTextIndex::in_memory().expect("create in-memory index");
-    index
-        .index_lexical_chunks(vec![
-            lexical_chunk(1, 10, "alpha alpha", None, None, None),
-            lexical_chunk(1, 11, "alpha", None, None, None),
-        ])
-        .expect("index lexical chunks");
+    let index = TantivyFullTextIndex::in_memory()?;
+    index.index_lexical_chunks(vec![
+        lexical_chunk(1, 10, "alpha alpha", None, None, None),
+        lexical_chunk(1, 11, "alpha", None, None, None),
+    ])?;
 
-    let hits = index
-        .search_lexical(LexicalQuery {
-            q: "alpha".to_string(),
-            limit: 1,
-            offset: 1,
-            mode: MatchMode::Contains,
-            fields: vec![FieldSelector {
-                field: ChunkField::Text,
-                boost: 1.0,
-            }],
-        })
-        .expect("search lexical page");
+    let hits = index.search_lexical(LexicalQuery {
+        q: "alpha".to_string(),
+        limit: 1,
+        offset: 1,
+        mode: MatchMode::Contains,
+        fields: vec![FieldSelector {
+            field: ChunkField::Text,
+            boost: 1.0,
+        }],
+    })?;
 
     assert_eq!(hits.len(), 1);
     assert_eq!(hits[0].chunk.chunk_id, ChunkId::new(11));
     assert_eq!(hits[0].metadata.raw_rank, 2);
+    Ok(())
 }
 
 #[test]
-fn lexical_index_search_exact_id_match() {
+fn lexical_index_search_exact_id_match() -> Result<(), Box<dyn std::error::Error>> {
     use maestria_ports::{ChunkField, FieldSelector, HitReason, LexicalQuery, MatchMode};
-    let index = TantivyFullTextIndex::in_memory().expect("create in-memory index");
+    let index = TantivyFullTextIndex::in_memory()?;
 
-    index
-        .index_lexical_chunks(vec![
-            lexical_chunk(
-                1,
-                10,
-                "some text",
-                Some("src/search/mod.rs"),
-                Some("mod.rs"),
-                Some("Searcher"),
-            ),
-            lexical_chunk(
-                2,
-                20,
-                "other text",
-                Some("src/tantivy/search.rs"),
-                Some("search.rs"),
-                Some("TantivySearcher"),
-            ),
-        ])
-        .expect("index lexical chunks");
+    index.index_lexical_chunks(vec![
+        lexical_chunk(
+            1,
+            10,
+            "some text",
+            Some("src/search/mod.rs"),
+            Some("mod.rs"),
+            Some("Searcher"),
+        ),
+        lexical_chunk(
+            2,
+            20,
+            "other text",
+            Some("src/tantivy/search.rs"),
+            Some("search.rs"),
+            Some("TantivySearcher"),
+        ),
+    ])?;
 
-    let hits = index
-        .search_lexical(LexicalQuery {
-            q: "2:20".to_string(), // chunk_key(artifact_id, chunk_id)
-            limit: 10,
-            offset: 0,
-            mode: MatchMode::Exact,
-            fields: vec![FieldSelector {
-                field: ChunkField::Id,
-                boost: 3.0,
-            }],
-        })
-        .expect("search lexical exact id");
+    let hits = index.search_lexical(LexicalQuery {
+        q: "2:20".to_string(), // chunk_key(artifact_id, chunk_id)
+        limit: 10,
+        offset: 0,
+        mode: MatchMode::Exact,
+        fields: vec![FieldSelector {
+            field: ChunkField::Id,
+            boost: 3.0,
+        }],
+    })?;
 
     assert_eq!(hits.len(), 1);
     assert_eq!(hits[0].chunk.artifact_id.value(), 2);
@@ -474,4 +437,5 @@ fn lexical_index_search_exact_id_match() {
             field: "id".to_string()
         }
     );
+    Ok(())
 }

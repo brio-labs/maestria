@@ -3,26 +3,25 @@ use maestria_domain::*;
 use maestria_ports::*;
 use rusqlite::params;
 
-fn make_fingerprint() -> IndexFingerprint {
-    IndexFingerprint {
+fn make_fingerprint() -> Result<IndexFingerprint, Box<dyn std::error::Error>> {
+    Ok(IndexFingerprint {
         provider: "openai".to_string(),
         model: "text-embedding-ada-002".to_string(),
         revision: "v1".to_string(),
         artifact_hash: ContentHash::new(
             "sha256:0000000000000000000000000000000000000000000000000000000000000000".to_string(),
-        )
-        .expect("generation fixture hash must be valid"),
+        )?,
         dimensions: 1536,
         quantization: "f32".to_string(),
         query_template_hash: "sha256:456".to_string(),
         document_template_hash: "sha256:789".to_string(),
         preprocessing_version: "1.0".to_string(),
-    }
+    })
 }
 
 #[test]
-fn index_generation_started_round_trips() {
-    let store = SqliteStore::in_memory().expect("test setup");
+fn index_generation_started_round_trips() -> Result<(), Box<dyn std::error::Error>> {
+    let store = SqliteStore::in_memory()?;
     let event = DomainEventEnvelope {
         id: EventId::new(1),
         sequence: SequenceNumber::new(1),
@@ -30,17 +29,18 @@ fn index_generation_started_round_trips() {
             id: IndexGenerationId::new(10),
             name: RepresentationName::new("dense_vector"),
             corpus_snapshot: CorpusSnapshotId::new(42),
-            fingerprint: make_fingerprint(),
+            fingerprint: make_fingerprint()?,
         },
     };
-    store.append(event.clone()).expect("append");
-    let scanned = store.scan(EventFilter { artifact_id: None }).expect("scan");
+    store.append(event.clone())?;
+    let scanned = store.scan(EventFilter { artifact_id: None })?;
     assert_eq!(scanned, vec![event]);
+    Ok(())
 }
 
 #[test]
-fn index_generation_transitioned_round_trips() {
-    let store = SqliteStore::in_memory().expect("test setup");
+fn index_generation_transitioned_round_trips() -> Result<(), Box<dyn std::error::Error>> {
+    let store = SqliteStore::in_memory()?;
     let event = DomainEventEnvelope {
         id: EventId::new(1),
         sequence: SequenceNumber::new(1),
@@ -51,21 +51,22 @@ fn index_generation_transitioned_round_trips() {
             replaced_active_id: Some(IndexGenerationId::new(5)),
         },
     };
-    store.append(event.clone()).expect("append");
-    let scanned = store.scan(EventFilter { artifact_id: None }).expect("scan");
+    store.append(event.clone())?;
+    let scanned = store.scan(EventFilter { artifact_id: None })?;
     assert_eq!(scanned, vec![event]);
+    Ok(())
 }
 
 #[test]
-fn full_lifecycle_replay_asserts_active_generation() {
-    let dir = tempfile::tempdir().expect("tempdir");
+fn full_lifecycle_replay_asserts_active_generation() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = tempfile::tempdir()?;
     let db_path = dir.path().join("db.sqlite");
 
-    let fingerprint = make_fingerprint();
+    let fingerprint = make_fingerprint()?;
 
     // First session: append the sequence
     {
-        let store = SqliteStore::open(&db_path).expect("test setup");
+        let store = SqliteStore::open(&db_path)?;
 
         let started = DomainEventEnvelope {
             id: EventId::new(1),
@@ -111,29 +112,30 @@ fn full_lifecycle_replay_asserts_active_generation() {
             },
         };
 
-        store.append(started).expect("append");
-        store.append(to_evaluated).expect("append");
-        store.append(to_shadow).expect("append");
-        store.append(to_active).expect("append");
+        store.append(started)?;
+        store.append(to_evaluated)?;
+        store.append(to_shadow)?;
+        store.append(to_active)?;
     }
 
     // Second session: scan with a fresh handle
-    let store = SqliteStore::open(&db_path).expect("reopen");
-    let scanned = store.scan(EventFilter { artifact_id: None }).expect("scan");
+    let store = SqliteStore::open(&db_path)?;
+    let scanned = store.scan(EventFilter { artifact_id: None })?;
     assert_eq!(scanned.len(), 4);
 
     // Replay into state
-    let state = maestria_domain::replay_events(&scanned).expect("replay");
+    let state = maestria_domain::replay_events(&scanned)?;
 
     // Assert active generation and fingerprint are preserved
     let active_gen = state
         .index_generations
         .get_active(&RepresentationName::new("dense_vector"))
-        .expect("active generation should exist");
+        .ok_or_else(|| std::io::Error::other("active generation missing"))?;
 
     assert_eq!(active_gen.id, IndexGenerationId::new(10));
     assert_eq!(active_gen.lifecycle, IndexLifecycle::Active);
     assert_eq!(active_gen.fingerprint, fingerprint);
+    Ok(())
 }
 
 #[test]

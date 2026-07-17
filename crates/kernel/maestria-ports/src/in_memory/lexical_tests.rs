@@ -5,7 +5,7 @@ use crate::lexical::{CardField, ChunkField, FieldSelector, HitReason, LexicalQue
 use maestria_domain::{ArtifactId, CardId, ChunkId};
 
 #[test]
-fn test_search_lexical_exact_and_boosts() {
+fn test_search_lexical_exact_and_boosts() -> Result<(), Box<dyn std::error::Error>> {
     let index = InMemoryFullTextIndex::new();
     let chunks = vec![
         IndexedLexicalChunk {
@@ -25,9 +25,7 @@ fn test_search_lexical_exact_and_boosts() {
             symbol: None,
         },
     ];
-    index
-        .index_lexical_chunks(chunks)
-        .expect("index lexical chunks");
+    index.index_lexical_chunks(chunks)?;
 
     let exact_query = LexicalQuery {
         q: "alpha".to_string(),
@@ -39,9 +37,7 @@ fn test_search_lexical_exact_and_boosts() {
             boost: 1.0,
         }],
     };
-    let hits = index
-        .search_lexical(exact_query)
-        .expect("search exact lexical chunks");
+    let hits = index.search_lexical(exact_query)?;
     assert_eq!(hits.len(), 1);
     assert_eq!(hits[0].chunk.chunk_id, ChunkId::new(11));
     assert_eq!(
@@ -61,9 +57,7 @@ fn test_search_lexical_exact_and_boosts() {
             boost: 2.5,
         }],
     };
-    let hits2 = index
-        .search_lexical(contains_query)
-        .expect("search contains lexical chunks");
+    let hits2 = index.search_lexical(contains_query)?;
     assert_eq!(hits2.len(), 2);
     assert_eq!(hits2[0].chunk.chunk_id, ChunkId::new(10));
     assert_eq!(hits2[1].chunk.chunk_id, ChunkId::new(11));
@@ -76,10 +70,11 @@ fn test_search_lexical_exact_and_boosts() {
     );
     assert_eq!(hits2[0].metadata.raw_rank, 1);
     assert_eq!(hits2[1].metadata.raw_rank, 2);
+    Ok(())
 }
 
 #[test]
-fn test_search_cards_lexical_fields_and_boosts() {
+fn test_search_cards_lexical_fields_and_boosts() -> Result<(), Box<dyn std::error::Error>> {
     let index = InMemoryFullTextIndex::new();
     let cards = vec![
         IndexedLexicalCard {
@@ -101,9 +96,7 @@ fn test_search_cards_lexical_fields_and_boosts() {
             symbol: None,
         },
     ];
-    index
-        .index_lexical_cards(cards)
-        .expect("index lexical cards");
+    index.index_lexical_cards(cards)?;
 
     let query = LexicalQuery {
         q: "Rust".to_string(),
@@ -121,9 +114,7 @@ fn test_search_cards_lexical_fields_and_boosts() {
             },
         ],
     };
-    let hits = index
-        .search_cards_lexical(query)
-        .expect("search lexical cards");
+    let hits = index.search_cards_lexical(query)?;
     assert_eq!(hits.len(), 2);
     assert_eq!(hits[0].card.card_id, CardId::new(20));
     assert_eq!(hits[0].metadata.raw_score, 40.0);
@@ -141,10 +132,11 @@ fn test_search_cards_lexical_fields_and_boosts() {
             field: "body".into()
         }
     );
+    Ok(())
 }
 
 #[test]
-fn test_search_lexical_filtered_acl() {
+fn test_search_lexical_filtered_acl() -> Result<(), Box<dyn std::error::Error>> {
     let index = InMemoryFullTextIndex::new();
     let chunks = vec![
         IndexedLexicalChunk {
@@ -164,9 +156,7 @@ fn test_search_lexical_filtered_acl() {
             symbol: None,
         },
     ];
-    index
-        .index_lexical_chunks(chunks)
-        .expect("index lexical chunks");
+    index.index_lexical_chunks(chunks)?;
     let query = LexicalQuery {
         q: "code".to_string(),
         limit: 10,
@@ -177,15 +167,14 @@ fn test_search_lexical_filtered_acl() {
             boost: 1.0,
         }],
     };
-    let hits = index
-        .search_lexical_filtered(query, &|chunk_id, _| chunk_id == ChunkId::new(11))
-        .expect("search filtered lexical chunks");
+    let hits = index.search_lexical_filtered(query, &|chunk_id, _| chunk_id == ChunkId::new(11))?;
     assert_eq!(hits.len(), 1);
     assert_eq!(hits[0].chunk.chunk_id, ChunkId::new(11));
+    Ok(())
 }
 
 #[test]
-fn test_search_cards_lexical_filtered_acl() {
+fn test_search_cards_lexical_filtered_acl() -> Result<(), Box<dyn std::error::Error>> {
     let index = InMemoryFullTextIndex::new();
     let cards = vec![
         IndexedLexicalCard {
@@ -207,9 +196,7 @@ fn test_search_cards_lexical_filtered_acl() {
             symbol: None,
         },
     ];
-    index
-        .index_lexical_cards(cards)
-        .expect("index lexical cards");
+    index.index_lexical_cards(cards)?;
     let query = LexicalQuery {
         q: "plan".to_string(),
         limit: 10,
@@ -220,9 +207,9 @@ fn test_search_cards_lexical_filtered_acl() {
             boost: 1.0,
         }],
     };
-    let hits = index
-        .search_cards_lexical_filtered(query, &|card_id, _| card_id == CardId::new(21))
-        .expect("search filtered lexical cards");
+    let hits =
+        index.search_cards_lexical_filtered(query, &|card_id, _| card_id == CardId::new(21))?;
     assert_eq!(hits.len(), 1);
     assert_eq!(hits[0].card.card_id, CardId::new(21));
+    Ok(())
 }

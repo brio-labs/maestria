@@ -215,31 +215,33 @@ pub(crate) async fn wait_for_parser_started_persistence(
         }
         _ => {}
     }
+    let check_loop = async {
+        let mut backoff_ms: u64 = 1;
+        loop {
+            tokio::time::sleep(Duration::from_millis(backoff_ms.min(500))).await;
+            backoff_ms = backoff_ms.saturating_mul(2);
 
-    let deadline = tokio::time::Instant::now() + barrier_timeout;
-    let mut backoff_ms: u64 = 1;
+            match event_log.scan(EventFilter { artifact_id: None }) {
+                Ok(events) if contains_started(&events) => return true,
+                Err(error) => {
+                    tracing::error!(%error, "Failed to scan event log in persistence barrier");
+                    return false;
+                }
+                _ => {}
+            }
+        }
+    };
 
-    loop {
-        if tokio::time::Instant::now() >= deadline {
+    match tokio::time::timeout(barrier_timeout, check_loop).await {
+        Ok(success) => success,
+        Err(_) => {
             tracing::warn!(
                 artifact_id = %artifact_id,
                 %blob_id,
                 timeout_ms = barrier_timeout.as_millis(),
                 "ParserStarted persistence barrier timed out; not parsing"
             );
-            return false;
-        }
-
-        tokio::time::sleep(Duration::from_millis(backoff_ms.min(500))).await;
-        backoff_ms = backoff_ms.saturating_mul(2);
-
-        match event_log.scan(EventFilter { artifact_id: None }) {
-            Ok(events) if contains_started(&events) => return true,
-            Err(error) => {
-                tracing::error!(%error, "failed to scan event log during ParserStarted barrier");
-                return false;
-            }
-            _ => {}
+            false
         }
     }
 }

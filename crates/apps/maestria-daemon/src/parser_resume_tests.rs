@@ -16,14 +16,14 @@ static NEXT_TEMP_ID: AtomicU64 = AtomicU64::new(0);
 struct TempDir(PathBuf);
 
 impl TempDir {
-    fn new() -> Self {
+    fn create() -> std::io::Result<Self> {
         let id = NEXT_TEMP_ID.fetch_add(1, Ordering::Relaxed);
         let dir = std::env::temp_dir().join(format!(
             "maestria-parser-resume-test-{}-{id}",
             std::process::id()
         ));
-        fs::create_dir_all(&dir).expect("create temp dir");
-        TempDir(dir)
+        fs::create_dir_all(&dir)?;
+        Ok(TempDir(dir))
     }
 
     fn path(&self) -> &Path {
@@ -70,22 +70,21 @@ fn build_layout(tempdir: &TempDir) -> InstanceLayout {
 }
 
 /// Creates a layout and blob store, puts bytes, and returns the blob id.
-fn put_blob(layout: &InstanceLayout, bytes: &[u8]) -> BlobId {
-    let store = FsBlobStore::open(&layout.blobs_dir).expect("open blob store for test fixture");
-    store
-        .put(bytes.to_vec())
-        .expect("put blob for test fixture")
+fn put_blob(layout: &InstanceLayout, bytes: &[u8]) -> Result<BlobId, Box<dyn std::error::Error>> {
+    let store = FsBlobStore::open(&layout.blobs_dir)?;
+    Ok(store.put(bytes.to_vec())?)
 }
 
 #[test]
-fn pending_resume_parsers_empty_when_nothing_pending() {
+fn pending_resume_parsers_empty_when_nothing_pending() -> Result<(), Box<dyn std::error::Error>> {
     let state = KernelState::new();
     let inputs = pending_resume_parsers(&state);
     assert!(inputs.is_empty());
+    Ok(())
 }
 
 #[test]
-fn pending_resume_parsers_collects_all_pending() {
+fn pending_resume_parsers_collects_all_pending() -> Result<(), Box<dyn std::error::Error>> {
     let mut state = KernelState::new();
     let artifact_a = ArtifactId::new(1);
     let artifact_b = ArtifactId::new(2);
@@ -119,16 +118,17 @@ fn pending_resume_parsers_collects_all_pending() {
     let mut ids: Vec<ArtifactId> = inputs
         .iter()
         .map(|input| match input {
-            DomainInput::ResumeParser(ps) => ps.artifact_id,
-            other => panic!("expected ResumeParser, got {other:?}"),
+            DomainInput::ResumeParser(ps) => Ok(ps.artifact_id),
+            other => Err(format!("expected ResumeParser, got {other:?}").into()),
         })
-        .collect();
+        .collect::<Result<Vec<_>, Box<dyn std::error::Error>>>()?;
     ids.sort();
     assert_eq!(ids, vec![artifact_a, artifact_b]);
+    Ok(())
 }
 
 #[test]
-fn pending_resume_parsers_preserves_all_fields() {
+fn pending_resume_parsers_preserves_all_fields() -> Result<(), Box<dyn std::error::Error>> {
     let mut state = KernelState::new();
     let artifact_id = ArtifactId::new(42);
     let blob_id = BlobId::new(999);
@@ -155,26 +155,28 @@ fn pending_resume_parsers_preserves_all_fields() {
             assert_eq!(ps.content_hash, "sha256:abcdef1234567890");
             assert_eq!(ps.blob_id, blob_id);
         }
-        other => panic!("expected ResumeParser, got {other:?}"),
+        other => return Err(format!("expected ResumeParser, got {other:?}").into()),
     }
+    Ok(())
 }
 
 // --- verify_pending_blobs tests ---
 
 #[test]
-fn verify_pending_blobs_ok_when_empty() {
-    let tempdir = TempDir::new();
+fn verify_pending_blobs_ok_when_empty() -> Result<(), Box<dyn std::error::Error>> {
+    let tempdir = TempDir::create()?;
     let layout = build_layout(&tempdir);
     assert!(verify_pending_blobs(&layout, &[]).is_ok());
+    Ok(())
 }
 
 #[test]
-fn verify_pending_blobs_succeeds_when_all_blobs_exist() {
-    let tempdir = TempDir::new();
+fn verify_pending_blobs_succeeds_when_all_blobs_exist() -> Result<(), Box<dyn std::error::Error>> {
+    let tempdir = TempDir::create()?;
     let layout = build_layout(&tempdir);
 
-    let blob_id_a = put_blob(&layout, b"alpha");
-    let blob_id_b = put_blob(&layout, b"beta");
+    let blob_id_a = put_blob(&layout, b"alpha")?;
+    let blob_id_b = put_blob(&layout, b"beta")?;
 
     let input_a = DomainInput::ResumeParser(ParserStarted {
         artifact_id: ArtifactId::new(blob_id_a.value()),
@@ -191,39 +193,43 @@ fn verify_pending_blobs_succeeds_when_all_blobs_exist() {
         blob_id: blob_id_b,
     });
 
-    verify_pending_blobs(&layout, &[input_a, input_b]).expect("all blobs should be found");
+    verify_pending_blobs(&layout, &[input_a, input_b])?;
+    Ok(())
 }
 
 #[test]
-fn verify_pending_blobs_fails_when_blob_missing() {
-    let tempdir = TempDir::new();
+fn verify_pending_blobs_fails_when_blob_missing() -> Result<(), Box<dyn std::error::Error>> {
+    let tempdir = TempDir::create()?;
     let layout = build_layout(&tempdir);
 
     // Never put blob 42 — it should fail.
     let mut state = KernelState::new();
     let input = pending_input(&mut state, 1, 42, "missing.txt", "sha256:0");
 
-    let err = verify_pending_blobs(&layout, &[input]).unwrap_err();
+    let result = verify_pending_blobs(&layout, &[input]);
+    let err = result.err().ok_or("expected error but succeeded")?;
     let msg = format!("{err:#}");
     assert!(
         msg.contains("missing or corrupt"),
         "error should mention missing or corrupt blob, got: {msg}"
     );
+    Ok(())
 }
 
 #[test]
-fn verify_pending_blobs_fails_when_object_file_missing_but_index_present() {
-    let tempdir = TempDir::new();
+fn verify_pending_blobs_fails_when_object_file_missing_but_index_present()
+-> Result<(), Box<dyn std::error::Error>> {
+    let tempdir = TempDir::create()?;
     let layout = build_layout(&tempdir);
 
-    let blob_id = put_blob(&layout, b"doomed");
+    let blob_id = put_blob(&layout, b"doomed")?;
 
     // Remove the object file but keep the index mapping.
     {
-        let store = FsBlobStore::open(&layout.blobs_dir).expect("open");
-        let digest = store.digest_for_id(blob_id).expect("digest lookup");
-        let object_path = store.object_path_for_digest(&digest).expect("object path");
-        fs::remove_file(&object_path).expect("remove object file");
+        let store = FsBlobStore::open(&layout.blobs_dir)?;
+        let digest = store.digest_for_id(blob_id)?;
+        let object_path = store.object_path_for_digest(&digest)?;
+        fs::remove_file(&object_path)?;
     }
 
     let mut state = KernelState::new();
@@ -236,21 +242,24 @@ fn verify_pending_blobs_fails_when_object_file_missing_but_index_present() {
         &hash,
     );
 
-    let err = verify_pending_blobs(&layout, &[input]).unwrap_err();
+    let result = verify_pending_blobs(&layout, &[input]);
+    let err = result.err().ok_or("expected error but succeeded")?;
     let msg = format!("{err:#}");
     assert!(
         msg.contains("missing or corrupt"),
         "error should mention missing or corrupt blob when object file is gone, got: {msg}"
     );
+    Ok(())
 }
 
 #[test]
-fn verify_pending_blobs_fails_when_content_hash_mismatch() {
-    let tempdir = TempDir::new();
+fn verify_pending_blobs_fails_when_content_hash_mismatch() -> Result<(), Box<dyn std::error::Error>>
+{
+    let tempdir = TempDir::create()?;
     let layout = build_layout(&tempdir);
 
     let bytes = b"alpha";
-    let blob_id = put_blob(&layout, bytes);
+    let blob_id = put_blob(&layout, bytes)?;
 
     // Construct a ParserStarted that references the correct blob_id
     // but carries a content hash for *different* bytes.
@@ -279,10 +288,12 @@ fn verify_pending_blobs_fails_when_content_hash_mismatch() {
         },
     );
 
-    let err = verify_pending_blobs(&layout, &[input]).unwrap_err();
+    let result = verify_pending_blobs(&layout, &[input]);
+    let err = result.err().ok_or("expected error but succeeded")?;
     let msg = format!("{err:#}");
     assert!(
         msg.contains("content hash mismatch"),
         "error should mention content hash mismatch, got: {msg}"
     );
+    Ok(())
 }

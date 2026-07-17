@@ -1,6 +1,16 @@
 use crate::security::SecurityMetadata;
 use crate::types::*;
 
+pub(crate) struct ApplyCardCreatedArgs<'a> {
+    pub card_id: CardId,
+    pub artifact_id: ArtifactId,
+    pub node_id: crate::ids::StructureNodeId,
+    pub source_span: crate::provenance::SourceSpan,
+    pub title: &'a str,
+    pub body: &'a str,
+    pub security: &'a SecurityMetadata,
+}
+
 impl KernelState {
     // ── Handler ──────────────────────────────────────────────────
 
@@ -53,18 +63,19 @@ impl KernelState {
     }
 
     // ── Replay apply ─────────────────────────────────────────────
-
-    #[allow(clippy::too_many_arguments)]
     pub(crate) fn apply_card_created(
         &mut self,
-        card_id: CardId,
-        artifact_id: ArtifactId,
-        node_id: crate::ids::StructureNodeId,
-        source_span: crate::provenance::SourceSpan,
-        title: &str,
-        body: &str,
-        security: &SecurityMetadata,
+        args: ApplyCardCreatedArgs<'_>,
     ) -> Result<(), DomainError> {
+        let ApplyCardCreatedArgs {
+            card_id,
+            artifact_id,
+            node_id,
+            source_span,
+            title,
+            body,
+            security,
+        } = args;
         if !self.artifacts.contains_key(&artifact_id) {
             return Err(DomainError::MissingArtifact { id: artifact_id });
         }

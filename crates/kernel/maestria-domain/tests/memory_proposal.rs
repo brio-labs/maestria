@@ -6,7 +6,8 @@ mod common;
 use common::{file_span_kind, register_artifact_and_claim};
 
 #[test]
-fn propose_memory_candidate_creates_claim_and_candidate_atomically() -> Result<(), DomainError> {
+fn propose_memory_candidate_creates_claim_and_candidate_atomically()
+-> Result<(), Box<dyn std::error::Error>> {
     let mut state = KernelState::new();
     state.apply_input(DomainInput::RegisterArtifact(RegisterArtifactInput {
         artifact_id: ArtifactId::new(1),
@@ -94,7 +95,7 @@ fn propose_memory_candidate_creates_claim_and_candidate_atomically() -> Result<(
 }
 
 #[test]
-fn propose_memory_candidate_rejects_empty_text() -> Result<(), DomainError> {
+fn propose_memory_candidate_rejects_empty_text() -> Result<(), Box<dyn std::error::Error>> {
     let mut state = KernelState::new();
     state.apply_input(DomainInput::RegisterArtifact(RegisterArtifactInput {
         artifact_id: ArtifactId::new(1),
@@ -111,18 +112,19 @@ fn propose_memory_candidate_rejects_empty_text() -> Result<(), DomainError> {
         security: None,
     }))?;
 
-    let err = state
-        .apply_input(DomainInput::ProposeMemoryCandidate(
-            ProposeMemoryCandidateInput {
-                claim_id: ClaimId::new(20),
-                candidate_id: MemoryCandidateId::new(90),
-                text: "   ".to_string(),
-                evidence_ids: vec![EvidenceId::new(40)],
-                confidence_milli: 500,
-                security: None,
-            },
-        ))
-        .expect_err("empty text must be rejected");
+    let err = match state.apply_input(DomainInput::ProposeMemoryCandidate(
+        ProposeMemoryCandidateInput {
+            claim_id: ClaimId::new(20),
+            candidate_id: MemoryCandidateId::new(90),
+            text: "   ".to_string(),
+            evidence_ids: vec![EvidenceId::new(40)],
+            confidence_milli: 500,
+            security: None,
+        },
+    )) {
+        Ok(_) => return Err(std::io::Error::other("empty text must be rejected").into()),
+        Err(error) => error,
+    };
     assert!(matches!(err, DomainError::EmptyClaimText));
     // Verify no partial state mutation.
     assert!(!state.claims.contains_key(&ClaimId::new(20)));
@@ -135,7 +137,7 @@ fn propose_memory_candidate_rejects_empty_text() -> Result<(), DomainError> {
 }
 
 #[test]
-fn propose_memory_candidate_rejects_invalid_confidence() -> Result<(), DomainError> {
+fn propose_memory_candidate_rejects_invalid_confidence() -> Result<(), Box<dyn std::error::Error>> {
     let mut state = KernelState::new();
     state.apply_input(DomainInput::RegisterArtifact(RegisterArtifactInput {
         artifact_id: ArtifactId::new(1),
@@ -152,18 +154,19 @@ fn propose_memory_candidate_rejects_invalid_confidence() -> Result<(), DomainErr
         security: None,
     }))?;
 
-    let err = state
-        .apply_input(DomainInput::ProposeMemoryCandidate(
-            ProposeMemoryCandidateInput {
-                claim_id: ClaimId::new(20),
-                candidate_id: MemoryCandidateId::new(90),
-                text: "valid claim".to_string(),
-                evidence_ids: vec![EvidenceId::new(40)],
-                confidence_milli: 1001,
-                security: None,
-            },
-        ))
-        .expect_err("confidence > 1000 must be rejected");
+    let err = match state.apply_input(DomainInput::ProposeMemoryCandidate(
+        ProposeMemoryCandidateInput {
+            claim_id: ClaimId::new(20),
+            candidate_id: MemoryCandidateId::new(90),
+            text: "valid claim".to_string(),
+            evidence_ids: vec![EvidenceId::new(40)],
+            confidence_milli: 1001,
+            security: None,
+        },
+    )) {
+        Ok(_) => return Err(std::io::Error::other("confidence > 1000 must be rejected").into()),
+        Err(error) => error,
+    };
     assert!(matches!(
         err,
         DomainError::InvalidConfidence {
@@ -175,7 +178,7 @@ fn propose_memory_candidate_rejects_invalid_confidence() -> Result<(), DomainErr
 }
 
 #[test]
-fn propose_memory_candidate_rejects_missing_evidence() -> Result<(), DomainError> {
+fn propose_memory_candidate_rejects_missing_evidence() -> Result<(), Box<dyn std::error::Error>> {
     let mut state = KernelState::new();
     state.apply_input(DomainInput::RegisterArtifact(RegisterArtifactInput {
         artifact_id: ArtifactId::new(1),
@@ -183,18 +186,19 @@ fn propose_memory_candidate_rejects_missing_evidence() -> Result<(), DomainError
         security: None,
     }))?;
 
-    let err = state
-        .apply_input(DomainInput::ProposeMemoryCandidate(
-            ProposeMemoryCandidateInput {
-                claim_id: ClaimId::new(20),
-                candidate_id: MemoryCandidateId::new(90),
-                text: "valid claim".to_string(),
-                evidence_ids: vec![EvidenceId::new(99)],
-                confidence_milli: 500,
-                security: None,
-            },
-        ))
-        .expect_err("missing evidence must be rejected");
+    let err = match state.apply_input(DomainInput::ProposeMemoryCandidate(
+        ProposeMemoryCandidateInput {
+            claim_id: ClaimId::new(20),
+            candidate_id: MemoryCandidateId::new(90),
+            text: "valid claim".to_string(),
+            evidence_ids: vec![EvidenceId::new(99)],
+            confidence_milli: 500,
+            security: None,
+        },
+    )) {
+        Ok(_) => return Err(std::io::Error::other("missing evidence must be rejected").into()),
+        Err(error) => error,
+    };
     assert!(matches!(
         err,
         DomainError::MissingEvidence { id } if id == EvidenceId::new(99)
@@ -203,27 +207,28 @@ fn propose_memory_candidate_rejects_missing_evidence() -> Result<(), DomainError
 }
 
 #[test]
-fn propose_memory_candidate_rejects_empty_evidence() -> Result<(), DomainError> {
+fn propose_memory_candidate_rejects_empty_evidence() -> Result<(), Box<dyn std::error::Error>> {
     let mut state = KernelState::new();
 
-    let err = state
-        .apply_input(DomainInput::ProposeMemoryCandidate(
-            ProposeMemoryCandidateInput {
-                claim_id: ClaimId::new(20),
-                candidate_id: MemoryCandidateId::new(90),
-                text: "valid claim".to_string(),
-                evidence_ids: Vec::new(),
-                confidence_milli: 500,
-                security: None,
-            },
-        ))
-        .expect_err("empty evidence must be rejected");
+    let err = match state.apply_input(DomainInput::ProposeMemoryCandidate(
+        ProposeMemoryCandidateInput {
+            claim_id: ClaimId::new(20),
+            candidate_id: MemoryCandidateId::new(90),
+            text: "valid claim".to_string(),
+            evidence_ids: Vec::new(),
+            confidence_milli: 500,
+            security: None,
+        },
+    )) {
+        Ok(_) => return Err(std::io::Error::other("empty evidence must be rejected").into()),
+        Err(error) => error,
+    };
     assert!(matches!(err, DomainError::EvidenceRequired { .. }));
     Ok(())
 }
 
 #[test]
-fn propose_memory_candidate_rejects_duplicate_claim_id() -> Result<(), DomainError> {
+fn propose_memory_candidate_rejects_duplicate_claim_id() -> Result<(), Box<dyn std::error::Error>> {
     let mut state = KernelState::new();
     state.apply_input(DomainInput::RegisterArtifact(RegisterArtifactInput {
         artifact_id: ArtifactId::new(1),
@@ -247,24 +252,26 @@ fn propose_memory_candidate_rejects_duplicate_claim_id() -> Result<(), DomainErr
         security: None,
     }))?;
 
-    let err = state
-        .apply_input(DomainInput::ProposeMemoryCandidate(
-            ProposeMemoryCandidateInput {
-                claim_id: ClaimId::new(20),
-                candidate_id: MemoryCandidateId::new(90),
-                text: "new proposal".to_string(),
-                evidence_ids: vec![EvidenceId::new(40)],
-                confidence_milli: 500,
-                security: None,
-            },
-        ))
-        .expect_err("duplicate claim_id must be rejected");
+    let err = match state.apply_input(DomainInput::ProposeMemoryCandidate(
+        ProposeMemoryCandidateInput {
+            claim_id: ClaimId::new(20),
+            candidate_id: MemoryCandidateId::new(90),
+            text: "new proposal".to_string(),
+            evidence_ids: vec![EvidenceId::new(40)],
+            confidence_milli: 500,
+            security: None,
+        },
+    )) {
+        Ok(_) => return Err(std::io::Error::other("duplicate claim_id must be rejected").into()),
+        Err(error) => error,
+    };
     assert!(matches!(err, DomainError::DuplicateId { kind, .. } if kind == "claim"));
     Ok(())
 }
 
 #[test]
-fn propose_memory_candidate_rejects_duplicate_candidate_id() -> Result<(), DomainError> {
+fn propose_memory_candidate_rejects_duplicate_candidate_id()
+-> Result<(), Box<dyn std::error::Error>> {
     let mut state = KernelState::new();
     register_artifact_and_claim(&mut state)?;
     state.apply_input(DomainInput::RecordEvidence(RecordEvidenceInput {
@@ -286,24 +293,27 @@ fn propose_memory_candidate_rejects_duplicate_candidate_id() -> Result<(), Domai
         },
     ))?;
 
-    let err = state
-        .apply_input(DomainInput::ProposeMemoryCandidate(
-            ProposeMemoryCandidateInput {
-                claim_id: ClaimId::new(21),
-                candidate_id: MemoryCandidateId::new(90),
-                text: "new proposal".to_string(),
-                evidence_ids: vec![EvidenceId::new(40)],
-                confidence_milli: 500,
-                security: None,
-            },
-        ))
-        .expect_err("duplicate candidate_id must be rejected");
+    let err = match state.apply_input(DomainInput::ProposeMemoryCandidate(
+        ProposeMemoryCandidateInput {
+            claim_id: ClaimId::new(21),
+            candidate_id: MemoryCandidateId::new(90),
+            text: "new proposal".to_string(),
+            evidence_ids: vec![EvidenceId::new(40)],
+            confidence_milli: 500,
+            security: None,
+        },
+    )) {
+        Ok(_) => {
+            return Err(std::io::Error::other("duplicate candidate_id must be rejected").into());
+        }
+        Err(error) => error,
+    };
     assert!(matches!(err, DomainError::DuplicateId { kind, .. } if kind == "memory_candidate"));
     Ok(())
 }
 
 #[test]
-fn propose_memory_candidate_rejects_artifact_mismatch() -> Result<(), DomainError> {
+fn propose_memory_candidate_rejects_artifact_mismatch() -> Result<(), Box<dyn std::error::Error>> {
     let mut state = KernelState::new();
     state.apply_input(DomainInput::RegisterArtifact(RegisterArtifactInput {
         artifact_id: ArtifactId::new(1),
@@ -334,24 +344,26 @@ fn propose_memory_candidate_rejects_artifact_mismatch() -> Result<(), DomainErro
         security: None,
     }))?;
 
-    let err = state
-        .apply_input(DomainInput::ProposeMemoryCandidate(
-            ProposeMemoryCandidateInput {
-                claim_id: ClaimId::new(20),
-                candidate_id: MemoryCandidateId::new(90),
-                text: "valid claim".to_string(),
-                evidence_ids: vec![EvidenceId::new(40), EvidenceId::new(41)],
-                confidence_milli: 500,
-                security: None,
-            },
-        ))
-        .expect_err("artifact mismatch must be rejected");
+    let err = match state.apply_input(DomainInput::ProposeMemoryCandidate(
+        ProposeMemoryCandidateInput {
+            claim_id: ClaimId::new(20),
+            candidate_id: MemoryCandidateId::new(90),
+            text: "valid claim".to_string(),
+            evidence_ids: vec![EvidenceId::new(40), EvidenceId::new(41)],
+            confidence_milli: 500,
+            security: None,
+        },
+    )) {
+        Ok(_) => return Err(std::io::Error::other("artifact mismatch must be rejected").into()),
+        Err(error) => error,
+    };
     assert!(matches!(err, DomainError::ArtifactMismatch { .. }));
     Ok(())
 }
 
 #[test]
-fn propose_memory_candidate_rejects_evidence_bound_to_other_claim() -> Result<(), DomainError> {
+fn propose_memory_candidate_rejects_evidence_bound_to_other_claim()
+-> Result<(), Box<dyn std::error::Error>> {
     let mut state = KernelState::new();
     register_artifact_and_claim(&mut state)?;
     state.apply_input(DomainInput::RecordEvidence(RecordEvidenceInput {
@@ -364,24 +376,29 @@ fn propose_memory_candidate_rejects_evidence_bound_to_other_claim() -> Result<()
         security: None,
     }))?;
 
-    let err = state
-        .apply_input(DomainInput::ProposeMemoryCandidate(
-            ProposeMemoryCandidateInput {
-                claim_id: ClaimId::new(21),
-                candidate_id: MemoryCandidateId::new(90),
-                text: "new proposal".to_string(),
-                evidence_ids: vec![EvidenceId::new(40)],
-                confidence_milli: 500,
-                security: None,
-            },
-        ))
-        .expect_err("evidence bound to other claim must be rejected");
+    let err = match state.apply_input(DomainInput::ProposeMemoryCandidate(
+        ProposeMemoryCandidateInput {
+            claim_id: ClaimId::new(21),
+            candidate_id: MemoryCandidateId::new(90),
+            text: "new proposal".to_string(),
+            evidence_ids: vec![EvidenceId::new(40)],
+            confidence_milli: 500,
+            security: None,
+        },
+    )) {
+        Ok(_) => {
+            return Err(
+                std::io::Error::other("evidence bound to other claim must be rejected").into(),
+            );
+        }
+        Err(error) => error,
+    };
     assert!(matches!(err, DomainError::DuplicateId { kind, .. } if kind == "evidence_claim"));
     Ok(())
 }
 
 #[test]
-fn propose_memory_candidate_survives_replay() -> Result<(), DomainError> {
+fn propose_memory_candidate_survives_replay() -> Result<(), Box<dyn std::error::Error>> {
     use maestria_domain::replay_events;
 
     let mut state = KernelState::new();
@@ -431,7 +448,7 @@ fn propose_memory_candidate_survives_replay() -> Result<(), DomainError> {
 }
 
 #[test]
-fn propose_memory_candidate_does_not_promote() -> Result<(), DomainError> {
+fn propose_memory_candidate_does_not_promote() -> Result<(), Box<dyn std::error::Error>> {
     // Verify that proposal never creates a Memory entry — promotion
     // remains an explicit separate step.
     let mut state = KernelState::new();

@@ -131,7 +131,7 @@ fn assert_terminalized(state: &KernelState, art_id: ArtifactId) {
 }
 
 #[test]
-fn replay_artifact_indexed_clears_pending_parsers() -> Result<(), DomainError> {
+fn replay_artifact_indexed_clears_pending_parsers() -> Result<(), Box<dyn std::error::Error>> {
     let mut state = KernelState::new();
     // Full chain: ArtifactRegistered → ParserStarted → PendingIndex
     // → ChunkRegistered → EvidenceRecorded → FullTextIndexed
@@ -251,7 +251,7 @@ fn replay_artifact_indexed_clears_pending_parsers() -> Result<(), DomainError> {
 }
 
 #[test]
-fn replay_artifact_indexed_rejects_incomplete_evidence() -> Result<(), DomainError> {
+fn replay_artifact_indexed_rejects_incomplete_evidence() -> Result<(), Box<dyn std::error::Error>> {
     // Regression: when ArtifactIndexed is replayed but no evidence
     // (or non-source-backed evidence) has been recorded, the event
     // must be appended to the event log for replay identity, but
@@ -359,7 +359,7 @@ fn replay_artifact_indexed_rejects_incomplete_evidence() -> Result<(), DomainErr
 }
 
 #[test]
-fn replay_artifact_indexed_removes_invalid_evidence() -> Result<(), DomainError> {
+fn replay_artifact_indexed_removes_invalid_evidence() -> Result<(), Box<dyn std::error::Error>> {
     // Regression: when an invalid ArtifactIndexed is replayed with
     // source-evidence records that fail validation (wrong hash, missing
     // snapshot, artifact mismatch), those records MUST be removed from
@@ -544,7 +544,8 @@ fn assert_cross_owned_cleanup(
 }
 
 #[test]
-fn replay_artifact_indexed_cleans_cross_artifact_evidence_owner() -> Result<(), DomainError> {
+fn replay_artifact_indexed_cleans_cross_artifact_evidence_owner()
+-> Result<(), Box<dyn std::error::Error>> {
     // Regression: ArtifactIndexed cleanup must remove cross-owned evidence IDs
     // from the actual owner artifact's evidence_ids, not just the indexed target.
     let mut state = KernelState::new();

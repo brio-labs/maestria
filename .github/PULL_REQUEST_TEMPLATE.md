@@ -9,7 +9,7 @@
 ## Maestria checklist
 
 - [ ] `cargo fmt --all -- --check`
-- [ ] `cargo clippy --workspace --all-targets --all-features -- -D warnings`
+- [ ] `cargo clippy --workspace --all-targets --all-features -- -D warnings -D clippy::too_many_lines -D clippy::cognitive_complexity -D clippy::unwrap_used -D clippy::expect_used -D clippy::panic -D clippy::disallowed_methods`
 - [ ] `cargo test --workspace --all-targets --all-features`
 - [ ] `cargo doc --workspace --no-deps --all-features` with `RUSTDOCFLAGS="-D warnings"`
 - [ ] `python3 scripts/philosophy-check.py`

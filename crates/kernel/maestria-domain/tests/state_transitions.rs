@@ -5,7 +5,7 @@ mod fixtures;
 // ── Task lifecycle and state transitions ──────────────────────────
 
 #[test]
-fn parser_completed_registers_chunks_and_cards() -> Result<(), DomainError> {
+fn parser_completed_registers_chunks_and_cards() -> Result<(), Box<dyn std::error::Error>> {
     let mut state = KernelState::new();
     state.apply_input(DomainInput::RegisterArtifact(RegisterArtifactInput {
         artifact_id: ArtifactId::new(1),
@@ -17,7 +17,7 @@ fn parser_completed_registers_chunks_and_cards() -> Result<(), DomainError> {
         status: maestria_domain::ParseStatus::Parsed,
         artifact_id: ArtifactId::new(1),
         artifact_version_id: ArtifactVersionId::new(1),
-        content_hash: fixtures::test_content_hash(),
+        content_hash: fixtures::test_content_hash()?,
         tree_root_id: Some(StructureNodeId::new(10)),
         tree_nodes: vec![fixtures::tree_root_node(StructureNodeId::new(10))],
         chunks: vec![RegisterChunkInput {
@@ -539,17 +539,19 @@ fn link_evidence_to_task_idempotent() -> Result<(), DomainError> {
 }
 
 #[test]
-fn search_executed_rejects_empty_query() {
+fn search_executed_rejects_empty_query() -> Result<(), Box<dyn std::error::Error>> {
     let mut state = KernelState::new();
-    let err = state
-        .apply_input(DomainInput::SearchExecuted(SearchExecutedInput {
-            query: "   ".to_string(),
-            limit: 5,
-            evidence_ids: vec![],
-            at: LogicalTick::new(1),
-        }))
-        .expect_err("empty query must be rejected");
+    let err = match state.apply_input(DomainInput::SearchExecuted(SearchExecutedInput {
+        query: "   ".to_string(),
+        limit: 5,
+        evidence_ids: vec![],
+        at: LogicalTick::new(1),
+    })) {
+        Ok(_) => return Err(std::io::Error::other("empty query must be rejected").into()),
+        Err(error) => error,
+    };
     assert!(matches!(err, DomainError::EmptyIntent));
+    Ok(())
 }
 
 #[test]

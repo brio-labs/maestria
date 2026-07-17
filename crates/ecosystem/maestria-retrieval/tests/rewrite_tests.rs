@@ -1,3 +1,5 @@
+use std::error::Error;
+
 use maestria_retrieval::rewrite::{
     DeterministicRewriter, QueryRewriteRecord, QueryRewriteSession, RewriteAccounting,
     RewriteOrigin, StageRole,
@@ -225,7 +227,7 @@ fn test_rewrite_budgets_are_enforced() {
 }
 
 #[test]
-fn test_missing_slot_rewrite_requires_named_slot() {
+fn test_missing_slot_rewrite_requires_named_slot() -> Result<(), Box<dyn Error>> {
     let mut session = QueryRewriteSession::new("query").with_missing_slots([String::from("claim")]);
     session.expand_deterministic();
     assert!(session.add_missing_slot_rewrite(
@@ -241,9 +243,10 @@ fn test_missing_slot_rewrite_requires_named_slot() {
         .records()
         .iter()
         .find(|record| record.origin == RewriteOrigin::MissingSlot)
-        .expect("missing-slot rewrite should be recorded");
+        .ok_or_else(|| std::io::Error::other("missing-slot rewrite should be recorded"))?;
     assert_eq!(record.missing_slot.as_deref(), Some("claim"));
     assert_eq!(record.stage, StageRole::IterativeRetrieval);
+    Ok(())
 }
 #[test]
 fn test_missing_slot_rewrite_rejects_unidentified_slot() {

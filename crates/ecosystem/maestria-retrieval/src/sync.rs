@@ -124,7 +124,6 @@ impl<'a, C, O> SyncPipeline<'a, C, O> {
         !self.query_retrievers.is_empty()
     }
 
-    #[allow(clippy::disallowed_methods)]
     pub fn run(&self, plan: &SearchPlan) -> RetrievalResult<O> {
         maestria_governance::SearchPlanValidator::validate(
             plan,
@@ -132,10 +131,11 @@ impl<'a, C, O> SyncPipeline<'a, C, O> {
             &maestria_governance::RetrievalSecurityPolicy::default(),
         )
         .map_err(RetrievalError::SearchPlan)?;
-        let start = std::time::Instant::now();
+        let start = crate::MonotonicInstant::now();
         let timeout_ms = plan.budgets.max_latency_ms() as u64;
         let check_timeout = || -> RetrievalResult<()> {
-            if timeout_ms > 0 && start.elapsed().as_millis() as u64 > timeout_ms {
+            let elapsed = start.elapsed();
+            if timeout_ms > 0 && elapsed.as_millis() as u64 > timeout_ms {
                 Err(RetrievalError::Timeout)
             } else {
                 Ok(())

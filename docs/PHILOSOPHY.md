@@ -14,7 +14,7 @@ This document is enforceable. CI and review block violations.
 8. Memory candidates and promoted memories must point back to evidence. LLM output can propose; it cannot silently promote.
 9. Projections are rebuildable. Search, vector, and graph stores never own truth.
 10. Kernel crates cannot depend on adapter/runtime/provider crates such as Tokio, SQLx, reqwest, Tantivy, or Axum.
-11. Domain production code must not contain `unwrap`, `expect`, or `panic` paths.
+11. Rust code, including tests, must not contain `unwrap`, `expect`, `panic`, or lint-bypass attributes; fallible paths return typed errors and tests propagate failures.
 12. Bare task markers are not allowed in source, config, or docs.
 13. One concept per Rust module: a module owns one named responsibility at one architectural layer. Domain types, input dispatch, replay, persistence schema, DTO conversion, repositories, and tests are separate concerns; split when a second independently testable concept appears, not at an arbitrary line count.
 14. Public crate façades expose stable boundary types and traits and re-export implementation modules. Implementation details, adapters, and tests stay behind explicit module boundaries instead of reaching across sibling internals.
@@ -63,4 +63,4 @@ Rules 13–20 govern composition and module boundaries; Rules 21–30 make the p
 - Core cohesion Clippy gate for function size and cognitive complexity budgets
 - Contract checks for kernel inputs/outputs, transitions, and every concrete port adapter
 - Review through CODEOWNERS on invariant-owning surfaces
-- The checker enforces kernel safety, dependency direction, no-failure-macro paths, no task markers, module/function budgets, canonical documentation presence, and prohibited external-truth wording; review enforces responsibility boundaries, lifecycle ownership, identity namespaces, and architectural composition from Rules 13–30 and 41–47.
+- The checker enforces kernel safety, dependency direction, no-failure-macro paths, no lint-bypass attributes, no task markers, module/function budgets, canonical documentation presence, and prohibited external-truth wording; review enforces responsibility boundaries, lifecycle ownership, identity namespaces, and architectural composition from Rules 13–30 and 41–47.

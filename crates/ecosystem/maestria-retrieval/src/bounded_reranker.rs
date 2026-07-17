@@ -29,7 +29,6 @@ struct ScoredCandidate {
     fallback_error: Option<String>,
 }
 
-#[allow(clippy::disallowed_methods)]
 async fn score_candidates(
     scorer: &dyn RerankScorer,
     plan: &maestria_domain::SearchPlan,
@@ -37,7 +36,7 @@ async fn score_candidates(
     score_cap: usize,
     max_latency_ms: u32,
 ) -> Result<(Vec<ScoredCandidate>, Vec<SearchTraceRerankCandidate>), RetrievalError> {
-    let started = std::time::Instant::now();
+    let started = tokio::time::Instant::now();
     let max_duration = Duration::from_millis(u64::from(max_latency_ms));
     let mut budget_exhausted = false;
     let mut scored = Vec::new();

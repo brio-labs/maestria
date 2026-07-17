@@ -1,6 +1,3 @@
-#![allow(clippy::disallowed_methods)]
-#![allow(clippy::too_many_lines)]
-
 use std::path::PathBuf;
 
 use maestria_core::build_artifact_detected_input;
@@ -14,8 +11,7 @@ fn artifact_detected_input_is_replay_deterministic() -> Result<(), Box<dyn std::
     let path = PathBuf::from("notes/replay.md");
     let bytes = b"# Replay Test\n\nEvidence block for deterministic replay.\n".to_vec();
 
-    let input =
-        build_artifact_detected_input(&path, bytes.clone()).expect("valid input must succeed");
+    let input = build_artifact_detected_input(&path, bytes.clone())?;
 
     // Apply once.
     let mut state_a = KernelState::new();
@@ -48,45 +44,19 @@ fn artifact_detected_input_is_replay_deterministic() -> Result<(), Box<dyn std::
 /// Replaying an ArtifactDetected followed by a ParserCompleted, FullTextIndexCompleted,
 /// and clock-tick should produce the same terminal state regardless of replay order
 /// (batch replay vs sequential apply).
-#[test]
-fn pure_input_with_effect_completion_is_replay_consistent() -> Result<(), Box<dyn std::error::Error>>
-{
-    let path = PathBuf::from("notes/full-cycle.md");
-    let bytes = b"# Full Cycle\n\nParagraph one.\n\nParagraph two.\n".to_vec();
-
-    let detected = build_artifact_detected_input(&path, bytes.clone())?;
-
-    let maestria_domain::DomainInput::ArtifactDetected(ArtifactDetected {
-        artifact_id,
-        title,
-        source_path: _,
-        source_bytes: _,
-        content_hash: _,
-    }) = &detected
-    else {
-        panic!("expected ArtifactDetected");
-    };
-
-    // Simulate what the runtime does after detection: apply ArtifactDetected,
-    // then ParserCompleted, then FullTextIndexCompleted.
-    let mut state = KernelState::new();
-    state.apply_input(detected.clone())?;
-
-    // Parser completed
+///
+fn parser_result_for_cycle(
+    artifact_id: maestria_domain::ArtifactId,
+) -> Result<maestria_domain::ParserResult, Box<dyn std::error::Error>> {
     use maestria_domain::{
-        ArtifactVersionId, ChunkId, ContentHash, ContentRange, CreateCardInput, DomainInput,
-        EvidenceKind, LogicalTick, ParseStatus, ParserResult, RecordEvidenceInput,
+        ArtifactVersionId, ChunkId, ContentHash, ContentRange, CreateCardInput, ParseStatus,
         RegisterChunkInput, SourceSpan, StructureNode, StructureNodeId, StructureNodeType,
-        content_hash, evidence_id_for,
     };
-    let source_hash = content_hash(&bytes);
-    let source_path = path.to_string_lossy().into_owned();
-    let chunk_id_0 = ChunkId::new(701);
-    let chunk_id_1 = ChunkId::new(702);
-    state.apply_input(DomainInput::ParserCompleted(ParserResult {
-        artifact_id: *artifact_id,
+
+    Ok(maestria_domain::ParserResult {
+        artifact_id,
         artifact_version_id: ArtifactVersionId::new(artifact_id.value()),
-        content_hash: ContentHash::new("sha256:".to_owned() + &"0".repeat(64)).unwrap(),
+        content_hash: ContentHash::new("sha256:".to_owned() + &"0".repeat(64))?,
         status: ParseStatus::Parsed,
         tree_root_id: Some(StructureNodeId::new(701)),
         tree_nodes: vec![
@@ -117,8 +87,8 @@ fn pure_input_with_effect_completion_is_replay_consistent() -> Result<(), Box<dy
         ],
         chunks: vec![
             RegisterChunkInput {
-                chunk_id: chunk_id_0,
-                artifact_id: *artifact_id,
+                chunk_id: ChunkId::new(701),
+                artifact_id,
                 node_id: StructureNodeId::new(701),
                 source_span: SourceSpan::TextSpan {
                     start_line: 1,
@@ -129,8 +99,8 @@ fn pure_input_with_effect_completion_is_replay_consistent() -> Result<(), Box<dy
                 text: "Paragraph one.".to_string(),
             },
             RegisterChunkInput {
-                chunk_id: chunk_id_1,
-                artifact_id: *artifact_id,
+                chunk_id: ChunkId::new(702),
+                artifact_id,
                 node_id: StructureNodeId::new(702),
                 source_span: SourceSpan::TextSpan {
                     start_line: 1,
@@ -143,7 +113,7 @@ fn pure_input_with_effect_completion_is_replay_consistent() -> Result<(), Box<dy
         ],
         cards: vec![CreateCardInput {
             card_id: maestria_domain::CardId::new(901),
-            artifact_id: *artifact_id,
+            artifact_id,
             node_id: StructureNodeId::new(701),
             source_span: SourceSpan::TextSpan {
                 start_line: 1,
@@ -153,7 +123,41 @@ fn pure_input_with_effect_completion_is_replay_consistent() -> Result<(), Box<dy
             body: "Two paragraphs.".to_string(),
             security: None,
         }],
-    }))?;
+    })
+}
+#[test]
+fn pure_input_with_effect_completion_is_replay_consistent() -> Result<(), Box<dyn std::error::Error>>
+{
+    let path = PathBuf::from("notes/full-cycle.md");
+    let bytes = b"# Full Cycle\n\nParagraph one.\n\nParagraph two.\n".to_vec();
+
+    let detected = build_artifact_detected_input(&path, bytes.clone())?;
+
+    let maestria_domain::DomainInput::ArtifactDetected(ArtifactDetected {
+        artifact_id,
+        source_path,
+        source_bytes: _,
+        content_hash: source_hash,
+        title,
+    }) = &detected
+    else {
+        return Err("expected ArtifactDetected".into());
+    };
+
+    // Simulate what the runtime does after detection: apply ArtifactDetected,
+    // then ParserCompleted, then FullTextIndexCompleted.
+    let mut state = KernelState::new();
+    state.apply_input(detected.clone())?;
+
+    use maestria_domain::{
+        ChunkId, ContentRange, DomainInput, EvidenceKind, LogicalTick, RecordEvidenceInput,
+        evidence_id_for,
+    };
+    let chunk_id_0 = ChunkId::new(701);
+    let chunk_id_1 = ChunkId::new(702);
+    state.apply_input(DomainInput::ParserCompleted(parser_result_for_cycle(
+        *artifact_id,
+    )?))?;
     for (order, excerpt) in ["Paragraph one.", "Paragraph two."].into_iter().enumerate() {
         state.apply_input(DomainInput::RecordEvidence(RecordEvidenceInput {
             evidence_id: evidence_id_for(*artifact_id, order as u32),
@@ -195,7 +199,7 @@ fn pure_input_with_effect_completion_is_replay_consistent() -> Result<(), Box<dy
     let artifact = state
         .artifacts
         .get(artifact_id)
-        .expect("artifact must exist after full cycle");
+        .ok_or("artifact must exist after full cycle")?;
     assert_eq!(
         artifact.index_status,
         maestria_domain::IndexStatus::Indexed,

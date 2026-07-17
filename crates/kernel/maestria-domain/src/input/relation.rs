@@ -1,6 +1,16 @@
 use crate::security::SecurityMetadata;
 use crate::types::*;
 
+pub(crate) struct ApplyRelationCreatedArgs<'a> {
+    pub relation_id: RelationId,
+    pub source: RelationEndpoint,
+    pub kind: RelationKind,
+    pub target: RelationEndpoint,
+    pub evidence_id: Option<EvidenceId>,
+    pub confidence_milli: u16,
+    pub security: &'a SecurityMetadata,
+}
+
 impl KernelState {
     // ── Handler ──────────────────────────────────────────────────
 
@@ -98,18 +108,19 @@ impl KernelState {
     }
 
     // ── Replay apply ─────────────────────────────────────────────
-
-    #[allow(clippy::too_many_arguments)]
     pub(crate) fn apply_relation_created(
         &mut self,
-        relation_id: RelationId,
-        source: RelationEndpoint,
-        kind: RelationKind,
-        target: RelationEndpoint,
-        evidence_id: Option<EvidenceId>,
-        confidence_milli: u16,
-        security: &SecurityMetadata,
+        args: ApplyRelationCreatedArgs<'_>,
     ) -> Result<(), DomainError> {
+        let ApplyRelationCreatedArgs {
+            relation_id,
+            source,
+            kind,
+            target,
+            evidence_id,
+            confidence_milli,
+            security,
+        } = args;
         if confidence_milli > 1000 {
             return Err(DomainError::InvalidConfidence {
                 max: 1000,

@@ -1,5 +1,14 @@
 use maestria_domain::*;
 
+fn require_error<T, E>(
+    result: Result<T, E>,
+    message: &str,
+) -> Result<E, Box<dyn std::error::Error>> {
+    match result {
+        Ok(_) => Err(std::io::Error::other(message).into()),
+        Err(error) => Ok(error),
+    }
+}
 #[test]
 fn test_replay_artifact_chunk_card_evidence() -> Result<(), DomainError> {
     let mut state = KernelState::new();
@@ -225,7 +234,7 @@ fn replay_accepts_legacy_completion_noop_status_events() -> Result<(), DomainErr
 }
 
 #[test]
-fn replay_rejects_noncompletion_noop_status_events() -> Result<(), DomainError> {
+fn replay_rejects_noncompletion_noop_status_events() -> Result<(), Box<dyn std::error::Error>> {
     let mut state = KernelState::new();
     state.apply_event(DomainEventEnvelope {
         id: EventId::new(1),
@@ -238,8 +247,8 @@ fn replay_rejects_noncompletion_noop_status_events() -> Result<(), DomainError> 
         },
     })?;
 
-    let error = state
-        .apply_event(DomainEventEnvelope {
+    let error = require_error(
+        state.apply_event(DomainEventEnvelope {
             id: EventId::new(2),
             sequence: SequenceNumber::new(2),
             event: DomainEvent::TaskStatusChanged {
@@ -247,8 +256,9 @@ fn replay_rejects_noncompletion_noop_status_events() -> Result<(), DomainError> 
                 from: TaskStatus::Draft,
                 to: TaskStatus::Draft,
             },
-        })
-        .expect_err("noncompletion no-op status events must be rejected");
+        }),
+        "noncompletion no-op status events must be rejected",
+    )?;
     assert!(matches!(
         error,
         DomainError::InvalidTaskTransition {
@@ -357,10 +367,10 @@ fn informational_events_validate_referenced_state() -> Result<(), DomainError> {
 }
 
 #[test]
-fn harness_completion_rejects_missing_task() -> Result<(), DomainError> {
+fn harness_completion_rejects_missing_task() -> Result<(), Box<dyn std::error::Error>> {
     let mut state = KernelState::new();
-    let err = state
-        .apply_input(DomainInput::HarnessRunCompleted(
+    let err = require_error(
+        state.apply_input(DomainInput::HarnessRunCompleted(
             maestria_domain::HarnessRunCompleted {
                 run_id: maestria_domain::HarnessRunId::new(1),
                 generation: 1,
@@ -369,8 +379,9 @@ fn harness_completion_rejects_missing_task() -> Result<(), DomainError> {
                 exit_code: 1,
                 output: String::new(),
             },
-        ))
-        .expect_err("missing task must reject harness completion");
+        )),
+        "missing task must reject harness completion",
+    )?;
     assert!(matches!(
         err,
         DomainError::MissingTask { id } if id == TaskId::new(9)

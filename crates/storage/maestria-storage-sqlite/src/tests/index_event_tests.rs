@@ -3,8 +3,8 @@ use maestria_domain::*;
 use maestria_ports::*;
 
 #[test]
-fn pending_index_event_round_trips() {
-    let store = SqliteStore::in_memory().expect("test setup");
+fn pending_index_event_round_trips() -> Result<(), Box<dyn std::error::Error>> {
+    let store = SqliteStore::in_memory()?;
     let event = DomainEventEnvelope {
         id: EventId::new(1),
         sequence: SequenceNumber::new(1),
@@ -13,14 +13,15 @@ fn pending_index_event_round_trips() {
             content_hash: "sha256:abc123".to_string(),
         },
     };
-    store.append(event.clone()).expect("append");
-    let scanned = store.scan(EventFilter { artifact_id: None }).expect("scan");
+    store.append(event.clone())?;
+    let scanned = store.scan(EventFilter { artifact_id: None })?;
     assert_eq!(scanned, vec![event]);
+    Ok(())
 }
 
 #[test]
-fn full_text_indexed_event_round_trips() {
-    let store = SqliteStore::in_memory().expect("test setup");
+fn full_text_indexed_event_round_trips() -> Result<(), Box<dyn std::error::Error>> {
+    let store = SqliteStore::in_memory()?;
     let event = DomainEventEnvelope {
         id: EventId::new(1),
         sequence: SequenceNumber::new(1),
@@ -29,14 +30,15 @@ fn full_text_indexed_event_round_trips() {
             chunk_id: ChunkId::new(42),
         },
     };
-    store.append(event.clone()).expect("append");
-    let scanned = store.scan(EventFilter { artifact_id: None }).expect("scan");
+    store.append(event.clone())?;
+    let scanned = store.scan(EventFilter { artifact_id: None })?;
     assert_eq!(scanned, vec![event]);
+    Ok(())
 }
 
 #[test]
-fn artifact_indexed_event_round_trips() {
-    let store = SqliteStore::in_memory().expect("test setup");
+fn artifact_indexed_event_round_trips() -> Result<(), Box<dyn std::error::Error>> {
+    let store = SqliteStore::in_memory()?;
     let event = DomainEventEnvelope {
         id: EventId::new(1),
         sequence: SequenceNumber::new(1),
@@ -44,14 +46,15 @@ fn artifact_indexed_event_round_trips() {
             artifact_id: ArtifactId::new(7),
         },
     };
-    store.append(event.clone()).expect("append");
-    let scanned = store.scan(EventFilter { artifact_id: None }).expect("scan");
+    store.append(event.clone())?;
+    let scanned = store.scan(EventFilter { artifact_id: None })?;
     assert_eq!(scanned, vec![event]);
+    Ok(())
 }
 
 #[test]
-fn parser_started_event_round_trips() {
-    let store = SqliteStore::in_memory().expect("test setup");
+fn parser_started_event_round_trips() -> Result<(), Box<dyn std::error::Error>> {
+    let store = SqliteStore::in_memory()?;
     let event = DomainEventEnvelope {
         id: EventId::new(1),
         sequence: SequenceNumber::new(1),
@@ -63,14 +66,15 @@ fn parser_started_event_round_trips() {
             blob_id: BlobId::new(42),
         },
     };
-    store.append(event.clone()).expect("append");
-    let scanned = store.scan(EventFilter { artifact_id: None }).expect("scan");
+    store.append(event.clone())?;
+    let scanned = store.scan(EventFilter { artifact_id: None })?;
     assert_eq!(scanned, vec![event]);
+    Ok(())
 }
 
 #[test]
-fn parser_started_event_filters_by_artifact() {
-    let store = SqliteStore::in_memory().expect("test setup");
+fn parser_started_event_filters_by_artifact() -> Result<(), Box<dyn std::error::Error>> {
+    let store = SqliteStore::in_memory()?;
     let started = DomainEventEnvelope {
         id: EventId::new(1),
         sequence: SequenceNumber::new(1),
@@ -93,20 +97,19 @@ fn parser_started_event_filters_by_artifact() {
             blob_id: BlobId::new(20),
         },
     };
-    store.append(started.clone()).expect("append");
-    store.append(other.clone()).expect("append");
+    store.append(started.clone())?;
+    store.append(other.clone())?;
 
-    let for_artifact_1 = store
-        .scan(EventFilter {
-            artifact_id: Some(ArtifactId::new(1)),
-        })
-        .expect("filtered scan");
+    let for_artifact_1 = store.scan(EventFilter {
+        artifact_id: Some(ArtifactId::new(1)),
+    })?;
     assert_eq!(for_artifact_1, vec![started]);
+    Ok(())
 }
 
 #[test]
-fn parser_started_event_has_no_source_bytes_in_payload() {
-    let store = SqliteStore::in_memory().expect("test setup");
+fn parser_started_event_has_no_source_bytes_in_payload() -> Result<(), Box<dyn std::error::Error>> {
+    let store = SqliteStore::in_memory()?;
     let event = DomainEventEnvelope {
         id: EventId::new(1),
         sequence: SequenceNumber::new(1),
@@ -118,24 +121,23 @@ fn parser_started_event_has_no_source_bytes_in_payload() {
             blob_id: BlobId::new(42),
         },
     };
-    store.append(event).expect("append");
+    store.append(event)?;
 
     // Verify the raw stored JSON contains no source bytes
-    let connection = store.lock().expect("lock");
-    let payload_json: String = connection
-        .query_row(
-            "SELECT payload_json FROM domain_events WHERE id = 1",
-            [],
-            |row| row.get(0),
-        )
-        .expect("query");
+    let connection = store.lock()?;
+    let payload_json: String = connection.query_row(
+        "SELECT payload_json FROM domain_events WHERE id = 1",
+        [],
+        |row| row.get(0),
+    )?;
     assert!(!payload_json.contains("source_bytes"));
     assert!(!payload_json.contains("source_blob"));
+    Ok(())
 }
 
 #[test]
-fn index_events_filter_by_artifact() {
-    let store = SqliteStore::in_memory().expect("test setup");
+fn index_events_filter_by_artifact() -> Result<(), Box<dyn std::error::Error>> {
+    let store = SqliteStore::in_memory()?;
     let pending = DomainEventEnvelope {
         id: EventId::new(1),
         sequence: SequenceNumber::new(1),
@@ -166,15 +168,14 @@ fn index_events_filter_by_artifact() {
             artifact_id: ArtifactId::new(2),
         },
     };
-    store.append(pending.clone()).expect("append");
-    store.append(full_text.clone()).expect("append");
-    store.append(indexed.clone()).expect("append");
-    store.append(other.clone()).expect("append");
+    store.append(pending.clone())?;
+    store.append(full_text.clone())?;
+    store.append(indexed.clone())?;
+    store.append(other.clone())?;
 
-    let for_artifact_1 = store
-        .scan(EventFilter {
-            artifact_id: Some(ArtifactId::new(1)),
-        })
-        .expect("filtered scan");
+    let for_artifact_1 = store.scan(EventFilter {
+        artifact_id: Some(ArtifactId::new(1)),
+    })?;
     assert_eq!(for_artifact_1, vec![pending, full_text, indexed]);
+    Ok(())
 }

@@ -115,19 +115,19 @@ fn build_expander<'a>(
 }
 
 fn check_latency(
-    start: std::time::Instant,
+    start: maestria_retrieval::MonotonicInstant,
     excluded: std::time::Duration,
     max_latency_ms: u32,
 ) -> CoreResult<()> {
-    if max_latency_ms > 0
-        && start.elapsed().saturating_sub(excluded).as_millis() as u64 > u64::from(max_latency_ms)
-    {
-        Err(CoreError::InvalidInput {
-            message: "retrieval latency budget exhausted".to_string(),
-        })
-    } else {
-        Ok(())
+    if max_latency_ms > 0 {
+        let elapsed = start.elapsed();
+        if elapsed.saturating_sub(excluded).as_millis() as u64 > u64::from(max_latency_ms) {
+            return Err(CoreError::InvalidInput {
+                message: "retrieval latency budget exhausted".to_string(),
+            });
+        }
     }
+    Ok(())
 }
 
 fn initial_rewrite_queries(plan: &maestria_domain::SearchPlan) -> Vec<String> {
@@ -145,8 +145,92 @@ fn initial_rewrite_queries(plan: &maestria_domain::SearchPlan) -> Vec<String> {
         .map(|record| record.query.clone())
         .collect()
 }
+struct LaneContext<'a> {
+    ports: &'a CorePorts<'a>,
+    input: &'a SearchInput,
+    policy: &'a maestria_governance::RetrievalSecurityPolicy,
+    plan: &'a maestria_domain::SearchPlan,
+    start: maestria_retrieval::MonotonicInstant,
+}
 
-#[allow(clippy::disallowed_methods)]
+struct VectorLaneResult {
+    pub run: crate::lane_fusion::LaneRun,
+    pub ranked: Vec<RankedRetrievalCandidate>,
+    pub excluded: std::time::Duration,
+}
+
+fn execute_vector_lane<'a>(
+    ctx: &LaneContext<'a>,
+    vector_query: Option<VectorSearchQuery>,
+    active_hybrid: bool,
+    mut excluded: std::time::Duration,
+) -> CoreResult<Option<VectorLaneResult>> {
+    if let Some(vector_query) = vector_query {
+        let dense_start = maestria_retrieval::MonotonicInstant::now();
+        let dense_run = run_chunk_lane(
+            ctx.ports,
+            RetrievalLane::VectorChunks,
+            &ctx.input.query,
+            ctx.input.limit,
+            Some(vector_query),
+            ctx.policy,
+        );
+        let ranked = if active_hybrid {
+            dense_run.ranked.clone()
+        } else {
+            Vec::new()
+        };
+        if active_hybrid {
+            check_latency(ctx.start, excluded, ctx.plan.budgets.max_latency_ms())?;
+        } else {
+            excluded = dense_start.elapsed();
+            check_latency(ctx.start, excluded, ctx.plan.budgets.max_latency_ms())?;
+        }
+        return Ok(Some(VectorLaneResult {
+            run: dense_run,
+            ranked,
+            excluded,
+        }));
+    }
+    Ok(None)
+}
+
+struct LexicalLanesResult {
+    pub runs: Vec<crate::lane_fusion::LaneRun>,
+    pub ranked: Vec<Vec<RankedRetrievalCandidate>>,
+}
+
+fn execute_lexical_lanes<'a>(
+    ctx: &LaneContext<'a>,
+    rewrite_queries: &[String],
+    excluded: std::time::Duration,
+) -> CoreResult<LexicalLanesResult> {
+    let mut runs = Vec::with_capacity(rewrite_queries.len());
+    let mut ranked = Vec::with_capacity(rewrite_queries.len());
+    for rewrite_query in rewrite_queries {
+        let lane = if rewrite_query.trim().starts_with('"')
+            && rewrite_query.trim().ends_with('"')
+            && rewrite_query.trim().len() >= 2
+        {
+            RetrievalLane::ExactChunks
+        } else {
+            RetrievalLane::LexicalChunks
+        };
+        let lexical_run = run_chunk_lane(
+            ctx.ports,
+            lane,
+            rewrite_query,
+            ctx.input.limit,
+            None,
+            ctx.policy,
+        );
+        ranked.push(lexical_run.ranked.clone());
+        runs.push(lexical_run);
+        check_latency(ctx.start, excluded, ctx.plan.budgets.max_latency_ms())?;
+    }
+    Ok(LexicalLanesResult { runs, ranked })
+}
+
 fn execute_retrieval_lanes<'a>(
     ports: &'a CorePorts<'a>,
     input: &SearchInput,
@@ -154,7 +238,7 @@ fn execute_retrieval_lanes<'a>(
     policy: &'a maestria_governance::RetrievalSecurityPolicy,
     active_hybrid: bool,
     plan: &maestria_domain::SearchPlan,
-    start: std::time::Instant,
+    start: maestria_retrieval::MonotonicInstant,
 ) -> CoreResult<(
     Vec<crate::types::RetrievalLaneReport>,
     Vec<Vec<RankedRetrievalCandidate>>,
@@ -172,41 +256,24 @@ fn execute_retrieval_lanes<'a>(
         .iter()
         .map(|run| run.ranked.clone())
         .collect::<Vec<_>>();
-    if let Some(vector_query) = vector_query {
-        let dense_start = std::time::Instant::now();
-        let dense_run = run_chunk_lane(
-            ports,
-            RetrievalLane::VectorChunks,
-            &input.query,
-            input.limit,
-            Some(vector_query),
-            policy,
-        );
+    let ctx = LaneContext {
+        ports,
+        input,
+        policy,
+        plan,
+        start,
+    };
+    if let Some(vector_res) = execute_vector_lane(&ctx, vector_query, active_hybrid, excluded)? {
         if active_hybrid {
-            fusion_ranked.push(dense_run.ranked.clone());
+            fusion_ranked.push(vector_res.ranked);
         }
-        runs.push(dense_run);
-        if active_hybrid {
-            check_latency(start, excluded, max_latency_ms)?;
-        } else {
-            excluded = dense_start.elapsed();
-            check_latency(start, excluded, max_latency_ms)?;
-        }
+        runs.push(vector_res.run);
+        excluded = vector_res.excluded;
     }
-    for rewrite_query in &rewrite_queries {
-        let lane = if rewrite_query.trim().starts_with('"')
-            && rewrite_query.trim().ends_with('"')
-            && rewrite_query.trim().len() >= 2
-        {
-            RetrievalLane::ExactChunks
-        } else {
-            RetrievalLane::LexicalChunks
-        };
-        let lexical_run = run_chunk_lane(ports, lane, rewrite_query, input.limit, None, policy);
-        fusion_ranked.push(lexical_run.ranked.clone());
-        runs.push(lexical_run);
-        check_latency(start, excluded, max_latency_ms)?;
-    }
+
+    let lexical_res = execute_lexical_lanes(&ctx, &rewrite_queries, excluded)?;
+    runs.extend(lexical_res.runs);
+    fusion_ranked.extend(lexical_res.ranked);
     let lane_reports = runs.into_iter().map(|run| run.report).collect::<Vec<_>>();
     Ok((lane_reports, fusion_ranked, excluded))
 }
@@ -247,7 +314,6 @@ fn build_evidence_pack(
     pack
 }
 
-#[allow(clippy::disallowed_methods)]
 pub(super) fn execute_pipeline<'a>(
     ports: &'a CorePorts<'a>,
     input: &SearchInput,
@@ -257,7 +323,7 @@ pub(super) fn execute_pipeline<'a>(
     hybrid_policy: crate::types::HybridExecutionPolicy,
     plan: &maestria_domain::SearchPlan,
 ) -> CoreResult<SearchOutput> {
-    let start = std::time::Instant::now();
+    let start = maestria_retrieval::MonotonicInstant::now();
     let active_hybrid = matches!(
         hybrid_policy,
         crate::types::HybridExecutionPolicy::Active(_)

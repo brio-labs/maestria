@@ -1,96 +1,138 @@
-#![allow(clippy::disallowed_methods)]
-
+use std::error::Error;
 use std::path::PathBuf;
 
 use maestria_domain::ArtifactId;
 use maestria_parsers::*;
 use maestria_ports::{FileHandle, ParseContext, Parser};
 
+fn assert_debug_snapshot<T: std::fmt::Debug>(
+    name: &str,
+    value: &T,
+    function_name: &str,
+    expression: &str,
+    assertion_line: u32,
+) -> Result<(), Box<dyn Error>> {
+    let rendered = format!("{value:#?}");
+    insta::_macro_support::assert_snapshot(
+        (name.to_owned(), rendered.as_str()).into(),
+        insta::_get_workspace_root!().as_path(),
+        function_name,
+        module_path!(),
+        file!(),
+        assertion_line,
+        expression,
+    )
+}
+
 #[test]
-fn markdown_golden_snapshot() {
+fn markdown_golden_snapshot() -> Result<(), Box<dyn Error>> {
     let input =
         b"# Title\n\nIntro paragraph.\n\n## Section 1\nContent here.\n\n### Subsection\nMore content.\n";
-    let parsed = MarkdownParser::new()
-        .parse(
-            FileHandle {
-                path: PathBuf::from("guide.md"),
-                bytes: input.to_vec(),
-            },
-            ParseContext {
-                artifact_id: ArtifactId::new(1),
-            },
-        )
-        .expect("markdown parses");
-    insta::assert_debug_snapshot!("markdown_parsed", &parsed);
+    let parsed = MarkdownParser::new().parse(
+        FileHandle {
+            path: PathBuf::from("guide.md"),
+            bytes: input.to_vec(),
+        },
+        ParseContext {
+            artifact_id: ArtifactId::new(1),
+        },
+    )?;
+    assert_debug_snapshot(
+        "markdown_parsed",
+        &parsed,
+        concat!(module_path!(), "::markdown_golden_snapshot"),
+        stringify!(&parsed),
+        line!(),
+    )?;
+    Ok(())
 }
 
 #[test]
-fn plain_text_golden_snapshot() {
+fn plain_text_golden_snapshot() -> Result<(), Box<dyn Error>> {
     let input = b"First paragraph.\nStill first.\n\nSecond paragraph.\n";
-    let parsed = PlainTextParser::new()
-        .parse(
-            FileHandle {
-                path: PathBuf::from("notes.txt"),
-                bytes: input.to_vec(),
-            },
-            ParseContext {
-                artifact_id: ArtifactId::new(2),
-            },
-        )
-        .expect("plain text parses");
-    insta::assert_debug_snapshot!("plain_text_parsed", &parsed);
+    let parsed = PlainTextParser::new().parse(
+        FileHandle {
+            path: PathBuf::from("notes.txt"),
+            bytes: input.to_vec(),
+        },
+        ParseContext {
+            artifact_id: ArtifactId::new(2),
+        },
+    )?;
+    assert_debug_snapshot(
+        "plain_text_parsed",
+        &parsed,
+        concat!(module_path!(), "::plain_text_golden_snapshot"),
+        stringify!(&parsed),
+        line!(),
+    )?;
+    Ok(())
 }
 
 #[test]
-fn rust_source_golden_snapshot() {
+fn rust_source_golden_snapshot() -> Result<(), Box<dyn Error>> {
     let input = b"use std::fmt;\n\npub struct Thing;\n\nimpl Thing {\n    pub fn new() -> Self { Self }\n}\n\n#[test]\nfn makes_thing() {}\n";
-    let parsed = RustSourceParser::new()
-        .parse(
-            FileHandle {
-                path: PathBuf::from("lib.rs"),
-                bytes: input.to_vec(),
-            },
-            ParseContext {
-                artifact_id: ArtifactId::new(3),
-            },
-        )
-        .expect("rust source parses");
-    insta::assert_debug_snapshot!("rust_source_parsed", &parsed);
+    let parsed = RustSourceParser::new().parse(
+        FileHandle {
+            path: PathBuf::from("lib.rs"),
+            bytes: input.to_vec(),
+        },
+        ParseContext {
+            artifact_id: ArtifactId::new(3),
+        },
+    )?;
+    assert_debug_snapshot(
+        "rust_source_parsed",
+        &parsed,
+        concat!(module_path!(), "::rust_source_golden_snapshot"),
+        stringify!(&parsed),
+        line!(),
+    )?;
+    Ok(())
 }
 
 #[test]
-fn cargo_toml_golden_snapshot() {
+fn cargo_toml_golden_snapshot() -> Result<(), Box<dyn Error>> {
     let input =
         b"[package]\nname = \"demo\"\nversion = \"0.1.0\"\n\n[dependencies]\nserde = \"1\"\n";
-    let parsed = CargoTomlParser::new()
-        .parse(
-            FileHandle {
-                path: PathBuf::from("Cargo.toml"),
-                bytes: input.to_vec(),
-            },
-            ParseContext {
-                artifact_id: ArtifactId::new(4),
-            },
-        )
-        .expect("cargo toml parses");
-    insta::assert_debug_snapshot!("cargo_toml_parsed", &parsed);
+    let parsed = CargoTomlParser::new().parse(
+        FileHandle {
+            path: PathBuf::from("Cargo.toml"),
+            bytes: input.to_vec(),
+        },
+        ParseContext {
+            artifact_id: ArtifactId::new(4),
+        },
+    )?;
+    assert_debug_snapshot(
+        "cargo_toml_parsed",
+        &parsed,
+        concat!(module_path!(), "::cargo_toml_golden_snapshot"),
+        stringify!(&parsed),
+        line!(),
+    )?;
+    Ok(())
 }
-
 #[test]
-fn pdf_golden_snapshot() {
-    let pdf_bytes = create_minimal_pdf(b"Hello PDF world.");
-    let parsed = PdfParser::new()
-        .parse(
-            FileHandle {
-                path: PathBuf::from("paper.pdf"),
-                bytes: pdf_bytes,
-            },
-            ParseContext {
-                artifact_id: ArtifactId::new(5),
-            },
-        )
-        .expect("PDF parses");
-    insta::assert_debug_snapshot!("pdf_parsed", &parsed);
+fn pdf_golden_snapshot() -> Result<(), Box<dyn Error>> {
+    let pdf_bytes = create_minimal_pdf(b"Hello PDF world.")?;
+    let parsed = PdfParser::new().parse(
+        FileHandle {
+            path: PathBuf::from("paper.pdf"),
+            bytes: pdf_bytes,
+        },
+        ParseContext {
+            artifact_id: ArtifactId::new(5),
+        },
+    )?;
+    assert_debug_snapshot(
+        "pdf_parsed",
+        &parsed,
+        concat!(module_path!(), "::pdf_golden_snapshot"),
+        stringify!(&parsed),
+        line!(),
+    )?;
+    Ok(())
 }
 
 #[test]
@@ -122,7 +164,7 @@ fn parsers_reject_empty_input() {
 }
 
 /// Build a minimal valid PDF containing the given text.
-fn create_minimal_pdf(text: &[u8]) -> Vec<u8> {
+fn create_minimal_pdf(text: &[u8]) -> Result<Vec<u8>, Box<dyn Error>> {
     use lopdf::content::{Content, Operation};
     use lopdf::{Dictionary, Object, Stream};
 
@@ -154,10 +196,7 @@ fn create_minimal_pdf(text: &[u8]) -> Vec<u8> {
     };
     doc.objects.insert(
         content_id,
-        Object::Stream(Stream::new(
-            Dictionary::new(),
-            content.encode().expect("content stream encoding"),
-        )),
+        Object::Stream(Stream::new(Dictionary::new(), content.encode()?)),
     );
 
     // Resources dictionary
@@ -199,6 +238,6 @@ fn create_minimal_pdf(text: &[u8]) -> Vec<u8> {
     doc.trailer.set("Root", Object::Reference(catalog_id));
 
     let mut output = Vec::new();
-    doc.save_to(&mut output).expect("minimal PDF serialization");
-    output
+    doc.save_to(&mut output)?;
+    Ok(output)
 }

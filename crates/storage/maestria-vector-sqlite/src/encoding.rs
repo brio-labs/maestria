@@ -182,10 +182,9 @@ mod tests {
     use maestria_ports::EmbeddingIdentity;
 
     #[test]
-    fn fingerprint_serialization_is_collision_free_for_delimiters() {
-        let base = EmbeddingIdentity::legacy("model", 2)
-            .expect("legacy identity")
-            .fingerprint;
+    fn fingerprint_serialization_is_collision_free_for_delimiters()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let base = EmbeddingIdentity::legacy("model", 2)?.fingerprint;
         let mut first = base.clone();
         first.provider = "a:b".to_string();
         first.model = "c".to_string();
@@ -196,5 +195,6 @@ mod tests {
             serialize_fingerprint(&first),
             serialize_fingerprint(&second)
         );
+        Ok(())
     }
 }
