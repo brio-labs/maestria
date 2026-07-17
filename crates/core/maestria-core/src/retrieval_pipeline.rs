@@ -115,15 +115,12 @@ fn build_expander<'a>(
 }
 
 fn check_latency(
-    start: std::time::SystemTime,
+    start: maestria_retrieval::MonotonicInstant,
     excluded: std::time::Duration,
     max_latency_ms: u32,
 ) -> CoreResult<()> {
     if max_latency_ms > 0 {
-        let elapsed = match start.elapsed() {
-            Ok(duration) => duration,
-            Err(_) => std::time::Duration::ZERO,
-        };
+        let elapsed = start.elapsed();
         if elapsed.saturating_sub(excluded).as_millis() as u64 > u64::from(max_latency_ms) {
             return Err(CoreError::InvalidInput {
                 message: "retrieval latency budget exhausted".to_string(),
@@ -153,7 +150,7 @@ struct LaneContext<'a> {
     input: &'a SearchInput,
     policy: &'a maestria_governance::RetrievalSecurityPolicy,
     plan: &'a maestria_domain::SearchPlan,
-    start: std::time::SystemTime,
+    start: maestria_retrieval::MonotonicInstant,
 }
 
 struct VectorLaneResult {
@@ -169,7 +166,7 @@ fn execute_vector_lane<'a>(
     mut excluded: std::time::Duration,
 ) -> CoreResult<Option<VectorLaneResult>> {
     if let Some(vector_query) = vector_query {
-        let dense_start = std::time::SystemTime::now();
+        let dense_start = maestria_retrieval::MonotonicInstant::now();
         let dense_run = run_chunk_lane(
             ctx.ports,
             RetrievalLane::VectorChunks,
@@ -186,10 +183,7 @@ fn execute_vector_lane<'a>(
         if active_hybrid {
             check_latency(ctx.start, excluded, ctx.plan.budgets.max_latency_ms())?;
         } else {
-            excluded = match dense_start.elapsed() {
-                Ok(duration) => duration,
-                Err(_) => std::time::Duration::ZERO,
-            };
+            excluded = dense_start.elapsed();
             check_latency(ctx.start, excluded, ctx.plan.budgets.max_latency_ms())?;
         }
         return Ok(Some(VectorLaneResult {
@@ -244,7 +238,7 @@ fn execute_retrieval_lanes<'a>(
     policy: &'a maestria_governance::RetrievalSecurityPolicy,
     active_hybrid: bool,
     plan: &maestria_domain::SearchPlan,
-    start: std::time::SystemTime,
+    start: maestria_retrieval::MonotonicInstant,
 ) -> CoreResult<(
     Vec<crate::types::RetrievalLaneReport>,
     Vec<Vec<RankedRetrievalCandidate>>,
@@ -329,7 +323,7 @@ pub(super) fn execute_pipeline<'a>(
     hybrid_policy: crate::types::HybridExecutionPolicy,
     plan: &maestria_domain::SearchPlan,
 ) -> CoreResult<SearchOutput> {
-    let start = std::time::SystemTime::now();
+    let start = maestria_retrieval::MonotonicInstant::now();
     let active_hybrid = matches!(
         hybrid_policy,
         crate::types::HybridExecutionPolicy::Active(_)

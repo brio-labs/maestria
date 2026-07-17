@@ -131,13 +131,10 @@ impl<'a, C, O> SyncPipeline<'a, C, O> {
             &maestria_governance::RetrievalSecurityPolicy::default(),
         )
         .map_err(RetrievalError::SearchPlan)?;
-        let start = std::time::SystemTime::now();
+        let start = crate::MonotonicInstant::now();
         let timeout_ms = plan.budgets.max_latency_ms() as u64;
         let check_timeout = || -> RetrievalResult<()> {
-            let elapsed = match start.elapsed() {
-                Ok(d) => d,
-                Err(e) => e.duration(),
-            };
+            let elapsed = start.elapsed();
             if timeout_ms > 0 && elapsed.as_millis() as u64 > timeout_ms {
                 Err(RetrievalError::Timeout)
             } else {
