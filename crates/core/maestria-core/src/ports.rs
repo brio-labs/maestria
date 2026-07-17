@@ -371,7 +371,9 @@ impl<'a> CoreServices<'a> {
             status,
             coverage,
             SearchTraceOptions {
-                expansion_enabled: self.graph_config.is_some(),
+                expansion_enabled: plan
+                    .stages
+                    .contains(&maestria_domain::SearchStage::Filtering),
                 graph_enabled: self.ports.graph_index.is_some(),
                 policy: &self.retrieval_policy,
                 lane_reports: &lane_reports,

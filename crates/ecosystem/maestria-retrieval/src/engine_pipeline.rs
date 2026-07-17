@@ -13,21 +13,37 @@ pub(super) async fn collect_batches(
     retrievers: &[Arc<dyn CandidateRetriever>],
     plan: &SearchPlan,
     query: &SearchQuery,
+    web_requests_used: &mut u32,
 ) -> RetrievalResult<Vec<crate::types::CandidateBatch>> {
+    let mut completed = std::iter::repeat_with(|| None)
+        .take(retrievers.len())
+        .collect::<Vec<_>>();
     let mut tasks = JoinSet::new();
     for (index, retriever) in retrievers.iter().enumerate() {
+        let descriptor = retriever.descriptor();
+        if descriptor.modality.eq_ignore_ascii_case("web")
+            && *web_requests_used >= plan.budgets.max_web_requests()
+        {
+            completed[index] = Some(crate::types::CandidateBatch {
+                descriptor,
+                candidates: Vec::new(),
+                status: maestria_domain::SearchLaneStatus::Failed {
+                    error: "web request budget exhausted".to_string(),
+                },
+            });
+            continue;
+        }
+        if descriptor.modality.eq_ignore_ascii_case("web") {
+            *web_requests_used = web_requests_used.saturating_add(1);
+        }
         let retriever = Arc::clone(retriever);
         let request = CandidateRequest {
             plan: plan.clone(),
             query: query.clone(),
         };
-        let descriptor = retriever.descriptor();
         tasks.spawn(async move { (index, descriptor, retriever.retrieve(request).await) });
     }
 
-    let mut completed = std::iter::repeat_with(|| None)
-        .take(retrievers.len())
-        .collect::<Vec<_>>();
     while let Some(result) = tasks.join_next().await {
         let (index, descriptor, result) = result
             .map_err(|error| RetrievalError::Internal(format!("retriever task failed: {error}")))?;
@@ -69,6 +85,35 @@ pub(super) async fn collect_batches(
             })
         })
         .collect()
+}
+
+pub(super) async fn collect_initial_batches(
+    retrievers: &[Arc<dyn CandidateRetriever>],
+    plan: &SearchPlan,
+) -> RetrievalResult<Vec<crate::types::CandidateBatch>> {
+    let session = super::rewrite_session(plan);
+    if session
+        .records()
+        .iter()
+        .any(|record| record.stage != crate::rewrite::StageRole::InitialRetrieval)
+    {
+        return Err(RetrievalError::Internal(
+            "retrieval engine cannot dispatch non-initial rewrite stages".to_string(),
+        ));
+    }
+    let mut batches = Vec::new();
+    let mut web_requests_used = 0_u32;
+    for rewrite in session.records() {
+        let rewrite_query = SearchQuery {
+            q: rewrite.query.clone(),
+            limit: plan.stop_conditions.max_results as usize,
+            offset: 0,
+        };
+        batches.extend(
+            collect_batches(retrievers, plan, &rewrite_query, &mut web_requests_used).await?,
+        );
+    }
+    Ok(batches)
 }
 
 pub(super) fn trace_lanes(

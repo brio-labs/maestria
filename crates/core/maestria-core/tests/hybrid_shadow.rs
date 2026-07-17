@@ -251,6 +251,10 @@ fn knowledge_search_trace_contains_deterministic_rewrites() -> Result<(), Box<dy
     let trace = outcome.trace_data.ok_or("trace data missing")?;
     assert_eq!(trace.original_query, "find PR test");
     assert!(
+        trace.expansions.is_empty(),
+        "initial-only plans must not claim context expansion"
+    );
+    assert!(
         trace
             .rewrites
             .iter()

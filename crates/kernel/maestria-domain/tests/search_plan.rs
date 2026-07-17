@@ -78,6 +78,10 @@ fn every_canonical_intent_classifies_deterministically() {
             "classification must be stable"
         );
     }
+    assert_eq!(
+        SearchIntent::classify("trust policy for local notes"),
+        SearchIntent::FactualLocal
+    );
 }
 
 #[test]
@@ -90,6 +94,16 @@ fn schema_rejects_empty_query_and_repeated_stage() {
     candidate.stages = vec![SearchStage::InitialRetrieval, SearchStage::InitialRetrieval];
     candidate.budgets =
         SearchBudget::with_limits(100, 1000, 2, 2, 0).expect("valid fixture budget");
+    assert!(candidate.validate_schema().is_err());
+
+    let mut candidate = plan();
+    candidate.stages = vec![
+        SearchStage::InitialRetrieval,
+        SearchStage::Filtering,
+        SearchStage::Reranking,
+    ];
+    candidate.budgets =
+        SearchBudget::with_limits(100, 1000, 3, 3, 0).expect("valid fixture budget");
     assert!(candidate.validate_schema().is_err());
 }
 

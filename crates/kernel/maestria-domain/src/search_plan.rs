@@ -24,7 +24,22 @@ impl SearchIntent {
     /// Classifies a query using deterministic lexical signals only.
     pub fn classify(query: &str) -> Self {
         let query = query.trim().to_ascii_lowercase();
-        let has = |terms: &[&str]| terms.iter().any(|term| query.contains(term));
+        let has = |terms: &[&str]| {
+            terms.iter().any(|term| {
+                let is_token = term
+                    .chars()
+                    .all(|character| character.is_ascii_alphanumeric() || character == '_');
+                if is_token {
+                    query
+                        .split(|character: char| {
+                            !character.is_ascii_alphanumeric() && character != '_'
+                        })
+                        .any(|token| token == *term || token.starts_with(term))
+                } else {
+                    query.contains(term)
+                }
+            })
+        };
         if query.is_empty()
             || (query.starts_with('"') && query.ends_with('"'))
             || has(&["id:", "::", ".rs", "cargo.toml", "path:"])
@@ -312,6 +327,11 @@ impl SearchPlan {
         if unique_stages.len() != self.stages.len() {
             return Err(SearchCompatibilityError::InvalidPlan(
                 "search stages must not repeat",
+            ));
+        }
+        if self.stages.windows(2).any(|pair| pair[0] > pair[1]) {
+            return Err(SearchCompatibilityError::InvalidPlan(
+                "search stages must use canonical execution order",
             ));
         }
         if self.stages.len() > self.budgets.max_stages() as usize {

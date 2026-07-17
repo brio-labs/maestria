@@ -280,22 +280,7 @@ impl RetrievalEngine {
             limit: plan.stop_conditions.max_results as usize,
             offset: 0,
         };
-        let session = rewrite_session(plan);
-        let mut batches = Vec::new();
-        for rewrite in session
-            .records()
-            .iter()
-            .filter(|record| record.stage == crate::rewrite::StageRole::InitialRetrieval)
-        {
-            let rewrite_query = SearchQuery {
-                q: rewrite.query.clone(),
-                limit: query.limit,
-                offset: 0,
-            };
-            batches.extend(
-                engine_pipeline::collect_batches(&self.retrievers, plan, &rewrite_query).await?,
-            );
-        }
+        let batches = engine_pipeline::collect_initial_batches(&self.retrievers, plan).await?;
         let lanes = engine_pipeline::trace_lanes(&batches);
         let mut ranked = if let Some(fusion) = &self.fusion {
             fusion

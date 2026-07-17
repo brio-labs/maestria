@@ -263,7 +263,7 @@ query request
   → stop, continue, live-verify, or abstain
 ```
 
-This is a capability graph, not a mandatory fixed pipeline. Stages may be skipped, repeated, or reordered when the plan and policy permit it.
+This is a capability graph, not a mandatory fixed pipeline. Stages may be skipped when the plan and policy permit it; executable plans use the canonical order declared by the validator, and unsupported stage orderings are rejected before effects.
 
 ### Candidate Retrieval Lanes
 
