@@ -1189,11 +1189,11 @@ checksum = "7ef0d4ed8669f8f8826eb00dc878084aa8f253506c4fd5e8f58f5bce72ddb97e"
 
 [[package]]
 name = "maestria"
-version = "0.1.0"
+version = "0.6.0"
 
 [[package]]
 name = "maestria-blob-fs"
-version = "0.1.0"
+version = "0.6.0"
 dependencies = [
  "maestria-domain",
  "maestria-ports",
@@ -1203,7 +1203,7 @@ dependencies = [
 
 [[package]]
 name = "maestria-cli"
-version = "0.1.0"
+version = "0.6.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -1225,7 +1225,7 @@ dependencies = [
 
 [[package]]
 name = "maestria-core"
-version = "0.1.0"
+version = "0.6.0"
 dependencies = [
  "maestria-blob-fs",
  "maestria-domain",
@@ -1242,7 +1242,7 @@ dependencies = [
 
 [[package]]
 name = "maestria-daemon"
-version = "0.1.0"
+version = "0.6.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -1268,7 +1268,7 @@ dependencies = [
 
 [[package]]
 name = "maestria-domain"
-version = "0.1.0"
+version = "0.6.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -1277,7 +1277,7 @@ dependencies = [
 
 [[package]]
 name = "maestria-embedding-openai"
-version = "0.1.0"
+version = "0.6.0"
 dependencies = [
  "maestria-ports",
  "serde",
@@ -1288,14 +1288,14 @@ dependencies = [
 
 [[package]]
 name = "maestria-governance"
-version = "0.1.0"
+version = "0.6.0"
 dependencies = [
  "maestria-domain",
 ]
 
 [[package]]
 name = "maestria-graph-sqlite"
-version = "0.1.0"
+version = "0.6.0"
 dependencies = [
  "maestria-domain",
  "maestria-ports",
@@ -1305,7 +1305,7 @@ dependencies = [
 
 [[package]]
 name = "maestria-harness"
-version = "0.1.0"
+version = "0.6.0"
 dependencies = [
  "maestria-ports",
  "tempfile",
@@ -1314,7 +1314,7 @@ dependencies = [
 
 [[package]]
 name = "maestria-harness-cli"
-version = "0.1.0"
+version = "0.6.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -1328,7 +1328,7 @@ dependencies = [
 
 [[package]]
 name = "maestria-memory"
-version = "0.0.0"
+version = "0.6.0"
 dependencies = [
  "maestria-domain",
  "maestria-governance",
@@ -1336,7 +1336,7 @@ dependencies = [
 
 [[package]]
 name = "maestria-parsers"
-version = "0.1.0"
+version = "0.6.0"
 dependencies = [
  "insta",
  "lopdf",
@@ -1346,7 +1346,7 @@ dependencies = [
 
 [[package]]
 name = "maestria-ports"
-version = "0.1.0"
+version = "0.6.0"
 dependencies = [
  "maestria-domain",
  "tokio",
@@ -1354,7 +1354,7 @@ dependencies = [
 
 [[package]]
 name = "maestria-retrieval"
-version = "0.1.0"
+version = "0.6.0"
 dependencies = [
  "async-trait",
  "maestria-domain",
@@ -1368,7 +1368,7 @@ dependencies = [
 
 [[package]]
 name = "maestria-runtime"
-version = "0.1.0"
+version = "0.6.0"
 dependencies = [
  "maestria-domain",
  "maestria-governance",
@@ -1384,7 +1384,7 @@ dependencies = [
 
 [[package]]
 name = "maestria-search-tantivy"
-version = "0.1.0"
+version = "0.6.0"
 dependencies = [
  "maestria-domain",
  "maestria-governance",
@@ -1395,7 +1395,7 @@ dependencies = [
 
 [[package]]
 name = "maestria-storage-sqlite"
-version = "0.1.0"
+version = "0.6.0"
 dependencies = [
  "maestria-domain",
  "maestria-ports",
@@ -1407,14 +1407,14 @@ dependencies = [
 
 [[package]]
 name = "maestria-validation"
-version = "0.0.0"
+version = "0.6.0"
 dependencies = [
  "maestria-domain",
 ]
 
 [[package]]
 name = "maestria-vector-sqlite"
-version = "0.1.0"
+version = "0.6.0"
 dependencies = [
  "maestria-domain",
  "maestria-ports",
@@ -1423,7 +1423,7 @@ dependencies = [
 
 [[package]]
 name = "maestria-web-evidence"
-version = "0.1.0"
+version = "0.6.0"
 dependencies = [
  "maestria-domain",
  "maestria-ports",

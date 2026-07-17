@@ -83,6 +83,10 @@ fn every_canonical_intent_classifies_deterministically() {
         SearchIntent::classify("trust policy for local notes"),
         SearchIntent::FactualLocal
     );
+    assert_eq!(
+        SearchIntent::classify("must-not-index"),
+        SearchIntent::ExactLookup
+    );
 }
 
 #[test]

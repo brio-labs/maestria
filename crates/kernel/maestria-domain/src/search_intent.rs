@@ -38,6 +38,11 @@ impl SearchIntent {
         if query.is_empty()
             || (query.starts_with('"') && query.ends_with('"'))
             || has(&["id:", "::", ".rs", "cargo.toml", "path:"])
+            || (query.split_whitespace().count() == 1
+                && query.contains('-')
+                && query
+                    .chars()
+                    .any(|character| character.is_ascii_alphanumeric()))
         {
             Self::ExactLookup
         } else if has(&["contradict", "conflict", "disagree", "counterevidence"]) {

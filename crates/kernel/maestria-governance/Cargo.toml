@@ -2,7 +2,7 @@
 name = "maestria-governance"
 edition = "2024"
 license.workspace = true
-version = "0.1.0"
+version = "0.6.0"
 
 [dependencies]
 maestria_domain = { package = "maestria-domain", path = "../maestria-domain" }
