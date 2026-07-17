@@ -38,24 +38,21 @@ fn posts_to_local_http_endpoint() -> Result<(), PortError> {
                 }
             };
             let headers = String::from_utf8_lossy(&request[..header_end]);
-            let content_length = match headers
-                .lines()
-                .find_map(|line| {
-                    let (name, value) = line.split_once(':')?;
-                    name.eq_ignore_ascii_case("content-length")
-                        .then_some(value.trim())
-                })
-                .map(str::parse::<usize>)
-                .transpose()
-                .map_err(|error| {
-                    Error::new(
-                        ErrorKind::InvalidData,
-                        format!("invalid embedding content length: {error}"),
-                    )
-                })? {
-                Some(length) => length,
-                None => 0,
-            };
+            let mut content_length = 0;
+            for line in headers.lines() {
+                let Some((name, value)) = line.split_once(':') else {
+                    continue;
+                };
+                if name.eq_ignore_ascii_case("content-length") {
+                    content_length = value.trim().parse::<usize>().map_err(|error| {
+                        Error::new(
+                            ErrorKind::InvalidData,
+                            format!("invalid embedding content length: {error}"),
+                        )
+                    })?;
+                    break;
+                }
+            }
             let request_end = header_end.checked_add(content_length).ok_or_else(|| {
                 Error::new(ErrorKind::InvalidData, "embedding request length overflowed")
             })?;
