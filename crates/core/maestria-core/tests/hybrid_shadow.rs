@@ -171,7 +171,7 @@ fn shadow_executes_dense_lane_but_suppresses_fusion() -> Result<(), Box<dyn std:
         maestria_core::RetrievalLaneStatus::Succeeded
     ));
     assert!(!dense_report.candidates.is_empty());
-    assert!(output.pack.chunks.is_empty());
+    assert!(output.pack.chunks().is_empty());
     Ok(())
 }
 
@@ -184,7 +184,7 @@ fn active_mode_serves_dense_fusion() -> Result<(), Box<dyn std::error::Error>> {
     .ok_or("promotion record must be non-empty")?;
     let output = search_with_policy(maestria_core::HybridExecutionPolicy::Active(record))?;
     assert_eq!(output.mode, maestria_core::RetrievalMode::Hybrid);
-    assert_eq!(output.pack.chunks.len(), 1);
+    assert_eq!(output.pack.chunks().len(), 1);
     Ok(())
 }
 

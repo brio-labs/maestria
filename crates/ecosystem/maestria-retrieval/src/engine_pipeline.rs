@@ -26,10 +26,12 @@ pub(super) async fn collect_batches(
         {
             completed[index] = Some(crate::types::CandidateBatch {
                 descriptor,
+                query: query.q.clone(),
                 candidates: Vec::new(),
                 status: maestria_domain::SearchLaneStatus::Failed {
                     error: "web request budget exhausted".to_string(),
                 },
+                generation: Some(plan.index_generation),
             });
             continue;
         }
@@ -40,6 +42,7 @@ pub(super) async fn collect_batches(
         let request = CandidateRequest {
             plan: plan.clone(),
             query: query.clone(),
+            expected_generation: plan.index_generation,
         };
         tasks.spawn(async move { (index, descriptor, retriever.retrieve(request).await) });
     }
@@ -49,10 +52,24 @@ pub(super) async fn collect_batches(
             .map_err(|error| RetrievalError::Internal(format!("retriever task failed: {error}")))?;
         let batch = match result {
             Ok(mut batch) => {
+                if batch.generation != Some(plan.index_generation) {
+                    batch.candidates.clear();
+                    batch.status = maestria_domain::SearchLaneStatus::Failed {
+                        error: format!(
+                            "stale lane generation: expected {}, got {}",
+                            plan.index_generation,
+                            batch.generation.map_or_else(
+                                || "missing".to_string(),
+                                |generation| generation.to_string()
+                            ),
+                        ),
+                    };
+                }
                 batch
                     .candidates
                     .truncate(plan.stop_conditions.max_results as usize);
                 batch.descriptor = descriptor;
+                batch.query = query.q.clone();
                 if !matches!(
                     batch.status,
                     maestria_domain::SearchLaneStatus::Failed { .. }
@@ -68,10 +85,12 @@ pub(super) async fn collect_batches(
             Err(RetrievalError::Cancelled) => return Err(RetrievalError::Cancelled),
             Err(error) => crate::types::CandidateBatch {
                 descriptor,
+                query: query.q.clone(),
                 candidates: Vec::new(),
                 status: maestria_domain::SearchLaneStatus::Failed {
                     error: error.to_string(),
                 },
+                generation: Some(plan.index_generation),
             },
         };
         completed[index] = Some(batch);
@@ -86,11 +105,14 @@ pub(super) async fn collect_batches(
         })
         .collect()
 }
-
 pub(super) async fn collect_initial_batches(
     retrievers: &[Arc<dyn CandidateRetriever>],
     plan: &SearchPlan,
-) -> RetrievalResult<Vec<crate::types::CandidateBatch>> {
+) -> RetrievalResult<(
+    Vec<crate::types::CandidateBatch>,
+    crate::rewrite::QueryRewriteSession,
+    u32,
+)> {
     let session = super::rewrite_session(plan);
     if session
         .records()
@@ -113,7 +135,21 @@ pub(super) async fn collect_initial_batches(
             collect_batches(retrievers, plan, &rewrite_query, &mut web_requests_used).await?,
         );
     }
-    Ok(batches)
+    Ok((batches, session, web_requests_used))
+}
+
+pub(super) async fn collect_missing_slot_batches(
+    retrievers: &[Arc<dyn CandidateRetriever>],
+    plan: &SearchPlan,
+    query: &str,
+    web_requests_used: &mut u32,
+) -> RetrievalResult<Vec<crate::types::CandidateBatch>> {
+    let query = SearchQuery {
+        q: query.to_string(),
+        limit: plan.stop_conditions.max_results as usize,
+        offset: 0,
+    };
+    collect_batches(retrievers, plan, &query, web_requests_used).await
 }
 
 pub(super) fn trace_lanes(
@@ -123,6 +159,7 @@ pub(super) fn trace_lanes(
         .iter()
         .map(|batch| maestria_domain::SearchTraceLane {
             retriever_id: batch.descriptor.id.clone(),
+            query: batch.query.clone(),
             status: batch.status.clone(),
             candidates: batch
                 .candidates

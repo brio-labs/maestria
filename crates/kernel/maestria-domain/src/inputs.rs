@@ -234,6 +234,7 @@ pub struct SearchExecutedInput {
     pub query: String,
     pub limit: usize,
     pub evidence_ids: Vec<EvidenceId>,
+    pub pack_metadata: Option<Box<crate::evidence_pack::EvidencePackMetadataRecord>>,
     pub at: LogicalTick,
 }
 

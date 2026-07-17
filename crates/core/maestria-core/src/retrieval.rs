@@ -14,17 +14,23 @@ const CORE_CORPUS_SNAPSHOT: u64 = 1;
 const CORE_INDEX_GENERATION: u64 = 1;
 const CORE_RETRIEVAL_FINGERPRINT: &str = "maestria-core:deterministic-v1";
 
-fn empty_search_output(query: String) -> SearchOutput {
-    SearchOutput {
-        pack: EvidencePack {
-            query,
-            cards: Vec::new(),
-            chunks: Vec::new(),
-            evidence_ids: Vec::new(),
+fn empty_search_output(query: String) -> CoreResult<SearchOutput> {
+    let plan = build_search_plan(
+        &SearchInput {
+            query: query.clone(),
+            limit: 0,
         },
+        false,
+    )?;
+    Ok(SearchOutput {
+        pack: EvidencePack::from_plan(query, Vec::new(), Vec::new(), Vec::new(), &plan).map_err(
+            |error| CoreError::InvalidInput {
+                message: error.to_string(),
+            },
+        )?,
         mode: RetrievalMode::LexicalOnly,
         lane_reports: Vec::new(),
-    }
+    })
 }
 
 fn core_search_capabilities(
@@ -80,7 +86,7 @@ pub(super) fn search<'a>(
     hybrid_policy: crate::types::HybridExecutionPolicy,
 ) -> CoreResult<SearchOutput> {
     if input.limit == 0 {
-        return Ok(empty_search_output(input.query));
+        return empty_search_output(input.query);
     }
     let plan = build_search_plan(&input, graph_config.is_some())?;
     validate_core_plan(

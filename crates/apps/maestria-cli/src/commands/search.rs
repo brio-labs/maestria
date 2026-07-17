@@ -200,10 +200,12 @@ async fn persist_search_audit(
         maestria_daemon::build_runtime(layout, state, AutonomyProfile::TrustedWorkspace)
             .with_context(|| "build runtime for search audit")?;
     let runtime_task = tokio::spawn(runtime.run(input_rx, shutdown_token.clone()));
+    let pack_metadata = pack.metadata().persistence_record();
     let audit_input = SearchExecutedInput {
-        query: pack.query.clone(),
+        query: pack.query().to_string(),
         limit,
-        evidence_ids: pack.evidence_ids.clone(),
+        evidence_ids: pack.evidence_ids().to_vec(),
+        pack_metadata: Some(Box::new(pack_metadata.clone())),
         at: LogicalTick::new(1),
     };
     let result = async {
@@ -214,9 +216,10 @@ async fn persist_search_audit(
         wait_for_search_executed_persistence(
             layout,
             event_count_before,
-            &pack.query,
+            pack.query(),
             limit,
-            &pack.evidence_ids,
+            pack.evidence_ids(),
+            &pack_metadata,
             Duration::from_secs(5),
         )
         .await
@@ -230,7 +233,7 @@ async fn persist_search_audit(
 }
 
 fn print_search_pack(pack: &maestria_core::EvidencePack) {
-    for card_hit in &pack.cards {
+    for card_hit in pack.cards() {
         println!(
             "card score={} artifact={} card={} title={} body={}",
             card_hit.score,
@@ -240,7 +243,7 @@ fn print_search_pack(pack: &maestria_core::EvidencePack) {
             card_hit.card.body,
         );
     }
-    for hit in &pack.chunks {
+    for hit in pack.chunks() {
         let source = helpers::source_label(&hit.evidence);
         println!(
             "score={} artifact={} chunk={} evidence={} {} snippet={}",
@@ -265,6 +268,7 @@ async fn wait_for_search_executed_persistence(
     expected_query: &str,
     expected_limit: usize,
     expected_evidence_ids: &[maestria_domain::EvidenceId],
+    expected_metadata: &maestria_domain::EvidencePackMetadataRecord,
     timeout_budget: Duration,
 ) -> Result<()> {
     tokio::time::timeout(timeout_budget, async {
@@ -281,10 +285,12 @@ async fn wait_for_search_executed_persistence(
                                         query,
                                         limit,
                                         evidence_ids,
+                                        pack_metadata,
                                         ..
                                     } if query == expected_query
                                         && *limit == expected_limit
                                         && evidence_ids == expected_evidence_ids
+                                        && pack_metadata.as_deref() == Some(expected_metadata)
                                 )
                         }) {
                             return Ok(());

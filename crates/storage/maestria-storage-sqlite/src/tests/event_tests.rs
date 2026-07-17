@@ -287,6 +287,53 @@ fn task_evidence_linked_event_round_trips() -> Result<(), PortError> {
 #[test]
 fn search_executed_roundtrips_through_appended_scan() -> Result<(), Box<dyn std::error::Error>> {
     let store = SqliteStore::in_memory()?;
+    let metadata = EvidencePackMetadataRecord {
+        query_id: QueryId::new(1),
+        search_trace: Some(SearchTraceId::new(2)),
+        corpus_snapshot: CorpusSnapshotId::new(3),
+        index_generation: IndexGenerationId::new(4),
+        fingerprint: RetrievalModelFingerprint::new("fingerprint".to_string())?,
+        policy_fingerprint: Some("policy".to_string()),
+        claims_required: vec!["claim".to_string()],
+        requirements: EvidenceRequirements {
+            require_primary_sources: false,
+            minimum_corroboration: 0,
+            required_claims: vec!["claim".to_string()],
+            required_subquestions: Vec::new(),
+            minimum_sources: 0,
+            minimum_documents: 0,
+            minimum_sections: 0,
+        },
+        claim_coverage: vec![ClaimEvidenceCoverageRecord {
+            claim: "claim".to_string(),
+            evidence_ids: vec![EvidenceId::new(10)],
+            status: ClaimCoverageStatusRecord::Supported,
+        }],
+        source_independence: vec![SourceIndependenceRecord {
+            source_key: "file:source.md".to_string(),
+            evidence_ids: vec![EvidenceId::new(10)],
+            duplicate_cluster: None,
+        }],
+        card_count: 1,
+        distinct_sources: 1,
+        distinct_documents: 1,
+        distinct_sections: 1,
+        primary_sources_verified: true,
+        freshness: vec![EvidenceFreshnessRecord {
+            evidence_id: EvidenceId::new(10),
+            status: FreshnessStatus::UpToDate,
+        }],
+        conflicts: Vec::new(),
+        counterevidence: Vec::new(),
+        missing_evidence: Vec::new(),
+        compression: EvidencePackCompressionRecord::Verbatim {
+            evidence_ids: vec![EvidenceId::new(10)],
+        },
+        stop_reason: SearchStopReason::EvidenceComplete,
+        reproducibility: EvidencePackReproducibilityRecord::LiveNonReproducible {
+            reason: "live".to_string(),
+        },
+    };
     let envelope = DomainEventEnvelope {
         id: EventId::new(1),
         sequence: SequenceNumber::new(1),
@@ -294,6 +341,7 @@ fn search_executed_roundtrips_through_appended_scan() -> Result<(), Box<dyn std:
             query: "test query".to_string(),
             limit: 5,
             evidence_ids: vec![EvidenceId::new(10), EvidenceId::new(20)],
+            pack_metadata: Some(Box::new(metadata)),
             at: LogicalTick::new(3),
         },
     };

@@ -190,6 +190,7 @@ fn trace_lane_changes_alter_deterministic_identity() -> Result<(), Box<dyn std::
 
     trace = trace.with_lanes(vec![SearchTraceLane {
         retriever_id: "lexical".to_owned(),
+        query: "test query".to_owned(),
         status: SearchLaneStatus::Succeeded,
         candidates: vec![SearchTraceLaneCandidate {
             evidence_id: EvidenceId::new(42),
@@ -217,6 +218,7 @@ fn trace_lane_changes_alter_deterministic_identity() -> Result<(), Box<dyn std::
 
     trace = trace.with_lanes(vec![SearchTraceLane {
         retriever_id: "lexical".to_owned(),
+        query: "test query".to_owned(),
         status: SearchLaneStatus::Failed {
             error: "timeout".to_owned(),
         },
@@ -224,6 +226,30 @@ fn trace_lane_changes_alter_deterministic_identity() -> Result<(), Box<dyn std::
     }]);
     let id_with_failed_lane = trace.deterministic_id();
     assert_ne!(id_with_succeeded_lane, id_with_failed_lane);
+    Ok(())
+}
+
+#[test]
+fn trace_identity_versions_do_not_alias() -> Result<(), Box<dyn std::error::Error>> {
+    let plan = plan()?;
+    let trace = SearchTrace::from_plan(
+        &plan,
+        Vec::new(),
+        &[],
+        Vec::new(),
+        None,
+        Vec::new(),
+        SearchStopReason::EvidenceComplete,
+    );
+    let current_id = trace.deterministic_id();
+    let mut previous = trace.clone();
+    previous.identity_version = 2;
+    let mut future = trace;
+    future.identity_version = 4;
+
+    assert_ne!(current_id, previous.deterministic_id());
+    assert_ne!(current_id, future.deterministic_id());
+    assert_ne!(previous.deterministic_id(), future.deterministic_id());
     Ok(())
 }
 
@@ -243,6 +269,7 @@ fn trace_lanes_serialize_and_deserialize_without_fallback() -> Result<(), Box<dy
     )
     .with_lanes(vec![SearchTraceLane {
         retriever_id: "dense".to_owned(),
+        query: "test query".to_owned(),
         status: SearchLaneStatus::Failed {
             error: "unreachable".to_owned(),
         },

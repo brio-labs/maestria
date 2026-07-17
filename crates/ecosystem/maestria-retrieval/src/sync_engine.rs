@@ -65,7 +65,7 @@ impl<'a> SyncRetrievalEngine<'a> {
     }
 
     pub fn search_sync(&self, plan: &SearchPlan) -> RetrievalResult<SearchOutcome> {
-        let mut outcome = self.pipeline.run(plan)?;
+        let (mut outcome, lane_sets) = self.pipeline.run_with_trace(plan)?;
         let ranked = outcome
             .evidence
             .iter()
@@ -81,28 +81,31 @@ impl<'a> SyncRetrievalEngine<'a> {
             .collect();
         outcome.coverage = diversity.coverage;
         outcome.status = reconcile_status(&outcome.status, &diversity.status);
-        let lane = SearchTraceLane {
-            retriever_id: "sync_pipeline".to_string(),
-            status: if outcome.evidence.is_empty() {
-                SearchLaneStatus::Empty
-            } else {
-                SearchLaneStatus::Succeeded
-            },
-            candidates: outcome
-                .evidence
-                .iter()
-                .enumerate()
-                .map(|(index, candidate)| SearchTraceLaneCandidate {
-                    evidence_id: candidate.evidence_id,
-                    artifact_version: candidate.artifact_version,
-                    source_span: candidate.source_span.clone(),
-                    lane_rank: (index + 1) as u32,
-                    duplicate_cluster: candidate.duplicate_cluster,
-                    scores: candidate.scores.clone(),
-                    reasons: candidate.reasons.clone(),
-                })
-                .collect(),
-        };
+        let lanes = lane_sets
+            .into_iter()
+            .map(|(query, candidates)| SearchTraceLane {
+                retriever_id: "sync_pipeline".to_string(),
+                query,
+                status: if candidates.is_empty() {
+                    SearchLaneStatus::Empty
+                } else {
+                    SearchLaneStatus::Succeeded
+                },
+                candidates: candidates
+                    .into_iter()
+                    .enumerate()
+                    .map(|(index, candidate)| SearchTraceLaneCandidate {
+                        evidence_id: candidate.evidence_id,
+                        artifact_version: candidate.artifact_version,
+                        source_span: candidate.source_span,
+                        lane_rank: (index + 1) as u32,
+                        duplicate_cluster: candidate.duplicate_cluster,
+                        scores: candidate.scores,
+                        reasons: candidate.reasons,
+                    })
+                    .collect(),
+            })
+            .collect::<Vec<_>>();
         let rewrites = if self.pipeline.query_rewrites_enabled() {
             crate::engine::rewrite_session(plan).trace_records()
         } else {
@@ -117,13 +120,14 @@ impl<'a> SyncRetrievalEngine<'a> {
         let outcome = ensure_trace(
             plan,
             outcome,
-            vec![lane],
+            lanes,
             EnsureTraceOptions {
                 fusion_enabled: self.pipeline.fusion_enabled(),
                 expansion_enabled: self.pipeline.expander_enabled(),
                 rerank_trace: None,
                 diversity_trace: Some(diversity.trace),
                 rewrites,
+                explicit_stop_reason: None,
             },
         );
         outcome.verify_compatibility(plan)?;

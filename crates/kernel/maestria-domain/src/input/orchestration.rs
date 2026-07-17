@@ -231,6 +231,7 @@ impl KernelState {
             query: input.query,
             limit: input.limit,
             evidence_ids: input.evidence_ids,
+            pack_metadata: input.pack_metadata,
             at: input.at,
         }))
     }

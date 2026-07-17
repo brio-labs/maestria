@@ -223,6 +223,8 @@ pub enum SearchLaneStatus {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SearchTraceLane {
     pub retriever_id: String,
+    #[serde(default)]
+    pub query: String,
     pub status: SearchLaneStatus,
     pub candidates: Vec<SearchTraceLaneCandidate>,
 }
@@ -343,7 +345,7 @@ impl SearchTrace {
             stages: plan.stages.clone(),
             evidence_requirements: plan.evidence_requirements.clone(),
             fingerprint: plan.fingerprint.clone(),
-            identity_version: 2,
+            identity_version: 3,
             retrievers,
             policy_fingerprint: None,
             budgets: plan.budgets.clone(),

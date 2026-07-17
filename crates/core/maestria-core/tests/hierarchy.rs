@@ -219,11 +219,11 @@ fn hierarchy_expands_children_and_siblings_with_query_adaptive_depth()
         query: "\"seed match\"".to_string(),
         limit: 10,
     })?;
-    assert_eq!(precise.pack.chunks.len(), 3);
+    assert_eq!(precise.pack.chunks().len(), 3);
     assert_eq!(
         precise
             .pack
-            .chunks
+            .chunks()
             .iter()
             .map(|hit| hit.chunk.id)
             .collect::<Vec<_>>(),
@@ -237,19 +237,19 @@ fn hierarchy_expands_children_and_siblings_with_query_adaptive_depth()
         query: "\"seed match\"".to_string(),
         limit: 1,
     })?;
-    assert_eq!(limited.pack.chunks.len(), 1);
+    assert_eq!(limited.pack.chunks().len(), 1);
 
     let broad = core.search(SearchInput {
         query: "seed match".to_string(),
         limit: 10,
     })?;
-    assert_eq!(broad.pack.chunks.len(), 4);
+    assert_eq!(broad.pack.chunks().len(), 4);
     let empty = core.search(SearchInput {
         query: "broad query with context".to_string(),
         limit: 0,
     })?;
-    assert!(empty.pack.cards.is_empty());
-    assert!(empty.pack.chunks.is_empty());
-    assert!(empty.pack.evidence_ids.is_empty());
+    assert!(empty.pack.cards().is_empty());
+    assert!(empty.pack.chunks().is_empty());
+    assert!(empty.pack.evidence_ids().is_empty());
     Ok(())
 }

@@ -102,8 +102,11 @@ impl SearchTrace {
             SearchStopReason::BudgetExhausted => {
                 matches!(
                     status,
-                    SearchStatus::EvidenceIncomplete | SearchStatus::StaleEvidenceOnly
-                ) || (*status == SearchStatus::Abstained && evidence_len == 0)
+                    SearchStatus::AnswerableWithWarnings
+                        | SearchStatus::EvidenceIncomplete
+                        | SearchStatus::StaleEvidenceOnly
+                ) || (*status == SearchStatus::NoEvidenceFound && evidence_len == 0)
+                    || (*status == SearchStatus::Abstained && evidence_len == 0)
             }
             SearchStopReason::LowMarginalGain => {
                 matches!(
@@ -267,9 +270,15 @@ impl SearchTrace {
                         "missing-slot rewrite is not identified",
                     ));
                 };
+                let declared_required = self
+                    .evidence_requirements
+                    .required_claims
+                    .iter()
+                    .chain(self.evidence_requirements.required_subquestions.iter())
+                    .any(|required| required == slot);
                 if rewrite.stage != super::SearchRewriteStage::IterativeRetrieval
                     || slot.trim().is_empty()
-                    || !self.missing_evidence.iter().any(|gap| gap == slot)
+                    || (!self.missing_evidence.iter().any(|gap| gap == slot) && !declared_required)
                 {
                     return Err(SearchCompatibilityError::TracePlanMismatch(
                         "missing-slot rewrite is not identified",

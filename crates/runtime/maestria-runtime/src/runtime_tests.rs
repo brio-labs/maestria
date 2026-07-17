@@ -412,6 +412,7 @@ async fn search_executed_persists_and_is_observable() -> Result<(), Box<dyn std:
             query: "audit test".to_string(),
             limit: 5,
             evidence_ids: vec![EvidenceId::new(10), EvidenceId::new(20)],
+            pack_metadata: None,
             at: LogicalTick::new(3),
         }))
         .await?;
@@ -442,6 +443,7 @@ async fn search_executed_persists_and_is_observable() -> Result<(), Box<dyn std:
             query,
             limit,
             evidence_ids,
+            pack_metadata,
             at,
         } => {
             assert_eq!(query, "audit test");
@@ -450,6 +452,7 @@ async fn search_executed_persists_and_is_observable() -> Result<(), Box<dyn std:
                 evidence_ids,
                 &vec![EvidenceId::new(10), EvidenceId::new(20)]
             );
+            assert!(pack_metadata.is_none());
             assert_eq!(*at, LogicalTick::new(3));
         }
         _ => return Err("expected SearchExecuted event".to_string().into()),
@@ -487,6 +490,7 @@ async fn search_executed_with_failing_event_log_stops_runtime()
             query: "should fail".to_string(),
             limit: 1,
             evidence_ids: vec![],
+            pack_metadata: None,
             at: LogicalTick::new(1),
         }))
         .await?;

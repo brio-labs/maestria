@@ -166,6 +166,8 @@ pub(crate) enum StoredEventPayload {
         query: String,
         limit: u64,
         evidence_ids: Vec<u64>,
+        #[serde(default)]
+        pack_metadata: Option<Box<maestria_domain::EvidencePackMetadataRecord>>,
         at: u64,
     },
     SearchKnowledgeCompleted {

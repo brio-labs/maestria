@@ -207,6 +207,7 @@ fn in_memory_event_log_roundtrips_search_executed() -> Result<(), PortError> {
             query: "audit".to_string(),
             limit: 3,
             evidence_ids: vec![maestria_domain::EvidenceId::new(5)],
+            pack_metadata: None,
             at: maestria_domain::LogicalTick::new(2),
         },
     };
