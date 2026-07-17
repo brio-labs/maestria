@@ -136,6 +136,13 @@ impl IndexGenerationRegistry {
     pub fn is_empty(&self) -> bool {
         self.generations.is_empty()
     }
+    /// Returns all registered generations in deterministic identifier order.
+    ///
+    /// The registry remains the owner of lifecycle and active-generation invariants;
+    /// callers receive read-only views for diagnostics and projection reporting.
+    pub fn iter(&self) -> impl Iterator<Item = &IndexGeneration> {
+        self.generations.values()
+    }
 
     pub fn transition_lifecycle(
         &mut self,

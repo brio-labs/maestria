@@ -42,7 +42,7 @@ pub async fn run(instance_dir: PathBuf, query: String, limit: usize) -> Result<(
     Ok(())
 }
 
-fn open_reconciled_vector_index(
+pub(super) fn open_reconciled_vector_index(
     layout: &maestria_core::InstanceLayout,
     state: &maestria_domain::KernelState,
     manifest: &maestria_core::InstanceManifest,
@@ -66,34 +66,28 @@ fn open_reconciled_vector_index(
         }
     }
 }
-
-fn compute_search_pack(
+pub(super) fn open_reconciled_graph_index(
     layout: &maestria_core::InstanceLayout,
-    query: &str,
-    limit: usize,
-) -> Result<SearchOutput> {
-    let sqlite_store = SqliteStore::open(&layout.database_path)?;
-    let blob_store = FsBlobStore::open(&layout.blobs_dir)?;
-    let manifest_contents = fs::read_to_string(&layout.manifest_path)?;
-    let manifest = InstanceService::parse_manifest(&manifest_contents)?;
-    let state = maestria_daemon::load_kernel_state(layout)?;
-    let embedding_provider = maestria_daemon::build_embedding_provider(&manifest, &state)?;
-    let vector_index =
-        open_reconciled_vector_index(layout, &state, &manifest, embedding_provider.as_deref())?;
-    let graph_index = match SqliteGraphIndex::open(layout.graph_index_dir.join("projection.db")) {
-        Ok(index) => match maestria_daemon::reconcile_graph_projection(&state, &index) {
-            Ok(()) => Some(index),
+    state: &maestria_domain::KernelState,
+) -> Result<Option<SqliteGraphIndex>> {
+    match SqliteGraphIndex::open(layout.graph_index_dir.join("projection.db")) {
+        Ok(index) => match maestria_daemon::reconcile_graph_projection(state, &index) {
+            Ok(()) => Ok(Some(index)),
             Err(error) => {
                 eprintln!("graph projection unavailable; using retrieval-only search: {error}");
-                None
+                Ok(None)
             }
         },
         Err(error) => {
             eprintln!("graph projection unavailable; using retrieval-only search: {error}");
-            None
+            Ok(None)
         }
-    };
-    let search_index = TantivyFullTextIndex::open(&layout.full_text_index_dir)?;
+    }
+}
+pub(super) fn ensure_search_index(
+    search_index: &TantivyFullTextIndex,
+    state: &maestria_domain::KernelState,
+) -> Result<()> {
     if search_index.needs_card_rebuild()? {
         let cards: Vec<IndexedCard> = state
             .cards
@@ -116,6 +110,25 @@ fn compute_search_pack(
         search_index.index_cards(cards)?;
         search_index.complete_card_rebuild()?;
     }
+    Ok(())
+}
+
+fn compute_search_pack(
+    layout: &maestria_core::InstanceLayout,
+    query: &str,
+    limit: usize,
+) -> Result<SearchOutput> {
+    let sqlite_store = SqliteStore::open(&layout.database_path)?;
+    let blob_store = FsBlobStore::open(&layout.blobs_dir)?;
+    let manifest_contents = fs::read_to_string(&layout.manifest_path)?;
+    let manifest = InstanceService::parse_manifest(&manifest_contents)?;
+    let state = maestria_daemon::load_kernel_state(layout)?;
+    let embedding_provider = maestria_daemon::build_embedding_provider(&manifest, &state)?;
+    let vector_index =
+        open_reconciled_vector_index(layout, &state, &manifest, embedding_provider.as_deref())?;
+    let graph_index = open_reconciled_graph_index(layout, &state)?;
+    let search_index = TantivyFullTextIndex::open(&layout.full_text_index_dir)?;
+    ensure_search_index(&search_index, &state)?;
     let parser = ParserRegistry::with_defaults();
     let vector_query = build_vector_query(
         vector_index.is_some(),
@@ -145,7 +158,7 @@ fn compute_search_pack(
     };
     Ok(output)
 }
-fn build_vector_query(
+pub(super) fn build_vector_query(
     index_available: bool,
     provider: Option<&(dyn EmbeddingProvider + Send + Sync)>,
     query: &str,
