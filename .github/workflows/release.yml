@@ -79,7 +79,7 @@ jobs:
 
           MILESTONE_JSON="$(gh api "repos/${{ github.repository }}/milestones" \
             --method GET -f state=all --paginate \
-            --jq '.[] | select(.title == "v0.6 — Query-Adaptive Search")')
+            --jq '.[] | select(.title == "v0.6 — Query-Adaptive Search")')"
 
           if [ -z "$MILESTONE_JSON" ]; then
             echo "::error::Milestone 'v0.6 — Query-Adaptive Search' not found in this repository"
