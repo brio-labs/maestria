@@ -87,7 +87,7 @@ fn propose_memory_candidate_creates_claim_and_candidate_atomically()
     for (i, effect) in output.effects.iter().enumerate() {
         assert!(matches!(effect, MaestriaEffect::PersistEvent { .. }));
         if let MaestriaEffect::PersistEvent { envelope } = effect {
-            assert_eq!(*envelope, output.events[i]);
+            assert_eq!(envelope.as_ref(), &output.events[i]);
         }
     }
 

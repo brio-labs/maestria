@@ -49,6 +49,29 @@ pub fn content_hash(bytes: &[u8]) -> String {
     let digest = Sha256::digest(bytes);
     format!("sha256:{}", hex_digest(&digest))
 }
+/// Returns a stable artifact identity for an externally fetched source.
+pub fn web_artifact_id_for(url: &str, content_hash: &str) -> ArtifactId {
+    let mut hasher = Sha256::new();
+    hasher.update(b"maestria:web-artifact\0");
+    hasher.update(url.as_bytes());
+    hasher.update([0]);
+    hasher.update(content_hash.as_bytes());
+    let digest = hasher.finalize();
+    let mut id_bytes = [0_u8; 8];
+    id_bytes.copy_from_slice(&digest[..8]);
+    ArtifactId::new(u64::from_be_bytes(id_bytes))
+}
+
+/// Returns a stable evidence identity for a fetched web artifact.
+pub fn web_evidence_id_for(artifact_id: ArtifactId) -> EvidenceId {
+    let mut hasher = Sha256::new();
+    hasher.update(b"maestria:web-evidence\0");
+    hasher.update(artifact_id.value().to_be_bytes());
+    let digest = hasher.finalize();
+    let mut id_bytes = [0_u8; 8];
+    id_bytes.copy_from_slice(&digest[..8]);
+    EvidenceId::new(u64::from_be_bytes(id_bytes))
+}
 
 pub fn evidence_id_for(artifact_id: ArtifactId, order: u32) -> EvidenceId {
     EvidenceId::new(

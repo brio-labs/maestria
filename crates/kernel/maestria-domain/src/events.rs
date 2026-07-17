@@ -186,6 +186,8 @@ pub enum DomainEvent {
         blob_id: BlobId,
     },
     SearchKnowledgeCompleted {
+        task_id: Option<TaskId>,
+        plan: Option<Box<crate::search::SearchPlan>>,
         outcome: crate::search::SearchOutcome,
     },
     IndexGenerationStarted {

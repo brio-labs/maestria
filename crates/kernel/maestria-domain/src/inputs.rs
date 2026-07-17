@@ -240,12 +240,20 @@ pub struct SearchExecutedInput {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SearchKnowledgeRequested {
+    pub task_id: Option<TaskId>,
     pub plan: crate::search::SearchPlan,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SearchKnowledgeCompleted {
+    pub task_id: Option<TaskId>,
+    pub plan: Option<Box<crate::search::SearchPlan>>,
     pub outcome: crate::search::SearchOutcome,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FetchWebRequested {
+    pub request: crate::effects::FetchWebRequest,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -294,10 +302,11 @@ pub enum DomainInput {
     HarnessRunCompleted(HarnessRunCompleted),
     ValidationCompleted(ValidationCompleted),
     ApprovalResolved(ApprovalDecision),
+    FetchWebRequested(FetchWebRequested),
+    StartIndexGeneration(StartIndexGenerationInput),
     SearchKnowledgeRequested(SearchKnowledgeRequested),
     SearchExecuted(SearchExecutedInput),
     SearchKnowledgeCompleted(SearchKnowledgeCompleted),
-    StartIndexGeneration(StartIndexGenerationInput),
     TransitionIndexGeneration(TransitionIndexGenerationInput),
     ClockTick(LogicalTick),
 }

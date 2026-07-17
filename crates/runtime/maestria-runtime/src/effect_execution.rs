@@ -1,8 +1,7 @@
 use crate::config::EffectExecutionContext;
 use maestria_domain::{
-    CorpusScope, DiagnosticEvent, DomainInput, FetchWebRequest, IndexVectorRequest, LogicalTick,
-    MaestriaEffect, RequestApprovalRequest, SearchKnowledgeCompleted, SearchKnowledgeRequest,
-    UpdateGraphRequest,
+    CorpusScope, DiagnosticEvent, DomainInput, IndexVectorRequest, LogicalTick, MaestriaEffect,
+    RequestApprovalRequest, SearchKnowledgeCompleted, SearchKnowledgeRequest, UpdateGraphRequest,
 };
 use maestria_governance::{ApprovalRequest, PolicyDecision, RiskClass, ScopeGuard, scan_secrets};
 use maestria_ports::{ApprovalRecord, ApprovalRiskLevel, ApprovalStatus, VectorEmbedding};
@@ -44,7 +43,7 @@ impl EffectExecutionContext {
         }
 
         match effect {
-            MaestriaEffect::PersistEvent { envelope } => self.handle_persist_event(envelope).await,
+            MaestriaEffect::PersistEvent { envelope } => self.handle_persist_event(*envelope).await,
             MaestriaEffect::PersistState(request) => self.handle_persist_state(request).await,
             MaestriaEffect::ParseArtifact(request) => {
                 self.handle_parse_artifact(request, persistence_barrier_timeout)
@@ -142,7 +141,11 @@ impl EffectExecutionContext {
                 }
                 Self::send_input(
                     &self.input_tx,
-                    DomainInput::SearchKnowledgeCompleted(SearchKnowledgeCompleted { outcome }),
+                    DomainInput::SearchKnowledgeCompleted(SearchKnowledgeCompleted {
+                        task_id: request.task_id,
+                        plan: Some(Box::new(plan)),
+                        outcome,
+                    }),
                     "search knowledge completion",
                 )
                 .is_ok()
@@ -177,22 +180,6 @@ impl EffectExecutionContext {
         true
     }
 
-    async fn handle_fetch_web(&self, request: FetchWebRequest) -> bool {
-        match self.adapters.web_fetcher.fetch(&request.url) {
-            Ok(snapshot) => {
-                tracing::debug!(
-                    url = %request.url,
-                    html_len = snapshot.html.len(),
-                    "web fetch succeeded"
-                );
-                true
-            }
-            Err(error) => {
-                tracing::error!(url = %request.url, %error, "web fetch failed");
-                false
-            }
-        }
-    }
     async fn handle_request_approval(&self, request: RequestApprovalRequest) -> bool {
         let approval_id = match self.adapters.id_allocator.allocate_approval_id() {
             Ok(id) => id,

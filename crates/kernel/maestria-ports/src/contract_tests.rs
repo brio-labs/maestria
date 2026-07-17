@@ -826,12 +826,12 @@ pub fn assert_web_fetcher_contract(
     valid_url: &str,
     valid_html: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let fetch_res = fetcher.fetch(valid_url)?;
+    let fetch_res = fetcher.fetch(valid_url, valid_html.len().saturating_add(1))?;
     assert_eq!(fetch_res.url, valid_url, "URL must be preserved");
     assert_eq!(fetch_res.html, valid_html, "HTML must match");
     assert!(!fetch_res.html.is_empty(), "HTML should be non-empty");
 
-    let empty_res = fetcher.fetch("");
+    let empty_res = fetcher.fetch("", usize::MAX);
     assert!(
         matches!(empty_res, Err(super::PortError::InvalidInput { .. })),
         "Empty URLs must map to PortError::InvalidInput, got {:?}",

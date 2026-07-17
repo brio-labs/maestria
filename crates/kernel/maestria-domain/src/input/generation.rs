@@ -22,7 +22,9 @@ impl KernelState {
 
         Ok(KernelOutput {
             events: vec![envelope.clone()],
-            effects: vec![MaestriaEffect::PersistEvent { envelope }],
+            effects: vec![MaestriaEffect::PersistEvent {
+                envelope: Box::new(envelope),
+            }],
         })
     }
 
@@ -76,7 +78,9 @@ impl KernelState {
 
         Ok(KernelOutput {
             events: vec![envelope.clone()],
-            effects: vec![MaestriaEffect::PersistEvent { envelope }],
+            effects: vec![MaestriaEffect::PersistEvent {
+                envelope: Box::new(envelope),
+            }],
         })
     }
 

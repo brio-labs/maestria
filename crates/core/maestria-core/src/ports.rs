@@ -5,12 +5,13 @@ use crate::types::{
     OpenChunkEvidenceInput, OpenEvidenceInput, OpenEvidenceOutput, SearchInput, SearchOutput,
 };
 use maestria_domain::{
-    EvidenceCandidate, RetrievalReason, SearchOutcome, SearchStatus, SearchStopReason, SearchTrace,
-    SearchTraceExpansion, SearchTraceFilter, TrustLabel,
+    EvidenceCandidate, EvidenceKind, RetrievalReason, SearchOutcome, SearchStatus,
+    SearchStopReason, SearchTrace, SearchTraceExpansion, SearchTraceFilter,
 };
 
 use maestria_ports::{
-    ArtifactRepository, BlobStore, CardRepository, ChunkRepository, EventLog, FullTextIndex, Parser,
+    ArtifactRepository, BlobStore, CardRepository, ChunkRepository, EventFilter, EventLog,
+    FullTextIndex, Parser,
 };
 
 pub struct CorePorts<'a> {
@@ -67,6 +68,27 @@ fn build_trace_filters(
         filters.push(SearchTraceFilter::Freshness);
     }
     filters
+}
+fn all_candidates_primary(
+    evidence_repository: &dyn maestria_ports::EvidenceRepository,
+    evidence: &[EvidenceCandidate],
+    required: bool,
+) -> CoreResult<bool> {
+    if !required {
+        return Ok(true);
+    }
+    for candidate in evidence {
+        let Some(record) = evidence_repository.get(candidate.evidence_id)? else {
+            return Ok(false);
+        };
+        if matches!(
+            &record.kind,
+            EvidenceKind::WebSnapshot { metadata, .. } if !metadata.primary_source
+        ) {
+            return Ok(false);
+        }
+    }
+    Ok(true)
 }
 
 fn build_search_trace(
@@ -242,11 +264,19 @@ impl<'a> CoreServices<'a> {
         )?;
         let reason = RetrievalReason::ExactMatch;
         let lane_reports = output.lane_reports.clone();
+        let current_tick = self
+            .ports
+            .events
+            .scan(EventFilter { artifact_id: None })?
+            .last()
+            .map_or(0, |event| event.sequence.value());
         let evidence = output
             .pack
             .chunks
             .into_iter()
-            .filter_map(|hit| evidence_candidate_from_hit(hit, &reason, false))
+            .filter_map(|hit| {
+                evidence_candidate_from_hit(hit, &reason, false, &plan.freshness, current_tick)
+            })
             .collect::<Vec<_>>();
         let ranked = evidence
             .into_iter()
@@ -261,10 +291,11 @@ impl<'a> CoreServices<'a> {
             .collect::<Vec<_>>();
         let enough_corroboration =
             evidence.len() >= usize::from(plan.evidence_requirements.minimum_corroboration);
-        let primary_sources_ok = !plan.evidence_requirements.require_primary_sources
-            || evidence
-                .iter()
-                .all(|candidate| candidate.trust == TrustLabel::Verified);
+        let primary_sources_ok = all_candidates_primary(
+            self.ports.evidence,
+            &evidence,
+            plan.evidence_requirements.require_primary_sources,
+        )?;
         let diversity_status = diversity.status.clone();
         let diversity_trace = diversity.trace.clone();
         let mut coverage = diversity.coverage.clone();

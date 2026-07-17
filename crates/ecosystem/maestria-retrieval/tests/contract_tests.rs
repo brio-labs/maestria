@@ -302,6 +302,7 @@ fn test_fixed_k_rrf_overlap_non_summing() -> RetrievalResult<()> {
         candidates: vec![c1.clone(), c2.clone()],
         status: SearchLaneStatus::Succeeded,
         generation: Some(IndexGenerationId::new(1)),
+        bytes_read: 0,
     };
 
     let batch2 = CandidateBatch {
@@ -313,6 +314,7 @@ fn test_fixed_k_rrf_overlap_non_summing() -> RetrievalResult<()> {
         candidates: vec![c3.clone()],
         status: SearchLaneStatus::Succeeded,
         generation: Some(IndexGenerationId::new(1)),
+        bytes_read: 0,
     };
 
     let rrf = FixedKRrf::new(60);
@@ -372,6 +374,7 @@ fn test_fixed_k_rrf_deterministic_tie_ordering() -> RetrievalResult<()> {
         candidates: vec![c1.clone()],
         status: SearchLaneStatus::Succeeded,
         generation: Some(IndexGenerationId::new(1)),
+        bytes_read: 0,
     };
     let batch2 = CandidateBatch {
         descriptor: RetrieverDescriptor {
@@ -382,6 +385,7 @@ fn test_fixed_k_rrf_deterministic_tie_ordering() -> RetrievalResult<()> {
         query: query.q.clone(),
         status: SearchLaneStatus::Succeeded,
         generation: Some(IndexGenerationId::new(1)),
+        bytes_read: 0,
     };
 
     let rrf = FixedKRrf::new(60);
@@ -421,6 +425,7 @@ fn test_empty_and_failed_lanes_skip_without_error() -> RetrievalResult<()> {
             error: "timeout".into(),
         },
         generation: Some(IndexGenerationId::new(1)),
+        bytes_read: 0,
     };
 
     let batch_empty = CandidateBatch {
@@ -432,6 +437,7 @@ fn test_empty_and_failed_lanes_skip_without_error() -> RetrievalResult<()> {
         candidates: vec![],
         status: SearchLaneStatus::Empty,
         generation: Some(IndexGenerationId::new(1)),
+        bytes_read: 0,
     };
 
     let batch_succ = CandidateBatch {
@@ -443,6 +449,7 @@ fn test_empty_and_failed_lanes_skip_without_error() -> RetrievalResult<()> {
         candidates: vec![c1.clone()],
         status: SearchLaneStatus::Succeeded,
         generation: Some(IndexGenerationId::new(1)),
+        bytes_read: 0,
     };
 
     let rrf = FixedKRrf::new(60);
@@ -479,6 +486,7 @@ impl CandidateRetriever for AsyncLane {
             candidates: self.candidate.clone().into_iter().collect(),
             status: maestria_domain::SearchLaneStatus::Succeeded,
             generation: Some(IndexGenerationId::new(1)),
+            bytes_read: 0,
         })
     }
 }
@@ -507,6 +515,7 @@ impl CandidateRetriever for CountingWebLane {
             query: String::new(),
             status: maestria_domain::SearchLaneStatus::Empty,
             generation: Some(IndexGenerationId::new(1)),
+            bytes_read: 0,
         })
     }
 }
@@ -601,7 +610,7 @@ async fn web_budget_applies_across_deterministic_rewrites() -> RetrievalResult<(
     plan.original_query = "latest web PR".to_string();
     plan.intent = SearchIntent::CurrentWeb;
     plan.modalities = ModalitySet::new(vec![Modality::Web]);
-    plan.budgets = SearchBudget::with_limits(1000, 1000, 8, 3, 1)?;
+    plan.budgets = SearchBudget::with_resource_limits(1000, 1000, 8, 3, 1, 16_384, 1)?;
     let calls = Arc::new(AtomicUsize::new(0));
     let engine = RetrievalEngine::new(
         vec![Arc::new(CountingWebLane {

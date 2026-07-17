@@ -7,8 +7,8 @@ const RRF_SCALE: u64 = 1_000_000;
 
 #[derive(Clone)]
 pub(super) enum RetrievalCandidate {
-    Card(SourceGroundedCardHit),
-    Chunk(SourceGroundedSearchHit),
+    Card(Box<SourceGroundedCardHit>),
+    Chunk(Box<SourceGroundedSearchHit>),
     EvidenceId(EvidenceId),
 }
 

@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use super::*;
 use maestria_domain::{
-    ArtifactId, BlobId, Claim, ClaimId, ClaimStatus, ContentRange, Evidence, EvidenceId,
+    Artifact, ArtifactId, BlobId, Claim, ClaimId, ClaimStatus, ContentRange, Evidence, EvidenceId,
     EvidenceKind, LogicalTick, MemoryCandidate, MemoryCandidateId, SecurityMetadata, Task, TaskId,
     TaskPriority, TaskStatus, ValidationReportId,
 };
@@ -10,6 +10,7 @@ use maestria_domain::{
 #[derive(Default)]
 struct ContextFixture {
     task: Option<Task>,
+    artifacts: BTreeMap<ArtifactId, Artifact>,
     claims: BTreeMap<ClaimId, Claim>,
     evidences: BTreeMap<EvidenceId, Evidence>,
     memory_candidates: BTreeMap<MemoryCandidateId, MemoryCandidate>,
@@ -20,10 +21,12 @@ impl ContextFixture {
     fn context(&self) -> ValidationContext<'_> {
         ValidationContext {
             task: self.task.as_ref(),
+            artifacts: &self.artifacts,
             claims: &self.claims,
             evidences: &self.evidences,
             memory_candidates: &self.memory_candidates,
             harness_exit_code: self.harness_exit_code,
+            search: None,
         }
     }
 }
@@ -286,7 +289,7 @@ fn validation_runner_passes_when_all_default_checks_pass() {
     assert!(report.passed);
     assert_eq!(report.id, ValidationReportId::new(99));
     assert_eq!(report.task_id, Some(TaskId::new(1)));
-    assert_eq!(report.checks.len(), 5);
+    assert_eq!(report.checks.len(), 13);
     assert!(report.warnings.is_empty());
 }
 
@@ -309,7 +312,7 @@ fn validation_runner_reports_failures_as_errors_not_warnings() {
     );
 
     assert!(!report.passed);
-    assert_eq!(report.checks.len(), 5);
+    assert_eq!(report.checks.len(), 13);
     assert_eq!(report.warnings.len(), 0);
 }
 

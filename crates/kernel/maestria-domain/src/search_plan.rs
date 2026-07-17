@@ -2,89 +2,8 @@ use std::collections::BTreeSet;
 
 use serde::{Deserialize, Serialize};
 
-use super::SearchCompatibilityError;
+use super::{SearchCompatibilityError, SearchIntent};
 use crate::ids::{CorpusSnapshotId, IndexGenerationId, QueryId, ScopeId};
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-pub enum SearchIntent {
-    ExactLookup,
-    FactualLocal,
-    SemanticDiscovery,
-    CompositionalConstraints,
-    MultiHop,
-    CorpusSynthesis,
-    RepositoryCode,
-    VisualDocument,
-    TemporalMemory,
-    CurrentWeb,
-    ContradictionAudit,
-}
-
-impl SearchIntent {
-    /// Classifies a query using deterministic lexical signals only.
-    pub fn classify(query: &str) -> Self {
-        let query = query.trim().to_ascii_lowercase();
-        let has = |terms: &[&str]| {
-            terms.iter().any(|term| {
-                let is_token = term
-                    .chars()
-                    .all(|character| character.is_ascii_alphanumeric() || character == '_');
-                if is_token {
-                    query
-                        .split(|character: char| {
-                            !character.is_ascii_alphanumeric() && character != '_'
-                        })
-                        .any(|token| token == *term || token.starts_with(term))
-                } else {
-                    query.contains(term)
-                }
-            })
-        };
-        if query.is_empty()
-            || (query.starts_with('"') && query.ends_with('"'))
-            || has(&["id:", "::", ".rs", "cargo.toml", "path:"])
-        {
-            Self::ExactLookup
-        } else if has(&["contradict", "conflict", "disagree", "counterevidence"]) {
-            Self::ContradictionAudit
-        } else if has(&["latest", "today", "current", "web", "news", "http"]) {
-            Self::CurrentWeb
-        } else if has(&["table", "chart", "figure", "image", "visual", "pdf"]) {
-            Self::VisualDocument
-        } else if has(&[
-            "rust",
-            "cargo",
-            "function",
-            "struct",
-            "trait",
-            "module",
-            "repository",
-        ]) {
-            Self::RepositoryCode
-        } else if has(&["when", "before", "after", "history", "previous", "last"]) {
-            Self::TemporalMemory
-        } else if has(&["how does", "relationship", "connected", "multi-hop"]) {
-            Self::MultiHop
-        } else if has(&[
-            "summarize",
-            "summary",
-            "overview",
-            "across",
-            "compare",
-            "synthesis",
-        ]) {
-            Self::CorpusSynthesis
-        } else if has(&["must", "without", "requires", "constraint"])
-            || (query.contains(" and ") && query.contains(" where "))
-        {
-            Self::CompositionalConstraints
-        } else if has(&["similar", "related", "discover", "explore"]) {
-            Self::SemanticDiscovery
-        } else {
-            Self::FactualLocal
-        }
-    }
-}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum CorpusScope {
@@ -165,6 +84,8 @@ pub struct SearchBudget {
     max_queries: u32,
     max_stages: u32,
     max_web_requests: u32,
+    max_bytes_read: u64,
+    max_concurrency: u32,
 }
 
 #[derive(Deserialize)]
@@ -177,18 +98,27 @@ struct SearchBudgetDto {
     max_stages: u32,
     #[serde(default)]
     max_web_requests: u32,
+    #[serde(default)]
+    max_bytes_read: u64,
+    #[serde(default = "default_concurrency")]
+    max_concurrency: u32,
+}
+fn default_concurrency() -> u32 {
+    1
 }
 
 impl TryFrom<SearchBudgetDto> for SearchBudget {
     type Error = SearchCompatibilityError;
 
     fn try_from(dto: SearchBudgetDto) -> Result<Self, Self::Error> {
-        Self::with_limits(
+        Self::with_resource_limits(
             dto.max_tokens,
             dto.max_latency_ms,
             dto.max_queries,
             dto.max_stages,
             dto.max_web_requests,
+            dto.max_bytes_read,
+            dto.max_concurrency,
         )
     }
 }
@@ -204,6 +134,26 @@ impl SearchBudget {
         max_queries: u32,
         max_stages: u32,
         max_web_requests: u32,
+    ) -> Result<Self, SearchCompatibilityError> {
+        Self::with_resource_limits(
+            max_tokens,
+            max_latency_ms,
+            max_queries,
+            max_stages,
+            max_web_requests,
+            0,
+            1,
+        )
+    }
+
+    pub fn with_resource_limits(
+        max_tokens: u32,
+        max_latency_ms: u32,
+        max_queries: u32,
+        max_stages: u32,
+        max_web_requests: u32,
+        max_bytes_read: u64,
+        max_concurrency: u32,
     ) -> Result<Self, SearchCompatibilityError> {
         if max_tokens == 0 {
             return Err(SearchCompatibilityError::InvalidBudget(
@@ -225,12 +175,19 @@ impl SearchBudget {
                 "max_stages must be greater than 0",
             ));
         }
+        if max_concurrency == 0 {
+            return Err(SearchCompatibilityError::InvalidBudget(
+                "max_concurrency must be greater than 0",
+            ));
+        }
         Ok(Self {
             max_tokens,
             max_latency_ms,
             max_queries,
             max_stages,
             max_web_requests,
+            max_bytes_read,
+            max_concurrency,
         })
     }
 
@@ -252,6 +209,14 @@ impl SearchBudget {
 
     pub fn max_web_requests(&self) -> u32 {
         self.max_web_requests
+    }
+
+    pub fn max_bytes_read(&self) -> u64 {
+        self.max_bytes_read
+    }
+
+    pub fn max_concurrency(&self) -> u32 {
+        self.max_concurrency
     }
 }
 
@@ -292,6 +257,23 @@ pub struct SearchPlan {
     pub stop_conditions: StopConditions,
     pub evidence_requirements: EvidenceRequirements,
     pub fingerprint: super::RetrievalModelFingerprint,
+}
+
+fn validate_web_budget(plan: &SearchPlan) -> Result<(), SearchCompatibilityError> {
+    if plan.intent == SearchIntent::CurrentWeb || plan.modalities.values().contains(&Modality::Web)
+    {
+        if plan.budgets.max_web_requests() == 0 {
+            return Err(SearchCompatibilityError::InvalidPlan(
+                "web plans require a positive web request budget",
+            ));
+        }
+        if plan.budgets.max_bytes_read() == 0 {
+            return Err(SearchCompatibilityError::InvalidPlan(
+                "web plans require a positive byte budget",
+            ));
+        }
+    }
+    Ok(())
 }
 
 impl SearchPlan {
@@ -367,14 +349,7 @@ impl SearchPlan {
                 "maximum freshness age must be greater than 0 days",
             ));
         }
-        if (self.intent == SearchIntent::CurrentWeb
-            || self.modalities.values().contains(&Modality::Web))
-            && self.budgets.max_web_requests() == 0
-        {
-            return Err(SearchCompatibilityError::InvalidPlan(
-                "web plans require a positive web request budget",
-            ));
-        }
+        validate_web_budget(self)?;
         if self.evidence_requirements.minimum_corroboration == 0 {
             return Err(SearchCompatibilityError::InvalidPlan(
                 "minimum corroboration must be greater than 0",

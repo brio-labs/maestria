@@ -9,6 +9,7 @@ mod persistence;
 mod shell_policy;
 mod supervision;
 mod validation;
+mod web_evidence;
 
 #[cfg(test)]
 pub use config::EffectExecutionContext;

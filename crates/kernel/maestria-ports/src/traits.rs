@@ -5,7 +5,7 @@ use maestria_domain::{
     ApprovalId, Artifact, ArtifactId, BlobId, Card, CardId, Chunk, ChunkId, ClaimId,
     DomainEventEnvelope, Evidence, EvidenceId, IndexFingerprint, IndexGenerationId, LogicalTick,
     MemoryCandidateId, Relation, RelationEndpoint, RelationId, RepresentationName, ScopeId,
-    SearchOutcome, SearchPlan, TaskId,
+    SearchOutcome, SearchPlan, TaskId, WebEvidenceMetadata,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -387,9 +387,39 @@ pub trait GraphIndex: Send + Sync {
 pub struct WebSnapshotData {
     pub url: String,
     pub html: String,
+    pub content_hash: String,
+    pub metadata: WebEvidenceMetadata,
 }
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WebFetchOptions {
+    pub max_bytes: usize,
+    pub max_latency_ms: u32,
+    pub allowed_domains: Vec<String>,
+    pub allowed_content_types: Vec<String>,
+}
+
+impl WebFetchOptions {
+    pub fn new(max_bytes: usize) -> Self {
+        Self {
+            max_bytes,
+            max_latency_ms: 15_000,
+            allowed_domains: Vec::new(),
+            allowed_content_types: Vec::new(),
+        }
+    }
+}
+
 pub trait WebFetcher: Send + Sync {
-    fn fetch(&self, url: &str) -> Result<WebSnapshotData, PortError>;
+    /// Fetches at most `options.max_bytes` of response body data.
+    fn fetch(&self, url: &str, max_bytes: usize) -> Result<WebSnapshotData, PortError>;
+
+    fn fetch_with_options(
+        &self,
+        url: &str,
+        options: &WebFetchOptions,
+    ) -> Result<WebSnapshotData, PortError> {
+        self.fetch(url, options.max_bytes)
+    }
 }
 
 // ── Durable approval request persistence ────────────────────────────────

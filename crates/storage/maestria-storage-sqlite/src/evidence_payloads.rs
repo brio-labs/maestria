@@ -25,6 +25,8 @@ pub(crate) enum StoredEvidenceKind {
         snapshot: u64,
         fetched_at: u64,
         content_hash: String,
+        #[serde(default)]
+        metadata: StoredWebEvidenceMetadata,
     },
     CommandOutput {
         harness_run: u64,
@@ -43,6 +45,52 @@ pub(crate) enum StoredEvidenceKind {
     Validation {
         report_id: u64,
     },
+}
+#[derive(Debug, Serialize, Deserialize, Default)]
+pub(crate) struct StoredWebEvidenceMetadata {
+    #[serde(default)]
+    published_at: Option<String>,
+    #[serde(default)]
+    updated_at: Option<String>,
+    #[serde(default)]
+    effective_at: Option<String>,
+    #[serde(default)]
+    accessed_at: Option<String>,
+    #[serde(default)]
+    content_type: Option<String>,
+    #[serde(default)]
+    primary_source: bool,
+    #[serde(default)]
+    is_dynamic: bool,
+    #[serde(default)]
+    is_paywalled: bool,
+}
+impl StoredWebEvidenceMetadata {
+    fn from_domain(metadata: &maestria_domain::WebEvidenceMetadata) -> Self {
+        Self {
+            published_at: metadata.published_at.clone(),
+            updated_at: metadata.updated_at.clone(),
+            effective_at: metadata.effective_at.clone(),
+            accessed_at: metadata.accessed_at.clone(),
+            content_type: metadata.content_type.clone(),
+            primary_source: metadata.primary_source,
+            is_dynamic: metadata.is_dynamic,
+            is_paywalled: metadata.is_paywalled,
+        }
+    }
+
+    fn into_domain(self) -> maestria_domain::WebEvidenceMetadata {
+        maestria_domain::WebEvidenceMetadata {
+            published_at: self.published_at,
+            updated_at: self.updated_at,
+            effective_at: self.effective_at,
+            accessed_at: self.accessed_at,
+            content_type: self.content_type,
+            primary_source: self.primary_source,
+            is_dynamic: self.is_dynamic,
+            is_paywalled: self.is_paywalled,
+        }
+    }
 }
 
 impl StoredEvidenceKind {
@@ -74,11 +122,13 @@ impl StoredEvidenceKind {
                 snapshot,
                 fetched_at,
                 content_hash,
+                metadata,
             } => Self::WebSnapshot {
                 url: url.clone(),
                 snapshot: snapshot.value(),
                 fetched_at: fetched_at.value(),
                 content_hash: content_hash.clone(),
+                metadata: StoredWebEvidenceMetadata::from_domain(metadata),
             },
             EvidenceKind::CommandOutput {
                 harness_run,
@@ -139,11 +189,13 @@ impl StoredEvidenceKind {
                 snapshot,
                 fetched_at,
                 content_hash,
+                metadata,
             } => EvidenceKind::WebSnapshot {
                 url,
                 snapshot: BlobId::new(snapshot),
                 fetched_at: LogicalTick::new(fetched_at),
                 content_hash,
+                metadata: metadata.into_domain(),
             },
             Self::CommandOutput {
                 harness_run,
@@ -328,5 +380,38 @@ impl StoredClaimStatus {
             Self::Disputed => ClaimStatus::Disputed,
             Self::Archived => ClaimStatus::Archived,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use maestria_domain::{BlobId, EvidenceKind, LogicalTick, WebEvidenceMetadata};
+
+    #[test]
+    fn web_snapshot_metadata_roundtrips_through_storage_payload()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let kind = EvidenceKind::WebSnapshot {
+            url: "https://example.com/report".to_string(),
+            snapshot: BlobId::new(7),
+            fetched_at: LogicalTick::new(11),
+            content_hash: "sha256:abc".to_string(),
+            metadata: WebEvidenceMetadata {
+                published_at: Some("2026-07-16".to_string()),
+                updated_at: Some("2026-07-17".to_string()),
+                effective_at: None,
+                accessed_at: Some("12".to_string()),
+                content_type: Some("text/html".to_string()),
+                primary_source: true,
+                is_dynamic: true,
+                is_paywalled: false,
+            },
+        };
+
+        let stored = StoredEvidenceKind::from_domain(&kind);
+        let decoded = serde_json::from_str::<StoredEvidenceKind>(&serde_json::to_string(&stored)?)?;
+
+        assert_eq!(decoded.into_domain(), kind);
+        Ok(())
     }
 }

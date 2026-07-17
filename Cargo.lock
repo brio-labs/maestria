@@ -1378,6 +1378,7 @@ dependencies = [
  "tokio-test",
  "tokio-util",
  "tracing",
+ "url",
 ]
 
 [[package]]
@@ -1423,6 +1424,7 @@ dependencies = [
 name = "maestria-web-evidence"
 version = "0.1.0"
 dependencies = [
+ "maestria-domain",
  "maestria-ports",
  "ureq",
  "url",

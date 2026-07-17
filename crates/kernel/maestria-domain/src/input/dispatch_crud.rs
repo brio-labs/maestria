@@ -10,9 +10,9 @@ impl KernelState {
         let mut output = KernelOutput::default();
         let event = self.handle_register_artifact(input)?;
         output.events.push(event.clone());
-        output
-            .effects
-            .push(MaestriaEffect::PersistEvent { envelope: event });
+        output.effects.push(MaestriaEffect::PersistEvent {
+            envelope: Box::new(event),
+        });
         Ok(output)
     }
 
@@ -24,7 +24,7 @@ impl KernelState {
         let event = self.handle_register_chunk(input.clone())?;
         output.events.push(event.clone());
         output.effects.push(MaestriaEffect::PersistEvent {
-            envelope: event.clone(),
+            envelope: Box::new(event.clone()),
         });
         if let DomainEvent::ChunkRegistered {
             artifact_id,
@@ -55,9 +55,9 @@ impl KernelState {
         let mut output = KernelOutput::default();
         let event = self.handle_create_card(input.clone())?;
         output.events.push(event.clone());
-        output
-            .effects
-            .push(MaestriaEffect::PersistEvent { envelope: event });
+        output.effects.push(MaestriaEffect::PersistEvent {
+            envelope: Box::new(event),
+        });
         Ok(output)
     }
 
@@ -70,7 +70,7 @@ impl KernelState {
         if let Some(event) = maybe_event {
             output.events.push(event.clone());
             output.effects.push(MaestriaEffect::PersistEvent {
-                envelope: event.clone(),
+                envelope: Box::new(event.clone()),
             });
             let claim_id = match event.event {
                 DomainEvent::EvidenceRecorded { claim_id, .. } => claim_id,
@@ -97,7 +97,7 @@ impl KernelState {
         let event = self.handle_create_claim(input.clone())?;
         output.events.push(event.clone());
         output.effects.push(MaestriaEffect::PersistEvent {
-            envelope: event.clone(),
+            envelope: Box::new(event.clone()),
         });
         output
             .effects
@@ -117,7 +117,7 @@ impl KernelState {
         let event = self.handle_open_task(input.clone())?;
         output.events.push(event.clone());
         output.effects.push(MaestriaEffect::PersistEvent {
-            envelope: event.clone(),
+            envelope: Box::new(event.clone()),
         });
         if input.priority == TaskPriority::High {
             let task_id = match event.event {
@@ -145,9 +145,9 @@ impl KernelState {
             to,
         });
         output.events.push(event.clone());
-        output
-            .effects
-            .push(MaestriaEffect::PersistEvent { envelope: event });
+        output.effects.push(MaestriaEffect::PersistEvent {
+            envelope: Box::new(event),
+        });
         if input.to == TaskStatus::Validating {
             output
                 .effects
@@ -168,7 +168,7 @@ impl KernelState {
         let event = self.handle_complete_task(input)?;
         output.events.push(event.clone());
         output.effects.push(MaestriaEffect::PersistEvent {
-            envelope: event.clone(),
+            envelope: Box::new(event.clone()),
         });
         output
             .effects
@@ -186,9 +186,9 @@ impl KernelState {
         let claim_id = input.claim_id;
         let event = self.handle_link_evidence_to_claim(input.clone())?;
         output.events.push(event.clone());
-        output
-            .effects
-            .push(MaestriaEffect::PersistEvent { envelope: event });
+        output.effects.push(MaestriaEffect::PersistEvent {
+            envelope: Box::new(event),
+        });
         output
             .effects
             .push(MaestriaEffect::RunValidation(RunValidationRequest {
@@ -206,9 +206,9 @@ impl KernelState {
         let mut output = KernelOutput::default();
         if let Some(event) = self.handle_link_evidence_to_task(input)? {
             output.events.push(event.clone());
-            output
-                .effects
-                .push(MaestriaEffect::PersistEvent { envelope: event });
+            output.effects.push(MaestriaEffect::PersistEvent {
+                envelope: Box::new(event),
+            });
         }
         Ok(output)
     }
@@ -221,7 +221,7 @@ impl KernelState {
         let event = self.handle_create_relation(input)?;
         output.events.push(event.clone());
         output.effects.push(MaestriaEffect::PersistEvent {
-            envelope: event.clone(),
+            envelope: Box::new(event.clone()),
         });
         if let DomainEvent::RelationCreated {
             relation_id,
@@ -245,9 +245,9 @@ impl KernelState {
         let mut output = KernelOutput::default();
         let event = self.handle_create_memory_candidate(input)?;
         output.events.push(event.clone());
-        output
-            .effects
-            .push(MaestriaEffect::PersistEvent { envelope: event });
+        output.effects.push(MaestriaEffect::PersistEvent {
+            envelope: Box::new(event),
+        });
         Ok(output)
     }
 
@@ -260,7 +260,7 @@ impl KernelState {
         for envelope in &envelopes {
             output.events.push(envelope.clone());
             output.effects.push(MaestriaEffect::PersistEvent {
-                envelope: envelope.clone(),
+                envelope: Box::new(envelope.clone()),
             });
         }
         Ok(output)
@@ -274,7 +274,7 @@ impl KernelState {
         let event = self.handle_promote_memory(input)?;
         output.events.push(event.clone());
         output.effects.push(MaestriaEffect::PersistEvent {
-            envelope: event.clone(),
+            envelope: Box::new(event.clone()),
         });
         Ok(output)
     }
@@ -287,7 +287,7 @@ impl KernelState {
         let event = self.handle_contradict_memory(input)?;
         output.events.push(event.clone());
         output.effects.push(MaestriaEffect::PersistEvent {
-            envelope: event.clone(),
+            envelope: Box::new(event.clone()),
         });
         Ok(output)
     }
@@ -300,7 +300,7 @@ impl KernelState {
         let event = self.handle_deprecate_memory(input)?;
         output.events.push(event.clone());
         output.effects.push(MaestriaEffect::PersistEvent {
-            envelope: event.clone(),
+            envelope: Box::new(event.clone()),
         });
         Ok(output)
     }
@@ -313,7 +313,7 @@ impl KernelState {
         let event = self.handle_supersede_memory(input)?;
         output.events.push(event.clone());
         output.effects.push(MaestriaEffect::PersistEvent {
-            envelope: event.clone(),
+            envelope: Box::new(event.clone()),
         });
         Ok(output)
     }
@@ -326,7 +326,7 @@ impl KernelState {
         let event = self.handle_record_validation_report(input)?;
         output.events.push(event.clone());
         output.effects.push(MaestriaEffect::PersistEvent {
-            envelope: event.clone(),
+            envelope: Box::new(event.clone()),
         });
         Ok(output)
     }

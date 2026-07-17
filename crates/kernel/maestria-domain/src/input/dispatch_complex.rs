@@ -11,9 +11,9 @@ impl KernelState {
         let event = self.handle_user_intent(input.clone())?;
         for entry in event {
             output.events.push(entry.clone());
-            output
-                .effects
-                .push(MaestriaEffect::PersistEvent { envelope: entry });
+            output.effects.push(MaestriaEffect::PersistEvent {
+                envelope: Box::new(entry),
+            });
         }
         if input.priority == TaskPriority::High {
             output
@@ -78,9 +78,9 @@ impl KernelState {
         let generated = self.handle_parser_completed(input)?;
         for envelope in generated {
             output.events.push(envelope.clone());
-            output
-                .effects
-                .push(MaestriaEffect::PersistEvent { envelope });
+            output.effects.push(MaestriaEffect::PersistEvent {
+                envelope: Box::new(envelope),
+            });
         }
         Ok(output)
     }
@@ -93,9 +93,9 @@ impl KernelState {
         let generated = self.handle_full_text_index_completed(input)?;
         for envelope in generated {
             output.events.push(envelope.clone());
-            output
-                .effects
-                .push(MaestriaEffect::PersistEvent { envelope });
+            output.effects.push(MaestriaEffect::PersistEvent {
+                envelope: Box::new(envelope),
+            });
         }
         Ok(output)
     }
@@ -110,9 +110,9 @@ impl KernelState {
         // push the ArtifactIndexed event before checking pending chunks.
         for envelope in generated {
             output.events.push(envelope.clone());
-            output
-                .effects
-                .push(MaestriaEffect::PersistEvent { envelope });
+            output.effects.push(MaestriaEffect::PersistEvent {
+                envelope: Box::new(envelope),
+            });
         }
         // Only emit IndexFullText effects for chunks still pending.
         for chunk in self.chunks.values() {
@@ -143,9 +143,9 @@ impl KernelState {
         let generated = self.handle_search_completed(input)?;
         for envelope in generated {
             output.events.push(envelope.clone());
-            output
-                .effects
-                .push(MaestriaEffect::PersistEvent { envelope });
+            output.effects.push(MaestriaEffect::PersistEvent {
+                envelope: Box::new(envelope),
+            });
         }
         Ok(output)
     }
@@ -158,9 +158,9 @@ impl KernelState {
         let generated = self.handle_harness_completed(input)?;
         for envelope in generated {
             output.events.push(envelope.clone());
-            output
-                .effects
-                .push(MaestriaEffect::PersistEvent { envelope });
+            output.effects.push(MaestriaEffect::PersistEvent {
+                envelope: Box::new(envelope),
+            });
         }
         Ok(output)
     }
@@ -172,9 +172,9 @@ impl KernelState {
         let mut output = KernelOutput::default();
         let event = self.handle_validation_completed(input)?;
         output.events.push(event.clone());
-        output
-            .effects
-            .push(MaestriaEffect::PersistEvent { envelope: event });
+        output.effects.push(MaestriaEffect::PersistEvent {
+            envelope: Box::new(event),
+        });
         Ok(output)
     }
 
@@ -186,9 +186,9 @@ impl KernelState {
         let envelopes = self.handle_approval_resolved(input)?;
         for envelope in envelopes {
             output.events.push(envelope.clone());
-            output
-                .effects
-                .push(MaestriaEffect::PersistEvent { envelope });
+            output.effects.push(MaestriaEffect::PersistEvent {
+                envelope: Box::new(envelope),
+            });
         }
         Ok(output)
     }
@@ -220,9 +220,9 @@ impl KernelState {
             blob_id: input.blob_id,
         });
         output.events.push(event.clone());
-        output
-            .effects
-            .push(MaestriaEffect::PersistEvent { envelope: event });
+        output.effects.push(MaestriaEffect::PersistEvent {
+            envelope: Box::new(event),
+        });
         Ok(output)
     }
 
@@ -258,9 +258,9 @@ impl KernelState {
         let mut output = KernelOutput::default();
         let event = self.emit_event(DomainEvent::TickObserved { at: tick });
         output.events.push(event.clone());
-        output
-            .effects
-            .push(MaestriaEffect::PersistEvent { envelope: event });
+        output.effects.push(MaestriaEffect::PersistEvent {
+            envelope: Box::new(event),
+        });
         Ok(output)
     }
 
@@ -271,9 +271,18 @@ impl KernelState {
         let mut output = KernelOutput::default();
         let envelope = self.handle_search_executed(input)?;
         output.events.push(envelope.clone());
-        output
-            .effects
-            .push(MaestriaEffect::PersistEvent { envelope });
+        output.effects.push(MaestriaEffect::PersistEvent {
+            envelope: Box::new(envelope),
+        });
+        Ok(output)
+    }
+
+    pub(super) fn process_fetch_web_requested(
+        &mut self,
+        input: crate::inputs::FetchWebRequested,
+    ) -> Result<KernelOutput, DomainError> {
+        let mut output = KernelOutput::default();
+        output.effects.push(MaestriaEffect::FetchWeb(input.request));
         Ok(output)
     }
 
@@ -283,7 +292,10 @@ impl KernelState {
     ) -> Result<KernelOutput, DomainError> {
         let mut output = KernelOutput::default();
         output.effects.push(MaestriaEffect::SearchKnowledge(
-            crate::effects::SearchKnowledgeRequest { plan: input.plan },
+            crate::effects::SearchKnowledgeRequest {
+                task_id: input.task_id,
+                plan: input.plan,
+            },
         ));
         Ok(output)
     }
@@ -295,9 +307,9 @@ impl KernelState {
         let mut output = KernelOutput::default();
         let envelope = self.handle_search_knowledge_completed(input)?;
         output.events.push(envelope.clone());
-        output
-            .effects
-            .push(MaestriaEffect::PersistEvent { envelope });
+        output.effects.push(MaestriaEffect::PersistEvent {
+            envelope: Box::new(envelope),
+        });
         Ok(output)
     }
 }

@@ -56,6 +56,11 @@ impl SearchTrace {
                 &mut hash,
                 &u64::from(self.budgets.max_web_requests()).to_le_bytes(),
             );
+            mix_hash(&mut hash, &self.budgets.max_bytes_read().to_le_bytes());
+            mix_hash(
+                &mut hash,
+                &u64::from(self.budgets.max_concurrency()).to_le_bytes(),
+            );
         }
         mix_hash(
             &mut hash,

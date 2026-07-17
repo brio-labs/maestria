@@ -49,10 +49,10 @@ fn build_expander<'a>(
                 .map_err(|error| maestria_retrieval::RetrievalError::Internal(error.to_string()))?;
         for ranked in candidates {
             match ranked.candidate {
-                RetrievalCandidate::Card(hit) => pack.cards.push(hit),
+                RetrievalCandidate::Card(hit) => pack.cards.push(*hit),
                 RetrievalCandidate::Chunk(hit) => {
                     pack.evidence_ids.push(hit.evidence.id);
-                    pack.chunks.push(hit);
+                    pack.chunks.push(*hit);
                 }
                 RetrievalCandidate::EvidenceId(id) => pack.evidence_ids.push(id),
             }
@@ -64,8 +64,13 @@ fn build_expander<'a>(
         let mut result = expanded
             .cards
             .into_iter()
-            .map(RetrievalCandidate::Card)
-            .chain(expanded.chunks.into_iter().map(RetrievalCandidate::Chunk))
+            .map(|card| RetrievalCandidate::Card(Box::new(card)))
+            .chain(
+                expanded
+                    .chunks
+                    .into_iter()
+                    .map(|chunk| RetrievalCandidate::Chunk(Box::new(chunk))),
+            )
             .chain(
                 expanded
                     .evidence_ids
@@ -300,11 +305,11 @@ fn build_evidence_pack(
         }
         match ranked.candidate {
             RetrievalCandidate::Card(hit) if cards.insert(hit.card.id) => {
-                pack.cards.push(hit);
+                pack.cards.push(*hit);
             }
             RetrievalCandidate::Chunk(hit) if chunks.insert(hit.evidence.id) => {
                 pack.evidence_ids.push(hit.evidence.id);
-                pack.chunks.push(hit);
+                pack.chunks.push(*hit);
             }
             _ => {}
         }

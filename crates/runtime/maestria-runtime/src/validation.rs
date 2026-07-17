@@ -4,7 +4,7 @@ use maestria_domain::{
     ValidationCompleted,
 };
 use maestria_memory::MemoryService;
-use maestria_validation::{ValidationContext, ValidationRunner};
+use maestria_validation::{SearchValidationContext, ValidationContext, ValidationRunner};
 use std::collections::BTreeMap;
 
 impl EffectExecutionContext {
@@ -51,62 +51,107 @@ impl EffectExecutionContext {
         request: &RunValidationRequest,
     ) -> maestria_validation::ValidationReport {
         let state = self.state.read().await;
-        let task = request
-            .task_id
-            .and_then(|task_id| state.tasks.get(&task_id));
-        let harness_exit_code = request.task_id.and_then(|task_id| {
-            state
-                .event_log
-                .iter()
-                .rev()
-                .find_map(|entry| match entry.event {
-                    DomainEvent::HarnessRunCompleted {
-                        task_id: Some(event_task_id),
-                        exit_code,
-                        ..
-                    } if event_task_id == task_id => Some(exit_code),
-                    _ => None,
-                })
-        });
-        let claims = selected_claims(&state, request.claim_id);
-        let evidences = state
-            .evidences
-            .iter()
-            .map(|(id, evidence)| (*id, evidence.clone()))
-            .collect();
-        let memory_candidates = state
-            .memory_candidates
-            .iter()
-            .map(|(id, candidate)| (*id, candidate.clone()))
-            .collect();
-        let review_queue = MemoryService::review_queue(&state.memory_candidates, &state.memories);
-        if !review_queue.is_empty() {
-            tracing::debug!(
-                pending_candidates = review_queue.len(),
-                "validation found queued memory candidates"
-            );
-        }
-        let mut validators: Vec<Box<dyn maestria_validation::Validator>> = vec![
-            Box::new(maestria_validation::CitationValidator),
-            Box::new(maestria_validation::EvidenceExistenceValidator),
-            Box::new(maestria_validation::MemoryValidator),
-            Box::new(maestria_validation::HarnessRunValidator),
-        ];
-        if request.task_id.is_some() {
-            validators.push(Box::new(maestria_validation::TaskStateValidator));
-        }
-        ValidationRunner::with_validators(validators).run(
-            request.validation_report_id,
-            request.task_id,
-            &ValidationContext {
-                task,
-                claims: &claims,
-                evidences: &evidences,
-                memory_candidates: &memory_candidates,
-                harness_exit_code,
-            },
-        )
+        build_validation_report_from_state(&state, request)
     }
+}
+
+pub(crate) fn build_validation_report_from_state(
+    state: &maestria_domain::KernelState,
+    request: &RunValidationRequest,
+) -> maestria_validation::ValidationReport {
+    let task = request
+        .task_id
+        .and_then(|task_id| state.tasks.get(&task_id));
+    let harness_exit_code = request.task_id.and_then(|task_id| {
+        state
+            .event_log
+            .iter()
+            .rev()
+            .find_map(|entry| match entry.event {
+                DomainEvent::HarnessRunCompleted {
+                    task_id: Some(event_task_id),
+                    exit_code,
+                    ..
+                } if event_task_id == task_id => Some(exit_code),
+                _ => None,
+            })
+    });
+    let claims = selected_claims(state, request.claim_id);
+    let evidences = state
+        .evidences
+        .iter()
+        .map(|(id, evidence)| (*id, evidence.clone()))
+        .collect();
+    let artifacts = state
+        .artifacts
+        .iter()
+        .map(|(id, artifact)| (*id, artifact.clone()))
+        .collect();
+    let search_result = state
+        .event_log
+        .iter()
+        .rev()
+        .find_map(|entry| match &entry.event {
+            DomainEvent::SearchKnowledgeCompleted {
+                task_id,
+                plan,
+                outcome,
+            } if *task_id == request.task_id => Some((plan.clone(), outcome.clone())),
+            _ => None,
+        });
+    let search = search_result
+        .as_ref()
+        .map(|(plan, outcome)| SearchValidationContext {
+            outcome,
+            plan: plan.as_deref(),
+            trace: outcome.trace_data.as_deref(),
+            artifacts_by_id: &artifacts,
+            evidence_by_id: &evidences,
+        });
+    let memory_candidates = state
+        .memory_candidates
+        .iter()
+        .map(|(id, candidate)| (*id, candidate.clone()))
+        .collect();
+    let review_queue = MemoryService::review_queue(&state.memory_candidates, &state.memories);
+    if !review_queue.is_empty() {
+        tracing::debug!(
+            pending_candidates = review_queue.len(),
+            "validation found queued memory candidates"
+        );
+    }
+    let mut validators: Vec<Box<dyn maestria_validation::Validator>> = vec![
+        Box::new(maestria_validation::CitationValidator),
+        Box::new(maestria_validation::EvidenceExistenceValidator),
+        Box::new(maestria_validation::MemoryValidator),
+        Box::new(maestria_validation::HarnessRunValidator),
+    ];
+    if request.task_id.is_some() {
+        validators.push(Box::new(maestria_validation::TaskStateValidator));
+    }
+    if search.is_some() {
+        validators.push(Box::new(maestria_validation::SearchPlanValidator));
+        validators.push(Box::new(maestria_validation::CandidateProvenanceValidator));
+        validators.push(Box::new(maestria_validation::CoverageValidator));
+        validators.push(Box::new(maestria_validation::ConflictValidator));
+        validators.push(Box::new(maestria_validation::FreshnessValidator));
+        validators.push(Box::new(maestria_validation::CitationAlignmentValidator));
+        validators.push(Box::new(maestria_validation::RetrievalSecurityValidator));
+        validators.push(Box::new(maestria_validation::SearchRegressionValidator));
+    }
+    ValidationRunner::with_validators(validators).run(
+        request.validation_report_id,
+        request.task_id,
+        &ValidationContext {
+            task,
+            artifacts: &artifacts,
+            claims: &claims,
+            evidences: &evidences,
+            memory_candidates: &memory_candidates,
+            harness_exit_code,
+            search,
+        },
+    )
 }
 
 fn selected_claims(

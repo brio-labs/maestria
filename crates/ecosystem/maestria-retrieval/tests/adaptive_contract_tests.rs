@@ -107,6 +107,7 @@ impl CandidateRetriever for AdaptiveLane {
             candidates,
             status: maestria_domain::SearchLaneStatus::Succeeded,
             generation: Some(generation),
+            bytes_read: 0,
         })
     }
 }

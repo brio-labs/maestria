@@ -80,7 +80,7 @@ fn rejects_web_without_web_capability() -> Result<(), Box<dyn std::error::Error>
     let mut candidate = plan()?;
     candidate.intent = SearchIntent::CurrentWeb;
     candidate.original_query = "latest notes".to_string();
-    candidate.budgets = SearchBudget::with_limits(100, 1000, 1, 1, 1)?;
+    candidate.budgets = SearchBudget::with_resource_limits(100, 1000, 1, 1, 1, 4096, 1)?;
     let web_capabilities = capabilities()
         .with_intent(SearchIntent::CurrentWeb)
         .with_modality(Modality::Web)

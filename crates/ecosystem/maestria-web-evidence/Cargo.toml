@@ -7,6 +7,7 @@ rust-version.workspace = true
 
 [dependencies]
 maestria-ports = { path = "../../kernel/maestria-ports" }
+maestria-domain = { path = "../../kernel/maestria-domain" }
 ureq = { version = "2", features = ["charset"] }
 url = "2"
 

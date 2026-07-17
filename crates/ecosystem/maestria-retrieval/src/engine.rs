@@ -261,7 +261,7 @@ impl RetrievalEngine {
             limit: plan.stop_conditions.max_results as usize,
             offset: 0,
         };
-        let (batches, rewrites, web_requests_used) =
+        let (batches, rewrites, web_requests_used, web_bytes_read) =
             engine_pipeline::collect_initial_batches(&self.retrievers, plan).await?;
         let (outcome, lanes, rerank_trace, diversity_trace) = self
             .evaluate_batches(plan, &query, &batches, started)
@@ -270,6 +270,7 @@ impl RetrievalEngine {
             batches,
             rewrites,
             web_requests_used,
+            web_bytes_read,
             outcome,
             lanes,
             rerank_trace,
