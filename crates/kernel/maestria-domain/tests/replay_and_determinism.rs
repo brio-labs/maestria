@@ -14,7 +14,7 @@ fn trusted_security() -> SecurityMetadata {
 }
 
 #[test]
-fn replay_events_reconstructs_new_memory_event_state() -> Result<(), DomainError> {
+fn replay_events_reconstructs_new_memory_event_state() -> Result<(), Box<dyn std::error::Error>> {
     let inputs = vec![
         DomainInput::RegisterArtifact(RegisterArtifactInput {
             artifact_id: ArtifactId::new(1),
@@ -183,7 +183,8 @@ fn deterministic_shape_inputs() -> Vec<DomainInput> {
     ]
 }
 #[test]
-fn replay_keeps_new_event_and_effect_shapes_deterministic() -> Result<(), DomainError> {
+fn replay_keeps_new_event_and_effect_shapes_deterministic() -> Result<(), Box<dyn std::error::Error>>
+{
     let inputs = deterministic_shape_inputs();
 
     let (state_a, events_a, effects_a) = replay_inputs(&inputs)?;
@@ -229,17 +230,17 @@ fn replay_keeps_new_event_and_effect_shapes_deterministic() -> Result<(), Domain
 }
 
 #[test]
-fn persist_effects_keep_exact_event_envelopes() -> Result<(), DomainError> {
+fn persist_effects_keep_exact_event_envelopes() -> Result<(), Box<dyn std::error::Error>> {
     let mut state = KernelState::new();
     let first = state.apply_input(DomainInput::ClockTick(LogicalTick::new(7)))?;
     let second = state.apply_input(DomainInput::ClockTick(LogicalTick::new(7)))?;
     let first_envelope = match first.effects.as_slice() {
         [MaestriaEffect::PersistEvent { envelope }] => envelope,
-        _ => return Err(DomainError::EmptyIntent),
+        _ => return Err(Box::new(DomainError::EmptyIntent)),
     };
     let second_envelope = match second.effects.as_slice() {
         [MaestriaEffect::PersistEvent { envelope }] => envelope,
-        _ => return Err(DomainError::EmptyIntent),
+        _ => return Err(Box::new(DomainError::EmptyIntent)),
     };
     assert_eq!(first_envelope, &first.events[0]);
     assert_eq!(second_envelope, &second.events[0]);
@@ -249,7 +250,7 @@ fn persist_effects_keep_exact_event_envelopes() -> Result<(), DomainError> {
 }
 
 #[test]
-fn replay_is_deterministic() -> Result<(), DomainError> {
+fn replay_is_deterministic() -> Result<(), Box<dyn std::error::Error>> {
     let (state_a, events_a, effects_a) = run_replay_once()?;
     let (state_b, events_b, effects_b) = run_replay_once()?;
 
@@ -260,7 +261,7 @@ fn replay_is_deterministic() -> Result<(), DomainError> {
 }
 
 #[test]
-fn replay_events_are_equivalent() -> Result<(), DomainError> {
+fn replay_events_are_equivalent() -> Result<(), Box<dyn std::error::Error>> {
     let (state, events, _) = run_replay_once()?;
     let replayed = replay_events(&events)?;
     assert_eq!(state.event_log, replayed.event_log);

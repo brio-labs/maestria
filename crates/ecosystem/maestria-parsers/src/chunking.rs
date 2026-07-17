@@ -75,7 +75,6 @@ pub(crate) fn decode_utf8(bytes: Vec<u8>) -> Result<String, PortError> {
     })
 }
 
-#[allow(clippy::too_many_lines)]
 pub(crate) fn parsed_artifact(
     artifact_id: ArtifactId,
     path: &Path,

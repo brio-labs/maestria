@@ -24,7 +24,8 @@ fn artifact_fixture(id: ArtifactId) -> Artifact {
 }
 
 #[tokio::test]
-async fn index_full_text_effect_indexes_cards_before_chunks() {
+async fn index_full_text_effect_indexes_cards_before_chunks()
+-> Result<(), Box<dyn std::error::Error>> {
     let artifact_id = ArtifactId::new(1);
     let chunk_id = ChunkId::new(10);
     let card_id = CardId::new(100);
@@ -88,31 +89,29 @@ async fn index_full_text_effect_indexes_cards_before_chunks() {
     assert!(result, "IndexFullText effect should succeed");
 
     // Cards should be indexed and searchable.
-    let card_hits = search_index
-        .search_cards(SearchQuery {
-            q: "indexed card".into(),
-            limit: 10,
-            offset: 0,
-        })
-        .expect("search_cards should succeed");
+    let card_hits = search_index.search_cards(SearchQuery {
+        q: "indexed card".into(),
+        limit: 10,
+        offset: 0,
+    })?;
     assert_eq!(card_hits.len(), 1, "one card should match");
     assert_eq!(card_hits[0].card.artifact_id, artifact_id);
     assert_eq!(card_hits[0].card.card_id, card_id);
     assert_eq!(card_hits[0].card.title, "indexed card title");
 
     // Chunks should also be indexed.
-    let chunk_hits = search_index
-        .search(SearchQuery {
-            q: "chunk text".into(),
-            limit: 10,
-            offset: 0,
-        })
-        .expect("search should succeed");
+    let chunk_hits = search_index.search(SearchQuery {
+        q: "chunk text".into(),
+        limit: 10,
+        offset: 0,
+    })?;
     assert_eq!(chunk_hits.len(), 1, "one chunk should match");
+    Ok(())
 }
 
 #[tokio::test]
-async fn index_full_text_effect_no_cards_when_state_has_none() {
+async fn index_full_text_effect_no_cards_when_state_has_none()
+-> Result<(), Box<dyn std::error::Error>> {
     let artifact_id = ArtifactId::new(2);
     let chunk_id = ChunkId::new(20);
 
@@ -162,31 +161,29 @@ async fn index_full_text_effect_no_cards_when_state_has_none() {
     assert!(result, "IndexFullText effect should succeed without cards");
 
     // No cards indexed when state had none.
-    let card_hits = search_index
-        .search_cards(SearchQuery {
-            q: "anything".into(),
-            limit: 10,
-            offset: 0,
-        })
-        .expect("search_cards should succeed");
+    let card_hits = search_index.search_cards(SearchQuery {
+        q: "anything".into(),
+        limit: 10,
+        offset: 0,
+    })?;
     assert!(
         card_hits.is_empty(),
         "no cards should be indexed when state lacks cards"
     );
 
     // Chunks still indexed.
-    let chunk_hits = search_index
-        .search(SearchQuery {
-            q: "chunk without cards".into(),
-            limit: 10,
-            offset: 0,
-        })
-        .expect("search should succeed");
+    let chunk_hits = search_index.search(SearchQuery {
+        q: "chunk without cards".into(),
+        limit: 10,
+        offset: 0,
+    })?;
     assert_eq!(chunk_hits.len(), 1, "chunk should still be indexed");
+    Ok(())
 }
 
 #[tokio::test]
-async fn index_full_text_effect_reindexing_is_idempotent() {
+async fn index_full_text_effect_reindexing_is_idempotent() -> Result<(), Box<dyn std::error::Error>>
+{
     let artifact_id = ArtifactId::new(3);
     let chunk_id = ChunkId::new(30);
     let card_id = CardId::new(300);
@@ -267,19 +264,18 @@ async fn index_full_text_effect_reindexing_is_idempotent() {
     assert!(result, "second IndexFullText should succeed");
 
     // Still exactly one card in the index.
-    let card_hits = search_index
-        .search_cards(SearchQuery {
-            q: "reindexed".into(),
-            limit: 10,
-            offset: 0,
-        })
-        .expect("search_cards should succeed");
+    let card_hits = search_index.search_cards(SearchQuery {
+        q: "reindexed".into(),
+        limit: 10,
+        offset: 0,
+    })?;
     assert_eq!(card_hits.len(), 1, "reindexing must not duplicate cards");
     assert_eq!(card_hits[0].card.card_id, card_id);
+    Ok(())
 }
 
 #[tokio::test]
-async fn index_full_text_rejects_secret_bearing_chunk() {
+async fn index_full_text_rejects_secret_bearing_chunk() -> Result<(), Box<dyn std::error::Error>> {
     let artifact_id = ArtifactId::new(9);
     let chunk_id = ChunkId::new(90);
     let mut state = KernelState::new();
@@ -326,8 +322,8 @@ async fn index_full_text_rejects_secret_bearing_chunk() {
                 q: "do-not-index".into(),
                 limit: 10,
                 offset: 0,
-            })
-            .expect("search should succeed")
+            })?
             .is_empty()
     );
+    Ok(())
 }

@@ -337,7 +337,8 @@ mod tests {
     use std::path::Path;
 
     #[test]
-    fn manifest_round_trips_ordered_roots_and_exclusions() {
+    fn manifest_round_trips_ordered_roots_and_exclusions() -> Result<(), Box<dyn std::error::Error>>
+    {
         let manifest = InstanceManifest {
             schema_version: MANIFEST_SCHEMA_VERSION,
             root: PathBuf::from("/tmp/instance"),
@@ -346,12 +347,13 @@ mod tests {
             embeddings: None,
         };
 
-        let decoded = InstanceManifest::decode(&manifest.encode()).expect("manifest is valid");
+        let decoded = InstanceManifest::decode(&manifest.encode())?;
         assert_eq!(decoded, manifest);
+        Ok(())
     }
 
     #[test]
-    fn embedding_configuration_round_trips() {
+    fn embedding_configuration_round_trips() -> Result<(), Box<dyn std::error::Error>> {
         let manifest = InstanceManifest {
             schema_version: MANIFEST_SCHEMA_VERSION,
             root: PathBuf::from("/tmp/instance"),
@@ -367,10 +369,8 @@ mod tests {
             }),
         };
 
-        assert_eq!(
-            InstanceManifest::decode(&manifest.encode()).expect("manifest is valid"),
-            manifest
-        );
+        assert_eq!(InstanceManifest::decode(&manifest.encode())?, manifest);
+        Ok(())
     }
 
     #[test]

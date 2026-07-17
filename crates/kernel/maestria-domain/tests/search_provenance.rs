@@ -8,8 +8,8 @@ use maestria_domain::{
     SearchTraceFilter, SearchTraceId, SourceLocation, StopConditions, StructureNodeId, TrustLabel,
 };
 
-fn plan() -> SearchPlan {
-    SearchPlan {
+fn plan() -> Result<SearchPlan, Box<dyn std::error::Error>> {
+    Ok(SearchPlan {
         query_id: QueryId::new(7),
         original_query: "What changed?".to_owned(),
         intent: SearchIntent::FactualLocal,
@@ -19,7 +19,7 @@ fn plan() -> SearchPlan {
         freshness: FreshnessRequirement::MaximumAgeDays(30),
         modalities: ModalitySet::new(vec![Modality::Code, Modality::Text, Modality::Text]),
         stages: vec![SearchStage::InitialRetrieval, SearchStage::Reranking],
-        budgets: SearchBudget::new(2_000, 5_000).expect("valid budget"),
+        budgets: SearchBudget::new(2_000, 5_000)?,
         stop_conditions: StopConditions {
             max_results: 10,
             min_score_threshold: 70,
@@ -33,23 +33,21 @@ fn plan() -> SearchPlan {
             require_primary_sources: true,
             minimum_corroboration: 2,
         },
-        fingerprint: RetrievalModelFingerprint::new("model:v1".to_owned())
-            .expect("valid fingerprint"),
-    }
+        fingerprint: RetrievalModelFingerprint::new("model:v1".to_owned())?,
+    })
 }
-fn artifact_version() -> ArtifactVersion {
-    ArtifactVersion::new(
+fn artifact_version() -> Result<ArtifactVersion, Box<dyn std::error::Error>> {
+    Ok(ArtifactVersion::new(
         ArtifactVersionId::new(19),
         ArtifactId::new(23),
         ContentHash::new(
             "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef".to_owned(),
-        )
-        .expect("valid hash"),
-    )
+        )?,
+    ))
 }
 
-fn candidate() -> EvidenceCandidate {
-    EvidenceCandidate {
+fn candidate() -> Result<EvidenceCandidate, Box<dyn std::error::Error>> {
+    Ok(EvidenceCandidate {
         evidence_id: EvidenceId::new(23),
         artifact_version: ArtifactVersionId::new(19),
         source_span: EvidenceSpan::new(
@@ -60,8 +58,7 @@ fn candidate() -> EvidenceCandidate {
                 end_line: 8,
             },
             ContentRange { start: 32, end: 96 },
-        )
-        .expect("valid source span"),
+        )?,
         scores: RetrievalScoreSet {
             bm25: 91,
             semantic_similarity: 88,
@@ -71,18 +68,17 @@ fn candidate() -> EvidenceCandidate {
         duplicate_cluster: Some(DuplicateClusterId::new(31)),
         reasons: vec![RetrievalReason::ExactMatch, RetrievalReason::CitationLink],
         coverage_keys: vec![],
-    }
+    })
 }
 
-fn outcome() -> SearchOutcome {
-    SearchOutcome {
+fn outcome() -> Result<SearchOutcome, Box<dyn std::error::Error>> {
+    Ok(SearchOutcome {
         trace: SearchTraceId::new(37),
         trace_data: None,
-        fingerprint: RetrievalModelFingerprint::new("model:v1".to_owned())
-            .expect("valid fingerprint"),
+        fingerprint: RetrievalModelFingerprint::new("model:v1".to_owned())?,
         index_generation: IndexGenerationId::new(13),
         status: SearchStatus::Answerable,
-        evidence: vec![candidate()],
+        evidence: vec![candidate()?],
         coverage: EvidenceCoverage {
             percent_covered: 50,
             gaps_identified: vec!["missing section".to_owned()],
@@ -95,56 +91,39 @@ fn outcome() -> SearchOutcome {
         },
         conflicts: vec![ConflictSet {
             id: ConflictSetId::new(41),
-            candidates: vec![candidate()],
+            candidates: vec![candidate()?],
         }],
-    }
+    })
 }
 
 #[test]
-fn plan_and_outcome_serialize_deterministically_and_round_trip() {
-    let plan = plan();
-    let outcome = outcome();
+fn plan_and_outcome_serialize_deterministically_and_round_trip()
+-> Result<(), Box<dyn std::error::Error>> {
+    let plan = plan()?;
+    let outcome = outcome()?;
 
-    let version = artifact_version();
-    let version_json = serde_json::to_string(&version).expect("version serializes");
-    let plan_json = serde_json::to_string(&plan).expect("plan serializes");
-    let outcome_json = serde_json::to_string(&outcome).expect("outcome serializes");
+    let version = artifact_version()?;
+    let version_json = serde_json::to_string(&version)?;
+    let plan_json = serde_json::to_string(&plan)?;
+    let outcome_json = serde_json::to_string(&outcome)?;
 
-    assert_eq!(
-        plan_json,
-        serde_json::to_string(&plan).expect("plan re-serializes")
-    );
-    assert_eq!(
-        outcome_json,
-        serde_json::to_string(&outcome).expect("outcome re-serializes")
-    );
-    assert_eq!(
-        version_json,
-        serde_json::to_string(&version).expect("version re-serializes")
-    );
-    assert_eq!(
-        plan,
-        serde_json::from_str(&plan_json).expect("plan round trips")
-    );
-    assert_eq!(
-        outcome,
-        serde_json::from_str(&outcome_json).expect("outcome round trips")
-    );
-    assert_eq!(
-        version,
-        serde_json::from_str(&version_json).expect("version round trips")
-    );
+    assert_eq!(plan_json, serde_json::to_string(&plan)?);
+    assert_eq!(outcome_json, serde_json::to_string(&outcome)?);
+    assert_eq!(version_json, serde_json::to_string(&version)?);
+    assert_eq!(plan, serde_json::from_str(&plan_json)?);
+    assert_eq!(outcome, serde_json::from_str(&outcome_json)?);
+    assert_eq!(version, serde_json::from_str(&version_json)?);
+    Ok(())
 }
 
 #[test]
-fn compatibility_rejects_model_and_index_mismatches() {
-    let plan = plan();
-    let mut outcome = outcome();
+fn compatibility_rejects_model_and_index_mismatches() -> Result<(), Box<dyn std::error::Error>> {
+    let plan = plan()?;
+    let mut outcome = outcome()?;
 
     assert_eq!(outcome.verify_compatibility(&plan), Ok(()));
 
-    outcome.fingerprint =
-        RetrievalModelFingerprint::new("model:v2".to_owned()).expect("valid fingerprint");
+    outcome.fingerprint = RetrievalModelFingerprint::new("model:v2".to_owned())?;
     assert!(matches!(
         outcome.verify_compatibility(&plan),
         Err(SearchCompatibilityError::ModelFingerprintMismatch { .. })
@@ -156,15 +135,16 @@ fn compatibility_rejects_model_and_index_mismatches() {
         outcome.verify_compatibility(&plan),
         Err(SearchCompatibilityError::IndexGenerationMismatch { .. })
     ));
+    Ok(())
 }
 
 #[test]
-fn trace_captures_plan_and_rejects_incompatible_replay() {
-    let plan = plan();
+fn trace_captures_plan_and_rejects_incompatible_replay() -> Result<(), Box<dyn std::error::Error>> {
+    let plan = plan()?;
     let trace = SearchTrace::from_plan(
         &plan,
         vec!["cards".to_owned(), "lexical_chunks".to_owned()],
-        &[candidate()],
+        &[candidate()?],
         vec![SearchTraceFilter::Acl, SearchTraceFilter::PromptInjection],
         Some("rrf-fixed-k60".to_owned()),
         vec![],
@@ -174,7 +154,7 @@ fn trace_captures_plan_and_rejects_incompatible_replay() {
         vec!["missing section".to_owned()],
         vec![ConflictSetId::new(41)],
     );
-    let mut outcome = outcome();
+    let mut outcome = outcome()?;
     outcome.trace = trace.deterministic_id();
     outcome.trace_data = Some(Box::new(trace));
 
@@ -191,11 +171,12 @@ fn trace_captures_plan_and_rejects_incompatible_replay() {
         mismatched_evidence.verify_compatibility(&plan),
         Err(SearchCompatibilityError::TracePlanMismatch(_))
     ));
+    Ok(())
 }
 #[test]
 fn trace_lane_changes_alter_deterministic_identity() -> Result<(), Box<dyn std::error::Error>> {
     use maestria_domain::{SearchLaneStatus, SearchTraceLane, SearchTraceLaneCandidate};
-    let plan = plan();
+    let plan = plan()?;
     let mut trace = SearchTrace::from_plan(
         &plan,
         vec![],
@@ -250,7 +231,7 @@ fn trace_lane_changes_alter_deterministic_identity() -> Result<(), Box<dyn std::
 fn trace_lanes_serialize_and_deserialize_without_fallback() -> Result<(), Box<dyn std::error::Error>>
 {
     use maestria_domain::{SearchLaneStatus, SearchTraceLane};
-    let plan = plan();
+    let plan = plan()?;
     let trace = SearchTrace::from_plan(
         &plan,
         vec![],
@@ -282,7 +263,7 @@ fn trace_lanes_serialize_and_deserialize_without_fallback() -> Result<(), Box<dy
 }
 
 #[test]
-fn invalid_budget_and_content_hash_are_typed_errors() {
+fn invalid_budget_and_content_hash_are_typed_errors() -> Result<(), Box<dyn std::error::Error>> {
     assert!(matches!(
         SearchBudget::new(0, 1),
         Err(SearchCompatibilityError::InvalidBudget(_))
@@ -295,10 +276,11 @@ fn invalid_budget_and_content_hash_are_typed_errors() {
         RetrievalModelFingerprint::new("  ".to_owned()),
         Err(SearchCompatibilityError::InvalidFingerprint(_))
     ));
+    Ok(())
 }
 
 #[test]
-fn serde_rejects_invalid_spans_and_coverage() {
+fn serde_rejects_invalid_spans_and_coverage() -> Result<(), Box<dyn std::error::Error>> {
     let invalid_span = r#"{
         "node_id": null,
         "location": {"File": {"path": "notes.md", "start_line": 4, "end_line": 3}},
@@ -308,4 +290,5 @@ fn serde_rejects_invalid_spans_and_coverage() {
 
     let invalid_coverage = r#"{"percent_covered":101,"gaps_identified":[]}"#;
     assert!(serde_json::from_str::<EvidenceCoverage>(invalid_coverage).is_err());
+    Ok(())
 }

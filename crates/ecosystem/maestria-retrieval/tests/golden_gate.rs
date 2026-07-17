@@ -11,8 +11,8 @@ use maestria_retrieval::golden::{
     GoldenQuery, Metric, ResourceMetrics, SecurityMetrics,
 };
 
-fn plan() -> SearchPlan {
-    SearchPlan {
+fn plan() -> Result<SearchPlan, Box<dyn std::error::Error>> {
+    Ok(SearchPlan {
         query_id: QueryId::new(7),
         original_query: "alpha".to_owned(),
         intent: SearchIntent::FactualLocal,
@@ -22,7 +22,7 @@ fn plan() -> SearchPlan {
         freshness: FreshnessRequirement::Any,
         modalities: ModalitySet::new(vec![Modality::Text]),
         stages: vec![SearchStage::InitialRetrieval],
-        budgets: SearchBudget::new(1000, 1000).expect("valid budget"),
+        budgets: SearchBudget::new(1000, 1000)?,
         stop_conditions: StopConditions {
             max_results: 10,
             min_score_threshold: 0,
@@ -36,13 +36,12 @@ fn plan() -> SearchPlan {
             require_primary_sources: false,
             minimum_corroboration: 1,
         },
-        fingerprint: RetrievalModelFingerprint::new("trace:v1".to_owned())
-            .expect("valid fingerprint"),
-    }
+        fingerprint: RetrievalModelFingerprint::new("trace:v1".to_owned())?,
+    })
 }
 
-fn candidate(id: u64, start: u32) -> EvidenceCandidate {
-    EvidenceCandidate {
+fn candidate(id: u64, start: u32) -> Result<EvidenceCandidate, Box<dyn std::error::Error>> {
+    Ok(EvidenceCandidate {
         coverage_keys: vec![],
         evidence_id: EvidenceId::new(id),
         artifact_version: ArtifactVersionId::new(100 + id),
@@ -54,8 +53,7 @@ fn candidate(id: u64, start: u32) -> EvidenceCandidate {
                 end_line: start,
             },
             ContentRange { start: 0, end: 5 },
-        )
-        .expect("valid span"),
+        )?,
         scores: RetrievalScoreSet {
             bm25: 100 - id as u32,
             semantic_similarity: 0,
@@ -64,14 +62,14 @@ fn candidate(id: u64, start: u32) -> EvidenceCandidate {
         freshness: FreshnessStatus::UpToDate,
         duplicate_cluster: None,
         reasons: vec![RetrievalReason::ExactMatch],
-    }
+    })
 }
 
 fn observation(
     plan: &SearchPlan,
     evidence: Vec<EvidenceCandidate>,
     status: SearchStatus,
-) -> GoldenObservation {
+) -> Result<GoldenObservation, Box<dyn std::error::Error>> {
     observation_with_profile(plan, evidence, status, GoldenProfile::V0_4)
 }
 
@@ -80,7 +78,7 @@ fn observation_with_profile(
     evidence: Vec<EvidenceCandidate>,
     status: SearchStatus,
     profile: GoldenProfile,
-) -> GoldenObservation {
+) -> Result<GoldenObservation, Box<dyn std::error::Error>> {
     let evidence_empty = evidence.is_empty();
     let stop_reason = match &status {
         SearchStatus::Abstained => SearchStopReason::Abstained,
@@ -105,7 +103,7 @@ fn observation_with_profile(
         vec![],
         stop_reason,
     );
-    GoldenObservation {
+    Ok(GoldenObservation {
         query_id: plan.query_id,
         profile,
         outcome: SearchOutcome {
@@ -136,11 +134,14 @@ fn observation_with_profile(
             telemetry_complete: true,
         },
         security: SecurityMetrics::measured(),
-    }
+    })
 }
 
-fn corpus(plan: &SearchPlan, judgments: Vec<GoldenJudgment>) -> GoldenCorpus {
-    GoldenCorpus {
+fn corpus(
+    plan: &SearchPlan,
+    judgments: Vec<GoldenJudgment>,
+) -> Result<GoldenCorpus, Box<dyn std::error::Error>> {
+    Ok(GoldenCorpus {
         schema_version: GoldenGate::CURRENT_SCHEMA_VERSION,
         corpus_snapshot: plan.corpus_snapshot,
         index_generation: plan.index_generation,
@@ -152,7 +153,7 @@ fn corpus(plan: &SearchPlan, judgments: Vec<GoldenJudgment>) -> GoldenCorpus {
             original_query: plan.original_query.clone(),
             judgments,
         }],
-    }
+    })
 }
 
 fn permissive_gate() -> GoldenGate {
@@ -178,10 +179,11 @@ fn permissive_gate() -> GoldenGate {
 }
 
 #[test]
-fn golden_gate_reports_relevance_and_exact_span_metrics() {
-    let plan = plan();
-    let first = candidate(1, 3);
-    let second = candidate(2, 4);
+fn golden_gate_reports_relevance_and_exact_span_metrics() -> Result<(), Box<dyn std::error::Error>>
+{
+    let plan = plan()?;
+    let first = candidate(1, 3)?;
+    let second = candidate(2, 4)?;
     let corpus = corpus(
         &plan,
         vec![
@@ -196,27 +198,27 @@ fn golden_gate_reports_relevance_and_exact_span_metrics() {
                 exact_span: None,
             },
         ],
-    );
-    let reports = permissive_gate()
-        .evaluate(
-            &corpus,
-            &[observation(
-                &plan,
-                vec![first, second],
-                SearchStatus::Answerable,
-            )],
-        )
-        .expect("golden gate passes");
+    )?;
+    let reports = permissive_gate().evaluate(
+        &corpus,
+        &[observation(
+            &plan,
+            vec![first, second],
+            SearchStatus::Answerable,
+        )?],
+    )?;
     assert_eq!(reports[0].recall_at_k[&10], Metric::ONE);
     assert_eq!(reports[0].mrr, Metric::ONE);
     assert_eq!(reports[0].exact_span_recall, Metric::ONE);
+    Ok(())
 }
 
 #[test]
-fn golden_metrics_do_not_count_duplicate_evidence_twice() {
-    let plan = plan();
-    let first = candidate(1, 3);
-    let second = candidate(2, 4);
+fn golden_metrics_do_not_count_duplicate_evidence_twice() -> Result<(), Box<dyn std::error::Error>>
+{
+    let plan = plan()?;
+    let first = candidate(1, 3)?;
+    let second = candidate(2, 4)?;
     let corpus = corpus(
         &plan,
         vec![
@@ -231,24 +233,23 @@ fn golden_metrics_do_not_count_duplicate_evidence_twice() {
                 exact_span: None,
             },
         ],
-    );
-    let report = permissive_gate()
-        .evaluate(
-            &corpus,
-            &[observation(
-                &plan,
-                vec![first.clone(), first],
-                SearchStatus::Answerable,
-            )],
-        )
-        .expect("permissive gate passes");
+    )?;
+    let report = permissive_gate().evaluate(
+        &corpus,
+        &[observation(
+            &plan,
+            vec![first.clone(), first],
+            SearchStatus::Answerable,
+        )?],
+    )?;
     assert_eq!(report[0].recall_at_k[&10], Metric::from_ratio(1, 2));
+    Ok(())
 }
 
 #[test]
-fn golden_gate_rejects_security_regressions() {
-    let plan = plan();
-    let first = candidate(1, 3);
+fn golden_gate_rejects_security_regressions() -> Result<(), Box<dyn std::error::Error>> {
+    let plan = plan()?;
+    let first = candidate(1, 3)?;
     let corpus = corpus(
         &plan,
         vec![GoldenJudgment {
@@ -256,18 +257,21 @@ fn golden_gate_rejects_security_regressions() {
             relevance: 1,
             exact_span: None,
         }],
-    );
-    let mut observation = observation(&plan, vec![first], SearchStatus::Answerable);
+    )?;
+    let mut observation = observation(&plan, vec![first], SearchStatus::Answerable)?;
     observation.security.acl_leakage = 1;
     let error = permissive_gate()
         .evaluate(&corpus, &[observation])
-        .expect_err("ACL leakage must fail the gate");
+        .err()
+        .ok_or("ACL leakage must fail the gate")?;
     assert!(error.to_string().contains("ACL leakage"));
+    Ok(())
 }
 
 #[test]
-fn golden_gate_keeps_abstention_as_a_measurable_empty_result() {
-    let plan = plan();
+fn golden_gate_keeps_abstention_as_a_measurable_empty_result()
+-> Result<(), Box<dyn std::error::Error>> {
+    let plan = plan()?;
     let mut corpus = corpus(
         &plan,
         vec![GoldenJudgment {
@@ -275,40 +279,38 @@ fn golden_gate_keeps_abstention_as_a_measurable_empty_result() {
             relevance: 1,
             exact_span: None,
         }],
-    );
+    )?;
     corpus.queries[0].expected_status = SearchStatus::Abstained;
 
-    let report = permissive_gate()
-        .evaluate(
-            &corpus,
-            &[observation(&plan, vec![], SearchStatus::Abstained)],
-        )
-        .expect("permissive gate records abstention");
+    let report = permissive_gate().evaluate(
+        &corpus,
+        &[observation(&plan, vec![], SearchStatus::Abstained)?],
+    )?;
     assert_eq!(report[0].recall_at_k[&10], Metric::ZERO);
     assert_eq!(report[0].mrr, Metric::ZERO);
     assert_eq!(report[0].ndcg_at_k[&10], Metric::ZERO);
     assert_eq!(report[0].exact_span_recall, Metric::ONE);
+    Ok(())
 }
 
 #[test]
-fn golden_gate_accepts_expected_no_evidence_query() {
-    let plan = plan();
-    let mut corpus = corpus(&plan, vec![]);
+fn golden_gate_accepts_expected_no_evidence_query() -> Result<(), Box<dyn std::error::Error>> {
+    let plan = plan()?;
+    let mut corpus = corpus(&plan, vec![])?;
     corpus.queries[0].expected_status = SearchStatus::NoEvidenceFound;
-    let report = permissive_gate()
-        .evaluate(
-            &corpus,
-            &[observation(&plan, vec![], SearchStatus::NoEvidenceFound)],
-        )
-        .expect("expected no-evidence result passes");
+    let report = permissive_gate().evaluate(
+        &corpus,
+        &[observation(&plan, vec![], SearchStatus::NoEvidenceFound)?],
+    )?;
     assert_eq!(report[0].recall_at_k[&10], Metric::ONE);
     assert_eq!(report[0].mrr, Metric::ZERO);
+    Ok(())
 }
 
 #[test]
-fn golden_gate_rejects_resource_and_attack_regressions() {
-    let plan = plan();
-    let first = candidate(1, 3);
+fn golden_gate_rejects_resource_and_attack_regressions() -> Result<(), Box<dyn std::error::Error>> {
+    let plan = plan()?;
+    let first = candidate(1, 3)?;
     let corpus = corpus(
         &plan,
         vec![GoldenJudgment {
@@ -316,25 +318,28 @@ fn golden_gate_rejects_resource_and_attack_regressions() {
             relevance: 1,
             exact_span: None,
         }],
-    );
-    let mut observation = observation(&plan, vec![first], SearchStatus::Answerable);
+    )?;
+    let mut observation = observation(&plan, vec![first], SearchStatus::Answerable)?;
     observation.resources.latency_ms = 101;
     let error = permissive_gate()
         .evaluate(&corpus, &[observation.clone()])
-        .expect_err("latency must fail the gate");
+        .err()
+        .ok_or("latency must fail the gate")?;
     assert!(error.to_string().contains("latency"));
     observation.resources.latency_ms = 4;
     observation.resources.memory_bytes = 1001;
     let error = permissive_gate()
         .evaluate(&corpus, &[observation.clone()])
-        .expect_err("memory must fail the gate");
+        .err()
+        .ok_or("memory must fail the gate")?;
     assert!(error.to_string().contains("memory"));
 
     observation.resources.memory_bytes = 100;
     observation.resources.disk_bytes = 1001;
     let error = permissive_gate()
         .evaluate(&corpus, &[observation.clone()])
-        .expect_err("disk must fail the gate");
+        .err()
+        .ok_or("disk must fail the gate")?;
     observation.resources.disk_bytes = 200;
     assert!(error.to_string().contains("disk"));
 
@@ -342,21 +347,23 @@ fn golden_gate_rejects_resource_and_attack_regressions() {
     observation.security.attack_successes = 1;
     let error = permissive_gate()
         .evaluate(&corpus, &[observation])
-        .expect_err("attack success must fail the gate");
+        .err()
+        .ok_or("attack success must fail the gate")?;
     assert!(error.to_string().contains("attack success"));
+    Ok(())
 }
 
 #[test]
-fn golden_gate_rejects_configured_quality_regressions() {
-    let plan = plan();
+fn golden_gate_rejects_configured_quality_regressions() -> Result<(), Box<dyn std::error::Error>> {
+    let plan = plan()?;
     let corpus = corpus(
         &plan,
         vec![GoldenJudgment {
             evidence_id: EvidenceId::new(1),
             relevance: 1,
-            exact_span: Some(candidate(1, 3).source_span),
+            exact_span: Some(candidate(1, 3)?.source_span.clone()),
         }],
-    );
+    )?;
     for (field, expected_reason) in [
         ("recall", "Recall@k"),
         ("ndcg", "nDCG@k"),
@@ -369,22 +376,24 @@ fn golden_gate_rejects_configured_quality_regressions() {
             "ndcg" => gate.config.min_ndcg_at_k = Metric::ONE,
             "mrr" => gate.config.min_mrr = Metric::ONE,
             "exact" => gate.config.min_exact_span_recall = Metric::ONE,
-            _ => unreachable!("test case is exhaustive"),
+            _ => return Err(std::io::Error::other("unexpected quality field").into()),
         }
         let error = gate
             .evaluate(
                 &corpus,
-                &[observation(&plan, vec![], SearchStatus::Answerable)],
+                &[observation(&plan, vec![], SearchStatus::Answerable)?],
             )
-            .expect_err("quality threshold must fail");
+            .err()
+            .ok_or("quality threshold must fail")?;
         assert!(error.to_string().contains(expected_reason));
     }
+    Ok(())
 }
 
 #[test]
-fn golden_gate_rejects_invalid_corpus_shapes() {
-    let plan = plan();
-    let mut empty = corpus(&plan, vec![]);
+fn golden_gate_rejects_invalid_corpus_shapes() -> Result<(), Box<dyn std::error::Error>> {
+    let plan = plan()?;
+    let mut empty = corpus(&plan, vec![])?;
     empty.queries.clear();
     assert!(matches!(
         permissive_gate().evaluate(&empty, &[]),
@@ -400,7 +409,7 @@ fn golden_gate_rejects_invalid_corpus_shapes() {
             relevance: 1,
             exact_span: None,
         }],
-    );
+    )?;
     assert!(matches!(
         invalid_k.evaluate(&nonempty, &[]),
         Err(maestria_retrieval::golden::GoldenGateError::InvalidK)
@@ -424,6 +433,7 @@ fn golden_gate_rejects_invalid_corpus_shapes() {
         permissive_gate().evaluate(&duplicate_judgment, &[]),
         Err(maestria_retrieval::golden::GoldenGateError::DuplicateJudgment { .. })
     ));
+    Ok(())
 }
 
 fn comparison_config(profile: GoldenProfile) -> GoldenGateConfig {
@@ -446,13 +456,14 @@ fn comparison_config(profile: GoldenProfile) -> GoldenGateConfig {
 }
 
 #[test]
-fn golden_comparison_promotes_only_for_material_quality_improvement() {
+fn golden_comparison_promotes_only_for_material_quality_improvement()
+-> Result<(), Box<dyn std::error::Error>> {
     use maestria_retrieval::golden::{
         GoldenComparison, GoldenProfile, PromotionDecision, PromotionRecord,
     };
-    let plan = plan();
-    let first = candidate(1, 0);
-    let second = candidate(2, 1);
+    let plan = plan()?;
+    let first = candidate(1, 0)?;
+    let second = candidate(2, 1)?;
     let corpus = corpus(
         &plan,
         vec![
@@ -467,8 +478,8 @@ fn golden_comparison_promotes_only_for_material_quality_improvement() {
                 exact_span: None,
             },
         ],
-    );
-    let mut baseline_obs = observation(&plan, vec![first.clone()], SearchStatus::Answerable);
+    )?;
+    let mut baseline_obs = observation(&plan, vec![first.clone()], SearchStatus::Answerable)?;
     baseline_obs.resources.ingest_update_ms = Some(8);
     baseline_obs.resources.energy_millijoules = Some(12);
     let mut candidate_obs = observation_with_profile(
@@ -476,7 +487,7 @@ fn golden_comparison_promotes_only_for_material_quality_improvement() {
         vec![first, second],
         SearchStatus::Answerable,
         GoldenProfile::V0_5,
-    );
+    )?;
     candidate_obs.resources.ingest_update_ms = Some(8);
     candidate_obs.resources.energy_millijoules = Some(12);
     let result = GoldenComparison {
@@ -494,8 +505,7 @@ fn golden_comparison_promotes_only_for_material_quality_improvement() {
             evaluation_id: "eval_id_123".to_string(),
             evaluation_date: "2026-07-16".to_string(),
         }),
-    )
-    .expect("comparison should evaluate");
+    )?;
     assert_eq!(
         result.report.backend_tier,
         maestria_retrieval::golden::BackendTier::Small
@@ -513,18 +523,22 @@ fn golden_comparison_promotes_only_for_material_quality_improvement() {
             assert_eq!(evaluation_id, "eval_id_123");
             assert_eq!(evaluation_date, "2026-07-16");
         }
-        PromotionDecision::RetainBaseline { reason } => panic!("unexpected retention: {reason}"),
+        PromotionDecision::RetainBaseline { reason: _ } => {
+            return Err("unexpected retention".into());
+        }
     }
+    Ok(())
 }
 
 #[test]
-fn golden_comparison_requires_complete_promotion_telemetry() {
+fn golden_comparison_requires_complete_promotion_telemetry()
+-> Result<(), Box<dyn std::error::Error>> {
     use maestria_retrieval::golden::{
         GoldenComparison, GoldenProfile, PromotionDecision, PromotionRecord,
     };
-    let plan = plan();
-    let first = candidate(1, 0);
-    let second = candidate(2, 1);
+    let plan = plan()?;
+    let first = candidate(1, 0)?;
+    let second = candidate(2, 1)?;
     let corpus = corpus(
         &plan,
         vec![
@@ -539,7 +553,7 @@ fn golden_comparison_requires_complete_promotion_telemetry() {
                 exact_span: None,
             },
         ],
-    );
+    )?;
     let result = GoldenComparison {
         k: 10,
         tier: maestria_retrieval::golden::BackendTier::Small,
@@ -552,34 +566,37 @@ fn golden_comparison_requires_complete_promotion_telemetry() {
             &plan,
             vec![first.clone()],
             SearchStatus::Answerable,
-        )],
+        )?],
         &comparison_config(GoldenProfile::V0_5),
         &[observation_with_profile(
             &plan,
             vec![first, second],
             SearchStatus::Answerable,
             GoldenProfile::V0_5,
-        )],
+        )?],
         Some(PromotionRecord {
             evaluation_id: "eval_id_telemetry".to_string(),
             evaluation_date: "2026-07-16".to_string(),
         }),
-    )
-    .expect("comparison should evaluate");
+    )?;
     match result.decision {
         PromotionDecision::RetainBaseline { reason } => {
             assert!(reason.contains("complete"));
             assert!(reason.contains("telemetry"));
         }
-        PromotionDecision::Promote { .. } => panic!("incomplete telemetry must retain baseline"),
+        PromotionDecision::Promote { .. } => {
+            return Err(std::io::Error::other("incomplete telemetry must retain baseline").into());
+        }
     }
+    Ok(())
 }
 
 #[test]
-fn golden_comparison_retains_baseline_when_candidate_regresses() {
+fn golden_comparison_retains_baseline_when_candidate_regresses()
+-> Result<(), Box<dyn std::error::Error>> {
     use maestria_retrieval::golden::{GoldenComparison, GoldenProfile, PromotionDecision};
-    let plan = plan();
-    let candidate = candidate(1, 0);
+    let plan = plan()?;
+    let candidate = candidate(1, 0)?;
     let corpus = corpus(
         &plan,
         vec![GoldenJudgment {
@@ -587,15 +604,15 @@ fn golden_comparison_retains_baseline_when_candidate_regresses() {
             relevance: 1,
             exact_span: None,
         }],
-    );
-    let mut baseline_obs = observation(&plan, vec![candidate.clone()], SearchStatus::Answerable);
+    )?;
+    let mut baseline_obs = observation(&plan, vec![candidate.clone()], SearchStatus::Answerable)?;
     baseline_obs.resources.latency_ms = 10;
     let mut candidate_obs = observation_with_profile(
         &plan,
         vec![candidate],
         SearchStatus::Answerable,
         GoldenProfile::V0_5,
-    );
+    )?;
     candidate_obs.resources.latency_ms = 20;
     let result = GoldenComparison {
         k: 10,
@@ -609,14 +626,16 @@ fn golden_comparison_retains_baseline_when_candidate_regresses() {
         &comparison_config(GoldenProfile::V0_5),
         &[candidate_obs],
         None,
-    )
-    .expect("comparison should evaluate");
+    )?;
     match result.decision {
         PromotionDecision::RetainBaseline { reason } => {
             assert!(reason.contains("p50_latency_ms"));
             assert!(reason.contains("p95_latency_ms"));
             assert!(reason.contains("p99_latency_ms"));
         }
-        PromotionDecision::Promote { .. } => panic!("regression must retain baseline"),
+        PromotionDecision::Promote { .. } => {
+            return Err(std::io::Error::other("regression must retain baseline").into());
+        }
     }
+    Ok(())
 }

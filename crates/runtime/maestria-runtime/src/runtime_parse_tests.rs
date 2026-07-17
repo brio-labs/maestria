@@ -12,22 +12,21 @@ use std::time::Duration;
 use tokio::sync::{RwLock, mpsc};
 
 #[tokio::test]
-async fn parse_artifact_passes_exact_source_path_and_bytes() {
+async fn parse_artifact_passes_exact_source_path_and_bytes()
+-> Result<(), Box<dyn std::error::Error>> {
     let artifact_repo = InMemoryArtifactRepository::new();
-    artifact_repo
-        .put(Artifact {
-            id: ArtifactId::new(42),
-            title: "artifact-title-unused".to_string(),
-            chunk_ids: BTreeSet::new(),
-            card_ids: BTreeSet::new(),
-            claim_ids: BTreeSet::new(),
-            evidence_ids: BTreeSet::new(),
-            index_status: IndexStatus::Unindexed,
-            content_hash: None,
-            parse_status: None,
-            security: maestria_domain::SecurityMetadata::default(),
-        })
-        .expect("pre-populated artifact should be accepted");
+    artifact_repo.put(Artifact {
+        id: ArtifactId::new(42),
+        title: "artifact-title-unused".to_string(),
+        chunk_ids: BTreeSet::new(),
+        card_ids: BTreeSet::new(),
+        claim_ids: BTreeSet::new(),
+        evidence_ids: BTreeSet::new(),
+        index_status: IndexStatus::Unindexed,
+        content_hash: None,
+        parse_status: None,
+        security: maestria_domain::SecurityMetadata::default(),
+    })?;
 
     let adapters = Adapters {
         artifact_repo: Arc::new(artifact_repo),
@@ -64,9 +63,9 @@ async fn parse_artifact_passes_exact_source_path_and_bytes() {
             assert!(!ps.content_hash.is_empty());
             assert!(ps.blob_id.value() > 0);
         }
-        Ok(Some(other)) => panic!("expected ParserStarted, got {other:?}"),
-        Ok(None) => panic!("channel closed before ParserStarted"),
-        Err(_) => panic!("timeout waiting for ParserStarted"),
+        Ok(Some(other)) => return Err(format!("expected ParserStarted, got {other:?}").into()),
+        Ok(None) => return Err("channel closed before ParserStarted".to_string().into()),
+        Err(_) => return Err("timeout waiting for ParserStarted".to_string().into()),
     }
 
     // Second input: ParserCompleted (sent before evidence so the domain can commit the artifact).
@@ -76,9 +75,9 @@ async fn parse_artifact_passes_exact_source_path_and_bytes() {
             assert_eq!(pr.chunks.len(), 1);
             assert_eq!(pr.chunks[0].text, "fn hello() {}");
         }
-        Ok(Some(other)) => panic!("expected ParserCompleted, got {other:?}"),
-        Ok(None) => panic!("channel closed before ParserCompleted"),
-        Err(_) => panic!("timeout waiting for ParserCompleted"),
+        Ok(Some(other)) => return Err(format!("expected ParserCompleted, got {other:?}").into()),
+        Ok(None) => return Err("channel closed before ParserCompleted".to_string().into()),
+        Err(_) => return Err("timeout waiting for ParserCompleted".to_string().into()),
     }
 
     // Third input: RecordEvidence for the single parsed chunk
@@ -100,33 +99,32 @@ async fn parse_artifact_passes_exact_source_path_and_bytes() {
                     assert!(content_hash.starts_with("sha256:"));
                     assert!(snapshot.is_some());
                 }
-                _ => panic!("expected FileSpan evidence, got {:?}", ev.kind),
+                _ => return Err(format!("expected FileSpan evidence, got {:?}", ev.kind).into()),
             }
             assert!(!ev.excerpt.is_empty());
         }
-        Ok(Some(other)) => panic!("expected RecordEvidence, got {other:?}"),
-        Ok(None) => panic!("channel closed before RecordEvidence"),
-        Err(_) => panic!("timeout waiting for RecordEvidence"),
+        Ok(Some(other)) => return Err(format!("expected RecordEvidence, got {other:?}").into()),
+        Ok(None) => return Err("channel closed before RecordEvidence".to_string().into()),
+        Err(_) => return Err("timeout waiting for RecordEvidence".to_string().into()),
     }
+    Ok(())
 }
 
 #[tokio::test]
-async fn parse_artifact_empty_bytes_returns_failure() {
+async fn parse_artifact_empty_bytes_returns_failure() -> Result<(), Box<dyn std::error::Error>> {
     let artifact_repo = InMemoryArtifactRepository::new();
-    artifact_repo
-        .put(Artifact {
-            id: ArtifactId::new(7),
-            title: "unused".to_string(),
-            chunk_ids: BTreeSet::new(),
-            card_ids: BTreeSet::new(),
-            claim_ids: BTreeSet::new(),
-            evidence_ids: BTreeSet::new(),
-            index_status: IndexStatus::Unindexed,
-            content_hash: None,
-            parse_status: None,
-            security: maestria_domain::SecurityMetadata::default(),
-        })
-        .expect("pre-populated artifact should be accepted");
+    artifact_repo.put(Artifact {
+        id: ArtifactId::new(7),
+        title: "unused".to_string(),
+        chunk_ids: BTreeSet::new(),
+        card_ids: BTreeSet::new(),
+        claim_ids: BTreeSet::new(),
+        evidence_ids: BTreeSet::new(),
+        index_status: IndexStatus::Unindexed,
+        content_hash: None,
+        parse_status: None,
+        security: maestria_domain::SecurityMetadata::default(),
+    })?;
     let adapters = Adapters {
         artifact_repo: Arc::new(artifact_repo),
         ..crate::test_helpers::test_adapters()
@@ -153,9 +151,11 @@ async fn parse_artifact_empty_bytes_returns_failure() {
     .await;
 
     assert!(!result, "ParseArtifact with empty bytes should fail");
+    Ok(())
 }
 #[tokio::test]
-async fn parse_artifact_unsupported_parser_returns_failure() {
+async fn parse_artifact_unsupported_parser_returns_failure()
+-> Result<(), Box<dyn std::error::Error>> {
     struct RejectingParser;
     impl Parser for RejectingParser {
         fn id(&self) -> &'static str {
@@ -175,20 +175,18 @@ async fn parse_artifact_unsupported_parser_returns_failure() {
         }
     }
     let artifact_repo = InMemoryArtifactRepository::new();
-    artifact_repo
-        .put(Artifact {
-            id: ArtifactId::new(9),
-            title: "unsupported".into(),
-            chunk_ids: BTreeSet::new(),
-            card_ids: BTreeSet::new(),
-            claim_ids: BTreeSet::new(),
-            evidence_ids: BTreeSet::new(),
-            index_status: IndexStatus::Unindexed,
-            content_hash: None,
-            parse_status: None,
-            security: maestria_domain::SecurityMetadata::default(),
-        })
-        .expect("pre-populated artifact should be accepted");
+    artifact_repo.put(Artifact {
+        id: ArtifactId::new(9),
+        title: "unsupported".into(),
+        chunk_ids: BTreeSet::new(),
+        card_ids: BTreeSet::new(),
+        claim_ids: BTreeSet::new(),
+        evidence_ids: BTreeSet::new(),
+        index_status: IndexStatus::Unindexed,
+        content_hash: None,
+        parse_status: None,
+        security: maestria_domain::SecurityMetadata::default(),
+    })?;
     let adapters = Adapters {
         parser: Arc::new(RejectingParser),
         ..crate::test_helpers::test_adapters()
@@ -218,10 +216,12 @@ async fn parse_artifact_unsupported_parser_returns_failure() {
         !result,
         "unsupported parser should cause ParseArtifact to return false for retry"
     );
+    Ok(())
 }
 
 #[tokio::test]
-async fn parse_artifact_staged_ingestion_constructs_ephemeral_context() {
+async fn parse_artifact_staged_ingestion_constructs_ephemeral_context()
+-> Result<(), Box<dyn std::error::Error>> {
     // No artifact in repo or state — staged ingestion path.
     let adapters = crate::test_helpers::test_adapters();
     let governance = crate::test_helpers::test_governance();
@@ -257,9 +257,9 @@ async fn parse_artifact_staged_ingestion_constructs_ephemeral_context() {
             assert_eq!(ps.artifact_id, artifact_id);
             assert_eq!(ps.source_path, "/repo/ghost.rs");
         }
-        Ok(Some(other)) => panic!("expected ParserStarted, got {other:?}"),
-        Ok(None) => panic!("channel closed before ParserStarted"),
-        Err(_) => panic!("timeout waiting for ParserStarted"),
+        Ok(Some(other)) => return Err(format!("expected ParserStarted, got {other:?}").into()),
+        Ok(None) => return Err("channel closed before ParserStarted".to_string().into()),
+        Err(_) => return Err("timeout waiting for ParserStarted".to_string().into()),
     }
 
     // Second input: ParserCompleted (sent before evidence so domain commits the artifact).
@@ -268,9 +268,9 @@ async fn parse_artifact_staged_ingestion_constructs_ephemeral_context() {
             assert_eq!(pr.artifact_id, artifact_id);
             assert_eq!(pr.chunks.len(), 1);
         }
-        Ok(Some(other)) => panic!("expected ParserCompleted, got {other:?}"),
-        Ok(None) => panic!("channel closed before ParserCompleted"),
-        Err(_) => panic!("timeout waiting for ParserCompleted"),
+        Ok(Some(other)) => return Err(format!("expected ParserCompleted, got {other:?}").into()),
+        Ok(None) => return Err("channel closed before ParserCompleted".to_string().into()),
+        Err(_) => return Err("timeout waiting for ParserCompleted".to_string().into()),
     }
 
     // Third input: RecordEvidence for the parsed chunk
@@ -283,17 +283,19 @@ async fn parse_artifact_staged_ingestion_constructs_ephemeral_context() {
                     assert_eq!(path, "/repo/ghost.rs");
                     assert!(snapshot.is_some(), "evidence must carry a blob snapshot");
                 }
-                _ => panic!("expected FileSpan evidence, got {:?}", ev.kind),
+                _ => return Err(format!("expected FileSpan evidence, got {:?}", ev.kind).into()),
             }
         }
-        Ok(Some(other)) => panic!("expected RecordEvidence, got {other:?}"),
-        Ok(None) => panic!("channel closed before RecordEvidence"),
-        Err(_) => panic!("timeout waiting for RecordEvidence"),
+        Ok(Some(other)) => return Err(format!("expected RecordEvidence, got {other:?}").into()),
+        Ok(None) => return Err("channel closed before RecordEvidence".to_string().into()),
+        Err(_) => return Err("timeout waiting for RecordEvidence".to_string().into()),
     }
+    Ok(())
 }
 
 #[tokio::test]
-async fn parse_artifact_repository_error_returns_failure() {
+async fn parse_artifact_repository_error_returns_failure() -> Result<(), Box<dyn std::error::Error>>
+{
     struct FailingArtifactRepo;
 
     impl ArtifactRepository for FailingArtifactRepo {
@@ -337,4 +339,5 @@ async fn parse_artifact_repository_error_returns_failure() {
         !result,
         "repository error should return false so retry policy remains active"
     );
+    Ok(())
 }

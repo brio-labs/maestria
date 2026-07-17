@@ -1,10 +1,56 @@
-#![allow(clippy::disallowed_methods)]
-
 use maestria_domain::*;
 
-#[allow(clippy::too_many_lines)]
-fn sample_inputs() -> Vec<DomainInput> {
-    vec![
+fn sample_parser_result() -> Result<ParserResult, Box<dyn std::error::Error>> {
+    Ok(ParserResult {
+        status: maestria_domain::ParseStatus::Parsed,
+        artifact_id: ArtifactId::new(1),
+        artifact_version_id: ArtifactVersionId::new(1),
+        content_hash: ContentHash::new("sha256:".to_owned() + &"0".repeat(64))?,
+        tree_root_id: Some(StructureNodeId::new(10)),
+        tree_nodes: vec![StructureNode {
+            id: StructureNodeId::new(10),
+            parent_id: None,
+            sibling_id: None,
+            node_type: StructureNodeType::Document,
+            source_range: ContentRange { start: 0, end: 0 },
+            page: None,
+            section_path: vec![],
+            parser_generation: "test".to_string(),
+            schema_generation: "test".to_string(),
+            language: None,
+        }],
+        chunks: vec![
+            RegisterChunkInput {
+                source_span: maestria_domain::SourceSpan::TextSpan {
+                    start_line: 1,
+                    end_line: 1,
+                },
+                representations: vec![],
+                chunk_id: ChunkId::new(10),
+                artifact_id: ArtifactId::new(1),
+                node_id: StructureNodeId::new(10),
+                order: 0,
+                text: "first chunk".to_string(),
+            },
+            RegisterChunkInput {
+                source_span: maestria_domain::SourceSpan::TextSpan {
+                    start_line: 1,
+                    end_line: 1,
+                },
+                representations: vec![],
+                chunk_id: ChunkId::new(11),
+                artifact_id: ArtifactId::new(1),
+                node_id: StructureNodeId::new(11),
+                order: 1,
+                text: "second chunk".to_string(),
+            },
+        ],
+        cards: Vec::new(),
+    })
+}
+
+fn sample_inputs() -> Result<Vec<DomainInput>, Box<dyn std::error::Error>> {
+    Ok(vec![
         DomainInput::ArtifactDetected(ArtifactDetected {
             artifact_id: ArtifactId::new(1),
             title: "Project Notes".to_string(),
@@ -12,52 +58,7 @@ fn sample_inputs() -> Vec<DomainInput> {
             source_bytes: b"project notes content".to_vec(),
             content_hash: "sha256:abc".to_string(),
         }),
-        DomainInput::ParserCompleted(ParserResult {
-            status: maestria_domain::ParseStatus::Parsed,
-            artifact_id: ArtifactId::new(1),
-            artifact_version_id: ArtifactVersionId::new(1),
-            content_hash: ContentHash::new("sha256:".to_owned() + &"0".repeat(64)).unwrap(),
-            tree_root_id: Some(StructureNodeId::new(10)),
-            tree_nodes: vec![StructureNode {
-                id: StructureNodeId::new(10),
-                parent_id: None,
-                sibling_id: None,
-                node_type: StructureNodeType::Document,
-                source_range: ContentRange { start: 0, end: 0 },
-                page: None,
-                section_path: vec![],
-                parser_generation: "test".to_string(),
-                schema_generation: "test".to_string(),
-                language: None,
-            }],
-            chunks: vec![
-                RegisterChunkInput {
-                    source_span: maestria_domain::SourceSpan::TextSpan {
-                        start_line: 1,
-                        end_line: 1,
-                    },
-                    representations: vec![],
-                    chunk_id: ChunkId::new(10),
-                    artifact_id: ArtifactId::new(1),
-                    node_id: StructureNodeId::new(10),
-                    order: 0,
-                    text: "first chunk".to_string(),
-                },
-                RegisterChunkInput {
-                    source_span: maestria_domain::SourceSpan::TextSpan {
-                        start_line: 1,
-                        end_line: 1,
-                    },
-                    representations: vec![],
-                    chunk_id: ChunkId::new(11),
-                    artifact_id: ArtifactId::new(1),
-                    node_id: StructureNodeId::new(11),
-                    order: 1,
-                    text: "second chunk".to_string(),
-                },
-            ],
-            cards: Vec::new(),
-        }),
+        DomainInput::ParserCompleted(sample_parser_result()?),
         DomainInput::CreateClaim(CreateClaimInput {
             claim_id: ClaimId::new(20),
             artifact_id: ArtifactId::new(1),
@@ -105,12 +106,15 @@ fn sample_inputs() -> Vec<DomainInput> {
             valid: true,
         }),
         DomainInput::ClockTick(LogicalTick::new(99)),
-    ]
+    ])
 }
 
-pub fn run_replay_once()
--> Result<(KernelState, Vec<DomainEventEnvelope>, Vec<MaestriaEffect>), DomainError> {
-    replay_inputs(&sample_inputs())
+type ReplayResult = Result<
+    (KernelState, Vec<DomainEventEnvelope>, Vec<MaestriaEffect>),
+    Box<dyn std::error::Error>,
+>;
+pub fn run_replay_once() -> ReplayResult {
+    Ok(replay_inputs(&sample_inputs()?)?)
 }
 
 pub fn file_span_kind() -> EvidenceKind {

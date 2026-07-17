@@ -4,13 +4,15 @@ use super::*;
 use maestria_domain::{EvidenceKind, LogicalTick, ValidationReportId};
 
 #[test]
-fn in_memory_artifact_repository_satisfies_contract() {
-    assert_artifact_repository_round_trip(&InMemoryArtifactRepository::new());
+fn in_memory_artifact_repository_satisfies_contract() -> Result<(), Box<dyn std::error::Error>> {
+    assert_artifact_repository_round_trip(&InMemoryArtifactRepository::new())?;
+    Ok(())
 }
 
 #[test]
-fn in_memory_chunk_repository_satisfies_contract() {
-    assert_chunk_repository_round_trip(&InMemoryChunkRepository::new());
+fn in_memory_chunk_repository_satisfies_contract() -> Result<(), Box<dyn std::error::Error>> {
+    assert_chunk_repository_round_trip(&InMemoryChunkRepository::new())?;
+    Ok(())
 }
 
 #[test]
@@ -34,17 +36,19 @@ fn in_memory_web_fetcher_satisfies_contract() -> Result<(), Box<dyn std::error::
 }
 
 #[test]
-fn in_memory_card_repository_satisfies_contract() {
-    assert_card_repository_round_trip(&InMemoryCardRepository::new());
+fn in_memory_card_repository_satisfies_contract() -> Result<(), Box<dyn std::error::Error>> {
+    assert_card_repository_round_trip(&InMemoryCardRepository::new())?;
+    Ok(())
 }
 
 #[test]
-fn in_memory_evidence_repository_satisfies_contract() {
-    assert_evidence_repository_round_trip(&InMemoryEvidenceRepository::new());
+fn in_memory_evidence_repository_satisfies_contract() -> Result<(), Box<dyn std::error::Error>> {
+    assert_evidence_repository_round_trip(&InMemoryEvidenceRepository::new())?;
+    Ok(())
 }
 
 #[test]
-fn in_memory_evidence_put_is_idempotent() {
+fn in_memory_evidence_put_is_idempotent() -> Result<(), Box<dyn std::error::Error>> {
     let repo = InMemoryEvidenceRepository::new();
     let evidence = Evidence {
         id: EvidenceId::new(100),
@@ -58,25 +62,26 @@ fn in_memory_evidence_put_is_idempotent() {
         security: maestria_domain::SecurityMetadata::default(),
     };
     // First insert succeeds
-    repo.put(evidence.clone()).expect("first put must succeed");
+    repo.put(evidence.clone())?;
     // Identical retry is idempotent
-    repo.put(evidence.clone())
-        .expect("identical retry must succeed");
+    repo.put(evidence.clone())?;
     // Stored value is unchanged
     let stored = repo
-        .get(evidence.id)
-        .expect("get after retry")
-        .expect("evidence must still exist");
+        .get(evidence.id)?
+        .ok_or_else(|| std::io::Error::other("stored evidence missing"))?;
     assert_eq!(stored, evidence);
+    Ok(())
 }
 
 #[test]
-fn in_memory_evidence_repository_satisfies_replace_contract() {
-    assert_evidence_repository_replace_contract(&InMemoryEvidenceRepository::new());
+fn in_memory_evidence_repository_satisfies_replace_contract()
+-> Result<(), Box<dyn std::error::Error>> {
+    assert_evidence_repository_replace_contract(&InMemoryEvidenceRepository::new())?;
+    Ok(())
 }
 
 #[test]
-fn in_memory_evidence_replace_overwrites_existing() {
+fn in_memory_evidence_replace_overwrites_existing() -> Result<(), Box<dyn std::error::Error>> {
     let repo = InMemoryEvidenceRepository::new();
     let original = Evidence {
         id: EvidenceId::new(300),
@@ -89,7 +94,7 @@ fn in_memory_evidence_replace_overwrites_existing() {
         observed_at: LogicalTick::new(1),
         security: maestria_domain::SecurityMetadata::default(),
     };
-    repo.put(original.clone()).expect("first put");
+    repo.put(original.clone())?;
 
     let replacement = Evidence {
         id: EvidenceId::new(300),
@@ -104,22 +109,24 @@ fn in_memory_evidence_replace_overwrites_existing() {
     };
 
     // put rejects different content
-    let err = repo.put(replacement.clone()).unwrap_err();
+    let Err(err) = repo.put(replacement.clone()) else {
+        return Err("expected error".into());
+    };
     assert!(matches!(err, PortError::Conflict { .. }));
 
     // replace succeeds with different content
-    repo.replace(replacement.clone())
-        .expect("replace must overwrite");
+    repo.replace(replacement.clone())?;
 
     let stored = repo
-        .get(EvidenceId::new(300))
-        .expect("get after replace")
-        .expect("evidence must exist");
+        .get(EvidenceId::new(300))?
+        .ok_or_else(|| std::io::Error::other("replacement evidence missing"))?;
     assert_eq!(stored, replacement);
+    Ok(())
 }
 
 #[test]
-fn in_memory_evidence_put_rejects_conflicting_overwrite() {
+fn in_memory_evidence_put_rejects_conflicting_overwrite() -> Result<(), Box<dyn std::error::Error>>
+{
     let repo = InMemoryEvidenceRepository::new();
     let first = Evidence {
         id: EvidenceId::new(200),
@@ -132,7 +139,7 @@ fn in_memory_evidence_put_rejects_conflicting_overwrite() {
         observed_at: LogicalTick::new(1),
         security: maestria_domain::SecurityMetadata::default(),
     };
-    repo.put(first.clone()).expect("first put must succeed");
+    repo.put(first.clone())?;
 
     let conflict = Evidence {
         id: EvidenceId::new(200), // same id
@@ -145,7 +152,9 @@ fn in_memory_evidence_put_rejects_conflicting_overwrite() {
         observed_at: LogicalTick::new(2),
         security: maestria_domain::SecurityMetadata::default(),
     };
-    let err = repo.put(conflict).unwrap_err();
+    let Err(err) = repo.put(conflict) else {
+        return Err("expected error".into());
+    };
     assert!(
         matches!(err, PortError::Conflict { .. }),
         "conflicting put must return Conflict, got {err:?}"
@@ -153,15 +162,16 @@ fn in_memory_evidence_put_rejects_conflicting_overwrite() {
 
     // Original is preserved
     let stored = repo
-        .get(first.id)
-        .expect("get after conflict")
-        .expect("evidence must still exist");
+        .get(first.id)?
+        .ok_or_else(|| std::io::Error::other("original evidence missing"))?;
     assert_eq!(stored, first);
+    Ok(())
 }
 
 #[test]
-fn in_memory_event_log_satisfies_contract() {
-    assert_event_log_round_trip(&InMemoryEventLog::new());
+fn in_memory_event_log_satisfies_contract() -> Result<(), Box<dyn std::error::Error>> {
+    assert_event_log_round_trip(&InMemoryEventLog::new())?;
+    Ok(())
 }
 
 #[test]
@@ -217,37 +227,43 @@ fn in_memory_event_log_roundtrips_search_executed() -> Result<(), PortError> {
 }
 
 #[test]
-fn in_memory_blob_store_satisfies_contract() {
-    assert_blob_store_round_trip(&InMemoryBlobStore::new());
+fn in_memory_blob_store_satisfies_contract() -> Result<(), Box<dyn std::error::Error>> {
+    assert_blob_store_round_trip(&InMemoryBlobStore::new())?;
+    Ok(())
 }
 
 #[test]
-fn in_memory_full_text_index_satisfies_contract() {
-    assert_full_text_index_round_trip(&InMemoryFullTextIndex::new());
+fn in_memory_full_text_index_satisfies_contract() -> Result<(), Box<dyn std::error::Error>> {
+    assert_full_text_index_round_trip(&InMemoryFullTextIndex::new())?;
+    Ok(())
 }
 
 #[test]
-fn in_memory_vector_index_satisfies_contract() {
-    assert_vector_index_contract(&InMemoryVectorIndex::new());
+fn in_memory_vector_index_satisfies_contract() -> Result<(), Box<dyn std::error::Error>> {
+    assert_vector_index_contract(&InMemoryVectorIndex::new())?;
+    Ok(())
 }
 
 #[test]
-fn in_memory_parser_satisfies_contract() {
-    assert_parser_round_trip(&InMemoryParser::new());
+fn in_memory_parser_satisfies_contract() -> Result<(), Box<dyn std::error::Error>> {
+    assert_parser_round_trip(&InMemoryParser::new())?;
+    Ok(())
 }
 
 #[tokio::test]
-async fn in_memory_harness_adapter_satisfies_contract() {
-    assert_harness_adapter_round_trip(&InMemoryHarnessAdapter::new()).await;
+async fn in_memory_harness_adapter_satisfies_contract() -> Result<(), Box<dyn std::error::Error>> {
+    assert_harness_adapter_round_trip(&InMemoryHarnessAdapter::new()).await?;
+    Ok(())
 }
 
 #[test]
-fn in_memory_graph_index_satisfies_contract() {
-    assert_graph_index_contract(&InMemoryGraphIndex::new());
+fn in_memory_graph_index_satisfies_contract() -> Result<(), Box<dyn std::error::Error>> {
+    assert_graph_index_contract(&InMemoryGraphIndex::new())?;
+    Ok(())
 }
 
 #[test]
-fn in_memory_graph_index_clear_removes_all_relations() {
+fn in_memory_graph_index_clear_removes_all_relations() -> Result<(), Box<dyn std::error::Error>> {
     let index = InMemoryGraphIndex::new();
     let ep = RelationEndpoint::Artifact(maestria_domain::ArtifactId::new(1));
     let rel = maestria_domain::Relation {
@@ -259,23 +275,17 @@ fn in_memory_graph_index_clear_removes_all_relations() {
         confidence_milli: 800,
         security: maestria_domain::SecurityMetadata::default(),
     };
-    index.insert_relation(rel.clone()).expect("graph operation");
-    assert_eq!(
-        index.get_relations_for(ep).expect("graph operation").len(),
-        1
-    );
+    index.insert_relation(rel.clone())?;
+    assert_eq!(index.get_relations_for(ep)?.len(), 1);
 
-    index.clear().expect("graph operation");
-    assert!(
-        index
-            .get_relations_for(ep)
-            .expect("graph operation")
-            .is_empty()
-    );
+    index.clear()?;
+    assert!(index.get_relations_for(ep)?.is_empty());
+    Ok(())
 }
 
 #[test]
-fn in_memory_graph_index_delete_relations_ignores_empty_list() {
+fn in_memory_graph_index_delete_relations_ignores_empty_list()
+-> Result<(), Box<dyn std::error::Error>> {
     let index = InMemoryGraphIndex::new();
     let ep = RelationEndpoint::Artifact(maestria_domain::ArtifactId::new(1));
     let rel = maestria_domain::Relation {
@@ -287,17 +297,16 @@ fn in_memory_graph_index_delete_relations_ignores_empty_list() {
         confidence_milli: 800,
         security: maestria_domain::SecurityMetadata::default(),
     };
-    index.insert_relation(rel.clone()).expect("graph operation");
+    index.insert_relation(rel.clone())?;
 
-    index.delete_relations(&[]).expect("graph operation");
-    assert_eq!(
-        index.get_relations_for(ep).expect("graph operation").len(),
-        1
-    );
+    index.delete_relations(&[])?;
+    assert_eq!(index.get_relations_for(ep)?.len(), 1);
+    Ok(())
 }
 
 #[test]
-fn in_memory_graph_index_rebuild_preserves_new_relations() {
+fn in_memory_graph_index_rebuild_preserves_new_relations() -> Result<(), Box<dyn std::error::Error>>
+{
     let index = InMemoryGraphIndex::new();
     let ep = RelationEndpoint::Artifact(maestria_domain::ArtifactId::new(1));
     let rel1 = maestria_domain::Relation {
@@ -319,17 +328,13 @@ fn in_memory_graph_index_rebuild_preserves_new_relations() {
         security: maestria_domain::SecurityMetadata::default(),
     };
 
-    index
-        .insert_relation(rel1.clone())
-        .expect("graph operation");
-    assert_eq!(
-        index.get_relations_for(ep).expect("graph operation").len(),
-        1
-    );
+    index.insert_relation(rel1.clone())?;
+    assert_eq!(index.get_relations_for(ep)?.len(), 1);
 
-    index.rebuild(vec![rel2.clone()]).expect("graph operation");
+    index.rebuild(vec![rel2.clone()])?;
 
-    let current = index.get_relations_for(ep).expect("graph operation");
+    let current = index.get_relations_for(ep)?;
     assert_eq!(current.len(), 1);
     assert_eq!(current[0], rel2);
+    Ok(())
 }

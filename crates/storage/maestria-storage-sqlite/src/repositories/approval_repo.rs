@@ -232,8 +232,7 @@ mod tests {
         store.save(&pending_record(2))?;
 
         let found = store.find_by_id(ApprovalId::new(1))?;
-        assert!(found.is_some());
-        assert_eq!(found.expect("record should exist").id, ApprovalId::new(1));
+        assert_eq!(found.ok_or(PortError::NotFound)?.id, ApprovalId::new(1));
 
         let missing = store.find_by_id(ApprovalId::new(99))?;
         assert!(missing.is_none());
@@ -246,9 +245,8 @@ mod tests {
         store.save(&pending_record(1))?;
 
         let resolved = store.resolve(ApprovalId::new(1), true)?;
-        assert!(resolved.is_some());
         assert_eq!(
-            resolved.expect("record should exist").status,
+            resolved.ok_or(PortError::NotFound)?.status,
             ApprovalStatus::Approved
         );
 
@@ -263,9 +261,8 @@ mod tests {
         store.save(&pending_record(1))?;
 
         let resolved = store.resolve(ApprovalId::new(1), false)?;
-        assert!(resolved.is_some());
         assert_eq!(
-            resolved.expect("record should exist").status,
+            resolved.ok_or(PortError::NotFound)?.status,
             ApprovalStatus::Denied
         );
         Ok(())
@@ -277,9 +274,8 @@ mod tests {
         store.save(&pending_record(1))?;
 
         let first = store.resolve(ApprovalId::new(1), true)?;
-        assert!(first.is_some());
         assert_eq!(
-            first.expect("record should exist").status,
+            first.ok_or(PortError::NotFound)?.status,
             ApprovalStatus::Approved
         );
 
@@ -288,7 +284,7 @@ mod tests {
 
         let found = store.find_by_id(ApprovalId::new(1))?;
         assert_eq!(
-            found.expect("record should exist").status,
+            found.ok_or(PortError::NotFound)?.status,
             ApprovalStatus::Approved
         );
         Ok(())
@@ -333,7 +329,7 @@ mod tests {
             rec.risk_level = *level;
             store.save(&rec)?;
             let found = store.find_by_id(ApprovalId::new(1))?;
-            assert_eq!(found.expect("record should exist").risk_level, *level);
+            assert_eq!(found.ok_or(PortError::NotFound)?.risk_level, *level);
         }
         Ok(())
     }

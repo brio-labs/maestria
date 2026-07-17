@@ -4,7 +4,6 @@ use maestria_domain::{
 };
 
 impl StoredEventPayload {
-    #[allow(clippy::too_many_lines)]
     pub(crate) fn try_from_domain_artifact(event: &DomainEvent) -> Option<Self> {
         match event {
             DomainEvent::ArtifactRegistered {
@@ -24,15 +23,15 @@ impl StoredEventPayload {
                 representations,
                 order,
                 text,
-            } => Some(Self::ChunkRegistered {
-                chunk_id: chunk_id.value(),
-                artifact_id: artifact_id.value(),
-                node_id: node_id.value(),
-                source_span: (*source_span).into(),
-                representations: representations.iter().cloned().map(Into::into).collect(),
-                order: *order,
-                text: text.clone(),
-            }),
+            } => Some(Self::from_chunk_registered(
+                chunk_id,
+                artifact_id,
+                node_id,
+                source_span,
+                representations,
+                *order,
+                text,
+            )),
             DomainEvent::CardCreated {
                 card_id,
                 artifact_id,
@@ -41,15 +40,69 @@ impl StoredEventPayload {
                 title,
                 body,
                 security,
-            } => Some(Self::CardCreated {
-                card_id: card_id.value(),
-                artifact_id: artifact_id.value(),
-                node_id: node_id.value(),
-                source_span: (*source_span).into(),
-                title: title.clone(),
-                body: body.clone(),
-                security: security.clone(),
+            } => Some(Self::from_card_created(
+                card_id,
+                artifact_id,
+                node_id,
+                source_span,
+                title,
+                body,
+                security,
+            )),
+            _ => Self::try_from_domain_artifact_tail(event),
+        }
+    }
+
+    pub(crate) fn try_into_domain_artifact(self) -> Result<DomainEvent, Box<Self>> {
+        match self {
+            Self::ArtifactRegistered {
+                artifact_id,
+                title,
+                security,
+            } => Ok(DomainEvent::ArtifactRegistered {
+                artifact_id: ArtifactId::new(artifact_id),
+                title,
+                security,
             }),
+            Self::ChunkRegistered {
+                chunk_id,
+                artifact_id,
+                node_id,
+                source_span,
+                representations,
+                order,
+                text,
+            } => Ok(Self::into_chunk_registered(
+                chunk_id,
+                artifact_id,
+                node_id,
+                source_span,
+                representations,
+                order,
+                text,
+            )),
+            Self::CardCreated {
+                card_id,
+                artifact_id,
+                node_id,
+                source_span,
+                title,
+                body,
+                security,
+            } => Ok(DomainEvent::CardCreated {
+                card_id: maestria_domain::CardId::new(card_id),
+                artifact_id: ArtifactId::new(artifact_id),
+                node_id: StructureNodeId::new(node_id),
+                source_span: source_span.into(),
+                title,
+                body,
+                security,
+            }),
+            other => Self::try_into_domain_artifact_tail(other),
+        }
+    }
+    fn try_from_domain_artifact_tail(event: &DomainEvent) -> Option<Self> {
+        match event {
             DomainEvent::ParserStarted {
                 artifact_id,
                 title,
@@ -112,53 +165,8 @@ impl StoredEventPayload {
             _ => None,
         }
     }
-
-    #[allow(clippy::too_many_lines)]
-    pub(crate) fn try_into_domain_artifact(self) -> Result<DomainEvent, Box<Self>> {
+    fn try_into_domain_artifact_tail(self) -> Result<DomainEvent, Box<Self>> {
         match self {
-            Self::ArtifactRegistered {
-                artifact_id,
-                title,
-                security,
-            } => Ok(DomainEvent::ArtifactRegistered {
-                artifact_id: ArtifactId::new(artifact_id),
-                title,
-                security,
-            }),
-            Self::ChunkRegistered {
-                chunk_id,
-                artifact_id,
-                node_id,
-                source_span,
-                representations,
-                order,
-                text,
-            } => Ok(DomainEvent::ChunkRegistered {
-                chunk_id: ChunkId::new(chunk_id),
-                artifact_id: ArtifactId::new(artifact_id),
-                node_id: StructureNodeId::new(node_id),
-                source_span: source_span.into(),
-                representations: representations.into_iter().map(Into::into).collect(),
-                order,
-                text,
-            }),
-            Self::CardCreated {
-                card_id,
-                artifact_id,
-                node_id,
-                source_span,
-                title,
-                body,
-                security,
-            } => Ok(DomainEvent::CardCreated {
-                card_id: maestria_domain::CardId::new(card_id),
-                artifact_id: ArtifactId::new(artifact_id),
-                node_id: StructureNodeId::new(node_id),
-                source_span: source_span.into(),
-                title,
-                body,
-                security,
-            }),
             Self::ParserStarted {
                 artifact_id,
                 title,
@@ -251,6 +259,66 @@ impl StoredEventPayload {
             | Self::ParserStarted { artifact_id, .. }
             | Self::DocumentTreeCaptured { artifact_id, .. } => Some(*artifact_id),
             _ => None,
+        }
+    }
+
+    fn from_chunk_registered(
+        chunk_id: &ChunkId,
+        artifact_id: &ArtifactId,
+        node_id: &StructureNodeId,
+        source_span: &maestria_domain::SourceSpan,
+        representations: &[maestria_domain::ParsedRepresentation],
+        order: u32,
+        text: &str,
+    ) -> Self {
+        Self::ChunkRegistered {
+            chunk_id: chunk_id.value(),
+            artifact_id: artifact_id.value(),
+            node_id: node_id.value(),
+            source_span: (*source_span).into(),
+            representations: representations.iter().cloned().map(Into::into).collect(),
+            order,
+            text: text.to_owned(),
+        }
+    }
+
+    fn from_card_created(
+        card_id: &maestria_domain::CardId,
+        artifact_id: &ArtifactId,
+        node_id: &StructureNodeId,
+        source_span: &maestria_domain::SourceSpan,
+        title: &str,
+        body: &str,
+        security: &maestria_domain::SecurityMetadata,
+    ) -> Self {
+        Self::CardCreated {
+            card_id: card_id.value(),
+            artifact_id: artifact_id.value(),
+            node_id: node_id.value(),
+            source_span: (*source_span).into(),
+            title: title.to_owned(),
+            body: body.to_owned(),
+            security: security.clone(),
+        }
+    }
+
+    fn into_chunk_registered(
+        chunk_id: u64,
+        artifact_id: u64,
+        node_id: u64,
+        source_span: crate::payloads::StoredSourceSpan,
+        representations: Vec<crate::payloads::StoredParsedRepresentation>,
+        order: u32,
+        text: String,
+    ) -> DomainEvent {
+        DomainEvent::ChunkRegistered {
+            chunk_id: ChunkId::new(chunk_id),
+            artifact_id: ArtifactId::new(artifact_id),
+            node_id: StructureNodeId::new(node_id),
+            source_span: source_span.into(),
+            representations: representations.into_iter().map(Into::into).collect(),
+            order,
+            text,
         }
     }
 }

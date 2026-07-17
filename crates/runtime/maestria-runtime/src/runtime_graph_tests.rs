@@ -26,7 +26,7 @@ impl GraphIndex for FailingGraphIndex {
 }
 
 #[tokio::test]
-async fn update_graph_inserts_relation_when_present() {
+async fn update_graph_inserts_relation_when_present() -> Result<(), Box<dyn std::error::Error>> {
     let relation_id = RelationId::new(1);
     let relation = Relation {
         id: relation_id,
@@ -62,15 +62,15 @@ async fn update_graph_inserts_relation_when_present() {
 
     assert!(result, "update_graph should succeed");
 
-    let stored = graph_index
-        .get_relations_for(RelationEndpoint::Claim(ClaimId::new(1)))
-        .expect("graph relation lookup");
+    let stored = graph_index.get_relations_for(RelationEndpoint::Claim(ClaimId::new(1)))?;
     assert_eq!(stored.len(), 1);
     assert_eq!(stored[0], relation);
+    Ok(())
 }
 
 #[tokio::test]
-async fn update_graph_fails_when_relation_missing_from_state() {
+async fn update_graph_fails_when_relation_missing_from_state()
+-> Result<(), Box<dyn std::error::Error>> {
     let adapters = crate::test_helpers::test_adapters();
     let governance = crate::test_helpers::test_governance();
     let (input_tx, _input_rx) = mpsc::channel(8);
@@ -95,10 +95,11 @@ async fn update_graph_fails_when_relation_missing_from_state() {
         !result,
         "update_graph must fail if relation is not in state"
     );
+    Ok(())
 }
 
 #[tokio::test]
-async fn update_graph_fails_when_adapter_fails() {
+async fn update_graph_fails_when_adapter_fails() -> Result<(), Box<dyn std::error::Error>> {
     let relation_id = RelationId::new(1);
     let mut state = KernelState::new();
     state.relations.insert(
@@ -135,4 +136,5 @@ async fn update_graph_fails_when_adapter_fails() {
     .await;
 
     assert!(!result, "update_graph must fail if adapter returns error");
+    Ok(())
 }

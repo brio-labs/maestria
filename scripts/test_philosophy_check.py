@@ -52,6 +52,19 @@ class PhilosophyCheckTests(unittest.TestCase):
 
             self.assertEqual(PHILOSOPHY_CHECK.scan_markers(), ["crates/kernel/maestria-domain/src/lib.rs"])
 
+    def test_scan_rust_lint_bypasses_reports_allow_attribute(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.configure_root(root)
+            source = root / "crates" / "apps" / "example" / "src" / "lib.rs"
+            source.parent.mkdir(parents=True)
+            source.write_text("#[allow(dead_code)]\nfn example() {}\n", encoding="utf-8")
+
+            self.assertEqual(
+                PHILOSOPHY_CHECK.scan_rust_lint_bypasses(),
+                ["crates/apps/example/src/lib.rs"],
+            )
+
     def test_domain_scan_reports_runtime_tokens_and_production_failures(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

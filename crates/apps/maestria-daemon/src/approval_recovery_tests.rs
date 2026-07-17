@@ -35,109 +35,103 @@ fn pending_record(id: u64, task_id: u64) -> ApprovalRecord {
 }
 
 #[test]
-fn reconciliation_repairs_stale_repo_after_crash() {
-    let store = SqliteStore::in_memory().expect("open store");
-    store.save(&pending_record(42, 1)).expect("save pending");
+fn reconciliation_repairs_stale_repo_after_crash() -> Result<(), Box<dyn std::error::Error>> {
+    let store = SqliteStore::in_memory()?;
+    store.save(&pending_record(42, 1))?;
 
     let mut state = KernelState::new();
     let task_id = TaskId::new(1);
     state.tasks.insert(task_id, make_task(1));
     let approval_id = ApprovalId::new(42);
-    state
-        .apply_input(DomainInput::ApprovalResolved(ApprovalDecision {
-            approval_id,
-            task_id,
-            approved: true,
-        }))
-        .expect("domain should accept approval");
+    state.apply_input(DomainInput::ApprovalResolved(ApprovalDecision {
+        approval_id,
+        task_id,
+        approved: true,
+    }))?;
 
-    let pending = store.find_pending().expect("find pending");
+    let pending = store.find_pending()?;
     assert_eq!(pending.len(), 1, "repo still pending before reconciliation");
-    reconcile_approval_repo(&state, &store).expect("reconcile");
+    reconcile_approval_repo(&state, &store)?;
     let record = store
-        .find_by_id(approval_id)
-        .expect("find")
-        .expect("record should exist");
+        .find_by_id(approval_id)?
+        .ok_or_else(|| std::io::Error::other("approval record missing"))?;
     assert_eq!(record.status, ApprovalStatus::Approved);
+    Ok(())
 }
 
 #[test]
-fn reconciliation_handles_denied_approval() {
-    let store = SqliteStore::in_memory().expect("open store");
-    store.save(&pending_record(7, 1)).expect("save pending");
+fn reconciliation_handles_denied_approval() -> Result<(), Box<dyn std::error::Error>> {
+    let store = SqliteStore::in_memory()?;
+    store.save(&pending_record(7, 1))?;
 
     let mut state = KernelState::new();
     let task_id = TaskId::new(1);
     let mut task = make_task(1);
     task.status = TaskStatus::Blocked;
     state.tasks.insert(task_id, task);
-    state
-        .apply_input(DomainInput::ApprovalResolved(ApprovalDecision {
-            approval_id: ApprovalId::new(7),
-            task_id,
-            approved: false,
-        }))
-        .expect("domain should accept denied approval");
+    state.apply_input(DomainInput::ApprovalResolved(ApprovalDecision {
+        approval_id: ApprovalId::new(7),
+        task_id,
+        approved: false,
+    }))?;
 
-    reconcile_approval_repo(&state, &store).expect("reconcile");
-    let Some(record) = store.find_by_id(ApprovalId::new(7)).expect("find") else {
-        panic!("record missing");
-    };
+    reconcile_approval_repo(&state, &store)?;
+    let record = store
+        .find_by_id(ApprovalId::new(7))?
+        .ok_or("record missing")?;
     assert_eq!(record.status, ApprovalStatus::Denied);
+    Ok(())
 }
 
 #[test]
-fn reconciliation_idempotent_across_restarts() {
-    let store = SqliteStore::in_memory().expect("open store");
-    store.save(&pending_record(1, 1)).expect("save pending");
+fn reconciliation_idempotent_across_restarts() -> Result<(), Box<dyn std::error::Error>> {
+    let store = SqliteStore::in_memory()?;
+    store.save(&pending_record(1, 1))?;
 
     let mut state = KernelState::new();
     let task_id = TaskId::new(1);
     state.tasks.insert(task_id, make_task(1));
-    state
-        .apply_input(DomainInput::ApprovalResolved(ApprovalDecision {
-            approval_id: ApprovalId::new(1),
-            task_id,
-            approved: true,
-        }))
-        .expect("first resolution");
+    state.apply_input(DomainInput::ApprovalResolved(ApprovalDecision {
+        approval_id: ApprovalId::new(1),
+        task_id,
+        approved: true,
+    }))?;
 
-    reconcile_approval_repo(&state, &store).expect("first reconcile");
-    let Some(record) = store.find_by_id(ApprovalId::new(1)).expect("find") else {
-        panic!("record missing");
-    };
+    reconcile_approval_repo(&state, &store)?;
+    let record = store
+        .find_by_id(ApprovalId::new(1))?
+        .ok_or("record missing")?;
     assert_eq!(record.status, ApprovalStatus::Approved);
 
-    reconcile_approval_repo(&state, &store).expect("second reconcile");
-    let Some(record2) = store.find_by_id(ApprovalId::new(1)).expect("find") else {
-        panic!("record missing");
-    };
+    reconcile_approval_repo(&state, &store)?;
+    let record2 = store
+        .find_by_id(ApprovalId::new(1))?
+        .ok_or("record missing")?;
     assert_eq!(record2.status, ApprovalStatus::Approved);
+    Ok(())
 }
 
 #[test]
-fn reconciliation_errors_on_missing_record() {
-    let store = SqliteStore::in_memory().expect("open store");
+fn reconciliation_errors_on_missing_record() -> Result<(), Box<dyn std::error::Error>> {
+    let store = SqliteStore::in_memory()?;
 
     let mut state = KernelState::new();
     let task_id = TaskId::new(1);
     state.tasks.insert(task_id, make_task(1));
-    state
-        .apply_input(DomainInput::ApprovalResolved(ApprovalDecision {
-            approval_id: ApprovalId::new(99),
-            task_id,
-            approved: true,
-        }))
-        .expect("domain should accept approval");
+    state.apply_input(DomainInput::ApprovalResolved(ApprovalDecision {
+        approval_id: ApprovalId::new(99),
+        task_id,
+        approved: true,
+    }))?;
 
     let result = reconcile_approval_repo(&state, &store);
     assert!(
         result.is_err(),
         "reconciliation must error on missing record"
     );
-    let Err(err) = result else {
-        panic!("expected error");
-    };
-    let err = err.to_string();
-    assert!(err.contains("not found"),);
+    if let Err(err) = result {
+        let err_str = err.to_string();
+        assert!(err_str.contains("not found"));
+    }
+    Ok(())
 }

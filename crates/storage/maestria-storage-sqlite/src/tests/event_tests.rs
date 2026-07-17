@@ -6,8 +6,8 @@ use rusqlite::params;
 use super::registered;
 
 #[test]
-fn event_append_scan_order_and_filter() {
-    let store = SqliteStore::in_memory().expect("test setup");
+fn event_append_scan_order_and_filter() -> Result<(), Box<dyn std::error::Error>> {
+    let store = SqliteStore::in_memory()?;
     let first = registered(1, 1, 7);
     let second = DomainEventEnvelope {
         id: EventId::new(2),
@@ -43,33 +43,30 @@ fn event_append_scan_order_and_filter() {
         },
     };
 
-    store.append(first.clone()).expect("test setup");
-    store.append(second.clone()).expect("test setup");
-    store.append(third.clone()).expect("test setup");
+    store.append(first.clone())?;
+    store.append(second.clone())?;
+    store.append(third.clone())?;
     assert!(matches!(
         store.append(out_of_order),
         Err(PortError::Conflict { .. })
     ));
 
     assert_eq!(
-        store
-            .scan(EventFilter { artifact_id: None })
-            .expect("full event scan"),
+        store.scan(EventFilter { artifact_id: None })?,
         vec![first.clone(), second.clone(), third.clone()]
     );
     assert_eq!(
-        store
-            .scan(EventFilter {
-                artifact_id: Some(ArtifactId::new(7)),
-            })
-            .expect("filtered event scan"),
+        store.scan(EventFilter {
+            artifact_id: Some(ArtifactId::new(7)),
+        })?,
         vec![first, second, third]
     );
+    Ok(())
 }
 
 #[test]
-fn artifact_filter_includes_evidence_and_search_events() {
-    let store = SqliteStore::in_memory().expect("test setup");
+fn artifact_filter_includes_evidence_and_search_events() -> Result<(), Box<dyn std::error::Error>> {
+    let store = SqliteStore::in_memory()?;
     let evidence = DomainEventEnvelope {
         id: EventId::new(1),
         sequence: SequenceNumber::new(1),
@@ -98,24 +95,23 @@ fn artifact_filter_includes_evidence_and_search_events() {
     };
     let unrelated = registered(3, 3, 9);
 
-    store.append(evidence.clone()).expect("evidence append");
-    store.append(search.clone()).expect("search append");
-    store.append(unrelated).expect("unrelated append");
+    store.append(evidence.clone())?;
+    store.append(search.clone())?;
+    store.append(unrelated)?;
 
     assert_eq!(
-        store
-            .scan(EventFilter {
-                artifact_id: Some(ArtifactId::new(7)),
-            })
-            .expect("filtered event scan"),
+        store.scan(EventFilter {
+            artifact_id: Some(ArtifactId::new(7)),
+        })?,
         vec![evidence, search]
     );
+    Ok(())
 }
 
 #[test]
-fn duplicate_event_id_or_sequence_conflicts() {
-    let store = SqliteStore::in_memory().expect("test setup");
-    store.append(registered(1, 1, 1)).expect("test setup");
+fn duplicate_event_id_or_sequence_conflicts() -> Result<(), Box<dyn std::error::Error>> {
+    let store = SqliteStore::in_memory()?;
+    store.append(registered(1, 1, 1))?;
 
     assert!(matches!(
         store.append(registered(1, 2, 1)),
@@ -125,6 +121,7 @@ fn duplicate_event_id_or_sequence_conflicts() {
         store.append(registered(2, 1, 1)),
         Err(PortError::Conflict { .. })
     ));
+    Ok(())
 }
 
 #[test]
@@ -288,8 +285,8 @@ fn task_evidence_linked_event_round_trips() -> Result<(), PortError> {
 }
 
 #[test]
-fn search_executed_roundtrips_through_appended_scan() {
-    let store = SqliteStore::in_memory().expect("test setup");
+fn search_executed_roundtrips_through_appended_scan() -> Result<(), Box<dyn std::error::Error>> {
+    let store = SqliteStore::in_memory()?;
     let envelope = DomainEventEnvelope {
         id: EventId::new(1),
         sequence: SequenceNumber::new(1),
@@ -300,13 +297,10 @@ fn search_executed_roundtrips_through_appended_scan() {
             at: LogicalTick::new(3),
         },
     };
-    store
-        .append(envelope.clone())
-        .expect("append search executed");
-    let scanned = store
-        .scan(EventFilter { artifact_id: None })
-        .expect("scan events");
+    store.append(envelope.clone())?;
+    let scanned = store.scan(EventFilter { artifact_id: None })?;
     assert_eq!(scanned, vec![envelope]);
+    Ok(())
 }
 
 #[test]
@@ -349,7 +343,7 @@ fn search_knowledge_completed_roundtrips_through_appended_scan() -> Result<(), P
 }
 
 #[test]
-fn document_tree_captured_event_round_trips() -> Result<(), PortError> {
+fn document_tree_captured_event_round_trips() -> Result<(), Box<dyn std::error::Error>> {
     let store = SqliteStore::in_memory()?;
     let node = StructureNode {
         id: StructureNodeId::new(42),
@@ -370,8 +364,7 @@ fn document_tree_captured_event_round_trips() -> Result<(), PortError> {
         event: DomainEvent::DocumentTreeCaptured {
             artifact_id: ArtifactId::new(3),
             artifact_version_id: ArtifactVersionId::new(5),
-            content_hash: ContentHash::new(format!("sha256:{}", "a".repeat(64)))
-                .expect("test hash is valid"),
+            content_hash: ContentHash::new(format!("sha256:{}", "a".repeat(64)))?,
             root_id: StructureNodeId::new(42),
             nodes: vec![node],
         },

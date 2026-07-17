@@ -21,6 +21,7 @@ pub use rust_source::RustSourceParser;
 
 #[cfg(test)]
 mod tests {
+    use std::error::Error;
     use std::path::PathBuf;
 
     use maestria_domain::ArtifactId;
@@ -50,13 +51,11 @@ mod tests {
     }
 
     #[test]
-    fn markdown_chunks_by_headings_and_creates_summary_card() {
-        let parsed = MarkdownParser::new()
-            .parse(
-                handle("guide.md", b"intro\n\n# One\nalpha\n\n## Two\nbeta\n"),
-                context(7),
-            )
-            .expect("markdown parses");
+    fn markdown_chunks_by_headings_and_creates_summary_card() -> Result<(), Box<dyn Error>> {
+        let parsed = MarkdownParser::new().parse(
+            handle("guide.md", b"intro\n\n# One\nalpha\n\n## Two\nbeta\n"),
+            context(7),
+        )?;
 
         assert_eq!(parsed.chunks.len(), 3);
         assert_eq!(parsed.chunks[0].text, "intro");
@@ -64,11 +63,11 @@ mod tests {
         assert_eq!(parsed.chunks[2].text, "## Two\nbeta");
         assert_eq!(
             parsed.chunks[0].chunk_id,
-            chunk_id_for(ArtifactId::new(7), 0).expect("chunk id")
+            chunk_id_for(ArtifactId::new(7), 0)?
         );
         assert_eq!(
             parsed.chunks[2].chunk_id,
-            chunk_id_for(ArtifactId::new(7), 2).expect("chunk id")
+            chunk_id_for(ArtifactId::new(7), 2)?
         );
         assert_eq!(parsed.cards.len(), 1);
         assert_eq!(
@@ -76,34 +75,32 @@ mod tests {
             card_id_for(ArtifactId::new(7))
         );
         assert_eq!(parsed.cards[0].card.title, "intro");
+        Ok(())
     }
 
     #[test]
-    fn plain_text_chunks_by_paragraph_groups() {
-        let parsed = PlainTextParser::new()
-            .parse(
-                handle("notes.txt", b"alpha\ncontinues\n\n beta \n\n\n gamma"),
-                context(3),
-            )
-            .expect("plain text parses");
+    fn plain_text_chunks_by_paragraph_groups() -> Result<(), Box<dyn Error>> {
+        let parsed = PlainTextParser::new().parse(
+            handle("notes.txt", b"alpha\ncontinues\n\n beta \n\n\n gamma"),
+            context(3),
+        )?;
 
         assert_eq!(parsed.chunks.len(), 3);
         assert_eq!(parsed.chunks[0].text, "alpha\ncontinues");
         assert_eq!(parsed.chunks[1].text, "beta");
         assert_eq!(parsed.chunks[2].text, "gamma");
+        Ok(())
     }
 
     #[test]
-    fn rust_source_chunks_by_structural_starts_and_test_attributes() {
-        let parsed = RustSourceParser::new()
-            .parse(
-                handle(
-                    "lib.rs",
-                    b"use std::fmt;\n\npub struct Thing;\n\nimpl Thing {\n    pub fn new() -> Self { Self }\n}\n\n#[test]\nfn makes_thing() {}\n",
-                ),
-                context(11),
-            )
-            .expect("rust source parses");
+    fn rust_source_chunks_by_structural_starts_and_test_attributes() -> Result<(), Box<dyn Error>> {
+        let parsed = RustSourceParser::new().parse(
+            handle(
+                "lib.rs",
+                b"use std::fmt;\n\npub struct Thing;\n\nimpl Thing {\n    pub fn new() -> Self { Self }\n}\n\n#[test]\nfn makes_thing() {}\n",
+            ),
+            context(11),
+        )?;
 
         assert_eq!(parsed.chunks.len(), 5);
         assert_eq!(parsed.chunks[0].text, "use std::fmt;");
@@ -111,26 +108,24 @@ mod tests {
         assert_eq!(parsed.chunks[2].text, "impl Thing {");
         assert!(parsed.chunks[3].text.starts_with("pub fn new"));
         assert!(parsed.chunks[4].text.starts_with("#[test]\nfn makes_thing"));
+        Ok(())
     }
-
     #[test]
-    fn cargo_toml_chunks_by_table_sections() {
-        let parsed = CargoTomlParser::new()
-            .parse(
-                handle(
-                    "Cargo.toml",
-                    b"license = \"MIT\"\n\n[package]\nname = \"demo\"\n\n[dependencies]\nmaestria = \"0.1\"\n",
-                ),
-                context(5),
-            )
-            .expect("cargo toml parses");
+    fn cargo_toml_chunks_by_table_sections() -> Result<(), Box<dyn Error>> {
+        let parsed = CargoTomlParser::new().parse(
+            handle(
+                "Cargo.toml",
+                b"license = \"MIT\"\n\n[package]\nname = \"demo\"\n\n[dependencies]\nmaestria = \"0.1\"\n",
+            ),
+            context(5),
+        )?;
 
         assert_eq!(parsed.chunks.len(), 3);
         assert_eq!(parsed.chunks[0].text, "license = \"MIT\"");
         assert_eq!(parsed.chunks[1].text, "[package]\nname = \"demo\"");
         assert_eq!(parsed.chunks[2].text, "[dependencies]\nmaestria = \"0.1\"");
+        Ok(())
     }
-
     #[test]
     fn registry_rejects_unsupported_extension() {
         let registry = ParserRegistry::with_defaults();

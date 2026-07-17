@@ -27,13 +27,13 @@ struct TempDir(PathBuf);
 static NEXT_TEMP_DIR: AtomicU64 = AtomicU64::new(0);
 
 impl TempDir {
-    fn new() -> Self {
+    fn new() -> Result<Self, Box<dyn std::error::Error>> {
         let suffix = NEXT_TEMP_DIR.fetch_add(1, Ordering::Relaxed);
         let dir = env::temp_dir().join(format!("maestria-test-{}-{suffix}", std::process::id()));
         // Best-effort cleanup of any previous run that left the directory
         let _ = fs::remove_dir_all(&dir);
-        fs::create_dir_all(&dir).expect("create temp dir");
-        Self(dir)
+        fs::create_dir_all(&dir)?;
+        Ok(Self(dir))
     }
 
     fn path(&self) -> &Path {
@@ -47,30 +47,35 @@ impl Drop for TempDir {
     }
 }
 
-fn setup_layout(root: &Path, notes_dir: &Path) -> InstanceLayout {
+fn setup_layout(
+    root: &Path,
+    notes_dir: &Path,
+) -> Result<InstanceLayout, Box<dyn std::error::Error>> {
     let plan = InstanceService::init_instance_with_roots(
         root.to_path_buf(),
         vec![notes_dir.to_path_buf()],
-    )
-    .expect("init instance");
+    )?;
     for dir in &plan.directories {
-        fs::create_dir_all(dir).expect("create dir");
+        fs::create_dir_all(dir)?;
     }
-    fs::write(&plan.manifest_path, plan.manifest_contents.as_bytes()).expect("write manifest");
-    plan.layout
+    fs::write(&plan.manifest_path, plan.manifest_contents.as_bytes())?;
+    Ok(plan.layout)
 }
 
-async fn wait_for_indexed(db_path: &Path, artifact_id: ArtifactId) -> bool {
+async fn wait_for_indexed(
+    db_path: &Path,
+    artifact_id: ArtifactId,
+) -> Result<bool, Box<dyn std::error::Error>> {
     for _ in 0..60 {
         if let Ok(db) = SqliteStore::open(db_path)
             && let Ok(Some(artifact)) = db.get(artifact_id)
             && artifact.index_status == IndexStatus::Indexed
         {
-            return true;
+            return Ok(true);
         }
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
-    false
+    Ok(false)
 }
 
 struct TestEnv {
@@ -84,19 +89,19 @@ struct TestEnv {
     source_path: String,
 }
 
-fn prepare_test_env(tmp: &TempDir) -> TestEnv {
+fn prepare_test_env(tmp: &TempDir) -> Result<TestEnv, Box<dyn std::error::Error>> {
     let root = tmp.path();
     let notes = root.join("notes");
-    fs::create_dir_all(&notes).expect("create notes");
+    fs::create_dir_all(&notes)?;
 
     // Write test content
     let test_path = notes.join("graph-rag.md");
     let source_path = test_path.to_string_lossy().to_string();
     let test_content = "# GraphRAG Survey\n\nGraph Retrieval-Augmented Generation combines knowledge graphs with RAG to improve multi-hop reasoning.\n";
-    fs::write(&test_path, test_content).expect("write test file");
+    fs::write(&test_path, test_content)?;
 
-    let layout = setup_layout(root, &notes);
-    let bytes = fs::read(&test_path).expect("read test file");
+    let layout = setup_layout(root, &notes)?;
+    let bytes = fs::read(&test_path)?;
     let hash = content_hash(&bytes);
 
     // Build runtime with StrictResearch profile to allow indexing
@@ -104,8 +109,7 @@ fn prepare_test_env(tmp: &TempDir) -> TestEnv {
         &layout,
         KernelState::new(),
         AutonomyProfile::StrictResearch,
-    )
-    .expect("build runtime");
+    )?;
 
     let shutdown = shutdown_token.clone();
     let runtime_handle = tokio::spawn(async move {
@@ -113,8 +117,7 @@ fn prepare_test_env(tmp: &TempDir) -> TestEnv {
     });
 
     let artifact_id = ArtifactId::new(1);
-
-    TestEnv {
+    Ok(TestEnv {
         layout,
         input_tx,
         shutdown_token,
@@ -123,7 +126,7 @@ fn prepare_test_env(tmp: &TempDir) -> TestEnv {
         hash,
         bytes,
         source_path,
-    }
+    })
 }
 
 struct IndexResult {
@@ -139,7 +142,7 @@ async fn index_and_verify_artifact(
     hash: &str,
     bytes: &[u8],
     source_path: &str,
-) -> IndexResult {
+) -> Result<IndexResult, Box<dyn std::error::Error>> {
     // === INDEX via DomainInput ===
     input_tx
         .send(DomainInput::ArtifactDetected(ArtifactDetected {
@@ -149,28 +152,32 @@ async fn index_and_verify_artifact(
             source_bytes: bytes.to_vec(),
             content_hash: hash.to_string(),
         }))
-        .await
-        .expect("send ArtifactDetected");
+        .await?;
 
     // Wait for IndexStatus::Indexed by polling the event log through a second connection
     assert!(
-        wait_for_indexed(db_path, artifact_id).await,
+        wait_for_indexed(db_path, artifact_id).await?,
         "artifact should reach Indexed status"
     );
 
     // Verify artifact state after indexing
-    let check_db = SqliteStore::open(db_path).expect("open check db");
+    let check_db = SqliteStore::open(db_path)?;
     let artifact = check_db
-        .get(artifact_id)
-        .expect("get artifact")
-        .expect("artifact should exist");
+        .get(artifact_id)?
+        .ok_or_else(|| std::io::Error::other("indexed artifact missing from store"))?;
     assert_eq!(artifact.index_status, IndexStatus::Indexed);
     assert_eq!(artifact.content_hash.as_deref(), Some(hash));
     assert!(!artifact.chunk_ids.is_empty(), "should have chunks");
     assert!(!artifact.evidence_ids.is_empty(), "should have evidence");
 
-    let evidence_id = *artifact.evidence_ids.first().expect("should have evidence");
-    let first_chunk_id = *artifact.chunk_ids.first().expect("should have chunk");
+    let evidence_id = *artifact
+        .evidence_ids
+        .first()
+        .ok_or_else(|| std::io::Error::other("indexed artifact has no evidence"))?;
+    let first_chunk_id = *artifact
+        .chunk_ids
+        .first()
+        .ok_or_else(|| std::io::Error::other("indexed artifact has no chunks"))?;
 
     // Count events for idempotence check
     let event_count = EventLog::scan(
@@ -178,16 +185,15 @@ async fn index_and_verify_artifact(
         EventFilter {
             artifact_id: Some(artifact_id),
         },
-    )
-    .expect("scan events")
+    )?
     .len();
     drop(check_db);
 
-    IndexResult {
+    Ok(IndexResult {
         evidence_id,
         first_chunk_id,
         event_count,
-    }
+    })
 }
 
 async fn attempt_idempotent_reindex(
@@ -198,7 +204,7 @@ async fn attempt_idempotent_reindex(
     bytes: &[u8],
     source_path: &str,
     expected_event_count: usize,
-) {
+) -> Result<(), Box<dyn std::error::Error>> {
     // === IDEMPOTENT RE-INDEX ===
     input_tx
         .send(DomainInput::ArtifactDetected(ArtifactDetected {
@@ -208,26 +214,25 @@ async fn attempt_idempotent_reindex(
             source_bytes: bytes.to_vec(),
             content_hash: hash.to_string(),
         }))
-        .await
-        .expect("send duplicate ArtifactDetected");
+        .await?;
 
     // Brief wait for the runtime to process the no-op input
     tokio::time::sleep(Duration::from_millis(300)).await;
 
-    let check_db = SqliteStore::open(db_path).expect("re-open check db");
+    let check_db = SqliteStore::open(db_path)?;
     let event_count_after = EventLog::scan(
         &check_db,
         EventFilter {
             artifact_id: Some(artifact_id),
         },
-    )
-    .expect("scan events after")
+    )?
     .len();
     assert_eq!(
         event_count_after, expected_event_count,
         "re-index should not produce new events for unchanged content"
     );
     drop(check_db);
+    Ok(())
 }
 
 fn search_and_open_evidence_after_restart(
@@ -235,11 +240,11 @@ fn search_and_open_evidence_after_restart(
     artifact_id: ArtifactId,
     evidence_id: EvidenceId,
     first_chunk_id: ChunkId,
-) {
+) -> Result<(), Box<dyn std::error::Error>> {
     // === RESTART SIMULATION ===
-    let sqlite = SqliteStore::open(&layout.database_path).expect("re-open sqlite");
-    let blobs = FsBlobStore::open(&layout.blobs_dir).expect("re-open blobs");
-    let search = TantivyFullTextIndex::open(&layout.full_text_index_dir).expect("re-open search");
+    let sqlite = SqliteStore::open(&layout.database_path)?;
+    let blobs = FsBlobStore::open(&layout.blobs_dir)?;
+    let search = TantivyFullTextIndex::open(&layout.full_text_index_dir)?;
     let parser = ParserRegistry::with_defaults();
 
     let core = CoreServices::new(CorePorts {
@@ -256,12 +261,10 @@ fn search_and_open_evidence_after_restart(
     });
 
     // === SEARCH AFTER RESTART ===
-    let results = core
-        .search(SearchInput {
-            query: "GraphRAG knowledge graphs".into(),
-            limit: 10,
-        })
-        .expect("search after restart");
+    let results = core.search(SearchInput {
+        query: "GraphRAG knowledge graphs".into(),
+        limit: 10,
+    })?;
 
     assert!(
         !results.pack.chunks.is_empty(),
@@ -278,9 +281,7 @@ fn search_and_open_evidence_after_restart(
     );
 
     // === OPEN EVIDENCE AFTER RESTART ===
-    let ev = core
-        .open_evidence(OpenEvidenceInput { evidence_id })
-        .expect("open evidence after restart");
+    let ev = core.open_evidence(OpenEvidenceInput { evidence_id })?;
 
     assert_eq!(
         ev.evidence.id, evidence_id,
@@ -291,12 +292,13 @@ fn search_and_open_evidence_after_restart(
         "excerpt should contain content"
     );
     assert_eq!(ev.artifact.id, artifact_id, "artifact should match");
+    Ok(())
 }
 
 #[tokio::test]
-async fn vertical_slice_init_index_search_evidence() {
-    let tmp = TempDir::new();
-    let env = prepare_test_env(&tmp);
+async fn vertical_slice_init_index_search_evidence() -> Result<(), Box<dyn std::error::Error>> {
+    let tmp = TempDir::new()?;
+    let env = prepare_test_env(&tmp)?;
 
     let IndexResult {
         evidence_id,
@@ -310,7 +312,7 @@ async fn vertical_slice_init_index_search_evidence() {
         &env.bytes,
         &env.source_path,
     )
-    .await;
+    .await?;
 
     attempt_idempotent_reindex(
         &env.input_tx,
@@ -321,24 +323,88 @@ async fn vertical_slice_init_index_search_evidence() {
         &env.source_path,
         event_count,
     )
-    .await;
+    .await?;
 
     // === STOP RUNTIME ===
     env.shutdown_token.cancel();
-    env.runtime_handle.await.expect("runtime task completes");
+    env.runtime_handle.await?;
 
     search_and_open_evidence_after_restart(
         &env.layout,
         env.artifact_id,
         evidence_id,
         first_chunk_id,
+    )?;
+    Ok(())
+}
+
+fn seed_stale_projections(
+    layout: &InstanceLayout,
+    artifact_id: ArtifactId,
+) -> Result<RelationId, Box<dyn std::error::Error>> {
+    let stale_relation_id = RelationId::new(999);
+    let graph = SqliteGraphIndex::open(layout.graph_index_dir.join("projection.db"))?;
+    graph.insert_relation(Relation {
+        id: stale_relation_id,
+        source: RelationEndpoint::Artifact(artifact_id),
+        kind: RelationKind::RelatedTo,
+        target: RelationEndpoint::Card(CardId::new(999)),
+        evidence_id: None,
+        confidence_milli: 1,
+        security: maestria_domain::SecurityMetadata::default(),
+    })?;
+
+    let vector = SqliteVectorIndex::open(layout.vector_index_dir.join("projection.db"))?;
+    vector.index_embeddings(vec![VectorEmbedding {
+        chunk_id: ChunkId::new(999),
+        vector: vec![1.0, 0.0],
+        provenance: EmbeddingProvenance {
+            content_hash: "stale".into(),
+            identity: maestria_ports::EmbeddingIdentity::legacy("stale", 2)?,
+            provider_id: "stale".into(),
+            model: "stale".into(),
+            model_version: "stale".into(),
+            disclosure: maestria_ports::ProviderDisclosure {
+                remote: false,
+                retention: maestria_ports::RetentionPolicy::NoRetention,
+            },
+        },
+    }])?;
+    Ok(stale_relation_id)
+}
+
+fn verify_projections_rebuilt(
+    layout: &InstanceLayout,
+    artifact_id: ArtifactId,
+    stale_relation_id: RelationId,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let graph = SqliteGraphIndex::open(layout.graph_index_dir.join("projection.db"))?;
+    let relations = graph.get_relations_for(RelationEndpoint::Artifact(artifact_id))?;
+    assert!(
+        relations
+            .iter()
+            .all(|relation| relation.id != stale_relation_id),
+        "recovery should remove stale graph relations"
     );
+
+    let vector = SqliteVectorIndex::open(layout.vector_index_dir.join("projection.db"))?;
+    let hits = vector.search_similar(VectorSearchQuery {
+        vector: vec![1.0, 0.0],
+        limit: 10,
+        ..Default::default()
+    })?;
+    assert!(
+        hits.is_empty(),
+        "disabled embeddings should clear stale vectors"
+    );
+    Ok(())
 }
 
 #[tokio::test]
-async fn vertical_slice_run_instance_restart_rebuilds_projections() {
-    let tmp = TempDir::new();
-    let env = prepare_test_env(&tmp);
+async fn vertical_slice_run_instance_restart_rebuilds_projections()
+-> Result<(), Box<dyn std::error::Error>> {
+    let tmp = TempDir::new()?;
+    let env = prepare_test_env(&tmp)?;
     let IndexResult {
         evidence_id,
         first_chunk_id,
@@ -351,46 +417,12 @@ async fn vertical_slice_run_instance_restart_rebuilds_projections() {
         &env.bytes,
         &env.source_path,
     )
-    .await;
+    .await?;
 
     env.shutdown_token.cancel();
-    env.runtime_handle.await.expect("initial runtime completes");
+    env.runtime_handle.await?;
 
-    let stale_relation_id = RelationId::new(999);
-    let graph = SqliteGraphIndex::open(env.layout.graph_index_dir.join("projection.db"))
-        .expect("open graph projection before interruption");
-    graph
-        .insert_relation(Relation {
-            id: stale_relation_id,
-            source: RelationEndpoint::Artifact(env.artifact_id),
-            kind: RelationKind::RelatedTo,
-            target: RelationEndpoint::Card(CardId::new(999)),
-            evidence_id: None,
-            confidence_milli: 1,
-            security: maestria_domain::SecurityMetadata::default(),
-        })
-        .expect("seed stale graph relation");
-
-    let vector = SqliteVectorIndex::open(env.layout.vector_index_dir.join("projection.db"))
-        .expect("open vector projection before interruption");
-    vector
-        .index_embeddings(vec![VectorEmbedding {
-            chunk_id: ChunkId::new(999),
-            vector: vec![1.0, 0.0],
-            provenance: EmbeddingProvenance {
-                content_hash: "stale".into(),
-                identity: maestria_ports::EmbeddingIdentity::legacy("stale", 2)
-                    .expect("legacy identity"),
-                provider_id: "stale".into(),
-                model: "stale".into(),
-                model_version: "stale".into(),
-                disclosure: maestria_ports::ProviderDisclosure {
-                    remote: false,
-                    retention: maestria_ports::RetentionPolicy::NoRetention,
-                },
-            },
-        }])
-        .expect("seed stale vector row");
+    let stale_relation_id = seed_stale_projections(&env.layout, env.artifact_id)?;
 
     let shutdown = CancellationToken::new();
     let daemon = tokio::spawn(maestria_daemon::run_instance_with_shutdown(
@@ -399,41 +431,15 @@ async fn vertical_slice_run_instance_restart_rebuilds_projections() {
     ));
     tokio::time::sleep(Duration::from_millis(200)).await;
     shutdown.cancel();
-    daemon
-        .await
-        .expect("run_instance task joins")
-        .expect("run_instance completes after shutdown");
+    daemon.await??;
 
-    let graph = SqliteGraphIndex::open(env.layout.graph_index_dir.join("projection.db"))
-        .expect("reopen rebuilt graph projection");
-    let relations = graph
-        .get_relations_for(RelationEndpoint::Artifact(env.artifact_id))
-        .expect("read rebuilt graph projection");
-    assert!(
-        relations
-            .iter()
-            .all(|relation| relation.id != stale_relation_id),
-        "recovery should remove stale graph relations"
-    );
-
-    let vector = SqliteVectorIndex::open(env.layout.vector_index_dir.join("projection.db"))
-        .expect("reopen rebuilt vector projection");
-    let hits = vector
-        .search_similar(VectorSearchQuery {
-            vector: vec![1.0, 0.0],
-            limit: 10,
-            ..Default::default()
-        })
-        .expect("read rebuilt vector projection");
-    assert!(
-        hits.is_empty(),
-        "disabled embeddings should clear stale vectors"
-    );
+    verify_projections_rebuilt(&env.layout, env.artifact_id, stale_relation_id)?;
 
     search_and_open_evidence_after_restart(
         &env.layout,
         env.artifact_id,
         evidence_id,
         first_chunk_id,
-    );
+    )?;
+    Ok(())
 }

@@ -12,7 +12,8 @@ use std::time::Duration;
 use tokio::sync::{RwLock, mpsc};
 
 #[tokio::test]
-async fn parse_artifact_barrier_blocks_parse_until_persistence_observable() {
+async fn parse_artifact_barrier_blocks_parse_until_persistence_observable()
+-> Result<(), Box<dyn std::error::Error>> {
     let event_log = Arc::new(InMemoryEventLog::new());
     let artifact_id = ArtifactId::new(99);
     let source_bytes = b"fn main() {}".to_vec();
@@ -21,9 +22,7 @@ async fn parse_artifact_barrier_blocks_parse_until_persistence_observable() {
     // Store the blob and record its blob_id so the pre-populated event
     // carries the same identity the handler will compute.
     let blob_store = InMemoryBlobStore::new();
-    let blob_id = blob_store
-        .put(source_bytes.clone())
-        .expect("put should succeed");
+    let blob_id = blob_store.put(source_bytes.clone())?;
 
     // Populate the event log with a ParserStarted envelope carrying the
     // exact artifact_id, blob_id, _and_ content_hash that the handler
@@ -75,10 +74,12 @@ async fn parse_artifact_barrier_blocks_parse_until_persistence_observable() {
         result,
         "ParseArtifact should succeed when ParserStarted is already observable"
     );
+    Ok(())
 }
 
 #[tokio::test]
-async fn parse_artifact_barrier_timeout_without_persistence_returns_failure() {
+async fn parse_artifact_barrier_timeout_without_persistence_returns_failure()
+-> Result<(), Box<dyn std::error::Error>> {
     // Empty event log — nobody reads the input channel, so the sent
     // ParserStarted input is never persisted. The barrier must time out
     // and parsing must be skipped.
@@ -86,20 +87,18 @@ async fn parse_artifact_barrier_timeout_without_persistence_returns_failure() {
     let artifact_id = ArtifactId::new(42);
 
     let artifact_repo = InMemoryArtifactRepository::new();
-    artifact_repo
-        .put(Artifact {
-            id: artifact_id,
-            title: "timeout-test".to_string(),
-            chunk_ids: BTreeSet::new(),
-            card_ids: BTreeSet::new(),
-            claim_ids: BTreeSet::new(),
-            evidence_ids: BTreeSet::new(),
-            index_status: IndexStatus::Unindexed,
-            content_hash: None,
-            parse_status: None,
-            security: maestria_domain::SecurityMetadata::default(),
-        })
-        .expect("pre-populated artifact should be accepted");
+    artifact_repo.put(Artifact {
+        id: artifact_id,
+        title: "timeout-test".to_string(),
+        chunk_ids: BTreeSet::new(),
+        card_ids: BTreeSet::new(),
+        claim_ids: BTreeSet::new(),
+        evidence_ids: BTreeSet::new(),
+        index_status: IndexStatus::Unindexed,
+        content_hash: None,
+        parse_status: None,
+        security: maestria_domain::SecurityMetadata::default(),
+    })?;
 
     let adapters = Adapters {
         event_log: event_log.clone(),
@@ -131,4 +130,5 @@ async fn parse_artifact_barrier_timeout_without_persistence_returns_failure() {
         !result,
         "ParseArtifact with persistence barrier must fail when ParserStarted is never persisted"
     );
+    Ok(())
 }

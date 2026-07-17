@@ -93,3 +93,7 @@ impl KernelState {
         envelope
     }
 }
+
+pub(crate) use card::ApplyCardCreatedArgs;
+pub(crate) use evidence::ApplyEvidenceRecordedArgs;
+pub(crate) use relation::ApplyRelationCreatedArgs;

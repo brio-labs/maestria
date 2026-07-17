@@ -2,6 +2,16 @@ use crate::provenance::evidence_id_for;
 use crate::security::SecurityMetadata;
 use crate::types::*;
 
+pub(crate) struct ApplyEvidenceRecordedArgs<'a> {
+    pub evidence_id: EvidenceId,
+    pub artifact_id: ArtifactId,
+    pub claim_id: Option<ClaimId>,
+    pub kind: &'a EvidenceKind,
+    pub excerpt: &'a str,
+    pub observed_at: LogicalTick,
+    pub security: &'a SecurityMetadata,
+}
+
 impl KernelState {
     // ── Deterministic evidence helpers ────────────────────────────
 
@@ -283,18 +293,19 @@ impl KernelState {
     }
 
     // ── Replay apply ─────────────────────────────────────────────
-
-    #[allow(clippy::too_many_arguments)]
     pub(crate) fn apply_evidence_recorded(
         &mut self,
-        evidence_id: EvidenceId,
-        artifact_id: ArtifactId,
-        claim_id: Option<ClaimId>,
-        kind: &EvidenceKind,
-        excerpt: &str,
-        observed_at: LogicalTick,
-        security: &SecurityMetadata,
+        args: ApplyEvidenceRecordedArgs<'_>,
     ) -> Result<(), DomainError> {
+        let ApplyEvidenceRecordedArgs {
+            evidence_id,
+            artifact_id,
+            claim_id,
+            kind,
+            excerpt,
+            observed_at,
+            security,
+        } = args;
         if !self.artifacts.contains_key(&artifact_id) {
             return Err(DomainError::MissingArtifact { id: artifact_id });
         }

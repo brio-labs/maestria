@@ -13,16 +13,14 @@ fn empty_bytes_triggers_invalid_input_error() {
 }
 
 #[test]
-fn deterministic_artifact_id_and_content_hash_from_same_input() {
+fn deterministic_artifact_id_and_content_hash_from_same_input()
+-> Result<(), Box<dyn std::error::Error>> {
     let path = PathBuf::from("notes/project.md");
     let bytes = b"# Project Notes\n\nFirst evidence block.\n".to_vec();
 
-    let first = build_artifact_detected_input(&path, bytes.clone())
-        .expect("valid input must produce DomainInput");
-    let second = build_artifact_detected_input(&path, bytes.clone())
-        .expect("same input must produce DomainInput");
-    let third =
-        build_artifact_detected_input(&path, bytes).expect("same input must produce DomainInput");
+    let first = build_artifact_detected_input(&path, bytes.clone())?;
+    let second = build_artifact_detected_input(&path, bytes.clone())?;
+    let third = build_artifact_detected_input(&path, bytes)?;
 
     // All three must be identical — pure determinism.
     assert_eq!(first, second);
@@ -37,7 +35,7 @@ fn deterministic_artifact_id_and_content_hash_from_same_input() {
         content_hash,
     }) = &first
     else {
-        panic!("expected ArtifactDetected, got {first:?}");
+        return Err(format!("expected ArtifactDetected, got {first:?}").into());
     };
     assert_eq!(source_path, "notes/project.md");
     assert_eq!(title, "project.md");
@@ -45,36 +43,38 @@ fn deterministic_artifact_id_and_content_hash_from_same_input() {
     assert!(!content_hash.is_empty());
     // artifact_id is deterministic for the given path+bytes fixture.
     assert_eq!(artifact_id.value(), 421114891);
+    Ok(())
 }
 
 #[test]
-fn different_bytes_produce_different_ids() {
+fn different_bytes_produce_different_ids() -> Result<(), Box<dyn std::error::Error>> {
     let path = PathBuf::from("notes/a.md");
-    let a = build_artifact_detected_input(&path, b"alpha".to_vec()).expect("valid input");
-    let b = build_artifact_detected_input(&path, b"beta".to_vec()).expect("valid input");
+    let a = build_artifact_detected_input(&path, b"alpha".to_vec())?;
+    let b = build_artifact_detected_input(&path, b"beta".to_vec())?;
 
     // Different content → different DomainInput.
     assert_ne!(a, b);
+    Ok(())
 }
 
 #[test]
-fn different_paths_produce_different_ids() {
+fn different_paths_produce_different_ids() -> Result<(), Box<dyn std::error::Error>> {
     let bytes = b"same content".to_vec();
-    let a = build_artifact_detected_input(&PathBuf::from("notes/one.md"), bytes.clone())
-        .expect("valid input");
-    let b = build_artifact_detected_input(&PathBuf::from("notes/two.md"), bytes.clone())
-        .expect("valid input");
+    let a = build_artifact_detected_input(&PathBuf::from("notes/one.md"), bytes.clone())?;
+    let b = build_artifact_detected_input(&PathBuf::from("notes/two.md"), bytes.clone())?;
 
     assert_ne!(a, b);
+    Ok(())
 }
 
 #[test]
-fn title_falls_back_to_artifact_when_path_has_no_filename() {
-    let result = build_artifact_detected_input(&PathBuf::from("."), b"content".to_vec())
-        .expect("valid input");
+fn title_falls_back_to_artifact_when_path_has_no_filename() -> Result<(), Box<dyn std::error::Error>>
+{
+    let result = build_artifact_detected_input(&PathBuf::from("."), b"content".to_vec())?;
     let DomainInput::ArtifactDetected(ArtifactDetected { title, .. }) = &result else {
-        panic!("expected ArtifactDetected");
+        return Err("expected ArtifactDetected".into());
     };
     // title_for_path returns "artifact" when filename is absent or empty.
     assert_eq!(title, "artifact");
+    Ok(())
 }

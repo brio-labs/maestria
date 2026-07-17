@@ -1,3 +1,5 @@
+use std::error::Error;
+
 use maestria_domain::*;
 
 fn root() -> StructureNode {
@@ -15,13 +17,12 @@ fn root() -> StructureNode {
     }
 }
 
-fn parsed_result(status: ParseStatus) -> ParserResult {
+fn parsed_result(status: ParseStatus) -> Result<ParserResult, Box<dyn Error>> {
     let node = root();
-    ParserResult {
+    Ok(ParserResult {
         artifact_id: ArtifactId::new(1),
         artifact_version_id: ArtifactVersionId::new(2),
-        content_hash: ContentHash::new("sha256:".to_owned() + &"a".repeat(64))
-            .expect("valid test hash"),
+        content_hash: ContentHash::new("sha256:".to_owned() + &"a".repeat(64))?,
         status,
         tree_root_id: (status == ParseStatus::Parsed).then_some(node.id),
         tree_nodes: (status == ParseStatus::Parsed)
@@ -69,11 +70,11 @@ fn parsed_result(status: ParseStatus) -> ParserResult {
         } else {
             Vec::new()
         },
-    }
+    })
 }
 
 #[test]
-fn parsed_provenance_survives_event_replay() {
+fn parsed_provenance_survives_event_replay() -> Result<(), Box<dyn Error>> {
     let inputs = vec![
         DomainInput::ArtifactDetected(ArtifactDetected {
             artifact_id: ArtifactId::new(1),
@@ -82,11 +83,11 @@ fn parsed_provenance_survives_event_replay() {
             source_bytes: b"# notes".to_vec(),
             content_hash: "sha256:source".to_owned(),
         }),
-        DomainInput::ParserCompleted(parsed_result(ParseStatus::Parsed)),
+        DomainInput::ParserCompleted(parsed_result(ParseStatus::Parsed)?),
     ];
 
-    let (state, events, _) = replay_inputs(&inputs).expect("inputs replay");
-    let rebuilt = replay_events(&events).expect("event replay");
+    let (state, events, _) = replay_inputs(&inputs)?;
+    let rebuilt = replay_events(&events)?;
 
     assert_eq!(state, rebuilt);
     assert_eq!(state.chunks[&ChunkId::new(11)].representations.len(), 2);
@@ -101,10 +102,11 @@ fn parsed_provenance_survives_event_replay() {
         state.cards[&CardId::new(12)].node_id,
         StructureNodeId::new(10)
     );
+    Ok(())
 }
 
 #[test]
-fn non_parsed_status_is_replayed_without_index_work() {
+fn non_parsed_status_is_replayed_without_index_work() -> Result<(), Box<dyn Error>> {
     let inputs = vec![
         DomainInput::ArtifactDetected(ArtifactDetected {
             artifact_id: ArtifactId::new(1),
@@ -113,11 +115,11 @@ fn non_parsed_status_is_replayed_without_index_work() {
             source_bytes: b"opaque".to_vec(),
             content_hash: "sha256:source".to_owned(),
         }),
-        DomainInput::ParserCompleted(parsed_result(ParseStatus::NeedsOcr)),
+        DomainInput::ParserCompleted(parsed_result(ParseStatus::NeedsOcr)?),
     ];
 
-    let (state, events, effects) = replay_inputs(&inputs).expect("inputs replay");
-    let rebuilt = replay_events(&events).expect("event replay");
+    let (state, events, effects) = replay_inputs(&inputs)?;
+    let rebuilt = replay_events(&events)?;
 
     assert_eq!(state, rebuilt);
     assert_eq!(
@@ -135,4 +137,5 @@ fn non_parsed_status_is_replayed_without_index_work() {
         effect,
         MaestriaEffect::IndexFullText(_) | MaestriaEffect::IndexVector(_)
     )));
+    Ok(())
 }

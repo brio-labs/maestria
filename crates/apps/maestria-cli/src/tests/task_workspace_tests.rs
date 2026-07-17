@@ -46,8 +46,9 @@ fn create_task_workspace_directories(
 }
 
 #[test]
-fn task_workspace_directory_is_deterministic_and_created() {
-    let instance_dir = TestDirectory::create();
+fn task_workspace_directory_is_deterministic_and_created() -> Result<(), Box<dyn std::error::Error>>
+{
+    let instance_dir = TestDirectory::create()?;
     let layout = InstanceLayout::for_root(instance_dir.path());
     let task_id = TaskId::new(42);
 
@@ -56,10 +57,8 @@ fn task_workspace_directory_is_deterministic_and_created() {
         layout.active_tasks_dir.join("task_42")
     );
 
-    create_task_workspace_directories(&layout, task_id)
-        .expect("initial workspace creation succeeds");
-    create_task_workspace_directories(&layout, task_id)
-        .expect("repeated workspace creation succeeds");
+    create_task_workspace_directories(&layout, task_id)?;
+    create_task_workspace_directories(&layout, task_id)?;
 
     let task_directory = task_workspace_directory(&layout, task_id);
     assert!(
@@ -72,10 +71,11 @@ fn task_workspace_directory_is_deterministic_and_created() {
             "missing task workspace child directory: {subdirectory}"
         );
     }
+    Ok(())
 }
 
 #[test]
-fn is_db_locked_identifies_lock_and_busy_errors() {
+fn is_db_locked_identifies_lock_and_busy_errors() -> Result<(), Box<dyn std::error::Error>> {
     use anyhow::anyhow;
 
     let locked = anyhow!("database is locked");
@@ -89,4 +89,5 @@ fn is_db_locked_identifies_lock_and_busy_errors() {
 
     let other = anyhow!("file not found");
     assert!(!helpers::is_db_locked(&other));
+    Ok(())
 }

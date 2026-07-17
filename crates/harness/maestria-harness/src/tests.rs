@@ -27,67 +27,68 @@ fn shell_request(command: &str, budget_ms: u64) -> HarnessRequest {
 // ── success cases ──────────────────────────────────────────────────
 
 #[tokio::test]
-async fn echo_returns_stdout() {
+async fn echo_returns_stdout() -> Result<(), Box<dyn std::error::Error>> {
     let outcome = adapter()
         .execute(shell_request("echo hello world", 5000))
-        .await
-        .expect("echo should succeed");
+        .await?;
     assert_eq!(outcome.exit_code, 0);
     let stdout = String::from_utf8_lossy(&outcome.stdout);
     assert!(stdout.contains("hello world"), "stdout: {stdout:?}");
+    Ok(())
 }
 
 #[tokio::test]
-async fn pwd_returns_working_directory() {
+async fn pwd_returns_working_directory() -> Result<(), Box<dyn std::error::Error>> {
     let mut req = shell_request("pwd", 5000);
     req.working_directory = PathBuf::from("/tmp");
-    let outcome = adapter().execute(req).await.expect("pwd should succeed");
+    let outcome = adapter().execute(req).await?;
     assert_eq!(outcome.exit_code, 0);
     let stdout = String::from_utf8_lossy(&outcome.stdout);
     assert!(stdout.contains("/tmp"), "stdout: {stdout:?}");
+    Ok(())
 }
 
 #[tokio::test]
-async fn cat_reads_file_in_readable_root() {
+async fn cat_reads_file_in_readable_root() -> Result<(), Box<dyn std::error::Error>> {
     // Write a temporary file in /tmp, then cat it.
     let path = "/tmp/maestria_harness_cat_test.txt";
-    std::fs::write(path, b"meow\n").expect("write temp file");
+    std::fs::write(path, b"meow\n")?;
 
     let mut req = shell_request(&format!("cat {path}"), 5000);
     req.readable_roots = vec![PathBuf::from("/tmp")];
-    let outcome = adapter().execute(req).await.expect("cat should succeed");
+    let outcome = adapter().execute(req).await?;
     assert_eq!(outcome.exit_code, 0);
     assert_eq!(outcome.stdout, b"meow\n");
 
     std::fs::remove_file(path).ok();
+    Ok(())
 }
 
 // ── nonzero exit ───────────────────────────────────────────────────
 
 #[tokio::test]
-async fn cat_nonexistent_file_returns_nonzero() {
+async fn cat_nonexistent_file_returns_nonzero() -> Result<(), Box<dyn std::error::Error>> {
     let mut req = shell_request("cat /tmp/maestria_nonexistent_xyz", 5000);
     req.readable_roots = vec![PathBuf::from("/tmp")];
-    let outcome = adapter()
-        .execute(req)
-        .await
-        .expect("cat nonexistent should run");
+    let outcome = adapter().execute(req).await?;
     assert_ne!(
         outcome.exit_code, 0,
         "expected nonzero exit for missing file"
     );
+    Ok(())
 }
 
 // ── rejected grammar ───────────────────────────────────────────────
 
 #[tokio::test]
-async fn rejects_unknown_program() {
+async fn rejects_unknown_program() -> Result<(), Box<dyn std::error::Error>> {
     let result = adapter().execute(shell_request("ls -la", 5000)).await;
     assert!(matches!(result, Err(PortError::InvalidInput { .. })));
+    Ok(())
 }
 
 #[tokio::test]
-async fn rejects_metacharacter_redirect() {
+async fn rejects_metacharacter_redirect() -> Result<(), Box<dyn std::error::Error>> {
     let result = adapter()
         .execute(shell_request("echo foo > bar", 5000))
         .await;
@@ -95,50 +96,56 @@ async fn rejects_metacharacter_redirect() {
         matches!(result, Err(PortError::InvalidInput { .. })),
         "expected InvalidInput, got {result:?}"
     );
+    Ok(())
 }
 
 #[tokio::test]
-async fn rejects_metacharacter_pipe() {
+async fn rejects_metacharacter_pipe() -> Result<(), Box<dyn std::error::Error>> {
     let result = adapter()
         .execute(shell_request("echo foo | cat", 5000))
         .await;
     assert!(matches!(result, Err(PortError::InvalidInput { .. })));
+    Ok(())
 }
 
 #[tokio::test]
-async fn rejects_metacharacter_dollar() {
+async fn rejects_metacharacter_dollar() -> Result<(), Box<dyn std::error::Error>> {
     let result = adapter().execute(shell_request("echo $HOME", 5000)).await;
     assert!(matches!(result, Err(PortError::InvalidInput { .. })));
+    Ok(())
 }
 
 #[tokio::test]
-async fn rejects_metacharacter_backtick() {
+async fn rejects_metacharacter_backtick() -> Result<(), Box<dyn std::error::Error>> {
     let result = adapter()
         .execute(shell_request("echo `whoami`", 5000))
         .await;
     assert!(matches!(result, Err(PortError::InvalidInput { .. })));
+    Ok(())
 }
 
 #[tokio::test]
-async fn rejects_metacharacter_semicolon() {
+async fn rejects_metacharacter_semicolon() -> Result<(), Box<dyn std::error::Error>> {
     let result = adapter()
         .execute(shell_request("echo a; echo b", 5000))
         .await;
     assert!(matches!(result, Err(PortError::InvalidInput { .. })));
+    Ok(())
 }
 
 #[tokio::test]
-async fn rejects_metacharacter_ampersand() {
+async fn rejects_metacharacter_ampersand() -> Result<(), Box<dyn std::error::Error>> {
     let result = adapter()
         .execute(shell_request("echo a & echo b", 5000))
         .await;
     assert!(matches!(result, Err(PortError::InvalidInput { .. })));
+    Ok(())
 }
 
 // ── rejected path ──────────────────────────────────────────────────
 
 #[tokio::test]
-async fn cat_rejects_path_outside_readable_roots() {
+async fn cat_rejects_path_outside_readable_roots() -> Result<(), Box<dyn std::error::Error>> {
     let mut req = shell_request("cat /etc/hostname", 5000);
     req.readable_roots = vec![PathBuf::from("/tmp")];
     let result = adapter().execute(req).await;
@@ -146,12 +153,13 @@ async fn cat_rejects_path_outside_readable_roots() {
         matches!(result, Err(PortError::InvalidInput { .. })),
         "expected InvalidInput for path outside roots, got {result:?}"
     );
+    Ok(())
 }
 
 // ── timeout ────────────────────────────────────────────────────────
 
 #[tokio::test]
-async fn timeout_on_slow_command() {
+async fn timeout_on_slow_command() -> Result<(), Box<dyn std::error::Error>> {
     // cat /dev/urandom produces endless output → pipe fills → process blocks.
     let mut req = shell_request("cat /dev/urandom", 200);
     req.readable_roots = vec![PathBuf::from("/dev")];
@@ -160,12 +168,13 @@ async fn timeout_on_slow_command() {
         matches!(result, Err(PortError::Internal { .. })),
         "expected timeout Internal error, got {result:?}"
     );
+    Ok(())
 }
 
 // ── cancellation safety (drop test) ────────────────────────────────
 
 #[tokio::test]
-async fn cancellation_drops_child_cleanly() {
+async fn cancellation_drops_child_cleanly() -> Result<(), Box<dyn std::error::Error>> {
     // Spawn a long-running cat that blocks on stdin.
     // Drop the future before it completes — kill_on_drop should reap the child.
     let adapter = adapter();
@@ -183,42 +192,48 @@ async fn cancellation_drops_child_cleanly() {
     // If we got here without zombie processes or panics, the test passes.
     // (A zombie would manifest as a leaked child that the test runtime
     //  would only catch later — this is a best-effort smoke test.)
+    Ok(())
 }
 
 // ── capabilities contract ──────────────────────────────────────────
 
 #[tokio::test]
-async fn capabilities_report_shell_only() {
-    let caps = adapter().capabilities().expect("capabilities");
+async fn capabilities_report_shell_only() -> Result<(), Box<dyn std::error::Error>> {
+    let caps = adapter().capabilities()?;
     assert!(caps.read_enabled);
     assert!(!caps.write_enabled);
     assert!(!caps.web_enabled);
     assert_eq!(caps.command_classes, vec![HarnessCommandClass::Shell]);
+    Ok(())
 }
 // ── filename pattern matching tests ────────────────────────────
 
 #[test]
-fn filename_matches_exact() {
+fn filename_matches_exact() -> Result<(), Box<dyn std::error::Error>> {
     assert!(filename_matches(".env", ".env"));
     assert!(!filename_matches(".env", "other"));
+    Ok(())
 }
 
 #[test]
-fn filename_matches_wildcard_suffix() {
+fn filename_matches_wildcard_suffix() -> Result<(), Box<dyn std::error::Error>> {
     assert!(filename_matches("secret.key", "*.key"));
     assert!(!filename_matches("key.txt", "*.key"));
+    Ok(())
 }
 
 #[test]
-fn filename_matches_wildcard_prefix() {
+fn filename_matches_wildcard_prefix() -> Result<(), Box<dyn std::error::Error>> {
     assert!(filename_matches(".env.prod", ".env.*"));
     assert!(!filename_matches(".env", ".env.*"));
+    Ok(())
 }
 
 #[test]
-fn filename_matches_question_wildcard() {
+fn filename_matches_question_wildcard() -> Result<(), Box<dyn std::error::Error>> {
     assert!(filename_matches("a.key", "?.key"));
     assert!(!filename_matches("ab.key", "?.key"));
+    Ok(())
 }
 
 #[tokio::test]

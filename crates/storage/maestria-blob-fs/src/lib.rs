@@ -293,81 +293,74 @@ mod tests {
     use tempfile::tempdir;
 
     #[test]
-    fn satisfies_shared_blob_store_contract() {
-        let root = tempdir().expect("tempdir");
-        let store = FsBlobStore::open(root.path()).expect("store opens");
+    fn satisfies_shared_blob_store_contract() -> Result<(), Box<dyn std::error::Error>> {
+        let root = tempdir()?;
+        let store = FsBlobStore::open(root.path())?;
 
-        contract_tests::assert_blob_store_round_trip(&store);
+        contract_tests::assert_blob_store_round_trip(&store)?;
+        Ok(())
     }
 
     #[test]
-    fn same_bytes_produce_same_id_and_digest() {
-        let root = tempdir().expect("tempdir");
-        let store = FsBlobStore::open(root.path()).expect("store opens");
+    fn same_bytes_produce_same_id_and_digest() -> Result<(), Box<dyn std::error::Error>> {
+        let root = tempdir()?;
+        let store = FsBlobStore::open(root.path())?;
 
-        let first = store
-            .put_with_digest(b"same bytes".to_vec())
-            .expect("first put");
-        let second = store
-            .put_with_digest(b"same bytes".to_vec())
-            .expect("second put");
+        let first = store.put_with_digest(b"same bytes".to_vec())?;
+        let second = store.put_with_digest(b"same bytes".to_vec())?;
 
         assert_eq!(first, second);
-        assert_eq!(
-            first.1,
-            store.digest_for_id(first.0).expect("digest lookup")
-        );
+        assert_eq!(first.1, store.digest_for_id(first.0)?);
+        Ok(())
     }
 
     #[test]
-    fn different_bytes_round_trip() {
-        let root = tempdir().expect("tempdir");
-        let store = FsBlobStore::open(root.path()).expect("store opens");
+    fn different_bytes_round_trip() -> Result<(), Box<dyn std::error::Error>> {
+        let root = tempdir()?;
+        let store = FsBlobStore::open(root.path())?;
 
-        let first = store.put(b"first".to_vec()).expect("first put");
-        let second = store.put(b"second".to_vec()).expect("second put");
+        let first = store.put(b"first".to_vec())?;
+        let second = store.put(b"second".to_vec())?;
 
         assert_ne!(first, second);
-        assert_eq!(store.get(first).expect("first get"), b"first");
-        assert_eq!(store.get(second).expect("second get"), b"second");
+        assert_eq!(store.get(first)?, b"first");
+        assert_eq!(store.get(second)?, b"second");
+        Ok(())
     }
 
     #[test]
-    fn missing_blob_returns_not_found() {
-        let root = tempdir().expect("tempdir");
-        let store = FsBlobStore::open(root.path()).expect("store opens");
+    fn missing_blob_returns_not_found() -> Result<(), Box<dyn std::error::Error>> {
+        let root = tempdir()?;
+        let store = FsBlobStore::open(root.path())?;
 
         assert_eq!(store.get(BlobId::new(42)), Err(PortError::NotFound));
+        Ok(())
     }
 
     #[test]
-    fn stores_on_same_root_share_blobs() {
-        let root = tempdir().expect("tempdir");
-        let writer = FsBlobStore::open(root.path()).expect("writer opens");
-        let reader = FsBlobStore::open(root.path()).expect("reader opens");
+    fn stores_on_same_root_share_blobs() -> Result<(), Box<dyn std::error::Error>> {
+        let root = tempdir()?;
+        let writer = FsBlobStore::open(root.path())?;
+        let reader = FsBlobStore::open(root.path())?;
 
-        let id = writer.put(b"shared".to_vec()).expect("put");
+        let id = writer.put(b"shared".to_vec())?;
 
-        assert_eq!(reader.get(id).expect("get"), b"shared");
+        assert_eq!(reader.get(id)?, b"shared");
+        Ok(())
     }
 
     #[test]
-    fn digest_derived_paths_stay_under_root() {
-        let root = tempdir().expect("tempdir");
-        let store = FsBlobStore::open(root.path()).expect("store opens");
-        let (_, digest) = store
-            .put_with_digest(b"caller cannot pick paths".to_vec())
-            .expect("put");
+    fn digest_derived_paths_stay_under_root() -> Result<(), Box<dyn std::error::Error>> {
+        let root = tempdir()?;
+        let store = FsBlobStore::open(root.path())?;
+        let (_, digest) = store.put_with_digest(b"caller cannot pick paths".to_vec())?;
 
-        let object_path = store
-            .object_path_for_digest(&digest)
-            .expect("object path for digest");
+        let object_path = store.object_path_for_digest(&digest)?;
         assert!(object_path.starts_with(store.root()));
         assert!(object_path.exists());
         assert!(
             object_path
-                .strip_prefix(store.root())
-                .expect("under root")
+                .strip_prefix(store.root())?
                 .components()
                 .all(|component| !matches!(component, std::path::Component::ParentDir))
         );
@@ -377,5 +370,6 @@ mod tests {
             store.object_path_for_digest(malicious),
             Err(PortError::InvalidInput { .. })
         ));
+        Ok(())
     }
 }

@@ -38,12 +38,16 @@ pub fn state_with_memory_candidate(
     state
         .artifacts
         .get_mut(&ArtifactId::new(1))
-        .expect("artifact fixture")
+        .ok_or(DomainError::MissingArtifact {
+            id: ArtifactId::new(1),
+        })?
         .security = trusted_security.clone();
     state
         .claims
         .get_mut(&ClaimId::new(20))
-        .expect("claim fixture")
+        .ok_or(DomainError::MissingClaim {
+            id: ClaimId::new(20),
+        })?
         .security = trusted_security.clone();
     state.apply_input(DomainInput::RecordEvidence(RecordEvidenceInput {
         evidence_id: EvidenceId::new(40),

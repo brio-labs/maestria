@@ -227,7 +227,7 @@ fn knowledge_search_trace_contains_deterministic_rewrites() -> Result<(), Box<dy
         freshness: FreshnessRequirement::Any,
         modalities: ModalitySet::new(vec![Modality::Text]),
         stages: vec![SearchStage::InitialRetrieval],
-        budgets: SearchBudget::with_limits(1000, 30_000, 8, 1, 0).expect("valid plan budget"),
+        budgets: SearchBudget::with_limits(1000, 30_000, 8, 1, 0)?,
         stop_conditions: StopConditions {
             max_results: 5,
             min_score_threshold: 0,
@@ -241,8 +241,7 @@ fn knowledge_search_trace_contains_deterministic_rewrites() -> Result<(), Box<dy
             minimum_documents: 0,
             minimum_sections: 0,
         },
-        fingerprint: RetrievalModelFingerprint::new("maestria-core:deterministic-v1".to_string())
-            .expect("valid plan fingerprint"),
+        fingerprint: RetrievalModelFingerprint::new("maestria-core:deterministic-v1".to_string())?,
     };
     let mut invalid_plan = plan.clone();
     invalid_plan.original_query.clear();

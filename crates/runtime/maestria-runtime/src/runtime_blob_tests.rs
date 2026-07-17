@@ -34,27 +34,25 @@ impl BlobStore for RecordingBlobStore {
 }
 
 #[tokio::test]
-async fn parse_artifact_calls_blob_put_exactly_once() {
+async fn parse_artifact_calls_blob_put_exactly_once() -> Result<(), Box<dyn std::error::Error>> {
     let recorded: Arc<std::sync::Mutex<Vec<Vec<u8>>>> = Arc::new(std::sync::Mutex::new(Vec::new()));
     let blob_store = Arc::new(RecordingBlobStore {
         recorded: recorded.clone(),
     });
 
     let artifact_repo = InMemoryArtifactRepository::new();
-    artifact_repo
-        .put(Artifact {
-            id: ArtifactId::new(55),
-            title: "single-put".into(),
-            chunk_ids: BTreeSet::new(),
-            card_ids: BTreeSet::new(),
-            claim_ids: BTreeSet::new(),
-            evidence_ids: BTreeSet::new(),
-            index_status: IndexStatus::Unindexed,
-            content_hash: None,
-            parse_status: None,
-            security: maestria_domain::SecurityMetadata::default(),
-        })
-        .expect("pre-populated artifact should be accepted");
+    artifact_repo.put(Artifact {
+        id: ArtifactId::new(55),
+        title: "single-put".into(),
+        chunk_ids: BTreeSet::new(),
+        card_ids: BTreeSet::new(),
+        claim_ids: BTreeSet::new(),
+        evidence_ids: BTreeSet::new(),
+        index_status: IndexStatus::Unindexed,
+        content_hash: None,
+        parse_status: None,
+        security: maestria_domain::SecurityMetadata::default(),
+    })?;
 
     let adapters = Adapters {
         blob_store,
@@ -89,30 +87,30 @@ async fn parse_artifact_calls_blob_put_exactly_once() {
             assert_eq!(guard.len(), 1, "exactly one blob put per ParseArtifact");
             assert_eq!(guard[0], source_bytes, "payload matches");
         }
-        Err(poisoned) => panic!("recording mutex poisoned: {:?}", poisoned),
+        Err(poisoned) => return Err(format!("recording mutex poisoned: {:?}", poisoned).into()),
     }
+    Ok(())
 }
 
 #[tokio::test]
-async fn parse_artifact_retry_redrives_existing_evidence() {
+async fn parse_artifact_retry_redrives_existing_evidence() -> Result<(), Box<dyn std::error::Error>>
+{
     let artifact_id = ArtifactId::new(77);
     let existing_evidence_id = evidence_id_for(artifact_id, 0);
 
     let artifact_repo = InMemoryArtifactRepository::new();
-    artifact_repo
-        .put(Artifact {
-            id: ArtifactId::new(77),
-            title: "retry-test".into(),
-            chunk_ids: BTreeSet::new(),
-            card_ids: BTreeSet::new(),
-            claim_ids: BTreeSet::new(),
-            evidence_ids: BTreeSet::from([existing_evidence_id]),
-            index_status: IndexStatus::Unindexed,
-            content_hash: None,
-            parse_status: None,
-            security: maestria_domain::SecurityMetadata::default(),
-        })
-        .expect("pre-populated artifact should be accepted");
+    artifact_repo.put(Artifact {
+        id: ArtifactId::new(77),
+        title: "retry-test".into(),
+        chunk_ids: BTreeSet::new(),
+        card_ids: BTreeSet::new(),
+        claim_ids: BTreeSet::new(),
+        evidence_ids: BTreeSet::from([existing_evidence_id]),
+        index_status: IndexStatus::Unindexed,
+        content_hash: None,
+        parse_status: None,
+        security: maestria_domain::SecurityMetadata::default(),
+    })?;
 
     // Pre-populate state with existing evidence to simulate replay/retry.
     let mut state = KernelState::new();
@@ -167,11 +165,14 @@ async fn parse_artifact_retry_redrives_existing_evidence() {
             // ParserStarted acknowledged.
         }
         Ok(Some(DomainInput::RecordEvidence(ev))) => {
-            panic!("unexpected RecordEvidence before ParserStarted for evidence_id {ev:?}");
+            return Err(format!(
+                "unexpected RecordEvidence before ParserStarted for evidence_id {ev:?}"
+            )
+            .into());
         }
-        Ok(Some(other)) => panic!("expected ParserStarted, got {other:?}"),
-        Ok(None) => panic!("channel closed before ParserStarted"),
-        Err(_) => panic!("timeout waiting for ParserStarted"),
+        Ok(Some(other)) => return Err(format!("expected ParserStarted, got {other:?}").into()),
+        Ok(None) => return Err("channel closed before ParserStarted".to_string().into()),
+        Err(_) => return Err("timeout waiting for ParserStarted".to_string().into()),
     }
 
     // Second input: ParserCompleted.
@@ -180,9 +181,9 @@ async fn parse_artifact_retry_redrives_existing_evidence() {
             assert_eq!(pr.artifact_id, artifact_id);
             assert_eq!(pr.chunks.len(), 1);
         }
-        Ok(Some(other)) => panic!("expected ParserCompleted, got {other:?}"),
-        Ok(None) => panic!("channel closed before ParserCompleted"),
-        Err(_) => panic!("timeout waiting for ParserCompleted"),
+        Ok(Some(other)) => return Err(format!("expected ParserCompleted, got {other:?}").into()),
+        Ok(None) => return Err("channel closed before ParserCompleted".to_string().into()),
+        Err(_) => return Err("timeout waiting for ParserCompleted".to_string().into()),
     }
 
     // Existing evidence is re-driven so malformed persisted evidence can be
@@ -192,8 +193,9 @@ async fn parse_artifact_retry_redrives_existing_evidence() {
             assert_eq!(ev.evidence_id, existing_evidence_id);
             assert_eq!(ev.artifact_id, artifact_id);
         }
-        Ok(Some(other)) => panic!("expected RecordEvidence, got {other:?}"),
-        Ok(None) => panic!("channel closed before RecordEvidence"),
-        Err(_) => panic!("timeout waiting for RecordEvidence"),
+        Ok(Some(other)) => return Err(format!("expected RecordEvidence, got {other:?}").into()),
+        Ok(None) => return Err("channel closed before RecordEvidence".to_string().into()),
+        Err(_) => return Err("timeout waiting for RecordEvidence".to_string().into()),
     }
+    Ok(())
 }

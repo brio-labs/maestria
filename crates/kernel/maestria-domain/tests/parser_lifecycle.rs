@@ -2,6 +2,16 @@ use maestria_domain::*;
 #[path = "common/fixtures.rs"]
 mod fixtures;
 
+fn require_error<T, E>(
+    result: Result<T, E>,
+    message: &str,
+) -> Result<E, Box<dyn std::error::Error>> {
+    match result {
+        Ok(_) => Err(std::io::Error::other(message).into()),
+        Err(error) => Ok(error),
+    }
+}
+
 fn count_chunk_events(output: &KernelOutput) -> usize {
     output
         .events
@@ -29,7 +39,7 @@ fn count_parsed_events(output: &KernelOutput) -> usize {
 // ── Parser lifecycle: completed, started, idempotency ─────────────
 
 #[test]
-fn parser_completed_duplicate_is_idempotent() -> Result<(), DomainError> {
+fn parser_completed_duplicate_is_idempotent() -> Result<(), Box<dyn std::error::Error>> {
     let mut state = KernelState::new();
     state.apply_input(DomainInput::RegisterArtifact(RegisterArtifactInput {
         artifact_id: ArtifactId::new(1),
@@ -41,7 +51,7 @@ fn parser_completed_duplicate_is_idempotent() -> Result<(), DomainError> {
         status: maestria_domain::ParseStatus::Parsed,
         artifact_id: ArtifactId::new(1),
         artifact_version_id: ArtifactVersionId::new(1),
-        content_hash: fixtures::test_content_hash(),
+        content_hash: fixtures::test_content_hash()?,
         tree_root_id: Some(StructureNodeId::new(10)),
         tree_nodes: vec![fixtures::tree_root_node(StructureNodeId::new(10))],
         chunks: vec![RegisterChunkInput {
@@ -112,7 +122,7 @@ fn parser_completed_duplicate_is_idempotent() -> Result<(), DomainError> {
 }
 
 #[test]
-fn parser_completed_rejects_mismatched_chunk() -> Result<(), DomainError> {
+fn parser_completed_rejects_mismatched_chunk() -> Result<(), Box<dyn std::error::Error>> {
     let mut state = KernelState::new();
     state.apply_input(DomainInput::RegisterArtifact(RegisterArtifactInput {
         artifact_id: ArtifactId::new(1),
@@ -123,7 +133,7 @@ fn parser_completed_rejects_mismatched_chunk() -> Result<(), DomainError> {
         status: maestria_domain::ParseStatus::Parsed,
         artifact_id: ArtifactId::new(1),
         artifact_version_id: ArtifactVersionId::new(1),
-        content_hash: fixtures::test_content_hash(),
+        content_hash: fixtures::test_content_hash()?,
         tree_root_id: Some(StructureNodeId::new(10)),
         tree_nodes: vec![fixtures::tree_root_node(StructureNodeId::new(10))],
         chunks: vec![RegisterChunkInput {
@@ -142,12 +152,12 @@ fn parser_completed_rejects_mismatched_chunk() -> Result<(), DomainError> {
     }))?;
 
     // Second parse with same chunk_id but different text
-    let err = state
-        .apply_input(DomainInput::ParserCompleted(ParserResult {
+    let err = require_error(
+        state.apply_input(DomainInput::ParserCompleted(ParserResult {
             status: maestria_domain::ParseStatus::Parsed,
             artifact_id: ArtifactId::new(1),
             artifact_version_id: ArtifactVersionId::new(1),
-            content_hash: fixtures::test_content_hash(),
+            content_hash: fixtures::test_content_hash()?,
             tree_root_id: Some(StructureNodeId::new(10)),
             tree_nodes: vec![fixtures::tree_root_node(StructureNodeId::new(10))],
             chunks: vec![RegisterChunkInput {
@@ -163,15 +173,16 @@ fn parser_completed_rejects_mismatched_chunk() -> Result<(), DomainError> {
                 text: "different text".to_string(),
             }],
             cards: Vec::new(),
-        }))
-        .expect_err("mismatched chunk must error");
+        })),
+        "mismatched chunk must error",
+    )?;
 
     assert!(matches!(err, DomainError::DuplicateId { kind, id: 10 } if kind == "chunk"));
     Ok(())
 }
 
 #[test]
-fn parser_completed_rejects_mismatched_card() -> Result<(), DomainError> {
+fn parser_completed_rejects_mismatched_card() -> Result<(), Box<dyn std::error::Error>> {
     let mut state = KernelState::new();
     state.apply_input(DomainInput::RegisterArtifact(RegisterArtifactInput {
         artifact_id: ArtifactId::new(1),
@@ -182,7 +193,7 @@ fn parser_completed_rejects_mismatched_card() -> Result<(), DomainError> {
         status: maestria_domain::ParseStatus::Parsed,
         artifact_id: ArtifactId::new(1),
         artifact_version_id: ArtifactVersionId::new(1),
-        content_hash: fixtures::test_content_hash(),
+        content_hash: fixtures::test_content_hash()?,
         tree_root_id: Some(StructureNodeId::new(0)),
         tree_nodes: vec![
             fixtures::tree_root_node(StructureNodeId::new(0)),
@@ -215,12 +226,12 @@ fn parser_completed_rejects_mismatched_card() -> Result<(), DomainError> {
     }))?;
 
     // Second parse with same card_id but different body
-    let err = state
-        .apply_input(DomainInput::ParserCompleted(ParserResult {
+    let err = require_error(
+        state.apply_input(DomainInput::ParserCompleted(ParserResult {
             status: maestria_domain::ParseStatus::Parsed,
             artifact_id: ArtifactId::new(1),
             artifact_version_id: ArtifactVersionId::new(1),
-            content_hash: fixtures::test_content_hash(),
+            content_hash: fixtures::test_content_hash()?,
             tree_root_id: Some(StructureNodeId::new(0)),
             tree_nodes: vec![
                 fixtures::tree_root_node(StructureNodeId::new(0)),
@@ -250,15 +261,17 @@ fn parser_completed_rejects_mismatched_card() -> Result<(), DomainError> {
                 body: "different body".to_string(),
                 security: None,
             }],
-        }))
-        .expect_err("mismatched card must error");
+        })),
+        "mismatched card must error",
+    )?;
 
     assert!(matches!(err, DomainError::DuplicateId { kind, id: 20 } if kind == "card"));
     Ok(())
 }
 
 #[test]
-fn parser_started_stores_metadata_and_emits_persist_event() -> Result<(), DomainError> {
+fn parser_started_stores_metadata_and_emits_persist_event() -> Result<(), Box<dyn std::error::Error>>
+{
     let mut state = KernelState::new();
     let output = state.apply_input(DomainInput::ParserStarted(ParserStarted {
         artifact_id: ArtifactId::new(1),
@@ -300,7 +313,7 @@ fn parser_started_stores_metadata_and_emits_persist_event() -> Result<(), Domain
 }
 
 #[test]
-fn resume_parser_emits_parse_artifact_with_source_blob() -> Result<(), DomainError> {
+fn resume_parser_emits_parse_artifact_with_source_blob() -> Result<(), Box<dyn std::error::Error>> {
     let mut state = KernelState::new();
     // Set up: pending_parsers exists from replay
     state.pending_parsers.insert(
@@ -336,18 +349,19 @@ fn resume_parser_emits_parse_artifact_with_source_blob() -> Result<(), DomainErr
 }
 
 #[test]
-fn resume_parser_without_pending_entry_is_rejected() -> Result<(), DomainError> {
+fn resume_parser_without_pending_entry_is_rejected() -> Result<(), Box<dyn std::error::Error>> {
     let mut state = KernelState::new();
     // pending_parsers is empty — no entry to resume
-    let err = state
-        .apply_input(DomainInput::ResumeParser(ParserStarted {
+    let err = require_error(
+        state.apply_input(DomainInput::ResumeParser(ParserStarted {
             artifact_id: ArtifactId::new(99),
             title: "Ghost".to_string(),
             source_path: String::new(),
             content_hash: "sha256:abc".to_string(),
             blob_id: BlobId::new(1),
-        }))
-        .expect_err("resume without pending entry must error");
+        })),
+        "resume without pending entry must error",
+    )?;
     assert!(matches!(
         err,
         DomainError::MissingArtifact { id } if id == ArtifactId::new(99)
@@ -356,7 +370,7 @@ fn resume_parser_without_pending_entry_is_rejected() -> Result<(), DomainError> 
 }
 
 #[test]
-fn parser_completed_removes_pending_parser() -> Result<(), DomainError> {
+fn parser_completed_removes_pending_parser() -> Result<(), Box<dyn std::error::Error>> {
     let mut state = KernelState::new();
     // Set up: preflight detection + parser started
     state.apply_input(DomainInput::ArtifactDetected(ArtifactDetected {
@@ -380,7 +394,7 @@ fn parser_completed_removes_pending_parser() -> Result<(), DomainError> {
         status: maestria_domain::ParseStatus::Parsed,
         artifact_id: ArtifactId::new(1),
         artifact_version_id: ArtifactVersionId::new(1),
-        content_hash: fixtures::test_content_hash(),
+        content_hash: fixtures::test_content_hash()?,
         tree_root_id: Some(StructureNodeId::new(0)),
         tree_nodes: vec![fixtures::tree_root_node(StructureNodeId::new(0))],
         chunks: Vec::new(),
@@ -408,7 +422,7 @@ fn parser_completed_removes_pending_parser() -> Result<(), DomainError> {
 }
 
 #[test]
-fn replay_reconstructs_pending_parsers() -> Result<(), DomainError> {
+fn replay_reconstructs_pending_parsers() -> Result<(), Box<dyn std::error::Error>> {
     let mut state = KernelState::new();
     state.apply_event(DomainEventEnvelope {
         id: EventId::new(1),
@@ -430,7 +444,7 @@ fn replay_reconstructs_pending_parsers() -> Result<(), DomainError> {
 }
 
 #[test]
-fn replay_artifact_parsed_cleans_up_pending_parsers() -> Result<(), DomainError> {
+fn replay_artifact_parsed_cleans_up_pending_parsers() -> Result<(), Box<dyn std::error::Error>> {
     let mut state = KernelState::new();
     // Set up: artifact registered (from first-time commit) + parser started
     state.apply_event(DomainEventEnvelope {
@@ -473,7 +487,7 @@ fn replay_artifact_parsed_cleans_up_pending_parsers() -> Result<(), DomainError>
 }
 
 #[test]
-fn full_ingestion_flow_with_parser_started() -> Result<(), DomainError> {
+fn full_ingestion_flow_with_parser_started() -> Result<(), Box<dyn std::error::Error>> {
     let mut state = KernelState::new();
 
     // 1. Detection
@@ -509,7 +523,7 @@ fn full_ingestion_flow_with_parser_started() -> Result<(), DomainError> {
         status: maestria_domain::ParseStatus::Parsed,
         artifact_id: ArtifactId::new(1),
         artifact_version_id: ArtifactVersionId::new(1),
-        content_hash: fixtures::test_content_hash(),
+        content_hash: fixtures::test_content_hash()?,
         tree_root_id: Some(StructureNodeId::new(10)),
         tree_nodes: vec![fixtures::tree_root_node(StructureNodeId::new(10))],
         chunks: vec![RegisterChunkInput {
@@ -546,7 +560,7 @@ fn full_ingestion_flow_with_parser_started() -> Result<(), DomainError> {
 
 #[test]
 fn parser_completed_resume_with_artifact_registered_restores_pending_index()
--> Result<(), DomainError> {
+-> Result<(), Box<dyn std::error::Error>> {
     // Crash scenario: ArtifactRegistered event appended, ParserStarted event
     // appended, but PendingIndex event NOT appended before crash. On replay,
     // the artifact exists (from ArtifactRegistered) with Unindexed status,
@@ -590,7 +604,7 @@ fn parser_completed_resume_with_artifact_registered_restores_pending_index()
         status: maestria_domain::ParseStatus::Parsed,
         artifact_id: ArtifactId::new(1),
         artifact_version_id: ArtifactVersionId::new(1),
-        content_hash: fixtures::test_content_hash(),
+        content_hash: fixtures::test_content_hash()?,
         tree_root_id: Some(StructureNodeId::new(10)),
         tree_nodes: vec![fixtures::tree_root_node(StructureNodeId::new(10))],
         chunks: vec![RegisterChunkInput {
@@ -653,7 +667,8 @@ fn parser_completed_resume_with_artifact_registered_restores_pending_index()
 }
 
 #[test]
-fn parser_completed_resume_pending_same_hash_is_idempotent() -> Result<(), DomainError> {
+fn parser_completed_resume_pending_same_hash_is_idempotent()
+-> Result<(), Box<dyn std::error::Error>> {
     // On resume with ArtifactRegistered + PendingIndex already replayed
     // (both events durable), a ParserCompleted retry with the same hash
     // must not emit a duplicate PendingIndex.
@@ -705,7 +720,7 @@ fn parser_completed_resume_pending_same_hash_is_idempotent() -> Result<(), Domai
         status: maestria_domain::ParseStatus::Parsed,
         artifact_id: ArtifactId::new(1),
         artifact_version_id: ArtifactVersionId::new(1),
-        content_hash: fixtures::test_content_hash(),
+        content_hash: fixtures::test_content_hash()?,
         tree_root_id: Some(StructureNodeId::new(10)),
         tree_nodes: vec![fixtures::tree_root_node(StructureNodeId::new(10))],
         chunks: vec![RegisterChunkInput {
@@ -752,7 +767,8 @@ fn parser_completed_resume_pending_same_hash_is_idempotent() -> Result<(), Domai
 // ── Parser metadata retention and duplicate suppression ──────────
 
 #[test]
-fn parser_completed_first_zero_output_emits_artifact_parsed() -> Result<(), DomainError> {
+fn parser_completed_first_zero_output_emits_artifact_parsed()
+-> Result<(), Box<dyn std::error::Error>> {
     let mut state = KernelState::new();
     state.apply_input(DomainInput::RegisterArtifact(RegisterArtifactInput {
         artifact_id: ArtifactId::new(1),
@@ -765,7 +781,7 @@ fn parser_completed_first_zero_output_emits_artifact_parsed() -> Result<(), Doma
         status: maestria_domain::ParseStatus::Parsed,
         artifact_id: ArtifactId::new(1),
         artifact_version_id: ArtifactVersionId::new(1),
-        content_hash: fixtures::test_content_hash(),
+        content_hash: fixtures::test_content_hash()?,
         tree_root_id: Some(StructureNodeId::new(0)),
         tree_nodes: vec![fixtures::tree_root_node(StructureNodeId::new(0))],
         chunks: Vec::new(),
@@ -785,7 +801,8 @@ fn parser_completed_first_zero_output_emits_artifact_parsed() -> Result<(), Doma
 }
 
 #[test]
-fn parser_completed_duplicate_zero_output_suppresses_artifact_parsed() -> Result<(), DomainError> {
+fn parser_completed_duplicate_zero_output_suppresses_artifact_parsed()
+-> Result<(), Box<dyn std::error::Error>> {
     let mut state = KernelState::new();
     state.apply_input(DomainInput::RegisterArtifact(RegisterArtifactInput {
         artifact_id: ArtifactId::new(1),
@@ -797,7 +814,7 @@ fn parser_completed_duplicate_zero_output_suppresses_artifact_parsed() -> Result
         status: maestria_domain::ParseStatus::Parsed,
         artifact_id: ArtifactId::new(1),
         artifact_version_id: ArtifactVersionId::new(1),
-        content_hash: fixtures::test_content_hash(),
+        content_hash: fixtures::test_content_hash()?,
         tree_root_id: Some(StructureNodeId::new(0)),
         tree_nodes: vec![fixtures::tree_root_node(StructureNodeId::new(0))],
         chunks: Vec::new(),

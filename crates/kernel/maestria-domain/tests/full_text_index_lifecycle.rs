@@ -3,7 +3,7 @@ use maestria_domain::*;
 mod fixtures;
 
 #[test]
-fn start_full_text_index_emits_for_pending_chunks() -> Result<(), DomainError> {
+fn start_full_text_index_emits_for_pending_chunks() -> Result<(), Box<dyn std::error::Error>> {
     let mut state = KernelState::new();
     state.apply_input(DomainInput::ArtifactDetected(ArtifactDetected {
         artifact_id: ArtifactId::new(1),
@@ -16,7 +16,7 @@ fn start_full_text_index_emits_for_pending_chunks() -> Result<(), DomainError> {
         status: maestria_domain::ParseStatus::Parsed,
         artifact_id: ArtifactId::new(1),
         artifact_version_id: ArtifactVersionId::new(1),
-        content_hash: fixtures::test_content_hash(),
+        content_hash: fixtures::test_content_hash()?,
         tree_root_id: Some(StructureNodeId::new(10)),
         tree_nodes: vec![fixtures::tree_root_node(StructureNodeId::new(10))],
         chunks: vec![
@@ -69,7 +69,7 @@ fn start_full_text_index_emits_for_pending_chunks() -> Result<(), DomainError> {
 }
 
 #[test]
-fn start_full_text_index_only_pending_chunks_on_retry() -> Result<(), DomainError> {
+fn start_full_text_index_only_pending_chunks_on_retry() -> Result<(), Box<dyn std::error::Error>> {
     let mut state = KernelState::new();
     state.apply_input(DomainInput::ArtifactDetected(ArtifactDetected {
         artifact_id: ArtifactId::new(1),
@@ -82,7 +82,7 @@ fn start_full_text_index_only_pending_chunks_on_retry() -> Result<(), DomainErro
         status: maestria_domain::ParseStatus::Parsed,
         artifact_id: ArtifactId::new(1),
         artifact_version_id: ArtifactVersionId::new(1),
-        content_hash: fixtures::test_content_hash(),
+        content_hash: fixtures::test_content_hash()?,
         tree_root_id: Some(StructureNodeId::new(10)),
         tree_nodes: vec![fixtures::tree_root_node(StructureNodeId::new(10))],
         chunks: vec![
@@ -141,7 +141,7 @@ fn start_full_text_index_only_pending_chunks_on_retry() -> Result<(), DomainErro
 }
 
 #[test]
-fn start_full_text_index_duplicate_is_idempotent() -> Result<(), DomainError> {
+fn start_full_text_index_duplicate_is_idempotent() -> Result<(), Box<dyn std::error::Error>> {
     let mut state = KernelState::new();
     state.apply_input(DomainInput::ArtifactDetected(ArtifactDetected {
         artifact_id: ArtifactId::new(1),
@@ -154,7 +154,7 @@ fn start_full_text_index_duplicate_is_idempotent() -> Result<(), DomainError> {
         status: maestria_domain::ParseStatus::Parsed,
         artifact_id: ArtifactId::new(1),
         artifact_version_id: ArtifactVersionId::new(1),
-        content_hash: fixtures::test_content_hash(),
+        content_hash: fixtures::test_content_hash()?,
         tree_root_id: Some(StructureNodeId::new(10)),
         tree_nodes: vec![fixtures::tree_root_node(StructureNodeId::new(10))],
         chunks: vec![RegisterChunkInput {

@@ -131,9 +131,9 @@ fn orders_relations_by_numeric_id_not_lexical() -> Result<(), PortError> {
 }
 
 #[test]
-fn satisfies_graph_index_contract() -> Result<(), PortError> {
+fn satisfies_graph_index_contract() -> Result<(), Box<dyn std::error::Error>> {
     let index = SqliteGraphIndex::in_memory()?;
-    maestria_ports::graph_contract_tests::assert_graph_index_contract(&index);
+    maestria_ports::graph_contract_tests::assert_graph_index_contract(&index)?;
     Ok(())
 }
 
