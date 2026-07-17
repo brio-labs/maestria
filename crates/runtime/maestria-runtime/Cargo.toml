@@ -15,6 +15,7 @@ maestria-validation = { path = "../../ecosystem/maestria-validation" }
 tokio = { version = "1.37", features = ["full"] }
 tracing = "0.1"
 tokio-util = { version = "0.7.18", features = ["rt"] }
+url = "2"
 
 [dev-dependencies]
 tokio-test = "0.4"

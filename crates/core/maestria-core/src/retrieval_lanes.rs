@@ -5,12 +5,13 @@ use crate::lexical_helpers::{
     snapshot_id_from_evidence, vector_score,
 };
 use crate::ports::CorePorts;
-use crate::provenance::{content_hash, content_is_safe, evidence_id_for};
+use crate::provenance::{content_is_safe, evidence_id_for};
+use crate::retrieval_verification::verify_source_snapshot;
 use crate::types::{
     OpenChunkEvidenceInput, OpenEvidenceInput, OpenEvidenceOutput, SourceGroundedCardHit,
     SourceGroundedSearchHit,
 };
-use maestria_domain::{Evidence, EvidenceKind, IndexStatus};
+use maestria_domain::IndexStatus;
 use maestria_ports::{CardHit, SearchHit, SearchQuery, VectorSearchQuery};
 
 pub(super) fn search_cards(
@@ -357,49 +358,4 @@ pub(super) fn open_chunk_evidence<'a>(
         },
         policy,
     )
-}
-pub(super) fn verify_source_snapshot(ports: &CorePorts<'_>, evidence: &Evidence) -> CoreResult<()> {
-    let Evidence {
-        kind:
-            EvidenceKind::FileSpan {
-                range,
-                content_hash: expected_hash,
-                snapshot: Some(snapshot),
-                ..
-            },
-        excerpt,
-        ..
-    } = evidence
-    else {
-        return Ok(());
-    };
-
-    let bytes = ports.blobs.get(*snapshot)?;
-    let actual_hash = content_hash(&bytes);
-    if &actual_hash != expected_hash {
-        return Err(CoreError::InvalidInput {
-            message: format!(
-                "evidence {} snapshot hash mismatch: expected {expected_hash}, got {actual_hash}",
-                evidence.id
-            ),
-        });
-    }
-
-    let source = String::from_utf8_lossy(&bytes);
-    let line_count = source.lines().count().max(1);
-    if range.start == 0 || range.end < range.start || range.end > line_count {
-        return Err(CoreError::InvalidInput {
-            message: format!("evidence {} has an invalid source line range", evidence.id),
-        });
-    }
-    let compact_source = source.split_whitespace().collect::<Vec<_>>().join(" ");
-    if !excerpt.is_empty() && !compact_source.contains(excerpt) {
-        return Err(CoreError::InvalidInput {
-            message: format!(
-                "evidence {} excerpt is absent from its source snapshot",
-                evidence.id
-            ),
-        });
-    }
-    Ok(())
 }

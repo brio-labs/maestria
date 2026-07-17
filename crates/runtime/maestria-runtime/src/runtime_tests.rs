@@ -285,7 +285,7 @@ async fn persist_event_dispatches_chunk_card_evidence_to_repositories()
         );
         let result = MaestriaRuntime::test_execute_effect(
             MaestriaEffect::PersistEvent {
-                envelope: envelope.clone(),
+                envelope: Box::new(envelope.clone()),
             },
             ctx,
             None,

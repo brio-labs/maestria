@@ -171,6 +171,10 @@ pub(crate) enum StoredEventPayload {
         at: u64,
     },
     SearchKnowledgeCompleted {
+        #[serde(default)]
+        task_id: Option<u64>,
+        #[serde(default)]
+        plan: Option<Box<maestria_domain::SearchPlan>>,
         outcome: maestria_domain::SearchOutcome,
     },
     PendingIndex {

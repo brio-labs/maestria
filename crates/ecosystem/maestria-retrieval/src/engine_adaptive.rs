@@ -13,6 +13,7 @@ pub(super) struct AdaptiveSearchState {
     pub(super) batches: Vec<CandidateBatch>,
     pub(super) rewrites: crate::rewrite::QueryRewriteSession,
     pub(super) web_requests_used: u32,
+    pub(super) web_bytes_read: u64,
     pub(super) outcome: SearchOutcome,
     pub(super) lanes: Vec<SearchTraceLane>,
     pub(super) rerank_trace: Option<SearchTraceRerank>,
@@ -116,6 +117,7 @@ async fn retrieve_missing_slot(
             plan,
             &query_text,
             &mut state.web_requests_used,
+            &mut state.web_bytes_read,
         )
         .await?,
     );

@@ -74,6 +74,7 @@ impl KernelState {
             DomainInput::SearchKnowledgeRequested(input) => {
                 self.process_search_knowledge_requested(input)
             }
+            DomainInput::FetchWebRequested(input) => self.process_fetch_web_requested(input),
             DomainInput::SearchKnowledgeCompleted(input) => {
                 self.process_search_knowledge_completed(input)
             }

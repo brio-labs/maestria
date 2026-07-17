@@ -242,8 +242,8 @@ fn persist_effects_keep_exact_event_envelopes() -> Result<(), Box<dyn std::error
         [MaestriaEffect::PersistEvent { envelope }] => envelope,
         _ => return Err(Box::new(DomainError::EmptyIntent)),
     };
-    assert_eq!(first_envelope, &first.events[0]);
-    assert_eq!(second_envelope, &second.events[0]);
+    assert_eq!(first_envelope.as_ref(), &first.events[0]);
+    assert_eq!(second_envelope.as_ref(), &second.events[0]);
     assert_ne!(first_envelope.id, second_envelope.id);
     assert_ne!(first_envelope.sequence, second_envelope.sequence);
     Ok(())

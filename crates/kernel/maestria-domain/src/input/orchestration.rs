@@ -241,6 +241,8 @@ impl KernelState {
         input: crate::inputs::SearchKnowledgeCompleted,
     ) -> Result<DomainEventEnvelope, DomainError> {
         Ok(self.emit_event(DomainEvent::SearchKnowledgeCompleted {
+            task_id: input.task_id,
+            plan: input.plan,
             outcome: input.outcome,
         }))
     }

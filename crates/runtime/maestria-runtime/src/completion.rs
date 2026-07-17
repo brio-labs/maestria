@@ -1,5 +1,5 @@
 use crate::MaestriaRuntime;
-use maestria_domain::{CompleteTaskInput, TaskStatus};
+use maestria_domain::{CompleteTaskInput, RunValidationRequest, TaskStatus};
 use maestria_governance::{ValidationDecision, ValidationRequest};
 
 impl MaestriaRuntime {
@@ -9,6 +9,14 @@ impl MaestriaRuntime {
     ) -> bool {
         let state = self.state.read().await;
         let task = state.tasks.get(&complete_input.task_id).cloned();
+        let recomputed_report = crate::validation::build_validation_report_from_state(
+            &state,
+            &RunValidationRequest {
+                task_id: Some(complete_input.task_id),
+                claim_id: None,
+                validation_report_id: complete_input.validation_report_id,
+            },
+        );
         drop(state);
 
         let mut durable_report = None;
@@ -45,6 +53,10 @@ impl MaestriaRuntime {
 
         if durable_report.is_none() {
             tracing::warn!("task completion blocked: validation report not durable in event log");
+            return false;
+        }
+        if !recomputed_report.passed {
+            tracing::warn!("task completion blocked: current validation pass failed");
             return false;
         }
 

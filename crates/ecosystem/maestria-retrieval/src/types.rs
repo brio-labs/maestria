@@ -24,6 +24,7 @@ pub struct CandidateBatch {
     pub candidates: Vec<EvidenceCandidate>,
     pub status: SearchLaneStatus,
     pub generation: Option<IndexGenerationId>,
+    pub bytes_read: u64,
 }
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FusedCandidate {

@@ -59,7 +59,7 @@ fn evidence_kind_preserves_provenance_and_triggers_claim_validation()
         output.effects,
         vec![
             MaestriaEffect::PersistEvent {
-                envelope: output.events[0].clone(),
+                envelope: Box::new(output.events[0].clone()),
             },
             MaestriaEffect::RunValidation(RunValidationRequest {
                 task_id: None,
@@ -118,7 +118,7 @@ fn assert_relation_created_with_valid_evidence(state: &mut KernelState) -> Resul
         relation_output.effects,
         vec![
             MaestriaEffect::PersistEvent {
-                envelope: relation_output.events[0].clone(),
+                envelope: Box::new(relation_output.events[0].clone()),
             },
             MaestriaEffect::UpdateGraph(UpdateGraphRequest {
                 relation_id: RelationId::new(70),
@@ -154,7 +154,7 @@ fn assert_relation_created_without_evidence_skips_graph_update(
     assert_eq!(
         relation_output.effects,
         vec![MaestriaEffect::PersistEvent {
-            envelope: relation_output.events[0].clone(),
+            envelope: Box::new(relation_output.events[0].clone()),
         }]
     );
     Ok(())
@@ -289,7 +289,7 @@ fn promote_memory_creates_active_memory_from_candidate() -> Result<(), Box<dyn s
     assert_eq!(
         output.effects,
         vec![MaestriaEffect::PersistEvent {
-            envelope: output.events[0].clone(),
+            envelope: Box::new(output.events[0].clone()),
         }]
     );
     Ok(())

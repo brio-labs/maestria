@@ -1,11 +1,16 @@
 use maestria_domain::{TaskId, ValidationReportId};
 
+use super::search_provenance::CandidateProvenanceValidator;
+use super::search_security::{RetrievalSecurityValidator, SearchRegressionValidator};
+use super::search_validators::{
+    CitationAlignmentValidator, ConflictValidator, CoverageValidator, FreshnessValidator,
+    SearchPlanValidator,
+};
 use super::types::{Severity, ValidationCheck, ValidationContext, ValidationReport, Validator};
 use super::validators::{
     CitationValidator, EvidenceExistenceValidator, HarnessRunValidator, MemoryValidator,
     TaskStateValidator,
 };
-
 pub struct ValidationRunner {
     validators: Vec<Box<dyn Validator>>,
 }
@@ -18,6 +23,14 @@ impl ValidationRunner {
             Box::new(TaskStateValidator),
             Box::new(HarnessRunValidator),
             Box::new(MemoryValidator),
+            Box::new(SearchPlanValidator),
+            Box::new(CandidateProvenanceValidator),
+            Box::new(CoverageValidator),
+            Box::new(ConflictValidator),
+            Box::new(FreshnessValidator),
+            Box::new(CitationAlignmentValidator),
+            Box::new(RetrievalSecurityValidator),
+            Box::new(SearchRegressionValidator),
         ])
     }
 

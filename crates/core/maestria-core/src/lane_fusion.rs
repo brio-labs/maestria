@@ -25,8 +25,13 @@ fn trace_candidate(
     reason: maestria_domain::RetrievalReason,
     semantic: bool,
 ) -> Option<maestria_domain::SearchTraceLaneCandidate> {
-    let candidate =
-        crate::trace_candidates::evidence_candidate_from_hit(hit.clone(), &reason, semantic)?;
+    let candidate = crate::trace_candidates::evidence_candidate_from_hit(
+        hit.clone(),
+        &reason,
+        semantic,
+        &maestria_domain::FreshnessRequirement::Any,
+        0,
+    )?;
     Some(maestria_domain::SearchTraceLaneCandidate {
         evidence_id: candidate.evidence_id,
         artifact_version: candidate.artifact_version,
@@ -54,7 +59,10 @@ pub(super) fn run_cards_lane(
             };
             let ranked = rank_lane(
                 lane,
-                cards.into_iter().map(RetrievalCandidate::Card).collect(),
+                cards
+                    .into_iter()
+                    .map(|card| RetrievalCandidate::Card(Box::new(card)))
+                    .collect(),
             );
             LaneRun {
                 ranked,
@@ -113,7 +121,9 @@ pub(super) fn run_chunk_lane(
                 .collect::<Vec<_>>();
             let ranked = rank_lane(
                 lane,
-                hits.into_iter().map(RetrievalCandidate::Chunk).collect(),
+                hits.into_iter()
+                    .map(|hit| RetrievalCandidate::Chunk(Box::new(hit)))
+                    .collect(),
             );
             LaneRun {
                 ranked,

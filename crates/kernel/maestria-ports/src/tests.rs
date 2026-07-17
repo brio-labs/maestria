@@ -25,7 +25,7 @@ fn in_memory_web_fetcher_satisfies_contract() -> Result<(), Box<dyn std::error::
         "<html><body>test</body></html>",
     )?;
 
-    let missing_res = fetcher.fetch("https://example.com/not-found-anywhere");
+    let missing_res = fetcher.fetch("https://example.com/not-found-anywhere", usize::MAX);
     assert!(
         matches!(missing_res, Err(PortError::NotFound)),
         "Missing URLs must map to PortError::NotFound, got {:?}",

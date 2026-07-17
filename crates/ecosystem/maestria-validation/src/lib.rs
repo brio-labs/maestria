@@ -7,7 +7,19 @@
 //! deterministic [`ValidationReport`].
 
 pub mod runner;
+mod search_provenance;
+mod search_security;
+pub mod search_validators;
 pub mod types;
+
+pub use types::SearchValidationContext;
+
+pub use search_provenance::CandidateProvenanceValidator;
+pub use search_security::{RetrievalSecurityValidator, SearchRegressionValidator};
+pub use search_validators::{
+    CitationAlignmentValidator, ConflictValidator, CoverageValidator, FreshnessValidator,
+    SearchPlanValidator,
+};
 pub mod validators;
 
 pub use runner::ValidationRunner;
@@ -17,5 +29,8 @@ pub use validators::{
     TaskStateValidator,
 };
 
+#[cfg(test)]
+#[path = "search_validator_tests.rs"]
+mod search_validator_tests;
 #[cfg(test)]
 mod tests;

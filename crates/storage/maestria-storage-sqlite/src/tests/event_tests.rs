@@ -380,7 +380,11 @@ fn search_knowledge_completed_roundtrips_through_appended_scan() -> Result<(), P
     let envelope = DomainEventEnvelope {
         id: EventId::new(1),
         sequence: SequenceNumber::new(1),
-        event: DomainEvent::SearchKnowledgeCompleted { outcome },
+        event: DomainEvent::SearchKnowledgeCompleted {
+            task_id: Some(TaskId::new(7)),
+            plan: None,
+            outcome,
+        },
     };
     store.append(envelope.clone())?;
     assert_eq!(

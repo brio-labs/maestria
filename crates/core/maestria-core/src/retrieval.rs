@@ -1,9 +1,8 @@
 use crate::error::{CoreError, CoreResult};
 use crate::generation_gate::ensure_generation_is_serveable;
 use crate::ports::CorePorts;
-pub(super) use crate::retrieval_lanes::{
-    open_chunk_evidence, open_evidence, verify_source_snapshot,
-};
+pub(super) use crate::retrieval_lanes::{open_chunk_evidence, open_evidence};
+pub(super) use crate::retrieval_verification::verify_source_snapshot;
 use crate::types::{EvidencePack, RetrievalMode, SearchInput, SearchOutput};
 use maestria_ports::VectorSearchQuery;
 

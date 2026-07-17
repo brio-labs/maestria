@@ -36,11 +36,15 @@ impl StoredEventPayload {
                 pack_metadata: pack_metadata.clone(),
                 at: at.value(),
             }),
-            DomainEvent::SearchKnowledgeCompleted { outcome } => {
-                Some(Self::SearchKnowledgeCompleted {
-                    outcome: outcome.clone(),
-                })
-            }
+            DomainEvent::SearchKnowledgeCompleted {
+                task_id,
+                plan,
+                outcome,
+            } => Some(Self::SearchKnowledgeCompleted {
+                task_id: task_id.map(|id| id.value()),
+                plan: plan.clone(),
+                outcome: outcome.clone(),
+            }),
             DomainEvent::IndexGenerationStarted {
                 id,
                 name,
@@ -111,9 +115,15 @@ impl StoredEventPayload {
                     at,
                 })),
             },
-            Self::SearchKnowledgeCompleted { outcome } => {
-                Ok(DomainEvent::SearchKnowledgeCompleted { outcome })
-            }
+            Self::SearchKnowledgeCompleted {
+                task_id,
+                plan,
+                outcome,
+            } => Ok(DomainEvent::SearchKnowledgeCompleted {
+                task_id: task_id.map(maestria_domain::TaskId::new),
+                plan,
+                outcome,
+            }),
             Self::IndexGenerationStarted {
                 id,
                 name,

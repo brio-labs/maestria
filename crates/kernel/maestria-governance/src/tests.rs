@@ -47,7 +47,7 @@ fn approval_profile_changes_decision_without_domain_changes() {
     let guard = ScopeGuard::new(scope);
 
     let effect = maestria_domain::MaestriaEffect::PersistEvent {
-        envelope: DomainEventEnvelope {
+        envelope: Box::new(DomainEventEnvelope {
             id: maestria_domain::EventId::new(1),
             sequence: maestria_domain::SequenceNumber::new(1),
             event: DomainEvent::ArtifactRegistered {
@@ -55,7 +55,7 @@ fn approval_profile_changes_decision_without_domain_changes() {
                 title: "notes".to_string(),
                 security: maestria_domain::SecurityMetadata::default(),
             },
-        },
+        }),
     };
     let read_only = ApprovalRequest {
         effect: &effect,

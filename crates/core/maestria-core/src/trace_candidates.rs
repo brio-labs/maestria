@@ -1,14 +1,45 @@
 use maestria_domain::{
-    ArtifactVersionId, ContentRange, EvidenceCandidate, EvidenceSpan, FreshnessStatus,
-    RetrievalReason, RetrievalScoreSet, SourceLocation, SourceSpan, TrustLabel,
+    ArtifactVersionId, ContentRange, Evidence, EvidenceCandidate, EvidenceSpan,
+    FreshnessRequirement, FreshnessStatus, RetrievalReason, RetrievalScoreSet, SourceLocation,
+    SourceSpan, TrustLabel,
 };
 
 use crate::types::SourceGroundedSearchHit;
+
+fn freshness_status(
+    evidence: &Evidence,
+    requirement: &FreshnessRequirement,
+    current_tick: u64,
+) -> FreshnessStatus {
+    if matches!(requirement, FreshnessRequirement::Any) {
+        return FreshnessStatus::Unknown;
+    }
+    let maestria_domain::EvidenceKind::WebSnapshot { fetched_at, .. } = &evidence.kind else {
+        return FreshnessStatus::Unknown;
+    };
+    let fetched_tick = fetched_at.value();
+    if fetched_tick > current_tick {
+        return FreshnessStatus::Unknown;
+    }
+    let age = current_tick.saturating_sub(fetched_tick);
+    let allowed_age = match requirement {
+        FreshnessRequirement::Realtime => 3,
+        FreshnessRequirement::MaximumAgeDays(days) => u64::from(*days),
+        FreshnessRequirement::Any => 0,
+    };
+    if age <= allowed_age {
+        FreshnessStatus::UpToDate
+    } else {
+        FreshnessStatus::Stale
+    }
+}
 
 pub(super) fn evidence_candidate_from_hit(
     hit: SourceGroundedSearchHit,
     reason: &RetrievalReason,
     semantic: bool,
+    freshness_requirement: &FreshnessRequirement,
+    current_tick: u64,
 ) -> Option<EvidenceCandidate> {
     let (location, range) = match &hit.evidence.kind {
         maestria_domain::EvidenceKind::FileSpan { path, range, .. } => {
@@ -103,7 +134,7 @@ pub(super) fn evidence_candidate_from_hit(
             semantic_similarity: if semantic { hit.score } else { 0 },
         },
         trust,
-        freshness: FreshnessStatus::Unknown,
+        freshness: freshness_status(&hit.evidence, freshness_requirement, current_tick),
         duplicate_cluster: None,
         reasons: vec![reason.clone()],
         coverage_keys: Vec::new(),

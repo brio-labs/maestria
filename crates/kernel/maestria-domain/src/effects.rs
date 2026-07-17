@@ -37,6 +37,11 @@ pub struct UpdateGraphRequest {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FetchWebRequest {
     pub url: String,
+    pub max_bytes: usize,
+    pub max_requests: u32,
+    pub max_latency_ms: u32,
+    pub allowed_domains: Vec<String>,
+    pub allowed_content_types: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -70,12 +75,13 @@ pub struct DiagnosticEvent {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SearchKnowledgeRequest {
+    pub task_id: Option<TaskId>,
     pub plan: crate::search::SearchPlan,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MaestriaEffect {
-    PersistEvent { envelope: DomainEventEnvelope },
+    PersistEvent { envelope: Box<DomainEventEnvelope> },
     PersistState(PersistStateRequest),
     ParseArtifact(ParseArtifactRequest),
     IndexFullText(IndexFullTextRequest),

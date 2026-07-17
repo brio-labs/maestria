@@ -1,9 +1,13 @@
 use std::collections::BTreeMap;
 
 use maestria_domain::{
-    Claim, ClaimId, Evidence, EvidenceId, MemoryCandidate, MemoryCandidateId, Task, TaskId,
-    ValidationReportId,
+    Artifact, ArtifactId, Claim, ClaimId, Evidence, EvidenceId, MemoryCandidate, MemoryCandidateId,
+    Task, TaskId, ValidationReportId,
 };
+
+#[path = "search_context.rs"]
+mod search_context;
+pub use search_context::SearchValidationContext;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ValidationReport {
@@ -33,11 +37,13 @@ pub trait Validator: Send + Sync {
     fn validate(&self, context: &ValidationContext<'_>) -> ValidationCheck;
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct ValidationContext<'a> {
     pub task: Option<&'a Task>,
+    pub artifacts: &'a BTreeMap<ArtifactId, Artifact>,
     pub claims: &'a BTreeMap<ClaimId, Claim>,
     pub evidences: &'a BTreeMap<EvidenceId, Evidence>,
     pub memory_candidates: &'a BTreeMap<MemoryCandidateId, MemoryCandidate>,
     pub harness_exit_code: Option<i32>,
+    pub search: Option<SearchValidationContext<'a>>,
 }

@@ -136,6 +136,18 @@ impl Card {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct WebEvidenceMetadata {
+    pub published_at: Option<String>,
+    pub updated_at: Option<String>,
+    pub effective_at: Option<String>,
+    pub accessed_at: Option<String>,
+    pub content_type: Option<String>,
+    pub primary_source: bool,
+    pub is_dynamic: bool,
+    pub is_paywalled: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EvidenceKind {
     FileSpan {
@@ -154,6 +166,7 @@ pub enum EvidenceKind {
         snapshot: BlobId,
         fetched_at: LogicalTick,
         content_hash: String,
+        metadata: WebEvidenceMetadata,
     },
     CommandOutput {
         harness_run: HarnessRunId,

@@ -1,7 +1,7 @@
 use maestria_domain::{EvidenceCandidate, SearchOutcome, SearchPlan, SearchStatus};
 use maestria_ports::SearchQuery;
 use std::sync::Arc;
-use tokio::task::JoinSet;
+use tokio::{sync::Semaphore, task::JoinSet};
 
 use crate::traits::{CandidateRetriever, ContextExpander, RetrievalEvaluator};
 use crate::types::{
@@ -9,16 +9,73 @@ use crate::types::{
     RetrievalResult,
 };
 
+fn normalize_batch(
+    mut batch: crate::types::CandidateBatch,
+    descriptor: crate::types::RetrieverDescriptor,
+    query: &SearchQuery,
+    plan: &SearchPlan,
+    web_bytes_read: &mut u64,
+) -> crate::types::CandidateBatch {
+    if batch.generation != Some(plan.index_generation) {
+        batch.candidates.clear();
+        batch.status = maestria_domain::SearchLaneStatus::Failed {
+            error: format!(
+                "stale lane generation: expected {}, got {}",
+                plan.index_generation,
+                batch.generation.map_or_else(
+                    || "missing".to_string(),
+                    |generation| generation.to_string()
+                ),
+            ),
+        };
+    }
+    if descriptor.modality.eq_ignore_ascii_case("web") {
+        let remaining_bytes = plan
+            .budgets
+            .max_bytes_read()
+            .saturating_sub(*web_bytes_read);
+        if batch.bytes_read > remaining_bytes {
+            batch.candidates.clear();
+            batch.status = maestria_domain::SearchLaneStatus::Failed {
+                error: "web byte budget exhausted".to_string(),
+            };
+        } else {
+            *web_bytes_read = (*web_bytes_read).saturating_add(batch.bytes_read);
+        }
+    }
+    batch
+        .candidates
+        .truncate(plan.stop_conditions.max_results as usize);
+    batch.descriptor = descriptor;
+    batch.query = query.q.clone();
+    if !matches!(
+        batch.status,
+        maestria_domain::SearchLaneStatus::Failed { .. }
+    ) {
+        batch.status = if batch.candidates.is_empty() {
+            maestria_domain::SearchLaneStatus::Empty
+        } else {
+            maestria_domain::SearchLaneStatus::Succeeded
+        };
+    }
+    batch
+}
+
 pub(super) async fn collect_batches(
     retrievers: &[Arc<dyn CandidateRetriever>],
     plan: &SearchPlan,
     query: &SearchQuery,
     web_requests_used: &mut u32,
+    web_bytes_read: &mut u64,
 ) -> RetrievalResult<Vec<crate::types::CandidateBatch>> {
     let mut completed = std::iter::repeat_with(|| None)
         .take(retrievers.len())
         .collect::<Vec<_>>();
     let mut tasks = JoinSet::new();
+    let concurrency = usize::try_from(plan.budgets.max_concurrency())
+        .map_or(1, |value| value)
+        .max(1);
+    let semaphore = Arc::new(Semaphore::new(concurrency));
     for (index, retriever) in retrievers.iter().enumerate() {
         let descriptor = retriever.descriptor();
         if descriptor.modality.eq_ignore_ascii_case("web")
@@ -32,6 +89,7 @@ pub(super) async fn collect_batches(
                     error: "web request budget exhausted".to_string(),
                 },
                 generation: Some(plan.index_generation),
+                bytes_read: 0,
             });
             continue;
         }
@@ -44,44 +102,25 @@ pub(super) async fn collect_batches(
             query: query.clone(),
             expected_generation: plan.index_generation,
         };
-        tasks.spawn(async move { (index, descriptor, retriever.retrieve(request).await) });
+        let semaphore = Arc::clone(&semaphore);
+        tasks.spawn(async move {
+            let result = match semaphore.acquire_owned().await {
+                Ok(permit) => {
+                    let result = retriever.retrieve(request).await;
+                    drop(permit);
+                    result
+                }
+                Err(error) => Err(RetrievalError::Internal(error.to_string())),
+            };
+            (index, descriptor, result)
+        });
     }
 
     while let Some(result) = tasks.join_next().await {
         let (index, descriptor, result) = result
             .map_err(|error| RetrievalError::Internal(format!("retriever task failed: {error}")))?;
         let batch = match result {
-            Ok(mut batch) => {
-                if batch.generation != Some(plan.index_generation) {
-                    batch.candidates.clear();
-                    batch.status = maestria_domain::SearchLaneStatus::Failed {
-                        error: format!(
-                            "stale lane generation: expected {}, got {}",
-                            plan.index_generation,
-                            batch.generation.map_or_else(
-                                || "missing".to_string(),
-                                |generation| generation.to_string()
-                            ),
-                        ),
-                    };
-                }
-                batch
-                    .candidates
-                    .truncate(plan.stop_conditions.max_results as usize);
-                batch.descriptor = descriptor;
-                batch.query = query.q.clone();
-                if !matches!(
-                    batch.status,
-                    maestria_domain::SearchLaneStatus::Failed { .. }
-                ) {
-                    batch.status = if batch.candidates.is_empty() {
-                        maestria_domain::SearchLaneStatus::Empty
-                    } else {
-                        maestria_domain::SearchLaneStatus::Succeeded
-                    };
-                }
-                batch
-            }
+            Ok(batch) => normalize_batch(batch, descriptor, query, plan, web_bytes_read),
             Err(RetrievalError::Cancelled) => return Err(RetrievalError::Cancelled),
             Err(error) => crate::types::CandidateBatch {
                 descriptor,
@@ -91,6 +130,7 @@ pub(super) async fn collect_batches(
                     error: error.to_string(),
                 },
                 generation: Some(plan.index_generation),
+                bytes_read: 0,
             },
         };
         completed[index] = Some(batch);
@@ -112,6 +152,7 @@ pub(super) async fn collect_initial_batches(
     Vec<crate::types::CandidateBatch>,
     crate::rewrite::QueryRewriteSession,
     u32,
+    u64,
 )> {
     let session = super::rewrite_session(plan);
     if session
@@ -125,6 +166,7 @@ pub(super) async fn collect_initial_batches(
     }
     let mut batches = Vec::new();
     let mut web_requests_used = 0_u32;
+    let mut web_bytes_read = 0_u64;
     for rewrite in session.records() {
         let rewrite_query = SearchQuery {
             q: rewrite.query.clone(),
@@ -132,10 +174,17 @@ pub(super) async fn collect_initial_batches(
             offset: 0,
         };
         batches.extend(
-            collect_batches(retrievers, plan, &rewrite_query, &mut web_requests_used).await?,
+            collect_batches(
+                retrievers,
+                plan,
+                &rewrite_query,
+                &mut web_requests_used,
+                &mut web_bytes_read,
+            )
+            .await?,
         );
     }
-    Ok((batches, session, web_requests_used))
+    Ok((batches, session, web_requests_used, web_bytes_read))
 }
 
 pub(super) async fn collect_missing_slot_batches(
@@ -143,13 +192,14 @@ pub(super) async fn collect_missing_slot_batches(
     plan: &SearchPlan,
     query: &str,
     web_requests_used: &mut u32,
+    web_bytes_read: &mut u64,
 ) -> RetrievalResult<Vec<crate::types::CandidateBatch>> {
     let query = SearchQuery {
         q: query.to_string(),
         limit: plan.stop_conditions.max_results as usize,
         offset: 0,
     };
-    collect_batches(retrievers, plan, &query, web_requests_used).await
+    collect_batches(retrievers, plan, &query, web_requests_used, web_bytes_read).await
 }
 
 pub(super) fn trace_lanes(

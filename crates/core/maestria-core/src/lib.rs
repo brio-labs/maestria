@@ -20,6 +20,7 @@ mod provenance;
 mod rank_fusion;
 mod retrieval;
 mod retrieval_lanes;
+mod retrieval_verification;
 mod trace_candidates;
 mod types;
 

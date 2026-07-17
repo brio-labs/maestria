@@ -203,7 +203,7 @@ fn validated_completion_is_the_only_completion_path() -> Result<(), DomainError>
         output.effects,
         vec![
             MaestriaEffect::PersistEvent {
-                envelope: output.events[0].clone(),
+                envelope: Box::new(output.events[0].clone()),
             },
             MaestriaEffect::PersistState(PersistStateRequest {
                 reason: "validated task completion".to_string(),
@@ -640,7 +640,7 @@ fn search_executed_persist_effect_matches_event_envelope() -> Result<(), DomainE
         [MaestriaEffect::PersistEvent { envelope }] => envelope,
         _ => return Err(DomainError::EmptyIntent),
     };
-    assert_eq!(envelope, &output.events[0]);
+    assert_eq!(envelope.as_ref(), &output.events[0]);
     Ok(())
 }
 
@@ -668,6 +668,8 @@ fn search_knowledge_completed_emits_event() -> Result<(), DomainError> {
 
     let output = state.apply_input(DomainInput::SearchKnowledgeCompleted(
         maestria_domain::SearchKnowledgeCompleted {
+            task_id: None,
+            plan: None,
             outcome: outcome.clone(),
         },
     ))?;
@@ -675,7 +677,7 @@ fn search_knowledge_completed_emits_event() -> Result<(), DomainError> {
     assert_eq!(output.events.len(), 1);
     let envelope = &output.events[0];
     match &envelope.event {
-        DomainEvent::SearchKnowledgeCompleted { outcome: out } => {
+        DomainEvent::SearchKnowledgeCompleted { outcome: out, .. } => {
             assert_eq!(out.trace, outcome.trace);
         }
         _ => {
@@ -725,10 +727,17 @@ fn search_knowledge_request_emits_effect() -> Result<(), DomainError> {
     };
     let mut state = KernelState::new();
     let output = state.apply_input(DomainInput::SearchKnowledgeRequested(
-        SearchKnowledgeRequested { plan: plan.clone() },
+        SearchKnowledgeRequested {
+            task_id: None,
+            plan: plan.clone(),
+        },
     ))?;
     match output.effects.as_slice() {
-        [MaestriaEffect::SearchKnowledge(SearchKnowledgeRequest { plan: effect_plan })] => {
+        [
+            MaestriaEffect::SearchKnowledge(SearchKnowledgeRequest {
+                plan: effect_plan, ..
+            }),
+        ] => {
             assert_eq!(effect_plan, &plan);
         }
         _ => {
@@ -738,5 +747,34 @@ fn search_knowledge_request_emits_effect() -> Result<(), DomainError> {
         }
     }
     assert!(output.events.is_empty());
+    Ok(())
+}
+
+#[test]
+fn fetch_web_request_emits_fetch_effect() -> Result<(), DomainError> {
+    let mut state = KernelState::new();
+    let output = state.apply_input(DomainInput::FetchWebRequested(FetchWebRequested {
+        request: FetchWebRequest {
+            url: "https://example.com/research".to_string(),
+            max_bytes: 4096,
+            max_requests: 1,
+            max_latency_ms: 15_000,
+            allowed_domains: Vec::new(),
+            allowed_content_types: Vec::new(),
+        },
+    }))?;
+
+    assert!(output.events.is_empty());
+    assert_eq!(
+        output.effects,
+        vec![MaestriaEffect::FetchWeb(FetchWebRequest {
+            url: "https://example.com/research".to_string(),
+            max_bytes: 4096,
+            max_requests: 1,
+            max_latency_ms: 15_000,
+            allowed_domains: Vec::new(),
+            allowed_content_types: Vec::new(),
+        })]
+    );
     Ok(())
 }
