@@ -25,7 +25,8 @@ fn trace_candidate(
     reason: maestria_domain::RetrievalReason,
     semantic: bool,
 ) -> Option<maestria_domain::SearchTraceLaneCandidate> {
-    let candidate = crate::ports::evidence_candidate_from_hit(hit.clone(), &reason, semantic)?;
+    let candidate =
+        crate::trace_candidates::evidence_candidate_from_hit(hit.clone(), &reason, semantic)?;
     Some(maestria_domain::SearchTraceLaneCandidate {
         evidence_id: candidate.evidence_id,
         artifact_version: candidate.artifact_version,
@@ -59,6 +60,7 @@ pub(super) fn run_cards_lane(
                 ranked,
                 report: RetrievalLaneReport {
                     retriever_id: lane_id(lane).to_string(),
+                    query: query.to_string(),
                     status,
                     candidates: Vec::new(),
                 },
@@ -68,6 +70,7 @@ pub(super) fn run_cards_lane(
             ranked: Vec::new(),
             report: RetrievalLaneReport {
                 retriever_id: lane_id(lane).to_string(),
+                query: query.to_string(),
                 status: RetrievalLaneStatus::Failed {
                     error: error.to_string(),
                 },
@@ -116,6 +119,7 @@ pub(super) fn run_chunk_lane(
                 ranked,
                 report: RetrievalLaneReport {
                     retriever_id: lane_id(lane).to_string(),
+                    query: query.to_string(),
                     status,
                     candidates: report_candidates,
                 },
@@ -124,6 +128,7 @@ pub(super) fn run_chunk_lane(
         Err(error) => LaneRun {
             ranked: Vec::new(),
             report: RetrievalLaneReport {
+                query: query.to_string(),
                 retriever_id: lane_id(lane).to_string(),
                 status: RetrievalLaneStatus::Failed {
                     error: error.to_string(),

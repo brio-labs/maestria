@@ -6,9 +6,13 @@ use crate::{
 impl SearchTrace {
     pub fn deterministic_id(&self) -> SearchTraceId {
         let mut hash = 0xcbf29ce484222325u64;
-        let identity_v2 = self.identity_version != 0;
-        if identity_v2 {
-            mix_hash(&mut hash, b"maestria-search-trace:v2");
+        let identity_v2 = self.identity_version >= 2;
+        let identity_v3 = self.identity_version >= 3;
+        if self.identity_version != 0 {
+            mix_hash(
+                &mut hash,
+                format!("maestria-search-trace:v{}", self.identity_version).as_bytes(),
+            );
         }
         mix_hash(&mut hash, &self.query_id.value().to_le_bytes());
         mix_hash(&mut hash, self.original_query.as_bytes());
@@ -73,7 +77,7 @@ impl SearchTrace {
             mix_hash(&mut hash, &conflict.value().to_le_bytes());
         }
         mix_hash(&mut hash, format!("{:?}", self.stop_reason).as_bytes());
-        mix_trace_lanes(&mut hash, &self.lanes);
+        mix_trace_lanes(&mut hash, &self.lanes, identity_v3);
         if let Some(rerank) = &self.rerank {
             mix_trace_rerank(&mut hash, rerank);
         }
@@ -131,9 +135,12 @@ fn mix_trace_rewrites(hash: &mut u64, rewrites: &[SearchTraceRewrite]) {
     }
 }
 
-fn mix_trace_lanes(hash: &mut u64, lanes: &[SearchTraceLane]) {
+fn mix_trace_lanes(hash: &mut u64, lanes: &[SearchTraceLane], include_query: bool) {
     for lane in lanes {
         mix_hash(hash, lane.retriever_id.as_bytes());
+        if include_query {
+            mix_hash(hash, lane.query.as_bytes());
+        }
         mix_hash(hash, format!("{:?}", lane.status).as_bytes());
         for candidate in &lane.candidates {
             mix_hash(hash, &candidate.evidence_id.value().to_le_bytes());

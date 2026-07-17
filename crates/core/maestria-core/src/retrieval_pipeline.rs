@@ -44,12 +44,9 @@ fn build_expander<'a>(
                     .or_insert(ranked.priority_score);
             }
         }
-        let mut pack = EvidencePack {
-            query: query.clone(),
-            cards: Vec::new(),
-            chunks: Vec::new(),
-            evidence_ids: Vec::new(),
-        };
+        let mut pack =
+            EvidencePack::from_plan(query.clone(), Vec::new(), Vec::new(), Vec::new(), plan)
+                .map_err(|error| maestria_retrieval::RetrievalError::Internal(error.to_string()))?;
         for ranked in candidates {
             match ranked.candidate {
                 RetrievalCandidate::Card(hit) => pack.cards.push(hit),
@@ -282,15 +279,19 @@ fn build_evidence_pack(
     candidates: Vec<RankedRetrievalCandidate>,
     input: &SearchInput,
     plan: &maestria_domain::SearchPlan,
-) -> EvidencePack {
+) -> CoreResult<EvidencePack> {
     use std::collections::BTreeSet;
 
-    let mut pack = EvidencePack {
-        query: input.query.clone(),
-        cards: Vec::new(),
-        chunks: Vec::new(),
-        evidence_ids: Vec::new(),
-    };
+    let mut pack = EvidencePack::from_plan(
+        input.query.clone(),
+        Vec::new(),
+        Vec::new(),
+        Vec::new(),
+        plan,
+    )
+    .map_err(|error| CoreError::InvalidInput {
+        message: error.to_string(),
+    })?;
     let mut cards = BTreeSet::new();
     let mut chunks = BTreeSet::new();
     for ranked in candidates.into_iter().take(input.limit) {
@@ -305,13 +306,13 @@ fn build_evidence_pack(
                 pack.evidence_ids.push(hit.evidence.id);
                 pack.chunks.push(hit);
             }
-            RetrievalCandidate::EvidenceId(id) if chunks.insert(id) => {
-                pack.evidence_ids.push(id);
-            }
             _ => {}
         }
     }
-    pack
+    let card_count = pack.cards.len();
+    pack.metadata
+        .populate_from_chunks(&pack.chunks, &pack.evidence_ids, card_count);
+    Ok(pack)
 }
 
 pub(super) fn execute_pipeline<'a>(
@@ -356,7 +357,7 @@ pub(super) fn execute_pipeline<'a>(
         })?;
     }
     check_latency(start, excluded, max_latency_ms)?;
-    let pack = build_evidence_pack(candidates, input, plan);
+    let pack = build_evidence_pack(candidates, input, plan)?;
     check_latency(start, excluded, max_latency_ms)?;
     let retrieval_mode = retrieval_mode(&lane_reports, active_hybrid);
     Ok(SearchOutput {

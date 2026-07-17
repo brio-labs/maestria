@@ -267,16 +267,17 @@ fn search_and_open_evidence_after_restart(
     })?;
 
     assert!(
-        !results.pack.chunks.is_empty(),
+        !results.pack.chunks().is_empty(),
         "search after restart should return results"
     );
     assert!(
-        results.pack.chunks[0].chunk.text.contains("GraphRAG")
-            || results.pack.chunks[0].chunk.text.contains("graph"),
+        results.pack.chunks()[0].chunk.text.contains("GraphRAG")
+            || results.pack.chunks()[0].chunk.text.contains("graph"),
         "result should contain query terms"
     );
     assert_eq!(
-        results.pack.chunks[0].chunk.id, first_chunk_id,
+        results.pack.chunks()[0].chunk.id,
+        first_chunk_id,
         "chunk id should be stable across restart"
     );
 

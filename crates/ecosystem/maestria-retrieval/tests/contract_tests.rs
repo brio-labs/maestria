@@ -107,6 +107,44 @@ fn test_sync_engine_orchestration() -> RetrievalResult<()> {
 }
 
 #[test]
+fn sync_trace_preserves_rewritten_lane_queries() -> RetrievalResult<()> {
+    let mut plan = dummy_plan()?;
+    plan.original_query = "test PR".to_string();
+    plan.budgets = SearchBudget::with_limits(1000, 1_000, 4, 1, 0)?;
+    let retriever = |_: &SearchPlan| Ok(Vec::<EvidenceCandidate>::new());
+    let query_retriever = |_: &SearchPlan, query: &str| {
+        let mut candidate = candidate_fixture()?;
+        candidate.coverage_keys = vec![query.to_string()];
+        Ok(vec![candidate])
+    };
+    let evaluator = |candidates: Vec<EvidenceCandidate>, plan: &SearchPlan| {
+        let mut outcome = dummy_outcome()?;
+        outcome.evidence = candidates;
+        outcome.fingerprint = plan.fingerprint.clone();
+        outcome.status = if outcome.evidence.is_empty() {
+            SearchStatus::NoEvidenceFound
+        } else {
+            SearchStatus::Answerable
+        };
+        outcome.coverage.percent_covered = if outcome.evidence.is_empty() { 0 } else { 100 };
+        Ok(outcome)
+    };
+    let engine =
+        SyncRetrievalEngine::new(vec![retriever], evaluator).with_query_retriever(query_retriever);
+    let outcome = engine.search_sync(&plan)?;
+    let trace = outcome
+        .trace_data
+        .ok_or(RetrievalError::Internal("missing search trace".into()))?;
+    assert!(
+        trace
+            .lanes
+            .iter()
+            .any(|lane| lane.query == "test Pull Request")
+    );
+    Ok(())
+}
+
+#[test]
 fn test_timeout_cancellation() -> RetrievalResult<()> {
     let mut plan = dummy_plan()?;
     plan.budgets = SearchBudget::new(1000, 1)?;
@@ -260,8 +298,10 @@ fn test_fixed_k_rrf_overlap_non_summing() -> RetrievalResult<()> {
             id: "lexical".into(),
             modality: "text".into(),
         },
+        query: query.q.clone(),
         candidates: vec![c1.clone(), c2.clone()],
         status: SearchLaneStatus::Succeeded,
+        generation: Some(IndexGenerationId::new(1)),
     };
 
     let batch2 = CandidateBatch {
@@ -269,8 +309,10 @@ fn test_fixed_k_rrf_overlap_non_summing() -> RetrievalResult<()> {
             id: "dense".into(),
             modality: "text".into(),
         },
+        query: query.q.clone(),
         candidates: vec![c3.clone()],
         status: SearchLaneStatus::Succeeded,
+        generation: Some(IndexGenerationId::new(1)),
     };
 
     let rrf = FixedKRrf::new(60);
@@ -326,8 +368,10 @@ fn test_fixed_k_rrf_deterministic_tie_ordering() -> RetrievalResult<()> {
             id: "lane1".into(),
             modality: "text".into(),
         },
+        query: query.q.clone(),
         candidates: vec![c1.clone()],
         status: SearchLaneStatus::Succeeded,
+        generation: Some(IndexGenerationId::new(1)),
     };
     let batch2 = CandidateBatch {
         descriptor: RetrieverDescriptor {
@@ -335,7 +379,9 @@ fn test_fixed_k_rrf_deterministic_tie_ordering() -> RetrievalResult<()> {
             modality: "text".into(),
         },
         candidates: vec![c2.clone()],
+        query: query.q.clone(),
         status: SearchLaneStatus::Succeeded,
+        generation: Some(IndexGenerationId::new(1)),
     };
 
     let rrf = FixedKRrf::new(60);
@@ -369,10 +415,12 @@ fn test_empty_and_failed_lanes_skip_without_error() -> RetrievalResult<()> {
             id: "failed".into(),
             modality: "text".into(),
         },
+        query: query.q.clone(),
         candidates: vec![],
         status: SearchLaneStatus::Failed {
             error: "timeout".into(),
         },
+        generation: Some(IndexGenerationId::new(1)),
     };
 
     let batch_empty = CandidateBatch {
@@ -380,8 +428,10 @@ fn test_empty_and_failed_lanes_skip_without_error() -> RetrievalResult<()> {
             id: "empty".into(),
             modality: "text".into(),
         },
+        query: query.q.clone(),
         candidates: vec![],
         status: SearchLaneStatus::Empty,
+        generation: Some(IndexGenerationId::new(1)),
     };
 
     let batch_succ = CandidateBatch {
@@ -389,8 +439,10 @@ fn test_empty_and_failed_lanes_skip_without_error() -> RetrievalResult<()> {
             id: "succ".into(),
             modality: "text".into(),
         },
+        query: query.q.clone(),
         candidates: vec![c1.clone()],
         status: SearchLaneStatus::Succeeded,
+        generation: Some(IndexGenerationId::new(1)),
     };
 
     let rrf = FixedKRrf::new(60);
@@ -423,8 +475,10 @@ impl CandidateRetriever for AsyncLane {
         }
         Ok(maestria_retrieval::types::CandidateBatch {
             descriptor: self.descriptor(),
+            query: "test query".to_string(),
             candidates: self.candidate.clone().into_iter().collect(),
             status: maestria_domain::SearchLaneStatus::Succeeded,
+            generation: Some(IndexGenerationId::new(1)),
         })
     }
 }
@@ -450,7 +504,9 @@ impl CandidateRetriever for CountingWebLane {
         Ok(maestria_retrieval::types::CandidateBatch {
             descriptor: self.descriptor(),
             candidates: Vec::new(),
+            query: String::new(),
             status: maestria_domain::SearchLaneStatus::Empty,
+            generation: Some(IndexGenerationId::new(1)),
         })
     }
 }

@@ -6,14 +6,16 @@ pub struct SearchInput {
     pub query: String,
     pub limit: usize,
 }
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct EvidencePack {
-    pub query: String,
-    pub cards: Vec<SourceGroundedCardHit>,
-    pub chunks: Vec<SourceGroundedSearchHit>,
-    pub evidence_ids: Vec<EvidenceId>,
-}
+#[path = "evidence_pack.rs"]
+mod evidence_pack;
+#[path = "evidence_pack_lifecycle.rs"]
+mod evidence_pack_lifecycle;
+pub use evidence_pack::{
+    ClaimCoverageStatus, ClaimEvidenceCoverage, EvidenceFreshness, EvidencePackCompression,
+    EvidencePackError, EvidencePackMetadata, EvidencePackReplayKey, EvidencePackReproducibility,
+    SourceIndependence,
+};
+pub use evidence_pack_lifecycle::EvidencePack;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HybridPromotionRecord {
@@ -61,6 +63,7 @@ pub enum RetrievalLaneStatus {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RetrievalLaneReport {
     pub retriever_id: String,
+    pub query: String,
     pub status: RetrievalLaneStatus,
     pub candidates: Vec<maestria_domain::SearchTraceLaneCandidate>,
 }

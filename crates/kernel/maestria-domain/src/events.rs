@@ -175,6 +175,7 @@ pub enum DomainEvent {
         query: String,
         limit: usize,
         evidence_ids: Vec<EvidenceId>,
+        pack_metadata: Option<Box<crate::evidence_pack::EvidencePackMetadataRecord>>,
         at: LogicalTick,
     },
     ParserStarted {

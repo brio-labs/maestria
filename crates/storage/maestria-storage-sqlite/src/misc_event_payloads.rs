@@ -27,11 +27,13 @@ impl StoredEventPayload {
                 query,
                 limit,
                 evidence_ids,
+                pack_metadata,
                 at,
             } => Some(Self::SearchExecuted {
                 query: query.clone(),
                 limit: *limit as u64,
                 evidence_ids: evidence_ids.iter().map(|id| id.value()).collect(),
+                pack_metadata: pack_metadata.clone(),
                 at: at.value(),
             }),
             DomainEvent::SearchKnowledgeCompleted { outcome } => {
@@ -91,18 +93,21 @@ impl StoredEventPayload {
                 query,
                 limit,
                 evidence_ids,
+                pack_metadata,
                 at,
             } => match usize::try_from(limit) {
                 Ok(limit) => Ok(DomainEvent::SearchExecuted {
                     query,
                     limit,
                     evidence_ids: evidence_ids.into_iter().map(EvidenceId::new).collect(),
+                    pack_metadata,
                     at: LogicalTick::new(at),
                 }),
                 Err(_) => Err(Box::new(Self::SearchExecuted {
                     query,
                     limit,
                     evidence_ids,
+                    pack_metadata,
                     at,
                 })),
             },

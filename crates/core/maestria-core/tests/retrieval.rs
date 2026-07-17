@@ -3,7 +3,8 @@ use maestria_core::{
 };
 use maestria_domain::{
     Artifact, ArtifactId, Card, CardId, Chunk, ChunkId, Evidence, EvidenceId, EvidenceKind,
-    IndexStatus, Relation, RelationEndpoint, RelationId, RelationKind, SourceSpan, StructureNodeId,
+    FreshnessStatus, IndexStatus, Relation, RelationEndpoint, RelationId, RelationKind,
+    SearchStopReason, SourceSpan, StructureNodeId,
 };
 use maestria_governance::RetrievalSecurityPolicy;
 use maestria_ports::{
@@ -37,27 +38,44 @@ fn assert_directly_seeded_retrieval(
         search_result.mode,
         maestria_core::RetrievalMode::LexicalOnly
     );
-    assert_eq!(search_result.pack.cards.len(), 0);
-    assert_eq!(search_result.pack.chunks.len(), 1);
-    let hit = &search_result.pack.chunks[0];
+    assert_eq!(search_result.pack.cards().len(), 0);
+    assert_eq!(search_result.pack.chunks().len(), 1);
+    let hit = &search_result.pack.chunks()[0];
     assert_eq!(hit.artifact.id, artifact_id);
     assert_eq!(hit.chunk.id, chunk_id_1);
     assert_eq!(hit.evidence.id, evidence_id_1);
     assert_eq!(hit.evidence.excerpt, "beta-token paragraph.");
-    assert_eq!(search_result.pack.evidence_ids, &[evidence_id_1]);
-    assert_eq!(search_result.pack.query, "beta-token");
+    assert_eq!(search_result.pack.evidence_ids(), &[evidence_id_1]);
+    assert_eq!(search_result.pack.query(), "beta-token");
+    assert_eq!(search_result.pack.metadata().source_independence.len(), 1);
+    assert_eq!(
+        search_result.pack.metadata().source_independence[0].source_key,
+        "file:notes/multi.md"
+    );
+    assert_eq!(
+        search_result.pack.metadata().freshness[0].status,
+        FreshnessStatus::Unknown
+    );
+    assert_eq!(
+        search_result.pack.metadata().stop_reason,
+        SearchStopReason::EvidenceComplete
+    );
 
     // Search: "card-title" should match the card.
     let card_result = core.search(SearchInput {
         query: "card-title".to_string(),
         limit: 5,
     })?;
-    assert_eq!(card_result.pack.cards.len(), 1);
-    assert_eq!(card_result.pack.chunks.len(), 0);
-    assert!(card_result.pack.evidence_ids.is_empty());
-    let card_hit = &card_result.pack.cards[0];
+    assert_eq!(card_result.pack.cards().len(), 1);
+    assert_eq!(card_result.pack.chunks().len(), 0);
+    assert!(card_result.pack.evidence_ids().is_empty());
+    let card_hit = &card_result.pack.cards()[0];
     assert_eq!(card_hit.artifact.id, artifact_id);
     assert_eq!(card_hit.card.id, card_id);
+    assert_eq!(
+        card_result.pack.metadata().stop_reason,
+        SearchStopReason::EvidenceComplete
+    );
 
     // Open evidence by evidence id.
     let opened = core.open_evidence(OpenEvidenceInput {
@@ -481,12 +499,12 @@ fn search_excludes_pending_artifact() -> Result<(), Box<dyn std::error::Error>> 
             })?;
 
             assert!(
-                search_result.pack.chunks.is_empty(),
+                search_result.pack.chunks().is_empty(),
                 "pending artifact chunks must be excluded, got {}",
-                search_result.pack.chunks.len()
+                search_result.pack.chunks().len()
             );
             assert!(
-                search_result.pack.cards.is_empty(),
+                search_result.pack.cards().is_empty(),
                 "pending artifact cards must be excluded"
             );
             Ok(())
@@ -505,12 +523,12 @@ fn search_excludes_unindexed_artifact() -> Result<(), Box<dyn std::error::Error>
             })?;
 
             assert!(
-                search_result.pack.chunks.is_empty(),
+                search_result.pack.chunks().is_empty(),
                 "unindexed artifact chunks must be excluded, got {}",
-                search_result.pack.chunks.len()
+                search_result.pack.chunks().len()
             );
             assert!(
-                search_result.pack.cards.is_empty(),
+                search_result.pack.cards().is_empty(),
                 "unindexed artifact cards must be excluded"
             );
             Ok(())
@@ -621,7 +639,7 @@ fn test_graph_retrieval_integration() -> Result<(), Box<dyn std::error::Error>> 
         })?
         .pack;
 
-    let chunk_artifacts: Vec<_> = pack.chunks.iter().map(|hit| hit.artifact.id).collect();
+    let chunk_artifacts: Vec<_> = pack.chunks().iter().map(|hit| hit.artifact.id).collect();
     assert_eq!(chunk_artifacts.len(), 5);
     assert!(chunk_artifacts.contains(&fixture.a));
     assert!(chunk_artifacts.contains(&fixture.b));
@@ -629,15 +647,15 @@ fn test_graph_retrieval_integration() -> Result<(), Box<dyn std::error::Error>> 
     assert!(!chunk_artifacts.contains(&fixture.d));
     assert!(chunk_artifacts.contains(&fixture.e));
     assert!(chunk_artifacts.contains(&fixture.f));
-    assert!(pack.evidence_ids.contains(&fixture.e_e));
+    assert!(pack.evidence_ids().contains(&fixture.e_e));
     let score_b = pack
-        .chunks
+        .chunks()
         .iter()
         .find(|hit| hit.artifact.id == fixture.b)
         .map(|hit| hit.score)
         .ok_or("missing B graph hit")?;
     let score_f = pack
-        .chunks
+        .chunks()
         .iter()
         .find(|hit| hit.artifact.id == fixture.f)
         .map(|hit| hit.score)
@@ -654,7 +672,7 @@ fn test_graph_retrieval_integration() -> Result<(), Box<dyn std::error::Error>> 
             limit: 10,
         })?
         .pack;
-    assert_eq!(capped.chunks.len(), 3);
+    assert_eq!(capped.chunks().len(), 3);
 
     let fallback = fixture
         .core_without_graph()
@@ -663,8 +681,8 @@ fn test_graph_retrieval_integration() -> Result<(), Box<dyn std::error::Error>> 
             limit: 10,
         })?
         .pack;
-    assert_eq!(fallback.chunks.len(), 1);
-    assert_eq!(fallback.chunks[0].artifact.id, fixture.a);
+    assert_eq!(fallback.chunks().len(), 1);
+    assert_eq!(fallback.chunks()[0].artifact.id, fixture.a);
     Ok(())
 }
 
@@ -682,9 +700,9 @@ fn retrieval_policy_filters_before_scoring() -> Result<(), Box<dyn std::error::E
         })?
         .pack;
 
-    assert!(pack.cards.is_empty());
-    assert!(pack.chunks.is_empty());
-    assert!(pack.evidence_ids.is_empty());
+    assert!(pack.cards().is_empty());
+    assert!(pack.chunks().is_empty());
+    assert!(pack.evidence_ids().is_empty());
     let restricted_core = fixture.core_without_graph().with_retrieval_policy(
         RetrievalSecurityPolicy::new().require_trust_zone(maestria_domain::TrustZone::System),
     );
@@ -720,13 +738,13 @@ fn exact_lexical_path_is_invoked_and_denied_candidates_excluded()
         .pack;
 
     assert_eq!(
-        pack.chunks.len(),
+        pack.chunks().len(),
         1,
         "exact lexical path should return the matching chunk"
     );
-    assert_eq!(pack.chunks[0].chunk.id, fixture.chunk_a);
+    assert_eq!(pack.chunks()[0].chunk.id, fixture.chunk_a);
     assert!(
-        pack.chunks[0].lexical_metadata.is_some(),
+        pack.chunks()[0].lexical_metadata.is_some(),
         "lexical lane metadata must reach grounded results"
     );
 
@@ -743,7 +761,7 @@ fn exact_lexical_path_is_invoked_and_denied_candidates_excluded()
         .pack;
 
     assert!(
-        restricted_pack.chunks.is_empty(),
+        restricted_pack.chunks().is_empty(),
         "exact lookup must exclude denied candidates"
     );
     Ok(())

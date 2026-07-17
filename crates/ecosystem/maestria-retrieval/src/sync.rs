@@ -22,6 +22,7 @@ type PipelineQueryRetriever<'a, C> = Box<dyn Fn(&SearchPlan, &str) -> RetrievalR
 type PipelineFusion<'a, C> = Box<dyn Fn(Vec<Vec<C>>) -> RetrievalResult<Vec<C>> + 'a>;
 type PipelineStage<'a, C> = Box<dyn Fn(Vec<C>, &SearchPlan) -> RetrievalResult<Vec<C>> + 'a>;
 type PipelineEvaluator<'a, C, O> = Box<dyn Fn(Vec<C>, &SearchPlan) -> RetrievalResult<O> + 'a>;
+type SyncLaneSets<C> = Vec<(String, Vec<C>)>;
 
 pub struct SyncPipeline<'a, C, O> {
     retrievers: Vec<PipelineRetriever<'a, C>>,
@@ -124,7 +125,17 @@ impl<'a, C, O> SyncPipeline<'a, C, O> {
         !self.query_retrievers.is_empty()
     }
 
-    pub fn run(&self, plan: &SearchPlan) -> RetrievalResult<O> {
+    pub fn run(&self, plan: &SearchPlan) -> RetrievalResult<O>
+    where
+        C: Clone,
+    {
+        self.run_with_trace(plan).map(|(output, _)| output)
+    }
+
+    pub(crate) fn run_with_trace(&self, plan: &SearchPlan) -> RetrievalResult<(O, SyncLaneSets<C>)>
+    where
+        C: Clone,
+    {
         maestria_governance::SearchPlanValidator::validate(
             plan,
             &self.capabilities,
@@ -145,9 +156,11 @@ impl<'a, C, O> SyncPipeline<'a, C, O> {
             return Err(RetrievalError::Internal("No retrievers configured".into()));
         }
         let mut sets = Vec::with_capacity(self.retrievers.len());
+        let mut lane_sets = Vec::with_capacity(self.retrievers.len());
         for retriever in &self.retrievers {
             let mut set = retriever(plan)?;
             set.truncate(plan.stop_conditions.max_results as usize);
+            lane_sets.push((plan.original_query.clone(), set.clone()));
             sets.push(set);
             check_timeout()?;
         }
@@ -160,6 +173,7 @@ impl<'a, C, O> SyncPipeline<'a, C, O> {
                 for retriever in &self.query_retrievers {
                     let mut set = retriever(plan, &rewrite.query)?;
                     set.truncate(plan.stop_conditions.max_results as usize);
+                    lane_sets.push((rewrite.query.clone(), set.clone()));
                     sets.push(set);
                     check_timeout()?;
                 }
@@ -196,6 +210,6 @@ impl<'a, C, O> SyncPipeline<'a, C, O> {
         candidates.truncate(plan.stop_conditions.max_results as usize);
         let output = (self.evaluator)(candidates, plan)?;
         check_timeout()?;
-        Ok(output)
+        Ok((output, lane_sets))
     }
 }

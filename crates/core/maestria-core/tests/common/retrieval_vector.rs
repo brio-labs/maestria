@@ -140,9 +140,9 @@ fn vector_search_returns_grounded_nonliteral_match() -> Result<(), Box<dyn std::
     )?;
     assert_eq!(output.mode, maestria_core::RetrievalMode::Hybrid);
     let pack = output.pack;
-    assert_eq!(pack.chunks.len(), 1);
-    assert_eq!(pack.chunks[0].chunk.id, chunk_id);
-    assert_eq!(pack.chunks[0].evidence.id, evidence_id);
-    assert_eq!(pack.evidence_ids, vec![evidence_id]);
+    assert_eq!(pack.chunks().len(), 1);
+    assert_eq!(pack.chunks()[0].chunk.id, chunk_id);
+    assert_eq!(pack.chunks()[0].evidence.id, evidence_id);
+    assert_eq!(pack.evidence_ids(), &[evidence_id]);
     Ok(())
 }

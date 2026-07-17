@@ -451,6 +451,7 @@ fn search_executed_emits_audit_event_with_evidence_ids() -> Result<(), DomainErr
         query: "hello world".to_string(),
         limit: 10,
         evidence_ids: vec![EvidenceId::new(1), EvidenceId::new(2)],
+        pack_metadata: None,
         at: LogicalTick::new(42),
     }))?;
 
@@ -462,11 +463,13 @@ fn search_executed_emits_audit_event_with_evidence_ids() -> Result<(), DomainErr
             query,
             limit,
             evidence_ids,
+            pack_metadata,
             at,
         } => {
             assert_eq!(query, "hello world");
             assert_eq!(*limit, 10);
             assert_eq!(evidence_ids, &vec![EvidenceId::new(1), EvidenceId::new(2)]);
+            assert!(pack_metadata.is_none());
             assert_eq!(*at, LogicalTick::new(42));
         }
         _ => {
@@ -545,6 +548,7 @@ fn search_executed_rejects_empty_query() -> Result<(), Box<dyn std::error::Error
         query: "   ".to_string(),
         limit: 5,
         evidence_ids: vec![],
+        pack_metadata: None,
         at: LogicalTick::new(1),
     })) {
         Ok(_) => return Err(std::io::Error::other("empty query must be rejected").into()),
@@ -561,6 +565,7 @@ fn search_executed_is_deterministic_on_replay() -> Result<(), DomainError> {
         query: "deterministic".to_string(),
         limit: 3,
         evidence_ids: vec![EvidenceId::new(10)],
+        pack_metadata: None,
         at: LogicalTick::new(7),
     }))?;
 
@@ -627,6 +632,7 @@ fn search_executed_persist_effect_matches_event_envelope() -> Result<(), DomainE
         query: "audit".to_string(),
         limit: 1,
         evidence_ids: vec![],
+        pack_metadata: None,
         at: LogicalTick::new(1),
     }))?;
 

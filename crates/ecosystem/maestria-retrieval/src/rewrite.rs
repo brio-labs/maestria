@@ -103,6 +103,10 @@ impl QueryRewriteSession {
         self
     }
 
+    pub fn set_missing_slots(&mut self, slots: impl IntoIterator<Item = String>) {
+        self.allowed_missing_slots = slots.into_iter().collect();
+    }
+
     pub fn add_rewrite(&mut self, record: QueryRewriteRecord) -> bool {
         if record.origin == RewriteOrigin::Original
             && (record.query != self.original_query || record.stage != StageRole::InitialRetrieval)
