@@ -4,12 +4,12 @@ on:
   workflow_dispatch:
     inputs:
       commit:
-        description: 'Main commit SHA to release as v0.1.0'
+        description: 'Main commit SHA to release as v0.6.0'
         required: true
         type: string
 
 concurrency:
-  group: release-v0.1.0
+  group: release-v0.6.0
   cancel-in-progress: false
 
 permissions:
@@ -75,14 +75,14 @@ jobs:
 
           # ── 1. Milestone gate ──────────────────────────────────
           echo
-          echo "==> Checking milestone 'v0.1 — MVP Closure'..."
+          echo "==> Checking milestone 'v0.6 — Query-Adaptive Search'..."
 
           MILESTONE_JSON="$(gh api "repos/${{ github.repository }}/milestones" \
             --method GET -f state=all --paginate \
-            --jq '.[] | select(.title == "v0.1 — MVP Closure")')"
+            --jq '.[] | select(.title == "v0.6 — Query-Adaptive Search")')
 
           if [ -z "$MILESTONE_JSON" ]; then
-            echo "::error::Milestone 'v0.1 — MVP Closure' not found in this repository"
+            echo "::error::Milestone 'v0.6 — Query-Adaptive Search' not found in this repository"
             exit 1
           fi
 
@@ -248,7 +248,7 @@ jobs:
           set -euo pipefail
           mkdir -p dist
           TARGET="x86_64-unknown-linux-gnu"
-          VERSION="v0.1.0"
+          VERSION="v0.6.0"
           export SOURCE_DATE_EPOCH=0
 
           for binary in maestria-cli maestria-daemon; do
@@ -303,12 +303,12 @@ jobs:
           set -euo pipefail
           COMMIT="${{ needs.preflight.outputs.commit }}"
 
-          if gh release view v0.1.0 --json targetCommitish,isDraft >/dev/null 2>&1; then
-            RELEASE_JSON="$(gh release view v0.1.0 --json targetCommitish,isDraft)"
+          if gh release view v0.6.0 --json targetCommitish,isDraft >/dev/null 2>&1; then
+            RELEASE_JSON="$(gh release view v0.6.0 --json targetCommitish,isDraft)"
             EXISTING_TARGET="$(echo "$RELEASE_JSON" | jq -r '.targetCommitish')"
             IS_DRAFT="$(echo "$RELEASE_JSON" | jq -r '.isDraft')"
             if [ "$EXISTING_TARGET" != "$COMMIT" ]; then
-              echo "::error::Release v0.1.0 targets $EXISTING_TARGET, not $COMMIT"
+              echo "::error::Release v0.6.0 targets $EXISTING_TARGET, not $COMMIT"
               exit 1
             fi
             if [ "$IS_DRAFT" = "true" ]; then
@@ -334,12 +334,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          gh release upload v0.1.0 dist/* --clobber
+          gh release upload v0.6.0 dist/* --clobber
           if [ "${{ steps.check.outputs.mode }}" = "existing-draft" ]; then
-            gh release edit v0.1.0 --draft=false
-            echo "✓ Draft release v0.1.0 published with repaired assets"
+            gh release edit v0.6.0 --draft=false
+            echo "✓ Draft release v0.6.0 published with repaired assets"
           else
-            echo "✓ Existing release v0.1.0 assets repaired"
+            echo "✓ Existing release v0.6.0 assets repaired"
           fi
 
       - name: Create tag and publish release
@@ -351,29 +351,29 @@ jobs:
           COMMIT="${{ needs.preflight.outputs.commit }}"
 
           # Check whether the tag already exists remotely (handle annotated + lightweight).
-          REMOTE_REFS="$(git ls-remote origin "refs/tags/v0.1.0^{}" "refs/tags/v0.1.0" 2>/dev/null || echo '')"
+          REMOTE_REFS="$(git ls-remote origin "refs/tags/v0.6.0^{}" "refs/tags/v0.6.0" 2>/dev/null || echo '')"
           if [ -n "$REMOTE_REFS" ]; then
-            REMOTE_TAG_SHA="$(echo "$REMOTE_REFS" | awk '/refs\/tags\/v0\.1\.0\^\{\}$/ {print $1; exit}')"
+            REMOTE_TAG_SHA="$(echo "$REMOTE_REFS" | awk '/refs\/tags\/v0\.6\.0\^\{\}$/ {print $1; exit}')"
             if [ -z "$REMOTE_TAG_SHA" ]; then
-              REMOTE_TAG_SHA="$(echo "$REMOTE_REFS" | awk '/refs\/tags\/v0\.1\.0$/ {print $1; exit}')"
+              REMOTE_TAG_SHA="$(echo "$REMOTE_REFS" | awk '/refs\/tags\/v0\.6\.0$/ {print $1; exit}')"
             fi
             if [ "$REMOTE_TAG_SHA" != "$COMMIT" ]; then
-              echo "::error::Remote tag v0.1.0 points to $REMOTE_TAG_SHA, not $COMMIT"
+              echo "::error::Remote tag v0.6.0 points to $REMOTE_TAG_SHA, not $COMMIT"
               exit 1
             fi
-            echo "✓ Tag v0.1.0 already exists on remote at $COMMIT — creating release only"
+            echo "✓ Tag v0.6.0 already exists on remote at $COMMIT — creating release only"
           else
-            echo "==> Creating tag v0.1.0 at commit $COMMIT"
+            echo "==> Creating tag v0.6.0 at commit $COMMIT"
             git config user.name "github-actions[bot]"
             git config user.email "github-actions[bot]@users.noreply.github.com"
-            git tag -a v0.1.0 "$COMMIT" -m "v0.1.0: MVP release"
-            git push origin v0.1.0
+            git tag -a v0.6.0 "$COMMIT" -m "v0.6.0: Query-Adaptive Search release"
+            git push origin v0.6.0
           fi
 
-          echo "==> Publishing release v0.1.0"
-          gh release create v0.1.0 \
+          echo "==> Publishing release v0.6.0"
+          gh release create v0.6.0 \
             --target "$COMMIT" \
-            --title "v0.1.0 — MVP Release" \
+            --title "v0.6.0 — Query-Adaptive Search" \
             --generate-notes \
             dist/*
-          echo "✓ Release v0.1.0 published successfully"
+          echo "✓ Release v0.6.0 published successfully"

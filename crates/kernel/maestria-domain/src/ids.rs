@@ -1,6 +1,6 @@
 use std::fmt;
 
-pub const DOMAIN_VERSION: &str = "0.1.0";
+pub const DOMAIN_VERSION: &str = "0.6.0";
 
 macro_rules! id_type {
     ($name:ident) => {

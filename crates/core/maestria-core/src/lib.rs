@@ -24,7 +24,7 @@ mod retrieval_verification;
 mod trace_candidates;
 mod types;
 
-pub const CORE_VERSION: &str = "0.1.0";
+pub const CORE_VERSION: &str = "0.6.0";
 
 pub use error::{CoreError, CoreResult};
 pub use ingestion::build_artifact_detected_input;

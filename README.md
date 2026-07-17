@@ -1,24 +1,25 @@
 # Maestria
 
 Maestria is a local-first, source-grounded second-brain runtime for AI agents.
-It indexes your files, executes typed searches, links evidence to memory and
-tasks, and runs a daemon for continuous operation — all under a restart-safe,
-policy-scoped workflow.
+It indexes your files, executes typed, query-adaptive searches, links evidence to
+memory and tasks, and runs a restart-safe daemon for continuous operation — all
+under explicit policy and validation gates.
 
 ## Install
 
-Maestria targets Rust stable 1.95+. Build from source:
+Maestria v0.6.0 targets Rust stable 1.95+. Build from source:
 
 ```bash
-git clone https://github.com/wkral/maestria.git
+git clone https://github.com/brio-labs/maestria.git
 cd maestria
 
 # Build the CLI binary
 cargo build --release -p maestria-cli
-
-# The binary is at target/release/maestria
-./target/release/maestria --help
+./target/release/maestria-cli --help
 ```
+
+The GitHub release also provides a prebuilt Linux x86_64 archive containing
+the user-facing `maestria` CLI and `maestriad` daemon binaries.
 
 ## Quick start
 
