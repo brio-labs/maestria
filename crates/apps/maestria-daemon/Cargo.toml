@@ -20,6 +20,7 @@ maestria-embedding-openai = { path = "../../ecosystem/maestria-embedding-openai"
 maestria-parsers = { path = "../../ecosystem/maestria-parsers" }
 maestria-harness = { path = "../../harness/maestria-harness" }
 maestria-ports = { path = "../../kernel/maestria-ports" }
+maestria-retrieval = { path = "../../ecosystem/maestria-retrieval" }
 
 anyhow = "1.0"
 clap = { version = "4.5", features = ["derive"] }

@@ -10,6 +10,15 @@ use super::{
     FIELD_FILENAME, FIELD_KEY, FIELD_PATH, FIELD_SYMBOL, FIELD_TEXT, IndexFields, schema_field,
 };
 
+pub(super) const CANONICAL_SCHEMA: &str = concat!(
+    "chunk_key:string;artifact_id:u64;chunk_id:u64;text:text(default,freq_pos,stored);",
+    "card_key:string;card_artifact_id:u64;card_id:u64;card_title:text(default,freq_pos,stored);",
+    "card_body:text(default,freq_pos,stored);path:text(default,freq_pos,stored);",
+    "filename:text(default,freq_pos,stored);symbol:text(default,freq_pos,stored);",
+    "card_path:text(default,freq_pos,stored);card_filename:text(default,freq_pos,stored);",
+    "card_symbol:text(default,freq_pos,stored)"
+);
+
 pub(super) fn schema() -> Schema {
     let mut builder = Schema::builder();
     let text_indexing = TextFieldIndexing::default()

@@ -29,12 +29,14 @@ pub enum Commands {
         #[arg(short, long)]
         recursive: bool,
     },
-    /// Search indexed local chunks or inspect durable search observability
     Search {
         #[command(subcommand)]
         command: Option<SearchCommands>,
         #[arg(short, long, default_value = ".maestria-dev")]
         instance_dir: PathBuf,
+        /// Associate direct search with an optional task.
+        #[arg(long)]
+        task_id: Option<u64>,
         query: Option<String>,
         #[arg(short, long, default_value_t = 10)]
         limit: usize,
@@ -91,6 +93,8 @@ pub enum Commands {
 pub enum SearchCommands {
     /// Execute a search and print its durable plan and trace details
     Explain {
+        #[arg(long)]
+        task_id: Option<u64>,
         query: String,
         #[arg(short, long, default_value = ".maestria-dev")]
         instance_dir: PathBuf,

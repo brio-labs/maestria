@@ -13,7 +13,7 @@ use maestria_blob_fs::FsBlobStore;
 use maestria_core::{InitInstanceInput, InstanceLayout, InstanceManifest, InstanceService};
 #[cfg(test)]
 use maestria_domain::ArtifactId;
-use maestria_domain::{DomainInput, KernelState, replay_events};
+use maestria_domain::{DomainInput, KernelState, RepresentationName, replay_events};
 use maestria_governance::{
     AutonomyProfile, DefaultApprovalGate, DefaultRiskClassifier, DefaultValidationGate,
     PrivacyExclusions, Scope,
@@ -27,7 +27,8 @@ use maestria_search_tantivy::TantivyFullTextIndex;
 use maestria_storage_sqlite::SqliteStore;
 use maestria_vector_sqlite::SqliteVectorIndex;
 use maestria_web_evidence::UreqWebFetcher;
-use search_executor::CoreSearchExecutor;
+use search_executor::SearchRuntimeParts;
+pub use search_executor::{SearchRuntime, prepare_search_runtime};
 use tokio::{
     sync::mpsc,
     time::{sleep, timeout},
@@ -153,7 +154,10 @@ pub use projection_recovery::{
     reconcile_graph_projection, reconcile_projections, reconcile_vector_projection,
 };
 mod vector_startup;
-pub use vector_startup::{build_embedding_provider, reconcile_vector_projection_for_layout};
+pub use vector_startup::{
+    RetrievalGenerations, build_embedding_provider, reconcile_retrieval_generations,
+    reconcile_vector_projection_for_layout,
+};
 mod full_text_recovery;
 pub use full_text_recovery::pending_start_full_text;
 mod parser_resume;
@@ -231,6 +235,7 @@ pub fn load_kernel_state(layout: &InstanceLayout) -> Result<KernelState> {
 
 fn build_adapters(
     layout: &InstanceLayout,
+    state: &KernelState,
     embedding_provider: Option<Arc<dyn maestria_ports::EmbeddingProvider + Send + Sync>>,
 ) -> Result<Adapters> {
     let blob_store = Arc::new(
@@ -258,22 +263,35 @@ fn build_adapters(
         SqliteGraphIndex::open(layout.graph_index_dir.join("projection.db"))
             .with_context(|| format!("open graph index {}", layout.graph_index_dir.display()))?,
     );
+    let lexical = state
+        .index_generations
+        .get_active(&RepresentationName::new("lexical_text_v1"))
+        .ok_or_else(|| anyhow!("active lexical retrieval generation is missing"))?;
+    let dense_generation = state
+        .index_generations
+        .get_active(&RepresentationName::new("dense_text_v1"))
+        .map(|generation| generation.id);
     let search_executor: Arc<dyn SearchKnowledgeExecutor + Send + Sync> =
-        Arc::new(CoreSearchExecutor {
-            artifacts: sqlite_store.clone(),
-            chunks: sqlite_store.clone(),
-            cards: sqlite_store.clone(),
-            evidence: sqlite_store.clone(),
-            events: sqlite_store.clone(),
-            parser: parser.clone(),
-            search_index: search_index.clone(),
-            blobs: blob_store.clone(),
-            vector_index: vector_index.clone(),
-            graph_index: graph_index.clone(),
-            retrieval_policy: maestria_governance::RetrievalSecurityPolicy::default()
+        Arc::new(SearchRuntime::from_parts(
+            SearchRuntimeParts {
+                artifacts: sqlite_store.clone(),
+                cards: sqlite_store.clone(),
+                chunks: sqlite_store.clone(),
+                evidence: sqlite_store.clone(),
+                search_index: search_index.clone(),
+                blobs: blob_store.clone(),
+                vector_index: Some(vector_index.clone()),
+                graph_index: Some(graph_index.clone()),
+                event_log: sqlite_store.clone(),
+                primary_generation: lexical.id,
+                dense_generation,
+                corpus_snapshot: lexical.corpus_snapshot,
+            },
+            embedding_provider.clone(),
+            maestria_governance::RetrievalSecurityPolicy::default()
                 .require_read_allowed(true)
                 .allow_unscoped_items(true),
-        });
+        )?);
     Ok(Adapters {
         event_log: sqlite_store.clone(),
         blob_store,
@@ -297,7 +315,7 @@ fn build_adapters(
 
 pub fn build_runtime(
     layout: &InstanceLayout,
-    state: KernelState,
+    mut state: KernelState,
     profile: AutonomyProfile,
 ) -> Result<(
     MaestriaRuntime,
@@ -309,13 +327,15 @@ pub fn build_runtime(
         .with_context(|| format!("read instance manifest {}", layout.manifest_path.display()))?;
     let manifest = InstanceService::parse_manifest(&manifest_contents)
         .map_err(|error| anyhow!("parse instance manifest: {error}"))?;
+    reconcile_retrieval_generations(layout, &mut state, &manifest)
+        .context("reconcile retrieval generations before runtime construction")?;
     let embedding_model = manifest
         .embeddings
         .as_ref()
         .filter(|config| config.enabled)
         .map(|config| config.model.clone());
     let embedding_provider = build_embedding_provider(&manifest, &state)?;
-    let adapters = build_adapters(layout, embedding_provider)?;
+    let adapters = build_adapters(layout, &state, embedding_provider)?;
     let governance = Governance {
         classifier: Arc::new(DefaultRiskClassifier),
         approval_gate: Arc::new(DefaultApprovalGate),

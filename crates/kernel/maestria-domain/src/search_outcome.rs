@@ -225,6 +225,8 @@ pub struct SearchTraceLane {
     pub retriever_id: String,
     #[serde(default)]
     pub query: String,
+    #[serde(default)]
+    pub generation: Option<crate::ids::IndexGenerationId>,
     pub status: SearchLaneStatus,
     pub candidates: Vec<SearchTraceLaneCandidate>,
 }

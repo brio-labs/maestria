@@ -9,12 +9,14 @@ publish = false
 maestria-domain = { path = "../../kernel/maestria-domain" }
 maestria-governance = { path = "../../kernel/maestria-governance" }
 maestria-ports = { path = "../../kernel/maestria-ports" }
-maestria-retrieval = { path = "../../ecosystem/maestria-retrieval" }
 url = "2"
 sha2 = "0.10"
 [dev-dependencies]
+maestria-retrieval = { path = "../../ecosystem/maestria-retrieval" }
 maestria-blob-fs = { path = "../../storage/maestria-blob-fs" }
 maestria-search-tantivy = { path = "../../storage/maestria-search-tantivy" }
 maestria-parsers = { path = "../../ecosystem/maestria-parsers" }
 maestria-storage-sqlite = { path = "../../storage/maestria-storage-sqlite" }
 tempfile = "3"
+async-trait = "0.1.80"
+tokio = { version = "1.37.0", features = ["full", "test-util"] }

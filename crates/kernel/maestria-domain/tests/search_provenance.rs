@@ -191,6 +191,7 @@ fn trace_lane_changes_alter_deterministic_identity() -> Result<(), Box<dyn std::
     trace = trace.with_lanes(vec![SearchTraceLane {
         retriever_id: "lexical".to_owned(),
         query: "test query".to_owned(),
+        generation: None,
         status: SearchLaneStatus::Succeeded,
         candidates: vec![SearchTraceLaneCandidate {
             evidence_id: EvidenceId::new(42),
@@ -219,6 +220,7 @@ fn trace_lane_changes_alter_deterministic_identity() -> Result<(), Box<dyn std::
     trace = trace.with_lanes(vec![SearchTraceLane {
         retriever_id: "lexical".to_owned(),
         query: "test query".to_owned(),
+        generation: None,
         status: SearchLaneStatus::Failed {
             error: "timeout".to_owned(),
         },
@@ -270,6 +272,7 @@ fn trace_lanes_serialize_and_deserialize_without_fallback() -> Result<(), Box<dy
     .with_lanes(vec![SearchTraceLane {
         retriever_id: "dense".to_owned(),
         query: "test query".to_owned(),
+        generation: None,
         status: SearchLaneStatus::Failed {
             error: "unreachable".to_owned(),
         },

@@ -3,18 +3,12 @@ use super::search_render::trace_from_outcome;
 use super::search_render::{render_trace, trace};
 use crate::{commands::search, helpers};
 use anyhow::{Context, Result, anyhow};
-use maestria_blob_fs::FsBlobStore;
-use maestria_core::{CorePorts, CoreServices, InstanceService, SearchInput};
 use maestria_domain::{
     DomainEvent, DomainInput, EvidencePackReproducibilityRecord, SearchKnowledgeCompleted,
     SearchOutcome, SearchPlan, SearchTraceId,
 };
-use maestria_governance::AutonomyProfile;
-use maestria_parsers::ParserRegistry;
-use maestria_ports::{GraphIndex, VectorIndex};
-use maestria_search_tantivy::TantivyFullTextIndex;
 use maestria_storage_sqlite::SqliteStore;
-use std::{fs, path::PathBuf};
+use std::path::PathBuf;
 
 pub(super) struct DurableTrace {
     pub(super) id: SearchTraceId,
@@ -22,159 +16,41 @@ pub(super) struct DurableTrace {
     pub(super) outcome: SearchOutcome,
 }
 
-pub async fn run_search_explain(instance_dir: PathBuf, query: String, limit: usize) -> Result<()> {
-    let layout = helpers::validated_instance(instance_dir)?;
-    let _instance_lock = maestria_daemon::acquire_instance_write_lock(&layout).await?;
-    let search_layout = layout.clone();
-    let result = tokio::task::spawn_blocking(move || explain_search(&search_layout, query, limit))
-        .await
-        .map_err(|error| anyhow!("search explain worker failed: {error}"))??;
-    persist_search_trace(&layout, &result.plan, &result.outcome).await?;
-    render_trace(&result.plan, &result.outcome)
-}
-
-fn explain_search(
-    layout: &maestria_core::InstanceLayout,
+pub async fn run_search_explain(
+    instance_dir: PathBuf,
+    task_id: Option<u64>,
     query: String,
     limit: usize,
-) -> Result<DurableTrace> {
-    let sqlite_store = SqliteStore::open(&layout.database_path)?;
-    let blob_store = FsBlobStore::open(&layout.blobs_dir)?;
-    let manifest_contents = fs::read_to_string(&layout.manifest_path)?;
-    let manifest = InstanceService::parse_manifest(&manifest_contents)?;
-    let state = maestria_daemon::load_kernel_state(layout)?;
-    let embedding_provider = maestria_daemon::build_embedding_provider(&manifest, &state)?;
-    let vector_index = search::open_reconciled_vector_index(
-        layout,
-        &state,
-        &manifest,
-        embedding_provider.as_deref(),
-    )?;
-    let graph_index = search::open_reconciled_graph_index(layout, &state)?;
-    let search_index = TantivyFullTextIndex::open(&layout.full_text_index_dir)?;
-    search::ensure_search_index(&search_index, &state)?;
-    let vector_query = search::build_vector_query(
-        vector_index.is_some(),
-        embedding_provider.as_deref(),
-        &query,
-        limit,
-    );
-    let parser = ParserRegistry::with_defaults();
-    let core = CoreServices::new(CorePorts {
-        artifacts: &sqlite_store,
-        chunks: &sqlite_store,
-        cards: &sqlite_store,
-        evidence: &sqlite_store,
-        events: &sqlite_store,
-        parser: &parser,
-        search_index: &search_index,
-        blobs: &blob_store,
-        vector_index: vector_index.as_ref().map(|index| index as &dyn VectorIndex),
-        graph_index: graph_index.as_ref().map(|index| index as &dyn GraphIndex),
-    });
-    let input = SearchInput { query, limit };
-    let plan = core.search_plan(input.clone())?;
-    let outcome = match vector_query {
-        Some(vector_query) => core.explain_search_with_vector(input, vector_query)?,
-        None => core.explain_search(input)?,
-    };
-    let trace = outcome
-        .trace_data
-        .as_deref()
-        .ok_or_else(|| anyhow!("search explain produced no durable trace payload"))?;
-    outcome
-        .verify_compatibility(&plan)
-        .map_err(|error| anyhow!("search explain produced an invalid trace: {error}"))?;
-    if trace.deterministic_id() != outcome.trace || !trace.matches_plan(&plan) {
-        return Err(anyhow!(
-            "search explain produced a non-reproducible trace {}",
-            outcome.trace
-        ));
-    }
-    Ok(DurableTrace {
-        id: outcome.trace,
-        plan,
-        outcome,
-    })
+) -> Result<()> {
+    let layout = helpers::validated_instance(instance_dir)?;
+    let _instance_lock = maestria_daemon::acquire_instance_write_lock(&layout).await?;
+    let mut state = maestria_daemon::load_kernel_state(&layout)
+        .context("load kernel state for search explain")?;
+    let task_id = search::validate_task_id(&state, task_id)?;
+    let manifest = helpers::load_manifest(&layout)?;
+    maestria_daemon::reconcile_retrieval_generations(&layout, &mut state, &manifest)
+        .context("reconcile retrieval generations before explain")?;
+    let (runtime, plan, outcome) =
+        search::execute_search(&layout, &state, &manifest, query, limit).await?;
+    persist_search_trace(&runtime, &mut state, task_id, &plan, &outcome)?;
+    render_trace(&plan, &outcome)
 }
 
-async fn persist_search_trace(
-    layout: &maestria_core::InstanceLayout,
+fn persist_search_trace(
+    runtime: &maestria_daemon::SearchRuntime,
+    state: &mut maestria_domain::KernelState,
+    task_id: Option<maestria_domain::TaskId>,
     plan: &SearchPlan,
     outcome: &SearchOutcome,
 ) -> Result<()> {
-    let state = maestria_daemon::load_kernel_state(layout)
-        .context("load kernel state for search trace persistence")?;
-    let event_count_before = state.event_log.len();
-    let (runtime, input_tx, input_rx, shutdown_token) =
-        maestria_daemon::build_runtime(layout, state, AutonomyProfile::TrustedWorkspace)
-            .context("build runtime for search trace persistence")?;
-    let runtime_task = tokio::spawn(runtime.run(input_rx, shutdown_token.clone()));
-    let input = DomainInput::SearchKnowledgeCompleted(SearchKnowledgeCompleted {
-        task_id: None,
-        plan: Some(Box::new(plan.clone())),
-        outcome: outcome.clone(),
-    });
-    let result = async {
-        input_tx
-            .send(input)
-            .await
-            .map_err(|error| anyhow!("failed to queue search trace persistence: {error}"))?;
-        wait_for_search_trace_persistence(
-            layout,
-            event_count_before,
-            plan,
-            outcome,
-            std::time::Duration::from_secs(5),
-        )
-        .await
-    }
-    .await;
-    shutdown_token.cancel();
-    let join_result = runtime_task.await;
-    result?;
-    join_result.context("search trace runtime join failed")?;
-    Ok(())
-}
-
-async fn wait_for_search_trace_persistence(
-    layout: &maestria_core::InstanceLayout,
-    event_count_before: usize,
-    expected_plan: &SearchPlan,
-    expected_outcome: &SearchOutcome,
-    timeout_budget: std::time::Duration,
-) -> Result<()> {
-    tokio::time::timeout(timeout_budget, async {
-        loop {
-            match maestria_daemon::load_kernel_state(layout) {
-                Ok(state) => {
-                    if state
-                        .event_log
-                        .get(event_count_before..)
-                        .is_some_and(|events| {
-                            events.iter().any(|event| {
-                                matches!(
-                                    &event.event,
-                                    DomainEvent::SearchKnowledgeCompleted {
-                                        plan: Some(plan),
-                                        outcome,
-                                        ..
-                                    } if plan.as_ref() == expected_plan && outcome == expected_outcome
-                                )
-                            })
-                        })
-                    {
-                        return Ok(());
-                    }
-                }
-                Err(error) if helpers::is_db_locked(&error) => {}
-                Err(error) => return Err(error),
-            }
-            tokio::time::sleep(std::time::Duration::from_millis(25)).await;
-        }
-    })
-    .await
-    .map_err(|_| anyhow!("timed out waiting for search trace persistence"))?
+    let output = state.apply_input(DomainInput::SearchKnowledgeCompleted(
+        SearchKnowledgeCompleted {
+            task_id,
+            plan: Some(Box::new(plan.clone())),
+            outcome: outcome.clone(),
+        },
+    ))?;
+    runtime.append_events(output.events)
 }
 
 pub fn run_search_trace(instance_dir: PathBuf, trace_id: u64) -> Result<()> {

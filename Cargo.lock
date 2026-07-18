@@ -1213,12 +1213,10 @@ dependencies = [
  "maestria-daemon",
  "maestria-domain",
  "maestria-governance",
- "maestria-graph-sqlite",
  "maestria-parsers",
  "maestria-ports",
  "maestria-search-tantivy",
  "maestria-storage-sqlite",
- "maestria-vector-sqlite",
  "tokio",
  "tracing-subscriber",
 ]
@@ -1227,6 +1225,7 @@ dependencies = [
 name = "maestria-core"
 version = "0.6.0"
 dependencies = [
+ "async-trait",
  "maestria-blob-fs",
  "maestria-domain",
  "maestria-governance",
@@ -1237,6 +1236,7 @@ dependencies = [
  "maestria-storage-sqlite",
  "sha2",
  "tempfile",
+ "tokio",
  "url",
 ]
 
@@ -1255,6 +1255,7 @@ dependencies = [
  "maestria-harness",
  "maestria-parsers",
  "maestria-ports",
+ "maestria-retrieval",
  "maestria-runtime",
  "maestria-search-tantivy",
  "maestria-storage-sqlite",

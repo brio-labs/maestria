@@ -1,31 +1,37 @@
-use maestria_core::{CorePorts, CoreServices, SearchInput};
+use std::sync::Arc;
+
 use maestria_domain::{
-    Artifact, ArtifactId, Chunk, ChunkId, Evidence, EvidenceId, EvidenceKind, IndexStatus,
-    SearchStatus, SourceSpan, StructureNodeId,
+    Artifact, ArtifactId, Chunk, ChunkId, Evidence, EvidenceId, EvidenceKind, IndexGenerationId,
+    IndexStatus, SearchStatus, SourceSpan, StructureNodeId,
 };
 use maestria_governance::RetrievalSecurityPolicy;
 use maestria_ports::{
     ArtifactRepository, ChunkRepository, EvidenceRepository, FullTextIndex,
-    InMemoryArtifactRepository, InMemoryBlobStore, InMemoryCardRepository, InMemoryChunkRepository,
-    InMemoryEventLog, InMemoryEvidenceRepository, InMemoryFullTextIndex, InMemoryParser,
-    IndexedChunk,
+    InMemoryArtifactRepository, InMemoryBlobStore, InMemoryChunkRepository,
+    InMemoryEvidenceRepository, InMemoryFullTextIndex, IndexedChunk,
 };
-use maestria_retrieval::golden::{
-    GoldenCorpus, GoldenFixture, GoldenGate, GoldenGateConfig, GoldenJudgment, GoldenObservation,
-    GoldenProfile, GoldenQuery, Metric, ResourceMetrics, SecurityMetrics,
+use maestria_retrieval::{
+    MonotonicInstant, RetrievalEngine, SearchPlannerContext,
+    adapters::{EvidenceOutcomeEvaluator, LexicalChunkRetriever, LexicalChunkRetrieverParts},
+    golden::{
+        GoldenCorpus, GoldenFixture, GoldenGate, GoldenGateConfig, GoldenJudgment,
+        GoldenObservation, GoldenProfile, GoldenQuery, Metric, ResourceMetrics, SecurityMetrics,
+    },
 };
 
-fn with_indexed_core(
-    f: impl FnOnce(&CoreServices<'_>, ArtifactId, EvidenceId) -> Result<(), Box<dyn std::error::Error>>,
+fn with_indexed_retrieval(
+    f: impl FnOnce(
+        &RetrievalEngine,
+        &SearchPlannerContext,
+        ArtifactId,
+        EvidenceId,
+    ) -> Result<(), Box<dyn std::error::Error>>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let artifacts = InMemoryArtifactRepository::new();
-    let chunks = InMemoryChunkRepository::new();
-    let cards = InMemoryCardRepository::new();
-    let evidence = InMemoryEvidenceRepository::new();
-    let events = InMemoryEventLog::new();
-    let parser = InMemoryParser::new();
-    let search_index = InMemoryFullTextIndex::new();
-    let blobs = InMemoryBlobStore::new();
+    let artifacts = Arc::new(InMemoryArtifactRepository::new());
+    let chunks = Arc::new(InMemoryChunkRepository::new());
+    let evidence = Arc::new(InMemoryEvidenceRepository::new());
+    let search_index = Arc::new(InMemoryFullTextIndex::new());
+    let blobs = Arc::new(InMemoryBlobStore::new());
 
     let artifact_id = ArtifactId::new(1);
     let chunk_id = ChunkId::new(11);
@@ -76,20 +82,30 @@ fn with_indexed_core(
         text: "alpha-token paragraph.".to_owned(),
     }])?;
 
-    let core = CoreServices::new(CorePorts {
-        artifacts: &artifacts,
-        chunks: &chunks,
-        cards: &cards,
-        evidence: &evidence,
-        events: &events,
-        parser: &parser,
-        search_index: &search_index,
-        blobs: &blobs,
-        vector_index: None,
-        graph_index: None,
-    })
-    .with_retrieval_policy(RetrievalSecurityPolicy::default());
-    f(&core, artifact_id, evidence_id)
+    let context = SearchPlannerContext {
+        corpus_snapshot: maestria_domain::CorpusSnapshotId::new(1),
+        primary_generation: IndexGenerationId::new(13),
+        fingerprint: maestria_domain::RetrievalModelFingerprint::new(
+            "golden-gate-fixture".to_owned(),
+        )?,
+    };
+
+    let lexical = Arc::new(LexicalChunkRetriever::new(
+        LexicalChunkRetrieverParts {
+            index: search_index,
+            artifacts: artifacts.clone(),
+            chunks: chunks.clone(),
+            evidence: evidence.clone(),
+            blobs: blobs.clone(),
+        },
+        RetrievalSecurityPolicy::default(),
+        context.primary_generation,
+    ));
+    let engine = RetrievalEngine::new(
+        vec![lexical],
+        Arc::new(EvidenceOutcomeEvaluator::new(evidence)),
+    );
+    f(&engine, &context, artifact_id, evidence_id)
 }
 
 fn gate() -> GoldenGate {
@@ -116,24 +132,23 @@ fn gate() -> GoldenGate {
 
 #[test]
 fn golden_fixture_gates_a_real_core_search_trace() -> Result<(), Box<dyn std::error::Error>> {
-    with_indexed_core(|core, _artifact_id, evidence_id| {
-        let input = SearchInput {
-            query: "alpha-token".to_owned(),
-            limit: 5,
-        };
-        let plan = core.search_plan(input.clone())?;
-        let started = maestria_retrieval::MonotonicInstant::now();
-        let outcome = core.explain_search(input)?;
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?;
+
+    with_indexed_retrieval(|engine, context, _artifact_id, evidence_id| {
+        let plan = engine.plan("alpha-token".to_string(), 5, context)?;
+        let started = MonotonicInstant::now();
+        let outcome = runtime.block_on(engine.search(&plan))?;
         let latency_ms =
             u64::try_from(started.elapsed().as_millis()).map_or(u64::MAX, |value| value);
         let trace = outcome
             .trace_data
             .as_deref()
-            .ok_or("core search did not persist trace data")?;
-        let candidate = outcome
-            .evidence
-            .first()
-            .ok_or("core search returned no source-grounded evidence")?;
+            .ok_or_else(|| std::io::Error::other("core search did not persist trace data"))?;
+        let candidate = outcome.evidence.first().ok_or_else(|| {
+            std::io::Error::other("core search returned no source-grounded evidence")
+        })?;
         assert_eq!(candidate.evidence_id, evidence_id);
         assert_eq!(outcome.status, SearchStatus::Answerable);
 

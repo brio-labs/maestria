@@ -16,7 +16,7 @@ use migration::{legacy_chunks, schema_has_cards};
 use schema::{load_fields, schema, supports_filtered_queries};
 use std::{fs, path::Path, sync::Mutex};
 
-use maestria_domain::{ArtifactId, CardId, ChunkId};
+use maestria_domain::{ArtifactId, CardId, ChunkId, ContentHash, IndexFingerprint, content_hash};
 use maestria_ports::{FullTextIndex, IndexedCard, IndexedChunk, PortError};
 use maestria_ports::{IndexedLexicalCard, IndexedLexicalChunk};
 use tantivy::{
@@ -72,6 +72,27 @@ struct IndexFields {
 impl TantivyFullTextIndex {
     pub fn in_memory() -> Result<Self, PortError> {
         Self::from_index(Index::create_in_ram(schema()), false, None)
+    }
+
+    /// Return the deterministic fingerprint of the lexical index definition.
+    pub fn fingerprint(&self) -> Result<IndexFingerprint, PortError> {
+        let schema_hash = content_hash(schema::CANONICAL_SCHEMA.as_bytes());
+        let revision = env!("CARGO_PKG_VERSION").to_string();
+        let artifact_hash =
+            ContentHash::new(schema_hash.clone()).map_err(|error| PortError::Internal {
+                message: format!("invalid Tantivy schema fingerprint: {error}"),
+            })?;
+        Ok(IndexFingerprint {
+            provider: "tantivy".to_string(),
+            model: "lexical".to_string(),
+            revision,
+            artifact_hash,
+            dimensions: 0,
+            quantization: "f32".to_string(),
+            query_template_hash: content_hash(b"query: {{text}}"),
+            document_template_hash: content_hash(b"doc: {{text}}"),
+            preprocessing_version: "tantivy-default-tokenizer-v1".to_string(),
+        })
     }
 
     pub fn open(path: impl AsRef<Path>) -> Result<Self, PortError> {

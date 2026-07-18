@@ -1,11 +1,5 @@
 use maestria_domain::{Artifact, Card, Chunk, ChunkId, Evidence, EvidenceId};
-use maestria_ports::LexicalHitMetadata;
 
-#[derive(Debug, Clone, PartialEq)]
-pub struct SearchInput {
-    pub query: String,
-    pub limit: usize,
-}
 #[path = "evidence_pack.rs"]
 mod evidence_pack;
 #[path = "evidence_pack_lifecycle.rs"]
@@ -13,60 +7,8 @@ mod evidence_pack_lifecycle;
 pub use evidence_pack::{
     ClaimCoverageStatus, ClaimEvidenceCoverage, EvidenceFreshness, EvidencePackCompression,
     EvidencePackError, EvidencePackMetadata, EvidencePackReplayKey, EvidencePackReproducibility,
-    SourceIndependence,
 };
 pub use evidence_pack_lifecycle::EvidencePack;
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct HybridPromotionRecord {
-    evaluation_id: String,
-    evaluation_date: String,
-}
-
-impl HybridPromotionRecord {
-    pub fn new(evaluation_id: String, evaluation_date: String) -> Option<Self> {
-        (!evaluation_id.trim().is_empty() && !evaluation_date.trim().is_empty()).then_some(Self {
-            evaluation_id,
-            evaluation_date,
-        })
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub enum HybridExecutionPolicy {
-    #[default]
-    Shadow,
-    Active(HybridPromotionRecord),
-}
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum RetrievalMode {
-    LexicalOnly,
-    HybridShadow,
-    Hybrid,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct SearchOutput {
-    pub pack: EvidencePack,
-    pub mode: RetrievalMode,
-    pub lane_reports: Vec<RetrievalLaneReport>,
-}
-/// Status of one candidate-generation lane.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum RetrievalLaneStatus {
-    Succeeded,
-    Empty,
-    Failed { error: String },
-}
-
-/// Evidence-bearing details emitted by one retrieval lane.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RetrievalLaneReport {
-    pub retriever_id: String,
-    pub query: String,
-    pub status: RetrievalLaneStatus,
-    pub candidates: Vec<maestria_domain::SearchTraceLaneCandidate>,
-}
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct SourceGroundedSearchHit {
@@ -74,7 +16,7 @@ pub struct SourceGroundedSearchHit {
     pub chunk: Chunk,
     pub evidence: Evidence,
     pub score: u32,
-    pub lexical_metadata: Option<LexicalHitMetadata>,
+    pub lexical_metadata: Option<maestria_ports::LexicalHitMetadata>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -82,7 +24,7 @@ pub struct SourceGroundedCardHit {
     pub artifact: Artifact,
     pub card: Card,
     pub score: u32,
-    pub lexical_metadata: Option<LexicalHitMetadata>,
+    pub lexical_metadata: Option<maestria_ports::LexicalHitMetadata>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -99,19 +41,4 @@ pub struct OpenChunkEvidenceInput {
 pub struct OpenEvidenceOutput {
     pub artifact: Artifact,
     pub evidence: Evidence,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct GraphConfig {
-    pub max_depth: usize,
-    pub max_results: usize,
-}
-
-impl Default for GraphConfig {
-    fn default() -> Self {
-        Self {
-            max_depth: 2,
-            max_results: 10,
-        }
-    }
 }

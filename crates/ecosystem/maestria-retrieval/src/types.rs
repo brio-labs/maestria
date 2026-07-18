@@ -1,5 +1,6 @@
 use maestria_domain::{
-    EvidenceCandidate, IndexGenerationId, SearchLaneStatus, SearchOutcome, SearchPlan,
+    EvidenceCandidate, IndexGenerationId, RepresentationName, SearchLaneStatus, SearchOutcome,
+    SearchPlan,
 };
 use maestria_ports::SearchQuery;
 use thiserror::Error;
@@ -8,6 +9,8 @@ use thiserror::Error;
 pub struct RetrieverDescriptor {
     pub id: String,
     pub modality: String,
+    pub representation: RepresentationName,
+    pub generation: IndexGenerationId,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -36,6 +39,35 @@ pub struct FusedCandidate {
 pub struct RankedCandidate {
     pub candidate: EvidenceCandidate,
     pub rank: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HybridPromotionRecord {
+    evaluation_id: String,
+    evaluation_date: String,
+}
+
+impl HybridPromotionRecord {
+    pub fn new(evaluation_id: String, evaluation_date: String) -> Option<Self> {
+        (!evaluation_id.trim().is_empty() && !evaluation_date.trim().is_empty()).then_some(Self {
+            evaluation_id,
+            evaluation_date,
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub enum HybridExecutionPolicy {
+    #[default]
+    Shadow,
+    Active(HybridPromotionRecord),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RetrievalMode {
+    LexicalOnly,
+    HybridShadow,
+    Hybrid,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

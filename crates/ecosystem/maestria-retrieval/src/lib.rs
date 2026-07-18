@@ -1,3 +1,4 @@
+pub mod adapters;
 pub mod bounded_reranker;
 pub mod diversity;
 pub mod engine;
@@ -25,8 +26,7 @@ impl MonotonicInstant {
     }
 }
 
-pub use bounded_reranker::BoundedReranker;
-pub use engine::RetrievalEngine;
+pub use engine::{RetrievalEngine, SearchPlannerContext};
 pub use fusion::FixedKRrf;
 pub use sync::SyncPipeline;
 pub use sync_engine::SyncRetrievalEngine;
@@ -35,6 +35,7 @@ pub use traits::{
     RetrievalEvaluator,
 };
 pub use types::{
-    RerankConstraintScore, RerankLimits, RerankRequest, RerankResult, RerankScoreComponents,
-    RerankScorerInput, RetrievalError, RetrievalResult,
+    HybridExecutionPolicy, HybridPromotionRecord, RerankConstraintScore, RerankLimits,
+    RerankRequest, RerankResult, RerankScoreComponents, RerankScorerInput, RetrievalError,
+    RetrievalMode, RetrievalResult,
 };

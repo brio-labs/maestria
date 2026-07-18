@@ -16,12 +16,12 @@ fn normalize_batch(
     plan: &SearchPlan,
     web_bytes_read: &mut u64,
 ) -> crate::types::CandidateBatch {
-    if batch.generation != Some(plan.index_generation) {
+    if batch.generation != Some(descriptor.generation) {
         batch.candidates.clear();
         batch.status = maestria_domain::SearchLaneStatus::Failed {
             error: format!(
                 "stale lane generation: expected {}, got {}",
-                plan.index_generation,
+                descriptor.generation,
                 batch.generation.map_or_else(
                     || "missing".to_string(),
                     |generation| generation.to_string()
@@ -78,6 +78,7 @@ pub(super) async fn collect_batches(
     let semaphore = Arc::new(Semaphore::new(concurrency));
     for (index, retriever) in retrievers.iter().enumerate() {
         let descriptor = retriever.descriptor();
+        let generation = descriptor.generation;
         if descriptor.modality.eq_ignore_ascii_case("web")
             && *web_requests_used >= plan.budgets.max_web_requests()
         {
@@ -88,7 +89,7 @@ pub(super) async fn collect_batches(
                 status: maestria_domain::SearchLaneStatus::Failed {
                     error: "web request budget exhausted".to_string(),
                 },
-                generation: Some(plan.index_generation),
+                generation: Some(generation),
                 bytes_read: 0,
             });
             continue;
@@ -100,7 +101,7 @@ pub(super) async fn collect_batches(
         let request = CandidateRequest {
             plan: plan.clone(),
             query: query.clone(),
-            expected_generation: plan.index_generation,
+            expected_generation: descriptor.generation,
         };
         let semaphore = Arc::clone(&semaphore);
         tasks.spawn(async move {
@@ -119,6 +120,7 @@ pub(super) async fn collect_batches(
     while let Some(result) = tasks.join_next().await {
         let (index, descriptor, result) = result
             .map_err(|error| RetrievalError::Internal(format!("retriever task failed: {error}")))?;
+        let generation = descriptor.generation;
         let batch = match result {
             Ok(batch) => normalize_batch(batch, descriptor, query, plan, web_bytes_read),
             Err(RetrievalError::Cancelled) => return Err(RetrievalError::Cancelled),
@@ -129,7 +131,7 @@ pub(super) async fn collect_batches(
                 status: maestria_domain::SearchLaneStatus::Failed {
                     error: error.to_string(),
                 },
-                generation: Some(plan.index_generation),
+                generation: Some(generation),
                 bytes_read: 0,
             },
         };
@@ -210,6 +212,7 @@ pub(super) fn trace_lanes(
         .map(|batch| maestria_domain::SearchTraceLane {
             retriever_id: batch.descriptor.id.clone(),
             query: batch.query.clone(),
+            generation: Some(batch.descriptor.generation),
             status: batch.status.clone(),
             candidates: batch
                 .candidates
@@ -293,7 +296,7 @@ fn ensure_exact_lineage_from_evidence(
     evidence: &[EvidenceCandidate],
     seeds: &[RankedCandidate],
 ) -> RetrievalResult<()> {
-    if evidence.len() != seeds.len()
+    if evidence.len() < seeds.len()
         || seeds.iter().any(|seed| {
             !evidence
                 .iter()

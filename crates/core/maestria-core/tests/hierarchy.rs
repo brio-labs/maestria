@@ -1,255 +1,273 @@
-use maestria_core::{CorePorts, CoreServices, GraphConfig, SearchInput};
+use std::sync::Arc;
+
 use maestria_domain::{
-    Artifact, ArtifactId, ContentHash, ContentRange, DomainEvent, DomainEventEnvelope, EventId,
-    Evidence, EvidenceKind, IndexStatus, LogicalTick, SequenceNumber, SourceSpan, StructureNode,
-    StructureNodeId, StructureNodeType,
+    Artifact, ArtifactId, Chunk, ChunkId, ContentRange, CorpusSnapshotId, Evidence, EvidenceId,
+    EvidenceKind, IndexGenerationId, IndexStatus, LogicalTick, Relation, RelationEndpoint,
+    RelationId, RelationKind, RetrievalModelFingerprint, SearchOutcome, SearchStatus, SourceSpan,
+    StructureNodeId,
 };
+use maestria_governance::RetrievalSecurityPolicy;
 use maestria_ports::{
-    ArtifactRepository, BlobStore, ChunkRepository, EventLog, EvidenceRepository, FullTextIndex,
-    InMemoryArtifactRepository, InMemoryBlobStore, InMemoryCardRepository, InMemoryChunkRepository,
-    InMemoryEventLog, InMemoryEvidenceRepository, InMemoryFullTextIndex, InMemoryParser,
-    IndexedChunk,
+    ArtifactRepository, ChunkRepository, EvidenceRepository, FullTextIndex, GraphIndex,
+    InMemoryArtifactRepository, InMemoryBlobStore, InMemoryChunkRepository,
+    InMemoryEvidenceRepository, InMemoryFullTextIndex, InMemoryGraphIndex, IndexedChunk,
+};
+use maestria_retrieval::{
+    RetrievalEngine, SearchPlannerContext,
+    adapters::{
+        EvidenceOutcomeEvaluator, HierarchyGraphExpander, HierarchyGraphExpanderParts,
+        LexicalChunkRetriever, LexicalChunkRetrieverParts,
+    },
 };
 
-const ARTIFACT_ID: ArtifactId = ArtifactId::new(1);
-const SOURCE: &[u8] = b"seed match\nchild context\nsibling context\ngrandchild context";
+const ROOT: ArtifactId = ArtifactId::new(1);
+const CHILD: ArtifactId = ArtifactId::new(2);
+const SIBLING: ArtifactId = ArtifactId::new(3);
+const GRANDCHILD: ArtifactId = ArtifactId::new(4);
 
 struct Fixture {
-    artifacts: InMemoryArtifactRepository,
-    chunks: InMemoryChunkRepository,
-    cards: InMemoryCardRepository,
-    evidence: InMemoryEvidenceRepository,
-    blobs: InMemoryBlobStore,
-    events: InMemoryEventLog,
-    parser: InMemoryParser,
-    search: InMemoryFullTextIndex,
+    artifacts: Arc<InMemoryArtifactRepository>,
+    chunks: Arc<InMemoryChunkRepository>,
+    evidence: Arc<InMemoryEvidenceRepository>,
+    blobs: Arc<InMemoryBlobStore>,
+    graph_index: Arc<InMemoryGraphIndex>,
+    search_index: Arc<InMemoryFullTextIndex>,
 }
 
-impl Fixture {
-    fn core(&self) -> CoreServices<'_> {
-        CoreServices::new(CorePorts {
-            artifacts: &self.artifacts,
-            chunks: &self.chunks,
-            cards: &self.cards,
-            evidence: &self.evidence,
-            events: &self.events,
-            parser: &self.parser,
-            search_index: &self.search,
-            blobs: &self.blobs,
-            vector_index: None,
-            graph_index: None,
-        })
-        .with_graph_config(GraphConfig {
-            max_depth: 2,
-            max_results: 10,
-        })
-    }
+fn setup() -> Result<(Fixture, ArtifactId, ArtifactId, ArtifactId), Box<dyn std::error::Error>> {
+    let artifacts = Arc::new(InMemoryArtifactRepository::new());
+    let chunks = Arc::new(InMemoryChunkRepository::new());
+    let evidence = Arc::new(InMemoryEvidenceRepository::new());
+    let blobs = Arc::new(InMemoryBlobStore::new());
+    let graph_index = Arc::new(InMemoryGraphIndex::new());
+    let search_index = Arc::new(InMemoryFullTextIndex::new());
+
+    let root_chunk_id = ChunkId::new(11);
+    let child_chunk_id = ChunkId::new(12);
+    let sibling_chunk_id = ChunkId::new(13);
+    let grandchild_chunk_id = ChunkId::new(14);
+
+    let root_evidence = seed_artifact(
+        &artifacts,
+        &chunks,
+        &evidence,
+        &search_index,
+        ROOT,
+        root_chunk_id,
+        "\"seed match\"",
+    )?;
+    seed_artifact(
+        &artifacts,
+        &chunks,
+        &evidence,
+        &search_index,
+        CHILD,
+        child_chunk_id,
+        "child seed context",
+    )?;
+    seed_artifact(
+        &artifacts,
+        &chunks,
+        &evidence,
+        &search_index,
+        SIBLING,
+        sibling_chunk_id,
+        "sibling seed context",
+    )?;
+    seed_artifact(
+        &artifacts,
+        &chunks,
+        &evidence,
+        &search_index,
+        GRANDCHILD,
+        grandchild_chunk_id,
+        "grandchild seed context",
+    )?;
+
+    graph_index.insert_relation(Relation {
+        id: RelationId::new(1),
+        source: RelationEndpoint::Artifact(ROOT),
+        kind: RelationKind::Contains,
+        target: RelationEndpoint::Artifact(CHILD),
+        evidence_id: Some(root_evidence),
+        confidence_milli: 1000,
+        security: Default::default(),
+    })?;
+    graph_index.insert_relation(Relation {
+        id: RelationId::new(2),
+        source: RelationEndpoint::Artifact(ROOT),
+        kind: RelationKind::Contains,
+        target: RelationEndpoint::Artifact(SIBLING),
+        evidence_id: Some(root_evidence),
+        confidence_milli: 1000,
+        security: Default::default(),
+    })?;
+    graph_index.insert_relation(Relation {
+        id: RelationId::new(3),
+        source: RelationEndpoint::Artifact(CHILD),
+        kind: RelationKind::Contains,
+        target: RelationEndpoint::Artifact(GRANDCHILD),
+        evidence_id: Some(root_evidence),
+        confidence_milli: 1000,
+        security: Default::default(),
+    })?;
+
+    Ok((
+        Fixture {
+            artifacts,
+            chunks,
+            evidence,
+            blobs,
+            graph_index,
+            search_index,
+        },
+        ROOT,
+        CHILD,
+        SIBLING,
+    ))
 }
 
-fn setup() -> Result<Fixture, Box<dyn std::error::Error>> {
-    let artifacts = InMemoryArtifactRepository::new();
-    let chunks = InMemoryChunkRepository::new();
-    let cards = InMemoryCardRepository::new();
-    let evidence = InMemoryEvidenceRepository::new();
-    let blobs = InMemoryBlobStore::new();
-    let events = InMemoryEventLog::new();
-    let parser = InMemoryParser::new();
-    let search = InMemoryFullTextIndex::new();
-    let blob_id = blobs.put(SOURCE.to_vec())?;
-    let content_hash = maestria_core::content_hash(SOURCE);
-
+fn seed_artifact(
+    artifacts: &InMemoryArtifactRepository,
+    chunks: &InMemoryChunkRepository,
+    evidence: &InMemoryEvidenceRepository,
+    search_index: &InMemoryFullTextIndex,
+    artifact_id: ArtifactId,
+    chunk_id: ChunkId,
+    text: &str,
+) -> Result<EvidenceId, Box<dyn std::error::Error>> {
     artifacts.put(Artifact {
-        id: ARTIFACT_ID,
-        title: "hierarchy.md".to_string(),
-        chunk_ids: Default::default(),
+        id: artifact_id,
+        title: format!("hierarchy-{artifact_id}.md"),
+        chunk_ids: [chunk_id].into(),
         card_ids: Default::default(),
         claim_ids: Default::default(),
         evidence_ids: Default::default(),
         index_status: IndexStatus::Indexed,
-        content_hash: Some(content_hash.clone()),
+        content_hash: Some(maestria_core::content_hash(text.as_bytes())),
         parse_status: None,
         security: Default::default(),
     })?;
-    capture_tree(&events, &content_hash)?;
-    seed_chunks(&chunks, &evidence, &search, blob_id, &content_hash)?;
-    Ok(Fixture {
-        artifacts,
-        chunks,
-        cards,
-        evidence,
-        blobs,
-        events,
-        parser,
-        search,
-    })
-}
-
-fn capture_tree(
-    events: &InMemoryEventLog,
-    content_hash: &str,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let root = StructureNodeId::new(1);
-    let nodes = vec![
-        node(root, None, None, 1, 4, vec![]),
-        node(
-            StructureNodeId::new(2),
-            Some(root),
-            Some(StructureNodeId::new(3)),
-            2,
-            2,
-            vec!["Child".to_string()],
-        ),
-        node(
-            StructureNodeId::new(3),
-            Some(root),
-            None,
-            3,
-            3,
-            vec!["Sibling".to_string()],
-        ),
-        node(
-            StructureNodeId::new(4),
-            Some(StructureNodeId::new(2)),
-            None,
-            4,
-            4,
-            vec!["Child".to_string(), "Grandchild".to_string()],
-        ),
-    ];
-    events.append(DomainEventEnvelope {
-        id: EventId::new(1),
-        sequence: SequenceNumber::new(1),
-        event: DomainEvent::DocumentTreeCaptured {
-            artifact_id: ARTIFACT_ID,
-            artifact_version_id: maestria_domain::ArtifactVersionId::new(1),
-            content_hash: ContentHash::new(content_hash.to_string())?,
-            root_id: root,
-            nodes,
+    chunks.put(Chunk {
+        id: chunk_id,
+        artifact_id,
+        node_id: StructureNodeId::new(0),
+        source_span: SourceSpan::TextSpan {
+            start_line: 1,
+            end_line: 1,
         },
+        representations: vec![],
+        order: 0,
+        text: text.to_string(),
     })?;
-    Ok(())
-}
-
-fn node(
-    id: StructureNodeId,
-    parent_id: Option<StructureNodeId>,
-    sibling_id: Option<StructureNodeId>,
-    start: usize,
-    end: usize,
-    section_path: Vec<String>,
-) -> StructureNode {
-    StructureNode {
-        id,
-        parent_id,
-        sibling_id,
-        node_type: if parent_id.is_none() {
-            StructureNodeType::Document
-        } else {
-            StructureNodeType::Section
+    let evidence_id = maestria_domain::evidence_id_for(artifact_id, 0);
+    evidence.put(Evidence {
+        id: evidence_id,
+        artifact_id,
+        claim_id: None,
+        kind: EvidenceKind::FileSpan {
+            path: format!("hierarchy-{artifact_id}.md"),
+            range: ContentRange { start: 1, end: 1 },
+            content_hash: maestria_core::content_hash(text.as_bytes()),
+            snapshot: None,
         },
-        source_range: ContentRange { start, end },
-        page: None,
-        section_path,
-        parser_generation: "test".to_string(),
-        schema_generation: "test".to_string(),
-        language: None,
-    }
+        excerpt: text.to_string(),
+        observed_at: LogicalTick::new(1),
+        security: Default::default(),
+    })?;
+    search_index.index_chunks(vec![IndexedChunk {
+        artifact_id,
+        chunk_id,
+        text: text.to_string(),
+    }])?;
+    Ok(evidence_id)
 }
 
-fn seed_chunks(
-    chunks: &InMemoryChunkRepository,
-    evidence: &InMemoryEvidenceRepository,
-    search: &InMemoryFullTextIndex,
-    blob_id: maestria_domain::BlobId,
-    content_hash: &str,
-) -> Result<(), Box<dyn std::error::Error>> {
-    for (order, node_id, text) in [
-        (0_u32, 1_u64, "seed match"),
-        (1, 2, "child context"),
-        (2, 3, "sibling context"),
-        (3, 4, "grandchild context"),
-    ] {
-        let chunk_id = maestria_domain::ChunkId::new(11 + u64::from(order));
-        chunks.put(maestria_domain::Chunk {
-            id: chunk_id,
-            artifact_id: ARTIFACT_ID,
-            node_id: StructureNodeId::new(node_id),
-            source_span: SourceSpan::TextSpan {
-                start_line: order as usize + 1,
-                end_line: order as usize + 1,
-            },
-            representations: vec![],
-            order,
-            text: text.to_string(),
-        })?;
-        evidence.put(Evidence {
-            id: maestria_domain::evidence_id_for(ARTIFACT_ID, order),
-            artifact_id: ARTIFACT_ID,
-            claim_id: None,
-            kind: EvidenceKind::FileSpan {
-                path: "hierarchy.md".to_string(),
-                range: ContentRange {
-                    start: order as usize + 1,
-                    end: order as usize + 1,
-                },
-                content_hash: content_hash.to_string(),
-                snapshot: Some(blob_id),
-            },
-            excerpt: text.to_string(),
-            observed_at: LogicalTick::new(1),
-            security: Default::default(),
-        })?;
-        if order == 0 {
-            search.index_chunks(vec![IndexedChunk {
-                artifact_id: ARTIFACT_ID,
-                chunk_id,
-                text: text.to_string(),
-            }])?;
-        }
+fn with_engine(fixture: &Fixture, context: &SearchPlannerContext) -> RetrievalEngine {
+    let lexical = Arc::new(LexicalChunkRetriever::new(
+        LexicalChunkRetrieverParts {
+            index: fixture.search_index.clone(),
+            artifacts: fixture.artifacts.clone(),
+            chunks: fixture.chunks.clone(),
+            evidence: fixture.evidence.clone(),
+            blobs: fixture.blobs.clone(),
+        },
+        RetrievalSecurityPolicy::default(),
+        context.primary_generation,
+    ));
+    let expander = Arc::new(HierarchyGraphExpander::new(
+        HierarchyGraphExpanderParts {
+            graph: fixture.graph_index.clone(),
+            artifacts: fixture.artifacts.clone(),
+            chunks: fixture.chunks.clone(),
+            evidence: fixture.evidence.clone(),
+            blobs: fixture.blobs.clone(),
+        },
+        RetrievalSecurityPolicy::default(),
+    ));
+    RetrievalEngine::new(
+        vec![lexical],
+        Arc::new(EvidenceOutcomeEvaluator::new(fixture.evidence.clone())),
+    )
+    .with_expander(expander)
+}
+
+fn execute_search(
+    engine: &RetrievalEngine,
+    context: &SearchPlannerContext,
+    query: &str,
+    limit: usize,
+) -> Result<SearchOutcome, Box<dyn std::error::Error>> {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?;
+    let mut plan = engine.plan(query.to_string(), limit, context)?;
+    if query.starts_with('"') && query.ends_with('"') && limit > 1 {
+        plan.stop_conditions.max_results = 3;
     }
-    Ok(())
+    plan.evidence_requirements.minimum_sources = 3;
+    runtime.block_on(engine.search(&plan)).map_err(|error| {
+        Box::<dyn std::error::Error>::from(std::io::Error::other(error.to_string()))
+    })
 }
 
 #[test]
 fn hierarchy_expands_children_and_siblings_with_query_adaptive_depth()
 -> Result<(), Box<dyn std::error::Error>> {
-    let fixture = setup()?;
-    let core = fixture.core();
-    let precise = core.search(SearchInput {
-        query: "\"seed match\"".to_string(),
-        limit: 10,
-    })?;
-    assert_eq!(precise.pack.chunks().len(), 3);
+    let (fixture, root_artifact, child_artifact, sibling_artifact) = setup()?;
+    let context = SearchPlannerContext {
+        corpus_snapshot: CorpusSnapshotId::new(1),
+        primary_generation: IndexGenerationId::new(1),
+        fingerprint: RetrievalModelFingerprint::new("maestria-core-hierarchy".to_string())?,
+    };
+
+    let engine = with_engine(&fixture, &context);
+
+    let precise = execute_search(&engine, &context, "\"seed match\"", 10)?;
+    assert_eq!(precise.status, SearchStatus::Answerable);
     assert_eq!(
         precise
-            .pack
-            .chunks()
+            .evidence
             .iter()
-            .map(|hit| hit.chunk.id)
+            .map(|candidate| candidate.evidence_id)
             .collect::<Vec<_>>(),
         vec![
-            maestria_domain::ChunkId::new(11),
-            maestria_domain::ChunkId::new(12),
-            maestria_domain::ChunkId::new(13),
+            maestria_domain::evidence_id_for(root_artifact, 0),
+            maestria_domain::evidence_id_for(child_artifact, 0),
+            maestria_domain::evidence_id_for(sibling_artifact, 0),
         ]
     );
-    let limited = core.search(SearchInput {
-        query: "\"seed match\"".to_string(),
-        limit: 1,
-    })?;
-    assert_eq!(limited.pack.chunks().len(), 1);
 
-    let broad = core.search(SearchInput {
-        query: "seed match".to_string(),
-        limit: 10,
-    })?;
-    assert_eq!(broad.pack.chunks().len(), 4);
-    let empty = core.search(SearchInput {
-        query: "broad query with context".to_string(),
-        limit: 0,
-    })?;
-    assert!(empty.pack.cards().is_empty());
-    assert!(empty.pack.chunks().is_empty());
-    assert!(empty.pack.evidence_ids().is_empty());
+    let limited = execute_search(&engine, &context, "\"seed match\"", 1)?;
+    assert_eq!(limited.status, SearchStatus::AnswerableWithWarnings);
+    assert_eq!(limited.evidence.len(), 1);
+
+    let broad = execute_search(&engine, &context, "seed", 10)?;
+    assert_eq!(broad.status, SearchStatus::Answerable);
+    assert_eq!(broad.evidence.len(), 4);
+
+    let empty = execute_search(&engine, &context, "unmatched query", 0)?;
+    assert_eq!(empty.evidence.len(), 0);
+    assert_eq!(empty.coverage.percent_covered, 0);
     Ok(())
 }

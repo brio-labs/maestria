@@ -78,6 +78,8 @@ impl CandidateRetriever for AdaptiveLane {
         maestria_retrieval::types::RetrieverDescriptor {
             id: "adaptive".to_string(),
             modality: "text".to_string(),
+            representation: maestria_domain::RepresentationName::new("text"),
+            generation: maestria_domain::IndexGenerationId::new(1),
         }
     }
 
