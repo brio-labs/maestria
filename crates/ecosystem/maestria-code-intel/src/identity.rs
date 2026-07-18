@@ -40,10 +40,21 @@ pub(crate) fn discover_repository_identity(
     let mut hasher = Sha256::new();
     for relative_path in paths {
         let path = root.join(&relative_path);
-        let metadata = fs::symlink_metadata(&path).map_err(|error| CodeIntelError::Identity {
-            context: "inspect repository identity file".to_string(),
-            details: format!("{relative_path}: {error}"),
-        })?;
+        let metadata = match fs::symlink_metadata(&path) {
+            Ok(metadata) => metadata,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                hasher.update(b"missing\0");
+                hasher.update((relative_path.len() as u64).to_le_bytes());
+                hasher.update(relative_path.as_bytes());
+                continue;
+            }
+            Err(error) => {
+                return Err(CodeIntelError::Identity {
+                    context: "inspect repository identity file".to_string(),
+                    details: format!("{relative_path}: {error}"),
+                });
+            }
+        };
         if !metadata.is_file() || metadata.file_type().is_symlink() {
             continue;
         }
@@ -51,8 +62,7 @@ pub(crate) fn discover_repository_identity(
             context: "open repository identity file".to_string(),
             details: format!("{relative_path}: {error}"),
         })?;
-        hasher.update(relative_path.as_bytes());
-        hasher.update(b"\0");
+        let mut file_hasher = Sha256::new();
         let mut buffer = [0_u8; 64 * 1024];
         loop {
             let read = file
@@ -64,9 +74,12 @@ pub(crate) fn discover_repository_identity(
             if read == 0 {
                 break;
             }
-            hasher.update(&buffer[..read]);
+            file_hasher.update(&buffer[..read]);
         }
-        hasher.update(b"\0");
+        hasher.update(b"file\0");
+        hasher.update((relative_path.len() as u64).to_le_bytes());
+        hasher.update(relative_path.as_bytes());
+        hasher.update(file_hasher.finalize());
     }
 
     Ok(RepositoryIdentity {

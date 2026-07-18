@@ -1,5 +1,7 @@
 use anyhow::{Context, Result, bail};
-use maestria_code_intel::{CodeQuery, RepositoryCodeIndex};
+use maestria_code_intel::{
+    CodeQuery, ContextDirection, RepositoryCodeIndex, RepositoryContextQuery, RepositoryFreshness,
+};
 use maestria_core::InstanceManifest;
 use std::path::{Path, PathBuf};
 
@@ -46,17 +48,76 @@ pub(crate) fn run_search(instance_dir: PathBuf, query: CodeQuery, limit: usize) 
         );
     }
     validate_index_scope(&index, &manifest)?;
-    if index
-        .is_stale_repository()
-        .map_err(|error| anyhow::anyhow!("check repository code index freshness: {error}"))?
-    {
-        bail!(
-            "repository code index is stale for the current repository worktree; run `maestria index repository` again"
-        );
-    }
+    ensure_fresh(&index)?;
+    index
+        .validate_provenance()
+        .map_err(|error| anyhow::anyhow!("validate repository code index integrity: {error}"))?;
     let result = index.query(query, limit);
     println!("{}", serde_json::to_string_pretty(&result)?);
     Ok(())
+}
+
+pub(crate) fn run_context(
+    instance_dir: PathBuf,
+    pattern: String,
+    depth: usize,
+    nodes: usize,
+    direction: String,
+) -> Result<()> {
+    if !(1..=MAX_QUERY_LIMIT).contains(&nodes) {
+        bail!("context node limit must be between 1 and {MAX_QUERY_LIMIT}");
+    }
+    let layout = super::super::helpers::validated_instance(instance_dir)?;
+    let manifest = super::super::helpers::load_manifest(&layout)?;
+    let index_path = layout.system_dir.join(INDEX_FILENAME);
+    let index = RepositoryCodeIndex::load(&index_path)
+        .map_err(|error| anyhow::anyhow!("load repository code index: {error}"))?;
+    if index.is_stale_generation(PARSER_GENERATION) {
+        bail!("repository code index uses a stale parser generation");
+    }
+    if index.summary.excluded_patterns != manifest.excluded_patterns {
+        bail!("repository code index uses stale privacy exclusions");
+    }
+    validate_index_scope(&index, &manifest)?;
+    ensure_fresh(&index)?;
+    index
+        .validate_provenance()
+        .map_err(|error| anyhow::anyhow!("validate repository code index integrity: {error}"))?;
+    let direction = parse_context_direction(&direction)?;
+    let result = index.context(RepositoryContextQuery {
+        query: CodeQuery::Symbol { pattern },
+        direction,
+        relation_kinds: None,
+        max_depth: depth,
+        max_nodes: nodes,
+    });
+    println!("{}", serde_json::to_string_pretty(&result)?);
+    Ok(())
+}
+
+fn ensure_fresh(index: &RepositoryCodeIndex) -> Result<()> {
+    if let RepositoryFreshness::Stale { indexed, current } = index
+        .freshness()
+        .map_err(|error| anyhow::anyhow!("check repository code index freshness: {error}"))?
+    {
+        bail!(
+            "repository code index is stale (indexed commit {}, current commit {}, indexed worktree {}, current worktree {})",
+            indexed.commit_sha,
+            current.commit_sha,
+            indexed.worktree_identity,
+            current.worktree_identity
+        );
+    }
+    Ok(())
+}
+
+fn parse_context_direction(direction: &str) -> Result<ContextDirection> {
+    match direction {
+        "outgoing" => Ok(ContextDirection::Outgoing),
+        "incoming" => Ok(ContextDirection::Incoming),
+        "both" => Ok(ContextDirection::Both),
+        _ => bail!("context direction must be outgoing, incoming, or both"),
+    }
 }
 
 fn allowed_repository_root(repository: &Path, manifest: &InstanceManifest) -> Result<PathBuf> {
@@ -94,10 +155,35 @@ fn allowed_repository_root(repository: &Path, manifest: &InstanceManifest) -> Re
 fn validate_index_scope(index: &RepositoryCodeIndex, manifest: &InstanceManifest) -> Result<()> {
     let repository = allowed_repository_root(Path::new(&index.summary.repository_root), manifest)?;
     for symbol in &index.symbols {
-        let source = repository.join(&symbol.provenance.file_path);
-        let canonical = source
-            .canonicalize()
-            .with_context(|| format!("canonicalize indexed source {}", source.display()))?;
+        let relative_source = Path::new(&symbol.provenance.file_path);
+        if !is_safe_relative_path(relative_source) {
+            bail!(
+                "indexed source {} is outside the instance read scope or excluded by privacy policy",
+                relative_source.display()
+            );
+        }
+        let source = repository.join(relative_source);
+        let canonical = match source.canonicalize() {
+            Ok(canonical) => canonical,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                let canonical_parent = canonical_existing_parent(&source)?;
+                if !source.starts_with(&repository)
+                    || path_excluded(&source, &manifest.excluded_patterns)
+                    || !canonical_parent.starts_with(&repository)
+                    || !source_allowed(&canonical_parent, manifest)?
+                {
+                    bail!(
+                        "indexed source {} is outside the instance read scope or excluded by privacy policy",
+                        source.display()
+                    );
+                }
+                continue;
+            }
+            Err(error) => {
+                return Err(error)
+                    .with_context(|| format!("canonicalize indexed source {}", source.display()));
+            }
+        };
         if !canonical.starts_with(&repository) || !source_allowed(&canonical, manifest)? {
             bail!(
                 "indexed source {} is outside the instance read scope or excluded by privacy policy",
@@ -106,6 +192,25 @@ fn validate_index_scope(index: &RepositoryCodeIndex, manifest: &InstanceManifest
         }
     }
     Ok(())
+}
+
+fn canonical_existing_parent(path: &Path) -> Result<PathBuf> {
+    let mut candidate = path;
+    loop {
+        match candidate.canonicalize() {
+            Ok(canonical) => return Ok(canonical),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                let Some(parent) = candidate.parent() else {
+                    bail!("cannot resolve an existing parent for {}", path.display());
+                };
+                candidate = parent;
+            }
+            Err(error) => {
+                return Err(error)
+                    .with_context(|| format!("canonicalize indexed source {}", path.display()));
+            }
+        }
+    }
 }
 
 fn source_allowed(path: &Path, manifest: &InstanceManifest) -> Result<bool> {
@@ -119,6 +224,13 @@ fn source_allowed(path: &Path, manifest: &InstanceManifest) -> Result<bool> {
         .collect::<Result<Vec<_>, _>>()
         .context("canonicalize configured read roots")?;
     Ok(roots.iter().any(|root| path.starts_with(root)))
+}
+
+fn is_safe_relative_path(path: &Path) -> bool {
+    path.is_relative()
+        && path
+            .components()
+            .all(|component| !matches!(component, std::path::Component::ParentDir))
 }
 
 fn path_excluded(path: &Path, patterns: &[String]) -> bool {

@@ -131,6 +131,20 @@ async fn dispatch_search(
         }) => {
             let instance_dir = resolve_nested_instance_dir(instance_dir, nested_instance_dir);
             let query = match command {
+                CodeSearchCommands::Context {
+                    pattern,
+                    depth,
+                    nodes,
+                    direction,
+                } => {
+                    return commands::code_intel::run_context(
+                        instance_dir,
+                        pattern,
+                        depth,
+                        nodes,
+                        direction,
+                    );
+                }
                 CodeSearchCommands::Symbol { pattern } => {
                     maestria_code_intel::CodeQuery::Symbol { pattern }
                 }
