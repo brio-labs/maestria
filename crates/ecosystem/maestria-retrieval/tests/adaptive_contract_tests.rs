@@ -263,3 +263,24 @@ async fn bounded_search_rejects_stale_generation_results() -> RetrievalResult<()
     }));
     Ok(())
 }
+
+#[tokio::test]
+async fn planner_accepts_context_snapshot_and_generation() -> RetrievalResult<()> {
+    let context = maestria_retrieval::SearchPlannerContext {
+        corpus_snapshot: CorpusSnapshotId::new(7),
+        primary_generation: IndexGenerationId::new(9),
+        fingerprint: RetrievalModelFingerprint::new("contextual-model".to_string())?,
+    };
+    let engine = RetrievalEngine::new(
+        vec![Arc::new(AdaptiveLane {
+            slot_only: false,
+            stale_generation: false,
+        })],
+        Arc::new(AdaptiveEvaluator),
+    );
+    let plan = engine.plan("context snapshot", 1, &context)?;
+    assert_eq!(plan.corpus_snapshot, context.corpus_snapshot);
+    assert_eq!(plan.index_generation, context.primary_generation);
+    engine.search(&plan).await?;
+    Ok(())
+}
