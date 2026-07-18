@@ -11,7 +11,7 @@ use maestria_domain::{
     Evidence, EvidenceId, Relation, RelationEndpoint, RelationId,
 };
 
-pub const PORTS_VERSION: &str = "0.6.1";
+pub const PORTS_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 pub mod lexical;
 pub use lexical::*;

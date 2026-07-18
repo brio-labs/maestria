@@ -123,6 +123,8 @@ jobs:
       - name: Cache
         uses: Swatinem/rust-cache@v2.9.1
       - uses: mozilla-actions/sccache-action@v0.0.10
+      - name: Check canonical version contract
+        run: python3 scripts/version.py check
       - name: Check compilation
         run: cargo check --workspace --all-targets --all-features
 
@@ -140,7 +142,7 @@ jobs:
         uses: Swatinem/rust-cache@v2.9.1
       - uses: mozilla-actions/sccache-action@v0.0.10
       - name: Enforce workspace cohesion budgets
-        run: cargo clippy --workspace --all-targets --all-features -- -D warnings -D clippy::too_many_lines -D clippy::cognitive_complexity -D clippy::unwrap_used -D clippy::expect_used -D clippy::panic -D clippy::disallowed_methods
+        run: bash scripts/strict-clippy.sh
 
   dependency-audit:
     needs: [changes, deny]
@@ -212,15 +214,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2.9.1
       - uses: mozilla-actions/sccache-action@v0.0.10
       - name: Run release contract
-        run: |
-          cargo test -p maestria-cli --test release_contract -- --test-threads=1 --nocapture
-          cargo test -p maestria-daemon --test vertical_slice -- --nocapture
-          cargo test -p maestria-runtime runtime_evidence_tests::fetch_web_records_hashed_blob_and_security_boundary -- --nocapture
-          cargo test -p maestria-runtime runtime_validation_gate_tests -- --nocapture
-          cargo test -p maestria-retrieval --test adaptive_contract_tests
-          cargo test -p maestria-retrieval --test contract_tests
-          cargo test -p maestria-retrieval --test golden_fixture
-          cargo test -p maestria-core --test golden_gate
+        run: bash scripts/release-contract.sh
 
   test-nextest:
     needs: [changes]

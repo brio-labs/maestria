@@ -21,17 +21,11 @@ The repository is opinionated: keep the domain pure, keep side effects explicit,
 
 ## 2) PR checklist
 
-- [ ] `cargo fmt --all -- --check`
-- [ ] `cargo check --workspace --all-targets --all-features`
-- [ ] `cargo clippy --workspace --all-targets --all-features -- -D warnings`
-- [ ] `cargo test --workspace --all-targets --all-features`
-- [ ] `cargo doc --workspace --no-deps --all-features`
-- [ ] `RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --all-features`
-- [ ] `cargo deny check all`
-- [ ] `cargo machete`
-- [ ] `cargo tree --duplicates`
-- [ ] `python3 scripts/philosophy-check.py`
+- [ ] `bash scripts/verify-workspace.sh`
 - [ ] Required conventional commit format in all commit subjects
+
+The helper is the local aggregate; CI keeps the same checks split into
+separate jobs for focused failure reporting.
 
 ## 3) Commit semantics
 

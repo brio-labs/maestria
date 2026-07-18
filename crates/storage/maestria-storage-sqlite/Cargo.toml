@@ -1,8 +1,9 @@
 [package]
 name = "maestria-storage-sqlite"
-edition = "2024"
+version.workspace = true
+edition.workspace = true
 license.workspace = true
-version = "0.6.1"
+rust-version.workspace = true
 
 [dependencies]
 maestria_domain = { package = "maestria-domain", path = "../../kernel/maestria-domain" }

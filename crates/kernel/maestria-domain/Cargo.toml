@@ -1,8 +1,9 @@
 [package]
 name = "maestria-domain"
-edition = "2024"
+version.workspace = true
+edition.workspace = true
 license.workspace = true
-version = "0.6.1"
+rust-version.workspace = true
 
 [dependencies]
 sha2 = "0.10"
