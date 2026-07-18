@@ -37,7 +37,7 @@ pub use validation::{
 
 // ── metadata ────────────────────────────────────────────────────────
 
-pub const GOVERNANCE_VERSION: &str = "0.6.0";
+pub const GOVERNANCE_VERSION: &str = "0.6.1";
 
 // ── tests ────────────────────────────────────────────────────────────
 

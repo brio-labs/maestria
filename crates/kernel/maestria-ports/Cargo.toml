@@ -2,7 +2,7 @@
 name = "maestria-ports"
 edition = "2024"
 license.workspace = true
-version = "0.6.0"
+version = "0.6.1"
 
 [features]
 contract-tests = []
