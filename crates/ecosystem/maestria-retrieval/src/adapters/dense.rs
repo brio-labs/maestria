@@ -108,6 +108,8 @@ impl DenseChunkRetriever {
         if artifact.index_status != IndexStatus::Indexed
             || self.policy.evaluate(&artifact.security) != RetrievalDecision::Allowed
             || self.policy.evaluate(&evidence.security) != RetrievalDecision::Allowed
+            || !scan_secrets(&chunk.text).is_clean()
+            || !scan_secrets(&evidence.excerpt).is_clean()
         {
             return Ok(None);
         }

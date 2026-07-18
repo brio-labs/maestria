@@ -252,19 +252,26 @@ pub fn prepare_search_runtime(
         })?,
     );
     ensure_search_index(&search_index, state)?;
-    let vector_index = Arc::new(
-        SqliteVectorIndex::open(layout.vector_index_dir.join("projection.db"))
-            .with_context(|| format!("open vector index {}", layout.vector_index_dir.display()))?,
-    );
     let embedding_provider = crate::build_embedding_provider(manifest, state)?;
-    if let Some(provider) = embedding_provider.as_deref() {
+    let vector_index: Option<Arc<dyn VectorIndex + Send + Sync>> = if embedding_provider.is_some() {
+        Some(Arc::new(
+            SqliteVectorIndex::open(layout.vector_index_dir.join("projection.db")).with_context(
+                || format!("open vector index {}", layout.vector_index_dir.display()),
+            )?,
+        ))
+    } else {
+        None
+    };
+    if let (Some(provider), Some(vector_index)) =
+        (embedding_provider.as_deref(), vector_index.as_deref())
+    {
         let model = manifest
             .embeddings
             .as_ref()
             .filter(|config| config.enabled)
             .map(|config| config.model.as_str());
         if let Err(error) =
-            crate::reconcile_vector_projection(state, &*vector_index, Some(provider), model)
+            crate::reconcile_vector_projection(state, vector_index, Some(provider), model)
         {
             eprintln!("dense retrieval unavailable; using lexical fallback: {error}");
         }
@@ -290,7 +297,7 @@ pub fn prepare_search_runtime(
         evidence: sqlite_store.clone(),
         search_index,
         blobs: blob_store,
-        vector_index: Some(vector_index),
+        vector_index,
         event_log: sqlite_store.clone(),
         graph_index: Some(graph_index),
         primary_generation: lexical.id,

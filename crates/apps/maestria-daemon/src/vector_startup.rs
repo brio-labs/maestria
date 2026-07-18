@@ -100,7 +100,10 @@ fn ensure_generation(
         .find(|generation| {
             generation.name == name
                 && generation.fingerprint == fingerprint
-                && generation.lifecycle != IndexLifecycle::Tombstoned
+                && matches!(
+                    generation.lifecycle,
+                    IndexLifecycle::Building | IndexLifecycle::Evaluated | IndexLifecycle::Shadow
+                )
         })
         .map(|generation| generation.id);
     let id = match matching {

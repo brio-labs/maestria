@@ -619,6 +619,35 @@ async fn failed_lane_is_degraded_without_losing_successful_evidence() -> Retriev
         trace.lanes[1].status,
         maestria_domain::SearchLaneStatus::Failed { .. }
     ));
+
+    assert!(
+        trace
+            .lanes
+            .iter()
+            .all(|lane| lane.generation == Some(plan.index_generation))
+    );
+    Ok(())
+}
+#[tokio::test]
+async fn planner_accepts_context_snapshot_and_generation() -> RetrievalResult<()> {
+    let context = maestria_retrieval::SearchPlannerContext {
+        corpus_snapshot: CorpusSnapshotId::new(7),
+        primary_generation: IndexGenerationId::new(9),
+        fingerprint: RetrievalModelFingerprint::new("contextual-model".to_string())?,
+    };
+    let engine = RetrievalEngine::new(
+        vec![Arc::new(AsyncLane {
+            id: "lexical",
+            fail: false,
+            candidate: None,
+        })],
+        Arc::new(AsyncEvaluator),
+    );
+    let plan = engine.plan("context snapshot", 1, &context)?;
+    assert_eq!(plan.corpus_snapshot, context.corpus_snapshot);
+    assert_eq!(plan.index_generation, context.primary_generation);
+    let result = engine.search(&plan).await;
+    assert!(result.is_ok(), "contextual search failed: {result:?}");
     Ok(())
 }
 

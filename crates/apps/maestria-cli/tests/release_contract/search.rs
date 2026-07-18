@@ -45,6 +45,15 @@ fn exact_search_returns_immutable_evidence_and_no_match_is_explicit()
     );
     let no_match = assert_ok(&["search", "-i", &instance_path, "nonexistent-token"])?;
     assert!(no_match.contains("search_status=NoEvidenceFound"));
+    let vector_projection = instance.path().join("indexes/vector/projection.db");
+    std::fs::create_dir_all(
+        vector_projection
+            .parent()
+            .ok_or("vector projection parent missing")?,
+    )?;
+    std::fs::write(&vector_projection, b"corrupt projection")?;
+    let lexical_only = assert_ok(&["search", "-i", &instance_path, "immutable"])?;
+    assert!(lexical_only.contains("rank="), "{lexical_only}");
     Ok(())
 }
 

@@ -132,9 +132,14 @@ fn capabilities_from_retrievers(
 
 impl RetrievalEngine {
     fn validate_plan(&self, plan: &SearchPlan) -> RetrievalResult<()> {
+        let capabilities = self
+            .capabilities
+            .clone()
+            .with_snapshot(plan.corpus_snapshot)
+            .with_generation(plan.index_generation);
         maestria_governance::SearchPlanValidator::validate(
             plan,
-            &self.capabilities,
+            &capabilities,
             &maestria_governance::RetrievalSecurityPolicy::default(),
         )
         .map_err(RetrievalError::SearchPlan)

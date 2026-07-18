@@ -173,6 +173,22 @@ fn configured_dense_generation_survives_projection_rebuild_and_fallback()
 
     let search = assert_ok(&["search", "-i", &instance_path, "dense generation"])?;
     assert!(search.contains("rank=") || search.contains("search_status=NoEvidenceFound"));
+    let explained = assert_ok(&[
+        "search",
+        "explain",
+        "-i",
+        &instance_path,
+        "dense generation",
+    ])?;
+    assert!(
+        explained.contains("retrieval_mode=hybrid-shadow"),
+        "{explained}"
+    );
+    assert!(explained.contains("dense_chunks"), "{explained}");
+    assert!(
+        explained.contains("retriever_generations=[Some("),
+        "{explained}"
+    );
     let projection = instance.path().join("indexes/vector/projection.db");
     std::fs::remove_file(&projection)?;
     let rebuilt = assert_ok(&["search", "-i", &instance_path, "dense generation"])?;
@@ -183,6 +199,21 @@ fn configured_dense_generation_survives_projection_rebuild_and_fallback()
 
     drop(server);
     let fallback = assert_ok(&["search", "-i", &instance_path, "dense generation"])?;
-    assert!(fallback.contains("retrieval mode: lexical-only") || fallback.contains("rank="));
+    assert!(fallback.contains("rank=") || fallback.contains("search_status=NoEvidenceFound"));
+    let fallback_explained = assert_ok(&[
+        "search",
+        "explain",
+        "-i",
+        &instance_path,
+        "dense generation",
+    ])?;
+    assert!(
+        fallback_explained.contains("retrieval_mode=lexical-only"),
+        "{fallback_explained}"
+    );
+    assert!(
+        fallback_explained.contains("dense_chunks"),
+        "{fallback_explained}"
+    );
     Ok(())
 }

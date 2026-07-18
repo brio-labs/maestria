@@ -1,5 +1,5 @@
 use anyhow::{Result, anyhow};
-use maestria_domain::{SearchOutcome, SearchPlan, SearchTrace};
+use maestria_domain::{SearchLaneStatus, SearchOutcome, SearchPlan, SearchTrace};
 use std::collections::BTreeSet;
 
 pub(super) fn trace(durable: &super::search_observability::DurableTrace) -> Result<&SearchTrace> {
@@ -36,6 +36,14 @@ pub(super) fn render_trace(plan: &SearchPlan, outcome: &SearchOutcome) -> Result
             .map(|lane| &lane.retriever_id)
             .collect::<Vec<_>>()
     );
+    println!(
+        "retriever_generations={:?}",
+        trace
+            .lanes
+            .iter()
+            .map(|lane| lane.generation)
+            .collect::<Vec<_>>()
+    );
     let run = trace
         .lanes
         .iter()
@@ -51,6 +59,7 @@ pub(super) fn render_trace(plan: &SearchPlan, outcome: &SearchOutcome) -> Result
     );
     println!("raw_candidates={:?}", trace.raw_candidates);
     println!("fusion={:?}", trace.fusion);
+    println!("retrieval_mode={}", retrieval_mode(trace));
     println!("reranked={:?}", trace.rerank);
     println!("filters={:?}", trace.filters);
     println!("expansion={:?}", trace.expansions);
@@ -76,6 +85,20 @@ pub(super) fn render_trace(plan: &SearchPlan, outcome: &SearchOutcome) -> Result
     println!("coverage={:?}", outcome.coverage);
     println!("stop_reason={:?}", trace.stop_reason);
     Ok(())
+}
+
+fn retrieval_mode(trace: &SearchTrace) -> &'static str {
+    let dense_lane = trace.lanes.iter().find(|lane| {
+        let retriever_id = lane.retriever_id.to_ascii_lowercase();
+        retriever_id.contains("dense")
+            || retriever_id.contains("vector")
+            || retriever_id.contains("semantic")
+    });
+    if dense_lane.is_some_and(|lane| matches!(lane.status, SearchLaneStatus::Succeeded)) {
+        "hybrid-shadow"
+    } else {
+        "lexical-only"
+    }
 }
 
 pub(super) fn trace_from_outcome(outcome: &SearchOutcome) -> Result<&SearchTrace> {

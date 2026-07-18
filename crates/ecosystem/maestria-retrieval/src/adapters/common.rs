@@ -33,22 +33,29 @@ impl SourceSnapshotVerifier {
     }
 
     pub fn verify(&self, evidence: &Evidence) -> Result<(), RetrievalError> {
-        let (snapshot, expected_hash, excerpt) = match &evidence.kind {
+        let (snapshot, expected_hash, excerpt, file_range) = match &evidence.kind {
             EvidenceKind::WebSnapshot {
                 snapshot,
-                content_hash,
-                ..
-            }
-            | EvidenceKind::FileSpan {
-                snapshot: Some(snapshot),
                 content_hash,
                 ..
             } => (
                 Some(*snapshot),
                 Some(content_hash),
                 evidence.excerpt.as_str(),
+                None,
             ),
-            _ => (None, None, ""),
+            EvidenceKind::FileSpan {
+                snapshot: Some(snapshot),
+                content_hash,
+                range,
+                ..
+            } => (
+                Some(*snapshot),
+                Some(content_hash),
+                evidence.excerpt.as_str(),
+                Some(*range),
+            ),
+            _ => (None, None, "", None),
         };
         let Some(snapshot) = snapshot else {
             return Ok(());
@@ -61,9 +68,10 @@ impl SourceSnapshotVerifier {
                 evidence.id
             )));
         }
-        if !excerpt.is_empty()
-            && !contains_compact_excerpt(&String::from_utf8_lossy(&bytes), excerpt)
-        {
+        let source = String::from_utf8_lossy(&bytes);
+        if let Some(range) = file_range {
+            verify_file_range(source.as_ref(), range, evidence.id, &evidence.excerpt)?;
+        } else if !excerpt.is_empty() && !contains_compact_excerpt(&source, excerpt) {
             return Err(RetrievalError::Internal(format!(
                 "evidence {} excerpt is absent from its source snapshot",
                 evidence.id
@@ -71,6 +79,27 @@ impl SourceSnapshotVerifier {
         }
         Ok(())
     }
+}
+
+fn verify_file_range(
+    source: &str,
+    range: ContentRange,
+    evidence_id: maestria_domain::EvidenceId,
+    excerpt: &str,
+) -> Result<(), RetrievalError> {
+    let lines = source.lines().collect::<Vec<_>>();
+    if range.start == 0 || range.start > range.end || range.end > lines.len() {
+        return Err(RetrievalError::Internal(format!(
+            "evidence {evidence_id} file range is outside its source snapshot"
+        )));
+    }
+    let selected = lines[range.start - 1..range.end].join("\n");
+    if !excerpt.is_empty() && !contains_compact_excerpt(&selected, excerpt) {
+        return Err(RetrievalError::Internal(format!(
+            "evidence {evidence_id} excerpt does not match its source range"
+        )));
+    }
+    Ok(())
 }
 
 fn contains_compact_excerpt(source: &str, excerpt: &str) -> bool {
@@ -92,6 +121,7 @@ fn contains_compact_excerpt(source: &str, excerpt: &str) -> bool {
         }
     }
 }
+
 pub(super) fn candidate_from_records(
     artifact_id: maestria_domain::ArtifactId,
     source_span: &SourceSpan,
@@ -169,5 +199,50 @@ fn evidence_location(
             },
             ContentRange { start: 0, end: 1 },
         )),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use maestria_ports::{BlobStore, InMemoryBlobStore};
+
+    fn file_evidence(
+        range: ContentRange,
+        excerpt: &str,
+    ) -> Result<(SourceSnapshotVerifier, Evidence), Box<dyn std::error::Error>> {
+        let source = b"alpha line\nbeta line\n";
+        let blobs = Arc::new(InMemoryBlobStore::new());
+        let snapshot = blobs.put(source.to_vec())?;
+        let evidence = Evidence {
+            id: maestria_domain::EvidenceId::new(1),
+            artifact_id: maestria_domain::ArtifactId::new(1),
+            claim_id: None,
+            kind: EvidenceKind::FileSpan {
+                path: "notes.md".to_string(),
+                range,
+                content_hash: maestria_domain::content_hash(source),
+                snapshot: Some(snapshot),
+            },
+            excerpt: excerpt.to_string(),
+            observed_at: maestria_domain::LogicalTick::new(1),
+            security: Default::default(),
+        };
+        Ok((SourceSnapshotVerifier::new(blobs), evidence))
+    }
+
+    #[test]
+    fn file_snapshot_range_must_bound_its_excerpt() -> Result<(), Box<dyn std::error::Error>> {
+        let (verifier, valid) = file_evidence(ContentRange { start: 1, end: 1 }, "alpha line")?;
+        verifier.verify(&valid)?;
+
+        let (verifier, out_of_bounds) =
+            file_evidence(ContentRange { start: 1, end: 3 }, "alpha line")?;
+        assert!(verifier.verify(&out_of_bounds).is_err());
+
+        let (verifier, wrong_range) =
+            file_evidence(ContentRange { start: 2, end: 2 }, "alpha line")?;
+        assert!(verifier.verify(&wrong_range).is_err());
+        Ok(())
     }
 }
