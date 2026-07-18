@@ -202,31 +202,27 @@ fn assert_search_finds(
     instance_path: &str,
     query: &str,
 ) -> Result<(String, String), Box<dyn std::error::Error>> {
-    let stdout = assert_ok_lines(&["search", "-i", instance_path, query], 2)?;
-    let chunk_output_line = stdout
+    let stdout = assert_ok(&["search", "-i", instance_path, query])?;
+    let evidence_output_line = stdout
         .lines()
-        .find(|line| line.contains("chunk="))
-        .ok_or("search output missing chunk line")?;
-    let kv = parse_kv(chunk_output_line);
-    let chunk_id_str = kv
+        .find(|line| line.contains("evidence="))
+        .ok_or("search output missing evidence line")?;
+    let kv = parse_kv(evidence_output_line);
+    let artifact_id = kv
         .iter()
-        .find(|(k, _)| *k == "chunk")
-        .map(|(_, v)| *v)
-        .ok_or("search output missing chunk=<id>")?;
-    assert!(
-        chunk_id_str.parse::<u64>().is_ok(),
-        "chunk id not a u64: {chunk_id_str}"
-    );
-    let evidence_id_str = kv
+        .find(|(key, _)| *key == "artifact")
+        .map(|(_, value)| *value)
+        .ok_or("search output missing artifact=<id>")?;
+    let evidence_id = kv
         .iter()
-        .find(|(k, _)| *k == "evidence")
-        .map(|(_, v)| *v)
+        .find(|(key, _)| *key == "evidence")
+        .map(|(_, value)| *value)
         .ok_or("search output missing evidence=<id>")?;
     assert!(
-        evidence_id_str.parse::<u64>().is_ok(),
-        "evidence id not a u64: {evidence_id_str}"
+        evidence_id.parse::<u64>().is_ok(),
+        "evidence id not a u64: {evidence_id}"
     );
-    Ok((chunk_id_str.to_string(), evidence_id_str.to_string()))
+    Ok((artifact_id.to_string(), evidence_id.to_string()))
 }
 fn status_event_count(instance_path: &str) -> Result<usize, Box<dyn std::error::Error>> {
     let (code, stdout, stderr) = run(&["status", "-i", instance_path])?;
@@ -444,49 +440,29 @@ fn pdf_indexing_workflow() -> Result<(), Box<dyn std::error::Error>> {
         stdout.contains("indexed "),
         "expected 'indexed' in index output: {stdout}"
     );
-    let stdout = assert_ok_lines(
-        &[
-            "search",
-            "-i",
-            &instance.path().to_string_lossy(),
-            "distributed",
-        ],
-        2,
-    )?;
-    let search_lines: Vec<&str> = stdout.lines().collect();
-    assert!(
-        search_lines
-            .first()
-            .is_some_and(|line| line.starts_with("card ")),
-        "card result must render before chunks: {stdout}"
-    );
-    assert!(
-        search_lines
-            .get(1)
-            .is_some_and(|line| line.contains("chunk=") && line.contains("evidence=")),
-        "chunk result must follow card with evidence id: {stdout}"
-    );
-    let chunk_output_line = stdout
+    let stdout = assert_ok(&[
+        "search",
+        "-i",
+        &instance.path().to_string_lossy(),
+        "distributed",
+    ])?;
+    let evidence_output_line = stdout
         .lines()
-        .find(|line| line.contains("chunk="))
-        .ok_or("search output missing chunk line")?;
-    let kv = parse_kv(chunk_output_line);
-    let chunk_id_str = kv
+        .find(|line| line.contains("evidence="))
+        .ok_or("search output missing evidence line")?;
+    let kv = parse_kv(evidence_output_line);
+    let evidence_id_str = kv
         .iter()
-        .find(|(k, _)| *k == "chunk")
-        .map(|(_, v)| *v)
-        .ok_or("search output missing chunk=<id>")?;
-    assert!(
-        chunk_id_str.parse::<u64>().is_ok(),
-        "chunk id not a u64: {chunk_id_str}"
-    );
+        .find(|(key, _)| *key == "evidence")
+        .map(|(_, value)| *value)
+        .ok_or("search output missing evidence=<id>")?;
     let stdout = assert_ok_lines(
         &[
             "open-evidence",
             "-i",
             &instance.path().to_string_lossy(),
-            "--chunk-id",
-            chunk_id_str,
+            "--evidence-id",
+            evidence_id_str,
         ],
         3,
     )?;
@@ -538,18 +514,15 @@ fn pdf_no_text_is_rejected() -> Result<(), Box<dyn std::error::Error>> {
         err.contains("timeout") || err.contains("parser failed"),
         "expected timeout or parser failure for no-text PDF, got: {err}"
     );
-    let stdout = assert_ok_lines(
-        &[
-            "search",
-            "-i",
-            &instance.path().to_string_lossy(),
-            "anything",
-        ],
-        0,
-    )?;
+    let stdout = assert_ok(&[
+        "search",
+        "-i",
+        &instance.path().to_string_lossy(),
+        "anything",
+    ])?;
     assert!(
-        stdout.trim().is_empty(),
-        "expected no search results for failed PDF, got: {stdout}"
+        stdout.contains("search_status=NoEvidenceFound"),
+        "expected explicit no-evidence status, got: {stdout}"
     );
     Ok(())
 }

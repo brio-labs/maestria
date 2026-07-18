@@ -1,7 +1,16 @@
 use crate::error::{CoreError, CoreResult};
 use maestria_ports::RetentionPolicy;
 use std::path::PathBuf;
-use url::Url;
+
+#[path = "manifest_codec.rs"]
+mod manifest_codec;
+#[path = "manifest_scope.rs"]
+mod manifest_scope;
+
+use manifest_codec::{
+    ManifestFields, parse_embedding_config, parse_manifest_fields, retention_policy_name,
+};
+use manifest_scope::{lexical_normalize, path_matches_pattern};
 
 const MANIFEST_SCHEMA_VERSION: u32 = 1;
 const DEFAULT_EXCLUSIONS: [&str; 11] = [
@@ -29,6 +38,10 @@ pub struct EmbeddingConfig {
     pub endpoint: String,
     pub model: String,
     pub dimensions: usize,
+    pub provider: String,
+    pub revision: String,
+    pub artifact_hash: String,
+    pub preprocessing_version: String,
     pub remote_provider: bool,
     pub retention_policy: RetentionPolicy,
 }
@@ -74,6 +87,16 @@ impl InstanceManifest {
         if let Some(embeddings) = &self.embeddings {
             lines.push(format!("embedding_enabled={}", embeddings.enabled));
             lines.push(format!("embedding_endpoint={}", embeddings.endpoint));
+            lines.push(format!("embedding_provider={}", embeddings.provider));
+            lines.push(format!("embedding_revision={}", embeddings.revision));
+            lines.push(format!(
+                "embedding_artifact_hash={}",
+                embeddings.artifact_hash
+            ));
+            lines.push(format!(
+                "embedding_preprocessing_version={}",
+                embeddings.preprocessing_version
+            ));
             lines.push(format!(
                 "embedding_remote_provider={}",
                 embeddings.remote_provider
@@ -89,18 +112,15 @@ impl InstanceManifest {
         lines.join("\n")
     }
     pub fn decode(contents: &str) -> CoreResult<Self> {
+        let fields = parse_manifest_fields(contents)?;
+        let embeddings = parse_embedding_config(&fields)?;
         let ManifestFields {
             schema_version,
             root,
             read_roots,
             excluded_patterns,
-            embedding_enabled,
-            embedding_endpoint,
-            embedding_model,
-            embedding_dimensions,
-            embedding_remote_provider,
-            embedding_retention_policy,
-        } = parse_manifest_fields(contents)?;
+            ..
+        } = fields;
 
         let schema_version = schema_version.ok_or_else(|| CoreError::InvalidInput {
             message: "instance manifest is missing schema_version".to_string(),
@@ -123,42 +143,6 @@ impl InstanceManifest {
                 message: "instance manifest must define at least one excluded_pattern".to_string(),
             });
         }
-
-        let embeddings = match (
-            embedding_enabled,
-            embedding_endpoint,
-            embedding_model,
-            embedding_dimensions,
-        ) {
-            (None, None, None, None) => None,
-            (Some(enabled), Some(endpoint), Some(model), Some(dimensions)) => {
-                validate_embedding_endpoint(&endpoint)?;
-                if enabled && dimensions == 0 {
-                    return Err(CoreError::InvalidInput {
-                        message: "embedding_dimensions must be positive when enabled".to_string(),
-                    });
-                }
-                let remote_provider = embedding_remote_provider.is_some_and(|value| value);
-                let retention_policy = parse_retention_policy(
-                    embedding_retention_policy
-                        .as_deref()
-                        .map_or("no_retention", |value| value),
-                )?;
-                Some(EmbeddingConfig {
-                    enabled,
-                    endpoint,
-                    model,
-                    dimensions,
-                    remote_provider,
-                    retention_policy,
-                })
-            }
-            _ => {
-                return Err(CoreError::InvalidInput {
-                    message: "embedding configuration must define enabled, endpoint, model, and dimensions".to_string(),
-                });
-            }
-        };
 
         Ok(Self {
             schema_version,
@@ -184,151 +168,6 @@ impl InstanceManifest {
             .map(|root| lexical_normalize(root))
             .any(|root| normalized_path.starts_with(root))
     }
-}
-
-struct ManifestFields {
-    schema_version: Option<u32>,
-    root: Option<PathBuf>,
-    read_roots: Vec<PathBuf>,
-    excluded_patterns: Vec<String>,
-    embedding_enabled: Option<bool>,
-    embedding_endpoint: Option<String>,
-    embedding_model: Option<String>,
-    embedding_dimensions: Option<usize>,
-    embedding_remote_provider: Option<bool>,
-    embedding_retention_policy: Option<String>,
-}
-
-fn parse_manifest_fields(contents: &str) -> CoreResult<ManifestFields> {
-    let mut fields = ManifestFields {
-        schema_version: None,
-        root: None,
-        read_roots: Vec::new(),
-        excluded_patterns: Vec::new(),
-        embedding_enabled: None,
-        embedding_endpoint: None,
-        embedding_model: None,
-        embedding_dimensions: None,
-        embedding_remote_provider: None,
-        embedding_retention_policy: None,
-    };
-    for line in contents
-        .lines()
-        .map(str::trim)
-        .filter(|line| !line.is_empty())
-    {
-        let (key, value) = line
-            .split_once('=')
-            .ok_or_else(|| CoreError::InvalidInput {
-                message: format!("invalid instance manifest line: {line}"),
-            })?;
-        if value.is_empty() {
-            return Err(CoreError::InvalidInput {
-                message: format!("instance manifest value is empty for {key}"),
-            });
-        }
-        match key {
-            "schema_version" => {
-                fields.schema_version =
-                    Some(value.parse::<u32>().map_err(|_| CoreError::InvalidInput {
-                        message: format!("invalid instance manifest schema version: {value}"),
-                    })?);
-            }
-            "root" => fields.root = Some(PathBuf::from(value)),
-            "read_root" => fields.read_roots.push(PathBuf::from(value)),
-            "excluded_pattern" => fields.excluded_patterns.push(value.to_string()),
-            "embedding_enabled" => {
-                fields.embedding_enabled =
-                    Some(value.parse::<bool>().map_err(|_| CoreError::InvalidInput {
-                        message: format!("invalid embedding_enabled value: {value}"),
-                    })?);
-            }
-            "embedding_endpoint" => fields.embedding_endpoint = Some(value.to_string()),
-            "embedding_model" => fields.embedding_model = Some(value.to_string()),
-            "embedding_dimensions" => {
-                fields.embedding_dimensions =
-                    Some(
-                        value
-                            .parse::<usize>()
-                            .map_err(|_| CoreError::InvalidInput {
-                                message: format!("invalid embedding_dimensions value: {value}"),
-                            })?,
-                    );
-            }
-            "embedding_remote_provider" => {
-                fields.embedding_remote_provider =
-                    Some(value.parse::<bool>().map_err(|_| CoreError::InvalidInput {
-                        message: format!("invalid embedding_remote_provider value: {value}"),
-                    })?);
-            }
-            "embedding_retention_policy" => {
-                fields.embedding_retention_policy = Some(value.to_string());
-            }
-            other => {
-                return Err(CoreError::InvalidInput {
-                    message: format!("unknown instance manifest key: {other}"),
-                });
-            }
-        }
-    }
-    Ok(fields)
-}
-
-fn retention_policy_name(policy: &RetentionPolicy) -> &'static str {
-    match policy {
-        RetentionPolicy::NoRetention => "no_retention",
-        RetentionPolicy::ProviderDefined => "provider_defined",
-    }
-}
-
-fn parse_retention_policy(value: &str) -> CoreResult<RetentionPolicy> {
-    match value {
-        "no_retention" => Ok(RetentionPolicy::NoRetention),
-        "provider_defined" => Ok(RetentionPolicy::ProviderDefined),
-        _ => Err(CoreError::InvalidInput {
-            message: format!("invalid embedding_retention_policy value: {value}"),
-        }),
-    }
-}
-fn validate_embedding_endpoint(endpoint: &str) -> CoreResult<()> {
-    let url = Url::parse(endpoint).map_err(|error| CoreError::InvalidInput {
-        message: format!("invalid embedding endpoint: {error}"),
-    })?;
-    let valid = url.scheme() == "http"
-        && matches!(url.host_str(), Some("127.0.0.1" | "::1" | "[::1]"))
-        && url.path() == "/v1/embeddings"
-        && url.query().is_none()
-        && url.fragment().is_none();
-    if !valid {
-        return Err(CoreError::InvalidInput {
-            message: "embedding endpoint must be an http loopback /v1/embeddings URL".to_string(),
-        });
-    }
-    Ok(())
-}
-
-fn lexical_normalize(path: &std::path::Path) -> PathBuf {
-    let mut normalized = PathBuf::new();
-    for component in path.components() {
-        match component {
-            std::path::Component::CurDir => {}
-            std::path::Component::ParentDir => {
-                normalized.pop();
-            }
-            other => normalized.push(other.as_os_str()),
-        }
-    }
-    normalized
-}
-
-fn path_matches_pattern(path: &std::path::Path, pattern: &str) -> bool {
-    path.components().any(|component| {
-        let name = component.as_os_str().to_string_lossy();
-        pattern == name
-            || (pattern == ".env.*" && name.starts_with(".env."))
-            || (pattern == "*.pem" && name.ends_with(".pem"))
-            || (pattern == "*.key" && name.ends_with(".key"))
-    })
 }
 
 #[cfg(test)]
@@ -364,6 +203,12 @@ mod tests {
                 endpoint: "http://127.0.0.1:8080/v1/embeddings".to_string(),
                 model: "local-model".to_string(),
                 dimensions: 3,
+                provider: "local".to_string(),
+                revision: "v1".to_string(),
+                artifact_hash:
+                    "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+                        .to_string(),
+                preprocessing_version: "v1".to_string(),
                 remote_provider: false,
                 retention_policy: RetentionPolicy::NoRetention,
             }),

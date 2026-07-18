@@ -6,22 +6,13 @@
 //! avoids concrete SQL, filesystem, search-engine, and parser implementations.
 
 mod error;
+mod evidence_opening;
 mod evidence_pack_provenance;
-mod generation_gate;
-mod graph_retrieval;
-mod hierarchy_expansion;
 mod ingestion;
 mod instance;
-mod lane_fusion;
-mod lexical_helpers;
 mod manifest;
 mod ports;
 mod provenance;
-mod rank_fusion;
-mod retrieval;
-mod retrieval_lanes;
-mod retrieval_verification;
-mod trace_candidates;
 mod types;
 
 pub const CORE_VERSION: &str = "0.6.0";
@@ -36,8 +27,6 @@ pub use provenance::content_hash;
 pub use types::{
     ClaimCoverageStatus, ClaimEvidenceCoverage, EvidenceFreshness, EvidencePack,
     EvidencePackCompression, EvidencePackError, EvidencePackMetadata, EvidencePackReplayKey,
-    EvidencePackReproducibility, GraphConfig, HybridExecutionPolicy, HybridPromotionRecord,
-    OpenChunkEvidenceInput, OpenEvidenceInput, OpenEvidenceOutput, RetrievalLaneReport,
-    RetrievalLaneStatus, RetrievalMode, SearchInput, SearchOutput, SourceGroundedCardHit,
-    SourceGroundedSearchHit, SourceIndependence,
+    EvidencePackReproducibility, OpenChunkEvidenceInput, OpenEvidenceInput, OpenEvidenceOutput,
+    SourceGroundedSearchHit,
 };

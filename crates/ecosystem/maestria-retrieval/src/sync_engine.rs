@@ -85,6 +85,7 @@ impl<'a> SyncRetrievalEngine<'a> {
             .into_iter()
             .map(|(query, candidates)| SearchTraceLane {
                 retriever_id: "sync_pipeline".to_string(),
+                generation: Some(plan.index_generation),
                 query,
                 status: if candidates.is_empty() {
                     SearchLaneStatus::Empty

@@ -1,48 +1,48 @@
-use maestria_core::{CorePorts, CoreServices, SearchInput};
-use maestria_domain::{
-    Artifact, ArtifactId, Chunk, Evidence, EvidenceKind, IndexStatus, SourceSpan, StructureNodeId,
-};
-use maestria_domain::{
-    CorpusScope, CorpusSnapshotId, EvidenceRequirements, FreshnessRequirement, IndexGenerationId,
-    Modality, ModalitySet, QueryId, RetrievalModelFingerprint, SearchBudget, SearchIntent,
-    SearchPlan, SearchStage, StopConditions,
-};
-use maestria_ports::{
-    ArtifactRepository, BlobStore, ChunkRepository, EvidenceRepository, InMemoryArtifactRepository,
-    InMemoryBlobStore, InMemoryChunkRepository, InMemoryEventLog, InMemoryEvidenceRepository,
-    InMemoryFullTextIndex, InMemoryParser, InMemoryVectorIndex, VectorIndex, VectorSearchQuery,
-};
+use std::sync::Arc;
 
-type VectorFixture = (
-    InMemoryArtifactRepository,
-    InMemoryChunkRepository,
-    InMemoryEvidenceRepository,
-    InMemoryBlobStore,
-    InMemoryEventLog,
-    InMemoryParser,
-    InMemoryFullTextIndex,
-    InMemoryVectorIndex,
-    maestria_domain::ArtifactId,
-    maestria_domain::ChunkId,
-    maestria_domain::EvidenceId,
-);
+use maestria_domain::{
+    Artifact, ArtifactId, Chunk, ChunkId, CorpusSnapshotId, Evidence, EvidenceKind,
+    IndexGenerationId, IndexStatus, RetrievalModelFingerprint, SearchLaneStatus, SearchPlan,
+    SearchRewriteOrigin, SearchStatus, SourceSpan, StructureNodeId,
+};
+use maestria_governance::RetrievalSecurityPolicy;
+use maestria_ports::{
+    ArtifactRepository, BlobStore, ChunkRepository, EmbeddingIdentity, EmbeddingProvider,
+    EmbeddingRequest, EmbeddingResponse, EvidenceRepository, InMemoryArtifactRepository,
+    InMemoryBlobStore, InMemoryChunkRepository, InMemoryEvidenceRepository, InMemoryFullTextIndex,
+    InMemoryVectorIndex, PortError, ProviderDisclosure, RetentionPolicy, VectorIndex,
+};
+use maestria_retrieval::{
+    FixedKRrf, HybridExecutionPolicy, HybridPromotionRecord, RetrievalEngine, SearchPlannerContext,
+    adapters::{
+        DenseChunkRetriever, DenseChunkRetrieverParts, EvidenceOutcomeEvaluator,
+        LexicalChunkRetriever, LexicalChunkRetrieverParts,
+    },
+    traits::CandidateRetriever,
+};
+struct VectorFixture {
+    artifacts: Arc<InMemoryArtifactRepository>,
+    chunks: Arc<InMemoryChunkRepository>,
+    evidence: Arc<InMemoryEvidenceRepository>,
+    blobs: Arc<InMemoryBlobStore>,
+    search_index: Arc<InMemoryFullTextIndex>,
+    vector_index: Arc<InMemoryVectorIndex>,
+}
 
 fn seed_vector_fixture() -> Result<VectorFixture, Box<dyn std::error::Error>> {
     let artifact_id = ArtifactId::new(800);
-    let chunk_id = maestria_domain::ChunkId::new(801);
+    let chunk_id = ChunkId::new(801);
     let evidence_id = maestria_domain::evidence_id_for(artifact_id, 0);
     let source = "literal source text\n";
-    let artifact_repo = InMemoryArtifactRepository::new();
-    let chunk_repo = InMemoryChunkRepository::new();
-    let evidence_repo = InMemoryEvidenceRepository::new();
-    let blob_store = InMemoryBlobStore::new();
-    let events = InMemoryEventLog::new();
-    let parser = InMemoryParser::new();
-    let search_index = InMemoryFullTextIndex::new();
-    let vector_index = InMemoryVectorIndex::new();
+    let artifacts = Arc::new(InMemoryArtifactRepository::new());
+    let chunks = Arc::new(InMemoryChunkRepository::new());
+    let evidence = Arc::new(InMemoryEvidenceRepository::new());
+    let blobs = Arc::new(InMemoryBlobStore::new());
+    let search_index = Arc::new(InMemoryFullTextIndex::new());
+    let vector_index = Arc::new(InMemoryVectorIndex::new());
 
-    let blob_id = blob_store.put(source.as_bytes().to_vec())?;
-    artifact_repo.put(Artifact {
+    let blob_id = blobs.put(source.as_bytes().to_vec())?;
+    artifacts.put(Artifact {
         id: artifact_id,
         title: "semantic.md".to_string(),
         chunk_ids: [chunk_id].into(),
@@ -54,7 +54,7 @@ fn seed_vector_fixture() -> Result<VectorFixture, Box<dyn std::error::Error>> {
         content_hash: Some(maestria_core::content_hash(source.as_bytes())),
         parse_status: None,
     })?;
-    chunk_repo.put(Chunk {
+    chunks.put(Chunk {
         id: chunk_id,
         artifact_id,
         node_id: StructureNodeId::new(0),
@@ -66,7 +66,7 @@ fn seed_vector_fixture() -> Result<VectorFixture, Box<dyn std::error::Error>> {
         order: 0,
         text: "semantic token".to_string(),
     })?;
-    evidence_repo.put(Evidence {
+    evidence.put(Evidence {
         id: evidence_id,
         artifact_id,
         claim_id: None,
@@ -95,159 +95,151 @@ fn seed_vector_fixture() -> Result<VectorFixture, Box<dyn std::error::Error>> {
             },
         },
     }])?;
-    Ok((
-        artifact_repo,
-        chunk_repo,
-        evidence_repo,
-        blob_store,
-        events,
-        parser,
+
+    Ok(VectorFixture {
+        artifacts,
+        chunks,
+        evidence,
+        blobs,
         search_index,
         vector_index,
-        artifact_id,
-        chunk_id,
-        evidence_id,
-    ))
+    })
 }
 
-fn search_with_policy(
-    policy: maestria_core::HybridExecutionPolicy,
-) -> Result<maestria_core::SearchOutput, Box<dyn std::error::Error>> {
-    let (
-        artifact_repo,
-        chunk_repo,
-        evidence_repo,
-        blob_store,
-        events,
-        parser,
-        search_index,
-        vector_index,
-        _artifact_id,
-        _chunk_id,
-        _evidence_id,
-    ) = seed_vector_fixture()?;
-    let card_repo = maestria_ports::InMemoryCardRepository::new();
-    let core = CoreServices::new(CorePorts {
-        artifacts: &artifact_repo,
-        chunks: &chunk_repo,
-        cards: &card_repo,
-        evidence: &evidence_repo,
-        events: &events,
-        parser: &parser,
-        search_index: &search_index,
-        blobs: &blob_store,
-        vector_index: Some(&vector_index),
-        graph_index: None,
+fn planner_context() -> Result<SearchPlannerContext, Box<dyn std::error::Error>> {
+    Ok(SearchPlannerContext {
+        corpus_snapshot: CorpusSnapshotId::new(1),
+        primary_generation: IndexGenerationId::new(1),
+        fingerprint: RetrievalModelFingerprint::new(
+            "maestria-core:hybrid-shadow-fixture".to_string(),
+        )?,
     })
-    .with_hybrid_policy(policy);
-    let output = core.search_with_vector(
-        SearchInput {
-            query: "unrelated query".to_string(),
-            limit: 5,
-        },
-        VectorSearchQuery {
+}
+
+struct DenseFixtureEmbeddingProvider;
+
+impl EmbeddingProvider for DenseFixtureEmbeddingProvider {
+    fn embed(&self, request: EmbeddingRequest) -> Result<EmbeddingResponse, PortError> {
+        Ok(EmbeddingResponse {
             vector: vec![0.0, 1.0],
-            limit: 5,
-            provider_id: Some("test-provider".to_string()),
-            model: Some("test-model".to_string()),
-            model_version: Some("test-v1".to_string()),
-            identity: None,
+            provider_id: "test-provider".to_string(),
+            model: request.model,
+            model_version: "test-v1".to_string(),
+            identity: request.identity,
+            disclosure: ProviderDisclosure {
+                remote: false,
+                retention: RetentionPolicy::NoRetention,
+            },
+        })
+    }
+
+    fn identity(&self) -> Option<EmbeddingIdentity> {
+        maestria_ports::EmbeddingIdentity::legacy("test-model", 2).ok()
+    }
+}
+
+fn build_search_engine(
+    policy: HybridExecutionPolicy,
+    include_dense: bool,
+) -> Result<(RetrievalEngine, SearchPlannerContext), Box<dyn std::error::Error>> {
+    let fixture = seed_vector_fixture()?;
+    let context = planner_context()?;
+    let mut retrievers: Vec<Arc<dyn CandidateRetriever>> = Vec::new();
+    retrievers.push(Arc::new(LexicalChunkRetriever::new(
+        LexicalChunkRetrieverParts {
+            index: fixture.search_index.clone(),
+            artifacts: fixture.artifacts.clone(),
+            chunks: fixture.chunks.clone(),
+            evidence: fixture.evidence.clone(),
+            blobs: fixture.blobs.clone(),
         },
-    )?;
+        RetrievalSecurityPolicy::default(),
+        context.primary_generation,
+    )));
+    if include_dense {
+        retrievers.push(Arc::new(DenseChunkRetriever::new(
+            DenseChunkRetrieverParts {
+                index: fixture.vector_index.clone(),
+                artifacts: fixture.artifacts,
+                chunks: fixture.chunks,
+                evidence: fixture.evidence.clone(),
+                blobs: fixture.blobs,
+                embedding_provider: Arc::new(DenseFixtureEmbeddingProvider),
+            },
+            RetrievalSecurityPolicy::default(),
+            context.primary_generation,
+        )));
+    }
+
+    let engine = RetrievalEngine::new(
+        retrievers,
+        Arc::new(EvidenceOutcomeEvaluator::new(fixture.evidence)),
+    )
+    .with_fusion(Arc::new(FixedKRrf::new(60)))
+    .with_hybrid_policy(policy);
+    Ok((engine, context))
+}
+
+fn execute_search(
+    engine: &RetrievalEngine,
+    plan: &SearchPlan,
+) -> Result<maestria_domain::SearchOutcome, Box<dyn std::error::Error>> {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?;
+    let output = runtime.block_on(engine.search(plan))?;
     Ok(output)
 }
 
 #[test]
 fn shadow_executes_dense_lane_but_suppresses_fusion() -> Result<(), Box<dyn std::error::Error>> {
-    let output = search_with_policy(maestria_core::HybridExecutionPolicy::Shadow)?;
-    assert_eq!(output.mode, maestria_core::RetrievalMode::HybridShadow);
-    let dense_report = output
-        .lane_reports
+    let (engine, context) = build_search_engine(HybridExecutionPolicy::Shadow, true)?;
+    let plan = engine.plan("unrelated query", 5, &context)?;
+    let output = execute_search(&engine, &plan)?;
+    let trace = output.trace_data.as_deref().ok_or("trace data missing")?;
+    let dense_report = trace
+        .lanes
         .iter()
         .find(|report| report.retriever_id == "dense_chunks")
         .ok_or("dense lane report missing")?;
-    assert!(matches!(
-        dense_report.status,
-        maestria_core::RetrievalLaneStatus::Succeeded
-    ));
+    assert_eq!(dense_report.status, SearchLaneStatus::Succeeded);
     assert!(!dense_report.candidates.is_empty());
-    assert!(output.pack.chunks().is_empty());
+    assert_eq!(output.evidence.len(), 0);
+    assert_eq!(output.status, SearchStatus::NoEvidenceFound);
     Ok(())
 }
 
 #[test]
 fn active_mode_serves_dense_fusion() -> Result<(), Box<dyn std::error::Error>> {
-    let record = maestria_core::HybridPromotionRecord::new(
-        "eval-test".to_string(),
-        "2026-07-16".to_string(),
-    )
-    .ok_or("promotion record must be non-empty")?;
-    let output = search_with_policy(maestria_core::HybridExecutionPolicy::Active(record))?;
-    assert_eq!(output.mode, maestria_core::RetrievalMode::Hybrid);
-    assert_eq!(output.pack.chunks().len(), 1);
+    let record = HybridPromotionRecord::new("eval-test".to_string(), "2026-07-16".to_string())
+        .ok_or("promotion record must be non-empty")?;
+    let (engine, context) = build_search_engine(HybridExecutionPolicy::Active(record), true)?;
+    let plan = engine.plan("unrelated query", 5, &context)?;
+    let output = execute_search(&engine, &plan)?;
+    let trace = output.trace_data.as_deref().ok_or("trace data missing")?;
+    let dense_report = trace
+        .lanes
+        .iter()
+        .find(|report| report.retriever_id == "dense_chunks")
+        .ok_or("dense lane report missing")?;
+    assert_eq!(dense_report.status, SearchLaneStatus::Succeeded);
+    assert!(!dense_report.candidates.is_empty());
+    assert_eq!(output.evidence.len(), 1);
+    assert_eq!(output.status, SearchStatus::Answerable);
     Ok(())
 }
 
 #[test]
 fn knowledge_search_trace_contains_deterministic_rewrites() -> Result<(), Box<dyn std::error::Error>>
 {
-    let (
-        artifact_repo,
-        chunk_repo,
-        evidence_repo,
-        blob_store,
-        events,
-        parser,
-        search_index,
-        _vector_index,
-        _artifact_id,
-        _chunk_id,
-        _evidence_id,
-    ) = seed_vector_fixture()?;
-    let card_repo = maestria_ports::InMemoryCardRepository::new();
-    let core = CoreServices::new(CorePorts {
-        artifacts: &artifact_repo,
-        chunks: &chunk_repo,
-        cards: &card_repo,
-        evidence: &evidence_repo,
-        events: &events,
-        parser: &parser,
-        search_index: &search_index,
-        blobs: &blob_store,
-        vector_index: None,
-        graph_index: None,
-    });
-    let plan = SearchPlan {
-        query_id: QueryId::new(99),
-        original_query: "find PR test".to_string(),
-        intent: SearchIntent::FactualLocal,
-        scope: CorpusScope::Global,
-        corpus_snapshot: CorpusSnapshotId::new(1),
-        index_generation: IndexGenerationId::new(1),
-        freshness: FreshnessRequirement::Any,
-        modalities: ModalitySet::new(vec![Modality::Text]),
-        stages: vec![SearchStage::InitialRetrieval],
-        budgets: SearchBudget::with_limits(1000, 30_000, 8, 1, 0)?,
-        stop_conditions: StopConditions {
-            max_results: 5,
-            min_score_threshold: 0,
-        },
-        evidence_requirements: EvidenceRequirements {
-            require_primary_sources: false,
-            minimum_corroboration: 1,
-            required_claims: Vec::new(),
-            required_subquestions: Vec::new(),
-            minimum_sources: 0,
-            minimum_documents: 0,
-            minimum_sections: 0,
-        },
-        fingerprint: RetrievalModelFingerprint::new("maestria-core:deterministic-v1".to_string())?,
-    };
-    let mut invalid_plan = plan.clone();
+    let (engine, context) = build_search_engine(HybridExecutionPolicy::Shadow, false)?;
+    let mut invalid_plan = engine.plan("find PR test", 5, &context)?;
     invalid_plan.original_query.clear();
-    assert!(core.search_knowledge(invalid_plan).is_err());
-    let outcome = core.search_knowledge(plan)?;
-    let trace = outcome.trace_data.ok_or("trace data missing")?;
+    assert!(execute_search(&engine, &invalid_plan).is_err());
+
+    let plan = engine.plan("find PR test".to_string(), 5, &context)?;
+    let outcome = execute_search(&engine, &plan)?;
+    let trace = outcome.trace_data.as_deref().ok_or("trace data missing")?;
     assert_eq!(trace.original_query, "find PR test");
     assert!(
         trace.expansions.is_empty(),
@@ -257,10 +249,10 @@ fn knowledge_search_trace_contains_deterministic_rewrites() -> Result<(), Box<dy
         trace
             .rewrites
             .iter()
-            .any(|rewrite| rewrite.origin == maestria_domain::SearchRewriteOrigin::Original)
+            .any(|rewrite| rewrite.origin == SearchRewriteOrigin::Original)
     );
     assert!(trace.rewrites.iter().any(|rewrite| {
-        rewrite.origin == maestria_domain::SearchRewriteOrigin::Deterministic
+        rewrite.origin == SearchRewriteOrigin::Deterministic
             && rewrite.query.contains("Pull Request")
     }));
     Ok(())

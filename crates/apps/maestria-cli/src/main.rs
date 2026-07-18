@@ -47,8 +47,9 @@ async fn dispatch(command: Commands) -> Result<()> {
             command,
             instance_dir,
             query,
+            task_id,
             limit,
-        } => dispatch_search(command, instance_dir, query, limit).await?,
+        } => dispatch_search(command, instance_dir, query, task_id, limit).await?,
         Commands::OpenEvidence {
             instance_dir,
             evidence_id,
@@ -92,6 +93,7 @@ async fn dispatch_search(
     command: Option<SearchCommands>,
     instance_dir: std::path::PathBuf,
     query: Option<String>,
+    task_id: Option<u64>,
     limit: usize,
 ) -> Result<()> {
     match command {
@@ -99,9 +101,10 @@ async fn dispatch_search(
             query,
             instance_dir: nested_instance_dir,
             limit,
+            task_id,
         }) => {
             let instance_dir = resolve_nested_instance_dir(instance_dir, nested_instance_dir);
-            commands::observability::run_search_explain(instance_dir, query, limit).await
+            commands::observability::run_search_explain(instance_dir, task_id, query, limit).await
         }
         Some(SearchCommands::Trace {
             trace_id,
@@ -120,7 +123,7 @@ async fn dispatch_search(
         }
         None => {
             let query = query.ok_or_else(|| anyhow::anyhow!("search requires a query"))?;
-            commands::search::run(instance_dir, query, limit).await
+            commands::search::run(instance_dir, task_id, query, limit).await
         }
     }
 }

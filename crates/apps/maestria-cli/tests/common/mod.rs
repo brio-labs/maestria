@@ -2,18 +2,43 @@ use std::{
     fs,
     path::{Path, PathBuf},
     process::Command,
+    thread,
+    time::Duration,
 };
+
 pub fn bin() -> Result<String, Box<dyn std::error::Error>> {
     Ok(std::env::var("CARGO_BIN_EXE_maestria-cli")?)
 }
+
 pub fn run(args: &[&str]) -> Result<(i32, String, String), Box<dyn std::error::Error>> {
-    let output = Command::new(bin()?).args(args).output()?;
-    let code = if output.status.success() { 0 } else { 1 };
-    Ok((
-        code,
-        String::from_utf8_lossy(&output.stdout).into_owned(),
-        String::from_utf8_lossy(&output.stderr).into_owned(),
-    ))
+    run_bounded(args, Duration::from_secs(30))
+}
+
+pub fn run_bounded(
+    args: &[&str],
+    timeout: Duration,
+) -> Result<(i32, String, String), Box<dyn std::error::Error>> {
+    let mut child = Command::new(bin()?)
+        .args(args)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()?;
+    let poll_count = timeout.as_millis().div_ceil(10);
+    for _ in 0..poll_count {
+        if child.try_wait()?.is_some() {
+            let output = child.wait_with_output()?;
+            let code = if output.status.success() { 0 } else { 1 };
+            return Ok((
+                code,
+                String::from_utf8_lossy(&output.stdout).into_owned(),
+                String::from_utf8_lossy(&output.stderr).into_owned(),
+            ));
+        }
+        thread::sleep(Duration::from_millis(10));
+    }
+    child.kill()?;
+    let _ = child.wait();
+    Err(format!("command timed out: {args:?}").into())
 }
 pub struct TempDir(PathBuf);
 impl TempDir {

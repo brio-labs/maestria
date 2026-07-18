@@ -1,323 +1,139 @@
-use anyhow::{Context, Result};
-use maestria_blob_fs::FsBlobStore;
-use maestria_core::{
-    CorePorts, CoreServices, InstanceService, RetrievalMode, SearchInput, SearchOutput,
+use anyhow::{Context, Result, anyhow};
+use maestria_core::{InstanceLayout, InstanceManifest};
+use maestria_domain::{
+    DomainInput, EvidenceCandidate, SearchKnowledgeCompleted, SearchOutcome, SearchPlan, TaskId,
 };
-use maestria_domain::{DomainInput, IndexStatus, LogicalTick, SearchExecutedInput};
-use maestria_governance::AutonomyProfile;
-use maestria_governance::scan_secrets;
-use maestria_graph_sqlite::SqliteGraphIndex;
-use maestria_parsers::ParserRegistry;
-use maestria_ports::{
-    EmbeddingProvider, EmbeddingRequest, FullTextIndex, GraphIndex, IndexedCard, VectorIndex,
-    VectorSearchQuery,
-};
-use maestria_search_tantivy::TantivyFullTextIndex;
-use maestria_storage_sqlite::SqliteStore;
-use maestria_vector_sqlite::SqliteVectorIndex;
-use std::{fs, path::PathBuf, time::Duration};
+use std::path::PathBuf;
 
 use crate::helpers;
-pub async fn run(instance_dir: PathBuf, query: String, limit: usize) -> Result<()> {
+
+pub async fn run(
+    instance_dir: PathBuf,
+    task_id: Option<u64>,
+    query: String,
+    limit: usize,
+) -> Result<()> {
     let layout = helpers::validated_instance(instance_dir)?;
     let _instance_lock = maestria_daemon::acquire_instance_write_lock(&layout).await?;
-    let normalized_query = query.trim().to_string();
-    let search_layout = layout.clone();
-    let search_query = normalized_query.clone();
-    let output = tokio::task::spawn_blocking(move || {
-        compute_search_pack(&search_layout, &search_query, limit)
-    })
-    .await
-    .map_err(|error| anyhow::anyhow!("search worker failed: {error}"))??;
-    persist_search_audit(&layout, &output.pack, limit).await?;
-    eprintln!(
-        "retrieval mode: {}",
-        match output.mode {
-            RetrievalMode::Hybrid => "hybrid",
-            RetrievalMode::HybridShadow => "hybrid-shadow",
-            RetrievalMode::LexicalOnly => "lexical-only",
-        }
-    );
-    print_search_pack(&output.pack);
+    let mut state =
+        maestria_daemon::load_kernel_state(&layout).context("load kernel state for search")?;
+    let task_id = validate_task_id(&state, task_id)?;
+    let manifest = helpers::load_manifest(&layout)?;
+    maestria_daemon::reconcile_retrieval_generations(&layout, &mut state, &manifest)
+        .context("reconcile retrieval generations before search")?;
+    let (runtime, plan, outcome) = execute_search(&layout, &state, &manifest, query, limit).await?;
+    persist_search_knowledge(&runtime, &mut state, task_id, &plan, &outcome)?;
+    print_search_outcome(&state, &outcome);
     Ok(())
 }
 
-pub(super) fn open_reconciled_vector_index(
-    layout: &maestria_core::InstanceLayout,
+pub(crate) async fn execute_search(
+    layout: &InstanceLayout,
     state: &maestria_domain::KernelState,
-    manifest: &maestria_core::InstanceManifest,
-    embedding_provider: Option<&(dyn EmbeddingProvider + Send + Sync)>,
-) -> Result<Option<SqliteVectorIndex>> {
-    let Some(provider) = embedding_provider else {
+    manifest: &InstanceManifest,
+    query: String,
+    limit: usize,
+) -> Result<(
+    std::sync::Arc<maestria_daemon::SearchRuntime>,
+    SearchPlan,
+    SearchOutcome,
+)> {
+    let runtime = maestria_daemon::prepare_search_runtime(
+        layout,
+        state,
+        manifest,
+        maestria_governance::RetrievalSecurityPolicy::default()
+            .require_read_allowed(true)
+            .allow_unscoped_items(true),
+    )?;
+    let (plan, outcome) = runtime.execute(query, limit).await?;
+    let trace = outcome
+        .trace_data
+        .as_deref()
+        .ok_or_else(|| anyhow!("search produced no durable trace payload"))?;
+    outcome.verify_compatibility(&plan).map_err(|error| {
+        anyhow!(
+            "search produced an invalid trace for query `{}`: {error}",
+            plan.original_query
+        )
+    })?;
+    if trace.deterministic_id() != outcome.trace || !trace.matches_plan(&plan) {
+        return Err(anyhow!(
+            "search produced a non-reproducible trace {}",
+            outcome.trace
+        ));
+    }
+    Ok((runtime, plan, outcome))
+}
+
+pub(crate) fn validate_task_id(
+    state: &maestria_domain::KernelState,
+    task_id: Option<u64>,
+) -> Result<Option<TaskId>> {
+    let Some(task_id) = task_id else {
         return Ok(None);
     };
-    let index = SqliteVectorIndex::open(layout.vector_index_dir.join("projection.db"))
-        .with_context(|| format!("open vector index {}", layout.vector_index_dir.display()))?;
-    let model = manifest
-        .embeddings
-        .as_ref()
-        .filter(|config| config.enabled)
-        .map(|config| config.model.as_str());
-    match maestria_daemon::reconcile_vector_projection(state, &index, Some(provider), model) {
-        Ok(()) => Ok(Some(index)),
-        Err(error) => {
-            eprintln!("dense retrieval unavailable; using lexical fallback: {error}");
-            Ok(None)
-        }
+    let task_id = TaskId::new(task_id);
+    if !state.tasks.contains_key(&task_id) {
+        anyhow::bail!("task {task_id} was not found");
     }
+    Ok(Some(task_id))
 }
-pub(super) fn open_reconciled_graph_index(
-    layout: &maestria_core::InstanceLayout,
-    state: &maestria_domain::KernelState,
-) -> Result<Option<SqliteGraphIndex>> {
-    match SqliteGraphIndex::open(layout.graph_index_dir.join("projection.db")) {
-        Ok(index) => match maestria_daemon::reconcile_graph_projection(state, &index) {
-            Ok(()) => Ok(Some(index)),
-            Err(error) => {
-                eprintln!("graph projection unavailable; using retrieval-only search: {error}");
-                Ok(None)
-            }
+
+fn persist_search_knowledge(
+    runtime: &maestria_daemon::SearchRuntime,
+    state: &mut maestria_domain::KernelState,
+    task_id: Option<TaskId>,
+    plan: &SearchPlan,
+    outcome: &SearchOutcome,
+) -> Result<()> {
+    let output = state.apply_input(DomainInput::SearchKnowledgeCompleted(
+        SearchKnowledgeCompleted {
+            task_id,
+            plan: Some(Box::new(plan.clone())),
+            outcome: outcome.clone(),
         },
-        Err(error) => {
-            eprintln!("graph projection unavailable; using retrieval-only search: {error}");
-            Ok(None)
-        }
-    }
-}
-pub(super) fn ensure_search_index(
-    search_index: &TantivyFullTextIndex,
-    state: &maestria_domain::KernelState,
-) -> Result<()> {
-    if search_index.needs_card_rebuild()? {
-        let cards: Vec<IndexedCard> = state
-            .cards
-            .values()
-            .filter(|card| {
-                state
-                    .artifacts
-                    .get(&card.artifact_id)
-                    .is_some_and(|artifact| artifact.index_status == IndexStatus::Indexed)
-                    && scan_secrets(&card.title).is_clean()
-                    && scan_secrets(&card.body).is_clean()
-            })
-            .map(|card| IndexedCard {
-                artifact_id: card.artifact_id,
-                card_id: card.id,
-                title: card.title.clone(),
-                body: card.body.clone(),
-            })
-            .collect();
-        search_index.index_cards(cards)?;
-        search_index.complete_card_rebuild()?;
-    }
-    Ok(())
+    ))?;
+    runtime.append_events(output.events)
 }
 
-fn compute_search_pack(
-    layout: &maestria_core::InstanceLayout,
-    query: &str,
-    limit: usize,
-) -> Result<SearchOutput> {
-    let sqlite_store = SqliteStore::open(&layout.database_path)?;
-    let blob_store = FsBlobStore::open(&layout.blobs_dir)?;
-    let manifest_contents = fs::read_to_string(&layout.manifest_path)?;
-    let manifest = InstanceService::parse_manifest(&manifest_contents)?;
-    let state = maestria_daemon::load_kernel_state(layout)?;
-    let embedding_provider = maestria_daemon::build_embedding_provider(&manifest, &state)?;
-    let vector_index =
-        open_reconciled_vector_index(layout, &state, &manifest, embedding_provider.as_deref())?;
-    let graph_index = open_reconciled_graph_index(layout, &state)?;
-    let search_index = TantivyFullTextIndex::open(&layout.full_text_index_dir)?;
-    ensure_search_index(&search_index, &state)?;
-    let parser = ParserRegistry::with_defaults();
-    let vector_query = build_vector_query(
-        vector_index.is_some(),
-        embedding_provider.as_deref(),
-        query,
-        limit,
-    );
-    let core = CoreServices::new(CorePorts {
-        artifacts: &sqlite_store,
-        chunks: &sqlite_store,
-        cards: &sqlite_store,
-        evidence: &sqlite_store,
-        events: &sqlite_store,
-        parser: &parser,
-        search_index: &search_index,
-        blobs: &blob_store,
-        vector_index: vector_index.as_ref().map(|index| index as &dyn VectorIndex),
-        graph_index: graph_index.as_ref().map(|index| index as &dyn GraphIndex),
-    });
-    let input = SearchInput {
-        query: query.to_string(),
-        limit,
-    };
-    let output = match vector_query {
-        Some(vector_query) => core.search_with_vector(input, vector_query)?,
-        None => core.search(input)?,
-    };
-    Ok(output)
-}
-pub(super) fn build_vector_query(
-    index_available: bool,
-    provider: Option<&(dyn EmbeddingProvider + Send + Sync)>,
-    query: &str,
-    limit: usize,
-) -> Option<VectorSearchQuery> {
-    if !index_available || !scan_secrets(query).is_clean() {
-        if index_available && !scan_secrets(query).is_clean() {
-            eprintln!("dense retrieval skipped for secret-bearing query; using lexical fallback");
-        }
-        return None;
+pub(super) fn print_search_outcome(state: &maestria_domain::KernelState, outcome: &SearchOutcome) {
+    if outcome.evidence.is_empty() {
+        println!("search_status={:?}", outcome.status);
+        return;
     }
-    let provider = provider?;
-    let identity = match provider.identity() {
-        Some(identity) => identity,
-        None => {
-            eprintln!(
-                "dense retrieval unavailable; using lexical fallback: provider has no generation identity"
-            );
-            return None;
-        }
-    };
-    match provider.embed(EmbeddingRequest {
-        text: query.to_string(),
-        model: identity.fingerprint.model.clone(),
-        kind: maestria_ports::EmbeddingInputKind::Query,
-        identity,
-    }) {
-        Ok(response) => Some(VectorSearchQuery {
-            vector: response.vector,
-            limit: limit as u32,
-            provider_id: Some(response.provider_id),
-            model: Some(response.model),
-            model_version: Some(response.model_version),
-            identity: Some(response.identity),
-        }),
-        Err(error) => {
-            eprintln!("dense retrieval unavailable; using lexical fallback: {error}");
-            None
-        }
-    }
-}
-
-async fn persist_search_audit(
-    layout: &maestria_core::InstanceLayout,
-    pack: &maestria_core::EvidencePack,
-    limit: usize,
-) -> Result<()> {
-    let state =
-        maestria_daemon::load_kernel_state(layout).context("load kernel state for search audit")?;
-    let event_count_before = state.event_log.len();
-    let (runtime, input_tx, input_rx, shutdown_token) =
-        maestria_daemon::build_runtime(layout, state, AutonomyProfile::TrustedWorkspace)
-            .with_context(|| "build runtime for search audit")?;
-    let runtime_task = tokio::spawn(runtime.run(input_rx, shutdown_token.clone()));
-    let pack_metadata = pack.metadata().persistence_record();
-    let audit_input = SearchExecutedInput {
-        query: pack.query().to_string(),
-        limit,
-        evidence_ids: pack.evidence_ids().to_vec(),
-        pack_metadata: Some(Box::new(pack_metadata.clone())),
-        at: LogicalTick::new(1),
-    };
-    let result = async {
-        input_tx
-            .send(DomainInput::SearchExecuted(audit_input))
-            .await
-            .map_err(|err| anyhow::anyhow!("failed to queue search audit input: {err}"))?;
-        wait_for_search_executed_persistence(
-            layout,
-            event_count_before,
-            pack.query(),
-            limit,
-            pack.evidence_ids(),
-            &pack_metadata,
-            Duration::from_secs(5),
-        )
-        .await
-    }
-    .await;
-    shutdown_token.cancel();
-    let join_result = runtime_task.await;
-    result?;
-    join_result.with_context(|| "runtime loop join failed")?;
-    Ok(())
-}
-
-fn print_search_pack(pack: &maestria_core::EvidencePack) {
-    for card_hit in pack.cards() {
+    for (rank, evidence_candidate) in outcome.evidence.iter().enumerate() {
+        let (artifact_id, source, snippet) = describe_evidence(state, evidence_candidate);
         println!(
-            "card score={} artifact={} card={} title={} body={}",
-            card_hit.score,
-            card_hit.artifact.id,
-            card_hit.card.id,
-            card_hit.card.title,
-            card_hit.card.body,
-        );
-    }
-    for hit in pack.chunks() {
-        let source = helpers::source_label(&hit.evidence);
-        println!(
-            "score={} artifact={} chunk={} evidence={} {} snippet={}",
-            hit.score,
-            hit.artifact.id,
-            hit.chunk.id,
-            hit.evidence.id,
+            "rank={} artifact={} evidence={} {} snippet={}",
+            rank + 1,
+            artifact_id,
+            evidence_candidate.evidence_id,
             source,
-            hit.chunk
-                .text
-                .split_whitespace()
-                .collect::<Vec<_>>()
-                .join(" ")
+            snippet,
         );
     }
 }
 
-/// Poll the event log until this search's SearchExecuted event is observed.
-async fn wait_for_search_executed_persistence(
-    layout: &maestria_core::InstanceLayout,
-    event_count_before: usize,
-    expected_query: &str,
-    expected_limit: usize,
-    expected_evidence_ids: &[maestria_domain::EvidenceId],
-    expected_metadata: &maestria_domain::EvidencePackMetadataRecord,
-    timeout_budget: Duration,
-) -> Result<()> {
-    tokio::time::timeout(timeout_budget, async {
-        loop {
-            match maestria_daemon::load_kernel_state(layout) {
-                Ok(state) => {
-                    if event_count_before < state.event_log.len() {
-                        let new_events = &state.event_log[event_count_before..];
-                        if new_events.iter().any(|envelope| {
-                            envelope.id.value() == event_count_before as u64 + 1
-                                && matches!(
-                                    &envelope.event,
-                                    maestria_domain::DomainEvent::SearchExecuted {
-                                        query,
-                                        limit,
-                                        evidence_ids,
-                                        pack_metadata,
-                                        ..
-                                    } if query == expected_query
-                                        && *limit == expected_limit
-                                        && evidence_ids == expected_evidence_ids
-                                        && pack_metadata.as_deref() == Some(expected_metadata)
-                                )
-                        }) {
-                            return Ok(());
-                        }
-                    }
-                    tokio::time::sleep(Duration::from_millis(25)).await;
-                }
-                Err(error) if helpers::is_db_locked(&error) => {
-                    tokio::time::sleep(Duration::from_millis(25)).await;
-                }
-                Err(error) => return Err(error),
-            }
-        }
-    })
-    .await
-    .map_err(|_| anyhow::anyhow!("timed out waiting for search audit persistence"))?
+fn describe_evidence(
+    state: &maestria_domain::KernelState,
+    candidate: &EvidenceCandidate,
+) -> (String, String, String) {
+    let Some(evidence) = state.evidences.get(&candidate.evidence_id) else {
+        return (
+            format!("artver:{}", candidate.artifact_version.value()),
+            "source=missing".to_string(),
+            "(missing evidence)".to_string(),
+        );
+    };
+    let source = helpers::source_label(evidence);
+    (
+        evidence.artifact_id.to_string(),
+        source,
+        sanitize_snippet(&evidence.excerpt),
+    )
+}
+
+fn sanitize_snippet(input: &str) -> String {
+    input.split_whitespace().collect::<Vec<_>>().join(" ")
 }

@@ -1,12 +1,10 @@
 use maestria_blob_fs::FsBlobStore;
-use maestria_core::{
-    CorePorts, CoreServices, InstanceLayout, InstanceService, OpenEvidenceInput, SearchInput,
-};
+use maestria_core::{CorePorts, CoreServices, InstanceLayout, InstanceService, OpenEvidenceInput};
 use maestria_domain::{
     ArtifactDetected, ArtifactId, CardId, ChunkId, DomainInput, EvidenceId, IndexStatus,
     KernelState, Relation, RelationEndpoint, RelationId, RelationKind, content_hash,
 };
-use maestria_governance::AutonomyProfile;
+use maestria_governance::{AutonomyProfile, RetrievalSecurityPolicy};
 use maestria_graph_sqlite::SqliteGraphIndex;
 use maestria_parsers::ParserRegistry;
 use maestria_ports::{
@@ -235,18 +233,16 @@ async fn attempt_idempotent_reindex(
     Ok(())
 }
 
-fn search_and_open_evidence_after_restart(
+async fn search_and_open_evidence_after_restart(
     layout: &InstanceLayout,
     artifact_id: ArtifactId,
     evidence_id: EvidenceId,
-    first_chunk_id: ChunkId,
+    _first_chunk_id: ChunkId,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    // === RESTART SIMULATION ===
     let sqlite = SqliteStore::open(&layout.database_path)?;
     let blobs = FsBlobStore::open(&layout.blobs_dir)?;
     let search = TantivyFullTextIndex::open(&layout.full_text_index_dir)?;
     let parser = ParserRegistry::with_defaults();
-
     let core = CoreServices::new(CorePorts {
         artifacts: &sqlite,
         chunks: &sqlite,
@@ -260,30 +256,7 @@ fn search_and_open_evidence_after_restart(
         graph_index: None,
     });
 
-    // === SEARCH AFTER RESTART ===
-    let results = core.search(SearchInput {
-        query: "GraphRAG knowledge graphs".into(),
-        limit: 10,
-    })?;
-
-    assert!(
-        !results.pack.chunks().is_empty(),
-        "search after restart should return results"
-    );
-    assert!(
-        results.pack.chunks()[0].chunk.text.contains("GraphRAG")
-            || results.pack.chunks()[0].chunk.text.contains("graph"),
-        "result should contain query terms"
-    );
-    assert_eq!(
-        results.pack.chunks()[0].chunk.id,
-        first_chunk_id,
-        "chunk id should be stable across restart"
-    );
-
-    // === OPEN EVIDENCE AFTER RESTART ===
     let ev = core.open_evidence(OpenEvidenceInput { evidence_id })?;
-
     assert_eq!(
         ev.evidence.id, evidence_id,
         "evidence should resolve after restart"
@@ -293,6 +266,33 @@ fn search_and_open_evidence_after_restart(
         "excerpt should contain content"
     );
     assert_eq!(ev.artifact.id, artifact_id, "artifact should match");
+    drop(search);
+    drop(blobs);
+    drop(parser);
+    drop(sqlite);
+
+    let sqlite = SqliteStore::open(&layout.database_path)?;
+    let events = EventLog::scan(&sqlite, EventFilter { artifact_id: None })?;
+    let state = maestria_domain::replay_events(&events)?;
+    let manifest = InstanceService::parse_manifest(&fs::read_to_string(&layout.manifest_path)?)?;
+    drop(sqlite);
+
+    let runtime = maestria_daemon::prepare_search_runtime(
+        layout,
+        &state,
+        &manifest,
+        RetrievalSecurityPolicy::default(),
+    )?;
+    let (_, results) = runtime
+        .execute("GraphRAG knowledge graphs".to_string(), 10)
+        .await?;
+    assert!(
+        results
+            .evidence
+            .iter()
+            .any(|candidate| candidate.evidence_id == evidence_id),
+        "shared retrieval runtime should return the indexed evidence"
+    );
     Ok(())
 }
 
@@ -335,7 +335,8 @@ async fn vertical_slice_init_index_search_evidence() -> Result<(), Box<dyn std::
         env.artifact_id,
         evidence_id,
         first_chunk_id,
-    )?;
+    )
+    .await?;
     Ok(())
 }
 
@@ -441,6 +442,7 @@ async fn vertical_slice_run_instance_restart_rebuilds_projections()
         env.artifact_id,
         evidence_id,
         first_chunk_id,
-    )?;
+    )
+    .await?;
     Ok(())
 }

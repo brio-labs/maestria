@@ -1,5 +1,5 @@
 use anyhow::{Context, Result, anyhow};
-use maestria_core::InstanceLayout;
+use maestria_core::{InstanceLayout, InstanceManifest};
 use maestria_domain::{ArtifactId, DomainInput, KernelState, TaskId};
 use maestria_governance::AutonomyProfile;
 use maestria_graph_sqlite::SqliteGraphIndex;
@@ -12,8 +12,8 @@ use tracing::info;
 use crate::{
     RecoveryInputs, acquire_instance_write_lock, build_runtime, load_kernel_state,
     reconcile_approval_repo, reconcile_graph_projection, reconcile_pending_approvals,
-    reconcile_projections, reconcile_vector_projection_for_layout, supervise_recovery,
-    validate_recovery_scope, verify_pending_blobs,
+    reconcile_projections, reconcile_retrieval_generations, reconcile_vector_projection_for_layout,
+    supervise_recovery, validate_recovery_scope, verify_pending_blobs,
 };
 
 /// Recovery work queued by the shared lifecycle and available to command-specific drain logic.
@@ -45,9 +45,16 @@ impl InstanceLifecycle {
     /// Acquire the instance lock, repair projections, validate recovery, and start the runtime.
     pub async fn start(layout: InstanceLayout, profile: AutonomyProfile) -> Result<Self> {
         let lock = acquire_instance_write_lock(&layout).await?;
-        let state = load_kernel_state(&layout).with_context(|| "load persisted kernel state")?;
+        let mut state =
+            load_kernel_state(&layout).with_context(|| "load persisted kernel state")?;
         let store = SqliteStore::open(&layout.database_path)
             .with_context(|| format!("open sqlite store {}", layout.database_path.display()))?;
+        let manifest_contents = std::fs::read_to_string(&layout.manifest_path)
+            .with_context(|| "read instance manifest")?;
+        let manifest = InstanceManifest::decode(&manifest_contents)
+            .map_err(|error| anyhow!("parse instance manifest: {error}"))?;
+        reconcile_retrieval_generations(&layout, &mut state, &manifest)
+            .with_context(|| "reconcile retrieval generations")?;
 
         reconcile_projections(&state, &store)
             .with_context(|| "reconcile projection repositories")?;

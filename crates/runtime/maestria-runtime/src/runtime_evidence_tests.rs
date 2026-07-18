@@ -172,6 +172,7 @@ async fn fetch_web_records_hashed_blob_and_security_boundary()
                 EvidenceKind::WebSnapshot {
                     url: recorded_url,
                     snapshot,
+                    fetched_at,
                     content_hash,
                     metadata,
                     ..
@@ -179,6 +180,13 @@ async fn fetch_web_records_hashed_blob_and_security_boundary()
                     assert_eq!(recorded_url, url);
                     assert_eq!(content_hash, maestria_domain::content_hash(html.as_bytes()));
                     assert!(!metadata.primary_source);
+                    assert_eq!(fetched_at.value(), 0);
+                    assert!(
+                        metadata
+                            .accessed_at
+                            .as_deref()
+                            .is_some_and(|value| !value.is_empty())
+                    );
                     assert_eq!(blob_store.get(snapshot)?, html.as_bytes());
                 }
                 other => return Err(format!("unexpected evidence kind: {other:?}").into()),
@@ -206,5 +214,92 @@ async fn fetch_web_records_hashed_blob_and_security_boundary()
         other => return Err(format!("unexpected indexing input: {other:?}").into()),
     }
     assert!(input_rx.try_recv().is_err());
+    Ok(())
+}
+
+#[tokio::test]
+async fn fetch_web_enforces_request_domain_byte_and_content_type_limits()
+-> Result<(), Box<dyn std::error::Error>> {
+    let url = "https://example.com/limits";
+    let html = "<html><body>bounded research page</body></html>";
+    let fetcher = Arc::new(InMemoryWebFetcher::new());
+    fetcher.seed(url, html)?;
+
+    let run = |request: maestria_domain::FetchWebRequest, fetcher: Arc<InMemoryWebFetcher>| async move {
+        let (input_tx, mut input_rx) = mpsc::channel(8);
+        let ctx = EffectExecutionContext::test_default(
+            Arc::new(Adapters {
+                web_fetcher: fetcher,
+                ..crate::test_helpers::test_adapters()
+            }),
+            Arc::new(crate::test_helpers::test_governance()),
+            Arc::new(RwLock::new(KernelState::new())),
+            input_tx,
+        );
+        let result =
+            MaestriaRuntime::test_execute_effect(MaestriaEffect::FetchWeb(request), ctx, None)
+                .await;
+        Ok::<_, Box<dyn std::error::Error>>((result, input_rx.try_recv().is_ok()))
+    };
+
+    let (zero_request, zero_emitted) = run(
+        maestria_domain::FetchWebRequest {
+            url: url.to_string(),
+            max_bytes: html.len() + 1,
+            max_requests: 0,
+            max_latency_ms: 15_000,
+            allowed_domains: Vec::new(),
+            allowed_content_types: Vec::new(),
+        },
+        fetcher.clone(),
+    )
+    .await?;
+    assert!(!zero_request);
+    assert!(!zero_emitted);
+
+    let (byte_limited, byte_emitted) = run(
+        maestria_domain::FetchWebRequest {
+            url: url.to_string(),
+            max_bytes: html.len() - 1,
+            max_requests: 1,
+            max_latency_ms: 15_000,
+            allowed_domains: Vec::new(),
+            allowed_content_types: Vec::new(),
+        },
+        fetcher.clone(),
+    )
+    .await?;
+    assert!(!byte_limited);
+    assert!(!byte_emitted);
+
+    let (domain_limited, domain_emitted) = run(
+        maestria_domain::FetchWebRequest {
+            url: url.to_string(),
+            max_bytes: html.len() + 1,
+            max_requests: 1,
+            max_latency_ms: 15_000,
+            allowed_domains: vec!["not-example.com".to_string()],
+            allowed_content_types: Vec::new(),
+        },
+        fetcher.clone(),
+    )
+    .await?;
+    assert!(!domain_limited);
+    assert!(!domain_emitted);
+
+    let (content_type_limited, content_type_emitted) = run(
+        maestria_domain::FetchWebRequest {
+            url: url.to_string(),
+            max_bytes: html.len() + 1,
+            max_requests: 1,
+            max_latency_ms: 15_000,
+            allowed_domains: Vec::new(),
+            allowed_content_types: vec!["text/html".to_string()],
+        },
+        fetcher,
+    )
+    .await?;
+    assert!(!content_type_limited);
+    assert!(!content_type_emitted);
     Ok(())
 }

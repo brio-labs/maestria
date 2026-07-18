@@ -297,6 +297,8 @@ fn test_fixed_k_rrf_overlap_non_summing() -> RetrievalResult<()> {
         descriptor: RetrieverDescriptor {
             id: "lexical".into(),
             modality: "text".into(),
+            representation: maestria_domain::RepresentationName::new("text"),
+            generation: maestria_domain::IndexGenerationId::new(1),
         },
         query: query.q.clone(),
         candidates: vec![c1.clone(), c2.clone()],
@@ -309,6 +311,8 @@ fn test_fixed_k_rrf_overlap_non_summing() -> RetrievalResult<()> {
         descriptor: RetrieverDescriptor {
             id: "dense".into(),
             modality: "text".into(),
+            representation: maestria_domain::RepresentationName::new("text"),
+            generation: maestria_domain::IndexGenerationId::new(1),
         },
         query: query.q.clone(),
         candidates: vec![c3.clone()],
@@ -369,6 +373,8 @@ fn test_fixed_k_rrf_deterministic_tie_ordering() -> RetrievalResult<()> {
         descriptor: RetrieverDescriptor {
             id: "lane1".into(),
             modality: "text".into(),
+            representation: maestria_domain::RepresentationName::new("text"),
+            generation: maestria_domain::IndexGenerationId::new(1),
         },
         query: query.q.clone(),
         candidates: vec![c1.clone()],
@@ -380,6 +386,8 @@ fn test_fixed_k_rrf_deterministic_tie_ordering() -> RetrievalResult<()> {
         descriptor: RetrieverDescriptor {
             id: "lane2".into(),
             modality: "text".into(),
+            representation: maestria_domain::RepresentationName::new("text"),
+            generation: maestria_domain::IndexGenerationId::new(1),
         },
         candidates: vec![c2.clone()],
         query: query.q.clone(),
@@ -418,6 +426,8 @@ fn test_empty_and_failed_lanes_skip_without_error() -> RetrievalResult<()> {
         descriptor: RetrieverDescriptor {
             id: "failed".into(),
             modality: "text".into(),
+            representation: maestria_domain::RepresentationName::new("text"),
+            generation: maestria_domain::IndexGenerationId::new(1),
         },
         query: query.q.clone(),
         candidates: vec![],
@@ -432,6 +442,8 @@ fn test_empty_and_failed_lanes_skip_without_error() -> RetrievalResult<()> {
         descriptor: RetrieverDescriptor {
             id: "empty".into(),
             modality: "text".into(),
+            representation: maestria_domain::RepresentationName::new("text"),
+            generation: maestria_domain::IndexGenerationId::new(1),
         },
         query: query.q.clone(),
         candidates: vec![],
@@ -444,6 +456,8 @@ fn test_empty_and_failed_lanes_skip_without_error() -> RetrievalResult<()> {
         descriptor: RetrieverDescriptor {
             id: "succ".into(),
             modality: "text".into(),
+            representation: maestria_domain::RepresentationName::new("text"),
+            generation: maestria_domain::IndexGenerationId::new(1),
         },
         query: query.q.clone(),
         candidates: vec![c1.clone()],
@@ -470,6 +484,8 @@ impl CandidateRetriever for AsyncLane {
         maestria_retrieval::types::RetrieverDescriptor {
             id: self.id.to_string(),
             modality: "text".to_string(),
+            representation: maestria_domain::RepresentationName::new("text"),
+            generation: maestria_domain::IndexGenerationId::new(1),
         }
     }
 
@@ -501,6 +517,8 @@ impl CandidateRetriever for CountingWebLane {
         maestria_retrieval::types::RetrieverDescriptor {
             id: "web".to_string(),
             modality: "web".to_string(),
+            representation: maestria_domain::RepresentationName::new("text"),
+            generation: maestria_domain::IndexGenerationId::new(1),
         }
     }
 
@@ -601,6 +619,13 @@ async fn failed_lane_is_degraded_without_losing_successful_evidence() -> Retriev
         trace.lanes[1].status,
         maestria_domain::SearchLaneStatus::Failed { .. }
     ));
+
+    assert!(
+        trace
+            .lanes
+            .iter()
+            .all(|lane| lane.generation == Some(plan.index_generation))
+    );
     Ok(())
 }
 

@@ -51,7 +51,7 @@ pub(crate) fn ensure_trace(
     let expected_fusion = fusion_enabled.then_some("configured".to_string());
     let expected_expansions = expansion_enabled
         .then_some(SearchTraceExpansion {
-            strategy: "configured".to_string(),
+            strategy: "hierarchy+graph".to_string(),
             added_candidates: None,
         })
         .into_iter()
