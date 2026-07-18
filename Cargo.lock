@@ -1209,6 +1209,7 @@ dependencies = [
  "clap",
  "ignore",
  "maestria-blob-fs",
+ "maestria-code-intel",
  "maestria-core",
  "maestria-daemon",
  "maestria-domain",
@@ -1220,6 +1221,19 @@ dependencies = [
  "serde_json",
  "tokio",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "maestria-code-intel"
+version = "0.6.1"
+dependencies = [
+ "proc-macro2",
+ "regex",
+ "serde",
+ "serde_json",
+ "sha2",
+ "syn",
+ "tempfile",
 ]
 
 [[package]]
