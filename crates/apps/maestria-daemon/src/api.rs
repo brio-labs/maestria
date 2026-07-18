@@ -15,7 +15,7 @@ pub use server::ApiServer;
 pub(crate) use protocol::ClientReplyOut;
 pub(crate) use services::dispatch;
 pub(crate) use token::{
-    load_or_create_token, remove_stale_socket, set_private_permissions, socket_path, token_path,
-    validate_token,
+    load_or_create_token, remove_stale_socket, set_private_directory_permissions,
+    set_private_permissions, socket_path, token_path, validate_token,
 };
 pub(crate) const MAX_REQUEST_BYTES: usize = 64 * 1024;

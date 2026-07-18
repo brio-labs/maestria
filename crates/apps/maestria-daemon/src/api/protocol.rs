@@ -21,7 +21,10 @@ pub enum ClientOperation {
     /// Open one provenance-verified evidence record.
     Evidence { evidence_id: u64 },
     /// Return one task or all tasks when `task_id` is omitted.
-    Task { task_id: Option<u64> },
+    Task {
+        #[serde(default)]
+        task_id: Option<u64>,
+    },
 }
 
 /// An authenticated request sent to the daemon socket.

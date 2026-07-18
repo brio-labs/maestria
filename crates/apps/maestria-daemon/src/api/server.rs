@@ -7,6 +7,7 @@ use tokio::{
     net::{UnixListener, UnixStream},
     sync::Semaphore,
     task::JoinHandle,
+    time::{Duration, timeout},
 };
 use tokio_util::sync::CancellationToken;
 
@@ -27,6 +28,7 @@ impl ApiServer {
     /// Binds and starts the instance-scoped Unix socket server.
     pub async fn start(layout: InstanceLayout) -> Result<Self> {
         let socket = socket_path(&layout);
+        super::set_private_directory_permissions(&layout.system_dir)?;
         let token = load_or_create_token(&token_path(&layout))?;
         remove_stale_socket(&socket)?;
         let listener = UnixListener::bind(&socket)
@@ -86,10 +88,13 @@ async fn serve(listener: UnixListener, context: Arc<ApiContext>, shutdown: Cance
 }
 
 async fn handle_connection(mut stream: UnixStream, context: Arc<ApiContext>) -> Result<()> {
-    let line = match read_request_line(&mut stream).await {
-        Ok(line) => line,
-        Err(error) => {
+    let line = match timeout(Duration::from_secs(5), read_request_line(&mut stream)).await {
+        Ok(Ok(line)) => line,
+        Ok(Err(error)) => {
             return write_reply(&mut stream, None, Some(error.to_string())).await;
+        }
+        Err(_) => {
+            return write_reply(&mut stream, None, Some("request timed out".to_string())).await;
         }
     };
     let request = match serde_json::from_slice::<ClientRequest>(line.trim_ascii()) {
