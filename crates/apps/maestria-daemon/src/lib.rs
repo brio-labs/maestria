@@ -1,3 +1,6 @@
+pub mod api;
+pub use api::{ApiServer, ClientOperation, ClientRequest, ClientResponse, DaemonClient};
+
 mod search_executor;
 
 use std::{

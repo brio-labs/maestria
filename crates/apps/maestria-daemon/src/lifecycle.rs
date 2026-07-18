@@ -213,10 +213,16 @@ fn validation_task_ids(recovery: &RecoveryInputs) -> Vec<TaskId> {
 }
 
 pub async fn run_instance(instance_dir: std::path::PathBuf) -> Result<()> {
-    let layout =
-        crate::prepare_instance(instance_dir).with_context(|| "prepare instance layout")?;
-    let lifecycle = InstanceLifecycle::start(layout, AutonomyProfile::ReadOnly).await?;
-    lifecycle.run_until_ctrl_c().await
+    let shutdown = CancellationToken::new();
+    let signal_shutdown = shutdown.clone();
+    let signal_task = tokio::spawn(async move {
+        if tokio::signal::ctrl_c().await.is_ok() {
+            signal_shutdown.cancel();
+        }
+    });
+    let result = run_instance_with_shutdown(instance_dir, shutdown).await;
+    signal_task.abort();
+    result
 }
 
 pub async fn run_instance_with_shutdown(
@@ -225,6 +231,11 @@ pub async fn run_instance_with_shutdown(
 ) -> Result<()> {
     let layout =
         crate::prepare_instance(instance_dir).with_context(|| "prepare instance layout")?;
-    let lifecycle = InstanceLifecycle::start(layout, AutonomyProfile::ReadOnly).await?;
-    lifecycle.run_until_shutdown(shutdown).await
+    let lifecycle = InstanceLifecycle::start(layout.clone(), AutonomyProfile::ReadOnly).await?;
+    let api = crate::ApiServer::start(layout).await?;
+    println!("daemon_api_socket={}", api.socket_path().display());
+    let lifecycle_result = lifecycle.run_until_shutdown(shutdown).await;
+    let api_result = api.shutdown().await;
+    lifecycle_result?;
+    api_result
 }

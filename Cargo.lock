@@ -1217,6 +1217,7 @@ dependencies = [
  "maestria-ports",
  "maestria-search-tantivy",
  "maestria-storage-sqlite",
+ "serde_json",
  "tokio",
  "tracing-subscriber",
 ]
@@ -1246,6 +1247,7 @@ version = "0.6.1"
 dependencies = [
  "anyhow",
  "clap",
+ "getrandom 0.2.17",
  "maestria-blob-fs",
  "maestria-core",
  "maestria-domain",
@@ -1261,6 +1263,8 @@ dependencies = [
  "maestria-storage-sqlite",
  "maestria-vector-sqlite",
  "maestria-web-evidence",
+ "serde",
+ "serde_json",
  "tokio",
  "tokio-util",
  "tracing",
