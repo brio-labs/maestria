@@ -52,10 +52,11 @@ This document is enforceable. CI and review block violations.
 45. Normative architecture and roadmap documents remain model- and backend-agnostic; dated implementation candidates belong in research notes or ADRs.
 46. Maestria preserves external observations and provenance; it does not claim that domain state makes external facts true.
 47. Model-generated search plans and rewrites are untrusted proposals; only validated capabilities, scope, security, freshness, snapshot, and budget checks may authorize execution.
+48. Local or remote client surfaces authenticate per instance and enforce the instance's read/write scope before dispatch; transport handlers cannot bypass domain, governance, or evidence services.
 
 ## Review interpretation
 
-Rules 13–20 govern composition and module boundaries; Rules 21–30 make the previously implicit quality obligations explicit. Rules 41–47 govern typed retrieval, security filtering, reproducible evaluation, canonical documentation, external-truth boundaries, and untrusted plan/rewrite proposals. A green checker result is necessary but not sufficient: reviewers must still reject accumulated responsibilities, duplicated lifecycle policy, and tests that only exercise implementation details. Size limits are adoption gates, not reasons to preserve a monolith.
+Rules 13–20 govern composition and module boundaries; Rules 21–30 make the previously implicit quality obligations explicit. Rules 41–48 govern typed retrieval, security filtering, reproducible evaluation, canonical documentation, external-truth boundaries, untrusted plan/rewrite proposals, and authenticated scoped client surfaces. A green checker result is necessary but not sufficient: reviewers must still reject accumulated responsibilities, duplicated lifecycle policy, and tests that only exercise implementation details. Size limits are adoption gates, not reasons to preserve a monolith.
 
 ## Enforcement
 - `scripts/philosophy-check.py`
@@ -63,4 +64,4 @@ Rules 13–20 govern composition and module boundaries; Rules 21–30 make the p
 - Core cohesion Clippy gate for function size and cognitive complexity budgets
 - Contract checks for kernel inputs/outputs, transitions, and every concrete port adapter
 - Review through CODEOWNERS on invariant-owning surfaces
-- The checker enforces kernel safety, dependency direction, no-failure-macro paths, no lint-bypass attributes, no task markers, module/function budgets, canonical documentation presence, and prohibited external-truth wording; review enforces responsibility boundaries, lifecycle ownership, identity namespaces, and architectural composition from Rules 13–30 and 41–47.
+- The checker enforces kernel safety, dependency direction, no-failure-macro paths, no lint-bypass attributes, no task markers, module/function budgets, canonical documentation presence, and prohibited external-truth wording; review enforces responsibility boundaries, lifecycle ownership, identity namespaces, and architectural composition from Rules 13–30 and 41–48.
