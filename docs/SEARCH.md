@@ -279,6 +279,26 @@ Implementations may provide any compatible combination of:
 
 A retriever is selected by capability, scope, budget, and measured quality. No lane is universally required.
 
+### Repository Code Intelligence
+
+The deterministic repository lane is a persisted projection, not an embedding fallback.
+`maestria index repository <path>` records Cargo workspace packages, targets, features,
+dependencies, and Rust symbols. Each symbol carries repository root, commit SHA, worktree
+identity, source path/range, and parser generation.
+
+Exact queries remain available without neural indexes:
+
+```bash
+maestria search code symbol "RetrievalEngine"
+maestria search code path "crates/ecosystem/maestria-retrieval"
+maestria search code regex "impl .*CandidateRetriever"
+```
+
+The index is JSON-persisted under the instance system directory. Query results expose the
+stored provenance and generation; a parser-generation mismatch is an explicit failure.
+Cross-file AST/LSP relations and graph traversal are separate capabilities and must not be
+inferred from this deterministic symbol projection.
+
 ### Fusion and Ranking
 
 Fusion and ranking must account for the query and evidence requirements, not only similarity.

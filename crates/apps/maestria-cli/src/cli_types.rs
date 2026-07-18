@@ -114,6 +114,24 @@ pub enum SearchCommands {
         #[arg(short, long, default_value = ".maestria-dev")]
         instance_dir: PathBuf,
     },
+    /// Query the persisted exact repository code index
+    Code {
+        #[command(subcommand)]
+        command: CodeSearchCommands,
+        #[arg(short, long, default_value = ".maestria-dev")]
+        instance_dir: PathBuf,
+        #[arg(short, long, default_value_t = 20)]
+        limit: usize,
+    },
+}
+#[derive(Subcommand)]
+pub enum CodeSearchCommands {
+    /// Match repository symbols by name or qualified-name substring
+    Symbol { pattern: String },
+    /// Match repository symbols by source path substring
+    Path { pattern: String },
+    /// Match repository symbols and paths with a regular expression
+    Regex { pattern: String },
 }
 
 #[derive(Subcommand)]
@@ -123,6 +141,8 @@ pub enum IndexCommands {
         #[arg(short, long, default_value = ".maestria-dev")]
         instance_dir: PathBuf,
     },
+    /// Build and persist exact Cargo metadata and Rust symbol records
+    Repository { path: PathBuf },
 }
 
 #[derive(Subcommand)]

@@ -8,8 +8,8 @@ mod tests;
 use anyhow::Result;
 use clap::Parser as ClapParser;
 use cli_types::{
-    ApprovalCommands, Cli, Commands, EvidenceCommands, IndexCommands, MemoryCommands,
-    SearchCommands, TaskCommands,
+    ApprovalCommands, Cli, CodeSearchCommands, Commands, EvidenceCommands, IndexCommands,
+    MemoryCommands, SearchCommands, TaskCommands,
 };
 
 fn resolve_nested_instance_dir(
@@ -82,6 +82,9 @@ async fn dispatch_index(
             instance_dir,
             nested_instance_dir,
         )),
+        Some(IndexCommands::Repository { path }) => {
+            commands::code_intel::run_index(instance_dir, path)
+        }
         None => {
             let path = path.ok_or_else(|| anyhow::anyhow!("index requires a path"))?;
             commands::index::run(instance_dir, path, recursive).await
@@ -120,6 +123,25 @@ async fn dispatch_search(
         }) => {
             let instance_dir = resolve_nested_instance_dir(instance_dir, nested_instance_dir);
             commands::observability::run_search_compare(instance_dir, experiment_a, experiment_b)
+        }
+        Some(SearchCommands::Code {
+            command,
+            instance_dir: nested_instance_dir,
+            limit,
+        }) => {
+            let instance_dir = resolve_nested_instance_dir(instance_dir, nested_instance_dir);
+            let query = match command {
+                CodeSearchCommands::Symbol { pattern } => {
+                    maestria_code_intel::CodeQuery::Symbol { pattern }
+                }
+                CodeSearchCommands::Path { pattern } => {
+                    maestria_code_intel::CodeQuery::Path { pattern }
+                }
+                CodeSearchCommands::Regex { pattern } => {
+                    maestria_code_intel::CodeQuery::Regex { pattern }
+                }
+            };
+            commands::code_intel::run_search(instance_dir, query, limit)
         }
         None => {
             let query = query.ok_or_else(|| anyhow::anyhow!("search requires a query"))?;
