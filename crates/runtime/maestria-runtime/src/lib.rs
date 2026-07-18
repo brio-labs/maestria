@@ -5,6 +5,7 @@ mod harness;
 mod indexing;
 mod parser_mapping;
 mod parsing;
+mod parsing_records;
 mod persistence;
 mod shell_policy;
 mod supervision;

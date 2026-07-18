@@ -136,6 +136,7 @@ pub enum EvidenceCommands {
 }
 
 #[derive(Subcommand)]
+/// Task workflow commands
 pub enum TaskCommands {
     /// Create a new task in persisted task state
     Start {
@@ -161,6 +162,20 @@ pub enum TaskCommands {
         #[arg(long)]
         evidence_id: u64,
     },
+    /// Start validation for a task from a known task id
+    RequestValidation {
+        #[arg(short, long, default_value = ".maestria-dev")]
+        instance_dir: PathBuf,
+        task_id: u64,
+    },
+    /// Complete a validating task from a recorded validation report
+    Complete {
+        #[arg(short, long, default_value = ".maestria-dev")]
+        instance_dir: PathBuf,
+        task_id: u64,
+        #[arg(long)]
+        report_id: u64,
+    },
 }
 
 #[derive(Subcommand)]
@@ -183,8 +198,17 @@ pub enum MemoryCommands {
         #[arg(short, long, default_value = ".maestria-dev")]
         instance_dir: PathBuf,
     },
+    /// Promote a memory candidate through governance-gated approval
+    Promote {
+        #[arg(short, long, default_value = ".maestria-dev")]
+        instance_dir: PathBuf,
+        #[arg(short = 'c', long)]
+        candidate_id: u64,
+        /// User approval for this promotion request
+        #[arg(long)]
+        approve: bool,
+    },
 }
-
 #[derive(Subcommand)]
 pub enum ApprovalCommands {
     /// List pending approval requests

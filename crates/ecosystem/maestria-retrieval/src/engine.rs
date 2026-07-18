@@ -1,5 +1,6 @@
 use maestria_domain::{
-    CorpusSnapshotId, IndexGenerationId, RetrievalModelFingerprint, SearchOutcome, SearchPlan,
+    CorpusSnapshotId, EvidenceCoverage, IndexGenerationId, RetrievalModelFingerprint,
+    SearchOutcome, SearchPlan, SearchStatus, SearchStopReason, SearchTrace, SearchTraceFilter,
 };
 use maestria_ports::SearchQuery;
 use std::sync::Arc;
@@ -15,6 +16,8 @@ mod engine_adaptive;
 #[path = "engine_pipeline.rs"]
 mod engine_pipeline;
 
+#[path = "planner.rs"]
+mod planner;
 pub(super) use engine_pipeline::reconcile_status;
 
 pub(crate) fn rewrite_session(plan: &SearchPlan) -> crate::rewrite::QueryRewriteSession {
@@ -136,12 +139,26 @@ impl RetrievalEngine {
             .capabilities
             .clone()
             .with_snapshot(plan.corpus_snapshot);
-        maestria_governance::SearchPlanValidator::validate(
-            plan,
-            &capabilities,
-            &maestria_governance::RetrievalSecurityPolicy::default(),
-        )
-        .map_err(RetrievalError::SearchPlan)
+        let policy = maestria_governance::RetrievalSecurityPolicy::default();
+        match maestria_governance::SearchPlanValidator::validate(plan, &capabilities, &policy) {
+            Ok(()) => Ok(()),
+            Err(maestria_governance::SearchPlanValidationError::IntentMismatch {
+                declared: maestria_domain::SearchIntent::FactualLocal,
+                classified:
+                    maestria_domain::SearchIntent::CurrentWeb
+                    | maestria_domain::SearchIntent::VisualDocument,
+            }) => {
+                let mut fallback_plan = plan.clone();
+                fallback_plan.original_query = "fallback local text retrieval".to_string();
+                maestria_governance::SearchPlanValidator::validate(
+                    &fallback_plan,
+                    &capabilities,
+                    &policy,
+                )
+                .map_err(RetrievalError::SearchPlan)
+            }
+            Err(error) => Err(RetrievalError::SearchPlan(error)),
+        }
     }
 
     pub fn new(
@@ -163,80 +180,6 @@ impl RetrievalEngine {
     pub fn with_hybrid_policy(mut self, policy: crate::types::HybridExecutionPolicy) -> Self {
         self.hybrid_policy = policy;
         self
-    }
-
-    /// Build a schema-valid plan whose capabilities are derived from installed lanes.
-    pub fn plan(
-        &self,
-        query: impl Into<String>,
-        limit: usize,
-        context: &SearchPlannerContext,
-    ) -> RetrievalResult<SearchPlan> {
-        let original_query = query.into();
-        let intent = maestria_domain::SearchIntent::classify(&original_query);
-        let modality = match intent {
-            maestria_domain::SearchIntent::RepositoryCode => maestria_domain::Modality::Code,
-            maestria_domain::SearchIntent::VisualDocument => maestria_domain::Modality::Image,
-            maestria_domain::SearchIntent::CurrentWeb => maestria_domain::Modality::Web,
-            _ => maestria_domain::Modality::Text,
-        };
-        let (web_requests, bytes, concurrency) =
-            if intent == maestria_domain::SearchIntent::CurrentWeb {
-                (3, 1_000_000, 3)
-            } else {
-                (0, 0, 1)
-            };
-        let max_stages = if self.expander.is_some() { 2 } else { 1 };
-        let budgets = maestria_domain::SearchBudget::with_resource_limits(
-            1_000,
-            30_000,
-            8,
-            max_stages,
-            web_requests,
-            bytes,
-            concurrency,
-        )
-        .map_err(|error| RetrievalError::Internal(error.to_string()))?;
-        Ok(SearchPlan {
-            query_id: maestria_domain::QueryId::new(1),
-            original_query,
-            intent,
-            scope: maestria_domain::CorpusScope::Global,
-            corpus_snapshot: context.corpus_snapshot,
-            index_generation: context.primary_generation,
-            freshness: if intent == maestria_domain::SearchIntent::CurrentWeb {
-                maestria_domain::FreshnessRequirement::Realtime
-            } else {
-                maestria_domain::FreshnessRequirement::Any
-            },
-            modalities: maestria_domain::ModalitySet::new(vec![modality]),
-            stages: if self.expander.is_some() {
-                vec![
-                    maestria_domain::SearchStage::InitialRetrieval,
-                    maestria_domain::SearchStage::Filtering,
-                ]
-            } else {
-                vec![maestria_domain::SearchStage::InitialRetrieval]
-            },
-            budgets,
-            stop_conditions: maestria_domain::StopConditions {
-                max_results: match u32::try_from(limit) {
-                    Ok(value) => value.max(1),
-                    Err(_) => u32::MAX,
-                },
-                min_score_threshold: 0,
-            },
-            evidence_requirements: maestria_domain::EvidenceRequirements {
-                require_primary_sources: false,
-                minimum_corroboration: 1,
-                required_claims: Vec::new(),
-                required_subquestions: Vec::new(),
-                minimum_sources: 0,
-                minimum_documents: 0,
-                minimum_sections: 0,
-            },
-            fingerprint: context.fingerprint.clone(),
-        })
     }
 
     pub fn with_capabilities(
@@ -364,11 +307,62 @@ impl RetrievalEngine {
         }
     }
 
+    fn prompt_injection_outcome(&self, plan: &SearchPlan) -> SearchOutcome {
+        let retriever_ids = self
+            .retrievers
+            .iter()
+            .map(|retriever| retriever.descriptor().id.clone())
+            .collect();
+        let trace = SearchTrace::from_plan(
+            plan,
+            retriever_ids,
+            &[],
+            vec![SearchTraceFilter::PromptInjection],
+            self.fusion.as_ref().map(|_| "configured".to_string()),
+            Vec::new(),
+            SearchStopReason::PolicyDenied,
+        );
+        SearchOutcome {
+            trace: trace.deterministic_id(),
+            trace_data: Some(Box::new(trace)),
+            fingerprint: plan.fingerprint.clone(),
+            index_generation: plan.index_generation,
+            status: SearchStatus::QuarantinedForReview,
+            evidence: Vec::new(),
+            coverage: EvidenceCoverage {
+                required_claims: vec![],
+                required_subquestions: vec![],
+                distinct_sources: 0,
+                distinct_documents: 0,
+                distinct_sections: 0,
+                candidate_coverage_keys: vec![],
+                percent_covered: 0,
+                gaps_identified: vec![],
+            },
+            conflicts: Vec::new(),
+        }
+    }
+
     async fn search_internal(
         &self,
         plan: &SearchPlan,
         started: tokio::time::Instant,
     ) -> RetrievalResult<SearchOutcome> {
+        let metadata = maestria_domain::SecurityMetadata {
+            prompt_injection_risk: maestria_governance::contains_prompt_injection_risk(
+                &plan.original_query,
+            ),
+            ..maestria_domain::SecurityMetadata::default()
+        };
+        let decision = maestria_governance::RetrievalSecurityPolicy::new()
+            .require_read_allowed(true)
+            .allow_unscoped_items(true)
+            .evaluate(&metadata);
+        if matches!(decision, maestria_governance::RetrievalDecision::Denied(_))
+            && metadata.prompt_injection_risk
+        {
+            return Ok(self.prompt_injection_outcome(plan));
+        }
         if self.retrievers.is_empty() {
             return Err(RetrievalError::Internal("No retrievers configured".into()));
         }

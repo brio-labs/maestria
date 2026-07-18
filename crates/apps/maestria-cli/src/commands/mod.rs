@@ -8,3 +8,4 @@ pub mod observability;
 pub mod search;
 pub mod status;
 pub mod task;
+pub mod task_validation;

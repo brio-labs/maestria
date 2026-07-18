@@ -1,7 +1,10 @@
 use anyhow::{Context, Result, anyhow};
 use maestria_core::InstanceLayout;
 use maestria_domain::{DomainInput, MemoryCandidate, ProposeMemoryCandidateInput};
-use maestria_governance::AutonomyProfile;
+use maestria_governance::{
+    AutonomyProfile, DefaultMemoryPromotionGate, MemoryPromotionDecision, MemoryPromotionGate,
+    MemoryPromotionRequest,
+};
 use maestria_ports::IdAllocator;
 use std::path::PathBuf;
 use std::time::Duration;
@@ -117,6 +120,84 @@ pub async fn run_propose(
     Ok(())
 }
 
+pub async fn run_promote(
+    instance_dir: PathBuf,
+    candidate_id: u64,
+    user_approved: bool,
+) -> Result<()> {
+    let layout = helpers::ensure_instance(instance_dir)?;
+    let _instance_lock = maestria_daemon::acquire_instance_write_lock(&layout).await?;
+
+    let state = load_kernel_state_with_retry(
+        &layout,
+        Duration::from_secs(2),
+        "load kernel state before memory promotion",
+    )
+    .await?;
+
+    let candidate_id = maestria_domain::MemoryCandidateId::new(candidate_id);
+    let candidate = state
+        .memory_candidates
+        .get(&candidate_id)
+        .cloned()
+        .ok_or_else(|| anyhow!("memory candidate {candidate_id} not found"))?;
+
+    let decision = DefaultMemoryPromotionGate.evaluate(&MemoryPromotionRequest {
+        candidate,
+        user_approved,
+    });
+    match decision {
+        MemoryPromotionDecision::Promote => {}
+        MemoryPromotionDecision::RequireEvidence { reason }
+        | MemoryPromotionDecision::RequireReview { reason }
+        | MemoryPromotionDecision::Deny { reason } => {
+            anyhow::bail!("cannot promote memory candidate {candidate_id}: {reason}")
+        }
+    };
+
+    let memory_id = next_memory_id(&state);
+
+    let (runtime, input_tx, input_rx, shutdown_token) = timeout(Duration::from_secs(5), async {
+        loop {
+            match maestria_daemon::build_runtime(
+                &layout,
+                state.clone(),
+                AutonomyProfile::TrustedWorkspace,
+            ) {
+                Ok(runtime) => break Ok(runtime),
+                Err(error) if helpers::is_db_locked(&error) => {
+                    sleep(Duration::from_millis(25)).await;
+                }
+                Err(error) => break Err(error).with_context(|| "build runtime"),
+            }
+        }
+    })
+    .await
+    .map_err(|_| anyhow!("timed out while building runtime"))??;
+    let runtime_task = tokio::spawn(runtime.run(input_rx, shutdown_token.clone()));
+
+    let result = async {
+        input_tx
+            .send(DomainInput::PromoteMemory(
+                maestria_domain::PromoteMemoryInput {
+                    memory_id,
+                    candidate_id,
+                },
+            ))
+            .await
+            .map_err(|error| anyhow!("failed to queue memory promotion input: {error}"))?;
+        wait_for_memory(&layout, memory_id, Duration::from_secs(5)).await
+    }
+    .await;
+
+    let join_result = runtime_task.await;
+    result?;
+    join_result.with_context(|| "runtime loop join failed")?;
+
+    println!("promoted candidate={candidate_id} memory={memory_id}");
+    Ok(())
+}
+
 fn print_memory_candidate(candidate: &MemoryCandidate) {
     println!(
         "candidate={} claim={} confidence={} evidence={} ids={:?}",
@@ -126,6 +207,36 @@ fn print_memory_candidate(candidate: &MemoryCandidate) {
         candidate.evidence_ids.len(),
         candidate.evidence_ids
     );
+}
+fn next_memory_id(state: &maestria_domain::KernelState) -> maestria_domain::MemoryId {
+    state
+        .memories
+        .iter()
+        .next_back()
+        .map_or(maestria_domain::MemoryId::new(1), |(id, _)| {
+            maestria_domain::MemoryId::new(id.value() + 1)
+        })
+}
+
+async fn wait_for_memory(
+    layout: &InstanceLayout,
+    memory_id: maestria_domain::MemoryId,
+    timeout_budget: Duration,
+) -> Result<maestria_domain::KernelState> {
+    timeout(timeout_budget, async {
+        loop {
+            match maestria_daemon::load_kernel_state(layout) {
+                Ok(state) if state.memories.contains_key(&memory_id) => return Ok(state),
+                Ok(_) => sleep(Duration::from_millis(25)).await,
+                Err(error) if helpers::is_db_locked(&error) => {
+                    sleep(Duration::from_millis(25)).await;
+                }
+                Err(error) => return Err(error),
+            }
+        }
+    })
+    .await
+    .map_err(|_| anyhow!("timed out waiting for promoted memory {memory_id}"))?
 }
 
 async fn allocate_ids_with_retry(

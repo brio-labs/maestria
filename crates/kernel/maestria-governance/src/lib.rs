@@ -27,7 +27,10 @@ pub use memory::{
     MemoryPromotionRequest,
 };
 pub use plan_validation::{SearchCapabilities, SearchPlanValidationError, SearchPlanValidator};
-pub use privacy::{PrivacyExclusions, SecretFinding, SecretKind, SecretScan, scan_secrets};
+pub use privacy::{
+    PrivacyExclusions, SecretFinding, SecretKind, SecretScan, contains_prompt_injection_risk,
+    scan_secrets,
+};
 pub use retrieval::{RetrievalDecision, RetrievalSecurityPolicy};
 pub use risk::{ClassifyRisk, DefaultRiskClassifier, PolicyDecision, RiskClass};
 pub use scope::{ContainmentError, Scope, ScopeGuard};

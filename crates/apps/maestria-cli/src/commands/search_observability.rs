@@ -2,13 +2,14 @@
 use super::search_render::trace_from_outcome;
 use super::search_render::{render_trace, trace};
 use crate::{commands::search, helpers};
+
 use anyhow::{Context, Result, anyhow};
 use maestria_domain::{
     DomainEvent, DomainInput, EvidencePackReproducibilityRecord, SearchKnowledgeCompleted,
     SearchOutcome, SearchPlan, SearchTraceId,
 };
 use maestria_storage_sqlite::SqliteStore;
-use std::path::PathBuf;
+use std::{path::PathBuf, time::Duration};
 
 pub(super) struct DurableTrace {
     pub(super) id: SearchTraceId,
@@ -23,16 +24,30 @@ pub async fn run_search_explain(
     limit: usize,
 ) -> Result<()> {
     let layout = helpers::validated_instance(instance_dir)?;
-    let _instance_lock = maestria_daemon::acquire_instance_write_lock(&layout).await?;
-    let mut state = maestria_daemon::load_kernel_state(&layout)
-        .context("load kernel state for search explain")?;
+    let write_lock = maestria_daemon::try_acquire_instance_write_lock(&layout)?;
+    let mut state = helpers::load_kernel_state_with_retry(
+        &layout,
+        Duration::from_secs(2),
+        "load kernel state for search explain",
+    )?;
     let task_id = search::validate_task_id(&state, task_id)?;
     let manifest = helpers::load_manifest(&layout)?;
-    maestria_daemon::reconcile_retrieval_generations(&layout, &mut state, &manifest)
-        .context("reconcile retrieval generations before explain")?;
-    let (runtime, plan, outcome) =
-        search::execute_search(&layout, &state, &manifest, query, limit).await?;
-    persist_search_trace(&runtime, &mut state, task_id, &plan, &outcome)?;
+    if write_lock.is_some() {
+        maestria_daemon::reconcile_retrieval_generations(&layout, &mut state, &manifest)
+            .context("reconcile retrieval generations before explain")?;
+    }
+    let (runtime, plan, outcome) = search::execute_search(
+        &layout,
+        &state,
+        &manifest,
+        query,
+        limit,
+        write_lock.is_some(),
+    )
+    .await?;
+    if write_lock.is_some() {
+        persist_search_trace(&runtime, &mut state, task_id, &plan, &outcome)?;
+    }
     render_trace(&plan, &outcome)
 }
 

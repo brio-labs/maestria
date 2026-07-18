@@ -20,8 +20,11 @@ impl FullTextIndex for TantivyFullTextIndex {
         true
     }
     fn index_chunks(&self, chunks: Vec<IndexedChunk>) -> Result<(), PortError> {
-        let mut writer = self.writer.lock().map_err(|_| PortError::Internal {
+        let mut writer_guard = self.writer.lock().map_err(|_| PortError::Internal {
             message: "tantivy writer lock poisoned".to_string(),
+        })?;
+        let writer = writer_guard.as_mut().ok_or_else(|| PortError::Downstream {
+            message: "full-text index is read-only".to_string(),
         })?;
         for chunk in chunks {
             writer.delete_term(Term::from_field_text(
@@ -149,8 +152,11 @@ impl FullTextIndex for TantivyFullTextIndex {
     }
 
     fn index_cards(&self, cards: Vec<IndexedCard>) -> Result<(), PortError> {
-        let mut writer = self.writer.lock().map_err(|_| PortError::Internal {
+        let mut writer_guard = self.writer.lock().map_err(|_| PortError::Internal {
             message: "tantivy writer lock poisoned".to_string(),
+        })?;
+        let writer = writer_guard.as_mut().ok_or_else(|| PortError::Downstream {
+            message: "full-text index is read-only".to_string(),
         })?;
         for card in cards {
             writer.delete_term(Term::from_field_text(

@@ -1,12 +1,12 @@
 use anyhow::{Context, Result};
 use maestria_core::InstanceLayout;
-use std::{
-    fs,
-    path::{Path, PathBuf},
-};
-
 use maestria_core::InstanceManifest;
+use maestria_domain::KernelState;
 use maestria_governance::PrivacyExclusions;
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::thread;
+use std::time::Duration;
 
 pub(crate) fn ensure_instance(instance_dir: PathBuf) -> Result<InstanceLayout> {
     maestria_daemon::prepare_instance(instance_dir)
@@ -29,6 +29,27 @@ pub(crate) fn load_manifest(layout: &InstanceLayout) -> Result<InstanceManifest>
         .with_context(|| format!("read instance manifest {}", layout.manifest_path.display()))?;
     maestria_core::InstanceService::parse_manifest(&contents)
         .map_err(|error| anyhow::anyhow!("parse instance manifest: {error}"))
+}
+
+pub(crate) fn load_kernel_state_with_retry(
+    layout: &InstanceLayout,
+    timeout_budget: Duration,
+    context: &'static str,
+) -> Result<KernelState> {
+    let attempts = timeout_budget.as_millis().div_ceil(25).max(1);
+    for attempt in 0..attempts {
+        match maestria_daemon::load_kernel_state(layout).with_context(|| context) {
+            Ok(state) => return Ok(state),
+            Err(error) if is_db_locked(&error) && attempt + 1 < attempts => {
+                thread::sleep(Duration::from_millis(25));
+            }
+            Err(error) if is_db_locked(&error) => {
+                return Err(anyhow::anyhow!("timed out while {context}: {error}"));
+            }
+            Err(error) => return Err(error),
+        }
+    }
+    Err(anyhow::anyhow!("timed out while {context}"))
 }
 
 pub(crate) fn collect_index_files(path: &Path, recursive: bool) -> Result<Vec<PathBuf>> {

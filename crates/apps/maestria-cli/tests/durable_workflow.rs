@@ -167,6 +167,11 @@ fn parse_kv(line: &str) -> Vec<(&str, &str)> {
         .filter_map(|token| token.split_once('='))
         .collect()
 }
+fn parse_kv_value<'a>(line: &'a str, key: &str) -> Option<&'a str> {
+    parse_kv(line)
+        .into_iter()
+        .find_map(|(candidate_key, value)| (candidate_key == key).then_some(value))
+}
 fn assert_init_ok(instance_path: &str, read_root: &str) -> Result<(), Box<dyn std::error::Error>> {
     let stdout = assert_ok_lines(&["init", "-i", instance_path, "--read-root", read_root], 2)?;
     assert!(
@@ -597,6 +602,65 @@ fn task_add_evidence_and_show() -> Result<(), Box<dyn std::error::Error>> {
     );
     Ok(())
 }
+#[test]
+fn task_request_validation_and_complete() -> Result<(), Box<dyn std::error::Error>> {
+    let workspace = TempDir::new("maestria-test-workspace")?;
+    let instance = TempDir::new("maestria-test-instance")?;
+    let ip = instance.path().to_string_lossy();
+    let wp = workspace.path().to_string_lossy();
+    assert_init_ok(ip.as_ref(), wp.as_ref())?;
+    write_file(
+        workspace.path(),
+        "notes.md",
+        "# Design Notes\n\nThe system uses a distributed ledger for consensus.\n",
+    )?;
+    let notes = workspace
+        .path()
+        .join("notes.md")
+        .to_string_lossy()
+        .into_owned();
+    assert_index_ok(ip.as_ref(), &notes)?;
+    let (_chunk_id, evidence_id) = assert_search_finds(ip.as_ref(), "distributed")?;
+    let task_id = assert_task_start(ip.as_ref(), "Validate and complete")?;
+    let _ = assert_ok(&[
+        "task",
+        "add-evidence",
+        "-i",
+        ip.as_ref(),
+        &task_id,
+        "--evidence-id",
+        &evidence_id,
+    ])?;
+    let validation_output = assert_ok_lines(
+        &["task", "request-validation", "-i", ip.as_ref(), &task_id],
+        1,
+    )?;
+    let report_id =
+        parse_kv_value(&validation_output, "report").ok_or("validation output missing report")?;
+    let report_id = report_id.parse::<u64>()?;
+    let passed =
+        parse_kv_value(&validation_output, "passed").ok_or("validation output missing passed")?;
+    assert_eq!(
+        passed, "true",
+        "validation should pass for evidence-backed task: {validation_output}"
+    );
+    let _ = assert_ok(&[
+        "task",
+        "complete",
+        "-i",
+        ip.as_ref(),
+        &task_id,
+        "--report-id",
+        &report_id.to_string(),
+    ])?;
+    let task_line = assert_task_show(ip.as_ref(), &task_id)?;
+    assert!(
+        task_line.contains("CompletedVerified") || task_line.contains("CompletedWithWarnings"),
+        "expected completed status after task completion: {task_line}"
+    );
+    Ok(())
+}
+
 fn assert_index_and_get_evidence(
     instance_path: &str,
     workspace: &Path,

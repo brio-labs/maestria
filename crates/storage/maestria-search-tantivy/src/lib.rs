@@ -5,6 +5,7 @@
 //! This crate stores only rebuildable indexed chunks. Artifact metadata and blob
 //! contents remain owned by their source repositories.
 
+mod constructors;
 mod lexical_helpers;
 mod lexical_operations;
 mod migration;
@@ -16,7 +17,7 @@ use migration::{legacy_chunks, schema_has_cards};
 use schema::{load_fields, schema, supports_filtered_queries};
 use std::{fs, path::Path, sync::Mutex};
 
-use maestria_domain::{ArtifactId, CardId, ChunkId, ContentHash, IndexFingerprint, content_hash};
+use maestria_domain::{ArtifactId, CardId, ChunkId};
 use maestria_ports::{FullTextIndex, IndexedCard, IndexedChunk, PortError};
 use maestria_ports::{IndexedLexicalCard, IndexedLexicalChunk};
 use tantivy::{
@@ -45,7 +46,7 @@ const FIELD_CARD_SYMBOL: &str = "card_symbol";
 pub struct TantivyFullTextIndex {
     index: Index,
     reader: IndexReader,
-    writer: Mutex<IndexWriter>,
+    writer: Mutex<Option<IndexWriter>>,
     fields: IndexFields,
     card_rebuild_required: Mutex<bool>,
     card_rebuild_marker: Option<std::path::PathBuf>,
@@ -70,31 +71,6 @@ struct IndexFields {
 }
 
 impl TantivyFullTextIndex {
-    pub fn in_memory() -> Result<Self, PortError> {
-        Self::from_index(Index::create_in_ram(schema()), false, None)
-    }
-
-    /// Return the deterministic fingerprint of the lexical index definition.
-    pub fn fingerprint(&self) -> Result<IndexFingerprint, PortError> {
-        let schema_hash = content_hash(schema::CANONICAL_SCHEMA.as_bytes());
-        let revision = env!("CARGO_PKG_VERSION").to_string();
-        let artifact_hash =
-            ContentHash::new(schema_hash.clone()).map_err(|error| PortError::Internal {
-                message: format!("invalid Tantivy schema fingerprint: {error}"),
-            })?;
-        Ok(IndexFingerprint {
-            provider: "tantivy".to_string(),
-            model: "lexical".to_string(),
-            revision,
-            artifact_hash,
-            dimensions: 0,
-            quantization: "f32".to_string(),
-            query_template_hash: content_hash(b"query: {{text}}"),
-            document_template_hash: content_hash(b"doc: {{text}}"),
-            preprocessing_version: "tantivy-default-tokenizer-v1".to_string(),
-        })
-    }
-
     pub fn open(path: impl AsRef<Path>) -> Result<Self, PortError> {
         let path = path.as_ref();
         fs::create_dir_all(path).map_err(to_io_port_error)?;
@@ -117,7 +93,7 @@ impl TantivyFullTextIndex {
                 && migration::schema_has_lexical(&existing.schema())
             {
                 let required = marker.exists();
-                return Self::from_index(existing, required, Some(marker));
+                return Self::from_index(existing, required, Some(marker), false);
             }
             let chunks = legacy_chunks(&existing)?
                 .into_iter()
@@ -132,7 +108,7 @@ impl TantivyFullTextIndex {
             let temp_marker = temp_path.join(".cards-rebuild");
             fs::write(&temp_marker, b"pending").map_err(to_io_port_error)?;
             let rebuilt = Index::create_in_dir(&temp_path, schema()).map_err(to_port_error)?;
-            let projection = Self::from_index(rebuilt, true, Some(temp_marker))?;
+            let projection = Self::from_index(rebuilt, true, Some(temp_marker), false)?;
             projection.index_chunks(chunks)?;
             drop(projection);
 
@@ -146,20 +122,21 @@ impl TantivyFullTextIndex {
                 return Err(to_io_port_error(error));
             }
             let migrated = Index::open_in_dir(path).map_err(to_port_error)?;
-            let projection = Self::from_index(migrated, true, Some(marker));
+            let projection = Self::from_index(migrated, true, Some(marker), false);
             let _ = fs::remove_dir_all(&backup_path);
             return projection;
         }
 
         let index = Index::create_in_dir(path, schema()).map_err(to_port_error)?;
         let required = marker.exists();
-        Self::from_index(index, required, Some(marker))
+        Self::from_index(index, required, Some(marker), false)
     }
 
     fn from_index(
         index: Index,
         card_rebuild_required: bool,
         card_rebuild_marker: Option<std::path::PathBuf>,
+        read_only: bool,
     ) -> Result<Self, PortError> {
         let fields = load_fields(index.schema())?;
         let reader = index
@@ -167,9 +144,15 @@ impl TantivyFullTextIndex {
             .reload_policy(ReloadPolicy::OnCommitWithDelay)
             .try_into()
             .map_err(to_port_error)?;
-        let writer = index
-            .writer_with_num_threads(1, WRITER_MEMORY_BUDGET_BYTES)
-            .map_err(to_port_error)?;
+        let writer = if read_only {
+            None
+        } else {
+            Some(
+                index
+                    .writer_with_num_threads(1, WRITER_MEMORY_BUDGET_BYTES)
+                    .map_err(to_port_error)?,
+            )
+        };
 
         Ok(Self {
             index,

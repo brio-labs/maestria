@@ -28,7 +28,9 @@ use maestria_storage_sqlite::SqliteStore;
 use maestria_vector_sqlite::SqliteVectorIndex;
 use maestria_web_evidence::UreqWebFetcher;
 use search_executor::SearchRuntimeParts;
-pub use search_executor::{SearchRuntime, prepare_search_runtime};
+pub use search_executor::{
+    SearchRuntime, prepare_search_runtime, prepare_search_runtime_read_only,
+};
 use tokio::{
     sync::mpsc,
     time::{sleep, timeout},

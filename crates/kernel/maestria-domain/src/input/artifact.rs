@@ -162,9 +162,9 @@ impl KernelState {
         if !self.artifacts.contains_key(&artifact_id) {
             return Err(DomainError::MissingArtifact { id: artifact_id });
         }
-        // pending_parsers is NOT removed here — it stays until
-        // terminal ArtifactIndexed so a crash before evidence
-        // leaves the parser retryable.
+        if status != crate::provenance::ParseStatus::Parsed {
+            self.pending_parsers.remove(&artifact_id);
+        }
         if let Some(artifact) = self.artifacts.get_mut(&artifact_id) {
             artifact.parse_status = Some(status);
             if status != crate::provenance::ParseStatus::Parsed {
