@@ -135,8 +135,7 @@ impl RetrievalEngine {
         let capabilities = self
             .capabilities
             .clone()
-            .with_snapshot(plan.corpus_snapshot)
-            .with_generation(plan.index_generation);
+            .with_snapshot(plan.corpus_snapshot);
         maestria_governance::SearchPlanValidator::validate(
             plan,
             &capabilities,

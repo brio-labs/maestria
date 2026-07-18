@@ -88,13 +88,14 @@ pub(super) fn render_trace(plan: &SearchPlan, outcome: &SearchOutcome) -> Result
 }
 
 fn retrieval_mode(trace: &SearchTrace) -> &'static str {
-    let dense_lane = trace.lanes.iter().find(|lane| {
+    let dense_succeeded = trace.lanes.iter().any(|lane| {
         let retriever_id = lane.retriever_id.to_ascii_lowercase();
-        retriever_id.contains("dense")
+        (retriever_id.contains("dense")
             || retriever_id.contains("vector")
-            || retriever_id.contains("semantic")
+            || retriever_id.contains("semantic"))
+            && matches!(lane.status, SearchLaneStatus::Succeeded)
     });
-    if dense_lane.is_some_and(|lane| matches!(lane.status, SearchLaneStatus::Succeeded)) {
+    if dense_succeeded {
         "hybrid-shadow"
     } else {
         "lexical-only"

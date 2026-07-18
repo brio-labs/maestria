@@ -265,10 +265,10 @@ async fn bounded_search_rejects_stale_generation_results() -> RetrievalResult<()
 }
 
 #[tokio::test]
-async fn planner_accepts_context_snapshot_and_generation() -> RetrievalResult<()> {
+async fn planner_accepts_context_snapshot_with_installed_generation() -> RetrievalResult<()> {
     let context = maestria_retrieval::SearchPlannerContext {
         corpus_snapshot: CorpusSnapshotId::new(7),
-        primary_generation: IndexGenerationId::new(9),
+        primary_generation: IndexGenerationId::new(1),
         fingerprint: RetrievalModelFingerprint::new("contextual-model".to_string())?,
     };
     let engine = RetrievalEngine::new(
