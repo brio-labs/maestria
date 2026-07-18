@@ -268,110 +268,111 @@ impl EffectExecutionContext {
             .parse(file, ParseContext { artifact_id })
         {
             Ok(parsed) => {
-                let parser_status = parsed.status.clone();
-                let indexable = parser_status == maestria_ports::ParseStatus::Parsed;
-                let status = domain_parse_status(parser_status.clone());
-                if !indexable {
-                    tracing::warn!(
-                        artifact_id = %artifact_id.value(),
-                        status = ?parser_status,
-                        "parser returned a non-indexable status"
-                    );
-                }
-                let mut evidence_inputs = Vec::new();
-                let mut chunks = Vec::new();
-                let mut cards = Vec::new();
-                let mut tree_nodes = Vec::new();
-
-                if indexable {
-                    if let Some((ev, ch, ca)) = build_indexable_records(
-                        &parsed,
-                        artifact_id,
-                        blob_id,
-                        &request.source_path,
-                        &source_hash,
-                    ) {
-                        evidence_inputs = ev;
-                        chunks = ch;
-                        cards = ca;
-                    } else {
-                        return false;
-                    }
-                    tree_nodes = parsed.tree.nodes.clone();
-                } else if !parsed.chunks.is_empty() || !parsed.cards.is_empty() {
-                    tracing::error!(
-                        artifact_id = %artifact_id.value(),
-                        "non-indexable parser result contains indexable records"
-                    );
-                    return false;
-                }
-                let tree_root_id = indexable.then_some(parsed.tree.root_id);
-                if Self::send_input(
-                    &self.input_tx,
-                    DomainInput::ParserCompleted(ParserResult {
-                        artifact_id: parsed.artifact_id,
-                        artifact_version_id: parsed.artifact_version_id,
-                        content_hash: parsed.content_hash,
-                        status,
-                        tree_root_id,
-                        tree_nodes,
-                        chunks,
-                        cards,
-                    }),
-                    "parser completion",
-                )
-                .is_err()
-                {
-                    return false;
-                }
-
-                if !indexable {
-                    return true;
-                }
-
-                for evidence in evidence_inputs {
-                    if Self::send_input(
-                        &self.input_tx,
-                        DomainInput::RecordEvidence(evidence),
-                        "record evidence",
-                    )
-                    .is_err()
-                    {
-                        return false;
-                    }
-                }
-
-                if Self::send_input(
-                    &self.input_tx,
-                    DomainInput::StartFullTextIndex(maestria_domain::StartFullTextIndex {
-                        artifact_id: parsed.artifact_id,
-                    }),
-                    "start full-text index",
-                )
-                .is_err()
-                {
-                    return false;
-                }
+                self.emit_parsed_artifact(request, artifact_id, parsed, blob_id, &source_hash)
             }
             Err(maestria_ports::PortError::InvalidInput { .. }) => {
                 tracing::warn!(
                     artifact_id = %artifact_id.value(),
                     "parser rejected artifact as invalid input"
                 );
-                return self.emit_terminal_parser_completed(
+                self.emit_terminal_parser_completed(
                     artifact_id,
                     maestria_domain::ArtifactVersionId::new(artifact_id.value()),
                     maestria_ports::ParseStatus::Failed,
                     &source_hash,
-                );
+                )
             }
             Err(error) => {
                 tracing::error!(artifact_id = %artifact_id, %error, "parser failed");
+                false
+            }
+        }
+    }
+
+    fn emit_parsed_artifact(
+        &self,
+        request: &ParseArtifactRequest,
+        artifact_id: ArtifactId,
+        parsed: maestria_ports::ParsedArtifact,
+        blob_id: BlobId,
+        source_hash: &str,
+    ) -> bool {
+        let parser_status = parsed.status.clone();
+        let indexable = parser_status == maestria_ports::ParseStatus::Parsed;
+        let status = domain_parse_status(parser_status.clone());
+        if !indexable {
+            tracing::warn!(
+                artifact_id = %artifact_id.value(),
+                status = ?parser_status,
+                "parser returned a non-indexable status"
+            );
+        }
+        let (evidence_inputs, chunks, cards) = if indexable {
+            match build_indexable_records(
+                &parsed,
+                artifact_id,
+                blob_id,
+                &request.source_path,
+                source_hash,
+            ) {
+                Some(records) => records,
+                None => return false,
+            }
+        } else {
+            if !parsed.chunks.is_empty() || !parsed.cards.is_empty() {
+                tracing::error!(
+                    artifact_id = %artifact_id.value(),
+                    "non-indexable parser result contains indexable records"
+                );
+                return false;
+            }
+            (Vec::new(), Vec::new(), Vec::new())
+        };
+        let tree_nodes = if indexable {
+            parsed.tree.nodes.clone()
+        } else {
+            Vec::new()
+        };
+        if Self::send_input(
+            &self.input_tx,
+            DomainInput::ParserCompleted(ParserResult {
+                artifact_id: parsed.artifact_id,
+                artifact_version_id: parsed.artifact_version_id,
+                content_hash: parsed.content_hash,
+                status,
+                tree_root_id: indexable.then_some(parsed.tree.root_id),
+                tree_nodes,
+                chunks,
+                cards,
+            }),
+            "parser completion",
+        )
+        .is_err()
+        {
+            return false;
+        }
+        if !indexable {
+            return true;
+        }
+        for evidence in evidence_inputs {
+            if Self::send_input(
+                &self.input_tx,
+                DomainInput::RecordEvidence(evidence),
+                "record evidence",
+            )
+            .is_err()
+            {
                 return false;
             }
         }
-
-        true
+        Self::send_input(
+            &self.input_tx,
+            DomainInput::StartFullTextIndex(maestria_domain::StartFullTextIndex {
+                artifact_id: parsed.artifact_id,
+            }),
+            "start full-text index",
+        )
+        .is_ok()
     }
 
     fn emit_terminal_parser_completed(
