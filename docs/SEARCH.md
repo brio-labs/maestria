@@ -294,12 +294,22 @@ maestria search code path "crates/ecosystem/maestria-retrieval"
 maestria search code regex "impl .*CandidateRetriever"
 ```
 
+Bounded repository context can expand exact/lexical seeds through typed relations:
+
+```bash
+maestria search code context "RetrievalEngine" --depth 2 --nodes 64 --direction both
+```
+
 The index is JSON-persisted under the instance system directory. Query results expose the
-stored provenance and generation; a parser-generation mismatch is an explicit failure.
-The repository projection may also carry deterministic AST relations for resolved definitions,
+stored provenance and generation; a parser-generation mismatch or repository worktree
+mismatch is an explicit freshness failure before current-state claims are allowed. The
+repository projection may also carry deterministic AST relations for resolved definitions,
 imports, calls, implementations, and tests. Relation endpoints retain their source records,
-source spans, confidence, and parser generation. Missing LSP/provider support is recorded as
-an explicit degraded status; unresolved edges are omitted rather than presented as facts.
+source spans, confidence, and parser generation. Bounded context queries traverse those
+typed relations from exact/lexical seeds while preserving seed lineage, direction, depth,
+node, and relation-kind caps. Missing LSP/provider support is recorded as an explicit
+degraded status; unresolved edges are omitted rather than presented as facts. Live reads
+and tests are separate governed effects and must return their own evidence.
 
 ### Fusion and Ranking
 

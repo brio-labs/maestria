@@ -23,6 +23,8 @@ pub enum CodeIntelError {
     Persist { context: String, details: String },
     /// Repository identity derivation failed.
     Identity { context: String, details: String },
+    /// Persisted records do not match the index summary or endpoint provenance.
+    Integrity { context: String, details: String },
     /// Regex construction failed.
     Regex { pattern: String, details: String },
 }
@@ -48,6 +50,9 @@ impl fmt::Display for CodeIntelError {
             }
             Self::Persist { context, details } => {
                 write!(f, "persistence failure in {context}: {details}")
+            }
+            Self::Integrity { context, details } => {
+                write!(f, "index integrity failure in {context}: {details}")
             }
             Self::Identity { context, details } => {
                 write!(f, "identity discovery failed in {context}: {details}")

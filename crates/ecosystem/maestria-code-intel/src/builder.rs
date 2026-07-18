@@ -74,14 +74,4 @@ impl RepositoryCodeIndex {
             relations,
         })
     }
-
-    /// Whether stored parser generation or source identity is stale.
-    pub fn is_stale_repository(&self) -> Result<bool, CodeIntelError> {
-        let identity = discover_repository_identity(
-            Path::new(&self.summary.repository_root),
-            &self.summary.excluded_patterns,
-        )?;
-        Ok(identity.commit != self.summary.commit_sha
-            || identity.worktree_identity != self.summary.worktree_identity)
-    }
 }

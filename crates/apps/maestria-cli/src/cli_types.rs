@@ -132,6 +132,16 @@ pub enum CodeSearchCommands {
     Path { pattern: String },
     /// Match repository symbols and paths with a regular expression
     Regex { pattern: String },
+    /// Traverse bounded repository relations from a symbol seed
+    Context {
+        pattern: String,
+        #[arg(short, long, default_value_t = 2)]
+        depth: usize,
+        #[arg(short, long, default_value_t = 64)]
+        nodes: usize,
+        #[arg(long, default_value = "both")]
+        direction: String,
+    },
 }
 
 #[derive(Subcommand)]
