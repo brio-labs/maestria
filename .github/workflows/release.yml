@@ -3,13 +3,26 @@ name: Release
 on:
   workflow_dispatch:
     inputs:
-      commit:
-        description: 'Main commit SHA to release as v0.6.1'
+      version:
+        description: 'Release version without the leading v (for example 0.6.2)'
         required: true
+        type: string
+      commit:
+        description: 'Full main commit SHA to release'
+        required: true
+        type: string
+      milestone:
+        description: 'Closed milestone whose issues this release contains'
+        required: true
+        type: string
+      title:
+        description: 'Optional release title; defaults to v<version>'
+        required: false
+        default: ''
         type: string
 
 concurrency:
-  group: release-v0.6.1
+  group: release-${{ inputs.version }}
   cancel-in-progress: false
 
 permissions:
@@ -41,9 +54,17 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_COMMIT: ${{ inputs.commit }}
+          RELEASE_VERSION: ${{ inputs.version }}
+          RELEASE_MILESTONE: ${{ inputs.milestone }}
         run: |
           set -euo pipefail
           COMMIT="$RELEASE_COMMIT"
+          VERSION="$RELEASE_VERSION"
+          if ! [[ "$VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?(\+[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$ ]]; then
+            echo "::error::Version must be semantic version without a leading v, got '$VERSION'"
+            exit 1
+          fi
+          python3 scripts/version.py check --expected "$VERSION"
 
           # Require a full 40-character hex SHA
           if ! [[ "$COMMIT" =~ ^[0-9a-f]{40}$ ]]; then
@@ -75,14 +96,14 @@ jobs:
 
           # ── 1. Milestone gate ──────────────────────────────────
           echo
-          echo "==> Checking milestone 'v0.6 — Query-Adaptive Search'..."
+          echo "==> Checking milestone '$RELEASE_MILESTONE'..."
 
           MILESTONE_JSON="$(gh api "repos/${{ github.repository }}/milestones" \
-            --method GET -f state=all --paginate \
-            --jq '.[] | select(.title == "v0.6 — Query-Adaptive Search")')"
+            --method GET -f state=all --paginate --jq '.[]' |
+            jq -s --arg title "$RELEASE_MILESTONE" 'map(select(.title == $title)) | .[0] // empty')"
 
           if [ -z "$MILESTONE_JSON" ]; then
-            echo "::error::Milestone 'v0.6 — Query-Adaptive Search' not found in this repository"
+            echo "::error::Milestone '$RELEASE_MILESTONE' not found in this repository"
             exit 1
           fi
 
@@ -174,21 +195,13 @@ jobs:
       - uses: Swatinem/rust-cache@v2.9.1
       - uses: mozilla-actions/sccache-action@v0.0.10
       - name: Release contract
-        run: |
-          cargo test -p maestria-cli --test release_contract -- --test-threads=1 --nocapture
-          cargo test -p maestria-daemon --test vertical_slice -- --nocapture
-          cargo test -p maestria-runtime runtime_evidence_tests::fetch_web_records_hashed_blob_and_security_boundary -- --nocapture
-          cargo test -p maestria-runtime runtime_validation_gate_tests -- --nocapture
-          cargo test -p maestria-retrieval --test adaptive_contract_tests
-          cargo test -p maestria-retrieval --test contract_tests
-          cargo test -p maestria-retrieval --test golden_fixture
-          cargo test -p maestria-core --test golden_gate
+        run: bash scripts/release-contract.sh
 
       - name: Format check
         run: cargo fmt --all -- --check
 
       - name: Clippy
-        run: cargo clippy --workspace --all-targets --all-features -- -D warnings -D clippy::too_many_lines -D clippy::cognitive_complexity -D clippy::unwrap_used -D clippy::expect_used -D clippy::panic -D clippy::disallowed_methods
+        run: bash scripts/strict-clippy.sh
 
       - name: Tests
         run: cargo test --workspace --all-targets --all-features
@@ -255,11 +268,13 @@ jobs:
       - name: Build release binaries
         run: cargo build --workspace --all-features --locked --release
       - name: Package release artifacts
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
           mkdir -p dist
           TARGET="x86_64-unknown-linux-gnu"
-          VERSION="v0.6.1"
+          VERSION="v${RELEASE_VERSION}"
           export SOURCE_DATE_EPOCH=0
 
           for binary in maestria-cli maestria-daemon; do
@@ -310,24 +325,29 @@ jobs:
         id: check
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASE_VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
           COMMIT="${{ needs.preflight.outputs.commit }}"
+          TAG="v${RELEASE_VERSION}"
 
-          if gh release view v0.6.1 --json targetCommitish,isDraft >/dev/null 2>&1; then
-            RELEASE_JSON="$(gh release view v0.6.1 --json targetCommitish,isDraft)"
-            EXISTING_TARGET="$(echo "$RELEASE_JSON" | jq -r '.targetCommitish')"
-            IS_DRAFT="$(echo "$RELEASE_JSON" | jq -r '.isDraft')"
+          if RELEASE_JSON="$(gh api "repos/${{ github.repository }}/releases/tags/$TAG" 2>/dev/null)"; then
+            EXISTING_TARGET="$(echo "$RELEASE_JSON" | jq -r '.target_commitish')"
+            IS_DRAFT="$(echo "$RELEASE_JSON" | jq -r '.draft')"
+            IS_IMMUTABLE="$(echo "$RELEASE_JSON" | jq -r '.immutable // false')"
             if [ "$EXISTING_TARGET" != "$COMMIT" ]; then
-              echo "::error::Release v0.6.1 targets $EXISTING_TARGET, not $COMMIT"
+              echo "::error::Release $TAG targets $EXISTING_TARGET, not $COMMIT"
               exit 1
             fi
-            if [ "$IS_DRAFT" = "true" ]; then
+            if [ "$IS_IMMUTABLE" = "true" ]; then
+              echo "mode=existing-immutable" >> "$GITHUB_OUTPUT"
+              echo "==> Immutable release $TAG already targets $COMMIT"
+            elif [ "$IS_DRAFT" = "true" ]; then
               echo "mode=existing-draft" >> "$GITHUB_OUTPUT"
-              echo "==> Existing draft release targets $COMMIT; assets will be repaired before publishing"
+              echo "==> Existing draft release $TAG targets $COMMIT; assets will be repaired before publishing"
             else
               echo "mode=existing" >> "$GITHUB_OUTPUT"
-              echo "==> Existing release targets $COMMIT; assets will be repaired idempotently"
+              echo "==> Existing release $TAG targets $COMMIT; assets will be repaired idempotently"
             fi
           else
             echo "mode=create" >> "$GITHUB_OUTPUT"
@@ -340,51 +360,58 @@ jobs:
           path: dist
 
       - name: Repair existing release assets
-        if: steps.check.outputs.mode != 'create'
+        if: steps.check.outputs.mode == 'existing' || steps.check.outputs.mode == 'existing-draft'
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASE_VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
-          gh release upload v0.6.1 dist/* --clobber
+          TAG="v${RELEASE_VERSION}"
+          gh release upload "$TAG" dist/* --clobber
           if [ "${{ steps.check.outputs.mode }}" = "existing-draft" ]; then
-            gh release edit v0.6.1 --draft=false
-            echo "✓ Draft release v0.6.1 published with repaired assets"
+            gh release edit "$TAG" --draft=false
+            echo "✓ Draft release $TAG published with repaired assets"
           else
-            echo "✓ Existing release v0.6.1 assets repaired"
+            echo "✓ Existing release $TAG assets repaired"
           fi
 
       - name: Create tag and publish release
         if: steps.check.outputs.mode == 'create'
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASE_VERSION: ${{ inputs.version }}
+          RELEASE_TITLE: ${{ inputs.title }}
         run: |
           set -euo pipefail
           COMMIT="${{ needs.preflight.outputs.commit }}"
+          TAG="v${RELEASE_VERSION}"
+          TITLE="${RELEASE_TITLE:-$TAG}"
 
           # Check whether the tag already exists remotely (handle annotated + lightweight).
-          REMOTE_REFS="$(git ls-remote origin "refs/tags/v0.6.1^{}" "refs/tags/v0.6.1" 2>/dev/null || echo '')"
+          REMOTE_REFS="$(git ls-remote origin "refs/tags/$TAG^{}" "refs/tags/$TAG" 2>/dev/null || echo '')"
           if [ -n "$REMOTE_REFS" ]; then
-            REMOTE_TAG_SHA="$(echo "$REMOTE_REFS" | awk '/refs\/tags\/v0\.6\.1\^\{\}$/ {print $1; exit}')"
+            REMOTE_TAG_SHA="$(echo "$REMOTE_REFS" | awk -v peeled="refs/tags/$TAG^{}" '$2 == peeled {print $1; exit}')"
             if [ -z "$REMOTE_TAG_SHA" ]; then
-              REMOTE_TAG_SHA="$(echo "$REMOTE_REFS" | awk '/refs\/tags\/v0\.6\.1$/ {print $1; exit}')"
+              REMOTE_TAG_SHA="$(echo "$REMOTE_REFS" | awk -v unpeeled="refs/tags/$TAG" '$2 == unpeeled {print $1; exit}')"
             fi
             if [ "$REMOTE_TAG_SHA" != "$COMMIT" ]; then
-              echo "::error::Remote tag v0.6.1 points to $REMOTE_TAG_SHA, not $COMMIT"
+              echo "::error::Remote tag $TAG points to $REMOTE_TAG_SHA, not $COMMIT"
               exit 1
             fi
-            echo "✓ Tag v0.6.1 already exists on remote at $COMMIT — creating release only"
+            echo "✓ Tag $TAG already exists on remote at $COMMIT — creating release only"
           else
-            echo "==> Creating tag v0.6.1 at commit $COMMIT"
+            echo "==> Creating tag $TAG at commit $COMMIT"
             git config user.name "github-actions[bot]"
             git config user.email "github-actions[bot]@users.noreply.github.com"
-            git tag -a v0.6.1 "$COMMIT" -m "v0.6.1: Query-Adaptive Search patch release"
-            git push origin v0.6.1
+            git tag -a "$TAG" "$COMMIT" -m "$TITLE"
+            git push origin "$TAG"
           fi
 
-          echo "==> Publishing release v0.6.1"
-          gh release create v0.6.1 \
+          echo "==> Publishing release $TAG"
+          gh release create "$TAG" \
             --target "$COMMIT" \
-            --title "v0.6.1 — Query-Adaptive Search" \
+            --title "$TITLE" \
             --generate-notes \
             dist/*
-          echo "✓ Release v0.6.1 published successfully"
+          echo "✓ Release $TAG published successfully"
+

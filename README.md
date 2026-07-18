@@ -7,7 +7,7 @@ under explicit policy and validation gates.
 
 ## Install
 
-Maestria v0.6.1 targets Rust stable 1.95+. Build from source:
+Maestria targets Rust stable 1.95+. Build from source:
 
 ```bash
 git clone https://github.com/brio-labs/maestria.git
@@ -20,6 +20,25 @@ cargo build --release -p maestria-cli
 
 The GitHub release also provides a prebuilt Linux x86_64 archive containing
 the user-facing `maestria` CLI and `maestriad` daemon binaries.
+
+
+## Release development
+
+The workspace version is defined once in `[workspace.package]` in the root
+`Cargo.toml`. Package manifests inherit it, and runtime version constants derive
+from `CARGO_PKG_VERSION`.
+
+To prepare a version change:
+
+```bash
+python3 scripts/version.py set 0.6.2
+python3 scripts/version.py check --expected 0.6.2
+```
+
+The `set` command validates the repository contract and refreshes `Cargo.lock`
+through Cargo metadata. The release workflow accepts the version, full main
+commit SHA, closed milestone, and optional title as dispatch inputs; no
+workflow edit is required for the next release.
 
 ## Quick start
 
@@ -261,21 +280,16 @@ where it left off without data loss or duplicate work.
 ## Development
 
 ```bash
-# Formatting
-cargo fmt --all -- --check
+# Complete local gate: metadata, format, compile, lint, tests,
+# release contract, docs, dependency, philosophy, and script checks.
+bash scripts/verify-workspace.sh
+```
 
-# Linting
-cargo clippy --workspace --all-targets --all-features -- -D warnings -D clippy::too_many_lines -D clippy::cognitive_complexity -D clippy::unwrap_used -D clippy::expect_used -D clippy::panic -D clippy::disallowed_methods
+Focused helpers remain available:
 
-# Tests
-cargo test --workspace --all-targets --all-features
-
-# Documentation
-cargo doc --workspace --no-deps --all-features
-RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --all-features
-
-# Architecture guardrails
-python3 scripts/philosophy-check.py
+```bash
+bash scripts/strict-clippy.sh
+bash scripts/release-contract.sh
 ```
 
 ## Documentation map
