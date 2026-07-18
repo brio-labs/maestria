@@ -1,6 +1,6 @@
 [package]
 name = "maestria-harness-cli"
-version = "0.6.0"
+version = "0.6.1"
 edition = "2024"
 license.workspace = true
 publish = false
@@ -12,5 +12,5 @@ tokio = { version = "1.37", features = ["full"] }
 maestria-harness = { path = "../maestria-harness" }
 clap = { version = "4.5", features = ["derive"] }
 anyhow = "1.0"
-maestria-ports = { version = "0.6.0", path = "../../kernel/maestria-ports" }
+maestria-ports = { version = "0.6.1", path = "../../kernel/maestria-ports" }
 tracing-subscriber = "0.3"

@@ -15,7 +15,7 @@ mod ports;
 mod provenance;
 mod types;
 
-pub const CORE_VERSION: &str = "0.6.0";
+pub const CORE_VERSION: &str = "0.6.1";
 
 pub use error::{CoreError, CoreResult};
 pub use ingestion::build_artifact_detected_input;

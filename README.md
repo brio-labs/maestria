@@ -7,7 +7,7 @@ under explicit policy and validation gates.
 
 ## Install
 
-Maestria v0.6.0 targets Rust stable 1.95+. Build from source:
+Maestria v0.6.1 targets Rust stable 1.95+. Build from source:
 
 ```bash
 git clone https://github.com/brio-labs/maestria.git

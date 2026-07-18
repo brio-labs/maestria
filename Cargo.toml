@@ -1,6 +1,6 @@
 [package]
 name = "maestria"
-version = "0.6.0"
+version = "0.6.1"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 description = "Maestria local-first, source-grounded second-brain runtime"
@@ -32,7 +32,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.6.0"
+version = "0.6.1"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 rust-version = "1.95"

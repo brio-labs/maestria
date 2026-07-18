@@ -2,7 +2,7 @@
 name = "maestria-search-tantivy"
 edition = "2024"
 license.workspace = true
-version = "0.6.0"
+version = "0.6.1"
 
 [dependencies]
 maestria_domain = { package = "maestria-domain", path = "../../kernel/maestria-domain" }
