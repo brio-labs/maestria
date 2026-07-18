@@ -40,7 +40,7 @@ impl RepositoryCodeIndex {
                 excluded_patterns,
             )?;
         }
-        let symbols = extract_symbols(
+        let (symbols, relations, relation_summary) = extract_symbols(
             &packages,
             Path::new(&identity.root),
             &identity,
@@ -67,9 +67,11 @@ impl RepositoryCodeIndex {
                     .map(|package| package.name.clone())
                     .collect(),
                 excluded_patterns: excluded_patterns.to_vec(),
+                relation_summary,
             },
             packages,
             symbols,
+            relations,
         })
     }
 

@@ -296,8 +296,10 @@ maestria search code regex "impl .*CandidateRetriever"
 
 The index is JSON-persisted under the instance system directory. Query results expose the
 stored provenance and generation; a parser-generation mismatch is an explicit failure.
-Cross-file AST/LSP relations and graph traversal are separate capabilities and must not be
-inferred from this deterministic symbol projection.
+The repository projection may also carry deterministic AST relations for resolved definitions,
+imports, calls, implementations, and tests. Relation endpoints retain their source records,
+source spans, confidence, and parser generation. Missing LSP/provider support is recorded as
+an explicit degraded status; unresolved edges are omitted rather than presented as facts.
 
 ### Fusion and Ranking
 

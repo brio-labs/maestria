@@ -40,6 +40,85 @@ pub enum Visibility {
     Inherited,
 }
 
+/// Provenance-backed relation source kinds.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum RelationSourceKind {
+    /// Relation discovered via `syn` AST extraction.
+    Ast,
+    /// Relation from rust-analyzer/LSP extraction.
+    RustAnalyzer,
+}
+
+/// Reliability of a relation source lane.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum RelationSourceAvailability {
+    /// Lane is active and trustworthy for this index build.
+    Available,
+    /// Lane is intentionally unavailable and therefore degraded.
+    Degraded,
+    /// Lane failed and produced no relations.
+    Unavailable,
+}
+
+/// Relation lane status persisted in the index summary.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RelationSourceStatus {
+    pub source: RelationSourceKind,
+    pub availability: RelationSourceAvailability,
+    pub reason: Option<String>,
+}
+
+/// Relation kind persisted by AST extraction.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CodeRelationKind {
+    Defines,
+    Imports,
+    Calls,
+    Implements,
+    Tests,
+}
+
+/// Public provenance-backed relation between two indexed symbols.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CodeRelationRecord {
+    pub kind: CodeRelationKind,
+    /// Source endpoint symbol record identifier.
+    pub source_record_id: String,
+    /// Target endpoint symbol record identifier.
+    pub target_record_id: String,
+    /// Source endpoint provenance snapshot.
+    pub source_provenance: RecordProvenance,
+    /// Target endpoint provenance snapshot.
+    pub target_provenance: RecordProvenance,
+    /// Parser generation that produced this relation.
+    pub parser_generation: String,
+    /// Relation-confidence in basis points (0-1000).
+    pub confidence_milli: u16,
+    /// Extractor type for this relation edge.
+    pub source_kind: RelationSourceKind,
+}
+
+/// Relation summary for persisted index.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct CodeRelationSummary {
+    pub total_relations: usize,
+    #[serde(default)]
+    pub source_statuses: Vec<RelationSourceStatus>,
+}
+
+/// Source-level markers extracted from AST/file context.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct SymbolMarkers {
+    /// File is `build.rs` or contains rerun instructions.
+    pub build_script: bool,
+    /// File is marked as generated.
+    pub generated_code: bool,
+    /// Axum routing macros found on this declaration.
+    pub axum_routes: Vec<String>,
+    /// SQLx query calls/macros detected in scope.
+    pub sqlx_queries: Vec<String>,
+}
+
 /// Typed symbol kinds emitted by this index.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SymbolKind {
@@ -58,19 +137,6 @@ pub enum SymbolKind {
     Field,
     UnsafeBlock,
     Other,
-}
-
-/// Source-level markers extracted from AST/file context.
-#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
-pub struct SymbolMarkers {
-    /// File is `build.rs` or contains rerun instructions.
-    pub build_script: bool,
-    /// File is marked as generated.
-    pub generated_code: bool,
-    /// Axum routing macros found on this declaration.
-    pub axum_routes: Vec<String>,
-    /// SQLx query calls/macros detected in scope.
-    pub sqlx_queries: Vec<String>,
 }
 
 /// Target metadata extracted from `cargo metadata`.
@@ -188,6 +254,9 @@ pub struct CodeIndexSummary {
     pub packages: Vec<String>,
     /// Privacy exclusions applied to source identity and extraction.
     pub excluded_patterns: Vec<String>,
+    /// Relation extraction status and summary.
+    #[serde(default)]
+    pub relation_summary: CodeRelationSummary,
 }
 
 /// Serializable persisted index container.
@@ -196,4 +265,6 @@ pub struct RepositoryCodeIndex {
     pub summary: CodeIndexSummary,
     pub packages: Vec<PackageRecord>,
     pub symbols: Vec<SymbolRecord>,
+    #[serde(default)]
+    pub relations: Vec<CodeRelationRecord>,
 }

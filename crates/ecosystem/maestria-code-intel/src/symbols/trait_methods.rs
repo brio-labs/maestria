@@ -1,6 +1,7 @@
 use crate::symbols::context::FileContext;
 use crate::symbols::markers::{attr_bench, attr_test, declaration_markers};
 use crate::symbols::probe::FunctionProbe;
+use crate::symbols::relation::RelationCandidate;
 use crate::symbols::utils::{
     dedupe_strings, is_public_api, provenance, qualify, record_id, signature_text, source_range,
     to_visibility,
@@ -8,11 +9,12 @@ use crate::symbols::utils::{
 use crate::{SymbolKind, SymbolRecord};
 use syn::visit::Visit;
 use syn::{ItemTrait, TraitItem};
+
 pub(super) fn extract_trait(
     item: &ItemTrait,
     module_stack: &[String],
     context: &FileContext,
-) -> Vec<SymbolRecord> {
+) -> (Vec<SymbolRecord>, Vec<RelationCandidate>) {
     let mut records = vec![crate::symbols::utils::simple_record(
         SymbolKind::Trait,
         &item.ident.to_string(),
@@ -25,15 +27,20 @@ pub(super) fn extract_trait(
     if let Some(record) = records.first_mut() {
         record.is_unsafe = item.unsafety.is_some();
     }
-    records.extend(extract_methods(item, module_stack, context));
-    records
+    let mut relation_candidates = Vec::new();
+    let method_records = extract_methods(item, module_stack, context);
+    for (method_records, calls) in method_records {
+        records.extend(method_records);
+        relation_candidates.extend(calls);
+    }
+    (records, relation_candidates)
 }
 
 fn extract_methods(
     item: &ItemTrait,
     module_stack: &[String],
     context: &FileContext,
-) -> Vec<SymbolRecord> {
+) -> Vec<(Vec<SymbolRecord>, Vec<RelationCandidate>)> {
     let mut stack = module_stack.to_vec();
     stack.push(item.ident.to_string());
     item.items
@@ -65,7 +72,7 @@ fn extract_methods(
                 target: context.target.to_string(),
                 kind: SymbolKind::Method,
                 name,
-                qualified_name,
+                qualified_name: qualified_name.clone(),
                 visibility: to_visibility(&syn::Visibility::Inherited),
                 is_public_api: is_public_api(&item.vis),
                 is_async: method.sig.asyncness.is_some(),
@@ -77,10 +84,21 @@ fn extract_methods(
                 markers,
                 provenance: provenance(context, range),
             };
+            let source_record_id = record.record_id.clone();
+            let source_qualified = record.qualified_name.clone();
+            let calls = probe
+                .call_targets
+                .into_iter()
+                .map(|(target_path, self_receiver)| RelationCandidate::Calls {
+                    source_record_id: source_record_id.clone(),
+                    source_qualified: source_qualified.clone(),
+                    target_path,
+                    self_receiver,
+                })
+                .collect();
             let mut records = vec![record];
             records.extend(probe.unsafe_records);
-            Some(records)
+            Some((records, calls))
         })
-        .flatten()
         .collect()
 }
