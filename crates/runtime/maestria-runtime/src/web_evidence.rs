@@ -4,7 +4,7 @@ use maestria_domain::{
     LogicalTick, RecordEvidenceInput, RegisterArtifactInput, ReviewStatus, SecurityMetadata,
     TrustZone, content_hash, web_artifact_id_for, web_evidence_id_for,
 };
-use maestria_governance::scan_secrets;
+use maestria_governance::{contains_prompt_injection_risk, scan_secrets};
 use maestria_ports::WebFetchOptions;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -83,14 +83,7 @@ impl EffectExecutionContext {
     fn security_metadata_for_web(&self, html: &str) -> SecurityMetadata {
         let secret_scan = scan_secrets(html);
         let lower = Self::normalized_web_text(html);
-        let prompt_injection_risk = [
-            "ignore previous instructions",
-            "reveal system prompt",
-            "disable safety",
-            "approve this action",
-        ]
-        .iter()
-        .any(|marker| lower.contains(marker));
+        let prompt_injection_risk = contains_prompt_injection_risk(&lower);
         let mut security = SecurityMetadata {
             trust_zone: TrustZone::Untrusted,
             authority: Authority::External,

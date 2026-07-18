@@ -1,23 +1,29 @@
-use std::{future::Future, pin::Pin, sync::Arc};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    future::Future,
+    pin::Pin,
+    sync::Arc,
+};
 
 use anyhow::{Context, Result, anyhow};
 use maestria_blob_fs::FsBlobStore;
 use maestria_core::{InstanceLayout, InstanceManifest};
 use maestria_domain::{
-    CorpusSnapshotId, DomainEventEnvelope, IndexGenerationId, IndexStatus, KernelState,
-    RepresentationName, RetrievalModelFingerprint, SearchOutcome, SearchPlan,
+    ArtifactVersionId, CorpusSnapshotId, DomainEvent, DomainEventEnvelope, IndexGenerationId,
+    IndexStatus, KernelState, RepresentationName, RetrievalModelFingerprint, SearchOutcome,
+    SearchPlan,
 };
 use maestria_governance::scan_secrets;
 use maestria_graph_sqlite::SqliteGraphIndex;
 use maestria_ports::{
-    ArtifactRepository, BlobStore, CardRepository, ChunkRepository, EmbeddingProvider, EventLog,
-    EvidenceRepository, FullTextIndex, GraphIndex, IndexedCard, SearchKnowledgeExecutor,
+    ArtifactRepository, BlobStore, CardRepository, ChunkRepository, EmbeddingProvider, EventFilter,
+    EventLog, EvidenceRepository, FullTextIndex, GraphIndex, IndexedCard, SearchKnowledgeExecutor,
     VectorIndex,
 };
 use maestria_retrieval::adapters::{
-    CardRetriever, CardRetrieverParts, DenseChunkRetriever, DenseChunkRetrieverParts,
-    EvidenceOutcomeEvaluator, HierarchyGraphExpander, HierarchyGraphExpanderParts,
-    LexicalChunkRetriever, LexicalChunkRetrieverParts,
+    CardRetriever, CardRetrieverParts, CurrentVersionFilter, DenseChunkRetriever,
+    DenseChunkRetrieverParts, EvidenceOutcomeEvaluator, HierarchyGraphExpander,
+    HierarchyGraphExpanderParts, LexicalChunkRetriever, LexicalChunkRetrieverParts,
 };
 use maestria_retrieval::{
     CandidateRetriever, FixedKRrf, HybridExecutionPolicy, RetrievalEngine, SearchPlannerContext,
@@ -102,29 +108,55 @@ impl SearchRuntime {
         Ok(())
     }
 
-    fn retrieval_engine(&self) -> RetrievalEngine {
-        let card = Arc::new(CardRetriever::new(
-            CardRetrieverParts {
-                index: self.search_index.clone(),
-                artifacts: self.artifacts.clone(),
-                cards: self.cards.clone(),
-                chunks: self.chunks.clone(),
-                evidence: self.evidence.clone(),
-                blobs: self.blobs.clone(),
-            },
-            self.retrieval_policy.clone(),
-            self.primary_generation,
+    fn current_artifact_versions(&self) -> Result<BTreeSet<ArtifactVersionId>> {
+        let events = EventLog::scan(self.event_log.as_ref(), EventFilter { artifact_id: None })
+            .map_err(|error| {
+                anyhow!("scan parser history for current artifact versions: {error}")
+            })?;
+        let mut latest_by_path = BTreeMap::new();
+        for envelope in events {
+            if let DomainEvent::ParserStarted {
+                artifact_id,
+                source_path,
+                ..
+            } = envelope.event
+            {
+                latest_by_path.insert(source_path, ArtifactVersionId::new(artifact_id.value()));
+            }
+        }
+        Ok(latest_by_path.into_values().collect())
+    }
+
+    fn retrieval_engine(&self) -> Result<RetrievalEngine> {
+        let active_versions = self.current_artifact_versions()?;
+        let card: Arc<dyn CandidateRetriever> = Arc::new(CurrentVersionFilter::new(
+            Arc::new(CardRetriever::new(
+                CardRetrieverParts {
+                    index: self.search_index.clone(),
+                    artifacts: self.artifacts.clone(),
+                    cards: self.cards.clone(),
+                    chunks: self.chunks.clone(),
+                    evidence: self.evidence.clone(),
+                    blobs: self.blobs.clone(),
+                },
+                self.retrieval_policy.clone(),
+                self.primary_generation,
+            )),
+            active_versions.clone(),
         ));
-        let lexical = Arc::new(LexicalChunkRetriever::new(
-            LexicalChunkRetrieverParts {
-                index: self.search_index.clone(),
-                artifacts: self.artifacts.clone(),
-                chunks: self.chunks.clone(),
-                evidence: self.evidence.clone(),
-                blobs: self.blobs.clone(),
-            },
-            self.retrieval_policy.clone(),
-            self.primary_generation,
+        let lexical: Arc<dyn CandidateRetriever> = Arc::new(CurrentVersionFilter::new(
+            Arc::new(LexicalChunkRetriever::new(
+                LexicalChunkRetrieverParts {
+                    index: self.search_index.clone(),
+                    artifacts: self.artifacts.clone(),
+                    chunks: self.chunks.clone(),
+                    evidence: self.evidence.clone(),
+                    blobs: self.blobs.clone(),
+                },
+                self.retrieval_policy.clone(),
+                self.primary_generation,
+            )),
+            active_versions.clone(),
         ));
         let mut retrievers: Vec<Arc<dyn CandidateRetriever>> = vec![card, lexical];
         if let (Some(vector_index), Some(provider), Some(generation)) = (
@@ -132,17 +164,20 @@ impl SearchRuntime {
             self.embedding_provider.clone(),
             self.dense_generation,
         ) {
-            retrievers.push(Arc::new(DenseChunkRetriever::new(
-                DenseChunkRetrieverParts {
-                    index: vector_index,
-                    artifacts: self.artifacts.clone(),
-                    chunks: self.chunks.clone(),
-                    evidence: self.evidence.clone(),
-                    blobs: self.blobs.clone(),
-                    embedding_provider: provider,
-                },
-                self.retrieval_policy.clone(),
-                generation,
+            retrievers.push(Arc::new(CurrentVersionFilter::new(
+                Arc::new(DenseChunkRetriever::new(
+                    DenseChunkRetrieverParts {
+                        index: vector_index,
+                        artifacts: self.artifacts.clone(),
+                        chunks: self.chunks.clone(),
+                        evidence: self.evidence.clone(),
+                        blobs: self.blobs.clone(),
+                        embedding_provider: provider,
+                    },
+                    self.retrieval_policy.clone(),
+                    generation,
+                )),
+                active_versions,
             )));
         }
         let mut engine = RetrievalEngine::new(
@@ -162,7 +197,7 @@ impl SearchRuntime {
                 self.retrieval_policy.clone(),
             )));
         }
-        engine.with_hybrid_policy(HybridExecutionPolicy::Shadow)
+        Ok(engine.with_hybrid_policy(HybridExecutionPolicy::Shadow))
     }
 
     fn planner_context(&self) -> SearchPlannerContext {
@@ -174,7 +209,7 @@ impl SearchRuntime {
     }
 
     fn execute_plan_blocking(&self, plan: SearchPlan) -> Result<SearchOutcome> {
-        let engine = self.retrieval_engine();
+        let engine = self.retrieval_engine()?;
         tokio::runtime::Handle::current()
             .block_on(engine.search(&plan))
             .map_err(|error| anyhow!(error.to_string()))
@@ -185,7 +220,7 @@ impl SearchRuntime {
         query: String,
         limit: usize,
     ) -> Result<(SearchPlan, SearchOutcome)> {
-        let engine = self.retrieval_engine();
+        let engine = self.retrieval_engine()?;
         let plan = engine
             .plan(query, limit, &self.planner_context())
             .map_err(|error| anyhow!(error.to_string()))?;
@@ -235,6 +270,26 @@ pub fn prepare_search_runtime(
     manifest: &InstanceManifest,
     retrieval_policy: maestria_governance::RetrievalSecurityPolicy,
 ) -> Result<Arc<SearchRuntime>> {
+    prepare_search_runtime_with_options(layout, state, manifest, retrieval_policy, true)
+}
+
+/// Construct a search runtime without rebuilding writable projections.
+pub fn prepare_search_runtime_read_only(
+    layout: &InstanceLayout,
+    state: &KernelState,
+    manifest: &InstanceManifest,
+    retrieval_policy: maestria_governance::RetrievalSecurityPolicy,
+) -> Result<Arc<SearchRuntime>> {
+    prepare_search_runtime_with_options(layout, state, manifest, retrieval_policy, false)
+}
+
+fn prepare_search_runtime_with_options(
+    layout: &InstanceLayout,
+    state: &KernelState,
+    manifest: &InstanceManifest,
+    retrieval_policy: maestria_governance::RetrievalSecurityPolicy,
+    allow_projection_writes: bool,
+) -> Result<Arc<SearchRuntime>> {
     let sqlite_store = Arc::new(
         SqliteStore::open(&layout.database_path)
             .with_context(|| format!("open sqlite store {}", layout.database_path.display()))?,
@@ -243,15 +298,30 @@ pub fn prepare_search_runtime(
         FsBlobStore::open(&layout.blobs_dir)
             .with_context(|| format!("open blob store {}", layout.blobs_dir.display()))?,
     );
-    let search_index = Arc::new(
-        TantivyFullTextIndex::open(&layout.full_text_index_dir).with_context(|| {
-            format!(
-                "open full-text index {}",
-                layout.full_text_index_dir.display()
-            )
-        })?,
-    );
-    ensure_search_index(&search_index, state)?;
+    let search_index = if allow_projection_writes {
+        Arc::new(
+            TantivyFullTextIndex::open(&layout.full_text_index_dir).with_context(|| {
+                format!(
+                    "open full-text index {}",
+                    layout.full_text_index_dir.display()
+                )
+            })?,
+        )
+    } else {
+        Arc::new(
+            TantivyFullTextIndex::open_read_only(&layout.full_text_index_dir).with_context(
+                || {
+                    format!(
+                        "open full-text index read-only {}",
+                        layout.full_text_index_dir.display()
+                    )
+                },
+            )?,
+        )
+    };
+    if allow_projection_writes {
+        ensure_search_index(&search_index, state)?;
+    }
     let embedding_provider = crate::build_embedding_provider(manifest, state)?;
     let vector_index: Option<Arc<dyn VectorIndex + Send + Sync>> = if embedding_provider.is_some() {
         Some(Arc::new(
@@ -262,8 +332,9 @@ pub fn prepare_search_runtime(
     } else {
         None
     };
-    if let (Some(provider), Some(vector_index)) =
-        (embedding_provider.as_deref(), vector_index.as_deref())
+    if allow_projection_writes
+        && let (Some(provider), Some(vector_index)) =
+            (embedding_provider.as_deref(), vector_index.as_deref())
     {
         let model = manifest
             .embeddings
@@ -280,8 +351,10 @@ pub fn prepare_search_runtime(
         SqliteGraphIndex::open(layout.graph_index_dir.join("projection.db"))
             .with_context(|| format!("open graph index {}", layout.graph_index_dir.display()))?,
     );
-    crate::reconcile_graph_projection(state, &*graph_index)
-        .with_context(|| "reconcile graph projection for search")?;
+    if allow_projection_writes {
+        crate::reconcile_graph_projection(state, &*graph_index)
+            .with_context(|| "reconcile graph projection for search")?;
+    }
     let lexical = state
         .index_generations
         .get_active(&RepresentationName::new("lexical_text_v1"))

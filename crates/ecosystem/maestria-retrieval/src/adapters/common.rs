@@ -1,13 +1,14 @@
-use std::sync::Arc;
+use std::{collections::BTreeSet, sync::Arc};
 
+use crate::traits::CandidateRetriever;
+use crate::types::{CandidateBatch, CandidateRequest, RetrievalError, RetrieverDescriptor};
+use async_trait::async_trait;
 use maestria_domain::{
     ArtifactVersionId, ContentRange, Evidence, EvidenceCandidate, EvidenceKind, EvidenceSpan,
     FreshnessStatus, IndexGenerationId, RetrievalReason, RetrievalScoreSet, SourceLocation,
     SourceSpan, StructureNodeId, TrustLabel,
 };
 use maestria_ports::BlobStore;
-
-use crate::types::RetrievalError;
 
 pub(super) fn port_error(error: maestria_ports::PortError) -> RetrievalError {
     RetrievalError::Internal(error.to_string())
@@ -20,6 +21,41 @@ pub(super) fn generation_mismatch(
     RetrievalError::Internal(format!(
         "retriever generation mismatch: expected {expected}, found {actual}"
     ))
+}
+
+/// Filters retriever results to the latest known artifact version per source.
+pub struct CurrentVersionFilter {
+    inner: Arc<dyn CandidateRetriever>,
+    active_versions: Arc<BTreeSet<ArtifactVersionId>>,
+}
+
+impl CurrentVersionFilter {
+    pub fn new(
+        inner: Arc<dyn CandidateRetriever>,
+        active_versions: BTreeSet<ArtifactVersionId>,
+    ) -> Self {
+        Self {
+            inner,
+            active_versions: Arc::new(active_versions),
+        }
+    }
+}
+
+#[async_trait]
+impl CandidateRetriever for CurrentVersionFilter {
+    fn descriptor(&self) -> RetrieverDescriptor {
+        self.inner.descriptor()
+    }
+
+    async fn retrieve(&self, request: CandidateRequest) -> Result<CandidateBatch, RetrievalError> {
+        let mut batch = self.inner.retrieve(request).await?;
+        if !self.active_versions.is_empty() {
+            batch
+                .candidates
+                .retain(|candidate| self.active_versions.contains(&candidate.artifact_version));
+        }
+        Ok(batch)
+    }
 }
 
 /// Verifies immutable source snapshots before a candidate crosses retrieval.

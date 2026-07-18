@@ -5,7 +5,7 @@ mod lexical;
 mod secondary;
 
 pub use cards::{CardRetriever, CardRetrieverParts};
-pub use common::SourceSnapshotVerifier;
+pub use common::{CurrentVersionFilter, SourceSnapshotVerifier};
 pub use dense::{DenseChunkRetriever, DenseChunkRetrieverParts};
 pub use lexical::{LexicalChunkRetriever, LexicalChunkRetrieverParts};
 pub use secondary::{

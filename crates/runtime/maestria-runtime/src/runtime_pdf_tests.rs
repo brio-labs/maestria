@@ -1,6 +1,7 @@
 use super::test_support::*;
 use maestria_domain::{
-    Artifact, ArtifactId, ChunkId, EvidenceKind, IndexStatus, ParseArtifactRequest,
+    Artifact, ArtifactId, ChunkId, DomainInput, EvidenceKind, IndexStatus, ParseArtifactRequest,
+    ParseStatus,
 };
 use maestria_ports::{
     ArtifactRepository, FileHandle, FileMetadata, InMemoryArtifactRepository, InMemoryEventLog,
@@ -306,7 +307,7 @@ async fn pdf_evidence_maps_page_n_to_pdf_span() -> Result<(), Box<dyn std::error
 }
 
 #[tokio::test]
-async fn scanned_pdf_no_extractable_text_fails_before_parser_completed()
+async fn scanned_pdf_no_extractable_text_emits_terminal_parser_failure()
 -> Result<(), Box<dyn std::error::Error>> {
     struct ScannedPdfParser;
     impl Parser for ScannedPdfParser {
@@ -373,8 +374,8 @@ async fn scanned_pdf_no_extractable_text_fails_before_parser_completed()
     .await;
 
     assert!(
-        !result,
-        "scanned/no-text PDF must fail before ParserCompleted"
+        result,
+        "scanned/no-text PDF parser failure should be terminal"
     );
 
     // ParserStarted is sent before parsing as a crash-recovery marker.
@@ -387,13 +388,24 @@ async fn scanned_pdf_no_extractable_text_fails_before_parser_completed()
         Err(_) => return Err("timeout waiting for ParserStarted".to_string().into()),
     }
 
-    // No further events must be emitted after parser failure.
-    match tokio::time::timeout(Duration::from_millis(200), input_rx.recv()).await {
-        Ok(Some(msg)) => {
-            return Err(format!("unexpected event after parser failure: {msg:?}").into());
+    match tokio::time::timeout(Duration::from_secs(1), input_rx.recv()).await {
+        Ok(Some(DomainInput::ParserCompleted(pr))) => {
+            assert_eq!(pr.status, ParseStatus::Failed);
+            assert!(pr.chunks.is_empty());
         }
-        Ok(None) => {} // channel closed — acceptable
-        Err(_) => {}   // timeout — no events, expected
+        Ok(Some(other)) => {
+            return Err(format!("expected terminal ParserCompleted, got {other:?}").into());
+        }
+        Ok(None) => {
+            return Err("channel closed before terminal parser result"
+                .to_string()
+                .into());
+        }
+        Err(_) => {
+            return Err("timeout waiting for terminal parser result"
+                .to_string()
+                .into());
+        }
     }
     Ok(())
 }

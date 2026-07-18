@@ -8,9 +8,9 @@ use maestria_governance::AutonomyProfile;
 use std::{fs, path::PathBuf, sync::Arc, time::Duration};
 use tokio::time::{sleep, timeout};
 
+pub use super::task_validation::{run_complete, run_request_validation};
 use crate::cli_types::CliTaskPriority;
 use crate::helpers;
-
 const TASK_WORKSPACE_SUBDIRECTORIES: [&str; 5] =
     ["context", "evidence", "drafts", "validation", "artifacts"];
 
@@ -22,12 +22,11 @@ pub async fn run_start(
 ) -> Result<()> {
     let layout = helpers::ensure_instance(instance_dir)?;
     let _instance_lock = maestria_daemon::acquire_instance_write_lock(&layout).await?;
-    let state = load_kernel_state_with_retry(
+    let state = helpers::load_kernel_state_with_retry(
         &layout,
         Duration::from_secs(2),
         "load kernel state before task start",
-    )
-    .await?;
+    )?;
     let task_id = next_task_id(&state);
     create_task_workspace_directories(&layout, task_id)?;
 
@@ -73,12 +72,11 @@ pub async fn run_start(
 pub async fn run_add_evidence(instance_dir: PathBuf, task_id: u64, evidence_id: u64) -> Result<()> {
     let layout = helpers::ensure_instance(instance_dir)?;
     let _instance_lock = maestria_daemon::acquire_instance_write_lock(&layout).await?;
-    let state = load_kernel_state_with_retry(
+    let state = helpers::load_kernel_state_with_retry(
         &layout,
         Duration::from_secs(2),
         "load kernel state before add-evidence",
-    )
-    .await?;
+    )?;
     let task_id = TaskId::new(task_id);
     let evidence_id = EvidenceId::new(evidence_id);
 
@@ -307,24 +305,4 @@ async fn wait_for_task_evidence_link(
             .map_or_else(String::new, |error| format!(" {error}"));
         anyhow!("timed out while waiting for evidence {evidence_id} link to task {task_id}{detail}")
     })?
-}
-
-async fn load_kernel_state_with_retry(
-    layout: &InstanceLayout,
-    timeout_budget: Duration,
-    context: &'static str,
-) -> Result<KernelState> {
-    timeout(timeout_budget, async {
-        loop {
-            match maestria_daemon::load_kernel_state(layout).with_context(|| context) {
-                Ok(state) => return Ok(state),
-                Err(error) if helpers::is_db_locked(&error) => {
-                    sleep(Duration::from_millis(25)).await;
-                }
-                Err(error) => return Err(error),
-            }
-        }
-    })
-    .await
-    .map_err(|_| anyhow!("timed out while {context}"))?
 }

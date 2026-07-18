@@ -1,6 +1,6 @@
 use super::test_support::*;
 use maestria_domain::{
-    Artifact, ArtifactId, EvidenceKind, IndexStatus, LogicalTick, ParseArtifactRequest,
+    Artifact, ArtifactId, DomainInput, EvidenceKind, IndexStatus, LogicalTick, ParseArtifactRequest,
 };
 use maestria_ports::{
     ArtifactRepository, FileHandle, FileMetadata, InMemoryArtifactRepository, ParseContext,
@@ -111,7 +111,8 @@ async fn parse_artifact_passes_exact_source_path_and_bytes()
 }
 
 #[tokio::test]
-async fn parse_artifact_empty_bytes_returns_failure() -> Result<(), Box<dyn std::error::Error>> {
+async fn parse_artifact_empty_bytes_emit_terminal_failure() -> Result<(), Box<dyn std::error::Error>>
+{
     let artifact_repo = InMemoryArtifactRepository::new();
     artifact_repo.put(Artifact {
         id: ArtifactId::new(7),
@@ -150,11 +151,14 @@ async fn parse_artifact_empty_bytes_returns_failure() -> Result<(), Box<dyn std:
     )
     .await;
 
-    assert!(!result, "ParseArtifact with empty bytes should fail");
+    assert!(
+        result,
+        "invalid parser input should be terminal, not retried"
+    );
     Ok(())
 }
 #[tokio::test]
-async fn parse_artifact_unsupported_parser_returns_failure()
+async fn parse_artifact_unsupported_parser_emits_terminal_status()
 -> Result<(), Box<dyn std::error::Error>> {
     struct RejectingParser;
     impl Parser for RejectingParser {
@@ -213,8 +217,8 @@ async fn parse_artifact_unsupported_parser_returns_failure()
     .await;
 
     assert!(
-        !result,
-        "unsupported parser should cause ParseArtifact to return false for retry"
+        result,
+        "unsupported parser should be terminal and not retried"
     );
     Ok(())
 }

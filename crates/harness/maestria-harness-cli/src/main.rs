@@ -32,12 +32,21 @@ fn privacy_patterns() -> Vec<String> {
     patterns
 }
 
+fn enforce_policy_decision(decision: &PolicyDecision) -> Result<()> {
+    match decision {
+        PolicyDecision::Allow => Ok(()),
+        PolicyDecision::Deny { reason } => anyhow::bail!("Governance: Denied. {reason}"),
+        PolicyDecision::RequireApproval { reason } => {
+            anyhow::bail!("Governance: Requires approval. {reason}")
+        }
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::fmt::init();
 
     let cli = Cli::parse();
-    let adapter = LocalShellHarnessAdapter;
 
     let working_directory = std::fs::canonicalize(&cli.working_directory)?;
     let scope = Scope::new(
@@ -70,19 +79,10 @@ async fn main() -> Result<()> {
         profile,
         scope: &guard,
     });
-    match decision.decision {
-        PolicyDecision::Deny { reason } => {
-            println!("Governance: Denied. {reason}");
-            return Ok(());
-        }
-        PolicyDecision::RequireApproval { reason } => {
-            println!("Governance: Requires approval. {reason}");
-            return Ok(());
-        }
-        PolicyDecision::Allow => {}
-    }
+    enforce_policy_decision(&decision.decision)?;
     println!("Governance: Approved. Risk: {:?}", decision.risk);
 
+    let adapter = LocalShellHarnessAdapter;
     let request = HarnessRequest {
         run_id: HarnessRunId::new(1),
         command: cli.command.clone(),
@@ -114,4 +114,43 @@ async fn main() -> Result<()> {
     }
 
     Ok(())
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn enforce_policy_decision_allows_allowing_decision() {
+        let decision = PolicyDecision::Allow;
+        assert!(enforce_policy_decision(&decision).is_ok());
+    }
+
+    #[test]
+    fn enforce_policy_decision_denies_with_error() -> Result<()> {
+        let err = match enforce_policy_decision(&PolicyDecision::Deny {
+            reason: "blocked command".into(),
+        }) {
+            Err(error) => error,
+            Ok(()) => return Err(anyhow::anyhow!("denied policy unexpectedly allowed")),
+        };
+
+        assert_eq!(err.to_string(), "Governance: Denied. blocked command");
+        Ok(())
+    }
+
+    #[test]
+    fn enforce_policy_decision_requires_approval_with_error() -> Result<()> {
+        let err = match enforce_policy_decision(&PolicyDecision::RequireApproval {
+            reason: "needs explicit approval".into(),
+        }) {
+            Err(error) => error,
+            Ok(()) => return Err(anyhow::anyhow!("approval policy unexpectedly allowed")),
+        };
+
+        assert_eq!(
+            err.to_string(),
+            "Governance: Requires approval. needs explicit approval"
+        );
+        Ok(())
+    }
 }

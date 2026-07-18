@@ -164,6 +164,46 @@ impl RetrievalEvaluator for AdaptiveEvaluator {
     }
 }
 
+struct AnswerableEvaluator;
+
+#[async_trait]
+impl RetrievalEvaluator for AnswerableEvaluator {
+    async fn evaluate(
+        &self,
+        experiment: maestria_retrieval::types::RetrievalExperiment,
+    ) -> RetrievalResult<maestria_retrieval::types::RetrievalEvaluationReport> {
+        let evidence = experiment.candidates;
+        let status = if evidence.is_empty() {
+            SearchStatus::NoEvidenceFound
+        } else {
+            SearchStatus::Answerable
+        };
+        let percent_covered = if evidence.is_empty() { 0 } else { 100 };
+        Ok(maestria_retrieval::types::RetrievalEvaluationReport {
+            evaluated_candidates: evidence.len(),
+            outcome: SearchOutcome {
+                trace: SearchTraceId::new(1),
+                trace_data: None,
+                fingerprint: experiment.plan.fingerprint.clone(),
+                index_generation: experiment.plan.index_generation,
+                status,
+                evidence,
+                coverage: EvidenceCoverage {
+                    required_claims: vec![],
+                    required_subquestions: vec![],
+                    distinct_sources: 0,
+                    distinct_documents: 0,
+                    distinct_sections: 0,
+                    candidate_coverage_keys: vec![],
+                    percent_covered,
+                    gaps_identified: vec![],
+                },
+                conflicts: vec![],
+            },
+        })
+    }
+}
+
 #[tokio::test]
 async fn bounded_search_retrieves_declared_missing_slot() -> RetrievalResult<()> {
     let plan = adaptive_plan(3, 2)?;
@@ -282,5 +322,55 @@ async fn planner_accepts_context_snapshot_with_installed_generation() -> Retriev
     assert_eq!(plan.corpus_snapshot, context.corpus_snapshot);
     assert_eq!(plan.index_generation, context.primary_generation);
     engine.search(&plan).await?;
+    Ok(())
+}
+#[tokio::test]
+async fn planner_prefers_text_routing_when_web_or_visual_lanes_are_unavailable()
+-> RetrievalResult<()> {
+    let context = maestria_retrieval::SearchPlannerContext {
+        corpus_snapshot: CorpusSnapshotId::new(1),
+        primary_generation: IndexGenerationId::new(1),
+        fingerprint: RetrievalModelFingerprint::new("planner-fallback".to_string())?,
+    };
+    let engine = RetrievalEngine::new(
+        vec![Arc::new(AdaptiveLane {
+            slot_only: false,
+            stale_generation: false,
+        })],
+        Arc::new(AnswerableEvaluator),
+    );
+
+    for query in ["current source version", "find the chart in the PDF"] {
+        let plan = engine.plan(query, 1, &context)?;
+        let outcome = engine.search(&plan).await?;
+        assert_eq!(plan.intent, SearchIntent::FactualLocal);
+        assert_eq!(plan.modalities, ModalitySet::new(vec![Modality::Text]));
+        assert_eq!(outcome.status, SearchStatus::Answerable);
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn explicit_current_web_plan_preserves_validation_error() -> RetrievalResult<()> {
+    let mut plan = adaptive_plan(3, 1)?;
+    plan.intent = SearchIntent::CurrentWeb;
+    plan.original_query = "current source version".to_string();
+    plan.modalities = ModalitySet::new(vec![Modality::Web]);
+    plan.freshness = FreshnessRequirement::Realtime;
+    plan.budgets = SearchBudget::with_resource_limits(1000, 1000, 8, 1, 1, 16_384, 1)?;
+    let engine = RetrievalEngine::new(
+        vec![Arc::new(AdaptiveLane {
+            slot_only: false,
+            stale_generation: false,
+        })],
+        Arc::new(AnswerableEvaluator),
+    );
+
+    assert!(matches!(
+        engine.search(&plan).await,
+        Err(RetrievalError::SearchPlan(
+            maestria_governance::SearchPlanValidationError::UnsupportedIntent(_)
+        ))
+    ));
     Ok(())
 }

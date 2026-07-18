@@ -157,6 +157,15 @@ async fn dispatch_task(command: TaskCommands) -> Result<()> {
             task_id,
             evidence_id,
         } => commands::task::run_add_evidence(instance_dir, task_id, evidence_id).await,
+        TaskCommands::RequestValidation {
+            instance_dir,
+            task_id,
+        } => commands::task::run_request_validation(instance_dir, task_id).await,
+        TaskCommands::Complete {
+            instance_dir,
+            task_id,
+            report_id,
+        } => commands::task::run_complete(instance_dir, task_id, report_id).await,
     }
 }
 
@@ -172,6 +181,11 @@ async fn dispatch_memory(command: MemoryCommands) -> Result<()> {
             confidence_milli,
             instance_dir,
         } => commands::memory::run_propose(instance_dir, text, evidence_id, confidence_milli).await,
+        MemoryCommands::Promote {
+            instance_dir,
+            candidate_id,
+            approve,
+        } => commands::memory::run_promote(instance_dir, candidate_id, approve).await,
     }
 }
 

@@ -38,10 +38,11 @@ impl KernelState {
         // Resume/recovery path: pending_parsers survived via replay.
         generated.extend(self.process_parser_pending_parsers(&input)?);
 
-        // pending_parsers is NOT removed here — it stays until terminal
-        // ArtifactIndexed, so a crash before evidence/indexing leaves the
-        // parser retryable on the next resume.
-
+        // Remove parser-retry entries for terminal parser outcomes; non-terminal
+        // statuses move into indexed evidence lifecycle and may require recovery.
+        if input.status != crate::provenance::ParseStatus::Parsed {
+            self.pending_parsers.remove(&input.artifact_id);
+        }
         if !self.artifacts.contains_key(&input.artifact_id) {
             return Err(DomainError::MissingArtifact {
                 id: input.artifact_id,

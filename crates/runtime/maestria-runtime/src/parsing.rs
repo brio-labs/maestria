@@ -1,12 +1,12 @@
 use crate::config::EffectExecutionContext;
-use crate::parser_mapping::{domain_parse_status, domain_representation, domain_source_span};
+use crate::parser_mapping::domain_parse_status;
+use crate::parsing_records::build_indexable_records;
 use crate::persistence::wait_for_parser_started_persistence;
 use maestria_domain::{
-    Artifact, ArtifactId, BlobId, ContentRange, DomainInput, EvidenceKind, LogicalTick,
-    ParseArtifactRequest, ParserResult, ParserStarted, RecordEvidenceInput, RegisterChunkInput,
-    content_hash, evidence_id_for, excerpt_for,
+    Artifact, ArtifactId, BlobId, DomainInput, ParseArtifactRequest, ParserResult, ParserStarted,
+    content_hash,
 };
-use maestria_ports::{FileHandle, FileMetadata, ParseContext, SourceSpan};
+use maestria_ports::{FileHandle, FileMetadata, ParseContext};
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -36,13 +36,17 @@ impl EffectExecutionContext {
         };
 
         let path = PathBuf::from(&request.source_path);
+        let source_hash = content_hash(&parse_bytes);
 
         // 3. Check that the parser supports this file type.
         if !self.check_parser_support(&path, &parse_bytes, artifact.id) {
-            return false;
+            return self.emit_terminal_parser_completed(
+                artifact.id,
+                maestria_domain::ArtifactVersionId::new(artifact.id.value()),
+                maestria_ports::ParseStatus::Unsupported,
+                &source_hash,
+            );
         }
-
-        let source_hash = content_hash(&parse_bytes);
 
         // 4. On fresh ingestion, publish the durable ParserStarted marker and
         //    wait for it to become observable in the event log (persistence barrier).
@@ -349,6 +353,18 @@ impl EffectExecutionContext {
                     return false;
                 }
             }
+            Err(maestria_ports::PortError::InvalidInput { .. }) => {
+                tracing::warn!(
+                    artifact_id = %artifact_id.value(),
+                    "parser rejected artifact as invalid input"
+                );
+                return self.emit_terminal_parser_completed(
+                    artifact_id,
+                    maestria_domain::ArtifactVersionId::new(artifact_id.value()),
+                    maestria_ports::ParseStatus::Failed,
+                    &source_hash,
+                );
+            }
             Err(error) => {
                 tracing::error!(artifact_id = %artifact_id, %error, "parser failed");
                 return false;
@@ -357,92 +373,32 @@ impl EffectExecutionContext {
 
         true
     }
-}
 
-fn build_indexable_records(
-    parsed: &maestria_ports::ParsedArtifact,
-    artifact_id: ArtifactId,
-    blob_id: BlobId,
-    source_path: &str,
-    source_hash: &str,
-) -> Option<(
-    Vec<RecordEvidenceInput>,
-    Vec<RegisterChunkInput>,
-    Vec<maestria_domain::CreateCardInput>,
-)> {
-    let mut evidence_inputs = Vec::new();
-    let mut chunks = Vec::new();
-    let observed_at = LogicalTick::new(1);
-
-    for (order, chunk) in parsed.chunks.iter().enumerate() {
-        let evidence_id = evidence_id_for(artifact_id, order as u32);
-        let excerpt = excerpt_for(&chunk.text);
-        let kind = match &chunk.source_span {
-            SourceSpan::TextSpan {
-                start_line,
-                end_line,
-            } => EvidenceKind::FileSpan {
-                path: source_path.to_string(),
-                range: ContentRange {
-                    start: *start_line,
-                    end: *end_line,
-                },
-                content_hash: source_hash.to_string(),
-                snapshot: Some(blob_id),
-            },
-            SourceSpan::PdfSpan { page } => {
-                let page = match u32::try_from(*page) {
-                    Ok(page) => page,
-                    Err(_) => {
-                        tracing::error!(
-                            artifact_id = %artifact_id,
-                            page = *page,
-                            "parser PDF page exceeds domain evidence range"
-                        );
-                        return None;
-                    }
-                };
-                EvidenceKind::PdfSpan {
-                    blob: blob_id,
-                    page_start: page,
-                    page_end: page,
-                }
-            }
+    fn emit_terminal_parser_completed(
+        &self,
+        artifact_id: ArtifactId,
+        artifact_version_id: maestria_domain::ArtifactVersionId,
+        status: maestria_ports::ParseStatus,
+        source_hash: &str,
+    ) -> bool {
+        let Ok(content_hash) = maestria_domain::ContentHash::new(source_hash.to_string()) else {
+            tracing::error!(artifact_id = %artifact_id.value(), "invalid content hash for terminal parse completion");
+            return false;
         };
-        evidence_inputs.push(RecordEvidenceInput {
-            evidence_id,
-            artifact_id,
-            claim_id: None,
-            kind,
-            excerpt,
-            observed_at,
-            security: None,
-        });
-        chunks.push(RegisterChunkInput {
-            chunk_id: chunk.chunk_id,
-            artifact_id: chunk.artifact_id,
-            node_id: chunk.node_id,
-            source_span: domain_source_span(&chunk.source_span),
-            representations: chunk
-                .representations
-                .iter()
-                .map(domain_representation)
-                .collect(),
-            order: (order.min(u32::MAX as usize)) as u32,
-            text: chunk.text.clone(),
-        });
+        Self::send_input(
+            &self.input_tx,
+            DomainInput::ParserCompleted(ParserResult {
+                artifact_id,
+                artifact_version_id,
+                content_hash,
+                status: domain_parse_status(status),
+                tree_root_id: None,
+                tree_nodes: Vec::new(),
+                chunks: Vec::new(),
+                cards: Vec::new(),
+            }),
+            "parser completion",
+        )
+        .is_ok()
     }
-
-    let cards = parsed
-        .cards
-        .iter()
-        .map(|parsed_card| {
-            let mut card = parsed_card.card.clone();
-            card.node_id = parsed_card.node_id;
-            card.source_span = domain_source_span(&parsed_card.source_span);
-            card
-        })
-        .collect();
-
-    Some((evidence_inputs, chunks, cards))
 }
