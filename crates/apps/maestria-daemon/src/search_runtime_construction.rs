@@ -1,5 +1,35 @@
 use super::*;
 
+impl SearchRuntime {
+    pub(super) fn visual_retriever(
+        &self,
+        active_versions: BTreeSet<ArtifactVersionId>,
+    ) -> Option<Arc<dyn CandidateRetriever>> {
+        let (Some(vector_index), Some(provider), Some(capability)) = (
+            self.visual_vector_index.clone(),
+            self.visual_embedding_provider.clone(),
+            self.visual_generation.clone(),
+        ) else {
+            return None;
+        };
+        Some(Arc::new(CurrentVersionFilter::new(
+            Arc::new(VisualPageRegionRetriever::new(
+                VisualPageRegionRetrieverParts {
+                    index: vector_index,
+                    artifacts: self.artifacts.clone(),
+                    chunks: self.chunks.clone(),
+                    evidence: self.evidence.clone(),
+                    blobs: self.blobs.clone(),
+                    embedding_provider: provider,
+                },
+                self.retrieval_policy.clone(),
+                capability,
+            )),
+            active_versions,
+        )))
+    }
+}
+
 /// Construct the one search runtime used by CLI search and explain.
 pub fn prepare_search_runtime(
     layout: &InstanceLayout,

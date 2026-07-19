@@ -235,6 +235,7 @@ pub struct SearchTraceLane {
 pub enum RerankCandidateStatus {
     Reranked,
     SkippedCap,
+    SkippedNotApplicable,
     ErrorFallback(String),
 }
 

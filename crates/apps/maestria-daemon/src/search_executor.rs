@@ -42,8 +42,9 @@ use maestria_retrieval::adapters::{
     VisualPageRegionRetrieverParts, VisualProjectionRebuildParts, rebuild_visual_projection,
 };
 use maestria_retrieval::{
-    CandidateRetriever, FixedKRrf, HybridExecutionPolicy, RepositoryExecutionPolicy,
-    RetrievalEngine, SearchPlannerContext,
+    CandidateReranker, CandidateRetriever, FixedKRrf, HybridExecutionPolicy,
+    RepositoryExecutionPolicy, RerankLimits, RetrievalEngine, SearchPlannerContext, VisualReranker,
+    VisualRerankerParts,
 };
 use maestria_search_tantivy::TantivyFullTextIndex;
 use maestria_storage_sqlite::SqliteStore;
@@ -83,6 +84,7 @@ pub struct SearchRuntime {
     pub(crate) graph_index: Option<Arc<dyn GraphIndex + Send + Sync>>,
     pub(crate) event_log: Arc<SqliteStore>,
     pub(crate) embedding_provider: Option<Arc<dyn EmbeddingProvider + Send + Sync>>,
+    pub(crate) reranker: Option<Arc<dyn CandidateReranker>>,
     pub(crate) retrieval_policy: maestria_governance::RetrievalSecurityPolicy,
     pub(crate) primary_generation: IndexGenerationId,
     pub(crate) dense_generation: Option<IndexGenerationId>,
@@ -116,6 +118,7 @@ impl SearchRuntime {
             graph_index: parts.graph_index,
             event_log: parts.event_log,
             embedding_provider,
+            reranker: None,
             visual_embedding_provider: None,
             visual_generation: None,
             retrieval_policy,
@@ -187,6 +190,33 @@ impl SearchRuntime {
         self.visual_embedding_provider = Some(provider);
         self.visual_generation = Some(capability);
         Ok(())
+    }
+
+    /// Installs the optional visual reranker using the active visual capability.
+    pub fn with_visual_reranker(self: Arc<Self>, limits: RerankLimits) -> Result<Arc<Self>> {
+        let provider = self
+            .visual_embedding_provider
+            .clone()
+            .ok_or_else(|| anyhow!("visual embedding provider is not configured"))?;
+        let capability = self
+            .visual_generation
+            .clone()
+            .ok_or_else(|| anyhow!("visual generation is not configured"))?;
+        let reranker = VisualReranker::new(
+            VisualRerankerParts {
+                artifacts: self.artifacts.clone(),
+                evidence: self.evidence.clone(),
+                blobs: self.blobs.clone(),
+                provider,
+                capability,
+                policy: self.retrieval_policy.clone(),
+            },
+            limits,
+        )
+        .map_err(|error| anyhow!("create visual reranker: {error}"))?;
+        let mut runtime = (*self).clone();
+        runtime.reranker = Some(Arc::new(reranker));
+        Ok(Arc::new(runtime))
     }
 
     pub fn append_events(
@@ -279,32 +309,17 @@ impl SearchRuntime {
                 active_versions.clone(),
             )));
         }
-        if let (Some(vector_index), Some(provider), Some(capability)) = (
-            self.visual_vector_index.clone(),
-            self.visual_embedding_provider.clone(),
-            self.visual_generation.clone(),
-        ) {
-            retrievers.push(Arc::new(CurrentVersionFilter::new(
-                Arc::new(VisualPageRegionRetriever::new(
-                    VisualPageRegionRetrieverParts {
-                        index: vector_index,
-                        artifacts: self.artifacts.clone(),
-                        chunks: self.chunks.clone(),
-                        evidence: self.evidence.clone(),
-                        blobs: self.blobs.clone(),
-                        embedding_provider: provider,
-                    },
-                    self.retrieval_policy.clone(),
-                    capability,
-                )),
-                active_versions,
-            )));
+        if let Some(retriever) = self.visual_retriever(active_versions) {
+            retrievers.push(retriever);
         }
         let mut engine = RetrievalEngine::new(
             retrievers,
             Arc::new(EvidenceOutcomeEvaluator::new(self.evidence.clone())),
         )
         .with_fusion(Arc::new(FixedKRrf::new(60)));
+        if let Some(reranker) = self.reranker.clone() {
+            engine = engine.with_reranker(reranker);
+        }
         if let Some(graph) = self.graph_index.clone() {
             engine = engine.with_expander(Arc::new(HierarchyGraphExpander::new(
                 HierarchyGraphExpanderParts {

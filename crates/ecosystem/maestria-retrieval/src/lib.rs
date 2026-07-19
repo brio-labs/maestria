@@ -10,6 +10,7 @@ mod sync;
 mod sync_engine;
 pub mod traits;
 pub mod types;
+pub mod visual_reranker;
 
 /// Monotonic timestamp used for retrieval latency accounting.
 #[derive(Clone, Copy)]
@@ -46,3 +47,4 @@ pub use types::{
     RerankRequest, RerankResult, RerankScoreComponents, RerankScorerInput, RetrievalError,
     RetrievalMode, RetrievalResult,
 };
+pub use visual_reranker::{VisualReranker, VisualRerankerParts};

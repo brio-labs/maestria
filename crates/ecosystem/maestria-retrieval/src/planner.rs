@@ -2,16 +2,25 @@ use super::{RetrievalEngine, SearchPlannerContext};
 use crate::types::{RetrievalError, RetrievalResult};
 use maestria_domain::{Modality, SearchIntent, SearchPlan};
 
+struct PlanOptions {
+    max_stages: u32,
+    expansion_enabled: bool,
+    reranking_enabled: bool,
+    web_limits: (u32, u64, u32),
+}
+
 fn build_plan(
     original_query: &str,
     limit: usize,
     context: &SearchPlannerContext,
-    max_stages: u32,
+    options: PlanOptions,
     intent: SearchIntent,
     modality: Modality,
-    web_limits: (u32, u64, u32),
 ) -> RetrievalResult<SearchPlan> {
-    let (web_requests, web_bytes, web_concurrency) = web_limits;
+    let (web_requests, web_bytes, web_concurrency) = options.web_limits;
+    let max_stages = options.max_stages;
+    let expansion_enabled = options.expansion_enabled;
+    let reranking_enabled = options.reranking_enabled;
     let budgets = maestria_domain::SearchBudget::with_resource_limits(
         1_000,
         30_000,
@@ -22,14 +31,13 @@ fn build_plan(
         web_concurrency,
     )
     .map_err(|error| RetrievalError::Internal(error.to_string()))?;
-    let stages = if max_stages == 2 {
-        vec![
-            maestria_domain::SearchStage::InitialRetrieval,
-            maestria_domain::SearchStage::Filtering,
-        ]
-    } else {
-        vec![maestria_domain::SearchStage::InitialRetrieval]
-    };
+    let mut stages = vec![maestria_domain::SearchStage::InitialRetrieval];
+    if reranking_enabled {
+        stages.push(maestria_domain::SearchStage::Reranking);
+    }
+    if expansion_enabled {
+        stages.push(maestria_domain::SearchStage::Filtering);
+    }
     Ok(SearchPlan {
         query_id: maestria_domain::QueryId::new(1),
         original_query: original_query.to_string(),
@@ -84,7 +92,10 @@ impl RetrievalEngine {
             SearchIntent::CurrentWeb => Modality::Web,
             _ => Modality::Text,
         };
-        let max_stages = if self.expander.is_some() { 2 } else { 1 };
+        let expansion_enabled = self.expander.is_some();
+        let reranking_enabled =
+            self.reranker.is_some() && inferred_intent == SearchIntent::VisualDocument;
+        let max_stages = 1 + u32::from(expansion_enabled) + u32::from(reranking_enabled);
         let capabilities = self
             .capabilities
             .clone()
@@ -100,10 +111,14 @@ impl RetrievalEngine {
             &original_query,
             limit,
             context,
-            max_stages,
+            PlanOptions {
+                max_stages,
+                expansion_enabled,
+                reranking_enabled,
+                web_limits: (web_requests, web_bytes, web_concurrency),
+            },
             inferred_intent,
             inferred_modality,
-            (web_requests, web_bytes, web_concurrency),
         )?;
         let inferred_error = match maestria_governance::SearchPlanValidator::validate(
             &inferred_plan,
@@ -132,10 +147,14 @@ impl RetrievalEngine {
             &original_query,
             limit,
             context,
-            max_stages,
+            PlanOptions {
+                max_stages: 1,
+                expansion_enabled: false,
+                reranking_enabled: false,
+                web_limits: (0, 0, 1),
+            },
             SearchIntent::FactualLocal,
             Modality::Text,
-            (0, 0, 1),
         )?;
         let mut validation_plan = fallback_plan.clone();
         validation_plan.original_query = "fallback local text retrieval".to_string();
@@ -166,12 +185,45 @@ mod tests {
             "show the table in the visual PDF",
             5,
             &context,
-            1,
+            PlanOptions {
+                max_stages: 1,
+                expansion_enabled: false,
+                reranking_enabled: false,
+                web_limits: (0, 0, 1),
+            },
             SearchIntent::VisualDocument,
             Modality::Image,
-            (0, 0, 1),
         )?;
         assert_eq!(plan.modalities.values(), &[Modality::Text, Modality::Image]);
+        Ok(())
+    }
+    #[test]
+    fn visual_plan_can_request_bounded_reranking_stage() -> Result<(), Box<dyn std::error::Error>> {
+        let context = SearchPlannerContext {
+            corpus_snapshot: CorpusSnapshotId::new(3),
+            primary_generation: IndexGenerationId::new(7),
+            fingerprint: RetrievalModelFingerprint::new("test:visual".to_string())?,
+        };
+        let plan = build_plan(
+            "show the figure in the visual PDF",
+            5,
+            &context,
+            PlanOptions {
+                max_stages: 2,
+                expansion_enabled: false,
+                reranking_enabled: true,
+                web_limits: (0, 0, 1),
+            },
+            SearchIntent::VisualDocument,
+            Modality::Image,
+        )?;
+        assert_eq!(
+            plan.stages,
+            vec![
+                maestria_domain::SearchStage::InitialRetrieval,
+                maestria_domain::SearchStage::Reranking,
+            ]
+        );
         Ok(())
     }
 }
