@@ -179,6 +179,17 @@ pub(crate) fn source_label(evidence: &maestria_domain::Evidence) -> String {
             page_start,
             page_end,
         } => format!("source=pdf blob={} pages={}-{}", blob, page_start, page_end),
+        EvidenceKind::PdfRegion {
+            blob,
+            page,
+            x,
+            y,
+            width,
+            height,
+        } => format!(
+            "source=pdf blob={} page={} region={},{} {}x{}",
+            blob, page, x, y, width, height
+        ),
         EvidenceKind::WebSnapshot { url, snapshot, .. } => {
             format!("source=web url={} snapshot={}", url, snapshot)
         }

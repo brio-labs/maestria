@@ -10,6 +10,9 @@ pub(crate) mod relation_payloads;
 #[path = "evidence_payloads.rs"]
 pub(crate) mod evidence_payloads;
 
+#[path = "web_evidence_payload.rs"]
+pub(crate) mod web_evidence_payload;
+
 #[path = "artifact_event_payloads.rs"]
 pub(crate) mod artifact_event_payloads;
 

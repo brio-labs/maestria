@@ -1,3 +1,4 @@
+use super::web_evidence_payload::StoredWebEvidenceMetadata;
 use maestria_domain::{
     BlobId, ClaimStatus, ContentRange, EvidenceKind, HarnessRunId, LogicalTick, OutputStream,
     TaskPriority, TaskStatus, ValidationReportId,
@@ -19,6 +20,14 @@ pub(crate) enum StoredEvidenceKind {
         blob: u64,
         page_start: u32,
         page_end: u32,
+    },
+    PdfRegion {
+        blob: u64,
+        page: u32,
+        x: u32,
+        y: u32,
+        width: u32,
+        height: u32,
     },
     WebSnapshot {
         url: String,
@@ -46,52 +55,6 @@ pub(crate) enum StoredEvidenceKind {
         report_id: u64,
     },
 }
-#[derive(Debug, Serialize, Deserialize, Default)]
-pub(crate) struct StoredWebEvidenceMetadata {
-    #[serde(default)]
-    published_at: Option<String>,
-    #[serde(default)]
-    updated_at: Option<String>,
-    #[serde(default)]
-    effective_at: Option<String>,
-    #[serde(default)]
-    accessed_at: Option<String>,
-    #[serde(default)]
-    content_type: Option<String>,
-    #[serde(default)]
-    primary_source: bool,
-    #[serde(default)]
-    is_dynamic: bool,
-    #[serde(default)]
-    is_paywalled: bool,
-}
-impl StoredWebEvidenceMetadata {
-    fn from_domain(metadata: &maestria_domain::WebEvidenceMetadata) -> Self {
-        Self {
-            published_at: metadata.published_at.clone(),
-            updated_at: metadata.updated_at.clone(),
-            effective_at: metadata.effective_at.clone(),
-            accessed_at: metadata.accessed_at.clone(),
-            content_type: metadata.content_type.clone(),
-            primary_source: metadata.primary_source,
-            is_dynamic: metadata.is_dynamic,
-            is_paywalled: metadata.is_paywalled,
-        }
-    }
-
-    fn into_domain(self) -> maestria_domain::WebEvidenceMetadata {
-        maestria_domain::WebEvidenceMetadata {
-            published_at: self.published_at,
-            updated_at: self.updated_at,
-            effective_at: self.effective_at,
-            accessed_at: self.accessed_at,
-            content_type: self.content_type,
-            primary_source: self.primary_source,
-            is_dynamic: self.is_dynamic,
-            is_paywalled: self.is_paywalled,
-        }
-    }
-}
 
 impl StoredEvidenceKind {
     pub(crate) fn from_domain(kind: &EvidenceKind) -> Self {
@@ -116,6 +79,21 @@ impl StoredEvidenceKind {
                 blob: blob.value(),
                 page_start: *page_start,
                 page_end: *page_end,
+            },
+            EvidenceKind::PdfRegion {
+                blob,
+                page,
+                x,
+                y,
+                width,
+                height,
+            } => Self::PdfRegion {
+                blob: blob.value(),
+                page: *page,
+                x: *x,
+                y: *y,
+                width: *width,
+                height: *height,
             },
             EvidenceKind::WebSnapshot {
                 url,
@@ -174,6 +152,21 @@ impl StoredEvidenceKind {
                 range: ContentRange { start, end },
                 content_hash,
                 snapshot: snapshot.map(BlobId::new),
+            },
+            Self::PdfRegion {
+                blob,
+                page,
+                x,
+                y,
+                width,
+                height,
+            } => EvidenceKind::PdfRegion {
+                blob: BlobId::new(blob),
+                page,
+                x,
+                y,
+                width,
+                height,
             },
             Self::PdfSpan {
                 blob,

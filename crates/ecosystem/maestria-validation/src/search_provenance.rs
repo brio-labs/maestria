@@ -49,6 +49,31 @@ fn candidate_matches_record(
                 && candidate.source_span.range()
                     == maestria_domain::ContentRange { start: 0, end: 1 }
         }
+        (
+            SourceLocation::Region {
+                page,
+                x,
+                y,
+                width,
+                height,
+            },
+            EvidenceKind::PdfRegion {
+                page: evidence_page,
+                x: evidence_x,
+                y: evidence_y,
+                width: evidence_width,
+                height: evidence_height,
+                ..
+            },
+        ) => {
+            page == evidence_page
+                && x == evidence_x
+                && y == evidence_y
+                && width == evidence_width
+                && height == evidence_height
+                && candidate.source_span.range()
+                    == maestria_domain::ContentRange { start: 0, end: 1 }
+        }
         (SourceLocation::Symbol { .. }, EvidenceKind::WebSnapshot { url, .. }) => {
             symbol_span_matches(&candidate.source_span, url, "web_snapshot")
         }

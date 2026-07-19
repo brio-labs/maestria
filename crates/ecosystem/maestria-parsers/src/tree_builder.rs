@@ -41,10 +41,12 @@ pub(crate) fn build_tree_and_chunks(
                 start: start_line,
                 end: end_line,
             },
-            SourceSpan::PdfSpan { .. } => ContentRange { start: 1, end: 1 },
+            SourceSpan::PdfSpan { .. } | SourceSpan::PdfRegion { .. } => {
+                ContentRange { start: 1, end: 1 }
+            }
         };
         let page = match source_span {
-            SourceSpan::PdfSpan { page } => Some(page as u32),
+            SourceSpan::PdfSpan { page } | SourceSpan::PdfRegion { page, .. } => Some(page as u32),
             _ => None,
         };
         let (node_type, section_path) = node_metadata(&text);
@@ -87,7 +89,7 @@ pub(crate) fn build_tree_and_chunks(
     let root_end = match chunks.last() {
         Some(chunk) => match &chunk.source_span {
             SourceSpan::TextSpan { end_line, .. } => *end_line,
-            SourceSpan::PdfSpan { page } => *page,
+            SourceSpan::PdfSpan { page } | SourceSpan::PdfRegion { page, .. } => *page,
         },
         None => 1,
     };
@@ -134,7 +136,9 @@ fn raw_content_for_span(bytes: &[u8], span: &SourceSpan, fallback: &str) -> Stri
             start_line,
             end_line,
         } => (*start_line, *end_line),
-        SourceSpan::PdfSpan { .. } => return fallback.to_owned(),
+        SourceSpan::PdfSpan { .. } | SourceSpan::PdfRegion { .. } => {
+            return fallback.to_owned();
+        }
     };
     let lines: Vec<_> = source.split_inclusive('\n').collect();
     if start == 0 || end < start || end > lines.len() {

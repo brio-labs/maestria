@@ -342,6 +342,7 @@ fn immutable_evidence(kind: &EvidenceKind) -> bool {
     match kind {
         EvidenceKind::FileSpan { snapshot, .. } => snapshot.is_some(),
         EvidenceKind::PdfSpan { .. }
+        | EvidenceKind::PdfRegion { .. }
         | EvidenceKind::WebSnapshot { .. }
         | EvidenceKind::CommandOutput { .. }
         | EvidenceKind::TestResult { .. }

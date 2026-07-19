@@ -36,8 +36,20 @@ pub struct ParsedRepresentation {
     Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, ::serde::Serialize, ::serde::Deserialize,
 )]
 pub enum SourceSpan {
-    TextSpan { start_line: usize, end_line: usize },
-    PdfSpan { page: usize },
+    TextSpan {
+        start_line: usize,
+        end_line: usize,
+    },
+    PdfSpan {
+        page: usize,
+    },
+    PdfRegion {
+        page: usize,
+        x: u32,
+        y: u32,
+        width: u32,
+        height: u32,
+    },
 }
 
 /// Deterministically produces a content-addressed hash string.

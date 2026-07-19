@@ -79,6 +79,17 @@ pub(super) fn open_chunk_evidence<'a>(
 }
 
 fn verify_source_snapshot(ports: &CorePorts<'_>, evidence: &Evidence) -> CoreResult<()> {
+    if let EvidenceKind::PdfSpan { blob, .. } | EvidenceKind::PdfRegion { blob, .. } =
+        &evidence.kind
+    {
+        let bytes = ports.blobs.get(*blob)?;
+        if bytes.is_empty() {
+            return Err(CoreError::InvalidInput {
+                message: format!("evidence {} PDF snapshot is empty", evidence.id),
+            });
+        }
+        return Ok(());
+    }
     if let EvidenceKind::WebSnapshot {
         snapshot,
         content_hash: expected_hash,

@@ -233,12 +233,28 @@ fn evidence_source(evidence: &Evidence) -> Result<EvidenceSourceResponse> {
             content_hash: content_hash.clone(),
         },
         EvidenceKind::PdfSpan {
+            blob,
             page_start,
             page_end,
-            ..
         } => EvidenceSourceResponse::Pdf {
+            snapshot_id: blob.value(),
             page_start: *page_start,
             page_end: *page_end,
+        },
+        EvidenceKind::PdfRegion {
+            blob,
+            page,
+            x,
+            y,
+            width,
+            height,
+        } => EvidenceSourceResponse::PdfRegion {
+            snapshot_id: blob.value(),
+            page: *page,
+            x: *x,
+            y: *y,
+            width: *width,
+            height: *height,
         },
         EvidenceKind::WebSnapshot {
             url,

@@ -161,6 +161,14 @@ pub enum EvidenceKind {
         page_start: u32,
         page_end: u32,
     },
+    PdfRegion {
+        blob: BlobId,
+        page: u32,
+        x: u32,
+        y: u32,
+        width: u32,
+        height: u32,
+    },
     WebSnapshot {
         url: String,
         snapshot: BlobId,

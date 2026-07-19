@@ -53,6 +53,33 @@ pub(crate) fn build_indexable_records(
                     page_end: page,
                 }
             }
+            maestria_ports::SourceSpan::PdfRegion {
+                page,
+                x,
+                y,
+                width,
+                height,
+            } => {
+                let page = match u32::try_from(*page) {
+                    Ok(page) => page,
+                    Err(_) => {
+                        tracing::error!(
+                            artifact_id = %artifact_id,
+                            page = *page,
+                            "parser PDF region page exceeds domain evidence range"
+                        );
+                        return None;
+                    }
+                };
+                EvidenceKind::PdfRegion {
+                    blob: blob_id,
+                    page,
+                    x: *x,
+                    y: *y,
+                    width: *width,
+                    height: *height,
+                }
+            }
         };
         evidence_inputs.push(RecordEvidenceInput {
             evidence_id,

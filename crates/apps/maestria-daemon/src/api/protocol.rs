@@ -154,8 +154,21 @@ pub enum EvidenceSourceResponse {
         end_line: u32,
         content_hash: String,
     },
-    /// PDF page span.
-    Pdf { page_start: u32, page_end: u32 },
+    /// PDF page span on an immutable source snapshot.
+    Pdf {
+        snapshot_id: u64,
+        page_start: u32,
+        page_end: u32,
+    },
+    /// PDF region on an immutable page snapshot.
+    PdfRegion {
+        snapshot_id: u64,
+        page: u32,
+        x: u32,
+        y: u32,
+        width: u32,
+        height: u32,
+    },
     /// Immutable web snapshot.
     Web {
         url: String,

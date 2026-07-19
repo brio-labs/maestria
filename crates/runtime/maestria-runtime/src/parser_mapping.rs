@@ -34,6 +34,19 @@ pub(crate) fn domain_source_span(span: &SourceSpan) -> DomainSourceSpan {
             end_line: *end_line,
         },
         SourceSpan::PdfSpan { page } => DomainSourceSpan::PdfSpan { page: *page },
+        SourceSpan::PdfRegion {
+            page,
+            x,
+            y,
+            width,
+            height,
+        } => DomainSourceSpan::PdfRegion {
+            page: *page,
+            x: *x,
+            y: *y,
+            width: *width,
+            height: *height,
+        },
     }
 }
 

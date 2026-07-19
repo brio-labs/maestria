@@ -91,12 +91,21 @@ impl SourceSnapshotVerifier {
                 evidence.excerpt.as_str(),
                 Some(*range),
             ),
+            EvidenceKind::PdfSpan { blob, .. } | EvidenceKind::PdfRegion { blob, .. } => {
+                (Some(*blob), None, "", None)
+            }
             _ => (None, None, "", None),
         };
         let Some(snapshot) = snapshot else {
             return Ok(());
         };
         let bytes = self.blobs.get(snapshot).map_err(port_error)?;
+        if bytes.is_empty() {
+            return Err(RetrievalError::Internal(format!(
+                "evidence {} source snapshot is empty",
+                evidence.id
+            )));
+        }
         let actual_hash = maestria_domain::content_hash(&bytes);
         if expected_hash.is_some_and(|expected| expected != &actual_hash) {
             return Err(RetrievalError::Internal(format!(
@@ -200,6 +209,11 @@ fn evidence_location(
                         "file evidence has a PDF source span".to_string(),
                     ));
                 }
+                SourceSpan::PdfRegion { .. } => {
+                    return Err(RetrievalError::Internal(
+                        "file evidence has a PDF region source span".to_string(),
+                    ));
+                }
             };
             Ok((
                 SourceLocation::File {
@@ -218,6 +232,23 @@ fn evidence_location(
             SourceLocation::Page {
                 page_start: *page_start,
                 page_end: *page_end,
+            },
+            ContentRange { start: 0, end: 1 },
+        )),
+        EvidenceKind::PdfRegion {
+            page,
+            x,
+            y,
+            width,
+            height,
+            ..
+        } => Ok((
+            SourceLocation::Region {
+                page: *page,
+                x: *x,
+                y: *y,
+                width: *width,
+                height: *height,
             },
             ContentRange { start: 0, end: 1 },
         )),
