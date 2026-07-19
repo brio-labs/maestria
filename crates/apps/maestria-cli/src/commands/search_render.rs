@@ -60,6 +60,7 @@ pub(super) fn render_trace(plan: &SearchPlan, outcome: &SearchOutcome) -> Result
     println!("raw_candidates={:?}", trace.raw_candidates);
     println!("fusion={:?}", trace.fusion);
     println!("retrieval_mode={}", retrieval_mode(trace));
+    println!("visual_degradation={:?}", trace.degradation);
     println!("reranked={:?}", trace.rerank);
     println!("filters={:?}", trace.filters);
     println!("expansion={:?}", trace.expansions);
@@ -88,6 +89,13 @@ pub(super) fn render_trace(plan: &SearchPlan, outcome: &SearchOutcome) -> Result
 }
 
 fn retrieval_mode(trace: &SearchTrace) -> &'static str {
+    let visual_succeeded = trace.lanes.iter().any(|lane| {
+        lane.retriever_id == "visual_page_regions"
+            && matches!(lane.status, SearchLaneStatus::Succeeded)
+    });
+    if visual_succeeded {
+        return "visual+text";
+    }
     let dense_succeeded = trace.lanes.iter().any(|lane| {
         let retriever_id = lane.retriever_id.to_ascii_lowercase();
         (retriever_id.contains("dense")

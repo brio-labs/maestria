@@ -42,7 +42,12 @@ fn build_plan(
         } else {
             maestria_domain::FreshnessRequirement::Any
         },
-        modalities: maestria_domain::ModalitySet::new(vec![modality]),
+        modalities: match intent {
+            SearchIntent::VisualDocument => {
+                maestria_domain::ModalitySet::new(vec![Modality::Text, Modality::Image])
+            }
+            _ => maestria_domain::ModalitySet::new(vec![modality]),
+        },
         stages,
         budgets,
         stop_conditions: maestria_domain::StopConditions {
@@ -141,5 +146,32 @@ impl RetrievalEngine {
         )
         .map_err(RetrievalError::SearchPlan)?;
         Ok(fallback_plan)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use maestria_domain::{CorpusSnapshotId, IndexGenerationId, RetrievalModelFingerprint};
+
+    #[test]
+    fn visual_document_plan_requests_text_and_visual_modalities()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let context = SearchPlannerContext {
+            corpus_snapshot: CorpusSnapshotId::new(3),
+            primary_generation: IndexGenerationId::new(7),
+            fingerprint: RetrievalModelFingerprint::new("test:visual".to_string())?,
+        };
+        let plan = build_plan(
+            "show the table in the visual PDF",
+            5,
+            &context,
+            1,
+            SearchIntent::VisualDocument,
+            Modality::Image,
+            (0, 0, 1),
+        )?;
+        assert_eq!(plan.modalities.values(), &[Modality::Text, Modality::Image]);
+        Ok(())
     }
 }

@@ -20,6 +20,8 @@ pub use full_text::FullTextIndex;
 
 mod traits;
 pub use traits::*;
+mod visual;
+pub use visual::*;
 
 mod parsing;
 pub use parsing::*;

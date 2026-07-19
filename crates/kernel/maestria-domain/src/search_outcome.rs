@@ -299,6 +299,10 @@ pub struct SearchTrace {
     pub index_generation: IndexGenerationId,
     pub freshness: super::FreshnessRequirement,
     pub modalities: super::ModalitySet,
+    /// Explicit capability degradation, such as visual retrieval falling back
+    /// to text/layout retrieval when no visual provider is available.
+    #[serde(default)]
+    pub degradation: Option<String>,
     pub stages: Vec<super::SearchStage>,
     pub budgets: super::SearchBudget,
     pub stop_conditions: super::StopConditions,
@@ -344,6 +348,7 @@ impl SearchTrace {
             index_generation: plan.index_generation,
             freshness: plan.freshness.clone(),
             modalities: plan.modalities.clone(),
+            degradation: None,
             stages: plan.stages.clone(),
             evidence_requirements: plan.evidence_requirements.clone(),
             fingerprint: plan.fingerprint.clone(),
@@ -394,6 +399,11 @@ impl SearchTrace {
             rerank: None,
             diversity: None,
         }
+    }
+    pub fn with_degradation(mut self, degradation: impl Into<String>) -> Self {
+        self.identity_version = self.identity_version.max(4);
+        self.degradation = Some(degradation.into());
+        self
     }
 }
 

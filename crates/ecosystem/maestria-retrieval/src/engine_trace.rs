@@ -56,10 +56,23 @@ pub(crate) fn ensure_trace(
         })
         .into_iter()
         .collect::<Vec<_>>();
+    let visual_plan_fallback = plan.intent == maestria_domain::SearchIntent::FactualLocal
+        && maestria_domain::SearchIntent::classify(&plan.original_query)
+            == maestria_domain::SearchIntent::VisualDocument;
+    let visual_lane_failed = lanes.iter().any(|lane| {
+        lane.retriever_id == "visual_page_regions"
+            && matches!(
+                lane.status,
+                maestria_domain::SearchLaneStatus::Failed { .. }
+            )
+    });
+    let expected_degradation = (visual_plan_fallback || visual_lane_failed)
+        .then(|| "visual provider unavailable; using text/layout retrieval".to_string());
 
     let trace_is_valid = outcome.trace_data.as_ref().is_some_and(|trace| {
         outcome.trace == trace.deterministic_id()
             && trace.matches_plan(plan)
+            && trace.degradation == expected_degradation
             && trace.retrievers
                 == lanes
                     .iter()
@@ -97,10 +110,18 @@ pub(crate) fn ensure_trace(
             .map(|conflict| conflict.id)
             .collect(),
     );
+    trace = apply_degradation(trace, expected_degradation);
     trace.rewrites = rewrites;
     trace.rerank = rerank_trace;
     trace.diversity = diversity_trace;
     outcome.trace = trace.deterministic_id();
     outcome.trace_data = Some(Box::new(trace));
     outcome
+}
+
+fn apply_degradation(trace: SearchTrace, degradation: Option<String>) -> SearchTrace {
+    match degradation {
+        Some(value) => trace.with_degradation(value),
+        None => trace,
+    }
 }

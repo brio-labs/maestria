@@ -282,6 +282,7 @@ A retriever is selected by capability, scope, budget, and measured quality. No l
 ### Visual-document evidence
 
 PDF parsing preserves page order and uses each page's MediaBox dimensions to normalize detected table/figure regions into typed structure nodes. Text-bearing pages expose page evidence; detected layout regions expose exact PDF coordinates and retain the immutable PDF blob as their source snapshot. Pages with missing or unreliable text extraction return `NeedsOcr` and may retain only layout metadata; they never emit fabricated text evidence. Region candidates use `SourceLocation::Region` and pass the same scope, ACL, trust, sensitivity, quarantine, and prompt-injection checks as text candidates.
+Optional `visual_page_v1` retrieval is a separate image-modality lane with its own provider fingerprint and index generation. It accepts only visual representations with PDF page/region provenance. When no visual provider is configured or its identity is stale, the search trace records a text/layout degradation instead of silently relabeling text embeddings or losing coordinates.
 
 ### Repository Code Intelligence
 

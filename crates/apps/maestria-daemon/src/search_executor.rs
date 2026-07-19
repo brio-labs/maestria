@@ -26,7 +26,8 @@ use maestria_code_intel::RepositoryCodeIndex;
 use maestria_core::{InstanceLayout, InstanceManifest};
 use maestria_domain::{
     ArtifactVersionId, CorpusSnapshotId, DomainEvent, DomainEventEnvelope, IndexGenerationId,
-    KernelState, RepresentationName, RetrievalModelFingerprint, SearchOutcome, SearchPlan,
+    IndexGenerationRegistry, KernelState, RepresentationName, RetrievalModelFingerprint,
+    SearchOutcome, SearchPlan,
 };
 use maestria_graph_sqlite::SqliteGraphIndex;
 use maestria_ports::{
@@ -37,7 +38,8 @@ use maestria_retrieval::adapters::{
     CardRetriever, CardRetrieverParts, CodeIntelRetriever, CodeIntelRetrieverParts,
     CurrentVersionFilter, DenseChunkRetriever, DenseChunkRetrieverParts, EvidenceOutcomeEvaluator,
     HierarchyGraphExpander, HierarchyGraphExpanderParts, LexicalChunkRetriever,
-    LexicalChunkRetrieverParts,
+    LexicalChunkRetrieverParts, VisualGenerationCapability, VisualPageRegionRetriever,
+    VisualPageRegionRetrieverParts, VisualProjectionRebuildParts, rebuild_visual_projection,
 };
 use maestria_retrieval::{
     CandidateRetriever, FixedKRrf, HybridExecutionPolicy, RepositoryExecutionPolicy,
@@ -77,12 +79,16 @@ pub struct SearchRuntime {
     pub(crate) search_index: Arc<dyn FullTextIndex + Send + Sync>,
     pub(crate) blobs: Arc<dyn BlobStore + Send + Sync>,
     pub(crate) vector_index: Option<Arc<dyn VectorIndex + Send + Sync>>,
+    pub(crate) visual_vector_index: Option<Arc<dyn VectorIndex + Send + Sync>>,
     pub(crate) graph_index: Option<Arc<dyn GraphIndex + Send + Sync>>,
     pub(crate) event_log: Arc<SqliteStore>,
     pub(crate) embedding_provider: Option<Arc<dyn EmbeddingProvider + Send + Sync>>,
     pub(crate) retrieval_policy: maestria_governance::RetrievalSecurityPolicy,
     pub(crate) primary_generation: IndexGenerationId,
     pub(crate) dense_generation: Option<IndexGenerationId>,
+    pub(crate) visual_embedding_provider:
+        Option<Arc<dyn maestria_ports::VisualEmbeddingProvider + Send + Sync>>,
+    pub(crate) visual_generation: Option<VisualGenerationCapability>,
     pub(crate) repository_code_index: Option<Arc<RepositoryCodeIndex>>,
     pub(crate) repository_execution_policy: RepositoryExecutionPolicy,
     pub(crate) corpus_snapshot: CorpusSnapshotId,
@@ -106,9 +112,12 @@ impl SearchRuntime {
             search_index: parts.search_index,
             blobs: parts.blobs,
             vector_index: parts.vector_index,
+            visual_vector_index: None,
             graph_index: parts.graph_index,
             event_log: parts.event_log,
             embedding_provider,
+            visual_embedding_provider: None,
+            visual_generation: None,
             retrieval_policy,
             primary_generation: parts.primary_generation,
             dense_generation: parts.dense_generation,
@@ -117,6 +126,67 @@ impl SearchRuntime {
             corpus_snapshot: parts.corpus_snapshot,
             fingerprint,
         })
+    }
+
+    /// Enables the optional visual page/region lane for this runtime.
+    ///
+    /// The provider, visual index, and active registry generation are supplied
+    /// separately so text and visual representations cannot share rows.
+    pub fn with_visual_embedding_provider(
+        self: Arc<Self>,
+        provider: Arc<dyn maestria_ports::VisualEmbeddingProvider + Send + Sync>,
+        visual_index: Arc<dyn VectorIndex + Send + Sync>,
+        registry: &IndexGenerationRegistry,
+    ) -> Result<Arc<Self>> {
+        let mut runtime = (*self).clone();
+        runtime.configure_visual_embedding_provider(provider, visual_index, registry)?;
+        Ok(Arc::new(runtime))
+    }
+
+    fn configure_visual_embedding_provider(
+        &mut self,
+        provider: Arc<dyn maestria_ports::VisualEmbeddingProvider + Send + Sync>,
+        visual_index: Arc<dyn VectorIndex + Send + Sync>,
+        registry: &IndexGenerationRegistry,
+    ) -> Result<()> {
+        let identity = provider
+            .identity()
+            .ok_or_else(|| anyhow!("visual provider identity is unavailable"))?;
+        let disclosure = provider
+            .disclosure()
+            .ok_or_else(|| anyhow!("visual provider disclosure is unavailable"))?;
+        if disclosure.remote || disclosure.retention != maestria_ports::RetentionPolicy::NoRetention
+        {
+            return Err(anyhow!(
+                "visual provider must be local and no-retention before activation"
+            ));
+        }
+        let capability =
+            VisualGenerationCapability::activate(registry, identity, self.corpus_snapshot)
+                .map_err(|error| anyhow!("activate visual generation: {error}"))?;
+        let artifact_ids = self
+            .current_artifact_versions()?
+            .into_iter()
+            .map(|version| maestria_domain::ArtifactId::new(version.value()))
+            .collect::<Vec<_>>();
+        rebuild_visual_projection(
+            VisualProjectionRebuildParts {
+                index: visual_index.as_ref(),
+                artifacts: self.artifacts.as_ref(),
+                chunks: self.chunks.as_ref(),
+                evidence: self.evidence.as_ref(),
+                blobs: self.blobs.as_ref(),
+                policy: &self.retrieval_policy,
+                provider: provider.as_ref(),
+            },
+            &artifact_ids,
+            &capability,
+        )
+        .map_err(|error| anyhow!("rebuild visual projection: {error}"))?;
+        self.visual_vector_index = Some(visual_index);
+        self.visual_embedding_provider = Some(provider);
+        self.visual_generation = Some(capability);
+        Ok(())
     }
 
     pub fn append_events(
@@ -205,6 +275,27 @@ impl SearchRuntime {
                     },
                     self.retrieval_policy.clone(),
                     generation,
+                )),
+                active_versions.clone(),
+            )));
+        }
+        if let (Some(vector_index), Some(provider), Some(capability)) = (
+            self.visual_vector_index.clone(),
+            self.visual_embedding_provider.clone(),
+            self.visual_generation.clone(),
+        ) {
+            retrievers.push(Arc::new(CurrentVersionFilter::new(
+                Arc::new(VisualPageRegionRetriever::new(
+                    VisualPageRegionRetrieverParts {
+                        index: vector_index,
+                        artifacts: self.artifacts.clone(),
+                        chunks: self.chunks.clone(),
+                        evidence: self.evidence.clone(),
+                        blobs: self.blobs.clone(),
+                        embedding_provider: provider,
+                    },
+                    self.retrieval_policy.clone(),
+                    capability,
                 )),
                 active_versions,
             )));

@@ -58,11 +58,13 @@ This document is enforceable. CI and review block violations.
 51. Repository context expansion is bounded and seed-preserving; stale indexes cannot support current-worktree claims, and live reads/tests remain explicit governed effects with evidence.
 52. Specialized retrieval routes activate only for query classes where a frozen, versioned benchmark proves an evidence-quality and freshness/cost win; unproven routes remain shadowed or abstain.
 53. PDF and visual-region evidence must preserve exact coordinates against an immutable source snapshot; scanned or low-quality pages degrade explicitly to `NeedsOcr`/metadata-only and never fabricate text.
+54. Optional visual representations are named, fingerprinted, generation-bound capabilities; an unavailable visual provider must produce a traced text/layout degradation rather than an implicit fallback or fabricated embedding.
 
 ## Review interpretation
 
 Rules 13–20 govern composition and module boundaries; Rules 21–30 make the previously implicit quality obligations explicit. Rules 41–52 govern typed retrieval, bounded context expansion, seed lineage, security filtering, reproducible evaluation, canonical documentation, external-truth boundaries, untrusted plan/rewrite proposals, authenticated scoped client surfaces, provenance-complete repository code intelligence, evidence-bearing code relations, explicit freshness/governed live verification, and query-class-specific benchmark promotion. A green checker result is necessary but not sufficient: reviewers must still reject accumulated responsibilities, duplicated lifecycle policy, and tests that only exercise implementation details. Size limits are adoption gates, not reasons to preserve a monolith.
 Rule 53 governs immutable PDF page/region provenance and explicit OCR degradation; visual coordinates are never inferred as text evidence.
+Rule 54 governs optional visual-model boundaries, generation identity, and explicit traceable degradation when visual retrieval is unavailable.
 
 ## Enforcement
 - `scripts/philosophy-check.py`
@@ -72,3 +74,4 @@ Rule 53 governs immutable PDF page/region provenance and explicit OCR degradatio
 - Review through CODEOWNERS on invariant-owning surfaces
 - Review enforces responsibility boundaries, lifecycle ownership, identity namespaces, repository/source provenance, evidence-bearing code relations, bounded seed-preserving context traversal, explicit freshness checks, governed live verification, query-class-specific benchmark promotion, and architectural composition from Rules 13–30 and 41–52.
 - Visual-document contract tests verify immutable page/region coordinates and explicit `NeedsOcr` degradation.
+- Visual retrieval tests verify named generation identity, provider capability boundaries, exact region provenance, and explicit fallback traces.

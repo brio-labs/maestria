@@ -8,6 +8,7 @@ impl SearchTrace {
         let mut hash = 0xcbf29ce484222325u64;
         let identity_v2 = self.identity_version >= 2;
         let identity_v3 = self.identity_version >= 3;
+        let identity_v4 = self.identity_version >= 4;
         if self.identity_version != 0 {
             mix_hash(
                 &mut hash,
@@ -20,6 +21,9 @@ impl SearchTrace {
         mix_hash(&mut hash, format!("{:?}", self.scope).as_bytes());
         mix_hash(&mut hash, format!("{:?}", self.freshness).as_bytes());
         mix_hash(&mut hash, format!("{:?}", self.modalities).as_bytes());
+        if identity_v4 {
+            mix_hash(&mut hash, format!("{:?}", self.degradation).as_bytes());
+        }
         mix_hash(&mut hash, format!("{:?}", self.stages).as_bytes());
         mix_hash(
             &mut hash,
