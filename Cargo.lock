@@ -1263,6 +1263,7 @@ dependencies = [
  "clap",
  "getrandom 0.2.17",
  "maestria-blob-fs",
+ "maestria-code-intel",
  "maestria-core",
  "maestria-domain",
  "maestria-embedding-openai",
@@ -1376,6 +1377,7 @@ name = "maestria-retrieval"
 version = "0.6.1"
 dependencies = [
  "async-trait",
+ "maestria-code-intel",
  "maestria-domain",
  "maestria-governance",
  "maestria-ports",

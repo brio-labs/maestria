@@ -56,10 +56,11 @@ This document is enforceable. CI and review block violations.
 49. Repository and code-intelligence records preserve repository, commit/worktree identity, source path/range, and parser generation; stale projections are explicit and deterministic symbol indexes must not fabricate cross-file relations.
 50. Derived repository relations are evidence-bearing records: resolved endpoints carry source/version spans, confidence, and parser generation; unresolved or unavailable-provider paths degrade explicitly instead of emitting ungrounded edges.
 51. Repository context expansion is bounded and seed-preserving; stale indexes cannot support current-worktree claims, and live reads/tests remain explicit governed effects with evidence.
+52. Specialized retrieval routes activate only for query classes where a frozen, versioned benchmark proves an evidence-quality and freshness/cost win; unproven routes remain shadowed or abstain.
 
 ## Review interpretation
 
-Rules 13–20 govern composition and module boundaries; Rules 21–30 make the previously implicit quality obligations explicit. Rules 41–51 govern typed retrieval, bounded context expansion, seed lineage, security filtering, reproducible evaluation, canonical documentation, external-truth boundaries, untrusted plan/rewrite proposals, authenticated scoped client surfaces, provenance-complete repository code intelligence, evidence-bearing code relations, and explicit freshness/governed live verification. A green checker result is necessary but not sufficient: reviewers must still reject accumulated responsibilities, duplicated lifecycle policy, and tests that only exercise implementation details. Size limits are adoption gates, not reasons to preserve a monolith.
+Rules 13–20 govern composition and module boundaries; Rules 21–30 make the previously implicit quality obligations explicit. Rules 41–52 govern typed retrieval, bounded context expansion, seed lineage, security filtering, reproducible evaluation, canonical documentation, external-truth boundaries, untrusted plan/rewrite proposals, authenticated scoped client surfaces, provenance-complete repository code intelligence, evidence-bearing code relations, explicit freshness/governed live verification, and query-class-specific benchmark promotion. A green checker result is necessary but not sufficient: reviewers must still reject accumulated responsibilities, duplicated lifecycle policy, and tests that only exercise implementation details. Size limits are adoption gates, not reasons to preserve a monolith.
 
 ## Enforcement
 - `scripts/philosophy-check.py`
@@ -67,4 +68,4 @@ Rules 13–20 govern composition and module boundaries; Rules 21–30 make the p
 - Core cohesion Clippy gate for function size and cognitive complexity budgets
 - Contract checks for kernel inputs/outputs, transitions, and every concrete port adapter
 - Review through CODEOWNERS on invariant-owning surfaces
-- Review enforces responsibility boundaries, lifecycle ownership, identity namespaces, repository/source provenance, evidence-bearing code relations, bounded seed-preserving context traversal, explicit freshness checks, governed live verification, and architectural composition from Rules 13–30 and 41–51.
+- Review enforces responsibility boundaries, lifecycle ownership, identity namespaces, repository/source provenance, evidence-bearing code relations, bounded seed-preserving context traversal, explicit freshness checks, governed live verification, query-class-specific benchmark promotion, and architectural composition from Rules 13–30 and 41–52.

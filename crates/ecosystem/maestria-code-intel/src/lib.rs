@@ -1,8 +1,13 @@
 //! Repository code intelligence index.
 
+/// Persisted filename for the repository code projection.
+pub const REPOSITORY_CODE_INDEX_FILENAME: &str = "repository-code-index.json";
+
+/// Parser generation used by the current Rust repository projection.
+pub const REPOSITORY_CODE_PARSER_GENERATION: &str = "cargo-rust-code-v1";
 use std::fs;
 use std::io::BufReader;
-use std::path::Path;
+use std::path::{Component, Path};
 
 use serde_json::{from_reader, to_vec_pretty};
 
@@ -156,6 +161,17 @@ fn validate_record_provenance(
     provenance: &RecordProvenance,
     record_kind: &str,
 ) -> Result<(), CodeIntelError> {
+    let source_path = Path::new(&provenance.file_path);
+    if source_path.is_absolute()
+        || source_path
+            .components()
+            .any(|component| matches!(component, Component::ParentDir))
+    {
+        return Err(CodeIntelError::Integrity {
+            context: format!("{record_kind} source path"),
+            details: provenance.file_path.clone(),
+        });
+    }
     if provenance.repository_root != summary.repository_root
         || provenance.commit_sha != summary.commit_sha
         || provenance.worktree_identity != summary.worktree_identity

@@ -311,6 +311,23 @@ node, and relation-kind caps. Missing LSP/provider support is recorded as an exp
 degraded status; unresolved edges are omitted rather than presented as facts. Live reads
 and tests are separate governed effects and must return their own evidence.
 
+Repository-code promotion is governed by the frozen `rust-repository-frozen-v1`
+benchmark in `maestria-retrieval`. It compares the Phase C route with the
+code-specialized route for exact-span recall, evidence-chain accuracy, p95
+latency, freshness errors, outcome accuracy, abstention accuracy, peak memory,
+privacy violations, security violations, and energy across seven query classes:
+exact symbol, definition/reference, issue-to-file, multi-hop dependency, test
+association, stale worktree, and correct abstention.
+Specialized routing is shadowed by default. A promotion record may activate it
+only for classes that meet the material quality delta, latency budget, freshness,
+and abstention gates; all other classes remain on Phase C. Stale indexes produce
+stale evidence or an explicit abstention, never an unverified current-state
+claim.
+The daemon and CLI constructors default to shadow mode; an operator may supply the
+typed promotion record returned by the benchmark comparison to the explicit
+repository-policy runtime constructor. No persisted promotion file is trusted
+automatically, so an absent or unverifiable promotion remains on Phase C.
+
 ### Fusion and Ranking
 
 Fusion and ranking must account for the query and evidence requirements, not only similarity.

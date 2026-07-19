@@ -1,3 +1,18 @@
+#[path = "search_runtime_construction.rs"]
+mod construction;
+#[path = "search_executor_projection.rs"]
+mod projection;
+#[path = "repository_code_loader.rs"]
+mod repository_code_loader;
+pub use construction::{
+    prepare_search_runtime, prepare_search_runtime_read_only,
+    prepare_search_runtime_read_only_with_repository_policy,
+    prepare_search_runtime_with_repository_policy,
+};
+pub(crate) use repository_code_loader::load_repository_code_index_with_exclusions;
+#[cfg(test)]
+#[path = "search_executor_tests.rs"]
+mod tests;
 use std::{
     collections::{BTreeMap, BTreeSet},
     future::Future,
@@ -7,30 +22,31 @@ use std::{
 
 use anyhow::{Context, Result, anyhow};
 use maestria_blob_fs::FsBlobStore;
+use maestria_code_intel::RepositoryCodeIndex;
 use maestria_core::{InstanceLayout, InstanceManifest};
 use maestria_domain::{
     ArtifactVersionId, CorpusSnapshotId, DomainEvent, DomainEventEnvelope, IndexGenerationId,
-    IndexStatus, KernelState, RepresentationName, RetrievalModelFingerprint, SearchOutcome,
-    SearchPlan,
+    KernelState, RepresentationName, RetrievalModelFingerprint, SearchOutcome, SearchPlan,
 };
-use maestria_governance::scan_secrets;
 use maestria_graph_sqlite::SqliteGraphIndex;
 use maestria_ports::{
     ArtifactRepository, BlobStore, CardRepository, ChunkRepository, EmbeddingProvider, EventFilter,
-    EventLog, EvidenceRepository, FullTextIndex, GraphIndex, IndexedCard, SearchKnowledgeExecutor,
-    VectorIndex,
+    EventLog, EvidenceRepository, FullTextIndex, GraphIndex, SearchKnowledgeExecutor, VectorIndex,
 };
 use maestria_retrieval::adapters::{
-    CardRetriever, CardRetrieverParts, CurrentVersionFilter, DenseChunkRetriever,
-    DenseChunkRetrieverParts, EvidenceOutcomeEvaluator, HierarchyGraphExpander,
-    HierarchyGraphExpanderParts, LexicalChunkRetriever, LexicalChunkRetrieverParts,
+    CardRetriever, CardRetrieverParts, CodeIntelRetriever, CodeIntelRetrieverParts,
+    CurrentVersionFilter, DenseChunkRetriever, DenseChunkRetrieverParts, EvidenceOutcomeEvaluator,
+    HierarchyGraphExpander, HierarchyGraphExpanderParts, LexicalChunkRetriever,
+    LexicalChunkRetrieverParts,
 };
 use maestria_retrieval::{
-    CandidateRetriever, FixedKRrf, HybridExecutionPolicy, RetrievalEngine, SearchPlannerContext,
+    CandidateRetriever, FixedKRrf, HybridExecutionPolicy, RepositoryExecutionPolicy,
+    RetrievalEngine, SearchPlannerContext,
 };
 use maestria_search_tantivy::TantivyFullTextIndex;
 use maestria_storage_sqlite::SqliteStore;
 use maestria_vector_sqlite::SqliteVectorIndex;
+
 pub(crate) struct SearchRuntimeParts {
     pub(crate) artifacts: Arc<dyn ArtifactRepository + Send + Sync>,
     pub(crate) cards: Arc<dyn CardRepository + Send + Sync>,
@@ -43,6 +59,8 @@ pub(crate) struct SearchRuntimeParts {
     pub(crate) event_log: Arc<SqliteStore>,
     pub(crate) primary_generation: IndexGenerationId,
     pub(crate) dense_generation: Option<IndexGenerationId>,
+    pub(crate) repository_code_index: Option<Arc<RepositoryCodeIndex>>,
+    pub(crate) repository_execution_policy: RepositoryExecutionPolicy,
     pub(crate) corpus_snapshot: CorpusSnapshotId,
 }
 
@@ -65,6 +83,8 @@ pub struct SearchRuntime {
     pub(crate) retrieval_policy: maestria_governance::RetrievalSecurityPolicy,
     pub(crate) primary_generation: IndexGenerationId,
     pub(crate) dense_generation: Option<IndexGenerationId>,
+    pub(crate) repository_code_index: Option<Arc<RepositoryCodeIndex>>,
+    pub(crate) repository_execution_policy: RepositoryExecutionPolicy,
     pub(crate) corpus_snapshot: CorpusSnapshotId,
     pub(crate) fingerprint: RetrievalModelFingerprint,
 }
@@ -77,7 +97,7 @@ impl SearchRuntime {
     ) -> Result<Self> {
         let fingerprint =
             RetrievalModelFingerprint::new("maestria-core:deterministic-v1".to_string())
-                .map_err(|error| anyhow!("create retrieval fingerprint: {error}"))?;
+                .map_err(|error| anyhow!(error.to_string()))?;
         Ok(Self {
             artifacts: parts.artifacts,
             cards: parts.cards,
@@ -92,6 +112,8 @@ impl SearchRuntime {
             retrieval_policy,
             primary_generation: parts.primary_generation,
             dense_generation: parts.dense_generation,
+            repository_code_index: parts.repository_code_index,
+            repository_execution_policy: parts.repository_execution_policy,
             corpus_snapshot: parts.corpus_snapshot,
             fingerprint,
         })
@@ -159,6 +181,13 @@ impl SearchRuntime {
             active_versions.clone(),
         ));
         let mut retrievers: Vec<Arc<dyn CandidateRetriever>> = vec![card, lexical];
+        if let Some(index) = self.repository_code_index.clone() {
+            retrievers.push(Arc::new(CodeIntelRetriever::new(
+                CodeIntelRetrieverParts { index },
+                self.retrieval_policy.clone(),
+                self.primary_generation,
+            )));
+        }
         if let (Some(vector_index), Some(provider), Some(generation)) = (
             self.vector_index.clone(),
             self.embedding_provider.clone(),
@@ -197,7 +226,9 @@ impl SearchRuntime {
                 self.retrieval_policy.clone(),
             )));
         }
-        Ok(engine.with_hybrid_policy(HybridExecutionPolicy::Shadow))
+        Ok(engine
+            .with_hybrid_policy(HybridExecutionPolicy::Shadow)
+            .with_repository_execution_policy(self.repository_execution_policy.clone()))
     }
 
     fn planner_context(&self) -> SearchPlannerContext {
@@ -261,152 +292,4 @@ impl SearchKnowledgeExecutor for SearchRuntime {
                 })
         })
     }
-}
-
-/// Construct the one search runtime used by CLI search and explain.
-pub fn prepare_search_runtime(
-    layout: &InstanceLayout,
-    state: &KernelState,
-    manifest: &InstanceManifest,
-    retrieval_policy: maestria_governance::RetrievalSecurityPolicy,
-) -> Result<Arc<SearchRuntime>> {
-    prepare_search_runtime_with_options(layout, state, manifest, retrieval_policy, true)
-}
-
-/// Construct a search runtime without rebuilding writable projections.
-pub fn prepare_search_runtime_read_only(
-    layout: &InstanceLayout,
-    state: &KernelState,
-    manifest: &InstanceManifest,
-    retrieval_policy: maestria_governance::RetrievalSecurityPolicy,
-) -> Result<Arc<SearchRuntime>> {
-    prepare_search_runtime_with_options(layout, state, manifest, retrieval_policy, false)
-}
-
-fn prepare_search_runtime_with_options(
-    layout: &InstanceLayout,
-    state: &KernelState,
-    manifest: &InstanceManifest,
-    retrieval_policy: maestria_governance::RetrievalSecurityPolicy,
-    allow_projection_writes: bool,
-) -> Result<Arc<SearchRuntime>> {
-    let sqlite_store = Arc::new(
-        SqliteStore::open(&layout.database_path)
-            .with_context(|| format!("open sqlite store {}", layout.database_path.display()))?,
-    );
-    let blob_store = Arc::new(
-        FsBlobStore::open(&layout.blobs_dir)
-            .with_context(|| format!("open blob store {}", layout.blobs_dir.display()))?,
-    );
-    let search_index = if allow_projection_writes {
-        Arc::new(
-            TantivyFullTextIndex::open(&layout.full_text_index_dir).with_context(|| {
-                format!(
-                    "open full-text index {}",
-                    layout.full_text_index_dir.display()
-                )
-            })?,
-        )
-    } else {
-        Arc::new(
-            TantivyFullTextIndex::open_read_only(&layout.full_text_index_dir).with_context(
-                || {
-                    format!(
-                        "open full-text index read-only {}",
-                        layout.full_text_index_dir.display()
-                    )
-                },
-            )?,
-        )
-    };
-    if allow_projection_writes {
-        ensure_search_index(&search_index, state)?;
-    }
-    let embedding_provider = crate::build_embedding_provider(manifest, state)?;
-    let vector_index: Option<Arc<dyn VectorIndex + Send + Sync>> = if embedding_provider.is_some() {
-        Some(Arc::new(
-            SqliteVectorIndex::open(layout.vector_index_dir.join("projection.db")).with_context(
-                || format!("open vector index {}", layout.vector_index_dir.display()),
-            )?,
-        ))
-    } else {
-        None
-    };
-    if allow_projection_writes
-        && let (Some(provider), Some(vector_index)) =
-            (embedding_provider.as_deref(), vector_index.as_deref())
-    {
-        let model = manifest
-            .embeddings
-            .as_ref()
-            .filter(|config| config.enabled)
-            .map(|config| config.model.as_str());
-        if let Err(error) =
-            crate::reconcile_vector_projection(state, vector_index, Some(provider), model)
-        {
-            eprintln!("dense retrieval unavailable; using lexical fallback: {error}");
-        }
-    }
-    let graph_index = Arc::new(
-        SqliteGraphIndex::open(layout.graph_index_dir.join("projection.db"))
-            .with_context(|| format!("open graph index {}", layout.graph_index_dir.display()))?,
-    );
-    if allow_projection_writes {
-        crate::reconcile_graph_projection(state, &*graph_index)
-            .with_context(|| "reconcile graph projection for search")?;
-    }
-    let lexical = state
-        .index_generations
-        .get_active(&RepresentationName::new("lexical_text_v1"))
-        .ok_or_else(|| anyhow!("active lexical retrieval generation is missing"))?;
-    let dense_generation = state
-        .index_generations
-        .get_active(&RepresentationName::new("dense_text_v1"))
-        .map(|generation| generation.id);
-    let parts = SearchRuntimeParts {
-        artifacts: sqlite_store.clone(),
-        cards: sqlite_store.clone(),
-        chunks: sqlite_store.clone(),
-        evidence: sqlite_store.clone(),
-        search_index,
-        blobs: blob_store,
-        vector_index,
-        event_log: sqlite_store.clone(),
-        graph_index: Some(graph_index),
-        primary_generation: lexical.id,
-        dense_generation,
-        corpus_snapshot: lexical.corpus_snapshot,
-    };
-    Ok(Arc::new(SearchRuntime::from_parts(
-        parts,
-        embedding_provider,
-        retrieval_policy,
-    )?))
-}
-
-fn ensure_search_index(search_index: &TantivyFullTextIndex, state: &KernelState) -> Result<()> {
-    if !search_index.needs_card_rebuild()? {
-        return Ok(());
-    }
-    let cards: Vec<IndexedCard> = state
-        .cards
-        .values()
-        .filter(|card| {
-            state
-                .artifacts
-                .get(&card.artifact_id)
-                .is_some_and(|artifact| artifact.index_status == IndexStatus::Indexed)
-                && scan_secrets(&card.title).is_clean()
-                && scan_secrets(&card.body).is_clean()
-        })
-        .map(|card| IndexedCard {
-            artifact_id: card.artifact_id,
-            card_id: card.id,
-            title: card.title.clone(),
-            body: card.body.clone(),
-        })
-        .collect();
-    search_index.index_cards(cards)?;
-    search_index.complete_card_rebuild()?;
-    Ok(())
 }

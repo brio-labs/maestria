@@ -4,6 +4,7 @@ pub mod diversity;
 pub mod engine;
 pub mod fusion;
 pub mod golden;
+pub mod repository_benchmark;
 pub mod rewrite;
 mod sync;
 mod sync_engine;
@@ -28,6 +29,12 @@ impl MonotonicInstant {
 
 pub use engine::{RetrievalEngine, SearchPlannerContext};
 pub use fusion::FixedKRrf;
+pub use repository_benchmark::{
+    RepositoryBenchmarkCase, RepositoryBenchmarkComparison, RepositoryBenchmarkCorpus,
+    RepositoryBenchmarkError, RepositoryBenchmarkObservation, RepositoryClassComparison,
+    RepositoryExecutionPolicy, RepositoryExpectedOutcome, RepositoryPromotionRecord,
+    RepositoryQueryClass, RepositoryRoute, RepositoryRouteMetrics,
+};
 pub use sync::SyncPipeline;
 pub use sync_engine::SyncRetrievalEngine;
 pub use traits::{
