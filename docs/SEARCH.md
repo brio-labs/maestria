@@ -279,6 +279,10 @@ Implementations may provide any compatible combination of:
 
 A retriever is selected by capability, scope, budget, and measured quality. No lane is universally required.
 
+### Visual-document evidence
+
+PDF parsing preserves page order and uses each page's MediaBox dimensions to normalize detected table/figure regions into typed structure nodes. Text-bearing pages expose page evidence; detected layout regions expose exact PDF coordinates and retain the immutable PDF blob as their source snapshot. Pages with missing or unreliable text extraction return `NeedsOcr` and may retain only layout metadata; they never emit fabricated text evidence. Region candidates use `SourceLocation::Region` and pass the same scope, ACL, trust, sensitivity, quarantine, and prompt-injection checks as text candidates.
+
 ### Repository Code Intelligence
 
 The deterministic repository lane is a persisted projection, not an embedding fallback.

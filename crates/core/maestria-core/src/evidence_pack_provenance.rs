@@ -30,6 +30,14 @@ fn source_kind_matches_hit(
             page_end,
             ..
         } => pdf_span_matches(*page_start, *page_end, source_span, hit),
+        EvidenceKind::PdfRegion {
+            page,
+            x,
+            y,
+            width,
+            height,
+            ..
+        } => pdf_region_matches(*page, *x, *y, *width, *height, source_span, hit),
         EvidenceKind::WebSnapshot { url, .. } => symbol_matches(source_span, url, "web_snapshot"),
         EvidenceKind::CommandOutput {
             harness_run,
@@ -108,6 +116,45 @@ fn pdf_span_matches(
             maestria_domain::SourceSpan::PdfSpan { page }
                 if usize::try_from(page_start).ok().is_some_and(|start| page >= start)
                     && usize::try_from(page_end).ok().is_some_and(|end| page <= end)
+        )
+}
+fn pdf_region_matches(
+    page: u32,
+    x: u32,
+    y: u32,
+    width: u32,
+    height: u32,
+    source_span: &EvidenceSpan,
+    hit: &SourceGroundedSearchHit,
+) -> bool {
+    let SourceLocation::Region {
+        page: candidate_page,
+        x: candidate_x,
+        y: candidate_y,
+        width: candidate_width,
+        height: candidate_height,
+    } = source_span.location()
+    else {
+        return false;
+    };
+    page == *candidate_page
+        && x == *candidate_x
+        && y == *candidate_y
+        && width == *candidate_width
+        && height == *candidate_height
+        && matches!(
+            hit.chunk.source_span,
+            maestria_domain::SourceSpan::PdfRegion {
+                page: hit_page,
+                x: hit_x,
+                y: hit_y,
+                width: hit_width,
+                height: hit_height,
+            } if usize::try_from(page).ok() == Some(hit_page)
+                && x == hit_x
+                && y == hit_y
+                && width == hit_width
+                && height == hit_height
         )
 }
 

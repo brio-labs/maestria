@@ -6,6 +6,7 @@ mod cargo_toml;
 mod chunking;
 mod markdown;
 mod pdf;
+mod pdf_layout;
 mod plain_text;
 mod registry;
 mod rust_source;

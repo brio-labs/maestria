@@ -42,8 +42,20 @@ impl From<StoredParseStatus> for ParseStatus {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub(crate) enum StoredSourceSpan {
-    TextSpan { start_line: usize, end_line: usize },
-    PdfSpan { page: usize },
+    TextSpan {
+        start_line: usize,
+        end_line: usize,
+    },
+    PdfSpan {
+        page: usize,
+    },
+    PdfRegion {
+        page: usize,
+        x: u32,
+        y: u32,
+        width: u32,
+        height: u32,
+    },
 }
 
 impl Default for StoredSourceSpan {
@@ -66,6 +78,19 @@ impl From<SourceSpan> for StoredSourceSpan {
                 end_line,
             },
             SourceSpan::PdfSpan { page } => Self::PdfSpan { page },
+            SourceSpan::PdfRegion {
+                page,
+                x,
+                y,
+                width,
+                height,
+            } => Self::PdfRegion {
+                page,
+                x,
+                y,
+                width,
+                height,
+            },
         }
     }
 }
@@ -81,6 +106,19 @@ impl From<StoredSourceSpan> for SourceSpan {
                 end_line,
             },
             StoredSourceSpan::PdfSpan { page } => Self::PdfSpan { page },
+            StoredSourceSpan::PdfRegion {
+                page,
+                x,
+                y,
+                width,
+                height,
+            } => Self::PdfRegion {
+                page,
+                x,
+                y,
+                width,
+                height,
+            },
         }
     }
 }

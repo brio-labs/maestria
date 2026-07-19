@@ -13,6 +13,10 @@ pub enum StructureNodeType {
     ListItem,
     Table,
     Figure,
+    TableRow,
+    TableCell,
+    FigureCaption,
+    Formula,
     Code,
 }
 

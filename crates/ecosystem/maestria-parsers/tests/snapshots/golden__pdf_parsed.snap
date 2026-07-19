@@ -30,8 +30,33 @@ ParsedArtifact {
                 },
                 page: None,
                 section_path: [],
-                parser_generation: "pdf-parser-1",
-                schema_generation: "1",
+                parser_generation: "pdf-parser-2",
+                schema_generation: "2",
+                language: None,
+            },
+            StructureNode {
+                id: StructureNodeId(
+                    5950015,
+                ),
+                parent_id: Some(
+                    StructureNodeId(
+                        5000015,
+                    ),
+                ),
+                sibling_id: None,
+                node_type: Section,
+                source_range: ContentRange {
+                    start: 1,
+                    end: 1,
+                },
+                page: Some(
+                    1,
+                ),
+                section_path: [
+                    "Page 1",
+                ],
+                parser_generation: "pdf-parser-2",
+                schema_generation: "2",
                 language: None,
             },
             StructureNode {
@@ -40,7 +65,7 @@ ParsedArtifact {
                 ),
                 parent_id: Some(
                     StructureNodeId(
-                        5000015,
+                        5950015,
                     ),
                 ),
                 sibling_id: None,
@@ -52,9 +77,11 @@ ParsedArtifact {
                 page: Some(
                     1,
                 ),
-                section_path: [],
-                parser_generation: "pdf-parser-1",
-                schema_generation: "1",
+                section_path: [
+                    "Page 1",
+                ],
+                parser_generation: "pdf-parser-2",
+                schema_generation: "2",
                 language: None,
             },
         ],

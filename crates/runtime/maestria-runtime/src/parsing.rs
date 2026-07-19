@@ -298,7 +298,12 @@ impl EffectExecutionContext {
         source_hash: &str,
     ) -> bool {
         let parser_status = parsed.status.clone();
-        let indexable = parser_status == maestria_ports::ParseStatus::Parsed;
+        let indexable = matches!(
+            parser_status,
+            maestria_ports::ParseStatus::Parsed
+                | maestria_ports::ParseStatus::NeedsOcr
+                | maestria_ports::ParseStatus::MetadataOnly
+        ) && (!parsed.chunks.is_empty() || !parsed.cards.is_empty());
         let status = domain_parse_status(parser_status.clone());
         if !indexable {
             tracing::warn!(
@@ -328,11 +333,7 @@ impl EffectExecutionContext {
             }
             (Vec::new(), Vec::new(), Vec::new())
         };
-        let tree_nodes = if indexable {
-            parsed.tree.nodes.clone()
-        } else {
-            Vec::new()
-        };
+        let tree_nodes = parsed.tree.nodes.clone();
         if Self::send_input(
             &self.input_tx,
             DomainInput::ParserCompleted(ParserResult {
@@ -340,7 +341,7 @@ impl EffectExecutionContext {
                 artifact_version_id: parsed.artifact_version_id,
                 content_hash: parsed.content_hash,
                 status,
-                tree_root_id: indexable.then_some(parsed.tree.root_id),
+                tree_root_id: Some(parsed.tree.root_id),
                 tree_nodes,
                 chunks,
                 cards,

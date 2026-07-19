@@ -387,7 +387,9 @@ impl EvidencePackMetadata {
 fn source_key(kind: &EvidenceKind) -> String {
     match kind {
         EvidenceKind::FileSpan { path, .. } => format!("file:{path}"),
-        EvidenceKind::PdfSpan { blob, .. } => format!("blob:{}", blob.value()),
+        EvidenceKind::PdfSpan { blob, .. } | EvidenceKind::PdfRegion { blob, .. } => {
+            format!("blob:{}", blob.value())
+        }
         EvidenceKind::WebSnapshot { url, .. } => format!("web:{url}"),
         EvidenceKind::CommandOutput { harness_run, .. }
         | EvidenceKind::TestResult { harness_run, .. }

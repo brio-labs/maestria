@@ -19,12 +19,11 @@ fn symbol_span_matches(
     )
 }
 
-fn candidate_matches_record(
+fn span_matches_record(
     candidate: &maestria_domain::EvidenceCandidate,
     evidence: &maestria_domain::Evidence,
 ) -> bool {
-    let artifact_matches = candidate.artifact_version.value() == evidence.artifact_id.value();
-    let span_matches = match (&candidate.source_span.location(), &evidence.kind) {
+    match (&candidate.source_span.location(), &evidence.kind) {
         (
             SourceLocation::File { path, .. },
             EvidenceKind::FileSpan {
@@ -46,6 +45,31 @@ fn candidate_matches_record(
         ) => {
             page_start == evidence_start
                 && page_end == evidence_end
+                && candidate.source_span.range()
+                    == maestria_domain::ContentRange { start: 0, end: 1 }
+        }
+        (
+            SourceLocation::Region {
+                page,
+                x,
+                y,
+                width,
+                height,
+            },
+            EvidenceKind::PdfRegion {
+                page: evidence_page,
+                x: evidence_x,
+                y: evidence_y,
+                width: evidence_width,
+                height: evidence_height,
+                ..
+            },
+        ) => {
+            page == evidence_page
+                && x == evidence_x
+                && y == evidence_y
+                && width == evidence_width
+                && height == evidence_height
                 && candidate.source_span.range()
                     == maestria_domain::ContentRange { start: 0, end: 1 }
         }
@@ -91,15 +115,26 @@ fn candidate_matches_record(
             )
         }
         _ => false,
-    };
-    let expected_trust = match (&evidence.security.trust_zone, &evidence.security.integrity) {
+    }
+}
+
+fn expected_trust(evidence: &maestria_domain::Evidence) -> TrustLabel {
+    match (&evidence.security.trust_zone, &evidence.security.integrity) {
         (
             maestria_domain::TrustZone::System | maestria_domain::TrustZone::Verified,
             maestria_domain::IntegrityState::Verified,
         ) => TrustLabel::Verified,
         _ => TrustLabel::Unverified,
-    };
-    artifact_matches && span_matches && candidate.trust == expected_trust
+    }
+}
+
+fn candidate_matches_record(
+    candidate: &maestria_domain::EvidenceCandidate,
+    evidence: &maestria_domain::Evidence,
+) -> bool {
+    candidate.artifact_version.value() == evidence.artifact_id.value()
+        && span_matches_record(candidate, evidence)
+        && candidate.trust == expected_trust(evidence)
 }
 
 #[derive(Debug, Clone, Copy, Default)]
