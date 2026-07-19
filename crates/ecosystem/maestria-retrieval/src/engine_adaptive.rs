@@ -111,9 +111,10 @@ async fn retrieve_missing_slot(
         .ok_or_else(|| {
             RetrievalError::Internal("accepted missing-slot rewrite was not retained".to_string())
         })?;
+    let active_retrievers = engine.active_retrievers(plan);
     state.batches.extend(
         engine_pipeline::collect_missing_slot_batches(
-            &engine.retrievers,
+            &active_retrievers,
             plan,
             &query_text,
             &mut state.web_requests_used,

@@ -52,11 +52,13 @@ pub struct RetrievalEngine {
     retrievers: Vec<Arc<dyn CandidateRetriever>>,
     fusion: Option<Arc<dyn RankFusion>>,
     reranker: Option<Arc<dyn CandidateReranker>>,
+    visual_reranker: bool,
     expander: Option<Arc<dyn ContextExpander>>,
     evaluator: Arc<dyn RetrievalEvaluator>,
     capabilities: maestria_governance::SearchCapabilities,
     hybrid_policy: crate::types::HybridExecutionPolicy,
     repository_execution_policy: crate::repository_benchmark::RepositoryExecutionPolicy,
+    visual_execution_policy: crate::visual_benchmark::VisualExecutionPolicy,
 }
 
 fn capabilities_from_retrievers(
@@ -193,12 +195,14 @@ impl RetrievalEngine {
             retrievers,
             fusion: None,
             reranker: None,
+            visual_reranker: false,
             expander: None,
             evaluator,
             capabilities,
             hybrid_policy: crate::types::HybridExecutionPolicy::Shadow,
             repository_execution_policy:
                 crate::repository_benchmark::RepositoryExecutionPolicy::Shadow,
+            visual_execution_policy: crate::visual_benchmark::VisualExecutionPolicy::Shadow,
         }
     }
 
@@ -212,6 +216,14 @@ impl RetrievalEngine {
         policy: crate::repository_benchmark::RepositoryExecutionPolicy,
     ) -> Self {
         self.repository_execution_policy = policy;
+        self
+    }
+
+    pub fn with_visual_execution_policy(
+        mut self,
+        policy: crate::visual_benchmark::VisualExecutionPolicy,
+    ) -> Self {
+        self.visual_execution_policy = policy;
         self
     }
 
@@ -230,6 +242,16 @@ impl RetrievalEngine {
 
     pub fn with_reranker(mut self, reranker: Arc<dyn CandidateReranker>) -> Self {
         self.reranker = Some(reranker);
+        self.capabilities = self
+            .capabilities
+            .clone()
+            .with_stage(maestria_domain::SearchStage::Reranking);
+        self
+    }
+
+    pub fn with_visual_reranker(mut self, reranker: Arc<dyn CandidateReranker>) -> Self {
+        self.reranker = Some(reranker);
+        self.visual_reranker = true;
         self.capabilities = self
             .capabilities
             .clone()
@@ -272,6 +294,28 @@ impl RetrievalEngine {
         } else {
             search.await
         }
+    }
+
+    pub(super) fn active_retrievers(&self, plan: &SearchPlan) -> Vec<Arc<dyn CandidateRetriever>> {
+        let repository_specialized = self
+            .repository_execution_policy
+            .allows_specialized(&plan.original_query);
+        let visual_enabled = self
+            .visual_execution_policy
+            .allows_visual(&plan.original_query);
+        self.retrievers
+            .iter()
+            .filter(|retriever| {
+                let descriptor = retriever.descriptor();
+                let descriptor_id = descriptor.id.to_ascii_lowercase();
+                let is_code = descriptor.modality.eq_ignore_ascii_case("code")
+                    || descriptor.modality.eq_ignore_ascii_case("rust")
+                    || descriptor_id.contains("code_intel");
+                crate::visual_benchmark::visual_lane_is_eligible(&descriptor, visual_enabled)
+                    && (repository_specialized || !is_code)
+            })
+            .cloned()
+            .collect()
     }
 
     fn prompt_injection_outcome(&self, plan: &SearchPlan) -> SearchOutcome {
@@ -330,21 +374,7 @@ impl RetrievalEngine {
         {
             return Ok(self.prompt_injection_outcome(plan));
         }
-        let repository_specialized = self
-            .repository_execution_policy
-            .allows_specialized(&plan.original_query);
-        let active_retrievers: Vec<_> = self
-            .retrievers
-            .iter()
-            .filter(|retriever| {
-                let descriptor = retriever.descriptor();
-                let is_code = descriptor.modality.eq_ignore_ascii_case("code")
-                    || descriptor.modality.eq_ignore_ascii_case("rust")
-                    || descriptor.id.to_ascii_lowercase().contains("code_intel");
-                repository_specialized || !is_code
-            })
-            .cloned()
-            .collect();
+        let active_retrievers = self.active_retrievers(plan);
         if active_retrievers.is_empty() {
             return Err(RetrievalError::Internal("No retrievers configured".into()));
         }

@@ -10,6 +10,7 @@ mod sync;
 mod sync_engine;
 pub mod traits;
 pub mod types;
+pub mod visual_benchmark;
 pub mod visual_reranker;
 
 /// Monotonic timestamp used for retrieval latency accounting.
@@ -46,5 +47,11 @@ pub use types::{
     HybridExecutionPolicy, HybridPromotionRecord, RerankConstraintScore, RerankLimits,
     RerankRequest, RerankResult, RerankScoreComponents, RerankScorerInput, RetrievalError,
     RetrievalMode, RetrievalResult,
+};
+pub use visual_benchmark::{
+    VisualBenchmarkCase, VisualBenchmarkComparison, VisualBenchmarkCorpus, VisualBenchmarkError,
+    VisualBenchmarkExecutor, VisualBenchmarkObservation, VisualClassComparison, VisualEvidenceKind,
+    VisualExecutionPolicy, VisualJudgment, VisualPromotionRecord, VisualQueryClass, VisualRoute,
+    VisualRouteMetrics, run_visual_benchmark,
 };
 pub use visual_reranker::{VisualReranker, VisualRerankerParts};
