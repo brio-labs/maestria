@@ -43,8 +43,8 @@ use maestria_retrieval::adapters::{
 };
 use maestria_retrieval::{
     CandidateReranker, CandidateRetriever, FixedKRrf, HybridExecutionPolicy,
-    RepositoryExecutionPolicy, RerankLimits, RetrievalEngine, SearchPlannerContext, VisualReranker,
-    VisualRerankerParts,
+    RepositoryExecutionPolicy, RerankLimits, RetrievalEngine, SearchPlannerContext,
+    VisualExecutionPolicy, VisualReranker, VisualRerankerParts,
 };
 use maestria_search_tantivy::TantivyFullTextIndex;
 use maestria_storage_sqlite::SqliteStore;
@@ -93,6 +93,7 @@ pub struct SearchRuntime {
     pub(crate) visual_generation: Option<VisualGenerationCapability>,
     pub(crate) repository_code_index: Option<Arc<RepositoryCodeIndex>>,
     pub(crate) repository_execution_policy: RepositoryExecutionPolicy,
+    pub(crate) visual_execution_policy: VisualExecutionPolicy,
     pub(crate) corpus_snapshot: CorpusSnapshotId,
     pub(crate) fingerprint: RetrievalModelFingerprint,
 }
@@ -126,6 +127,7 @@ impl SearchRuntime {
             dense_generation: parts.dense_generation,
             repository_code_index: parts.repository_code_index,
             repository_execution_policy: parts.repository_execution_policy,
+            visual_execution_policy: VisualExecutionPolicy::Shadow,
             corpus_snapshot: parts.corpus_snapshot,
             fingerprint,
         })
@@ -217,6 +219,16 @@ impl SearchRuntime {
         let mut runtime = (*self).clone();
         runtime.reranker = Some(Arc::new(reranker));
         Ok(Arc::new(runtime))
+    }
+
+    /// Installs benchmark evidence governing visual lane activation.
+    pub fn with_visual_execution_policy(
+        self: Arc<Self>,
+        policy: VisualExecutionPolicy,
+    ) -> Arc<Self> {
+        let mut runtime = (*self).clone();
+        runtime.visual_execution_policy = policy;
+        Arc::new(runtime)
     }
 
     pub fn append_events(
@@ -318,7 +330,7 @@ impl SearchRuntime {
         )
         .with_fusion(Arc::new(FixedKRrf::new(60)));
         if let Some(reranker) = self.reranker.clone() {
-            engine = engine.with_reranker(reranker);
+            engine = engine.with_visual_reranker(reranker);
         }
         if let Some(graph) = self.graph_index.clone() {
             engine = engine.with_expander(Arc::new(HierarchyGraphExpander::new(
@@ -334,7 +346,8 @@ impl SearchRuntime {
         }
         Ok(engine
             .with_hybrid_policy(HybridExecutionPolicy::Shadow)
-            .with_repository_execution_policy(self.repository_execution_policy.clone()))
+            .with_repository_execution_policy(self.repository_execution_policy.clone())
+            .with_visual_execution_policy(self.visual_execution_policy.clone()))
     }
 
     fn planner_context(&self) -> SearchPlannerContext {

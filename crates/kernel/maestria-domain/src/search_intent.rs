@@ -49,7 +49,10 @@ impl SearchIntent {
             Self::ContradictionAudit
         } else if has(&["latest", "today", "current", "web", "news", "http"]) {
             Self::CurrentWeb
-        } else if has(&["table", "chart", "figure", "image", "visual", "pdf"]) {
+        } else if has(&[
+            "table", "chart", "figure", "image", "visual", "pdf", "formula", "equation", "diagram",
+            "scan", "ocr",
+        ]) {
             Self::VisualDocument
         } else if has(&[
             "rust",

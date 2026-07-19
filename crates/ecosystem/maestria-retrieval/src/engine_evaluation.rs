@@ -20,6 +20,7 @@ pub(super) async fn evaluate_batches(
     let repository_specialized = engine
         .repository_execution_policy
         .allows_specialized(&query.q);
+    let visual_enabled = engine.visual_execution_policy.allows_visual(&query.q);
     let has_non_code_evidence = batches.iter().any(|batch| {
         let is_code = batch.descriptor.modality.eq_ignore_ascii_case("code")
             || batch.descriptor.modality.eq_ignore_ascii_case("rust")
@@ -32,6 +33,9 @@ pub(super) async fn evaluate_batches(
     });
     let fusion_batches: Vec<_> = batches
         .iter()
+        .filter(|batch| {
+            crate::visual_benchmark::visual_lane_is_eligible(&batch.descriptor, visual_enabled)
+        })
         .filter(|batch| {
             super::batch_is_eligible(
                 &batch.descriptor,
@@ -57,7 +61,7 @@ pub(super) async fn evaluate_batches(
             }
         })
         .collect();
-    let mut ranked = if let Some(fusion) = &engine.fusion {
+    let ranked = if let Some(fusion) = &engine.fusion {
         fusion
             .fuse(query, &fusion_batches)?
             .into_iter()
@@ -76,26 +80,8 @@ pub(super) async fn evaluate_batches(
             .map(|(rank, candidate)| RankedCandidate { candidate, rank })
             .collect()
     };
-    let mut rerank_trace = None;
-    if plan
-        .stages
-        .contains(&maestria_domain::SearchStage::Reranking)
-        && let Some(reranker) = &engine.reranker
-    {
-        let elapsed_ms = started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
-        let remaining_ms = u64::from(plan.budgets.max_latency_ms())
-            .saturating_sub(elapsed_ms)
-            .min(u64::from(u32::MAX)) as u32;
-        let rerank_res = reranker
-            .rerank(RerankRequest {
-                plan: plan.clone(),
-                candidates: ranked,
-                max_latency_ms: remaining_ms,
-            })
-            .await?;
-        ranked = rerank_res.candidates;
-        rerank_trace = Some(rerank_res.trace);
-    }
+    let (ranked, rerank_trace) =
+        apply_reranking(engine, plan, visual_enabled, started, ranked).await?;
     let expansion_enabled = plan
         .stages
         .contains(&maestria_domain::SearchStage::Filtering);
@@ -111,4 +97,36 @@ pub(super) async fn evaluate_batches(
     raw_outcome.status = reconcile_status(&raw_outcome.status, &final_diversity.status);
     raw_outcome.coverage = final_diversity.coverage.clone();
     Ok((raw_outcome, lanes, rerank_trace, final_diversity.trace))
+}
+
+async fn apply_reranking(
+    engine: &RetrievalEngine,
+    plan: &SearchPlan,
+    visual_enabled: bool,
+    started: tokio::time::Instant,
+    ranked: Vec<RankedCandidate>,
+) -> RetrievalResult<(
+    Vec<RankedCandidate>,
+    Option<maestria_domain::SearchTraceRerank>,
+)> {
+    if plan
+        .stages
+        .contains(&maestria_domain::SearchStage::Reranking)
+        && (!engine.visual_reranker || visual_enabled)
+        && let Some(reranker) = &engine.reranker
+    {
+        let elapsed_ms = started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
+        let remaining_ms = u64::from(plan.budgets.max_latency_ms())
+            .saturating_sub(elapsed_ms)
+            .min(u64::from(u32::MAX)) as u32;
+        let rerank_res = reranker
+            .rerank(RerankRequest {
+                plan: plan.clone(),
+                candidates: ranked,
+                max_latency_ms: remaining_ms,
+            })
+            .await?;
+        return Ok((rerank_res.candidates, Some(rerank_res.trace)));
+    }
+    Ok((ranked, None))
 }

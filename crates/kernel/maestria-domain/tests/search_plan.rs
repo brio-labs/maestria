@@ -62,6 +62,11 @@ fn every_canonical_intent_classifies_deterministically() {
         ),
         ("find the chart in the PDF", SearchIntent::VisualDocument),
         (
+            "find the formula in the scanned page",
+            SearchIntent::VisualDocument,
+        ),
+        ("find the OCR diagram", SearchIntent::VisualDocument),
+        (
             "when did the previous decision change",
             SearchIntent::TemporalMemory,
         ),

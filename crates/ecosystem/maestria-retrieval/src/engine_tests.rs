@@ -1,5 +1,6 @@
 use super::batch_is_eligible;
 use crate::types::{HybridExecutionPolicy, HybridPromotionRecord, RetrieverDescriptor};
+use crate::visual_benchmark::visual_lane_is_eligible;
 use maestria_domain::{IndexGenerationId, RepresentationName};
 
 fn descriptor(id: &str, modality: &str) -> RetrieverDescriptor {
@@ -38,4 +39,13 @@ fn dense_shadow_filter_remains_independent_of_repository_policy() -> Result<(), 
     ));
     assert!(batch_is_eligible(&dense, &active_hybrid_policy()?, true));
     Ok(())
+}
+
+#[test]
+fn visual_lane_is_shadowed_until_a_winning_query_class_is_promoted() {
+    let visual = descriptor("visual_page_regions", "image");
+    let text = descriptor("lexical", "text");
+    assert!(!visual_lane_is_eligible(&visual, false));
+    assert!(visual_lane_is_eligible(&visual, true));
+    assert!(visual_lane_is_eligible(&text, false));
 }

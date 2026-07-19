@@ -93,8 +93,9 @@ impl RetrievalEngine {
             _ => Modality::Text,
         };
         let expansion_enabled = self.expander.is_some();
-        let reranking_enabled =
-            self.reranker.is_some() && inferred_intent == SearchIntent::VisualDocument;
+        let reranking_enabled = self.reranker.is_some()
+            && inferred_intent == SearchIntent::VisualDocument
+            && self.visual_execution_policy.allows_visual(&original_query);
         let max_stages = 1 + u32::from(expansion_enabled) + u32::from(reranking_enabled);
         let capabilities = self
             .capabilities
