@@ -25,15 +25,18 @@ use maestria_graph_sqlite::SqliteGraphIndex;
 use maestria_harness::LocalShellHarnessAdapter;
 use maestria_parsers::ParserRegistry;
 use maestria_ports::{EventFilter, SearchKnowledgeExecutor, VectorIndex};
+use maestria_retrieval::RepositoryExecutionPolicy;
 use maestria_runtime::{Adapters, Governance, MaestriaRuntime, RuntimeConfig};
 use maestria_search_tantivy::TantivyFullTextIndex;
 use maestria_storage_sqlite::SqliteStore;
 use maestria_vector_sqlite::SqliteVectorIndex;
 use maestria_web_evidence::UreqWebFetcher;
-use search_executor::SearchRuntimeParts;
 pub use search_executor::{
     SearchRuntime, prepare_search_runtime, prepare_search_runtime_read_only,
+    prepare_search_runtime_read_only_with_repository_policy,
+    prepare_search_runtime_with_repository_policy,
 };
+use search_executor::{SearchRuntimeParts, load_repository_code_index_with_exclusions};
 use tokio::{
     sync::mpsc,
     time::{sleep, timeout},
@@ -237,11 +240,12 @@ pub fn load_kernel_state(layout: &InstanceLayout) -> Result<KernelState> {
             .with_context(|| format!("scan domain events {}", layout.database_path.display()))?;
     replay_events(&events).map_err(|error| anyhow!(error))
 }
-
 fn build_adapters(
     layout: &InstanceLayout,
     state: &KernelState,
+    manifest: &InstanceManifest,
     embedding_provider: Option<Arc<dyn maestria_ports::EmbeddingProvider + Send + Sync>>,
+    repository_execution_policy: RepositoryExecutionPolicy,
 ) -> Result<Adapters> {
     let blob_store = Arc::new(
         FsBlobStore::open(&layout.blobs_dir)
@@ -276,6 +280,8 @@ fn build_adapters(
         .index_generations
         .get_active(&RepresentationName::new("dense_text_v1"))
         .map(|generation| generation.id);
+    let repository_code_index = load_repository_code_index_with_exclusions(layout, Some(manifest))
+        .with_context(|| "load repository code index for runtime construction")?;
     let search_executor: Arc<dyn SearchKnowledgeExecutor + Send + Sync> =
         Arc::new(SearchRuntime::from_parts(
             SearchRuntimeParts {
@@ -290,6 +296,8 @@ fn build_adapters(
                 event_log: sqlite_store.clone(),
                 primary_generation: lexical.id,
                 dense_generation,
+                repository_code_index,
+                repository_execution_policy,
                 corpus_snapshot: lexical.corpus_snapshot,
             },
             embedding_provider.clone(),
@@ -320,8 +328,23 @@ fn build_adapters(
 
 pub fn build_runtime(
     layout: &InstanceLayout,
+    state: KernelState,
+    profile: AutonomyProfile,
+) -> Result<(
+    MaestriaRuntime,
+    mpsc::Sender<DomainInput>,
+    mpsc::Receiver<DomainInput>,
+    CancellationToken,
+)> {
+    build_runtime_with_repository_policy(layout, state, profile, RepositoryExecutionPolicy::Shadow)
+}
+
+/// Build a runtime with a verified repository benchmark promotion policy.
+pub fn build_runtime_with_repository_policy(
+    layout: &InstanceLayout,
     mut state: KernelState,
     profile: AutonomyProfile,
+    repository_execution_policy: RepositoryExecutionPolicy,
 ) -> Result<(
     MaestriaRuntime,
     mpsc::Sender<DomainInput>,
@@ -340,7 +363,13 @@ pub fn build_runtime(
         .filter(|config| config.enabled)
         .map(|config| config.model.clone());
     let embedding_provider = build_embedding_provider(&manifest, &state)?;
-    let adapters = build_adapters(layout, &state, embedding_provider)?;
+    let adapters = build_adapters(
+        layout,
+        &state,
+        &manifest,
+        embedding_provider,
+        repository_execution_policy,
+    )?;
     let governance = Governance {
         classifier: Arc::new(DefaultRiskClassifier),
         approval_gate: Arc::new(DefaultApprovalGate),

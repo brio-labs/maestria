@@ -1,0 +1,85 @@
+{
+  "schema_version": 1,
+  "corpus_id": "rust-repository-frozen-v1",
+  "repository_revision": "7f4a9c2d5f1f6e3a8c11d4eb2b1f0c3e9d9d5a0b2",
+  "cases": [
+    {
+      "case_id": "rust-exact-symbol",
+      "class": "ExactSymbol",
+      "query": "Which exact symbol named `Repository::new` is defined in this Rust repository?",
+      "expected": {
+        "Evidence": {
+          "exact_span_count": 2,
+          "evidence_chain_length": 3
+        }
+      },
+      "latency_budget_ms": 250
+    },
+    {
+      "case_id": "rust-definition-reference",
+      "class": "DefinitionReference",
+      "query": "Can you show the definition and references of `Repository::index` in this Rust code?",
+      "expected": {
+        "Evidence": {
+          "exact_span_count": 1,
+          "evidence_chain_length": 2
+        }
+      },
+      "latency_budget_ms": 190
+    },
+    {
+      "case_id": "rust-issue-to-file",
+      "class": "IssueToFile",
+      "query": "Which file should I edit for issue #184 about parser panic recovery?",
+      "expected": {
+        "Evidence": {
+          "exact_span_count": 1,
+          "evidence_chain_length": 1
+        }
+      },
+      "latency_budget_ms": 180
+    },
+    {
+      "case_id": "rust-multi-hop-dependency",
+      "class": "MultiHopDependency",
+      "query": "What dependency chain leads from `Repository::build_graph` to `Parser::parse`?",
+      "expected": {
+        "Evidence": {
+          "exact_span_count": 2,
+          "evidence_chain_length": 3
+        }
+      },
+      "latency_budget_ms": 220
+    },
+    {
+      "case_id": "rust-test-association",
+      "class": "TestAssociation",
+      "query": "Which Rust tests cover `Repository::index` and why are they relevant?",
+      "expected": {
+        "Evidence": {
+          "exact_span_count": 1,
+          "evidence_chain_length": 1
+        }
+      },
+      "latency_budget_ms": 150
+    },
+    {
+      "case_id": "rust-stale-worktree",
+      "class": "StaleWorktree",
+      "query": "Has the worktree become stale compared to the latest repository head?",
+      "expected": {
+        "Stale": null
+      },
+      "latency_budget_ms": 120
+    },
+    {
+      "case_id": "rust-correct-abstention",
+      "class": "CorrectAbstention",
+      "query": "I don't know whether this repository can answer questions about architecture outside its scope.",
+      "expected": {
+        "Abstain": null
+      },
+      "latency_budget_ms": 110
+    }
+  ]
+}

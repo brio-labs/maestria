@@ -9,12 +9,17 @@ use std::time::Duration;
 use crate::traits::{
     CandidateReranker, CandidateRetriever, ContextExpander, RankFusion, RetrievalEvaluator,
 };
-use crate::types::{RankedCandidate, RerankRequest, RetrievalError, RetrievalResult};
+use crate::types::{RetrievalError, RetrievalResult};
 
 #[path = "engine_adaptive.rs"]
 mod engine_adaptive;
+#[path = "engine_evaluation.rs"]
+mod engine_evaluation;
 #[path = "engine_pipeline.rs"]
 mod engine_pipeline;
+#[cfg(test)]
+#[path = "engine_tests.rs"]
+mod tests;
 
 #[path = "planner.rs"]
 mod planner;
@@ -51,6 +56,7 @@ pub struct RetrievalEngine {
     evaluator: Arc<dyn RetrievalEvaluator>,
     capabilities: maestria_governance::SearchCapabilities,
     hybrid_policy: crate::types::HybridExecutionPolicy,
+    repository_execution_policy: crate::repository_benchmark::RepositoryExecutionPolicy,
 }
 
 fn capabilities_from_retrievers(
@@ -133,6 +139,23 @@ fn capabilities_from_retrievers(
     capabilities
 }
 
+fn batch_is_eligible(
+    descriptor: &crate::types::RetrieverDescriptor,
+    hybrid_policy: &crate::types::HybridExecutionPolicy,
+    repository_specialized: bool,
+) -> bool {
+    let id = descriptor.id.to_ascii_lowercase();
+    let is_dense = id.contains("dense") || id.contains("vector") || id.contains("semantic");
+    let is_code = descriptor.modality.eq_ignore_ascii_case("code")
+        || descriptor.modality.eq_ignore_ascii_case("rust")
+        || id.contains("code_intel");
+    let hybrid_allowed = match hybrid_policy {
+        crate::types::HybridExecutionPolicy::Shadow => !is_dense,
+        crate::types::HybridExecutionPolicy::Active(_) => true,
+    };
+    hybrid_allowed && (repository_specialized || !is_code)
+}
+
 impl RetrievalEngine {
     fn validate_plan(&self, plan: &SearchPlan) -> RetrievalResult<()> {
         let capabilities = self
@@ -174,11 +197,21 @@ impl RetrievalEngine {
             evaluator,
             capabilities,
             hybrid_policy: crate::types::HybridExecutionPolicy::Shadow,
+            repository_execution_policy:
+                crate::repository_benchmark::RepositoryExecutionPolicy::Shadow,
         }
     }
 
     pub fn with_hybrid_policy(mut self, policy: crate::types::HybridExecutionPolicy) -> Self {
         self.hybrid_policy = policy;
+        self
+    }
+
+    pub fn with_repository_execution_policy(
+        mut self,
+        policy: crate::repository_benchmark::RepositoryExecutionPolicy,
+    ) -> Self {
+        self.repository_execution_policy = policy;
         self
     }
 
@@ -212,6 +245,7 @@ impl RetrievalEngine {
             .with_stage(maestria_domain::SearchStage::Filtering);
         self
     }
+
     pub(super) async fn evaluate_batches(
         &self,
         plan: &SearchPlan,
@@ -224,74 +258,7 @@ impl RetrievalEngine {
         Option<maestria_domain::SearchTraceRerank>,
         maestria_domain::SearchTraceDiversity,
     )> {
-        let lanes = engine_pipeline::trace_lanes(batches);
-        let fusion_batches: Vec<_> = match self.hybrid_policy {
-            crate::types::HybridExecutionPolicy::Shadow => batches
-                .iter()
-                .filter(|batch| {
-                    let id = batch.descriptor.id.to_ascii_lowercase();
-                    !id.contains("dense") && !id.contains("vector") && !id.contains("semantic")
-                })
-                .cloned()
-                .collect(),
-            crate::types::HybridExecutionPolicy::Active(_) => batches.to_vec(),
-        };
-        let mut ranked = if let Some(fusion) = &self.fusion {
-            fusion
-                .fuse(query, &fusion_batches)?
-                .into_iter()
-                .enumerate()
-                .map(|(rank, fused)| RankedCandidate {
-                    candidate: fused.candidate,
-                    rank,
-                })
-                .collect()
-        } else {
-            batches
-                .iter()
-                .filter(|batch| {
-                    matches!(batch.status, maestria_domain::SearchLaneStatus::Succeeded)
-                })
-                .flat_map(|batch| batch.candidates.iter().cloned())
-                .enumerate()
-                .map(|(rank, candidate)| RankedCandidate { candidate, rank })
-                .collect()
-        };
-        let mut rerank_trace = None;
-        if plan
-            .stages
-            .contains(&maestria_domain::SearchStage::Reranking)
-            && let Some(reranker) = &self.reranker
-        {
-            let elapsed_ms = started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
-            let remaining_ms = u64::from(plan.budgets.max_latency_ms())
-                .saturating_sub(elapsed_ms)
-                .min(u64::from(u32::MAX)) as u32;
-            let rerank_res = reranker
-                .rerank(RerankRequest {
-                    plan: plan.clone(),
-                    candidates: ranked,
-                    max_latency_ms: remaining_ms,
-                })
-                .await?;
-            ranked = rerank_res.candidates;
-            rerank_trace = Some(rerank_res.trace);
-        }
-        let expansion_enabled = plan
-            .stages
-            .contains(&maestria_domain::SearchStage::Filtering);
-        let configured_expander = expansion_enabled.then(|| self.expander.clone()).flatten();
-        let initial_diversity = crate::diversity::select_candidates(&ranked, plan);
-        let (mut raw_outcome, final_diversity) = engine_pipeline::run_diversity_stage(
-            plan,
-            initial_diversity,
-            &configured_expander,
-            &self.evaluator,
-        )
-        .await?;
-        raw_outcome.status = reconcile_status(&raw_outcome.status, &final_diversity.status);
-        raw_outcome.coverage = final_diversity.coverage.clone();
-        Ok((raw_outcome, lanes, rerank_trace, final_diversity.trace))
+        engine_evaluation::evaluate_batches(self, plan, query, batches, started).await
     }
     pub async fn search(&self, plan: &SearchPlan) -> RetrievalResult<SearchOutcome> {
         self.validate_plan(plan)?;
@@ -363,7 +330,22 @@ impl RetrievalEngine {
         {
             return Ok(self.prompt_injection_outcome(plan));
         }
-        if self.retrievers.is_empty() {
+        let repository_specialized = self
+            .repository_execution_policy
+            .allows_specialized(&plan.original_query);
+        let active_retrievers: Vec<_> = self
+            .retrievers
+            .iter()
+            .filter(|retriever| {
+                let descriptor = retriever.descriptor();
+                let is_code = descriptor.modality.eq_ignore_ascii_case("code")
+                    || descriptor.modality.eq_ignore_ascii_case("rust")
+                    || descriptor.id.to_ascii_lowercase().contains("code_intel");
+                repository_specialized || !is_code
+            })
+            .cloned()
+            .collect();
+        if active_retrievers.is_empty() {
             return Err(RetrievalError::Internal("No retrievers configured".into()));
         }
         let query = SearchQuery {
@@ -372,7 +354,7 @@ impl RetrievalEngine {
             offset: 0,
         };
         let (batches, rewrites, web_requests_used, web_bytes_read) =
-            engine_pipeline::collect_initial_batches(&self.retrievers, plan).await?;
+            engine_pipeline::collect_initial_batches(&active_retrievers, plan).await?;
         let (outcome, lanes, rerank_trace, diversity_trace) = self
             .evaluate_batches(plan, &query, &batches, started)
             .await?;

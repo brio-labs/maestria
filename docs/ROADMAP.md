@@ -32,9 +32,10 @@ Implement dynamic query routing and bounded multi-stage retrieval.
 Deep structural and contextual understanding of codebases.
 *   **Goals:** Cross-file dependency resolution, type-aware search, and semantic similarity of code blocks.
 *   **Exit Criteria:**
-    *   A versioned Rust repository benchmark reports symbol, relation, and exact-span recall for supported language features.
+    *   A versioned Rust repository benchmark reports symbol, relation, and exact-span recall for supported language features across frozen query classes.
     *   Live freshness checks detect changed worktree sources without returning stale evidence as current.
     *   Code retrieval preserves ACL, provenance, and deterministic trace requirements.
+    *   Specialized routing is shadowed by default and activates only for query classes with a measured evidence-quality, freshness, and latency win; unsupported or unsafe questions abstain.
     *   The phase uses the shared Rule 44 evaluation contract: quality, latency, memory, privacy, security, and energy are measured on the versioned corpus.
 
 ## Phase 5: Visual Documents
