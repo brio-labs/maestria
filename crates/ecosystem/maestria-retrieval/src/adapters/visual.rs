@@ -70,7 +70,8 @@ impl VisualGenerationCapability {
         self.identity.generation_id
     }
 
-    fn identity(&self) -> &EmbeddingIdentity {
+    /// Returns the exact provider identity validated by this capability.
+    pub fn identity(&self) -> &EmbeddingIdentity {
         &self.identity
     }
 }
