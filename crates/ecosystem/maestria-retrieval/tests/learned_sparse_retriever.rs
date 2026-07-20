@@ -2,10 +2,11 @@ use std::sync::Arc;
 
 use maestria_domain::{
     Artifact, ArtifactId, Chunk, ChunkId, ContentHash, ContentRange, CorpusScope, CorpusSnapshotId,
-    Evidence, EvidenceKind, EvidenceRequirements, FreshnessRequirement, IndexGenerationId,
-    IndexStatus, LearnedSparseReason, LogicalTick, Modality, ModalitySet, QueryId,
-    RepresentationName, RetrievalModelFingerprint, RetrievalReason, SearchBudget, SearchIntent,
-    SearchPlan, SearchStage, SourceSpan, StopConditions, StructureNodeId,
+    Evidence, EvidenceKind, EvidenceRequirements, FreshnessRequirement, IndexFingerprint,
+    IndexGeneration, IndexGenerationId, IndexGenerationRegistry, IndexLifecycle, IndexStatus,
+    LearnedSparseReason, LogicalTick, Modality, ModalitySet, QueryId, RepresentationName,
+    RetrievalModelFingerprint, RetrievalReason, SearchBudget, SearchIntent, SearchPlan, SearchStage,
+    SourceSpan, StopConditions, StructureNodeId,
 };
 use maestria_governance::RetrievalSecurityPolicy;
 use maestria_ports::{
@@ -15,7 +16,10 @@ use maestria_ports::{
     LearnedSparseProvider, SPARSE_REPRESENTATION_V1, SearchQuery, SparseDocument,
     SparseFingerprint, SparseIdentity, SparseInputKind,
 };
-use maestria_retrieval::adapters::{LearnedSparseChunkRetriever, LearnedSparseChunkRetrieverParts};
+use maestria_retrieval::adapters::{
+    LearnedSparseChunkRetriever, LearnedSparseChunkRetrieverParts,
+    LearnedSparseGenerationCapability,
+};
 use maestria_retrieval::{CandidateRetriever, types::CandidateRequest};
 
 struct RetrieverFixture {
@@ -54,6 +58,46 @@ fn fixture_identity() -> Result<SparseIdentity, Box<dyn std::error::Error>> {
             max_terms: 128,
         },
     })
+}
+
+fn fixture_registry(
+    identity: &SparseIdentity,
+    activate: bool,
+) -> Result<IndexGenerationRegistry, Box<dyn std::error::Error>> {
+    let sparse = &identity.fingerprint;
+    let mut registry = IndexGenerationRegistry::default();
+    registry.register(IndexGeneration {
+        id: identity.generation_id,
+        name: identity.representation.clone(),
+        corpus_snapshot: identity.corpus_snapshot,
+        fingerprint: IndexFingerprint {
+            provider: sparse.provider.clone(),
+            model: sparse.model.clone(),
+            revision: sparse.revision.clone(),
+            artifact_hash: sparse.artifact_hash.clone(),
+            dimensions: sparse.vocabulary_size,
+            quantization: sparse.quantization.clone(),
+            query_template_hash: sparse.query_template_hash.clone(),
+            document_template_hash: sparse.document_template_hash.clone(),
+            preprocessing_version: sparse.preprocessing_version.clone(),
+        },
+        lifecycle: IndexLifecycle::Building,
+    })?;
+    drop(registry.transition_lifecycle(identity.generation_id, IndexLifecycle::Evaluated)?);
+    drop(registry.transition_lifecycle(identity.generation_id, IndexLifecycle::Shadow)?);
+    if activate {
+        drop(registry.transition_lifecycle(identity.generation_id, IndexLifecycle::Active)?);
+    }
+    Ok(registry)
+}
+
+fn fixture_capability(
+    identity: &SparseIdentity,
+) -> Result<LearnedSparseGenerationCapability, Box<dyn std::error::Error>> {
+    Ok(LearnedSparseGenerationCapability::activate(
+        &fixture_registry(identity, true)?,
+        identity.clone(),
+    )?)
 }
 
 fn fixture_plan(
@@ -147,7 +191,7 @@ fn fixture_with_document() -> Result<RetrieverFixture, Box<dyn std::error::Error
         RetrievalSecurityPolicy::new()
             .require_read_allowed(true)
             .allow_unscoped_items(true),
-        identity.clone(),
+        fixture_capability(&identity)?,
     )?;
     Ok(RetrieverFixture {
         identity,
@@ -213,6 +257,18 @@ fn fixture_evidence(
     }
 }
 
+#[test]
+fn sparse_generation_capability_rejects_shadow_generation()
+-> Result<(), Box<dyn std::error::Error>> {
+    let identity = fixture_identity()?;
+    let result = LearnedSparseGenerationCapability::activate(
+        &fixture_registry(&identity, false)?,
+        identity,
+    );
+    assert!(result.is_err());
+    Ok(())
+}
+
 #[tokio::test]
 async fn learned_sparse_retriever_preserves_score_and_source_lineage()
 -> Result<(), Box<dyn std::error::Error>> {
@@ -245,8 +301,7 @@ async fn learned_sparse_retriever_preserves_score_and_source_lineage()
 }
 
 #[tokio::test]
-async fn learned_sparse_retriever_rejects_secret_queries() -> Result<(), Box<dyn std::error::Error>>
-{
+async fn learned_sparse_retriever_rejects_secret_queries() -> Result<(), Box<dyn std::error::Error>> {
     let identity = fixture_identity()?;
     let provider = Arc::new(InMemoryLearnedSparseProvider::new(identity.clone())?);
     let retriever = LearnedSparseChunkRetriever::new(
@@ -259,7 +314,7 @@ async fn learned_sparse_retriever_rejects_secret_queries() -> Result<(), Box<dyn
             provider,
         },
         RetrievalSecurityPolicy::new().allow_unscoped_items(true),
-        identity.clone(),
+        fixture_capability(&identity)?,
     )?;
     let result = retriever
         .retrieve(request(&identity, "API_KEY=secret-value")?)
