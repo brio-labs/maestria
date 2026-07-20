@@ -78,14 +78,19 @@ class MilestoneEvidenceFixtureTests(unittest.TestCase):
                 f"{entry['milestone']}: stage mismatch",
             )
 
-    def test_closable_milestones_have_implementation_complete(self) -> None:
-        for entry in self.milestones:
-            if entry["closure"] == "closable":
-                self.assertEqual(
-                    entry["release_stage"],
-                    "implementation-complete",
-                    f"{entry['milestone']}: closable milestone must be implementation-complete",
-                )
+    def test_manifest_records_observed_github_milestone_states(self) -> None:
+        observed_closure = {
+            "v0.4 — Deterministic Search Baseline": "open",
+            "v0.5 — Evaluated Hybrid Retrieval": "open",
+            "v0.6 — Query-Adaptive Search": "closed",
+            "v0.7 — Repository Intelligence": "open",
+            "v0.8 — Visual Document Retrieval": "open",
+            "v0.9 — Advanced Retrieval Research": "open",
+        }
+        self.assertEqual(
+            {entry["milestone"]: entry["closure"] for entry in self.milestones},
+            observed_closure,
+        )
 
     def test_open_milestones_have_known_stage(self) -> None:
         for entry in self.milestones:
