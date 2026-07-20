@@ -25,8 +25,8 @@ pub fn fixture_sparse_identity() -> Result<SparseIdentity, PortError> {
             vocabulary_hash: hash('3')?,
             vocabulary_size: 65_536,
             term_namespace: "fixture-vocabulary-v1".to_string(),
-            query_template_hash: "sha256:query-template".to_string(),
-            document_template_hash: "sha256:document-template".to_string(),
+            query_template_hash: hash('5')?,
+            document_template_hash: hash('6')?,
             preprocessing_version: "fixture-preprocess-v1".to_string(),
             weighting_version: "fixture-log-frequency-v1".to_string(),
             quantization: "f32".to_string(),
@@ -86,6 +86,7 @@ pub fn assert_learned_sparse_index_contract(
     let identity = provider
         .identity()
         .ok_or("learned sparse provider identity is unavailable")?;
+    assert_eq!(index.identity().as_ref(), Some(&identity));
     let content_hash = ContentHash::new(format!("sha256:{}", "4".repeat(64)))?;
     let document = |chunk_id, text: &str| -> Result<SparseDocument, PortError> {
         Ok(SparseDocument {
@@ -145,7 +146,9 @@ mod tests {
 
     #[test]
     fn in_memory_index_obeys_sparse_contract() -> Result<(), Box<dyn std::error::Error>> {
-        let provider = InMemoryLearnedSparseProvider::new(fixture_sparse_identity()?)?;
-        assert_learned_sparse_index_contract(&InMemoryLearnedSparseIndex::new(), &provider)
+        let identity = fixture_sparse_identity()?;
+        let provider = InMemoryLearnedSparseProvider::new(identity.clone())?;
+        let index = InMemoryLearnedSparseIndex::new(identity)?;
+        assert_learned_sparse_index_contract(&index, &provider)
     }
 }
