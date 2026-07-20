@@ -331,3 +331,44 @@ fn real_repository_executor_runs_frozen_cases_against_a_code_index()
     }
     Ok(())
 }
+
+#[test]
+fn stale_repository_outcome_matches_index_freshness() -> Result<(), Box<dyn std::error::Error>> {
+    let corpus = rust_repository_benchmark_fixture()?;
+    let repository_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../..")
+        .canonicalize()?;
+    let index = maestria_code_intel::RepositoryCodeIndex::build_with_exclusions(
+        repository_root,
+        maestria_code_intel::REPOSITORY_CODE_PARSER_GENERATION,
+        &[],
+    )?;
+    let fresh_executor = RepositoryCodeIndexExecutor::new(
+        &index,
+        corpus.corpus_id.clone(),
+        index.summary.commit_sha.clone(),
+    );
+    let fresh_observations = run_repository_benchmark(&corpus, &fresh_executor)?;
+    let fresh_stale_case = fresh_observations
+        .iter()
+        .find(|observation| observation.case_id == "rust-stale-worktree")
+        .ok_or("missing stale-worktree observation")?;
+    assert!(!fresh_stale_case.outcome_correct);
+    assert!(fresh_stale_case.freshness_error);
+
+    let mut stale_index = index.clone();
+    stale_index.summary.worktree_identity = "stale-worktree-for-test".into();
+    let stale_executor = RepositoryCodeIndexExecutor::new(
+        &stale_index,
+        corpus.corpus_id.clone(),
+        stale_index.summary.commit_sha.clone(),
+    );
+    let stale_observations = run_repository_benchmark(&corpus, &stale_executor)?;
+    let stale_case = stale_observations
+        .iter()
+        .find(|observation| observation.case_id == "rust-stale-worktree")
+        .ok_or("missing stale-worktree observation")?;
+    assert!(stale_case.outcome_correct);
+    assert!(!stale_case.freshness_error);
+    Ok(())
+}

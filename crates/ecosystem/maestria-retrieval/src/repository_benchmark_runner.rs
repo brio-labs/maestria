@@ -104,15 +104,12 @@ impl RepositoryBenchmarkExecutor for RepositoryCodeIndexExecutor<'_> {
         route: RepositoryRoute,
     ) -> Result<RepositoryBenchmarkObservation, RepositoryBenchmarkError> {
         let started = MonotonicInstant::now();
-        let (exact_span_hits, abstained, freshness_error) = match case.expected {
-            RepositoryExpectedOutcome::Abstain => (0, true, false),
-            RepositoryExpectedOutcome::Stale => {
-                let stale = match self.index.freshness() {
-                    Ok(freshness) => matches!(freshness, RepositoryFreshness::Stale { .. }),
-                    Err(_) => true,
-                };
-                (0, false, !stale)
-            }
+        let (exact_span_hits, abstained, stale_index, freshness_error) = match case.expected {
+            RepositoryExpectedOutcome::Abstain => (0, true, false, false),
+            RepositoryExpectedOutcome::Stale => match self.index.freshness() {
+                Ok(RepositoryFreshness::Stale { .. }) => (0, false, true, false),
+                Ok(RepositoryFreshness::Current { .. }) | Err(_) => (0, false, false, true),
+            },
             RepositoryExpectedOutcome::Evidence { .. } => {
                 let result = match route {
                     RepositoryRoute::PhaseC => self.index.query(CodeQuery::All, 32),
@@ -123,17 +120,17 @@ impl RepositoryBenchmarkExecutor for RepositoryCodeIndexExecutor<'_> {
                         32,
                     ),
                 };
-                (result.records.len(), false, false)
+                (result.records.len(), false, false, false)
             }
         };
-        let evidence_chain_length = exact_span_hits;
         let outcome_correct = match case.expected {
             RepositoryExpectedOutcome::Evidence {
                 exact_span_count, ..
             } => exact_span_hits >= exact_span_count,
-            RepositoryExpectedOutcome::Stale => freshness_error,
+            RepositoryExpectedOutcome::Stale => stale_index,
             RepositoryExpectedOutcome::Abstain => abstained,
         };
+        let evidence_chain_length = exact_span_hits;
         Ok(RepositoryBenchmarkObservation {
             corpus_id: self.corpus_id.clone(),
             repository_revision: self.repository_revision.clone(),
