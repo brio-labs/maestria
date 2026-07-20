@@ -5,20 +5,30 @@ use maestria_domain::{
     ContentHash, ContentRange, StructureNode, StructureNodeId, StructureNodeType, content_hash,
 };
 use maestria_ports::{
-    DocumentTree, FileHandle, FileMetadata, ParseContext, ParseStatus, ParsedArtifact, ParsedCard,
-    ParsedChunk, ParsedRepresentation, Parser, PortError, RepresentationKind, SourceSpan,
+    DocumentTree, FileHandle, FileMetadata, OcrProvider, OcrRequest, ParseContext, ParseStatus,
+    ParsedArtifact, ParsedCard, ParsedChunk, ParsedRepresentation, Parser, PortError,
+    RepresentationKind, SourceSpan,
 };
+use std::{collections::BTreeMap, sync::Arc};
 
-const PARSER_GENERATION: &str = "pdf-parser-2";
+const PARSER_GENERATION: &str = "pdf-parser-3";
 const SCHEMA_GENERATION: &str = "2";
 const PAGE_NODE_OFFSET: u64 = 950_000;
 
-#[derive(Debug, Clone, Copy, Default)]
-pub struct PdfParser;
+#[derive(Clone, Default)]
+pub struct PdfParser {
+    ocr_provider: Option<Arc<dyn OcrProvider>>,
+}
 
 impl PdfParser {
-    pub const fn new() -> Self {
-        Self
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn with_ocr_provider(provider: Arc<dyn OcrProvider>) -> Self {
+        Self {
+            ocr_provider: Some(provider),
+        }
     }
 }
 
@@ -38,7 +48,40 @@ impl Parser for PdfParser {
             lopdf::Document::load_mem(&file.bytes).map_err(|error| PortError::InvalidInput {
                 message: format!("PDF parse error: {error}"),
             })?;
-        let pages = extract_page_layouts(&doc)?;
+        let mut pages = extract_page_layouts(&doc)?;
+        let needs_ocr_pages: Vec<u32> = pages
+            .iter()
+            .filter(|page| page.needs_ocr)
+            .map(|page| page.page)
+            .collect();
+        if let Some(provider) = &self.ocr_provider
+            && !needs_ocr_pages.is_empty()
+        {
+            let response = provider.recognize(OcrRequest {
+                file: file.clone(),
+                pages: needs_ocr_pages,
+            })?;
+            let expected_identity = provider.identity();
+            if expected_identity.as_ref() != Some(&response.identity) {
+                return Err(PortError::InvalidInput {
+                    message: "OCR response identity does not match configured provider".to_string(),
+                });
+            }
+            let recognized: BTreeMap<u32, String> = response
+                .pages
+                .into_iter()
+                .map(|page| (page.page, page.text))
+                .collect();
+            for page in &mut pages {
+                if page.needs_ocr
+                    && let Some(text) = recognized.get(&page.page)
+                    && !text.trim().is_empty()
+                {
+                    page.text = text.clone();
+                    page.needs_ocr = false;
+                }
+            }
+        }
         if pages.is_empty() {
             return Err(PortError::InvalidInput {
                 message: "PDF has no pages".to_string(),

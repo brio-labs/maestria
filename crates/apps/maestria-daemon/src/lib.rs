@@ -37,8 +37,11 @@ use maestria_governance::{
 };
 use maestria_graph_sqlite::SqliteGraphIndex;
 use maestria_harness::LocalShellHarnessAdapter;
+use maestria_ocr_local::LocalHttpOcrProvider;
 use maestria_parsers::ParserRegistry;
-use maestria_ports::{EventFilter, FullTextIndex, SearchKnowledgeExecutor, VectorIndex};
+use maestria_ports::{
+    EventFilter, FullTextIndex, OcrIdentity, OcrProvider, SearchKnowledgeExecutor, VectorIndex,
+};
 use maestria_retrieval::RepositoryExecutionPolicy;
 use maestria_runtime::{Adapters, Governance, MaestriaRuntime, RuntimeConfig};
 use maestria_search_tantivy::TantivyFullTextIndex;
@@ -140,6 +143,49 @@ pub fn load_kernel_state(layout: &InstanceLayout) -> Result<KernelState> {
             .with_context(|| format!("scan domain events {}", layout.database_path.display()))?;
     replay_events(&events).map_err(|error| anyhow!(error))
 }
+fn build_ocr_provider(manifest: &InstanceManifest) -> Result<Option<Arc<dyn OcrProvider>>> {
+    let Some(config) = manifest.ocr.as_ref().filter(|config| config.enabled) else {
+        return Ok(None);
+    };
+    let identity = OcrIdentity {
+        provider: config.provider.clone(),
+        model: config.model.clone(),
+        revision: config.revision.clone(),
+        artifact_hash: config.artifact_hash.clone(),
+        preprocessing_version: config.preprocessing_version.clone(),
+    };
+    let provider = LocalHttpOcrProvider::new(&config.endpoint, &config.model, identity)
+        .map_err(|error| anyhow!("configure local OCR provider: {error}"))?;
+    Ok(Some(Arc::new(provider)))
+}
+
+pub fn ocr_status(manifest: &InstanceManifest) -> Result<String> {
+    let Some(config) = manifest.ocr.as_ref() else {
+        return Ok("disabled (no ocr configuration)".to_string());
+    };
+    if !config.enabled {
+        return Ok("disabled (ocr_enabled=false)".to_string());
+    }
+    let identity = OcrIdentity {
+        provider: config.provider.clone(),
+        model: config.model.clone(),
+        revision: config.revision.clone(),
+        artifact_hash: config.artifact_hash.clone(),
+        preprocessing_version: config.preprocessing_version.clone(),
+    };
+    let provider = LocalHttpOcrProvider::new(&config.endpoint, &config.model, identity)
+        .map_err(|error| anyhow!("configure local OCR provider: {error}"))?;
+    match provider.check_local_tools() {
+        Ok(()) => Ok(format!(
+            "configured local provider={} model={} endpoint={} rasterizer=ready",
+            config.provider, config.model, config.endpoint
+        )),
+        Err(error) => Ok(format!(
+            "configured local provider={} model={} endpoint={} rasterizer=unavailable: {}",
+            config.provider, config.model, config.endpoint, error
+        )),
+    }
+}
 fn build_adapters(
     layout: &InstanceLayout,
     state: &KernelState,
@@ -173,7 +219,9 @@ fn build_adapters(
             })?,
         )
     };
-    let parser = Arc::new(ParserRegistry::with_defaults());
+    let parser = Arc::new(ParserRegistry::with_optional_ocr(build_ocr_provider(
+        manifest,
+    )?));
     let sqlite_store = Arc::new(
         SqliteStore::open(&layout.database_path)
             .with_context(|| format!("open sqlite store {}", layout.database_path.display()))?,

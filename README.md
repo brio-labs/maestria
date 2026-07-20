@@ -158,6 +158,28 @@ providers degrade explicitly rather than fabricating text or coordinates.
 Current-web queries require an enabled governed web adapter; without one they
 use the bounded local fallback and expose the degradation in `search explain`.
 
+Scanned PDFs can optionally use a local OCR adapter. The default remains
+provider-free: scanned pages stay `NeedsOcr` and no text is fabricated. To
+enable a local OpenAI-compatible Unlimited-OCR server, add a fingerprinted
+configuration to the instance manifest:
+
+```text
+ocr_enabled=true
+ocr_endpoint=http://127.0.0.1:10000/v1/chat/completions
+ocr_provider=baidu
+ocr_revision=<locked-model-revision>
+ocr_artifact_hash=sha256:<locked-model-artifact-hash>
+ocr_preprocessing_version=pdf-pdftoppm-v1
+ocr_model=Unlimited-OCR
+```
+
+The adapter renders only the pages requiring OCR with the local `pdftoppm`
+binary and sends them to the loopback endpoint. The model can be served with
+the [Baidu Unlimited-OCR vLLM recipe](https://huggingface.co/baidu/Unlimited-OCR);
+Maestria never downloads or executes model code. `maestria doctor` reports
+whether the configured local rasterizer is available. Omit the OCR keys to
+keep the capability disabled.
+
 ### Tasks, validation, approvals, and memory
 
 Task completion is validation-gated:

@@ -1,6 +1,8 @@
-#![forbid(unsafe_code)]
+use std::sync::Arc;
 
-use maestria_ports::{FileHandle, FileMetadata, ParseContext, ParsedArtifact, Parser, PortError};
+use maestria_ports::{
+    FileHandle, FileMetadata, OcrProvider, ParseContext, ParsedArtifact, Parser, PortError,
+};
 
 use crate::cargo_toml::CargoTomlParser;
 use crate::chunking::metadata_for_handle;
@@ -20,15 +22,21 @@ impl ParserRegistry {
     }
 
     pub fn with_defaults() -> Self {
+        Self::with_optional_ocr(None)
+    }
+
+    pub fn with_optional_ocr(ocr_provider: Option<Arc<dyn OcrProvider>>) -> Self {
         let mut registry = Self::new();
         registry.register(MarkdownParser::new());
         registry.register(PlainTextParser::new());
         registry.register(RustSourceParser::new());
         registry.register(CargoTomlParser::new());
-        registry.register(PdfParser::new());
+        match ocr_provider {
+            Some(provider) => registry.register(PdfParser::with_ocr_provider(provider)),
+            None => registry.register(PdfParser::new()),
+        }
         registry
     }
-
     pub fn register<P>(&mut self, parser: P)
     where
         P: Parser + Send + Sync + 'static,
