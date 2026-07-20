@@ -18,6 +18,7 @@ maestria-vector-sqlite = { path = "../../storage/maestria-vector-sqlite" }
 maestria-graph-sqlite = { path = "../../storage/maestria-graph-sqlite" }
 maestria-web-evidence = { path = "../../ecosystem/maestria-web-evidence" }
 maestria-embedding-openai = { path = "../../ecosystem/maestria-embedding-openai" }
+maestria-ocr-local = { path = "../../ecosystem/maestria-ocr-local" }
 maestria-parsers = { path = "../../ecosystem/maestria-parsers" }
 maestria-harness = { path = "../../harness/maestria-harness" }
 maestria-ports = { path = "../../kernel/maestria-ports" }

@@ -1271,6 +1271,7 @@ dependencies = [
  "maestria-governance",
  "maestria-graph-sqlite",
  "maestria-harness",
+ "maestria-ocr-local",
  "maestria-parsers",
  "maestria-ports",
  "maestria-retrieval",
@@ -1353,6 +1354,18 @@ version = "0.6.1"
 dependencies = [
  "maestria-domain",
  "maestria-governance",
+]
+
+[[package]]
+name = "maestria-ocr-local"
+version = "0.6.1"
+dependencies = [
+ "base64",
+ "maestria-ports",
+ "serde",
+ "serde_json",
+ "ureq",
+ "url",
 ]
 
 [[package]]

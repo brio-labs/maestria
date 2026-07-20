@@ -8,7 +8,8 @@ mod manifest_codec;
 mod manifest_scope;
 
 use manifest_codec::{
-    ManifestFields, parse_embedding_config, parse_manifest_fields, retention_policy_name,
+    ManifestFields, parse_embedding_config, parse_manifest_fields, parse_ocr_config,
+    retention_policy_name,
 };
 use manifest_scope::{lexical_normalize, path_matches_pattern};
 
@@ -47,12 +48,24 @@ pub struct EmbeddingConfig {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OcrConfig {
+    pub enabled: bool,
+    pub endpoint: String,
+    pub model: String,
+    pub provider: String,
+    pub revision: String,
+    pub artifact_hash: String,
+    pub preprocessing_version: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InstanceManifest {
     pub schema_version: u32,
     pub root: PathBuf,
     pub read_roots: Vec<PathBuf>,
     pub excluded_patterns: Vec<String>,
     pub embeddings: Option<EmbeddingConfig>,
+    pub ocr: Option<OcrConfig>,
 }
 
 impl InstanceManifest {
@@ -66,6 +79,7 @@ impl InstanceManifest {
                 .map(|item| (*item).to_string())
                 .collect(),
             embeddings: None,
+            ocr: None,
         }
     }
 
@@ -108,12 +122,26 @@ impl InstanceManifest {
             lines.push(format!("embedding_model={}", embeddings.model));
             lines.push(format!("embedding_dimensions={}", embeddings.dimensions));
         }
+        if let Some(ocr) = &self.ocr {
+            lines.push(format!("ocr_enabled={}", ocr.enabled));
+            lines.push(format!("ocr_endpoint={}", ocr.endpoint));
+            lines.push(format!("ocr_provider={}", ocr.provider));
+            lines.push(format!("ocr_revision={}", ocr.revision));
+            lines.push(format!("ocr_artifact_hash={}", ocr.artifact_hash));
+            lines.push(format!(
+                "ocr_preprocessing_version={}",
+                ocr.preprocessing_version
+            ));
+            lines.push(format!("ocr_model={}", ocr.model));
+        }
         lines.push(String::new());
         lines.join("\n")
     }
+
     pub fn decode(contents: &str) -> CoreResult<Self> {
         let fields = parse_manifest_fields(contents)?;
         let embeddings = parse_embedding_config(&fields)?;
+        let ocr = parse_ocr_config(&fields)?;
         let ManifestFields {
             schema_version,
             root,
@@ -150,6 +178,7 @@ impl InstanceManifest {
             read_roots,
             excluded_patterns,
             embeddings,
+            ocr,
         })
     }
 
@@ -184,6 +213,7 @@ mod tests {
             read_roots: vec![PathBuf::from("/tmp/notes"), PathBuf::from("/tmp/project")],
             excluded_patterns: vec![".env".to_string(), "*.key".to_string()],
             embeddings: None,
+            ocr: None,
         };
 
         let decoded = InstanceManifest::decode(&manifest.encode())?;
@@ -211,6 +241,32 @@ mod tests {
                 preprocessing_version: "v1".to_string(),
                 remote_provider: false,
                 retention_policy: RetentionPolicy::NoRetention,
+            }),
+            ocr: None,
+        };
+
+        assert_eq!(InstanceManifest::decode(&manifest.encode())?, manifest);
+        Ok(())
+    }
+
+    #[test]
+    fn ocr_configuration_round_trips() -> Result<(), Box<dyn std::error::Error>> {
+        let manifest = InstanceManifest {
+            schema_version: MANIFEST_SCHEMA_VERSION,
+            root: PathBuf::from("/tmp/instance"),
+            read_roots: vec![PathBuf::from("/tmp/instance")],
+            excluded_patterns: vec![".env".to_string()],
+            embeddings: None,
+            ocr: Some(OcrConfig {
+                enabled: true,
+                endpoint: "http://127.0.0.1:10000/v1/chat/completions".to_string(),
+                model: "Unlimited-OCR".to_string(),
+                provider: "baidu".to_string(),
+                revision: "main".to_string(),
+                artifact_hash:
+                    "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+                        .to_string(),
+                preprocessing_version: "pdf-pdftoppm-v1".to_string(),
             }),
         };
 

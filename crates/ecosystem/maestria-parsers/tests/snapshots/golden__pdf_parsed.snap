@@ -30,7 +30,7 @@ ParsedArtifact {
                 },
                 page: None,
                 section_path: [],
-                parser_generation: "pdf-parser-2",
+                parser_generation: "pdf-parser-3",
                 schema_generation: "2",
                 language: None,
             },
@@ -55,7 +55,7 @@ ParsedArtifact {
                 section_path: [
                     "Page 1",
                 ],
-                parser_generation: "pdf-parser-2",
+                parser_generation: "pdf-parser-3",
                 schema_generation: "2",
                 language: None,
             },
@@ -80,7 +80,7 @@ ParsedArtifact {
                 section_path: [
                     "Page 1",
                 ],
-                parser_generation: "pdf-parser-2",
+                parser_generation: "pdf-parser-3",
                 schema_generation: "2",
                 language: None,
             },

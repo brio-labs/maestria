@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use std::{
     collections::BTreeMap,
     fs,
-    path::{Path, PathBuf},
+    path::{Component, Path, PathBuf},
     sync::Arc,
     time::Duration,
 };
@@ -275,10 +275,58 @@ fn persist_state(layout: &InstanceLayout, state: &WatchState) -> Result<()> {
 /// Scan manifest roots using `ignore::WalkBuilder` for gitignore/.ignore-aware
 /// traversal. The walker respects `.gitignore`, `.ignore`, and hidden-file
 /// conventions automatically.
+fn normalize_path(path: &Path) -> PathBuf {
+    let mut normalized = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                normalized.pop();
+            }
+            component => normalized.push(component.as_os_str()),
+        }
+    }
+    normalized
+}
+
+fn is_instance_path(path: &Path, normalized_instance_root: &Path) -> bool {
+    normalize_path(path).starts_with(normalized_instance_root)
+}
+
+fn is_instance_internal_path(path: &Path, normalized_instance_root: &Path) -> bool {
+    let normalized_path = normalize_path(path);
+    let Some(relative) = normalized_path.strip_prefix(normalized_instance_root).ok() else {
+        return false;
+    };
+    let Some(first) = relative.components().next() else {
+        return false;
+    };
+    matches!(
+        first,
+        Component::Normal(name)
+            if matches!(name.to_str(), Some("system" | "indexes" | "blobs" | "manifest.txt"))
+    )
+}
+
 fn scan_manifest(manifest: &InstanceManifest) -> Result<Vec<Observation>> {
     let mut observations = Vec::new();
+    let instance_root = manifest.root.clone();
+    let normalized_instance_root = normalize_path(&instance_root);
+
     for root in &manifest.read_roots {
+        let root = root.clone();
+        let normalized_root = normalize_path(&root);
+        let exclude_instance = normalized_root != normalized_instance_root
+            && normalized_instance_root.starts_with(&normalized_root);
+        let normalized_instance_root = normalized_instance_root.clone();
         let walker = ignore::WalkBuilder::new(root)
+            .filter_entry(move |entry| {
+                if exclude_instance {
+                    !is_instance_path(entry.path(), &normalized_instance_root)
+                } else {
+                    !is_instance_internal_path(entry.path(), &normalized_instance_root)
+                }
+            })
             .hidden(true)
             .ignore(true)
             .git_ignore(true)
@@ -350,7 +398,105 @@ mod tests {
             read_roots: vec![root],
             excluded_patterns: vec![".env".to_string()],
             embeddings: None,
+            ocr: None,
         }
+    }
+
+    #[test]
+    fn scan_skips_instance_state_when_root_contains_instance()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let root =
+            env::temp_dir().join(format!("maestria-watcher-instance-root-{}", process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let instance = root.join("instance");
+        fs::create_dir_all(instance.join("system"))?;
+        fs::write(root.join("research.md"), "research")?;
+        fs::write(instance.join("system").join(WATCH_STATE_FILE), "{}")?;
+
+        let manifest = InstanceManifest {
+            schema_version: 1,
+            root: instance,
+            read_roots: vec![root.clone()],
+            excluded_patterns: Vec::new(),
+            embeddings: None,
+            ocr: None,
+        };
+        let observations = scan_manifest(&manifest)?;
+
+        assert_eq!(observations.len(), 1);
+        assert!(observations[0].path.ends_with("research.md"));
+        fs::remove_dir_all(root)?;
+        Ok(())
+    }
+
+    #[test]
+    fn scan_preserves_relative_manifest_scope() -> Result<(), Box<dyn std::error::Error>> {
+        let root = PathBuf::from(format!(".maestria-watcher-relative-{}", process::id()));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root)?;
+        fs::write(root.join("note.md"), "relative note")?;
+
+        let manifest = test_manifest(root.clone());
+        let observations = scan_manifest(&manifest)?;
+
+        assert_eq!(observations.len(), 1);
+        assert!(observations[0].path.ends_with("note.md"));
+        fs::remove_dir_all(root)?;
+        Ok(())
+    }
+
+    #[test]
+    fn scan_allows_read_root_nested_in_instance() -> Result<(), Box<dyn std::error::Error>> {
+        let root = env::temp_dir().join(format!("maestria-watcher-nested-root-{}", process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let instance = root.join("instance");
+        let nested = instance.join("workspace");
+        fs::create_dir_all(&nested)?;
+        fs::write(nested.join("note.md"), "nested note")?;
+
+        let manifest = InstanceManifest {
+            schema_version: 1,
+            root: instance,
+            read_roots: vec![nested],
+            excluded_patterns: Vec::new(),
+            embeddings: None,
+            ocr: None,
+        };
+        let observations = scan_manifest(&manifest)?;
+
+        assert_eq!(observations.len(), 1);
+        assert!(observations[0].path.ends_with("note.md"));
+        fs::remove_dir_all(root)?;
+        Ok(())
+    }
+
+    #[test]
+    fn scan_excludes_instance_manifest_and_preserves_alias_scope()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let root =
+            env::temp_dir().join(format!("maestria-watcher-instance-alias-{}", process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let instance = root.join("instance");
+        fs::create_dir_all(instance.join("system"))?;
+        fs::create_dir_all(instance.join("workspace"))?;
+        fs::write(instance.join("manifest.txt"), "root=/tmp/secret")?;
+        fs::write(instance.join("system").join(WATCH_STATE_FILE), "{}")?;
+        fs::write(instance.join("workspace").join("note.md"), "user note")?;
+
+        let manifest = InstanceManifest {
+            schema_version: 1,
+            root: instance.clone(),
+            read_roots: vec![instance.join(".")],
+            excluded_patterns: Vec::new(),
+            embeddings: None,
+            ocr: None,
+        };
+        let observations = scan_manifest(&manifest)?;
+
+        assert_eq!(observations.len(), 1);
+        assert!(observations[0].path.ends_with("workspace/note.md"));
+        fs::remove_dir_all(root)?;
+        Ok(())
     }
 
     #[test]

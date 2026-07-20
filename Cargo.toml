@@ -30,6 +30,7 @@ members = [
      "crates/storage/maestria-storage-sqlite",
      "crates/storage/maestria-vector-sqlite",
      "crates/storage/maestria-graph-sqlite",
+     "crates/ecosystem/maestria-ocr-local",
      "crates/ecosystem/maestria-embedding-openai",
  ]
 
