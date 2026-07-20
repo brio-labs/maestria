@@ -117,6 +117,10 @@ violation and retain the baseline rather than being rejected or fabricated away.
 The committed corpus and deterministic adapters are contract evidence only. A production
 promotion still requires real Maestria task observations and a dated benchmark artifact.
 
+When a source document included in the checked-in release benchmark ledger changes, its
+source hash and matching snapshot fingerprint must be recomputed. This records input drift;
+it does not advance the release stage or convert contract fixtures into real measurements.
+
 ## Future provider or backend work
 
 A real provider must implement `LearnedSparseProvider` and pass the shared contract suite.
