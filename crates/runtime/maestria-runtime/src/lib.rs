@@ -333,7 +333,7 @@ impl MaestriaRuntime {
                             max_retries,
                         };
                         if matches!(&effect, MaestriaEffect::PersistEvent { .. }) {
-                            if !context.execute_with_retries(effect).await {
+                            if context.execute_with_retries(effect).await.is_err() {
                                 effect_shutdown.cancel();
                                 runtime_shutdown.cancel();
                                 break;
@@ -349,8 +349,14 @@ impl MaestriaRuntime {
                                 }
                             }
                         };
+                        let shutdown = effect_shutdown.clone();
+                        let runtime_shutdown = runtime_shutdown.clone();
                         in_flight.spawn(async move {
-                            let _ = context.execute_with_retries(effect).await;
+                            if let Err(error) = context.execute_with_retries(effect).await {
+                                tracing::error!(%error, "spawned effect failed; cancelling runtime execution");
+                                shutdown.cancel();
+                                runtime_shutdown.cancel();
+                            }
                             drop(permit);
                         });
                     }
