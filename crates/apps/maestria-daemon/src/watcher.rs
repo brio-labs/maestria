@@ -275,13 +275,27 @@ fn persist_state(layout: &InstanceLayout, state: &WatchState) -> Result<()> {
 /// Scan manifest roots using `ignore::WalkBuilder` for gitignore/.ignore-aware
 /// traversal. The walker respects `.gitignore`, `.ignore`, and hidden-file
 /// conventions automatically.
-
-fn is_instance_path(path: &Path, instance_root: &Path) -> bool {
-    path.starts_with(instance_root)
+fn normalize_path(path: &Path) -> PathBuf {
+    let mut normalized = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                normalized.pop();
+            }
+            component => normalized.push(component.as_os_str()),
+        }
+    }
+    normalized
 }
 
-fn is_instance_internal_path(path: &Path, instance_root: &Path) -> bool {
-    let Some(relative) = path.strip_prefix(instance_root).ok() else {
+fn is_instance_path(path: &Path, normalized_instance_root: &Path) -> bool {
+    normalize_path(path).starts_with(normalized_instance_root)
+}
+
+fn is_instance_internal_path(path: &Path, normalized_instance_root: &Path) -> bool {
+    let normalized_path = normalize_path(path);
+    let Some(relative) = normalized_path.strip_prefix(normalized_instance_root).ok() else {
         return false;
     };
     let Some(first) = relative.components().next() else {
@@ -290,24 +304,27 @@ fn is_instance_internal_path(path: &Path, instance_root: &Path) -> bool {
     matches!(
         first,
         Component::Normal(name)
-            if matches!(name.to_str(), Some("system" | "indexes" | "blobs"))
+            if matches!(name.to_str(), Some("system" | "indexes" | "blobs" | "manifest.txt"))
     )
 }
 
 fn scan_manifest(manifest: &InstanceManifest) -> Result<Vec<Observation>> {
     let mut observations = Vec::new();
     let instance_root = manifest.root.clone();
+    let normalized_instance_root = normalize_path(&instance_root);
 
     for root in &manifest.read_roots {
         let root = root.clone();
-        let exclude_instance = root != instance_root && instance_root.starts_with(&root);
-        let instance_root = instance_root.clone();
+        let normalized_root = normalize_path(&root);
+        let exclude_instance = normalized_root != normalized_instance_root
+            && normalized_instance_root.starts_with(&normalized_root);
+        let normalized_instance_root = normalized_instance_root.clone();
         let walker = ignore::WalkBuilder::new(root)
             .filter_entry(move |entry| {
                 if exclude_instance {
-                    !is_instance_path(entry.path(), &instance_root)
+                    !is_instance_path(entry.path(), &normalized_instance_root)
                 } else {
-                    !is_instance_internal_path(entry.path(), &instance_root)
+                    !is_instance_internal_path(entry.path(), &normalized_instance_root)
                 }
             })
             .hidden(true)
@@ -446,6 +463,34 @@ mod tests {
 
         assert_eq!(observations.len(), 1);
         assert!(observations[0].path.ends_with("note.md"));
+        fs::remove_dir_all(root)?;
+        Ok(())
+    }
+
+    #[test]
+    fn scan_excludes_instance_manifest_and_preserves_alias_scope()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let root =
+            env::temp_dir().join(format!("maestria-watcher-instance-alias-{}", process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let instance = root.join("instance");
+        fs::create_dir_all(instance.join("system"))?;
+        fs::create_dir_all(instance.join("workspace"))?;
+        fs::write(instance.join("manifest.txt"), "root=/tmp/secret")?;
+        fs::write(instance.join("system").join(WATCH_STATE_FILE), "{}")?;
+        fs::write(instance.join("workspace").join("note.md"), "user note")?;
+
+        let manifest = InstanceManifest {
+            schema_version: 1,
+            root: instance.clone(),
+            read_roots: vec![instance.join(".")],
+            excluded_patterns: Vec::new(),
+            embeddings: None,
+        };
+        let observations = scan_manifest(&manifest)?;
+
+        assert_eq!(observations.len(), 1);
+        assert!(observations[0].path.ends_with("workspace/note.md"));
         fs::remove_dir_all(root)?;
         Ok(())
     }
