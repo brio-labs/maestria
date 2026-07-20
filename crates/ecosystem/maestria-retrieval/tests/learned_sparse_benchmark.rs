@@ -5,6 +5,9 @@ use maestria_retrieval::{
     LearnedSparseRoute,
 };
 
+const FROZEN_CORPUS: &str =
+    include_str!("../../../../tests/contracts/learned_sparse_benchmark_v1.json");
+
 fn metric(value: u32) -> Result<Metric, Box<dyn std::error::Error>> {
     Metric::new(value).ok_or_else(|| "metric is outside the fixed-point range".into())
 }
@@ -46,6 +49,18 @@ fn cases() -> Vec<LearnedSparseBenchmarkCase> {
         energy_budget_millijoules: 1_000,
     })
     .collect()
+}
+
+fn corpus() -> LearnedSparseBenchmarkCorpus {
+    LearnedSparseBenchmarkCorpus {
+        schema_version: 1,
+        corpus_id: "sparse-fixture-v1".to_string(),
+        corpus_revision: "revision-1".to_string(),
+        judgment_set_id: "judgments-1".to_string(),
+        source_input_hash: "sha256:fixture".to_string(),
+        evaluation_date: "2026-07-20".to_string(),
+        cases: cases(),
+    }
 }
 
 fn quality(class: LearnedSparseQueryClass, route: LearnedSparseRoute) -> (u32, u32, u32, u32) {
@@ -102,23 +117,29 @@ fn observations(
     Ok(observations)
 }
 
-#[test]
-fn benchmark_promotes_only_unprotected_winning_classes() -> Result<(), Box<dyn std::error::Error>> {
-    let corpus = LearnedSparseBenchmarkCorpus {
-        schema_version: 1,
-        corpus_id: "sparse-fixture-v1".to_string(),
-        corpus_revision: "revision-1".to_string(),
-        judgment_set_id: "judgments-1".to_string(),
-        source_input_hash: "sha256:fixture".to_string(),
-        evaluation_date: "2026-07-20".to_string(),
-        cases: cases(),
-    };
-    let comparison = LearnedSparseBenchmarkComparison::evaluate(&corpus, &observations(&corpus)?)?;
-    let promotion = comparison.promotion(
+fn promotion(
+    corpus: &LearnedSparseBenchmarkCorpus,
+    observations: &[LearnedSparseBenchmarkObservation],
+) -> Result<maestria_retrieval::LearnedSparsePromotionRecord, Box<dyn std::error::Error>> {
+    Ok(LearnedSparseBenchmarkComparison::evaluate(corpus, observations)?.promotion(
         "evaluation-1".to_string(),
         "2026-07-20".to_string(),
         "fixture-sparse-v1".to_string(),
-    )?;
+    )?)
+}
+
+#[test]
+fn frozen_sparse_corpus_contract_is_valid() -> Result<(), Box<dyn std::error::Error>> {
+    let frozen = LearnedSparseBenchmarkCorpus::from_json(FROZEN_CORPUS)?;
+    assert_eq!(frozen.corpus_id, "maestria-learned-sparse-v1");
+    assert_eq!(frozen.cases.len(), LearnedSparseQueryClass::all().len());
+    Ok(())
+}
+
+#[test]
+fn benchmark_promotes_only_unprotected_winning_classes() -> Result<(), Box<dyn std::error::Error>> {
+    let corpus = corpus();
+    let promotion = promotion(&corpus, &observations(&corpus)?)?;
     let routes = promotion.winning_routes();
     assert_eq!(
         routes.get(&LearnedSparseQueryClass::VocabularyExpansion),
@@ -147,30 +168,33 @@ fn benchmark_promotes_only_unprotected_winning_classes() -> Result<(), Box<dyn s
 
 #[test]
 fn incomplete_telemetry_cannot_promote_sparse() -> Result<(), Box<dyn std::error::Error>> {
-    let corpus = LearnedSparseBenchmarkCorpus {
-        schema_version: 1,
-        corpus_id: "sparse-fixture-v1".to_string(),
-        corpus_revision: "revision-1".to_string(),
-        judgment_set_id: "judgments-1".to_string(),
-        source_input_hash: "sha256:fixture".to_string(),
-        evaluation_date: "2026-07-20".to_string(),
-        cases: cases(),
-    };
+    let corpus = corpus();
     let mut observations = observations(&corpus)?;
     for observation in &mut observations {
-        if matches!(
-            observation.route,
-            LearnedSparseRoute::SparseOnly | LearnedSparseRoute::SparseFused
-        ) {
+        if matches!(observation.route, LearnedSparseRoute::SparseFused) {
             observation.energy_millijoules = None;
         }
     }
+    assert!(promotion(&corpus, &observations)?.winning_routes().is_empty());
+    Ok(())
+}
+
+#[test]
+fn over_budget_measurements_are_retained_but_not_promoted()
+-> Result<(), Box<dyn std::error::Error>> {
+    let corpus = corpus();
+    let mut observations = observations(&corpus)?;
+    for observation in &mut observations {
+        if matches!(observation.route, LearnedSparseRoute::SparseFused) {
+            observation.latency_ms = 2_000;
+        }
+    }
     let comparison = LearnedSparseBenchmarkComparison::evaluate(&corpus, &observations)?;
-    let promotion = comparison.promotion(
-        "evaluation-1".to_string(),
-        "2026-07-20".to_string(),
-        "fixture-sparse-v1".to_string(),
-    )?;
-    assert!(promotion.winning_routes().is_empty());
+    assert!(comparison
+        .classes()
+        .values()
+        .filter_map(|class| class.routes.get(&LearnedSparseRoute::SparseFused))
+        .all(|metrics| metrics.budget_violations == 1));
+    assert!(promotion(&corpus, &observations)?.winning_routes().is_empty());
     Ok(())
 }
