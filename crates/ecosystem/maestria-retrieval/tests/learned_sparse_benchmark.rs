@@ -121,11 +121,13 @@ fn promotion(
     corpus: &LearnedSparseBenchmarkCorpus,
     observations: &[LearnedSparseBenchmarkObservation],
 ) -> Result<maestria_retrieval::LearnedSparsePromotionRecord, Box<dyn std::error::Error>> {
-    Ok(LearnedSparseBenchmarkComparison::evaluate(corpus, observations)?.promotion(
-        "evaluation-1".to_string(),
-        "2026-07-20".to_string(),
-        "fixture-sparse-v1".to_string(),
-    )?)
+    Ok(
+        LearnedSparseBenchmarkComparison::evaluate(corpus, observations)?.promotion(
+            "evaluation-1".to_string(),
+            "2026-07-20".to_string(),
+            "fixture-sparse-v1".to_string(),
+        )?,
+    )
 }
 
 #[test]
@@ -175,13 +177,17 @@ fn incomplete_telemetry_cannot_promote_sparse() -> Result<(), Box<dyn std::error
             observation.energy_millijoules = None;
         }
     }
-    assert!(promotion(&corpus, &observations)?.winning_routes().is_empty());
+    assert!(
+        promotion(&corpus, &observations)?
+            .winning_routes()
+            .is_empty()
+    );
     Ok(())
 }
 
 #[test]
-fn over_budget_measurements_are_retained_but_not_promoted()
--> Result<(), Box<dyn std::error::Error>> {
+fn over_budget_measurements_are_retained_but_not_promoted() -> Result<(), Box<dyn std::error::Error>>
+{
     let corpus = corpus();
     let mut observations = observations(&corpus)?;
     for observation in &mut observations {
@@ -190,11 +196,17 @@ fn over_budget_measurements_are_retained_but_not_promoted()
         }
     }
     let comparison = LearnedSparseBenchmarkComparison::evaluate(&corpus, &observations)?;
-    assert!(comparison
-        .classes()
-        .values()
-        .filter_map(|class| class.routes.get(&LearnedSparseRoute::SparseFused))
-        .all(|metrics| metrics.budget_violations == 1));
-    assert!(promotion(&corpus, &observations)?.winning_routes().is_empty());
+    assert!(
+        comparison
+            .classes()
+            .values()
+            .filter_map(|class| class.routes.get(&LearnedSparseRoute::SparseFused))
+            .all(|metrics| metrics.budget_violations == 1)
+    );
+    assert!(
+        promotion(&corpus, &observations)?
+            .winning_routes()
+            .is_empty()
+    );
     Ok(())
 }

@@ -158,7 +158,6 @@ pub struct LearnedSparseBenchmarkObservation {
     pub energy_millijoules: Option<u64>,
     pub privacy_violations: u32,
     pub security_violations: u32,
-    pub budget_violations: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -174,6 +173,7 @@ pub struct LearnedSparseRouteMetrics {
     pub total_energy_millijoules: Option<u64>,
     pub privacy_violations: u32,
     pub security_violations: u32,
+    pub budget_violations: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
