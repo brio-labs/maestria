@@ -21,14 +21,15 @@ on:
         default: ''
         type: string
       evidence_stage:
-        description: 'Minimum release exit-evidence stage (benchmarks, product-complete, or maintenance)'
+        description: 'Minimum release exit-evidence stage (implementation-complete, benchmark-complete, product-complete, or released)'
         required: false
         default: product-complete
         type: choice
         options:
-          - benchmarks
+          - implementation-complete
+          - benchmark-complete
           - product-complete
-          - maintenance
+          - released
 
 concurrency:
   group: release-${{ inputs.version }}

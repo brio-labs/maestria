@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import re
 import textwrap
 import unittest
 from pathlib import Path
@@ -17,6 +18,18 @@ SPEC.loader.exec_module(RELEASE_EVIDENCE)
 class ReleaseExitEvidenceContractTests(unittest.TestCase):
     """Existing validation tests, kept and extended."""
 
+
+    def test_release_workflow_uses_canonical_stage_choices(self) -> None:
+        workflow = Path(__file__).resolve().parents[1] / ".github" / "workflows" / "release.yml"
+        content = workflow.read_text(encoding="utf-8")
+        match = re.search(
+            r"(?ms)^      evidence_stage:\n(.*?)(?=^concurrency:)",
+            content,
+        )
+        self.assertIsNotNone(match)
+        assert match is not None
+        options = re.findall(r"^\s+- ([a-z-]+)$", match.group(1), re.MULTILINE)
+        self.assertEqual(options, list(RELEASE_EVIDENCE.RELEASE_STATES))
     def _product_complete_payload(self, *, data_fidelity: str = "real") -> dict:
         return {
             "schema_version": 1,
