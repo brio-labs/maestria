@@ -57,6 +57,8 @@ pub struct RetrievalEngine {
     evaluator: Arc<dyn RetrievalEvaluator>,
     capabilities: maestria_governance::SearchCapabilities,
     hybrid_policy: crate::types::HybridExecutionPolicy,
+    learned_sparse_execution_policy:
+        crate::learned_sparse_policy::LearnedSparseExecutionPolicy,
     repository_execution_policy: crate::repository_benchmark::RepositoryExecutionPolicy,
     visual_execution_policy: crate::visual_benchmark::VisualExecutionPolicy,
 }
@@ -126,7 +128,7 @@ fn capabilities_from_retrievers(
                     .max_budgets(1_000, 30_000, 8, 3, 1);
                 known_modality = true;
             }
-            "vector" | "dense" | "semantic" => {
+            "vector" | "dense" | "semantic" | "sparse" | "learned_sparse" => {
                 capabilities = capabilities
                     .with_modality(Modality::Text)
                     .with_intent(SearchIntent::SemanticDiscovery);
@@ -198,6 +200,8 @@ impl RetrievalEngine {
             evaluator,
             capabilities,
             hybrid_policy: crate::types::HybridExecutionPolicy::Shadow,
+            learned_sparse_execution_policy:
+                crate::learned_sparse_policy::LearnedSparseExecutionPolicy::Shadow,
             repository_execution_policy:
                 crate::repository_benchmark::RepositoryExecutionPolicy::Shadow,
             visual_execution_policy: crate::visual_benchmark::VisualExecutionPolicy::Shadow,
@@ -206,6 +210,14 @@ impl RetrievalEngine {
 
     pub fn with_hybrid_policy(mut self, policy: crate::types::HybridExecutionPolicy) -> Self {
         self.hybrid_policy = policy;
+        self
+    }
+
+    pub fn with_learned_sparse_execution_policy(
+        mut self,
+        policy: crate::learned_sparse_policy::LearnedSparseExecutionPolicy,
+    ) -> Self {
+        self.learned_sparse_execution_policy = policy;
         self
     }
 
@@ -304,6 +316,9 @@ impl RetrievalEngine {
         let visual_enabled = self
             .visual_execution_policy
             .allows_visual(&plan.original_query);
+        let sparse_enabled = self
+            .learned_sparse_execution_policy
+            .allows_sparse(&plan.original_query);
         self.retrievers
             .iter()
             .filter(|retriever| {
@@ -313,6 +328,10 @@ impl RetrievalEngine {
                     || descriptor.modality.eq_ignore_ascii_case("rust")
                     || descriptor_id.contains("code_intel");
                 crate::visual_benchmark::visual_lane_is_eligible(&descriptor, visual_enabled)
+                    && crate::learned_sparse_policy::sparse_lane_is_eligible(
+                        &descriptor,
+                        sparse_enabled,
+                    )
                     && (repository_specialized || !is_code)
             })
             .cloned()
