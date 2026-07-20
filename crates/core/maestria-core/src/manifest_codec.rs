@@ -1,4 +1,7 @@
+#[path = "manifest_codec_visual.rs"]
+mod visual;
 use std::path::PathBuf;
+pub(super) use visual::parse_visual_config;
 
 use maestria_ports::RetentionPolicy;
 use url::Url;
@@ -27,6 +30,16 @@ pub(super) struct ManifestFields {
     ocr_revision: Option<String>,
     ocr_artifact_hash: Option<String>,
     ocr_preprocessing_version: Option<String>,
+    visual_enabled: Option<bool>,
+    visual_endpoint: Option<String>,
+    visual_model: Option<String>,
+    visual_dimensions: Option<usize>,
+    visual_provider: Option<String>,
+    visual_revision: Option<String>,
+    visual_artifact_hash: Option<String>,
+    visual_preprocessing_version: Option<String>,
+    visual_remote_provider: Option<bool>,
+    visual_retention_policy: Option<String>,
 }
 
 pub(super) fn parse_ocr_config(fields: &ManifestFields) -> CoreResult<Option<super::OcrConfig>> {
@@ -237,6 +250,16 @@ fn empty_manifest_fields() -> ManifestFields {
         ocr_revision: None,
         ocr_artifact_hash: None,
         ocr_preprocessing_version: None,
+        visual_enabled: None,
+        visual_endpoint: None,
+        visual_model: None,
+        visual_dimensions: None,
+        visual_provider: None,
+        visual_revision: None,
+        visual_artifact_hash: None,
+        visual_preprocessing_version: None,
+        visual_remote_provider: None,
+        visual_retention_policy: None,
     }
 }
 
@@ -271,6 +294,22 @@ fn parse_manifest_field(fields: &mut ManifestFields, key: &str, value: &str) -> 
         "ocr_preprocessing_version" => {
             fields.ocr_preprocessing_version = Some(value.to_string());
         }
+        "visual_enabled" => fields.visual_enabled = Some(parse_value(value, key)?),
+        "visual_endpoint" => fields.visual_endpoint = Some(value.to_string()),
+        "visual_model" => fields.visual_model = Some(value.to_string()),
+        "visual_dimensions" => fields.visual_dimensions = Some(parse_value(value, key)?),
+        "visual_provider" => fields.visual_provider = Some(value.to_string()),
+        "visual_revision" => fields.visual_revision = Some(value.to_string()),
+        "visual_artifact_hash" => fields.visual_artifact_hash = Some(value.to_string()),
+        "visual_preprocessing_version" => {
+            fields.visual_preprocessing_version = Some(value.to_string());
+        }
+        "visual_remote_provider" => {
+            fields.visual_remote_provider = Some(parse_value(value, key)?);
+        }
+        "visual_retention_policy" => {
+            fields.visual_retention_policy = Some(value.to_string());
+        }
         other => {
             return Err(CoreError::InvalidInput {
                 message: format!("unknown instance manifest key: {other}"),
@@ -294,6 +333,23 @@ pub(super) fn retention_policy_name(policy: &RetentionPolicy) -> &'static str {
         RetentionPolicy::NoRetention => "no_retention",
         RetentionPolicy::ProviderDefined => "provider_defined",
     }
+}
+
+fn validate_visual_endpoint(endpoint: &str) -> CoreResult<()> {
+    let url = Url::parse(endpoint).map_err(|error| CoreError::InvalidInput {
+        message: format!("invalid visual endpoint: {error}"),
+    })?;
+    let valid = url.scheme() == "http"
+        && matches!(url.host_str(), Some("127.0.0.1" | "::1" | "[::1]"))
+        && url.path() == "/v1/embeddings"
+        && url.query().is_none()
+        && url.fragment().is_none();
+    if !valid {
+        return Err(CoreError::InvalidInput {
+            message: "visual endpoint must be an http loopback /v1/embeddings URL".to_string(),
+        });
+    }
+    Ok(())
 }
 
 fn parse_retention_policy(value: &str) -> CoreResult<RetentionPolicy> {

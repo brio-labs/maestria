@@ -32,6 +32,7 @@ members = [
      "crates/storage/maestria-graph-sqlite",
      "crates/ecosystem/maestria-ocr-local",
      "crates/ecosystem/maestria-embedding-openai",
+     "crates/ecosystem/maestria-visual-local",
  ]
 
 [workspace.package]

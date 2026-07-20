@@ -9,7 +9,7 @@ mod manifest_scope;
 
 use manifest_codec::{
     ManifestFields, parse_embedding_config, parse_manifest_fields, parse_ocr_config,
-    retention_policy_name,
+    parse_visual_config, retention_policy_name,
 };
 use manifest_scope::{lexical_normalize, path_matches_pattern};
 
@@ -59,6 +59,19 @@ pub struct OcrConfig {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VisualConfig {
+    pub enabled: bool,
+    pub endpoint: String,
+    pub model: String,
+    pub dimensions: usize,
+    pub provider: String,
+    pub revision: String,
+    pub artifact_hash: String,
+    pub preprocessing_version: String,
+    pub remote_provider: bool,
+    pub retention_policy: RetentionPolicy,
+}
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InstanceManifest {
     pub schema_version: u32,
     pub root: PathBuf,
@@ -66,6 +79,7 @@ pub struct InstanceManifest {
     pub excluded_patterns: Vec<String>,
     pub embeddings: Option<EmbeddingConfig>,
     pub ocr: Option<OcrConfig>,
+    pub visual: Option<VisualConfig>,
 }
 
 impl InstanceManifest {
@@ -80,6 +94,7 @@ impl InstanceManifest {
                 .collect(),
             embeddings: None,
             ocr: None,
+            visual: None,
         }
     }
 
@@ -134,6 +149,24 @@ impl InstanceManifest {
             ));
             lines.push(format!("ocr_model={}", ocr.model));
         }
+        if let Some(visual) = &self.visual {
+            lines.push(format!("visual_enabled={}", visual.enabled));
+            lines.push(format!("visual_endpoint={}", visual.endpoint));
+            lines.push(format!("visual_provider={}", visual.provider));
+            lines.push(format!("visual_revision={}", visual.revision));
+            lines.push(format!("visual_artifact_hash={}", visual.artifact_hash));
+            lines.push(format!(
+                "visual_preprocessing_version={}",
+                visual.preprocessing_version
+            ));
+            lines.push(format!("visual_remote_provider={}", visual.remote_provider));
+            lines.push(format!(
+                "visual_retention_policy={}",
+                retention_policy_name(&visual.retention_policy)
+            ));
+            lines.push(format!("visual_model={}", visual.model));
+            lines.push(format!("visual_dimensions={}", visual.dimensions));
+        }
         lines.push(String::new());
         lines.join("\n")
     }
@@ -142,6 +175,7 @@ impl InstanceManifest {
         let fields = parse_manifest_fields(contents)?;
         let embeddings = parse_embedding_config(&fields)?;
         let ocr = parse_ocr_config(&fields)?;
+        let visual = parse_visual_config(&fields)?;
         let ManifestFields {
             schema_version,
             root,
@@ -179,6 +213,7 @@ impl InstanceManifest {
             excluded_patterns,
             embeddings,
             ocr,
+            visual,
         })
     }
 
@@ -214,6 +249,7 @@ mod tests {
             excluded_patterns: vec![".env".to_string(), "*.key".to_string()],
             embeddings: None,
             ocr: None,
+            visual: None,
         };
 
         let decoded = InstanceManifest::decode(&manifest.encode())?;
@@ -243,6 +279,7 @@ mod tests {
                 retention_policy: RetentionPolicy::NoRetention,
             }),
             ocr: None,
+            visual: None,
         };
 
         assert_eq!(InstanceManifest::decode(&manifest.encode())?, manifest);
@@ -267,6 +304,35 @@ mod tests {
                     "sha256:0000000000000000000000000000000000000000000000000000000000000000"
                         .to_string(),
                 preprocessing_version: "pdf-pdftoppm-v1".to_string(),
+            }),
+            visual: None,
+        };
+        assert_eq!(InstanceManifest::decode(&manifest.encode())?, manifest);
+        Ok(())
+    }
+
+    #[test]
+    fn visual_configuration_round_trips() -> Result<(), Box<dyn std::error::Error>> {
+        let manifest = InstanceManifest {
+            schema_version: MANIFEST_SCHEMA_VERSION,
+            root: PathBuf::from("/tmp/instance"),
+            read_roots: vec![PathBuf::from("/tmp/instance")],
+            excluded_patterns: vec![".env".to_string()],
+            embeddings: None,
+            ocr: None,
+            visual: Some(VisualConfig {
+                enabled: true,
+                endpoint: "http://127.0.0.1:10001/v1/embeddings".to_string(),
+                model: "siglip-base-patch16-224".to_string(),
+                dimensions: 768,
+                provider: "siglip-onnx".to_string(),
+                revision: "4649052661e53c7000355844105f8a1792088239".to_string(),
+                artifact_hash:
+                    "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+                        .to_string(),
+                preprocessing_version: "siglip-224-rgb-v1".to_string(),
+                remote_provider: false,
+                retention_policy: RetentionPolicy::NoRetention,
             }),
         };
 
