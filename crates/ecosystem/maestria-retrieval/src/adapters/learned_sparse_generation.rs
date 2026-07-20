@@ -53,7 +53,7 @@ fn fingerprints_match(
         && generation.artifact_hash == sparse.artifact_hash
         && generation.dimensions == sparse.vocabulary_size
         && generation.quantization == sparse.quantization
-        && generation.query_template_hash == sparse.query_template_hash
-        && generation.document_template_hash == sparse.document_template_hash
+        && generation.query_template_hash == sparse.query_template_hash.as_str()
+        && generation.document_template_hash == sparse.document_template_hash.as_str()
         && generation.preprocessing_version == sparse.preprocessing_version
 }
