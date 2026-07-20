@@ -5,6 +5,7 @@ mod full_text;
 mod graph_index;
 mod harness;
 mod id_allocator;
+mod learned_sparse;
 mod lexical;
 mod parser;
 mod repositories;
@@ -18,6 +19,7 @@ pub use full_text::InMemoryFullTextIndex;
 pub use graph_index::InMemoryGraphIndex;
 pub use harness::InMemoryHarnessAdapter;
 pub use id_allocator::InMemoryIdAllocator;
+pub use learned_sparse::{InMemoryLearnedSparseIndex, InMemoryLearnedSparseProvider};
 pub use parser::InMemoryParser;
 pub use repositories::{
     InMemoryApprovalRepository, InMemoryArtifactRepository, InMemoryCardRepository,
