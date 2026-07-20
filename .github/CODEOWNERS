@@ -1,18 +1,81 @@
-# CODEOWNERS
+################################################################################
+# CODEOWNERS — Invariant ownership boundaries
 #
 # This file defines who must review changes to each part of the codebase.
-# GitHub requires that CODEOWNERS references real users or teams.
+# Adding or moving a crate MUST be accompanied by a matching CODEOWNERS entry.
+# The ownership model follows the architectural layers defined in docs/ARCHITECTURE.md.
+#
+# Run `python3 scripts/codeowners-check.py` to validate coverage.
+#
+# Syntax:
+#   *      = default fallback (all unmatched paths)
+#   /path/ = directory-level ownership
+#   *.ext  = file-extension-level ownership
+################################################################################
 
-# Default fallback — everything not matched below
-*                               @carabistouflette
+# ── Default fallback ──────────────────────────────────────────────────────────
+# Everything not matched below requires the repository maintainer.
+*                                                                              @carabistouflette
 
-# Core mechanism
-/crates/kernel/maestria-domain/  @carabistouflette
-/crates/kernel/maestria-governance/ @carabistouflette
+# ── Broad documentation and tooling fallbacks (specific rules follow) ────────
+/docs/                                                                         @carabistouflette
+*.md                                                                           @carabistouflette
+/.github/                                                                      @carabistouflette
 
-# Documentation and specs
-/docs/                          @carabistouflette
-*.md                            @carabistouflette
+# ── Core: Domain (deterministic, side-effect-free transitions) ──────────────
+/crates/kernel/                                                               @carabistouflette
+/crates/kernel/maestria-domain/                                                @carabistouflette
 
-# CI/CD and tooling
-/.github/                       @carabistouflette
+# ── Core: Governance (approval gates, policy evaluation) ────────────────────
+/crates/kernel/maestria-governance/                                            @carabistouflette
+
+# ── Core: Ports (trait contracts, adapter interfaces) ───────────────────────
+/crates/kernel/maestria-ports/                                                 @carabistouflette
+/crates/core/                                                                 @carabistouflette
+
+# ── Runtime (effect orchestration, lifecycle, supervisor) ───────────────────
+/crates/runtime/                                                               @carabistouflette
+
+# ── Retrieval (evidence collection, indexing, search) ───────────────────────
+/crates/ecosystem/maestria-retrieval/                                          @carabistouflette
+
+/crates/ecosystem/                                                            @carabistouflette
+# ── Validation (policy-aware checks, gate enforcement) ─────────────────────
+/crates/ecosystem/maestria-validation/                                         @carabistouflette
+
+# ── Storage (persistence, blob, graph, vector, search index) ────────────────
+/crates/storage/                                                               @carabistouflette
+
+# ── Harness (integration tests, contract fixtures, vertical slices) ─────────
+/crates/harness/                                                               @carabistouflette
+
+# ── Daemon (HTTP API, supervisor, application entry point) ──────────────────
+/crates/apps/maestria-daemon/                                                  @carabistouflette
+
+# ── Test suites (property, replay, contract contracts) ──────────────────────
+/tests/property/                                                               @carabistouflette
+/tests/replay/                                                                 @carabistouflette
+/tests/contracts/                                                             @carabistouflette
+
+# ── Philosophy (project doctrine, reasoning guardrails) ─────────────────────
+/docs/PHILOSOPHY.md                                                            @carabistouflette
+/scripts/philosophy-check.py                                                   @carabistouflette
+/scripts/test_philosophy_check.py                                              @carabistouflette
+
+# ── Release workflow (contract, exit evidence, versioning) ──────────────────
+/scripts/release-contract.sh                                                   @carabistouflette
+/scripts/release_exit_evidence.py                                              @carabistouflette
+/scripts/test_release_exit_evidence.py                                         @carabistouflette
+/scripts/version.py                                                            @carabistouflette
+/scripts/test_version.py                                                       @carabistouflette
+.github/workflows/release.yml                                                  @carabistouflette
+
+# ── Security & dependency hygiene ───────────────────────────────────────────
+/deny.toml                                                                     @carabistouflette
+/scripts/strict-clippy.sh                                                      @carabistouflette
+/docs/SECURITY.md                                                              @carabistouflette
+.github/workflows/ci.yml                                                       @carabistouflette
+# ── Documentation-specific invariants ────────────────────────────────────────
+/docs/SPECS.md                                                                @carabistouflette
+/docs/adr/                                                                    @carabistouflette
+
