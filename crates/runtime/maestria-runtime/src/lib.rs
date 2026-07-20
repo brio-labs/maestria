@@ -311,9 +311,13 @@ impl MaestriaRuntime {
             loop {
                 while in_flight.try_join_next().is_some() {}
                 tokio::select! {
+                    biased;
                     () = effect_shutdown.cancelled() => break,
                     message = receiver.recv() => {
                         let Some(mut effect) = message else { break };
+                        if effect_shutdown.is_cancelled() {
+                            break;
+                        }
                         if let MaestriaEffect::RunValidation(request) = &mut effect {
                             request.validation_report_id = ValidationReportId::new(
                                 next_validation_report_id.fetch_add(1, Ordering::Relaxed),
@@ -341,6 +345,7 @@ impl MaestriaRuntime {
                             continue;
                         }
                         let permit = tokio::select! {
+                            biased;
                             () = effect_shutdown.cancelled() => break,
                             permit = Arc::clone(&semaphore).acquire_owned() => {
                                 match permit {
@@ -353,16 +358,19 @@ impl MaestriaRuntime {
                         let runtime_shutdown = runtime_shutdown.clone();
                         in_flight.spawn(async move {
                             if let Err(error) = context.execute_with_retries(effect).await {
-                                tracing::error!(%error, "spawned effect failed; cancelling runtime execution");
-                                shutdown.cancel();
-                                runtime_shutdown.cancel();
+                                tracing::error!(%error, "spawned effect failed");
+                                if error.fatal() {
+                                    tracing::error!("fatal spawned effect failure; cancelling runtime execution");
+                                    shutdown.cancel();
+                                    runtime_shutdown.cancel();
+                                }
                             }
                             drop(permit);
                         });
                     }
                 }
             }
-            if drain_effects_on_shutdown {
+            if drain_effects_on_shutdown && !effect_shutdown.is_cancelled() {
                 while in_flight.join_next().await.is_some() {}
             } else {
                 in_flight.shutdown().await;

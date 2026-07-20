@@ -1,9 +1,10 @@
 use super::test_support::*;
 use maestria_domain::{
     Artifact, ArtifactId, Card, CardId, Chunk, ChunkId, DomainEvent, DomainEventEnvelope, EventId,
-    Evidence, EvidenceId, EvidenceKind, FetchWebRequest, FetchWebRequested, IndexStatus, LogicalTick, SearchExecutedInput,
-    SequenceNumber, SourceSpan, StructureNodeId,
+    Evidence, EvidenceId, EvidenceKind, FetchWebRequest, FetchWebRequested, IndexStatus,
+    LogicalTick, SearchExecutedInput, SequenceNumber, SourceSpan, StructureNodeId,
 };
+use maestria_governance::Scope;
 use maestria_ports::{
     CardRepository, ChunkRepository, EventFilter, EventLog, EvidenceRepository,
     InMemoryArtifactRepository, InMemoryCardRepository, InMemoryChunkRepository, InMemoryEventLog,
@@ -517,6 +518,7 @@ async fn spawned_effect_failure_propagates_to_supervisor_and_cancels_runtime()
     let governance = crate::test_helpers::test_governance();
     let (runtime, input_rx) = MaestriaRuntime::new(
         RuntimeConfig {
+            scope: Scope::new(vec![], vec![], vec![], vec![], true),
             default_effect_timeout: Duration::from_secs(1),
             max_retries: 0,
             ..RuntimeConfig::default()
