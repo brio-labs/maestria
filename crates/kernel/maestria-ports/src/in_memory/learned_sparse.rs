@@ -92,14 +92,19 @@ impl LearnedSparseProvider for InMemoryLearnedSparseProvider {
     }
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct InMemoryLearnedSparseIndex {
+    identity: SparseIdentity,
     documents: Arc<Mutex<Vec<SparseDocument>>>,
 }
 
 impl InMemoryLearnedSparseIndex {
-    pub fn new() -> Self {
-        Self::default()
+    pub fn new(identity: SparseIdentity) -> Result<Self, PortError> {
+        identity.validate()?;
+        Ok(Self {
+            identity,
+            documents: Arc::new(Mutex::new(Vec::new())),
+        })
     }
 
     fn search_with_filter(
@@ -107,7 +112,11 @@ impl InMemoryLearnedSparseIndex {
         query: SparseSearchQuery,
         filter: &dyn Fn(ChunkId) -> bool,
     ) -> Result<Vec<SparseSearchHit>, PortError> {
-        query.vector.identity().validate()?;
+        if query.vector.identity() != &self.identity {
+            return Err(PortError::InvalidInput {
+                message: "sparse query identity does not match index".to_string(),
+            });
+        }
         if query.limit == 0 {
             return Ok(Vec::new());
         }
@@ -120,7 +129,7 @@ impl InMemoryLearnedSparseIndex {
         })?;
         let mut hits = Vec::new();
         for document in guard.iter() {
-            if !filter(document.chunk_id) || document.vector.identity() != query.vector.identity() {
+            if !filter(document.chunk_id) {
                 continue;
             }
             let contributions = dot_contributions(document.vector.terms(), query.vector.terms());
@@ -167,9 +176,18 @@ impl InMemoryLearnedSparseIndex {
 }
 
 impl LearnedSparseIndex for InMemoryLearnedSparseIndex {
+    fn identity(&self) -> Option<SparseIdentity> {
+        Some(self.identity.clone())
+    }
+
     fn index_documents(&self, documents: Vec<SparseDocument>) -> Result<(), PortError> {
-        for document in &documents {
-            document.vector.identity().validate()?;
+        if documents
+            .iter()
+            .any(|document| document.vector.identity() != &self.identity)
+        {
+            return Err(PortError::InvalidInput {
+                message: "sparse document identity does not match index".to_string(),
+            });
         }
         let mut guard = self.documents.lock().map_err(|_| PortError::Internal {
             message: "learned sparse index lock poisoned".to_string(),
