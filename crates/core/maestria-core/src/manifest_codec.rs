@@ -20,6 +20,81 @@ pub(super) struct ManifestFields {
     embedding_preprocessing_version: Option<String>,
     embedding_remote_provider: Option<bool>,
     embedding_retention_policy: Option<String>,
+    ocr_enabled: Option<bool>,
+    ocr_endpoint: Option<String>,
+    ocr_model: Option<String>,
+    ocr_provider: Option<String>,
+    ocr_revision: Option<String>,
+    ocr_artifact_hash: Option<String>,
+    ocr_preprocessing_version: Option<String>,
+}
+
+pub(super) fn parse_ocr_config(fields: &ManifestFields) -> CoreResult<Option<super::OcrConfig>> {
+    match (&fields.ocr_enabled, &fields.ocr_endpoint, &fields.ocr_model) {
+        (None, None, None) => Ok(None),
+        (Some(enabled), Some(endpoint), Some(model)) => {
+            validate_ocr_endpoint(endpoint)?;
+            let provider = if *enabled {
+                fields
+                    .ocr_provider
+                    .clone()
+                    .ok_or_else(ocr_fingerprint_error)?
+            } else {
+                string_or_empty(&fields.ocr_provider)
+            };
+            let revision = if *enabled {
+                fields
+                    .ocr_revision
+                    .clone()
+                    .ok_or_else(ocr_fingerprint_error)?
+            } else {
+                string_or_empty(&fields.ocr_revision)
+            };
+            let artifact_hash = if *enabled {
+                fields
+                    .ocr_artifact_hash
+                    .clone()
+                    .ok_or_else(ocr_fingerprint_error)?
+            } else {
+                string_or_empty(&fields.ocr_artifact_hash)
+            };
+            let preprocessing_version = if *enabled {
+                fields
+                    .ocr_preprocessing_version
+                    .clone()
+                    .ok_or_else(ocr_fingerprint_error)?
+            } else {
+                string_or_empty(&fields.ocr_preprocessing_version)
+            };
+            if *enabled {
+                maestria_domain::ContentHash::new(artifact_hash.clone()).map_err(|error| {
+                    CoreError::InvalidInput {
+                        message: format!("invalid OCR artifact hash: {error}"),
+                    }
+                })?;
+            }
+            Ok(Some(super::OcrConfig {
+                enabled: *enabled,
+                endpoint: endpoint.clone(),
+                model: model.clone(),
+                provider,
+                revision,
+                artifact_hash,
+                preprocessing_version,
+            }))
+        }
+        _ => Err(CoreError::InvalidInput {
+            message: "OCR configuration must define enabled, endpoint, and model".to_string(),
+        }),
+    }
+}
+
+fn ocr_fingerprint_error() -> CoreError {
+    CoreError::InvalidInput {
+        message:
+            "configured OCR requires provider, revision, artifact hash, and preprocessing version"
+                .to_string(),
+    }
 }
 
 pub(super) fn parse_embedding_config(
@@ -133,6 +208,13 @@ pub(super) fn parse_manifest_fields(contents: &str) -> CoreResult<ManifestFields
         embedding_preprocessing_version: None,
         embedding_remote_provider: None,
         embedding_retention_policy: None,
+        ocr_enabled: None,
+        ocr_endpoint: None,
+        ocr_model: None,
+        ocr_provider: None,
+        ocr_revision: None,
+        ocr_artifact_hash: None,
+        ocr_preprocessing_version: None,
     };
     for line in contents
         .lines()
@@ -194,6 +276,20 @@ pub(super) fn parse_manifest_fields(contents: &str) -> CoreResult<ManifestFields
             "embedding_retention_policy" => {
                 fields.embedding_retention_policy = Some(value.to_string());
             }
+            "ocr_enabled" => {
+                fields.ocr_enabled =
+                    Some(value.parse::<bool>().map_err(|_| CoreError::InvalidInput {
+                        message: format!("invalid ocr_enabled value: {value}"),
+                    })?);
+            }
+            "ocr_endpoint" => fields.ocr_endpoint = Some(value.to_string()),
+            "ocr_model" => fields.ocr_model = Some(value.to_string()),
+            "ocr_provider" => fields.ocr_provider = Some(value.to_string()),
+            "ocr_revision" => fields.ocr_revision = Some(value.to_string()),
+            "ocr_artifact_hash" => fields.ocr_artifact_hash = Some(value.to_string()),
+            "ocr_preprocessing_version" => {
+                fields.ocr_preprocessing_version = Some(value.to_string());
+            }
             other => {
                 return Err(CoreError::InvalidInput {
                     message: format!("unknown instance manifest key: {other}"),
@@ -233,6 +329,22 @@ fn validate_embedding_endpoint(endpoint: &str) -> CoreResult<()> {
     if !valid {
         return Err(CoreError::InvalidInput {
             message: "embedding endpoint must be an http loopback /v1/embeddings URL".to_string(),
+        });
+    }
+    Ok(())
+}
+fn validate_ocr_endpoint(endpoint: &str) -> CoreResult<()> {
+    let url = Url::parse(endpoint).map_err(|error| CoreError::InvalidInput {
+        message: format!("invalid OCR endpoint: {error}"),
+    })?;
+    let valid = url.scheme() == "http"
+        && matches!(url.host_str(), Some("127.0.0.1" | "::1" | "[::1]"))
+        && url.path() == "/v1/chat/completions"
+        && url.query().is_none()
+        && url.fragment().is_none();
+    if !valid {
+        return Err(CoreError::InvalidInput {
+            message: "OCR endpoint must be an http loopback /v1/chat/completions URL".to_string(),
         });
     }
     Ok(())

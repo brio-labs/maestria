@@ -9,6 +9,7 @@ use crate::helpers;
 
 pub fn run(instance_dir: PathBuf) -> Result<()> {
     let layout = helpers::ensure_instance(instance_dir)?;
+    let manifest = helpers::load_manifest(&layout)?;
     let _sqlite_store = SqliteStore::open(&layout.database_path)?;
     let _blob_store = FsBlobStore::open(&layout.blobs_dir)?;
     let _search_index = TantivyFullTextIndex::open(&layout.full_text_index_dir)?;
@@ -21,5 +22,6 @@ pub fn run(instance_dir: PathBuf) -> Result<()> {
         layout.full_text_index_dir.display()
     );
     println!("ok parsers {}", parser.parser_count());
+    println!("ocr {}", maestria_daemon::ocr_status(&manifest)?);
     Ok(())
 }

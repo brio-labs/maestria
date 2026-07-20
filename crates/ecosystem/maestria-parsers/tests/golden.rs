@@ -153,6 +153,78 @@ fn pdf_without_extractable_text_is_explicitly_ocr_pending() -> Result<(), Box<dy
 }
 
 #[test]
+fn configured_ocr_provider_replaces_scanned_page_text() -> Result<(), Box<dyn Error>> {
+    use std::sync::Arc;
+
+    use maestria_ports::{
+        OcrIdentity, OcrPage, OcrProvider, OcrRequest, OcrResponse, ProviderDisclosure,
+        RetentionPolicy,
+    };
+
+    struct FixtureOcrProvider;
+
+    impl OcrProvider for FixtureOcrProvider {
+        fn recognize(&self, request: OcrRequest) -> Result<OcrResponse, maestria_ports::PortError> {
+            Ok(OcrResponse {
+                pages: request
+                    .pages
+                    .into_iter()
+                    .map(|page| OcrPage {
+                        page,
+                        text: "OCR recognized text".to_string(),
+                    })
+                    .collect(),
+                identity: self
+                    .identity()
+                    .ok_or_else(|| maestria_ports::PortError::Internal {
+                        message: "fixture OCR identity missing".to_string(),
+                    })?,
+                disclosure: ProviderDisclosure {
+                    remote: false,
+                    retention: RetentionPolicy::NoRetention,
+                },
+            })
+        }
+
+        fn identity(&self) -> Option<OcrIdentity> {
+            Some(OcrIdentity {
+                provider: "fixture".to_string(),
+                model: "fixture-ocr".to_string(),
+                revision: "test".to_string(),
+                artifact_hash:
+                    "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+                        .to_string(),
+                preprocessing_version: "fixture-v1".to_string(),
+            })
+        }
+
+        fn disclosure(&self) -> Option<ProviderDisclosure> {
+            Some(ProviderDisclosure {
+                remote: false,
+                retention: RetentionPolicy::NoRetention,
+            })
+        }
+    }
+
+    let parsed = PdfParser::with_ocr_provider(Arc::new(FixtureOcrProvider)).parse(
+        FileHandle {
+            path: PathBuf::from("scan.pdf"),
+            bytes: create_no_text_pdf()?,
+        },
+        ParseContext {
+            artifact_id: ArtifactId::new(8),
+        },
+    )?;
+    assert_eq!(parsed.status, maestria_ports::ParseStatus::Parsed);
+    assert_eq!(parsed.chunks[0].text, "OCR recognized text");
+    assert!(matches!(
+        parsed.chunks[0].source_span,
+        maestria_ports::SourceSpan::PdfSpan { page: 1 }
+    ));
+    Ok(())
+}
+
+#[test]
 fn pdf_layout_regions_preserve_geometry_and_structure() -> Result<(), Box<dyn Error>> {
     let parsed = PdfParser::new().parse(
         FileHandle {

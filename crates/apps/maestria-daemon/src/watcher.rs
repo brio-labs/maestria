@@ -398,6 +398,7 @@ mod tests {
             read_roots: vec![root],
             excluded_patterns: vec![".env".to_string()],
             embeddings: None,
+            ocr: None,
         }
     }
 
@@ -418,6 +419,7 @@ mod tests {
             read_roots: vec![root.clone()],
             excluded_patterns: Vec::new(),
             embeddings: None,
+            ocr: None,
         };
         let observations = scan_manifest(&manifest)?;
 
@@ -458,6 +460,7 @@ mod tests {
             read_roots: vec![nested],
             excluded_patterns: Vec::new(),
             embeddings: None,
+            ocr: None,
         };
         let observations = scan_manifest(&manifest)?;
 
@@ -486,6 +489,7 @@ mod tests {
             read_roots: vec![instance.join(".")],
             excluded_patterns: Vec::new(),
             embeddings: None,
+            ocr: None,
         };
         let observations = scan_manifest(&manifest)?;
 
