@@ -275,12 +275,6 @@ fn persist_state(layout: &InstanceLayout, state: &WatchState) -> Result<()> {
 /// Scan manifest roots using `ignore::WalkBuilder` for gitignore/.ignore-aware
 /// traversal. The walker respects `.gitignore`, `.ignore`, and hidden-file
 /// conventions automatically.
-fn canonical_path(path: &Path) -> PathBuf {
-    match path.canonicalize() {
-        Ok(path) => path,
-        Err(_) => path.to_path_buf(),
-    }
-}
 
 fn is_instance_path(path: &Path, instance_root: &Path) -> bool {
     path.starts_with(instance_root)
@@ -302,10 +296,10 @@ fn is_instance_internal_path(path: &Path, instance_root: &Path) -> bool {
 
 fn scan_manifest(manifest: &InstanceManifest) -> Result<Vec<Observation>> {
     let mut observations = Vec::new();
-    let instance_root = canonical_path(&manifest.root);
+    let instance_root = manifest.root.clone();
 
     for root in &manifest.read_roots {
-        let root = canonical_path(root);
+        let root = root.clone();
         let exclude_instance = root != instance_root;
         let instance_root = instance_root.clone();
         let walker = ignore::WalkBuilder::new(root)
@@ -412,6 +406,22 @@ mod tests {
 
         assert_eq!(observations.len(), 1);
         assert!(observations[0].path.ends_with("research.md"));
+        fs::remove_dir_all(root)?;
+        Ok(())
+    }
+
+    #[test]
+    fn scan_preserves_relative_manifest_scope() -> Result<(), Box<dyn std::error::Error>> {
+        let root = PathBuf::from(format!(".maestria-watcher-relative-{}", process::id()));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root)?;
+        fs::write(root.join("note.md"), "relative note")?;
+
+        let manifest = test_manifest(root.clone());
+        let observations = scan_manifest(&manifest)?;
+
+        assert_eq!(observations.len(), 1);
+        assert!(observations[0].path.ends_with("note.md"));
         fs::remove_dir_all(root)?;
         Ok(())
     }
