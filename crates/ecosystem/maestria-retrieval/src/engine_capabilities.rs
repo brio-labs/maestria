@@ -82,7 +82,7 @@ pub(super) fn capabilities_from_retrievers(
     capabilities
 }
 
-pub(super) fn batch_is_eligible(
+pub(crate) fn batch_is_eligible(
     descriptor: &crate::types::RetrieverDescriptor,
     hybrid_policy: &crate::types::HybridExecutionPolicy,
     repository_specialized: bool,
