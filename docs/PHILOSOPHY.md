@@ -59,12 +59,14 @@ This document is enforceable. CI and review block violations.
 52. Specialized retrieval routes activate only for query classes where a frozen, versioned benchmark proves an evidence-quality and freshness/cost win; unproven routes remain shadowed or abstain.
 53. PDF and visual-region evidence must preserve exact coordinates against an immutable source snapshot; scanned or low-quality pages degrade explicitly to `NeedsOcr`/metadata-only and never fabricate text.
 54. Optional visual representations are named, fingerprinted, generation-bound capabilities; an unavailable visual provider must produce a traced text/layout degradation rather than an implicit fallback or fabricated embedding.
+55. Learned-sparse retrieval is an optional `sparse_text_v1` capability with independent model/tokenizer/vocabulary identity and explicit contribution provenance; it remains shadowed unless a frozen benchmark beats both lexical and eligible hybrid baselines for a query class with complete resource, privacy, security, and energy evidence.
 
 ## Review interpretation
 
 Rules 13–20 govern composition and module boundaries; Rules 21–30 make the previously implicit quality obligations explicit. Rules 41–52 govern typed retrieval, bounded context expansion, seed lineage, security filtering, reproducible evaluation, canonical documentation, external-truth boundaries, untrusted plan/rewrite proposals, authenticated scoped client surfaces, provenance-complete repository code intelligence, evidence-bearing code relations, explicit freshness/governed live verification, and query-class-specific benchmark promotion. A green checker result is necessary but not sufficient: reviewers must still reject accumulated responsibilities, duplicated lifecycle policy, and tests that only exercise implementation details. Size limits are adoption gates, not reasons to preserve a monolith.
 Rule 53 governs immutable PDF page/region provenance and explicit OCR degradation; visual coordinates are never inferred as text evidence.
 Rule 54 governs optional visual-model boundaries, generation identity, and explicit traceable degradation when visual retrieval is unavailable.
+Rule 55 governs learned-sparse identity, traceability, shadow defaults, and comparison against both lexical and hybrid baselines before per-class activation.
 
 ## Enforcement
 - `scripts/philosophy-check.py`
@@ -72,6 +74,7 @@ Rule 54 governs optional visual-model boundaries, generation identity, and expli
 - Core cohesion Clippy gate for function size and cognitive complexity budgets
 - Contract checks for kernel inputs/outputs, transitions, and every concrete port adapter
 - Review through CODEOWNERS on invariant-owning surfaces
-- Review enforces responsibility boundaries, lifecycle ownership, identity namespaces, repository/source provenance, evidence-bearing code relations, bounded seed-preserving context traversal, explicit freshness checks, governed live verification, query-class-specific benchmark promotion, and architectural composition from Rules 13–30 and 41–52.
+- Review enforces responsibility boundaries, lifecycle ownership, identity namespaces, repository/source provenance, evidence-bearing code relations, bounded seed-preserving context traversal, explicit freshness checks, governed live verification, query-class-specific benchmark promotion, and architectural composition from Rules 13–30 and 41–55.
 - Visual-document contract tests verify immutable page/region coordinates and explicit `NeedsOcr` degradation.
 - Visual retrieval tests verify named generation identity, provider capability boundaries, exact region provenance, and explicit fallback traces.
+- Learned-sparse contract tests verify model/tokenizer/vocabulary identity, bounded terms, pre-score security filtering, contribution traces, shadow defaults, and per-class benchmark promotion.
