@@ -6,6 +6,9 @@ on:
       - ".github/workflows/benchmarks.yml"
       - "crates/kernel/maestria-domain/**"
       - "crates/ecosystem/maestria-retrieval/**"
+      - "scripts/benchmark_evidence.py"
+      - "scripts/test_benchmark_evidence.py"
+      - "tests/contracts/benchmark_evidence_v1.json"
 
 concurrency:
   group: benchmarks-${{ github.event.pull_request.number || github.ref }}
@@ -18,7 +21,7 @@ env:
   CARGO_TERM_COLOR: always
   RUSTC_WRAPPER: sccache
   SCCACHE_GHA_ENABLED: "true"
-  MAESTRIA_BENCHMARK_REPORT_DIR: target/benchmark-reports
+  MAESTRIA_BENCHMARK_REPORT_DIR: ${{ github.workspace }}/target/benchmark-reports
 
 jobs:
   changes:
@@ -44,6 +47,9 @@ jobs:
             retrieval:
               - ".github/workflows/benchmarks.yml"
               - "crates/ecosystem/maestria-retrieval/**"
+              - "scripts/benchmark_evidence.py"
+              - "scripts/test_benchmark_evidence.py"
+              - "tests/contracts/benchmark_evidence_v1.json"
   bench:
     needs: [changes]
     runs-on: ubuntu-latest
@@ -87,6 +93,12 @@ jobs:
           mkdir -p "$MAESTRIA_BENCHMARK_REPORT_DIR"
           cargo test -p maestria-retrieval --test repository_benchmark_tests -- --nocapture
           cargo test -p maestria-retrieval --test visual_benchmark_tests -- --nocapture
+      - name: Validate benchmark evidence ledger and generated reports
+        if: matrix.changed == 'true' && matrix.name == 'retrieval'
+        run: |
+          python3 scripts/benchmark_evidence.py \
+            --manifest tests/contracts/benchmark_evidence_v1.json \
+            --report-root "$MAESTRIA_BENCHMARK_REPORT_DIR"
       - name: Run ${{ matrix.name }} benchmarks
         if: matrix.changed == 'true'
         run: cargo bench --package ${{ matrix.package }} --all-features --locked

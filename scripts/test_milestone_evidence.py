@@ -92,6 +92,25 @@ class MilestoneEvidenceFixtureTests(unittest.TestCase):
             observed_closure,
         )
 
+    def test_implemented_search_milestones_link_benchmark_ledger(self) -> None:
+        expected = {
+            "v0.4 — Deterministic Search Baseline",
+            "v0.5 — Evaluated Hybrid Retrieval",
+            "v0.7 — Repository Intelligence",
+            "v0.8 — Visual Document Retrieval",
+        }
+        for entry in self.milestones:
+            if entry["milestone"] in expected:
+                self.assertEqual(
+                    entry["benchmark_manifest"],
+                    "tests/contracts/benchmark_evidence_v1.json",
+                )
+                self.assertIn(
+                    "benchmark",
+                    entry["description_block"],
+                    f"{entry['milestone']}: release evidence must link benchmark data",
+                )
+
     def test_open_milestones_have_known_stage(self) -> None:
         for entry in self.milestones:
             if entry["closure"] == "open":

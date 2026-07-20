@@ -192,10 +192,14 @@ fn unavailable_visual_provider_is_explicit_and_cannot_promote()
     let comparison = VisualBenchmarkComparison::evaluate(&corpus, &observations)?;
     let promotion = comparison.promotion("visual-unavailable".to_string())?;
     assert!(promotion.winning_classes().is_empty());
+    let first = observations
+        .first()
+        .ok_or("visual benchmark returned no observations")?;
     if let Ok(report_dir) = std::env::var("MAESTRIA_BENCHMARK_REPORT_DIR") {
         #[derive(serde::Serialize)]
         struct Report<'a> {
             measurement_kind: &'static str,
+            evaluation_date: &'a str,
             corpus_id: &'a str,
             corpus_revision: &'a str,
             provider_status: &'static str,
@@ -203,6 +207,7 @@ fn unavailable_visual_provider_is_explicit_and_cannot_promote()
         }
         fs::create_dir_all(&report_dir)?;
         let report = Report {
+            evaluation_date: &first.evaluation_date,
             measurement_kind: "real_visual_provider_unavailable",
             corpus_id: &corpus.corpus_id,
             corpus_revision: &corpus.corpus_revision,
