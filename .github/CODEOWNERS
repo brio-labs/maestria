@@ -17,7 +17,13 @@
 # Everything not matched below requires the repository maintainer.
 *                                                                              @carabistouflette
 
+# ── Broad documentation and tooling fallbacks (specific rules follow) ────────
+/docs/                                                                         @carabistouflette
+*.md                                                                           @carabistouflette
+/.github/                                                                      @carabistouflette
+
 # ── Core: Domain (deterministic, side-effect-free transitions) ──────────────
+/crates/kernel/                                                               @carabistouflette
 /crates/kernel/maestria-domain/                                                @carabistouflette
 
 # ── Core: Governance (approval gates, policy evaluation) ────────────────────
@@ -25,6 +31,7 @@
 
 # ── Core: Ports (trait contracts, adapter interfaces) ───────────────────────
 /crates/kernel/maestria-ports/                                                 @carabistouflette
+/crates/core/                                                                 @carabistouflette
 
 # ── Runtime (effect orchestration, lifecycle, supervisor) ───────────────────
 /crates/runtime/                                                               @carabistouflette
@@ -32,6 +39,7 @@
 # ── Retrieval (evidence collection, indexing, search) ───────────────────────
 /crates/ecosystem/maestria-retrieval/                                          @carabistouflette
 
+/crates/ecosystem/                                                            @carabistouflette
 # ── Validation (policy-aware checks, gate enforcement) ─────────────────────
 /crates/ecosystem/maestria-validation/                                         @carabistouflette
 
@@ -47,6 +55,7 @@
 # ── Test suites (property, replay, contract contracts) ──────────────────────
 /tests/property/                                                               @carabistouflette
 /tests/replay/                                                                 @carabistouflette
+/tests/contracts/                                                             @carabistouflette
 
 # ── Philosophy (project doctrine, reasoning guardrails) ─────────────────────
 /docs/PHILOSOPHY.md                                                            @carabistouflette
@@ -66,10 +75,7 @@
 /scripts/strict-clippy.sh                                                      @carabistouflette
 /docs/SECURITY.md                                                              @carabistouflette
 .github/workflows/ci.yml                                                       @carabistouflette
+# ── Documentation-specific invariants ────────────────────────────────────────
+/docs/SPECS.md                                                                @carabistouflette
+/docs/adr/                                                                    @carabistouflette
 
-# ── Documentation and specs ─────────────────────────────────────────────────
-/docs/                                                                         @carabistouflette
-*.md                                                                           @carabistouflette
-
-# ── CI/CD and tooling ───────────────────────────────────────────────────────
-/.github/                                                                      @carabistouflette

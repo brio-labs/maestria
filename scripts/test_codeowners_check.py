@@ -74,6 +74,13 @@ class CodeownersCheckTests(unittest.TestCase):
             ],
         )
 
+    def test_parse_codeowners_accepts_multiple_github_owners(self) -> None:
+        lines = ["/docs/ @org/docs @org/security"]
+        self.assertEqual(
+            CHECK.parse_codeowners(lines),
+            [("/docs/", "@org/docs @org/security")],
+        )
+
     # ── check_required_coverage ──────────────────────────────────────
 
     def test_all_required_present(self) -> None:
@@ -122,6 +129,10 @@ class CodeownersCheckTests(unittest.TestCase):
         ]
         self.assertEqual(CHECK.check_invalid_rules(lines), [])
 
+    def test_bare_team_owner_is_rejected(self) -> None:
+        errors = CHECK.check_invalid_rules(["/docs/ org/docs"])
+        self.assertEqual(len(errors), 1)
+
     def test_malformed_line_detected(self) -> None:
         lines = [
             "# comment",
@@ -158,6 +169,13 @@ class CodeownersCheckTests(unittest.TestCase):
                 "/crates/storage/                    @carabistouflette",
                 "/crates/harness/                    @carabistouflette",
                 "/crates/apps/maestria-daemon/       @carabistouflette",
+                "/crates/kernel/                   @carabistouflette",
+                "/crates/core/                     @carabistouflette",
+                "/crates/ecosystem/                @carabistouflette",
+                "/tests/contracts/                 @carabistouflette",
+                "/docs/                            @carabistouflette",
+                "/docs/SPECS.md                    @carabistouflette",
+                "/docs/adr/                        @carabistouflette",
                 "/tests/property/                    @carabistouflette",
                 "/tests/replay/                      @carabistouflette",
                 "/docs/PHILOSOPHY.md                 @carabistouflette",

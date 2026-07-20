@@ -26,12 +26,15 @@ THIS_SCRIPT = Path(__file__).resolve()
 # AND the acceptance criteria in the corresponding test.
 REQUIRED_OWNERSHIP_PATHS: set[str] = {
     # ── Core kernel ────────────────────────────────────────────
+    "/crates/kernel/",
     "/crates/kernel/maestria-domain/",
     "/crates/kernel/maestria-governance/",
     "/crates/kernel/maestria-ports/",
+    "/crates/core/",
     # ── Runtime ────────────────────────────────────────────────
     "/crates/runtime/",
     # ── Retrieval ──────────────────────────────────────────────
+    "/crates/ecosystem/",
     "/crates/ecosystem/maestria-retrieval/",
     # ── Validation ─────────────────────────────────────────────
     "/crates/ecosystem/maestria-validation/",
@@ -44,8 +47,12 @@ REQUIRED_OWNERSHIP_PATHS: set[str] = {
     # ── Test suites ────────────────────────────────────────────
     "/tests/property/",
     "/tests/replay/",
+    "/tests/contracts/",
     # ── Philosophy ─────────────────────────────────────────────
+    "/docs/",
     "/docs/PHILOSOPHY.md",
+    "/docs/SPECS.md",
+    "/docs/adr/",
     "/scripts/philosophy-check.py",
     # ── Release workflow ───────────────────────────────────────
     "/scripts/release-contract.sh",
@@ -59,8 +66,12 @@ REQUIRED_OWNERSHIP_PATHS: set[str] = {
     ".github/workflows/ci.yml",
 }
 
-# Lines that look like a path/owner rule (ignoring leading whitespace and comments).
-RULE_LINE = re.compile(r"^\s*(?P<path>\S+)\s+(?P<owner>@\S+|[\w-]+/[\w-]+)\s*(?:#.*)?$")
+# A CODEOWNERS rule must use GitHub's @user or @org/team owner syntax. Multiple
+# owners are accepted and retained as one rule for coverage checks.
+RULE_LINE = re.compile(
+    r"^\s*(?P<path>\S+)\s+(?P<owners>@[^\s#]+(?:\s+@[^\s#]+)*)\s*(?:#.*)?$"
+)
+
 
 
 def read_lines(path: Path) -> list[str]:
@@ -73,9 +84,10 @@ def read_lines(path: Path) -> list[str]:
 
 
 def parse_codeowners(lines: list[str]) -> list[tuple[str, str]]:
-    """Parse CODEOWNERS into a list of (path_pattern, owner) tuples.
+    """Parse CODEOWNERS into a list of (path_pattern, owners) tuples.
 
-    Comments and blank lines are ignored.  Returns tuples in file order.
+    Comments and blank lines are ignored. Multiple owners remain associated
+    with the same path pattern.
     """
     rules: list[tuple[str, str]] = []
     for line in lines:
@@ -84,7 +96,7 @@ def parse_codeowners(lines: list[str]) -> list[tuple[str, str]]:
             continue
         m = RULE_LINE.match(stripped)
         if m:
-            rules.append((m.group("path"), m.group("owner")))
+            rules.append((m.group("path"), m.group("owners")))
     return rules
 
 
