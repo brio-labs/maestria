@@ -38,6 +38,10 @@ The generation must match the representation, corpus snapshot, provider/model fi
 vocabulary dimensions, templates, quantization, and preprocessing version. Building,
 evaluated, shadow, retired, partial, or incompatible generations are not serveable.
 
+Construction and every query preflight also require the provider and physical index to
+report the exact same `SparseIdentity` as the active capability. An identity change in either
+adapter fails the lane explicitly rather than comparing or serving incompatible rows.
+
 The normal lifecycle remains:
 
 ```text
