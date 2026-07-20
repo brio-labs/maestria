@@ -137,5 +137,33 @@ class DocConsistencyTests(unittest.TestCase):
                          "deep usage with flags should satisfy check")
 
 
+    def test_daemon_documentation_covers_operations_and_limits(self) -> None:
+        protocol = """pub enum ClientOperation {
+    Status,
+    Search { query: String },
+    Evidence { evidence_id: u64 },
+    Task,
+    ModelAgentPropose { proposal: Payload },
+}"""
+        api = "pub(crate) const MAX_REQUEST_BYTES: usize = 65536;"
+        server = "timeout(Duration::from_secs(5), read_request_line(stream))"
+        operations = (
+            "`status` `search` `evidence` `task` `model_agent_propose`"
+        )
+        docs = f"{operations} 64 KiB five-second"
+
+        self.assertEqual(
+            DOC_CONSISTENCY_CHECK.find_daemon_documentation_gaps(
+                protocol, api, server, operations, docs
+            ),
+            [],
+        )
+        self.assertIn(
+            "daemon operation `model_agent_propose` missing from README.md",
+            DOC_CONSISTENCY_CHECK.find_daemon_documentation_gaps(
+                protocol, api, server, "`status`", docs
+            ),
+        )
+
 if __name__ == "__main__":
     unittest.main()

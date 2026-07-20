@@ -17,6 +17,10 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 CLI_TYPES = REPO_ROOT / "crates" / "apps" / "maestria-cli" / "src" / "cli_types.rs"
 README = REPO_ROOT / "README.md"
 
+DAEMON_PROTOCOL = REPO_ROOT / "crates" / "apps" / "maestria-daemon" / "src" / "api" / "protocol.rs"
+DAEMON_API = REPO_ROOT / "crates" / "apps" / "maestria-daemon" / "src" / "api.rs"
+DAEMON_SERVER = REPO_ROOT / "crates" / "apps" / "maestria-daemon" / "src" / "api" / "server.rs"
+DAEMON_DOC = REPO_ROOT / "docs" / "DAEMON-API.md"
 
 def find_matching_brace(text: str, start: int) -> int:
     """Return the position just past the matching '}'. `text[start]` must be '{'."""
@@ -160,6 +164,73 @@ def find_readme_gaps(readme_text: str, tree: dict, prefix_words: list[str] | Non
     return missing
 
 
+def find_daemon_documentation_gaps(
+    protocol_text: str,
+    api_text: str,
+    server_text: str,
+    readme_text: str,
+    daemon_doc_text: str,
+) -> list[str]:
+    """Check that daemon operations and transport limits are documented."""
+    body = extract_enum_body(protocol_text, protocol_text.index("ClientOperation"))
+    variants = re.findall(r"^\s{4}([A-Z][A-Za-z0-9_]*)\b", body, re.MULTILINE)
+    operation_tags = {
+        re.sub(r"(?<!^)(?=[A-Z])", "_", variant).lower()
+        for variant in variants
+    }
+    missing: list[str] = []
+    for tag in sorted(operation_tags):
+        if f"`{tag}`" not in readme_text:
+            missing.append(f"daemon operation `{tag}` missing from README.md")
+        if f"`{tag}`" not in daemon_doc_text:
+            missing.append(f"daemon operation `{tag}` missing from docs/DAEMON-API.md")
+
+    max_bytes_match = re.search(
+        r"MAX_REQUEST_BYTES:\s*usize\s*=\s*(\d+)(?:\s*\*\s*(\d+))?",
+        api_text,
+    )
+    if max_bytes_match:
+        base = int(max_bytes_match.group(1))
+        multiplier = int(max_bytes_match.group(2) or "1")
+        kib = (base * multiplier) // 1024
+        if f"{kib} KiB" not in daemon_doc_text:
+            missing.append(f"daemon request limit `{kib} KiB` missing from docs/DAEMON-API.md")
+
+    timeout_match = re.search(r"Duration::from_secs\((\d+)\)", server_text)
+    if timeout_match:
+        seconds = int(timeout_match.group(1))
+        number_words = {
+            1: "one",
+            2: "two",
+            3: "three",
+            4: "four",
+            5: "five",
+            6: "six",
+            7: "seven",
+            8: "eight",
+            9: "nine",
+            10: "ten",
+        }
+        labels = {f"{seconds}-second"}
+        if seconds in number_words:
+            labels.add(f"{number_words[seconds]}-second")
+        if not any(label in daemon_doc_text for label in labels):
+            missing.append(
+                f"daemon request timeout `{seconds}-second` missing from docs/DAEMON-API.md"
+            )
+    return missing
+
+
+def _daemon_documentation_gaps() -> list[str]:
+    return find_daemon_documentation_gaps(
+        DAEMON_PROTOCOL.read_text(),
+        DAEMON_API.read_text(),
+        DAEMON_SERVER.read_text(),
+        README.read_text(),
+        DAEMON_DOC.read_text(),
+    )
+
+
 def main() -> int:
     cli_text = CLI_TYPES.read_text()
     readme_text = README.read_text()
@@ -170,6 +241,12 @@ def main() -> int:
     _print_tree(tree, 0)
 
     missing = find_readme_gaps(readme_text, tree)
+    daemon_missing = _daemon_documentation_gaps()
+    if daemon_missing:
+        print("\n=== MISSING DAEMON DOCUMENTATION ===")
+        for gap in daemon_missing:
+            print("  " + gap)
+        return 1
 
     if missing:
         print("\n=== MISSING FROM README ===")
