@@ -194,9 +194,9 @@ RESPONSIBILITY_MAPS: dict[str, tuple[str, ...]] = {
     # ── ecosystem ─────────────────────────────────────────────────────
     "crates/ecosystem/maestria-retrieval/src/lib.rs": (
         "adapters", "bounded_reranker", "diversity", "engine", "fusion",
-        "golden", "repository_benchmark", "rewrite", "sync",
-        "sync_engine", "traits", "types", "visual_benchmark",
-        "visual_reranker",
+        "golden", "learned_sparse_benchmark", "learned_sparse_policy",
+        "repository_benchmark", "rewrite", "sync", "sync_engine", "traits",
+        "types", "visual_benchmark", "visual_reranker",
     ),
     "crates/ecosystem/maestria-code-intel/src/lib.rs": (
         "builder", "context", "context_assembly", "context_support",
@@ -240,6 +240,7 @@ POLICY_DOC_MARKERS = {
         "45. Normative architecture",
         "46. Maestria preserves",
         "47. Model-generated search plans",
+        "55. Learned-sparse retrieval",
     ),
     "docs/SPECS.md": (
         "I-Search-TypedBudgeted",
