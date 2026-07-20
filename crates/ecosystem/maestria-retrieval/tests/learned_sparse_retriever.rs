@@ -18,6 +18,12 @@ use maestria_ports::{
 use maestria_retrieval::adapters::{LearnedSparseChunkRetriever, LearnedSparseChunkRetrieverParts};
 use maestria_retrieval::{CandidateRetriever, types::CandidateRequest};
 
+struct RetrieverFixture {
+    identity: SparseIdentity,
+    artifact_id: ArtifactId,
+    retriever: LearnedSparseChunkRetriever,
+}
+
 fn fixture_hash(digit: char) -> Result<ContentHash, Box<dyn std::error::Error>> {
     Ok(ContentHash::new(format!(
         "sha256:{}",
@@ -84,9 +90,22 @@ fn fixture_plan(
     })
 }
 
-#[tokio::test]
-async fn learned_sparse_retriever_preserves_score_and_source_lineage()
--> Result<(), Box<dyn std::error::Error>> {
+fn request(
+    identity: &SparseIdentity,
+    query: &str,
+) -> Result<CandidateRequest, Box<dyn std::error::Error>> {
+    Ok(CandidateRequest {
+        plan: fixture_plan(identity, query)?,
+        query: SearchQuery {
+            q: query.to_string(),
+            limit: 5,
+            offset: 0,
+        },
+        expected_generation: identity.generation_id,
+    })
+}
+
+fn fixture_with_document() -> Result<RetrieverFixture, Box<dyn std::error::Error>> {
     let identity = fixture_identity()?;
     let provider = Arc::new(InMemoryLearnedSparseProvider::new(identity.clone())?);
     let index = Arc::new(InMemoryLearnedSparseIndex::new());
@@ -94,51 +113,24 @@ async fn learned_sparse_retriever_preserves_score_and_source_lineage()
     let chunks = Arc::new(InMemoryChunkRepository::new());
     let evidence = Arc::new(InMemoryEvidenceRepository::new());
     let blobs = Arc::new(InMemoryBlobStore::new());
-
     let artifact_id = ArtifactId::new(1);
     let chunk_id = ChunkId::new(10);
     let source = b"semantic expansion evidence".to_vec();
     let snapshot = blobs.put(source.clone())?;
     let security = maestria_domain::SecurityMetadata::default();
-    artifacts.put(Artifact {
-        id: artifact_id,
-        title: "fixture".to_string(),
-        chunk_ids: [chunk_id].into(),
-        card_ids: Default::default(),
-        claim_ids: Default::default(),
-        evidence_ids: [maestria_domain::evidence_id_for(artifact_id, 0)].into(),
-        index_status: IndexStatus::Indexed,
-        content_hash: Some(maestria_domain::content_hash(&source)),
-        parse_status: None,
-        security: security.clone(),
-    })?;
-    chunks.put(Chunk {
-        id: chunk_id,
+    artifacts.put(fixture_artifact(
         artifact_id,
-        node_id: StructureNodeId::new(1),
-        source_span: SourceSpan::TextSpan {
-            start_line: 1,
-            end_line: 1,
-        },
-        representations: Vec::new(),
-        order: 0,
-        text: "semantic expansion evidence".to_string(),
-    })?;
-    evidence.put(Evidence {
-        id: maestria_domain::evidence_id_for(artifact_id, 0),
+        chunk_id,
+        &source,
+        security.clone(),
+    ))?;
+    chunks.put(fixture_chunk(artifact_id, chunk_id))?;
+    evidence.put(fixture_evidence(
         artifact_id,
-        claim_id: None,
-        kind: EvidenceKind::FileSpan {
-            path: "fixture.md".to_string(),
-            range: ContentRange { start: 1, end: 1 },
-            content_hash: maestria_domain::content_hash(&source),
-            snapshot: Some(snapshot),
-        },
-        excerpt: "semantic expansion evidence".to_string(),
-        observed_at: LogicalTick::new(1),
+        snapshot,
+        &source,
         security,
-    })?;
-
+    ))?;
     index.index_documents(vec![SparseDocument {
         chunk_id,
         content_hash: fixture_hash('4')?,
@@ -148,7 +140,6 @@ async fn learned_sparse_retriever_preserves_score_and_source_lineage()
             identity.clone(),
         )?,
     }])?;
-
     let retriever = LearnedSparseChunkRetriever::new(
         LearnedSparseChunkRetrieverParts {
             index,
@@ -163,24 +154,83 @@ async fn learned_sparse_retriever_preserves_score_and_source_lineage()
             .allow_unscoped_items(true),
         identity.clone(),
     )?;
-    let query = "semantic discovery";
-    let batch = retriever
-        .retrieve(CandidateRequest {
-            plan: fixture_plan(&identity, query)?,
-            query: SearchQuery {
-                q: query.to_string(),
-                limit: 5,
-                offset: 0,
-            },
-            expected_generation: identity.generation_id,
-        })
-        .await?;
+    Ok(RetrieverFixture {
+        identity,
+        artifact_id,
+        retriever,
+    })
+}
 
+fn fixture_artifact(
+    artifact_id: ArtifactId,
+    chunk_id: ChunkId,
+    source: &[u8],
+    security: maestria_domain::SecurityMetadata,
+) -> Artifact {
+    Artifact {
+        id: artifact_id,
+        title: "fixture".to_string(),
+        chunk_ids: [chunk_id].into(),
+        card_ids: Default::default(),
+        claim_ids: Default::default(),
+        evidence_ids: [maestria_domain::evidence_id_for(artifact_id, 0)].into(),
+        index_status: IndexStatus::Indexed,
+        content_hash: Some(maestria_domain::content_hash(source)),
+        parse_status: None,
+        security,
+    }
+}
+
+fn fixture_chunk(artifact_id: ArtifactId, chunk_id: ChunkId) -> Chunk {
+    Chunk {
+        id: chunk_id,
+        artifact_id,
+        node_id: StructureNodeId::new(1),
+        source_span: SourceSpan::TextSpan {
+            start_line: 1,
+            end_line: 1,
+        },
+        representations: Vec::new(),
+        order: 0,
+        text: "semantic expansion evidence".to_string(),
+    }
+}
+
+fn fixture_evidence(
+    artifact_id: ArtifactId,
+    snapshot: maestria_domain::BlobId,
+    source: &[u8],
+    security: maestria_domain::SecurityMetadata,
+) -> Evidence {
+    Evidence {
+        id: maestria_domain::evidence_id_for(artifact_id, 0),
+        artifact_id,
+        claim_id: None,
+        kind: EvidenceKind::FileSpan {
+            path: "fixture.md".to_string(),
+            range: ContentRange { start: 1, end: 1 },
+            content_hash: maestria_domain::content_hash(source),
+            snapshot: Some(snapshot),
+        },
+        excerpt: "semantic expansion evidence".to_string(),
+        observed_at: LogicalTick::new(1),
+        security,
+    }
+}
+
+#[tokio::test]
+async fn learned_sparse_retriever_preserves_score_and_source_lineage()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fixture = fixture_with_document()?;
+    let batch = fixture
+        .retriever
+        .retrieve(request(&fixture.identity, "semantic discovery")?)
+        .await?;
     assert_eq!(batch.candidates.len(), 1);
     let candidate = &batch.candidates[0];
     assert_eq!(
         candidate.evidence_id,
-        maestria_domain::evidence_id_for(artifact_id, 0)
+        maestria_domain::evidence_id_for(fixture.artifact_id, 0)
     );
     assert_eq!(candidate.scores.bm25, 0);
     assert_eq!(candidate.scores.semantic_similarity, 0);
@@ -200,8 +250,7 @@ async fn learned_sparse_retriever_preserves_score_and_source_lineage()
 }
 
 #[tokio::test]
-async fn learned_sparse_retriever_rejects_secret_queries() -> Result<(), Box<dyn std::error::Error>>
-{
+async fn learned_sparse_retriever_rejects_secret_queries() -> Result<(), Box<dyn std::error::Error>> {
     let identity = fixture_identity()?;
     let provider = Arc::new(InMemoryLearnedSparseProvider::new(identity.clone())?);
     let retriever = LearnedSparseChunkRetriever::new(
@@ -216,17 +265,8 @@ async fn learned_sparse_retriever_rejects_secret_queries() -> Result<(), Box<dyn
         RetrievalSecurityPolicy::new().allow_unscoped_items(true),
         identity.clone(),
     )?;
-    let query = "API_KEY=secret-value";
     let result = retriever
-        .retrieve(CandidateRequest {
-            plan: fixture_plan(&identity, query)?,
-            query: SearchQuery {
-                q: query.to_string(),
-                limit: 5,
-                offset: 0,
-            },
-            expected_generation: identity.generation_id,
-        })
+        .retrieve(request(&identity, "API_KEY=secret-value")?)
         .await;
     assert!(result.is_err());
     Ok(())
