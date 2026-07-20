@@ -1,0 +1,52 @@
+name: Issue 90 Final Format
+
+on:
+  push:
+    branches: [feat/search-learned-sparse]
+
+permissions:
+  contents: write
+
+jobs:
+  format:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.0
+        with:
+          ref: feat/search-learned-sparse
+          fetch-depth: 0
+      - uses: ./.github/actions/setup-rust-build-dependencies
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly-2026-06-15
+          components: rustfmt, rustc-codegen-cranelift
+      - name: Fix transition results, format, remove workflow, and push
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('crates/ecosystem/maestria-retrieval/tests/learned_sparse_retriever.rs')
+          text = path.read_text(encoding='utf-8')
+          text = text.replace(
+              'drop(registry.transition_lifecycle(identity.generation_id, IndexLifecycle::Evaluated)?);',
+              'let _previous_active = registry.transition_lifecycle(\n        identity.generation_id,\n        IndexLifecycle::Evaluated,\n    )?;',
+          )
+          text = text.replace(
+              'drop(registry.transition_lifecycle(identity.generation_id, IndexLifecycle::Shadow)?);',
+              'let _previous_active = registry.transition_lifecycle(\n        identity.generation_id,\n        IndexLifecycle::Shadow,\n    )?;',
+          )
+          text = text.replace(
+              'drop(registry.transition_lifecycle(identity.generation_id, IndexLifecycle::Active)?);',
+              'let _previous_active = registry.transition_lifecycle(\n            identity.generation_id,\n            IndexLifecycle::Active,\n        )?;',
+          )
+          path.write_text(text, encoding='utf-8')
+          PY
+          cargo fmt --all
+          git rm .github/workflows/issue-90-final-format.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add crates
+          git commit -m 'chore(repo): format learned sparse implementation'
+          git push origin HEAD:feat/search-learned-sparse
