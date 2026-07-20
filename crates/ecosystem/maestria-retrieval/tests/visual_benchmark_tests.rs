@@ -1,4 +1,4 @@
-use std::{collections::BTreeSet, fs};
+use std::{collections::BTreeSet, fs, path::Path};
 
 use maestria_retrieval::golden::Metric;
 use maestria_retrieval::{
@@ -146,6 +146,21 @@ fn visual_fixture_covers_all_query_classes_and_page_region_judgments()
         .map(|case| case.class)
         .collect::<BTreeSet<_>>();
     assert_eq!(classes, VisualQueryClass::all().into_iter().collect());
+    assert_eq!(corpus.source_paths.len(), VisualQueryClass::all().len());
+    assert!(
+        corpus
+            .source_paths
+            .iter()
+            .all(|source_path| Path::new(source_path).is_file())
+    );
+    assert!(corpus.cases.iter().all(|case| {
+        case.judgments.iter().all(|judgment| {
+            judgment.evidence.page > 0
+                && judgment.evidence.width > 0
+                && judgment.evidence.height > 0
+                && corpus.source_paths.contains(&judgment.evidence.source_path)
+        })
+    }));
     assert!(corpus.cases.iter().any(|case| {
         case.judgments
             .iter()
