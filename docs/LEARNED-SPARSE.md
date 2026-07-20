@@ -9,6 +9,11 @@ The checked-in in-memory provider is a deterministic contract fixture. It proves
 security, lifecycle, and ranking invariants; it is not a trained learned-sparse model and
 must not be used as product-quality evidence.
 
+Merging the research foundation does not complete the learned-sparse experiment and must not
+transition #90 to a completed state. The issue remains the owner of true shadow execution,
+real-provider integration, representative judgments, complete measurements, and the final
+per-query-class promote-or-retain decision.
+
 ## Contract
 
 The canonical representation is `sparse_text_v1`. It is distinct from lexical BM25 and
