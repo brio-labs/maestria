@@ -29,9 +29,12 @@ class ReleaseExitEvidenceContractTests(unittest.TestCase):
         self.assertIsNotNone(match)
         assert match is not None
         options = re.findall(r"^\s+- ([a-z-]+)$", match.group(1), re.MULTILINE)
-        self.assertEqual(options, list(RELEASE_EVIDENCE.RELEASE_STATES))
+        # Planned is a tracking state, not a releasable workflow target.
+        self.assertEqual(options, list(RELEASE_EVIDENCE.RELEASE_STATES[1:]))
+
     def _product_complete_payload(self, *, data_fidelity: str = "real") -> dict:
         return {
+
             "schema_version": 1,
             "release_stage": "product-complete",
             "benchmark": {

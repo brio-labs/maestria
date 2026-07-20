@@ -89,16 +89,16 @@ Every release milestone must carry a machine-readable exit-evidence block in its
 description. The block is a fenced code block (` ```release-exit-evidence`) containing
 a JSON payload that documents the release readiness stage.
 
-The four sequential stages are:
+The milestone lifecycle starts at `planned` while implementation issues remain
+open, then advances through:
 
 1. **implementation-complete** — all issues closed, stage marker only.
 2. **benchmark-complete** — benchmark measurements collected, may use synthetic/staged data.
 3. **product-complete** — real benchmark data with passing quality/resource/security results.
 4. **released** — publication complete with `post_release_work` tracking.
 
-### 6.2 Exit-Evidence Tool
-
-The `scripts/release_exit_evidence.py` script provides four subcommands:
+The `scripts/release_exit_evidence.py` script provides subcommands for all five
+states, including validation of planned milestones.
 
 | Subcommand | Purpose |
 |---|---|

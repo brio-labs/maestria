@@ -25,6 +25,7 @@ from pathlib import Path
 from typing import Any
 
 RELEASE_STATES = (
+    "planned",
     "implementation-complete",
     "benchmark-complete",
     "product-complete",
@@ -420,7 +421,7 @@ def validate_exit_evidence(
         _add_error(errors, f"Release preflight requires at least '{required_stage}' stage.")
         return stage, errors
     _validate_profiles(profiles=payload.get("profiles"), errors=errors)
-    if stage == "implementation-complete":
+    if stage in {"planned", "implementation-complete"}:
         return stage, errors
     benchmark = payload.get("benchmark")
     if not isinstance(benchmark, Mapping):

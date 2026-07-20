@@ -49,7 +49,7 @@ rustup component add rustfmt clippy
    change.
 6. For release-driven work, populate the release milestone description with a
    machine-readable `release_stage` report before dispatching the release workflow.
-   The milestone must move through:
+   Milestones begin at `planned` while implementation issues remain open, then move through:
    `implementation-complete → benchmark-complete → product-complete`.
    Use `released` only after artifacts are published and `post_release_work`
    is assigned (synthetic or staged follow-up items should use

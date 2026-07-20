@@ -32,7 +32,14 @@ class MilestoneEvidenceFixtureTests(unittest.TestCase):
 
     def test_manifest_has_expected_milestones(self) -> None:
         titles = [m["milestone"] for m in self.milestones]
-        expected = [f"v0.{minor}" for minor in range(4, 10)]
+        expected = [
+            "v0.4 — Deterministic Search Baseline",
+            "v0.5 — Evaluated Hybrid Retrieval",
+            "v0.6 — Query-Adaptive Search",
+            "v0.7 — Repository Intelligence",
+            "v0.8 — Visual Document Retrieval",
+            "v0.9 — Advanced Retrieval Research",
+        ]
         self.assertEqual(titles, expected)
 
     def test_every_stage_is_valid_release_state(self) -> None:
@@ -80,17 +87,23 @@ class MilestoneEvidenceFixtureTests(unittest.TestCase):
                     f"{entry['milestone']}: closable milestone must be implementation-complete",
                 )
 
-    def test_open_milestones_have_implementation_complete(self) -> None:
+    def test_open_milestones_have_known_stage(self) -> None:
         for entry in self.milestones:
             if entry["closure"] == "open":
-                self.assertEqual(
+                self.assertIn(
                     entry["release_stage"],
-                    "implementation-complete",
-                    f"{entry['milestone']}: open milestone must be implementation-complete",
+                    {"planned", "implementation-complete"},
+                    f"{entry['milestone']}: open milestone has unexpected stage",
                 )
 
+    def test_v0_9_is_planned_while_research_issues_remain_open(self) -> None:
+        v0_9 = next(m for m in self.milestones if m["milestone"].startswith("v0.9 — "))
+        self.assertEqual(v0_9["release_stage"], "planned")
+        self.assertEqual(v0_9["closure"], "open")
+        self.assertIn("#90–#95", v0_9["summary"])
+
     def test_v0_6_records_published_release(self) -> None:
-        v0_6 = next(m for m in self.milestones if m["milestone"] == "v0.6")
+        v0_6 = next(m for m in self.milestones if m["milestone"].startswith("v0.6 — "))
         self.assertEqual(v0_6["published_release"], "v0.6.1")
 
 

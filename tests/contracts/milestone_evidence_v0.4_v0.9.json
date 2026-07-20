@@ -1,9 +1,9 @@
 {
   "manifest_version": 1,
-  "description": "Checked-in release milestone exit evidence for Maestria v0.4 through v0.9. Each entry carries the canonical milestone-description evidence block that validates against the release-exit-evidence contract (scripts/release_exit_evidence.py). Milestone titles match the GitHub milestone names (e.g. v0.4, v0.5, v0.6). The v0.6.1 binary release is a patch under the v0.6 milestone.",
+  "description": "Checked-in release milestone exit evidence for the actual GitHub milestones v0.4 through v0.9. Each entry carries the canonical milestone-description evidence block that validates against the release-exit-evidence contract (scripts/release_exit_evidence.py). The v0.6.1 binary release is a patch under the v0.6 milestone.",
   "milestones": [
     {
-      "milestone": "v0.4",
+      "milestone": "v0.4 — Deterministic Search Baseline",
       "release_stage": "implementation-complete",
       "closure": "closable",
       "summary": "Local file indexing; no benchmark corpus recorded",
@@ -11,7 +11,7 @@
       "description_block": "```release-exit-evidence\n{\n  \"schema_version\": 1,\n  \"release_stage\": \"implementation-complete\"\n}\n```"
     },
     {
-      "milestone": "v0.5",
+      "milestone": "v0.5 — Evaluated Hybrid Retrieval",
       "release_stage": "implementation-complete",
       "closure": "closable",
       "summary": "Lexical search and evidence opening; no benchmark corpus recorded",
@@ -19,7 +19,7 @@
       "description_block": "```release-exit-evidence\n{\n  \"schema_version\": 1,\n  \"release_stage\": \"implementation-complete\"\n}\n```"
     },
     {
-      "milestone": "v0.6",
+      "milestone": "v0.6 — Query-Adaptive Search",
       "release_stage": "implementation-complete",
       "closure": "closable",
       "summary": "Query-adaptive search, code intelligence, memory promotion (latest binary v0.6.1); no quality/resource/security measurements recorded",
@@ -27,7 +27,7 @@
       "description_block": "```release-exit-evidence\n{\n  \"schema_version\": 1,\n  \"release_stage\": \"implementation-complete\"\n}\n```"
     },
     {
-      "milestone": "v0.7",
+      "milestone": "v0.7 — Repository Intelligence",
       "release_stage": "implementation-complete",
       "closure": "open",
       "summary": "Pre-populated; requires benchmark evidence before product-complete",
@@ -35,7 +35,7 @@
       "description_block": "```release-exit-evidence\n{\n  \"schema_version\": 1,\n  \"release_stage\": \"implementation-complete\"\n}\n```"
     },
     {
-      "milestone": "v0.8",
+      "milestone": "v0.8 — Visual Document Retrieval",
       "release_stage": "implementation-complete",
       "closure": "open",
       "summary": "Pre-populated; requires benchmark evidence before product-complete",
@@ -43,12 +43,12 @@
       "description_block": "```release-exit-evidence\n{\n  \"schema_version\": 1,\n  \"release_stage\": \"implementation-complete\"\n}\n```"
     },
     {
-      "milestone": "v0.9",
-      "release_stage": "implementation-complete",
+      "milestone": "v0.9 — Advanced Retrieval Research",
+      "release_stage": "planned",
       "closure": "open",
-      "summary": "Pre-populated; requires benchmark evidence before product-complete",
+      "summary": "Research issues #90–#95 remain open; benchmark-gated research is planned, not implementation-complete",
       "published_release": null,
-      "description_block": "```release-exit-evidence\n{\n  \"schema_version\": 1,\n  \"release_stage\": \"implementation-complete\"\n}\n```"
+      "description_block": "```release-exit-evidence\n{\n  \"schema_version\": 1,\n  \"release_stage\": \"planned\"\n}\n```"
     }
   ]
 }
