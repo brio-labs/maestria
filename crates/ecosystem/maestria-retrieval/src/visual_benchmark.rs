@@ -1,3 +1,5 @@
+#[path = "visual_benchmark_corpus.rs"]
+mod corpus;
 #[path = "visual_benchmark_metrics.rs"]
 mod metrics;
 #[path = "visual_benchmark_runner.rs"]
@@ -89,11 +91,23 @@ pub enum VisualEvidenceKind {
     Region,
 }
 
+/// Exact immutable page or region evidence location in the frozen corpus.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VisualEvidenceLocation {
+    pub source_path: String,
+    pub page: u32,
+    pub x: u32,
+    pub y: u32,
+    pub width: u32,
+    pub height: u32,
+}
+
 /// One frozen page/region judgment.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct VisualJudgment {
     pub kind: VisualEvidenceKind,
     pub relevance: u8,
+    pub evidence: VisualEvidenceLocation,
 }
 
 /// One frozen visual query and its resource budgets.
@@ -115,6 +129,7 @@ pub struct VisualBenchmarkCorpus {
     pub schema_version: u32,
     pub corpus_id: String,
     pub corpus_revision: String,
+    pub source_paths: Vec<String>,
     /// ISO‑8601 date of the original corpus freeze.
     #[serde(default)]
     pub evaluation_date: String,
@@ -122,91 +137,6 @@ pub struct VisualBenchmarkCorpus {
     #[serde(default)]
     pub evaluation_context: String,
     pub cases: Vec<VisualBenchmarkCase>,
-}
-
-impl VisualBenchmarkCorpus {
-    pub fn from_json(input: &str) -> Result<Self, VisualBenchmarkError> {
-        let corpus: Self = serde_json::from_str(input)
-            .map_err(|error| VisualBenchmarkError::InvalidJson(error.to_string()))?;
-        corpus.validate()?;
-        Ok(corpus)
-    }
-
-    pub fn validate(&self) -> Result<(), VisualBenchmarkError> {
-        if self.schema_version == 0
-            || self.corpus_id.trim().is_empty()
-            || self.corpus_revision.trim().is_empty()
-        {
-            return Err(VisualBenchmarkError::InvalidCorpus(
-                "schema and corpus identity must be non-empty".to_string(),
-            ));
-        }
-        let mut ids = BTreeSet::new();
-        let mut classes = BTreeSet::new();
-        let mut has_page = false;
-        let mut has_region = false;
-        for case in &self.cases {
-            if case.case_id.trim().is_empty() || case.query.trim().is_empty() {
-                return Err(VisualBenchmarkError::InvalidCorpus(
-                    "case_id and query must be non-empty".to_string(),
-                ));
-            }
-            if !ids.insert(case.case_id.clone()) {
-                return Err(VisualBenchmarkError::DuplicateCase(case.case_id.clone()));
-            }
-            if case.judgments.is_empty()
-                || case.latency_budget_ms == 0
-                || case.memory_budget_bytes == 0
-                || case.disk_budget_bytes == 0
-                || case.energy_budget_millijoules == 0
-            {
-                return Err(VisualBenchmarkError::InvalidCorpus(format!(
-                    "case {} must have judgments and positive budgets",
-                    case.case_id
-                )));
-            }
-            if VisualQueryClass::classify(&case.query) != Some(case.class) {
-                return Err(VisualBenchmarkError::InvalidCorpus(format!(
-                    "case {} query does not classify as {:?}",
-                    case.case_id, case.class
-                )));
-            }
-            if maestria_domain::SearchIntent::classify(&case.query)
-                != maestria_domain::SearchIntent::VisualDocument
-            {
-                return Err(VisualBenchmarkError::InvalidCorpus(format!(
-                    "case {} is not a visual-document query",
-                    case.case_id
-                )));
-            }
-            classes.insert(case.class);
-            for judgment in &case.judgments {
-                if judgment.relevance == 0 {
-                    return Err(VisualBenchmarkError::InvalidCorpus(format!(
-                        "case {} contains a zero-relevance judgment",
-                        case.case_id
-                    )));
-                }
-                has_page |= judgment.kind == VisualEvidenceKind::Page;
-                has_region |= judgment.kind == VisualEvidenceKind::Region;
-            }
-        }
-        for class in VisualQueryClass::all() {
-            if !classes.contains(&class) {
-                return Err(VisualBenchmarkError::MissingClass(class));
-            }
-        }
-        if !has_page || !has_region {
-            return Err(VisualBenchmarkError::InvalidCorpus(
-                "visual benchmark must contain page and region judgments".to_string(),
-            ));
-        }
-        Ok(())
-    }
-
-    fn case(&self, case_id: &str) -> Option<&VisualBenchmarkCase> {
-        self.cases.iter().find(|case| case.case_id == case_id)
-    }
 }
 
 /// Availability of the provider used for one measured route.
