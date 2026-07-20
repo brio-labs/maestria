@@ -324,6 +324,16 @@ class PhilosophyCheckTests(unittest.TestCase):
             PHILOSOPHY_CHECK.MODULE_SIZE_EXEMPTIONS = old_module
             PHILOSOPHY_CHECK.ADR_MODULE_EXEMPTIONS = old_adr
 
+    def test_workspace_version_reads_workspace_package(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.configure_root(root)
+            (root / "Cargo.toml").write_text(
+                "[workspace.package]\nversion = \"0.6.1\"\n\n[workspace]\nmembers = []\n",
+                encoding="utf-8",
+            )
+            self.assertEqual(PHILOSOPHY_CHECK.workspace_version(), "0.6.1")
+
     def test_module_size_scan_reports_unexempt_large_module(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
