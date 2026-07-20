@@ -57,7 +57,8 @@ fn corpus() -> LearnedSparseBenchmarkCorpus {
         corpus_id: "sparse-fixture-v1".to_string(),
         corpus_revision: "revision-1".to_string(),
         judgment_set_id: "judgments-1".to_string(),
-        source_input_hash: "sha256:fixture".to_string(),
+        source_input_hash:
+            "sha256:65e05a858c3b57d96b9e87bbcee11ae5806bd516121d2590b6951005cae44974".to_string(),
         evaluation_date: "2026-07-20".to_string(),
         cases: cases(),
     }
@@ -164,7 +165,7 @@ fn benchmark_promotes_only_unprotected_winning_classes() -> Result<(), Box<dyn s
     assert!(active.allows_sparse("explain specialized terminology"));
     assert!(active.allows_sparse("must include alpha without beta"));
     assert!(!active.allows_sparse("\"alpha\""));
-    assert!(!LearnedSparseExecutionPolicy::Shadow.allows_sparse("discover related concepts"));
+    assert!(!LearnedSparseExecutionPolicy::Disabled.allows_sparse("discover related concepts"));
     Ok(())
 }
 

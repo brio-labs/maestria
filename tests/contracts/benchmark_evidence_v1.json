@@ -25,12 +25,12 @@
   },
   "milestones": [
     {
-      "milestone": "v0.4 — Deterministic Search Baseline",
+      "milestone": "v0.4 \u2014 Deterministic Search Baseline",
       "release_stage": "implementation-complete",
       "data_fidelity": "mixed",
       "corpus": {
         "id": "maestria-document-snapshot-v1",
-        "snapshot": "sha256:8c2d38748ee17d1638b5ed4cd30b5c48adaed30ef4048355468ab7a40b25a679",
+        "snapshot": "sha256:c02e814c97088bcbd1593a478933ea3d878b5c1e60eca2b6d8c68603e9b7fa57",
         "judgment_set": "golden-v3",
         "source_paths": [
           "README.md",
@@ -38,7 +38,7 @@
           "docs/PHILOSOPHY.md",
           "crates/ecosystem/maestria-retrieval/tests/fixtures/golden-v3.json"
         ],
-        "source_hash": "8c2d38748ee17d1638b5ed4cd30b5c48adaed30ef4048355468ab7a40b25a679"
+        "source_hash": "c02e814c97088bcbd1593a478933ea3d878b5c1e60eca2b6d8c68603e9b7fa57"
       },
       "fingerprints": {
         "corpus_snapshot": "maestria-document-snapshot-v1",
@@ -82,12 +82,12 @@
       ]
     },
     {
-      "milestone": "v0.5 — Evaluated Hybrid Retrieval",
+      "milestone": "v0.5 \u2014 Evaluated Hybrid Retrieval",
       "release_stage": "implementation-complete",
       "data_fidelity": "mixed",
       "corpus": {
         "id": "maestria-document-snapshot-v1",
-        "snapshot": "sha256:8c2d38748ee17d1638b5ed4cd30b5c48adaed30ef4048355468ab7a40b25a679",
+        "snapshot": "sha256:c02e814c97088bcbd1593a478933ea3d878b5c1e60eca2b6d8c68603e9b7fa57",
         "judgment_set": "golden-v3",
         "source_paths": [
           "README.md",
@@ -95,7 +95,7 @@
           "docs/PHILOSOPHY.md",
           "crates/ecosystem/maestria-retrieval/tests/fixtures/golden-v3.json"
         ],
-        "source_hash": "8c2d38748ee17d1638b5ed4cd30b5c48adaed30ef4048355468ab7a40b25a679"
+        "source_hash": "c02e814c97088bcbd1593a478933ea3d878b5c1e60eca2b6d8c68603e9b7fa57"
       },
       "fingerprints": {
         "corpus_snapshot": "maestria-document-snapshot-v1",
@@ -139,7 +139,7 @@
       ]
     },
     {
-      "milestone": "v0.7 — Repository Intelligence",
+      "milestone": "v0.7 \u2014 Repository Intelligence",
       "release_stage": "implementation-complete",
       "data_fidelity": "real",
       "corpus": {
@@ -194,7 +194,7 @@
       ]
     },
     {
-      "milestone": "v0.8 — Visual Document Retrieval",
+      "milestone": "v0.8 \u2014 Visual Document Retrieval",
       "release_stage": "implementation-complete",
       "data_fidelity": "mixed",
       "corpus": {

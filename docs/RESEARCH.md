@@ -41,7 +41,7 @@ The experimental contract requires:
 * exact immutable evidence lineage;
 * explicit sparse score and highest-contributing term provenance in search traces;
 * independent provider and index adapters with shared contract tests;
-* a dedicated execution policy that is `Shadow` by default.
+* a dedicated execution policy that is `Disabled` by default; true shadow execution remains required before the experiment can collect non-serving observations.
 
 The deterministic in-memory provider and index are **contract fixtures only**. Their token hashing and weighting do not represent a trained learned-sparse model and must never be cited as retrieval-quality evidence.
 

@@ -85,8 +85,10 @@ stored in domain values or traces.
 
 ## Execution policy
 
-`LearnedSparseExecutionPolicy::Shadow` is the default for `RetrievalEngine`. The presence
-of a provider, index, or retriever never activates the lane.
+`LearnedSparseExecutionPolicy::Disabled` is the default for `RetrievalEngine`. The
+presence of a provider, index, or retriever never executes or activates the lane. This PR does
+not implement true shadow execution; #90 remains open until a separate shadow path can run
+the candidate, record bounded observations, and remain unable to affect served results.
 
 A valid promotion record is produced only by the versioned comparison gate. It is bound to
 the corpus, judgment set, evaluation date, model fingerprint, and winning query classes.
