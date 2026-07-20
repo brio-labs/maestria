@@ -133,7 +133,7 @@ impl InMemoryLearnedSparseIndex {
             let score = contributions
                 .iter()
                 .map(|(_, value)| *value)
-                .fold(0.0_f64, f64::add);
+                .fold(0.0_f64, |total, value| total + value);
             if !score.is_finite() || score <= 0.0 {
                 continue;
             }
