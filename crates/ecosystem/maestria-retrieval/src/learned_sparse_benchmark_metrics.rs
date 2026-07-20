@@ -119,18 +119,11 @@ pub(super) fn winning_sparse_route(
     }
     let lexical = routes.get(&LearnedSparseRoute::Lexical)?;
     let hybrid = routes.get(&LearnedSparseRoute::Hybrid)?;
-    [
-        LearnedSparseRoute::SparseFused,
-        LearnedSparseRoute::SparseOnly,
-    ]
-    .into_iter()
-    .find(|route| {
-        routes.get(route).is_some_and(|candidate| {
-            telemetry_complete(candidate)
-                && wins_against(candidate, lexical)
-                && wins_against(candidate, hybrid)
-        })
-    })
+    let candidate = routes.get(&LearnedSparseRoute::SparseFused)?;
+    (telemetry_complete(candidate)
+        && wins_against(candidate, lexical)
+        && wins_against(candidate, hybrid))
+    .then_some(LearnedSparseRoute::SparseFused)
 }
 
 fn telemetry_complete(metrics: &LearnedSparseRouteMetrics) -> bool {
