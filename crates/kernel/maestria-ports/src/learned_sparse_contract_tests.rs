@@ -151,4 +151,27 @@ mod tests {
         let index = InMemoryLearnedSparseIndex::new(identity)?;
         assert_learned_sparse_index_contract(&index, &provider)
     }
+
+    #[test]
+    fn in_memory_index_rejects_another_generation() -> Result<(), Box<dyn std::error::Error>> {
+        let identity = fixture_sparse_identity()?;
+        let index = InMemoryLearnedSparseIndex::new(identity.clone())?;
+        let mut incompatible = identity.clone();
+        incompatible.generation_id = IndexGenerationId::new(99);
+        let provider = InMemoryLearnedSparseProvider::new(incompatible.clone())?;
+        let document = SparseDocument {
+            chunk_id: ChunkId::new(1),
+            content_hash: ContentHash::new(format!("sha256:{}", "7".repeat(64)))?,
+            vector: provider.encode(
+                "alpha beta",
+                SparseInputKind::Document,
+                incompatible,
+            )?,
+        };
+        assert!(matches!(
+            index.index_documents(vec![document]),
+            Err(PortError::InvalidInput { .. })
+        ));
+        Ok(())
+    }
 }
