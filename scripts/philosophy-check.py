@@ -81,6 +81,55 @@ ADR_MODULE_EXEMPTIONS: dict[str, str] = {
     "crates/ecosystem/maestria-code-intel/src/lib.rs": "v0.7.0",
     "crates/ecosystem/maestria-parsers/src/lib.rs": "v0.7.0",
 }
+
+VERSION_PATTERN = re.compile(r"^v?(\d+)\.(\d+)\.(\d+)(?:[-+][0-9A-Za-z.-]+)?$")
+
+
+def parse_release_version(value: str) -> tuple[int, int, int] | None:
+    match = VERSION_PATTERN.fullmatch(value.strip())
+    if match is None:
+        return None
+    return tuple(int(part) for part in match.groups())
+
+
+def workspace_version() -> str | None:
+    manifest = read_text(ROOT / "Cargo.toml")
+    if manifest is None:
+        return None
+    workspace_match = re.search(
+        r"(?ms)^\[workspace\.package\]\s*(.*?)(?=^\[|\Z)",
+        manifest,
+    )
+    if workspace_match is None:
+        return None
+    version_match = re.search(r'(?m)^version\s*=\s*"([^"]+)"', workspace_match.group(1))
+    return version_match.group(1) if version_match else None
+
+
+def scan_exemption_expiry(current_version: str | None = None) -> list[str]:
+    current_text = current_version or workspace_version()
+    if current_text is None:
+        return ["workspace Cargo.toml has no parseable [workspace.package] version"]
+    current = parse_release_version(current_text)
+    if current is None:
+        return [f"workspace version {current_text!r} is not a supported release version"]
+
+    violations = []
+    exemptions = {**MODULE_SIZE_EXEMPTIONS, **ADR_MODULE_EXEMPTIONS}
+    for path, target_text in sorted(exemptions.items()):
+        target = parse_release_version(target_text)
+        if target is None:
+            violations.append(
+                f"{path} has malformed module exemption expiry {target_text!r}"
+            )
+        elif current >= target:
+            violations.append(
+                f"{path} module exemption expired at {target_text} "
+                f"(workspace version {current_text}); refactor or renew the ADR"
+            )
+    return violations
+
+
 KERNEL_ALLOWED_DEPENDENCIES = {
     "maestria-domain": {"sha2"},
     "maestria-governance": {"maestria_domain"},
@@ -624,6 +673,7 @@ def main() -> int:
     violations.extend(scan_documentation_contract())
     violations.extend(scan_responsibility_maps())
     violations.extend(scan_module_sizes())
+    violations.extend(scan_exemption_expiry())
     violations.extend(
         f"{path} contains a Rust lint-bypass attribute" for path in scan_rust_lint_bypasses()
     )

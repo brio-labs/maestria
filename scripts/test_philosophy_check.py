@@ -294,6 +294,36 @@ class PhilosophyCheckTests(unittest.TestCase):
                 PHILOSOPHY_CHECK.scan_documentation_contract(),
             )
 
+    def test_exemption_expiry_is_enforced_at_target_version(self) -> None:
+        old_module = PHILOSOPHY_CHECK.MODULE_SIZE_EXEMPTIONS
+        old_adr = PHILOSOPHY_CHECK.ADR_MODULE_EXEMPTIONS
+        try:
+            PHILOSOPHY_CHECK.MODULE_SIZE_EXEMPTIONS = {
+                "crates/example/src/large.rs": "v0.7.0",
+            }
+            PHILOSOPHY_CHECK.ADR_MODULE_EXEMPTIONS = {}
+            self.assertEqual(PHILOSOPHY_CHECK.scan_exemption_expiry("0.6.1"), [])
+            self.assertEqual(len(PHILOSOPHY_CHECK.scan_exemption_expiry("0.7.0")), 1)
+            self.assertEqual(len(PHILOSOPHY_CHECK.scan_exemption_expiry("0.8.0")), 1)
+        finally:
+            PHILOSOPHY_CHECK.MODULE_SIZE_EXEMPTIONS = old_module
+            PHILOSOPHY_CHECK.ADR_MODULE_EXEMPTIONS = old_adr
+
+    def test_exemption_expiry_rejects_malformed_target(self) -> None:
+        old_module = PHILOSOPHY_CHECK.MODULE_SIZE_EXEMPTIONS
+        old_adr = PHILOSOPHY_CHECK.ADR_MODULE_EXEMPTIONS
+        try:
+            PHILOSOPHY_CHECK.MODULE_SIZE_EXEMPTIONS = {
+                "crates/example/src/large.rs": "v0.7",
+            }
+            PHILOSOPHY_CHECK.ADR_MODULE_EXEMPTIONS = {}
+            violations = PHILOSOPHY_CHECK.scan_exemption_expiry("0.6.1")
+            self.assertEqual(len(violations), 1)
+            self.assertIn("malformed", violations[0])
+        finally:
+            PHILOSOPHY_CHECK.MODULE_SIZE_EXEMPTIONS = old_module
+            PHILOSOPHY_CHECK.ADR_MODULE_EXEMPTIONS = old_adr
+
     def test_module_size_scan_reports_unexempt_large_module(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
