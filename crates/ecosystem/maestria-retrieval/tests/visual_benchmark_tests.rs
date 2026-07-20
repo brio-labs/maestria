@@ -53,6 +53,49 @@ fn profile(
         security_violations: values.8,
     })
 }
+#[derive(serde::Serialize)]
+struct ReportObservation<'a> {
+    corpus_id: &'a str,
+    corpus_revision: &'a str,
+    evaluation_date: &'a str,
+    model_fingerprint: &'a str,
+    provider_config: &'a serde_json::Value,
+    case_id: &'a str,
+    route: VisualRoute,
+    page_region_recall: Option<u32>,
+    ndcg_at_10: Option<u32>,
+    citation_alignment: Option<u32>,
+    latency_ms: Option<u64>,
+    memory_bytes: Option<u64>,
+    disk_bytes: Option<u64>,
+    energy_millijoules: Option<u64>,
+    privacy_violations: Option<u32>,
+    security_violations: Option<u32>,
+    provider_status: &'a VisualProviderStatus,
+}
+
+fn report_observation(observation: &VisualBenchmarkObservation) -> ReportObservation<'_> {
+    let measured = observation.provider_status.is_available();
+    ReportObservation {
+        corpus_id: &observation.corpus_id,
+        corpus_revision: &observation.corpus_revision,
+        evaluation_date: &observation.evaluation_date,
+        model_fingerprint: &observation.model_fingerprint,
+        provider_config: &observation.provider_config,
+        case_id: &observation.case_id,
+        route: observation.route,
+        page_region_recall: measured.then_some(observation.page_region_recall.value()),
+        ndcg_at_10: measured.then_some(observation.ndcg_at_10.value()),
+        citation_alignment: measured.then_some(observation.citation_alignment.value()),
+        latency_ms: measured.then_some(observation.latency_ms),
+        memory_bytes: measured.then_some(observation.memory_bytes),
+        disk_bytes: measured.then_some(observation.disk_bytes),
+        energy_millijoules: measured.then_some(observation.energy_millijoules),
+        privacy_violations: measured.then_some(observation.privacy_violations),
+        security_violations: measured.then_some(observation.security_violations),
+        provider_status: &observation.provider_status,
+    }
+}
 
 fn observations(
     corpus: &VisualBenchmarkCorpus,
@@ -195,6 +238,21 @@ fn unavailable_visual_provider_is_explicit_and_cannot_promote()
     let first = observations
         .first()
         .ok_or("visual benchmark returned no observations")?;
+    let report_observations = observations
+        .iter()
+        .map(report_observation)
+        .collect::<Vec<_>>();
+    assert!(report_observations.iter().all(|observation| {
+        observation.page_region_recall.is_none()
+            && observation.ndcg_at_10.is_none()
+            && observation.citation_alignment.is_none()
+            && observation.latency_ms.is_none()
+            && observation.memory_bytes.is_none()
+            && observation.disk_bytes.is_none()
+            && observation.energy_millijoules.is_none()
+            && observation.privacy_violations.is_none()
+            && observation.security_violations.is_none()
+    }));
     if let Ok(report_dir) = std::env::var("MAESTRIA_BENCHMARK_REPORT_DIR") {
         #[derive(serde::Serialize)]
         struct Report<'a> {
@@ -203,8 +261,12 @@ fn unavailable_visual_provider_is_explicit_and_cannot_promote()
             corpus_id: &'a str,
             corpus_revision: &'a str,
             provider_status: &'static str,
-            observations: &'a [VisualBenchmarkObservation],
+            observations: Vec<ReportObservation<'a>>,
         }
+        let report_observations = observations
+            .iter()
+            .map(report_observation)
+            .collect::<Vec<_>>();
         fs::create_dir_all(&report_dir)?;
         let report = Report {
             evaluation_date: &first.evaluation_date,
@@ -212,7 +274,7 @@ fn unavailable_visual_provider_is_explicit_and_cannot_promote()
             corpus_id: &corpus.corpus_id,
             corpus_revision: &corpus.corpus_revision,
             provider_status: "unavailable",
-            observations: &observations,
+            observations: report_observations,
         };
         fs::write(
             std::path::Path::new(&report_dir).join("visual-provider-unavailable.json"),
