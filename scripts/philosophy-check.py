@@ -103,10 +103,11 @@ RESPONSIBILITY_MAPS: dict[str, tuple[str, ...]] = {
     ),
     # ── runtime ──────────────────────────────────────────────────────
     "crates/runtime/maestria-runtime/src/lib.rs": (
-        "config", "effect_dispatch", "effect_execution", "harness",
-        "indexing", "parser_mapping", "parsing", "parsing_records",
-        "persistence", "shell_policy", "supervision", "validation",
-        "web_evidence", "approval", "completion",
+        "config", "effect_dispatch", "effect_execution", "effect_result",
+        "harness", "indexing", "parser_mapping", "parsing",
+        "parsing_records", "persistence", "shell_policy", "supervision",
+        "validation", "vector_indexing", "web_evidence", "approval",
+        "completion",
     ),
     # ── core ──────────────────────────────────────────────────────────
     "crates/core/maestria-core/src/lib.rs": (
