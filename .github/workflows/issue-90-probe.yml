@@ -1,0 +1,87 @@
+name: Issue 90 Probe
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    outputs:
+      compile: ${{ steps.compile.outputs.value }}
+      philosophy: ${{ steps.philosophy.outputs.value }}
+      formatting: ${{ steps.formatting.outputs.value }}
+    steps:
+      - uses: actions/checkout@v7.0.0
+      - uses: ./.github/actions/setup-rust-build-dependencies
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly-2026-06-15
+          components: rustfmt, rustc-codegen-cranelift
+      - id: compile
+        name: Capture compilation result
+        shell: bash
+        run: |
+          set +e
+          CARGO_TERM_COLOR=never cargo check --workspace --all-targets --all-features > /tmp/compile.log 2>&1
+          status=$?
+          if [ "$status" -eq 0 ]; then
+            value="OK"
+          else
+            value="$(grep -m1 -E '^error(\[[^]]+\])?:' /tmp/compile.log | tr '\n\r' '  ' | cut -c1-180)"
+            if [ -z "$value" ]; then value="failed-without-error-line"; fi
+          fi
+          echo "value=$value" >> "$GITHUB_OUTPUT"
+      - id: philosophy
+        name: Capture philosophy result
+        shell: bash
+        run: |
+          set +e
+          python3 scripts/philosophy-check.py > /tmp/philosophy.log 2>&1
+          status=$?
+          if [ "$status" -eq 0 ]; then
+            value="OK"
+          else
+            value="$(grep -m1 -E '(^| )(- |❌|violation|forbidden|exceeds|missing)' /tmp/philosophy.log | tr '\n\r' '  ' | cut -c1-180)"
+            if [ -z "$value" ]; then value="failed-without-diagnostic"; fi
+          fi
+          echo "value=$value" >> "$GITHUB_OUTPUT"
+      - id: formatting
+        name: Capture formatting result
+        shell: bash
+        run: |
+          set +e
+          cargo fmt --all -- --check > /tmp/formatting.log 2>&1
+          status=$?
+          if [ "$status" -eq 0 ]; then
+            value="OK"
+          else
+            value="$(grep -m1 -E '^Diff in ' /tmp/formatting.log | tr '\n\r' '  ' | cut -c1-180)"
+            if [ -z "$value" ]; then value="formatting-diff"; fi
+          fi
+          echo "value=$value" >> "$GITHUB_OUTPUT"
+
+  compile-report:
+    needs: probe
+    name: "compile: ${{ needs.probe.outputs.compile }}"
+    runs-on: ubuntu-latest
+    steps:
+      - run: true
+
+  philosophy-report:
+    needs: probe
+    name: "philosophy: ${{ needs.probe.outputs.philosophy }}"
+    runs-on: ubuntu-latest
+    steps:
+      - run: true
+
+  formatting-report:
+    needs: probe
+    name: "formatting: ${{ needs.probe.outputs.formatting }}"
+    runs-on: ubuntu-latest
+    steps:
+      - run: true
