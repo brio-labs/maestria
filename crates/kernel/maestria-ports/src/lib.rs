@@ -25,6 +25,8 @@ pub use traits::*;
 mod visual;
 pub use visual::*;
 
+mod ocr;
+pub use ocr::*;
 mod parsing;
 pub use parsing::*;
 
