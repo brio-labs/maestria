@@ -1,0 +1,51 @@
+name: PR 185 Diagnostics
+
+on:
+  push:
+    branches: [feat/search-learned-sparse]
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.0
+      - uses: ./.github/actions/setup-rust-build-dependencies
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly-2026-06-15
+          components: rustfmt, clippy, rustc-codegen-cranelift
+      - name: Collect diagnostics
+        shell: bash
+        run: |
+          mkdir -p diagnostics
+
+          cargo fmt --all
+          git diff -- . ':(exclude).github/workflows/pr185-diagnostics.yml' > diagnostics/rustfmt.patch
+
+          set +e
+          bash scripts/strict-clippy.sh > diagnostics/clippy.log 2>&1
+          CLIPPY_STATUS=$?
+
+          {
+            python3 -m unittest discover -s scripts -p 'test_*.py'
+            UNIT_STATUS=$?
+            python3 scripts/philosophy-check.py
+            PHILOSOPHY_STATUS=$?
+            python3 scripts/codeowners-check.py
+            CODEOWNERS_STATUS=$?
+            printf '\nunit=%s philosophy=%s codeowners=%s\n' \
+              "$UNIT_STATUS" "$PHILOSOPHY_STATUS" "$CODEOWNERS_STATUS"
+          } > diagnostics/philosophy.log 2>&1
+
+          printf 'clippy=%s\n' "$CLIPPY_STATUS" > diagnostics/status.txt
+          exit 0
+      - name: Upload diagnostics
+        uses: actions/upload-artifact@v4
+        with:
+          name: pr185-diagnostics
+          path: diagnostics
+          if-no-files-found: error
