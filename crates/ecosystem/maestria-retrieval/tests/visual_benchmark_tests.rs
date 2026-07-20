@@ -147,11 +147,12 @@ fn visual_fixture_covers_all_query_classes_and_page_region_judgments()
         .collect::<BTreeSet<_>>();
     assert_eq!(classes, VisualQueryClass::all().into_iter().collect());
     assert_eq!(corpus.source_paths.len(), VisualQueryClass::all().len());
+    let repository_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..");
     assert!(
         corpus
             .source_paths
             .iter()
-            .all(|source_path| Path::new(source_path).is_file())
+            .all(|source_path| repository_root.join(source_path).is_file())
     );
     assert!(corpus.cases.iter().all(|case| {
         case.judgments.iter().all(|judgment| {
