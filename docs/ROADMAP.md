@@ -106,6 +106,7 @@ description before they can be used for release publication.
 
 The block must encode one of:
 
+*   **planned** — the milestone is specified but one or more implementation issues remain open;
 *   **implementation-complete** — all implementation issues are closed and tracked;
 *   **benchmark-complete** — benchmark measurements are collected and linked;
 *   **product-complete** — benchmark measurements include version-coupled fingerprints,
@@ -262,7 +263,7 @@ python3 scripts/release_exit_evidence.py validate \
   --description-file milestone_description.md \
   --required-stage product-complete \
   --require-maintenance-grouping \
-  --milestone-title "v0.7.0"
+  --milestone-title "v0.7"
 
 # Generate an exit evidence block
 python3 scripts/release_exit_evidence.py generate \
@@ -287,3 +288,110 @@ python3 scripts/release_exit_evidence.py validate-tracking \
   --work-items-file post_release_work.json \
   --follow-up-issues-file follow_up_issues.json
 ```
+
+## Historical Milestone Evidence
+
+The following table records the verified release exit stage for each published
+and planned release milestone. Milestones marked **Closable** have sufficient
+evidence recorded in this repository to close; milestones marked **Open** are
+pre-populated stubs that require benchmark evidence before advancing beyond
+`implementation-complete`.
+
+Every milestone whose closure is proposed MUST include a fenced
+`release-exit-evidence` block in its GitHub description. The canonical text
+for each stage is given below and in the machine-readable manifest at
+`tests/contracts/milestone_evidence_v0.4_v0.9.json`. The lead applies the
+canonical block to the GitHub milestone description after merge, then closes
+only milestones whose `release_stage` is not capped below the required stage.
+
+| Milestone | Release Stage | Data Fidelity | Summary | Closure |
+|---|---|---|---|---|
+| v0.4 — Deterministic Search Baseline | implementation-complete | — | Local file indexing; no benchmark corpus recorded | Historical closed |
+| v0.5 — Evaluated Hybrid Retrieval | implementation-complete | — | Lexical search and evidence opening; no benchmark corpus recorded | Historical closed |
+| v0.6 — Query-Adaptive Search | implementation-complete | — | Query-adaptive search, code intelligence, memory promotion (v0.6.1 latest); no quality/resource/security measurements recorded | Historical closed |
+| v0.7 — Repository Intelligence | implementation-complete | — | Implementation issues closed; benchmark evidence still required | Open |
+| v0.8 — Visual Document Retrieval | implementation-complete | — | Implementation issues closed; benchmark evidence still required | Open |
+| v0.9 — Advanced Retrieval Research | planned | — | Research issues #90–#95 remain open; benchmark-gated research is planned | Open |
+
+### Canonical Milestone Description
+
+For a `planned` milestone, set the GitHub description to:
+
+```markdown
+```release-exit-evidence
+{
+  "schema_version": 1,
+  "release_stage": "planned"
+}
+```
+```
+
+For an `implementation-complete` milestone, set the same block with
+`"release_stage": "implementation-complete"`.
+
+For a `benchmark-complete` milestone with staged measurements:
+
+```markdown
+```release-exit-evidence
+{
+  "schema_version": 1,
+  "release_stage": "benchmark-complete",
+  "benchmark": {
+    "benchmark_date": "<YYYY-MM-DD>",
+    "data_fidelity": "staged",
+    "fingerprints": {
+      "corpus_snapshot": "<corpus-id>",
+      "index_generation": "<index-id>",
+      "model_fingerprint": "<provider:model>"
+    },
+    "results": {
+      "quality": {"status": "pass"},
+      "resource": {"status": "pass"},
+      "security": {"status": "pass", "violations": 0}
+    },
+    "degradations": []
+  },
+  "post_release_work": [
+    {
+      "group": "maintenance/release",
+      "status": "open",
+      "description": "Run production benchmark with real corpus data"
+    }
+  ]
+}
+```
+```
+
+The `benchmark-complete` post-release work entry SHALL target the
+`maintenance/release` grouping when the repository maintenance/release grouping
+exists (it does as of v0.6.1). This satisfies the `require-maintenance-grouping`
+flag used by the release workflow preflight gate.
+
+### Applying the Evidence Block
+
+After this PR merges, the lead MUST:
+1. Read the per-milestone evidence from the machine-readable manifest at
+   `tests/contracts/milestone_evidence_v0.4_v0.9.json`.
+2. Apply the manifest's exact evidence block to every actual GitHub milestone:
+   `v0.4 — Deterministic Search Baseline`, `v0.5 — Evaluated Hybrid Retrieval`,
+   `v0.6 — Query-Adaptive Search`, `v0.7 — Repository Intelligence`,
+   `v0.8 — Visual Document Retrieval`, and
+   `v0.9 — Advanced Retrieval Research`.
+3. Preserve the already-closed historical state of v0.4, v0.5, and v0.6, but
+   do not describe them as benchmark-complete or product-complete.
+4. Leave v0.7 and v0.8 open until benchmark issues
+   [#85](https://github.com/brio-labs/maestria/issues/85) and
+   [#89](https://github.com/brio-labs/maestria/issues/89) provide their
+   versioned evidence.
+5. Leave v0.9 open and planned while research issues
+   [#90](https://github.com/brio-labs/maestria/issues/90)–[#95](https://github.com/brio-labs/maestria/issues/95)
+   remain open; those issues are the explicit follow-up assignments.
+6. Validate every milestone description before changing its state:
+   ```text
+   python3 scripts/release_exit_evidence.py validate \
+     --description-file <(gh api ... -q '.description') \
+     --required-stage planned
+   ```
+
+All stub and historical evidence payloads are checked-in and CI-validated by
+`scripts/test_milestone_evidence.py` against the release-exit-evidence contract.
