@@ -262,7 +262,7 @@ python3 scripts/release_exit_evidence.py validate \
   --description-file milestone_description.md \
   --required-stage product-complete \
   --require-maintenance-grouping \
-  --milestone-title "v0.7.0"
+  --milestone-title "v0.7"
 
 # Generate an exit evidence block
 python3 scripts/release_exit_evidence.py generate \
@@ -287,3 +287,103 @@ python3 scripts/release_exit_evidence.py validate-tracking \
   --work-items-file post_release_work.json \
   --follow-up-issues-file follow_up_issues.json
 ```
+
+## Historical Milestone Evidence
+
+The following table records the verified release exit stage for each published
+and planned release milestone. Milestones marked **Closable** have sufficient
+evidence recorded in this repository to close; milestones marked **Open** are
+pre-populated stubs that require benchmark evidence before advancing beyond
+`implementation-complete`.
+
+Every milestone whose closure is proposed MUST include a fenced
+`release-exit-evidence` block in its GitHub description. The canonical text
+for each stage is given below and in the machine-readable manifest at
+`tests/contracts/milestone_evidence_v0.4_v0.9.json`. The lead applies the
+canonical block to the GitHub milestone description after merge, then closes
+only milestones whose `release_stage` is not capped below the required stage.
+
+| Milestone | Release Stage | Data Fidelity | Summary | Closure |
+|---|---|---|---|---|
+| v0.4 | implementation-complete | — | Local file indexing; no benchmark corpus recorded | Closable |
+| v0.5 | implementation-complete | — | Lexical search and evidence opening; no benchmark corpus recorded | Closable |
+| v0.6 | implementation-complete | — | Query-adaptive search, code intelligence, memory promotion (v0.6.1 latest); no quality/resource/security measurements recorded | Closable |
+| v0.7 | implementation-complete | — | Pre-populated; requires benchmark evidence before product-complete | Open |
+| v0.8 | implementation-complete | — | Pre-populated; requires benchmark evidence before product-complete | Open |
+| v0.9 | implementation-complete | — | Pre-populated; requires benchmark evidence before product-complete | Open |
+
+### Canonical Milestone Description
+
+For an `implementation-complete` milestone, set the GitHub description to:
+
+```markdown
+```release-exit-evidence
+{
+  "schema_version": 1,
+  "release_stage": "implementation-complete"
+}
+```
+```
+
+For a `benchmark-complete` milestone with staged measurements:
+
+```markdown
+```release-exit-evidence
+{
+  "schema_version": 1,
+  "release_stage": "benchmark-complete",
+  "benchmark": {
+    "benchmark_date": "<YYYY-MM-DD>",
+    "data_fidelity": "staged",
+    "fingerprints": {
+      "corpus_snapshot": "<corpus-id>",
+      "index_generation": "<index-id>",
+      "model_fingerprint": "<provider:model>"
+    },
+    "results": {
+      "quality": {"status": "pass"},
+      "resource": {"status": "pass"},
+      "security": {"status": "pass", "violations": 0}
+    },
+    "degradations": []
+  },
+  "post_release_work": [
+    {
+      "group": "maintenance/release",
+      "status": "open",
+      "description": "Run production benchmark with real corpus data"
+    }
+  ]
+}
+```
+```
+
+The `benchmark-complete` post-release work entry SHALL target the
+`maintenance/release` grouping when the repository maintenance/release grouping
+exists (it does as of v0.6.1). This satisfies the `require-maintenance-grouping`
+flag used by the release workflow preflight gate.
+
+### Applying the Evidence Block
+
+After this PR merges, the lead SHOULD:
+
+1. Read the per-milestone evidence from the machine-readable manifest at
+   `tests/contracts/milestone_evidence_v0.4_v0.9.json`.
+2. For each closable milestone (v0.4, v0.5, v0.6), set the
+   GitHub milestone description to the `implementation-complete` block above.
+3. Close each such milestone — `implementation-complete` satisfies every stage
+   requirement for historical releases whose evidence does not support a higher
+   stage.
+4. Leave v0.7, v0.8, and v0.9 open until their own implementation and
+   benchmark evidence is complete, at which point their milestone descriptions
+   are upgraded to `benchmark-complete` (or `product-complete` if
+   quality/resource/security measurements on real data are recorded).
+5. Validate every milestone description before closure:
+   ```text
+   python3 scripts/release_exit_evidence.py validate \
+     --description-file <(gh api ... -q '.description') \
+     --required-stage implementation-complete
+   ```
+
+All stub and historical evidence payloads are checked-in and CI-validated by
+`scripts/test_milestone_evidence.py` against the release-exit-evidence contract.
