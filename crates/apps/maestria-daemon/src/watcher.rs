@@ -300,7 +300,7 @@ fn scan_manifest(manifest: &InstanceManifest) -> Result<Vec<Observation>> {
 
     for root in &manifest.read_roots {
         let root = root.clone();
-        let exclude_instance = root != instance_root;
+        let exclude_instance = root != instance_root && instance_root.starts_with(&root);
         let instance_root = instance_root.clone();
         let walker = ignore::WalkBuilder::new(root)
             .filter_entry(move |entry| {
@@ -418,6 +418,30 @@ mod tests {
         fs::write(root.join("note.md"), "relative note")?;
 
         let manifest = test_manifest(root.clone());
+        let observations = scan_manifest(&manifest)?;
+
+        assert_eq!(observations.len(), 1);
+        assert!(observations[0].path.ends_with("note.md"));
+        fs::remove_dir_all(root)?;
+        Ok(())
+    }
+
+    #[test]
+    fn scan_allows_read_root_nested_in_instance() -> Result<(), Box<dyn std::error::Error>> {
+        let root = env::temp_dir().join(format!("maestria-watcher-nested-root-{}", process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let instance = root.join("instance");
+        let nested = instance.join("workspace");
+        fs::create_dir_all(&nested)?;
+        fs::write(nested.join("note.md"), "nested note")?;
+
+        let manifest = InstanceManifest {
+            schema_version: 1,
+            root: instance,
+            read_roots: vec![nested],
+            excluded_patterns: Vec::new(),
+            embeddings: None,
+        };
         let observations = scan_manifest(&manifest)?;
 
         assert_eq!(observations.len(), 1);
