@@ -48,6 +48,7 @@ impl LearnedSparseChunkRetriever {
         capability: LearnedSparseGenerationCapability,
     ) -> Result<Self, RetrievalError> {
         let identity = capability.identity().clone();
+        let serving_eligible = capability.is_serving_eligible();
         let provider_identity = parts.provider.identity().ok_or_else(|| {
             RetrievalError::Internal("sparse provider identity unavailable".into())
         })?;
@@ -76,7 +77,11 @@ impl LearnedSparseChunkRetriever {
         .map_err(|error| RetrievalError::Internal(error.to_string()))?;
         let descriptor = RetrieverDescriptor {
             id: "learned_sparse_chunks".to_string(),
-            modality: "sparse".to_string(),
+            modality: if serving_eligible {
+                "sparse".to_string()
+            } else {
+                "sparse-shadow".to_string()
+            },
             representation: identity.representation.clone(),
             generation: identity.generation_id,
         };
