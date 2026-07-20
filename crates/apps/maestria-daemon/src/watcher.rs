@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use std::{
     collections::BTreeMap,
     fs,
-    path::{Path, PathBuf},
+    path::{Component, Path, PathBuf},
     sync::Arc,
     time::Duration,
 };
@@ -275,10 +275,47 @@ fn persist_state(layout: &InstanceLayout, state: &WatchState) -> Result<()> {
 /// Scan manifest roots using `ignore::WalkBuilder` for gitignore/.ignore-aware
 /// traversal. The walker respects `.gitignore`, `.ignore`, and hidden-file
 /// conventions automatically.
+fn canonical_path(path: &Path) -> PathBuf {
+    match path.canonicalize() {
+        Ok(path) => path,
+        Err(_) => path.to_path_buf(),
+    }
+}
+
+fn is_instance_path(path: &Path, instance_root: &Path) -> bool {
+    path.starts_with(instance_root)
+}
+
+fn is_instance_internal_path(path: &Path, instance_root: &Path) -> bool {
+    let Some(relative) = path.strip_prefix(instance_root).ok() else {
+        return false;
+    };
+    let Some(first) = relative.components().next() else {
+        return false;
+    };
+    matches!(
+        first,
+        Component::Normal(name)
+            if matches!(name.to_str(), Some("system" | "indexes" | "blobs"))
+    )
+}
+
 fn scan_manifest(manifest: &InstanceManifest) -> Result<Vec<Observation>> {
     let mut observations = Vec::new();
+    let instance_root = canonical_path(&manifest.root);
+
     for root in &manifest.read_roots {
+        let root = canonical_path(root);
+        let exclude_instance = root != instance_root;
+        let instance_root = instance_root.clone();
         let walker = ignore::WalkBuilder::new(root)
+            .filter_entry(move |entry| {
+                if exclude_instance {
+                    !is_instance_path(entry.path(), &instance_root)
+                } else {
+                    !is_instance_internal_path(entry.path(), &instance_root)
+                }
+            })
             .hidden(true)
             .ignore(true)
             .git_ignore(true)
@@ -351,6 +388,32 @@ mod tests {
             excluded_patterns: vec![".env".to_string()],
             embeddings: None,
         }
+    }
+
+    #[test]
+    fn scan_skips_instance_state_when_root_contains_instance()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let root =
+            env::temp_dir().join(format!("maestria-watcher-instance-root-{}", process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let instance = root.join("instance");
+        fs::create_dir_all(instance.join("system"))?;
+        fs::write(root.join("research.md"), "research")?;
+        fs::write(instance.join("system").join(WATCH_STATE_FILE), "{}")?;
+
+        let manifest = InstanceManifest {
+            schema_version: 1,
+            root: instance,
+            read_roots: vec![root.clone()],
+            excluded_patterns: Vec::new(),
+            embeddings: None,
+        };
+        let observations = scan_manifest(&manifest)?;
+
+        assert_eq!(observations.len(), 1);
+        assert!(observations[0].path.ends_with("research.md"));
+        fs::remove_dir_all(root)?;
+        Ok(())
     }
 
     #[test]
