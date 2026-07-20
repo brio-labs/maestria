@@ -1,0 +1,33 @@
+name: Issue 90 Final Format
+
+on:
+  push:
+    branches: [feat/search-learned-sparse]
+
+permissions:
+  contents: write
+
+jobs:
+  format:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.0
+        with:
+          ref: feat/search-learned-sparse
+          fetch-depth: 0
+      - uses: ./.github/actions/setup-rust-build-dependencies
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly-2026-06-15
+          components: rustfmt, rustc-codegen-cranelift
+      - name: Format, remove workflow, and push
+        shell: bash
+        run: |
+          cargo fmt --all
+          git rm .github/workflows/issue-90-final-format.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add crates
+          git commit -m 'chore(repo): format learned sparse implementation'
+          git push origin HEAD:feat/search-learned-sparse
