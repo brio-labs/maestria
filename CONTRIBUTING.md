@@ -6,16 +6,21 @@ Maestria inherits its enforcement posture from Brioche: behavior gates are part 
 implementation flow, not a post-check.
 
 ## Prerequisites
-
-- Rust (stable toolchain, 1.95+ recommended)
-- `rustup component add rustfmt clippy`
+- Rust nightly toolchain pinned in [`rust-toolchain.toml`](rust-toolchain.toml)
+- `clang` and `mold` for Linux linking
+- `rustup component add rustfmt clippy rustc-codegen-cranelift`
 - (Optional but recommended) `cargo install cargo-deny cargo-machete`
+
+The repository's Cargo configuration uses `mold` through `clang` for
+`x86_64-unknown-linux-gnu` links. The `dev` profile uses Cranelift; release
+builds retain rustc's default LLVM backend.
 
 ## Repository setup
 
 ```bash
-rustup toolchain install stable
-rustup component add rustfmt clippy
+sudo apt-get install clang mold
+rustup toolchain install nightly-2026-06-15
+rustup component add --toolchain nightly-2026-06-15 rustfmt clippy rustc-codegen-cranelift
 ```
 
 ## Development workflow

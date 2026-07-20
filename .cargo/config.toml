@@ -1,0 +1,12 @@
+# Keep Linux development links fast and deterministic.
+[target.x86_64-unknown-linux-gnu]
+linker = "clang"
+rustflags = ["-C", "link-arg=-fuse-ld=mold"]
+
+# The dev profile intentionally uses the nightly Cranelift backend. Release
+# builds keep rustc's default LLVM backend.
+[unstable]
+codegen-backend = true
+
+[profile.dev]
+codegen-backend = "cranelift"

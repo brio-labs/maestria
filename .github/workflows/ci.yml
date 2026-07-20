@@ -62,10 +62,12 @@ jobs:
     if: github.event_name != 'pull_request' || needs.changes.outputs.rust == 'true'
     steps:
       - uses: actions/checkout@v7.0.0
+      - uses: ./.github/actions/setup-rust-build-dependencies
       - name: Set up Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@master
         with:
-          components: rustfmt
+          toolchain: nightly-2026-06-15
+          components: rustfmt, rustc-codegen-cranelift
       - name: Check formatting
         run: cargo fmt --all -- --check
   fmt-nightly:
@@ -76,11 +78,12 @@ jobs:
     if: github.event_name != 'pull_request' || needs.changes.outputs.rust == 'true'
     steps:
       - uses: actions/checkout@v7.0.0
+      - uses: ./.github/actions/setup-rust-build-dependencies
       - name: Set up nightly Rust toolchain
         uses: dtolnay/rust-toolchain@master
         with:
           toolchain: nightly-2026-06-15
-          components: rustfmt
+          components: rustfmt, rustc-codegen-cranelift
       - name: Check formatting (nightly)
         run: cargo +nightly-2026-06-15 fmt --check
 
@@ -92,8 +95,12 @@ jobs:
     if: github.event_name != 'pull_request' || needs.changes.outputs.rust == 'true'
     steps:
       - uses: actions/checkout@v7.0.0
+      - uses: ./.github/actions/setup-rust-build-dependencies
       - name: Set up Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly-2026-06-15
+          components: rustc-codegen-cranelift
       - uses: mozilla-actions/sccache-action@v0.0.10
       - name: Install cargo-deny
         uses: taiki-e/install-action@v2
@@ -108,8 +115,12 @@ jobs:
     if: github.event_name != 'pull_request' || needs.changes.outputs.rust == 'true'
     steps:
       - uses: actions/checkout@v7.0.0
+      - uses: ./.github/actions/setup-rust-build-dependencies
       - name: Set up Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly-2026-06-15
+          components: rustc-codegen-cranelift
       - name: Cache
         uses: Swatinem/rust-cache@v2.9.1
       - uses: mozilla-actions/sccache-action@v0.0.10
@@ -122,8 +133,14 @@ jobs:
     if: github.event_name != 'pull_request' || needs.changes.outputs.rust == 'true'
     steps:
       - uses: actions/checkout@v7.0.0
+      - uses: ./.github/actions/setup-rust-build-dependencies
       - name: Set up Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly-2026-06-15
+          components: rustc-codegen-cranelift
+      - name: Verify build toolchain
+        run: bash scripts/verify-build-toolchain.sh
       - name: Cache
         uses: Swatinem/rust-cache@v2.9.1
       - uses: mozilla-actions/sccache-action@v0.0.10
@@ -138,10 +155,12 @@ jobs:
     if: github.event_name != 'pull_request' || needs.changes.outputs.rust == 'true'
     steps:
       - uses: actions/checkout@v7.0.0
+      - uses: ./.github/actions/setup-rust-build-dependencies
       - name: Set up Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@master
         with:
-          components: clippy
+          toolchain: nightly-2026-06-15
+          components: clippy, rustc-codegen-cranelift
       - name: Cache
         uses: Swatinem/rust-cache@v2.9.1
       - uses: mozilla-actions/sccache-action@v0.0.10
@@ -154,8 +173,12 @@ jobs:
     if: github.event_name != 'pull_request' || needs.changes.outputs.rust == 'true'
     steps:
       - uses: actions/checkout@v7.0.0
+      - uses: ./.github/actions/setup-rust-build-dependencies
       - name: Set up Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly-2026-06-15
+          components: rustc-codegen-cranelift
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-machete
@@ -182,8 +205,12 @@ jobs:
     if: github.event_name != 'pull_request' || needs.changes.outputs.rust == 'true'
     steps:
       - uses: actions/checkout@v7.0.0
+      - uses: ./.github/actions/setup-rust-build-dependencies
       - name: Set up Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly-2026-06-15
+          components: rustc-codegen-cranelift
       - name: Cache
         uses: Swatinem/rust-cache@v2.9.1
       - uses: mozilla-actions/sccache-action@v0.0.10
@@ -195,8 +222,12 @@ jobs:
     if: github.event_name != 'pull_request' || needs.changes.outputs.rust == 'true'
     steps:
       - uses: actions/checkout@v7.0.0
+      - uses: ./.github/actions/setup-rust-build-dependencies
       - name: Set up Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly-2026-06-15
+          components: rustc-codegen-cranelift
       - uses: Swatinem/rust-cache@v2.9.1
       - uses: mozilla-actions/sccache-action@v0.0.10
       - name: Run frozen golden gate
@@ -213,8 +244,12 @@ jobs:
     if: github.event_name != 'pull_request' || needs.changes.outputs.rust == 'true'
     steps:
       - uses: actions/checkout@v7.0.0
+      - uses: ./.github/actions/setup-rust-build-dependencies
       - name: Set up Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly-2026-06-15
+          components: rustc-codegen-cranelift
       - uses: Swatinem/rust-cache@v2.9.1
       - uses: mozilla-actions/sccache-action@v0.0.10
       - name: Run release contract
@@ -226,8 +261,12 @@ jobs:
     if: github.event_name != 'pull_request' || needs.changes.outputs.rust == 'true'
     steps:
       - uses: actions/checkout@v7.0.0
+      - uses: ./.github/actions/setup-rust-build-dependencies
       - name: Set up Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly-2026-06-15
+          components: rustc-codegen-cranelift
       - name: Cache
         uses: Swatinem/rust-cache@v2.9.1
       - name: Install cargo-nextest
@@ -244,8 +283,12 @@ jobs:
     if: github.event_name != 'pull_request' || needs.changes.outputs.rust == 'true'
     steps:
       - uses: actions/checkout@v7.0.0
+      - uses: ./.github/actions/setup-rust-build-dependencies
       - name: Set up Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly-2026-06-15
+          components: rustc-codegen-cranelift
       - name: Cache
         uses: Swatinem/rust-cache@v2.9.1
       - uses: mozilla-actions/sccache-action@v0.0.10
@@ -258,8 +301,12 @@ jobs:
     if: github.event_name != 'pull_request' || needs.changes.outputs.rust == 'true'
     steps:
       - uses: actions/checkout@v7.0.0
+      - uses: ./.github/actions/setup-rust-build-dependencies
       - name: Set up Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly-2026-06-15
+          components: rustc-codegen-cranelift
       - uses: mozilla-actions/sccache-action@v0.0.10
       - name: Check documentation
         run: cargo doc --workspace --no-deps --all-features
