@@ -115,8 +115,7 @@ impl RetrievalEngine {
             hybrid_policy: crate::types::HybridExecutionPolicy::Shadow,
             learned_sparse_execution_policy:
                 crate::learned_sparse_policy::LearnedSparseExecutionPolicy::Shadow,
-            learned_sparse_shadow_store:
-                learned_sparse_shadow::LearnedSparseShadowStore::default(),
+            learned_sparse_shadow_store: learned_sparse_shadow::LearnedSparseShadowStore::default(),
             repository_execution_policy:
                 crate::repository_benchmark::RepositoryExecutionPolicy::Shadow,
             visual_execution_policy: crate::visual_benchmark::VisualExecutionPolicy::Shadow,

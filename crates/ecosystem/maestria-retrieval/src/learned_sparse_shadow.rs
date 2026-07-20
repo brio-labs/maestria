@@ -185,9 +185,7 @@ async fn run_shadow(
     plan: SearchPlan,
 ) -> LearnedSparseShadowObservation {
     let started = tokio::time::Instant::now();
-    let timeout_ms = u64::from(plan.budgets.max_latency_ms())
-        .max(1)
-        .min(MAX_SHADOW_LATENCY_MS);
+    let timeout_ms = u64::from(plan.budgets.max_latency_ms()).clamp(1, MAX_SHADOW_LATENCY_MS);
     let descriptors = retrievers
         .iter()
         .map(|(_, descriptor)| descriptor.clone())

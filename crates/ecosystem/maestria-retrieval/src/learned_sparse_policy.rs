@@ -41,7 +41,10 @@ impl LearnedSparseExecutionPolicy {
 
 pub(crate) fn is_sparse_descriptor(descriptor: &crate::types::RetrieverDescriptor) -> bool {
     let id = descriptor.id.to_ascii_lowercase();
-    descriptor.modality.to_ascii_lowercase().starts_with("sparse")
+    descriptor
+        .modality
+        .to_ascii_lowercase()
+        .starts_with("sparse")
         || id.contains("learned_sparse")
         || descriptor.representation.0 == maestria_ports::SPARSE_REPRESENTATION_V1
 }

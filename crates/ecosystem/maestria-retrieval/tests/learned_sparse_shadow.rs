@@ -186,11 +186,7 @@ fn engine(
                 candidate: lexical_candidate()?,
             }),
             Arc::new(FixedRetriever {
-                descriptor: descriptor(
-                    "learned_sparse_chunks",
-                    "sparse-shadow",
-                    "sparse_text_v1",
-                ),
+                descriptor: descriptor("learned_sparse_chunks", "sparse-shadow", "sparse_text_v1"),
                 candidate: sparse_candidate()?,
             }),
         ],

@@ -67,8 +67,7 @@ pub(super) fn capabilities_from_retrievers(
                     .max_budgets(1_000, 30_000, 8, 3, 1);
                 known_modality = true;
             }
-            "vector" | "dense" | "semantic" | "sparse" | "sparse-shadow"
-            | "learned_sparse" => {
+            "vector" | "dense" | "semantic" | "sparse" | "sparse-shadow" | "learned_sparse" => {
                 capabilities = capabilities
                     .with_modality(Modality::Text)
                     .with_intent(SearchIntent::SemanticDiscovery);
