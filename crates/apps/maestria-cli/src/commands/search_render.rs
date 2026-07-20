@@ -17,6 +17,15 @@ pub(super) fn render_trace(plan: &SearchPlan, outcome: &SearchOutcome) -> Result
     println!("plan_query_id={}", plan.query_id);
     println!("query={}", plan.original_query);
     println!("intent={:?}", plan.intent);
+    if let Some(original_intent) = &trace.original_intent {
+        println!("original_intent={:?}", original_intent);
+    }
+    if let Some(route_decision) = &trace.route_decision {
+        println!("route_decision={}", route_decision);
+    }
+    if let Some(unavailable_capability) = &trace.unavailable_capability {
+        println!("unavailable_capability={}", unavailable_capability);
+    }
     println!("scope={:?}", plan.scope);
     println!("snapshot={}", plan.corpus_snapshot);
     println!("index_generation={}", plan.index_generation);

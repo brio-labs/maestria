@@ -36,10 +36,45 @@ python3 scripts/version.py check --expected 0.6.2
 ```
 
 The `set` command validates the repository contract and refreshes `Cargo.lock`
-through Cargo metadata. The release workflow accepts the version, full main
-commit SHA, closed milestone, and optional title as dispatch inputs; no
-workflow edit is required for the next release.
+through Cargo metadata. Release publication now requires a milestone exit-evidence report
+in the milestone description as part of workflow preflight:
 
+*   `implementation-complete`: all implementation issues are closed;
+*   `benchmark-complete`: version-linked benchmark measurements are collected (synthetic is allowed but treated as provisional);
+*   `product-complete`: real measurements include corpus/index/model fingerprints, quality/resource/security results, and degradations;
+*   `released`: artifacts are published and follow-up work is explicitly listed in `post_release_work`.
+    *   If synthetic or staged evidence remains pending, follow-up entries should target `maintenance/release` grouping when that grouping exists.
+
+```release-exit-evidence
+{
+  "schema_version": 1,
+  "release_stage": "product-complete",
+  "benchmark": {
+    "benchmark_date": "2026-07-19",
+    "data_fidelity": "real",
+    "fingerprints": {
+      "corpus_snapshot": "corpus-v1",
+      "index_generation": "idx-42",
+      "model_fingerprint": "provider:rerank-v3"
+    },
+    "results": {
+      "quality": {"status": "pass", "metric": "p50=0.74"},
+      "resource": {"status": "pass", "p95_ms": 120},
+      "security": {"status": "pass", "violations": 0}
+    },
+    "degradations": [
+      {
+        "area": "query_class",
+        "status": "known",
+        "note": "table evidence is incomplete on scanned PDFs"
+      }
+    ]
+  },
+  "post_release_work": []
+}
+```
+
+The workflow must also enforce closed milestones and closed milestone issues.
 ## Quick start
 
 ```bash
@@ -69,9 +104,88 @@ maestria evidence coverage -i .maestria-dev 7
 maestria status -i .maestria-dev
 maestria doctor -i .maestria-dev
 
-# 8) Start the daemon
+# 8) Create and validate a task
+maestria task start -i .maestria-dev "Review research notes"
+maestria task add-evidence -i .maestria-dev 1 --evidence-id 1
+maestria task request-validation -i .maestria-dev 1
+
+# 9) Check task coverage and approve
+maestria evidence coverage -i .maestria-dev 1
+maestria approval list -i .maestria-dev
+
+# 10) Propose and promote memory
+maestria memory candidates -i .maestria-dev
+maestria memory propose -i .maestria-dev -t "observation claim" -e 1,2 -c 700
+maestria memory promote -i .maestria-dev -c 1 --approve
+
+# 11) Start the daemon (or restart after changes)
 maestria start -i .maestria-dev
+# Stop with Ctrl-C; start again picks up where it left off
 ```
+
+## Supported surfaces and capability status
+
+### Daemon client
+
+`maestria start -i <instance>` runs the local daemon. Its authenticated,
+read-only client boundary is newline-delimited JSON on
+`<instance>/system/daemon.sock`; the token is stored in
+`<instance>/system/daemon.token`. The supported operations are `status`,
+`search`, `evidence`, and `task`. Requests without the matching token are
+rejected, and these operations cannot mutate domain state. See
+[`docs/DAEMON-API.md`](./docs/DAEMON-API.md) for the request and response
+envelopes.
+
+### Repository and document retrieval
+
+Repository indexing and bounded context queries are supported:
+
+```bash
+maestria index -i .maestria-dev repository ~/Projects/my-project
+maestria search -i .maestria-dev code symbol "SearchPlan"
+maestria search -i .maestria-dev code context "RetrievalEngine" --depth 2 --nodes 32
+```
+
+PDF evidence preserves page/region provenance. Text/layout retrieval is the
+stable route. Visual-provider retrieval is optional and remains shadowed unless
+its frozen benchmark proves a quality and resource win; missing visual or OCR
+providers degrade explicitly rather than fabricating text or coordinates.
+Current-web queries require an enabled governed web adapter; without one they
+use the bounded local fallback and expose the degradation in `search explain`.
+
+### Tasks, validation, approvals, and memory
+
+Task completion is validation-gated:
+
+```bash
+maestria task start -i .maestria-dev "check the repository"
+maestria task request-validation -i .maestria-dev <task-id>
+maestria evidence coverage -i .maestria-dev <task-id>
+maestria approval list -i .maestria-dev
+maestria memory candidates -i .maestria-dev
+maestria memory propose -i .maestria-dev -t "claim" -e <evidence-id> -c 700
+```
+
+Memory proposals require evidence and remain candidates until the explicit
+promotion policy is satisfied. Approval commands resolve governed requests;
+they do not bypass scope or validation.
+
+### Stable, degraded, and research-only routes
+
+Stable local indexing, lexical search, evidence opening, daemon projections,
+task validation, approvals, and evidence-backed memory candidates are shipped
+with the current `0.6.1` binary. Repository/code and visual-document features
+are implemented but remain release-visible capability surfaces with explicit
+freshness/provider degradation. Advanced dense, learned-sparse,
+late-interaction, graph/temporal, and multimodal promotions are
+benchmark-gated: unavailable or unproven routes abstain or use a bounded
+local fallback, and research candidates are not silently promoted.
+
+The current workspace version and latest published release are independent
+facts: `Cargo.toml` is the source for the next binary version, while
+`v0.6.1` is the latest published release at the time of this documentation.
+Release preflight requires version-linked exit evidence; closed issues alone do
+not make a milestone released.
 
 ## Command reference
 
@@ -110,6 +224,23 @@ maestria index generations [-i <dir>]
 `index generations` reports generation lifecycle, serveability, corpus snapshot,
 and representation fingerprint fields.
 
+#### `index repository`
+
+Build and persist exact Cargo metadata and Rust symbol records for a repository.
+
+```
+maestria index repository [-i <dir>] <path>
+```
+
+| Flag | Description |
+|------|-------------|
+| `-i, --instance-dir` | Instance root directory |
+| `<path>` | Path to a repository root directory |
+
+The command parses Cargo metadata and Rust source symbols into a persisted
+code index that the `search code` commands query. The index is built under
+manifest exclusion rules and must be inside an approved read root.
+
 The observability names reserve `explain`, `trace`, `compare`, and
 `generations` in their respective command positions. To use one as a direct
 query or path, terminate option and subcommand parsing with `--`, for example
@@ -131,9 +262,46 @@ maestria search compare [-i <dir>] <experiment_a> <experiment_b>
 | `-i, --instance-dir` | Instance root directory |
 | `-l, --limit` | Max results (default 10) |
 
+
 `search explain` executes a bounded search and prints its plan and trace.
 `search trace` and `search compare` require durable, reproducible trace
 payloads; missing or non-reproducible identifiers fail clearly.
+
+#### `search code`
+
+Query the persisted repository code index built by `index repository`. All
+`search code` commands search the same persisted index and share the
+`-i`/`--instance-dir` and `-l`/`--limit` flags.
+
+```
+maestria search code symbol <pattern>
+maestria search code path <pattern>
+maestria search code regex <pattern>
+maestria search code context <pattern> [--depth <n>] [--nodes <n>] [--direction both|forward|reverse]
+```
+
+| Subcommand | Description |
+|------------|-------------|
+| `symbol` | Match repository symbols by name or qualified-name substring |
+| `path` | Match repository symbols by source path substring |
+| `regex` | Match repository symbols and paths with a regular expression |
+| `context` | Traverse bounded repository relations from a symbol seed |
+
+| Flag | Description |
+|------|-------------|
+| `-i, --instance-dir` | Instance root directory |
+| `-l, --limit` | Max results (default 20) |
+| `--depth` | Context traversal depth (default 2, context only) |
+| `--nodes` | Max nodes in context response (default 64, context only) |
+| `--direction` | Traversal direction: `both`, `forward`, or `reverse` (default `both`, context only) |
+
+The code index is built from Cargo metadata and Rust source files. It is
+validated against the instance manifest read scope before indexing and
+queried with live freshness checks. Repository/code features are implemented
+but are marked as provider-dependent and freshness-degraded until a frozen
+benchmark proves a measured quality and resource win (see
+[`docs/ROADMAP.md`](./docs/ROADMAP.md) Phase 4).
+
 
 ### `open-evidence`
 
@@ -222,6 +390,32 @@ Link an existing evidence record to a task.
 maestria task add-evidence [-i <dir>] <task-id> --evidence-id <n>
 ```
 
+#### `task request-validation`
+
+Start validation for a task from a known task id.
+
+```
+maestria task request-validation [-i <dir>] <task-id>
+```
+
+#### `task complete`
+
+Complete a validating task from a recorded validation report.
+
+```
+maestria task complete [-i <dir>] <task-id> --report-id <n>
+```
+
+| Flag | Description |
+|------|-------------|
+| `-i, --instance-dir` | Instance root directory |
+| `--report-id` | Validation report id to confirm task completion |
+
+Task completion is validation-gated: the domain requires a persisted,
+task-matched, passing validation report and enforces warning/status consistency
+before transitioning the task to complete state. Warning completion is permitted
+only when the configured validation policy allows warnings.
+
 ### `memory`
 
 Memory projection commands.
@@ -253,6 +447,54 @@ maestria memory propose [-i <dir>] -t <text> -e <id,...> -c <0..1000>
 | `-t, --text` | Claim text |
 | `-e, --evidence-id` | Comma-separated evidence ids (repeatable) |
 | `-c, --confidence-milli` | Confidence in milli-units (0–1000) |
+
+#### `memory promote`
+
+Promote a memory candidate through governance-gated approval.
+
+```
+maestria memory promote [-i <dir>] -c <candidate-id> [--approve]
+```
+
+| Flag | Description |
+|------|-------------|
+| `-i, --instance-dir` | Instance root directory |
+| `-c, --candidate-id` | Memory candidate id to promote |
+| `--approve` | User approval for this promotion request |
+
+Memory promotion requires a candidate that was previously proposed with
+evidence backing. The `--approve` flag records user consent; without it the
+promotion is submitted but not applied. Promoted memories are evidence-backed
+and policy-gated (see [`docs/MEMORY.md`](./docs/MEMORY.md)).
+
+### `approval`
+
+Approval request management.
+
+#### `approval list`
+
+List pending approval requests.
+
+```
+maestria approval list [-i <dir>]
+```
+
+#### `approval resolve`
+
+Resolve an approval request.
+
+```
+maestria approval resolve [-i <dir>] <id> (--approve | --deny)
+```
+
+| Flag | Description |
+|------|-------------|
+| `-i, --instance-dir` | Instance root directory |
+| `--approve` | Approve the request |
+| `--deny` | Deny the request |
+
+Approval commands resolve governed requests; they do not bypass scope or
+validation. Using both `--approve` and `--deny` together is rejected.
 
 ## Restart-safe policy-scoped workflow
 

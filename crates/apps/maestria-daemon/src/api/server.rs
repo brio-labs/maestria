@@ -1,11 +1,12 @@
 use std::{path::Path, sync::Arc};
 
-use anyhow::{Result, anyhow};
+use anyhow::{Context, Result, anyhow};
 use maestria_core::InstanceLayout;
+use maestria_domain::DomainInput;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{UnixListener, UnixStream},
-    sync::Semaphore,
+    sync::{Semaphore, mpsc},
     task::JoinHandle,
     time::{Duration, timeout},
 };
@@ -17,7 +18,6 @@ use super::{
     set_private_permissions, socket_path, token_path,
 };
 
-/// Running local API server for one instance.
 pub struct ApiServer {
     socket_path: std::path::PathBuf,
     shutdown: CancellationToken,
@@ -25,8 +25,12 @@ pub struct ApiServer {
 }
 
 impl ApiServer {
-    /// Binds and starts the instance-scoped Unix socket server.
-    pub async fn start(layout: InstanceLayout) -> Result<Self> {
+    pub async fn start(
+        layout: InstanceLayout,
+        input_tx: mpsc::Sender<DomainInput>,
+        adapters: Arc<maestria_runtime::Adapters>,
+        governance: Arc<maestria_runtime::Governance>,
+    ) -> Result<Self> {
         let socket = socket_path(&layout);
         super::set_private_directory_permissions(&layout.system_dir)?;
         let token = load_or_create_token(&token_path(&layout))?;
@@ -38,6 +42,9 @@ impl ApiServer {
             layout,
             token,
             socket_path: socket,
+            input_tx,
+            adapters,
+            governance,
         });
         let shutdown = CancellationToken::new();
         let task = tokio::spawn(serve(listener, context.clone(), shutdown.clone()));
@@ -48,12 +55,10 @@ impl ApiServer {
         })
     }
 
-    /// Returns the socket path advertised to clients.
     pub fn socket_path(&self) -> &Path {
         &self.socket_path
     }
 
-    /// Stops the server and removes its socket.
     pub async fn shutdown(self) -> Result<()> {
         self.shutdown.cancel();
         self.task
@@ -67,6 +72,9 @@ pub(crate) struct ApiContext {
     pub(crate) layout: InstanceLayout,
     pub(crate) token: String,
     pub(crate) socket_path: std::path::PathBuf,
+    pub(crate) input_tx: mpsc::Sender<DomainInput>,
+    pub(crate) adapters: Arc<maestria_runtime::Adapters>,
+    pub(crate) governance: Arc<maestria_runtime::Governance>,
 }
 
 async fn serve(listener: UnixListener, context: Arc<ApiContext>, shutdown: CancellationToken) {
@@ -114,24 +122,21 @@ async fn handle_connection(mut stream: UnixStream, context: Arc<ApiContext>) -> 
 
 async fn read_request_line(stream: &mut UnixStream) -> Result<Vec<u8>> {
     let mut line = Vec::new();
-    let mut buffer = [0u8; 1024];
+    let mut buf = [0u8; 1];
     loop {
-        let read = stream.read(&mut buffer).await?;
-        if read == 0 {
+        if stream.read_exact(&mut buf).await.is_err() {
+            if line.is_empty() {
+                return Err(anyhow!("connection closed before any data"));
+            }
             break;
         }
-        let newline = buffer[..read].iter().position(|byte| *byte == b'\n');
-        let length = match newline {
-            Some(index) => index,
-            None => read,
-        };
-        line.extend_from_slice(&buffer[..length]);
-        if line.len() > MAX_REQUEST_BYTES {
-            return Err(anyhow!("request exceeds size limit"));
-        }
-        if newline.is_some() {
+        if buf[0] == b'\n' {
             break;
         }
+        if line.len() >= MAX_REQUEST_BYTES {
+            return Err(anyhow!("request line exceeds maximum length"));
+        }
+        line.push(buf[0]);
     }
     Ok(line)
 }
@@ -141,8 +146,11 @@ async fn write_reply(
     response: Option<super::ClientResponse>,
     error: Option<String>,
 ) -> Result<()> {
-    let mut line = serde_json::to_vec(&ClientReplyOut { response, error })?;
-    line.push(b'\n');
-    stream.write_all(&line).await?;
-    Ok(())
+    let reply = ClientReplyOut { response, error };
+    let mut bytes = serde_json::to_vec(&reply).context("serialise daemon response")?;
+    bytes.push(b'\n');
+    stream
+        .write_all(&bytes)
+        .await
+        .context("write daemon response")
 }

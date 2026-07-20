@@ -59,7 +59,9 @@ impl EffectExecutionContext {
             MaestriaEffect::EmitDiagnostic(diagnostic) => {
                 self.handle_emit_diagnostic(diagnostic).await
             }
-            MaestriaEffect::SearchKnowledge(request) => self.handle_search_knowledge(request).await,
+            MaestriaEffect::SearchKnowledge(request) => {
+                self.handle_search_knowledge(*request).await
+            }
         }
     }
 

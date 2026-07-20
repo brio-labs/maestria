@@ -5,6 +5,22 @@
 //! This module is pure and side-effect free. All environment interaction is
 //! represented via `MaestriaEffect` values and executed by a runtime layer.
 
+/// Responsibility map:
+/// - `effects`: module responsibility.
+/// - `entities`: module responsibility.
+/// - `errors`: module responsibility.
+/// - `events`: module responsibility.
+/// - `evidence_pack`: module responsibility.
+/// - `generations`: module responsibility.
+/// - `ids`: module responsibility.
+/// - `input`: module responsibility.
+/// - `inputs`: module responsibility.
+/// - `kernel_state`: module responsibility.
+/// - `provenance`: module responsibility.
+/// - `replay`: module responsibility.
+/// - `search`: module responsibility.
+/// - `security`: module responsibility.
+/// - `types`: module responsibility.
 mod effects;
 mod entities;
 mod errors;

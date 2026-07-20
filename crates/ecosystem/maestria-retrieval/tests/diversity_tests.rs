@@ -29,6 +29,8 @@ fn plan(
         },
         evidence_requirements: requirements,
         fingerprint: RetrievalModelFingerprint::new("fixture-model".to_string())?,
+        original_intent: None,
+        route_decision: None,
     })
 }
 

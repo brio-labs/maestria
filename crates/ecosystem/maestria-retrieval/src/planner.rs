@@ -9,6 +9,10 @@ struct PlanOptions {
     web_limits: (u32, u64, u32),
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "plan construction keeps all deterministic route metadata together"
+)]
 fn build_plan(
     original_query: &str,
     limit: usize,
@@ -16,6 +20,8 @@ fn build_plan(
     options: PlanOptions,
     intent: SearchIntent,
     modality: Modality,
+    original_intent: Option<SearchIntent>,
+    route_decision: Option<String>,
 ) -> RetrievalResult<SearchPlan> {
     let (web_requests, web_bytes, web_concurrency) = options.web_limits;
     let max_stages = options.max_stages;
@@ -75,9 +81,15 @@ fn build_plan(
             minimum_sections: 0,
         },
         fingerprint: context.fingerprint.clone(),
+        original_intent,
+        route_decision,
     })
 }
 impl RetrievalEngine {
+    #[expect(
+        clippy::too_many_lines,
+        reason = "fallback planning keeps validation and route provenance atomic"
+    )]
     pub fn plan(
         &self,
         query: impl Into<String>,
@@ -85,6 +97,23 @@ impl RetrievalEngine {
         context: &SearchPlannerContext,
     ) -> RetrievalResult<SearchPlan> {
         let original_query = query.into();
+        if maestria_governance::contains_prompt_injection_risk(&original_query) {
+            return build_plan(
+                &original_query,
+                limit,
+                context,
+                PlanOptions {
+                    max_stages: 1,
+                    expansion_enabled: false,
+                    reranking_enabled: false,
+                    web_limits: (0, 0, 1),
+                },
+                SearchIntent::FactualLocal,
+                Modality::Text,
+                None,
+                None,
+            );
+        }
         let inferred_intent = SearchIntent::classify(&original_query);
         let inferred_modality = match inferred_intent {
             SearchIntent::RepositoryCode => Modality::Code,
@@ -120,6 +149,8 @@ impl RetrievalEngine {
             },
             inferred_intent,
             inferred_modality,
+            None,
+            None,
         )?;
         let inferred_error = match maestria_governance::SearchPlanValidator::validate(
             &inferred_plan,
@@ -129,21 +160,34 @@ impl RetrievalEngine {
             Ok(()) => return Ok(inferred_plan),
             Err(error) => error,
         };
-        let fallback_eligible = matches!(
+        let fallback_eligible = !matches!(
             inferred_intent,
-            SearchIntent::CurrentWeb | SearchIntent::VisualDocument
+            SearchIntent::ExactLookup | SearchIntent::RepositoryCode
         ) && matches!(
             inferred_error,
-            maestria_governance::SearchPlanValidationError::UnsupportedIntent(
-                SearchIntent::CurrentWeb
-            ) | maestria_governance::SearchPlanValidationError::UnsupportedIntent(
-                SearchIntent::VisualDocument
-            ) | maestria_governance::SearchPlanValidationError::UnsupportedModality(_)
+            maestria_governance::SearchPlanValidationError::UnsupportedIntent(_)
+                | maestria_governance::SearchPlanValidationError::UnsupportedModality(_)
                 | maestria_governance::SearchPlanValidationError::WebCapabilityMissing
         );
         if !fallback_eligible {
             return Err(RetrievalError::SearchPlan(inferred_error));
         }
+        let fallback_reason = match &inferred_error {
+            maestria_governance::SearchPlanValidationError::UnsupportedIntent(intent) => {
+                format!(
+                    "governed fallback to local text retrieval for unavailable {intent:?} intent"
+                )
+            }
+            maestria_governance::SearchPlanValidationError::UnsupportedModality(modality) => {
+                format!(
+                    "governed fallback to local text retrieval for unsupported {modality:?} modality"
+                )
+            }
+            maestria_governance::SearchPlanValidationError::WebCapabilityMissing => {
+                "governed fallback to local text retrieval: web capability missing".to_string()
+            }
+            _ => "governed fallback to local text retrieval".to_string(),
+        };
         let fallback_plan = build_plan(
             &original_query,
             limit,
@@ -156,6 +200,8 @@ impl RetrievalEngine {
             },
             SearchIntent::FactualLocal,
             Modality::Text,
+            Some(inferred_intent),
+            Some(fallback_reason),
         )?;
         let mut validation_plan = fallback_plan.clone();
         validation_plan.original_query = "fallback local text retrieval".to_string();
@@ -194,6 +240,8 @@ mod tests {
             },
             SearchIntent::VisualDocument,
             Modality::Image,
+            None,
+            None,
         )?;
         assert_eq!(plan.modalities.values(), &[Modality::Text, Modality::Image]);
         Ok(())
@@ -217,6 +265,8 @@ mod tests {
             },
             SearchIntent::VisualDocument,
             Modality::Image,
+            None,
+            None,
         )?;
         assert_eq!(
             plan.stages,

@@ -291,12 +291,14 @@ impl KernelState {
         input: crate::inputs::SearchKnowledgeRequested,
     ) -> Result<KernelOutput, DomainError> {
         let mut output = KernelOutput::default();
-        output.effects.push(MaestriaEffect::SearchKnowledge(
-            crate::effects::SearchKnowledgeRequest {
-                task_id: input.task_id,
-                plan: input.plan,
-            },
-        ));
+        output
+            .effects
+            .push(MaestriaEffect::SearchKnowledge(Box::new(
+                crate::effects::SearchKnowledgeRequest {
+                    task_id: input.task_id,
+                    plan: input.plan,
+                },
+            )));
         Ok(output)
     }
 
@@ -310,6 +312,25 @@ impl KernelState {
         output.effects.push(MaestriaEffect::PersistEvent {
             envelope: Box::new(envelope),
         });
+        Ok(output)
+    }
+
+    pub(super) fn process_source_removed(
+        &mut self,
+        input: crate::inputs::SourceRemoved,
+    ) -> Result<KernelOutput, DomainError> {
+        let mut output = KernelOutput::default();
+        if self.stale_sources.insert(input.source_path.clone()) {
+            let event = self.emit_event(DomainEvent::SourceBecameStale {
+                artifact_id: input.artifact_id,
+                source_path: input.source_path.clone(),
+                content_hash: input.content_hash,
+            });
+            output.events.push(event.clone());
+            output.effects.push(MaestriaEffect::PersistEvent {
+                envelope: Box::new(event),
+            });
+        }
         Ok(output)
     }
 }

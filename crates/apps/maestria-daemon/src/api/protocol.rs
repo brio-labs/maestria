@@ -10,157 +10,110 @@ use tokio::{
 
 const MAX_SEARCH_LIMIT: usize = 100;
 
-/// A request supported by the local daemon client boundary.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ClientOperation {
-    /// Return instance and projection counts.
     Status,
-    /// Execute a bounded, read-only knowledge search.
-    Search { query: String, limit: usize },
-    /// Open one provenance-verified evidence record.
-    Evidence { evidence_id: u64 },
-    /// Return one task or all tasks when `task_id` is omitted.
+    Search {
+        query: String,
+        limit: usize,
+    },
+    Evidence {
+        evidence_id: u64,
+    },
     Task {
         #[serde(default)]
         task_id: Option<u64>,
     },
+    ModelAgentPropose {
+        proposal: ModelAgentProposalPayload,
+    },
 }
 
-/// An authenticated request sent to the daemon socket.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ClientRequest {
-    /// Per-instance credential read from the daemon token file.
     pub token: String,
-    /// Read-only operation to execute.
     pub operation: ClientOperation,
 }
 
-/// Typed reply returned by the daemon socket.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", content = "data", rename_all = "snake_case")]
 pub enum ClientResponse {
-    /// Instance status and counts.
     Status(StatusResponse),
-    /// Search plan identity and evidence candidates.
     Search(SearchResponse),
-    /// Opened source-backed evidence.
     Evidence(EvidenceResponse),
-    /// Task state projection.
     Task(TaskResponse),
+    ModelAgentProposal(ModelAgentProposalResponse),
 }
 
-/// Status data exposed to clients.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StatusResponse {
-    /// Canonical instance root.
     pub instance_root: String,
-    /// Number of replayed domain events.
     pub event_count: usize,
-    /// Number of authoritative tasks.
     pub task_count: usize,
-    /// Socket path clients should connect to.
     pub socket_path: String,
 }
 
-/// Search data exposed at the API boundary.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SearchResponse {
-    /// Normalized query used by the search planner.
     pub query: String,
-    /// Stable query identifier.
     pub query_id: u64,
-    /// Stable trace identifier.
     pub trace_id: u64,
-    /// Search status name.
     pub status: String,
-    /// Retrieval model fingerprint.
     pub fingerprint: String,
-    /// Index generation used by the plan.
     pub index_generation: u64,
-    /// Evidence candidates returned by retrieval.
     pub evidence: Vec<SearchEvidenceResponse>,
-    /// Coverage summary for the returned evidence.
     pub coverage: CoverageResponse,
-    /// Number of detected conflict sets.
     pub conflict_count: usize,
 }
 
-/// One source-grounded search candidate.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SearchEvidenceResponse {
-    /// Evidence identifier clients can pass to `Evidence`.
     pub evidence_id: u64,
-    /// Artifact version used by retrieval.
     pub artifact_version: u64,
-    /// Human-readable source span.
     pub source: String,
-    /// Source character range.
     pub range_start: usize,
-    /// Exclusive source character end.
     pub range_end: usize,
-    /// Lexical score, if available.
     pub lexical_score: u32,
-    /// Dense score, if available.
     pub semantic_score: u32,
-    /// Trust label assigned by retrieval.
     pub trust: String,
-    /// Freshness label assigned by retrieval.
     pub freshness: String,
 }
 
-/// Search evidence coverage at the API boundary.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CoverageResponse {
-    /// Percentage of required coverage satisfied.
     pub percent_covered: u8,
-    /// Missing coverage requirements.
     pub gaps: Vec<String>,
-    /// Distinct source count.
     pub distinct_sources: usize,
-    /// Distinct document count.
     pub distinct_documents: usize,
-    /// Distinct section count.
     pub distinct_sections: usize,
 }
 
-/// Opened evidence and its immutable artifact context.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EvidenceResponse {
-    /// Evidence identifier.
     pub evidence_id: u64,
-    /// Artifact identifier owning the evidence.
     pub artifact_id: u64,
-    /// Artifact title.
     pub artifact_title: String,
-    /// Artifact content hash, when available.
     pub artifact_content_hash: Option<String>,
-    /// Evidence kind and provenance fields.
     pub source: EvidenceSourceResponse,
-    /// Source excerpt verified by the core service.
     pub excerpt: String,
-    /// Logical observation tick.
     pub observed_at: u64,
 }
 
-/// Typed evidence provenance at the client boundary.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum EvidenceSourceResponse {
-    /// File line span.
     File {
         path: String,
         start_line: u32,
         end_line: u32,
         content_hash: String,
     },
-    /// PDF page span on an immutable source snapshot.
     Pdf {
         snapshot_id: u64,
         page_start: u32,
         page_end: u32,
     },
-    /// PDF region on an immutable page snapshot.
     PdfRegion {
         snapshot_id: u64,
         page: u32,
@@ -169,55 +122,92 @@ pub enum EvidenceSourceResponse {
         width: u32,
         height: u32,
     },
-    /// Immutable web snapshot.
     Web {
         url: String,
         content_hash: String,
         snapshot_id: u64,
     },
-    /// Harness command output.
     Command {
         harness_run: u64,
         stream: String,
         blob_id: u64,
     },
-    /// Harness test result.
     Test {
         harness_run: u64,
         status: String,
         log_id: u64,
     },
-    /// Harness diff.
     Diff {
         harness_run: u64,
         patch_blob_id: u64,
     },
-    /// Validation report.
-    Validation { report_id: u64 },
+    Validation {
+        report_id: u64,
+    },
 }
 
-/// Task projection at the client boundary.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TaskResponse {
-    /// Returned tasks in ascending identifier order.
     pub tasks: Vec<TaskSummary>,
 }
 
-/// One task summary.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TaskSummary {
-    /// Task identifier.
     pub task_id: u64,
-    /// Task title.
     pub title: String,
-    /// Current domain status.
     pub status: String,
-    /// Task priority.
     pub priority: String,
-    /// Evidence linked to the task.
     pub evidence_ids: Vec<u64>,
-    /// Validation report linked to the task, if any.
     pub validation_report_id: Option<u64>,
+}
+
+/// Untrusted proposal payload submitted to the model agent endpoint.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ModelAgentProposalPayload {
+    pub run_id: u64,
+    pub task_id: Option<u64>,
+    pub query: String,
+    pub limit: usize,
+    pub capability: String,
+    pub command: String,
+    pub working_directory: String,
+    pub timeout_secs: u64,
+    pub expected_generation: u64,
+    pub evidence_ids: Vec<u64>,
+}
+
+/// Result of a model agent proposal workflow.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ModelAgentProposalResponse {
+    pub run_id: u64,
+    pub trace_id: Option<u64>,
+    pub index_generation: u64,
+    pub evidence_count: usize,
+    pub harness: Option<ModelAgentHarnessOutcome>,
+    pub validation: Option<ModelAgentValidationSummary>,
+    pub memory_candidate: Option<ModelAgentMemoryCandidateSummary>,
+    pub warnings: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ModelAgentHarnessOutcome {
+    pub exit_code: i32,
+    pub stdout: String,
+    pub stderr: String,
+    pub duration_ms: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ModelAgentValidationSummary {
+    pub passed: bool,
+    pub warnings: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ModelAgentMemoryCandidateSummary {
+    pub candidate_id: u64,
+    pub confidence_milli: u16,
+    pub decision: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -232,7 +222,6 @@ pub(crate) struct ClientReplyOut {
     pub(crate) error: Option<String>,
 }
 
-/// A supported local client for a running daemon.
 #[derive(Debug, Clone)]
 pub struct DaemonClient {
     socket_path: PathBuf,
@@ -240,7 +229,6 @@ pub struct DaemonClient {
 }
 
 impl DaemonClient {
-    /// Creates a client from an instance system directory.
     pub fn from_instance(layout: &InstanceLayout) -> Result<Self> {
         let token_path = super::token_path(layout);
         let token = fs::read_to_string(&token_path)
@@ -254,7 +242,6 @@ impl DaemonClient {
         })
     }
 
-    /// Creates a client from explicit socket and token paths.
     pub fn new(socket_path: PathBuf, token_path: PathBuf) -> Result<Self> {
         let token = fs::read_to_string(&token_path)
             .with_context(|| format!("read daemon token {}", token_path.display()))?
@@ -264,7 +251,6 @@ impl DaemonClient {
         Ok(Self { socket_path, token })
     }
 
-    /// Sends one bounded request and waits for its typed reply.
     pub async fn request(&self, operation: ClientOperation) -> Result<ClientResponse> {
         if let ClientOperation::Search { limit, .. } = operation
             && !(1..=MAX_SEARCH_LIMIT).contains(&limit)
@@ -313,20 +299,23 @@ mod tests {
     use super::*;
 
     #[test]
-    fn operation_wire_format_is_tagged_and_typed() -> Result<(), Box<dyn std::error::Error>> {
-        let request = ClientRequest {
-            token: "a".repeat(64),
-            operation: ClientOperation::Search {
-                query: "scope".into(),
-                limit: 5,
-            },
+    fn model_agent_proposal_payload_round_trips() -> Result<(), Box<dyn std::error::Error>> {
+        let payload = ModelAgentProposalPayload {
+            run_id: 1,
+            task_id: Some(2),
+            query: "test query".into(),
+            limit: 10,
+            capability: "shell".into(),
+            command: "echo hello".into(),
+            working_directory: "/tmp".into(),
+            timeout_secs: 30,
+            expected_generation: 4,
+            evidence_ids: vec![9],
         };
-        let encoded = serde_json::to_string(&request)?;
-        let decoded: ClientRequest = serde_json::from_str(&encoded)?;
-        assert!(matches!(
-            decoded.operation,
-            ClientOperation::Search { limit: 5, .. }
-        ));
+        let json = serde_json::to_string(&payload)?;
+        let deserialized: ModelAgentProposalPayload = serde_json::from_str(&json)?;
+        assert_eq!(deserialized.run_id, 1);
+        assert_eq!(deserialized.query, "test query");
         Ok(())
     }
 }

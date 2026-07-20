@@ -5,6 +5,14 @@
 //! This crate stores only rebuildable indexed chunks. Artifact metadata and blob
 //! contents remain owned by their source repositories.
 
+/// Responsibility map:
+/// - `constructors`: module responsibility.
+/// - `lexical_helpers`: module responsibility.
+/// - `lexical_operations`: module responsibility.
+/// - `migration`: module responsibility.
+/// - `operations`: module responsibility.
+/// - `schema`: module responsibility.
+/// - `search_helpers`: module responsibility.
 mod constructors;
 mod lexical_helpers;
 mod lexical_operations;

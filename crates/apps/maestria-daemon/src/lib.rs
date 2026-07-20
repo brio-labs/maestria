@@ -1,15 +1,29 @@
 pub mod api;
+
+/// Responsibility map:
+/// - `api`: module responsibility.
+/// - `lock`: module responsibility.
+/// - `search_executor`: module responsibility.
+/// - `approval_recovery`: module responsibility.
+/// - `projection_recovery`: module responsibility.
+/// - `vector_startup`: module responsibility.
+/// - `full_text_recovery`: module responsibility.
+/// - `parser_resume`: module responsibility.
+/// - `recovery_inputs`: module responsibility.
+/// - `supervision_recovery`: module responsibility.
+/// - `validation_recovery`: module responsibility.
+/// - `lifecycle`: module responsibility.
+/// - `watcher`: module responsibility.
 pub use api::{ApiServer, ClientOperation, ClientRequest, ClientResponse, DaemonClient};
 
+mod lock;
+pub use lock::{
+    InstanceWriteLock, acquire as acquire_instance_write_lock,
+    try_acquire as try_acquire_instance_write_lock,
+};
 mod search_executor;
 
-use std::{
-    fs,
-    io::Write,
-    path::PathBuf,
-    sync::Arc,
-    time::{Duration, SystemTime, UNIX_EPOCH},
-};
+use std::{fs, path::PathBuf, sync::Arc};
 
 use anyhow::{Context, Result, anyhow};
 use maestria_blob_fs::FsBlobStore;
@@ -24,7 +38,7 @@ use maestria_governance::{
 use maestria_graph_sqlite::SqliteGraphIndex;
 use maestria_harness::LocalShellHarnessAdapter;
 use maestria_parsers::ParserRegistry;
-use maestria_ports::{EventFilter, SearchKnowledgeExecutor, VectorIndex};
+use maestria_ports::{EventFilter, FullTextIndex, SearchKnowledgeExecutor, VectorIndex};
 use maestria_retrieval::RepositoryExecutionPolicy;
 use maestria_runtime::{Adapters, Governance, MaestriaRuntime, RuntimeConfig};
 use maestria_search_tantivy::TantivyFullTextIndex;
@@ -37,123 +51,8 @@ pub use search_executor::{
     prepare_search_runtime_with_repository_policy,
 };
 use search_executor::{SearchRuntimeParts, load_repository_code_index_with_exclusions};
-use tokio::{
-    sync::mpsc,
-    time::{sleep, timeout},
-};
+use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
-pub struct InstanceWriteLock {
-    path: PathBuf,
-    token: String,
-}
-
-impl Drop for InstanceWriteLock {
-    fn drop(&mut self) {
-        let owned =
-            fs::read_to_string(&self.path).is_ok_and(|contents| contents.trim() == self.token);
-        if owned && let Err(error) = fs::remove_file(&self.path) {
-            tracing::warn!(path = %self.path.display(), %error, "failed to release instance write lock");
-        }
-    }
-}
-
-pub fn try_acquire_instance_write_lock(
-    layout: &InstanceLayout,
-) -> Result<Option<InstanceWriteLock>> {
-    let path = layout.system_dir.join("instance-write.lock");
-    match fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(&path)
-    {
-        Ok(mut file) => {
-            let nonce = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .map_or(0, |duration| duration.as_nanos());
-            let token = format!("{}:{nonce}", std::process::id());
-            if let Err(error) = writeln!(file, "{token}") {
-                let _ = fs::remove_file(&path);
-                return Err(error)
-                    .with_context(|| format!("write instance lock {}", path.display()));
-            }
-            Ok(Some(InstanceWriteLock { path, token }))
-        }
-        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
-            if !lock_owner_is_dead(&path) {
-                return Ok(None);
-            }
-            let nonce = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .map_or(0, |duration| duration.as_nanos());
-            let quarantine = path.with_extension(format!("stale.{}.{}", std::process::id(), nonce));
-            match fs::hard_link(&path, &quarantine) {
-                Ok(()) => match fs::remove_file(&path) {
-                    Ok(()) => {
-                        fs::remove_file(&quarantine).with_context(|| {
-                            format!("remove stale instance lock {}", quarantine.display())
-                        })?;
-                        try_acquire_instance_write_lock(layout)
-                    }
-                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                        let _ = fs::remove_file(&quarantine);
-                        try_acquire_instance_write_lock(layout)
-                    }
-                    Err(error) => Err(error)
-                        .with_context(|| format!("remove stale instance lock {}", path.display())),
-                },
-                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => Ok(None),
-                Err(error) => Err(error)
-                    .with_context(|| format!("quarantine instance lock {}", path.display())),
-            }
-        }
-        Err(error) => {
-            Err(error).with_context(|| format!("create instance lock {}", path.display()))
-        }
-    }
-}
-
-pub async fn acquire_instance_write_lock(layout: &InstanceLayout) -> Result<InstanceWriteLock> {
-    timeout(Duration::from_secs(5), async {
-        loop {
-            if let Some(lock) = try_acquire_instance_write_lock(layout)? {
-                return Ok(lock);
-            }
-            sleep(Duration::from_millis(25)).await;
-        }
-    })
-    .await
-    .map_err(|_| anyhow!("timed out waiting for instance write lock"))?
-}
-fn lock_owner_is_dead(path: &PathBuf) -> bool {
-    let contents = match fs::read_to_string(path) {
-        Ok(contents) => contents,
-        Err(_) => {
-            return fs::metadata(path)
-                .and_then(|metadata| metadata.modified())
-                .and_then(|modified| modified.elapsed().map_err(std::io::Error::other))
-                .is_ok_and(|age| age > Duration::from_secs(30));
-        }
-    };
-    let pid_text = contents
-        .trim()
-        .split_once(':')
-        .map_or(contents.trim(), |(pid, _)| pid);
-    let Ok(pid) = pid_text.parse::<u32>() else {
-        return fs::metadata(path)
-            .and_then(|metadata| metadata.modified())
-            .and_then(|modified| modified.elapsed().map_err(std::io::Error::other))
-            .is_ok_and(|age| age > Duration::from_secs(30));
-    };
-    #[cfg(target_os = "linux")]
-    {
-        !PathBuf::from(format!("/proc/{pid}")).exists()
-    }
-    #[cfg(not(target_os = "linux"))]
-    {
-        let _ = pid;
-        false
-    }
-}
 
 mod approval_recovery;
 mod projection_recovery;
@@ -177,6 +76,7 @@ pub use supervision_recovery::{RecoveryDiagnostics, supervise_recovery};
 mod validation_recovery;
 pub use validation_recovery::has_current_validation_report;
 mod lifecycle;
+mod watcher;
 pub use lifecycle::{InstanceLifecycle, RecoveryQueue, run_instance, run_instance_with_shutdown};
 /// Validate that every pending `ResumeParser` source path is within the
 /// instance manifest read scope before the daemon touches blobs or runtime
@@ -246,19 +146,33 @@ fn build_adapters(
     manifest: &InstanceManifest,
     embedding_provider: Option<Arc<dyn maestria_ports::EmbeddingProvider + Send + Sync>>,
     repository_execution_policy: RepositoryExecutionPolicy,
+    read_only_search_index: bool,
 ) -> Result<Adapters> {
     let blob_store = Arc::new(
         FsBlobStore::open(&layout.blobs_dir)
             .with_context(|| format!("open blob store {}", layout.blobs_dir.display()))?,
     );
-    let search_index = Arc::new(
-        TantivyFullTextIndex::open(&layout.full_text_index_dir).with_context(|| {
-            format!(
-                "open full-text index {}",
-                layout.full_text_index_dir.display()
-            )
-        })?,
-    );
+    let search_index: Arc<dyn FullTextIndex + Send + Sync> = if read_only_search_index {
+        Arc::new(
+            TantivyFullTextIndex::open_read_only(&layout.full_text_index_dir).with_context(
+                || {
+                    format!(
+                        "open full-text index read-only {}",
+                        layout.full_text_index_dir.display()
+                    )
+                },
+            )?,
+        )
+    } else {
+        Arc::new(
+            TantivyFullTextIndex::open(&layout.full_text_index_dir).with_context(|| {
+                format!(
+                    "open full-text index {}",
+                    layout.full_text_index_dir.display()
+                )
+            })?,
+        )
+    };
     let parser = Arc::new(ParserRegistry::with_defaults());
     let sqlite_store = Arc::new(
         SqliteStore::open(&layout.database_path)
@@ -369,11 +283,13 @@ pub fn build_runtime_with_repository_policy(
         &manifest,
         embedding_provider,
         repository_execution_policy,
+        false,
     )?;
     let governance = Governance {
         classifier: Arc::new(DefaultRiskClassifier),
         approval_gate: Arc::new(DefaultApprovalGate),
         validation_gate: Arc::new(DefaultValidationGate::new(true)),
+        memory_promotion_gate: Arc::new(maestria_governance::DefaultMemoryPromotionGate),
     };
     let default_privacy = PrivacyExclusions::default();
     let mut blocked_patterns = manifest.excluded_patterns.clone();

@@ -202,4 +202,9 @@ pub enum DomainEvent {
         to: crate::generations::IndexLifecycle,
         replaced_active_id: Option<IndexGenerationId>,
     },
+    SourceBecameStale {
+        artifact_id: ArtifactId,
+        source_path: String,
+        content_hash: String,
+    },
 }

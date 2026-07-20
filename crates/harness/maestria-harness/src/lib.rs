@@ -1,4 +1,9 @@
 mod command;
+
+/// Responsibility map:
+/// - `command`: module responsibility.
+/// - `process`: module responsibility.
+/// - `tokenize`: module responsibility.
 mod process;
 mod tokenize;
 

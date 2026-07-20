@@ -1,9 +1,12 @@
 use anyhow::{Context, Result, anyhow};
 use maestria_core::{InstanceLayout, InstanceManifest};
-use maestria_domain::{ArtifactId, DomainInput, KernelState, TaskId};
+use maestria_domain::{ArtifactId, DomainEvent, DomainInput, KernelState, TaskId};
 use maestria_governance::AutonomyProfile;
 use maestria_graph_sqlite::SqliteGraphIndex;
+use maestria_ports::{EventFilter, EventLog};
 use maestria_storage_sqlite::SqliteStore;
+use std::collections::BTreeMap;
+use std::sync::Arc;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
@@ -26,12 +29,15 @@ pub struct RecoveryQueue {
 /// Owns instance locking, startup recovery, runtime execution, and shutdown.
 pub struct InstanceLifecycle {
     layout: InstanceLayout,
+    manifest: InstanceManifest,
     state: KernelState,
     recovery: Option<RecoveryInputs>,
     paused_effects: usize,
     input_tx: mpsc::Sender<DomainInput>,
     shutdown_token: CancellationToken,
     runtime_task: Option<JoinHandle<()>>,
+    watcher_task: Option<JoinHandle<()>>,
+    watched_artifacts: BTreeMap<String, (ArtifactId, String)>,
 }
 
 impl Drop for InstanceLifecycle {
@@ -49,6 +55,7 @@ impl InstanceLifecycle {
             load_kernel_state(&layout).with_context(|| "load persisted kernel state")?;
         let store = SqliteStore::open(&layout.database_path)
             .with_context(|| format!("open sqlite store {}", layout.database_path.display()))?;
+        let watched_artifacts = source_artifact_ids(&store)?;
         let manifest_contents = std::fs::read_to_string(&layout.manifest_path)
             .with_context(|| "read instance manifest")?;
         let manifest = InstanceManifest::decode(&manifest_contents)
@@ -83,15 +90,17 @@ impl InstanceLifecycle {
             runtime.run(input_rx, runtime_shutdown).await;
         });
         info!(root = %layout.root.display(), "runtime started");
-
         Ok(Self {
             layout,
             state,
             recovery: Some(diagnostics.inputs),
             paused_effects: diagnostics.paused_effects.len(),
+            manifest,
             input_tx,
             shutdown_token,
             runtime_task: Some(runtime_task),
+            watcher_task: None,
+            watched_artifacts,
         })
     }
 
@@ -109,6 +118,17 @@ impl InstanceLifecycle {
 
     pub fn input_sender(&self) -> mpsc::Sender<DomainInput> {
         self.input_tx.clone()
+    }
+    fn start_watcher(&mut self) {
+        if self.watcher_task.is_none() {
+            self.watcher_task = Some(crate::watcher::spawn(
+                self.layout.clone(),
+                self.manifest.clone(),
+                self.input_tx.clone(),
+                self.watched_artifacts.clone(),
+                self.shutdown_token.clone(),
+            ));
+        }
     }
 
     /// Queue recovery in dependency order: parsers, full-text, then validation.
@@ -147,6 +167,11 @@ impl InstanceLifecycle {
 
     pub async fn shutdown(mut self) -> Result<()> {
         self.shutdown_token.cancel();
+        if let Some(watcher_task) = self.watcher_task.take() {
+            watcher_task
+                .await
+                .with_context(|| "continuous ingestion watcher join failed")?;
+        }
         let Some(runtime_task) = self.runtime_task.take() else {
             return Ok(());
         };
@@ -159,6 +184,7 @@ impl InstanceLifecycle {
     pub async fn run_until_ctrl_c(mut self) -> Result<()> {
         let result = async {
             self.queue_recovery().await?;
+            self.start_watcher();
             tokio::signal::ctrl_c()
                 .await
                 .with_context(|| "wait for shutdown signal")
@@ -173,12 +199,33 @@ impl InstanceLifecycle {
     pub async fn run_until_shutdown(mut self, shutdown: CancellationToken) -> Result<()> {
         let result = self.queue_recovery().await;
         if result.is_ok() {
+            self.start_watcher();
             shutdown.cancelled().await;
         }
         let shutdown_result = self.shutdown().await;
         result?;
         shutdown_result
     }
+}
+
+fn source_artifact_ids(store: &SqliteStore) -> Result<BTreeMap<String, (ArtifactId, String)>> {
+    let mut identities = BTreeMap::new();
+    for envelope in store.scan(EventFilter { artifact_id: None })? {
+        if let DomainEvent::ParserStarted {
+            artifact_id,
+            source_path,
+            content_hash,
+            ..
+        } = envelope.event
+        {
+            let key = match std::path::Path::new(&source_path).canonicalize() {
+                Ok(path) => path.display().to_string(),
+                Err(_) => source_path,
+            };
+            identities.insert(key, (artifact_id, content_hash));
+        }
+    }
+    Ok(identities)
 }
 
 fn recovery_artifact_ids(recovery: &RecoveryInputs) -> Vec<ArtifactId> {
@@ -232,7 +279,34 @@ pub async fn run_instance_with_shutdown(
     let layout =
         crate::prepare_instance(instance_dir).with_context(|| "prepare instance layout")?;
     let lifecycle = InstanceLifecycle::start(layout.clone(), AutonomyProfile::ReadOnly).await?;
-    let api = crate::ApiServer::start(layout).await?;
+    let input_tx = lifecycle.input_sender();
+
+    // Build adapters and governance for the model agent API endpoint.
+    let state =
+        crate::load_kernel_state(&layout).with_context(|| "load kernel state for api context")?;
+    let manifest_contents = std::fs::read_to_string(&layout.manifest_path)
+        .with_context(|| format!("read instance manifest {}", layout.manifest_path.display()))?;
+    let manifest = maestria_core::InstanceManifest::decode(&manifest_contents)
+        .map_err(|error| anyhow!("parse instance manifest: {error}"))?;
+    let adapters = Arc::new(
+        crate::build_adapters(
+            &layout,
+            &state,
+            &manifest,
+            None,
+            maestria_retrieval::RepositoryExecutionPolicy::Shadow,
+            true,
+        )
+        .with_context(|| "build api adapters")?,
+    );
+    let governance = Arc::new(maestria_runtime::Governance {
+        classifier: Arc::new(maestria_governance::DefaultRiskClassifier),
+        approval_gate: Arc::new(maestria_governance::DefaultApprovalGate),
+        validation_gate: Arc::new(maestria_governance::DefaultValidationGate::new(true)),
+        memory_promotion_gate: Arc::new(maestria_governance::DefaultMemoryPromotionGate),
+    });
+
+    let api = crate::ApiServer::start(layout, input_tx, adapters, governance).await?;
     println!("daemon_api_socket={}", api.socket_path().display());
     let lifecycle_result = lifecycle.run_until_shutdown(shutdown).await;
     let api_result = api.shutdown().await;

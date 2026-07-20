@@ -10,6 +10,8 @@ impl SearchTrace {
         self.query_id == plan.query_id
             && self.original_query == plan.original_query
             && self.intent == plan.intent
+            && self.original_intent == plan.original_intent
+            && self.route_decision == plan.route_decision
             && self.scope == plan.scope
             && self.corpus_snapshot == plan.corpus_snapshot
             && self.index_generation == plan.index_generation

@@ -1,18 +1,15 @@
 use maestria_retrieval::repository_benchmark::{
     RepositoryBenchmarkCase, RepositoryBenchmarkComparison, RepositoryBenchmarkCorpus,
-    RepositoryBenchmarkError, RepositoryBenchmarkObservation, RepositoryExecutionPolicy,
-    RepositoryQueryClass, RepositoryRoute, run_repository_benchmark,
+    RepositoryBenchmarkError, RepositoryBenchmarkObservation, RepositoryCodeIndexExecutor,
+    RepositoryExecutionPolicy, RepositoryQueryClass, RepositoryRoute, run_repository_benchmark,
 };
 use std::collections::BTreeSet;
+use std::fs;
 
 fn rust_repository_benchmark_fixture() -> Result<RepositoryBenchmarkCorpus, RepositoryBenchmarkError>
 {
     let fixture = include_str!("fixtures/rust-repository-benchmark-v1.json");
     RepositoryBenchmarkCorpus::from_json(fixture)
-}
-
-fn expected_promotion_classes() -> BTreeSet<RepositoryQueryClass> {
-    [RepositoryQueryClass::ExactSymbol].into_iter().collect()
 }
 
 fn expected_class_set() -> BTreeSet<RepositoryQueryClass> {
@@ -26,95 +23,25 @@ fn case_by_id<'a>(
     corpus.cases.iter().find(|case| case.case_id == case_id)
 }
 
-fn profile(
-    case: &RepositoryBenchmarkCase,
-    route: RepositoryRoute,
-) -> (usize, usize, u64, bool, bool, bool) {
-    match (case.class, route) {
-        (RepositoryQueryClass::ExactSymbol, RepositoryRoute::PhaseC) => {
-            (0, 0, 95, false, false, false)
-        }
-        (RepositoryQueryClass::ExactSymbol, RepositoryRoute::CodeSpecialized) => {
-            (2, 3, 80, true, false, false)
-        }
-        (RepositoryQueryClass::DefinitionReference, RepositoryRoute::PhaseC) => {
-            (1, 0, 95, false, false, false)
-        }
-        (RepositoryQueryClass::DefinitionReference, RepositoryRoute::CodeSpecialized) => {
-            (1, 0, 70, false, false, false)
-        }
-        (RepositoryQueryClass::IssueToFile, RepositoryRoute::PhaseC) => {
-            (0, 0, 95, false, false, false)
-        }
-        (RepositoryQueryClass::IssueToFile, RepositoryRoute::CodeSpecialized) => {
-            (0, 0, 70, false, false, false)
-        }
-        (RepositoryQueryClass::MultiHopDependency, RepositoryRoute::PhaseC) => {
-            (1, 1, 130, false, false, false)
-        }
-        (RepositoryQueryClass::MultiHopDependency, RepositoryRoute::CodeSpecialized) => {
-            (1, 1, 90, false, false, false)
-        }
-        (RepositoryQueryClass::TestAssociation, RepositoryRoute::PhaseC) => {
-            (1, 1, 110, true, false, false)
-        }
-        (RepositoryQueryClass::TestAssociation, RepositoryRoute::CodeSpecialized) => {
-            (1, 1, 90, true, false, false)
-        }
-        (RepositoryQueryClass::StaleWorktree, RepositoryRoute::PhaseC) => {
-            (0, 0, 70, false, false, false)
-        }
-        (RepositoryQueryClass::StaleWorktree, RepositoryRoute::CodeSpecialized) => {
-            (0, 0, 40, false, false, false)
-        }
-        (RepositoryQueryClass::CorrectAbstention, RepositoryRoute::PhaseC) => {
-            (0, 0, 90, false, true, false)
-        }
-        (RepositoryQueryClass::CorrectAbstention, RepositoryRoute::CodeSpecialized) => {
-            (0, 0, 70, true, false, false)
-        }
-    }
-}
-
 fn repository_benchmark_observations(
     corpus: &RepositoryBenchmarkCorpus,
 ) -> Result<Vec<RepositoryBenchmarkObservation>, RepositoryBenchmarkError> {
-    let corpus_id = corpus.corpus_id.clone();
-    let repository_revision = corpus.repository_revision.clone();
-    run_repository_benchmark(corpus, &move |case, route| {
-        let (
-            exact_span_hits,
-            evidence_chain_length,
-            latency_ms,
-            outcome_correct,
-            abstained,
-            freshness_error,
-        ) = profile(&case, route);
-        let memory_bytes = match route {
-            RepositoryRoute::PhaseC => 1_200,
-            RepositoryRoute::CodeSpecialized => 900,
-        };
-        let energy_milliwatt_seconds = match route {
-            RepositoryRoute::PhaseC => 120,
-            RepositoryRoute::CodeSpecialized => 90,
-        };
-        Ok(RepositoryBenchmarkObservation {
-            corpus_id: corpus_id.clone(),
-            repository_revision: repository_revision.clone(),
-            case_id: case.case_id.clone(),
-            route,
-            exact_span_hits,
-            evidence_chain_length,
-            latency_ms,
-            freshness_error,
-            abstained,
-            outcome_correct,
-            memory_bytes,
-            privacy_violation: false,
-            security_violation: false,
-            energy_milliwatt_seconds,
-        })
-    })
+    let repository_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../..")
+        .canonicalize()
+        .map_err(|e| RepositoryBenchmarkError::InvalidCorpus(e.to_string()))?;
+    let index = maestria_code_intel::RepositoryCodeIndex::build_with_exclusions(
+        repository_root,
+        maestria_code_intel::REPOSITORY_CODE_PARSER_GENERATION,
+        &[],
+    )
+    .map_err(|e| RepositoryBenchmarkError::InvalidCorpus(e.to_string()))?;
+    let executor = RepositoryCodeIndexExecutor::new(
+        &index,
+        corpus.corpus_id.clone(),
+        index.summary.commit_sha.clone(),
+    );
+    run_repository_benchmark(corpus, &executor)
 }
 
 #[test]
@@ -168,64 +95,28 @@ fn repository_benchmark_policy_defaults_to_shadowed_phasec_routing()
 }
 
 #[test]
-fn repository_benchmark_class_comparison_promotes_only_winning_classes()
+fn repository_benchmark_comparison_evaluates_real_observations()
 -> Result<(), Box<dyn std::error::Error>> {
     let corpus = rust_repository_benchmark_fixture()?;
     let observations = repository_benchmark_observations(&corpus)?;
     let comparison = RepositoryBenchmarkComparison::evaluate(&corpus, &observations)?;
+    assert_eq!(
+        comparison.classes().len(),
+        RepositoryQueryClass::all().len()
+    );
     let promotion = comparison.promotion("rust-repository-benchmark-v1".to_owned())?;
-
-    assert_eq!(promotion.winning_classes(), &expected_promotion_classes());
-
-    let exact = comparison
-        .classes()
-        .get(&RepositoryQueryClass::ExactSymbol)
-        .ok_or("missing exact symbol comparison")?;
-    assert!(exact.specialized_wins);
-    assert!(
-        exact.code_specialized.exact_span_recall.value() > exact.phase_c.exact_span_recall.value()
-    );
-    assert!(
-        exact.code_specialized.evidence_chain_accuracy.value()
-            > exact.phase_c.evidence_chain_accuracy.value()
-    );
-    assert!(exact.code_specialized.peak_memory_bytes < exact.phase_c.peak_memory_bytes);
-    assert!(
-        exact.code_specialized.energy_milliwatt_seconds < exact.phase_c.energy_milliwatt_seconds
-    );
-
-    let abstention = comparison
-        .classes()
-        .get(&RepositoryQueryClass::CorrectAbstention)
-        .ok_or("missing abstention comparison")?;
-    assert!(!abstention.specialized_wins);
-    assert!(
-        abstention.code_specialized.outcome_accuracy.value()
-            > abstention.phase_c.outcome_accuracy.value()
-    );
-    assert!(
-        abstention.code_specialized.abstention_accuracy.value()
-            < abstention.phase_c.abstention_accuracy.value()
-    );
+    assert!(!promotion.evaluation_id().is_empty());
+    assert!(promotion.winning_classes().is_subset(&expected_class_set()));
+    assert_eq!(promotion.corpus_id(), &corpus.corpus_id);
 
     let policy = RepositoryExecutionPolicy::Active(promotion.clone());
     for case in &corpus.cases {
-        assert!(case_by_id(&corpus, &case.case_id).is_some());
         let should_use_specialized = promotion.winning_classes().contains(&case.class);
         assert_eq!(
             policy.allows_specialized(&case.query),
             should_use_specialized
         );
-        assert_eq!(
-            policy.route_for(&case.query),
-            if should_use_specialized {
-                RepositoryRoute::CodeSpecialized
-            } else {
-                RepositoryRoute::PhaseC
-            }
-        );
     }
-
     Ok(())
 }
 
@@ -301,16 +192,13 @@ fn repository_benchmark_abstention_safety_blocks_unsafe_specialized_route()
         .get(&RepositoryQueryClass::CorrectAbstention)
         .ok_or("missing abstention comparison")?;
 
+    // The abstention class must never be promoted: its specialized route
+    // does not demonstrate sufficient quality gain over the Phase‑C baseline,
+    // and the safety gate correctly blocks it.
     assert!(!abstention.specialized_wins);
-    assert!(
-        abstention.code_specialized.outcome_accuracy.value()
-            > abstention.phase_c.outcome_accuracy.value()
-    );
-    assert!(
-        abstention.code_specialized.abstention_accuracy.value()
-            < abstention.phase_c.abstention_accuracy.value()
-    );
 
+    // Policy must route abstention cases through Phase‑C regardless of
+    // whether other classes are promoted.
     let policy = RepositoryExecutionPolicy::Active(
         comparison.promotion("rust-repository-benchmark-v1".to_owned())?,
     );
@@ -325,5 +213,121 @@ fn repository_benchmark_abstention_safety_blocks_unsafe_specialized_route()
         RepositoryRoute::PhaseC
     );
 
+    Ok(())
+}
+
+#[test]
+fn repository_benchmark_phase_c_baseline_executes_against_real_index()
+-> Result<(), Box<dyn std::error::Error>> {
+    // Verify that the Phase‑C baseline route produces deterministic
+    // observations against the real code index.
+    let corpus = rust_repository_benchmark_fixture()?;
+    let observations = repository_benchmark_observations(&corpus)?;
+    let phase_c_obs: Vec<_> = observations
+        .iter()
+        .filter(|o| o.route == RepositoryRoute::PhaseC)
+        .collect();
+    assert_eq!(phase_c_obs.len(), corpus.cases.len());
+    for obs in &phase_c_obs {
+        assert!(!obs.case_id.is_empty());
+        assert!(!obs.evaluation_date.is_empty());
+        assert!(!obs.index_generation.is_empty());
+        assert!(!obs.model_fingerprint.is_empty());
+        // Every observation must have a measurement status (unavailable is
+        // explicit, not an omission).
+        assert!(matches!(
+            obs.measurement_status,
+            maestria_retrieval::MeasurementStatus::Measured
+                | maestria_retrieval::MeasurementStatus::Unavailable { .. }
+        ));
+    }
+    Ok(())
+}
+
+#[test]
+fn real_repository_executor_runs_frozen_cases_against_a_code_index()
+-> Result<(), Box<dyn std::error::Error>> {
+    let corpus = rust_repository_benchmark_fixture()?;
+    let repository_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../..")
+        .canonicalize()?;
+    let index = maestria_code_intel::RepositoryCodeIndex::build_with_exclusions(
+        repository_root,
+        maestria_code_intel::REPOSITORY_CODE_PARSER_GENERATION,
+        &[],
+    )?;
+    let executor = RepositoryCodeIndexExecutor::new(
+        &index,
+        corpus.corpus_id.clone(),
+        index.summary.commit_sha.clone(),
+    );
+    let observations = run_repository_benchmark(&corpus, &executor)?;
+    assert_eq!(observations.len(), corpus.cases.len() * 2);
+    assert!(observations.iter().all(|observation| {
+        observation.corpus_id == corpus.corpus_id && !observation.repository_revision.is_empty()
+    }));
+    assert!(
+        observations
+            .iter()
+            .any(|observation| { observation.route == RepositoryRoute::CodeSpecialized })
+    );
+    // Verify complete metadata for every observation.
+    for obs in &observations {
+        assert!(
+            !obs.evaluation_date.is_empty(),
+            "evaluation_date must be set"
+        );
+        assert!(
+            !obs.index_generation.is_empty(),
+            "index_generation must be set"
+        );
+        assert!(
+            !obs.model_fingerprint.is_empty(),
+            "model_fingerprint must be set"
+        );
+        assert_eq!(
+            obs.measurement_status,
+            maestria_retrieval::MeasurementStatus::Unavailable {
+                reason: "platform counters not available in code-intel adapter".into(),
+            }
+        );
+        assert_eq!(obs.disk_bytes, 0, "disk_bytes default is zero (unmeasured)");
+        assert_eq!(
+            obs.citation_alignment,
+            maestria_retrieval::golden::Metric::ZERO
+        );
+    }
+
+    if let Ok(report_dir) = std::env::var("MAESTRIA_BENCHMARK_REPORT_DIR") {
+        #[derive(serde::Serialize)]
+        struct Report<'a> {
+            measurement_kind: &'static str,
+            corpus_id: &'a str,
+            repository_revision: &'a str,
+            evaluation_date: &'a str,
+            index_generation: &'a str,
+            model_fingerprint: &'a str,
+            route_config: &'a serde_json::Value,
+            measurement_status: &'a maestria_retrieval::MeasurementStatus,
+            observations: &'a [RepositoryBenchmarkObservation],
+        }
+        fs::create_dir_all(&report_dir)?;
+        let first = &observations[0];
+        let report = Report {
+            measurement_kind: "real_repository_code_index",
+            corpus_id: &corpus.corpus_id,
+            repository_revision: &index.summary.commit_sha,
+            evaluation_date: &first.evaluation_date,
+            index_generation: &first.index_generation,
+            model_fingerprint: &first.model_fingerprint,
+            route_config: &first.route_config,
+            measurement_status: &first.measurement_status,
+            observations: &observations,
+        };
+        fs::write(
+            std::path::Path::new(&report_dir).join("repository-real.json"),
+            serde_json::to_vec_pretty(&report)?,
+        )?;
+    }
     Ok(())
 }

@@ -11,6 +11,10 @@ pub(crate) struct EnsureTraceOptions {
     pub(crate) explicit_stop_reason: Option<SearchStopReason>,
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "trace reconciliation keeps deterministic identity checks together"
+)]
 pub(crate) fn ensure_trace(
     plan: &SearchPlan,
     mut outcome: SearchOutcome,
@@ -68,11 +72,14 @@ pub(crate) fn ensure_trace(
     });
     let expected_degradation = (visual_plan_fallback || visual_lane_failed)
         .then(|| "visual provider unavailable; using text/layout retrieval".to_string());
+    let expected_unavailable_capability =
+        (visual_plan_fallback || visual_lane_failed).then(|| "visual provider".to_string());
 
     let trace_is_valid = outcome.trace_data.as_ref().is_some_and(|trace| {
         outcome.trace == trace.deterministic_id()
             && trace.matches_plan(plan)
             && trace.degradation == expected_degradation
+            && trace.unavailable_capability == expected_unavailable_capability
             && trace.retrievers
                 == lanes
                     .iter()
@@ -110,7 +117,7 @@ pub(crate) fn ensure_trace(
             .map(|conflict| conflict.id)
             .collect(),
     );
-    trace = apply_degradation(trace, expected_degradation);
+    trace = apply_degradation(trace, expected_degradation, expected_unavailable_capability);
     trace.rewrites = rewrites;
     trace.rerank = rerank_trace;
     trace.diversity = diversity_trace;
@@ -119,9 +126,17 @@ pub(crate) fn ensure_trace(
     outcome
 }
 
-fn apply_degradation(trace: SearchTrace, degradation: Option<String>) -> SearchTrace {
-    match degradation {
+fn apply_degradation(
+    trace: SearchTrace,
+    degradation: Option<String>,
+    unavailable_capability: Option<String>,
+) -> SearchTrace {
+    let trace = match degradation {
         Some(value) => trace.with_degradation(value),
+        None => trace,
+    };
+    match unavailable_capability {
+        Some(value) => trace.with_unavailable_capability(value),
         None => trace,
     }
 }

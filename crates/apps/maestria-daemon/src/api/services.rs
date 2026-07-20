@@ -1,22 +1,33 @@
+use std::collections::BTreeSet;
 use std::fs;
+use std::sync::Arc;
+use std::time::Duration;
 
 use anyhow::{Context, Result, anyhow};
 use maestria_blob_fs::FsBlobStore;
 use maestria_core::{CorePorts, CoreServices, InstanceLayout, InstanceManifest, OpenEvidenceInput};
 use maestria_domain::{
-    Evidence, EvidenceCandidate, EvidenceKind, EvidenceSpan, KernelState, SearchOutcome, Task,
+    ClaimId, DomainEvent, DomainInput, Evidence, EvidenceCandidate, EvidenceId, EvidenceKind,
+    EvidenceSpan, HarnessRunCompleted, HarnessRunId, KernelState, MemoryCandidateId, SearchOutcome,
+    Task, TaskId,
 };
+use maestria_governance::{ScopeGuard, ValidationRequest};
 use maestria_parsers::ParserRegistry;
+use maestria_ports::{HarnessRequest, ModelAgentProposal};
 use maestria_search_tantivy::TantivyFullTextIndex;
 use maestria_storage_sqlite::SqliteStore;
 
 use super::server::ApiContext;
 use super::{
     ClientOperation, ClientResponse, CoverageResponse, EvidenceResponse, EvidenceSourceResponse,
-    SearchEvidenceResponse, SearchResponse, StatusResponse, TaskResponse, TaskSummary,
+    ModelAgentHarnessOutcome, ModelAgentMemoryCandidateSummary, ModelAgentProposalPayload,
+    ModelAgentProposalResponse, ModelAgentValidationSummary, SearchEvidenceResponse,
+    SearchResponse, StatusResponse, TaskResponse, TaskSummary,
 };
 
 const MAX_SEARCH_LIMIT: usize = 100;
+const DATABASE_RETRY_ATTEMPTS: usize = 80;
+const DATABASE_RETRY_DELAY: Duration = Duration::from_millis(50);
 
 pub(crate) async fn dispatch(
     context: &ApiContext,
@@ -26,23 +37,19 @@ pub(crate) async fn dispatch(
         ClientOperation::Status => {
             let layout = context.layout.clone();
             let socket_path = context.socket_path.clone();
-            let response = tokio::task::spawn_blocking(move || status(&layout, &socket_path))
-                .await
-                .map_err(|error| anyhow!("status task failed: {error}"))??;
+            let response =
+                run_database_retry("status", move || status(&layout, &socket_path)).await?;
             Ok(ClientResponse::Status(response))
         }
         ClientOperation::Task { task_id } => {
             let layout = context.layout.clone();
-            let response = tokio::task::spawn_blocking(move || task(&layout, task_id))
-                .await
-                .map_err(|error| anyhow!("task query failed: {error}"))??;
+            let response = run_database_retry("task", move || task(&layout, task_id)).await?;
             Ok(ClientResponse::Task(response))
         }
         ClientOperation::Evidence { evidence_id } => {
             let layout = context.layout.clone();
-            let response = tokio::task::spawn_blocking(move || open_evidence(&layout, evidence_id))
-                .await
-                .map_err(|error| anyhow!("evidence query failed: {error}"))??;
+            let response =
+                run_database_retry("evidence", move || open_evidence(&layout, evidence_id)).await?;
             Ok(ClientResponse::Evidence(response))
         }
         ClientOperation::Search { query, limit } => {
@@ -54,9 +61,298 @@ pub(crate) async fn dispatch(
                     "search limit must be between 1 and {MAX_SEARCH_LIMIT}"
                 ));
             }
-            Ok(ClientResponse::Search(search(context, query, limit).await?))
+            Ok(ClientResponse::Search(
+                search_with_retry(context, query, limit).await?,
+            ))
+        }
+        ClientOperation::ModelAgentPropose { proposal } => {
+            handle_model_agent_propose(context, proposal).await
         }
     }
+}
+
+fn current_generation(state: &KernelState) -> u64 {
+    state
+        .event_log
+        .iter()
+        .filter_map(|env| match &env.event {
+            DomainEvent::IndexGenerationStarted { id, .. } => Some(id.value()),
+            _ => None,
+        })
+        .max()
+        .map_or(0, |generation| generation)
+}
+
+#[expect(
+    clippy::too_many_lines,
+    reason = "proposal orchestration keeps validation, effects, and evidence policy ordered"
+)]
+async fn handle_model_agent_propose(
+    context: &ApiContext,
+    payload: ModelAgentProposalPayload,
+) -> Result<ClientResponse> {
+    let mut warnings: Vec<String> = Vec::new();
+
+    let run_id = HarnessRunId::new(payload.run_id);
+    let task_id = payload.task_id.map(TaskId::new);
+    let evidence_ids: Vec<EvidenceId> = payload
+        .evidence_ids
+        .iter()
+        .map(|id| EvidenceId::new(*id))
+        .collect();
+    let working_directory = std::path::PathBuf::from(&payload.working_directory);
+    let timeout = Duration::from_secs(payload.timeout_secs);
+
+    let proposal = ModelAgentProposal {
+        run_id,
+        task_id,
+        query: payload.query,
+        limit: payload.limit,
+        capability: payload.capability,
+        command: payload.command,
+        working_directory,
+        timeout,
+        expected_generation: payload.expected_generation,
+        evidence_ids,
+    };
+
+    let state = crate::load_kernel_state(&context.layout)
+        .with_context(|| "load kernel state for proposal validation")?;
+
+    let cur_gen = current_generation(&state);
+    let available_evidence: BTreeSet<EvidenceId> = state.evidences.keys().copied().collect();
+
+    let governed = proposal
+        .validate(cur_gen, &available_evidence)
+        .map_err(|error| anyhow!("proposal validation failed: {error}"))?;
+
+    // 5. Execute search knowledge if the query is non-empty.
+    let mut trace_id = None;
+    let mut evidence_count = 0usize;
+    if !governed.search_query.trim().is_empty() {
+        match search_knowledge(context, &governed).await {
+            Ok((_plan, outcome)) => {
+                trace_id = Some(outcome.trace.value());
+                evidence_count = outcome.evidence.len();
+            }
+            Err(error) => {
+                warnings.push(format!("search step warning: {error}"));
+            }
+        }
+    }
+
+    let harness = if !governed.harness.command.trim().is_empty() {
+        match execute_governed_harness(context, &governed).await {
+            Ok(outcome) => {
+                let completion = HarnessRunCompleted {
+                    run_id: governed.harness.run_id,
+                    generation: cur_gen,
+                    task_id: proposal.task_id,
+                    command: governed.harness.command.clone(),
+                    exit_code: outcome.exit_code,
+                    output: String::from_utf8_lossy(&outcome.stdout).to_string(),
+                };
+                let _ = context
+                    .input_tx
+                    .try_send(DomainInput::HarnessRunCompleted(completion));
+                Some(ModelAgentHarnessOutcome {
+                    exit_code: outcome.exit_code,
+                    stdout: truncate_utf8(&outcome.stdout, 4096),
+                    stderr: truncate_utf8(&outcome.stderr, 4096),
+                    duration_ms: outcome.duration.as_millis() as u64,
+                })
+            }
+            Err(e) => {
+                warnings.push(format!("harness execution warning: {e}"));
+                None
+            }
+        }
+    } else {
+        None
+    };
+
+    let validation = if let Some(task_id) = proposal.task_id {
+        let task = state.tasks.get(&task_id);
+        if let Some(task) = task {
+            let request = ValidationRequest {
+                task: task.clone(),
+                validation_report: None,
+                proposed_status: maestria_domain::TaskStatus::CompletedVerified,
+            };
+            match context.governance.validation_gate.evaluate(&request) {
+                maestria_governance::ValidationDecision::AllowCompletion => {
+                    Some(ModelAgentValidationSummary {
+                        passed: true,
+                        warnings: Vec::new(),
+                    })
+                }
+                _ => Some(ModelAgentValidationSummary {
+                    passed: false,
+                    warnings: vec!["validation gate did not allow completion".into()],
+                }),
+            }
+        } else {
+            warnings.push("referenced task not found in kernel state".into());
+            None
+        }
+    } else {
+        None
+    };
+
+    let memory_candidate = if harness.is_some() && !governed.evidence_ids.is_empty() {
+        let candidate_id = MemoryCandidateId::new(
+            state
+                .memory_candidates
+                .keys()
+                .map(|id| id.value())
+                .max()
+                .map_or(0, |candidate_id| candidate_id)
+                + 1,
+        );
+        let candidate = maestria_domain::MemoryCandidate {
+            id: candidate_id,
+            claim_id: ClaimId::new(1),
+            evidence_ids: governed.evidence_ids.iter().copied().collect(),
+            confidence_milli: 800,
+            security: maestria_domain::SecurityMetadata::default(),
+        };
+        let request = maestria_governance::MemoryPromotionRequest {
+            candidate: candidate.clone(),
+            user_approved: false,
+        };
+        let decision = context.governance.memory_promotion_gate.evaluate(&request);
+        let decision_str = match &decision {
+            maestria_governance::MemoryPromotionDecision::Promote => "promote",
+            maestria_governance::MemoryPromotionDecision::RequireEvidence { .. } => {
+                "require_evidence"
+            }
+            maestria_governance::MemoryPromotionDecision::RequireReview { .. } => "require_review",
+            maestria_governance::MemoryPromotionDecision::Deny { .. } => "deny",
+        };
+        let _ = context
+            .input_tx
+            .try_send(DomainInput::CreateMemoryCandidate(
+                maestria_domain::CreateMemoryCandidateInput {
+                    candidate_id,
+                    claim_id: ClaimId::new(1),
+                    evidence_ids: governed.evidence_ids.clone(),
+                    confidence_milli: 800,
+                    security: None,
+                },
+            ));
+        Some(ModelAgentMemoryCandidateSummary {
+            candidate_id: candidate_id.value(),
+            confidence_milli: 800,
+            decision: decision_str.to_string(),
+        })
+    } else {
+        None
+    };
+
+    Ok(ClientResponse::ModelAgentProposal(
+        ModelAgentProposalResponse {
+            run_id: run_id.value(),
+            trace_id,
+            index_generation: cur_gen,
+            evidence_count,
+            harness,
+            validation,
+            memory_candidate,
+            warnings,
+        },
+    ))
+}
+
+async fn search_knowledge(
+    context: &ApiContext,
+    governed: &maestria_ports::GovernedAgentProposal,
+) -> Result<(maestria_domain::SearchPlan, maestria_domain::SearchOutcome)> {
+    let layout_a = context.layout.clone();
+    let (state, manifest) = tokio::task::spawn_blocking(move || load_state_and_manifest(&layout_a))
+        .await
+        .map_err(|error| anyhow!("load search state: {error}"))?
+        .map_err(|error| anyhow!("load search state: {error}"))?;
+    let layout_b = context.layout.clone();
+    let runtime = tokio::task::spawn_blocking(move || {
+        crate::prepare_search_runtime_read_only(
+            &layout_b,
+            &state,
+            &manifest,
+            maestria_governance::RetrievalSecurityPolicy::default()
+                .require_read_allowed(true)
+                .allow_unscoped_items(true),
+        )
+    })
+    .await
+    .map_err(|error| anyhow!("prepare search runtime: {error}"))?
+    .map_err(|error| anyhow!("prepare search runtime: {error}"))?;
+    runtime
+        .execute(governed.search_query.clone(), governed.search_limit)
+        .await
+}
+
+async fn execute_governed_harness(
+    context: &ApiContext,
+    governed: &maestria_ports::GovernedAgentProposal,
+) -> Result<maestria_ports::HarnessOutcome> {
+    let harness = &context.adapters.harness;
+    let capabilities = harness
+        .capabilities()
+        .map_err(|e| anyhow!("harness capabilities: {e}"))?;
+
+    if !capabilities
+        .command_classes
+        .contains(&governed.harness.class)
+    {
+        return Err(anyhow!(
+            "harness adapter does not support capability {:?}",
+            governed.harness.class
+        ));
+    }
+
+    let command = governed.harness.command.trim();
+    if command.is_empty() {
+        return Err(anyhow!("harness command must not be empty"));
+    }
+    let allowed_commands = ["echo", "pwd", "cat"];
+    let Some(first_word) = command.split_ascii_whitespace().next() else {
+        return Err(anyhow!("harness command must contain a command name"));
+    };
+    if !allowed_commands.contains(&first_word) {
+        return Err(anyhow!("command not in allowed set: {first_word}"));
+    }
+    let prohibited_chars = &[
+        '|', '&', ';', '$', '`', '(', ')', '{', '}', '<', '>', '\\', '!', '~', '*', '?',
+    ];
+    if command.contains(prohibited_chars) {
+        return Err(anyhow!("command contains prohibited shell metacharacters"));
+    }
+
+    let current_directory = std::env::current_dir().context("resolve daemon working directory")?;
+    let scope_guard = ScopeGuard::new(maestria_governance::Scope::new(
+        vec![current_directory],
+        vec![],
+        vec!["shell".into()],
+        vec![],
+        false,
+    ));
+    let scope = scope_guard.scope();
+
+    let request = HarnessRequest {
+        run_id: governed.harness.run_id,
+        command: command.to_string(),
+        working_directory: governed.harness.working_directory.clone(),
+        duration_budget: governed.harness.duration_budget,
+        class: governed.harness.class.clone(),
+        readable_roots: scope.readable_roots().to_vec(),
+        blocked_paths: scope.blocked_paths().to_vec(),
+        blocked_patterns: scope.blocked_patterns().to_vec(),
+    };
+
+    harness
+        .execute(request)
+        .await
+        .map_err(|e| anyhow!("harness execution failed: {e}"))
 }
 
 fn status(layout: &InstanceLayout, socket_path: &std::path::Path) -> Result<StatusResponse> {
@@ -83,15 +379,54 @@ fn task(layout: &InstanceLayout, task_id: Option<u64>) -> Result<TaskResponse> {
     Ok(TaskResponse { tasks })
 }
 
+async fn run_database_retry<T, F>(operation_name: &str, operation: F) -> Result<T>
+where
+    T: Send + 'static,
+    F: Fn() -> Result<T> + Send + Sync + 'static,
+{
+    let operation = Arc::new(operation);
+    for attempt in 0..DATABASE_RETRY_ATTEMPTS {
+        let op = Arc::clone(&operation);
+        let result = tokio::task::spawn_blocking(move || op())
+            .await
+            .map_err(|error| anyhow!("{operation_name} task failed: {error}"))?;
+        match result {
+            Ok(response) => return Ok(response),
+            Err(error) if is_database_locked(&error) && attempt + 1 < DATABASE_RETRY_ATTEMPTS => {
+                tokio::time::sleep(DATABASE_RETRY_DELAY).await;
+            }
+            Err(error) => return Err(error),
+        }
+    }
+    Err(anyhow!("{operation_name} retries exhausted"))
+}
+
+async fn search_with_retry(
+    context: &ApiContext,
+    query: String,
+    limit: usize,
+) -> Result<SearchResponse> {
+    for attempt in 0..DATABASE_RETRY_ATTEMPTS {
+        match search(context, query.clone(), limit).await {
+            Ok(response) => return Ok(response),
+            Err(error) if is_database_locked(&error) && attempt + 1 < DATABASE_RETRY_ATTEMPTS => {
+                tokio::time::sleep(DATABASE_RETRY_DELAY).await;
+            }
+            Err(error) => return Err(error),
+        }
+    }
+    Err(anyhow!("search query retries exhausted"))
+}
+
 async fn search(context: &ApiContext, query: String, limit: usize) -> Result<SearchResponse> {
-    let layout = context.layout.clone();
-    let (state, manifest) = tokio::task::spawn_blocking(move || load_state_and_manifest(&layout))
+    let layout_a = context.layout.clone();
+    let (state, manifest) = tokio::task::spawn_blocking(move || load_state_and_manifest(&layout_a))
         .await
         .map_err(|error| anyhow!("load search state task failed: {error}"))??;
-    let layout = context.layout.clone();
+    let layout_b = context.layout.clone();
     let runtime = tokio::task::spawn_blocking(move || {
         crate::prepare_search_runtime_read_only(
-            &layout,
+            &layout_b,
             &state,
             &manifest,
             maestria_governance::RetrievalSecurityPolicy::default()
@@ -107,6 +442,11 @@ async fn search(context: &ApiContext, query: String, limit: usize) -> Result<Sea
         plan.query_id.value(),
         outcome,
     ))
+}
+
+fn is_database_locked(error: &anyhow::Error) -> bool {
+    let rendered = format!("{error:#}");
+    rendered.contains("locked") || rendered.contains("busy")
 }
 
 fn open_evidence(layout: &InstanceLayout, evidence_id: u64) -> Result<EvidenceResponse> {
@@ -191,30 +531,22 @@ fn format_source_span(span: &EvidenceSpan) -> String {
             path,
             start_line,
             end_line,
-        } => {
-            format!("{path}:{start_line}-{end_line}")
-        }
+        } => format!("{path}:{start_line}-{end_line}"),
         maestria_domain::SourceLocation::Page {
             page_start,
             page_end,
-        } => {
-            format!("pages {page_start}-{page_end}")
-        }
+        } => format!("pages {page_start}-{page_end}"),
         maestria_domain::SourceLocation::Region {
             page,
             x,
             y,
             width,
             height,
-        } => {
-            format!("page {page} region {x},{y} {width}x{height}")
-        }
+        } => format!("page {page} region {x},{y} {width}x{height}"),
         maestria_domain::SourceLocation::Symbol {
             path,
             qualified_name,
-        } => {
-            format!("{path}::{qualified_name}")
-        }
+        } => format!("{path}::{qualified_name}"),
     }
 }
 
@@ -305,5 +637,14 @@ fn task_summary(task: &Task) -> TaskSummary {
         priority: format!("{:?}", task.priority),
         evidence_ids: task.evidence_ids.iter().map(|id| id.value()).collect(),
         validation_report_id: task.validation_report_id.map(|id| id.value()),
+    }
+}
+
+fn truncate_utf8(bytes: &[u8], max_len: usize) -> String {
+    let s = String::from_utf8_lossy(bytes);
+    if s.len() <= max_len {
+        s.to_string()
+    } else {
+        format!("{}...", &s[..max_len.saturating_sub(3)])
     }
 }

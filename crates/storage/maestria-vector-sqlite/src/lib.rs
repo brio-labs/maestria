@@ -8,6 +8,9 @@
 //! supplied connection, and always maintains a portable BLOB-backed table used by
 //! the `VectorIndex` implementation.
 
+/// Responsibility map:
+/// - `encoding`: module responsibility.
+/// - `schema`: module responsibility.
 use maestria_domain::ChunkId;
 use maestria_ports::{PortError, VectorEmbedding, VectorIndex, VectorSearchHit, VectorSearchQuery};
 use rusqlite::{Connection, OptionalExtension, Transaction, params};

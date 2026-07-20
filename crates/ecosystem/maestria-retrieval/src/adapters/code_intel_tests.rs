@@ -86,6 +86,8 @@ fn plan() -> Result<SearchPlan, SearchCompatibilityError> {
             minimum_corroboration: 1,
         },
         fingerprint: RetrievalModelFingerprint::new("maestria:test".into())?,
+        original_intent: None,
+        route_decision: None,
     };
     plan.budgets = SearchBudget::with_limits(100, 300, 10, 1, 0)?;
     Ok(plan)

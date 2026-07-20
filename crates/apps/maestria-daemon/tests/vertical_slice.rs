@@ -446,3 +446,69 @@ async fn vertical_slice_run_instance_restart_rebuilds_projections()
     .await?;
     Ok(())
 }
+
+#[tokio::test]
+async fn model_agent_proposal_round_trips_through_running_daemon()
+-> Result<(), Box<dyn std::error::Error>> {
+    let tmp = TempDir::new()?;
+    let notes = tmp.path().join("notes");
+    fs::create_dir_all(&notes)?;
+    let layout = setup_layout(tmp.path(), &notes)?;
+    let shutdown = CancellationToken::new();
+    let daemon = tokio::spawn(maestria_daemon::run_instance_with_shutdown(
+        layout.root.clone(),
+        shutdown.clone(),
+    ));
+
+    let client = {
+        let mut ready = None;
+        for _ in 0..80 {
+            if let Ok(client) = maestria_daemon::DaemonClient::from_instance(&layout)
+                && client
+                    .request(maestria_daemon::ClientOperation::Status)
+                    .await
+                    .is_ok()
+            {
+                ready = Some(client);
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+        ready.ok_or("daemon API did not become ready")?
+    };
+
+    let response = client
+        .request(maestria_daemon::ClientOperation::ModelAgentPropose {
+            proposal: maestria_daemon::api::ModelAgentProposalPayload {
+                run_id: 77,
+                task_id: None,
+                query: "model agent smoke".into(),
+                limit: 1,
+                capability: "shell".into(),
+                command: "echo model-agent-smoke".into(),
+                working_directory: ".".into(),
+                timeout_secs: 5,
+                expected_generation: 1,
+                evidence_ids: Vec::new(),
+            },
+        })
+        .await?;
+
+    match response {
+        maestria_daemon::ClientResponse::ModelAgentProposal(result) => {
+            assert_eq!(result.run_id, 77);
+            assert_eq!(result.evidence_count, 0);
+            assert_eq!(
+                result.harness.as_ref().map(|outcome| outcome.exit_code),
+                Some(0)
+            );
+            assert!(result.validation.is_none());
+            assert!(result.memory_candidate.is_none());
+        }
+        other => return Err(format!("unexpected model-agent response: {other:?}").into()),
+    }
+
+    shutdown.cancel();
+    daemon.await??;
+    Ok(())
+}

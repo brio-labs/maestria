@@ -295,6 +295,12 @@ pub struct SearchTrace {
     pub query_id: crate::ids::QueryId,
     pub original_query: String,
     pub intent: super::SearchIntent,
+    #[serde(default)]
+    pub original_intent: Option<super::SearchIntent>,
+    #[serde(default)]
+    pub unavailable_capability: Option<String>,
+    #[serde(default)]
+    pub route_decision: Option<String>,
     pub scope: super::CorpusScope,
     pub corpus_snapshot: crate::ids::CorpusSnapshotId,
     pub index_generation: IndexGenerationId,
@@ -344,16 +350,23 @@ impl SearchTrace {
             query_id: plan.query_id,
             original_query: plan.original_query.clone(),
             intent: plan.intent,
+            original_intent: plan.original_intent,
+            unavailable_capability: None,
+            route_decision: plan.route_decision.clone(),
             scope: plan.scope.clone(),
             corpus_snapshot: plan.corpus_snapshot,
             index_generation: plan.index_generation,
             freshness: plan.freshness.clone(),
-            modalities: plan.modalities.clone(),
             degradation: None,
+            modalities: plan.modalities.clone(),
             stages: plan.stages.clone(),
             evidence_requirements: plan.evidence_requirements.clone(),
             fingerprint: plan.fingerprint.clone(),
-            identity_version: 3,
+            identity_version: if plan.original_intent.is_some() || plan.route_decision.is_some() {
+                5
+            } else {
+                3
+            },
             retrievers,
             policy_fingerprint: None,
             budgets: plan.budgets.clone(),
@@ -404,6 +417,11 @@ impl SearchTrace {
     pub fn with_degradation(mut self, degradation: impl Into<String>) -> Self {
         self.identity_version = self.identity_version.max(4);
         self.degradation = Some(degradation.into());
+        self
+    }
+    pub fn with_unavailable_capability(mut self, capability: impl Into<String>) -> Self {
+        self.identity_version = self.identity_version.max(5);
+        self.unavailable_capability = Some(capability.into());
         self
     }
 }

@@ -13,4 +13,5 @@ cargo deny check all
 cargo machete
 cargo tree --locked --duplicates
 python3 scripts/philosophy-check.py
+python3 scripts/doc-consistency-check.py
 python3 -m unittest discover -s scripts -p 'test_*.py'

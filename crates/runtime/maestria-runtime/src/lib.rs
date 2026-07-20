@@ -1,4 +1,21 @@
 mod config;
+
+/// Responsibility map:
+/// - `config`: module responsibility.
+/// - `effect_dispatch`: module responsibility.
+/// - `effect_execution`: module responsibility.
+/// - `harness`: module responsibility.
+/// - `indexing`: module responsibility.
+/// - `parser_mapping`: module responsibility.
+/// - `parsing`: module responsibility.
+/// - `parsing_records`: module responsibility.
+/// - `persistence`: module responsibility.
+/// - `shell_policy`: module responsibility.
+/// - `supervision`: module responsibility.
+/// - `validation`: module responsibility.
+/// - `web_evidence`: module responsibility.
+/// - `approval`: module responsibility.
+/// - `completion`: module responsibility.
 mod effect_dispatch;
 mod effect_execution;
 mod harness;

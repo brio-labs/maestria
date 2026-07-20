@@ -1,5 +1,7 @@
 use maestria_domain::{DomainInput, EventId, HarnessRunId, KernelState, ScopeId};
-use maestria_governance::{ApprovalGate, AutonomyProfile, ClassifyRisk, Scope, ValidationGate};
+use maestria_governance::{
+    ApprovalGate, AutonomyProfile, ClassifyRisk, MemoryPromotionGate, Scope, ValidationGate,
+};
 use maestria_ports::{
     ApprovalRepository, ArtifactRepository, BlobStore, CardRepository, ChunkRepository,
     EffectJournal, EmbeddingProvider, EventLog, EvidenceRepository, FullTextIndex, GraphIndex,
@@ -61,6 +63,7 @@ pub struct Governance {
     pub classifier: Arc<dyn ClassifyRisk + Send + Sync>,
     pub approval_gate: Arc<dyn ApprovalGate + Send + Sync>,
     pub validation_gate: Arc<dyn ValidationGate + Send + Sync>,
+    pub memory_promotion_gate: Arc<dyn MemoryPromotionGate + Send + Sync>,
 }
 pub(crate) type HarnessFeedbackAcks = Arc<Mutex<BTreeMap<EventId, (HarnessRunId, u64)>>>;
 

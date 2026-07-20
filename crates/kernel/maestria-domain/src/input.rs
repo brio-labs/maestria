@@ -55,6 +55,7 @@ impl KernelState {
             }
             DomainInput::UserIntent(input) => self.process_user_intent(input),
             DomainInput::ArtifactDetected(input) => self.process_artifact_detected(input),
+            DomainInput::SourceRemoved(input) => self.process_source_removed(input),
             DomainInput::ParserCompleted(input) => self.process_parser_completed(input),
             DomainInput::StartIndexGeneration(input) => self.process_start_index_generation(input),
             DomainInput::TransitionIndexGeneration(input) => {

@@ -9,6 +9,7 @@ impl SearchTrace {
         let identity_v2 = self.identity_version >= 2;
         let identity_v3 = self.identity_version >= 3;
         let identity_v4 = self.identity_version >= 4;
+        let identity_v5 = self.identity_version >= 5;
         if self.identity_version != 0 {
             mix_hash(
                 &mut hash,
@@ -17,6 +18,14 @@ impl SearchTrace {
         }
         mix_hash(&mut hash, &self.query_id.value().to_le_bytes());
         mix_hash(&mut hash, self.original_query.as_bytes());
+        if identity_v5 {
+            mix_hash(&mut hash, format!("{:?}", self.original_intent).as_bytes());
+            mix_hash(
+                &mut hash,
+                format!("{:?}", self.unavailable_capability).as_bytes(),
+            );
+            mix_hash(&mut hash, format!("{:?}", self.route_decision).as_bytes());
+        }
         mix_hash(&mut hash, format!("{:?}", self.intent).as_bytes());
         mix_hash(&mut hash, format!("{:?}", self.scope).as_bytes());
         mix_hash(&mut hash, format!("{:?}", self.freshness).as_bytes());

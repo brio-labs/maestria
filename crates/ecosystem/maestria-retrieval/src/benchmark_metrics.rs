@@ -22,6 +22,9 @@ pub(super) fn metrics_for(
     let mut peak_memory_bytes = 0_u64;
     let mut privacy_violations = 0_u32;
     let mut security_violations = 0_u32;
+    let mut peak_disk_bytes = 0_u64;
+    let mut citation_total = 0u64;
+    let mut citation_count = 0usize;
     let mut energy_milliwatt_seconds = 0_u64;
     for case in cases {
         let observation = observations
@@ -47,6 +50,10 @@ pub(super) fn metrics_for(
         freshness_errors += u32::from(observation.freshness_error);
         peak_memory_bytes = peak_memory_bytes.max(observation.memory_bytes);
         privacy_violations += u32::from(observation.privacy_violation);
+        peak_disk_bytes = peak_disk_bytes.max(observation.disk_bytes);
+        citation_total =
+            citation_total.saturating_add(observation.citation_alignment.value() as u64);
+        citation_count += 1;
         security_violations += u32::from(observation.security_violation);
         energy_milliwatt_seconds =
             energy_milliwatt_seconds.saturating_add(observation.energy_milliwatt_seconds);
@@ -58,15 +65,17 @@ pub(super) fn metrics_for(
     let p95_index = ((latencies.len() * 95).div_ceil(100)).saturating_sub(1);
     Ok(RepositoryRouteMetrics {
         exact_span_recall: Metric::from_ratio(exact_hits, exact_expected),
-        peak_memory_bytes,
-        privacy_violations,
-        security_violations,
-        energy_milliwatt_seconds,
         evidence_chain_accuracy: Metric::from_ratio(chain_hits, chain_expected),
         outcome_accuracy: Metric::from_ratio(outcomes, cases.len()),
         abstention_accuracy: Metric::from_ratio(abstentions, abstention_expected),
         p95_latency_ms: latencies[p95_index],
         freshness_errors,
+        peak_memory_bytes,
+        peak_disk_bytes,
+        privacy_violations,
+        security_violations,
+        energy_milliwatt_seconds,
+        citation_alignment: Metric::from_ratio(citation_total as usize, citation_count),
     })
 }
 
@@ -97,13 +106,17 @@ pub(super) fn wins(
     let abstention_safe =
         specialized.abstention_accuracy.value() >= phase_c.abstention_accuracy.value();
     let resource_safe = specialized.peak_memory_bytes <= phase_c.peak_memory_bytes
+        && specialized.peak_disk_bytes <= phase_c.peak_disk_bytes
         && specialized.privacy_violations <= phase_c.privacy_violations
         && specialized.security_violations <= phase_c.security_violations
         && specialized.energy_milliwatt_seconds <= phase_c.energy_milliwatt_seconds;
+    let citation_safe =
+        specialized.citation_alignment.value() >= phase_c.citation_alignment.value();
     quality_gain
         && specialized.freshness_errors <= phase_c.freshness_errors
         && latency_not_slower
         && latency_within_budget
         && abstention_safe
         && resource_safe
+        && citation_safe
 }

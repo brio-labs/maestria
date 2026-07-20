@@ -59,6 +59,9 @@ impl KernelState {
             | DomainEvent::ValidationReportCreated { .. } => {
                 self.replay_entity_events(&envelope.event)?;
             }
+            DomainEvent::SourceBecameStale { source_path, .. } => {
+                self.stale_sources.insert(source_path.clone());
+            }
         }
 
         self.event_log.push(envelope);

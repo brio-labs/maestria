@@ -42,6 +42,8 @@ fn query_plan(
             minimum_corroboration: 1,
         },
         fingerprint: RetrievalModelFingerprint::new("trace:v1".to_owned())?,
+        original_intent: None,
+        route_decision: None,
     })
 }
 

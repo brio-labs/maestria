@@ -1,5 +1,10 @@
 //! Local authenticated daemon client boundary.
 
+/// Responsibility map:
+/// - `protocol`: module responsibility.
+/// - `server`: module responsibility.
+/// - `services`: module responsibility.
+/// - `token`: module responsibility.
 mod protocol;
 mod server;
 mod services;
@@ -7,8 +12,10 @@ mod token;
 
 pub use protocol::{
     ClientOperation, ClientRequest, ClientResponse, CoverageResponse, DaemonClient,
-    EvidenceResponse, EvidenceSourceResponse, SearchEvidenceResponse, SearchResponse,
-    StatusResponse, TaskResponse, TaskSummary,
+    EvidenceResponse, EvidenceSourceResponse, ModelAgentHarnessOutcome,
+    ModelAgentMemoryCandidateSummary, ModelAgentProposalPayload, ModelAgentProposalResponse,
+    ModelAgentValidationSummary, SearchEvidenceResponse, SearchResponse, StatusResponse,
+    TaskResponse, TaskSummary,
 };
 pub use server::ApiServer;
 

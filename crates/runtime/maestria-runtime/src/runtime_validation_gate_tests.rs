@@ -267,7 +267,8 @@ async fn task_completion_blocked_by_warnings_when_disallowed()
     let governance = Governance {
         classifier: Arc::new(DefaultRiskClassifier),
         approval_gate: Arc::new(DefaultApprovalGate),
-        validation_gate: Arc::new(DefaultValidationGate::new(false)), // DISALLOWED
+        validation_gate: Arc::new(DefaultValidationGate::new(false)),
+        memory_promotion_gate: Arc::new(maestria_governance::DefaultMemoryPromotionGate), // DISALLOWED
     };
     let seed = vec![DomainEvent::ValidationReportCreated {
         report_id,
@@ -309,7 +310,8 @@ async fn task_completion_allowed_with_warnings_when_configured()
     let governance = Governance {
         classifier: Arc::new(DefaultRiskClassifier),
         approval_gate: Arc::new(DefaultApprovalGate),
-        validation_gate: Arc::new(DefaultValidationGate::new(true)), // ALLOWED
+        validation_gate: Arc::new(DefaultValidationGate::new(true)),
+        memory_promotion_gate: Arc::new(maestria_governance::DefaultMemoryPromotionGate), // ALLOWED
     };
     let seed = vec![DomainEvent::ValidationReportCreated {
         report_id,

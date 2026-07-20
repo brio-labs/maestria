@@ -197,6 +197,13 @@ abstained
 
 An outcome may be useful without being complete. Missing coverage and unresolved conflicts must be explicit.
 
+When a specialized local intent is unavailable, planning uses one bounded governed
+local-text fallback instead of retrying or silently changing scope. The trace keeps
+the classified intent and records a degradation such as `governed local-text
+fallback for unavailable TemporalMemory intent`; malformed plans still return
+typed errors. The fallback is intentionally non-promotional: specialized routes
+remain disabled until their frozen benchmark proves a quality and resource win.
+
 ### Search Trace and Golden Gate
 
 Every runtime-produced `SearchOutcome` carries a typed trace payload in addition

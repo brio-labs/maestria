@@ -257,6 +257,8 @@ pub struct SearchPlan {
     pub stop_conditions: StopConditions,
     pub evidence_requirements: EvidenceRequirements,
     pub fingerprint: super::RetrievalModelFingerprint,
+    pub original_intent: Option<SearchIntent>,
+    pub route_decision: Option<String>,
 }
 
 fn validate_web_budget(plan: &SearchPlan) -> Result<(), SearchCompatibilityError> {
