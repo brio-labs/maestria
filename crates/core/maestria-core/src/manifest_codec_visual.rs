@@ -1,7 +1,7 @@
 use super::{CoreError, CoreResult, ManifestFields, parse_retention_policy, string_or_empty};
 use url::Url;
 
-pub(super) fn parse_visual_config(
+pub(crate) fn parse_visual_config(
     fields: &ManifestFields,
 ) -> CoreResult<Option<super::super::VisualConfig>> {
     match (
