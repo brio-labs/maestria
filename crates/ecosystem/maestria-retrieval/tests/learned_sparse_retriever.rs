@@ -83,10 +83,13 @@ fn fixture_registry(
         },
         lifecycle: IndexLifecycle::Building,
     })?;
-    drop(registry.transition_lifecycle(identity.generation_id, IndexLifecycle::Evaluated)?);
-    drop(registry.transition_lifecycle(identity.generation_id, IndexLifecycle::Shadow)?);
+    let _previous_active =
+        registry.transition_lifecycle(identity.generation_id, IndexLifecycle::Evaluated)?;
+    let _previous_active =
+        registry.transition_lifecycle(identity.generation_id, IndexLifecycle::Shadow)?;
     if activate {
-        drop(registry.transition_lifecycle(identity.generation_id, IndexLifecycle::Active)?);
+        let _previous_active =
+            registry.transition_lifecycle(identity.generation_id, IndexLifecycle::Active)?;
     }
     Ok(registry)
 }
