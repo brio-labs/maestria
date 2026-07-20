@@ -10,6 +10,9 @@ impl EffectFailure {
     pub(crate) fn retryable(&self) -> bool {
         matches!(self, Self::Failed(_))
     }
+    pub(crate) fn fatal(&self) -> bool {
+        matches!(self, Self::Failed(_))
+    }
 }
 
 impl std::fmt::Display for EffectFailure {

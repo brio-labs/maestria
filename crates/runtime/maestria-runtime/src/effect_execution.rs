@@ -87,7 +87,10 @@ impl EffectExecutionContext {
 
     /// Retry loop with timeout watchdog. Non-idempotent harness effects never
     /// replay automatically; their journal entry pauses or fails instead.
-    pub(crate) async fn execute_with_retries(self, effect: MaestriaEffect) -> bool {
+    pub(crate) async fn execute_with_retries(
+        self,
+        effect: MaestriaEffect,
+    ) -> Result<(), EffectFailure> {
         let non_idempotent = matches!(&effect, MaestriaEffect::QueryHarness(_));
         let watchdog = self.default_effect_timeout + Duration::from_secs(5);
         let result = tokio::time::timeout(watchdog, async {
@@ -98,11 +101,11 @@ impl EffectExecutionContext {
                     .execute_effect(effect.clone(), Some(self.default_effect_timeout))
                     .await
                 {
-                    Ok(()) => return true,
+                    Ok(()) => return Ok(()),
                     Err(error) => {
                         tracing::error!(%error, "effect execution did not complete");
                         if !error.retryable() || non_idempotent || attempts >= self.max_retries {
-                            return false;
+                            return Err(error);
                         }
                     }
                 }
@@ -114,13 +117,10 @@ impl EffectExecutionContext {
         .await;
 
         match result {
-            Ok(success) => success,
+            Ok(inner) => inner,
             Err(_) => {
-                tracing::error!(
-                    "Watchdog: effect execution timed out after {:?}",
-                    self.default_effect_timeout
-                );
-                false
+                tracing::error!("Watchdog: effect execution timed out after {:?}", watchdog);
+                Err(EffectFailure::Failed("effect watchdog timeout".to_string()))
             }
         }
     }
