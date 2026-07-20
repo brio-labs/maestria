@@ -20,6 +20,8 @@ use maestria_retrieval::{
     LearnedSparseShadowStore, RetrievalEngine, RetrievalEvaluator,
 };
 
+type TestResult<T = ()> = Result<T, Box<dyn std::error::Error>>;
+
 struct FixedRetriever {
     descriptor: RetrieverDescriptor,
     candidate: EvidenceCandidate,
@@ -86,7 +88,7 @@ fn descriptor(id: &str, modality: &str, representation: &str) -> RetrieverDescri
     }
 }
 
-fn source_span() -> Result<EvidenceSpan, Box<dyn std::error::Error>> {
+fn source_span() -> TestResult<EvidenceSpan> {
     Ok(EvidenceSpan::new(
         None,
         SourceLocation::File {
@@ -98,7 +100,7 @@ fn source_span() -> Result<EvidenceSpan, Box<dyn std::error::Error>> {
     )?)
 }
 
-fn lexical_candidate() -> Result<EvidenceCandidate, Box<dyn std::error::Error>> {
+fn lexical_candidate() -> TestResult<EvidenceCandidate> {
     Ok(EvidenceCandidate {
         evidence_id: EvidenceId::new(1),
         artifact_version: ArtifactVersionId::new(1),
@@ -115,7 +117,7 @@ fn lexical_candidate() -> Result<EvidenceCandidate, Box<dyn std::error::Error>> 
     })
 }
 
-fn sparse_candidate() -> Result<EvidenceCandidate, Box<dyn std::error::Error>> {
+fn sparse_candidate() -> TestResult<EvidenceCandidate> {
     Ok(EvidenceCandidate {
         evidence_id: EvidenceId::new(2),
         artifact_version: ArtifactVersionId::new(2),
@@ -142,7 +144,7 @@ fn sparse_candidate() -> Result<EvidenceCandidate, Box<dyn std::error::Error>> {
     })
 }
 
-fn plan() -> Result<SearchPlan, Box<dyn std::error::Error>> {
+fn plan() -> TestResult<SearchPlan> {
     Ok(SearchPlan {
         query_id: QueryId::new(1),
         original_query: "discover related concepts".to_string(),
@@ -176,7 +178,7 @@ fn plan() -> Result<SearchPlan, Box<dyn std::error::Error>> {
 fn engine(
     policy: LearnedSparseExecutionPolicy,
     store: LearnedSparseShadowStore,
-) -> Result<RetrievalEngine, Box<dyn std::error::Error>> {
+) -> TestResult<RetrievalEngine> {
     Ok(RetrievalEngine::new(
         vec![
             Arc::new(FixedRetriever {
@@ -199,8 +201,7 @@ fn engine(
 }
 
 #[tokio::test]
-async fn shadow_sparse_observation_cannot_change_served_evidence()
--> Result<(), Box<dyn std::error::Error>> {
+async fn shadow_sparse_observation_cannot_change_served_evidence() -> TestResult {
     let store = LearnedSparseShadowStore::new(4)?;
     let engine = engine(LearnedSparseExecutionPolicy::Shadow, store.clone())?;
     let outcome = engine.search(&plan()?).await?;
@@ -236,8 +237,7 @@ async fn shadow_sparse_observation_cannot_change_served_evidence()
 }
 
 #[tokio::test]
-async fn disabled_sparse_policy_executes_no_shadow_lane()
--> Result<(), Box<dyn std::error::Error>> {
+async fn disabled_sparse_policy_executes_no_shadow_lane() -> TestResult {
     let store = LearnedSparseShadowStore::new(4)?;
     let engine = engine(LearnedSparseExecutionPolicy::Disabled, store.clone())?;
     let _outcome = engine.search(&plan()?).await?;
@@ -247,8 +247,7 @@ async fn disabled_sparse_policy_executes_no_shadow_lane()
 }
 
 #[test]
-fn shadow_observations_round_trip_through_bounded_json()
--> Result<(), Box<dyn std::error::Error>> {
+fn shadow_observations_round_trip_through_bounded_json() -> TestResult {
     let store = LearnedSparseShadowStore::new(4)?;
     let empty = store.export_json()?;
     let replay = LearnedSparseShadowStore::new(4)?;
