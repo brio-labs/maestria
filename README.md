@@ -39,6 +39,7 @@ The `set` command validates the repository contract and refreshes `Cargo.lock`
 through Cargo metadata. Release publication now requires a milestone exit-evidence report
 in the milestone description as part of workflow preflight:
 
+*   `planned`: the milestone is specified but implementation issues remain open;
 *   `implementation-complete`: all implementation issues are closed;
 *   `benchmark-complete`: version-linked benchmark measurements are collected (synthetic is allowed but treated as provisional);
 *   `product-complete`: real measurements include corpus/index/model fingerprints, quality/resource/security results, and degradations;
