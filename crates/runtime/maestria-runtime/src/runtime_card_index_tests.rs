@@ -3,8 +3,21 @@ use maestria_domain::{
     Artifact, ArtifactId, Card, CardId, Chunk, ChunkId, KernelState, MaestriaEffect, SourceSpan,
     StructureNodeId,
 };
-use maestria_ports::{FullTextIndex, InMemoryFullTextIndex, SearchQuery};
+use maestria_ports::{
+    EmbeddingProvider, EmbeddingRequest, EmbeddingResponse, FullTextIndex, InMemoryFullTextIndex,
+    PortError, SearchQuery,
+};
 use std::collections::BTreeSet;
+struct ProviderWithoutIdentity;
+
+impl EmbeddingProvider for ProviderWithoutIdentity {
+    fn embed(&self, _request: EmbeddingRequest) -> Result<EmbeddingResponse, PortError> {
+        Err(PortError::Internal {
+            message: "test provider must not be called without a model".into(),
+        })
+    }
+}
+
 use std::sync::Arc;
 use tokio::sync::{RwLock, mpsc};
 
@@ -324,6 +337,64 @@ async fn index_full_text_rejects_secret_bearing_chunk() -> Result<(), Box<dyn st
                 offset: 0,
             })?
             .is_empty()
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn vector_effect_without_provider_reports_degraded_failure()
+-> Result<(), Box<dyn std::error::Error>> {
+    let (input_tx, _input_rx) = mpsc::channel(8);
+    let result = MaestriaRuntime::test_execute_effect(
+        MaestriaEffect::IndexVector(maestria_domain::IndexVectorRequest {
+            artifact_id: ArtifactId::new(1),
+            chunk_id: ChunkId::new(10),
+        }),
+        EffectExecutionContext::test_default(
+            Arc::new(crate::test_helpers::test_adapters()),
+            Arc::new(crate::test_helpers::test_governance()),
+            Arc::new(RwLock::new(KernelState::new())),
+            input_tx,
+        ),
+        None,
+    )
+    .await;
+
+    assert!(
+        !result,
+        "missing embedding provider must not complete indexing"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn vector_effect_without_model_reports_degraded_failure()
+-> Result<(), Box<dyn std::error::Error>> {
+    let (input_tx, _input_rx) = mpsc::channel(8);
+    let adapters = Adapters {
+        embedding_provider: Some(Arc::new(ProviderWithoutIdentity)),
+        ..crate::test_helpers::test_adapters()
+    };
+    let context = EffectExecutionContext::test_default(
+        Arc::new(adapters),
+        Arc::new(crate::test_helpers::test_governance()),
+        Arc::new(RwLock::new(KernelState::new())),
+        input_tx,
+    );
+
+    let result = MaestriaRuntime::test_execute_effect(
+        MaestriaEffect::IndexVector(maestria_domain::IndexVectorRequest {
+            artifact_id: ArtifactId::new(1),
+            chunk_id: ChunkId::new(10),
+        }),
+        context,
+        None,
+    )
+    .await;
+
+    assert!(
+        !result,
+        "provider without generation identity must not complete indexing"
     );
     Ok(())
 }

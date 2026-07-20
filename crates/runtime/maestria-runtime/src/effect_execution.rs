@@ -1,11 +1,12 @@
 use crate::config::EffectExecutionContext;
+use crate::effect_result::{EffectFailure, handler_result};
 use maestria_domain::{
-    CorpusScope, DiagnosticEvent, DomainInput, IndexVectorRequest, LogicalTick, MaestriaEffect,
-    RequestApprovalRequest, SearchKnowledgeCompleted, SearchKnowledgeRequest, UpdateGraphRequest,
+    CorpusScope, DiagnosticEvent, DomainInput, LogicalTick, MaestriaEffect, RequestApprovalRequest,
+    SearchKnowledgeCompleted, SearchKnowledgeRequest, UpdateGraphRequest,
 };
-use maestria_governance::{ApprovalRequest, PolicyDecision, RiskClass, ScopeGuard, scan_secrets};
-use maestria_ports::{ApprovalRecord, ApprovalRiskLevel, ApprovalStatus, VectorEmbedding};
-use std::{sync::Arc, time::Duration};
+use maestria_governance::{ApprovalRequest, PolicyDecision, RiskClass, ScopeGuard};
+use maestria_ports::{ApprovalRecord, ApprovalRiskLevel, ApprovalStatus};
+use std::time::Duration;
 use tokio::sync::mpsc;
 
 // ── dispatch ──────────────────────────────────────────────────────────
@@ -19,8 +20,7 @@ impl EffectExecutionContext {
         self,
         effect: MaestriaEffect,
         persistence_barrier_timeout: Option<Duration>,
-    ) -> bool {
-        // ── governance gate ──────────────────────────────────────────
+    ) -> Result<(), EffectFailure> {
         let scope = ScopeGuard::new(self.scope.clone());
         let risk = self.governance.classifier.classify(&effect, &scope);
         let decision = self.governance.approval_gate.decide(&ApprovalRequest {
@@ -29,39 +29,59 @@ impl EffectExecutionContext {
             scope: &scope,
         });
 
-        let persistence_effect = matches!(&effect, MaestriaEffect::PersistEvent { .. });
         match decision.decision {
             PolicyDecision::Allow => {}
             PolicyDecision::Deny { reason } => {
                 tracing::warn!(?risk, %reason, "effect denied");
-                return !persistence_effect;
+                return Err(EffectFailure::Denied(reason));
             }
             PolicyDecision::RequireApproval { reason } => {
                 tracing::info!(?risk, %reason, "effect requires approval");
-                return !persistence_effect;
+                return Err(EffectFailure::RequiresApproval(reason));
             }
         }
 
         match effect {
-            MaestriaEffect::PersistEvent { envelope } => self.handle_persist_event(*envelope).await,
-            MaestriaEffect::PersistState(request) => self.handle_persist_state(request).await,
-            MaestriaEffect::ParseArtifact(request) => {
+            MaestriaEffect::PersistEvent { envelope } => {
+                handler_result(self.handle_persist_event(*envelope).await, "persist event")
+            }
+            MaestriaEffect::PersistState(request) => {
+                handler_result(self.handle_persist_state(request).await, "persist state")
+            }
+            MaestriaEffect::ParseArtifact(request) => handler_result(
                 self.handle_parse_artifact(request, persistence_barrier_timeout)
-                    .await
-            }
-            MaestriaEffect::IndexFullText(request) => self.handle_index_full_text(request).await,
+                    .await,
+                "parse artifact",
+            ),
+            MaestriaEffect::IndexFullText(request) => handler_result(
+                self.handle_index_full_text(request).await,
+                "index full text",
+            ),
             MaestriaEffect::IndexVector(request) => self.handle_index_vector(request).await,
-            MaestriaEffect::UpdateGraph(request) => self.handle_update_graph(request).await,
-            MaestriaEffect::QueryHarness(request) => self.handle_query_harness(request).await,
-            MaestriaEffect::FetchWeb(request) => self.handle_fetch_web(request).await,
-            MaestriaEffect::RunValidation(request) => self.handle_run_validation(request).await,
-            MaestriaEffect::RequestApproval(request) => self.handle_request_approval(request).await,
-            MaestriaEffect::EmitDiagnostic(diagnostic) => {
-                self.handle_emit_diagnostic(diagnostic).await
+            MaestriaEffect::UpdateGraph(request) => {
+                handler_result(self.handle_update_graph(request).await, "update graph")
             }
-            MaestriaEffect::SearchKnowledge(request) => {
-                self.handle_search_knowledge(*request).await
+            MaestriaEffect::QueryHarness(request) => {
+                handler_result(self.handle_query_harness(request).await, "query harness")
             }
+            MaestriaEffect::FetchWeb(request) => {
+                handler_result(self.handle_fetch_web(request).await, "fetch web")
+            }
+            MaestriaEffect::RunValidation(request) => {
+                handler_result(self.handle_run_validation(request).await, "run validation")
+            }
+            MaestriaEffect::RequestApproval(request) => handler_result(
+                self.handle_request_approval(request).await,
+                "request approval",
+            ),
+            MaestriaEffect::EmitDiagnostic(diagnostic) => handler_result(
+                self.handle_emit_diagnostic(diagnostic).await,
+                "emit diagnostic",
+            ),
+            MaestriaEffect::SearchKnowledge(request) => handler_result(
+                self.handle_search_knowledge(*request).await,
+                "search knowledge",
+            ),
         }
     }
 
@@ -73,13 +93,18 @@ impl EffectExecutionContext {
         let result = tokio::time::timeout(watchdog, async {
             let mut attempts = 0;
             loop {
-                let success = self
+                match self
                     .clone()
                     .execute_effect(effect.clone(), Some(self.default_effect_timeout))
-                    .await;
-
-                if success || non_idempotent || attempts >= self.max_retries {
-                    return success;
+                    .await
+                {
+                    Ok(()) => return true,
+                    Err(error) => {
+                        tracing::error!(%error, "effect execution did not complete");
+                        if !error.retryable() || non_idempotent || attempts >= self.max_retries {
+                            return false;
+                        }
+                    }
                 }
                 attempts += 1;
                 tracing::warn!("Retrying effect execution (attempt {})", attempts);
@@ -238,133 +263,6 @@ impl EffectExecutionContext {
             "domain diagnostic"
         );
         true
-    }
-
-    async fn handle_index_vector(&self, request: IndexVectorRequest) -> bool {
-        let Some(provider) = &self.adapters.embedding_provider else {
-            tracing::debug!(chunk_id = %request.chunk_id, "vector indexing disabled");
-            return true;
-        };
-        let Some(model) = self
-            .embedding_model
-            .clone()
-            .filter(|model| !model.trim().is_empty())
-        else {
-            tracing::warn!(chunk_id = %request.chunk_id, "vector provider configured without model");
-            return true;
-        };
-        let (chunk, content_hash, security_allowed) = {
-            let state = self.state.read().await;
-            let Some(chunk) = state.chunks.get(&request.chunk_id).cloned() else {
-                return {
-                    tracing::warn!(chunk_id = %request.chunk_id, "chunk missing for vector index");
-                    true
-                };
-            };
-            let (content_hash, security_allowed) = match state.artifacts.get(&chunk.artifact_id) {
-                Some(artifact) => {
-                    let content_hash = match artifact.content_hash.clone() {
-                        Some(content_hash) => content_hash,
-                        None => maestria_domain::content_hash(chunk.text.as_bytes()),
-                    };
-                    (content_hash, artifact.security.retrieval_allowed())
-                }
-                None => (maestria_domain::content_hash(chunk.text.as_bytes()), false),
-            };
-            (chunk, content_hash, security_allowed)
-        };
-        if !security_allowed {
-            tracing::warn!(
-                chunk_id = %request.chunk_id,
-                "refusing vector indexing for denied artifact"
-            );
-            return false;
-        }
-        let secret_scan = scan_secrets(&chunk.text);
-        if !secret_scan.is_clean() {
-            tracing::warn!(
-                chunk_id = %request.chunk_id,
-                findings = secret_scan.findings.len(),
-                "refusing embedding for secret-bearing chunk"
-            );
-            return false;
-        }
-        let Some(identity) = provider.identity() else {
-            tracing::warn!(chunk_id = %request.chunk_id, "embedding provider has no generation identity");
-            return self.invalidate_vector_projection(request.chunk_id).await;
-        };
-        let embedding_request = maestria_ports::EmbeddingRequest {
-            text: chunk.text.clone(),
-            model,
-            kind: maestria_ports::EmbeddingInputKind::Document,
-            identity: identity.clone(),
-        };
-        let provider = Arc::clone(provider);
-        let response = match embed_blocking(provider, embedding_request).await {
-            Ok(response) => response,
-            Err(error) => {
-                tracing::warn!(chunk_id = %request.chunk_id, %error, "embedding provider failed; preserving fallback");
-                return self.invalidate_vector_projection(request.chunk_id).await;
-            }
-        };
-        if response.identity != identity {
-            return self.invalidate_vector_projection(request.chunk_id).await;
-        }
-        let embedding = VectorEmbedding {
-            chunk_id: request.chunk_id,
-            vector: response.vector,
-            provenance: maestria_ports::EmbeddingProvenance {
-                content_hash,
-                identity: response.identity,
-                provider_id: response.provider_id,
-                model: response.model,
-                model_version: response.model_version,
-                disclosure: response.disclosure,
-            },
-        };
-        let vector_index = Arc::clone(&self.adapters.vector_index);
-        match tokio::task::spawn_blocking(move || vector_index.index_embeddings(vec![embedding]))
-            .await
-        {
-            Ok(Ok(())) => true,
-            Ok(Err(error)) => {
-                tracing::warn!(chunk_id = %request.chunk_id, %error, "vector projection failed; preserving fallback");
-                self.invalidate_vector_projection(request.chunk_id).await
-            }
-            Err(error) => {
-                tracing::warn!(chunk_id = %request.chunk_id, %error, "vector projection task failed; preserving fallback");
-                self.invalidate_vector_projection(request.chunk_id).await
-            }
-        }
-    }
-
-    async fn invalidate_vector_projection(&self, chunk_id: maestria_domain::ChunkId) -> bool {
-        let vector_index = Arc::clone(&self.adapters.vector_index);
-        let result =
-            tokio::task::spawn_blocking(move || vector_index.delete_chunks(&[chunk_id])).await;
-        match result {
-            Ok(Ok(())) => true,
-            Ok(Err(error)) => {
-                tracing::warn!(chunk_id = %chunk_id, %error, "could not invalidate stale vector projection");
-                false
-            }
-            Err(error) => {
-                tracing::warn!(chunk_id = %chunk_id, %error, "vector invalidation task failed");
-                false
-            }
-        }
-    }
-}
-
-async fn embed_blocking(
-    provider: Arc<dyn maestria_ports::EmbeddingProvider + Send + Sync>,
-    request: maestria_ports::EmbeddingRequest,
-) -> Result<maestria_ports::EmbeddingResponse, maestria_ports::PortError> {
-    match tokio::task::spawn_blocking(move || provider.embed(request)).await {
-        Ok(result) => result,
-        Err(error) => Err(maestria_ports::PortError::Internal {
-            message: format!("embedding provider task failed: {error}"),
-        }),
     }
 }
 

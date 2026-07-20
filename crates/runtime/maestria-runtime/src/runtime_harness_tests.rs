@@ -135,7 +135,7 @@ async fn query_harness_denies_invalid_grammar_before_spawn()
         MaestriaRuntime::test_execute_effect(MaestriaEffect::QueryHarness(request), ctx, None)
             .await;
 
-    assert!(result, "denied commands should return true (non-fatal)");
+    assert!(!result, "denied commands must report a failed effect");
     assert!(
         !harness_called.load(Ordering::Relaxed),
         "harness must not be invoked for denied commands"
@@ -183,7 +183,7 @@ async fn query_harness_rejects_cat_outside_scope() -> Result<(), Box<dyn std::er
         MaestriaRuntime::test_execute_effect(MaestriaEffect::QueryHarness(request), ctx, None)
             .await;
 
-    assert!(result, "out-of-scope cat should return true (non-fatal)");
+    assert!(result, "rejected command outcome should be recorded");
     assert!(
         !harness_called.load(Ordering::Relaxed),
         "harness must not be invoked for out-of-scope cat"

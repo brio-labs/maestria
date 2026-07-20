@@ -1,9 +1,10 @@
-mod config;
-
+mod approval;
+mod completion;
 /// Responsibility map:
 /// - `config`: module responsibility.
 /// - `effect_dispatch`: module responsibility.
 /// - `effect_execution`: module responsibility.
+/// - `effect_result`: module responsibility.
 /// - `harness`: module responsibility.
 /// - `indexing`: module responsibility.
 /// - `parser_mapping`: module responsibility.
@@ -13,11 +14,14 @@ mod config;
 /// - `shell_policy`: module responsibility.
 /// - `supervision`: module responsibility.
 /// - `validation`: module responsibility.
+/// - `vector_indexing`: module responsibility.
 /// - `web_evidence`: module responsibility.
 /// - `approval`: module responsibility.
 /// - `completion`: module responsibility.
+mod config;
 mod effect_dispatch;
 mod effect_execution;
+mod effect_result;
 mod harness;
 mod indexing;
 mod parser_mapping;
@@ -27,12 +31,11 @@ mod persistence;
 mod shell_policy;
 mod supervision;
 mod validation;
+mod vector_indexing;
 mod web_evidence;
 
 #[cfg(test)]
 pub use config::EffectExecutionContext;
-mod approval;
-mod completion;
 use config::EffectExecutionContext as ExecutionContext;
 use config::HarnessFeedbackAcks;
 pub use config::{Adapters, Governance, RuntimeConfig};
@@ -131,6 +134,13 @@ impl MaestriaRuntime {
         self.state.read().await.clone()
     }
 
+    /// Runs the domain-input loop until the shutdown token is cancelled or
+    /// the input channel closes.
+    ///
+    /// Cancellation stops accepting new inputs. By default, in-flight effects
+    /// are cancelled; call [`Self::with_graceful_shutdown`] before `run` to
+    /// drain already-started effects. The method returns after the effect
+    /// executor has observed the selected shutdown policy.
     pub async fn run(
         self,
         mut input_rx: mpsc::Receiver<DomainInput>,
@@ -365,6 +375,7 @@ impl MaestriaRuntime {
         context
             .execute_effect(effect, persistence_barrier_timeout)
             .await
+            .is_ok()
     }
 }
 
