@@ -335,23 +335,6 @@ pub(super) fn retention_policy_name(policy: &RetentionPolicy) -> &'static str {
     }
 }
 
-fn validate_visual_endpoint(endpoint: &str) -> CoreResult<()> {
-    let url = Url::parse(endpoint).map_err(|error| CoreError::InvalidInput {
-        message: format!("invalid visual endpoint: {error}"),
-    })?;
-    let valid = url.scheme() == "http"
-        && matches!(url.host_str(), Some("127.0.0.1" | "::1" | "[::1]"))
-        && url.path() == "/v1/embeddings"
-        && url.query().is_none()
-        && url.fragment().is_none();
-    if !valid {
-        return Err(CoreError::InvalidInput {
-            message: "visual endpoint must be an http loopback /v1/embeddings URL".to_string(),
-        });
-    }
-    Ok(())
-}
-
 fn parse_retention_policy(value: &str) -> CoreResult<RetentionPolicy> {
     match value {
         "no_retention" => Ok(RetentionPolicy::NoRetention),
