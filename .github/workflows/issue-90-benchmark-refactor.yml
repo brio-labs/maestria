@@ -1,0 +1,141 @@
+name: Issue 90 Benchmark Refactor
+
+on:
+  push:
+    branches: [feat/search-learned-sparse]
+
+permissions:
+  contents: write
+
+jobs:
+  refactor:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.0
+        with:
+          ref: feat/search-learned-sparse
+          fetch-depth: 0
+      - uses: ./.github/actions/setup-rust-build-dependencies
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly-2026-06-15
+          components: rustfmt, rustc-codegen-cranelift
+      - name: Separate measurement validity from promotion budgets
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          benchmark = Path('crates/ecosystem/maestria-retrieval/src/learned_sparse_benchmark.rs')
+          text = benchmark.read_text(encoding='utf-8')
+          old_metrics = '''    pub privacy_violations: u32,
+              pub security_violations: u32,
+          }'''
+          new_metrics = '''    pub privacy_violations: u32,
+              pub security_violations: u32,
+              pub budget_violations: u32,
+          }'''
+          if old_metrics not in text:
+              raise SystemExit('route metrics anchor not found')
+          text = text.replace(old_metrics, new_metrics, 1)
+          old_validation = '''    let case = corpus
+                  .case(&observation.case_id)
+                  .ok_or_else(|| LearnedSparseBenchmarkError::UnknownCase(observation.case_id.clone()))?;
+              if observation.model_fingerprint.trim().is_empty()
+                  || observation.index_generation.trim().is_empty()
+                  || observation.latency_ms > case.latency_budget_ms
+                  || observation.memory_bytes > case.memory_budget_bytes
+                  || observation.disk_bytes > case.disk_budget_bytes
+                  || observation
+                      .ingest_update_ms
+                      .is_some_and(|value| value > case.ingest_update_budget_ms)
+                  || observation
+                      .energy_millijoules
+                      .is_some_and(|value| value > case.energy_budget_millijoules)
+              {
+                  return Err(LearnedSparseBenchmarkError::InvalidObservation {
+                      case_id: observation.case_id.clone(),
+                      route: observation.route,
+                  });
+              }'''
+          new_validation = '''    if corpus.case(&observation.case_id).is_none() {
+                  return Err(LearnedSparseBenchmarkError::UnknownCase(
+                      observation.case_id.clone(),
+                  ));
+              }
+              if observation.model_fingerprint.trim().is_empty()
+                  || observation.index_generation.trim().is_empty()
+              {
+                  return Err(LearnedSparseBenchmarkError::InvalidObservation {
+                      case_id: observation.case_id.clone(),
+                      route: observation.route,
+                  });
+              }'''
+          if old_validation not in text:
+              raise SystemExit('observation validation anchor not found')
+          benchmark.write_text(text.replace(old_validation, new_validation, 1), encoding='utf-8')
+
+          metrics = Path('crates/ecosystem/maestria-retrieval/src/learned_sparse_benchmark_metrics.rs')
+          text = metrics.read_text(encoding='utf-8')
+          old_tail = '''        security_violations: selected
+                      .iter()
+                      .map(|observation| observation.security_violations)
+                      .fold(0_u32, u32::saturating_add),
+              })'''
+          new_tail = '''        security_violations: selected
+                      .iter()
+                      .map(|observation| observation.security_violations)
+                      .fold(0_u32, u32::saturating_add),
+                  budget_violations: selected
+                      .iter()
+                      .zip(cases.iter())
+                      .filter(|(observation, case)| exceeds_budget(observation, case))
+                      .count()
+                      .min(u32::MAX as usize) as u32,
+              })'''
+          if old_tail not in text:
+              raise SystemExit('metrics aggregation anchor not found')
+          text = text.replace(old_tail, new_tail, 1)
+          text = text.replace(
+              '''        && metrics.security_violations == 0
+          }''',
+              '''        && metrics.security_violations == 0
+                  && metrics.budget_violations == 0
+          }''',
+              1,
+          )
+          helper_anchor = '''fn wins_against(
+          '''
+          helper = '''fn exceeds_budget(
+              observation: &LearnedSparseBenchmarkObservation,
+              case: &&LearnedSparseBenchmarkCase,
+          ) -> bool {
+              observation.latency_ms > case.latency_budget_ms
+                  || observation.memory_bytes > case.memory_budget_bytes
+                  || observation.disk_bytes > case.disk_budget_bytes
+                  || observation
+                      .ingest_update_ms
+                      .is_some_and(|value| value > case.ingest_update_budget_ms)
+                  || observation
+                      .energy_millijoules
+                      .is_some_and(|value| value > case.energy_budget_millijoules)
+          }
+
+          fn wins_against(
+          '''
+          if helper_anchor not in text:
+              raise SystemExit('metrics helper anchor not found')
+          metrics.write_text(text.replace(helper_anchor, helper, 1), encoding='utf-8')
+          PY
+      - name: Apply canonical formatting and push
+        shell: bash
+        run: |
+          cargo fmt --all
+          git rm .github/workflows/issue-90-benchmark-refactor.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add crates/ecosystem/maestria-retrieval
+          git commit -m 'fix(search): retain over-budget sparse measurements'
+          git push origin HEAD:feat/search-learned-sparse
