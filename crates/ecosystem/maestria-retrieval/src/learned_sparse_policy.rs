@@ -5,7 +5,7 @@ use crate::learned_sparse_benchmark::{
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum LearnedSparseExecutionPolicy {
     #[default]
-    Shadow,
+    Disabled,
     Active(LearnedSparsePromotionRecord),
 }
 
@@ -18,7 +18,7 @@ impl LearnedSparseExecutionPolicy {
                 .get(&class)
                 .copied()
                 .map_or(LearnedSparseRoute::Hybrid, |route| route),
-            Self::Shadow | Self::Active(_) => LearnedSparseRoute::Hybrid,
+            Self::Disabled | Self::Active(_) => LearnedSparseRoute::Hybrid,
         }
     }
 
