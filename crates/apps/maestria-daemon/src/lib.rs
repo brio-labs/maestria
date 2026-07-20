@@ -143,9 +143,7 @@ pub fn load_kernel_state(layout: &InstanceLayout) -> Result<KernelState> {
             .with_context(|| format!("scan domain events {}", layout.database_path.display()))?;
     replay_events(&events).map_err(|error| anyhow!(error))
 }
-fn build_ocr_provider(
-    manifest: &InstanceManifest,
-) -> Result<Option<Arc<dyn OcrProvider + Send + Sync>>> {
+fn build_ocr_provider(manifest: &InstanceManifest) -> Result<Option<Arc<dyn OcrProvider>>> {
     let Some(config) = manifest.ocr.as_ref().filter(|config| config.enabled) else {
         return Ok(None);
     };
