@@ -13,10 +13,18 @@ use crate::types::{RetrievalError, RetrievalResult};
 
 #[path = "engine_adaptive.rs"]
 mod engine_adaptive;
+#[path = "engine_capabilities.rs"]
+mod engine_capabilities;
 #[path = "engine_evaluation.rs"]
 mod engine_evaluation;
 #[path = "engine_pipeline.rs"]
 mod engine_pipeline;
+#[path = "learned_sparse_shadow.rs"]
+mod learned_sparse_shadow;
+pub use learned_sparse_shadow::{
+    LearnedSparseShadowCandidate, LearnedSparseShadowLane, LearnedSparseShadowLaneStatus,
+    LearnedSparseShadowObservation, LearnedSparseShadowStore, LearnedSparseShadowStoreError,
+};
 #[cfg(test)]
 #[path = "engine_tests.rs"]
 mod tests;
@@ -57,106 +65,13 @@ pub struct RetrievalEngine {
     evaluator: Arc<dyn RetrievalEvaluator>,
     capabilities: maestria_governance::SearchCapabilities,
     hybrid_policy: crate::types::HybridExecutionPolicy,
+    learned_sparse_execution_policy: crate::learned_sparse_policy::LearnedSparseExecutionPolicy,
+    learned_sparse_shadow_store: learned_sparse_shadow::LearnedSparseShadowStore,
     repository_execution_policy: crate::repository_benchmark::RepositoryExecutionPolicy,
     visual_execution_policy: crate::visual_benchmark::VisualExecutionPolicy,
 }
 
-fn capabilities_from_retrievers(
-    retrievers: &[Arc<dyn CandidateRetriever>],
-) -> maestria_governance::SearchCapabilities {
-    use maestria_domain::{
-        CorpusSnapshotId, IndexGenerationId, Modality, SearchIntent, SearchStage,
-    };
-
-    let primary_generation = retrievers
-        .iter()
-        .map(|retriever| retriever.descriptor())
-        .find(|descriptor| !descriptor.modality.eq_ignore_ascii_case("dense"))
-        .map_or(IndexGenerationId::new(1), |descriptor| {
-            descriptor.generation
-        });
-    let mut capabilities = maestria_governance::SearchCapabilities::new()
-        .with_intent(SearchIntent::ExactLookup)
-        .with_intent(SearchIntent::FactualLocal)
-        .with_stage(SearchStage::InitialRetrieval)
-        .with_snapshot(CorpusSnapshotId::new(1))
-        .with_generation(primary_generation)
-        .allow_global_scope()
-        .max_scope_ids(u32::MAX)
-        .max_budgets(1_000, 30_000, 8, 3, 0)
-        .with_security_filters();
-    let mut known_modality = false;
-    for retriever in retrievers {
-        match retriever
-            .descriptor()
-            .modality
-            .to_ascii_lowercase()
-            .as_str()
-        {
-            "text" | "lexical" => {
-                capabilities = capabilities.with_modality(Modality::Text);
-                known_modality = true;
-            }
-            "code" | "rust" => {
-                capabilities = capabilities
-                    .with_modality(Modality::Code)
-                    .with_intent(SearchIntent::RepositoryCode);
-                known_modality = true;
-            }
-            "image" => {
-                capabilities = capabilities
-                    .with_modality(Modality::Image)
-                    .with_intent(SearchIntent::VisualDocument);
-                known_modality = true;
-            }
-            "pdf" => {
-                capabilities = capabilities.with_modality(Modality::Pdf);
-                known_modality = true;
-            }
-            "table" => {
-                capabilities = capabilities.with_modality(Modality::Table);
-                known_modality = true;
-            }
-            "web" => {
-                capabilities = capabilities
-                    .with_modality(Modality::Web)
-                    .with_intent(SearchIntent::CurrentWeb)
-                    .enable_web()
-                    .support_realtime()
-                    .max_budgets(1_000, 30_000, 8, 3, 1);
-                known_modality = true;
-            }
-            "vector" | "dense" | "semantic" => {
-                capabilities = capabilities
-                    .with_modality(Modality::Text)
-                    .with_intent(SearchIntent::SemanticDiscovery);
-                known_modality = true;
-            }
-            _ => {}
-        }
-    }
-    if !known_modality {
-        capabilities = capabilities.with_modality(Modality::Text);
-    }
-    capabilities
-}
-
-fn batch_is_eligible(
-    descriptor: &crate::types::RetrieverDescriptor,
-    hybrid_policy: &crate::types::HybridExecutionPolicy,
-    repository_specialized: bool,
-) -> bool {
-    let id = descriptor.id.to_ascii_lowercase();
-    let is_dense = id.contains("dense") || id.contains("vector") || id.contains("semantic");
-    let is_code = descriptor.modality.eq_ignore_ascii_case("code")
-        || descriptor.modality.eq_ignore_ascii_case("rust")
-        || id.contains("code_intel");
-    let hybrid_allowed = match hybrid_policy {
-        crate::types::HybridExecutionPolicy::Shadow => !is_dense,
-        crate::types::HybridExecutionPolicy::Active(_) => true,
-    };
-    hybrid_allowed && (repository_specialized || !is_code)
-}
+pub(super) use engine_capabilities::batch_is_eligible;
 
 impl RetrievalEngine {
     fn validate_plan(&self, plan: &SearchPlan) -> RetrievalResult<()> {
@@ -188,7 +103,7 @@ impl RetrievalEngine {
         retrievers: Vec<Arc<dyn CandidateRetriever>>,
         evaluator: Arc<dyn RetrievalEvaluator>,
     ) -> Self {
-        let capabilities = capabilities_from_retrievers(&retrievers);
+        let capabilities = engine_capabilities::capabilities_from_retrievers(&retrievers);
         Self {
             retrievers,
             fusion: None,
@@ -198,6 +113,10 @@ impl RetrievalEngine {
             evaluator,
             capabilities,
             hybrid_policy: crate::types::HybridExecutionPolicy::Shadow,
+            learned_sparse_execution_policy:
+                crate::learned_sparse_policy::LearnedSparseExecutionPolicy::Shadow,
+            learned_sparse_shadow_store:
+                learned_sparse_shadow::LearnedSparseShadowStore::default(),
             repository_execution_policy:
                 crate::repository_benchmark::RepositoryExecutionPolicy::Shadow,
             visual_execution_policy: crate::visual_benchmark::VisualExecutionPolicy::Shadow,
@@ -207,6 +126,26 @@ impl RetrievalEngine {
     pub fn with_hybrid_policy(mut self, policy: crate::types::HybridExecutionPolicy) -> Self {
         self.hybrid_policy = policy;
         self
+    }
+
+    pub fn with_learned_sparse_execution_policy(
+        mut self,
+        policy: crate::learned_sparse_policy::LearnedSparseExecutionPolicy,
+    ) -> Self {
+        self.learned_sparse_execution_policy = policy;
+        self
+    }
+
+    pub fn with_learned_sparse_shadow_store(
+        mut self,
+        store: learned_sparse_shadow::LearnedSparseShadowStore,
+    ) -> Self {
+        self.learned_sparse_shadow_store = store;
+        self
+    }
+
+    pub fn learned_sparse_shadow_store(&self) -> learned_sparse_shadow::LearnedSparseShadowStore {
+        self.learned_sparse_shadow_store.clone()
     }
 
     pub fn with_repository_execution_policy(
@@ -280,6 +219,7 @@ impl RetrievalEngine {
     )> {
         engine_evaluation::evaluate_batches(self, plan, query, batches, started).await
     }
+
     pub async fn search(&self, plan: &SearchPlan) -> RetrievalResult<SearchOutcome> {
         if maestria_governance::contains_prompt_injection_risk(&plan.original_query) {
             return Ok(self.prompt_injection_outcome(plan));
@@ -304,6 +244,9 @@ impl RetrievalEngine {
         let visual_enabled = self
             .visual_execution_policy
             .allows_visual(&plan.original_query);
+        let sparse_enabled = self
+            .learned_sparse_execution_policy
+            .allows_sparse(&plan.original_query);
         self.retrievers
             .iter()
             .filter(|retriever| {
@@ -313,7 +256,30 @@ impl RetrievalEngine {
                     || descriptor.modality.eq_ignore_ascii_case("rust")
                     || descriptor_id.contains("code_intel");
                 crate::visual_benchmark::visual_lane_is_eligible(&descriptor, visual_enabled)
+                    && crate::learned_sparse_policy::sparse_lane_is_eligible(
+                        &descriptor,
+                        sparse_enabled,
+                    )
                     && (repository_specialized || !is_code)
+            })
+            .cloned()
+            .collect()
+    }
+
+    fn learned_sparse_shadow_retrievers(
+        &self,
+        plan: &SearchPlan,
+    ) -> Vec<Arc<dyn CandidateRetriever>> {
+        if !self
+            .learned_sparse_execution_policy
+            .should_shadow(&plan.original_query)
+        {
+            return Vec::new();
+        }
+        self.retrievers
+            .iter()
+            .filter(|retriever| {
+                crate::learned_sparse_policy::is_sparse_descriptor(&retriever.descriptor())
             })
             .cloned()
             .collect()
@@ -375,6 +341,11 @@ impl RetrievalEngine {
         {
             return Ok(self.prompt_injection_outcome(plan));
         }
+        learned_sparse_shadow::spawn_learned_sparse_shadow(
+            self.learned_sparse_shadow_retrievers(plan),
+            plan.clone(),
+            self.learned_sparse_shadow_store.clone(),
+        );
         let active_retrievers = self.active_retrievers(plan);
         if active_retrievers.is_empty() {
             return Err(RetrievalError::Internal("No retrievers configured".into()));
