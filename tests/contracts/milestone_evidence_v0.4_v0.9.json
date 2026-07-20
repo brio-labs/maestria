@@ -6,17 +6,19 @@
       "milestone": "v0.4 — Deterministic Search Baseline",
       "release_stage": "implementation-complete",
       "closure": "open",
-      "summary": "Local file indexing; no benchmark corpus recorded",
+      "summary": "Deterministic golden corpus recorded; live performance evidence remains pending",
       "published_release": null,
-      "description_block": "```release-exit-evidence\n{\n  \"schema_version\": 1,\n  \"release_stage\": \"implementation-complete\"\n}\n```"
+      "benchmark_manifest": "tests/contracts/benchmark_evidence_v1.json",
+      "description_block": "```release-exit-evidence\n{\n  \"schema_version\": 1,\n  \"release_stage\": \"implementation-complete\",\n  \"benchmark\": {\n    \"benchmark_date\": \"2026-07-20\",\n    \"data_fidelity\": \"mixed\",\n    \"fingerprints\": {\n      \"corpus_snapshot\": \"maestria-document-snapshot-v1\",\n      \"index_generation\": \"tantivy-canonical-schema-v1\",\n      \"model_fingerprint\": \"lexical-only-no-model\"\n    },\n    \"environment\": {\n      \"os\": \"ubuntu-24.04\",\n      \"rust_toolchain\": \"nightly-2026-06-15\",\n      \"cpu_arch\": \"x86_64\"\n    },\n    \"results\": {\n      \"quality\": {\"status\": \"warning\"},\n      \"resource\": {\"status\": \"warning\"},\n      \"security\": {\"status\": \"pass\"}\n    },\n    \"degradations\": [\n      {\"area\": \"observations\", \"description\": \"Golden observations are deterministic contract fixtures; live performance evidence remains pending.\"}\n    ],\n    \"artifacts\": [\n      {\"source\": \"ci\", \"url\": \"https://github.com/brio-labs/maestria/blob/main/tests/contracts/benchmark_evidence_v1.json\", \"label\": \"versioned benchmark evidence ledger\"}\n    ]\n  }\n}\n```"
     },
     {
       "milestone": "v0.5 — Evaluated Hybrid Retrieval",
       "release_stage": "implementation-complete",
       "closure": "open",
-      "summary": "Lexical search and evidence opening; no benchmark corpus recorded",
+      "summary": "Golden deterministic baseline recorded; hybrid comparison remains pending",
       "published_release": null,
-      "description_block": "```release-exit-evidence\n{\n  \"schema_version\": 1,\n  \"release_stage\": \"implementation-complete\"\n}\n```"
+      "benchmark_manifest": "tests/contracts/benchmark_evidence_v1.json",
+      "description_block": "```release-exit-evidence\n{\n  \"schema_version\": 1,\n  \"release_stage\": \"implementation-complete\",\n  \"benchmark\": {\n    \"benchmark_date\": \"2026-07-20\",\n    \"data_fidelity\": \"mixed\",\n    \"fingerprints\": {\n      \"corpus_snapshot\": \"maestria-document-snapshot-v1\",\n      \"index_generation\": \"hybrid-generation-contract-v1\",\n      \"model_fingerprint\": \"provider-fingerprint-required-before-promotion\"\n    },\n    \"environment\": {\n      \"os\": \"ubuntu-24.04\",\n      \"rust_toolchain\": \"nightly-2026-06-15\",\n      \"cpu_arch\": \"x86_64\"\n    },\n    \"results\": {\n      \"quality\": {\"status\": \"warning\"},\n      \"resource\": {\"status\": \"warning\"},\n      \"security\": {\"status\": \"pass\"}\n    },\n    \"degradations\": [\n      {\"area\": \"comparison\", \"description\": \"The checked-in golden fixture has no v0.5 hybrid profile; hybrid quality and resource comparison remains pending.\"}\n    ],\n    \"artifacts\": [\n      {\"source\": \"ci\", \"url\": \"https://github.com/brio-labs/maestria/blob/main/tests/contracts/benchmark_evidence_v1.json\", \"label\": \"versioned benchmark evidence ledger\"}\n    ]\n  }\n}\n```"
     },
     {
       "milestone": "v0.6 — Query-Adaptive Search",
@@ -30,17 +32,19 @@
       "milestone": "v0.7 — Repository Intelligence",
       "release_stage": "implementation-complete",
       "closure": "open",
-      "summary": "Pre-populated; requires benchmark evidence before product-complete",
+      "summary": "Real Rust repository observations emitted; resource counters and promotion evidence remain pending",
       "published_release": null,
-      "description_block": "```release-exit-evidence\n{\n  \"schema_version\": 1,\n  \"release_stage\": \"implementation-complete\"\n}\n```"
+      "benchmark_manifest": "tests/contracts/benchmark_evidence_v1.json",
+      "description_block": "```release-exit-evidence\n{\n  \"schema_version\": 1,\n  \"release_stage\": \"implementation-complete\",\n  \"benchmark\": {\n    \"benchmark_date\": \"2026-07-20\",\n    \"data_fidelity\": \"real\",\n    \"fingerprints\": {\n      \"corpus_snapshot\": \"rust-repository-frozen-v1\",\n      \"index_generation\": \"cargo-rust-code-v1\",\n      \"model_fingerprint\": \"repository-code-index-v1\"\n    },\n    \"environment\": {\n      \"os\": \"ubuntu-24.04\",\n      \"rust_toolchain\": \"nightly-2026-06-15\",\n      \"cpu_arch\": \"x86_64\"\n    },\n    \"results\": {\n      \"quality\": {\"status\": \"warning\"},\n      \"resource\": {\"status\": \"warning\"},\n      \"security\": {\"status\": \"pass\"}\n    },\n    \"degradations\": [\n      {\"area\": \"resource\", \"description\": \"Platform counters are unavailable in the code-intel adapter and are not inferred.\"}\n    ],\n    \"artifacts\": [\n      {\"source\": \"ci\", \"url\": \"https://github.com/brio-labs/maestria/blob/main/tests/contracts/benchmark_evidence_v1.json\", \"label\": \"versioned benchmark evidence ledger\"}\n    ]\n  }\n}\n```"
     },
     {
       "milestone": "v0.8 — Visual Document Retrieval",
       "release_stage": "implementation-complete",
       "closure": "open",
-      "summary": "Pre-populated; requires benchmark evidence before product-complete",
+      "summary": "Visual corpus and provider-unavailable report recorded; visual and OCR evidence remains pending",
       "published_release": null,
-      "description_block": "```release-exit-evidence\n{\n  \"schema_version\": 1,\n  \"release_stage\": \"implementation-complete\"\n}\n```"
+      "benchmark_manifest": "tests/contracts/benchmark_evidence_v1.json",
+      "description_block": "```release-exit-evidence\n{\n  \"schema_version\": 1,\n  \"release_stage\": \"implementation-complete\",\n  \"benchmark\": {\n    \"benchmark_date\": \"2026-07-20\",\n    \"data_fidelity\": \"mixed\",\n    \"fingerprints\": {\n      \"corpus_snapshot\": \"visual-retrieval-benchmark-v1\",\n      \"index_generation\": \"visual-region-contract-v1\",\n      \"model_fingerprint\": \"visual-provider-required-before-promotion\"\n    },\n    \"environment\": {\n      \"os\": \"ubuntu-24.04\",\n      \"rust_toolchain\": \"nightly-2026-06-15\",\n      \"cpu_arch\": \"x86_64\"\n    },\n    \"results\": {\n      \"quality\": {\"status\": \"warning\"},\n      \"resource\": {\"status\": \"warning\"},\n      \"security\": {\"status\": \"pass\"}\n    },\n    \"degradations\": [\n      {\"area\": \"visual-provider\", \"description\": \"Provider-unavailable and OCR degradations remain explicit; visual measurements are not fabricated.\"}\n    ],\n    \"artifacts\": [\n      {\"source\": \"ci\", \"url\": \"https://github.com/brio-labs/maestria/blob/main/tests/contracts/benchmark_evidence_v1.json\", \"label\": \"versioned benchmark evidence ledger\"}\n    ]\n  }\n}\n```"
     },
     {
       "milestone": "v0.9 — Advanced Retrieval Research",

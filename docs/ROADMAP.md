@@ -313,6 +313,34 @@ only milestones whose `release_stage` is not capped below the required stage.
 | v0.8 — Visual Document Retrieval | implementation-complete | — | Implementation issues closed; benchmark evidence still required | Open |
 | v0.9 — Advanced Retrieval Research | planned | — | Research issues #90–#95 remain open; benchmark-gated research is planned | Open |
 
+### Benchmark evidence ledger
+
+The checked-in [`tests/contracts/benchmark_evidence_v1.json`](../tests/contracts/benchmark_evidence_v1.json)
+is the source-of-truth ledger for the current benchmark evidence contract. It binds each
+implemented search phase to:
+
+* a versioned corpus and judgment-set identity;
+* a content hash over the source inputs;
+* index/parser/model fingerprints;
+* the benchmark environment;
+* quality, resource, and security result statuses;
+* explicit degradations and generated report paths.
+
+Validate the ledger directly:
+
+```bash
+python3 scripts/benchmark_evidence.py \
+  --manifest tests/contracts/benchmark_evidence_v1.json
+```
+
+The retrieval benchmark workflow additionally validates generated repository and visual
+reports after executing the frozen tests. A `warning`, `pending`, or `n/a` result is
+evidence of a limitation, not a passing product measurement. Product-complete or released
+stages are rejected unless all required results pass on real data. In particular, the
+v0.7 code-intelligence report preserves unavailable platform counters explicitly, and the
+v0.8 report preserves visual-provider and OCR degradation instead of fabricating visual
+measurements.
+
 ### Canonical Milestone Description
 
 For a `planned` milestone, set the GitHub description to:

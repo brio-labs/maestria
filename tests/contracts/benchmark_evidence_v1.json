@@ -1,0 +1,164 @@
+{
+  "schema_version": 1,
+  "manifest_id": "maestria-benchmark-evidence-v1",
+  "measurement_policy": {
+    "quality": ["recall", "nDCG", "MRR", "exact_span_recall", "citation_alignment"],
+    "resource": ["p50_latency_ms", "p95_latency_ms", "memory_bytes", "disk_bytes", "energy"],
+    "security": ["privacy_violations", "security_violations", "prompt_injection_boundary"],
+    "unavailable_measurements": "must be marked n/a or warning with a degradation; zero is never inferred as a measurement"
+  },
+  "milestones": [
+    {
+      "milestone": "v0.4 — Deterministic Search Baseline",
+      "release_stage": "implementation-complete",
+      "data_fidelity": "mixed",
+      "corpus": {
+        "id": "maestria-document-snapshot-v1",
+        "snapshot": "sha256:6d4865a1dd9d151b21761190939720e7ceadc10bf863726ef66881f446248056",
+        "judgment_set": "golden-v3",
+        "source_paths": [
+          "README.md",
+          "docs/ARCHITECTURE.md",
+          "docs/PHILOSOPHY.md",
+          "crates/ecosystem/maestria-retrieval/tests/fixtures/golden-v3.json"
+        ],
+        "source_hash": "6d4865a1dd9d151b21761190939720e7ceadc10bf863726ef66881f446248056"
+      },
+      "fingerprints": {
+        "corpus_snapshot": "maestria-document-snapshot-v1",
+        "index_generation": "tantivy-canonical-schema-v1",
+        "model_fingerprint": "lexical-only-no-model"
+      },
+      "environment": {
+        "os": "ubuntu-24.04",
+        "rust_toolchain": "nightly-2026-06-15",
+        "cpu_arch": "x86_64"
+      },
+      "results": {
+        "quality": {"status": "warning", "reason": "golden gate is measured; source-index report is generated in CI"},
+        "resource": {"status": "warning", "reason": "platform counters are reported only when available"},
+        "security": {"status": "pass", "violations": 0}
+      },
+      "degradations": [
+        {"area": "resource", "description": "Unavailable platform counters remain explicit and cannot certify product completion."},
+        {"area": "observations", "description": "Golden observations are deterministic contract fixtures, not measured performance for a live provider or index."}
+      ],
+      "reports": [
+        {"kind": "golden", "path": "crates/ecosystem/maestria-retrieval/tests/fixtures/golden-v3.json"}
+      ]
+    },
+    {
+      "milestone": "v0.5 — Evaluated Hybrid Retrieval",
+      "release_stage": "implementation-complete",
+      "data_fidelity": "mixed",
+      "corpus": {
+        "id": "maestria-document-snapshot-v1",
+        "snapshot": "sha256:6d4865a1dd9d151b21761190939720e7ceadc10bf863726ef66881f446248056",
+        "judgment_set": "golden-v3",
+        "source_paths": [
+          "README.md",
+          "docs/ARCHITECTURE.md",
+          "docs/PHILOSOPHY.md",
+          "crates/ecosystem/maestria-retrieval/tests/fixtures/golden-v3.json"
+        ],
+        "source_hash": "6d4865a1dd9d151b21761190939720e7ceadc10bf863726ef66881f446248056"
+      },
+      "fingerprints": {
+        "corpus_snapshot": "maestria-document-snapshot-v1",
+        "index_generation": "hybrid-generation-contract-v1",
+        "model_fingerprint": "provider-fingerprint-required-before-promotion"
+      },
+      "environment": {
+        "os": "ubuntu-24.04",
+        "rust_toolchain": "nightly-2026-06-15",
+        "cpu_arch": "x86_64"
+      },
+      "results": {
+        "quality": {"status": "warning", "reason": "comparison is retained against the deterministic baseline; no route is promoted without a measured win"},
+        "resource": {"status": "warning", "reason": "memory, disk, and energy counters are explicit when unavailable"},
+        "security": {"status": "pass", "violations": 0}
+      },
+      "degradations": [
+        {"area": "promotion", "description": "Hybrid routing remains benchmark-gated and is not promoted by implementation status."},
+        {"area": "comparison", "description": "The checked-in golden fixture does not contain a v0.5 hybrid profile; hybrid quality and resource comparison remains pending."}
+      ],
+      "reports": [
+        {"kind": "golden", "path": "crates/ecosystem/maestria-retrieval/tests/fixtures/golden-v3.json"}
+      ]
+    },
+    {
+      "milestone": "v0.7 — Repository Intelligence",
+      "release_stage": "implementation-complete",
+      "data_fidelity": "real",
+      "corpus": {
+        "id": "rust-repository-frozen-v1",
+        "snapshot": "sha256:ec190d9505d03b87dbc02d322717a5643016c0eff404effc025f9f70c0e8c64b",
+        "judgment_set": "rust-repository-benchmark-v1",
+        "source_paths": [
+          "crates/ecosystem/maestria-retrieval/tests/fixtures/rust-repository-benchmark-v1.json",
+          "crates/ecosystem/maestria-retrieval/src/repository_benchmark_runner.rs"
+        ],
+        "source_hash": "ec190d9505d03b87dbc02d322717a5643016c0eff404effc025f9f70c0e8c64b"
+      },
+      "fingerprints": {
+        "corpus_snapshot": "rust-repository-frozen-v1",
+        "index_generation": "cargo-rust-code-v1",
+        "model_fingerprint": "repository-code-index-v1"
+      },
+      "environment": {
+        "os": "ubuntu-24.04",
+        "rust_toolchain": "nightly-2026-06-15",
+        "cpu_arch": "x86_64"
+      },
+      "results": {
+        "quality": {"status": "warning", "reason": "real repository observations are emitted; promotion still requires benchmark comparison"},
+        "resource": {"status": "warning", "reason": "code-intel adapter reports platform counters as unavailable"},
+        "security": {"status": "pass", "violations": 0}
+      },
+      "degradations": [
+        {"area": "resource", "description": "Memory, disk, and energy counters are unavailable in the code-intel adapter and are not inferred."},
+        {"area": "freshness", "description": "Stale worktree outcomes are explicit and cannot support current-worktree claims."}
+      ],
+      "reports": [
+        {"kind": "repository", "path": "target/benchmark-reports/repository-real.json"}
+      ]
+    },
+    {
+      "milestone": "v0.8 — Visual Document Retrieval",
+      "release_stage": "implementation-complete",
+      "data_fidelity": "mixed",
+      "corpus": {
+        "id": "visual-retrieval-benchmark-v1",
+        "snapshot": "sha256:5a5f0f449e7f3a6815c91489752b3b3b05a317e0c2025b0fbf169a7455f24d8a",
+        "judgment_set": "visual-retrieval-benchmark-v1",
+        "source_paths": [
+          "docs/ARCHITECTURE.md",
+          "crates/ecosystem/maestria-retrieval/tests/fixtures/visual-retrieval-benchmark-v1.json"
+        ],
+        "source_hash": "5a5f0f449e7f3a6815c91489752b3b3b05a317e0c2025b0fbf169a7455f24d8a"
+      },
+      "fingerprints": {
+        "corpus_snapshot": "visual-retrieval-benchmark-v1",
+        "index_generation": "visual-region-contract-v1",
+        "model_fingerprint": "visual-provider-required-before-promotion"
+      },
+      "environment": {
+        "os": "ubuntu-24.04",
+        "rust_toolchain": "nightly-2026-06-15",
+        "cpu_arch": "x86_64"
+      },
+      "results": {
+        "quality": {"status": "warning", "reason": "text/layout baseline is measured; visual provider is unavailable"},
+        "resource": {"status": "warning", "reason": "visual provider counters are unavailable"},
+        "security": {"status": "pass", "violations": 0}
+      },
+      "degradations": [
+        {"area": "visual-provider", "description": "The provider-unavailable report is explicit; no visual embedding or visual promotion is fabricated."},
+        {"area": "ocr", "description": "Scanned-page cases remain an explicit OCR degradation until a real OCR-capable provider is benchmarked."}
+      ],
+      "reports": [
+        {"kind": "visual", "path": "target/benchmark-reports/visual-provider-unavailable.json"}
+      ]
+    }
+  ]
+}
