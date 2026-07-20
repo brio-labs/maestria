@@ -1,0 +1,10 @@
+name: 'Install Rust build dependencies'
+description: 'Install the linker toolchain required by Maestria'
+runs:
+  using: composite
+  steps:
+    - name: Install mold and clang
+      shell: bash
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y --no-install-recommends clang mold

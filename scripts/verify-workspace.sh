@@ -2,6 +2,7 @@
 set -euo pipefail
 
 python3 scripts/version.py check
+bash scripts/verify-build-toolchain.sh
 cargo fmt --all -- --check
 cargo check --workspace --all-targets --all-features
 bash scripts/strict-clippy.sh

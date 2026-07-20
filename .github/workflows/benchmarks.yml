@@ -67,9 +67,13 @@ jobs:
         run: echo "No benchmark-relevant changes for ${{ matrix.name }}."
 
       - uses: actions/checkout@v7.0.0
+      - uses: ./.github/actions/setup-rust-build-dependencies
         if: matrix.changed == 'true'
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@master
         if: matrix.changed == 'true'
+        with:
+          toolchain: nightly-2026-06-15
+          components: rustc-codegen-cranelift
       - name: Cache
         uses: Swatinem/rust-cache@v2.9.1
         if: matrix.changed == 'true'
