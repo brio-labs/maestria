@@ -31,7 +31,8 @@ pub(super) fn aggregate(
             .map(u64::from)
             .fold(0_u64, u64::saturating_add)
             / count;
-        Metric::new(value.min(u64::from(u32::MAX)) as u32).unwrap_or(Metric::ZERO)
+        Metric::new(value.min(u64::from(u32::MAX)) as u32)
+            .map_or(Metric::ZERO, |metric| metric)
     };
     let mut latencies = selected
         .iter()
@@ -39,7 +40,10 @@ pub(super) fn aggregate(
         .collect::<Vec<_>>();
     latencies.sort_unstable();
     let p95_index = (latencies.len() * 95).div_ceil(100).saturating_sub(1);
-    let p95_latency_ms = latencies.get(p95_index).copied().unwrap_or(0);
+    let p95_latency_ms = latencies
+        .get(p95_index)
+        .copied()
+        .map_or(0, |value| value);
     Ok(LearnedSparseRouteMetrics {
         recall_at_20: mean_metric(
             selected
@@ -70,12 +74,12 @@ pub(super) fn aggregate(
             .iter()
             .map(|observation| observation.memory_bytes)
             .max()
-            .unwrap_or(0),
+            .map_or(0, |value| value),
         peak_disk_bytes: selected
             .iter()
             .map(|observation| observation.disk_bytes)
             .max()
-            .unwrap_or(0),
+            .map_or(0, |value| value),
         total_ingest_update_ms: selected
             .iter()
             .map(|observation| observation.ingest_update_ms)
