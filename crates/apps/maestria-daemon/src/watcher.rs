@@ -137,10 +137,7 @@ impl Watcher {
                 continue;
             }
 
-            let artifact_id = match self.artifact_ids.get(&key).map(|(id, _)| *id) {
-                Some(artifact_id) => artifact_id,
-                None => artifact_id_for(&observation.path, &observation.bytes),
-            };
+            let artifact_id = artifact_id_for(&observation.path, &observation.bytes);
             let title = match observation.path.file_name().and_then(|name| name.to_str()) {
                 Some(name) => name.to_string(),
                 None => "unknown".to_string(),
@@ -519,6 +516,71 @@ mod tests {
         assert!(found_other, "ArtifactDetected was not emitted for new file");
 
         shutdown.cancel();
+        fs::remove_dir_all(root)?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn changed_file_gets_new_artifact_identity_after_restart()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let root = env::temp_dir().join(format!("maestria-watcher-change-{}", process::id()));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root)?;
+        let path = root.join("changed.md");
+        fs::write(&path, "initial content")?;
+
+        let (input_tx, mut input_rx) = mpsc::channel(256);
+        let layout = InstanceLayout::for_root(root.clone());
+        let manifest = test_manifest(root.clone());
+        let mut first_watcher = Watcher {
+            layout: layout.clone(),
+            manifest: manifest.clone(),
+            input_tx: input_tx.clone(),
+            artifact_ids: BTreeMap::new(),
+            shutdown: CancellationToken::new(),
+            state: WatchState::default(),
+            scan_permits: Arc::new(Semaphore::new(MAX_CONCURRENT_SCANS)),
+        };
+
+        first_watcher.scan_once().await?;
+        let first = tokio::time::timeout(Duration::from_secs(5), input_rx.recv())
+            .await?
+            .ok_or("watcher input channel closed")?;
+        let first_id = match first {
+            DomainInput::ArtifactDetected(input) => input.artifact_id,
+            other => return Err(format!("expected first artifact detection, got {other:?}").into()),
+        };
+        let artifact_ids = first_watcher.artifact_ids.clone();
+
+        fs::write(&path, "updated content")?;
+        let mut restarted_watcher = Watcher {
+            layout: layout.clone(),
+            manifest,
+            input_tx,
+            artifact_ids,
+            shutdown: CancellationToken::new(),
+            state: load_state(&layout),
+            scan_permits: Arc::new(Semaphore::new(MAX_CONCURRENT_SCANS)),
+        };
+
+        restarted_watcher.scan_once().await?;
+        let changed = tokio::time::timeout(Duration::from_secs(5), input_rx.recv())
+            .await?
+            .ok_or("watcher input channel closed after restart")?;
+        let changed_id = match changed {
+            DomainInput::ArtifactDetected(input) => input.artifact_id,
+            other => {
+                return Err(format!(
+                    "expected changed artifact detection after restart, got {other:?}"
+                )
+                .into());
+            }
+        };
+
+        assert_ne!(
+            first_id, changed_id,
+            "changed content must create a new artifact version identity after restart"
+        );
         fs::remove_dir_all(root)?;
         Ok(())
     }
