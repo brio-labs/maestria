@@ -76,8 +76,13 @@ jobs:
           if [ "$status" -eq 0 ]; then
             value="OK"
           else
-            value="$(grep -m1 -E '^(error|warning)(\[[^]]+\])?:|has [0-9]+ (module logical|physical) lines' /tmp/clippy.log | tr '\n\r' '  ' | cut -c1-180)"
-            if [ -z "$value" ]; then value="failed-without-diagnostic"; fi
+            line="$(grep -m1 -n -E '^(error|warning)(\[[^]]+\])?:|has [0-9]+ (module logical|physical) lines' /tmp/clippy.log | cut -d: -f1)"
+            if [ -n "$line" ]; then
+              end=$((line + 3))
+              value="$(sed -n "${line},${end}p" /tmp/clippy.log | tr '\n\r' '  ' | cut -c1-220)"
+            else
+              value="failed-without-diagnostic"
+            fi
           fi
           echo "value=$value" >> "$GITHUB_OUTPUT"
       - id: tests
