@@ -17,7 +17,7 @@ impl LearnedSparseExecutionPolicy {
                 .winning_routes()
                 .get(&class)
                 .copied()
-                .unwrap_or(LearnedSparseRoute::Hybrid),
+                .map_or(LearnedSparseRoute::Hybrid, |route| route),
             Self::Shadow | Self::Active(_) => LearnedSparseRoute::Hybrid,
         }
     }
