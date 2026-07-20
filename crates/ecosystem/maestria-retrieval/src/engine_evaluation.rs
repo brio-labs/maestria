@@ -21,6 +21,9 @@ pub(super) async fn evaluate_batches(
         .repository_execution_policy
         .allows_specialized(&query.q);
     let visual_enabled = engine.visual_execution_policy.allows_visual(&query.q);
+    let sparse_enabled = engine
+        .learned_sparse_execution_policy
+        .allows_sparse(&query.q);
     let has_non_code_evidence = batches.iter().any(|batch| {
         let is_code = batch.descriptor.modality.eq_ignore_ascii_case("code")
             || batch.descriptor.modality.eq_ignore_ascii_case("rust")
@@ -35,6 +38,12 @@ pub(super) async fn evaluate_batches(
         .iter()
         .filter(|batch| {
             crate::visual_benchmark::visual_lane_is_eligible(&batch.descriptor, visual_enabled)
+        })
+        .filter(|batch| {
+            crate::learned_sparse_policy::sparse_lane_is_eligible(
+                &batch.descriptor,
+                sparse_enabled,
+            )
         })
         .filter(|batch| {
             super::batch_is_eligible(
