@@ -19,6 +19,12 @@ mod engine_capabilities;
 mod engine_evaluation;
 #[path = "engine_pipeline.rs"]
 mod engine_pipeline;
+#[path = "learned_sparse_shadow.rs"]
+mod learned_sparse_shadow;
+pub use learned_sparse_shadow::{
+    LearnedSparseShadowCandidate, LearnedSparseShadowLane, LearnedSparseShadowLaneStatus,
+    LearnedSparseShadowObservation, LearnedSparseShadowStore, LearnedSparseShadowStoreError,
+};
 #[cfg(test)]
 #[path = "engine_tests.rs"]
 mod tests;
@@ -60,6 +66,7 @@ pub struct RetrievalEngine {
     capabilities: maestria_governance::SearchCapabilities,
     hybrid_policy: crate::types::HybridExecutionPolicy,
     learned_sparse_execution_policy: crate::learned_sparse_policy::LearnedSparseExecutionPolicy,
+    learned_sparse_shadow_store: learned_sparse_shadow::LearnedSparseShadowStore,
     repository_execution_policy: crate::repository_benchmark::RepositoryExecutionPolicy,
     visual_execution_policy: crate::visual_benchmark::VisualExecutionPolicy,
 }
@@ -107,7 +114,9 @@ impl RetrievalEngine {
             capabilities,
             hybrid_policy: crate::types::HybridExecutionPolicy::Shadow,
             learned_sparse_execution_policy:
-                crate::learned_sparse_policy::LearnedSparseExecutionPolicy::Disabled,
+                crate::learned_sparse_policy::LearnedSparseExecutionPolicy::Shadow,
+            learned_sparse_shadow_store:
+                learned_sparse_shadow::LearnedSparseShadowStore::default(),
             repository_execution_policy:
                 crate::repository_benchmark::RepositoryExecutionPolicy::Shadow,
             visual_execution_policy: crate::visual_benchmark::VisualExecutionPolicy::Shadow,
@@ -125,6 +134,18 @@ impl RetrievalEngine {
     ) -> Self {
         self.learned_sparse_execution_policy = policy;
         self
+    }
+
+    pub fn with_learned_sparse_shadow_store(
+        mut self,
+        store: learned_sparse_shadow::LearnedSparseShadowStore,
+    ) -> Self {
+        self.learned_sparse_shadow_store = store;
+        self
+    }
+
+    pub fn learned_sparse_shadow_store(&self) -> learned_sparse_shadow::LearnedSparseShadowStore {
+        self.learned_sparse_shadow_store.clone()
     }
 
     pub fn with_repository_execution_policy(
@@ -198,6 +219,7 @@ impl RetrievalEngine {
     )> {
         engine_evaluation::evaluate_batches(self, plan, query, batches, started).await
     }
+
     pub async fn search(&self, plan: &SearchPlan) -> RetrievalResult<SearchOutcome> {
         if maestria_governance::contains_prompt_injection_risk(&plan.original_query) {
             return Ok(self.prompt_injection_outcome(plan));
@@ -239,6 +261,25 @@ impl RetrievalEngine {
                         sparse_enabled,
                     )
                     && (repository_specialized || !is_code)
+            })
+            .cloned()
+            .collect()
+    }
+
+    fn learned_sparse_shadow_retrievers(
+        &self,
+        plan: &SearchPlan,
+    ) -> Vec<Arc<dyn CandidateRetriever>> {
+        if !self
+            .learned_sparse_execution_policy
+            .should_shadow(&plan.original_query)
+        {
+            return Vec::new();
+        }
+        self.retrievers
+            .iter()
+            .filter(|retriever| {
+                crate::learned_sparse_policy::is_sparse_descriptor(&retriever.descriptor())
             })
             .cloned()
             .collect()
@@ -300,6 +341,11 @@ impl RetrievalEngine {
         {
             return Ok(self.prompt_injection_outcome(plan));
         }
+        learned_sparse_shadow::spawn_learned_sparse_shadow(
+            self.learned_sparse_shadow_retrievers(plan),
+            plan.clone(),
+            self.learned_sparse_shadow_store.clone(),
+        );
         let active_retrievers = self.active_retrievers(plan);
         if active_retrievers.is_empty() {
             return Err(RetrievalError::Internal("No retrievers configured".into()));
