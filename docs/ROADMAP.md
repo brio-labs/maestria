@@ -369,8 +369,7 @@ flag used by the release workflow preflight gate.
 
 ### Applying the Evidence Block
 
-After this PR merges, the lead SHOULD:
-
+After this PR merges, the lead MUST:
 1. Read the per-milestone evidence from the machine-readable manifest at
    `tests/contracts/milestone_evidence_v0.4_v0.9.json`.
 2. Apply the manifest's exact evidence block to every actual GitHub milestone:
