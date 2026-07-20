@@ -18,8 +18,8 @@ pub struct SparseFingerprint {
     pub vocabulary_hash: ContentHash,
     pub vocabulary_size: u32,
     pub term_namespace: String,
-    pub query_template_hash: String,
-    pub document_template_hash: String,
+    pub query_template_hash: ContentHash,
+    pub document_template_hash: ContentHash,
     pub preprocessing_version: String,
     pub weighting_version: String,
     pub quantization: String,
@@ -34,11 +34,6 @@ impl SparseFingerprint {
             ("model", self.model.as_str()),
             ("revision", self.revision.as_str()),
             ("term namespace", self.term_namespace.as_str()),
-            ("query template hash", self.query_template_hash.as_str()),
-            (
-                "document template hash",
-                self.document_template_hash.as_str(),
-            ),
             ("preprocessing version", self.preprocessing_version.as_str()),
             ("weighting version", self.weighting_version.as_str()),
             ("quantization", self.quantization.as_str()),
@@ -215,6 +210,8 @@ pub trait LearnedSparseProvider: Send + Sync {
 }
 
 pub trait LearnedSparseIndex: Send + Sync {
+    fn identity(&self) -> Option<SparseIdentity>;
+
     fn index_documents(&self, documents: Vec<SparseDocument>) -> Result<(), PortError>;
 
     fn search(&self, query: SparseSearchQuery) -> Result<Vec<SparseSearchHit>, PortError>;
