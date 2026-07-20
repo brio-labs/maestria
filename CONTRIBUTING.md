@@ -15,6 +15,10 @@ The repository's Cargo configuration uses `mold` through `clang` for
 `x86_64-unknown-linux-gnu` links. The `dev` profile uses Cranelift; release
 builds retain rustc's default LLVM backend.
 
+For tuned development builds, use `bash scripts/dev-cargo.sh ...`. The wrapper
+adds nightly generic sharing only to that development command; release builds
+must continue to invoke Cargo directly.
+
 ## Repository setup
 
 ```bash
