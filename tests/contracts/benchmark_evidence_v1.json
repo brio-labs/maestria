@@ -2,35 +2,19 @@
   "schema_version": 1,
   "manifest_id": "maestria-benchmark-evidence-v1",
   "measurement_policy": {
-    "quality": [
-      "recall",
-      "nDCG",
-      "MRR",
-      "exact_span_recall",
-      "citation_alignment"
-    ],
-    "resource": [
-      "p50_latency_ms",
-      "p95_latency_ms",
-      "memory_bytes",
-      "disk_bytes",
-      "energy"
-    ],
-    "security": [
-      "privacy_violations",
-      "security_violations",
-      "prompt_injection_boundary"
-    ],
+    "quality": ["recall", "nDCG", "MRR", "exact_span_recall", "citation_alignment"],
+    "resource": ["p50_latency_ms", "p95_latency_ms", "memory_bytes", "disk_bytes", "energy"],
+    "security": ["privacy_violations", "security_violations", "prompt_injection_boundary"],
     "unavailable_measurements": "must be marked n/a or warning with a degradation; zero is never inferred as a measurement"
   },
   "milestones": [
     {
-      "milestone": "v0.4 \u2014 Deterministic Search Baseline",
+      "milestone": "v0.4 — Deterministic Search Baseline",
       "release_stage": "implementation-complete",
       "data_fidelity": "mixed",
       "corpus": {
         "id": "maestria-document-snapshot-v1",
-        "snapshot": "sha256:c02e814c97088bcbd1593a478933ea3d878b5c1e60eca2b6d8c68603e9b7fa57",
+        "snapshot": "sha256:6d4865a1dd9d151b21761190939720e7ceadc10bf863726ef66881f446248056",
         "judgment_set": "golden-v3",
         "source_paths": [
           "README.md",
@@ -38,7 +22,7 @@
           "docs/PHILOSOPHY.md",
           "crates/ecosystem/maestria-retrieval/tests/fixtures/golden-v3.json"
         ],
-        "source_hash": "c02e814c97088bcbd1593a478933ea3d878b5c1e60eca2b6d8c68603e9b7fa57"
+        "source_hash": "873b974588348c4e04649cf27d4b51bf9080d3042b57eb46bb51b98943766f09"
       },
       "fingerprints": {
         "corpus_snapshot": "maestria-document-snapshot-v1",
@@ -51,43 +35,25 @@
         "cpu_arch": "x86_64"
       },
       "results": {
-        "quality": {
-          "status": "warning",
-          "reason": "golden gate is measured; source-index report is generated in CI"
-        },
-        "resource": {
-          "status": "warning",
-          "reason": "platform counters are reported only when available"
-        },
-        "security": {
-          "status": "pass",
-          "violations": 0
-        }
+        "quality": {"status": "warning", "reason": "golden gate is measured; source-index report is generated in CI"},
+        "resource": {"status": "warning", "reason": "platform counters are reported only when available"},
+        "security": {"status": "pass", "violations": 0}
       },
       "degradations": [
-        {
-          "area": "resource",
-          "description": "Unavailable platform counters remain explicit and cannot certify product completion."
-        },
-        {
-          "area": "observations",
-          "description": "Golden observations are deterministic contract fixtures, not measured performance for a live provider or index."
-        }
+        {"area": "resource", "description": "Unavailable platform counters remain explicit and cannot certify product completion."},
+        {"area": "observations", "description": "Golden observations are deterministic contract fixtures, not measured performance for a live provider or index."}
       ],
       "reports": [
-        {
-          "kind": "golden",
-          "path": "crates/ecosystem/maestria-retrieval/tests/fixtures/golden-v3.json"
-        }
+        {"kind": "golden", "path": "crates/ecosystem/maestria-retrieval/tests/fixtures/golden-v3.json"}
       ]
     },
     {
-      "milestone": "v0.5 \u2014 Evaluated Hybrid Retrieval",
+      "milestone": "v0.5 — Evaluated Hybrid Retrieval",
       "release_stage": "implementation-complete",
       "data_fidelity": "mixed",
       "corpus": {
         "id": "maestria-document-snapshot-v1",
-        "snapshot": "sha256:c02e814c97088bcbd1593a478933ea3d878b5c1e60eca2b6d8c68603e9b7fa57",
+        "snapshot": "sha256:6d4865a1dd9d151b21761190939720e7ceadc10bf863726ef66881f446248056",
         "judgment_set": "golden-v3",
         "source_paths": [
           "README.md",
@@ -95,7 +61,7 @@
           "docs/PHILOSOPHY.md",
           "crates/ecosystem/maestria-retrieval/tests/fixtures/golden-v3.json"
         ],
-        "source_hash": "c02e814c97088bcbd1593a478933ea3d878b5c1e60eca2b6d8c68603e9b7fa57"
+        "source_hash": "873b974588348c4e04649cf27d4b51bf9080d3042b57eb46bb51b98943766f09"
       },
       "fingerprints": {
         "corpus_snapshot": "maestria-document-snapshot-v1",
@@ -108,38 +74,20 @@
         "cpu_arch": "x86_64"
       },
       "results": {
-        "quality": {
-          "status": "warning",
-          "reason": "comparison is retained against the deterministic baseline; no route is promoted without a measured win"
-        },
-        "resource": {
-          "status": "warning",
-          "reason": "memory, disk, and energy counters are explicit when unavailable"
-        },
-        "security": {
-          "status": "pass",
-          "violations": 0
-        }
+        "quality": {"status": "warning", "reason": "comparison is retained against the deterministic baseline; no route is promoted without a measured win"},
+        "resource": {"status": "warning", "reason": "memory, disk, and energy counters are explicit when unavailable"},
+        "security": {"status": "pass", "violations": 0}
       },
       "degradations": [
-        {
-          "area": "promotion",
-          "description": "Hybrid routing remains benchmark-gated and is not promoted by implementation status."
-        },
-        {
-          "area": "comparison",
-          "description": "The checked-in golden fixture does not contain a v0.5 hybrid profile; hybrid quality and resource comparison remains pending."
-        }
+        {"area": "promotion", "description": "Hybrid routing remains benchmark-gated and is not promoted by implementation status."},
+        {"area": "comparison", "description": "The checked-in golden fixture does not contain a v0.5 hybrid profile; hybrid quality and resource comparison remains pending."}
       ],
       "reports": [
-        {
-          "kind": "golden",
-          "path": "crates/ecosystem/maestria-retrieval/tests/fixtures/golden-v3.json"
-        }
+        {"kind": "golden", "path": "crates/ecosystem/maestria-retrieval/tests/fixtures/golden-v3.json"}
       ]
     },
     {
-      "milestone": "v0.7 \u2014 Repository Intelligence",
+      "milestone": "v0.7 — Repository Intelligence",
       "release_stage": "implementation-complete",
       "data_fidelity": "real",
       "corpus": {
@@ -163,38 +111,20 @@
         "cpu_arch": "x86_64"
       },
       "results": {
-        "quality": {
-          "status": "warning",
-          "reason": "real repository observations are emitted; promotion still requires benchmark comparison"
-        },
-        "resource": {
-          "status": "warning",
-          "reason": "code-intel adapter reports platform counters as unavailable"
-        },
-        "security": {
-          "status": "pass",
-          "violations": 0
-        }
+        "quality": {"status": "warning", "reason": "real repository observations are emitted; promotion still requires benchmark comparison"},
+        "resource": {"status": "warning", "reason": "code-intel adapter reports platform counters as unavailable"},
+        "security": {"status": "pass", "violations": 0}
       },
       "degradations": [
-        {
-          "area": "resource",
-          "description": "Memory, disk, and energy counters are unavailable in the code-intel adapter and are not inferred."
-        },
-        {
-          "area": "freshness",
-          "description": "Stale worktree outcomes are explicit and cannot support current-worktree claims."
-        }
+        {"area": "resource", "description": "Memory, disk, and energy counters are unavailable in the code-intel adapter and are not inferred."},
+        {"area": "freshness", "description": "Stale worktree outcomes are explicit and cannot support current-worktree claims."}
       ],
       "reports": [
-        {
-          "kind": "repository",
-          "path": "target/benchmark-reports/repository-real.json"
-        }
+        {"kind": "repository", "path": "target/benchmark-reports/repository-real.json"}
       ]
     },
     {
-      "milestone": "v0.8 \u2014 Visual Document Retrieval",
+      "milestone": "v0.8 — Visual Document Retrieval",
       "release_stage": "implementation-complete",
       "data_fidelity": "mixed",
       "corpus": {
@@ -218,34 +148,16 @@
         "cpu_arch": "x86_64"
       },
       "results": {
-        "quality": {
-          "status": "warning",
-          "reason": "text/layout baseline is measured; visual provider is unavailable"
-        },
-        "resource": {
-          "status": "warning",
-          "reason": "visual provider counters are unavailable"
-        },
-        "security": {
-          "status": "pass",
-          "violations": 0
-        }
+        "quality": {"status": "warning", "reason": "text/layout baseline is measured; visual provider is unavailable"},
+        "resource": {"status": "warning", "reason": "visual provider counters are unavailable"},
+        "security": {"status": "pass", "violations": 0}
       },
       "degradations": [
-        {
-          "area": "visual-provider",
-          "description": "The provider-unavailable report is explicit; no visual embedding or visual promotion is fabricated."
-        },
-        {
-          "area": "ocr",
-          "description": "Scanned-page cases remain an explicit OCR degradation until a real OCR-capable provider is benchmarked."
-        }
+        {"area": "visual-provider", "description": "The provider-unavailable report is explicit; no visual embedding or visual promotion is fabricated."},
+        {"area": "ocr", "description": "Scanned-page cases remain an explicit OCR degradation until a real OCR-capable provider is benchmarked."}
       ],
       "reports": [
-        {
-          "kind": "visual",
-          "path": "target/benchmark-reports/visual-provider-unavailable.json"
-        }
+        {"kind": "visual", "path": "target/benchmark-reports/visual-provider-unavailable.json"}
       ]
     }
   ]
