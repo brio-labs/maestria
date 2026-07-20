@@ -131,6 +131,13 @@ impl MaestriaRuntime {
         self.state.read().await.clone()
     }
 
+    /// Runs the domain-input loop until the shutdown token is cancelled or
+    /// the input channel closes.
+    ///
+    /// Cancellation stops accepting new inputs. By default, in-flight effects
+    /// are cancelled; call [`Self::with_graceful_shutdown`] before `run` to
+    /// drain already-started effects. The method returns after the effect
+    /// executor has observed the selected shutdown policy.
     pub async fn run(
         self,
         mut input_rx: mpsc::Receiver<DomainInput>,
@@ -365,6 +372,7 @@ impl MaestriaRuntime {
         context
             .execute_effect(effect, persistence_barrier_timeout)
             .await
+            .is_ok()
     }
 }
 
