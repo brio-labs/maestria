@@ -13,7 +13,9 @@ pub use code_intel::{CodeIntelRetriever, CodeIntelRetrieverParts};
 pub use common::{CurrentVersionFilter, SourceSnapshotVerifier};
 pub use dense::{DenseChunkRetriever, DenseChunkRetrieverParts};
 pub use learned_sparse::{LearnedSparseChunkRetriever, LearnedSparseChunkRetrieverParts};
-pub use learned_sparse_generation::LearnedSparseGenerationCapability;
+pub use learned_sparse_generation::{
+    LearnedSparseGenerationCapability, LearnedSparseGenerationMode,
+};
 pub use lexical::{LexicalChunkRetriever, LexicalChunkRetrieverParts};
 pub use secondary::{
     EvidenceOutcomeEvaluator, HierarchyGraphExpander, HierarchyGraphExpanderParts,
