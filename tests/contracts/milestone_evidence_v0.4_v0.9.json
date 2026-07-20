@@ -5,7 +5,7 @@
     {
       "milestone": "v0.4 — Deterministic Search Baseline",
       "release_stage": "implementation-complete",
-      "closure": "closable",
+      "closure": "open",
       "summary": "Local file indexing; no benchmark corpus recorded",
       "published_release": null,
       "description_block": "```release-exit-evidence\n{\n  \"schema_version\": 1,\n  \"release_stage\": \"implementation-complete\"\n}\n```"
@@ -13,7 +13,7 @@
     {
       "milestone": "v0.5 — Evaluated Hybrid Retrieval",
       "release_stage": "implementation-complete",
-      "closure": "closable",
+      "closure": "open",
       "summary": "Lexical search and evidence opening; no benchmark corpus recorded",
       "published_release": null,
       "description_block": "```release-exit-evidence\n{\n  \"schema_version\": 1,\n  \"release_stage\": \"implementation-complete\"\n}\n```"
@@ -21,7 +21,7 @@
     {
       "milestone": "v0.6 — Query-Adaptive Search",
       "release_stage": "implementation-complete",
-      "closure": "closable",
+      "closure": "closed",
       "summary": "Query-adaptive search, code intelligence, memory promotion (latest binary v0.6.1); no quality/resource/security measurements recorded",
       "published_release": "v0.6.1",
       "description_block": "```release-exit-evidence\n{\n  \"schema_version\": 1,\n  \"release_stage\": \"implementation-complete\"\n}\n```"

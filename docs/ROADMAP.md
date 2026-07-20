@@ -306,9 +306,9 @@ only milestones whose `release_stage` is not capped below the required stage.
 
 | Milestone | Release Stage | Data Fidelity | Summary | Closure |
 |---|---|---|---|---|
-| v0.4 — Deterministic Search Baseline | implementation-complete | — | Local file indexing; no benchmark corpus recorded | Historical closed |
-| v0.5 — Evaluated Hybrid Retrieval | implementation-complete | — | Lexical search and evidence opening; no benchmark corpus recorded | Historical closed |
-| v0.6 — Query-Adaptive Search | implementation-complete | — | Query-adaptive search, code intelligence, memory promotion (v0.6.1 latest); no quality/resource/security measurements recorded | Historical closed |
+| v0.4 — Deterministic Search Baseline | implementation-complete | — | Local file indexing; no benchmark corpus recorded | Open |
+| v0.5 — Evaluated Hybrid Retrieval | implementation-complete | — | Lexical search and evidence opening; no benchmark corpus recorded | Open |
+| v0.6 — Query-Adaptive Search | implementation-complete | — | Query-adaptive search, code intelligence, memory promotion (v0.6.1 latest); no quality/resource/security measurements recorded | Closed historical |
 | v0.7 — Repository Intelligence | implementation-complete | — | Implementation issues closed; benchmark evidence still required | Open |
 | v0.8 — Visual Document Retrieval | implementation-complete | — | Implementation issues closed; benchmark evidence still required | Open |
 | v0.9 — Advanced Retrieval Research | planned | — | Research issues #90–#95 remain open; benchmark-gated research is planned | Open |
@@ -377,8 +377,9 @@ After this PR merges, the lead MUST:
    `v0.6 — Query-Adaptive Search`, `v0.7 — Repository Intelligence`,
    `v0.8 — Visual Document Retrieval`, and
    `v0.9 — Advanced Retrieval Research`.
-3. Preserve the already-closed historical state of v0.4, v0.5, and v0.6, but
-   do not describe them as benchmark-complete or product-complete.
+3. Preserve the actual GitHub states recorded in the manifest: v0.4 and v0.5
+   remain open because benchmark exit criteria are not evidenced, while v0.6
+   remains closed as a historical implementation-stage milestone.
 4. Leave v0.7 and v0.8 open until benchmark issues
    [#85](https://github.com/brio-labs/maestria/issues/85) and
    [#89](https://github.com/brio-labs/maestria/issues/89) provide their
