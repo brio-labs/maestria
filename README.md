@@ -127,14 +127,18 @@ maestria start -i .maestria-dev
 
 ### Daemon client
 
-`maestria start -i <instance>` runs the local daemon. Its authenticated,
-read-only client boundary is newline-delimited JSON on
+`maestria start -i <instance>` runs the local daemon. Its authenticated local
+client boundary is newline-delimited JSON on
 `<instance>/system/daemon.sock`; the token is stored in
-`<instance>/system/daemon.token`. The supported operations are `status`,
-`search`, `evidence`, and `task`. Requests without the matching token are
-rejected, and these operations cannot mutate domain state. See
+`<instance>/system/daemon.token`.
+The supported operations are `status`,
+`search`, `evidence`, `task`, and `model_agent_propose`. Requests without the
+matching token are rejected, and read-only operations cannot mutate domain
+state. `model_agent_propose` is a bounded, policy-gated proposal workflow: it
+may search and request harness execution, but governance, validation, and
+approval still control every side effect. See
 [`docs/DAEMON-API.md`](./docs/DAEMON-API.md) for the request and response
-envelopes.
+envelopes and transport limits.
 
 ### Repository and document retrieval
 

@@ -38,10 +38,16 @@ Supported operation tags are:
 - `search` with `query` and a `limit` from 1 through 100
 - `evidence` with `evidence_id`
 - `task` with an optional `task_id`
+- `model_agent_propose` with a bounded `proposal` payload
+
+The server reads at most 64 KiB per request line and applies a five-second
+timeout while reading a request. It also permits at most 32 concurrent
+connections.
 
 The response is one typed JSON envelope. Successful responses contain a
-`response` object tagged with `status`, `search`, `evidence`, or `task`. Failed
-requests contain an `error` string and never mutate domain state.
+`response` object tagged with `status`, `search`, `evidence`, `task`, or
+`model_agent_proposal`. Failed requests contain an `error` string and never
+mutate domain state.
 
 ## Scope and provenance
 

@@ -31,16 +31,18 @@ rustup component add rustfmt clippy
 3. Make changes in one logical layer first (`maestria-domain` or `maestria-governance`).
 4. Run quality gates locally (minimum):
    ```bash
+   python3 scripts/version.py check
    cargo fmt --all -- --check
    cargo clippy --workspace --all-targets --all-features -- -D warnings -D clippy::too_many_lines -D clippy::cognitive_complexity -D clippy::unwrap_used -D clippy::expect_used -D clippy::panic -D clippy::disallowed_methods
    cargo test --workspace --all-targets --all-features
+   bash scripts/release-contract.sh
    cargo test --workspace --doc --all-features
-   cargo doc --workspace --no-deps --all-features
    RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --all-features
    cargo deny check all
    cargo machete
-   cargo tree --duplicates
+   cargo tree --locked --duplicates
    python3 scripts/philosophy-check.py
+   python3 scripts/doc-consistency-check.py
    python3 -m unittest discover -s scripts -p 'test_*.py'
    ```
 5. Update docs (`README.md`, `docs/PHILOSOPHY.md`, or `docs/SPECS.md`) when behavior or invariants
