@@ -13,6 +13,20 @@ pub struct RetrievalScoreSet {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LearnedSparseContribution {
+    pub term_id: u32,
+    pub contribution_micros: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LearnedSparseReason {
+    pub score_micros: u32,
+    pub representation: crate::generations::RepresentationName,
+    pub fingerprint: RetrievalModelFingerprint,
+    pub contributions: Vec<LearnedSparseContribution>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TrustLabel {
     Verified,
     Unverified,
@@ -32,6 +46,7 @@ pub enum RetrievalReason {
     ExactMatch,
     SemanticSimilarity,
     CitationLink,
+    LearnedSparse(Box<LearnedSparseReason>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
