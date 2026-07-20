@@ -158,6 +158,7 @@ pub struct LearnedSparseBenchmarkObservation {
     pub energy_millijoules: Option<u64>,
     pub privacy_violations: u32,
     pub security_violations: u32,
+    pub budget_violations: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -338,20 +339,13 @@ fn validate_observation(
             "sparse observation identity does not match corpus".to_string(),
         ));
     }
-    let case = corpus
-        .case(&observation.case_id)
-        .ok_or_else(|| LearnedSparseBenchmarkError::UnknownCase(observation.case_id.clone()))?;
+    if corpus.case(&observation.case_id).is_none() {
+        return Err(LearnedSparseBenchmarkError::UnknownCase(
+            observation.case_id.clone(),
+        ));
+    }
     if observation.model_fingerprint.trim().is_empty()
         || observation.index_generation.trim().is_empty()
-        || observation.latency_ms > case.latency_budget_ms
-        || observation.memory_bytes > case.memory_budget_bytes
-        || observation.disk_bytes > case.disk_budget_bytes
-        || observation
-            .ingest_update_ms
-            .is_some_and(|value| value > case.ingest_update_budget_ms)
-        || observation
-            .energy_millijoules
-            .is_some_and(|value| value > case.energy_budget_millijoules)
     {
         return Err(LearnedSparseBenchmarkError::InvalidObservation {
             case_id: observation.case_id.clone(),

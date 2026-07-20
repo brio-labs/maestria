@@ -96,6 +96,12 @@ pub(super) fn aggregate(
             .iter()
             .map(|observation| observation.security_violations)
             .fold(0_u32, u32::saturating_add),
+        budget_violations: selected
+            .iter()
+            .zip(cases.iter())
+            .filter(|(observation, case)| exceeds_budget(observation, case))
+            .count()
+            .min(u32::MAX as usize) as u32,
     })
 }
 
@@ -132,6 +138,22 @@ fn telemetry_complete(metrics: &LearnedSparseRouteMetrics) -> bool {
         && metrics.total_energy_millijoules.is_some()
         && metrics.privacy_violations == 0
         && metrics.security_violations == 0
+        && metrics.budget_violations == 0
+}
+
+fn exceeds_budget(
+    observation: &LearnedSparseBenchmarkObservation,
+    case: &&LearnedSparseBenchmarkCase,
+) -> bool {
+    observation.latency_ms > case.latency_budget_ms
+        || observation.memory_bytes > case.memory_budget_bytes
+        || observation.disk_bytes > case.disk_budget_bytes
+        || observation
+            .ingest_update_ms
+            .is_some_and(|value| value > case.ingest_update_budget_ms)
+        || observation
+            .energy_millijoules
+            .is_some_and(|value| value > case.energy_budget_millijoules)
 }
 
 fn wins_against(

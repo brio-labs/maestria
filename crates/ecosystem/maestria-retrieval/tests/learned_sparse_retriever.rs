@@ -125,12 +125,7 @@ fn fixture_with_document() -> Result<RetrieverFixture, Box<dyn std::error::Error
         security.clone(),
     ))?;
     chunks.put(fixture_chunk(artifact_id, chunk_id))?;
-    evidence.put(fixture_evidence(
-        artifact_id,
-        snapshot,
-        &source,
-        security,
-    ))?;
+    evidence.put(fixture_evidence(artifact_id, snapshot, &source, security))?;
     index.index_documents(vec![SparseDocument {
         chunk_id,
         content_hash: fixture_hash('4')?,
@@ -250,7 +245,8 @@ async fn learned_sparse_retriever_preserves_score_and_source_lineage()
 }
 
 #[tokio::test]
-async fn learned_sparse_retriever_rejects_secret_queries() -> Result<(), Box<dyn std::error::Error>> {
+async fn learned_sparse_retriever_rejects_secret_queries() -> Result<(), Box<dyn std::error::Error>>
+{
     let identity = fixture_identity()?;
     let provider = Arc::new(InMemoryLearnedSparseProvider::new(identity.clone())?);
     let retriever = LearnedSparseChunkRetriever::new(
