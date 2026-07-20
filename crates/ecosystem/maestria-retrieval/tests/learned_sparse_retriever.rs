@@ -5,8 +5,8 @@ use maestria_domain::{
     Evidence, EvidenceKind, EvidenceRequirements, FreshnessRequirement, IndexFingerprint,
     IndexGeneration, IndexGenerationId, IndexGenerationRegistry, IndexLifecycle, IndexStatus,
     LearnedSparseReason, LogicalTick, Modality, ModalitySet, QueryId, RepresentationName,
-    RetrievalModelFingerprint, RetrievalReason, SearchBudget, SearchIntent, SearchPlan, SearchStage,
-    SourceSpan, StopConditions, StructureNodeId,
+    RetrievalModelFingerprint, RetrievalReason, SearchBudget, SearchIntent, SearchPlan,
+    SearchStage, SourceSpan, StopConditions, StructureNodeId,
 };
 use maestria_governance::RetrievalSecurityPolicy;
 use maestria_ports::{
@@ -258,13 +258,11 @@ fn fixture_evidence(
 }
 
 #[test]
-fn sparse_generation_capability_rejects_shadow_generation()
--> Result<(), Box<dyn std::error::Error>> {
+fn sparse_generation_capability_rejects_shadow_generation() -> Result<(), Box<dyn std::error::Error>>
+{
     let identity = fixture_identity()?;
-    let result = LearnedSparseGenerationCapability::activate(
-        &fixture_registry(&identity, false)?,
-        identity,
-    );
+    let result =
+        LearnedSparseGenerationCapability::activate(&fixture_registry(&identity, false)?, identity);
     assert!(result.is_err());
     Ok(())
 }
@@ -301,7 +299,8 @@ async fn learned_sparse_retriever_preserves_score_and_source_lineage()
 }
 
 #[tokio::test]
-async fn learned_sparse_retriever_rejects_secret_queries() -> Result<(), Box<dyn std::error::Error>> {
+async fn learned_sparse_retriever_rejects_secret_queries() -> Result<(), Box<dyn std::error::Error>>
+{
     let identity = fixture_identity()?;
     let provider = Arc::new(InMemoryLearnedSparseProvider::new(identity.clone())?);
     let retriever = LearnedSparseChunkRetriever::new(
