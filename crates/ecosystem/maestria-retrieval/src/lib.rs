@@ -49,7 +49,11 @@ impl MonotonicInstant {
     }
 }
 
-pub use engine::{RetrievalEngine, SearchPlannerContext};
+pub use engine::{
+    LearnedSparseShadowCandidate, LearnedSparseShadowLane, LearnedSparseShadowLaneStatus,
+    LearnedSparseShadowObservation, LearnedSparseShadowStore, LearnedSparseShadowStoreError,
+    RetrievalEngine, SearchPlannerContext,
+};
 pub use fusion::FixedKRrf;
 pub use learned_sparse_benchmark::{
     LearnedSparseBenchmarkCase, LearnedSparseBenchmarkComparison, LearnedSparseBenchmarkCorpus,
