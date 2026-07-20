@@ -2,8 +2,8 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use maestria_domain::{
-    EvidenceCandidate, IndexGenerationId, IndexStatus, LearnedSparseContribution,
-    LearnedSparseReason, RetrievalModelFingerprint, RetrievalReason, SearchLaneStatus,
+    EvidenceCandidate, IndexStatus, LearnedSparseContribution, LearnedSparseReason,
+    RetrievalModelFingerprint, RetrievalReason, SearchLaneStatus,
 };
 use maestria_governance::{RetrievalDecision, RetrievalSecurityPolicy, scan_secrets};
 use maestria_ports::{
@@ -15,6 +15,7 @@ use maestria_ports::{
 use super::common::{
     SourceSnapshotVerifier, candidate_from_records, generation_mismatch, port_error,
 };
+use super::learned_sparse_generation::LearnedSparseGenerationCapability;
 use crate::traits::CandidateRetriever;
 use crate::types::{CandidateBatch, CandidateRequest, RetrievalError, RetrieverDescriptor};
 
@@ -44,11 +45,9 @@ impl LearnedSparseChunkRetriever {
     pub fn new(
         parts: LearnedSparseChunkRetrieverParts,
         policy: RetrievalSecurityPolicy,
-        identity: SparseIdentity,
+        capability: LearnedSparseGenerationCapability,
     ) -> Result<Self, RetrievalError> {
-        identity
-            .validate()
-            .map_err(|error| RetrievalError::Internal(error.to_string()))?;
+        let identity = capability.identity().clone();
         let provider_identity = parts.provider.identity().ok_or_else(|| {
             RetrievalError::Internal("sparse provider identity unavailable".into())
         })?;
@@ -248,8 +247,4 @@ impl CandidateRetriever for LearnedSparseChunkRetriever {
             bytes_read,
         })
     }
-}
-
-pub fn sparse_generation(identity: &SparseIdentity) -> IndexGenerationId {
-    identity.generation_id
 }
