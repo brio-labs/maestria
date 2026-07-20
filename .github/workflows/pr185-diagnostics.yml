@@ -3,6 +3,8 @@ name: PR 185 Diagnostics
 on:
   push:
     branches: [feat/search-learned-sparse]
+  pull_request:
+    branches: [main]
 
 permissions:
   contents: read
