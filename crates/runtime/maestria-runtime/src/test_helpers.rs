@@ -42,5 +42,6 @@ pub fn test_governance() -> Governance {
         classifier: Arc::new(DefaultRiskClassifier),
         approval_gate: Arc::new(DefaultApprovalGate),
         validation_gate: Arc::new(DefaultValidationGate::new(true)),
+        memory_promotion_gate: Arc::new(maestria_governance::DefaultMemoryPromotionGate),
     }
 }

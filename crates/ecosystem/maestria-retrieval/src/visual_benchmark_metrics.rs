@@ -101,7 +101,8 @@ pub(super) fn wins(
                 observation.case_id == case.case_id && observation.route == VisualRoute::Visual
             })
             .is_some_and(|observation| {
-                observation.latency_ms <= case.latency_budget_ms
+                observation.provider_status.is_available()
+                    && observation.latency_ms <= case.latency_budget_ms
                     && observation.memory_bytes <= case.memory_budget_bytes
                     && observation.disk_bytes <= case.disk_budget_bytes
                     && observation.energy_millijoules <= case.energy_budget_millijoules

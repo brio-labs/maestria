@@ -165,6 +165,13 @@ pub struct ArtifactDetected {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SourceRemoved {
+    pub artifact_id: ArtifactId,
+    pub source_path: String,
+    pub content_hash: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ParserStarted {
     pub artifact_id: ArtifactId,
     pub title: String,
@@ -295,6 +302,7 @@ pub enum DomainInput {
     FullTextIndexCompleted(FullTextIndexCompleted),
     StartFullTextIndex(StartFullTextIndex),
     ArtifactDetected(ArtifactDetected),
+    SourceRemoved(SourceRemoved),
     ParserStarted(ParserStarted),
     ResumeParser(ParserStarted),
     ParserCompleted(ParserResult),

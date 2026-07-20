@@ -3,7 +3,10 @@ mod metrics;
 #[path = "visual_benchmark_runner.rs"]
 mod runner;
 
-pub use runner::{VisualBenchmarkExecutor, run_visual_benchmark};
+pub use runner::{
+    VisualBenchmarkExecutor, VisualProviderUnavailableExecutor, VisualTextLayoutExecutor,
+    run_visual_benchmark,
+};
 
 use crate::golden::Metric;
 use serde::{Deserialize, Serialize};
@@ -106,12 +109,18 @@ pub struct VisualBenchmarkCase {
     pub energy_budget_millijoules: u64,
 }
 
-/// Versioned, frozen visual retrieval benchmark corpus.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+/// Versioned, frozen visual retrieval benchmark corpus.
 pub struct VisualBenchmarkCorpus {
     pub schema_version: u32,
     pub corpus_id: String,
     pub corpus_revision: String,
+    /// ISO‑8601 date of the original corpus freeze.
+    #[serde(default)]
+    pub evaluation_date: String,
+    /// Human‑readable context for this evaluation corpus.
+    #[serde(default)]
+    pub evaluation_context: String,
     pub cases: Vec<VisualBenchmarkCase>,
 }
 
@@ -200,11 +209,34 @@ impl VisualBenchmarkCorpus {
     }
 }
 
+/// Availability of the provider used for one measured route.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum VisualProviderStatus {
+    Available,
+    Degraded { reason: String },
+    Unavailable { reason: String },
+}
+
+impl VisualProviderStatus {
+    pub fn is_available(&self) -> bool {
+        matches!(self, Self::Available)
+    }
+}
+
 /// Measurements for one case and one route.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct VisualBenchmarkObservation {
     pub corpus_id: String,
     pub corpus_revision: String,
+    /// ISO‑8601 timestamp of when the measurement was taken.
+    #[serde(default)]
+    pub evaluation_date: String,
+    /// Fingerprint of the model or provider that produced the measurements.
+    #[serde(default)]
+    pub model_fingerprint: String,
+    /// Serialised provider‑configuration snapshot at measurement time.
+    #[serde(default)]
+    pub provider_config: serde_json::Value,
     pub case_id: String,
     pub route: VisualRoute,
     pub page_region_recall: Metric,
@@ -216,6 +248,7 @@ pub struct VisualBenchmarkObservation {
     pub energy_millijoules: u64,
     pub privacy_violations: u32,
     pub security_violations: u32,
+    pub provider_status: VisualProviderStatus,
 }
 
 /// Aggregated metrics for one visual query class and route.

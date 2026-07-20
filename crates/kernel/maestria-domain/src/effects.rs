@@ -92,7 +92,7 @@ pub enum MaestriaEffect {
     RunValidation(RunValidationRequest),
     RequestApproval(RequestApprovalRequest),
     EmitDiagnostic(DiagnosticEvent),
-    SearchKnowledge(SearchKnowledgeRequest),
+    SearchKnowledge(Box<SearchKnowledgeRequest>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]

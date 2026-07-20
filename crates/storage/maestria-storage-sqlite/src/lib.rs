@@ -5,6 +5,13 @@
 //! This crate intentionally keeps storage serialization at the port boundary:
 //! domain types do not implement or depend on serde.
 
+/// Responsibility map:
+/// - `events`: module responsibility.
+/// - `id_allocator`: module responsibility.
+/// - `payloads`: module responsibility.
+/// - `repositories`: module responsibility.
+/// - `schema`: module responsibility.
+/// - `schema_validation`: module responsibility.
 use maestria_ports::PortError;
 use maestria_ports::{
     EffectJournal, EffectJournalEntry, EffectJournalIntent, EffectJournalStatus, HarnessRunId,

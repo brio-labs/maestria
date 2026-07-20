@@ -1,4 +1,20 @@
 pub mod adapters;
+
+/// Responsibility map:
+/// - `adapters`: module responsibility.
+/// - `bounded_reranker`: module responsibility.
+/// - `diversity`: module responsibility.
+/// - `engine`: module responsibility.
+/// - `fusion`: module responsibility.
+/// - `golden`: module responsibility.
+/// - `repository_benchmark`: module responsibility.
+/// - `rewrite`: module responsibility.
+/// - `sync`: module responsibility.
+/// - `sync_engine`: module responsibility.
+/// - `traits`: module responsibility.
+/// - `types`: module responsibility.
+/// - `visual_benchmark`: module responsibility.
+/// - `visual_reranker`: module responsibility.
 pub mod bounded_reranker;
 pub mod diversity;
 pub mod engine;
@@ -32,10 +48,10 @@ impl MonotonicInstant {
 pub use engine::{RetrievalEngine, SearchPlannerContext};
 pub use fusion::FixedKRrf;
 pub use repository_benchmark::{
-    RepositoryBenchmarkCase, RepositoryBenchmarkComparison, RepositoryBenchmarkCorpus,
-    RepositoryBenchmarkError, RepositoryBenchmarkObservation, RepositoryClassComparison,
-    RepositoryExecutionPolicy, RepositoryExpectedOutcome, RepositoryPromotionRecord,
-    RepositoryQueryClass, RepositoryRoute, RepositoryRouteMetrics,
+    MeasurementStatus, RepositoryBenchmarkCase, RepositoryBenchmarkComparison,
+    RepositoryBenchmarkCorpus, RepositoryBenchmarkError, RepositoryBenchmarkObservation,
+    RepositoryClassComparison, RepositoryExecutionPolicy, RepositoryExpectedOutcome,
+    RepositoryPromotionRecord, RepositoryQueryClass, RepositoryRoute, RepositoryRouteMetrics,
 };
 pub use sync::SyncPipeline;
 pub use sync_engine::SyncRetrievalEngine;
@@ -51,7 +67,8 @@ pub use types::{
 pub use visual_benchmark::{
     VisualBenchmarkCase, VisualBenchmarkComparison, VisualBenchmarkCorpus, VisualBenchmarkError,
     VisualBenchmarkExecutor, VisualBenchmarkObservation, VisualClassComparison, VisualEvidenceKind,
-    VisualExecutionPolicy, VisualJudgment, VisualPromotionRecord, VisualQueryClass, VisualRoute,
-    VisualRouteMetrics, run_visual_benchmark,
+    VisualExecutionPolicy, VisualJudgment, VisualPromotionRecord, VisualProviderStatus,
+    VisualProviderUnavailableExecutor, VisualQueryClass, VisualRoute, VisualRouteMetrics,
+    VisualTextLayoutExecutor, run_visual_benchmark,
 };
 pub use visual_reranker::{VisualReranker, VisualRerankerParts};

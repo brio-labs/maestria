@@ -1,6 +1,6 @@
 use maestria_domain::{
-    EvidenceCandidate, SearchLaneStatus, SearchOutcome, SearchPlan, SearchTraceLane,
-    SearchTraceLaneCandidate,
+    EvidenceCandidate, EvidenceCoverage, SearchLaneStatus, SearchOutcome, SearchPlan, SearchStatus,
+    SearchStopReason, SearchTrace, SearchTraceFilter, SearchTraceLane, SearchTraceLaneCandidate,
 };
 
 use crate::engine::{EnsureTraceOptions, ensure_trace, reconcile_status};
@@ -63,8 +63,10 @@ impl<'a> SyncRetrievalEngine<'a> {
         self.pipeline = self.pipeline.with_expander(expander);
         self
     }
-
     pub fn search_sync(&self, plan: &SearchPlan) -> RetrievalResult<SearchOutcome> {
+        if maestria_governance::contains_prompt_injection_risk(&plan.original_query) {
+            return Ok(Self::quarantine_outcome(plan));
+        }
         let (mut outcome, lane_sets) = self.pipeline.run_with_trace(plan)?;
         let ranked = outcome
             .evidence
@@ -133,5 +135,36 @@ impl<'a> SyncRetrievalEngine<'a> {
         );
         outcome.verify_compatibility(plan)?;
         Ok(outcome)
+    }
+
+    fn quarantine_outcome(plan: &SearchPlan) -> SearchOutcome {
+        let trace = SearchTrace::from_plan(
+            plan,
+            Vec::new(),
+            &[],
+            vec![SearchTraceFilter::PromptInjection],
+            None,
+            Vec::new(),
+            SearchStopReason::PolicyDenied,
+        );
+        SearchOutcome {
+            trace: trace.deterministic_id(),
+            trace_data: Some(Box::new(trace)),
+            fingerprint: plan.fingerprint.clone(),
+            index_generation: plan.index_generation,
+            status: SearchStatus::QuarantinedForReview,
+            evidence: Vec::new(),
+            coverage: EvidenceCoverage {
+                percent_covered: 0,
+                gaps_identified: vec![],
+                required_claims: vec![],
+                required_subquestions: vec![],
+                distinct_sources: 0,
+                distinct_documents: 0,
+                distinct_sections: 0,
+                candidate_coverage_keys: vec![],
+            },
+            conflicts: Vec::new(),
+        }
     }
 }

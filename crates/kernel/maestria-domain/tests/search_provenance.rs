@@ -34,6 +34,8 @@ fn plan() -> Result<SearchPlan, Box<dyn std::error::Error>> {
             minimum_corroboration: 2,
         },
         fingerprint: RetrievalModelFingerprint::new("model:v1".to_owned())?,
+        original_intent: None,
+        route_decision: None,
     })
 }
 fn artifact_version() -> Result<ArtifactVersion, Box<dyn std::error::Error>> {

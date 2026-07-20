@@ -118,6 +118,8 @@ fn plan() -> Result<SearchPlan, Box<dyn std::error::Error>> {
             minimum_sections: 0,
         },
         fingerprint: RetrievalModelFingerprint::new("test:visual".to_string())?,
+        original_intent: None,
+        route_decision: None,
     })
 }
 

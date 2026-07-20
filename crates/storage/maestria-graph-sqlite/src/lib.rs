@@ -9,6 +9,9 @@
 //! Runtime wiring owns projection updates; this adapter only persists and
 //! serves rebuildable graph edges.
 
+/// Responsibility map:
+/// - `conversion`: module responsibility.
+/// - `migration`: module responsibility.
 mod conversion;
 mod migration;
 

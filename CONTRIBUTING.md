@@ -45,6 +45,13 @@ rustup component add rustfmt clippy
    ```
 5. Update docs (`README.md`, `docs/PHILOSOPHY.md`, or `docs/SPECS.md`) when behavior or invariants
    change.
+6. For release-driven work, populate the release milestone description with a
+   machine-readable `release_stage` report before dispatching the release workflow.
+   The milestone must move through:
+   `implementation-complete → benchmark-complete → product-complete`.
+   Use `released` only after artifacts are published and `post_release_work`
+   is assigned (synthetic or staged follow-up items should use
+   `maintenance/release` grouping when the repository supports that grouping).
 
 ## Quality standards
 

@@ -20,6 +20,15 @@ on:
         required: false
         default: ''
         type: string
+      evidence_stage:
+        description: 'Minimum release exit-evidence stage (benchmarks, product-complete, or maintenance)'
+        required: false
+        default: product-complete
+        type: choice
+        options:
+          - benchmarks
+          - product-complete
+          - maintenance
 
 concurrency:
   group: release-${{ inputs.version }}
@@ -44,18 +53,19 @@ jobs:
       actions: read
     outputs:
       commit: ${{ steps.validate.outputs.commit }}
+      evidence_stage: ${{ steps.validate.outputs.evidence_stage }}
     steps:
       - uses: actions/checkout@v7.0.0
         with:
           ref: ${{ inputs.commit }}
           fetch-depth: 0
       - name: Validate milestone closure and CI checks
-        id: validate
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_COMMIT: ${{ inputs.commit }}
           RELEASE_VERSION: ${{ inputs.version }}
           RELEASE_MILESTONE: ${{ inputs.milestone }}
+          REQUIRED_EVIDENCE_STAGE: ${{ inputs.evidence_stage }}
         run: |
           set -euo pipefail
           COMMIT="$RELEASE_COMMIT"
@@ -127,6 +137,21 @@ jobs:
           fi
           echo "✓ All issues in milestone '$MILESTONE_TITLE' are closed"
 
+          # ── 1b. Release exit evidence gate ────────────────────────
+          echo
+          echo "==> Checking release exit evidence in milestone description..."
+          echo "$MILESTONE_JSON" | jq -r '.description // ""' > milestone_description.md
+
+          if ! RELEASE_EVIDENCE_STAGE="$(python3 scripts/release_exit_evidence.py \
+            --description-file milestone_description.md \
+            --required-stage "$REQUIRED_EVIDENCE_STAGE" \
+            --require-maintenance-grouping \
+            --milestone-title "$MILESTONE_TITLE")"; then
+            exit 1
+          fi
+
+          echo "evidence_stage=$RELEASE_EVIDENCE_STAGE" >> "$GITHUB_OUTPUT"
+          echo "✓ Milestone '$MILESTONE_TITLE' is marked '$RELEASE_EVIDENCE_STAGE' in exit evidence"
           # ── 2. CI status gate ──────────────────────────────────
           echo
           echo "==> Checking CI status for commit $COMMIT..."
@@ -203,8 +228,14 @@ jobs:
       - name: Clippy
         run: bash scripts/strict-clippy.sh
 
-      - name: Tests
-        run: cargo test --workspace --all-targets --all-features
+      - name: Tests with benchmark reports
+        env:
+          MAESTRIA_BENCHMARK_REPORT_DIR: target/benchmark-reports
+        run: |
+          cargo test --workspace --all-targets --all-features
+          # Generate real‑route benchmark reports for release evidence.
+          cargo test -p maestria-retrieval --test repository_benchmark_tests -- --nocapture
+          cargo test -p maestria-retrieval --test visual_benchmark_tests -- --nocapture
       - name: Frozen golden gate
         run: |
           cargo test -p maestria-retrieval --test golden_fixture
@@ -252,6 +283,13 @@ jobs:
         run: python3 scripts/philosophy-check.py
       - name: Repository script tests
         run: python3 -m unittest discover -s scripts -p 'test_*.py'
+      - name: Upload benchmark reports
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: benchmark-reports
+          path: target/benchmark-reports
+          if-no-files-found: ignore
 
   build:
     needs: [verify]

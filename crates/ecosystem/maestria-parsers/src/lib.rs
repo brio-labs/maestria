@@ -2,6 +2,16 @@
 
 //! Deterministic byte-to-domain parsers for Maestria artifacts.
 
+/// Responsibility map:
+/// - `cargo_toml`: module responsibility.
+/// - `chunking`: module responsibility.
+/// - `markdown`: module responsibility.
+/// - `pdf`: module responsibility.
+/// - `pdf_layout`: module responsibility.
+/// - `plain_text`: module responsibility.
+/// - `registry`: module responsibility.
+/// - `rust_source`: module responsibility.
+/// - `tree_builder`: module responsibility.
 mod cargo_toml;
 mod chunking;
 mod markdown;

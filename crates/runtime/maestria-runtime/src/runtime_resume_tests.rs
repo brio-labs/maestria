@@ -62,6 +62,7 @@ async fn resume_parse_uses_existing_blob_and_skips_storage()
         classifier: Arc::new(DefaultRiskClassifier),
         approval_gate: Arc::new(DefaultApprovalGate),
         validation_gate: Arc::new(DefaultValidationGate::new(true)),
+        memory_promotion_gate: Arc::new(maestria_governance::DefaultMemoryPromotionGate),
     };
     let (input_tx, mut input_rx) = mpsc::channel(8);
 
@@ -146,6 +147,7 @@ async fn resume_parse_missing_blob_returns_failure() -> Result<(), Box<dyn std::
         classifier: Arc::new(DefaultRiskClassifier),
         approval_gate: Arc::new(DefaultApprovalGate),
         validation_gate: Arc::new(DefaultValidationGate::new(true)),
+        memory_promotion_gate: Arc::new(maestria_governance::DefaultMemoryPromotionGate),
     };
     let (input_tx, _input_rx) = mpsc::channel(8);
 
@@ -216,6 +218,7 @@ async fn fresh_parse_sends_parser_started_with_correct_blob_identity()
         classifier: Arc::new(DefaultRiskClassifier),
         approval_gate: Arc::new(DefaultApprovalGate),
         validation_gate: Arc::new(DefaultValidationGate::new(true)),
+        memory_promotion_gate: Arc::new(maestria_governance::DefaultMemoryPromotionGate),
     };
     let (input_tx, mut input_rx) = mpsc::channel(8);
 
@@ -408,6 +411,7 @@ async fn resume_sends_record_evidence_when_evidence_already_in_state()
         classifier: Arc::new(DefaultRiskClassifier),
         approval_gate: Arc::new(DefaultApprovalGate),
         validation_gate: Arc::new(DefaultValidationGate::new(true)),
+        memory_promotion_gate: Arc::new(maestria_governance::DefaultMemoryPromotionGate),
     };
     let (input_tx, mut input_rx) = mpsc::channel(8);
 

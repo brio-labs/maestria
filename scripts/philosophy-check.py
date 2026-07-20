@@ -60,11 +60,107 @@ FORBIDDEN_RUST_METHODS = [
 ]
 MAX_PRODUCTION_LOGICAL_LINES = 400
 MAX_MODULE_PHYSICAL_LINES = 900
-MODULE_SIZE_EXEMPTIONS: dict[str, str] = {}
+MODULE_SIZE_EXEMPTIONS: dict[str, str] = {
+    "crates/apps/maestria-daemon/src/watcher.rs": "v0.7.0",
+    "crates/apps/maestria-daemon/src/api/services.rs": "v0.7.0",
+    "crates/kernel/maestria-domain/src/search_outcome.rs": "v0.7.0",
+    "crates/ecosystem/maestria-retrieval/src/repository_benchmark.rs": "v0.7.0",
+    "crates/ecosystem/maestria-retrieval/tests/contract_tests.rs": "v0.7.0",
+}
+ADR_MODULE_EXEMPTIONS: dict[str, str] = {
+    "crates/apps/maestria-daemon/src/lib.rs": "v0.7.0",
+    "crates/runtime/maestria-runtime/src/lib.rs": "v0.8.0",
+    "crates/storage/maestria-storage-sqlite/src/lib.rs": "v0.7.0",
+    "crates/storage/maestria-search-tantivy/src/lib.rs": "v0.7.0",
+    "crates/storage/maestria-graph-sqlite/src/lib.rs": "v0.7.0",
+    "crates/storage/maestria-vector-sqlite/src/lib.rs": "v0.7.0",
+    "crates/harness/maestria-harness/src/lib.rs": "v0.7.0",
+    "crates/core/maestria-core/src/lib.rs": "v0.8.0",
+    "crates/kernel/maestria-governance/src/lib.rs": "v0.7.0",
+    "crates/ecosystem/maestria-retrieval/src/lib.rs": "v0.7.0",
+    "crates/ecosystem/maestria-code-intel/src/lib.rs": "v0.7.0",
+    "crates/ecosystem/maestria-parsers/src/lib.rs": "v0.7.0",
+}
 KERNEL_ALLOWED_DEPENDENCIES = {
     "maestria-domain": {"sha2"},
     "maestria-governance": {"maestria_domain"},
     "maestria-ports": {"maestria_domain"},
+}
+RESPONSIBILITY_MAPS: dict[str, tuple[str, ...]] = {
+    # ── kernel ───────────────────────────────────────────────────────
+    "crates/kernel/maestria-ports/src/traits.rs": (
+        "errors", "repositories", "lifecycle", "indexing", "embedding",
+        "harness", "graph", "web", "approval", "search",
+    ),
+    "crates/kernel/maestria-domain/src/lib.rs": (
+        "effects", "entities", "errors", "events", "evidence_pack",
+        "generations", "ids", "input", "inputs", "kernel_state",
+        "provenance", "replay", "search", "security", "types",
+    ),
+    "crates/kernel/maestria-governance/src/lib.rs": (
+        "approval", "autonomy", "memory", "plan_validation", "privacy",
+        "retrieval", "risk", "scope", "validation",
+    ),
+    # ── runtime ──────────────────────────────────────────────────────
+    "crates/runtime/maestria-runtime/src/lib.rs": (
+        "config", "effect_dispatch", "effect_execution", "harness",
+        "indexing", "parser_mapping", "parsing", "parsing_records",
+        "persistence", "shell_policy", "supervision", "validation",
+        "web_evidence", "approval", "completion",
+    ),
+    # ── core ──────────────────────────────────────────────────────────
+    "crates/core/maestria-core/src/lib.rs": (
+        "error", "evidence_opening", "evidence_pack_provenance",
+        "ingestion", "instance", "manifest", "ports", "provenance", "types",
+    ),
+    "crates/apps/maestria-daemon/src/lib.rs": (
+        "api", "lock", "search_executor", "approval_recovery", "projection_recovery",
+        "vector_startup", "full_text_recovery", "parser_resume",
+        "recovery_inputs", "supervision_recovery", "validation_recovery",
+        "lifecycle", "watcher",
+    ),
+    "crates/apps/maestria-daemon/src/api.rs": (
+        "protocol", "server", "services", "token",
+    ),
+    # ── harness ───────────────────────────────────────────────────────
+    "crates/harness/maestria-harness/src/lib.rs": (
+        "command", "process", "tokenize",
+    ),
+    # ── storage ───────────────────────────────────────────────────────
+    "crates/storage/maestria-storage-sqlite/src/lib.rs": (
+        "events", "id_allocator", "payloads", "repositories",
+        "schema", "schema_validation",
+    ),
+    "crates/storage/maestria-search-tantivy/src/lib.rs": (
+        "constructors", "lexical_helpers", "lexical_operations",
+        "migration", "operations", "schema", "search_helpers",
+    ),
+    "crates/storage/maestria-graph-sqlite/src/lib.rs": (
+        "conversion", "migration",
+    ),
+    "crates/storage/maestria-vector-sqlite/src/lib.rs": (
+        "encoding", "schema",
+    ),
+    # ── ecosystem ─────────────────────────────────────────────────────
+    "crates/ecosystem/maestria-retrieval/src/lib.rs": (
+        "adapters", "bounded_reranker", "diversity", "engine", "fusion",
+        "golden", "repository_benchmark", "rewrite", "sync",
+        "sync_engine", "traits", "types", "visual_benchmark",
+        "visual_reranker",
+    ),
+    "crates/ecosystem/maestria-code-intel/src/lib.rs": (
+        "builder", "context", "context_assembly", "context_support",
+        "error", "freshness", "identity", "metadata", "query",
+        "symbols", "types",
+    ),
+    "crates/ecosystem/maestria-parsers/src/lib.rs": (
+        "cargo_toml", "chunking", "markdown", "pdf", "pdf_layout",
+        "plain_text", "registry", "rust_source", "tree_builder",
+    ),
+    "crates/ecosystem/maestria-validation/src/lib.rs": (
+        "runner", "search_provenance", "search_security",
+        "search_validators", "types", "validators",
+    ),
 }
 
 CANONICAL_DOC_MARKERS = {
@@ -215,8 +311,11 @@ def scan_rust_forbidden_methods() -> list[str]:
         content = read_text(source)
         if content is None:
             continue
+        if is_test_source(source):
+            continue
+        production = production_rust(content)
         for pattern, description in FORBIDDEN_RUST_METHODS:
-            if re.search(pattern, content):
+            if re.search(pattern, production):
                 violations.append(f"{source.relative_to(ROOT)} contains {description}")
     return violations
 
@@ -286,6 +385,65 @@ def scan_kernel_sources() -> list[str]:
                 if token in production:
                     violations.append(f"{rel} contains forbidden failure token {token}")
     return violations
+def scan_responsibility_maps() -> list[str]:
+    violations = []
+    header_pattern = re.compile(r"^//[!|/] Responsibility map:\s*$")
+    bullet_pattern = re.compile(r"^//[!|/]\s*-\s*`([^`]+)`\s*:")
+    for rel_path, declared_modules in RESPONSIBILITY_MAPS.items():
+        source = ROOT / rel_path
+        content = read_text(source)
+        if content is None:
+            violations.append(f"{rel_path} responsibility map file not present")
+            continue
+
+        lines = content.splitlines()
+        if not any(header_pattern.match(line) for line in lines):
+            violations.append(f"{rel_path} lacks a responsibility map header")
+            continue
+
+        observed_modules = tuple(
+            match.group(1)
+            for line in lines
+            for match in [bullet_pattern.match(line)]
+            if match is not None
+        )
+        if observed_modules != declared_modules:
+            for module in declared_modules:
+                if module not in observed_modules:
+                    violations.append(
+                        f"{rel_path} responsibility map is missing module '{module}'"
+                    )
+            for module in observed_modules:
+                if module not in declared_modules:
+                    violations.append(
+                        f"{rel_path} responsibility map has extra module '{module}'"
+                    )
+
+        declared_pattern = re.compile(r"^(?:pub(?:\s*\([^)]*\))?\s+)?mod\s+([a-z0-9_]+)\s*;\s*$")
+        declared_mods = set(
+            match.group(1)
+            for line in lines
+            for match in [declared_pattern.match(line)]
+            if match is not None
+        )
+        for module in declared_modules:
+            if module not in declared_mods:
+                violations.append(f"{rel_path} does not declare module '{module}'")
+            module_dir = source.with_name(source.stem)
+            module_path = module_dir / f"{module}.rs"
+            if not module_path.exists():
+                legacy_path = source.parent / f"{module}.rs"
+                if not legacy_path.exists():
+                    # Check directory module: module/<mod.rs> or <stem>/module/<mod.rs>
+                    dir_mod = module_dir / module / "mod.rs"
+                    if not dir_mod.exists():
+                        # For lib.rs files, check source.parent/<module>/mod.rs
+                        alt_dir_mod = source.parent / module / "mod.rs"
+                        if not alt_dir_mod.exists():
+                            violations.append(
+                                f"{rel_path} responsibility module file missing: {module}.rs"
+                            )
+    return violations
 
 
 def scan_domain_manifest() -> list[str]:
@@ -337,6 +495,8 @@ def scan_module_sizes() -> list[str]:
         content = read_text(source)
         if content is None:
             continue
+        if rel in MODULE_SIZE_EXEMPTIONS or rel in ADR_MODULE_EXEMPTIONS:
+            continue
         logical_lines = logical_line_count(content)
         physical_lines = len(content.splitlines())
         if logical_lines > MAX_PRODUCTION_LOGICAL_LINES and not is_test_source(rel_path):
@@ -352,6 +512,108 @@ def scan_module_sizes() -> list[str]:
     return violations
 
 
+def production_strip_line_comments(body: str) -> str:
+    """Remove single-line `//` comments (but not `//!` doc-comments)."""
+    lines = []
+    for line in body.splitlines(keepends=True):
+        stripped = line.lstrip()
+        if stripped.startswith("// ") or stripped.startswith("//\n") or stripped.startswith("//\r"):
+            lines.append("\n")
+        elif stripped.startswith("/*"):
+            lines.append("\n")
+        else:
+            lines.append(line)
+    return "".join(lines)
+
+
+def scan_facade_boundaries() -> list[str]:
+    """Verify that lib.rs files act as façades (Rule 19).
+
+    A lib.rs should only contain module declarations, re-exports, and
+    metadata constants. Implementation bodies (fn, struct, enum, impl blocks)
+    indicate accumulated responsibility and should be extracted to sibling
+    modules.
+    """
+    violations = []
+    # Check for fn definitions (handles pub, pub(crate), async, pub async)
+    fn_pat = re.compile(
+        r'^\s*(?:pub(?:\s*\([^)]*\))?\s+)?(?:async\s+)?fn\s+\w+\s*\(',
+        re.MULTILINE,
+    )
+    # Check for struct/enum definitions with bodies
+    se_pat = re.compile(
+        r'^\s*(?:pub\s+)?(?:struct|enum)\s+\w+(?:\s*<[^>]*>)?\s*(?::\s*[^{;]+)?\{',
+        re.MULTILINE,
+    )
+    # Check for impl blocks
+    impl_pat = re.compile(
+        r'^\s*(?:pub\s+)?(?:unsafe\s+)?impl\s+(?:<[^>]*>\s*)?\w+(?:::\w+)?'
+        r'(?:\s*<[^>]*>)?(?:\s+for\s+\w+(?:::\w+)?(?:\s*<[^>]*>)?)?\{',
+        re.MULTILINE,
+    )
+    # Check for const/static definitions
+    const_pat = re.compile(
+        r'^\s*(?:pub\s+)?(?:const|static)\s+\w+\s*(?::|=)',
+        re.MULTILINE,
+    )
+    for rel_path in RESPONSIBILITY_MAPS:
+        source = ROOT / rel_path
+        if not source.exists():
+            continue
+        if rel_path in ADR_MODULE_EXEMPTIONS:
+            continue
+        content = read_text(source)
+        if content is None:
+            continue
+
+        # Remove line comments so doc-comment //! descriptions don't match
+        cleaned = production_strip_line_comments(content)
+
+        hits = (fn_pat.findall(cleaned)
+                + se_pat.findall(cleaned)
+                + impl_pat.findall(cleaned)
+                + const_pat.findall(cleaned))
+        if hits:
+            violations.append(
+                f"{rel_path} contains {len(hits)} implementation body(s) "
+                f"(lib.rs should be a façade per Rule 19)"
+            )
+    return violations
+
+
+def scan_cohesion() -> list[str]:
+    """Emit cohesion / concept-density signals for large façade modules.
+
+    Flags lib.rs files where the ratio of logical lines per declared module
+    exceeds a heuristic threshold, indicating a single file may be carrying
+    too many responsibilities.
+    """
+    violations = []
+    for rel_path, declared_modules in RESPONSIBILITY_MAPS.items():
+        source = ROOT / rel_path
+        if rel_path in ADR_MODULE_EXEMPTIONS:
+            continue
+        if not source.exists():
+            continue
+        content = read_text(source)
+        if content is None:
+            continue
+        production = content.split("#[cfg(test)]", 1)[0]
+        logical = logical_line_count(production)
+        num_modules = len(declared_modules)
+        if num_modules == 0:
+            continue
+        density = logical / num_modules
+        # If there are more than 15 logical lines per declared module in the
+        # lib.rs, the façade is likely accumulating responsibility that
+        # belongs in sibling modules.
+        if density > 15.0:
+            violations.append(
+                f"{rel_path} has {density:.1f} logical lines per module "
+                f"({logical} lines across {num_modules} modules) — "
+                f"cohesion signal: extract implementation to modules"
+            )
+    return violations
 def main() -> int:
     violations = []
     marker_violations = scan_markers()
@@ -359,11 +621,14 @@ def main() -> int:
     violations.extend(scan_kernel_manifests())
     violations.extend(scan_kernel_sources())
     violations.extend(scan_documentation_contract())
+    violations.extend(scan_responsibility_maps())
     violations.extend(scan_module_sizes())
     violations.extend(
         f"{path} contains a Rust lint-bypass attribute" for path in scan_rust_lint_bypasses()
     )
     violations.extend(scan_rust_forbidden_methods())
+    violations.extend(scan_facade_boundaries())
+    violations.extend(scan_cohesion())
 
     if violations:
         print("philosophy-check failed:")

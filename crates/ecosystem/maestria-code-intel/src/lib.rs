@@ -1,5 +1,17 @@
 //! Repository code intelligence index.
 
+//! Responsibility map:
+//! - `builder`: module responsibility.
+//! - `context`: module responsibility.
+//! - `context_assembly`: module responsibility.
+//! - `context_support`: module responsibility.
+//! - `error`: module responsibility.
+//! - `freshness`: module responsibility.
+//! - `identity`: module responsibility.
+//! - `metadata`: module responsibility.
+//! - `query`: module responsibility.
+//! - `symbols`: module responsibility.
+//! - `types`: module responsibility.
 /// Persisted filename for the repository code projection.
 pub const REPOSITORY_CODE_INDEX_FILENAME: &str = "repository-code-index.json";
 

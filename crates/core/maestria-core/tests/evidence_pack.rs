@@ -39,6 +39,8 @@ fn plan(required_claims: Vec<String>) -> Result<SearchPlan, Box<dyn Error>> {
             minimum_sections: 0,
         },
         fingerprint: RetrievalModelFingerprint::new("test-fingerprint".to_string())?,
+        original_intent: None,
+        route_decision: None,
     })
 }
 fn trace_for(

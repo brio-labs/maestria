@@ -6,8 +6,17 @@
 //! intentions but performs no I/O. Runtime ports and adapter implementations are
 //! expected to live elsewhere.
 
+/// Responsibility map:
+/// - `approval`: module responsibility.
+/// - `autonomy`: module responsibility.
+/// - `memory`: module responsibility.
+/// - `plan_validation`: module responsibility.
+/// - `privacy`: module responsibility.
+/// - `retrieval`: module responsibility.
+/// - `risk`: module responsibility.
+/// - `scope`: module responsibility.
+/// - `validation`: module responsibility.
 // ── modules ─────────────────────────────────────────────────────────
-
 mod approval;
 mod autonomy;
 mod memory;

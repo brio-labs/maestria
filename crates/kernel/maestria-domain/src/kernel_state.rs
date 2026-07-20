@@ -32,6 +32,7 @@ pub struct KernelState {
     pub resolved_approvals: BTreeSet<ApprovalId>,
     pub pending_full_text: BTreeSet<ChunkId>,
     pub parsed_artifact_ids: BTreeSet<ArtifactId>,
+    pub stale_sources: BTreeSet<String>,
     pub index_generations: crate::generations::IndexGenerationRegistry,
     pub event_log: Vec<DomainEventEnvelope>,
 }

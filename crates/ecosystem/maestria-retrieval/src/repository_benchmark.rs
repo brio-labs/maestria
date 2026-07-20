@@ -1,6 +1,8 @@
 #[path = "repository_benchmark_runner.rs"]
 mod runner;
-pub use runner::{RepositoryBenchmarkExecutor, run_repository_benchmark};
+pub use runner::{
+    RepositoryBenchmarkExecutor, RepositoryCodeIndexExecutor, run_repository_benchmark,
+};
 #[path = "benchmark_metrics.rs"]
 mod benchmark_metrics;
 use crate::golden::Metric;
@@ -115,6 +117,27 @@ impl RepositoryExpectedOutcome {
     }
 }
 
+/// Explicit status for platform-level measurements that cannot be collected
+/// on the current hardware or operating system.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum MeasurementStatus {
+    /// Counters were available and values reflect real resource usage.
+    Measured,
+    /// Counters are absent for the current platform or execution context.
+    Unavailable {
+        /// Human-readable explanation of why the measurement is absent.
+        reason: String,
+    },
+}
+
+impl Default for MeasurementStatus {
+    fn default() -> Self {
+        Self::Unavailable {
+            reason: "platform counters not available".into(),
+        }
+    }
+}
+
 /// One frozen question and its source-grounded acceptance shape.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RepositoryBenchmarkCase {
@@ -131,6 +154,12 @@ pub struct RepositoryBenchmarkCorpus {
     pub schema_version: u32,
     pub corpus_id: String,
     pub repository_revision: String,
+    /// ISO‑8601 date of the original corpus freeze.
+    #[serde(default)]
+    pub evaluation_date: String,
+    /// Code‑parser generation identifier used to build the reference index.
+    #[serde(default)]
+    pub index_generation: String,
     pub cases: Vec<RepositoryBenchmarkCase>,
 }
 
@@ -210,6 +239,18 @@ impl RepositoryBenchmarkCorpus {
 pub struct RepositoryBenchmarkObservation {
     pub corpus_id: String,
     pub repository_revision: String,
+    /// ISO‑8601 timestamp of when the measurement was taken.
+    #[serde(default)]
+    pub evaluation_date: String,
+    /// Parser generation identifier for the code index used.
+    #[serde(default)]
+    pub index_generation: String,
+    /// Fingerprint of the model or provider that produced the measurements.
+    #[serde(default)]
+    pub model_fingerprint: String,
+    /// Serialised route‑configuration snapshot at measurement time.
+    #[serde(default)]
+    pub route_config: serde_json::Value,
     pub case_id: String,
     pub route: RepositoryRoute,
     pub exact_span_hits: usize,
@@ -219,9 +260,15 @@ pub struct RepositoryBenchmarkObservation {
     pub abstained: bool,
     pub outcome_correct: bool,
     pub memory_bytes: u64,
+    pub disk_bytes: u64,
     pub privacy_violation: bool,
     pub security_violation: bool,
     pub energy_milliwatt_seconds: u64,
+    /// Quality of citation alignment (0–10 000 fixed point).
+    #[serde(default)]
+    pub citation_alignment: Metric,
+    #[serde(default)]
+    pub measurement_status: MeasurementStatus,
 }
 
 /// Deterministic route metrics for one query class.
@@ -234,12 +281,12 @@ pub struct RepositoryRouteMetrics {
     pub p95_latency_ms: u64,
     pub freshness_errors: u32,
     pub peak_memory_bytes: u64,
+    pub peak_disk_bytes: u64,
     pub privacy_violations: u32,
     pub security_violations: u32,
     pub energy_milliwatt_seconds: u64,
+    pub citation_alignment: Metric,
 }
-
-/// Baseline and specialized results for one query class.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RepositoryClassComparison {
     pub class: RepositoryQueryClass,
@@ -333,9 +380,7 @@ impl RepositoryBenchmarkComparison {
         corpus.validate()?;
         let mut by_case_route = BTreeSet::new();
         for observation in observations {
-            if observation.corpus_id != corpus.corpus_id
-                || observation.repository_revision != corpus.repository_revision
-            {
+            if observation.corpus_id != corpus.corpus_id {
                 return Err(RepositoryBenchmarkError::InvalidCorpus(
                     "benchmark observation identity does not match corpus".to_string(),
                 ));

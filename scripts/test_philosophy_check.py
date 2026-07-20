@@ -22,6 +22,7 @@ class PhilosophyCheckTests(unittest.TestCase):
             "DOMAIN_SRC": PHILOSOPHY_CHECK.DOMAIN_SRC,
             "DOMAIN_MANIFEST": PHILOSOPHY_CHECK.DOMAIN_MANIFEST,
             "KERNEL_ROOTS": PHILOSOPHY_CHECK.KERNEL_ROOTS,
+            "RESPONSIBILITY_MAPS": PHILOSOPHY_CHECK.RESPONSIBILITY_MAPS,
         }
 
     def tearDown(self) -> None:
@@ -40,6 +41,16 @@ class PhilosophyCheckTests(unittest.TestCase):
             PHILOSOPHY_CHECK,
             "KERNEL_ROOTS",
             tuple(kernel_root / name for name in ("maestria-domain", "maestria-governance", "maestria-ports")),
+        )
+        setattr(
+            PHILOSOPHY_CHECK,
+            "RESPONSIBILITY_MAPS",
+            {
+                "crates/kernel/maestria-ports/src/traits.rs": (
+                    "errors", "repositories", "lifecycle", "indexing",
+                    "embedding", "harness", "graph", "web", "approval", "search",
+                ),
+            },
         )
 
     def test_scan_markers_reports_task_marker(self) -> None:
@@ -169,6 +180,51 @@ class PhilosophyCheckTests(unittest.TestCase):
                 ],
             )
 
+    def test_responsibility_map_accepts_valid_trait_split(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.configure_root(root)
+            traits_dir = root / "crates" / "kernel" / "maestria-ports" / "src"
+            traits_dir.mkdir(parents=True, exist_ok=True)
+            traits_file = traits_dir / "traits.rs"
+            modules = PHILOSOPHY_CHECK.RESPONSIBILITY_MAPS[
+                "crates/kernel/maestria-ports/src/traits.rs"
+            ]
+
+            traits_lines = ["//! Responsibility map:"]
+            traits_lines.extend(f"//! - `{module}`: test ownership." for module in modules)
+            traits_lines.extend(f"mod {module};" for module in modules)
+            traits_file.write_text("\n".join(traits_lines), encoding="utf-8")
+            for module in modules:
+                (traits_dir / f"{module}.rs").write_text("// test\n", encoding="utf-8")
+
+            self.assertEqual(PHILOSOPHY_CHECK.scan_responsibility_maps(), [])
+
+    def test_responsibility_map_reports_missing_module_declaration(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.configure_root(root)
+            traits_dir = root / "crates" / "kernel" / "maestria-ports" / "src"
+            traits_dir.mkdir(parents=True, exist_ok=True)
+            traits_file = traits_dir / "traits.rs"
+            modules = PHILOSOPHY_CHECK.RESPONSIBILITY_MAPS[
+                "crates/kernel/maestria-ports/src/traits.rs"
+            ]
+
+            traits_lines = ["//! Responsibility map:"]
+            traits_lines.extend(f"//! - `{module}`: test ownership." for module in modules)
+            traits_lines.extend(f"mod {module};" for module in modules if module != "repositories")
+            traits_file.write_text("\n".join(traits_lines), encoding="utf-8")
+            for module in modules:
+                (traits_dir / f"{module}.rs").write_text("// test\n", encoding="utf-8")
+
+            self.assertEqual(
+                PHILOSOPHY_CHECK.scan_responsibility_maps(),
+                [
+                    "crates/kernel/maestria-ports/src/traits.rs does not declare module 'repositories'"
+                ],
+            )
+
 
     def test_documentation_contract_requires_canonical_markers(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -276,7 +332,81 @@ class PhilosophyCheckTests(unittest.TestCase):
                     "901 physical lines (limit 900)"
                 ],
             )
+    def test_facade_boundary_reports_impl_in_lib_rs(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.configure_root(root)
+            lib_dir = root / "crates" / "kernel" / "maestria-domain" / "src"
+            lib_dir.mkdir(parents=True)
+            lib_rs = lib_dir / "lib.rs"
+            lib_rs.write_text(
+                "pub mod foo;\npub fn helper() -> i32 { 42 }\n",
+                encoding="utf-8",
+            )
+            old_maps = PHILOSOPHY_CHECK.RESPONSIBILITY_MAPS
+            PHILOSOPHY_CHECK.RESPONSIBILITY_MAPS = {
+                "crates/kernel/maestria-domain/src/lib.rs": ("foo",),
+            }
+            try:
+                violations = PHILOSOPHY_CHECK.scan_facade_boundaries()
+                self.assertEqual(len(violations), 1)
+                self.assertIn("implementation body", violations[0])
+            finally:
+                PHILOSOPHY_CHECK.RESPONSIBILITY_MAPS = old_maps
 
+    def test_facade_boundary_accepts_pure_facade(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.configure_root(root)
+            lib_dir = root / "crates" / "kernel" / "maestria-domain" / "src"
+            lib_dir.mkdir(parents=True)
+            lib_rs = lib_dir / "lib.rs"
+            lib_rs.write_text(
+                "pub mod foo;\npub mod bar;\npub use foo::*;\npub use bar::*;\n",
+                encoding="utf-8",
+            )
+            (lib_dir / "foo.rs").write_text("// foo\n", encoding="utf-8")
+            (lib_dir / "bar.rs").write_text("// bar\n", encoding="utf-8")
+            old_maps = PHILOSOPHY_CHECK.RESPONSIBILITY_MAPS
+            PHILOSOPHY_CHECK.RESPONSIBILITY_MAPS = {
+                "crates/kernel/maestria-domain/src/lib.rs": ("foo", "bar"),
+            }
+            try:
+                violations = PHILOSOPHY_CHECK.scan_facade_boundaries()
+                self.assertEqual(violations, [])
+            finally:
+                PHILOSOPHY_CHECK.RESPONSIBILITY_MAPS = old_maps
+
+    def test_cohesion_reports_dense_lib_rs(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.configure_root(root)
+            lib_dir = root / "crates" / "kernel" / "maestria-domain" / "src"
+            lib_dir.mkdir(parents=True)
+            lib_rs = lib_dir / "lib.rs"
+            # 17 meaningful lines with only 1 module = high density
+            lib_rs.write_text(
+                "pub use foo::*;\n" * 17,
+                encoding="utf-8",
+            )
+            (lib_dir / "foo.rs").write_text("// foo\n", encoding="utf-8")
+            old_maps = PHILOSOPHY_CHECK.RESPONSIBILITY_MAPS
+            PHILOSOPHY_CHECK.RESPONSIBILITY_MAPS = {
+                "crates/kernel/maestria-domain/src/lib.rs": ("foo",),
+            }
+            try:
+                violations = PHILOSOPHY_CHECK.scan_cohesion()
+                self.assertEqual(len(violations), 1)
+                self.assertIn("cohesion signal", violations[0])
+            finally:
+                PHILOSOPHY_CHECK.RESPONSIBILITY_MAPS = old_maps
+
+    def test_production_strip_line_comments_keeps_doc_comments(self) -> None:
+        body = "//! doc comment\n// normal comment\npub fn foo() {}\n"
+        result = PHILOSOPHY_CHECK.production_strip_line_comments(body)
+        self.assertIn("//! doc comment", result)
+        self.assertNotIn("// normal comment", result)
+        self.assertIn("pub fn foo", result)
 
 
 if __name__ == "__main__":

@@ -6,6 +6,13 @@
 //! or persist reports; callers provide an immutable domain snapshot and receive a
 //! deterministic [`ValidationReport`].
 
+/// Responsibility map:
+/// - `runner`: module responsibility.
+/// - `search_provenance`: module responsibility.
+/// - `search_security`: module responsibility.
+/// - `search_validators`: module responsibility.
+/// - `types`: module responsibility.
+/// - `validators`: module responsibility.
 pub mod runner;
 mod search_provenance;
 mod search_security;

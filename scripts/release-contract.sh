@@ -6,6 +6,10 @@ cargo test -p maestria-daemon --test vertical_slice -- --nocapture
 cargo test -p maestria-runtime runtime_evidence_tests::fetch_web_records_hashed_blob_and_security_boundary -- --nocapture
 cargo test -p maestria-runtime runtime_validation_gate_tests -- --nocapture
 cargo test -p maestria-retrieval --test adaptive_contract_tests
+# Contract fixtures remain policy tests; these suites also execute the frozen
+# repository index adapter and the explicit visual-provider degradation path.
+cargo test -p maestria-retrieval --test repository_benchmark_tests
+cargo test -p maestria-retrieval --test visual_benchmark_tests
 cargo test -p maestria-retrieval --test contract_tests
 cargo test -p maestria-retrieval --test golden_fixture
 cargo test -p maestria-core --test golden_gate

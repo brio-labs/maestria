@@ -724,6 +724,8 @@ fn search_knowledge_request_emits_effect() -> Result<(), DomainError> {
                 detail: "search fingerprint fixture must be valid",
             }
         })?,
+        original_intent: None,
+        route_decision: None,
     };
     let mut state = KernelState::new();
     let output = state.apply_input(DomainInput::SearchKnowledgeRequested(
@@ -733,12 +735,8 @@ fn search_knowledge_request_emits_effect() -> Result<(), DomainError> {
         },
     ))?;
     match output.effects.as_slice() {
-        [
-            MaestriaEffect::SearchKnowledge(SearchKnowledgeRequest {
-                plan: effect_plan, ..
-            }),
-        ] => {
-            assert_eq!(effect_plan, &plan);
+        [MaestriaEffect::SearchKnowledge(request)] => {
+            assert_eq!(request.plan, plan);
         }
         _ => {
             return Err(DomainError::InternalInvariantViolation {

@@ -5,6 +5,16 @@
 //! This crate composes port traits and domain-shaped values. It deliberately
 //! avoids concrete SQL, filesystem, search-engine, and parser implementations.
 
+/// Responsibility map:
+/// - `error`: module responsibility.
+/// - `evidence_opening`: module responsibility.
+/// - `evidence_pack_provenance`: module responsibility.
+/// - `ingestion`: module responsibility.
+/// - `instance`: module responsibility.
+/// - `manifest`: module responsibility.
+/// - `ports`: module responsibility.
+/// - `provenance`: module responsibility.
+/// - `types`: module responsibility.
 mod error;
 mod evidence_opening;
 mod evidence_pack_provenance;

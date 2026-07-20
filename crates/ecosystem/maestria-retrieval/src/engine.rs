@@ -169,10 +169,8 @@ impl RetrievalEngine {
             Ok(()) => Ok(()),
             Err(maestria_governance::SearchPlanValidationError::IntentMismatch {
                 declared: maestria_domain::SearchIntent::FactualLocal,
-                classified:
-                    maestria_domain::SearchIntent::CurrentWeb
-                    | maestria_domain::SearchIntent::VisualDocument,
-            }) => {
+                classified,
+            }) if classified != maestria_domain::SearchIntent::ExactLookup => {
                 let mut fallback_plan = plan.clone();
                 fallback_plan.original_query = "fallback local text retrieval".to_string();
                 maestria_governance::SearchPlanValidator::validate(
@@ -283,6 +281,9 @@ impl RetrievalEngine {
         engine_evaluation::evaluate_batches(self, plan, query, batches, started).await
     }
     pub async fn search(&self, plan: &SearchPlan) -> RetrievalResult<SearchOutcome> {
+        if maestria_governance::contains_prompt_injection_risk(&plan.original_query) {
+            return Ok(self.prompt_injection_outcome(plan));
+        }
         self.validate_plan(plan)?;
         let timeout_ms = plan.budgets.max_latency_ms() as u64;
         let started = tokio::time::Instant::now();

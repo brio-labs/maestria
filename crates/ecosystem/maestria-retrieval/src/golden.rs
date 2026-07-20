@@ -50,6 +50,12 @@ impl Metric {
     }
 }
 
+impl Default for Metric {
+    fn default() -> Self {
+        Self::ZERO
+    }
+}
+
 /// Versioned judged corpus used by deterministic retrieval gates.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GoldenCorpus {

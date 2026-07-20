@@ -32,6 +32,8 @@ fn test_deterministic_id_with_diversity() -> Result<(), SearchCompatibilityError
             minimum_corroboration: 1,
         },
         fingerprint: RetrievalModelFingerprint::new("test".to_string())?,
+        original_intent: None,
+        route_decision: None,
     };
 
     let mut trace = SearchTrace::from_plan(
