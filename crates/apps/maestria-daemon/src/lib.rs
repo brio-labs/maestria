@@ -187,7 +187,7 @@ pub fn build_visual_provider(
         || identity.fingerprint.provider != config.provider
         || identity.fingerprint.revision != config.revision
         || identity.fingerprint.preprocessing_version != config.preprocessing_version
-        || identity.fingerprint.artifact_hash.to_string() != config.artifact_hash
+        || identity.fingerprint.artifact_hash.as_str() != config.artifact_hash
     {
         return Err(anyhow!(
             "visual provider configuration does not match active generation identity"
