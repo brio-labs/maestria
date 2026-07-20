@@ -49,8 +49,8 @@ fn fixture_identity() -> Result<SparseIdentity, Box<dyn std::error::Error>> {
             vocabulary_hash: fixture_hash('3')?,
             vocabulary_size: 65_536,
             term_namespace: "fixture-vocabulary-v1".to_string(),
-            query_template_hash: "sha256:query-template".to_string(),
-            document_template_hash: "sha256:document-template".to_string(),
+            query_template_hash: fixture_hash('5')?,
+            document_template_hash: fixture_hash('6')?,
             preprocessing_version: "fixture-preprocess-v1".to_string(),
             weighting_version: "fixture-log-frequency-v1".to_string(),
             quantization: "f32".to_string(),
@@ -77,8 +77,8 @@ fn fixture_registry(
             artifact_hash: sparse.artifact_hash.clone(),
             dimensions: sparse.vocabulary_size,
             quantization: sparse.quantization.clone(),
-            query_template_hash: sparse.query_template_hash.clone(),
-            document_template_hash: sparse.document_template_hash.clone(),
+            query_template_hash: sparse.query_template_hash.as_str().to_string(),
+            document_template_hash: sparse.document_template_hash.as_str().to_string(),
             preprocessing_version: sparse.preprocessing_version.clone(),
         },
         lifecycle: IndexLifecycle::Building,
@@ -155,7 +155,7 @@ fn request(
 fn fixture_with_document() -> Result<RetrieverFixture, Box<dyn std::error::Error>> {
     let identity = fixture_identity()?;
     let provider = Arc::new(InMemoryLearnedSparseProvider::new(identity.clone())?);
-    let index = Arc::new(InMemoryLearnedSparseIndex::new());
+    let index = Arc::new(InMemoryLearnedSparseIndex::new(identity.clone())?);
     let artifacts = Arc::new(InMemoryArtifactRepository::new());
     let chunks = Arc::new(InMemoryChunkRepository::new());
     let evidence = Arc::new(InMemoryEvidenceRepository::new());
@@ -308,7 +308,7 @@ async fn learned_sparse_retriever_rejects_secret_queries() -> Result<(), Box<dyn
     let provider = Arc::new(InMemoryLearnedSparseProvider::new(identity.clone())?);
     let retriever = LearnedSparseChunkRetriever::new(
         LearnedSparseChunkRetrieverParts {
-            index: Arc::new(InMemoryLearnedSparseIndex::new()),
+            index: Arc::new(InMemoryLearnedSparseIndex::new(identity.clone())?),
             artifacts: Arc::new(InMemoryArtifactRepository::new()),
             chunks: Arc::new(InMemoryChunkRepository::new()),
             evidence: Arc::new(InMemoryEvidenceRepository::new()),
