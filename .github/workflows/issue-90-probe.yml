@@ -14,6 +14,8 @@ jobs:
       compile: ${{ steps.compile.outputs.value }}
       philosophy: ${{ steps.philosophy.outputs.value }}
       formatting: ${{ steps.formatting.outputs.value }}
+      clippy: ${{ steps.clippy.outputs.value }}
+      tests: ${{ steps.tests.outputs.value }}
     steps:
       - uses: actions/checkout@v7.0.0
       - uses: ./.github/actions/setup-rust-build-dependencies
@@ -21,7 +23,7 @@ jobs:
         uses: dtolnay/rust-toolchain@master
         with:
           toolchain: nightly-2026-06-15
-          components: rustfmt, rustc-codegen-cranelift
+          components: rustfmt, clippy, rustc-codegen-cranelift
       - id: compile
         name: Capture compilation result
         shell: bash
@@ -64,6 +66,34 @@ jobs:
             if [ -z "$value" ]; then value="formatting-diff"; fi
           fi
           echo "value=$value" >> "$GITHUB_OUTPUT"
+      - id: clippy
+        name: Capture Clippy result
+        shell: bash
+        run: |
+          set +e
+          CARGO_TERM_COLOR=never bash scripts/strict-clippy.sh > /tmp/clippy.log 2>&1
+          status=$?
+          if [ "$status" -eq 0 ]; then
+            value="OK"
+          else
+            value="$(grep -m1 -E '^(error|warning)(\[[^]]+\])?:|has [0-9]+ (module logical|physical) lines' /tmp/clippy.log | tr '\n\r' '  ' | cut -c1-180)"
+            if [ -z "$value" ]; then value="failed-without-diagnostic"; fi
+          fi
+          echo "value=$value" >> "$GITHUB_OUTPUT"
+      - id: tests
+        name: Capture focused tests result
+        shell: bash
+        run: |
+          set +e
+          CARGO_TERM_COLOR=never cargo test -p maestria-ports -p maestria-retrieval --all-targets --all-features > /tmp/tests.log 2>&1
+          status=$?
+          if [ "$status" -eq 0 ]; then
+            value="OK"
+          else
+            value="$(grep -m1 -E '^error(\[[^]]+\])?:|^test result: FAILED|^failures:' /tmp/tests.log | tr '\n\r' '  ' | cut -c1-180)"
+            if [ -z "$value" ]; then value="failed-without-diagnostic"; fi
+          fi
+          echo "value=$value" >> "$GITHUB_OUTPUT"
 
   compile-report:
     needs: probe
@@ -82,6 +112,20 @@ jobs:
   formatting-report:
     needs: probe
     name: "formatting: ${{ needs.probe.outputs.formatting }}"
+    runs-on: ubuntu-latest
+    steps:
+      - run: true
+
+  clippy-report:
+    needs: probe
+    name: "clippy: ${{ needs.probe.outputs.clippy }}"
+    runs-on: ubuntu-latest
+    steps:
+      - run: true
+
+  tests-report:
+    needs: probe
+    name: "tests: ${{ needs.probe.outputs.tests }}"
     runs-on: ubuntu-latest
     steps:
       - run: true
