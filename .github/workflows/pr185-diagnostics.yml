@@ -25,6 +25,23 @@ jobs:
         run: |
           mkdir -p diagnostics
 
+          python3 - <<'PY' > diagnostics/source-hash.txt
+          import hashlib
+          from pathlib import Path
+          paths = [
+              "README.md",
+              "docs/ARCHITECTURE.md",
+              "docs/PHILOSOPHY.md",
+              "crates/ecosystem/maestria-retrieval/tests/fixtures/golden-v3.json",
+          ]
+          digest = hashlib.sha256()
+          for source in paths:
+              digest.update(source.encode())
+              digest.update(b"\0")
+              digest.update(Path(source).read_bytes())
+          print(digest.hexdigest())
+          PY
+
           cargo fmt --all
           git diff -- . ':(exclude).github/workflows/pr185-diagnostics.yml' > diagnostics/rustfmt.patch
 
