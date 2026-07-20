@@ -193,7 +193,29 @@ fn string_or_empty(value: &Option<String>) -> String {
 }
 
 pub(super) fn parse_manifest_fields(contents: &str) -> CoreResult<ManifestFields> {
-    let mut fields = ManifestFields {
+    let mut fields = empty_manifest_fields();
+    for line in contents
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+    {
+        let (key, value) = line
+            .split_once('=')
+            .ok_or_else(|| CoreError::InvalidInput {
+                message: format!("invalid instance manifest line: {line}"),
+            })?;
+        if value.is_empty() {
+            return Err(CoreError::InvalidInput {
+                message: format!("instance manifest value is empty for {key}"),
+            });
+        }
+        parse_manifest_field(&mut fields, key, value)?;
+    }
+    Ok(fields)
+}
+
+fn empty_manifest_fields() -> ManifestFields {
+    ManifestFields {
         schema_version: None,
         root: None,
         read_roots: Vec::new(),
@@ -215,89 +237,56 @@ pub(super) fn parse_manifest_fields(contents: &str) -> CoreResult<ManifestFields
         ocr_revision: None,
         ocr_artifact_hash: None,
         ocr_preprocessing_version: None,
-    };
-    for line in contents
-        .lines()
-        .map(str::trim)
-        .filter(|line| !line.is_empty())
-    {
-        let (key, value) = line
-            .split_once('=')
-            .ok_or_else(|| CoreError::InvalidInput {
-                message: format!("invalid instance manifest line: {line}"),
-            })?;
-        if value.is_empty() {
+    }
+}
+
+fn parse_manifest_field(fields: &mut ManifestFields, key: &str, value: &str) -> CoreResult<()> {
+    match key {
+        "schema_version" => fields.schema_version = Some(parse_value(value, key)?),
+        "root" => fields.root = Some(PathBuf::from(value)),
+        "read_root" => fields.read_roots.push(PathBuf::from(value)),
+        "excluded_pattern" => fields.excluded_patterns.push(value.to_string()),
+        "embedding_enabled" => fields.embedding_enabled = Some(parse_value(value, key)?),
+        "embedding_endpoint" => fields.embedding_endpoint = Some(value.to_string()),
+        "embedding_provider" => fields.embedding_provider = Some(value.to_string()),
+        "embedding_revision" => fields.embedding_revision = Some(value.to_string()),
+        "embedding_artifact_hash" => fields.embedding_artifact_hash = Some(value.to_string()),
+        "embedding_preprocessing_version" => {
+            fields.embedding_preprocessing_version = Some(value.to_string());
+        }
+        "embedding_model" => fields.embedding_model = Some(value.to_string()),
+        "embedding_dimensions" => fields.embedding_dimensions = Some(parse_value(value, key)?),
+        "embedding_remote_provider" => {
+            fields.embedding_remote_provider = Some(parse_value(value, key)?);
+        }
+        "embedding_retention_policy" => {
+            fields.embedding_retention_policy = Some(value.to_string());
+        }
+        "ocr_enabled" => fields.ocr_enabled = Some(parse_value(value, key)?),
+        "ocr_endpoint" => fields.ocr_endpoint = Some(value.to_string()),
+        "ocr_model" => fields.ocr_model = Some(value.to_string()),
+        "ocr_provider" => fields.ocr_provider = Some(value.to_string()),
+        "ocr_revision" => fields.ocr_revision = Some(value.to_string()),
+        "ocr_artifact_hash" => fields.ocr_artifact_hash = Some(value.to_string()),
+        "ocr_preprocessing_version" => {
+            fields.ocr_preprocessing_version = Some(value.to_string());
+        }
+        other => {
             return Err(CoreError::InvalidInput {
-                message: format!("instance manifest value is empty for {key}"),
+                message: format!("unknown instance manifest key: {other}"),
             });
         }
-        match key {
-            "schema_version" => {
-                fields.schema_version =
-                    Some(value.parse::<u32>().map_err(|_| CoreError::InvalidInput {
-                        message: format!("invalid instance manifest schema version: {value}"),
-                    })?);
-            }
-            "root" => fields.root = Some(PathBuf::from(value)),
-            "read_root" => fields.read_roots.push(PathBuf::from(value)),
-            "excluded_pattern" => fields.excluded_patterns.push(value.to_string()),
-            "embedding_enabled" => {
-                fields.embedding_enabled =
-                    Some(value.parse::<bool>().map_err(|_| CoreError::InvalidInput {
-                        message: format!("invalid embedding_enabled value: {value}"),
-                    })?);
-            }
-            "embedding_endpoint" => fields.embedding_endpoint = Some(value.to_string()),
-            "embedding_provider" => fields.embedding_provider = Some(value.to_string()),
-            "embedding_revision" => fields.embedding_revision = Some(value.to_string()),
-            "embedding_artifact_hash" => {
-                fields.embedding_artifact_hash = Some(value.to_string());
-            }
-            "embedding_preprocessing_version" => {
-                fields.embedding_preprocessing_version = Some(value.to_string());
-            }
-            "embedding_model" => fields.embedding_model = Some(value.to_string()),
-            "embedding_dimensions" => {
-                fields.embedding_dimensions =
-                    Some(
-                        value
-                            .parse::<usize>()
-                            .map_err(|_| CoreError::InvalidInput {
-                                message: format!("invalid embedding_dimensions value: {value}"),
-                            })?,
-                    );
-            }
-            "embedding_remote_provider" => {
-                fields.embedding_remote_provider =
-                    Some(value.parse::<bool>().map_err(|_| CoreError::InvalidInput {
-                        message: format!("invalid embedding_remote_provider value: {value}"),
-                    })?);
-            }
-            "embedding_retention_policy" => {
-                fields.embedding_retention_policy = Some(value.to_string());
-            }
-            "ocr_enabled" => {
-                fields.ocr_enabled =
-                    Some(value.parse::<bool>().map_err(|_| CoreError::InvalidInput {
-                        message: format!("invalid ocr_enabled value: {value}"),
-                    })?);
-            }
-            "ocr_endpoint" => fields.ocr_endpoint = Some(value.to_string()),
-            "ocr_model" => fields.ocr_model = Some(value.to_string()),
-            "ocr_provider" => fields.ocr_provider = Some(value.to_string()),
-            "ocr_revision" => fields.ocr_revision = Some(value.to_string()),
-            "ocr_artifact_hash" => fields.ocr_artifact_hash = Some(value.to_string()),
-            "ocr_preprocessing_version" => {
-                fields.ocr_preprocessing_version = Some(value.to_string());
-            }
-            other => {
-                return Err(CoreError::InvalidInput {
-                    message: format!("unknown instance manifest key: {other}"),
-                });
-            }
-        }
     }
-    Ok(fields)
+    Ok(())
+}
+
+fn parse_value<T>(value: &str, key: &str) -> CoreResult<T>
+where
+    T: std::str::FromStr,
+{
+    value.parse::<T>().map_err(|_| CoreError::InvalidInput {
+        message: format!("invalid {key} value: {value}"),
+    })
 }
 
 pub(super) fn retention_policy_name(policy: &RetentionPolicy) -> &'static str {
