@@ -28,6 +28,7 @@ rustup component add rustfmt clippy
    - `chore/<short-description>`
    - `test/<short-description>`
    - `refactor/<short-description>`
+3. Make changes in one logical layer first (`maestria-domain` or `maestria-governance`).
 4. Run quality gates locally (minimum):
    ```bash
    python3 scripts/version.py check

@@ -131,6 +131,7 @@ maestria start -i .maestria-dev
 client boundary is newline-delimited JSON on
 `<instance>/system/daemon.sock`; the token is stored in
 `<instance>/system/daemon.token`.
+The supported operations are `status`,
 `search`, `evidence`, `task`, and `model_agent_propose`. Requests without the
 matching token are rejected, and read-only operations cannot mutate domain
 state. `model_agent_propose` is a bounded, policy-gated proposal workflow: it
