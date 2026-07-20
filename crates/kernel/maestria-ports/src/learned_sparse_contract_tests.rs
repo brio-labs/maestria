@@ -162,11 +162,7 @@ mod tests {
         let document = SparseDocument {
             chunk_id: ChunkId::new(1),
             content_hash: ContentHash::new(format!("sha256:{}", "7".repeat(64)))?,
-            vector: provider.encode(
-                "alpha beta",
-                SparseInputKind::Document,
-                incompatible,
-            )?,
+            vector: provider.encode("alpha beta", SparseInputKind::Document, incompatible)?,
         };
         assert!(matches!(
             index.index_documents(vec![document]),
