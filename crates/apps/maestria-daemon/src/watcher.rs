@@ -399,6 +399,7 @@ mod tests {
             excluded_patterns: vec![".env".to_string()],
             embeddings: None,
             ocr: None,
+            visual: None,
         }
     }
 
@@ -420,6 +421,7 @@ mod tests {
             excluded_patterns: Vec::new(),
             embeddings: None,
             ocr: None,
+            visual: None,
         };
         let observations = scan_manifest(&manifest)?;
 
@@ -461,6 +463,7 @@ mod tests {
             excluded_patterns: Vec::new(),
             embeddings: None,
             ocr: None,
+            visual: None,
         };
         let observations = scan_manifest(&manifest)?;
 
@@ -490,6 +493,7 @@ mod tests {
             excluded_patterns: Vec::new(),
             embeddings: None,
             ocr: None,
+            visual: None,
         };
         let observations = scan_manifest(&manifest)?;
 

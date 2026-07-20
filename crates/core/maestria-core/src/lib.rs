@@ -30,7 +30,7 @@ pub const CORE_VERSION: &str = env!("CARGO_PKG_VERSION");
 pub use error::{CoreError, CoreResult};
 pub use ingestion::build_artifact_detected_input;
 pub use instance::{InitInstanceInput, InitInstancePlan, InstanceLayout, InstanceService};
-pub use manifest::InstanceManifest;
+pub use manifest::{EmbeddingConfig, InstanceManifest, OcrConfig, VisualConfig};
 pub use ports::{CorePorts, CoreServices};
 pub use provenance::artifact_id_for;
 pub use provenance::content_hash;

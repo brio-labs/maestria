@@ -23,5 +23,6 @@ pub fn run(instance_dir: PathBuf) -> Result<()> {
     );
     println!("ok parsers {}", parser.parser_count());
     println!("ocr {}", maestria_daemon::ocr_status(&manifest)?);
+    println!("visual {}", maestria_daemon::visual_status(&manifest)?);
     Ok(())
 }

@@ -191,6 +191,62 @@ contract used by the Rust adapter. `maestria doctor` reports whether the
 configured rasterizer is available. Omit the OCR keys to keep the capability
 disabled.
 
+Visual retrieval uses the same optional local-provider boundary. The portable
+profile is a CPU-only SigLIP ONNX runtime; Qwen3-VL-Embedding remains an
+optional higher-quality profile. Neither model is required for normal
+text/layout retrieval.
+
+Install the CPU visual sidecar:
+
+```bash
+uv venv .venv-visual
+uv pip install --python .venv-visual/bin/python \
+  -r scripts/requirements-visual.txt
+```
+
+Download the pinned SigLIP artifacts from
+`Xenova/siglip-base-patch16-224` at revision
+`4649052661e53c7000355844105f8a1792088239`. Start the sidecar with the
+quantized ONNX artifacts:
+
+```bash
+.venv-visual/bin/python scripts/siglip_visual_server.py \
+  --host 127.0.0.1 --port 10001 \
+  --model siglip-base-patch16-224-int8 \
+  --vision-model .maestria/models/siglip/onnx/vision_model_int8.onnx \
+  --text-model .maestria/models/siglip/onnx/text_model_int8.onnx \
+  --tokenizer .maestria/models/siglip/tokenizer.json
+```
+
+Compute the artifact fingerprint before enabling the profile:
+
+```bash
+python3 scripts/visual_model_fingerprint.py \
+  --profile siglip_cpu \
+  --model-dir .maestria/models/siglip
+```
+
+Configure the resulting `sha256:` value in the instance manifest:
+
+```text
+visual_enabled=true
+visual_endpoint=http://127.0.0.1:10001/v1/embeddings
+visual_provider=siglip-onnx
+visual_revision=4649052661e53c7000355844105f8a1792088239
+visual_artifact_hash=sha256:<fingerprint-output>
+visual_preprocessing_version=siglip-224-rgb-v1
+visual_model=siglip-base-patch16-224
+visual_dimensions=768
+visual_remote_provider=false
+visual_retention_policy=no_retention
+```
+
+The visual sidecar accepts only loopback traffic, performs CPU inference, and
+does not retain inputs. `maestria doctor` reports the configured visual
+capability. Visual activation still requires a matching fingerprinted
+`visual_page_v1` generation and a passing benchmark; otherwise the app keeps
+the text/layout route.
+
 ### Tasks, validation, approvals, and memory
 
 Task completion is validation-gated:
