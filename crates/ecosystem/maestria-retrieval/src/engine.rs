@@ -57,8 +57,7 @@ pub struct RetrievalEngine {
     evaluator: Arc<dyn RetrievalEvaluator>,
     capabilities: maestria_governance::SearchCapabilities,
     hybrid_policy: crate::types::HybridExecutionPolicy,
-    learned_sparse_execution_policy:
-        crate::learned_sparse_policy::LearnedSparseExecutionPolicy,
+    learned_sparse_execution_policy: crate::learned_sparse_policy::LearnedSparseExecutionPolicy,
     repository_execution_policy: crate::repository_benchmark::RepositoryExecutionPolicy,
     visual_execution_policy: crate::visual_benchmark::VisualExecutionPolicy,
 }

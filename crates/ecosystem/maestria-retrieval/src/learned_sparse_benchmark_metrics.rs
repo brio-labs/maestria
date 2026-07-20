@@ -17,7 +17,9 @@ pub(super) fn aggregate(
         .map(|case| {
             observations
                 .iter()
-                .find(|observation| observation.case_id == case.case_id && observation.route == route)
+                .find(|observation| {
+                    observation.case_id == case.case_id && observation.route == route
+                })
                 .ok_or_else(|| LearnedSparseBenchmarkError::MissingObservation {
                     case_id: case.case_id.clone(),
                     route,
@@ -31,8 +33,7 @@ pub(super) fn aggregate(
             .map(u64::from)
             .fold(0_u64, u64::saturating_add)
             / count;
-        Metric::new(value.min(u64::from(u32::MAX)) as u32)
-            .map_or(Metric::ZERO, |metric| metric)
+        Metric::new(value.min(u64::from(u32::MAX)) as u32).map_or(Metric::ZERO, |metric| metric)
     };
     let mut latencies = selected
         .iter()
@@ -40,10 +41,7 @@ pub(super) fn aggregate(
         .collect::<Vec<_>>();
     latencies.sort_unstable();
     let p95_index = (latencies.len() * 95).div_ceil(100).saturating_sub(1);
-    let p95_latency_ms = latencies
-        .get(p95_index)
-        .copied()
-        .map_or(0, |value| value);
+    let p95_latency_ms = latencies.get(p95_index).copied().map_or(0, |value| value);
     Ok(LearnedSparseRouteMetrics {
         recall_at_20: mean_metric(
             selected
@@ -150,10 +148,7 @@ fn wins_against(
         .iter()
         .all(|(candidate, baseline)| candidate >= baseline);
     let material_improvement = qualities.iter().any(|(candidate, baseline)| {
-        candidate
-            .value()
-            .saturating_sub(baseline.value())
-            >= Metric::MATERIAL_QUALITY_DELTA.value()
+        candidate.value().saturating_sub(baseline.value()) >= Metric::MATERIAL_QUALITY_DELTA.value()
     });
     no_quality_regression
         && material_improvement

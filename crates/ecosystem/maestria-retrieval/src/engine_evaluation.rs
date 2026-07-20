@@ -40,10 +40,7 @@ pub(super) async fn evaluate_batches(
             crate::visual_benchmark::visual_lane_is_eligible(&batch.descriptor, visual_enabled)
         })
         .filter(|batch| {
-            crate::learned_sparse_policy::sparse_lane_is_eligible(
-                &batch.descriptor,
-                sparse_enabled,
-            )
+            crate::learned_sparse_policy::sparse_lane_is_eligible(&batch.descriptor, sparse_enabled)
         })
         .filter(|batch| {
             super::batch_is_eligible(

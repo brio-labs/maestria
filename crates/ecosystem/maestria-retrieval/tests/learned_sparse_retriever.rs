@@ -1,23 +1,21 @@
 use std::sync::Arc;
 
 use maestria_domain::{
-    Artifact, ArtifactId, Chunk, ChunkId, ContentHash, ContentRange, CorpusScope,
-    CorpusSnapshotId, Evidence, EvidenceKind, EvidenceRequirements, FreshnessRequirement,
-    IndexGenerationId, IndexStatus, LearnedSparseReason, LogicalTick, Modality, ModalitySet,
-    QueryId, RepresentationName, RetrievalModelFingerprint, RetrievalReason, SearchBudget,
-    SearchIntent, SearchPlan, SearchStage, SourceSpan, StopConditions, StructureNodeId,
+    Artifact, ArtifactId, Chunk, ChunkId, ContentHash, ContentRange, CorpusScope, CorpusSnapshotId,
+    Evidence, EvidenceKind, EvidenceRequirements, FreshnessRequirement, IndexGenerationId,
+    IndexStatus, LearnedSparseReason, LogicalTick, Modality, ModalitySet, QueryId,
+    RepresentationName, RetrievalModelFingerprint, RetrievalReason, SearchBudget, SearchIntent,
+    SearchPlan, SearchStage, SourceSpan, StopConditions, StructureNodeId,
 };
 use maestria_governance::RetrievalSecurityPolicy;
 use maestria_ports::{
     ArtifactRepository, BlobStore, ChunkRepository, EvidenceRepository, InMemoryArtifactRepository,
     InMemoryBlobStore, InMemoryChunkRepository, InMemoryEvidenceRepository,
     InMemoryLearnedSparseIndex, InMemoryLearnedSparseProvider, LearnedSparseIndex,
-    LearnedSparseProvider, SearchQuery, SparseDocument, SparseFingerprint, SparseIdentity,
-    SparseInputKind, SPARSE_REPRESENTATION_V1,
+    LearnedSparseProvider, SPARSE_REPRESENTATION_V1, SearchQuery, SparseDocument,
+    SparseFingerprint, SparseIdentity, SparseInputKind,
 };
-use maestria_retrieval::adapters::{
-    LearnedSparseChunkRetriever, LearnedSparseChunkRetrieverParts,
-};
+use maestria_retrieval::adapters::{LearnedSparseChunkRetriever, LearnedSparseChunkRetrieverParts};
 use maestria_retrieval::{CandidateRetriever, types::CandidateRequest};
 
 fn fixture_hash(digit: char) -> Result<ContentHash, Box<dyn std::error::Error>> {
@@ -52,7 +50,10 @@ fn fixture_identity() -> Result<SparseIdentity, Box<dyn std::error::Error>> {
     })
 }
 
-fn fixture_plan(identity: &SparseIdentity, query: &str) -> Result<SearchPlan, Box<dyn std::error::Error>> {
+fn fixture_plan(
+    identity: &SparseIdentity,
+    query: &str,
+) -> Result<SearchPlan, Box<dyn std::error::Error>> {
     Ok(SearchPlan {
         query_id: QueryId::new(1),
         original_query: query.to_string(),
@@ -84,8 +85,8 @@ fn fixture_plan(identity: &SparseIdentity, query: &str) -> Result<SearchPlan, Bo
 }
 
 #[tokio::test]
-async fn learned_sparse_retriever_preserves_score_and_source_lineage(
-) -> Result<(), Box<dyn std::error::Error>> {
+async fn learned_sparse_retriever_preserves_score_and_source_lineage()
+-> Result<(), Box<dyn std::error::Error>> {
     let identity = fixture_identity()?;
     let provider = Arc::new(InMemoryLearnedSparseProvider::new(identity.clone())?);
     let index = Arc::new(InMemoryLearnedSparseIndex::new());
@@ -177,7 +178,10 @@ async fn learned_sparse_retriever_preserves_score_and_source_lineage(
 
     assert_eq!(batch.candidates.len(), 1);
     let candidate = &batch.candidates[0];
-    assert_eq!(candidate.evidence_id, maestria_domain::evidence_id_for(artifact_id, 0));
+    assert_eq!(
+        candidate.evidence_id,
+        maestria_domain::evidence_id_for(artifact_id, 0)
+    );
     assert_eq!(candidate.scores.bm25, 0);
     assert_eq!(candidate.scores.semantic_similarity, 0);
     let Some(RetrievalReason::LearnedSparse(reason)) = candidate.reasons.first() else {
@@ -196,8 +200,8 @@ async fn learned_sparse_retriever_preserves_score_and_source_lineage(
 }
 
 #[tokio::test]
-async fn learned_sparse_retriever_rejects_secret_queries(
-) -> Result<(), Box<dyn std::error::Error>> {
+async fn learned_sparse_retriever_rejects_secret_queries() -> Result<(), Box<dyn std::error::Error>>
+{
     let identity = fixture_identity()?;
     let provider = Arc::new(InMemoryLearnedSparseProvider::new(identity.clone())?);
     let retriever = LearnedSparseChunkRetriever::new(

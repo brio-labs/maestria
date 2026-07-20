@@ -1,10 +1,8 @@
-use maestria_domain::{
-    ContentHash, CorpusSnapshotId, IndexGenerationId, RepresentationName,
-};
+use maestria_domain::{ContentHash, CorpusSnapshotId, IndexGenerationId, RepresentationName};
 
 use crate::{
-    ChunkId, LearnedSparseIndex, LearnedSparseProvider, PortError, SparseDocument,
-    SparseFingerprint, SparseIdentity, SparseInputKind, SparseSearchQuery, SPARSE_REPRESENTATION_V1,
+    ChunkId, LearnedSparseIndex, LearnedSparseProvider, PortError, SPARSE_REPRESENTATION_V1,
+    SparseDocument, SparseFingerprint, SparseIdentity, SparseInputKind, SparseSearchQuery,
 };
 
 pub fn fixture_sparse_identity() -> Result<SparseIdentity, PortError> {

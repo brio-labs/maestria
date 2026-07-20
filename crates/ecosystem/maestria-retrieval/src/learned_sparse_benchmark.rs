@@ -259,9 +259,7 @@ impl LearnedSparseBenchmarkComparison {
         })
     }
 
-    pub fn classes(
-        &self,
-    ) -> &BTreeMap<LearnedSparseQueryClass, LearnedSparseClassComparison> {
+    pub fn classes(&self) -> &BTreeMap<LearnedSparseQueryClass, LearnedSparseClassComparison> {
         &self.classes
     }
 }
@@ -287,9 +285,7 @@ impl LearnedSparsePromotionRecord {
             && !self.model_fingerprint.trim().is_empty()
     }
 
-    pub fn winning_routes(
-        &self,
-    ) -> &BTreeMap<LearnedSparseQueryClass, LearnedSparseRoute> {
+    pub fn winning_routes(&self) -> &BTreeMap<LearnedSparseQueryClass, LearnedSparseRoute> {
         &self.winning_routes
     }
 }
@@ -342,9 +338,9 @@ fn validate_observation(
             "sparse observation identity does not match corpus".to_string(),
         ));
     }
-    let case = corpus.case(&observation.case_id).ok_or_else(|| {
-        LearnedSparseBenchmarkError::UnknownCase(observation.case_id.clone())
-    })?;
+    let case = corpus
+        .case(&observation.case_id)
+        .ok_or_else(|| LearnedSparseBenchmarkError::UnknownCase(observation.case_id.clone()))?;
     if observation.model_fingerprint.trim().is_empty()
         || observation.index_generation.trim().is_empty()
         || observation.latency_ms > case.latency_budget_ms

@@ -35,7 +35,10 @@ impl SparseFingerprint {
             ("revision", self.revision.as_str()),
             ("term namespace", self.term_namespace.as_str()),
             ("query template hash", self.query_template_hash.as_str()),
-            ("document template hash", self.document_template_hash.as_str()),
+            (
+                "document template hash",
+                self.document_template_hash.as_str(),
+            ),
             ("preprocessing version", self.preprocessing_version.as_str()),
             ("weighting version", self.weighting_version.as_str()),
             ("quantization", self.quantization.as_str()),

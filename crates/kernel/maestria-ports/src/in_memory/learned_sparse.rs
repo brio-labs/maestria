@@ -111,19 +111,16 @@ impl InMemoryLearnedSparseIndex {
         if query.limit == 0 {
             return Ok(Vec::new());
         }
-        let contribution_cap = usize::try_from(query.max_contributions).map_err(|_| {
-            PortError::InvalidInput {
+        let contribution_cap =
+            usize::try_from(query.max_contributions).map_err(|_| PortError::InvalidInput {
                 message: "sparse contribution cap does not fit this platform".to_string(),
-            }
-        })?;
+            })?;
         let guard = self.documents.lock().map_err(|_| PortError::Internal {
             message: "learned sparse index lock poisoned".to_string(),
         })?;
         let mut hits = Vec::new();
         for document in guard.iter() {
-            if !filter(document.chunk_id)
-                || document.vector.identity() != query.vector.identity()
-            {
+            if !filter(document.chunk_id) || document.vector.identity() != query.vector.identity() {
                 continue;
             }
             let contributions = dot_contributions(document.vector.terms(), query.vector.terms());
@@ -227,16 +224,13 @@ fn tokenize(text: &str) -> impl Iterator<Item = String> + '_ {
 }
 
 fn stable_term_id(token: &str, vocabulary_size: u32) -> u32 {
-    let hash = token.bytes().fold(2_166_136_261_u32, |value, byte| {
-        value ^ u32::from(byte)
-    });
+    let hash = token
+        .bytes()
+        .fold(2_166_136_261_u32, |value, byte| value ^ u32::from(byte));
     hash.wrapping_mul(16_777_619) % vocabulary_size
 }
 
-fn dot_contributions(
-    document: &[SparseTermWeight],
-    query: &[SparseTermWeight],
-) -> Vec<(u32, f64)> {
+fn dot_contributions(document: &[SparseTermWeight], query: &[SparseTermWeight]) -> Vec<(u32, f64)> {
     let mut left = 0_usize;
     let mut right = 0_usize;
     let mut contributions = Vec::new();

@@ -49,10 +49,9 @@ impl LearnedSparseChunkRetriever {
         identity
             .validate()
             .map_err(|error| RetrievalError::Internal(error.to_string()))?;
-        let provider_identity = parts
-            .provider
-            .identity()
-            .ok_or_else(|| RetrievalError::Internal("sparse provider identity unavailable".into()))?;
+        let provider_identity = parts.provider.identity().ok_or_else(|| {
+            RetrievalError::Internal("sparse provider identity unavailable".into())
+        })?;
         if provider_identity != identity {
             return Err(RetrievalError::Internal(
                 "sparse provider identity does not match retriever generation".into(),
@@ -121,7 +120,8 @@ impl LearnedSparseChunkRetriever {
     }
 
     fn chunk_allowed(&self, chunk_id: maestria_domain::ChunkId) -> bool {
-        self.checked_records(chunk_id).is_ok_and(|records| records.is_some())
+        self.checked_records(chunk_id)
+            .is_ok_and(|records| records.is_some())
     }
 
     fn checked_records(
@@ -167,13 +167,8 @@ impl LearnedSparseChunkRetriever {
         let Some((artifact, chunk, evidence)) = self.checked_records(hit.chunk_id)? else {
             return Ok(None);
         };
-        let mut candidate = candidate_from_records(
-            artifact.id,
-            &chunk.source_span,
-            &evidence,
-            chunk.node_id,
-            0,
-        )?;
+        let mut candidate =
+            candidate_from_records(artifact.id, &chunk.source_span, &evidence, chunk.node_id, 0)?;
         candidate.reasons = vec![RetrievalReason::LearnedSparse(Box::new(
             LearnedSparseReason {
                 score_micros: hit.score_micros,
