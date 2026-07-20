@@ -56,6 +56,15 @@ impl LearnedSparseChunkRetriever {
                 "sparse provider identity does not match retriever generation".into(),
             ));
         }
+        let index_identity = parts
+            .index
+            .identity()
+            .ok_or_else(|| RetrievalError::Internal("sparse index identity unavailable".into()))?;
+        if index_identity != identity {
+            return Err(RetrievalError::Internal(
+                "sparse index identity does not match retriever generation".into(),
+            ));
+        }
         let fingerprint = RetrievalModelFingerprint::new(format!(
             "sparse:{}:{}:{}:{}:{}",
             identity.fingerprint.provider,
@@ -113,6 +122,11 @@ impl LearnedSparseChunkRetriever {
         if self.provider.identity().as_ref() != Some(&self.identity) {
             return Err(RetrievalError::Internal(
                 "sparse provider identity changed after construction".into(),
+            ));
+        }
+        if self.index.identity().as_ref() != Some(&self.identity) {
+            return Err(RetrievalError::Internal(
+                "sparse index identity changed after construction".into(),
             ));
         }
         Ok(())
