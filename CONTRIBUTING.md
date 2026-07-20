@@ -43,6 +43,7 @@ rustup component add rustfmt clippy
    cargo tree --locked --duplicates
    python3 scripts/philosophy-check.py
    python3 scripts/doc-consistency-check.py
+   python3 scripts/codeowners-check.py
    python3 -m unittest discover -s scripts -p 'test_*.py'
    ```
 5. Update docs (`README.md`, `docs/PHILOSOPHY.md`, or `docs/SPECS.md`) when behavior or invariants

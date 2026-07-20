@@ -50,6 +50,10 @@ jobs:
               - 'CONTRIBUTING.md'
               - 'docs/**/*.md'
               - 'scripts/philosophy-check.py'
+              - 'scripts/test_philosophy_check.py'
+              - 'scripts/codeowners-check.py'
+              - 'scripts/test_codeowners_check.py'
+              - '.github/CODEOWNERS'
               - '.github/workflows/**'
               - '.github/PULL_REQUEST_TEMPLATE.md'
   fmt:
@@ -328,3 +332,4 @@ jobs:
         run: |
           python3 -m unittest discover -s scripts -p 'test_*.py'
           python3 scripts/philosophy-check.py
+          python3 scripts/codeowners-check.py
