@@ -7,14 +7,16 @@ use maestria_retrieval::adapters::{
     LearnedSparseGenerationCapability, LearnedSparseGenerationMode,
 };
 
-fn fixture_hash(digit: char) -> Result<ContentHash, Box<dyn std::error::Error>> {
+type TestResult<T = ()> = Result<T, Box<dyn std::error::Error>>;
+
+fn fixture_hash(digit: char) -> TestResult<ContentHash> {
     Ok(ContentHash::new(format!(
         "sha256:{}",
         digit.to_string().repeat(64)
     ))?)
 }
 
-fn identity() -> Result<SparseIdentity, Box<dyn std::error::Error>> {
+fn identity() -> TestResult<SparseIdentity> {
     Ok(SparseIdentity {
         generation_id: IndexGenerationId::new(7),
         corpus_snapshot: CorpusSnapshotId::new(11),
@@ -39,9 +41,7 @@ fn identity() -> Result<SparseIdentity, Box<dyn std::error::Error>> {
     })
 }
 
-fn registry(
-    identity: &SparseIdentity,
-) -> Result<IndexGenerationRegistry, Box<dyn std::error::Error>> {
+fn registry(identity: &SparseIdentity) -> TestResult<IndexGenerationRegistry> {
     let sparse = &identity.fingerprint;
     let mut registry = IndexGenerationRegistry::default();
     registry.register(IndexGeneration {
@@ -69,8 +69,7 @@ fn registry(
 }
 
 #[test]
-fn shadow_capability_requires_and_accepts_shadow_generation()
--> Result<(), Box<dyn std::error::Error>> {
+fn shadow_capability_requires_and_accepts_shadow_generation() -> TestResult {
     let identity = identity()?;
     let registry = registry(&identity)?;
     let capability = LearnedSparseGenerationCapability::shadow(&registry, identity.clone())?;
