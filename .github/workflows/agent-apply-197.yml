@@ -1,0 +1,94 @@
+name: Agent Apply Issue 197
+
+on:
+  push:
+    branches: [agent/retrieval-score-provenance]
+    paths:
+      - ".github/agent/issue-197.patch.gz.b64.*"
+      - ".github/workflows/agent-apply-197.yml"
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  apply-validate-publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.0
+        with:
+          ref: agent/retrieval-score-provenance
+          fetch-depth: 0
+      - uses: ./.github/actions/setup-rust-build-dependencies
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly-2026-06-15
+          components: rustfmt, clippy, rustc-codegen-cranelift
+      - name: Reconstruct and apply implementation
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat .github/agent/issue-197.patch.gz.b64.* | base64 --decode > /tmp/issue-197.patch.gz
+          echo "2c1720c55fa48c271ebff1d8b76d1b27c672c41614c688c6799165928d1740d2  /tmp/issue-197.patch.gz" | sha256sum --check --strict
+          gzip --decompress --stdout /tmp/issue-197.patch.gz > /tmp/issue-197.patch
+          echo "9d6f656cfa14b06e7692b9d09a184edbbe0f534e65163068daeed8f59fcf9904  /tmp/issue-197.patch" | sha256sum --check --strict
+          git apply --index /tmp/issue-197.patch
+          git rm .github/agent/issue-197.patch.gz.b64.* .github/workflows/agent-apply-197.yml
+      - name: Format and run fast repository gates
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo fmt --all
+          git diff --check
+          python3 scripts/philosophy-check.py
+          python3 scripts/benchmark_evidence.py --manifest tests/contracts/benchmark_evidence_v1.json
+      - name: Compile all targets and features
+        run: cargo check --workspace --all-targets --all-features --locked
+      - name: Run focused score provenance tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo test -p maestria-domain --test retrieval_scores --locked
+          cargo test -p maestria-storage-sqlite retrieval_score_migration --locked
+          cargo test -p maestria-core --test evidence_pack --locked
+          cargo test -p maestria-retrieval --test learned_sparse_retriever --locked
+          cargo test -p maestria-retrieval --test learned_sparse_shadow --locked
+      - name: Regenerate deterministic golden fixture
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo test -p maestria-retrieval --test golden_fixture regenerate_serialized_multi_query_fixture -- --ignored --exact
+          python3 - <<'PY'
+          import hashlib
+          import json
+          from pathlib import Path
+
+          root = Path.cwd()
+          manifest_path = root / "tests/contracts/benchmark_evidence_v1.json"
+          payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+          for entry in payload["milestones"]:
+              digest = hashlib.sha256()
+              for source in entry["corpus"]["source_paths"]:
+                  path = root / source
+                  digest.update(source.encode())
+                  digest.update(b"\0")
+                  digest.update(path.read_bytes())
+              entry["corpus"]["source_hash"] = digest.hexdigest()
+          manifest_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+          PY
+          cargo test -p maestria-retrieval --test golden_fixture --locked
+          python3 scripts/benchmark_evidence.py --manifest tests/contracts/benchmark_evidence_v1.json
+      - name: Publish validated implementation
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git commit -m "feat(search): generalize retrieval score provenance"
+          git push origin HEAD:agent/retrieval-score-provenance
