@@ -6,6 +6,7 @@ on:
     branches: [main]
     paths:
       - ".github/agent/issue-197.patch.gz.b64.*"
+      - ".github/agent/issue-197-fixes.patch"
       - ".github/workflows/agent-apply-197.yml"
 
 permissions:
@@ -38,7 +39,10 @@ jobs:
           gzip --decompress --stdout /tmp/issue-197.patch.gz > /tmp/issue-197.patch
           echo "9d6f656cfa14b06e7692b9d09a184edbbe0f534e65163068daeed8f59fcf9904  /tmp/issue-197.patch" | sha256sum --check --strict
           git apply --index /tmp/issue-197.patch
-          git rm .github/agent/issue-197.patch.gz.b64.* .github/workflows/agent-apply-197.yml
+          git apply --index .github/agent/issue-197-fixes.patch
+          git rm .github/agent/issue-197.patch.gz.b64.* \
+            .github/agent/issue-197-fixes.patch \
+            .github/workflows/agent-apply-197.yml
       - name: Format and run fast repository gates
         shell: bash
         run: |

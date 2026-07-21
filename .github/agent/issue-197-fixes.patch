@@ -1,0 +1,14 @@
+diff --git a/crates/kernel/maestria-domain/src/retrieval_score.rs b/crates/kernel/maestria-domain/src/retrieval_score.rs
+index 6365afe..0000000 100644
+--- a/crates/kernel/maestria-domain/src/retrieval_score.rs
++++ b/crates/kernel/maestria-domain/src/retrieval_score.rs
+@@ -2,7 +2,8 @@ use std::collections::{BTreeMap, BTreeSet};
+ 
+ use serde::{Deserialize, Deserializer, Serialize, de::Error as _};
+ 
+-use super::{RepresentationName, RetrievalModelFingerprint, SearchCompatibilityError};
++use super::{RetrievalModelFingerprint, SearchCompatibilityError};
++use crate::RepresentationName;
+ 
+ /// Canonical retrieval score provenance schema.
+ pub const RETRIEVAL_SCORE_SCHEMA_VERSION: u16 = 2;
