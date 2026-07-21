@@ -1,0 +1,48 @@
+name: Agent Nextest Diagnostics
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "crates/**"
+      - ".github/workflows/agent-nextest-diagnostics.yml"
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: never
+  RUST_BACKTRACE: 1
+
+jobs:
+  nextest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.0
+      - uses: ./.github/actions/setup-rust-build-dependencies
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly-2026-06-15
+          components: rustc-codegen-cranelift
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest
+      - name: Run Nextest
+        id: nextest
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -o pipefail
+          cargo nextest run --workspace --all-targets --all-features 2>&1 | tee nextest.log
+      - name: Upload Nextest diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nextest-${{ github.sha }}
+          path: nextest.log
+          if-no-files-found: error
+      - name: Stop after Nextest errors
+        if: steps.nextest.outcome == 'failure'
+        run: exit 1
