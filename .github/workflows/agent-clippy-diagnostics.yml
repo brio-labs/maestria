@@ -6,6 +6,15 @@ on:
     paths:
       - ".github/agent/issue-197-clippy-fixes.patch"
       - ".github/workflows/agent-clippy-diagnostics.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/agent/issue-197-clippy-fixes.patch"
+      - ".github/workflows/agent-clippy-diagnostics.yml"
+
+concurrency:
+  group: issue-197-clippy-fixes
+  cancel-in-progress: true
 
 permissions:
   contents: write
