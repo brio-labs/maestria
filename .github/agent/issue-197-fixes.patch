@@ -1,5 +1,5 @@
 diff --git a/crates/kernel/maestria-domain/src/retrieval_score.rs b/crates/kernel/maestria-domain/src/retrieval_score.rs
-index 6365afe..0000000 100644
+index 6365afe..a4712cf 100644
 --- a/crates/kernel/maestria-domain/src/retrieval_score.rs
 +++ b/crates/kernel/maestria-domain/src/retrieval_score.rs
 @@ -2,7 +2,8 @@ use std::collections::{BTreeMap, BTreeSet};
@@ -13,10 +13,17 @@ index 6365afe..0000000 100644
  /// Canonical retrieval score provenance schema.
  pub const RETRIEVAL_SCORE_SCHEMA_VERSION: u16 = 2;
 diff --git a/crates/kernel/maestria-domain/tests/retrieval_scores.rs b/crates/kernel/maestria-domain/tests/retrieval_scores.rs
+index 6caf274..f99a379 100644
 --- a/crates/kernel/maestria-domain/tests/retrieval_scores.rs
 +++ b/crates/kernel/maestria-domain/tests/retrieval_scores.rs
-@@ -124 +124,3 @@
+@@ -120,8 +120,8 @@ fn legacy_sparse_reason_moves_score_into_the_canonical_lane()
+         sparse.raw_rank,
+         RetrievalRawRank::Unavailable { .. }
+     ));
+-    let encoded = serde_json::to_string(&migrated)?;
 -    assert!(!encoded.contains("score_micros"));
-+    let encoded: serde_json::Value =
-+        serde_json::from_str(&encoded).expect("candidate should serialize as JSON");
++    let encoded = serde_json::to_value(&migrated)?;
 +    assert!(!encoded["reasons"].to_string().contains("score_micros"));
+     Ok(())
+ }
+ 
