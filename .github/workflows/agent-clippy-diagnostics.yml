@@ -20,7 +20,7 @@ permissions:
   contents: write
 
 env:
-  CARGO_TERM_COLOR: always
+  CARGO_TERM_COLOR: never
   RUST_BACKTRACE: 1
 
 jobs:
@@ -44,12 +44,27 @@ jobs:
           git rm .github/agent/issue-197-clippy-fixes.patch \
             .github/workflows/agent-clippy-diagnostics.yml
       - name: Validate focused fixes
+        id: validate
+        continue-on-error: true
+        shell: bash
         run: |
-          set -euo pipefail
-          cargo fmt --all
-          git diff --check
-          bash scripts/strict-clippy.sh
-          cargo test -p maestria-retrieval --lib --all-features --locked
+          set -o pipefail
+          {
+            cargo fmt --all
+            git diff --check
+            bash scripts/strict-clippy.sh
+            cargo test -p maestria-retrieval --lib --all-features --locked
+          } 2>&1 | tee issue-197-fix-validation.log
+      - name: Upload validation diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: issue-197-fix-validation-${{ github.sha }}
+          path: issue-197-fix-validation.log
+          if-no-files-found: error
+      - name: Stop after validation errors
+        if: steps.validate.outcome == 'failure'
+        run: exit 1
       - name: Publish validated fixes
         run: |
           set -euo pipefail
