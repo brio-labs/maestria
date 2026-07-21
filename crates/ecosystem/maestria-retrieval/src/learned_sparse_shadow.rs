@@ -4,7 +4,8 @@ use std::time::Duration;
 
 use maestria_domain::{
     ArtifactVersionId, CorpusSnapshotId, EvidenceId, EvidenceSpan, IndexGenerationId,
-    LearnedSparseReason, QueryId, RetrievalReason, SearchLaneStatus, SearchPlan,
+    LearnedSparseReason, QueryId, RetrievalLaneScore, RetrievalReason, RetrievalScoreKind,
+    RetrievalScoreSet, SearchLaneStatus, SearchPlan,
 };
 use maestria_ports::SearchQuery;
 use serde::{Deserialize, Serialize};
@@ -14,7 +15,7 @@ use crate::learned_sparse_benchmark::LearnedSparseQueryClass;
 use crate::traits::CandidateRetriever;
 use crate::types::{CandidateRequest, RetrieverDescriptor};
 
-const SHADOW_SCHEMA_VERSION: u16 = 1;
+const SHADOW_SCHEMA_VERSION: u16 = 2;
 const MAX_SHADOW_RETRIEVERS: usize = 8;
 const MAX_SHADOW_CANDIDATES_PER_LANE: usize = 20;
 const MAX_SHADOW_CONTRIBUTIONS: usize = 16;
@@ -29,6 +30,7 @@ pub struct LearnedSparseShadowCandidate {
     pub artifact_version: ArtifactVersionId,
     pub source_span: EvidenceSpan,
     pub lane_rank: u32,
+    pub score: RetrievalLaneScore,
     pub reason: LearnedSparseReason,
 }
 
@@ -286,6 +288,10 @@ fn shadow_candidate(
     candidate: &maestria_domain::EvidenceCandidate,
     rank: usize,
 ) -> Option<LearnedSparseShadowCandidate> {
+    let score = candidate
+        .scores
+        .lane(&RetrievalScoreKind::LearnedSparse)?
+        .clone();
     candidate.reasons.iter().find_map(|reason| {
         let RetrievalReason::LearnedSparse(reason) = reason else {
             return None;
@@ -297,6 +303,7 @@ fn shadow_candidate(
             artifact_version: candidate.artifact_version,
             source_span: candidate.source_span.clone(),
             lane_rank: u32::try_from(rank.saturating_add(1)).map_or(u32::MAX, |value| value),
+            score: score.clone(),
             reason,
         })
     })
@@ -334,10 +341,11 @@ fn validate_observation(
     for lane in &observation.lanes {
         if lane.retriever_id.trim().is_empty()
             || lane.candidates.len() > MAX_SHADOW_CANDIDATES_PER_LANE
-            || lane
-                .candidates
-                .iter()
-                .any(|candidate| candidate.reason.contributions.len() > MAX_SHADOW_CONTRIBUTIONS)
+            || lane.candidates.iter().any(|candidate| {
+                candidate.reason.contributions.len() > MAX_SHADOW_CONTRIBUTIONS
+                    || candidate.score.score_kind != RetrievalScoreKind::LearnedSparse
+                    || RetrievalScoreSet::single(candidate.score.clone()).is_err()
+            })
         {
             return Err(LearnedSparseShadowStoreError::InvalidObservation(
                 "lane identity or bounded candidate provenance is invalid".to_string(),

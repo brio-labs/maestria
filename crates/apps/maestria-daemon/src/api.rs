@@ -14,8 +14,8 @@ pub use protocol::{
     ClientOperation, ClientRequest, ClientResponse, CoverageResponse, DaemonClient,
     EvidenceResponse, EvidenceSourceResponse, ModelAgentHarnessOutcome,
     ModelAgentMemoryCandidateSummary, ModelAgentProposalPayload, ModelAgentProposalResponse,
-    ModelAgentValidationSummary, SearchEvidenceResponse, SearchResponse, StatusResponse,
-    TaskResponse, TaskSummary,
+    ModelAgentValidationSummary, SearchEvidenceResponse, SearchRawRankResponse, SearchResponse,
+    SearchScoreResponse, SearchScoreScaleResponse, StatusResponse, TaskResponse, TaskSummary,
 };
 pub use server::ApiServer;
 

@@ -1,16 +1,10 @@
 use serde::{Deserialize, Serialize};
 
-use super::{RetrievalModelFingerprint, SearchCompatibilityError, SearchPlan};
+use super::{RetrievalModelFingerprint, RetrievalScoreSet, SearchCompatibilityError, SearchPlan};
 use crate::ids::{
     ArtifactVersionId, ConflictSetId, DuplicateClusterId, EvidenceId, IndexGenerationId,
     SearchTraceId,
 };
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct RetrievalScoreSet {
-    pub bm25: u32,
-    pub semantic_similarity: u32,
-}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LearnedSparseContribution {
@@ -18,12 +12,72 @@ pub struct LearnedSparseContribution {
     pub contribution_micros: u32,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct LearnedSparseReason {
-    pub score_micros: u32,
-    pub representation: crate::generations::RepresentationName,
-    pub fingerprint: RetrievalModelFingerprint,
     pub contributions: Vec<LearnedSparseContribution>,
+    #[serde(skip_serializing)]
+    legacy_score: Option<LegacyLearnedSparseScore>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct LegacyLearnedSparseScore {
+    score_micros: u32,
+    representation: crate::generations::RepresentationName,
+    fingerprint: RetrievalModelFingerprint,
+}
+
+impl LearnedSparseReason {
+    pub fn new(contributions: Vec<LearnedSparseContribution>) -> Self {
+        Self {
+            contributions,
+            legacy_score: None,
+        }
+    }
+
+    fn take_legacy_score(&mut self) -> Option<LegacyLearnedSparseScore> {
+        self.legacy_score.take()
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CurrentLearnedSparseReasonDto {
+    contributions: Vec<LearnedSparseContribution>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct LegacyLearnedSparseReasonDto {
+    score_micros: u32,
+    representation: crate::generations::RepresentationName,
+    fingerprint: RetrievalModelFingerprint,
+    contributions: Vec<LearnedSparseContribution>,
+}
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum LearnedSparseReasonWire {
+    Current(CurrentLearnedSparseReasonDto),
+    Legacy(LegacyLearnedSparseReasonDto),
+}
+
+impl<'de> Deserialize<'de> for LearnedSparseReason {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        Ok(match LearnedSparseReasonWire::deserialize(deserializer)? {
+            LearnedSparseReasonWire::Current(dto) => Self::new(dto.contributions),
+            LearnedSparseReasonWire::Legacy(dto) => Self {
+                contributions: dto.contributions,
+                legacy_score: Some(LegacyLearnedSparseScore {
+                    score_micros: dto.score_micros,
+                    representation: dto.representation,
+                    fingerprint: dto.fingerprint,
+                }),
+            },
+        })
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -44,12 +98,17 @@ pub enum FreshnessStatus {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum RetrievalReason {
     ExactMatch,
+    LexicalMatch,
     SemanticSimilarity,
     CitationLink,
+    GraphTraversal,
+    LateInteraction,
+    SpecializedRetrieval { route: String },
     LearnedSparse(Box<LearnedSparseReason>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(try_from = "EvidenceCandidateDto")]
 pub struct EvidenceCandidate {
     pub evidence_id: EvidenceId,
     pub artifact_version: ArtifactVersionId,
@@ -61,6 +120,46 @@ pub struct EvidenceCandidate {
     pub reasons: Vec<RetrievalReason>,
     #[serde(default)]
     pub coverage_keys: Vec<String>,
+}
+
+#[derive(Deserialize)]
+struct EvidenceCandidateDto {
+    evidence_id: EvidenceId,
+    artifact_version: ArtifactVersionId,
+    source_span: super::EvidenceSpan,
+    scores: RetrievalScoreSet,
+    trust: TrustLabel,
+    freshness: FreshnessStatus,
+    duplicate_cluster: Option<DuplicateClusterId>,
+    reasons: Vec<RetrievalReason>,
+    #[serde(default)]
+    coverage_keys: Vec<String>,
+}
+
+impl TryFrom<EvidenceCandidateDto> for EvidenceCandidate {
+    type Error = SearchCompatibilityError;
+
+    fn try_from(dto: EvidenceCandidateDto) -> Result<Self, Self::Error> {
+        let mut candidate = Self {
+            evidence_id: dto.evidence_id,
+            artifact_version: dto.artifact_version,
+            source_span: dto.source_span,
+            scores: dto.scores,
+            trust: dto.trust,
+            freshness: dto.freshness,
+            duplicate_cluster: dto.duplicate_cluster,
+            reasons: dto.reasons,
+            coverage_keys: dto.coverage_keys,
+        };
+        candidate.canonicalize_score_provenance()?;
+        Ok(candidate)
+    }
+}
+
+impl EvidenceCandidate {
+    pub fn canonicalize_score_provenance(&mut self) -> Result<(), SearchCompatibilityError> {
+        canonicalize_candidate_scores(&mut self.scores, &mut self.reasons)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -152,6 +251,7 @@ pub enum SearchTraceFilter {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(try_from = "SearchTraceCandidateDto")]
 pub struct SearchTraceCandidate {
     pub evidence_id: EvidenceId,
     pub artifact_version: ArtifactVersionId,
@@ -164,6 +264,48 @@ pub struct SearchTraceCandidate {
     pub reasons: Vec<RetrievalReason>,
     #[serde(default)]
     pub coverage_keys: Vec<String>,
+}
+
+#[derive(Deserialize)]
+struct SearchTraceCandidateDto {
+    evidence_id: EvidenceId,
+    artifact_version: ArtifactVersionId,
+    source_span: super::EvidenceSpan,
+    rank: u32,
+    scores: RetrievalScoreSet,
+    trust: TrustLabel,
+    freshness: FreshnessStatus,
+    duplicate_cluster: Option<DuplicateClusterId>,
+    reasons: Vec<RetrievalReason>,
+    #[serde(default)]
+    coverage_keys: Vec<String>,
+}
+
+impl TryFrom<SearchTraceCandidateDto> for SearchTraceCandidate {
+    type Error = SearchCompatibilityError;
+
+    fn try_from(dto: SearchTraceCandidateDto) -> Result<Self, Self::Error> {
+        let mut candidate = Self {
+            evidence_id: dto.evidence_id,
+            artifact_version: dto.artifact_version,
+            source_span: dto.source_span,
+            rank: dto.rank,
+            scores: dto.scores,
+            trust: dto.trust,
+            freshness: dto.freshness,
+            duplicate_cluster: dto.duplicate_cluster,
+            reasons: dto.reasons,
+            coverage_keys: dto.coverage_keys,
+        };
+        candidate.canonicalize_score_provenance()?;
+        Ok(candidate)
+    }
+}
+
+impl SearchTraceCandidate {
+    fn canonicalize_score_provenance(&mut self) -> Result<(), SearchCompatibilityError> {
+        canonicalize_candidate_scores(&mut self.scores, &mut self.reasons)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -218,6 +360,7 @@ pub enum SearchStopReason {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(try_from = "SearchTraceLaneCandidateDto")]
 pub struct SearchTraceLaneCandidate {
     pub evidence_id: EvidenceId,
     pub artifact_version: ArtifactVersionId,
@@ -226,6 +369,41 @@ pub struct SearchTraceLaneCandidate {
     pub duplicate_cluster: Option<DuplicateClusterId>,
     pub scores: RetrievalScoreSet,
     pub reasons: Vec<RetrievalReason>,
+}
+
+#[derive(Deserialize)]
+struct SearchTraceLaneCandidateDto {
+    evidence_id: EvidenceId,
+    artifact_version: ArtifactVersionId,
+    source_span: super::EvidenceSpan,
+    lane_rank: u32,
+    duplicate_cluster: Option<DuplicateClusterId>,
+    scores: RetrievalScoreSet,
+    reasons: Vec<RetrievalReason>,
+}
+
+impl TryFrom<SearchTraceLaneCandidateDto> for SearchTraceLaneCandidate {
+    type Error = SearchCompatibilityError;
+
+    fn try_from(dto: SearchTraceLaneCandidateDto) -> Result<Self, Self::Error> {
+        let mut candidate = Self {
+            evidence_id: dto.evidence_id,
+            artifact_version: dto.artifact_version,
+            source_span: dto.source_span,
+            lane_rank: dto.lane_rank,
+            duplicate_cluster: dto.duplicate_cluster,
+            scores: dto.scores,
+            reasons: dto.reasons,
+        };
+        candidate.canonicalize_score_provenance()?;
+        Ok(candidate)
+    }
+}
+
+impl SearchTraceLaneCandidate {
+    fn canonicalize_score_provenance(&mut self) -> Result<(), SearchCompatibilityError> {
+        canonicalize_candidate_scores(&mut self.scores, &mut self.reasons)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -377,11 +555,7 @@ impl SearchTrace {
             stages: plan.stages.clone(),
             evidence_requirements: plan.evidence_requirements.clone(),
             fingerprint: plan.fingerprint.clone(),
-            identity_version: if plan.original_intent.is_some() || plan.route_decision.is_some() {
-                5
-            } else {
-                3
-            },
+            identity_version: 6,
             retrievers,
             policy_fingerprint: None,
             budgets: plan.budgets.clone(),
@@ -430,14 +604,27 @@ impl SearchTrace {
         }
     }
     pub fn with_degradation(mut self, degradation: impl Into<String>) -> Self {
-        self.identity_version = self.identity_version.max(4);
+        self.identity_version = self.identity_version.max(6);
         self.degradation = Some(degradation.into());
         self
     }
     pub fn with_unavailable_capability(mut self, capability: impl Into<String>) -> Self {
-        self.identity_version = self.identity_version.max(5);
+        self.identity_version = self.identity_version.max(6);
         self.unavailable_capability = Some(capability.into());
         self
+    }
+
+    pub fn canonicalize_score_provenance(&mut self) -> Result<(), SearchCompatibilityError> {
+        for candidate in &mut self.raw_candidates {
+            candidate.canonicalize_score_provenance()?;
+        }
+        for lane in &mut self.lanes {
+            for candidate in &mut lane.candidates {
+                candidate.canonicalize_score_provenance()?;
+            }
+        }
+        self.identity_version = 6;
+        Ok(())
     }
 }
 
@@ -452,4 +639,61 @@ pub struct SearchOutcome {
     pub evidence: Vec<EvidenceCandidate>,
     pub coverage: EvidenceCoverage,
     pub conflicts: Vec<ConflictSet>,
+}
+
+impl SearchOutcome {
+    pub fn canonicalize_score_provenance(&mut self) -> Result<(), SearchCompatibilityError> {
+        for candidate in &mut self.evidence {
+            candidate.canonicalize_score_provenance()?;
+        }
+        for conflict in &mut self.conflicts {
+            for candidate in &mut conflict.candidates {
+                candidate.canonicalize_score_provenance()?;
+            }
+        }
+        if let Some(trace) = &mut self.trace_data {
+            trace.canonicalize_score_provenance()?;
+            self.trace = trace.deterministic_id();
+        }
+        Ok(())
+    }
+}
+
+fn canonicalize_candidate_scores(
+    scores: &mut RetrievalScoreSet,
+    reasons: &mut [RetrievalReason],
+) -> Result<(), SearchCompatibilityError> {
+    scores.canonicalize()?;
+    for reason in reasons {
+        let RetrievalReason::LearnedSparse(reason) = reason else {
+            continue;
+        };
+        let Some(legacy) = reason.take_legacy_score() else {
+            continue;
+        };
+        if scores
+            .lane(&super::RetrievalScoreKind::LearnedSparse)
+            .is_some()
+        {
+            continue;
+        }
+        let representation = legacy.representation;
+        scores.upsert(super::RetrievalLaneScore::new(
+            super::RetrievalScoreKind::LearnedSparse,
+            i64::from(legacy.score_micros),
+            super::RetrievalRawRank::unavailable(
+                "legacy learned-sparse reason did not retain the backend rank",
+            ),
+            super::RetrievalScoreScale::unbounded("legacy_sparse_score_micros"),
+            representation.clone(),
+            super::RetrievalScoreFingerprint::new(
+                legacy.fingerprint,
+                std::collections::BTreeMap::from([
+                    ("migration".to_string(), "score_schema_v1_to_v2".to_string()),
+                    ("representation".to_string(), representation.0),
+                ]),
+            ),
+        ))?;
+    }
+    Ok(())
 }

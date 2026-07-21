@@ -8,6 +8,57 @@ use maestria_domain::{
 use maestria_retrieval::diversity::select_candidates;
 use maestria_retrieval::types::RankedCandidate;
 
+fn fixture_scores(
+    bm25: u32,
+    dense: u32,
+) -> Result<RetrievalScoreSet, maestria_domain::SearchCompatibilityError> {
+    let mut lanes = Vec::new();
+    if bm25 != 0 {
+        let representation = maestria_domain::RepresentationName::new("lexical_text_v1");
+        lanes.push(maestria_domain::RetrievalLaneScore::new(
+            maestria_domain::RetrievalScoreKind::LexicalBm25,
+            i64::from(bm25),
+            maestria_domain::RetrievalRawRank::ranked(1),
+            maestria_domain::RetrievalScoreScale::unbounded("fixture_bm25"),
+            representation.clone(),
+            maestria_domain::RetrievalScoreFingerprint::new(
+                maestria_domain::RetrievalModelFingerprint::new(
+                    "fixture:lexical-bm25:v1".to_string(),
+                )?,
+                std::collections::BTreeMap::from([(
+                    "representation".to_string(),
+                    representation.0,
+                )]),
+            ),
+        ));
+    }
+    if dense != 0 {
+        let representation = maestria_domain::RepresentationName::new("dense_text_v1");
+        lanes.push(maestria_domain::RetrievalLaneScore::new(
+            maestria_domain::RetrievalScoreKind::DenseSimilarity,
+            i64::from(dense),
+            maestria_domain::RetrievalRawRank::ranked(1),
+            maestria_domain::RetrievalScoreScale::bounded_fixed_point(
+                "fixture_dense_micros",
+                1_000_000,
+                0,
+                1_000_000,
+            ),
+            representation.clone(),
+            maestria_domain::RetrievalScoreFingerprint::new(
+                maestria_domain::RetrievalModelFingerprint::new(
+                    "fixture:dense-similarity:v1".to_string(),
+                )?,
+                std::collections::BTreeMap::from([(
+                    "representation".to_string(),
+                    representation.0,
+                )]),
+            ),
+        ));
+    }
+    RetrievalScoreSet::new(lanes)
+}
+
 fn plan(
     requirements: EvidenceRequirements,
     max_results: u32,
@@ -69,10 +120,7 @@ fn candidate(
                 },
                 ContentRange { start: 0, end: 10 },
             )?,
-            scores: RetrievalScoreSet {
-                bm25: 100 - id as u32,
-                semantic_similarity: 90 - id as u32,
-            },
+            scores: fixture_scores(100 - id as u32, 90 - id as u32)?,
             trust: TrustLabel::Verified,
             freshness,
             duplicate_cluster: duplicate_cluster.map(DuplicateClusterId::new),

@@ -8,8 +8,9 @@ use maestria_ports::{
 };
 
 use super::common::{
-    SourceSnapshotVerifier, candidate_from_records, generation_mismatch, port_error,
+    SourceSnapshotVerifier, candidate_from_records, generation_mismatch, one_based_rank, port_error,
 };
+use super::score_provenance::lexical_score;
 use crate::traits::CandidateRetriever;
 use crate::types::{CandidateBatch, CandidateRequest, RetrievalError, RetrieverDescriptor};
 
@@ -75,8 +76,9 @@ impl CandidateRetriever for LexicalChunkRetriever {
             .map_err(port_error)?;
         let mut candidates = Vec::with_capacity(hits.len());
         let mut bytes_read = 0_u64;
-        for hit in hits {
-            let Some(candidate) = self.candidate_from_hit(hit)? else {
+        for (raw_rank, hit) in hits.into_iter().enumerate() {
+            let raw_rank = one_based_rank(raw_rank);
+            let Some(candidate) = self.candidate_from_hit(hit, raw_rank)? else {
                 continue;
             };
             let span_len = candidate
@@ -110,6 +112,7 @@ impl LexicalChunkRetriever {
     fn candidate_from_hit(
         &self,
         hit: maestria_ports::SearchHit,
+        raw_rank: u32,
     ) -> Result<Option<EvidenceCandidate>, RetrievalError> {
         let Some(artifact) = self
             .artifacts
@@ -147,7 +150,8 @@ impl LexicalChunkRetriever {
             &chunk.source_span,
             &evidence,
             chunk.node_id,
-            hit.score,
+            lexical_score(&self.descriptor, hit.score, raw_rank)?,
+            vec![maestria_domain::RetrievalReason::LexicalMatch],
         )
         .map(Some)
     }
