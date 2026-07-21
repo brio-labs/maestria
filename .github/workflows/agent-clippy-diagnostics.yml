@@ -7,6 +7,12 @@ on:
       - "crates/**"
       - "scripts/strict-clippy.sh"
       - ".github/workflows/agent-clippy-diagnostics.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "crates/**"
+      - "scripts/strict-clippy.sh"
+      - ".github/workflows/agent-clippy-diagnostics.yml"
 
 permissions:
   contents: read
