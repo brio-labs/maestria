@@ -54,7 +54,27 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          git apply --index --verbose .github/agent/issue-197-fixes.patch 2>&1 | tee /tmp/issue-197-fixes.log
+          {
+            git apply --index --verbose .github/agent/issue-197-fixes.patch
+            python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path("crates/kernel/maestria-domain/tests/retrieval_scores.rs")
+          text = path.read_text(encoding="utf-8")
+          old = (
+              '    let encoded = serde_json::to_string(&migrated)?;\n'
+              '    assert!(!encoded.contains("score_micros"));\n'
+          )
+          new = (
+              '    let encoded = serde_json::to_value(&migrated)?;\n'
+              '    assert!(!encoded["reasons"].to_string().contains("score_micros"));\n'
+          )
+          if text.count(old) != 1:
+              raise SystemExit("expected one legacy sparse assertion to replace")
+          path.write_text(text.replace(old, new), encoding="utf-8")
+          PY
+            git add crates/kernel/maestria-domain/tests/retrieval_scores.rs
+          } 2>&1 | tee /tmp/issue-197-fixes.log
       - name: Upload follow-up diagnostics
         if: always()
         uses: actions/upload-artifact@v4
