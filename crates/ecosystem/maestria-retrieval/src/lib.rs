@@ -7,6 +7,8 @@ pub mod adapters;
 /// - `engine`: module responsibility.
 /// - `fusion`: module responsibility.
 /// - `golden`: module responsibility.
+/// - `learned_sparse_benchmark`: module responsibility.
+/// - `learned_sparse_policy`: module responsibility.
 /// - `repository_benchmark`: module responsibility.
 /// - `rewrite`: module responsibility.
 /// - `sync`: module responsibility.
@@ -20,6 +22,8 @@ pub mod diversity;
 pub mod engine;
 pub mod fusion;
 pub mod golden;
+pub mod learned_sparse_benchmark;
+pub mod learned_sparse_policy;
 pub mod repository_benchmark;
 pub mod rewrite;
 mod sync;
@@ -45,8 +49,19 @@ impl MonotonicInstant {
     }
 }
 
-pub use engine::{RetrievalEngine, SearchPlannerContext};
+pub use engine::{
+    LearnedSparseShadowCandidate, LearnedSparseShadowLane, LearnedSparseShadowLaneStatus,
+    LearnedSparseShadowObservation, LearnedSparseShadowStore, LearnedSparseShadowStoreError,
+    RetrievalEngine, SearchPlannerContext,
+};
 pub use fusion::FixedKRrf;
+pub use learned_sparse_benchmark::{
+    LearnedSparseBenchmarkCase, LearnedSparseBenchmarkComparison, LearnedSparseBenchmarkCorpus,
+    LearnedSparseBenchmarkError, LearnedSparseBenchmarkObservation, LearnedSparseClassComparison,
+    LearnedSparsePromotionRecord, LearnedSparseQueryClass, LearnedSparseRoute,
+    LearnedSparseRouteMetrics,
+};
+pub use learned_sparse_policy::LearnedSparseExecutionPolicy;
 pub use repository_benchmark::{
     MeasurementStatus, RepositoryBenchmarkCase, RepositoryBenchmarkComparison,
     RepositoryBenchmarkCorpus, RepositoryBenchmarkError, RepositoryBenchmarkObservation,
