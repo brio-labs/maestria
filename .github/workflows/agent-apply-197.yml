@@ -51,6 +51,15 @@ jobs:
           git diff --check
           python3 scripts/philosophy-check.py
           python3 scripts/benchmark_evidence.py --manifest tests/contracts/benchmark_evidence_v1.json
+      - name: Package applied source
+        shell: bash
+        run: tar --exclude=.git --exclude=target -czf /tmp/issue-197-source.tgz .
+      - name: Upload applied source
+        uses: actions/upload-artifact@v4
+        with:
+          name: issue-197-source-${{ github.sha }}
+          path: /tmp/issue-197-source.tgz
+          if-no-files-found: error
       - name: Compile all targets and features
         id: compile
         continue-on-error: true

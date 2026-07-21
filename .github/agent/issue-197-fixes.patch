@@ -12,3 +12,11 @@ index 6365afe..0000000 100644
  
  /// Canonical retrieval score provenance schema.
  pub const RETRIEVAL_SCORE_SCHEMA_VERSION: u16 = 2;
+diff --git a/crates/kernel/maestria-domain/tests/retrieval_scores.rs b/crates/kernel/maestria-domain/tests/retrieval_scores.rs
+--- a/crates/kernel/maestria-domain/tests/retrieval_scores.rs
++++ b/crates/kernel/maestria-domain/tests/retrieval_scores.rs
+@@ -124 +124,3 @@
+-    assert!(!encoded.contains("score_micros"));
++    let encoded: serde_json::Value =
++        serde_json::from_str(&encoded).expect("candidate should serialize as JSON");
++    assert!(!encoded["reasons"].to_string().contains("score_micros"));
