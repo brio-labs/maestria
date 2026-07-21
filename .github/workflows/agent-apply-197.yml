@@ -48,7 +48,22 @@ jobs:
           python3 scripts/philosophy-check.py
           python3 scripts/benchmark_evidence.py --manifest tests/contracts/benchmark_evidence_v1.json
       - name: Compile all targets and features
-        run: cargo check --workspace --all-targets --all-features --locked
+        id: compile
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -o pipefail
+          cargo check --workspace --all-targets --all-features --locked --message-format short 2>&1 | tee /tmp/issue-197-cargo-check.log
+      - name: Upload compiler diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: issue-197-cargo-check-${{ github.sha }}
+          path: /tmp/issue-197-cargo-check.log
+          if-no-files-found: error
+      - name: Stop after compiler errors
+        if: steps.compile.outcome == 'failure'
+        run: exit 1
       - name: Run focused score provenance tests
         shell: bash
         run: |
