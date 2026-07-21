@@ -69,14 +69,28 @@ jobs:
         if: steps.compile.outcome == 'failure'
         run: exit 1
       - name: Run focused score provenance tests
+        id: focused
+        continue-on-error: true
         shell: bash
         run: |
           set -euo pipefail
-          cargo test -p maestria-domain --test retrieval_scores --locked
-          cargo test -p maestria-storage-sqlite retrieval_score_migration --locked
-          cargo test -p maestria-core --test evidence_pack --locked
-          cargo test -p maestria-retrieval --test learned_sparse_retriever --locked
-          cargo test -p maestria-retrieval --test learned_sparse_shadow --locked
+          {
+            cargo test -p maestria-domain --test retrieval_scores --locked
+            cargo test -p maestria-storage-sqlite retrieval_score_migration --locked
+            cargo test -p maestria-core --test evidence_pack --locked
+            cargo test -p maestria-retrieval --test learned_sparse_retriever --locked
+            cargo test -p maestria-retrieval --test learned_sparse_shadow --locked
+          } 2>&1 | tee /tmp/issue-197-focused-tests.log
+      - name: Upload focused test diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: issue-197-focused-tests-${{ github.sha }}
+          path: /tmp/issue-197-focused-tests.log
+          if-no-files-found: error
+      - name: Stop after focused test errors
+        if: steps.focused.outcome == 'failure'
+        run: exit 1
       - name: Regenerate deterministic golden fixture
         shell: bash
         run: |
