@@ -1,0 +1,27 @@
+diff --git a/crates/ecosystem/maestria-retrieval/src/adapters/common.rs b/crates/ecosystem/maestria-retrieval/src/adapters/common.rs
+--- a/crates/ecosystem/maestria-retrieval/src/adapters/common.rs
++++ b/crates/ecosystem/maestria-retrieval/src/adapters/common.rs
+@@ -17,10 +17,7 @@ pub(super) fn port_error(error: maestria_ports::PortError) -> RetrievalError {
+ }
+ 
+ pub(super) fn one_based_rank(rank: usize) -> u32 {
+-    match u32::try_from(rank.saturating_add(1)) {
+-        Ok(rank) => rank,
+-        Err(_) => u32::MAX,
+-    }
++    u32::try_from(rank.saturating_add(1)).unwrap_or(u32::MAX)
+ }
+ 
+ pub(super) fn generation_mismatch(
+diff --git a/crates/ecosystem/maestria-retrieval/src/adapters/dense.rs b/crates/ecosystem/maestria-retrieval/src/adapters/dense.rs
+--- a/crates/ecosystem/maestria-retrieval/src/adapters/dense.rs
++++ b/crates/ecosystem/maestria-retrieval/src/adapters/dense.rs
+@@ -141,7 +141,7 @@ impl DenseChunkRetriever {
+                 &self.descriptor,
+                 score,
+                 raw_rank,
+-                &identity,
++                identity,
+                 "cosine_similarity_micros",
+             )?,
+             vec![maestria_domain::RetrievalReason::SemanticSimilarity],
