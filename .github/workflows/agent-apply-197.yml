@@ -30,7 +30,7 @@ jobs:
         with:
           toolchain: nightly-2026-06-15
           components: rustfmt, clippy, rustc-codegen-cranelift
-      - name: Reconstruct and apply implementation
+      - name: Reconstruct and apply primary implementation
         shell: bash
         run: |
           set -euo pipefail
@@ -39,7 +39,35 @@ jobs:
           gzip --decompress --stdout /tmp/issue-197.patch.gz > /tmp/issue-197.patch
           echo "9d6f656cfa14b06e7692b9d09a184edbbe0f534e65163068daeed8f59fcf9904  /tmp/issue-197.patch" | sha256sum --check --strict
           git apply --index /tmp/issue-197.patch
-          git apply --index .github/agent/issue-197-fixes.patch
+      - name: Package primary-applied source
+        shell: bash
+        run: tar --exclude=.git --exclude=target -czf /tmp/issue-197-primary-source.tgz .
+      - name: Upload primary-applied source
+        uses: actions/upload-artifact@v4
+        with:
+          name: issue-197-primary-source-${{ github.sha }}
+          path: /tmp/issue-197-primary-source.tgz
+          if-no-files-found: error
+      - name: Apply follow-up fixes
+        id: fixes
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -o pipefail
+          git apply --index --verbose .github/agent/issue-197-fixes.patch 2>&1 | tee /tmp/issue-197-fixes.log
+      - name: Upload follow-up diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: issue-197-fixes-${{ github.sha }}
+          path: /tmp/issue-197-fixes.log
+          if-no-files-found: error
+      - name: Stop after follow-up apply errors
+        if: steps.fixes.outcome == 'failure'
+        run: exit 1
+      - name: Remove bootstrap payload
+        shell: bash
+        run: |
           git rm .github/agent/issue-197.patch.gz.b64.* \
             .github/agent/issue-197-fixes.patch \
             .github/workflows/agent-apply-197.yml
