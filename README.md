@@ -158,27 +158,94 @@ providers degrade explicitly rather than fabricating text or coordinates.
 Current-web queries require an enabled governed web adapter; without one they
 use the bounded local fallback and expose the degradation in `search explain`.
 
-Scanned PDFs can optionally use a local OCR adapter. The default remains
-provider-free: scanned pages stay `NeedsOcr` and no text is fabricated. To
-enable a local OpenAI-compatible Unlimited-OCR server, add a fingerprinted
-configuration to the instance manifest:
+Scanned PDFs can optionally use a local RapidOCR adapter backed by ONNX
+Runtime. The default remains provider-free: scanned pages stay `NeedsOcr` and
+no text is fabricated. Install the pinned sidecar dependencies and start the
+loopback server:
+
+```bash
+uv venv .venv-rapidocr
+uv pip install --python .venv-rapidocr/bin/python \
+  -r scripts/requirements-rapidocr.txt
+.venv-rapidocr/bin/python scripts/rapidocr_server.py \
+  --host 127.0.0.1 --port 10000
+```
+
+Configure the instance manifest with locked runtime identity:
 
 ```text
 ocr_enabled=true
 ocr_endpoint=http://127.0.0.1:10000/v1/chat/completions
-ocr_provider=baidu
-ocr_revision=<locked-model-revision>
-ocr_artifact_hash=sha256:<locked-model-artifact-hash>
+ocr_provider=rapidai
+ocr_revision=rapidocr-onnxruntime-1.4.4
+ocr_artifact_hash=sha256:971d7d5f223a7a808662229df1ef69893809d8457d834e6373d3854bc1782cbf
 ocr_preprocessing_version=pdf-pdftoppm-v1
-ocr_model=Unlimited-OCR
+ocr_model=rapidocr-onnxruntime-1.4.4
 ```
 
-The adapter renders only the pages requiring OCR with the local `pdftoppm`
-binary and sends them to the loopback endpoint. The model can be served with
-the [Baidu Unlimited-OCR vLLM recipe](https://huggingface.co/baidu/Unlimited-OCR);
-Maestria never downloads or executes model code. `maestria doctor` reports
-whether the configured local rasterizer is available. Omit the OCR keys to
-keep the capability disabled.
+The adapter renders only pages requiring OCR with the local `pdftoppm`
+binary and sends image bytes to the RapidOCR sidecar. RapidOCR performs
+CPU-capable OCR through ONNX Runtime; Maestria never downloads or executes
+model code. The sidecar implements only the loopback OpenAI-compatible
+contract used by the Rust adapter. `maestria doctor` reports whether the
+configured rasterizer is available. Omit the OCR keys to keep the capability
+disabled.
+
+Visual retrieval uses the same optional local-provider boundary. The portable
+profile is a CPU-only SigLIP ONNX runtime; Qwen3-VL-Embedding remains an
+optional higher-quality profile. Neither model is required for normal
+text/layout retrieval.
+
+Install the CPU visual sidecar:
+
+```bash
+uv venv .venv-visual
+uv pip install --python .venv-visual/bin/python \
+  -r scripts/requirements-visual.txt
+```
+
+Download the pinned SigLIP artifacts from
+`Xenova/siglip-base-patch16-224` at revision
+`4649052661e53c7000355844105f8a1792088239`. Start the sidecar with the
+quantized ONNX artifacts:
+
+```bash
+.venv-visual/bin/python scripts/siglip_visual_server.py \
+  --host 127.0.0.1 --port 10001 \
+  --model siglip-base-patch16-224-int8 \
+  --vision-model .maestria/models/siglip/onnx/vision_model_int8.onnx \
+  --text-model .maestria/models/siglip/onnx/text_model_int8.onnx \
+  --tokenizer .maestria/models/siglip/tokenizer.json
+```
+
+Compute the artifact fingerprint before enabling the profile:
+
+```bash
+python3 scripts/visual_model_fingerprint.py \
+  --profile siglip_cpu \
+  --model-dir .maestria/models/siglip
+```
+
+Configure the resulting `sha256:` value in the instance manifest:
+
+```text
+visual_enabled=true
+visual_endpoint=http://127.0.0.1:10001/v1/embeddings
+visual_provider=siglip-onnx
+visual_revision=4649052661e53c7000355844105f8a1792088239
+visual_artifact_hash=sha256:<fingerprint-output>
+visual_preprocessing_version=siglip-224-rgb-v1
+visual_model=siglip-base-patch16-224
+visual_dimensions=768
+visual_remote_provider=false
+visual_retention_policy=no_retention
+```
+
+The visual sidecar accepts only loopback traffic, performs CPU inference, and
+does not retain inputs. `maestria doctor` reports the configured visual
+capability. Visual activation still requires a matching fingerprinted
+`visual_page_v1` generation and a passing benchmark; otherwise the app keeps
+the text/layout route.
 
 ### Tasks, validation, approvals, and memory
 

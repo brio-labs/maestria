@@ -1,0 +1,34 @@
+{
+  "schema_version": 1,
+  "profiles": {
+    "siglip_cpu": {
+      "provider": "siglip-onnx",
+      "model": "siglip-base-patch16-224",
+      "repository": "Xenova/siglip-base-patch16-224",
+      "revision": "4649052661e53c7000355844105f8a1792088239",
+      "dimensions": 768,
+      "quantization": "int8",
+      "preprocessing_version": "siglip-224-rgb-v1",
+      "runtime": "scripts/siglip_visual_server.py",
+      "artifacts": [
+        "onnx/vision_model_int8.onnx",
+        "onnx/text_model_int8.onnx",
+        "tokenizer.json",
+        "preprocessor_config.json"
+      ],
+      "artifact_hash_required_before_activation": true
+    },
+    "qwen3_vl_embedding": {
+      "provider": "qwen3-vl",
+      "model": "Qwen3-VL-Embedding-2B",
+      "repository": "Qwen/Qwen3-VL-Embedding-2B",
+      "revision": "9f2f7e710d6d81056aa5c0a4f04764fec6bb7bda",
+      "dimensions": 2048,
+      "quantization": "provider-selected",
+      "preprocessing_version": "provider-selected",
+      "runtime": "external-local-provider",
+      "artifacts": [],
+      "artifact_hash_required_before_activation": true
+    }
+  }
+}

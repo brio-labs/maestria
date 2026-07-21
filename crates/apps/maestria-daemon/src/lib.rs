@@ -40,13 +40,15 @@ use maestria_harness::LocalShellHarnessAdapter;
 use maestria_ocr_local::LocalHttpOcrProvider;
 use maestria_parsers::ParserRegistry;
 use maestria_ports::{
-    EventFilter, FullTextIndex, OcrIdentity, OcrProvider, SearchKnowledgeExecutor, VectorIndex,
+    EmbeddingIdentity, EventFilter, FullTextIndex, OcrIdentity, OcrProvider,
+    SearchKnowledgeExecutor, VectorIndex, VisualEmbeddingProvider,
 };
 use maestria_retrieval::RepositoryExecutionPolicy;
 use maestria_runtime::{Adapters, Governance, MaestriaRuntime, RuntimeConfig};
 use maestria_search_tantivy::TantivyFullTextIndex;
 use maestria_storage_sqlite::SqliteStore;
 use maestria_vector_sqlite::SqliteVectorIndex;
+use maestria_visual_local::LocalHttpVisualProvider;
 use maestria_web_evidence::UreqWebFetcher;
 pub use search_executor::{
     SearchRuntime, prepare_search_runtime, prepare_search_runtime_read_only,
@@ -157,6 +159,68 @@ fn build_ocr_provider(manifest: &InstanceManifest) -> Result<Option<Arc<dyn OcrP
     let provider = LocalHttpOcrProvider::new(&config.endpoint, &config.model, identity)
         .map_err(|error| anyhow!("configure local OCR provider: {error}"))?;
     Ok(Some(Arc::new(provider)))
+}
+
+/// Builds the configured visual provider for an active visual generation.
+///
+/// The generation identity is supplied by the caller so model vectors cannot
+/// be used before the corresponding visual index generation is activated.
+pub fn build_visual_provider(
+    manifest: &InstanceManifest,
+    identity: EmbeddingIdentity,
+) -> Result<Option<Arc<dyn VisualEmbeddingProvider + Send + Sync>>> {
+    let Some(config) = manifest.visual.as_ref().filter(|config| config.enabled) else {
+        return Ok(None);
+    };
+    if config.remote_provider
+        || !matches!(
+            config.retention_policy,
+            maestria_ports::RetentionPolicy::NoRetention
+        )
+    {
+        return Err(anyhow!(
+            "visual provider must be local and no-retention before activation"
+        ));
+    }
+    if identity.fingerprint.model != config.model
+        || identity.fingerprint.dimensions != config.dimensions as u32
+        || identity.fingerprint.provider != config.provider
+        || identity.fingerprint.revision != config.revision
+        || identity.fingerprint.preprocessing_version != config.preprocessing_version
+        || identity.fingerprint.artifact_hash.as_str() != config.artifact_hash
+    {
+        return Err(anyhow!(
+            "visual provider configuration does not match active generation identity"
+        ));
+    }
+    let provider = LocalHttpVisualProvider::new(&config.endpoint, &config.model, identity)
+        .map_err(|error| anyhow!("configure local visual provider: {error}"))?;
+    Ok(Some(Arc::new(provider)))
+}
+
+/// Reports visual capability without touching the model endpoint.
+pub fn visual_status(manifest: &InstanceManifest) -> Result<String> {
+    let Some(config) = manifest.visual.as_ref() else {
+        return Ok("disabled (no visual configuration)".to_string());
+    };
+    if !config.enabled {
+        return Ok("disabled (visual_enabled=false)".to_string());
+    }
+    if config.remote_provider
+        || !matches!(
+            config.retention_policy,
+            maestria_ports::RetentionPolicy::NoRetention
+        )
+    {
+        return Ok(format!(
+            "configured but rejected (provider={} model={} requires local no-retention)",
+            config.provider, config.model
+        ));
+    }
+    Ok(format!(
+        "configured local provider={} model={} endpoint={} activation=requires-fingerprinted-visual-generation",
+        config.provider, config.model, config.endpoint
+    ))
 }
 
 pub fn ocr_status(manifest: &InstanceManifest) -> Result<String> {

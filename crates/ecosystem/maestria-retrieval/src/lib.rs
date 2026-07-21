@@ -82,8 +82,8 @@ pub use types::{
 pub use visual_benchmark::{
     VisualBenchmarkCase, VisualBenchmarkComparison, VisualBenchmarkCorpus, VisualBenchmarkError,
     VisualBenchmarkExecutor, VisualBenchmarkObservation, VisualClassComparison, VisualEvidenceKind,
-    VisualExecutionPolicy, VisualJudgment, VisualPromotionRecord, VisualProviderStatus,
-    VisualProviderUnavailableExecutor, VisualQueryClass, VisualRoute, VisualRouteMetrics,
-    VisualTextLayoutExecutor, run_visual_benchmark,
+    VisualEvidenceLocation, VisualExecutionPolicy, VisualJudgment, VisualPromotionRecord,
+    VisualProviderStatus, VisualProviderUnavailableExecutor, VisualQueryClass, VisualRoute,
+    VisualRouteMetrics, VisualTextLayoutExecutor, run_visual_benchmark,
 };
 pub use visual_reranker::{VisualReranker, VisualRerankerParts};

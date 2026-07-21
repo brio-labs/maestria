@@ -1279,6 +1279,7 @@ dependencies = [
  "maestria-search-tantivy",
  "maestria-storage-sqlite",
  "maestria-vector-sqlite",
+ "maestria-visual-local",
  "maestria-web-evidence",
  "serde",
  "serde_json",
@@ -1454,6 +1455,19 @@ dependencies = [
  "maestria-domain",
  "maestria-ports",
  "rusqlite",
+]
+
+[[package]]
+name = "maestria-visual-local"
+version = "0.6.1"
+dependencies = [
+ "base64",
+ "maestria-domain",
+ "maestria-ports",
+ "serde",
+ "serde_json",
+ "ureq",
+ "url",
 ]
 
 [[package]]
