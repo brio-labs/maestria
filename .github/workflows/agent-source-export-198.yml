@@ -5,6 +5,10 @@ on:
     branches: [feat/search-sparse-namespace-isolation]
     paths:
       - ".github/workflows/agent-source-export-198.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/agent-source-export-198.yml"
 
 permissions:
   contents: read
