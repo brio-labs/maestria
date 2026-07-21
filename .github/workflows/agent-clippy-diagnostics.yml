@@ -41,8 +41,6 @@ jobs:
         run: |
           set -euo pipefail
           git apply --index .github/agent/issue-197-clippy-fixes.patch
-          git rm .github/agent/issue-197-clippy-fixes.patch \
-            .github/workflows/agent-clippy-diagnostics.yml
       - name: Validate focused fixes
         id: validate
         continue-on-error: true
@@ -65,12 +63,32 @@ jobs:
       - name: Stop after validation errors
         if: steps.validate.outcome == 'failure'
         run: exit 1
-      - name: Publish validated fixes
+      - name: Publish validated source fixes
+        id: publish
+        continue-on-error: true
+        shell: bash
         run: |
-          set -euo pipefail
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A
-          git diff --cached --check
-          git commit -m "fix(retrieval): satisfy strict Clippy"
-          git push origin HEAD:feat/search-retrieval-score-provenance
+          set -o pipefail
+          {
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add \
+              crates/ecosystem/maestria-retrieval/src/adapters/common.rs \
+              crates/ecosystem/maestria-retrieval/src/adapters/dense.rs \
+              crates/ecosystem/maestria-retrieval/tests/learned_sparse_retriever.rs \
+              crates/kernel/maestria-domain/tests/retrieval_scores.rs \
+              crates/storage/maestria-storage-sqlite/src/tests/retrieval_score_migration_tests.rs
+            git diff --cached --check
+            git commit -m "fix(retrieval): satisfy strict Clippy"
+            git push origin HEAD:feat/search-retrieval-score-provenance
+          } 2>&1 | tee issue-197-publish.log
+      - name: Upload publish diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: issue-197-publish-${{ github.sha }}
+          path: issue-197-publish.log
+          if-no-files-found: error
+      - name: Stop after publish errors
+        if: steps.publish.outcome == 'failure'
+        run: exit 1
