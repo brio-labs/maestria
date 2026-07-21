@@ -13,11 +13,11 @@ jobs:
     steps:
       - uses: actions/checkout@v7.0.0
       - name: Package checked-out source
-        run: tar --exclude=.git --exclude=target -czf maestria-source.tgz .
+        run: tar --exclude=.git --exclude=target -czf /tmp/maestria-source.tgz .
       - name: Upload source archive
         uses: actions/upload-artifact@v4
         with:
           name: maestria-source-${{ github.sha }}
-          path: maestria-source.tgz
+          path: /tmp/maestria-source.tgz
           if-no-files-found: error
           retention-days: 1
