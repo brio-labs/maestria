@@ -92,3 +92,5 @@ jobs:
           git diff --cached --check
           git commit -m "feat(search): generalize retrieval score provenance"
           git push origin HEAD:agent/retrieval-score-provenance
+
+# Bootstrap trigger: reconstructed payload verified by SHA-256.
