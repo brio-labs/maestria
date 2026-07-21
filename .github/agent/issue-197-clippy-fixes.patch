@@ -9,7 +9,7 @@ diff --git a/crates/ecosystem/maestria-retrieval/src/adapters/common.rs b/crates
 -        Ok(rank) => rank,
 -        Err(_) => u32::MAX,
 -    }
-+    u32::try_from(rank.saturating_add(1)).unwrap_or(u32::MAX)
++    u32::try_from(rank.saturating_add(1)).map_or(u32::MAX, |rank| rank)
  }
  
  pub(super) fn generation_mismatch(
