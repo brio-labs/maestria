@@ -141,7 +141,7 @@ impl DenseChunkRetriever {
                 &self.descriptor,
                 score,
                 raw_rank,
-                &identity,
+                identity,
                 "cosine_similarity_micros",
             )?,
             vec![maestria_domain::RetrievalReason::SemanticSimilarity],

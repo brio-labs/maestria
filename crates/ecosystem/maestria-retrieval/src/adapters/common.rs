@@ -15,10 +15,7 @@ pub(super) fn port_error(error: maestria_ports::PortError) -> RetrievalError {
 }
 
 pub(super) fn one_based_rank(rank: usize) -> u32 {
-    match u32::try_from(rank.saturating_add(1)) {
-        Ok(rank) => rank,
-        Err(_) => u32::MAX,
-    }
+    u32::try_from(rank.saturating_add(1)).map_or(u32::MAX, |rank| rank)
 }
 
 pub(super) fn generation_mismatch(

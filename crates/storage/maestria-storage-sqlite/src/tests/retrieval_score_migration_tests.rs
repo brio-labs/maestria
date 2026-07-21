@@ -149,11 +149,20 @@ fn legacy_payloads() -> Result<(String, String, SearchTraceId), Box<dyn std::err
         at: 1,
     };
 
+    let legacy_scores = serde_json::Value::Object(
+        [
+            ("bm25".to_string(), serde_json::Value::from(91_u64)),
+            (
+                "semantic_similarity".to_string(),
+                serde_json::Value::from(0_u64),
+            ),
+        ]
+        .into_iter()
+        .collect(),
+    );
     let mut knowledge_value = serde_json::to_value(knowledge)?;
-    knowledge_value["outcome"]["evidence"][0]["scores"] =
-        serde_json::json!({"bm25": 91, "semantic_similarity": 0});
-    knowledge_value["outcome"]["trace_data"]["raw_candidates"][0]["scores"] =
-        serde_json::json!({"bm25": 91, "semantic_similarity": 0});
+    knowledge_value["outcome"]["evidence"][0]["scores"] = legacy_scores.clone();
+    knowledge_value["outcome"]["trace_data"]["raw_candidates"][0]["scores"] = legacy_scores;
     Ok((
         serde_json::to_string(&knowledge_value)?,
         serde_json::to_string(&search)?,

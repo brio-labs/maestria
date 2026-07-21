@@ -4,9 +4,9 @@ use maestria_domain::{
     Artifact, ArtifactId, Chunk, ChunkId, ContentHash, ContentRange, CorpusScope, CorpusSnapshotId,
     Evidence, EvidenceKind, EvidenceRequirements, FreshnessRequirement, IndexFingerprint,
     IndexGeneration, IndexGenerationId, IndexGenerationRegistry, IndexLifecycle, IndexStatus,
-    LearnedSparseReason, LogicalTick, Modality, ModalitySet, QueryId, RepresentationName,
-    RetrievalModelFingerprint, RetrievalReason, SearchBudget, SearchIntent, SearchPlan,
-    SearchStage, SourceSpan, StopConditions, StructureNodeId,
+    LogicalTick, Modality, ModalitySet, QueryId, RepresentationName, RetrievalModelFingerprint,
+    RetrievalReason, SearchBudget, SearchIntent, SearchPlan, SearchStage, SourceSpan,
+    StopConditions, StructureNodeId,
 };
 use maestria_governance::RetrievalSecurityPolicy;
 use maestria_ports::{
