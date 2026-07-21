@@ -8,6 +8,9 @@ pub use search_plan::*;
 #[path = "search_intent.rs"]
 mod search_intent;
 pub use search_intent::*;
+#[path = "retrieval_score.rs"]
+mod retrieval_score;
+pub use retrieval_score::*;
 #[path = "search_outcome.rs"]
 mod search_outcome;
 pub use search_outcome::*;
@@ -34,6 +37,7 @@ pub enum SearchCompatibilityError {
     InvalidCoverage(&'static str),
     InvalidModalitySet(&'static str),
     InvalidPlan(&'static str),
+    InvalidScoreProvenance(&'static str),
     TracePlanMismatch(&'static str),
 }
 
@@ -61,6 +65,9 @@ impl fmt::Display for SearchCompatibilityError {
             Self::InvalidCoverage(msg) => write!(f, "Invalid evidence coverage: {}", msg),
             Self::InvalidModalitySet(msg) => write!(f, "Invalid modality set: {}", msg),
             Self::InvalidPlan(msg) => write!(f, "Invalid search plan: {}", msg),
+            Self::InvalidScoreProvenance(msg) => {
+                write!(f, "Invalid retrieval score provenance: {}", msg)
+            }
             Self::TracePlanMismatch(msg) => write!(f, "Search trace does not match plan: {}", msg),
         }
     }

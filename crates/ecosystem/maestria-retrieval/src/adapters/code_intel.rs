@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{collections::BTreeMap, sync::Arc};
 
 use async_trait::async_trait;
 use maestria_code_intel::{
@@ -7,12 +7,13 @@ use maestria_code_intel::{
 };
 use maestria_domain::{
     ArtifactVersionId, ContentRange, EvidenceCandidate, EvidenceId, EvidenceSpan, FreshnessStatus,
-    IndexGenerationId, RetrievalReason, RetrievalScoreSet, SearchLaneStatus, SecurityMetadata,
-    SourceLocation, TrustLabel,
+    IndexGenerationId, RetrievalReason, SearchLaneStatus, SecurityMetadata, SourceLocation,
+    TrustLabel,
 };
 use maestria_governance::{RetrievalDecision, RetrievalSecurityPolicy, scan_secrets};
 
-use crate::adapters::common::generation_mismatch;
+use crate::adapters::common::{generation_mismatch, one_based_rank};
+use crate::adapters::score_provenance::specialized_score;
 use crate::traits::CandidateRetriever;
 use crate::types::{CandidateBatch, CandidateRequest, RetrievalError, RetrieverDescriptor};
 #[cfg(test)]
@@ -95,14 +96,42 @@ impl CodeIntelRetriever {
             evidence_id: evidence_id_from_symbol(symbol, artifact_version),
             artifact_version,
             source_span,
-            scores: RetrievalScoreSet {
-                bm25: score_for_rank(rank),
-                semantic_similarity: 0,
-            },
+            scores: specialized_score(
+                &self.descriptor,
+                "repository_code",
+                score_for_rank(rank),
+                one_based_rank(rank),
+                "repository_code_rank",
+                BTreeMap::from([
+                    (
+                        "repository_root".to_string(),
+                        self.index.summary.repository_root.clone(),
+                    ),
+                    (
+                        "commit_sha".to_string(),
+                        symbol.provenance.commit_sha.clone(),
+                    ),
+                    (
+                        "worktree_identity".to_string(),
+                        symbol.provenance.worktree_identity.clone(),
+                    ),
+                    (
+                        "parser_generation".to_string(),
+                        symbol.provenance.parser_generation.clone(),
+                    ),
+                    ("record_id".to_string(), symbol.record_id.clone()),
+                    (
+                        "source_path".to_string(),
+                        symbol.provenance.file_path.clone(),
+                    ),
+                ]),
+            )?,
             trust: TrustLabel::Unverified,
             freshness,
             duplicate_cluster: None,
-            reasons: vec![RetrievalReason::ExactMatch],
+            reasons: vec![RetrievalReason::SpecializedRetrieval {
+                route: "repository_code".to_string(),
+            }],
             coverage_keys: vec![
                 format!("symbol:{}", symbol.record_id),
                 format!("file:{}", symbol.provenance.file_path),

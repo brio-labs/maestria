@@ -9,8 +9,9 @@ use maestria_ports::{
 };
 
 use super::common::{
-    SourceSnapshotVerifier, candidate_from_records, generation_mismatch, port_error,
+    SourceSnapshotVerifier, candidate_from_records, generation_mismatch, one_based_rank, port_error,
 };
+use super::score_provenance::dense_score;
 use crate::traits::CandidateRetriever;
 use crate::types::{CandidateBatch, CandidateRequest, RetrievalError, RetrieverDescriptor};
 
@@ -70,12 +71,22 @@ impl DenseChunkRetriever {
                 self.descriptor.generation,
             ));
         }
+        let identity = vector.identity.clone().ok_or_else(|| {
+            RetrievalError::Internal("dense vector query identity unavailable".to_string())
+        })?;
         let hits = self.index.search_similar(vector).map_err(port_error)?;
-        let candidates = hits
-            .into_iter()
-            .take(request.query.limit)
-            .filter_map(|hit| self.candidate_from_hit(hit).transpose())
-            .collect::<Result<Vec<_>, _>>()?;
+        let mut candidates = Vec::with_capacity(hits.len());
+        for (raw_rank, hit) in hits.into_iter().enumerate() {
+            let Some(candidate) =
+                self.candidate_from_hit(hit, one_based_rank(raw_rank), &identity)?
+            else {
+                continue;
+            };
+            candidates.push(candidate);
+            if candidates.len() >= request.query.limit {
+                break;
+            }
+        }
         let status = if candidates.is_empty() {
             SearchLaneStatus::Empty
         } else {
@@ -94,6 +105,8 @@ impl DenseChunkRetriever {
     fn candidate_from_hit(
         &self,
         hit: maestria_ports::VectorSearchHit,
+        raw_rank: u32,
+        identity: &maestria_ports::EmbeddingIdentity,
     ) -> Result<Option<EvidenceCandidate>, RetrievalError> {
         let Some(chunk) = self.chunks.get(hit.chunk_id).map_err(port_error)? else {
             return Ok(None);
@@ -124,7 +137,14 @@ impl DenseChunkRetriever {
             &chunk.source_span,
             &evidence,
             chunk.node_id,
-            score,
+            dense_score(
+                &self.descriptor,
+                score,
+                raw_rank,
+                &identity,
+                "cosine_similarity_micros",
+            )?,
+            vec![maestria_domain::RetrievalReason::SemanticSimilarity],
         )
         .map(Some)
     }

@@ -1,22 +1,20 @@
 use std::sync::Arc;
 
 use super::common::{
-    SourceSnapshotVerifier, candidate_from_records, generation_mismatch, port_error,
+    SourceSnapshotVerifier, candidate_from_records, generation_mismatch, one_based_rank, port_error,
 };
+use super::score_provenance::dense_score;
 use crate::traits::CandidateRetriever;
-use crate::types::{
-    CandidateBatch, CandidateRequest, RetrievalError, RetrievalResult, RetrieverDescriptor,
-};
+use crate::types::{CandidateBatch, CandidateRequest, RetrievalError, RetrieverDescriptor};
 use async_trait::async_trait;
 use maestria_domain::{
-    ArtifactId, CorpusSnapshotId, EvidenceCandidate, EvidenceKind, IndexGenerationId,
-    IndexGenerationRegistry, IndexStatus, RepresentationName, SearchLaneStatus, SourceSpan,
+    CorpusSnapshotId, EvidenceCandidate, EvidenceKind, IndexGenerationId, IndexGenerationRegistry,
+    IndexStatus, RepresentationName, RetrievalReason, SearchLaneStatus, SourceSpan,
 };
 use maestria_governance::{RetrievalDecision, RetrievalSecurityPolicy, scan_secrets};
 use maestria_ports::{
-    ArtifactRepository, BlobStore, ChunkRepository, EmbeddingIdentity, EmbeddingProvenance,
-    EvidenceRepository, RetentionPolicy, VectorEmbedding, VectorIndex, VectorSearchQuery,
-    VisualEmbeddingProvider, VisualEmbeddingRequest, VisualSource,
+    ArtifactRepository, BlobStore, ChunkRepository, EmbeddingIdentity, EvidenceRepository,
+    RetentionPolicy, VectorIndex, VectorSearchQuery, VisualEmbeddingProvider,
 };
 
 /// Dependencies for the optional page/region visual retrieval lane.
@@ -119,6 +117,8 @@ impl VisualPageRegionRetriever {
     fn candidate_from_hit(
         &self,
         hit: maestria_ports::VectorSearchHit,
+        raw_rank: u32,
+        identity: &EmbeddingIdentity,
     ) -> Result<Option<EvidenceCandidate>, RetrievalError> {
         let Some(chunk) = self.chunks.get(hit.chunk_id).map_err(port_error)? else {
             return Ok(None);
@@ -158,7 +158,14 @@ impl VisualPageRegionRetriever {
             &chunk.source_span,
             &evidence,
             chunk.node_id,
-            score,
+            dense_score(
+                &self.descriptor,
+                score,
+                raw_rank,
+                identity,
+                "visual_cosine_similarity_micros",
+            )?,
+            vec![RetrievalReason::SemanticSimilarity],
         )
         .map(Some)
     }
@@ -167,6 +174,7 @@ impl VisualPageRegionRetriever {
         &self,
         vector: VectorSearchQuery,
         request: CandidateRequest,
+        identity: &EmbeddingIdentity,
     ) -> Result<CandidateBatch, RetrievalError> {
         if request.expected_generation != self.descriptor.generation {
             return Err(generation_mismatch(
@@ -174,14 +182,18 @@ impl VisualPageRegionRetriever {
                 self.descriptor.generation,
             ));
         }
-        let candidates = self
-            .index
-            .search_similar(vector)
-            .map_err(port_error)?
-            .into_iter()
-            .take(request.query.limit)
-            .filter_map(|hit| self.candidate_from_hit(hit).transpose())
-            .collect::<Result<Vec<_>, _>>()?;
+        let hits = self.index.search_similar(vector).map_err(port_error)?;
+        let mut candidates = Vec::with_capacity(request.query.limit.min(hits.len()));
+        for (index, hit) in hits.into_iter().enumerate() {
+            let raw_rank = one_based_rank(index);
+            let Some(candidate) = self.candidate_from_hit(hit, raw_rank, identity)? else {
+                continue;
+            };
+            candidates.push(candidate);
+            if candidates.len() >= request.query.limit {
+                break;
+            }
+        }
         let status = if candidates.is_empty() {
             SearchLaneStatus::Empty
         } else {
@@ -198,7 +210,9 @@ impl VisualPageRegionRetriever {
     }
 }
 
-fn ensure_local_no_retention(provider: &dyn VisualEmbeddingProvider) -> Result<(), RetrievalError> {
+pub(super) fn ensure_local_no_retention(
+    provider: &dyn VisualEmbeddingProvider,
+) -> Result<(), RetrievalError> {
     let Some(disclosure) = provider.disclosure() else {
         return Err(RetrievalError::Internal(
             "visual provider disclosure is unavailable".to_string(),
@@ -210,159 +224,6 @@ fn ensure_local_no_retention(provider: &dyn VisualEmbeddingProvider) -> Result<(
         ));
     }
     Ok(())
-}
-
-/// Dependencies for rebuilding a governed visual page/region projection.
-pub struct VisualProjectionRebuildParts<'a> {
-    pub index: &'a dyn VectorIndex,
-    pub artifacts: &'a dyn ArtifactRepository,
-    pub chunks: &'a dyn ChunkRepository,
-    pub evidence: &'a dyn EvidenceRepository,
-    pub blobs: &'a dyn BlobStore,
-    pub policy: &'a RetrievalSecurityPolicy,
-    pub provider: &'a dyn VisualEmbeddingProvider,
-}
-
-/// Rebuilds a separate visual projection for the supplied active artifacts.
-///
-/// The caller must supply an active `visual_page_v1` identity. The projection
-/// never shares storage rows with dense text embeddings and applies the same
-/// retrieval policy and secret gates as the visual query lane.
-pub fn rebuild_visual_projection(
-    parts: VisualProjectionRebuildParts<'_>,
-    artifact_ids: &[ArtifactId],
-    capability: &VisualGenerationCapability,
-) -> RetrievalResult<()> {
-    if parts.provider.identity() != Some(capability.identity().clone()) {
-        return Err(RetrievalError::Internal(
-            "visual provider identity does not match active generation capability".to_string(),
-        ));
-    }
-    ensure_local_no_retention(parts.provider)?;
-    let mut embeddings = Vec::new();
-    for artifact_id in artifact_ids {
-        let Some(artifact) = parts.artifacts.get(*artifact_id).map_err(port_error)? else {
-            continue;
-        };
-        if artifact.index_status != IndexStatus::Indexed
-            || parts.policy.evaluate(&artifact.security) != RetrievalDecision::Allowed
-        {
-            continue;
-        }
-        for chunk in parts
-            .chunks
-            .list_for_artifact(*artifact_id)
-            .map_err(port_error)?
-        {
-            if let Some(embedding) = visual_embedding_for_chunk(
-                &chunk,
-                parts.evidence,
-                parts.blobs,
-                parts.policy,
-                parts.provider,
-                capability.identity(),
-            )? {
-                embeddings.push(embedding);
-            }
-        }
-    }
-    parts.index.rebuild(embeddings).map_err(port_error)
-}
-
-fn visual_embedding_for_chunk(
-    chunk: &maestria_domain::Chunk,
-    evidence: &dyn EvidenceRepository,
-    blobs: &dyn BlobStore,
-    policy: &RetrievalSecurityPolicy,
-    provider: &dyn VisualEmbeddingProvider,
-    identity: &EmbeddingIdentity,
-) -> RetrievalResult<Option<VectorEmbedding>> {
-    if !matches!(
-        &chunk.source_span,
-        SourceSpan::PdfSpan { .. } | SourceSpan::PdfRegion { .. }
-    ) || !scan_secrets(&chunk.text).is_clean()
-    {
-        return Ok(None);
-    }
-    let evidence_id = maestria_domain::evidence_id_for(chunk.artifact_id, chunk.order);
-    let Some(record) = evidence.get(evidence_id).map_err(port_error)? else {
-        return Ok(None);
-    };
-    if policy.evaluate(&record.security) != RetrievalDecision::Allowed
-        || !scan_secrets(&record.excerpt).is_clean()
-    {
-        return Ok(None);
-    }
-    let Some(source) = visual_source_for_evidence(&record.kind) else {
-        return Ok(None);
-    };
-    let blob = match &record.kind {
-        EvidenceKind::PdfSpan { blob, .. } | EvidenceKind::PdfRegion { blob, .. } => *blob,
-        _ => return Ok(None),
-    };
-    let bytes = blobs.get(blob).map_err(port_error)?;
-    if bytes.is_empty() || !scan_secrets(&String::from_utf8_lossy(&bytes)).is_clean() {
-        return Ok(None);
-    }
-    let response = provider
-        .embed_source(VisualEmbeddingRequest {
-            source,
-            bytes: bytes.clone(),
-            identity: identity.clone(),
-        })
-        .map_err(port_error)?;
-    if response.identity != *identity {
-        return Err(RetrievalError::Internal(
-            "visual source response identity changed during projection rebuild".to_string(),
-        ));
-    }
-    if response.disclosure.remote || response.disclosure.retention != RetentionPolicy::NoRetention {
-        return Err(RetrievalError::Internal(
-            "visual provider violates local no-retention policy".to_string(),
-        ));
-    }
-    Ok(Some(VectorEmbedding {
-        chunk_id: chunk.id,
-        vector: response.vector,
-        provenance: EmbeddingProvenance {
-            content_hash: maestria_domain::content_hash(&bytes),
-            identity: response.identity,
-            provider_id: response.provider_id,
-            model: response.model,
-            model_version: response.model_version,
-            disclosure: response.disclosure,
-        },
-    }))
-}
-
-fn visual_source_for_evidence(kind: &EvidenceKind) -> Option<VisualSource> {
-    match kind {
-        EvidenceKind::PdfSpan {
-            blob,
-            page_start,
-            page_end,
-        } => Some(VisualSource::Page {
-            blob: *blob,
-            page_start: *page_start,
-            page_end: *page_end,
-        }),
-        EvidenceKind::PdfRegion {
-            blob,
-            page,
-            x,
-            y,
-            width,
-            height,
-        } => Some(VisualSource::Region {
-            blob: *blob,
-            page: *page,
-            x: *x,
-            y: *y,
-            width: *width,
-            height: *height,
-        }),
-        _ => None,
-    }
 }
 
 #[async_trait]
@@ -423,6 +284,7 @@ impl CandidateRetriever for VisualPageRegionRetriever {
                 identity: Some(response.identity),
             },
             request,
+            &identity,
         )
     }
 }

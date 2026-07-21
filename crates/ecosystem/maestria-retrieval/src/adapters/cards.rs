@@ -9,8 +9,9 @@ use maestria_ports::{
 };
 
 use super::common::{
-    SourceSnapshotVerifier, candidate_from_records, generation_mismatch, port_error,
+    SourceSnapshotVerifier, candidate_from_records, generation_mismatch, one_based_rank, port_error,
 };
+use super::score_provenance::lexical_score;
 use crate::traits::CandidateRetriever;
 use crate::types::{CandidateBatch, CandidateRequest, RetrievalError, RetrieverDescriptor};
 
@@ -64,8 +65,11 @@ impl CardRetriever {
     ) -> Result<Vec<maestria_ports::CardHit>, RetrievalError> {
         let hits = self.index.search_cards(query).map_err(port_error)?;
         let mut allowed = Vec::with_capacity(hits.len());
-        for hit in hits {
-            if self.candidate_from_hit(&hit)?.is_some() {
+        for (raw_rank, hit) in hits.into_iter().enumerate() {
+            if self
+                .candidate_from_hit(&hit, one_based_rank(raw_rank))?
+                .is_some()
+            {
                 allowed.push(hit);
             }
         }
@@ -75,6 +79,7 @@ impl CardRetriever {
     fn candidate_from_hit(
         &self,
         hit: &maestria_ports::CardHit,
+        raw_rank: u32,
     ) -> Result<Option<EvidenceCandidate>, RetrievalError> {
         let Some(artifact) = self
             .artifacts
@@ -122,7 +127,8 @@ impl CardRetriever {
             &chunk.source_span,
             &evidence,
             card.node_id,
-            hit.score,
+            lexical_score(&self.descriptor, hit.score, raw_rank)?,
+            vec![maestria_domain::RetrievalReason::LexicalMatch],
         )
         .map(Some)
     }
@@ -141,11 +147,14 @@ impl CandidateRetriever for CardRetriever {
                 self.descriptor.generation,
             ));
         }
-        let hits = self.search(request.query.clone())?;
+        let hits = self
+            .index
+            .search_cards(request.query.clone())
+            .map_err(port_error)?;
         let mut bytes_read = 0_u64;
         let mut candidates = Vec::with_capacity(hits.len());
-        for hit in hits {
-            let Some(candidate) = self.candidate_from_hit(&hit)? else {
+        for (raw_rank, hit) in hits.into_iter().enumerate() {
+            let Some(candidate) = self.candidate_from_hit(&hit, one_based_rank(raw_rank))? else {
                 continue;
             };
             bytes_read = bytes_read.saturating_add(

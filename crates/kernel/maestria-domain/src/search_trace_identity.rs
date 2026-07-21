@@ -10,6 +10,7 @@ impl SearchTrace {
         let identity_v3 = self.identity_version >= 3;
         let identity_v4 = self.identity_version >= 4;
         let identity_v5 = self.identity_version >= 5;
+        let identity_v6 = self.identity_version >= 6;
         if self.identity_version != 0 {
             mix_hash(
                 &mut hash,
@@ -83,7 +84,7 @@ impl SearchTrace {
             &mut hash,
             &u64::from(self.stop_conditions.min_score_threshold).to_le_bytes(),
         );
-        mix_trace_candidates(&mut hash, &self.raw_candidates);
+        mix_trace_candidates(&mut hash, &self.raw_candidates, identity_v6);
         mix_hash(&mut hash, format!("{:?}", self.fusion).as_bytes());
         if identity_v2 {
             mix_trace_rewrites(&mut hash, &self.rewrites);
@@ -95,7 +96,7 @@ impl SearchTrace {
             mix_hash(&mut hash, &conflict.value().to_le_bytes());
         }
         mix_hash(&mut hash, format!("{:?}", self.stop_reason).as_bytes());
-        mix_trace_lanes(&mut hash, &self.lanes, identity_v3);
+        mix_trace_lanes(&mut hash, &self.lanes, identity_v3, identity_v6);
         if let Some(rerank) = &self.rerank {
             mix_trace_rerank(&mut hash, rerank);
         }
@@ -113,17 +114,17 @@ fn mix_hash(hash: &mut u64, bytes: &[u8]) {
     }
 }
 
-fn mix_trace_candidates(hash: &mut u64, candidates: &[SearchTraceCandidate]) {
+fn mix_trace_candidates(
+    hash: &mut u64,
+    candidates: &[SearchTraceCandidate],
+    complete_score_provenance: bool,
+) {
     for candidate in candidates {
         mix_hash(hash, &candidate.evidence_id.value().to_le_bytes());
         mix_hash(hash, &candidate.artifact_version.value().to_le_bytes());
         mix_hash(hash, format!("{:?}", candidate.source_span).as_bytes());
         mix_hash(hash, &u64::from(candidate.rank).to_le_bytes());
-        mix_hash(hash, &u64::from(candidate.scores.bm25).to_le_bytes());
-        mix_hash(
-            hash,
-            &u64::from(candidate.scores.semantic_similarity).to_le_bytes(),
-        );
+        mix_scores(hash, &candidate.scores, complete_score_provenance);
         mix_hash(hash, format!("{:?}", candidate.trust).as_bytes());
         mix_hash(hash, format!("{:?}", candidate.freshness).as_bytes());
         mix_hash(
@@ -153,11 +154,19 @@ fn mix_trace_rewrites(hash: &mut u64, rewrites: &[SearchTraceRewrite]) {
     }
 }
 
-fn mix_trace_lanes(hash: &mut u64, lanes: &[SearchTraceLane], include_query: bool) {
+fn mix_trace_lanes(
+    hash: &mut u64,
+    lanes: &[SearchTraceLane],
+    include_query: bool,
+    complete_score_provenance: bool,
+) {
     for lane in lanes {
         mix_hash(hash, lane.retriever_id.as_bytes());
         if include_query {
             mix_hash(hash, lane.query.as_bytes());
+        }
+        if complete_score_provenance {
+            mix_hash(hash, format!("{:?}", lane.generation).as_bytes());
         }
         mix_hash(hash, format!("{:?}", lane.status).as_bytes());
         for candidate in &lane.candidates {
@@ -169,14 +178,41 @@ fn mix_trace_lanes(hash: &mut u64, lanes: &[SearchTraceLane], include_query: boo
                 hash,
                 format!("{:?}", candidate.duplicate_cluster).as_bytes(),
             );
-            mix_hash(hash, &u64::from(candidate.scores.bm25).to_le_bytes());
-            mix_hash(
-                hash,
-                &u64::from(candidate.scores.semantic_similarity).to_le_bytes(),
-            );
+            mix_scores(hash, &candidate.scores, complete_score_provenance);
             mix_hash(hash, format!("{:?}", candidate.reasons).as_bytes());
         }
     }
+}
+
+fn mix_scores(hash: &mut u64, scores: &crate::RetrievalScoreSet, complete_score_provenance: bool) {
+    if complete_score_provenance {
+        mix_hash(hash, &u64::from(scores.schema_version).to_le_bytes());
+        for score in &scores.lanes {
+            mix_hash(hash, format!("{:?}", score.score_kind).as_bytes());
+            mix_hash(hash, &score.raw_score.to_le_bytes());
+            mix_hash(hash, format!("{:?}", score.raw_rank).as_bytes());
+            mix_hash(hash, format!("{:?}", score.scale).as_bytes());
+            mix_hash(hash, score.representation.0.as_bytes());
+            mix_hash(hash, score.fingerprint.identity.as_str().as_bytes());
+            for (key, value) in &score.fingerprint.components {
+                mix_hash(hash, key.as_bytes());
+                mix_hash(hash, value.as_bytes());
+            }
+        }
+        return;
+    }
+
+    let mut bm25 = 0_i64;
+    let mut semantic = 0_i64;
+    for score in &scores.lanes {
+        match &score.score_kind {
+            crate::RetrievalScoreKind::LexicalBm25 => bm25 = score.raw_score,
+            crate::RetrievalScoreKind::DenseSimilarity => semantic = score.raw_score,
+            _ => {}
+        }
+    }
+    mix_hash(hash, &bm25.to_le_bytes());
+    mix_hash(hash, &semantic.to_le_bytes());
 }
 
 fn mix_trace_rerank(hash: &mut u64, rerank: &SearchTraceRerank) {

@@ -13,9 +13,10 @@ use maestria_ports::{
 };
 
 use super::common::{
-    SourceSnapshotVerifier, candidate_from_records, generation_mismatch, port_error,
+    SourceSnapshotVerifier, candidate_from_records, generation_mismatch, one_based_rank, port_error,
 };
 use super::learned_sparse_generation::LearnedSparseGenerationCapability;
+use super::score_provenance::learned_sparse_score;
 use crate::traits::CandidateRetriever;
 use crate::types::{CandidateBatch, CandidateRequest, RetrievalError, RetrieverDescriptor};
 
@@ -181,28 +182,35 @@ impl LearnedSparseChunkRetriever {
     fn candidate_from_hit(
         &self,
         hit: SparseSearchHit,
+        raw_rank: u32,
     ) -> Result<Option<EvidenceCandidate>, RetrievalError> {
         let Some((artifact, chunk, evidence)) = self.checked_records(hit.chunk_id)? else {
             return Ok(None);
         };
-        let mut candidate =
-            candidate_from_records(artifact.id, &chunk.source_span, &evidence, chunk.node_id, 0)?;
-        candidate.reasons = vec![RetrievalReason::LearnedSparse(Box::new(
-            LearnedSparseReason {
-                score_micros: hit.score_micros,
-                representation: self.identity.representation.clone(),
-                fingerprint: self.fingerprint.clone(),
-                contributions: hit
-                    .contributions
-                    .into_iter()
-                    .map(|contribution| LearnedSparseContribution {
-                        term_id: contribution.term_id,
-                        contribution_micros: contribution.contribution_micros,
-                    })
-                    .collect(),
-            },
-        ))];
-        Ok(Some(candidate))
+        let contributions = hit
+            .contributions
+            .into_iter()
+            .map(|contribution| LearnedSparseContribution {
+                term_id: contribution.term_id,
+                contribution_micros: contribution.contribution_micros,
+            })
+            .collect();
+        candidate_from_records(
+            artifact.id,
+            &chunk.source_span,
+            &evidence,
+            chunk.node_id,
+            learned_sparse_score(
+                &self.identity,
+                self.fingerprint.clone(),
+                hit.score_micros,
+                raw_rank,
+            )?,
+            vec![RetrievalReason::LearnedSparse(Box::new(
+                LearnedSparseReason::new(contributions),
+            ))],
+        )
+        .map(Some)
     }
 }
 
@@ -241,8 +249,8 @@ impl CandidateRetriever for LearnedSparseChunkRetriever {
             .map_err(port_error)?;
         let mut candidates = Vec::with_capacity(hits.len());
         let mut bytes_read = 0_u64;
-        for hit in hits {
-            let Some(candidate) = self.candidate_from_hit(hit)? else {
+        for (raw_rank, hit) in hits.into_iter().enumerate() {
+            let Some(candidate) = self.candidate_from_hit(hit, one_based_rank(raw_rank))? else {
                 continue;
             };
             let range = candidate.source_span.range();

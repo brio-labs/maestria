@@ -5,8 +5,10 @@ mod dense;
 mod learned_sparse;
 mod learned_sparse_generation;
 mod lexical;
+mod score_provenance;
 mod secondary;
 mod visual;
+mod visual_projection;
 
 pub use cards::{CardRetriever, CardRetrieverParts};
 pub use code_intel::{CodeIntelRetriever, CodeIntelRetrieverParts};
@@ -22,5 +24,5 @@ pub use secondary::{
 };
 pub use visual::{
     VisualGenerationCapability, VisualPageRegionRetriever, VisualPageRegionRetrieverParts,
-    VisualProjectionRebuildParts, rebuild_visual_projection,
 };
+pub use visual_projection::{VisualProjectionRebuildParts, rebuild_visual_projection};

@@ -16,6 +16,57 @@ use std::sync::{
     atomic::{AtomicUsize, Ordering},
 };
 
+fn fixture_scores(
+    bm25: u32,
+    dense: u32,
+) -> Result<RetrievalScoreSet, maestria_domain::SearchCompatibilityError> {
+    let mut lanes = Vec::new();
+    if bm25 != 0 {
+        let representation = maestria_domain::RepresentationName::new("lexical_text_v1");
+        lanes.push(maestria_domain::RetrievalLaneScore::new(
+            maestria_domain::RetrievalScoreKind::LexicalBm25,
+            i64::from(bm25),
+            maestria_domain::RetrievalRawRank::ranked(1),
+            maestria_domain::RetrievalScoreScale::unbounded("fixture_bm25"),
+            representation.clone(),
+            maestria_domain::RetrievalScoreFingerprint::new(
+                maestria_domain::RetrievalModelFingerprint::new(
+                    "fixture:lexical-bm25:v1".to_string(),
+                )?,
+                std::collections::BTreeMap::from([(
+                    "representation".to_string(),
+                    representation.0,
+                )]),
+            ),
+        ));
+    }
+    if dense != 0 {
+        let representation = maestria_domain::RepresentationName::new("dense_text_v1");
+        lanes.push(maestria_domain::RetrievalLaneScore::new(
+            maestria_domain::RetrievalScoreKind::DenseSimilarity,
+            i64::from(dense),
+            maestria_domain::RetrievalRawRank::ranked(1),
+            maestria_domain::RetrievalScoreScale::bounded_fixed_point(
+                "fixture_dense_micros",
+                1_000_000,
+                0,
+                1_000_000,
+            ),
+            representation.clone(),
+            maestria_domain::RetrievalScoreFingerprint::new(
+                maestria_domain::RetrievalModelFingerprint::new(
+                    "fixture:dense-similarity:v1".to_string(),
+                )?,
+                std::collections::BTreeMap::from([(
+                    "representation".to_string(),
+                    representation.0,
+                )]),
+            ),
+        ));
+    }
+    RetrievalScoreSet::new(lanes)
+}
+
 fn dummy_plan() -> RetrievalResult<SearchPlan> {
     Ok(SearchPlan {
         query_id: QueryId::new(1),
@@ -83,10 +134,7 @@ fn candidate_fixture() -> RetrievalResult<EvidenceCandidate> {
             },
             ContentRange { start: 32, end: 96 },
         )?,
-        scores: RetrievalScoreSet {
-            bm25: 91,
-            semantic_similarity: 88,
-        },
+        scores: fixture_scores(91, 88)?,
         trust: TrustLabel::Verified,
         freshness: FreshnessStatus::UpToDate,
         duplicate_cluster: Some(maestria_domain::DuplicateClusterId::new(31)),
@@ -272,7 +320,13 @@ fn test_provenance_scores_reasons_and_determinism() -> RetrievalResult<()> {
     let evidence = first.evidence.first().ok_or(RetrievalError::Internal(
         "candidate was not preserved".into(),
     ))?;
-    assert_eq!(evidence.scores.bm25, 91);
+    assert_eq!(
+        evidence
+            .scores
+            .lane(&maestria_domain::RetrievalScoreKind::LexicalBm25)
+            .map(|score| score.raw_score),
+        Some(91)
+    );
     assert_eq!(
         evidence.reasons,
         vec![RetrievalReason::ExactMatch, RetrievalReason::CitationLink]
@@ -338,18 +392,17 @@ fn test_fixed_k_rrf_overlap_non_summing() -> RetrievalResult<()> {
     let mut c1 = candidate_fixture()?;
     c1.evidence_id = EvidenceId::new(1);
     c1.duplicate_cluster = Some(DuplicateClusterId::new(100));
-    c1.scores.bm25 = 100;
-    c1.scores.semantic_similarity = 0;
+    c1.scores = fixture_scores(100, 0)?;
 
     let mut c2 = candidate_fixture()?;
     c2.evidence_id = EvidenceId::new(2);
     c2.duplicate_cluster = None;
-    c2.scores.bm25 = 90;
+    c2.scores = fixture_scores(90, 0)?;
 
     let mut c3 = candidate_fixture()?;
     c3.evidence_id = EvidenceId::new(3);
     c3.duplicate_cluster = Some(DuplicateClusterId::new(100)); // overlap with c1
-    c3.scores.semantic_similarity = 80;
+    c3.scores = fixture_scores(0, 80)?;
 
     let batch1 = CandidateBatch {
         descriptor: RetrieverDescriptor {

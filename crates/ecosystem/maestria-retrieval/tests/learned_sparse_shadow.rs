@@ -20,6 +20,57 @@ use maestria_retrieval::{
     LearnedSparseShadowStore, RetrievalEngine, RetrievalEvaluator,
 };
 
+fn fixture_scores(
+    bm25: u32,
+    dense: u32,
+) -> Result<RetrievalScoreSet, maestria_domain::SearchCompatibilityError> {
+    let mut lanes = Vec::new();
+    if bm25 != 0 {
+        let representation = maestria_domain::RepresentationName::new("lexical_text_v1");
+        lanes.push(maestria_domain::RetrievalLaneScore::new(
+            maestria_domain::RetrievalScoreKind::LexicalBm25,
+            i64::from(bm25),
+            maestria_domain::RetrievalRawRank::ranked(1),
+            maestria_domain::RetrievalScoreScale::unbounded("fixture_bm25"),
+            representation.clone(),
+            maestria_domain::RetrievalScoreFingerprint::new(
+                maestria_domain::RetrievalModelFingerprint::new(
+                    "fixture:lexical-bm25:v1".to_string(),
+                )?,
+                std::collections::BTreeMap::from([(
+                    "representation".to_string(),
+                    representation.0,
+                )]),
+            ),
+        ));
+    }
+    if dense != 0 {
+        let representation = maestria_domain::RepresentationName::new("dense_text_v1");
+        lanes.push(maestria_domain::RetrievalLaneScore::new(
+            maestria_domain::RetrievalScoreKind::DenseSimilarity,
+            i64::from(dense),
+            maestria_domain::RetrievalRawRank::ranked(1),
+            maestria_domain::RetrievalScoreScale::bounded_fixed_point(
+                "fixture_dense_micros",
+                1_000_000,
+                0,
+                1_000_000,
+            ),
+            representation.clone(),
+            maestria_domain::RetrievalScoreFingerprint::new(
+                maestria_domain::RetrievalModelFingerprint::new(
+                    "fixture:dense-similarity:v1".to_string(),
+                )?,
+                std::collections::BTreeMap::from([(
+                    "representation".to_string(),
+                    representation.0,
+                )]),
+            ),
+        ));
+    }
+    RetrievalScoreSet::new(lanes)
+}
+
 type TestResult<T = ()> = Result<T, Box<dyn std::error::Error>>;
 
 struct FixedRetriever {
@@ -105,10 +156,7 @@ fn lexical_candidate() -> TestResult<EvidenceCandidate> {
         evidence_id: EvidenceId::new(1),
         artifact_version: ArtifactVersionId::new(1),
         source_span: source_span()?,
-        scores: RetrievalScoreSet {
-            bm25: 9_000,
-            semantic_similarity: 0,
-        },
+        scores: fixture_scores(9_000, 0)?,
         trust: TrustLabel::Verified,
         freshness: FreshnessStatus::UpToDate,
         duplicate_cluster: Some(DuplicateClusterId::new(1)),
@@ -122,23 +170,33 @@ fn sparse_candidate() -> TestResult<EvidenceCandidate> {
         evidence_id: EvidenceId::new(2),
         artifact_version: ArtifactVersionId::new(2),
         source_span: source_span()?,
-        scores: RetrievalScoreSet {
-            bm25: 0,
-            semantic_similarity: 0,
-        },
+        scores: maestria_domain::RetrievalScoreSet::single(
+            maestria_domain::RetrievalLaneScore::new(
+                maestria_domain::RetrievalScoreKind::LearnedSparse,
+                10_000,
+                maestria_domain::RetrievalRawRank::ranked(1),
+                maestria_domain::RetrievalScoreScale::fixed_point(
+                    "fixture_sparse_micros",
+                    1_000_000,
+                ),
+                RepresentationName::new("sparse_text_v1"),
+                maestria_domain::RetrievalScoreFingerprint::new(
+                    RetrievalModelFingerprint::new("fixture-sparse-v1".to_string())?,
+                    std::collections::BTreeMap::from([(
+                        "fixture".to_string(),
+                        "learned_sparse_shadow".to_string(),
+                    )]),
+                ),
+            ),
+        )?,
         trust: TrustLabel::Verified,
         freshness: FreshnessStatus::UpToDate,
         duplicate_cluster: Some(DuplicateClusterId::new(2)),
         reasons: vec![RetrievalReason::LearnedSparse(Box::new(
-            LearnedSparseReason {
-                score_micros: 10_000,
-                representation: RepresentationName::new("sparse_text_v1"),
-                fingerprint: RetrievalModelFingerprint::new("fixture-sparse-v1".to_string())?,
-                contributions: vec![LearnedSparseContribution {
-                    term_id: 7,
-                    contribution_micros: 10_000,
-                }],
-            },
+            LearnedSparseReason::new(vec![LearnedSparseContribution {
+                term_id: 7,
+                contribution_micros: 10_000,
+            }]),
         ))],
         coverage_keys: Vec::new(),
     })
@@ -228,7 +286,11 @@ async fn shadow_sparse_observation_cannot_change_served_evidence() -> TestResult
     assert_eq!(lane.status, LearnedSparseShadowLaneStatus::Succeeded);
     assert_eq!(lane.candidates.len(), 1);
     assert_eq!(lane.candidates[0].evidence_id, EvidenceId::new(2));
-    assert_eq!(lane.candidates[0].reason.score_micros, 10_000);
+    assert_eq!(lane.candidates[0].score.raw_score, 10_000);
+    assert_eq!(
+        lane.candidates[0].score.score_kind,
+        maestria_domain::RetrievalScoreKind::LearnedSparse
+    );
     Ok(())
 }
 

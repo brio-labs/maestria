@@ -25,7 +25,7 @@
   },
   "milestones": [
     {
-      "milestone": "v0.4 — Deterministic Search Baseline",
+      "milestone": "v0.4 \u2014 Deterministic Search Baseline",
       "release_stage": "implementation-complete",
       "data_fidelity": "mixed",
       "corpus": {
@@ -38,7 +38,7 @@
           "docs/PHILOSOPHY.md",
           "crates/ecosystem/maestria-retrieval/tests/fixtures/golden-v3.json"
         ],
-        "source_hash": "f89e69239e086c184d9f1bfcfb908294d959fad9fbdbbaaaf96d0f70b5c6c6ae"
+        "source_hash": "a17ccf7885dbea911691145c90a6982d2b519b50915c65f427e3236366973a97"
       },
       "fingerprints": {
         "corpus_snapshot": "maestria-document-snapshot-v1",
@@ -82,7 +82,7 @@
       ]
     },
     {
-      "milestone": "v0.5 — Evaluated Hybrid Retrieval",
+      "milestone": "v0.5 \u2014 Evaluated Hybrid Retrieval",
       "release_stage": "implementation-complete",
       "data_fidelity": "mixed",
       "corpus": {
@@ -95,7 +95,7 @@
           "docs/PHILOSOPHY.md",
           "crates/ecosystem/maestria-retrieval/tests/fixtures/golden-v3.json"
         ],
-        "source_hash": "f89e69239e086c184d9f1bfcfb908294d959fad9fbdbbaaaf96d0f70b5c6c6ae"
+        "source_hash": "a17ccf7885dbea911691145c90a6982d2b519b50915c65f427e3236366973a97"
       },
       "fingerprints": {
         "corpus_snapshot": "maestria-document-snapshot-v1",
@@ -139,7 +139,7 @@
       ]
     },
     {
-      "milestone": "v0.7 — Repository Intelligence",
+      "milestone": "v0.7 \u2014 Repository Intelligence",
       "release_stage": "implementation-complete",
       "data_fidelity": "real",
       "corpus": {
@@ -194,7 +194,7 @@
       ]
     },
     {
-      "milestone": "v0.8 — Visual Document Retrieval",
+      "milestone": "v0.8 \u2014 Visual Document Retrieval",
       "release_stage": "implementation-complete",
       "data_fidelity": "mixed",
       "corpus": {

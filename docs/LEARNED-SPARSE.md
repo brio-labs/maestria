@@ -85,13 +85,14 @@ interpreted as evidence that no relevant source exists.
 
 ## Trace and shadow output
 
-Sparse results keep BM25 and dense-similarity fields at zero. They carry a typed
-`RetrievalReason::LearnedSparse` containing:
+Sparse results use the canonical versioned `RetrievalScoreSet`. Each returned candidate has a
+`learned_sparse` lane containing the raw fixed-point score, original one-based backend rank,
+scale semantics, `sparse_text_v1` representation, and the complete provider/model/tokenizer/
+vocabulary fingerprint. Sparse values are never stored as BM25 or dense similarity.
 
-- the fixed-point sparse score;
-- `sparse_text_v1` representation identity;
-- retrieval-model fingerprint;
-- a bounded deterministic list of highest-contributing term IDs and contribution weights.
+`RetrievalReason::LearnedSparse` contains only the bounded deterministic list of
+highest-contributing term IDs and contribution weights. The score and representation identity
+have one authoritative location in the lane-score contract rather than a duplicate reason field.
 
 Provider payloads, logits, tensors, hidden states, arbitrary response bodies, and raw shadow
 queries are not stored in domain values or shadow observations.
@@ -102,6 +103,7 @@ queries are not stored in domain values or shadow observations.
 - corpus snapshot and generation identity;
 - bounded lane status and latency;
 - exact evidence/source lineage for bounded candidates;
+- the canonical typed learned-sparse lane score;
 - bounded learned-sparse contribution provenance.
 
 The store has an explicit capacity, drops the oldest observation when full, and supports JSON

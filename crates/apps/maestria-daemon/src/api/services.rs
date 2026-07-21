@@ -8,8 +8,8 @@ use maestria_blob_fs::FsBlobStore;
 use maestria_core::{CorePorts, CoreServices, InstanceLayout, InstanceManifest, OpenEvidenceInput};
 use maestria_domain::{
     ClaimId, DomainEvent, DomainInput, Evidence, EvidenceCandidate, EvidenceId, EvidenceKind,
-    EvidenceSpan, HarnessRunCompleted, HarnessRunId, KernelState, MemoryCandidateId, SearchOutcome,
-    Task, TaskId,
+    EvidenceSpan, HarnessRunCompleted, HarnessRunId, KernelState, MemoryCandidateId,
+    RetrievalRawRank, RetrievalScoreKind, RetrievalScoreScale, SearchOutcome, Task, TaskId,
 };
 use maestria_governance::{ScopeGuard, ValidationRequest};
 use maestria_parsers::ParserRegistry;
@@ -22,7 +22,8 @@ use super::{
     ClientOperation, ClientResponse, CoverageResponse, EvidenceResponse, EvidenceSourceResponse,
     ModelAgentHarnessOutcome, ModelAgentMemoryCandidateSummary, ModelAgentProposalPayload,
     ModelAgentProposalResponse, ModelAgentValidationSummary, SearchEvidenceResponse,
-    SearchResponse, StatusResponse, TaskResponse, TaskSummary,
+    SearchRawRankResponse, SearchResponse, SearchScoreResponse, SearchScoreScaleResponse,
+    StatusResponse, TaskResponse, TaskSummary,
 };
 
 const MAX_SEARCH_LIMIT: usize = 100;
@@ -518,10 +519,70 @@ fn search_evidence(candidate: &EvidenceCandidate) -> SearchEvidenceResponse {
         source: format_source_span(&candidate.source_span),
         range_start: candidate.source_span.range().start,
         range_end: candidate.source_span.range().end,
-        lexical_score: candidate.scores.bm25,
-        semantic_score: candidate.scores.semantic_similarity,
+        score_schema_version: candidate.scores.schema_version,
+        scores: candidate.scores.lanes.iter().map(search_score).collect(),
         trust: format!("{:?}", candidate.trust),
         freshness: format!("{:?}", candidate.freshness),
+    }
+}
+
+fn search_score(score: &maestria_domain::RetrievalLaneScore) -> SearchScoreResponse {
+    SearchScoreResponse {
+        score_kind: score_kind_name(&score.score_kind),
+        raw_score: score.raw_score,
+        raw_rank: match &score.raw_rank {
+            RetrievalRawRank::Ranked { rank } => SearchRawRankResponse::Ranked { rank: *rank },
+            RetrievalRawRank::Unavailable { reason } => SearchRawRankResponse::Unavailable {
+                reason: reason.clone(),
+            },
+        },
+        scale: match &score.scale {
+            RetrievalScoreScale::Binary => SearchScoreScaleResponse::Binary,
+            RetrievalScoreScale::Unbounded {
+                name,
+                higher_is_better,
+            } => SearchScoreScaleResponse::Unbounded {
+                name: name.clone(),
+                higher_is_better: *higher_is_better,
+            },
+            RetrievalScoreScale::FixedPoint {
+                name,
+                denominator,
+                minimum,
+                maximum,
+                higher_is_better,
+            } => SearchScoreScaleResponse::FixedPoint {
+                name: name.clone(),
+                denominator: *denominator,
+                minimum: *minimum,
+                maximum: *maximum,
+                higher_is_better: *higher_is_better,
+            },
+            RetrievalScoreScale::RankDerived {
+                name,
+                higher_is_better,
+            } => SearchScoreScaleResponse::RankDerived {
+                name: name.clone(),
+                higher_is_better: *higher_is_better,
+            },
+        },
+        representation: score.representation.0.clone(),
+        fingerprint: score.fingerprint.identity.as_str().to_string(),
+        fingerprint_components: score.fingerprint.components.clone(),
+    }
+}
+
+fn score_kind_name(kind: &RetrievalScoreKind) -> String {
+    match kind {
+        RetrievalScoreKind::Exact => "exact".to_string(),
+        RetrievalScoreKind::LexicalBm25 => "lexical_bm25".to_string(),
+        RetrievalScoreKind::DenseSimilarity => "dense_similarity".to_string(),
+        RetrievalScoreKind::LearnedSparse => "learned_sparse".to_string(),
+        RetrievalScoreKind::LateInteraction => "late_interaction".to_string(),
+        RetrievalScoreKind::Graph => "graph".to_string(),
+        RetrievalScoreKind::SpecializedRetrieval { route } => {
+            format!("specialized_retrieval:{route}")
+        }
     }
 }
 

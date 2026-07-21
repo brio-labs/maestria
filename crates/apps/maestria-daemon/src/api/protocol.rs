@@ -1,4 +1,4 @@
-use std::{fs, path::PathBuf};
+use std::{collections::BTreeMap, fs, path::PathBuf};
 
 use anyhow::{Context, Result, anyhow};
 use maestria_core::InstanceLayout;
@@ -74,10 +74,49 @@ pub struct SearchEvidenceResponse {
     pub source: String,
     pub range_start: usize,
     pub range_end: usize,
-    pub lexical_score: u32,
-    pub semantic_score: u32,
+    pub score_schema_version: u16,
+    pub scores: Vec<SearchScoreResponse>,
     pub trust: String,
     pub freshness: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SearchScoreResponse {
+    pub score_kind: String,
+    pub raw_score: i64,
+    pub raw_rank: SearchRawRankResponse,
+    pub scale: SearchScoreScaleResponse,
+    pub representation: String,
+    pub fingerprint: String,
+    pub fingerprint_components: BTreeMap<String, String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "state", rename_all = "snake_case")]
+pub enum SearchRawRankResponse {
+    Ranked { rank: u32 },
+    Unavailable { reason: String },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum SearchScoreScaleResponse {
+    Binary,
+    Unbounded {
+        name: String,
+        higher_is_better: bool,
+    },
+    FixedPoint {
+        name: String,
+        denominator: u32,
+        minimum: Option<i64>,
+        maximum: Option<i64>,
+        higher_is_better: bool,
+    },
+    RankDerived {
+        name: String,
+        higher_is_better: bool,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

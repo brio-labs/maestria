@@ -11,10 +11,12 @@ mod provenance_migration;
 use provenance_migration::*;
 mod security_migration;
 use security_migration::*;
+mod score_provenance_migration;
+use score_provenance_migration::*;
 
 use crate::schema_validation::*;
 /// Current storage schema version supported by this adapter.
-pub(crate) const CURRENT_SCHEMA_VERSION: i64 = 8;
+pub(crate) const CURRENT_SCHEMA_VERSION: i64 = 9;
 /// Captures the pre-migration state of the database.
 struct SchemaState {
     version: Option<i64>,
@@ -422,6 +424,7 @@ pub(crate) fn migrate(connection: &mut Connection) -> Result<(), PortError> {
         Some(6) => migrate_from_v6(&transaction, &state)?,
         Some(7) => migrate_from_v7(&transaction, &state)?,
         Some(8) => validate_at_v8(&transaction, &state)?,
+        Some(9) => validate_at_v9(&transaction, &state)?,
         Some(version) => {
             return Err(PortError::Internal {
                 message: format!(
@@ -432,5 +435,6 @@ pub(crate) fn migrate(connection: &mut Connection) -> Result<(), PortError> {
         None => migrate_from_fresh(&transaction, &state)?,
     }
 
+    migrate_score_provenance_v9(&transaction)?;
     finalize_migration(transaction)
 }

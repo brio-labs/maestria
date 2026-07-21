@@ -6,12 +6,31 @@ use maestria_domain::{
     Artifact, ArtifactId, ArtifactVersionId, BlobId, Chunk, ChunkId, ConflictSet, ContentRange,
     CorpusScope, CorpusSnapshotId, Evidence, EvidenceCandidate, EvidenceId, EvidenceKind,
     EvidenceRequirements, EvidenceSpan, FreshnessRequirement, FreshnessStatus, IndexGenerationId,
-    IndexStatus, LogicalTick, Modality, ModalitySet, QueryId, RetrievalModelFingerprint,
-    RetrievalReason, RetrievalScoreSet, SearchBudget, SearchIntent, SearchPlan, SearchStage,
-    SearchStopReason, SearchTrace, SourceLocation, SourceSpan, StopConditions, StructureNodeId,
-    TrustLabel,
+    IndexStatus, LogicalTick, Modality, ModalitySet, QueryId, RetrievalLaneScore,
+    RetrievalModelFingerprint, RetrievalRawRank, RetrievalReason, RetrievalScoreFingerprint,
+    RetrievalScoreKind, RetrievalScoreScale, RetrievalScoreSet, SearchBudget, SearchIntent,
+    SearchPlan, SearchStage, SearchStopReason, SearchTrace, SourceLocation, SourceSpan,
+    StopConditions, StructureNodeId, TrustLabel,
 };
 use std::error::Error;
+
+fn fixture_scores() -> Result<RetrievalScoreSet, Box<dyn Error>> {
+    let representation = maestria_domain::RepresentationName::new("lexical_text_v1");
+    Ok(RetrievalScoreSet::single(RetrievalLaneScore::new(
+        RetrievalScoreKind::LexicalBm25,
+        1,
+        RetrievalRawRank::ranked(1),
+        RetrievalScoreScale::unbounded("fixture_bm25"),
+        representation.clone(),
+        RetrievalScoreFingerprint::new(
+            RetrievalModelFingerprint::new("fixture:evidence-pack:lexical".to_string())?,
+            std::collections::BTreeMap::from([
+                ("fixture".to_string(), "evidence_pack_v1".to_string()),
+                ("representation".to_string(), representation.0),
+            ]),
+        ),
+    ))?)
+}
 
 fn plan(required_claims: Vec<String>) -> Result<SearchPlan, Box<dyn Error>> {
     Ok(SearchPlan {
@@ -62,10 +81,7 @@ fn trace_for(
                     },
                     ContentRange { start: 1, end: 1 },
                 )?,
-                scores: RetrievalScoreSet {
-                    bm25: 1,
-                    semantic_similarity: 0,
-                },
+                scores: fixture_scores()?,
                 trust: TrustLabel::Verified,
                 freshness: FreshnessStatus::UpToDate,
                 duplicate_cluster: None,

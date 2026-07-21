@@ -14,6 +14,13 @@ pub(super) fn port_error(error: maestria_ports::PortError) -> RetrievalError {
     RetrievalError::Internal(error.to_string())
 }
 
+pub(super) fn one_based_rank(rank: usize) -> u32 {
+    match u32::try_from(rank.saturating_add(1)) {
+        Ok(rank) => rank,
+        Err(_) => u32::MAX,
+    }
+}
+
 pub(super) fn generation_mismatch(
     expected: IndexGenerationId,
     actual: IndexGenerationId,
@@ -172,7 +179,8 @@ pub(super) fn candidate_from_records(
     source_span: &SourceSpan,
     evidence: &Evidence,
     node_id: StructureNodeId,
-    score: u32,
+    scores: RetrievalScoreSet,
+    reasons: Vec<RetrievalReason>,
 ) -> Result<EvidenceCandidate, RetrievalError> {
     let (location, range) = evidence_location(evidence, source_span)?;
     let source_span = EvidenceSpan::new(Some(node_id), location, range)
@@ -181,14 +189,11 @@ pub(super) fn candidate_from_records(
         evidence_id: evidence.id,
         artifact_version: ArtifactVersionId::new(artifact_id.value()),
         source_span,
-        scores: RetrievalScoreSet {
-            bm25: score,
-            semantic_similarity: 0,
-        },
+        scores,
         trust: TrustLabel::Unverified,
         freshness: FreshnessStatus::Unknown,
         duplicate_cluster: None,
-        reasons: vec![RetrievalReason::ExactMatch],
+        reasons,
         coverage_keys: Vec::new(),
     })
 }

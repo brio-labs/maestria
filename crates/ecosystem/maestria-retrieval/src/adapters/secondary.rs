@@ -13,7 +13,8 @@ use maestria_ports::{
     ArtifactRepository, BlobStore, ChunkRepository, EvidenceRepository, GraphIndex,
 };
 
-use super::common::{SourceSnapshotVerifier, candidate_from_records, port_error};
+use super::common::{SourceSnapshotVerifier, candidate_from_records, one_based_rank, port_error};
+use super::score_provenance::graph_score;
 use crate::traits::{ContextExpander, RetrievalEvaluator};
 use crate::types::{ExpansionPolicy, RankedCandidate, RetrievalError, RetrievalEvaluationReport};
 
@@ -80,7 +81,7 @@ impl ContextExpander for HierarchyGraphExpander {
                     RelationEndpoint::Artifact(maestria_domain::ArtifactId::new(
                         candidate.candidate.artifact_version.value(),
                     )),
-                    candidate.candidate.scores.bm25,
+                    one_based_rank(candidate.rank),
                     0_usize,
                 )
             })
@@ -90,12 +91,13 @@ impl ContextExpander for HierarchyGraphExpander {
             seen_evidence,
             queue,
             visited_artifacts: BTreeSet::new(),
+            next_graph_rank: 1,
         };
-        while let Some((endpoint, seed_score, depth)) = state.queue.pop_front() {
+        while let Some((endpoint, seed_rank, depth)) = state.queue.pop_front() {
             if depth >= policy.max_depth || state.expanded.len() >= policy.max_results {
                 continue;
             }
-            self.expand_endpoint(endpoint, seed_score, depth, policy, &mut state)?;
+            self.expand_endpoint(endpoint, seed_rank, depth, policy, &mut state)?;
         }
         Ok(state.expanded)
     }
@@ -106,38 +108,37 @@ struct ExpansionState {
     seen_evidence: BTreeSet<maestria_domain::EvidenceId>,
     queue: VecDeque<(RelationEndpoint, u32, usize)>,
     visited_artifacts: BTreeSet<maestria_domain::ArtifactId>,
+    next_graph_rank: u32,
+}
+
+struct RelatedArtifact {
+    endpoint: RelationEndpoint,
+    artifact: maestria_domain::Artifact,
+    confidence_milli: u16,
+    depth: usize,
 }
 
 impl HierarchyGraphExpander {
     fn expand_endpoint(
         &self,
         endpoint: RelationEndpoint,
-        seed_score: u32,
+        seed_rank: u32,
         depth: usize,
         policy: &ExpansionPolicy,
         state: &mut ExpansionState,
     ) -> Result<(), RetrievalError> {
         let relations = self.graph.get_relations_for(endpoint).map_err(port_error)?;
         for relation in relations {
-            let Some((neighbor, artifact, score, next_depth)) = self.related_artifact(
-                endpoint,
-                relation,
-                seed_score,
-                depth,
-                &mut state.visited_artifacts,
-            )?
+            let Some(related) =
+                self.related_artifact(endpoint, relation, depth, &mut state.visited_artifacts)?
             else {
                 continue;
             };
-            self.append_artifact_candidates(
-                &artifact,
-                score,
-                policy.max_results,
-                &mut state.expanded,
-                &mut state.seen_evidence,
-            )?;
-            if next_depth < policy.max_depth {
-                state.queue.push_back((neighbor, score, next_depth));
+            self.append_artifact_candidates(&related, seed_rank, policy.max_results, state)?;
+            if related.depth < policy.max_depth {
+                state
+                    .queue
+                    .push_back((related.endpoint, seed_rank, related.depth));
             }
         }
         Ok(())
@@ -147,11 +148,9 @@ impl HierarchyGraphExpander {
         &self,
         endpoint: RelationEndpoint,
         relation: Relation,
-        seed_score: u32,
         depth: usize,
         visited_artifacts: &mut BTreeSet<maestria_domain::ArtifactId>,
-    ) -> Result<Option<(RelationEndpoint, maestria_domain::Artifact, u32, usize)>, RetrievalError>
-    {
+    ) -> Result<Option<RelatedArtifact>, RetrievalError> {
         if self.policy.evaluate(&relation.security) != RetrievalDecision::Allowed {
             return Ok(None);
         }
@@ -190,37 +189,36 @@ impl HierarchyGraphExpander {
         {
             return Ok(None);
         }
-        let next_depth = depth.saturating_add(1);
-        let score = seed_score
-            .saturating_mul(u32::from(relation.confidence_milli))
-            .saturating_div(
-                1_000_u32.saturating_mul(u32::try_from(next_depth).map_or(u32::MAX, |value| value)),
-            );
-        Ok(Some((neighbor, artifact, score, next_depth)))
+        Ok(Some(RelatedArtifact {
+            endpoint: neighbor,
+            artifact,
+            confidence_milli: relation.confidence_milli,
+            depth: depth.saturating_add(1),
+        }))
     }
 
     fn append_artifact_candidates(
         &self,
-        artifact: &maestria_domain::Artifact,
-        score: u32,
+        related: &RelatedArtifact,
+        seed_rank: u32,
         max_results: usize,
-        expanded: &mut Vec<EvidenceCandidate>,
-        seen_evidence: &mut BTreeSet<maestria_domain::EvidenceId>,
+        state: &mut ExpansionState,
     ) -> Result<(), RetrievalError> {
         let mut chunks = self
             .chunks
-            .list_for_artifact(artifact.id)
+            .list_for_artifact(related.artifact.id)
             .map_err(port_error)?;
         chunks.sort_by_key(|chunk| (chunk.order, chunk.id));
+        let raw_score = graph_rank_score(seed_rank, related.depth, related.confidence_milli);
         for chunk in chunks {
-            if expanded.len() >= max_results {
+            if state.expanded.len() >= max_results {
                 break;
             }
             if !scan_secrets(&chunk.text).is_clean() {
                 continue;
             }
             let evidence_id = maestria_domain::evidence_id_for(chunk.artifact_id, chunk.order);
-            if !seen_evidence.insert(evidence_id) {
+            if state.seen_evidence.contains(&evidence_id) {
                 continue;
             }
             let Some(evidence) = self.evidence.get(evidence_id).map_err(port_error)? else {
@@ -232,16 +230,39 @@ impl HierarchyGraphExpander {
             {
                 continue;
             }
-            expanded.push(candidate_from_records(
-                artifact.id,
+            let raw_rank = state.next_graph_rank;
+            let candidate = candidate_from_records(
+                related.artifact.id,
                 &chunk.source_span,
                 &evidence,
                 chunk.node_id,
-                score,
-            )?);
+                graph_score(
+                    raw_score,
+                    raw_rank,
+                    seed_rank,
+                    related.depth,
+                    related.confidence_milli,
+                )?,
+                vec![maestria_domain::RetrievalReason::GraphTraversal],
+            )?;
+            state.next_graph_rank = state.next_graph_rank.saturating_add(1);
+            state.seen_evidence.insert(evidence_id);
+            state.expanded.push(candidate);
         }
         Ok(())
     }
+}
+
+fn graph_rank_score(seed_rank: u32, depth: usize, confidence_milli: u16) -> u32 {
+    let depth = match u32::try_from(depth) {
+        Ok(depth) => depth.max(1),
+        Err(_) => u32::MAX,
+    };
+    1_000_000_u32
+        .saturating_mul(u32::from(confidence_milli))
+        .saturating_div(1_000)
+        .saturating_div(seed_rank.max(1))
+        .saturating_div(depth)
 }
 
 /// Evaluates already-filtered evidence candidates into a durable outcome.

@@ -169,6 +169,24 @@ A candidate must preserve:
 
 Generated summaries and contextual retrieval text may improve ranking but never replace the raw source evidence.
 
+### Retrieval score provenance
+
+`RetrievalScoreSet` is a versioned collection of homogeneous lane scores. Every lane records an
+explicit kind (`exact`, lexical/BM25, dense similarity, learned sparse, late interaction, graph,
+or a named specialized route), its raw score, original backend rank or a typed reason that rank
+was unavailable, scale/normalization semantics, representation identity, and complete applicable
+fingerprint components. Lanes are canonicalized deterministically and duplicate score kinds fail
+closed.
+
+Legacy persisted candidates containing only `bm25` and `semantic_similarity` migrate once through
+the SQLite schema-v9 migration. Legacy zero fields become absent lanes rather than fabricated zero
+measurements. Search trace identity v6 hashes the complete score provenance, and evidence-pack
+trace and frozen replay references are rewritten transactionally. No legacy/new parallel score
+path remains after migration.
+
+Rank fusion remains rank-based. Raw values from heterogeneous lanes are never added or compared
+without a separately evaluated calibration contract.
+
 ### Search Outcome
 
 ```rust
