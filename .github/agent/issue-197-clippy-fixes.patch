@@ -42,6 +42,42 @@ index 220533a..e86c803 100644
      SearchStage, SourceSpan, StopConditions, StructureNodeId,
  };
  use maestria_governance::RetrievalSecurityPolicy;
+diff --git a/crates/kernel/maestria-domain/tests/retrieval_scores.rs b/crates/kernel/maestria-domain/tests/retrieval_scores.rs
+index b97621c..89fc272 100644
+--- a/crates/kernel/maestria-domain/tests/retrieval_scores.rs
++++ b/crates/kernel/maestria-domain/tests/retrieval_scores.rs
+@@ -101,15 +101,10 @@ fn legacy_sparse_reason_moves_score_into_the_canonical_lane()
+         ))],
+         coverage_keys: Vec::new(),
+     })?;
+-    value["scores"] = serde_json::json!({"bm25": 0, "semantic_similarity": 0});
+-    value["reasons"] = serde_json::json!([{
+-        "LearnedSparse": {
+-            "score_micros": 12,
+-            "representation": "sparse_text_v1",
+-            "fingerprint": "fixture:sparse:v1",
+-            "contributions": [{"term_id": 7, "contribution_micros": 12}]
+-        }
+-    }]);
++    value["scores"] = serde_json::from_str(r#"{"bm25":0,"semantic_similarity":0}"#)?;
++    value["reasons"] = serde_json::from_str(
++        r#"[{"LearnedSparse":{"score_micros":12,"representation":"sparse_text_v1","fingerprint":"fixture:sparse:v1","contributions":[{"term_id":7,"contribution_micros":12}]}}]"#,
++    )?;
+     let migrated: EvidenceCandidate = serde_json::from_value(value)?;
+     let sparse = migrated
+         .scores
+@@ -178,9 +173,9 @@ fn every_declared_score_kind_has_one_canonical_wire_shape() -> Result<(), Box<dy
+         .map(|(index, kind)| {
+             lane(
+                 kind,
+-                i64::try_from(index.saturating_add(1)).unwrap_or(i64::MAX),
++                i64::try_from(index.saturating_add(1)).map_or(i64::MAX, |value| value),
+                 RetrievalRawRank::ranked(
+-                    u32::try_from(index.saturating_add(1)).unwrap_or(u32::MAX),
++                    u32::try_from(index.saturating_add(1)).map_or(u32::MAX, |value| value),
+                 ),
+                 &format!("fixture_representation_{index}"),
+             )
 diff --git a/crates/storage/maestria-storage-sqlite/src/tests/retrieval_score_migration_tests.rs b/crates/storage/maestria-storage-sqlite/src/tests/retrieval_score_migration_tests.rs
 index df8f841..75773ac 100644
 --- a/crates/storage/maestria-storage-sqlite/src/tests/retrieval_score_migration_tests.rs
