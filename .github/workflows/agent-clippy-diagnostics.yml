@@ -1,0 +1,45 @@
+name: Agent Strict Clippy Diagnostics
+
+on:
+  push:
+    branches: [feat/search-retrieval-score-provenance]
+    paths:
+      - "crates/**"
+      - "scripts/strict-clippy.sh"
+      - ".github/workflows/agent-clippy-diagnostics.yml"
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: never
+  RUST_BACKTRACE: 1
+
+jobs:
+  strict-clippy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.0
+      - uses: ./.github/actions/setup-rust-build-dependencies
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly-2026-06-15
+          components: clippy, rustc-codegen-cranelift
+      - name: Run strict Clippy
+        id: clippy
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -o pipefail
+          bash scripts/strict-clippy.sh 2>&1 | tee strict-clippy.log
+      - name: Upload strict Clippy diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: strict-clippy-${{ github.sha }}
+          path: strict-clippy.log
+          if-no-files-found: error
+      - name: Stop after strict Clippy errors
+        if: steps.clippy.outcome == 'failure'
+        run: exit 1
