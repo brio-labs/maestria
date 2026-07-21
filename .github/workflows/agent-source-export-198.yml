@@ -1,0 +1,27 @@
+name: Agent Source Export 198
+
+on:
+  push:
+    branches: [feat/search-sparse-namespace-isolation]
+    paths:
+      - ".github/workflows/agent-source-export-198.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.0
+        with:
+          ref: feat/search-sparse-namespace-isolation
+          fetch-depth: 0
+      - name: Package source
+        run: tar --exclude=.git --exclude=target -czf "$RUNNER_TEMP/maestria-198-source.tgz" .
+      - name: Upload source archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: maestria-198-source-${{ github.sha }}
+          path: ${{ runner.temp }}/maestria-198-source.tgz
+          if-no-files-found: error
