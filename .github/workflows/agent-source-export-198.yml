@@ -5,12 +5,14 @@ on:
     branches: [feat/search-sparse-namespace-isolation]
     paths:
       - ".github/agent/issue-198.patch.gz.b64.*"
+      - ".github/agent/issue-198-fixes.patch"
       - ".github/workflows/agent-apply-198.yml"
       - ".github/workflows/agent-source-export-198.yml"
   pull_request:
     branches: [main]
     paths:
       - ".github/agent/issue-198.patch.gz.b64.*"
+      - ".github/agent/issue-198-fixes.patch"
       - ".github/workflows/agent-apply-198.yml"
       - ".github/workflows/agent-source-export-198.yml"
 
@@ -48,7 +50,9 @@ jobs:
           gzip --decompress --stdout /tmp/issue-198.patch.gz > /tmp/issue-198.patch
           echo "7dd3573d4ef630de1888354c19f82befcf89e0a5cf5d6e7ae6ffb2ff28a1c8cb  /tmp/issue-198.patch" | sha256sum --check --strict
           git apply --index --exclude=.github/workflows/agent-source-export-198.yml /tmp/issue-198.patch
+          git apply --index .github/agent/issue-198-fixes.patch
           git rm .github/agent/issue-198.patch.gz.b64.* \
+            .github/agent/issue-198-fixes.patch \
             .github/workflows/agent-apply-198.yml \
             .github/workflows/agent-source-export-198.yml
       - name: Validate namespace implementation
