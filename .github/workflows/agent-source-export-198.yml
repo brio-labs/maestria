@@ -7,6 +7,12 @@ on:
       - ".github/agent/issue-198.patch.gz.b64.*"
       - ".github/workflows/agent-apply-198.yml"
       - ".github/workflows/agent-source-export-198.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/agent/issue-198.patch.gz.b64.*"
+      - ".github/workflows/agent-apply-198.yml"
+      - ".github/workflows/agent-source-export-198.yml"
 
 concurrency:
   group: issue-198-apply
