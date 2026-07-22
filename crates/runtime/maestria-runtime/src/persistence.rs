@@ -1,5 +1,7 @@
 use crate::config::EffectExecutionContext;
-use maestria_domain::{ArtifactId, BlobId, DomainEvent, DomainEventEnvelope, PersistStateRequest};
+use maestria_domain::{
+    ArtifactId, BlobId, DomainEvent, DomainEventEnvelope, KernelState, PersistStateRequest,
+};
 use maestria_ports::{EventFilter, EventLog, PortError};
 use std::time::Duration;
 
@@ -72,6 +74,44 @@ impl EffectExecutionContext {
         }
     }
 
+    /// Generic helper to read an entity from in-memory state and write it
+    /// through the corresponding repository. Returns `false` on any
+    /// persistence failure.
+    async fn persist_entity<T, Id>(
+        &self,
+        id: Id,
+        get: impl FnOnce(&KernelState) -> Option<T>,
+        put: impl FnOnce(T) -> Result<(), PortError>,
+        entity_name: &'static str,
+        context: Option<&'static str>,
+    ) -> bool
+    where
+        Id: std::fmt::Display,
+    {
+        let entity = {
+            let state = self.state.read().await;
+            get(&state)
+        };
+        if let Some(entity) = entity {
+            if let Err(error) = put(entity) {
+                if let Some(ctx) = context {
+                    tracing::error!(%id, %error, "failed to persist {entity_name} {ctx}");
+                } else {
+                    tracing::error!(%id, %error, "failed to persist {entity_name}");
+                }
+                return false;
+            }
+        } else {
+            if let Some(ctx) = context {
+                tracing::error!(%id, "{entity_name} missing from state during {ctx} persist");
+            } else {
+                tracing::error!(%id, "{entity_name} missing from state during persist");
+            }
+            return false;
+        }
+        true
+    }
+
     /// Cascade-persist the domain entity associated with the event:
     /// read the current entity from in-memory state, then write it
     /// through the corresponding repository. Returns `false` on any
@@ -79,85 +119,59 @@ impl EffectExecutionContext {
     async fn persist_event_entity(&self, event: &DomainEvent) -> bool {
         match event {
             DomainEvent::ArtifactRegistered { artifact_id, .. } => {
-                let artifact = {
-                    let state = self.state.read().await;
-                    state.artifacts.get(artifact_id).cloned()
-                };
-                if let Some(artifact) = artifact {
-                    if let Err(error) = self.adapters.artifact_repo.put(artifact) {
-                        tracing::error!(%artifact_id, %error, "failed to persist artifact");
-                        return false;
-                    }
-                } else {
-                    tracing::error!(%artifact_id, "artifact missing from state during persist");
-                    return false;
-                }
+                self.persist_entity(
+                    *artifact_id,
+                    |s| s.artifacts.get(artifact_id).cloned(),
+                    |a| self.adapters.artifact_repo.put(a),
+                    "artifact",
+                    None,
+                )
+                .await
             }
             DomainEvent::ChunkRegistered { chunk_id, .. } => {
-                let chunk = {
-                    let state = self.state.read().await;
-                    state.chunks.get(chunk_id).cloned()
-                };
-                if let Some(chunk) = chunk {
-                    if let Err(error) = self.adapters.chunk_repo.put(chunk) {
-                        tracing::error!(%chunk_id, %error, "failed to persist chunk");
-                        return false;
-                    }
-                } else {
-                    tracing::error!(%chunk_id, "chunk missing from state during persist");
-                    return false;
-                }
+                self.persist_entity(
+                    *chunk_id,
+                    |s| s.chunks.get(chunk_id).cloned(),
+                    |c| self.adapters.chunk_repo.put(c),
+                    "chunk",
+                    None,
+                )
+                .await
             }
             DomainEvent::CardCreated { card_id, .. } => {
-                let card = {
-                    let state = self.state.read().await;
-                    state.cards.get(card_id).cloned()
-                };
-                if let Some(card) = card {
-                    if let Err(error) = self.adapters.card_repo.put(card) {
-                        tracing::error!(%card_id, %error, "failed to persist card");
-                        return false;
-                    }
-                } else {
-                    tracing::error!(%card_id, "card missing from state during persist");
-                    return false;
-                }
+                self.persist_entity(
+                    *card_id,
+                    |s| s.cards.get(card_id).cloned(),
+                    |c| self.adapters.card_repo.put(c),
+                    "card",
+                    None,
+                )
+                .await
             }
             DomainEvent::EvidenceRecorded { evidence_id, .. } => {
-                let evidence = {
-                    let state = self.state.read().await;
-                    state.evidences.get(evidence_id).cloned()
-                };
-                if let Some(evidence) = evidence {
-                    if let Err(error) = self.adapters.evidence_repo.replace(evidence) {
-                        tracing::error!(%evidence_id, %error, "failed to persist evidence");
-                        return false;
-                    }
-                } else {
-                    tracing::error!(%evidence_id, "evidence missing from state during persist");
-                    return false;
-                }
+                self.persist_entity(
+                    *evidence_id,
+                    |s| s.evidences.get(evidence_id).cloned(),
+                    |e| self.adapters.evidence_repo.replace(e),
+                    "evidence",
+                    None,
+                )
+                .await
             }
             DomainEvent::PendingIndex { artifact_id, .. }
             | DomainEvent::ArtifactParsed { artifact_id, .. }
             | DomainEvent::ArtifactIndexed { artifact_id } => {
-                let artifact = {
-                    let state = self.state.read().await;
-                    state.artifacts.get(artifact_id).cloned()
-                };
-                if let Some(artifact) = artifact {
-                    if let Err(error) = self.adapters.artifact_repo.put(artifact) {
-                        tracing::error!(%artifact_id, %error, "failed to persist artifact update");
-                        return false;
-                    }
-                } else {
-                    tracing::error!(%artifact_id, "artifact missing from state during index-status persist");
-                    return false;
-                }
+                self.persist_entity(
+                    *artifact_id,
+                    |s| s.artifacts.get(artifact_id).cloned(),
+                    |a| self.adapters.artifact_repo.put(a),
+                    "artifact",
+                    Some("index-status"),
+                )
+                .await
             }
-            _ => {}
+            _ => true,
         }
-        true
     }
 
     /// Log a state-snapshot request. Full persistence of the kernel state
@@ -243,5 +257,163 @@ pub(crate) async fn wait_for_parser_started_persistence(
             );
             false
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_helpers;
+    use parking_lot::Mutex;
+    use std::sync::Arc;
+    use tokio::sync::mpsc;
+
+    /// Writer that copies every byte into a shared `Vec<u8>` so tests can
+    /// assert on the exact log output produced by `tracing` macros.
+    #[derive(Clone)]
+    struct CaptureWriter(Arc<Mutex<Vec<u8>>>);
+
+    impl std::io::Write for CaptureWriter {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            self.0.lock().extend_from_slice(buf);
+            Ok(buf.len())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    /// Build a minimal `EffectExecutionContext` backed by the default in-memory
+    /// adapters and the supplied `KernelState`.
+    fn test_context(state: KernelState) -> EffectExecutionContext {
+        let adapters = Arc::new(test_helpers::test_adapters());
+        let governance = Arc::new(test_helpers::test_governance());
+        let (input_tx, _input_rx) = mpsc::channel(8);
+        EffectExecutionContext::test_default(
+            adapters,
+            governance,
+            Arc::new(tokio::sync::RwLock::new(state)),
+            input_tx,
+        )
+    }
+
+    #[test]
+    fn persist_entity_put_succeeds_returns_true() {
+        let ctx = test_context(KernelState::new());
+        let result = tokio_test::block_on(async {
+            ctx.persist_entity(
+                42,
+                |_state: &KernelState| Some("entity".to_string()),
+                |_entity: String| Ok(()),
+                "test-entity",
+                None,
+            )
+            .await
+        });
+        assert!(result);
+    }
+
+    #[test]
+    fn persist_entity_put_fails_returns_false_and_logs_error() -> Result<(), &'static str> {
+        let ctx = test_context(KernelState::new());
+        let buf = Arc::new(Mutex::new(Vec::new()));
+        let writer = CaptureWriter(buf.clone());
+        let subscriber = tracing_subscriber::fmt()
+            .with_writer(move || writer.clone())
+            .with_ansi(false)
+            .finish();
+
+        let result = tracing::subscriber::with_default(subscriber, || {
+            tokio_test::block_on(async {
+                ctx.persist_entity(
+                    42,
+                    |_state: &KernelState| Some("entity".to_string()),
+                    |_entity: String| {
+                        Err(PortError::Conflict {
+                            message: "test".into(),
+                        })
+                    },
+                    "test-entity",
+                    None,
+                )
+                .await
+            })
+        });
+
+        assert!(!result);
+        let output = String::from_utf8(buf.lock().clone())
+            .map_err(|_| "captured logs should be valid UTF-8")?;
+        assert!(
+            output.contains("failed to persist test-entity"),
+            "expected error log about failed persist, got: {output}"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn persist_entity_get_none_returns_false_and_logs_error() -> Result<(), &'static str> {
+        let ctx = test_context(KernelState::new());
+        let buf = Arc::new(Mutex::new(Vec::new()));
+        let writer = CaptureWriter(buf.clone());
+        let subscriber = tracing_subscriber::fmt()
+            .with_writer(move || writer.clone())
+            .with_ansi(false)
+            .finish();
+
+        let result = tracing::subscriber::with_default(subscriber, || {
+            tokio_test::block_on(async {
+                ctx.persist_entity(
+                    42,
+                    |_state: &KernelState| None::<String>,
+                    |_entity: String| Ok(()),
+                    "test-entity",
+                    None,
+                )
+                .await
+            })
+        });
+
+        assert!(!result);
+        let output = String::from_utf8(buf.lock().clone())
+            .map_err(|_| "captured logs should be valid UTF-8")?;
+        assert!(
+            output.contains("test-entity missing from state during persist"),
+            "expected error log about missing entity, got: {output}"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn persist_entity_context_in_error_message() -> Result<(), &'static str> {
+        let ctx = test_context(KernelState::new());
+        let buf = Arc::new(Mutex::new(Vec::new()));
+        let writer = CaptureWriter(buf.clone());
+        let subscriber = tracing_subscriber::fmt()
+            .with_writer(move || writer.clone())
+            .with_ansi(false)
+            .finish();
+
+        let result = tracing::subscriber::with_default(subscriber, || {
+            tokio_test::block_on(async {
+                ctx.persist_entity(
+                    42,
+                    |_state: &KernelState| None::<String>,
+                    |_entity: String| Ok(()),
+                    "test-entity",
+                    Some("index-status"),
+                )
+                .await
+            })
+        });
+
+        assert!(!result);
+        let output = String::from_utf8(buf.lock().clone())
+            .map_err(|_| "captured logs should be valid UTF-8")?;
+        assert!(
+            output.contains("index-status"),
+            "expected error log to contain context 'index-status', got: {output}"
+        );
+        Ok(())
     }
 }

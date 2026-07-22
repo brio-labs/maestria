@@ -84,16 +84,10 @@ fn current_generation(state: &KernelState) -> u64 {
         .map_or(0, |generation| generation)
 }
 
-#[expect(
-    clippy::too_many_lines,
-    reason = "proposal orchestration keeps validation, effects, and evidence policy ordered"
-)]
-async fn handle_model_agent_propose(
-    context: &ApiContext,
-    payload: ModelAgentProposalPayload,
-) -> Result<ClientResponse> {
-    let mut warnings: Vec<String> = Vec::new();
-
+/// Converts the wire-format payload into a typed `ModelAgentProposal`.
+///
+/// Performs simple value wrapping (IDs, durations, paths) without validation.
+fn build_proposal(payload: ModelAgentProposalPayload) -> ModelAgentProposal {
     let run_id = HarnessRunId::new(payload.run_id);
     let task_id = payload.task_id.map(TaskId::new);
     let evidence_ids: Vec<EvidenceId> = payload
@@ -104,7 +98,7 @@ async fn handle_model_agent_propose(
     let working_directory = std::path::PathBuf::from(&payload.working_directory);
     let timeout = Duration::from_secs(payload.timeout_secs);
 
-    let proposal = ModelAgentProposal {
+    ModelAgentProposal {
         run_id,
         task_id,
         query: payload.query,
@@ -115,23 +109,59 @@ async fn handle_model_agent_propose(
         timeout,
         expected_generation: payload.expected_generation,
         evidence_ids,
-    };
+    }
+}
 
-    let state = crate::load_kernel_state(&context.layout)
-        .with_context(|| "load kernel state for proposal validation")?;
-
-    let cur_gen = current_generation(&state);
+/// Validates a proposal against the current kernel state and generation.
+///
+/// Checks that the expected generation matches the latest index generation and
+/// that all referenced evidence IDs exist in the current state. Returns a
+/// `GovernedAgentProposal` on success, or an error with context if validation fails.
+fn validate_proposal_against_state(
+    proposal: &ModelAgentProposal,
+    state: &KernelState,
+) -> Result<maestria_ports::GovernedAgentProposal> {
+    let cur_gen = current_generation(state);
     let available_evidence: BTreeSet<EvidenceId> = state.evidences.keys().copied().collect();
 
-    let governed = proposal
+    proposal
         .validate(cur_gen, &available_evidence)
-        .map_err(|error| anyhow!("proposal validation failed: {error}"))?;
+        .map_err(|error| anyhow!("proposal validation failed: {error}"))
+}
 
-    // 5. Execute search knowledge if the query is non-empty.
+/// Accumulated side-effects produced by executing a model-agent proposal.
+///
+/// Each field is optional because individual effect steps may be skipped or fail
+/// without aborting the overall operation. Warnings collect non-fatal errors.
+struct ProposalEffects {
+    trace_id: Option<u64>,
+    evidence_count: usize,
+    harness: Option<ModelAgentHarnessOutcome>,
+    validation: Option<ModelAgentValidationSummary>,
+    memory_candidate: Option<ModelAgentMemoryCandidateSummary>,
+    warnings: Vec<String>,
+}
+
+/// Orchestrates the side-effects of a proposal: search, harness, validation, and memory promotion.
+///
+/// Ordering invariant: search runs first (if a query is present), then harness execution
+/// (if a command is present), then validation, and finally memory-candidate creation.
+///
+/// Error handling: each step is independent; failures are logged as warnings and do not
+/// abort subsequent steps. The harness step additionally emits a `HarnessRunCompleted`
+/// domain event on success.
+async fn execute_proposal_effects(
+    context: &ApiContext,
+    proposal: &ModelAgentProposal,
+    governed: &maestria_ports::GovernedAgentProposal,
+    state: &KernelState,
+) -> ProposalEffects {
+    let mut warnings = Vec::new();
+
     let mut trace_id = None;
     let mut evidence_count = 0usize;
     if !governed.search_query.trim().is_empty() {
-        match search_knowledge(context, &governed).await {
+        match search_knowledge(context, governed).await {
             Ok((_plan, outcome)) => {
                 trace_id = Some(outcome.trace.value());
                 evidence_count = outcome.evidence.len();
@@ -143,11 +173,11 @@ async fn handle_model_agent_propose(
     }
 
     let harness = if !governed.harness.command.trim().is_empty() {
-        match execute_governed_harness(context, &governed).await {
+        match execute_governed_harness(context, governed).await {
             Ok(outcome) => {
                 let completion = HarnessRunCompleted {
                     run_id: governed.harness.run_id,
-                    generation: cur_gen,
+                    generation: current_generation(state),
                     task_id: proposal.task_id,
                     command: governed.harness.command.clone(),
                     exit_code: outcome.exit_code,
@@ -172,94 +202,130 @@ async fn handle_model_agent_propose(
         None
     };
 
-    let validation = if let Some(task_id) = proposal.task_id {
-        let task = state.tasks.get(&task_id);
-        if let Some(task) = task {
-            let request = ValidationRequest {
-                task: task.clone(),
-                validation_report: None,
-                proposed_status: maestria_domain::TaskStatus::CompletedVerified,
-            };
-            match context.governance.validation_gate.evaluate(&request) {
-                maestria_governance::ValidationDecision::AllowCompletion => {
-                    Some(ModelAgentValidationSummary {
-                        passed: true,
-                        warnings: Vec::new(),
-                    })
-                }
-                _ => Some(ModelAgentValidationSummary {
-                    passed: false,
-                    warnings: vec!["validation gate did not allow completion".into()],
-                }),
-            }
-        } else {
-            warnings.push("referenced task not found in kernel state".into());
-            None
-        }
-    } else {
-        None
-    };
+    let (validation, validation_warning) = evaluate_validation_gate(context, proposal, state);
+    if let Some(warning) = validation_warning {
+        warnings.push(warning);
+    }
+    let memory_candidate = create_memory_candidate(context, governed, state, &harness);
 
-    let memory_candidate = if harness.is_some() && !governed.evidence_ids.is_empty() {
-        let candidate_id = MemoryCandidateId::new(
-            state
-                .memory_candidates
-                .keys()
-                .map(|id| id.value())
-                .max()
-                .map_or(0, |candidate_id| candidate_id)
-                + 1,
-        );
-        let candidate = maestria_domain::MemoryCandidate {
-            id: candidate_id,
-            claim_id: ClaimId::new(1),
-            evidence_ids: governed.evidence_ids.iter().copied().collect(),
-            confidence_milli: 800,
-            security: maestria_domain::SecurityMetadata::default(),
-        };
-        let request = maestria_governance::MemoryPromotionRequest {
-            candidate: candidate.clone(),
-            user_approved: false,
-        };
-        let decision = context.governance.memory_promotion_gate.evaluate(&request);
-        let decision_str = match &decision {
-            maestria_governance::MemoryPromotionDecision::Promote => "promote",
-            maestria_governance::MemoryPromotionDecision::RequireEvidence { .. } => {
-                "require_evidence"
-            }
-            maestria_governance::MemoryPromotionDecision::RequireReview { .. } => "require_review",
-            maestria_governance::MemoryPromotionDecision::Deny { .. } => "deny",
-        };
-        let _ = context
-            .input_tx
-            .try_send(DomainInput::CreateMemoryCandidate(
-                maestria_domain::CreateMemoryCandidateInput {
-                    candidate_id,
-                    claim_id: ClaimId::new(1),
-                    evidence_ids: governed.evidence_ids.clone(),
-                    confidence_milli: 800,
-                    security: None,
-                },
-            ));
-        Some(ModelAgentMemoryCandidateSummary {
-            candidate_id: candidate_id.value(),
-            confidence_milli: 800,
-            decision: decision_str.to_string(),
-        })
-    } else {
-        None
+    ProposalEffects {
+        trace_id,
+        evidence_count,
+        harness,
+        validation,
+        memory_candidate,
+        warnings,
+    }
+}
+
+fn evaluate_validation_gate(
+    context: &ApiContext,
+    proposal: &ModelAgentProposal,
+    state: &KernelState,
+) -> (Option<ModelAgentValidationSummary>, Option<String>) {
+    let Some(task_id) = proposal.task_id else {
+        return (None, None);
     };
+    let Some(task) = state.tasks.get(&task_id) else {
+        return (
+            None,
+            Some("referenced task not found in kernel state".into()),
+        );
+    };
+    let request = ValidationRequest {
+        task: task.clone(),
+        validation_report: None,
+        proposed_status: maestria_domain::TaskStatus::CompletedVerified,
+    };
+    let summary = match context.governance.validation_gate.evaluate(&request) {
+        maestria_governance::ValidationDecision::AllowCompletion => {
+            Some(ModelAgentValidationSummary {
+                passed: true,
+                warnings: Vec::new(),
+            })
+        }
+        _ => Some(ModelAgentValidationSummary {
+            passed: false,
+            warnings: vec!["validation gate did not allow completion".into()],
+        }),
+    };
+    (summary, None)
+}
+
+fn create_memory_candidate(
+    context: &ApiContext,
+    governed: &maestria_ports::GovernedAgentProposal,
+    state: &KernelState,
+    harness: &Option<ModelAgentHarnessOutcome>,
+) -> Option<ModelAgentMemoryCandidateSummary> {
+    if harness.is_none() || governed.evidence_ids.is_empty() {
+        return None;
+    }
+    let candidate_id = MemoryCandidateId::new(
+        state
+            .memory_candidates
+            .keys()
+            .map(|id| id.value())
+            .max()
+            .map_or(0, |candidate_id| candidate_id)
+            + 1,
+    );
+    let candidate = maestria_domain::MemoryCandidate {
+        id: candidate_id,
+        claim_id: ClaimId::new(1),
+        evidence_ids: governed.evidence_ids.iter().copied().collect(),
+        confidence_milli: 800,
+        security: maestria_domain::SecurityMetadata::default(),
+    };
+    let request = maestria_governance::MemoryPromotionRequest {
+        candidate: candidate.clone(),
+        user_approved: false,
+    };
+    let decision = context.governance.memory_promotion_gate.evaluate(&request);
+    let decision_str = match &decision {
+        maestria_governance::MemoryPromotionDecision::Promote => "promote",
+        maestria_governance::MemoryPromotionDecision::RequireEvidence { .. } => "require_evidence",
+        maestria_governance::MemoryPromotionDecision::RequireReview { .. } => "require_review",
+        maestria_governance::MemoryPromotionDecision::Deny { .. } => "deny",
+    };
+    let _ = context
+        .input_tx
+        .try_send(DomainInput::CreateMemoryCandidate(
+            maestria_domain::CreateMemoryCandidateInput {
+                candidate_id,
+                claim_id: ClaimId::new(1),
+                evidence_ids: governed.evidence_ids.clone(),
+                confidence_milli: 800,
+                security: None,
+            },
+        ));
+    Some(ModelAgentMemoryCandidateSummary {
+        candidate_id: candidate_id.value(),
+        confidence_milli: 800,
+        decision: decision_str.to_string(),
+    })
+}
+
+async fn handle_model_agent_propose(
+    context: &ApiContext,
+    payload: ModelAgentProposalPayload,
+) -> Result<ClientResponse> {
+    let proposal = build_proposal(payload);
+    let state = crate::load_kernel_state(&context.layout)
+        .with_context(|| "load kernel state for proposal validation")?;
+    let governed = validate_proposal_against_state(&proposal, &state)?;
+    let effects = execute_proposal_effects(context, &proposal, &governed, &state).await;
 
     Ok(ClientResponse::ModelAgentProposal(
         ModelAgentProposalResponse {
-            run_id: run_id.value(),
-            trace_id,
-            index_generation: cur_gen,
-            evidence_count,
-            harness,
-            validation,
-            memory_candidate,
-            warnings,
+            run_id: proposal.run_id.value(),
+            trace_id: effects.trace_id,
+            index_generation: current_generation(&state),
+            evidence_count: effects.evidence_count,
+            harness: effects.harness,
+            validation: effects.validation,
+            memory_candidate: effects.memory_candidate,
+            warnings: effects.warnings,
         },
     ))
 }

@@ -9,19 +9,19 @@ struct PlanOptions {
     web_limits: (u32, u64, u32),
 }
 
-#[expect(
-    clippy::too_many_arguments,
-    reason = "plan construction keeps all deterministic route metadata together"
-)]
+struct RouteParameters {
+    intent: SearchIntent,
+    modality: Modality,
+    original_intent: Option<SearchIntent>,
+    route_decision: Option<String>,
+}
+
 fn build_plan(
     original_query: &str,
     limit: usize,
     context: &SearchPlannerContext,
     options: PlanOptions,
-    intent: SearchIntent,
-    modality: Modality,
-    original_intent: Option<SearchIntent>,
-    route_decision: Option<String>,
+    route: RouteParameters,
 ) -> RetrievalResult<SearchPlan> {
     let (web_requests, web_bytes, web_concurrency) = options.web_limits;
     let max_stages = options.max_stages;
@@ -47,20 +47,20 @@ fn build_plan(
     Ok(SearchPlan {
         query_id: maestria_domain::QueryId::new(1),
         original_query: original_query.to_string(),
-        intent,
+        intent: route.intent,
         scope: maestria_domain::CorpusScope::Global,
         corpus_snapshot: context.corpus_snapshot,
         index_generation: context.primary_generation,
-        freshness: if intent == SearchIntent::CurrentWeb {
+        freshness: if route.intent == SearchIntent::CurrentWeb {
             maestria_domain::FreshnessRequirement::Realtime
         } else {
             maestria_domain::FreshnessRequirement::Any
         },
-        modalities: match intent {
+        modalities: match route.intent {
             SearchIntent::VisualDocument => {
                 maestria_domain::ModalitySet::new(vec![Modality::Text, Modality::Image])
             }
-            _ => maestria_domain::ModalitySet::new(vec![modality]),
+            _ => maestria_domain::ModalitySet::new(vec![route.modality]),
         },
         stages,
         budgets,
@@ -81,15 +81,11 @@ fn build_plan(
             minimum_sections: 0,
         },
         fingerprint: context.fingerprint.clone(),
-        original_intent,
-        route_decision,
+        original_intent: route.original_intent,
+        route_decision: route.route_decision,
     })
 }
 impl RetrievalEngine {
-    #[expect(
-        clippy::too_many_lines,
-        reason = "fallback planning keeps validation and route provenance atomic"
-    )]
     pub fn plan(
         &self,
         query: impl Into<String>,
@@ -108,13 +104,43 @@ impl RetrievalEngine {
                     reranking_enabled: false,
                     web_limits: (0, 0, 1),
                 },
-                SearchIntent::FactualLocal,
-                Modality::Text,
-                None,
-                None,
+                RouteParameters {
+                    intent: SearchIntent::FactualLocal,
+                    modality: Modality::Text,
+                    original_intent: None,
+                    route_decision: None,
+                },
             );
         }
-        let inferred_intent = SearchIntent::classify(&original_query);
+        let (options, route, inferred_intent) = self.select_plan_options(&original_query);
+        let inferred_plan = build_plan(&original_query, limit, context, options, route)?;
+        let capabilities = self
+            .capabilities
+            .clone()
+            .with_snapshot(context.corpus_snapshot);
+        let policy = maestria_governance::RetrievalSecurityPolicy::default();
+        match maestria_governance::SearchPlanValidator::validate(
+            &inferred_plan,
+            &capabilities,
+            &policy,
+        ) {
+            Ok(()) => Ok(inferred_plan),
+            Err(error) => self.try_fallback_plan(
+                &original_query,
+                limit,
+                context,
+                inferred_plan,
+                error,
+                inferred_intent,
+            ),
+        }
+    }
+
+    fn select_plan_options(
+        &self,
+        original_query: &str,
+    ) -> (PlanOptions, RouteParameters, SearchIntent) {
+        let inferred_intent = SearchIntent::classify(original_query);
         let inferred_modality = match inferred_intent {
             SearchIntent::RepositoryCode => Modality::Code,
             SearchIntent::VisualDocument => Modality::Image,
@@ -124,42 +150,38 @@ impl RetrievalEngine {
         let expansion_enabled = self.expander.is_some();
         let reranking_enabled = self.reranker.is_some()
             && inferred_intent == SearchIntent::VisualDocument
-            && self.visual_execution_policy.allows_visual(&original_query);
+            && self.visual_execution_policy.allows_visual(original_query);
         let max_stages = 1 + u32::from(expansion_enabled) + u32::from(reranking_enabled);
-        let capabilities = self
-            .capabilities
-            .clone()
-            .with_snapshot(context.corpus_snapshot);
-        let policy = maestria_governance::RetrievalSecurityPolicy::default();
         let (web_requests, web_bytes, web_concurrency) =
             if inferred_intent == SearchIntent::CurrentWeb {
                 (3, 1_000_000, 3)
             } else {
                 (0, 0, 1)
             };
-        let inferred_plan = build_plan(
-            &original_query,
-            limit,
-            context,
-            PlanOptions {
-                max_stages,
-                expansion_enabled,
-                reranking_enabled,
-                web_limits: (web_requests, web_bytes, web_concurrency),
-            },
-            inferred_intent,
-            inferred_modality,
-            None,
-            None,
-        )?;
-        let inferred_error = match maestria_governance::SearchPlanValidator::validate(
-            &inferred_plan,
-            &capabilities,
-            &policy,
-        ) {
-            Ok(()) => return Ok(inferred_plan),
-            Err(error) => error,
+        let options = PlanOptions {
+            max_stages,
+            expansion_enabled,
+            reranking_enabled,
+            web_limits: (web_requests, web_bytes, web_concurrency),
         };
+        let route = RouteParameters {
+            intent: inferred_intent,
+            modality: inferred_modality,
+            original_intent: None,
+            route_decision: None,
+        };
+        (options, route, inferred_intent)
+    }
+
+    fn try_fallback_plan(
+        &self,
+        original_query: &str,
+        limit: usize,
+        context: &SearchPlannerContext,
+        _inferred_plan: SearchPlan,
+        inferred_error: maestria_governance::SearchPlanValidationError,
+        inferred_intent: SearchIntent,
+    ) -> RetrievalResult<SearchPlan> {
         let fallback_eligible = !matches!(
             inferred_intent,
             SearchIntent::ExactLookup | SearchIntent::RepositoryCode
@@ -188,8 +210,13 @@ impl RetrievalEngine {
             }
             _ => "governed fallback to local text retrieval".to_string(),
         };
+        let capabilities = self
+            .capabilities
+            .clone()
+            .with_snapshot(context.corpus_snapshot);
+        let policy = maestria_governance::RetrievalSecurityPolicy::default();
         let fallback_plan = build_plan(
-            &original_query,
+            original_query,
             limit,
             context,
             PlanOptions {
@@ -198,10 +225,12 @@ impl RetrievalEngine {
                 reranking_enabled: false,
                 web_limits: (0, 0, 1),
             },
-            SearchIntent::FactualLocal,
-            Modality::Text,
-            Some(inferred_intent),
-            Some(fallback_reason),
+            RouteParameters {
+                intent: SearchIntent::FactualLocal,
+                modality: Modality::Text,
+                original_intent: Some(inferred_intent),
+                route_decision: Some(fallback_reason),
+            },
         )?;
         let mut validation_plan = fallback_plan.clone();
         validation_plan.original_query = "fallback local text retrieval".to_string();
@@ -238,10 +267,12 @@ mod tests {
                 reranking_enabled: false,
                 web_limits: (0, 0, 1),
             },
-            SearchIntent::VisualDocument,
-            Modality::Image,
-            None,
-            None,
+            RouteParameters {
+                intent: SearchIntent::VisualDocument,
+                modality: Modality::Image,
+                original_intent: None,
+                route_decision: None,
+            },
         )?;
         assert_eq!(plan.modalities.values(), &[Modality::Text, Modality::Image]);
         Ok(())
@@ -263,10 +294,12 @@ mod tests {
                 reranking_enabled: true,
                 web_limits: (0, 0, 1),
             },
-            SearchIntent::VisualDocument,
-            Modality::Image,
-            None,
-            None,
+            RouteParameters {
+                intent: SearchIntent::VisualDocument,
+                modality: Modality::Image,
+                original_intent: None,
+                route_decision: None,
+            },
         )?;
         assert_eq!(
             plan.stages,

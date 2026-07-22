@@ -111,21 +111,37 @@ pub enum DomainError {
     },
 }
 
+impl DomainError {
+    fn fmt_missing(f: &mut fmt::Formatter, kind: &str, id: impl fmt::Display) -> fmt::Result {
+        write!(f, "missing {kind} {id}")
+    }
+
+    fn fmt_transition(
+        f: &mut fmt::Formatter,
+        prefix: impl fmt::Display,
+        id: impl fmt::Display,
+        from: impl fmt::Debug,
+        to: impl fmt::Debug,
+    ) -> fmt::Result {
+        write!(f, "{prefix} {id}: {from:?} -> {to:?}")
+    }
+}
+
 impl fmt::Display for DomainError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::DuplicateId { kind, id } => write!(f, "duplicate {kind} id: {id}"),
-            Self::MissingArtifact { id } => write!(f, "missing artifact {id}"),
-            Self::MissingChunk { id } => write!(f, "missing chunk {id}"),
-            Self::MissingCard { id } => write!(f, "missing card {id}"),
-            Self::MissingEvidence { id } => write!(f, "missing evidence {id}"),
-            Self::MissingClaim { id } => write!(f, "missing claim {id}"),
-            Self::MissingTask { id } => write!(f, "missing task {id}"),
-            Self::MissingRelation { id } => write!(f, "missing relation {id}"),
-            Self::MissingMemoryCandidate { id } => write!(f, "missing memory candidate {id}"),
-            Self::MissingMemory { id } => write!(f, "missing memory {id}"),
-            Self::MissingValidationReport { id } => write!(f, "missing validation report {id}"),
-            Self::MissingIndexGeneration { id } => write!(f, "missing index generation {id}"),
+            Self::MissingArtifact { id } => Self::fmt_missing(f, "artifact", id),
+            Self::MissingChunk { id } => Self::fmt_missing(f, "chunk", id),
+            Self::MissingCard { id } => Self::fmt_missing(f, "card", id),
+            Self::MissingEvidence { id } => Self::fmt_missing(f, "evidence", id),
+            Self::MissingClaim { id } => Self::fmt_missing(f, "claim", id),
+            Self::MissingTask { id } => Self::fmt_missing(f, "task", id),
+            Self::MissingRelation { id } => Self::fmt_missing(f, "relation", id),
+            Self::MissingMemoryCandidate { id } => Self::fmt_missing(f, "memory candidate", id),
+            Self::MissingMemory { id } => Self::fmt_missing(f, "memory", id),
+            Self::MissingValidationReport { id } => Self::fmt_missing(f, "validation report", id),
+            Self::MissingIndexGeneration { id } => Self::fmt_missing(f, "index generation", id),
             Self::ValidationReportTaskMismatch {
                 report_id,
                 report_task_id,
@@ -141,13 +157,10 @@ impl fmt::Display for DomainError {
                 ),
             },
             Self::InvalidTaskTransition { task_id, from, to } => {
-                write!(f, "invalid task transition {task_id}: {from:?} -> {to:?}")
+                Self::fmt_transition(f, "invalid task transition", task_id, from, to)
             }
             Self::InvalidGenerationTransition { id, from, to } => {
-                write!(
-                    f,
-                    "invalid index generation transition for {id}: {from:?} -> {to:?}"
-                )
+                Self::fmt_transition(f, "invalid index generation transition for", id, from, to)
             }
             Self::ValidationRequired { task_id } => {
                 write!(f, "task {task_id} requires validation before completion")
