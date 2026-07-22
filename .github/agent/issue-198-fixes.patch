@@ -1,0 +1,10 @@
+--- a/crates/kernel/maestria-domain/src/events.rs
++++ b/crates/kernel/maestria-domain/src/events.rs
+@@ -201,7 +201,6 @@
+         from: crate::generations::IndexLifecycle,
+         to: crate::generations::IndexLifecycle,
+         /// Added by the projection-namespace contract. Historical events default to `None`.
+-        #[serde(default, skip_serializing_if = "Option::is_none")]
+         namespace: Option<crate::generations::ProjectionNamespace>,
+         replaced_active_id: Option<IndexGenerationId>,
+     },
