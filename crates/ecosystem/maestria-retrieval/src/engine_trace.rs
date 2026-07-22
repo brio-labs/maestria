@@ -11,25 +11,40 @@ pub(crate) struct EnsureTraceOptions {
     pub(crate) explicit_stop_reason: Option<SearchStopReason>,
 }
 
-#[expect(
-    clippy::too_many_lines,
-    reason = "trace reconciliation keeps deterministic identity checks together"
-)]
-pub(crate) fn ensure_trace(
+/// Snapshot of what a `SearchTrace` should contain for the current search context.
+///
+/// Derived from the plan, outcome, lanes, and `EnsureTraceOptions`. Every field
+/// is mirrored by a corresponding check in [`trace_matches_expected`].
+struct ExpectedTraceState {
+    /// Stop reason derived from the outcome status, explicit override, or result count.
+    stop_reason: SearchStopReason,
+    /// Fusion marker when fusion is enabled (`"configured"`).
+    fusion: Option<String>,
+    /// Expansions when expansion is enabled.
+    expansions: Vec<SearchTraceExpansion>,
+    /// Human-readable degradation message when the visual provider is unavailable.
+    degradation: Option<String>,
+    /// Name of the unavailable capability (e.g. `"visual provider"`).
+    unavailable_capability: Option<String>,
+}
+
+/// Computes the expected trace state from the plan, outcome, lanes, and options.
+///
+/// Stop reason is resolved in priority order:
+/// 1. Explicit override in `options.explicit_stop_reason`.
+/// 2. Terminal outcome status (`DeniedByPolicy`, `Abstained`, `NoEvidenceFound`, etc.).
+/// 3. Diversity trace stop reason when present.
+/// 4. Evidence count against `plan.stop_conditions.max_results`.
+///
+/// Fusion and expansions are toggled by `options`. Degradation fields are set
+/// when the visual provider is unreachable or the visual lane failed.
+fn compute_expected_trace_state(
     plan: &SearchPlan,
-    mut outcome: SearchOutcome,
-    lanes: Vec<maestria_domain::SearchTraceLane>,
-    options: EnsureTraceOptions,
-) -> SearchOutcome {
-    let EnsureTraceOptions {
-        fusion_enabled,
-        expansion_enabled,
-        rerank_trace,
-        diversity_trace,
-        rewrites,
-        explicit_stop_reason,
-    } = options;
-    let expected_stop_reason = match explicit_stop_reason.clone() {
+    outcome: &SearchOutcome,
+    lanes: &[maestria_domain::SearchTraceLane],
+    options: &EnsureTraceOptions,
+) -> ExpectedTraceState {
+    let expected_stop_reason = match options.explicit_stop_reason.clone() {
         Some(stop_reason) => stop_reason,
         None => match &outcome.status {
             SearchStatus::DeniedByPolicy | SearchStatus::QuarantinedForReview => {
@@ -40,7 +55,7 @@ pub(crate) fn ensure_trace(
             SearchStatus::SourcesConflict
             | SearchStatus::EvidenceIncomplete
             | SearchStatus::StaleEvidenceOnly => SearchStopReason::RequirementsUnmet,
-            _ => diversity_trace.as_ref().map_or_else(
+            _ => options.diversity_trace.as_ref().map_or_else(
                 || {
                     if outcome.evidence.len() >= plan.stop_conditions.max_results as usize {
                         SearchStopReason::ResultsLimit
@@ -52,8 +67,9 @@ pub(crate) fn ensure_trace(
             ),
         },
     };
-    let expected_fusion = fusion_enabled.then_some("configured".to_string());
-    let expected_expansions = expansion_enabled
+    let expected_fusion = options.fusion_enabled.then_some("configured".to_string());
+    let expected_expansions = options
+        .expansion_enabled
         .then_some(SearchTraceExpansion {
             strategy: "hierarchy+graph".to_string(),
             added_candidates: None,
@@ -75,38 +91,67 @@ pub(crate) fn ensure_trace(
     let expected_unavailable_capability =
         (visual_plan_fallback || visual_lane_failed).then(|| "visual provider".to_string());
 
-    let trace_is_valid = outcome.trace_data.as_ref().is_some_and(|trace| {
-        outcome.trace == trace.deterministic_id()
-            && trace.matches_plan(plan)
-            && trace.degradation == expected_degradation
-            && trace.unavailable_capability == expected_unavailable_capability
-            && trace.retrievers
-                == lanes
-                    .iter()
-                    .map(|lane| lane.retriever_id.clone())
-                    .collect::<Vec<_>>()
-            && trace.lanes == lanes
-            && trace.fusion == expected_fusion
-            && trace.rerank == rerank_trace
-            && trace.diversity == diversity_trace
-            && trace.expansions == expected_expansions
-            && trace.rewrites == rewrites
-            && trace.stop_reason == expected_stop_reason
-            && trace.matches_evidence(&outcome.evidence)
-    });
-    if trace_is_valid {
-        return outcome;
+    ExpectedTraceState {
+        stop_reason: expected_stop_reason,
+        fusion: expected_fusion,
+        expansions: expected_expansions,
+        degradation: expected_degradation,
+        unavailable_capability: expected_unavailable_capability,
     }
-    let stop_reason = expected_stop_reason;
-    let expansions = expected_expansions;
-    let mut trace = SearchTrace::from_plan(
+}
+
+/// Checks whether an existing `SearchTrace` matches the computed expectations.
+///
+/// Performs a 13-condition equality check covering:
+/// deterministic ID, plan match, degradation, unavailable capability, retrievers,
+/// lanes, fusion, rerank, diversity, expansions, rewrites, stop reason, and
+/// evidence alignment.
+fn trace_matches_expected(
+    trace: &SearchTrace,
+    plan: &SearchPlan,
+    outcome: &SearchOutcome,
+    lanes: &[maestria_domain::SearchTraceLane],
+    expected: &ExpectedTraceState,
+    options: &EnsureTraceOptions,
+) -> bool {
+    outcome.trace == trace.deterministic_id()
+        && trace.matches_plan(plan)
+        && trace.degradation == expected.degradation
+        && trace.unavailable_capability == expected.unavailable_capability
+        && trace.retrievers
+            == lanes
+                .iter()
+                .map(|lane| lane.retriever_id.clone())
+                .collect::<Vec<_>>()
+        && trace.lanes == lanes
+        && trace.fusion == expected.fusion
+        && trace.rerank == options.rerank_trace
+        && trace.diversity == options.diversity_trace
+        && trace.expansions == expected.expansions
+        && trace.rewrites == options.rewrites
+        && trace.stop_reason == expected.stop_reason
+        && trace.matches_evidence(&outcome.evidence)
+}
+
+/// Builds a fresh `SearchTrace` when the existing trace is stale or absent.
+///
+/// Called by [`ensure_trace`] only when [`trace_matches_expected`] returns
+/// `false`. When the trace is already valid the existing trace is preserved
+/// unchanged.
+fn assemble_trace(
+    plan: &SearchPlan,
+    outcome: &SearchOutcome,
+    lanes: Vec<maestria_domain::SearchTraceLane>,
+    expected: &ExpectedTraceState,
+) -> SearchTrace {
+    SearchTrace::from_plan(
         plan,
         lanes.iter().map(|lane| lane.retriever_id.clone()).collect(),
         &outcome.evidence,
         Vec::new(),
-        expected_fusion,
-        expansions,
-        stop_reason,
+        expected.fusion.clone(),
+        expected.expansions.clone(),
+        expected.stop_reason.clone(),
     )
     .with_lanes(lanes)
     .with_gaps_and_conflicts(
@@ -116,11 +161,27 @@ pub(crate) fn ensure_trace(
             .iter()
             .map(|conflict| conflict.id)
             .collect(),
-    );
-    trace = apply_degradation(trace, expected_degradation, expected_unavailable_capability);
-    trace.rewrites = rewrites;
-    trace.rerank = rerank_trace;
-    trace.diversity = diversity_trace;
+    )
+}
+
+pub(crate) fn ensure_trace(
+    plan: &SearchPlan,
+    mut outcome: SearchOutcome,
+    lanes: Vec<maestria_domain::SearchTraceLane>,
+    options: EnsureTraceOptions,
+) -> SearchOutcome {
+    let expected = compute_expected_trace_state(plan, &outcome, &lanes, &options);
+    let trace_is_valid = outcome.trace_data.as_ref().is_some_and(|trace| {
+        trace_matches_expected(trace, plan, &outcome, &lanes, &expected, &options)
+    });
+    if trace_is_valid {
+        return outcome;
+    }
+    let mut trace = assemble_trace(plan, &outcome, lanes, &expected);
+    trace = apply_degradation(trace, expected.degradation, expected.unavailable_capability);
+    trace.rewrites = options.rewrites;
+    trace.rerank = options.rerank_trace;
+    trace.diversity = options.diversity_trace;
     outcome.trace = trace.deterministic_id();
     outcome.trace_data = Some(Box::new(trace));
     outcome

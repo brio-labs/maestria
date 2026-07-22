@@ -354,6 +354,32 @@ def scan_rust_lint_bypasses() -> list[str]:
     return violations
 
 
+def scan_expect_clippy() -> list[str]:
+    violations = []
+    expect_patterns = [
+        r"#\s*!?\s*\[\s*expect\s*\(\s*clippy::too_many_lines\b",
+        r"#\s*!?\s*\[\s*expect\s*\(\s*clippy::too_many_arguments\b",
+        r"#\s*!?\s*\[\s*expect\s*\(\s*clippy::cognitive_complexity\b",
+        r"#\s*!?\s*\[\s*expect\s*\(\s*clippy::type_complexity\b",
+    ]
+    for source in ROOT.rglob("*.rs"):
+        if should_skip(source):
+            continue
+        if is_test_source(source):
+            continue
+        content = read_text(source)
+        if content is None:
+            continue
+        production = production_rust(content)
+        for pattern in expect_patterns:
+            if re.search(pattern, production):
+                violations.append(
+                    f"{source.relative_to(ROOT)} contains expect-clippy size/complexity bypass"
+                )
+                break
+    return violations
+
+
 def scan_rust_forbidden_methods() -> list[str]:
     violations = []
     for source in ROOT.rglob("*.rs"):
@@ -678,6 +704,7 @@ def main() -> int:
     violations.extend(
         f"{path} contains a Rust lint-bypass attribute" for path in scan_rust_lint_bypasses()
     )
+    violations.extend(scan_expect_clippy())
     violations.extend(scan_rust_forbidden_methods())
     violations.extend(scan_facade_boundaries())
     violations.extend(scan_cohesion())

@@ -1411,10 +1411,12 @@ dependencies = [
  "maestria-memory",
  "maestria-ports",
  "maestria-validation",
+ "parking_lot",
  "tokio",
  "tokio-test",
  "tokio-util",
  "tracing",
+ "tracing-subscriber",
  "url",
 ]
 

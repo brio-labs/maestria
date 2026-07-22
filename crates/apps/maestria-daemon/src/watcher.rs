@@ -108,23 +108,24 @@ impl Watcher {
         }
     }
 
-    #[expect(
-        clippy::too_many_lines,
-        reason = "one scan owns the durable watcher transition transaction"
-    )]
     async fn scan_once(&mut self) -> Result<()> {
-        // Acquire a scan permit for bounded concurrency.
-        let _permit = self
-            .scan_permits
-            .acquire()
-            .await
-            .context("acquire scan permit")?;
+        let permits = self.scan_permits.clone();
+        let _permit = permits.acquire().await.context("acquire scan permit")?;
 
         let observations = scan_manifest(&self.manifest)?;
+        let current = self.phase_detect_additions(&observations).await?;
+        let previous_files = std::mem::replace(&mut self.state.files, current);
+        self.phase_detect_removals(previous_files).await?;
+        persist_state(&self.layout, &self.state)
+    }
+
+    async fn phase_detect_additions(
+        &mut self,
+        observations: &[Observation],
+    ) -> Result<BTreeMap<String, String>> {
         let mut current: BTreeMap<String, String> = BTreeMap::new();
 
-        // ── Phase 1: process current files ──────────────────────────────────
-        for observation in &observations {
+        for observation in observations {
             let key = source_key(&observation.path);
             current.insert(key.clone(), observation.hash.clone());
 
@@ -144,7 +145,6 @@ impl Watcher {
             };
             let observed_hash = observation.hash.clone();
 
-            // Non-blocking capacity check for backpressure.
             if self.input_tx.max_capacity() > 0 && self.input_tx.capacity() == 0 {
                 tracing::debug!("watcher input channel full — deferring artifact detection");
                 current.remove(&key);
@@ -173,9 +173,13 @@ impl Watcher {
             );
         }
 
-        // ── Phase 2: detect removals and renames ────────────────────────────
-        let previous_files = std::mem::replace(&mut self.state.files, current);
+        Ok(current)
+    }
 
+    async fn phase_detect_removals(
+        &mut self,
+        previous_files: BTreeMap<String, String>,
+    ) -> Result<()> {
         let hash_index: BTreeMap<&str, &str> = self
             .state
             .files
@@ -188,7 +192,6 @@ impl Watcher {
                 continue;
             }
 
-            // Rename detection: same hash at a different path.
             if let Some(&new_key) = hash_index.get(prev_hash.as_str())
                 && new_key != prev_key
             {
@@ -199,43 +202,56 @@ impl Watcher {
                 );
             }
 
-            // Record tombstone and emit SourceRemoved.
             self.state
                 .removed
                 .entry(prev_key.clone())
                 .or_insert_with(|| prev_hash.clone());
 
-            if let Some(ArtifactIdEntry {
-                artifact_id: aid_val,
-                content_hash: entry_hash,
-            }) = self.state.artifact_ids.get(prev_key)
-                && self
-                    .input_tx
-                    .try_send(DomainInput::SourceRemoved(SourceRemoved {
-                        artifact_id: maestria_domain::ArtifactId::new(*aid_val),
-                        source_path: prev_key.clone(),
-                        content_hash: entry_hash.clone(),
-                    }))
-                    .is_err()
-            {
+            if !self.emit_source_removed(prev_key, prev_hash) {
                 tracing::debug!(
                     source_path = %prev_key,
-                    "channel full, deferring SourceRemoved emission"
+                    "deferring SourceRemoved emission (channel full or missing artifact id)"
                 );
             }
         }
 
-        // Clean up removed entries that are no longer absent.
         self.state
             .removed
             .retain(|key, _| !self.state.files.contains_key(key));
 
-        // Prune artifact_ids for paths that no longer exist and are not in tombstone.
         self.state.artifact_ids.retain(|key, _| {
             self.state.files.contains_key(key) || self.state.removed.contains_key(key)
         });
 
-        persist_state(&self.layout, &self.state)
+        Ok(())
+    }
+
+    fn emit_source_removed(&self, prev_key: &str, _prev_hash: &str) -> bool {
+        let Some(ArtifactIdEntry {
+            artifact_id: aid_val,
+            content_hash: entry_hash,
+        }) = self.state.artifact_ids.get(prev_key)
+        else {
+            return false;
+        };
+
+        if self
+            .input_tx
+            .try_send(DomainInput::SourceRemoved(SourceRemoved {
+                artifact_id: maestria_domain::ArtifactId::new(*aid_val),
+                source_path: prev_key.to_string(),
+                content_hash: entry_hash.clone(),
+            }))
+            .is_err()
+        {
+            tracing::debug!(
+                source_path = %prev_key,
+                "channel full, deferring SourceRemoved emission"
+            );
+            return false;
+        }
+
+        true
     }
 }
 
@@ -836,6 +852,355 @@ mod tests {
 
         shutdown.cancel();
         fs::remove_dir_all(root)?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn phase_detect_additions_emits_for_new_file() -> Result<(), Box<dyn std::error::Error>> {
+        let (input_tx, mut input_rx) = mpsc::channel(256);
+        let mut watcher = Watcher {
+            layout: InstanceLayout::for_root(PathBuf::from("/tmp")),
+            manifest: test_manifest(PathBuf::from("/tmp")),
+            input_tx,
+            artifact_ids: BTreeMap::new(),
+            shutdown: CancellationToken::new(),
+            state: WatchState::default(),
+            scan_permits: Arc::new(Semaphore::new(MAX_CONCURRENT_SCANS)),
+        };
+        let obs = Observation {
+            path: PathBuf::from("/tmp/new.md"),
+            bytes: b"content".to_vec(),
+            hash: "hash1".to_string(),
+        };
+        let current = watcher.phase_detect_additions(&[obs]).await?;
+        assert!(current.contains_key("/tmp/new.md"));
+        let msg = input_rx
+            .try_recv()
+            .map_err(|_| "should have emitted ArtifactDetected")?;
+        assert!(
+            matches!(&msg, DomainInput::ArtifactDetected(input) if input.source_path == "/tmp/new.md")
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn phase_detect_additions_skips_unchanged_file() -> Result<(), Box<dyn std::error::Error>>
+    {
+        let (input_tx, mut input_rx) = mpsc::channel(256);
+        let mut watcher = Watcher {
+            layout: InstanceLayout::for_root(PathBuf::from("/tmp")),
+            manifest: test_manifest(PathBuf::from("/tmp")),
+            input_tx,
+            artifact_ids: BTreeMap::new(),
+            shutdown: CancellationToken::new(),
+            state: WatchState {
+                files: [("/tmp/existing.md".to_string(), "hash1".to_string())]
+                    .into_iter()
+                    .collect(),
+                ..Default::default()
+            },
+            scan_permits: Arc::new(Semaphore::new(MAX_CONCURRENT_SCANS)),
+        };
+        let obs = Observation {
+            path: PathBuf::from("/tmp/existing.md"),
+            bytes: b"content".to_vec(),
+            hash: "hash1".to_string(),
+        };
+        let current = watcher.phase_detect_additions(&[obs]).await?;
+        assert_eq!(current.get("/tmp/existing.md"), Some(&"hash1".to_string()));
+        assert!(
+            input_rx.try_recv().is_err(),
+            "should not emit for unchanged file"
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn phase_detect_additions_skips_matching_artifact_id_and_hash()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let (input_tx, mut input_rx) = mpsc::channel(256);
+        let mut watcher = Watcher {
+            layout: InstanceLayout::for_root(PathBuf::from("/tmp")),
+            manifest: test_manifest(PathBuf::from("/tmp")),
+            input_tx,
+            artifact_ids: [(
+                "/tmp/existing.md".to_string(),
+                (maestria_domain::ArtifactId::new(1), "hash1".to_string()),
+            )]
+            .into_iter()
+            .collect(),
+            shutdown: CancellationToken::new(),
+            state: WatchState::default(),
+            scan_permits: Arc::new(Semaphore::new(MAX_CONCURRENT_SCANS)),
+        };
+        let obs = Observation {
+            path: PathBuf::from("/tmp/existing.md"),
+            bytes: b"content".to_vec(),
+            hash: "hash1".to_string(),
+        };
+        let current = watcher.phase_detect_additions(&[obs]).await?;
+        assert_eq!(current.get("/tmp/existing.md"), Some(&"hash1".to_string()));
+        assert!(
+            input_rx.try_recv().is_err(),
+            "should not emit when artifact_id and hash match"
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn phase_detect_additions_respects_backpressure() -> Result<(), Box<dyn std::error::Error>>
+    {
+        let (input_tx, mut input_rx) = mpsc::channel(1);
+        // Fill the single buffer slot so capacity() becomes 0.
+        input_tx
+            .send(DomainInput::ArtifactDetected(ArtifactDetected {
+                artifact_id: maestria_domain::ArtifactId::new(99),
+                title: "filler".to_string(),
+                source_path: "/tmp/filler".to_string(),
+                source_bytes: vec![],
+                content_hash: "filler".to_string(),
+            }))
+            .await?;
+        let mut watcher = Watcher {
+            layout: InstanceLayout::for_root(PathBuf::from("/tmp")),
+            manifest: test_manifest(PathBuf::from("/tmp")),
+            input_tx,
+            artifact_ids: BTreeMap::new(),
+            shutdown: CancellationToken::new(),
+            state: WatchState::default(),
+            scan_permits: Arc::new(Semaphore::new(MAX_CONCURRENT_SCANS)),
+        };
+        let obs = Observation {
+            path: PathBuf::from("/tmp/backpressure.md"),
+            bytes: b"content".to_vec(),
+            hash: "hash_bp".to_string(),
+        };
+        let current = watcher.phase_detect_additions(&[obs]).await?;
+        assert!(
+            !current.contains_key("/tmp/backpressure.md"),
+            "should remove key from current when channel full"
+        );
+        // Only the filler message should be present.
+        assert!(input_rx.try_recv().is_ok());
+        assert!(input_rx.try_recv().is_err());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn phase_detect_removals_emits_source_removed() -> Result<(), Box<dyn std::error::Error>>
+    {
+        let (input_tx, mut input_rx) = mpsc::channel(256);
+        let mut watcher = Watcher {
+            layout: InstanceLayout::for_root(PathBuf::from("/tmp")),
+            manifest: test_manifest(PathBuf::from("/tmp")),
+            input_tx,
+            artifact_ids: BTreeMap::new(),
+            shutdown: CancellationToken::new(),
+            state: WatchState {
+                files: [("/tmp/new.md".to_string(), "hash_new".to_string())]
+                    .into_iter()
+                    .collect(),
+                artifact_ids: [(
+                    "/tmp/old.md".to_string(),
+                    ArtifactIdEntry {
+                        artifact_id: 42,
+                        content_hash: "hash_old".to_string(),
+                    },
+                )]
+                .into_iter()
+                .collect(),
+                ..Default::default()
+            },
+            scan_permits: Arc::new(Semaphore::new(MAX_CONCURRENT_SCANS)),
+        };
+        let previous_files = [("/tmp/old.md".to_string(), "hash_old".to_string())]
+            .into_iter()
+            .collect();
+        watcher.phase_detect_removals(previous_files).await?;
+        assert!(watcher.state.removed.contains_key("/tmp/old.md"));
+        let msg = input_rx
+            .try_recv()
+            .map_err(|_| "should emit SourceRemoved")?;
+        assert!(
+            matches!(&msg, DomainInput::SourceRemoved(input) if input.source_path == "/tmp/old.md")
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn phase_detect_removals_detects_rename() -> Result<(), Box<dyn std::error::Error>> {
+        let (input_tx, mut input_rx) = mpsc::channel(256);
+        let mut watcher = Watcher {
+            layout: InstanceLayout::for_root(PathBuf::from("/tmp")),
+            manifest: test_manifest(PathBuf::from("/tmp")),
+            input_tx,
+            artifact_ids: BTreeMap::new(),
+            shutdown: CancellationToken::new(),
+            state: WatchState {
+                files: [("/tmp/renamed.md".to_string(), "hash1".to_string())]
+                    .into_iter()
+                    .collect(),
+                artifact_ids: [(
+                    "/tmp/old.md".to_string(),
+                    ArtifactIdEntry {
+                        artifact_id: 42,
+                        content_hash: "hash1".to_string(),
+                    },
+                )]
+                .into_iter()
+                .collect(),
+                ..Default::default()
+            },
+            scan_permits: Arc::new(Semaphore::new(MAX_CONCURRENT_SCANS)),
+        };
+        let previous_files = [("/tmp/old.md".to_string(), "hash1".to_string())]
+            .into_iter()
+            .collect();
+        watcher.phase_detect_removals(previous_files).await?;
+        assert!(
+            watcher.state.removed.contains_key("/tmp/old.md"),
+            "tombstone should be recorded for renamed file"
+        );
+        let msg = input_rx
+            .try_recv()
+            .map_err(|_| "should emit SourceRemoved for old path")?;
+        assert!(
+            matches!(&msg, DomainInput::SourceRemoved(input) if input.source_path == "/tmp/old.md")
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn phase_detect_removals_cleans_up_stale_artifact_ids()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let (input_tx, _input_rx) = mpsc::channel(256);
+        let mut watcher = Watcher {
+            layout: InstanceLayout::for_root(PathBuf::from("/tmp")),
+            manifest: test_manifest(PathBuf::from("/tmp")),
+            input_tx,
+            artifact_ids: BTreeMap::new(),
+            shutdown: CancellationToken::new(),
+            state: WatchState {
+                files: [("/tmp/current.md".to_string(), "hash1".to_string())]
+                    .into_iter()
+                    .collect(),
+                artifact_ids: [
+                    (
+                        "/tmp/current.md".to_string(),
+                        ArtifactIdEntry {
+                            artifact_id: 1,
+                            content_hash: "hash1".to_string(),
+                        },
+                    ),
+                    (
+                        "/tmp/stale.md".to_string(),
+                        ArtifactIdEntry {
+                            artifact_id: 2,
+                            content_hash: "hash2".to_string(),
+                        },
+                    ),
+                ]
+                .into_iter()
+                .collect(),
+                ..Default::default()
+            },
+            scan_permits: Arc::new(Semaphore::new(MAX_CONCURRENT_SCANS)),
+        };
+        watcher.phase_detect_removals(BTreeMap::new()).await?;
+        assert!(watcher.state.artifact_ids.contains_key("/tmp/current.md"));
+        assert!(
+            !watcher.state.artifact_ids.contains_key("/tmp/stale.md"),
+            "stale artifact_id should be cleaned up"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn emit_source_removed_returns_true_on_success() -> Result<(), Box<dyn std::error::Error>> {
+        let (input_tx, mut input_rx) = mpsc::channel(256);
+        let watcher = Watcher {
+            layout: InstanceLayout::for_root(PathBuf::from("/tmp")),
+            manifest: test_manifest(PathBuf::from("/tmp")),
+            input_tx,
+            artifact_ids: BTreeMap::new(),
+            shutdown: CancellationToken::new(),
+            state: WatchState {
+                artifact_ids: [(
+                    "/tmp/old.md".to_string(),
+                    ArtifactIdEntry {
+                        artifact_id: 42,
+                        content_hash: "hash_old".to_string(),
+                    },
+                )]
+                .into_iter()
+                .collect(),
+                ..Default::default()
+            },
+            scan_permits: Arc::new(Semaphore::new(MAX_CONCURRENT_SCANS)),
+        };
+        assert!(watcher.emit_source_removed("/tmp/old.md", "hash_old"));
+        let msg = input_rx
+            .try_recv()
+            .map_err(|_| "should receive SourceRemoved")?;
+        assert!(
+            matches!(&msg, DomainInput::SourceRemoved(input) if input.source_path == "/tmp/old.md")
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn emit_source_removed_returns_false_when_channel_full()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let (input_tx, _input_rx) = mpsc::channel(1);
+        // Fill the single buffer slot so the channel is full.
+        input_tx
+            .try_send(DomainInput::ArtifactDetected(ArtifactDetected {
+                artifact_id: maestria_domain::ArtifactId::new(99),
+                title: "filler".to_string(),
+                source_path: "/tmp/filler".to_string(),
+                source_bytes: vec![],
+                content_hash: "filler".to_string(),
+            }))
+            .map_err(|_| "fill the channel")?;
+        let watcher = Watcher {
+            layout: InstanceLayout::for_root(PathBuf::from("/tmp")),
+            manifest: test_manifest(PathBuf::from("/tmp")),
+            input_tx,
+            artifact_ids: BTreeMap::new(),
+            shutdown: CancellationToken::new(),
+            state: WatchState {
+                artifact_ids: [(
+                    "/tmp/old.md".to_string(),
+                    ArtifactIdEntry {
+                        artifact_id: 42,
+                        content_hash: "hash_old".to_string(),
+                    },
+                )]
+                .into_iter()
+                .collect(),
+                ..Default::default()
+            },
+            scan_permits: Arc::new(Semaphore::new(MAX_CONCURRENT_SCANS)),
+        };
+        assert!(!watcher.emit_source_removed("/tmp/old.md", "hash_old"));
+        Ok(())
+    }
+
+    #[test]
+    fn emit_source_removed_returns_false_when_artifact_id_missing()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let (input_tx, mut input_rx) = mpsc::channel(256);
+        let watcher = Watcher {
+            layout: InstanceLayout::for_root(PathBuf::from("/tmp")),
+            manifest: test_manifest(PathBuf::from("/tmp")),
+            input_tx,
+            artifact_ids: BTreeMap::new(),
+            shutdown: CancellationToken::new(),
+            state: WatchState::default(),
+            scan_permits: Arc::new(Semaphore::new(MAX_CONCURRENT_SCANS)),
+        };
+        assert!(!watcher.emit_source_removed("/tmp/unknown.md", "hash"));
+        assert!(input_rx.try_recv().is_err());
         Ok(())
     }
 }

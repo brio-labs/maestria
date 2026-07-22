@@ -7,19 +7,15 @@ impl KernelState {
         &mut self,
         input: UserIntent,
     ) -> Result<KernelOutput, DomainError> {
-        let mut output = KernelOutput::default();
-        let event = self.handle_user_intent(input.clone())?;
-        for entry in event {
-            output.events.push(entry.clone());
-            output.effects.push(MaestriaEffect::PersistEvent {
-                envelope: Box::new(entry),
-            });
-        }
-        if input.priority == TaskPriority::High {
+        let priority = input.priority;
+        let task_id = input.task_id;
+        let entries = self.handle_user_intent(input)?;
+        let mut output = Self::output_for_events(entries);
+        if priority == TaskPriority::High {
             output
                 .effects
                 .push(MaestriaEffect::RequestApproval(RequestApprovalRequest {
-                    task_id: input.task_id,
+                    task_id,
                 }));
         }
         Ok(output)
@@ -74,46 +70,24 @@ impl KernelState {
         &mut self,
         input: ParserResult,
     ) -> Result<KernelOutput, DomainError> {
-        let mut output = KernelOutput::default();
         let generated = self.handle_parser_completed(input)?;
-        for envelope in generated {
-            output.events.push(envelope.clone());
-            output.effects.push(MaestriaEffect::PersistEvent {
-                envelope: Box::new(envelope),
-            });
-        }
-        Ok(output)
+        Ok(Self::output_for_events(generated))
     }
 
     pub(super) fn process_full_text_index_completed(
         &mut self,
         input: FullTextIndexCompleted,
     ) -> Result<KernelOutput, DomainError> {
-        let mut output = KernelOutput::default();
         let generated = self.handle_full_text_index_completed(input)?;
-        for envelope in generated {
-            output.events.push(envelope.clone());
-            output.effects.push(MaestriaEffect::PersistEvent {
-                envelope: Box::new(envelope),
-            });
-        }
-        Ok(output)
+        Ok(Self::output_for_events(generated))
     }
 
     pub(super) fn process_start_full_text_index(
         &mut self,
         input: StartFullTextIndex,
     ) -> Result<KernelOutput, DomainError> {
-        let mut output = KernelOutput::default();
         let generated = self.handle_start_full_text_index(&input)?;
-        // If the handler terminalized (crash-after-evidence recovery),
-        // push the ArtifactIndexed event before checking pending chunks.
-        for envelope in generated {
-            output.events.push(envelope.clone());
-            output.effects.push(MaestriaEffect::PersistEvent {
-                envelope: Box::new(envelope),
-            });
-        }
+        let mut output = Self::output_for_events(generated);
         // Only emit IndexFullText effects for chunks still pending.
         for chunk in self.chunks.values() {
             if chunk.artifact_id == input.artifact_id && self.pending_full_text.contains(&chunk.id)
@@ -139,65 +113,38 @@ impl KernelState {
         &mut self,
         input: SearchResultSet,
     ) -> Result<KernelOutput, DomainError> {
-        let mut output = KernelOutput::default();
         let generated = self.handle_search_completed(input)?;
-        for envelope in generated {
-            output.events.push(envelope.clone());
-            output.effects.push(MaestriaEffect::PersistEvent {
-                envelope: Box::new(envelope),
-            });
-        }
-        Ok(output)
+        Ok(Self::output_for_events(generated))
     }
 
     pub(super) fn process_harness_run_completed(
         &mut self,
         input: HarnessRunCompleted,
     ) -> Result<KernelOutput, DomainError> {
-        let mut output = KernelOutput::default();
         let generated = self.handle_harness_completed(input)?;
-        for envelope in generated {
-            output.events.push(envelope.clone());
-            output.effects.push(MaestriaEffect::PersistEvent {
-                envelope: Box::new(envelope),
-            });
-        }
-        Ok(output)
+        Ok(Self::output_for_events(generated))
     }
 
     pub(super) fn process_validation_completed(
         &mut self,
         input: ValidationCompleted,
     ) -> Result<KernelOutput, DomainError> {
-        let mut output = KernelOutput::default();
         let event = self.handle_validation_completed(input)?;
-        output.events.push(event.clone());
-        output.effects.push(MaestriaEffect::PersistEvent {
-            envelope: Box::new(event),
-        });
-        Ok(output)
+        Ok(Self::output_for_event(event))
     }
 
     pub(super) fn process_approval_resolved(
         &mut self,
         input: ApprovalDecision,
     ) -> Result<KernelOutput, DomainError> {
-        let mut output = KernelOutput::default();
         let envelopes = self.handle_approval_resolved(input)?;
-        for envelope in envelopes {
-            output.events.push(envelope.clone());
-            output.effects.push(MaestriaEffect::PersistEvent {
-                envelope: Box::new(envelope),
-            });
-        }
-        Ok(output)
+        Ok(Self::output_for_events(envelopes))
     }
 
     pub(super) fn process_parser_started(
         &mut self,
         input: ParserStarted,
     ) -> Result<KernelOutput, DomainError> {
-        let mut output = KernelOutput::default();
         // Idempotent: identical metadata must not emit duplicate events.
         if let Some(existing) = self.pending_parsers.get(&input.artifact_id)
             && existing.title == input.title
@@ -206,7 +153,7 @@ impl KernelState {
             && existing.blob_id == input.blob_id
         {
             // Identical metadata — skip duplicate event and effect.
-            return Ok(output);
+            return Ok(KernelOutput::default());
         }
         // Record durable pending-parser metadata; emitted as a PersistEvent
         // so that restart can find this artifact if parsing never finishes.
@@ -219,11 +166,7 @@ impl KernelState {
             content_hash: input.content_hash,
             blob_id: input.blob_id,
         });
-        output.events.push(event.clone());
-        output.effects.push(MaestriaEffect::PersistEvent {
-            envelope: Box::new(event),
-        });
-        Ok(output)
+        Ok(Self::output_for_event(event))
     }
 
     pub(super) fn process_resume_parser(
@@ -255,26 +198,16 @@ impl KernelState {
         &mut self,
         tick: LogicalTick,
     ) -> Result<KernelOutput, DomainError> {
-        let mut output = KernelOutput::default();
         let event = self.emit_event(DomainEvent::TickObserved { at: tick });
-        output.events.push(event.clone());
-        output.effects.push(MaestriaEffect::PersistEvent {
-            envelope: Box::new(event),
-        });
-        Ok(output)
+        Ok(Self::output_for_event(event))
     }
 
     pub(super) fn process_search_executed(
         &mut self,
         input: SearchExecutedInput,
     ) -> Result<KernelOutput, DomainError> {
-        let mut output = KernelOutput::default();
         let envelope = self.handle_search_executed(input)?;
-        output.events.push(envelope.clone());
-        output.effects.push(MaestriaEffect::PersistEvent {
-            envelope: Box::new(envelope),
-        });
-        Ok(output)
+        Ok(Self::output_for_event(envelope))
     }
 
     pub(super) fn process_fetch_web_requested(
@@ -306,13 +239,8 @@ impl KernelState {
         &mut self,
         input: crate::inputs::SearchKnowledgeCompleted,
     ) -> Result<KernelOutput, DomainError> {
-        let mut output = KernelOutput::default();
         let envelope = self.handle_search_knowledge_completed(input)?;
-        output.events.push(envelope.clone());
-        output.effects.push(MaestriaEffect::PersistEvent {
-            envelope: Box::new(envelope),
-        });
-        Ok(output)
+        Ok(Self::output_for_event(envelope))
     }
 
     pub(super) fn process_source_removed(
@@ -320,16 +248,14 @@ impl KernelState {
         input: crate::inputs::SourceRemoved,
     ) -> Result<KernelOutput, DomainError> {
         let mut output = KernelOutput::default();
-        if self.stale_sources.insert(input.source_path.clone()) {
+        let source_path = input.source_path.clone();
+        if self.stale_sources.insert(source_path.clone()) {
             let event = self.emit_event(DomainEvent::SourceBecameStale {
                 artifact_id: input.artifact_id,
-                source_path: input.source_path.clone(),
+                source_path,
                 content_hash: input.content_hash,
             });
-            output.events.push(event.clone());
-            output.effects.push(MaestriaEffect::PersistEvent {
-                envelope: Box::new(event),
-            });
+            output = Self::output_for_event(event);
         }
         Ok(output)
     }
