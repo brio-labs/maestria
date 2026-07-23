@@ -197,10 +197,20 @@ fn layout_regions(
         Ok(content) => content,
         Err(_) => return (Vec::new(), true),
     };
+    let pending = collect_pending_regions(&content.operations, page, geometry);
+    let regions = materialize_regions(pending, page);
+    (regions, false)
+}
+
+fn collect_pending_regions(
+    operations: &[lopdf::content::Operation],
+    page: u32,
+    geometry: PageGeometry,
+) -> Vec<PendingRegion> {
     let mut pending = Vec::new();
     let mut transform = PdfTransform::identity();
     let mut stack = Vec::new();
-    for operation in content.operations {
+    for operation in operations {
         match operation.operator.as_str() {
             "q" => stack.push(transform),
             "Q" => {
@@ -225,41 +235,55 @@ fn layout_regions(
                 }
             }
             "BMC" | "BDC" => {
-                let name = operation
-                    .operands
-                    .first()
-                    .and_then(|operand| operand.as_name().ok())
-                    .and_then(|name| std::str::from_utf8(name).ok());
-                let node_type = name.and_then(|name| {
-                    if name.eq_ignore_ascii_case("figure") {
-                        Some(StructureNodeType::Figure)
-                    } else if name.eq_ignore_ascii_case("table")
-                        || name.eq_ignore_ascii_case("table-cell")
-                    {
-                        Some(StructureNodeType::Table)
-                    } else {
-                        None
-                    }
-                });
-                if let (Some(name), Some(node_type)) = (name, node_type)
-                    && transform != PdfTransform::identity()
-                    && let Some(bounds) = unit_region(transform, geometry)
-                {
-                    pending.push(PendingRegion::Tagged(
-                        node_type,
-                        format!("{name} region on page {page}"),
-                        bounds,
-                    ));
+                if let Some(region) = try_tagged_region(operation, transform, geometry, page) {
+                    pending.push(region);
                 }
             }
             _ => {}
         }
     }
+    pending
+}
+
+fn try_tagged_region(
+    operation: &lopdf::content::Operation,
+    transform: PdfTransform,
+    geometry: PageGeometry,
+    page: u32,
+) -> Option<PendingRegion> {
+    let name = operation
+        .operands
+        .first()
+        .and_then(|operand| operand.as_name().ok())
+        .and_then(|name| std::str::from_utf8(name).ok());
+    let node_type = name.and_then(|name| {
+        if name.eq_ignore_ascii_case("figure") {
+            Some(StructureNodeType::Figure)
+        } else if name.eq_ignore_ascii_case("table") || name.eq_ignore_ascii_case("table-cell") {
+            Some(StructureNodeType::Table)
+        } else {
+            None
+        }
+    });
+    let name = name?;
+    let node_type = node_type?;
+    if transform == PdfTransform::identity() {
+        return None;
+    }
+    let bounds = unit_region(transform, geometry)?;
+    Some(PendingRegion::Tagged(
+        node_type,
+        format!("{name} region on page {page}"),
+        bounds,
+    ))
+}
+
+fn materialize_regions(pending: Vec<PendingRegion>, page: u32) -> Vec<PdfRegion> {
     let rectangle_count = pending
         .iter()
         .filter(|region| matches!(region, PendingRegion::Rectangle(_)))
         .count();
-    let regions = pending
+    pending
         .into_iter()
         .filter_map(|region| match region {
             PendingRegion::Rectangle(bounds) if rectangle_count >= 2 => Some(PdfRegion {
@@ -288,8 +312,7 @@ fn layout_regions(
             }),
             PendingRegion::Rectangle(_) => None,
         })
-        .collect();
-    (regions, false)
+        .collect()
 }
 
 fn transform_from_operands(values: &[lopdf::Object]) -> Option<PdfTransform> {
