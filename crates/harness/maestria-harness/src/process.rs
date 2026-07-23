@@ -66,8 +66,12 @@ pub(crate) async fn spawn_and_collect(
                 })?;
                 Ok((s, out, err))
             } else {
-                let _ = child.start_kill();
-                let _ = child.wait().await;
+                if let Err(error) = child.start_kill() {
+                    tracing::warn!(%error, "failed to kill child process after timeout");
+                }
+                if let Err(error) = child.wait().await {
+                    tracing::warn!(%error, "failed to wait for child process after kill");
+                }
                 Err(PortError::Internal {
                     message: format!("{program} timed out after {:?}", request.duration_budget),
                 })

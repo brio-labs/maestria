@@ -10,5 +10,5 @@ publish = false
 maestria-ports = { path = "../../kernel/maestria-ports" }
 tokio = { version = "1.37", features = ["process", "time", "io-util", "rt", "macros"] }
 
-[dev-dependencies]
+tracing = "0.1"
 tempfile = "3"
