@@ -83,40 +83,75 @@ fn page_bounds(doc: &lopdf::Document, page_id: lopdf::ObjectId) -> Result<PageGe
         if !visited.insert(current) {
             return Err(err("PDF page parent cycle while resolving MediaBox".into()));
         }
-        let dictionary = doc.get_dictionary(current).map_err(|e| err(format!("PDF page dictionary unavailable: {e}")))?;
+        let dictionary = doc
+            .get_dictionary(current)
+            .map_err(|e| err(format!("PDF page dictionary unavailable: {e}")))?;
         match dictionary.get(b"MediaBox") {
             Ok(object) => {
-                let (_, object) = doc.dereference(object).map_err(|e| err(format!("PDF MediaBox dereference failed: {e}")))?;
-                let values = object.as_array().map_err(|e| err(format!("PDF MediaBox is not an array: {e}")))?;
+                let (_, object) = doc
+                    .dereference(object)
+                    .map_err(|e| err(format!("PDF MediaBox dereference failed: {e}")))?;
+                let values = object
+                    .as_array()
+                    .map_err(|e| err(format!("PDF MediaBox is not an array: {e}")))?;
                 return parse_media_box(values.as_slice());
             }
             Err(lopdf::Error::DictKey(_)) => {}
-            Err(error) => return Err(err(format!("PDF page dictionary get MediaBox failed: {error}"))),
+            Err(error) => {
+                return Err(err(format!(
+                    "PDF page dictionary get MediaBox failed: {error}"
+                )));
+            }
         }
         current = match dictionary.get(b"Parent") {
             Ok(lopdf::Object::Reference(parent)) => *parent,
-            Ok(_) | Err(lopdf::Error::DictKey(_)) => return Ok(PageGeometry {
-                origin_x: 0.0, origin_y: 0.0, width: DEFAULT_PAGE_WIDTH, height: DEFAULT_PAGE_HEIGHT,
-            }),
-            Err(error) => return Err(err(format!("PDF page dictionary get Parent failed: {error}"))),
+            Ok(_) | Err(lopdf::Error::DictKey(_)) => {
+                return Ok(PageGeometry {
+                    origin_x: 0.0,
+                    origin_y: 0.0,
+                    width: DEFAULT_PAGE_WIDTH,
+                    height: DEFAULT_PAGE_HEIGHT,
+                });
+            }
+            Err(error) => {
+                return Err(err(format!(
+                    "PDF page dictionary get Parent failed: {error}"
+                )));
+            }
         };
     }
 }
 
 fn parse_media_box(values: &[lopdf::Object]) -> Result<PageGeometry, PortError> {
     if values.len() != 4 {
-        return Err(PortError::InvalidInput { message: format!("PDF MediaBox array has {} elements, expected 4", values.len()) });
+        return Err(PortError::InvalidInput {
+            message: format!(
+                "PDF MediaBox array has {} elements, expected 4",
+                values.len()
+            ),
+        });
     }
-    let c = |i: usize, label: &str| values[i].as_float().map_err(|e| PortError::InvalidInput {
-        message: format!("PDF MediaBox {label} coordinate not a number: {e}"),
-    });
+    let c = |i: usize, label: &str| {
+        values[i].as_float().map_err(|e| PortError::InvalidInput {
+            message: format!("PDF MediaBox {label} coordinate not a number: {e}"),
+        })
+    };
     let left = c(0, "left")?;
     let bottom = c(1, "bottom")?;
     let right = c(2, "right")?;
     let top = c(3, "top")?;
-    let width = positive_dimension(right - left).ok_or_else(|| PortError::InvalidInput { message: format!("PDF MediaBox non-positive width: {}", right - left) })?;
-    let height = positive_dimension(top - bottom).ok_or_else(|| PortError::InvalidInput { message: format!("PDF MediaBox non-positive height: {}", top - bottom) })?;
-    Ok(PageGeometry { origin_x: left, origin_y: bottom, width, height })
+    let width = positive_dimension(right - left).ok_or_else(|| PortError::InvalidInput {
+        message: format!("PDF MediaBox non-positive width: {}", right - left),
+    })?;
+    let height = positive_dimension(top - bottom).ok_or_else(|| PortError::InvalidInput {
+        message: format!("PDF MediaBox non-positive height: {}", top - bottom),
+    })?;
+    Ok(PageGeometry {
+        origin_x: left,
+        origin_y: bottom,
+        width,
+        height,
+    })
 }
 fn positive_dimension(value: f32) -> Option<u32> {
     if !value.is_finite() || value <= 0.0 {
@@ -242,17 +277,30 @@ fn try_tagged_region(
 ) -> Option<PendingRegion> {
     let name = match operation.operands.first() {
         Some(operand) => match operand.as_name() {
-            Ok(name) => match std::str::from_utf8(name) { Ok(s) => s, Err(_) => return None },
+            Ok(name) => match std::str::from_utf8(name) {
+                Ok(s) => s,
+                Err(_) => return None,
+            },
             Err(_) => return None,
         },
         None => return None,
     };
-    let node_type = if name.eq_ignore_ascii_case("figure") { Some(StructureNodeType::Figure)
-    } else if name.eq_ignore_ascii_case("table") || name.eq_ignore_ascii_case("table-cell") { Some(StructureNodeType::Table)
-    } else { None }?;
-    if transform == PdfTransform::identity() { return None; }
+    let node_type = if name.eq_ignore_ascii_case("figure") {
+        Some(StructureNodeType::Figure)
+    } else if name.eq_ignore_ascii_case("table") || name.eq_ignore_ascii_case("table-cell") {
+        Some(StructureNodeType::Table)
+    } else {
+        None
+    }?;
+    if transform == PdfTransform::identity() {
+        return None;
+    }
     let bounds = unit_region(transform, geometry)?;
-    Some(PendingRegion::Tagged(node_type, format!("{name} region on page {page}"), bounds))
+    Some(PendingRegion::Tagged(
+        node_type,
+        format!("{name} region on page {page}"),
+        bounds,
+    ))
 }
 
 fn materialize_regions(pending: Vec<PendingRegion>, page: u32) -> Vec<PdfRegion> {
@@ -300,10 +348,16 @@ fn as_float_opt(object: &lopdf::Object) -> Option<f32> {
 }
 
 fn transform_from_operands(values: &[lopdf::Object]) -> Option<PdfTransform> {
-    if values.len() != 6 { return None; }
+    if values.len() != 6 {
+        return None;
+    }
     let mut numbers = Vec::with_capacity(6);
-    for value in values { numbers.push(as_float_opt(value)?); }
-    let [a, b, c, d, e, f] = [numbers[0], numbers[1], numbers[2], numbers[3], numbers[4], numbers[5]];
+    for value in values {
+        numbers.push(as_float_opt(value)?);
+    }
+    let [a, b, c, d, e, f] = [
+        numbers[0], numbers[1], numbers[2], numbers[3], numbers[4], numbers[5],
+    ];
     if [a, b, c, d, e, f].iter().all(|v| v.is_finite()) {
         Some(PdfTransform { a, b, c, d, e, f })
     } else {
@@ -316,13 +370,25 @@ fn rectangle(
     transform: PdfTransform,
     geometry: PageGeometry,
 ) -> Option<(u32, u32, u32, u32)> {
-    if values.len() != 4 { return None; }
+    if values.len() != 4 {
+        return None;
+    }
     let x = as_float_opt(values.first()?)?;
     let y = as_float_opt(values.get(1)?)?;
     let width = as_float_opt(values.get(2)?)?;
     let height = as_float_opt(values.get(3)?)?;
-    if ![x, y, width, height].iter().all(|v| v.is_finite()) || width == 0.0 || height == 0.0 { return None; }
-    bounds([transform.apply(x, y), transform.apply(x + width, y), transform.apply(x, y + height), transform.apply(x + width, y + height)], geometry)
+    if ![x, y, width, height].iter().all(|v| v.is_finite()) || width == 0.0 || height == 0.0 {
+        return None;
+    }
+    bounds(
+        [
+            transform.apply(x, y),
+            transform.apply(x + width, y),
+            transform.apply(x, y + height),
+            transform.apply(x + width, y + height),
+        ],
+        geometry,
+    )
 }
 
 fn unit_region(transform: PdfTransform, geometry: PageGeometry) -> Option<(u32, u32, u32, u32)> {
