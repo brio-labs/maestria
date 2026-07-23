@@ -26,6 +26,11 @@ pub struct ApiServer {
 }
 
 impl ApiServer {
+    /// Bind the Unix socket and start the request acceptor task.
+    ///
+    /// # Cancellation
+    /// If the future is dropped after binding but before returning, the spawned acceptor task
+    /// is aborted and the socket file may be left on disk.
     pub async fn start(
         layout: InstanceLayout,
         input_tx: mpsc::Sender<DomainInput>,
@@ -60,6 +65,11 @@ impl ApiServer {
         &self.socket_path
     }
 
+    /// Signal shutdown and await the acceptor task.
+    ///
+    /// # Cancellation
+    /// Once called, the shutdown token is cancelled. If this future is dropped before the task
+    /// joins, the acceptor continues until it observes the token but completion is not awaited.
     pub async fn shutdown(self) -> Result<()> {
         self.shutdown.cancel();
         self.task

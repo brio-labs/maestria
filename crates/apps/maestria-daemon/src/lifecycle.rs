@@ -49,6 +49,10 @@ impl Drop for InstanceLifecycle {
 }
 impl InstanceLifecycle {
     /// Acquire the instance lock, repair projections, validate recovery, and start the runtime.
+    ///
+    /// # Cancellation
+    /// If the future is dropped before completion, the instance write lock is released and the
+    /// runtime is not started. Any partially constructed state is dropped.
     pub async fn start(layout: InstanceLayout, profile: AutonomyProfile) -> Result<Self> {
         let lock = acquire_instance_write_lock(&layout).await?;
         let mut state =
@@ -132,6 +136,10 @@ impl InstanceLifecycle {
     }
 
     /// Queue recovery in dependency order: parsers, full-text, then validation.
+    ///
+    /// # Cancellation
+    /// If the future is dropped between sends, recovery may be partially queued. Because the
+    /// recovery inputs are consumed at the start, a cancelled call cannot be retried.
     pub async fn queue_recovery(&mut self) -> Result<RecoveryQueue> {
         let recovery = self
             .recovery
@@ -165,8 +173,12 @@ impl InstanceLifecycle {
         })
     }
 
+    /// Signal shutdown and await the runtime and watcher tasks.
+    ///
+    /// # Cancellation
+    /// Once called, the shutdown token is cancelled. If this future is dropped before the tasks
+    /// have joined, shutdown remains in progress but completion is not awaited.
     pub async fn shutdown(mut self) -> Result<()> {
-        self.shutdown_token.cancel();
         if let Some(watcher_task) = self.watcher_task.take() {
             watcher_task
                 .await
@@ -181,6 +193,11 @@ impl InstanceLifecycle {
         Ok(())
     }
 
+    /// Run until `SIGINT`, then shut down cleanly.
+    ///
+    /// # Cancellation
+    /// If the future is dropped before the signal arrives, recovery may be partially queued and
+    /// the watcher may have started, but shutdown is not performed.
     pub async fn run_until_ctrl_c(mut self) -> Result<()> {
         let result = async {
             self.queue_recovery().await?;
@@ -196,6 +213,11 @@ impl InstanceLifecycle {
         shutdown_result
     }
 
+    /// Run until the external `shutdown` token is triggered, then shut down cleanly.
+    ///
+    /// # Cancellation
+    /// If the future is dropped before the token fires, recovery may be partially queued and the
+    /// watcher may have started, but shutdown is not performed.
     pub async fn run_until_shutdown(mut self, shutdown: CancellationToken) -> Result<()> {
         let result = self.queue_recovery().await;
         if result.is_ok() {
