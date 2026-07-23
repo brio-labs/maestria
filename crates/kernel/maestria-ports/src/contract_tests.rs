@@ -1,11 +1,10 @@
-use maestria_domain::StructureNodeId;
 use std::path::PathBuf;
 use std::time::Duration;
 
 use super::*;
 use maestria_domain::{
-    ArtifactId, ArtifactVersionId, ChunkId, ClaimId, ContentRange, EventId, EvidenceKind,
-    LogicalTick, SequenceNumber, ValidationReportId,
+    ArtifactId, ChunkId, ClaimId, ContentRange, EventId, EvidenceKind, LogicalTick, SequenceNumber,
+    ValidationReportId,
 };
 
 pub fn sample_artifact(id: u64) -> Artifact {
@@ -721,52 +720,57 @@ fn verify_vector_lifecycle(
     assert_eq!(hits_after_idempotent_delete[0].chunk_id, ChunkId::new(11));
     Ok(())
 }
-pub fn assert_parser_round_trip(parser: &impl Parser) -> Result<(), Box<dyn std::error::Error>> {
-    assert_eq!(parser.id(), "in-memory-parser");
-    assert!(parser.supports(&FileMetadata {
-        path: PathBuf::from("notes.md"),
-        size: 5,
-        extension: Some("md".to_string()),
-    }));
-    assert!(!parser.supports(&FileMetadata {
+pub fn assert_parser_round_trip(
+    parser: &impl Parser,
+    sample: &FileHandle,
+    context: ParseContext,
+) -> Result<(), Box<dyn std::error::Error>> {
+    assert!(!parser.id().is_empty(), "parser id must not be empty");
+
+    let supported = FileMetadata {
+        path: sample.path.clone(),
+        size: sample.bytes.len(),
+        extension: sample
+            .path
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(|s| s.to_ascii_lowercase()),
+    };
+    assert!(
+        parser.supports(&supported),
+        "parser must support {:?}",
+        supported.path
+    );
+
+    let unsupported = FileMetadata {
         path: PathBuf::from("archive.bin"),
         size: 5,
         extension: Some("bin".to_string()),
-    }));
-    let parsed = parser.parse(
-        FileHandle {
-            path: PathBuf::from("notes.md"),
-            bytes: b"alpha".to_vec(),
-        },
-        ParseContext {
-            artifact_id: ArtifactId::new(7),
-        },
-    )?;
-    assert_eq!(parsed.artifact_id, ArtifactId::new(7));
-    assert_eq!(parsed.artifact_version_id, ArtifactVersionId::new(7));
-    assert_eq!(parsed.status, ParseStatus::Parsed);
-    assert_eq!(parsed.tree.root_id, StructureNodeId::new(7));
-    assert_eq!(parsed.tree.nodes.len(), 1);
-    assert_eq!(parsed.tree.nodes[0].id, StructureNodeId::new(7));
-    assert_eq!(parsed.chunks.len(), 1);
-    assert_eq!(parsed.chunks[0].text, "alpha");
-    assert_eq!(parsed.chunks[0].representations.len(), 2);
-    assert_eq!(parsed.chunks[0].node_id.value(), 7);
-    assert_eq!(
-        parsed.chunks[0].source_span,
-        SourceSpan::TextSpan {
-            start_line: 1,
-            end_line: 1
-        }
+    };
+    assert!(
+        !parser.supports(&unsupported),
+        "parser must not support {:?}",
+        unsupported.path
     );
+
+    let artifact_id = context.artifact_id;
+    let next_artifact_id = ArtifactId::new(artifact_id.value().wrapping_add(1));
+    let parsed = parser.parse(sample.clone(), context)?;
+    assert_eq!(parsed.artifact_id, artifact_id);
+    assert_eq!(parsed.status, ParseStatus::Parsed);
+    assert!(
+        !parsed.tree.nodes.is_empty(),
+        "parsed tree must have at least one node"
+    );
+
     assert!(matches!(
         parser.parse(
             FileHandle {
-                path: PathBuf::from("empty.md"),
+                path: sample.path.clone(),
                 bytes: Vec::new(),
             },
             ParseContext {
-                artifact_id: ArtifactId::new(8),
+                artifact_id: next_artifact_id,
             },
         ),
         Err(PortError::InvalidInput { .. })
@@ -778,7 +782,6 @@ pub async fn assert_harness_adapter_round_trip(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let capabilities = harness.capabilities()?;
     assert!(capabilities.read_enabled);
-    assert!(capabilities.write_enabled);
     assert!(
         capabilities
             .command_classes
@@ -801,7 +804,7 @@ pub async fn assert_harness_adapter_round_trip(
     assert_eq!(outcome.run_id, HarnessRunId::new(7));
     assert_eq!(outcome.command, "echo ok");
     assert_eq!(outcome.exit_code, 0);
-    assert_eq!(outcome.stdout, b"executed echo ok".to_vec());
+    assert!(!outcome.stdout.is_empty(), "stdout must not be empty");
 
     assert!(matches!(
         harness

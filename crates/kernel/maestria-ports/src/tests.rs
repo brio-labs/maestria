@@ -2,6 +2,7 @@ use super::contract_tests::*;
 use super::graph_contract_tests::assert_graph_index_contract;
 use super::*;
 use maestria_domain::{EvidenceKind, LogicalTick, ValidationReportId};
+use std::path::PathBuf;
 
 #[test]
 fn in_memory_artifact_repository_satisfies_contract() -> Result<(), Box<dyn std::error::Error>> {
@@ -247,7 +248,16 @@ fn in_memory_vector_index_satisfies_contract() -> Result<(), Box<dyn std::error:
 
 #[test]
 fn in_memory_parser_satisfies_contract() -> Result<(), Box<dyn std::error::Error>> {
-    assert_parser_round_trip(&InMemoryParser::new())?;
+    assert_parser_round_trip(
+        &InMemoryParser::new(),
+        &FileHandle {
+            path: PathBuf::from("notes.md"),
+            bytes: b"alpha".to_vec(),
+        },
+        ParseContext {
+            artifact_id: ArtifactId::new(7),
+        },
+    )?;
     Ok(())
 }
 

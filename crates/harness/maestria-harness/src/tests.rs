@@ -1,5 +1,6 @@
 use super::*;
 use crate::command::filename_matches;
+use maestria_ports::contract_tests::assert_harness_adapter_round_trip;
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -257,5 +258,13 @@ async fn cat_rejects_dotenv_pattern() -> Result<(), Box<dyn std::error::Error>> 
     req.readable_roots = vec![tmp.path().to_path_buf()];
     req.blocked_patterns = vec![".env".into()];
     assert!(adapter().execute(req).await.is_err());
+    Ok(())
+}
+
+// ── shared contract suite (Rule 25) ────────────────────────────────
+
+#[tokio::test]
+async fn harness_adapter_satisfies_contract() -> Result<(), Box<dyn std::error::Error>> {
+    assert_harness_adapter_round_trip(&adapter()).await?;
     Ok(())
 }
