@@ -27,6 +27,7 @@ use std::{fs, path::PathBuf, sync::Arc};
 
 use anyhow::{Context, Result, anyhow};
 use maestria_blob_fs::FsBlobStore;
+use maestria_code_intel::RepositoryCodeIndex;
 use maestria_core::{InitInstanceInput, InstanceLayout, InstanceManifest, InstanceService};
 #[cfg(test)]
 use maestria_domain::ArtifactId;
@@ -40,7 +41,7 @@ use maestria_harness::LocalShellHarnessAdapter;
 use maestria_ocr_local::LocalHttpOcrProvider;
 use maestria_parsers::ParserRegistry;
 use maestria_ports::{
-    EmbeddingIdentity, EventFilter, FullTextIndex, OcrIdentity, OcrProvider,
+    EmbeddingIdentity, EventFilter, FullTextIndex, OcrIdentity, OcrProvider, Parser,
     SearchKnowledgeExecutor, VectorIndex, VisualEmbeddingProvider,
 };
 use maestria_retrieval::RepositoryExecutionPolicy;
@@ -250,18 +251,41 @@ pub fn ocr_status(manifest: &InstanceManifest) -> Result<String> {
         )),
     }
 }
-fn build_adapters(
-    layout: &InstanceLayout,
-    state: &KernelState,
-    manifest: &InstanceManifest,
-    embedding_provider: Option<Arc<dyn maestria_ports::EmbeddingProvider + Send + Sync>>,
-    repository_execution_policy: RepositoryExecutionPolicy,
-    read_only_search_index: bool,
-) -> Result<Adapters> {
+struct StorageAdapters {
+    blob_store: Arc<FsBlobStore>,
+    sqlite_store: Arc<SqliteStore>,
+}
+
+struct IndexAdapters {
+    search_index: Arc<dyn FullTextIndex + Send + Sync>,
+    vector_index: Arc<dyn VectorIndex + Send + Sync>,
+    graph_index: Arc<SqliteGraphIndex>,
+}
+
+struct EcosystemAdapters {
+    parser: Arc<dyn Parser + Send + Sync>,
+    repository_code_index: Option<Arc<RepositoryCodeIndex>>,
+}
+
+fn build_storage_adapters(layout: &InstanceLayout) -> Result<StorageAdapters> {
     let blob_store = Arc::new(
         FsBlobStore::open(&layout.blobs_dir)
             .with_context(|| format!("open blob store {}", layout.blobs_dir.display()))?,
     );
+    let sqlite_store = Arc::new(
+        SqliteStore::open(&layout.database_path)
+            .with_context(|| format!("open sqlite store {}", layout.database_path.display()))?,
+    );
+    Ok(StorageAdapters {
+        blob_store,
+        sqlite_store,
+    })
+}
+
+fn build_index_adapters(
+    layout: &InstanceLayout,
+    read_only_search_index: bool,
+) -> Result<IndexAdapters> {
     let search_index: Arc<dyn FullTextIndex + Send + Sync> = if read_only_search_index {
         Arc::new(
             TantivyFullTextIndex::open_read_only(&layout.full_text_index_dir).with_context(
@@ -283,13 +307,6 @@ fn build_adapters(
             })?,
         )
     };
-    let parser = Arc::new(ParserRegistry::with_optional_ocr(build_ocr_provider(
-        manifest,
-    )?));
-    let sqlite_store = Arc::new(
-        SqliteStore::open(&layout.database_path)
-            .with_context(|| format!("open sqlite store {}", layout.database_path.display()))?,
-    );
     let vector_index: Arc<dyn VectorIndex + Send + Sync> = Arc::new(
         SqliteVectorIndex::open(layout.vector_index_dir.join("projection.db"))
             .with_context(|| format!("open vector index {}", layout.vector_index_dir.display()))?,
@@ -298,6 +315,36 @@ fn build_adapters(
         SqliteGraphIndex::open(layout.graph_index_dir.join("projection.db"))
             .with_context(|| format!("open graph index {}", layout.graph_index_dir.display()))?,
     );
+    Ok(IndexAdapters {
+        search_index,
+        vector_index,
+        graph_index,
+    })
+}
+
+fn build_ecosystem_adapters(
+    layout: &InstanceLayout,
+    manifest: &InstanceManifest,
+) -> Result<EcosystemAdapters> {
+    let parser = Arc::new(ParserRegistry::with_optional_ocr(build_ocr_provider(
+        manifest,
+    )?));
+    let repository_code_index = load_repository_code_index_with_exclusions(layout, Some(manifest))
+        .with_context(|| "load repository code index for runtime construction")?;
+    Ok(EcosystemAdapters {
+        parser,
+        repository_code_index,
+    })
+}
+
+fn build_search_executor(
+    state: &KernelState,
+    storage: &StorageAdapters,
+    indexes: &IndexAdapters,
+    ecosystem: &EcosystemAdapters,
+    embedding_provider: Option<Arc<dyn maestria_ports::EmbeddingProvider + Send + Sync>>,
+    repository_execution_policy: RepositoryExecutionPolicy,
+) -> Result<Arc<dyn SearchKnowledgeExecutor + Send + Sync>> {
     let lexical = state
         .index_generations
         .get_active(&RepresentationName::new("lexical_text_v1"))
@@ -306,49 +353,69 @@ fn build_adapters(
         .index_generations
         .get_active(&RepresentationName::new("dense_text_v1"))
         .map(|generation| generation.id);
-    let repository_code_index = load_repository_code_index_with_exclusions(layout, Some(manifest))
-        .with_context(|| "load repository code index for runtime construction")?;
     let search_executor: Arc<dyn SearchKnowledgeExecutor + Send + Sync> =
         Arc::new(SearchRuntime::from_parts(
             SearchRuntimeParts {
-                artifacts: sqlite_store.clone(),
-                cards: sqlite_store.clone(),
-                chunks: sqlite_store.clone(),
-                evidence: sqlite_store.clone(),
-                search_index: search_index.clone(),
-                blobs: blob_store.clone(),
-                vector_index: Some(vector_index.clone()),
-                graph_index: Some(graph_index.clone()),
-                event_log: sqlite_store.clone(),
+                artifacts: storage.sqlite_store.clone(),
+                cards: storage.sqlite_store.clone(),
+                chunks: storage.sqlite_store.clone(),
+                evidence: storage.sqlite_store.clone(),
+                search_index: indexes.search_index.clone(),
+                blobs: storage.blob_store.clone(),
+                vector_index: Some(indexes.vector_index.clone()),
+                graph_index: Some(indexes.graph_index.clone()),
+                event_log: storage.sqlite_store.clone(),
                 primary_generation: lexical.id,
                 dense_generation,
-                repository_code_index,
+                repository_code_index: ecosystem.repository_code_index.clone(),
                 repository_execution_policy,
                 corpus_snapshot: lexical.corpus_snapshot,
             },
-            embedding_provider.clone(),
+            embedding_provider,
             maestria_governance::RetrievalSecurityPolicy::default()
                 .require_read_allowed(true)
                 .allow_unscoped_items(true),
         )?);
+    Ok(search_executor)
+}
+
+fn build_adapters(
+    layout: &InstanceLayout,
+    state: &KernelState,
+    manifest: &InstanceManifest,
+    embedding_provider: Option<Arc<dyn maestria_ports::EmbeddingProvider + Send + Sync>>,
+    repository_execution_policy: RepositoryExecutionPolicy,
+    read_only_search_index: bool,
+) -> Result<Adapters> {
+    let storage = build_storage_adapters(layout)?;
+    let indexes = build_index_adapters(layout, read_only_search_index)?;
+    let ecosystem = build_ecosystem_adapters(layout, manifest)?;
+    let search_executor = build_search_executor(
+        state,
+        &storage,
+        &indexes,
+        &ecosystem,
+        embedding_provider.clone(),
+        repository_execution_policy,
+    )?;
     Ok(Adapters {
-        event_log: sqlite_store.clone(),
-        blob_store,
-        search_index,
-        parser,
+        event_log: storage.sqlite_store.clone(),
+        blob_store: storage.blob_store,
+        search_index: indexes.search_index,
+        parser: ecosystem.parser,
         harness: Arc::new(LocalShellHarnessAdapter),
-        artifact_repo: sqlite_store.clone(),
-        chunk_repo: sqlite_store.clone(),
-        card_repo: sqlite_store.clone(),
-        evidence_repo: sqlite_store.clone(),
+        artifact_repo: storage.sqlite_store.clone(),
+        chunk_repo: storage.sqlite_store.clone(),
+        card_repo: storage.sqlite_store.clone(),
+        evidence_repo: storage.sqlite_store.clone(),
         embedding_provider,
         web_fetcher: Arc::new(UreqWebFetcher::new()),
-        vector_index,
-        graph_index,
+        vector_index: indexes.vector_index,
+        graph_index: indexes.graph_index,
         search_executor: Some(search_executor),
-        id_allocator: sqlite_store.clone(),
-        effect_journal: sqlite_store.clone(),
-        approval_repo: sqlite_store,
+        id_allocator: storage.sqlite_store.clone(),
+        effect_journal: storage.sqlite_store.clone(),
+        approval_repo: storage.sqlite_store,
     })
 }
 
