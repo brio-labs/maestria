@@ -179,6 +179,7 @@ impl InstanceLifecycle {
     /// Once called, the shutdown token is cancelled. If this future is dropped before the tasks
     /// have joined, shutdown remains in progress but completion is not awaited.
     pub async fn shutdown(mut self) -> Result<()> {
+        self.shutdown_token.cancel();
         if let Some(watcher_task) = self.watcher_task.take() {
             watcher_task
                 .await
