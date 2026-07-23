@@ -1,4 +1,4 @@
-use maestria_core::{CorePorts, CoreServices, OpenChunkEvidenceInput, OpenEvidenceInput};
+use maestria_core::{CoreError, CorePorts, CoreServices, OpenChunkEvidenceInput, OpenEvidenceInput};
 use maestria_domain::{
     Artifact, ArtifactId, Card, CardId, Chunk, ChunkId, Evidence, EvidenceId, EvidenceKind,
     IndexStatus, SourceSpan, StructureNodeId,
