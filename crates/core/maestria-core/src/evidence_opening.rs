@@ -9,13 +9,14 @@ pub(super) fn open_evidence<'a>(
     input: OpenEvidenceInput,
     policy: &maestria_governance::RetrievalSecurityPolicy,
 ) -> CoreResult<OpenEvidenceOutput> {
-    let evidence = ports
-        .evidence
-        .get(input.evidence_id)?
-        .ok_or_else(|| CoreError::NotFoundEntity {
-            kind: "evidence",
-            id: input.evidence_id.to_string(),
-        })?;
+    let evidence =
+        ports
+            .evidence
+            .get(input.evidence_id)?
+            .ok_or_else(|| CoreError::NotFoundEntity {
+                kind: "evidence",
+                id: input.evidence_id.to_string(),
+            })?;
     if policy.evaluate(&evidence.security) != maestria_governance::RetrievalDecision::Allowed {
         return Err(CoreError::NotAvailable {
             kind: "evidence",
@@ -142,9 +143,7 @@ fn verify_source_snapshot(ports: &CorePorts<'_>, evidence: &Evidence) -> CoreRes
     if &actual_hash != expected_hash {
         return Err(CoreError::InvalidEvidence {
             evidence_id: evidence.id.to_string(),
-            reason: format!(
-                "snapshot hash mismatch: expected {expected_hash}, got {actual_hash}"
-            ),
+            reason: format!("snapshot hash mismatch: expected {expected_hash}, got {actual_hash}"),
         });
     }
 

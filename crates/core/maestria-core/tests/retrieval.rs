@@ -201,7 +201,13 @@ fn evidence_opening_rejects_non_indexed_artifacts() -> Result<(), Box<dyn std::e
                 Err(error) => error,
             };
             assert!(
-                matches!(error, CoreError::NotAvailable { kind: "artifact", reason: "not indexed" }),
+                matches!(
+                    error,
+                    CoreError::NotAvailable {
+                        kind: "artifact",
+                        reason: "not indexed"
+                    }
+                ),
                 "expected NotAvailable error for non-indexed artifact, got: {error}"
             );
             Ok(())

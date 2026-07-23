@@ -4,12 +4,28 @@ use maestria_ports::PortError;
 
 #[derive(Debug)]
 pub enum CoreError {
-    InvalidInput { message: String },
-    InvalidEvidence { evidence_id: String, reason: String },
-    InvalidManifest { key: String, reason: String },
-    NotFound { message: String },
-    NotFoundEntity { kind: &'static str, id: String },
-    NotAvailable { kind: &'static str, reason: &'static str },
+    InvalidInput {
+        message: String,
+    },
+    InvalidEvidence {
+        evidence_id: String,
+        reason: String,
+    },
+    InvalidManifest {
+        key: String,
+        reason: String,
+    },
+    NotFound {
+        message: String,
+    },
+    NotFoundEntity {
+        kind: &'static str,
+        id: String,
+    },
+    NotAvailable {
+        kind: &'static str,
+        reason: &'static str,
+    },
     SearchPlan(maestria_governance::SearchPlanValidationError),
     Port(PortError),
 }
@@ -18,7 +34,10 @@ impl fmt::Display for CoreError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::InvalidInput { message } => write!(f, "invalid input: {message}"),
-            Self::InvalidEvidence { evidence_id, reason } => {
+            Self::InvalidEvidence {
+                evidence_id,
+                reason,
+            } => {
                 write!(f, "invalid evidence {evidence_id}: {reason}")
             }
             Self::InvalidManifest { key, reason } => {

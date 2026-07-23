@@ -3,11 +3,22 @@ use std::fmt;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PortError {
     NotFound,
-    Conflict { message: String },
-    InvalidInput { message: String },
-    Downstream { message: String },
-    Internal { message: String },
-    InternalContext { context: &'static str, source: String },
+    Conflict {
+        message: String,
+    },
+    InvalidInput {
+        message: String,
+    },
+    Downstream {
+        message: String,
+    },
+    Internal {
+        message: String,
+    },
+    InternalContext {
+        context: &'static str,
+        source: String,
+    },
 }
 
 impl fmt::Display for PortError {
