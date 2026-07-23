@@ -290,6 +290,11 @@ impl DaemonClient {
         Ok(Self { socket_path, token })
     }
 
+    /// Send an operation to the daemon and return its response.
+    ///
+    /// # Cancellation
+    /// Dropping the future closes the socket and abandons the request. No server-side
+    /// cancellation is guaranteed.
     pub async fn request(&self, operation: ClientOperation) -> Result<ClientResponse> {
         if let ClientOperation::Search { limit, .. } = operation
             && !(1..=MAX_SEARCH_LIMIT).contains(&limit)

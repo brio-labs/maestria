@@ -347,7 +347,7 @@ mod tests {
             embedding_endpoint=https://example.com/v1/embeddings\n\
             embedding_model=remote\nembedding_dimensions=3\n";
         let result = InstanceManifest::decode(contents);
-        assert!(matches!(result, Err(CoreError::InvalidInput { .. })));
+        assert!(matches!(result, Err(CoreError::InvalidManifest { .. })));
     }
 
     #[test]
@@ -355,7 +355,7 @@ mod tests {
         let contents = "schema_version=1\nroot=/tmp/instance\nread_root=/tmp/instance\n\
             excluded_pattern=.env\nembedding_enabled=true\n";
         let result = InstanceManifest::decode(contents);
-        assert!(matches!(result, Err(CoreError::InvalidInput { .. })));
+        assert!(matches!(result, Err(CoreError::InvalidManifest { .. })));
     }
 
     #[test]

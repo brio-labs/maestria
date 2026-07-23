@@ -5,7 +5,6 @@ use maestria_governance::{
     AutonomyProfile, DefaultMemoryPromotionGate, MemoryPromotionDecision, MemoryPromotionGate,
     MemoryPromotionRequest,
 };
-use maestria_ports::IdAllocator;
 use std::path::PathBuf;
 use std::time::Duration;
 use tokio::time::{sleep, timeout};
@@ -57,8 +56,6 @@ pub async fn run_propose(
             return Err(anyhow!("evidence {eid} not found"));
         }
     }
-    let (claim_id, candidate_id) = allocate_ids_with_retry(&layout, Duration::from_secs(5)).await?;
-
     let (runtime, input_tx, input_rx, shutdown_token) = timeout(Duration::from_secs(5), async {
         loop {
             match maestria_daemon::build_runtime(
@@ -76,6 +73,24 @@ pub async fn run_propose(
     })
     .await
     .map_err(|_| anyhow!("timed out while building runtime"))??;
+
+    let (claim_id, candidate_id) = timeout(Duration::from_secs(5), async {
+        loop {
+            match runtime.allocate_memory_proposal_ids() {
+                Ok(ids) => break Ok(ids),
+                Err(error) => {
+                    let error = anyhow::Error::from(error);
+                    if helpers::is_db_locked(&error) {
+                        sleep(Duration::from_millis(25)).await;
+                    } else {
+                        break Err(error).with_context(|| "allocate memory proposal ids");
+                    }
+                }
+            }
+        }
+    })
+    .await
+    .map_err(|_| anyhow!("timed out while allocating memory proposal ids"))??;
     let runtime_task = tokio::spawn(runtime.run(input_rx, shutdown_token.clone()));
 
     let result = async {
@@ -237,36 +252,6 @@ async fn wait_for_memory(
     })
     .await
     .map_err(|_| anyhow!("timed out waiting for promoted memory {memory_id}"))?
-}
-
-async fn allocate_ids_with_retry(
-    layout: &InstanceLayout,
-    timeout_budget: Duration,
-) -> Result<(maestria_domain::ClaimId, maestria_domain::MemoryCandidateId)> {
-    timeout(timeout_budget, async {
-        loop {
-            let result = (|| {
-                let store = maestria_storage_sqlite::SqliteStore::open(&layout.database_path)
-                    .with_context(|| "open sqlite store for id allocation")?;
-                let claim_id = store
-                    .allocate_claim_id()
-                    .map_err(|error| anyhow!("allocate claim id: {error}"))?;
-                let candidate_id = store
-                    .allocate_memory_candidate_id()
-                    .map_err(|error| anyhow!("allocate candidate id: {error}"))?;
-                Ok::<_, anyhow::Error>((claim_id, candidate_id))
-            })();
-            match result {
-                Ok(ids) => return Ok(ids),
-                Err(error) if helpers::is_db_locked(&error) => {
-                    sleep(Duration::from_millis(25)).await;
-                }
-                Err(error) => return Err(error),
-            }
-        }
-    })
-    .await
-    .map_err(|_| anyhow!("timed out while allocating memory proposal ids"))?
 }
 
 async fn wait_for_candidate(

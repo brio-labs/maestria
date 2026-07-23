@@ -1,4 +1,6 @@
-use maestria_core::{CorePorts, CoreServices, OpenChunkEvidenceInput, OpenEvidenceInput};
+use maestria_core::{
+    CoreError, CorePorts, CoreServices, OpenChunkEvidenceInput, OpenEvidenceInput,
+};
 use maestria_domain::{
     Artifact, ArtifactId, Card, CardId, Chunk, ChunkId, Evidence, EvidenceId, EvidenceKind,
     IndexStatus, SourceSpan, StructureNodeId,
@@ -200,7 +202,16 @@ fn evidence_opening_rejects_non_indexed_artifacts() -> Result<(), Box<dyn std::e
                 Ok(_) => return Err("non-indexed evidence unexpectedly opened".into()),
                 Err(error) => error,
             };
-            assert!(error.to_string().contains("not indexed"));
+            assert!(
+                matches!(
+                    error,
+                    CoreError::NotAvailable {
+                        kind: "artifact",
+                        reason: "not indexed"
+                    }
+                ),
+                "expected NotAvailable error for non-indexed artifact, got: {error}"
+            );
             Ok(())
         })?;
     }

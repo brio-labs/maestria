@@ -1,4 +1,5 @@
 use super::*;
+use maestria_domain::{CorpusSnapshotId, IndexGenerationId};
 
 impl SearchRuntime {
     pub(super) fn visual_retriever(
@@ -98,14 +99,7 @@ pub fn prepare_search_runtime_read_only_with_repository_policy(
     )
 }
 
-fn prepare_search_runtime_with_options(
-    layout: &InstanceLayout,
-    state: &KernelState,
-    manifest: &InstanceManifest,
-    retrieval_policy: maestria_governance::RetrievalSecurityPolicy,
-    repository_execution_policy: RepositoryExecutionPolicy,
-    allow_projection_writes: bool,
-) -> Result<Arc<SearchRuntime>> {
+fn open_base_stores(layout: &InstanceLayout) -> Result<(Arc<SqliteStore>, Arc<FsBlobStore>)> {
     let sqlite_store = Arc::new(
         SqliteStore::open(&layout.database_path)
             .with_context(|| format!("open sqlite store {}", layout.database_path.display()))?,
@@ -114,6 +108,14 @@ fn prepare_search_runtime_with_options(
         FsBlobStore::open(&layout.blobs_dir)
             .with_context(|| format!("open blob store {}", layout.blobs_dir.display()))?,
     );
+    Ok((sqlite_store, blob_store))
+}
+
+fn open_full_text_index(
+    layout: &InstanceLayout,
+    state: &KernelState,
+    allow_projection_writes: bool,
+) -> Result<Arc<TantivyFullTextIndex>> {
     let search_index = if allow_projection_writes {
         Arc::new(
             TantivyFullTextIndex::open(&layout.full_text_index_dir).with_context(|| {
@@ -138,33 +140,55 @@ fn prepare_search_runtime_with_options(
     if allow_projection_writes {
         super::projection::ensure_search_index(&search_index, state)?;
     }
-    let repository_code_index = load_repository_code_index_with_exclusions(layout, Some(manifest))
-        .context("load repository code index")?;
-    let embedding_provider = crate::build_embedding_provider(manifest, state)?;
-    let vector_index: Option<Arc<dyn VectorIndex + Send + Sync>> = if embedding_provider.is_some() {
-        Some(Arc::new(
-            SqliteVectorIndex::open(layout.vector_index_dir.join("projection.db")).with_context(
-                || format!("open vector index {}", layout.vector_index_dir.display()),
-            )?,
-        ))
-    } else {
-        None
-    };
-    if allow_projection_writes
-        && let (Some(provider), Some(vector_index)) =
-            (embedding_provider.as_deref(), vector_index.as_deref())
-    {
-        let model = manifest
-            .embeddings
-            .as_ref()
-            .filter(|config| config.enabled)
-            .map(|config| config.model.as_str());
-        if let Err(error) =
-            crate::reconcile_vector_projection(state, vector_index, Some(provider), model)
-        {
-            eprintln!("dense retrieval unavailable; using lexical fallback: {error}");
-        }
+    Ok(search_index)
+}
+
+fn open_vector_index(
+    layout: &InstanceLayout,
+    has_embedding_provider: bool,
+) -> Result<Option<Arc<dyn VectorIndex + Send + Sync>>> {
+    if !has_embedding_provider {
+        return Ok(None);
     }
+    Ok(Some(Arc::new(
+        SqliteVectorIndex::open(layout.vector_index_dir.join("projection.db"))
+            .with_context(|| format!("open vector index {}", layout.vector_index_dir.display()))?,
+    )))
+}
+
+fn maybe_reconcile_vector_projection(
+    state: &KernelState,
+    manifest: &InstanceManifest,
+    embedding_provider: &Option<Arc<dyn maestria_ports::EmbeddingProvider + Send + Sync>>,
+    vector_index: &Option<Arc<dyn VectorIndex + Send + Sync>>,
+    allow_projection_writes: bool,
+) {
+    if !allow_projection_writes {
+        return;
+    }
+    let Some(provider) = embedding_provider.as_deref() else {
+        return;
+    };
+    let Some(vector_index) = vector_index.as_deref() else {
+        return;
+    };
+    let model = manifest
+        .embeddings
+        .as_ref()
+        .filter(|config| config.enabled)
+        .map(|config| config.model.as_str());
+    if let Err(error) =
+        crate::reconcile_vector_projection(state, vector_index, Some(provider), model)
+    {
+        eprintln!("dense retrieval unavailable; using lexical fallback: {error}");
+    }
+}
+
+fn open_graph_index(
+    layout: &InstanceLayout,
+    state: &KernelState,
+    allow_projection_writes: bool,
+) -> Result<Arc<SqliteGraphIndex>> {
     let graph_index = Arc::new(
         SqliteGraphIndex::open(layout.graph_index_dir.join("projection.db"))
             .with_context(|| format!("open graph index {}", layout.graph_index_dir.display()))?,
@@ -173,6 +197,16 @@ fn prepare_search_runtime_with_options(
         crate::reconcile_graph_projection(state, &*graph_index)
             .with_context(|| "reconcile graph projection for search")?;
     }
+    Ok(graph_index)
+}
+
+fn resolve_index_generations(
+    state: &KernelState,
+) -> Result<(
+    IndexGenerationId,
+    CorpusSnapshotId,
+    Option<IndexGenerationId>,
+)> {
     let lexical = state
         .index_generations
         .get_active(&RepresentationName::new("lexical_text_v1"))
@@ -181,6 +215,33 @@ fn prepare_search_runtime_with_options(
         .index_generations
         .get_active(&RepresentationName::new("dense_text_v1"))
         .map(|generation| generation.id);
+    Ok((lexical.id, lexical.corpus_snapshot, dense_generation))
+}
+
+fn prepare_search_runtime_with_options(
+    layout: &InstanceLayout,
+    state: &KernelState,
+    manifest: &InstanceManifest,
+    retrieval_policy: maestria_governance::RetrievalSecurityPolicy,
+    repository_execution_policy: RepositoryExecutionPolicy,
+    allow_projection_writes: bool,
+) -> Result<Arc<SearchRuntime>> {
+    let (sqlite_store, blob_store) = open_base_stores(layout)?;
+    let search_index = open_full_text_index(layout, state, allow_projection_writes)?;
+    let repository_code_index = load_repository_code_index_with_exclusions(layout, Some(manifest))
+        .context("load repository code index")?;
+    let embedding_provider = crate::build_embedding_provider(manifest, state)?;
+    let vector_index = open_vector_index(layout, embedding_provider.is_some())?;
+    maybe_reconcile_vector_projection(
+        state,
+        manifest,
+        &embedding_provider,
+        &vector_index,
+        allow_projection_writes,
+    );
+    let graph_index = open_graph_index(layout, state, allow_projection_writes)?;
+    let (primary_generation, corpus_snapshot, dense_generation) = resolve_index_generations(state)?;
+
     let parts = SearchRuntimeParts {
         artifacts: sqlite_store.clone(),
         cards: sqlite_store.clone(),
@@ -191,11 +252,11 @@ fn prepare_search_runtime_with_options(
         vector_index,
         event_log: sqlite_store.clone(),
         graph_index: Some(graph_index),
-        primary_generation: lexical.id,
+        primary_generation,
         dense_generation,
         repository_code_index,
         repository_execution_policy,
-        corpus_snapshot: lexical.corpus_snapshot,
+        corpus_snapshot,
     };
     Ok(Arc::new(SearchRuntime::from_parts(
         parts,

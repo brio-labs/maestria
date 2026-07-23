@@ -170,6 +170,21 @@ impl EffectExecutionContext {
                 )
                 .await
             }
+            DomainEvent::ApprovalRecorded {
+                approval_id,
+                approved,
+                ..
+            } => match self.adapters.approval_repo.resolve(*approval_id, *approved) {
+                Ok(Some(_)) => true,
+                Ok(None) => {
+                    tracing::warn!(%approval_id, "approval resolution had no pending record");
+                    true
+                }
+                Err(error) => {
+                    tracing::error!(%approval_id, %error, "failed to persist approval resolution");
+                    false
+                }
+            },
             _ => true,
         }
     }
