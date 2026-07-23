@@ -38,7 +38,7 @@ rustup component add --toolchain nightly-2026-06-15 rustfmt clippy rustc-codegen
    ```bash
    python3 scripts/version.py check
    cargo fmt --all -- --check
-   cargo clippy --workspace --all-targets --all-features -- -D warnings -D clippy::too_many_lines -D clippy::cognitive_complexity -D clippy::unwrap_used -D clippy::expect_used -D clippy::panic -D clippy::disallowed_methods
+   bash scripts/strict-clippy.sh
    cargo test --workspace --all-targets --all-features
    bash scripts/release-contract.sh
    cargo test --workspace --doc --all-features
