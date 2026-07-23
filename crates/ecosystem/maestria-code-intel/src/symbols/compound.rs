@@ -62,6 +62,38 @@ pub(crate) fn extract_impl(
     symbols: &mut Vec<SymbolRecord>,
     relation_candidates: &mut Vec<RelationCandidate>,
 ) -> Result<(), crate::CodeIntelError> {
+    let (impl_record, trait_name) = build_impl_record(item, module_stack, context);
+    if let Some(trait_name) = trait_name {
+        relation_candidates.push(RelationCandidate::Implements {
+            source_record_id: impl_record.record_id.clone(),
+            target_qualified: resolve_path_for_scope(&trait_name, module_stack),
+        });
+    }
+    symbols.push(impl_record.clone());
+
+    for impl_item in &item.items {
+        let ImplItem::Fn(method) = impl_item else {
+            continue;
+        };
+        extract_impl_method(
+            method,
+            module_stack,
+            context,
+            &impl_record.name,
+            &impl_record.qualified_name,
+            symbols,
+            relation_candidates,
+        )?;
+    }
+
+    Ok(())
+}
+
+fn build_impl_record(
+    item: &ItemImpl,
+    module_stack: &[String],
+    context: &FileContext,
+) -> (SymbolRecord, Option<String>) {
     let impl_type = resolve_type_name(&item.self_ty);
     let impl_range = source_range(item);
     let impl_name = qualify(module_stack, &impl_type);
@@ -72,8 +104,8 @@ pub(crate) fn extract_impl(
             .collect::<Vec<_>>()
             .join("::")
     });
-    let signature = match trait_name {
-        Some(ref trait_name) => format!("impl {trait_name} for {impl_type}"),
+    let signature = match &trait_name {
+        Some(trait_name) => format!("impl {trait_name} for {impl_type}"),
         None => format!("impl {impl_type}"),
     };
 
@@ -82,7 +114,7 @@ pub(crate) fn extract_impl(
         package: context.package.to_string(),
         target: context.target.to_string(),
         kind: SymbolKind::Impl,
-        name: impl_type.clone(),
+        name: impl_type,
         qualified_name: impl_name,
         visibility: Visibility::Private,
         is_public_api: false,
@@ -95,72 +127,71 @@ pub(crate) fn extract_impl(
         markers: context.file_markers.clone(),
         provenance: provenance(context, impl_range),
     };
-    if let Some(trait_name) = trait_name {
-        relation_candidates.push(RelationCandidate::Implements {
-            source_record_id: impl_record.record_id.clone(),
-            target_qualified: resolve_path_for_scope(&trait_name, module_stack),
-        });
-    }
-    symbols.push(impl_record);
+    (impl_record, trait_name)
+}
 
-    for impl_item in &item.items {
-        let ImplItem::Fn(method) = impl_item else {
-            continue;
-        };
-        let mut method_stack = module_stack.to_vec();
-        method_stack.push(impl_type.clone());
-        let method_name = method.sig.ident.to_string();
-        let method_qualified = qualify(&method_stack, &method_name);
-        let mut probe = FunctionProbe::new(context, &method_qualified);
-        probe.visit_signature(&method.sig);
-        probe.visit_block(&method.block);
-        let mut markers = declaration_markers(&method.attrs, &context.file_markers);
-        markers.axum_routes = dedupe_strings(
-            markers
-                .axum_routes
-                .into_iter()
-                .chain(probe.axum_routes)
-                .collect(),
-        );
-        markers.sqlx_queries = dedupe_strings(probe.sqlx_queries);
-        let method_range = source_range(method);
-        let record = SymbolRecord {
-            record_id: record_id(
-                &method_qualified,
-                SymbolKind::Method,
-                &method_range,
-                context,
-            ),
-            package: context.package.to_string(),
-            target: context.target.to_string(),
-            kind: SymbolKind::Method,
-            name: method_name,
-            qualified_name: method_qualified.clone(),
-            visibility: to_visibility(&method.vis),
-            is_public_api: is_public_api(&method.vis),
-            is_async: method.sig.asyncness.is_some(),
-            is_unsafe: method.sig.unsafety.is_some() || probe.had_unsafe,
-            is_test: attr_test(&method.attrs) || context.is_test_target,
-            is_bench: attr_bench(&method.attrs) || context.is_bench_target,
-            signature: Some(signature_text(&method.sig)),
-            imports: Vec::new(),
-            markers,
-            provenance: provenance(context, method_range),
-        };
-        relation_candidates.push(RelationCandidate::Defines {
-            source_module_qualified: qualify(module_stack, &impl_type),
-            target_record_id: record.record_id.clone(),
-        });
-        symbols.push(record.clone());
-        symbols.extend(probe.unsafe_records);
-        emit_call_candidates(
-            record.record_id,
-            method_qualified,
-            probe.call_targets,
-            relation_candidates,
-        );
-    }
-
+fn extract_impl_method(
+    method: &syn::ImplItemFn,
+    module_stack: &[String],
+    context: &FileContext,
+    impl_type: &str,
+    impl_qualified: &str,
+    symbols: &mut Vec<SymbolRecord>,
+    relation_candidates: &mut Vec<RelationCandidate>,
+) -> Result<(), crate::CodeIntelError> {
+    let mut method_stack = module_stack.to_vec();
+    method_stack.push(impl_type.to_string());
+    let method_name = method.sig.ident.to_string();
+    let method_qualified = qualify(&method_stack, &method_name);
+    let mut probe = FunctionProbe::new(context, &method_qualified);
+    probe.visit_signature(&method.sig);
+    probe.visit_block(&method.block);
+    let mut markers = declaration_markers(&method.attrs, &context.file_markers);
+    markers.axum_routes = dedupe_strings(
+        markers
+            .axum_routes
+            .into_iter()
+            .chain(probe.axum_routes)
+            .collect(),
+    );
+    markers.sqlx_queries = dedupe_strings(probe.sqlx_queries);
+    let method_range = source_range(method);
+    let record = SymbolRecord {
+        record_id: record_id(
+            &method_qualified,
+            SymbolKind::Method,
+            &method_range,
+            context,
+        ),
+        package: context.package.to_string(),
+        target: context.target.to_string(),
+        kind: SymbolKind::Method,
+        name: method_name,
+        qualified_name: method_qualified.clone(),
+        visibility: to_visibility(&method.vis),
+        is_public_api: is_public_api(&method.vis),
+        is_async: method.sig.asyncness.is_some(),
+        is_unsafe: method.sig.unsafety.is_some() || probe.had_unsafe,
+        is_test: attr_test(&method.attrs) || context.is_test_target,
+        is_bench: attr_bench(&method.attrs) || context.is_bench_target,
+        signature: Some(signature_text(&method.sig)),
+        imports: Vec::new(),
+        markers,
+        provenance: provenance(context, method_range),
+    };
+    relation_candidates.push(RelationCandidate::Defines {
+        source_module_qualified: impl_qualified.to_string(),
+        target_record_id: record.record_id.clone(),
+    });
+    let record_id = record.record_id.clone();
+    symbols.push(record);
+    symbols.extend(probe.unsafe_records);
+    emit_call_candidates(
+        record_id,
+        method_qualified,
+        probe.call_targets,
+        relation_candidates,
+    );
     Ok(())
 }
 
