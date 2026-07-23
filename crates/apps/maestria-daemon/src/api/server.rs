@@ -11,6 +11,7 @@ use tokio::{
     time::{Duration, timeout},
 };
 use tokio_util::sync::CancellationToken;
+use tracing::error;
 
 use super::protocol::ClientRequest;
 use super::{
@@ -88,7 +89,9 @@ async fn serve(listener: UnixListener, context: Arc<ApiContext>, shutdown: Cance
                 let context = context.clone();
                 tokio::spawn(async move {
                     let _permit = permit;
-                    let _ = handle_connection(stream, context).await;
+                    if let Err(error) = handle_connection(stream, context).await {
+                        error!(%error, "api connection handler failed");
+                    }
                 });
             }
         }
