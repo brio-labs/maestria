@@ -138,16 +138,7 @@ fn try_tagged_region(
     geometry: PageGeometry,
     page: u32,
 ) -> Option<PendingRegion> {
-    let name = match operation.operands.first() {
-        Some(operand) => match operand.as_name() {
-            Ok(name) => match std::str::from_utf8(name) {
-                Ok(s) => s,
-                Err(_) => return None,
-            },
-            Err(_) => return None,
-        },
-        None => return None,
-    };
+    let name = std::str::from_utf8(operation.operands.first()?.as_name().ok()?).ok()?;
     let node_type = if name.eq_ignore_ascii_case("figure") {
         Some(StructureNodeType::Figure)
     } else if name.eq_ignore_ascii_case("table") || name.eq_ignore_ascii_case("table-cell") {

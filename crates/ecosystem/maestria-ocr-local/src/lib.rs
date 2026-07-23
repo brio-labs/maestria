@@ -229,7 +229,7 @@ mod tests {
     }
 
     #[test]
-    fn rejects_empty_pages() {
+    fn rejects_empty_pages() -> Result<(), PortError> {
         let provider = LocalHttpOcrProvider::with_parts(
             "http://127.0.0.1:10000/v1/chat/completions",
             "Unlimited-OCR",
@@ -238,8 +238,7 @@ mod tests {
             Arc::new(FixtureTransport {
                 requests: Mutex::new(Vec::new()),
             }),
-        )
-        .unwrap();
+        )?;
         let result = provider.recognize(OcrRequest {
             file: FileHandle {
                 path: PathBuf::from("scan.pdf"),
@@ -251,10 +250,11 @@ mod tests {
             matches!(result, Err(PortError::InvalidInput { .. })),
             "expected InvalidInput for empty pages, got {result:?}"
         );
+        Ok(())
     }
 
     #[test]
-    fn propagates_transport_error() {
+    fn propagates_transport_error() -> Result<(), PortError> {
         let provider = LocalHttpOcrProvider::with_parts(
             "http://127.0.0.1:10000/v1/chat/completions",
             "Unlimited-OCR",
@@ -265,8 +265,7 @@ mod tests {
                     message: "ocr transport failed".to_string(),
                 },
             }),
-        )
-        .unwrap();
+        )?;
         let result = provider.recognize(OcrRequest {
             file: FileHandle {
                 path: PathBuf::from("scan.pdf"),
@@ -278,10 +277,11 @@ mod tests {
             matches!(result, Err(PortError::Downstream { .. })),
             "expected Downstream error, got {result:?}"
         );
+        Ok(())
     }
 
     #[test]
-    fn rejects_malformed_json_response() {
+    fn rejects_malformed_json_response() -> Result<(), PortError> {
         struct MalformedTransport;
 
         impl OcrTransport for MalformedTransport {
@@ -296,8 +296,7 @@ mod tests {
             identity(),
             Arc::new(FixtureRasterizer),
             Arc::new(MalformedTransport),
-        )
-        .unwrap();
+        )?;
         let result = provider.recognize(OcrRequest {
             file: FileHandle {
                 path: PathBuf::from("scan.pdf"),
@@ -309,6 +308,7 @@ mod tests {
             matches!(result, Err(PortError::Downstream { .. })),
             "expected Downstream error for malformed JSON, got {result:?}"
         );
+        Ok(())
     }
 
     #[test]

@@ -146,10 +146,7 @@ impl PdfTransform {
 }
 
 pub(super) fn as_float_opt(object: &lopdf::Object) -> Option<f32> {
-    match object.as_float() {
-        Ok(f) => Some(f),
-        Err(_) => None,
-    }
+    object.as_float().ok()
 }
 
 pub(super) fn transform_from_operands(values: &[lopdf::Object]) -> Option<PdfTransform> {
