@@ -134,6 +134,19 @@ impl MaestriaRuntime {
         self.state.read().await.clone()
     }
 
+    /// Allocate a claim ID and a memory-candidate ID through the
+    /// runtime's configured `IdAllocator`.
+    pub fn allocate_memory_proposal_ids(
+        &self,
+    ) -> Result<
+        (maestria_domain::ClaimId, maestria_domain::MemoryCandidateId),
+        maestria_ports::PortError,
+    > {
+        let claim_id = self.adapters.id_allocator.allocate_claim_id()?;
+        let candidate_id = self.adapters.id_allocator.allocate_memory_candidate_id()?;
+        Ok((claim_id, candidate_id))
+    }
+
     /// Runs the domain-input loop until the shutdown token is cancelled or
     /// the input channel closes.
     ///
