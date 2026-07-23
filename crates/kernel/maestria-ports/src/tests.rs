@@ -1,7 +1,10 @@
 use super::contract_tests::*;
 use super::graph_contract_tests::assert_graph_index_contract;
 use super::*;
-use maestria_domain::{EvidenceKind, LogicalTick, ValidationReportId};
+use maestria_domain::{
+    ArtifactId, DomainEvent, DomainEventEnvelope, Evidence, EvidenceId, EvidenceKind, LogicalTick,
+    RelationEndpoint, ValidationReportId,
+};
 use std::path::PathBuf;
 
 #[test]

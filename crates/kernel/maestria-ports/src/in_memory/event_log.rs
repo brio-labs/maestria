@@ -1,6 +1,7 @@
 use std::sync::{Arc, Mutex};
 
-use crate::{DomainEvent, DomainEventEnvelope, EventFilter, PortError};
+use crate::{EventFilter, PortError};
+use maestria_domain::{DomainEvent, DomainEventEnvelope};
 
 #[derive(Clone, Default)]
 pub struct InMemoryEventLog {

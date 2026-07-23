@@ -17,7 +17,7 @@ pub trait FullTextIndex: Send + Sync {
     fn search_filtered(
         &self,
         query: SearchQuery,
-        filter: &dyn Fn(crate::ChunkId, ArtifactId) -> bool,
+        filter: &dyn Fn(maestria_domain::ChunkId, ArtifactId) -> bool,
     ) -> Result<Vec<SearchHit>, PortError> {
         let _ = (query, filter);
         Err(PortError::Internal {
@@ -98,7 +98,7 @@ pub trait FullTextIndex: Send + Sync {
     fn search_lexical_filtered(
         &self,
         query: LexicalQuery<ChunkField>,
-        filter: &dyn Fn(crate::ChunkId, ArtifactId) -> bool,
+        filter: &dyn Fn(maestria_domain::ChunkId, ArtifactId) -> bool,
     ) -> Result<Vec<LexicalChunkHit>, PortError> {
         let _ = (query, filter);
         Err(PortError::Internal {

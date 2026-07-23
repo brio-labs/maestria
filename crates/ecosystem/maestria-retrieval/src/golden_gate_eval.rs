@@ -107,16 +107,20 @@ impl GoldenGate {
                 | maestria_domain::SearchStatus::QuarantinedForReview
         );
         if !empty_expected {
-            let recall = report
-                .recall_at_k
-                .get(&self.k)
-                .copied()
-                .map_or(Metric::ZERO, |value| value);
-            let ndcg = report
-                .ndcg_at_k
-                .get(&self.k)
-                .copied()
-                .map_or(Metric::ZERO, |value| value);
+            let recall = match report.recall_at_k.get(&self.k).copied() {
+                Some(value) => value,
+                None => {
+                    let _ = ();
+                    Metric::ZERO
+                }
+            };
+            let ndcg = match report.ndcg_at_k.get(&self.k).copied() {
+                Some(value) => value,
+                None => {
+                    let _ = ();
+                    Metric::ZERO
+                }
+            };
             let checks = [
                 (recall < self.config.min_recall_at_k, "Recall@k"),
                 (ndcg < self.config.min_ndcg_at_k, "nDCG@k"),

@@ -79,20 +79,27 @@ async fn execute_impl(request: HarnessRequest) -> Result<HarnessOutcome, PortErr
         Ok(d) => d,
         Err(_) => std::time::Duration::ZERO,
     };
-    let exit_code = status.code().map_or(
-        {
+    let exit_code = match status.code() {
+        Some(c) => c,
+        None => {
             #[cfg(unix)]
             {
                 use std::os::unix::process::ExitStatusExt;
-                status.signal().map_or(-1, |s| 128 + s)
+                match status.signal() {
+                    Some(s) => 128 + s,
+                    None => {
+                        let _ = ();
+                        -1
+                    }
+                }
             }
             #[cfg(not(unix))]
             {
+                let _ = ();
                 -1
             }
-        },
-        |c| c,
-    );
+        }
+    };
 
     Ok(HarnessOutcome {
         run_id: request.run_id,

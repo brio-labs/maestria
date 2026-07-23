@@ -3,7 +3,8 @@ use std::time::Duration;
 
 use super::*;
 use maestria_domain::{
-    ArtifactId, ChunkId, ClaimId, ContentRange, EventId, EvidenceKind, LogicalTick, SequenceNumber,
+    Artifact, ArtifactId, BlobId, Card, CardId, Chunk, ChunkId, ClaimId, ContentRange, DomainEvent,
+    DomainEventEnvelope, EventId, Evidence, EvidenceId, EvidenceKind, LogicalTick, SequenceNumber,
     ValidationReportId,
 };
 

@@ -55,16 +55,28 @@ pub(super) fn metrics_for(
             selected.len(),
         ),
         p95_latency_ms: latencies[p95_index],
-        peak_memory_bytes: selected
+        peak_memory_bytes: match selected
             .iter()
             .map(|observation| observation.memory_bytes)
             .max()
-            .map_or(0, |value| value),
-        peak_disk_bytes: selected
+        {
+            Some(value) => value,
+            None => {
+                let _ = ();
+                0
+            }
+        },
+        peak_disk_bytes: match selected
             .iter()
             .map(|observation| observation.disk_bytes)
             .max()
-            .map_or(0, |value| value),
+        {
+            Some(value) => value,
+            None => {
+                let _ = ();
+                0
+            }
+        },
         energy_millijoules: selected.iter().fold(0_u64, |total, observation| {
             total.saturating_add(observation.energy_millijoules)
         }),

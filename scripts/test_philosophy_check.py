@@ -297,32 +297,44 @@ class PhilosophyCheckTests(unittest.TestCase):
     def test_exemption_expiry_is_enforced_at_target_version(self) -> None:
         old_module = PHILOSOPHY_CHECK.MODULE_SIZE_EXEMPTIONS
         old_adr = PHILOSOPHY_CHECK.ADR_MODULE_EXEMPTIONS
+        old_fn = PHILOSOPHY_CHECK.FUNCTION_SIZE_EXEMPTIONS
+        old_mixed = PHILOSOPHY_CHECK.MIXED_RESPONSIBILITY_EXEMPTIONS
         try:
             PHILOSOPHY_CHECK.MODULE_SIZE_EXEMPTIONS = {
                 "crates/example/src/large.rs": "v0.7.0",
             }
             PHILOSOPHY_CHECK.ADR_MODULE_EXEMPTIONS = {}
+            PHILOSOPHY_CHECK.FUNCTION_SIZE_EXEMPTIONS = {}
+            PHILOSOPHY_CHECK.MIXED_RESPONSIBILITY_EXEMPTIONS = {}
             self.assertEqual(PHILOSOPHY_CHECK.scan_exemption_expiry("0.6.1"), [])
             self.assertEqual(len(PHILOSOPHY_CHECK.scan_exemption_expiry("0.7.0")), 1)
             self.assertEqual(len(PHILOSOPHY_CHECK.scan_exemption_expiry("0.8.0")), 1)
         finally:
             PHILOSOPHY_CHECK.MODULE_SIZE_EXEMPTIONS = old_module
             PHILOSOPHY_CHECK.ADR_MODULE_EXEMPTIONS = old_adr
+            PHILOSOPHY_CHECK.FUNCTION_SIZE_EXEMPTIONS = old_fn
+            PHILOSOPHY_CHECK.MIXED_RESPONSIBILITY_EXEMPTIONS = old_mixed
 
     def test_exemption_expiry_rejects_malformed_target(self) -> None:
         old_module = PHILOSOPHY_CHECK.MODULE_SIZE_EXEMPTIONS
         old_adr = PHILOSOPHY_CHECK.ADR_MODULE_EXEMPTIONS
+        old_fn = PHILOSOPHY_CHECK.FUNCTION_SIZE_EXEMPTIONS
+        old_mixed = PHILOSOPHY_CHECK.MIXED_RESPONSIBILITY_EXEMPTIONS
         try:
             PHILOSOPHY_CHECK.MODULE_SIZE_EXEMPTIONS = {
                 "crates/example/src/large.rs": "v0.7",
             }
             PHILOSOPHY_CHECK.ADR_MODULE_EXEMPTIONS = {}
+            PHILOSOPHY_CHECK.FUNCTION_SIZE_EXEMPTIONS = {}
+            PHILOSOPHY_CHECK.MIXED_RESPONSIBILITY_EXEMPTIONS = {}
             violations = PHILOSOPHY_CHECK.scan_exemption_expiry("0.6.1")
             self.assertEqual(len(violations), 1)
             self.assertIn("malformed", violations[0])
         finally:
             PHILOSOPHY_CHECK.MODULE_SIZE_EXEMPTIONS = old_module
             PHILOSOPHY_CHECK.ADR_MODULE_EXEMPTIONS = old_adr
+            PHILOSOPHY_CHECK.FUNCTION_SIZE_EXEMPTIONS = old_fn
+            PHILOSOPHY_CHECK.MIXED_RESPONSIBILITY_EXEMPTIONS = old_mixed
 
     def test_workspace_version_reads_workspace_package(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -447,6 +459,132 @@ class PhilosophyCheckTests(unittest.TestCase):
         self.assertIn("//! doc comment", result)
         self.assertNotIn("// normal comment", result)
         self.assertIn("pub fn foo", result)
+
+    def test_scan_rust_lint_bypasses_reports_expect_attribute(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.configure_root(root)
+            source = root / "crates" / "apps" / "example" / "src" / "lib.rs"
+            source.parent.mkdir(parents=True)
+            source.write_text("#[expect(dead_code)]\nfn example() {}\n", encoding="utf-8")
+
+            self.assertEqual(
+                PHILOSOPHY_CHECK.scan_rust_lint_bypasses(),
+                ["crates/apps/example/src/lib.rs"],
+            )
+
+    def test_scan_function_sizes_reports_oversized_function(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.configure_root(root)
+            source = root / "crates" / "apps" / "example" / "src" / "logic.rs"
+            source.parent.mkdir(parents=True)
+            body = "\n".join(f"    let _ = {i};" for i in range(101))
+            source.write_text(f"pub fn big() {{\n{body}\n}}\n", encoding="utf-8")
+
+            violations = PHILOSOPHY_CHECK.scan_function_sizes()
+            self.assertEqual(len(violations), 1)
+            self.assertIn("function `big` has 101 logical lines", violations[0])
+
+    def test_scan_function_sizes_skips_test_sources(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.configure_root(root)
+            source = root / "crates" / "apps" / "example" / "tests" / "integration.rs"
+            source.parent.mkdir(parents=True)
+            body = "\n".join(f"    let _ = {i};" for i in range(100))
+            source.write_text(f"fn big() {{\n{body}\n}}\n", encoding="utf-8")
+
+            self.assertEqual(PHILOSOPHY_CHECK.scan_function_sizes(), [])
+
+    def test_scan_function_sizes_respects_exemptions(self) -> None:
+        old_exemptions = PHILOSOPHY_CHECK.FUNCTION_SIZE_EXEMPTIONS
+        try:
+            PHILOSOPHY_CHECK.FUNCTION_SIZE_EXEMPTIONS = {
+                "crates/apps/example/src/logic.rs": "v0.9.0",
+            }
+            with tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                self.configure_root(root)
+                source = root / "crates" / "apps" / "example" / "src" / "logic.rs"
+                source.parent.mkdir(parents=True)
+                body = "\n".join(f"    let _ = {i};" for i in range(100))
+                source.write_text(f"pub fn big() {{\n{body}\n}}\n", encoding="utf-8")
+
+                self.assertEqual(PHILOSOPHY_CHECK.scan_function_sizes(), [])
+        finally:
+            PHILOSOPHY_CHECK.FUNCTION_SIZE_EXEMPTIONS = old_exemptions
+
+    def test_scan_mixed_responsibilities_flags_large_multi_mod_file(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.configure_root(root)
+            source = root / "crates" / "apps" / "example" / "src" / "orchestrator.rs"
+            source.parent.mkdir(parents=True)
+            lines = ["mod a;", "mod b;", "mod c;"]
+            lines.extend(f"pub fn item_{i}() {{}}" for i in range(300))
+            source.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+            violations = PHILOSOPHY_CHECK.scan_mixed_responsibilities()
+            self.assertEqual(len(violations), 1)
+            self.assertIn("mixed-responsibility signal", violations[0])
+
+    def test_scan_mixed_responsibilities_skips_lib_rs(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.configure_root(root)
+            source = root / "crates" / "apps" / "example" / "src" / "lib.rs"
+            source.parent.mkdir(parents=True)
+            lines = ["mod a;", "mod b;", "mod c;"]
+            lines.extend(f"pub fn item_{i}() {{}}" for i in range(300))
+            source.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+            self.assertEqual(PHILOSOPHY_CHECK.scan_mixed_responsibilities(), [])
+
+    def test_scan_mixed_responsibilities_respects_exemptions(self) -> None:
+        old_exemptions = PHILOSOPHY_CHECK.MIXED_RESPONSIBILITY_EXEMPTIONS
+        try:
+            PHILOSOPHY_CHECK.MIXED_RESPONSIBILITY_EXEMPTIONS = {
+                "crates/apps/example/src/orchestrator.rs": "v0.9.0",
+            }
+            with tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                self.configure_root(root)
+                source = root / "crates" / "apps" / "example" / "src" / "orchestrator.rs"
+                source.parent.mkdir(parents=True)
+                lines = ["mod a;", "mod b;", "mod c;"]
+                lines.extend(f"pub fn item_{i}() {{}}" for i in range(300))
+                source.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+                self.assertEqual(PHILOSOPHY_CHECK.scan_mixed_responsibilities(), [])
+        finally:
+            PHILOSOPHY_CHECK.MIXED_RESPONSIBILITY_EXEMPTIONS = old_exemptions
+
+    def test_exemption_expiry_covers_function_and_mixed_responsibility_exemptions(self) -> None:
+        old_fn = PHILOSOPHY_CHECK.FUNCTION_SIZE_EXEMPTIONS
+        old_mixed = PHILOSOPHY_CHECK.MIXED_RESPONSIBILITY_EXEMPTIONS
+        try:
+            PHILOSOPHY_CHECK.FUNCTION_SIZE_EXEMPTIONS = {
+                "crates/example/src/large_fn.rs": "v0.6.0",
+            }
+            PHILOSOPHY_CHECK.MIXED_RESPONSIBILITY_EXEMPTIONS = {
+                "crates/example/src/mixed.rs": "v0.6.0",
+            }
+            PHILOSOPHY_CHECK.MODULE_SIZE_EXEMPTIONS = {}
+            PHILOSOPHY_CHECK.ADR_MODULE_EXEMPTIONS = {}
+            violations = PHILOSOPHY_CHECK.scan_exemption_expiry("0.7.0")
+            self.assertEqual(len(violations), 2)
+            paths = {v.split()[0] for v in violations}
+            self.assertEqual(
+                paths,
+                {
+                    "crates/example/src/large_fn.rs",
+                    "crates/example/src/mixed.rs",
+                },
+            )
+        finally:
+            PHILOSOPHY_CHECK.FUNCTION_SIZE_EXEMPTIONS = old_fn
+            PHILOSOPHY_CHECK.MIXED_RESPONSIBILITY_EXEMPTIONS = old_mixed
 
 
 if __name__ == "__main__":

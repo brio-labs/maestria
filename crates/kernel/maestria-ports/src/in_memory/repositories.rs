@@ -3,8 +3,9 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use crate::{Artifact, ArtifactId, Card, CardId, Chunk, ChunkId, Evidence, EvidenceId, PortError};
+use crate::PortError;
 use maestria_domain::{ApprovalId, TaskId};
+use maestria_domain::{Artifact, ArtifactId, Card, CardId, Chunk, ChunkId, Evidence, EvidenceId};
 
 // ── ArtifactRepository ──────────────────────────────────────────────
 

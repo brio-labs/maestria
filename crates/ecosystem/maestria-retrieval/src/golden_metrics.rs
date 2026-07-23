@@ -85,10 +85,13 @@ fn ndcg(
         .iter()
         .enumerate()
         .map(|(rank, candidate)| {
-            let score = relevance
-                .get(&candidate.evidence_id)
-                .copied()
-                .map_or(0, |value| value);
+            let score = match relevance.get(&candidate.evidence_id).copied() {
+                Some(value) => value,
+                None => {
+                    let _ = ();
+                    0
+                }
+            };
             (2f64.powi(i32::from(score)) - 1.0) / ((rank + 2) as f64).log2()
         })
         .sum::<f64>();

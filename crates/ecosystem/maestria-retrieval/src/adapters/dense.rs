@@ -175,7 +175,13 @@ impl CandidateRetriever for DenseChunkRetriever {
                 identity,
             })
             .map_err(port_error)?;
-        let limit = u32::try_from(request.query.limit).map_or(u32::MAX, |value| value);
+        let limit = match u32::try_from(request.query.limit) {
+            Ok(value) => value,
+            Err(e) => {
+                let _ = e;
+                u32::MAX
+            }
+        };
         self.retrieve_with_vector(
             request,
             VectorSearchQuery {

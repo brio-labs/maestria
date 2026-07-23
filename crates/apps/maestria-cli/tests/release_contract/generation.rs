@@ -68,14 +68,20 @@ fn respond_to_embedding_request(stream: &mut TcpStream) -> Result<(), std::io::E
         }
     };
     let headers = String::from_utf8_lossy(&request[..header_end]);
-    let content_length = headers
+    let content_length = match headers
         .lines()
         .find_map(|line| {
             line.strip_prefix("Content-Length:")
                 .or_else(|| line.strip_prefix("content-length:"))
         })
         .and_then(|value| value.trim().parse::<usize>().ok())
-        .map_or(0, |value| value);
+    {
+        Some(value) => value,
+        None => {
+            let _ = ();
+            0
+        }
+    };
     while request.len() < header_end.saturating_add(content_length) {
         let read = stream.read(&mut buffer)?;
         if read == 0 {

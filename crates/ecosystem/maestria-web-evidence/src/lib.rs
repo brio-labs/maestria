@@ -115,10 +115,16 @@ fn attribute_value(tag: &str, attribute: &str) -> Option<String> {
             (value_start, value_end, value_end.saturating_add(1))
         } else {
             let value_start = index;
-            let value_length = bytes[value_start..]
+            let value_length = match bytes[value_start..]
                 .iter()
                 .position(|byte| byte.is_ascii_whitespace() || *byte == b'>')
-                .map_or(bytes.len().saturating_sub(value_start), |length| length);
+            {
+                Some(length) => length,
+                None => {
+                    let _ = ();
+                    bytes.len().saturating_sub(value_start)
+                }
+            };
             let value_end = value_start.saturating_add(value_length);
             (value_start, value_end, value_end)
         };

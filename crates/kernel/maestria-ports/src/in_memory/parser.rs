@@ -1,7 +1,8 @@
 use crate::{
-    ChunkId, DocumentTree, FileHandle, FileMetadata, ParseContext, ParseStatus, ParsedArtifact,
-    ParsedChunk, ParsedRepresentation, Parser, PortError, RepresentationKind, SourceSpan,
+    DocumentTree, FileHandle, FileMetadata, ParseContext, ParseStatus, ParsedArtifact, ParsedChunk,
+    ParsedRepresentation, Parser, PortError, RepresentationKind, SourceSpan,
 };
+use maestria_domain::ChunkId;
 use maestria_domain::{
     ArtifactVersionId, ContentHash, ContentRange, StructureNode, StructureNodeId, StructureNodeType,
 };

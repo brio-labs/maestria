@@ -76,10 +76,13 @@ impl CardRepository for crate::SqliteStore {
 
 fn read_card(row: &Row<'_>, connection: &Connection) -> Result<Card, PortError> {
     let id = CardId::new(i64_to_u64(row.get::<_, i64>(0).map_err(to_port_error)?)?);
-    let node_id = row
-        .get::<_, Option<i64>>(4)
-        .map_err(to_port_error)?
-        .map_or(0, |value| value);
+    let node_id = match row.get::<_, Option<i64>>(4).map_err(to_port_error)? {
+        Some(value) => value,
+        None => {
+            let _ = ();
+            0
+        }
+    };
     let source_span_json = row.get::<_, Option<String>>(5).map_err(to_port_error)?;
     let source_span = if let Some(json) = source_span_json {
         serde_json::from_str::<crate::payloads::provenance_payloads::StoredSourceSpan>(&json)

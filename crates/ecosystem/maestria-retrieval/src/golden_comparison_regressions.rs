@@ -15,29 +15,37 @@ pub(super) fn per_query_regressions(
             ));
             continue;
         }
-        let baseline_recall = baseline
-            .recall_at_k
-            .get(&k)
-            .copied()
-            .map_or(Metric::ZERO, |value| value);
-        let candidate_recall = candidate
-            .recall_at_k
-            .get(&k)
-            .copied()
-            .map_or(Metric::ZERO, |value| value);
+        let baseline_recall = match baseline.recall_at_k.get(&k).copied() {
+            Some(value) => value,
+            None => {
+                let _ = ();
+                Metric::ZERO
+            }
+        };
+        let candidate_recall = match candidate.recall_at_k.get(&k).copied() {
+            Some(value) => value,
+            None => {
+                let _ = ();
+                Metric::ZERO
+            }
+        };
         if candidate_recall < baseline_recall {
             regressions.push(format!("query {} recall_at_k", baseline.query_id.value()));
         }
-        let baseline_ndcg = baseline
-            .ndcg_at_k
-            .get(&k)
-            .copied()
-            .map_or(Metric::ZERO, |value| value);
-        let candidate_ndcg = candidate
-            .ndcg_at_k
-            .get(&k)
-            .copied()
-            .map_or(Metric::ZERO, |value| value);
+        let baseline_ndcg = match baseline.ndcg_at_k.get(&k).copied() {
+            Some(value) => value,
+            None => {
+                let _ = ();
+                Metric::ZERO
+            }
+        };
+        let candidate_ndcg = match candidate.ndcg_at_k.get(&k).copied() {
+            Some(value) => value,
+            None => {
+                let _ = ();
+                Metric::ZERO
+            }
+        };
         if candidate_ndcg < baseline_ndcg {
             regressions.push(format!("query {} ndcg_at_k", baseline.query_id.value()));
         }

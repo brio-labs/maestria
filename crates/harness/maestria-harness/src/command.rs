@@ -12,7 +12,13 @@ pub(crate) fn reject_metachar(arg: &str) -> Result<(), PortError> {
         return Err(PortError::InvalidInput {
             message: format!(
                 "forbidden metacharacter {:?} at offset {} in {:?}",
-                arg.chars().nth(pos).map_or('?', |c| c),
+                match arg.chars().nth(pos) {
+                    Some(c) => c,
+                    None => {
+                        let _ = ();
+                        '?'
+                    }
+                },
                 pos,
                 arg
             ),

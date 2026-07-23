@@ -68,10 +68,13 @@ impl ChunkRepository for crate::SqliteStore {
 
 fn read_chunk(row: &Row<'_>) -> Result<Chunk, PortError> {
     let order = i64_to_u32(row.get::<_, i64>(2).map_err(to_port_error)?)?;
-    let node_id = row
-        .get::<_, Option<i64>>(4)
-        .map_err(to_port_error)?
-        .map_or(0, |value| value);
+    let node_id = match row.get::<_, Option<i64>>(4).map_err(to_port_error)? {
+        Some(value) => value,
+        None => {
+            let _ = ();
+            0
+        }
+    };
     let source_span_json = row.get::<_, Option<String>>(5).map_err(to_port_error)?;
     let source_span = if let Some(json) = source_span_json {
         serde_json::from_str::<crate::payloads::provenance_payloads::StoredSourceSpan>(&json)

@@ -1,29 +1,12 @@
+mod common;
+
 use std::error::Error;
 use std::path::PathBuf;
 
+use common::*;
 use maestria_domain::ArtifactId;
 use maestria_parsers::*;
-use maestria_ports::contract_tests::assert_parser_round_trip;
 use maestria_ports::{FileHandle, ParseContext, Parser};
-
-fn assert_debug_snapshot<T: std::fmt::Debug>(
-    name: &str,
-    value: &T,
-    function_name: &str,
-    expression: &str,
-    assertion_line: u32,
-) -> Result<(), Box<dyn Error>> {
-    let rendered = format!("{value:#?}");
-    insta::_macro_support::assert_snapshot(
-        (name.to_owned(), rendered.as_str()).into(),
-        insta::_get_workspace_root!().as_path(),
-        function_name,
-        module_path!(),
-        file!(),
-        assertion_line,
-        expression,
-    )
-}
 
 #[test]
 fn markdown_golden_snapshot() -> Result<(), Box<dyn Error>> {
@@ -42,6 +25,8 @@ fn markdown_golden_snapshot() -> Result<(), Box<dyn Error>> {
         "markdown_parsed",
         &parsed,
         concat!(module_path!(), "::markdown_golden_snapshot"),
+        module_path!(),
+        file!(),
         stringify!(&parsed),
         line!(),
     )?;
@@ -64,6 +49,8 @@ fn plain_text_golden_snapshot() -> Result<(), Box<dyn Error>> {
         "plain_text_parsed",
         &parsed,
         concat!(module_path!(), "::plain_text_golden_snapshot"),
+        module_path!(),
+        file!(),
         stringify!(&parsed),
         line!(),
     )?;
@@ -86,6 +73,8 @@ fn rust_source_golden_snapshot() -> Result<(), Box<dyn Error>> {
         "rust_source_parsed",
         &parsed,
         concat!(module_path!(), "::rust_source_golden_snapshot"),
+        module_path!(),
+        file!(),
         stringify!(&parsed),
         line!(),
     )?;
@@ -109,6 +98,8 @@ fn cargo_toml_golden_snapshot() -> Result<(), Box<dyn Error>> {
         "cargo_toml_parsed",
         &parsed,
         concat!(module_path!(), "::cargo_toml_golden_snapshot"),
+        module_path!(),
+        file!(),
         stringify!(&parsed),
         line!(),
     )?;
@@ -130,6 +121,8 @@ fn pdf_golden_snapshot() -> Result<(), Box<dyn Error>> {
         "pdf_parsed",
         &parsed,
         concat!(module_path!(), "::pdf_golden_snapshot"),
+        module_path!(),
+        file!(),
         stringify!(&parsed),
         line!(),
     )?;
@@ -301,18 +294,77 @@ fn parsers_reject_empty_input() {
         ),
         Err(maestria_ports::PortError::InvalidInput { .. })
     ));
+    assert!(matches!(
+        RustSourceParser::new().parse(
+            FileHandle {
+                path: PathBuf::from("empty.rs"),
+                bytes: vec![],
+            },
+            ParseContext {
+                artifact_id: ArtifactId::new(99),
+            },
+        ),
+        Err(maestria_ports::PortError::InvalidInput { .. })
+    ));
+    assert!(matches!(
+        CargoTomlParser::new().parse(
+            FileHandle {
+                path: PathBuf::from("empty.toml"),
+                bytes: vec![],
+            },
+            ParseContext {
+                artifact_id: ArtifactId::new(99),
+            },
+        ),
+        Err(maestria_ports::PortError::InvalidInput { .. })
+    ));
+    assert!(matches!(
+        PdfParser::new().parse(
+            FileHandle {
+                path: PathBuf::from("empty.pdf"),
+                bytes: vec![],
+            },
+            ParseContext {
+                artifact_id: ArtifactId::new(99),
+            },
+        ),
+        Err(maestria_ports::PortError::InvalidInput { .. })
+    ));
+}
+
+// ── helpers moved from common/mod.rs (used only by this test binary) ──
+
+use lopdf::{Dictionary, Object, dictionary};
+
+fn assert_debug_snapshot<T: std::fmt::Debug>(
+    name: &str,
+    value: &T,
+    function_name: &str,
+    module_path: &str,
+    file: &str,
+    expression: &str,
+    assertion_line: u32,
+) -> Result<(), Box<dyn Error>> {
+    let rendered = format!("{value:#?}");
+    insta::_macro_support::assert_snapshot(
+        (name.to_owned(), rendered.as_str()).into(),
+        insta::_get_workspace_root!().as_path(),
+        function_name,
+        module_path,
+        file,
+        assertion_line,
+        expression,
+    )
 }
 
 fn create_no_text_pdf() -> Result<Vec<u8>, Box<dyn Error>> {
-    use lopdf::{Object, dictionary};
-
     let mut doc = lopdf::Document::with_version("1.4");
     let pages_id = doc.new_object_id();
     let page_id = doc.new_object_id();
     let catalog_id = doc.new_object_id();
     doc.objects.insert(
         page_id,
-        Object::Dictionary(lopdf::dictionary! {
+        Object::Dictionary(dictionary! {
             "Type" => "Page",
             "Parent" => pages_id,
             "MediaBox" => vec![0.into(), 0.into(), 612.into(), 792.into()],
@@ -320,7 +372,7 @@ fn create_no_text_pdf() -> Result<Vec<u8>, Box<dyn Error>> {
     );
     doc.objects.insert(
         pages_id,
-        Object::Dictionary(lopdf::dictionary! {
+        Object::Dictionary(dictionary! {
             "Type" => "Pages",
             "Kids" => vec![page_id.into()],
             "Count" => 1,
@@ -328,7 +380,7 @@ fn create_no_text_pdf() -> Result<Vec<u8>, Box<dyn Error>> {
     );
     doc.objects.insert(
         catalog_id,
-        Object::Dictionary(lopdf::dictionary! {
+        Object::Dictionary(dictionary! {
             "Type" => "Catalog",
             "Pages" => pages_id,
         }),
@@ -340,17 +392,14 @@ fn create_no_text_pdf() -> Result<Vec<u8>, Box<dyn Error>> {
 }
 
 fn create_layout_pdf() -> Result<Vec<u8>, Box<dyn Error>> {
-    use lopdf::content::{Content, Operation};
-    use lopdf::{Dictionary, Object, Stream, dictionary};
-
     let mut doc = lopdf::Document::with_version("1.4");
     let pages_id = doc.new_object_id();
     let page_id = doc.new_object_id();
     let content_id = doc.new_object_id();
     let catalog_id = doc.new_object_id();
-    let content = Content {
+    let content = lopdf::content::Content {
         operations: vec![
-            Operation::new(
+            lopdf::content::Operation::new(
                 "re",
                 vec![
                     Object::Integer(72),
@@ -359,7 +408,7 @@ fn create_layout_pdf() -> Result<Vec<u8>, Box<dyn Error>> {
                     Object::Integer(100),
                 ],
             ),
-            Operation::new(
+            lopdf::content::Operation::new(
                 "re",
                 vec![
                     Object::Integer(300),
@@ -368,16 +417,16 @@ fn create_layout_pdf() -> Result<Vec<u8>, Box<dyn Error>> {
                     Object::Integer(100),
                 ],
             ),
-            Operation::new("S", vec![]),
+            lopdf::content::Operation::new("S", vec![]),
         ],
     };
     doc.objects.insert(
         content_id,
-        Object::Stream(Stream::new(Dictionary::new(), content.encode()?)),
+        Object::Stream(lopdf::Stream::new(Dictionary::new(), content.encode()?)),
     );
     doc.objects.insert(
         page_id,
-        Object::Dictionary(lopdf::dictionary! {
+        Object::Dictionary(dictionary! {
             "Type" => "Page",
             "Parent" => pages_id,
             "MediaBox" => vec![0.into(), 0.into(), 612.into(), 792.into()],
@@ -386,7 +435,7 @@ fn create_layout_pdf() -> Result<Vec<u8>, Box<dyn Error>> {
     );
     doc.objects.insert(
         pages_id,
-        Object::Dictionary(lopdf::dictionary! {
+        Object::Dictionary(dictionary! {
             "Type" => "Pages",
             "Kids" => vec![page_id.into()],
             "Count" => 1,
@@ -394,7 +443,7 @@ fn create_layout_pdf() -> Result<Vec<u8>, Box<dyn Error>> {
     );
     doc.objects.insert(
         catalog_id,
-        Object::Dictionary(lopdf::dictionary! {
+        Object::Dictionary(dictionary! {
             "Type" => "Catalog",
             "Pages" => pages_id,
         }),
@@ -403,160 +452,4 @@ fn create_layout_pdf() -> Result<Vec<u8>, Box<dyn Error>> {
     let mut output = Vec::new();
     doc.save_to(&mut output)?;
     Ok(output)
-}
-
-/// Build a minimal valid PDF containing the given text.
-fn create_minimal_pdf(text: &[u8]) -> Result<Vec<u8>, Box<dyn Error>> {
-    use lopdf::content::{Content, Operation};
-    use lopdf::{Dictionary, Object, Stream};
-
-    let mut doc = lopdf::Document::with_version("1.4");
-    let pages_id = doc.new_object_id();
-    let page_id = doc.new_object_id();
-    let content_id = doc.new_object_id();
-    let font_id = doc.new_object_id();
-
-    // Font dictionary
-    let mut font_dict = Dictionary::new();
-    font_dict.set("Type", Object::Name("Font".into()));
-    font_dict.set("Subtype", Object::Name("Type1".into()));
-    font_dict.set("BaseFont", Object::Name("Courier".into()));
-    doc.objects.insert(font_id, Object::Dictionary(font_dict));
-
-    // Content stream with text
-    let content = Content {
-        operations: vec![
-            Operation::new("BT", vec![]),
-            Operation::new("Tf", vec![Object::Name("F1".into()), Object::Integer(12)]),
-            Operation::new("Td", vec![Object::Integer(72), Object::Integer(700)]),
-            Operation::new(
-                "Tj",
-                vec![Object::String(text.to_vec(), lopdf::StringFormat::Literal)],
-            ),
-            Operation::new("ET", vec![]),
-        ],
-    };
-    doc.objects.insert(
-        content_id,
-        Object::Stream(Stream::new(Dictionary::new(), content.encode()?)),
-    );
-
-    // Resources dictionary
-    let mut resources = Dictionary::new();
-    let mut fonts = Dictionary::new();
-    fonts.set("F1", Object::Reference(font_id));
-    resources.set("Font", Object::Dictionary(fonts));
-
-    // Page object
-    let mut page = Dictionary::new();
-    page.set("Type", Object::Name("Page".into()));
-    page.set("Parent", Object::Reference(pages_id));
-    page.set(
-        "MediaBox",
-        Object::Array(vec![
-            Object::Integer(0),
-            Object::Integer(0),
-            Object::Integer(612),
-            Object::Integer(792),
-        ]),
-    );
-    page.set("Contents", Object::Reference(content_id));
-    page.set("Resources", Object::Dictionary(resources));
-    doc.objects.insert(page_id, Object::Dictionary(page));
-
-    // Pages object
-    let mut pages = Dictionary::new();
-    pages.set("Type", Object::Name("Pages".into()));
-    pages.set("Kids", Object::Array(vec![Object::Reference(page_id)]));
-    pages.set("Count", Object::Integer(1));
-    doc.objects.insert(pages_id, Object::Dictionary(pages));
-
-    // Catalog
-    let catalog_id = doc.new_object_id();
-    let mut catalog = Dictionary::new();
-    catalog.set("Type", Object::Name("Catalog".into()));
-    catalog.set("Pages", Object::Reference(pages_id));
-    doc.objects.insert(catalog_id, Object::Dictionary(catalog));
-    doc.trailer.set("Root", Object::Reference(catalog_id));
-
-    let mut output = Vec::new();
-    doc.save_to(&mut output)?;
-    Ok(output)
-}
-
-// ── shared contract suite (Rule 25) ────────────────────────────────
-
-#[test]
-fn markdown_parser_satisfies_contract() -> Result<(), Box<dyn Error>> {
-    assert_parser_round_trip(
-        &MarkdownParser::new(),
-        &FileHandle {
-            path: PathBuf::from("notes.md"),
-            bytes: b"alpha".to_vec(),
-        },
-        ParseContext {
-            artifact_id: ArtifactId::new(7),
-        },
-    )?;
-    Ok(())
-}
-
-#[test]
-fn plain_text_parser_satisfies_contract() -> Result<(), Box<dyn Error>> {
-    assert_parser_round_trip(
-        &PlainTextParser::new(),
-        &FileHandle {
-            path: PathBuf::from("notes.txt"),
-            bytes: b"alpha".to_vec(),
-        },
-        ParseContext {
-            artifact_id: ArtifactId::new(7),
-        },
-    )?;
-    Ok(())
-}
-
-#[test]
-fn rust_source_parser_satisfies_contract() -> Result<(), Box<dyn Error>> {
-    assert_parser_round_trip(
-        &RustSourceParser::new(),
-        &FileHandle {
-            path: PathBuf::from("lib.rs"),
-            bytes: b"fn main() {}".to_vec(),
-        },
-        ParseContext {
-            artifact_id: ArtifactId::new(7),
-        },
-    )?;
-    Ok(())
-}
-
-#[test]
-fn cargo_toml_parser_satisfies_contract() -> Result<(), Box<dyn Error>> {
-    assert_parser_round_trip(
-        &CargoTomlParser::new(),
-        &FileHandle {
-            path: PathBuf::from("Cargo.toml"),
-            bytes: b"[package]\nname = \"test\"".to_vec(),
-        },
-        ParseContext {
-            artifact_id: ArtifactId::new(7),
-        },
-    )?;
-    Ok(())
-}
-
-#[test]
-fn pdf_parser_satisfies_contract() -> Result<(), Box<dyn Error>> {
-    assert_parser_round_trip(
-        &PdfParser::new(),
-        &FileHandle {
-            path: PathBuf::from("document.pdf"),
-            bytes: create_minimal_pdf(b"alpha")?,
-        },
-        ParseContext {
-            artifact_id: ArtifactId::new(7),
-        },
-    )?;
-    Ok(())
 }

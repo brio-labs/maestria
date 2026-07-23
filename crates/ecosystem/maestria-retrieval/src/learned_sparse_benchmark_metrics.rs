@@ -7,12 +7,12 @@ use super::{
     LearnedSparseQueryClass, LearnedSparseRoute, LearnedSparseRouteMetrics,
 };
 
-pub(super) fn aggregate(
-    cases: &[&LearnedSparseBenchmarkCase],
+fn select_observations<'a>(
+    cases: &[&'a LearnedSparseBenchmarkCase],
     route: LearnedSparseRoute,
-    observations: &[LearnedSparseBenchmarkObservation],
-) -> Result<LearnedSparseRouteMetrics, LearnedSparseBenchmarkError> {
-    let selected = cases
+    observations: &'a [LearnedSparseBenchmarkObservation],
+) -> Result<Vec<&'a LearnedSparseBenchmarkObservation>, LearnedSparseBenchmarkError> {
+    cases
         .iter()
         .map(|case| {
             observations
@@ -25,76 +25,99 @@ pub(super) fn aggregate(
                     route,
                 })
         })
-        .collect::<Result<Vec<_>, _>>()?;
-    let count = selected.len().max(1) as u64;
-    let mean_metric = |values: Vec<u32>| {
-        let value = values
-            .into_iter()
-            .map(u64::from)
-            .fold(0_u64, u64::saturating_add)
-            / count;
-        Metric::new(value.min(u64::from(u32::MAX)) as u32).map_or(Metric::ZERO, |metric| metric)
-    };
-    let mut latencies = selected
-        .iter()
-        .map(|observation| observation.latency_ms)
-        .collect::<Vec<_>>();
+        .collect::<Result<Vec<_>, _>>()
+}
+
+fn mean_metric(values: Vec<u32>, count: u64) -> Metric {
+    let value = values
+        .into_iter()
+        .map(u64::from)
+        .fold(0_u64, u64::saturating_add)
+        / count;
+    match Metric::new(value.min(u64::from(u32::MAX)) as u32) {
+        Some(metric) => metric,
+        None => {
+            let _ = ();
+            Metric::ZERO
+        }
+    }
+}
+
+fn compute_p95_latency(latencies: &mut [u64]) -> u64 {
     latencies.sort_unstable();
     let p95_index = (latencies.len() * 95).div_ceil(100).saturating_sub(1);
-    let p95_latency_ms = latencies.get(p95_index).copied().map_or(0, |value| value);
+    match latencies.get(p95_index).copied() {
+        Some(value) => value,
+        None => {
+            let _ = ();
+            0
+        }
+    }
+}
+
+fn peak_value<T>(observations: &[&LearnedSparseBenchmarkObservation], mut extractor: T) -> u64
+where
+    T: FnMut(&&LearnedSparseBenchmarkObservation) -> u64,
+{
+    match observations.iter().map(&mut extractor).max() {
+        Some(value) => value,
+        None => {
+            let _ = ();
+            0
+        }
+    }
+}
+
+pub(super) fn aggregate(
+    cases: &[&LearnedSparseBenchmarkCase],
+    route: LearnedSparseRoute,
+    observations: &[LearnedSparseBenchmarkObservation],
+) -> Result<LearnedSparseRouteMetrics, LearnedSparseBenchmarkError> {
+    let selected = select_observations(cases, route, observations)?;
+    let count = selected.len().max(1) as u64;
+    let mut latencies: Vec<u64> = selected.iter().map(|o| o.latency_ms).collect();
+    let p95_latency_ms = compute_p95_latency(&mut latencies);
+
     Ok(LearnedSparseRouteMetrics {
         recall_at_20: mean_metric(
-            selected
-                .iter()
-                .map(|observation| observation.recall_at_20.value())
-                .collect(),
+            selected.iter().map(|o| o.recall_at_20.value()).collect(),
+            count,
         ),
         ndcg_at_10: mean_metric(
-            selected
-                .iter()
-                .map(|observation| observation.ndcg_at_10.value())
-                .collect(),
+            selected.iter().map(|o| o.ndcg_at_10.value()).collect(),
+            count,
         ),
         mrr_at_10: mean_metric(
-            selected
-                .iter()
-                .map(|observation| observation.mrr_at_10.value())
-                .collect(),
+            selected.iter().map(|o| o.mrr_at_10.value()).collect(),
+            count,
         ),
         exact_span_recall: mean_metric(
             selected
                 .iter()
-                .map(|observation| observation.exact_span_recall.value())
+                .map(|o| o.exact_span_recall.value())
                 .collect(),
+            count,
         ),
         p95_latency_ms,
-        peak_memory_bytes: selected
-            .iter()
-            .map(|observation| observation.memory_bytes)
-            .max()
-            .map_or(0, |value| value),
-        peak_disk_bytes: selected
-            .iter()
-            .map(|observation| observation.disk_bytes)
-            .max()
-            .map_or(0, |value| value),
+        peak_memory_bytes: peak_value(&selected, |o| o.memory_bytes),
+        peak_disk_bytes: peak_value(&selected, |o| o.disk_bytes),
         total_ingest_update_ms: selected
             .iter()
-            .map(|observation| observation.ingest_update_ms)
+            .map(|o| o.ingest_update_ms)
             .collect::<Option<Vec<_>>>()
             .map(|values| values.into_iter().fold(0_u64, u64::saturating_add)),
         total_energy_millijoules: selected
             .iter()
-            .map(|observation| observation.energy_millijoules)
+            .map(|o| o.energy_millijoules)
             .collect::<Option<Vec<_>>>()
             .map(|values| values.into_iter().fold(0_u64, u64::saturating_add)),
         privacy_violations: selected
             .iter()
-            .map(|observation| observation.privacy_violations)
+            .map(|o| o.privacy_violations)
             .fold(0_u32, u32::saturating_add),
         security_violations: selected
             .iter()
-            .map(|observation| observation.security_violations)
+            .map(|o| o.security_violations)
             .fold(0_u32, u32::saturating_add),
         budget_violations: selected
             .iter()

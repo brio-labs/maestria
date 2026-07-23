@@ -302,7 +302,13 @@ fn shadow_candidate(
             evidence_id: candidate.evidence_id,
             artifact_version: candidate.artifact_version,
             source_span: candidate.source_span.clone(),
-            lane_rank: u32::try_from(rank.saturating_add(1)).map_or(u32::MAX, |value| value),
+            lane_rank: match u32::try_from(rank.saturating_add(1)) {
+                Ok(value) => value,
+                Err(e) => {
+                    let _ = e;
+                    u32::MAX
+                }
+            },
             score: score.clone(),
             reason,
         })

@@ -1,5 +1,7 @@
 use super::*;
-use maestria_domain::{ClaimId, EvidenceId, Relation, RelationEndpoint, RelationId, RelationKind};
+use maestria_domain::{
+    ArtifactId, CardId, ClaimId, EvidenceId, Relation, RelationEndpoint, RelationId, RelationKind,
+};
 
 pub fn assert_graph_index_contract(
     index: &impl GraphIndex,

@@ -37,7 +37,12 @@ pub use validators::{
 };
 
 #[cfg(test)]
-#[path = "search_validator_tests.rs"]
+mod runner_tests;
+#[cfg(test)]
+mod search_security_tests;
+#[cfg(test)]
+mod search_validator_fixtures;
+#[cfg(test)]
 mod search_validator_tests;
 #[cfg(test)]
 mod tests;

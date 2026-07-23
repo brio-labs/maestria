@@ -72,9 +72,14 @@ pub(super) async fn collect_batches(
         .take(retrievers.len())
         .collect::<Vec<_>>();
     let mut tasks = JoinSet::new();
-    let concurrency = usize::try_from(plan.budgets.max_concurrency())
-        .map_or(1, |value| value)
-        .max(1);
+    let concurrency = match usize::try_from(plan.budgets.max_concurrency()) {
+        Ok(value) => value,
+        Err(e) => {
+            let _ = e;
+            1
+        }
+    }
+    .max(1);
     let semaphore = Arc::new(Semaphore::new(concurrency));
     for (index, retriever) in retrievers.iter().enumerate() {
         let descriptor = retriever.descriptor();
