@@ -219,6 +219,11 @@ impl RetrievalEngine {
         engine_evaluation::evaluate_batches(self, plan, query, batches, started).await
     }
 
+    /// Execute the search plan and return the outcome.
+    ///
+    /// # Cancellation
+    /// Dropping the future aborts the search. When `timeout_ms` is greater than zero, the search
+    /// is also aborted if the latency budget is exceeded.
     pub async fn search(&self, plan: &SearchPlan) -> RetrievalResult<SearchOutcome> {
         if maestria_governance::contains_prompt_injection_risk(&plan.original_query) {
             return Ok(self.prompt_injection_outcome(plan));

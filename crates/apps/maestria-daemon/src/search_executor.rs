@@ -381,6 +381,10 @@ impl SearchRuntime {
     }
 
     /// Build and execute the same plan used by daemon search effects.
+    ///
+    /// # Cancellation
+    /// Cancelling the returned future does not abort the blocking search worker; the spawned
+    /// blocking task continues until completion.
     pub async fn execute(
         &self,
         query: String,
