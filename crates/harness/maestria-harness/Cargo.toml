@@ -11,4 +11,5 @@ maestria-ports = { path = "../../kernel/maestria-ports" }
 tokio = { version = "1.37", features = ["process", "time", "io-util", "rt", "macros"] }
 
 [dev-dependencies]
+maestria-ports = { path = "../../kernel/maestria-ports", features = ["contract-tests"] }
 tempfile = "3"
