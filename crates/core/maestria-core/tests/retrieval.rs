@@ -200,7 +200,10 @@ fn evidence_opening_rejects_non_indexed_artifacts() -> Result<(), Box<dyn std::e
                 Ok(_) => return Err("non-indexed evidence unexpectedly opened".into()),
                 Err(error) => error,
             };
-            assert!(error.to_string().contains("not indexed"));
+            assert!(
+                matches!(error, CoreError::NotAvailable { kind: "artifact", reason: "not indexed" }),
+                "expected NotAvailable error for non-indexed artifact, got: {error}"
+            );
             Ok(())
         })?;
     }

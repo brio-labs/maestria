@@ -403,11 +403,13 @@ impl SearchKnowledgeExecutor for SearchRuntime {
         Box::pin(async move {
             tokio::task::spawn_blocking(move || runtime.execute_plan_blocking(plan))
                 .await
-                .map_err(|error| maestria_ports::PortError::Internal {
-                    message: format!("search worker failed: {error}"),
+                .map_err(|error| maestria_ports::PortError::InternalContext {
+                    context: "search worker",
+                    source: error.to_string(),
                 })?
-                .map_err(|error| maestria_ports::PortError::Internal {
-                    message: error.to_string(),
+                .map_err(|error| maestria_ports::PortError::InternalContext {
+                    context: "search plan execution",
+                    source: error.to_string(),
                 })
         })
     }

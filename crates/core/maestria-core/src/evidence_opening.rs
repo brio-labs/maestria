@@ -12,38 +12,41 @@ pub(super) fn open_evidence<'a>(
     let evidence = ports
         .evidence
         .get(input.evidence_id)?
-        .ok_or_else(|| CoreError::NotFound {
-            message: format!("evidence {}", input.evidence_id),
+        .ok_or_else(|| CoreError::NotFoundEntity {
+            kind: "evidence",
+            id: input.evidence_id.to_string(),
         })?;
     if policy.evaluate(&evidence.security) != maestria_governance::RetrievalDecision::Allowed {
-        return Err(CoreError::NotFound {
-            message: "evidence is not available under retrieval policy".to_string(),
+        return Err(CoreError::NotAvailable {
+            kind: "evidence",
+            reason: "not available under retrieval policy",
         });
     }
     if !maestria_governance::scan_secrets(&evidence.excerpt).is_clean() {
-        return Err(CoreError::NotFound {
-            message: "evidence is not available because it contains secret material".to_string(),
+        return Err(CoreError::NotAvailable {
+            kind: "evidence",
+            reason: "contains secret material",
         });
     }
     let artifact =
         ports
             .artifacts
             .get(evidence.artifact_id)?
-            .ok_or_else(|| CoreError::NotFound {
-                message: format!("artifact {} for evidence", evidence.artifact_id),
+            .ok_or_else(|| CoreError::NotFoundEntity {
+                kind: "artifact",
+                id: evidence.artifact_id.to_string(),
             })?;
     if policy.evaluate(&artifact.security) != maestria_governance::RetrievalDecision::Allowed {
-        return Err(CoreError::NotFound {
-            message: "artifact is not available under retrieval policy".to_string(),
+        return Err(CoreError::NotAvailable {
+            kind: "artifact",
+            reason: "not available under retrieval policy",
         });
     }
     verify_source_snapshot(ports, &evidence)?;
     if artifact.index_status != IndexStatus::Indexed {
-        return Err(CoreError::NotFound {
-            message: format!(
-                "artifact {} not indexed (status {:?})",
-                artifact.id, artifact.index_status
-            ),
+        return Err(CoreError::NotAvailable {
+            kind: "artifact",
+            reason: "not indexed",
         });
     }
     Ok(OpenEvidenceOutput { artifact, evidence })
@@ -57,8 +60,9 @@ pub(super) fn open_chunk_evidence<'a>(
     let chunk = ports
         .chunks
         .get(input.chunk_id)?
-        .ok_or_else(|| CoreError::NotFound {
-            message: format!("chunk {}", input.chunk_id),
+        .ok_or_else(|| CoreError::NotFoundEntity {
+            kind: "chunk",
+            id: input.chunk_id.to_string(),
         })?;
     let evidence = ports
         .evidence
@@ -66,8 +70,9 @@ pub(super) fn open_chunk_evidence<'a>(
             chunk.artifact_id,
             chunk.order,
         ))?
-        .ok_or_else(|| CoreError::NotFound {
-            message: format!("evidence for chunk {}", input.chunk_id),
+        .ok_or_else(|| CoreError::NotFoundEntity {
+            kind: "evidence for chunk",
+            id: input.chunk_id.to_string(),
         })?;
     open_evidence(
         ports,
@@ -84,8 +89,9 @@ fn verify_source_snapshot(ports: &CorePorts<'_>, evidence: &Evidence) -> CoreRes
     {
         let bytes = ports.blobs.get(*blob)?;
         if bytes.is_empty() {
-            return Err(CoreError::InvalidInput {
-                message: format!("evidence {} PDF snapshot is empty", evidence.id),
+            return Err(CoreError::InvalidEvidence {
+                evidence_id: evidence.id.to_string(),
+                reason: "PDF snapshot is empty".to_string(),
             });
         }
         return Ok(());
@@ -99,20 +105,18 @@ fn verify_source_snapshot(ports: &CorePorts<'_>, evidence: &Evidence) -> CoreRes
         let bytes = ports.blobs.get(*snapshot)?;
         let actual_hash = content_hash(&bytes);
         if &actual_hash != expected_hash {
-            return Err(CoreError::InvalidInput {
-                message: format!(
-                    "evidence {} web snapshot hash mismatch: expected {expected_hash}, got {actual_hash}",
-                    evidence.id
+            return Err(CoreError::InvalidEvidence {
+                evidence_id: evidence.id.to_string(),
+                reason: format!(
+                    "web snapshot hash mismatch: expected {expected_hash}, got {actual_hash}"
                 ),
             });
         }
         let source = String::from_utf8_lossy(&bytes);
         if !evidence.excerpt.is_empty() && !source.contains(&evidence.excerpt) {
-            return Err(CoreError::InvalidInput {
-                message: format!(
-                    "evidence {} excerpt is absent from its web snapshot",
-                    evidence.id
-                ),
+            return Err(CoreError::InvalidEvidence {
+                evidence_id: evidence.id.to_string(),
+                reason: "excerpt is absent from its web snapshot".to_string(),
             });
         }
         return Ok(());
@@ -136,10 +140,10 @@ fn verify_source_snapshot(ports: &CorePorts<'_>, evidence: &Evidence) -> CoreRes
     let bytes = ports.blobs.get(*snapshot)?;
     let actual_hash = content_hash(&bytes);
     if &actual_hash != expected_hash {
-        return Err(CoreError::InvalidInput {
-            message: format!(
-                "evidence {} snapshot hash mismatch: expected {expected_hash}, got {actual_hash}",
-                evidence.id
+        return Err(CoreError::InvalidEvidence {
+            evidence_id: evidence.id.to_string(),
+            reason: format!(
+                "snapshot hash mismatch: expected {expected_hash}, got {actual_hash}"
             ),
         });
     }
@@ -147,17 +151,16 @@ fn verify_source_snapshot(ports: &CorePorts<'_>, evidence: &Evidence) -> CoreRes
     let source = String::from_utf8_lossy(&bytes);
     let line_count = source.lines().count().max(1);
     if range.start == 0 || range.end < range.start || range.end > line_count {
-        return Err(CoreError::InvalidInput {
-            message: format!("evidence {} has an invalid source line range", evidence.id),
+        return Err(CoreError::InvalidEvidence {
+            evidence_id: evidence.id.to_string(),
+            reason: "invalid source line range".to_string(),
         });
     }
     let compact_source = source.split_whitespace().collect::<Vec<_>>().join(" ");
     if !excerpt.is_empty() && !compact_source.contains(excerpt) {
-        return Err(CoreError::InvalidInput {
-            message: format!(
-                "evidence {} excerpt is absent from its source snapshot",
-                evidence.id
-            ),
+        return Err(CoreError::InvalidEvidence {
+            evidence_id: evidence.id.to_string(),
+            reason: "excerpt is absent from its source snapshot".to_string(),
         });
     }
     Ok(())

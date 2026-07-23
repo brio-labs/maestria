@@ -81,8 +81,9 @@ pub(super) fn parse_ocr_config(fields: &ManifestFields) -> CoreResult<Option<sup
             };
             if *enabled {
                 maestria_domain::ContentHash::new(artifact_hash.clone()).map_err(|error| {
-                    CoreError::InvalidInput {
-                        message: format!("invalid OCR artifact hash: {error}"),
+                    CoreError::InvalidManifest {
+                        key: "ocr_artifact_hash".to_string(),
+                        reason: format!("invalid content hash: {error}"),
                     }
                 })?;
             }
@@ -96,17 +97,17 @@ pub(super) fn parse_ocr_config(fields: &ManifestFields) -> CoreResult<Option<sup
                 preprocessing_version,
             }))
         }
-        _ => Err(CoreError::InvalidInput {
-            message: "OCR configuration must define enabled, endpoint, and model".to_string(),
+        _ => Err(CoreError::InvalidManifest {
+            key: "ocr_config".to_string(),
+            reason: "must define enabled, endpoint, and model".to_string(),
         }),
     }
 }
 
 fn ocr_fingerprint_error() -> CoreError {
-    CoreError::InvalidInput {
-        message:
-            "configured OCR requires provider, revision, artifact hash, and preprocessing version"
-                .to_string(),
+    CoreError::InvalidManifest {
+        key: "ocr_config".to_string(),
+        reason: "enabled configuration requires provider, revision, artifact hash, and preprocessing version".to_string(),
     }
 }
 
@@ -123,8 +124,9 @@ pub(super) fn parse_embedding_config(
         (Some(enabled), Some(endpoint), Some(model), Some(dimensions)) => {
             validate_embedding_endpoint(endpoint)?;
             if *enabled && *dimensions == 0 {
-                return Err(CoreError::InvalidInput {
-                    message: "embedding_dimensions must be positive when enabled".to_string(),
+                return Err(CoreError::InvalidManifest {
+                    key: "embedding_dimensions".to_string(),
+                    reason: "must be positive when enabled".to_string(),
                 });
             }
             let provider = if *enabled {
@@ -161,8 +163,9 @@ pub(super) fn parse_embedding_config(
             };
             if *enabled {
                 maestria_domain::ContentHash::new(artifact_hash.clone()).map_err(|error| {
-                    CoreError::InvalidInput {
-                        message: format!("invalid embedding artifact hash: {error}"),
+                    CoreError::InvalidManifest {
+                        key: "embedding_artifact_hash".to_string(),
+                        reason: format!("invalid content hash: {error}"),
                     }
                 })?;
             }
@@ -184,17 +187,17 @@ pub(super) fn parse_embedding_config(
                 )?,
             }))
         }
-        _ => Err(CoreError::InvalidInput {
-            message: "embedding configuration must define enabled, endpoint, model, and dimensions"
-                .to_string(),
+        _ => Err(CoreError::InvalidManifest {
+            key: "embedding_config".to_string(),
+            reason: "must define enabled, endpoint, model, and dimensions".to_string(),
         }),
     }
 }
 
 fn embedding_fingerprint_error() -> CoreError {
-    CoreError::InvalidInput {
-        message: "enabled embedding configuration requires provider, revision, artifact hash, and preprocessing version"
-            .to_string(),
+    CoreError::InvalidManifest {
+        key: "embedding_config".to_string(),
+        reason: "enabled configuration requires provider, revision, artifact hash, and preprocessing version".to_string(),
     }
 }
 
@@ -214,12 +217,14 @@ pub(super) fn parse_manifest_fields(contents: &str) -> CoreResult<ManifestFields
     {
         let (key, value) = line
             .split_once('=')
-            .ok_or_else(|| CoreError::InvalidInput {
-                message: format!("invalid instance manifest line: {line}"),
+            .ok_or_else(|| CoreError::InvalidManifest {
+                key: "line".to_string(),
+                reason: format!("invalid format: {line}"),
             })?;
         if value.is_empty() {
-            return Err(CoreError::InvalidInput {
-                message: format!("instance manifest value is empty for {key}"),
+            return Err(CoreError::InvalidManifest {
+                key: key.to_string(),
+                reason: "value is empty".to_string(),
             });
         }
         parse_manifest_field(&mut fields, key, value)?;
@@ -311,8 +316,9 @@ fn parse_manifest_field(fields: &mut ManifestFields, key: &str, value: &str) -> 
             fields.visual_retention_policy = Some(value.to_string());
         }
         other => {
-            return Err(CoreError::InvalidInput {
-                message: format!("unknown instance manifest key: {other}"),
+            return Err(CoreError::InvalidManifest {
+                key: other.to_string(),
+                reason: "unknown key".to_string(),
             });
         }
     }
@@ -323,8 +329,9 @@ fn parse_value<T>(value: &str, key: &str) -> CoreResult<T>
 where
     T: std::str::FromStr,
 {
-    value.parse::<T>().map_err(|_| CoreError::InvalidInput {
-        message: format!("invalid {key} value: {value}"),
+    value.parse::<T>().map_err(|_| CoreError::InvalidManifest {
+        key: key.to_string(),
+        reason: format!("invalid value: {value}"),
     })
 }
 
@@ -339,15 +346,17 @@ fn parse_retention_policy(value: &str) -> CoreResult<RetentionPolicy> {
     match value {
         "no_retention" => Ok(RetentionPolicy::NoRetention),
         "provider_defined" => Ok(RetentionPolicy::ProviderDefined),
-        _ => Err(CoreError::InvalidInput {
-            message: format!("invalid embedding_retention_policy value: {value}"),
+        _ => Err(CoreError::InvalidManifest {
+            key: "retention_policy".to_string(),
+            reason: format!("invalid value: {value}"),
         }),
     }
 }
 
 fn validate_embedding_endpoint(endpoint: &str) -> CoreResult<()> {
-    let url = Url::parse(endpoint).map_err(|error| CoreError::InvalidInput {
-        message: format!("invalid embedding endpoint: {error}"),
+    let url = Url::parse(endpoint).map_err(|error| CoreError::InvalidManifest {
+        key: "embedding_endpoint".to_string(),
+        reason: format!("invalid URL: {error}"),
     })?;
     let valid = url.scheme() == "http"
         && matches!(url.host_str(), Some("127.0.0.1" | "::1" | "[::1]"))
@@ -355,15 +364,17 @@ fn validate_embedding_endpoint(endpoint: &str) -> CoreResult<()> {
         && url.query().is_none()
         && url.fragment().is_none();
     if !valid {
-        return Err(CoreError::InvalidInput {
-            message: "embedding endpoint must be an http loopback /v1/embeddings URL".to_string(),
+        return Err(CoreError::InvalidManifest {
+            key: "embedding_endpoint".to_string(),
+            reason: "must be an http loopback /v1/embeddings URL".to_string(),
         });
     }
     Ok(())
 }
 fn validate_ocr_endpoint(endpoint: &str) -> CoreResult<()> {
-    let url = Url::parse(endpoint).map_err(|error| CoreError::InvalidInput {
-        message: format!("invalid OCR endpoint: {error}"),
+    let url = Url::parse(endpoint).map_err(|error| CoreError::InvalidManifest {
+        key: "ocr_endpoint".to_string(),
+        reason: format!("invalid URL: {error}"),
     })?;
     let valid = url.scheme() == "http"
         && matches!(url.host_str(), Some("127.0.0.1" | "::1" | "[::1]"))
@@ -371,8 +382,9 @@ fn validate_ocr_endpoint(endpoint: &str) -> CoreResult<()> {
         && url.query().is_none()
         && url.fragment().is_none();
     if !valid {
-        return Err(CoreError::InvalidInput {
-            message: "OCR endpoint must be an http loopback /v1/chat/completions URL".to_string(),
+        return Err(CoreError::InvalidManifest {
+            key: "ocr_endpoint".to_string(),
+            reason: "must be an http loopback /v1/chat/completions URL".to_string(),
         });
     }
     Ok(())
