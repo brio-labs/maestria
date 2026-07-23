@@ -169,10 +169,7 @@ impl InMemoryLearnedSparseIndex {
                 .cmp(&left.score_micros)
                 .then_with(|| left.chunk_id.cmp(&right.chunk_id))
         });
-        let limit = match usize::try_from(query.limit) {
-            Ok(value) => value,
-            Err(_) => usize::MAX,
-        };
+        let limit = usize::try_from(query.limit).map_or(usize::MAX, |value| value);
         hits.truncate(limit);
         Ok(hits)
     }
