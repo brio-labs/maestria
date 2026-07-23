@@ -110,13 +110,6 @@ pub async fn run_resolve(instance_dir: PathBuf, id: u64, approved: bool) -> Resu
         }
     }
 
-    let resolved = store
-        .resolve(approval_id, approved)
-        .context("failed to update approval request status")?;
-    if resolved.is_none() {
-        anyhow::bail!("approval request {id} was already resolved concurrently");
-    }
-
     let action = if approved { "Approved" } else { "Denied" };
     println!(
         "{action} approval request {id} for task {}.",

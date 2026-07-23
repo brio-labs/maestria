@@ -7,7 +7,8 @@
 /// - `chunking`: module responsibility.
 /// - `markdown`: module responsibility.
 /// - `pdf`: module responsibility.
-/// - `pdf_layout`: module responsibility.
+/// - `pdf_geometry`: PDF page geometry, transform, and bounds utilities.
+/// - `pdf_layout`: PDF region extraction and layout building.
 /// - `plain_text`: module responsibility.
 /// - `registry`: module responsibility.
 /// - `rust_source`: module responsibility.
@@ -16,6 +17,7 @@ mod cargo_toml;
 mod chunking;
 mod markdown;
 mod pdf;
+mod pdf_geometry;
 mod pdf_layout;
 mod plain_text;
 mod registry;

@@ -204,7 +204,7 @@ RESPONSIBILITY_MAPS: dict[str, tuple[str, ...]] = {
         "symbols", "types",
     ),
     "crates/ecosystem/maestria-parsers/src/lib.rs": (
-        "cargo_toml", "chunking", "markdown", "pdf", "pdf_layout",
+        "cargo_toml", "chunking", "markdown", "pdf", "pdf_geometry", "pdf_layout",
         "plain_text", "registry", "rust_source", "tree_builder",
     ),
     "crates/ecosystem/maestria-validation/src/lib.rs": (
