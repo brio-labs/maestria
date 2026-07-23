@@ -8,6 +8,90 @@ use rusqlite::Connection;
 use super::{SqliteVectorIndex, to_port_error};
 use crate::schema::SCHEMA_VERSION;
 #[test]
+fn rejects_empty_vector_on_index() -> Result<(), PortError> {
+    let index = SqliteVectorIndex::in_memory()?;
+    let result = index.index_embeddings(vec![VectorEmbedding {
+        chunk_id: ChunkId::new(1),
+        vector: vec![],
+        provenance: EmbeddingProvenance {
+            content_hash: "hash".into(),
+            identity: EmbeddingIdentity::legacy("test-model", 0)?,
+            provider_id: "test-provider".into(),
+            model: "test-model".into(),
+            model_version: "v1".into(),
+            disclosure: ProviderDisclosure {
+                remote: false,
+                retention: RetentionPolicy::NoRetention,
+            },
+        },
+    }]);
+    assert!(
+        matches!(result, Err(PortError::InvalidInput { .. })),
+        "expected InvalidInput for empty vector, got {result:?}"
+    );
+    Ok(())
+}
+
+#[test]
+fn rejects_dimension_mismatch_on_index() -> Result<(), PortError> {
+    let index = SqliteVectorIndex::in_memory()?;
+    let result = index.index_embeddings(vec![VectorEmbedding {
+        chunk_id: ChunkId::new(1),
+        vector: vec![1.0, 0.5, 0.25],
+        provenance: EmbeddingProvenance {
+            content_hash: "hash".into(),
+            identity: EmbeddingIdentity::legacy("test-model", 2)?,
+            provider_id: "test-provider".into(),
+            model: "test-model".into(),
+            model_version: "v1".into(),
+            disclosure: ProviderDisclosure {
+                remote: false,
+                retention: RetentionPolicy::NoRetention,
+            },
+        },
+    }]);
+    assert!(
+        matches!(result, Err(PortError::InvalidInput { .. })),
+        "expected InvalidInput for dimension mismatch, got {result:?}"
+    );
+    Ok(())
+}
+
+#[test]
+fn search_returns_empty_for_zero_norm_vector() -> Result<(), PortError> {
+    let index = SqliteVectorIndex::in_memory()?;
+    let prov = EmbeddingProvenance {
+        content_hash: "hash".into(),
+        identity: EmbeddingIdentity::legacy("test-model", 2)?,
+        provider_id: "test-provider".into(),
+        model: "test-model".into(),
+        model_version: "v1".into(),
+        disclosure: ProviderDisclosure {
+            remote: false,
+            retention: RetentionPolicy::NoRetention,
+        },
+    };
+    index.index_embeddings(vec![VectorEmbedding {
+        chunk_id: ChunkId::new(1),
+        vector: vec![1.0, 0.0],
+        provenance: prov.clone(),
+    }])?;
+    let hits = index.search_similar(VectorSearchQuery {
+        identity: None,
+        vector: vec![0.0, 0.0],
+        limit: 10,
+        provider_id: None,
+        model: None,
+        model_version: None,
+    })?;
+    assert!(
+        hits.is_empty(),
+        "expected no hits for zero-norm query vector"
+    );
+    Ok(())
+}
+
+#[test]
 fn satisfies_shared_vector_index_contract() -> Result<(), Box<dyn std::error::Error>> {
     let index = SqliteVectorIndex::in_memory()?;
     assert_vector_index_contract(&index)?;
