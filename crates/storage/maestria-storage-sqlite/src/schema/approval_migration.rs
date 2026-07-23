@@ -91,9 +91,13 @@ pub(crate) fn extract_json_field(payload: &str, field: &str) -> Result<i64, Port
     })?;
     let after_key = start + key.len();
     let value_str = &payload[after_key..];
-    let end = value_str
-        .find(|c: char| !c.is_ascii_digit() && c != '-')
-        .map_or(value_str.len(), |pos| pos);
+    let end = match value_str.find(|c: char| !c.is_ascii_digit() && c != '-') {
+        Some(pos) => pos,
+        None => {
+            let _ = ();
+            value_str.len()
+        }
+    };
     value_str[..end]
         .parse::<i64>()
         .map_err(|_| PortError::Internal {

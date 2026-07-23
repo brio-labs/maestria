@@ -80,7 +80,7 @@ impl crate::FullTextIndex for InMemoryFullTextIndex {
     fn search_filtered(
         &self,
         query: SearchQuery,
-        filter: &dyn Fn(crate::ChunkId, maestria_domain::ArtifactId) -> bool,
+        filter: &dyn Fn(maestria_domain::ChunkId, maestria_domain::ArtifactId) -> bool,
     ) -> Result<Vec<SearchHit>, PortError> {
         let guard = self.chunks.lock().map_err(|_| PortError::Internal {
             message: "index lock poisoned".to_string(),
@@ -170,7 +170,7 @@ impl crate::FullTextIndex for InMemoryFullTextIndex {
     fn search_cards_filtered(
         &self,
         query: SearchQuery,
-        filter: &dyn Fn(crate::CardId, maestria_domain::ArtifactId) -> bool,
+        filter: &dyn Fn(maestria_domain::CardId, maestria_domain::ArtifactId) -> bool,
     ) -> Result<Vec<CardHit>, PortError> {
         let guard = self.cards.lock().map_err(|_| PortError::Internal {
             message: "index lock poisoned".to_string(),
@@ -232,7 +232,7 @@ impl crate::FullTextIndex for InMemoryFullTextIndex {
     fn search_lexical_filtered(
         &self,
         query: LexicalQuery<ChunkField>,
-        filter: &dyn Fn(crate::ChunkId, maestria_domain::ArtifactId) -> bool,
+        filter: &dyn Fn(maestria_domain::ChunkId, maestria_domain::ArtifactId) -> bool,
     ) -> Result<Vec<LexicalChunkHit>, PortError> {
         super::lexical::search_lexical_filtered(&self.lexical_chunks, query, filter)
     }
@@ -240,7 +240,7 @@ impl crate::FullTextIndex for InMemoryFullTextIndex {
     fn search_cards_lexical_filtered(
         &self,
         query: LexicalQuery<CardField>,
-        filter: &dyn Fn(crate::CardId, maestria_domain::ArtifactId) -> bool,
+        filter: &dyn Fn(maestria_domain::CardId, maestria_domain::ArtifactId) -> bool,
     ) -> Result<Vec<LexicalCardHit>, PortError> {
         super::lexical::search_cards_lexical_filtered(&self.lexical_cards, query, filter)
     }

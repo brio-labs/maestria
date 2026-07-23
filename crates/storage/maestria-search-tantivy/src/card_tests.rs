@@ -1,6 +1,6 @@
 use super::*;
 
-use maestria_ports::SearchQuery;
+use maestria_ports::{IndexedCard, IndexedChunk, SearchQuery};
 
 fn card(artifact_id: u64, card_id: u64, title: &str, body: &str) -> IndexedCard {
     IndexedCard {

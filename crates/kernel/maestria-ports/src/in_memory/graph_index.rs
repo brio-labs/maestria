@@ -3,7 +3,8 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use crate::{GraphIndex, PortError, Relation, RelationEndpoint, RelationId};
+use crate::{GraphIndex, PortError};
+use maestria_domain::{Relation, RelationEndpoint, RelationId};
 
 #[derive(Clone, Default)]
 pub struct InMemoryGraphIndex {

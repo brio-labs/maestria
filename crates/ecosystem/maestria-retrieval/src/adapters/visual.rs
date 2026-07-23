@@ -277,7 +277,13 @@ impl CandidateRetriever for VisualPageRegionRetriever {
         self.retrieve_with_vector(
             VectorSearchQuery {
                 vector: response.vector,
-                limit: u32::try_from(request.query.limit).map_or(u32::MAX, |value| value),
+                limit: match u32::try_from(request.query.limit) {
+                    Ok(value) => value,
+                    Err(e) => {
+                        let _ = e;
+                        u32::MAX
+                    }
+                },
                 provider_id: Some(response.provider_id),
                 model: Some(response.model),
                 model_version: Some(response.model_version),

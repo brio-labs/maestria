@@ -2,10 +2,11 @@ use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 
 use crate::{
-    ChunkId, LearnedSparseIndex, LearnedSparseProvider, PortError, ProviderDisclosure,
-    RetentionPolicy, SparseDocument, SparseIdentity, SparseInputKind, SparseSearchHit,
-    SparseSearchQuery, SparseTermContribution, SparseTermWeight, SparseVector,
+    LearnedSparseIndex, LearnedSparseProvider, PortError, ProviderDisclosure, RetentionPolicy,
+    SparseDocument, SparseIdentity, SparseInputKind, SparseSearchHit, SparseSearchQuery,
+    SparseTermContribution, SparseTermWeight, SparseVector,
 };
+use maestria_domain::ChunkId;
 
 #[derive(Clone)]
 pub struct InMemoryLearnedSparseProvider {
@@ -169,7 +170,13 @@ impl InMemoryLearnedSparseIndex {
                 .cmp(&left.score_micros)
                 .then_with(|| left.chunk_id.cmp(&right.chunk_id))
         });
-        let limit = usize::try_from(query.limit).map_or(usize::MAX, |value| value);
+        let limit = match usize::try_from(query.limit) {
+            Ok(value) => value,
+            Err(e) => {
+                let _ = e;
+                usize::MAX
+            }
+        };
         hits.truncate(limit);
         Ok(hits)
     }

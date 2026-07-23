@@ -281,7 +281,7 @@ fn aggregate_quality(k: usize, reports: &[GoldenEvaluationReport]) -> Aggregated
             .min(u64::from(u32::MAX)) as u32
     };
     AggregatedQualityMetrics {
-        mean_recall_at_k: Metric::new(mean(
+        mean_recall_at_k: match Metric::new(mean(
             reports
                 .iter()
                 .map(|report| {
@@ -291,26 +291,46 @@ fn aggregate_quality(k: usize, reports: &[GoldenEvaluationReport]) -> Aggregated
                         .map_or(0, |metric| metric.value())
                 })
                 .collect(),
-        ))
-        .map_or(Metric::ZERO, |metric| metric),
-        mean_ndcg_at_k: Metric::new(mean(
+        )) {
+            Some(metric) => metric,
+            None => {
+                let _ = ();
+                Metric::ZERO
+            }
+        },
+        mean_ndcg_at_k: match Metric::new(mean(
             reports
                 .iter()
                 .map(|report| report.ndcg_at_k.get(&k).map_or(0, |metric| metric.value()))
                 .collect(),
-        ))
-        .map_or(Metric::ZERO, |metric| metric),
-        mean_mrr: Metric::new(mean(
+        )) {
+            Some(metric) => metric,
+            None => {
+                let _ = ();
+                Metric::ZERO
+            }
+        },
+        mean_mrr: match Metric::new(mean(
             reports.iter().map(|report| report.mrr.value()).collect(),
-        ))
-        .map_or(Metric::ZERO, |metric| metric),
-        mean_exact_span_recall: Metric::new(mean(
+        )) {
+            Some(metric) => metric,
+            None => {
+                let _ = ();
+                Metric::ZERO
+            }
+        },
+        mean_exact_span_recall: match Metric::new(mean(
             reports
                 .iter()
                 .map(|report| report.exact_span_recall.value())
                 .collect(),
-        ))
-        .map_or(Metric::ZERO, |metric| metric),
+        )) {
+            Some(metric) => metric,
+            None => {
+                let _ = ();
+                Metric::ZERO
+            }
+        },
     }
 }
 

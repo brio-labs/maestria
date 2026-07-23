@@ -233,7 +233,7 @@ jobs:
       - name: Run frozen golden gate
         run: |
           if [ "${{ github.event_name }}" = "pull_request" ]; then
-            cargo test -p maestria-retrieval --test golden_fixture
+            cargo test -p maestria-retrieval --test retrieval -- golden_fixture
             cargo test -p maestria-core --test golden_gate
           else
             cargo test --workspace --all-targets --all-features

@@ -1,9 +1,10 @@
 use maestria_domain::{ContentHash, CorpusSnapshotId, IndexGenerationId, RepresentationName};
 
 use crate::{
-    ChunkId, LearnedSparseIndex, LearnedSparseProvider, PortError, SPARSE_REPRESENTATION_V1,
-    SparseDocument, SparseFingerprint, SparseIdentity, SparseInputKind, SparseSearchQuery,
+    LearnedSparseIndex, LearnedSparseProvider, PortError, SPARSE_REPRESENTATION_V1, SparseDocument,
+    SparseFingerprint, SparseIdentity, SparseInputKind, SparseSearchQuery,
 };
+use maestria_domain::ChunkId;
 
 pub fn fixture_sparse_identity() -> Result<SparseIdentity, PortError> {
     let hash = |digit: char| {

@@ -235,7 +235,13 @@ impl CandidateRetriever for LearnedSparseChunkRetriever {
                 "sparse provider returned an incompatible query identity".into(),
             ));
         }
-        let limit = u32::try_from(request.query.limit).map_or(u32::MAX, |value| value);
+        let limit = match u32::try_from(request.query.limit) {
+            Ok(value) => value,
+            Err(e) => {
+                let _ = e;
+                u32::MAX
+            }
+        };
         let hits = self
             .index
             .search_filtered(

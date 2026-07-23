@@ -433,28 +433,6 @@ pub mod test_support {
 }
 
 #[cfg(test)]
-mod runtime_barrier_tests;
-#[cfg(test)]
-mod runtime_blob_tests;
-#[cfg(test)]
-mod runtime_card_index_tests;
-#[cfg(test)]
-mod runtime_evidence_tests;
-#[cfg(test)]
-mod runtime_graph_tests;
-#[cfg(test)]
-mod runtime_harness_tests;
-#[cfg(test)]
-mod runtime_parse_tests;
-#[cfg(test)]
-mod runtime_pdf_tests;
-#[cfg(test)]
-mod runtime_resume_tests;
-#[cfg(test)]
-mod runtime_supervision_tests;
-#[cfg(test)]
-mod runtime_tests;
-#[cfg(test)]
-mod runtime_validation_gate_tests;
-#[cfg(test)]
 mod test_helpers;
+#[cfg(test)]
+mod tests;

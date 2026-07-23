@@ -1,6 +1,7 @@
 use std::sync::{Arc, Mutex};
 
-use crate::{ChunkId, PortError, VectorEmbedding, VectorIndex, VectorSearchHit, VectorSearchQuery};
+use crate::{PortError, VectorEmbedding, VectorIndex, VectorSearchHit, VectorSearchQuery};
+use maestria_domain::ChunkId;
 
 #[derive(Clone, Default)]
 pub struct InMemoryVectorIndex {

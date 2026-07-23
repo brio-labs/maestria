@@ -232,11 +232,19 @@ fn assert_search_finds(
 fn status_event_count(instance_path: &str) -> Result<usize, Box<dyn std::error::Error>> {
     let (code, stdout, stderr) = run(&["status", "-i", instance_path])?;
     assert_eq!(code, 0, "status failed: {stderr}");
-    Ok(stdout
-        .lines()
-        .find_map(|line| line.strip_prefix("events "))
-        .and_then(|value| value.parse().ok())
-        .map_or(0, |value| value))
+    Ok(
+        match stdout
+            .lines()
+            .find_map(|line| line.strip_prefix("events "))
+            .and_then(|value| value.parse().ok())
+        {
+            Some(value) => value,
+            None => {
+                let _ = ();
+                0
+            }
+        },
+    )
 }
 fn assert_open_evidence_ok(
     instance_path: &str,

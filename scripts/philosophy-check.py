@@ -48,6 +48,8 @@ FORBIDDEN_DOMAIN_FAILURES = [
 FORBIDDEN_RUST_LINT_BYPASSES = [
     r"#\s*!?\s*\[\s*allow\b",
     r"#\s*!?\s*\[\s*cfg_attr\s*\([^]]*\ballow\b",
+    r"#\s*!?\s*\[\s*expect\b",
+    r"#\s*!?\s*\[\s*cfg_attr\s*\([^]]*\bexpect\b",
 ]
 FORBIDDEN_RUST_METHODS = [
     (
@@ -60,12 +62,18 @@ FORBIDDEN_RUST_METHODS = [
 ]
 MAX_PRODUCTION_LOGICAL_LINES = 400
 MAX_MODULE_PHYSICAL_LINES = 900
+MAX_FUNCTION_LOGICAL_LINES = 100
 MODULE_SIZE_EXEMPTIONS: dict[str, str] = {
     "crates/apps/maestria-daemon/src/watcher.rs": "v0.7.0",
     "crates/apps/maestria-daemon/src/api/services.rs": "v0.7.0",
     "crates/kernel/maestria-domain/src/search_outcome.rs": "v0.7.0",
     "crates/ecosystem/maestria-retrieval/src/repository_benchmark.rs": "v0.7.0",
     "crates/ecosystem/maestria-retrieval/tests/contract_tests.rs": "v0.7.0",
+}
+FUNCTION_SIZE_EXEMPTIONS: dict[str, str] = {}
+MIXED_RESPONSIBILITY_EXEMPTIONS: dict[str, str] = {
+    "crates/storage/maestria-storage-sqlite/src/schema.rs": "v0.7.0",
+    "crates/ecosystem/maestria-retrieval/src/visual_benchmark.rs": "v0.7.0",
 }
 ADR_MODULE_EXEMPTIONS: dict[str, str] = {
     "crates/apps/maestria-daemon/src/lib.rs": "v0.7.0",
@@ -115,7 +123,12 @@ def scan_exemption_expiry(current_version: str | None = None) -> list[str]:
         return [f"workspace version {current_text!r} is not a supported release version"]
 
     violations = []
-    exemptions = {**MODULE_SIZE_EXEMPTIONS, **ADR_MODULE_EXEMPTIONS}
+    exemptions = {
+        **MODULE_SIZE_EXEMPTIONS,
+        **ADR_MODULE_EXEMPTIONS,
+        **FUNCTION_SIZE_EXEMPTIONS,
+        **MIXED_RESPONSIBILITY_EXEMPTIONS,
+    }
     for path, target_text in sorted(exemptions.items()):
         target = parse_release_version(target_text)
         if target is None:
@@ -691,6 +704,123 @@ def scan_cohesion() -> list[str]:
                 f"cohesion signal: extract implementation to modules"
             )
     return violations
+
+
+_FN_DECL_PATTERN = re.compile(
+    r'^\s*(?:pub(?:\s*\([^)]*\))?\s+)?(?:async\s+)?fn\s+(\w+)\s*\(',
+    re.MULTILINE,
+)
+
+
+def _find_function_bodies(text: str) -> list[tuple[str, str]]:
+    """Extract (name, body) for each top-level function in *text*."""
+    results: list[tuple[str, str]] = []
+    i = 0
+    while i < len(text):
+        match = _FN_DECL_PATTERN.search(text, i)
+        if match is None:
+            break
+        name = match.group(1)
+        j = match.end()
+        brace_depth = 0
+        in_string = False
+        string_char = None
+        start = 0
+        while j < len(text):
+            c = text[j]
+            if in_string:
+                if c == '\\' and j + 1 < len(text):
+                    j += 2
+                    continue
+                if c == string_char:
+                    in_string = False
+                j += 1
+                continue
+            if c in '"\'':
+                in_string = True
+                string_char = c
+                j += 1
+                continue
+            if c == '{':
+                if brace_depth == 0:
+                    start = j
+                brace_depth += 1
+            elif c == '}':
+                brace_depth -= 1
+                if brace_depth == 0:
+                    body = text[start + 1 : j]
+                    results.append((name, body))
+                    i = j + 1
+                    break
+            j += 1
+        else:
+            break
+    return results
+
+
+def scan_function_sizes() -> list[str]:
+    """Flag production functions that exceed the logical-line budget."""
+    violations: list[str] = []
+    for source in ROOT.rglob("*.rs"):
+        if should_skip(source):
+            continue
+        if is_test_source(source):
+            continue
+        rel_path = source.relative_to(ROOT)
+        rel = rel_path.as_posix()
+        if rel in FUNCTION_SIZE_EXEMPTIONS:
+            continue
+        content = read_text(source)
+        if content is None:
+            continue
+        production = production_rust(content)
+        for name, body in _find_function_bodies(production):
+            lines = logical_line_count(body)
+            if lines > MAX_FUNCTION_LOGICAL_LINES:
+                violations.append(
+                    f"{rel} function `{name}` has {lines} logical lines "
+                    f"(limit {MAX_FUNCTION_LOGICAL_LINES})"
+                )
+    return violations
+
+
+def scan_mixed_responsibilities() -> list[str]:
+    """Flag non-façade modules that declare many sub-modules and are large.
+
+    Heuristic: a regular .rs file (not lib.rs / mod.rs / main.rs) that
+    declares 3+ child modules *and* exceeds 300 logical lines is likely
+    accumulating mixed responsibilities.
+    """
+    violations: list[str] = []
+    mod_pattern = re.compile(
+        r'^\s*(?:pub(?:\s*\([^)]*\))?\s+)?mod\s+([a-z0-9_]+)\s*;',
+        re.MULTILINE,
+    )
+    for source in ROOT.rglob("*.rs"):
+        if should_skip(source):
+            continue
+        if is_test_source(source):
+            continue
+        if source.name in {"lib.rs", "mod.rs", "main.rs"}:
+            continue
+        rel_path = source.relative_to(ROOT)
+        rel = rel_path.as_posix()
+        if rel in MIXED_RESPONSIBILITY_EXEMPTIONS:
+            continue
+        content = read_text(source)
+        if content is None:
+            continue
+        production = production_rust(content)
+        mods = mod_pattern.findall(production)
+        logical = logical_line_count(production)
+        if len(mods) >= 3 and logical > 300:
+            violations.append(
+                f"{rel} has {len(mods)} child modules and {logical} logical lines — "
+                f"mixed-responsibility signal: extract to dedicated module or ADR"
+            )
+    return violations
+
+
 def main() -> int:
     violations = []
     marker_violations = scan_markers()
@@ -708,6 +838,8 @@ def main() -> int:
     violations.extend(scan_rust_forbidden_methods())
     violations.extend(scan_facade_boundaries())
     violations.extend(scan_cohesion())
+    violations.extend(scan_function_sizes())
+    violations.extend(scan_mixed_responsibilities())
 
     if violations:
         print("philosophy-check failed:")

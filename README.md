@@ -601,8 +601,29 @@ where it left off without data loss or duplicate work.
 
 | Crate | Layer | Description |
 |-------|-------|-------------|
-| `maestria-domain` | Kernel | Deterministic domain types, events, and transitions |
-| `maestria-governance` | Governance | Decision gates and runtime adapter contracts |
+| `maestria-domain` | Kernel | Deterministic domain types, events, transitions, and effects |
+| `maestria-governance` | Kernel | Scope, risk, approval, validation, freshness, trust, and security policy |
+| `maestria-ports` | Kernel | Capability traits and deterministic in-memory contract adapters |
+| `maestria-core` | Core | Local-first orchestration services and instance composition |
+| `maestria-runtime` | Runtime | Effect execution, workers, queues, cancellation, retries, and journaling |
+| `maestria-cli` | App | User-facing CLI binary |
+| `maestria-daemon` | App | Restart-safe daemon with authenticated local API |
+| `maestria-retrieval` | Ecosystem | Typed search planning, candidate generation, fusion, and reranking |
+| `maestria-code-intel` | Ecosystem | Repository code intelligence index for workspace metadata and Rust symbols |
+| `maestria-parsers` | Ecosystem | Source parsing and document structure extraction |
+| `maestria-memory` | Ecosystem | Candidate deduplication, promotion workflow, and staleness handling |
+| `maestria-validation` | Ecosystem | Validation runners, reports, and completion gating |
+| `maestria-web-evidence` | Ecosystem | Governed web evidence fetching and current-web retrieval |
+| `maestria-embedding-openai` | Ecosystem | OpenAI-compatible embedding provider adapter |
+| `maestria-ocr-local` | Ecosystem | Local OCR provider adapter for scanned PDFs |
+| `maestria-visual-local` | Ecosystem | Local visual retrieval provider adapter for page/region evidence |
+| `maestria-harness` | Harness | Normalized external execution and capability reporting |
+| `maestria-harness-cli` | Harness | CLI harness for local command execution |
+| `maestria-storage-sqlite` | Storage | SQLite-based state persistence, event log, and repository traits |
+| `maestria-search-tantivy` | Storage | Tantivy-based full-text lexical index |
+| `maestria-vector-sqlite` | Storage | SQLite-based vector similarity index |
+| `maestria-graph-sqlite` | Storage | SQLite-based graph projection index |
+| `maestria-blob-fs` | Storage | Filesystem-backed immutable blob store |
 
 ## Invariants
 

@@ -151,7 +151,7 @@ pub(crate) fn search_lexical(
 pub(crate) fn search_lexical_filtered(
     lexical_chunks: &Arc<Mutex<Vec<IndexedLexicalChunk>>>,
     query: LexicalQuery<ChunkField>,
-    filter: &dyn Fn(crate::ChunkId, crate::ArtifactId) -> bool,
+    filter: &dyn Fn(maestria_domain::ChunkId, maestria_domain::ArtifactId) -> bool,
 ) -> Result<Vec<LexicalChunkHit>, PortError> {
     let needle = validate_and_prepare_query(
         &query.q,
@@ -247,7 +247,7 @@ pub(crate) fn search_cards_lexical(
 pub(crate) fn search_cards_lexical_filtered(
     lexical_cards: &Arc<Mutex<Vec<IndexedLexicalCard>>>,
     query: LexicalQuery<CardField>,
-    filter: &dyn Fn(crate::CardId, crate::ArtifactId) -> bool,
+    filter: &dyn Fn(maestria_domain::CardId, maestria_domain::ArtifactId) -> bool,
 ) -> Result<Vec<LexicalCardHit>, PortError> {
     let needle = validate_and_prepare_query(
         &query.q,

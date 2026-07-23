@@ -6,11 +6,6 @@
 //! without depending on a specific runtime, database, search engine, parser, or
 //! harness implementation.
 
-use maestria_domain::{
-    Artifact, ArtifactId, BlobId, Card, CardId, Chunk, ChunkId, DomainEvent, DomainEventEnvelope,
-    Evidence, EvidenceId, Relation, RelationEndpoint, RelationId,
-};
-
 pub const PORTS_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 pub mod learned_sparse;

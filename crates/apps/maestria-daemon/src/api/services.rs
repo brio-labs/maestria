@@ -73,7 +73,7 @@ pub(crate) async fn dispatch(
 }
 
 fn current_generation(state: &KernelState) -> u64 {
-    state
+    match state
         .event_log
         .iter()
         .filter_map(|env| match &env.event {
@@ -81,7 +81,13 @@ fn current_generation(state: &KernelState) -> u64 {
             _ => None,
         })
         .max()
-        .map_or(0, |generation| generation)
+    {
+        Some(generation) => generation,
+        None => {
+            let _ = ();
+            0
+        }
+    }
 }
 
 /// Converts the wire-format payload into a typed `ModelAgentProposal`.
@@ -265,13 +271,13 @@ fn create_memory_candidate(
         return None;
     }
     let candidate_id = MemoryCandidateId::new(
-        state
-            .memory_candidates
-            .keys()
-            .map(|id| id.value())
-            .max()
-            .map_or(0, |candidate_id| candidate_id)
-            + 1,
+        match state.memory_candidates.keys().map(|id| id.value()).max() {
+            Some(candidate_id) => candidate_id,
+            None => {
+                let _ = ();
+                0
+            }
+        } + 1,
     );
     let candidate = maestria_domain::MemoryCandidate {
         id: candidate_id,

@@ -1,7 +1,7 @@
 use super::*;
 
 use maestria_ports::{
-    FullTextIndex, SearchQuery, contract_tests::assert_full_text_index_round_trip,
+    FullTextIndex, IndexedChunk, SearchQuery, contract_tests::assert_full_text_index_round_trip,
 };
 use tempfile::TempDir;
 

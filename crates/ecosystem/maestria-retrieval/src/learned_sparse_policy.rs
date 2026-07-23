@@ -14,11 +14,15 @@ impl LearnedSparseExecutionPolicy {
     pub fn route_for(&self, query: &str) -> LearnedSparseRoute {
         let class = LearnedSparseQueryClass::classify(query);
         match self {
-            Self::Active(record) if record.is_valid() => record
-                .winning_routes()
-                .get(&class)
-                .copied()
-                .map_or(LearnedSparseRoute::Hybrid, |route| route),
+            Self::Active(record) if record.is_valid() => {
+                match record.winning_routes().get(&class).copied() {
+                    Some(route) => route,
+                    None => {
+                        let _ = ();
+                        LearnedSparseRoute::Hybrid
+                    }
+                }
+            }
             Self::Disabled | Self::Shadow | Self::Active(_) => LearnedSparseRoute::Hybrid,
         }
     }

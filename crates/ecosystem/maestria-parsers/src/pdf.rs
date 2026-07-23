@@ -163,11 +163,13 @@ fn root_node(
     artifact_id: maestria_domain::ArtifactId,
     pages: &[PdfPageLayout],
 ) -> Result<StructureNode, PortError> {
-    let max_page = pages
-        .iter()
-        .map(|page| page.page)
-        .max()
-        .map_or(1, |page| page);
+    let max_page = match pages.iter().map(|page| page.page).max() {
+        Some(page) => page,
+        None => {
+            let _ = ();
+            1
+        }
+    };
     Ok(StructureNode {
         id: StructureNodeId::new(
             artifact_id

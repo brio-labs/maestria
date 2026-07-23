@@ -3,7 +3,8 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use crate::{BlobId, PortError};
+use crate::PortError;
+use maestria_domain::BlobId;
 
 #[derive(Clone, Default)]
 pub struct InMemoryBlobStore {

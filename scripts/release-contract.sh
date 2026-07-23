@@ -10,6 +10,7 @@ cargo test -p maestria-retrieval --test adaptive_contract_tests
 # repository index adapter and the explicit visual-provider degradation path.
 cargo test -p maestria-retrieval --test repository_benchmark_tests
 cargo test -p maestria-retrieval --test visual_benchmark_tests
-cargo test -p maestria-retrieval --test contract_tests
-cargo test -p maestria-retrieval --test golden_fixture
+cargo test -p maestria-retrieval --test retrieval -- sync_engine --nocapture
+cargo test -p maestria-retrieval --test retrieval -- async_engine --nocapture
+cargo test -p maestria-retrieval --test retrieval -- golden_fixture
 cargo test -p maestria-core --test golden_gate
