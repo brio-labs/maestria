@@ -183,9 +183,12 @@ async fn execute_proposal_effects(
                     exit_code: outcome.exit_code,
                     output: String::from_utf8_lossy(&outcome.stdout).to_string(),
                 };
-                let _ = context
+                if let Err(error) = context
                     .input_tx
-                    .try_send(DomainInput::HarnessRunCompleted(completion));
+                    .try_send(DomainInput::HarnessRunCompleted(completion))
+                {
+                    tracing::error!(%error, "failed to send harness run completed to domain input channel");
+                }
                 Some(ModelAgentHarnessOutcome {
                     exit_code: outcome.exit_code,
                     stdout: truncate_utf8(&outcome.stdout, 4096),
@@ -288,7 +291,7 @@ fn create_memory_candidate(
         maestria_governance::MemoryPromotionDecision::RequireReview { .. } => "require_review",
         maestria_governance::MemoryPromotionDecision::Deny { .. } => "deny",
     };
-    let _ = context
+    if let Err(error) = context
         .input_tx
         .try_send(DomainInput::CreateMemoryCandidate(
             maestria_domain::CreateMemoryCandidateInput {
@@ -298,7 +301,10 @@ fn create_memory_candidate(
                 confidence_milli: 800,
                 security: None,
             },
-        ));
+        ))
+    {
+        tracing::error!(%error, "failed to send create memory candidate to domain input channel");
+    }
     Some(ModelAgentMemoryCandidateSummary {
         candidate_id: candidate_id.value(),
         confidence_milli: 800,
