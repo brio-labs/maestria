@@ -173,9 +173,21 @@ fn every_declared_score_kind_has_one_canonical_wire_shape() -> Result<(), Box<dy
         .map(|(index, kind)| {
             lane(
                 kind,
-                i64::try_from(index.saturating_add(1)).map_or(i64::MAX, |value| value),
+                {
+                    let mut value = i64::MAX;
+                    if let Ok(v) = i64::try_from(index.saturating_add(1)) {
+                        value = v;
+                    }
+                    value
+                },
                 RetrievalRawRank::ranked(
-                    u32::try_from(index.saturating_add(1)).map_or(u32::MAX, |value| value),
+                    {
+                        let mut value = u32::MAX;
+                        if let Ok(v) = u32::try_from(index.saturating_add(1)) {
+                            value = v;
+                        }
+                        value
+                    },
                 ),
                 &format!("fixture_representation_{index}"),
             )
