@@ -145,25 +145,30 @@ impl PdfTransform {
     }
 }
 
-pub(super) fn as_float_opt(object: &lopdf::Object) -> Option<f32> {
-    object.as_float().ok()
+pub(super) fn as_float_result(object: &lopdf::Object) -> Result<f32, PortError> {
+    object.as_float().map_err(|e| PortError::InvalidInput {
+        message: format!("PDF operand is not a number: {e}"),
+    })
 }
 
-pub(super) fn transform_from_operands(values: &[lopdf::Object]) -> Option<PdfTransform> {
+pub(super) fn transform_from_operands(values: &[lopdf::Object]) -> Result<PdfTransform, PortError> {
     if values.len() != 6 {
-        return None;
+        return Err(PortError::InvalidInput {
+            message: format!("PDF transform operand count is {}, expected 6", values.len()),
+        });
     }
-    let mut numbers = Vec::with_capacity(6);
-    for value in values {
-        numbers.push(as_float_opt(value)?);
-    }
-    let [a, b, c, d, e, f] = [
-        numbers[0], numbers[1], numbers[2], numbers[3], numbers[4], numbers[5],
-    ];
+    let a = as_float_result(&values[0])?;
+    let b = as_float_result(&values[1])?;
+    let c = as_float_result(&values[2])?;
+    let d = as_float_result(&values[3])?;
+    let e = as_float_result(&values[4])?;
+    let f = as_float_result(&values[5])?;
     if [a, b, c, d, e, f].iter().all(|v| v.is_finite()) {
-        Some(PdfTransform { a, b, c, d, e, f })
+        Ok(PdfTransform { a, b, c, d, e, f })
     } else {
-        None
+        Err(PortError::InvalidInput {
+            message: "PDF transform contains non-finite values".to_string(),
+        })
     }
 }
 
@@ -171,16 +176,20 @@ pub(super) fn rectangle(
     values: &[lopdf::Object],
     transform: PdfTransform,
     geometry: PageGeometry,
-) -> Option<(u32, u32, u32, u32)> {
+) -> Result<(u32, u32, u32, u32), PortError> {
     if values.len() != 4 {
-        return None;
+        return Err(PortError::InvalidInput {
+            message: format!("PDF rectangle operand count is {}, expected 4", values.len()),
+        });
     }
-    let x = as_float_opt(values.first()?)?;
-    let y = as_float_opt(values.get(1)?)?;
-    let width = as_float_opt(values.get(2)?)?;
-    let height = as_float_opt(values.get(3)?)?;
+    let x = as_float_result(&values[0])?;
+    let y = as_float_result(&values[1])?;
+    let width = as_float_result(&values[2])?;
+    let height = as_float_result(&values[3])?;
     if ![x, y, width, height].iter().all(|v| v.is_finite()) || width == 0.0 || height == 0.0 {
-        return None;
+        return Err(PortError::InvalidInput {
+            message: "PDF rectangle has invalid dimensions".to_string(),
+        });
     }
     bounds(
         [
@@ -191,6 +200,9 @@ pub(super) fn rectangle(
         ],
         geometry,
     )
+    .ok_or_else(|| PortError::InvalidInput {
+        message: "PDF rectangle bounds are invalid".to_string(),
+    })
 }
 
 pub(super) fn unit_region(
