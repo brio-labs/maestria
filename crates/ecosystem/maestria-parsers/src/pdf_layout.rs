@@ -33,7 +33,10 @@ pub(super) fn extract_page_layouts(doc: &lopdf::Document) -> Result<Vec<PdfPageL
             Ok(_) => (String::new(), true),
             Err(_) => (String::new(), true),
         };
-        let (regions, content_failed) = layout_regions(doc, page_id, page, page_geometry);
+        let (regions, content_failed) = match layout_regions(doc, page_id, page, page_geometry) {
+            Ok(result) => result,
+            Err(_) => (Vec::new(), true),
+        };
         let image_dominated = regions
             .iter()
             .any(|region| matches!(&region.node_type, StructureNodeType::Figure))
@@ -79,21 +82,22 @@ fn layout_regions(
     page_id: lopdf::ObjectId,
     page: u32,
     geometry: PageGeometry,
-) -> (Vec<PdfRegion>, bool) {
-    let content = match doc.get_and_decode_page_content(page_id) {
-        Ok(content) => content,
-        Err(_) => return (Vec::new(), true),
-    };
-    let pending = collect_pending_regions(&content.operations, page, geometry);
+) -> Result<(Vec<PdfRegion>, bool), PortError> {
+    let content =
+        doc.get_and_decode_page_content(page_id)
+            .map_err(|e| PortError::InvalidInput {
+                message: format!("PDF page content decode failed: {e}"),
+            })?;
+    let pending = collect_pending_regions(&content.operations, page, geometry)?;
     let regions = materialize_regions(pending, page);
-    (regions, false)
+    Ok((regions, false))
 }
 
 fn collect_pending_regions(
     operations: &[lopdf::content::Operation],
     page: u32,
     geometry: PageGeometry,
-) -> Vec<PendingRegion> {
+) -> Result<Vec<PendingRegion>, PortError> {
     let mut pending = Vec::new();
     let mut transform = PdfTransform::identity();
     let mut stack = Vec::new();
@@ -107,14 +111,12 @@ fn collect_pending_regions(
                 };
             }
             "cm" => {
-                if let Some(matrix) = transform_from_operands(&operation.operands) {
-                    transform = transform.concat(matrix);
-                }
+                let matrix = transform_from_operands(&operation.operands)?;
+                transform = transform.concat(matrix);
             }
             "re" => {
-                if let Some(bounds) = rectangle(&operation.operands, transform, geometry) {
-                    pending.push(PendingRegion::Rectangle(bounds));
-                }
+                let bounds = rectangle(&operation.operands, transform, geometry)?;
+                pending.push(PendingRegion::Rectangle(bounds));
             }
             "Do" => {
                 if let Some(bounds) = unit_region(transform, geometry) {
@@ -122,14 +124,14 @@ fn collect_pending_regions(
                 }
             }
             "BMC" | "BDC" => {
-                if let Some(region) = try_tagged_region(operation, transform, geometry, page) {
+                if let Some(region) = try_tagged_region(operation, transform, geometry, page)? {
                     pending.push(region);
                 }
             }
             _ => {}
         }
     }
-    pending
+    Ok(pending)
 }
 
 fn try_tagged_region(
@@ -137,24 +139,42 @@ fn try_tagged_region(
     transform: PdfTransform,
     geometry: PageGeometry,
     page: u32,
-) -> Option<PendingRegion> {
-    let name = std::str::from_utf8(operation.operands.first()?.as_name().ok()?).ok()?;
+) -> Result<Option<PendingRegion>, PortError> {
+    let first_operand = operation
+        .operands
+        .first()
+        .ok_or_else(|| PortError::InvalidInput {
+            message: "PDF tagged region missing operand".to_string(),
+        })?;
+    let name_bytes = first_operand
+        .as_name()
+        .map_err(|e| PortError::InvalidInput {
+            message: format!("PDF tagged region operand is not a name: {e}"),
+        })?;
+    let name = std::str::from_utf8(name_bytes).map_err(|e| PortError::InvalidInput {
+        message: format!("PDF tagged region name is not valid UTF-8: {e}"),
+    })?;
     let node_type = if name.eq_ignore_ascii_case("figure") {
         Some(StructureNodeType::Figure)
     } else if name.eq_ignore_ascii_case("table") || name.eq_ignore_ascii_case("table-cell") {
         Some(StructureNodeType::Table)
     } else {
         None
-    }?;
+    };
+    let Some(node_type) = node_type else {
+        return Ok(None);
+    };
     if transform == PdfTransform::identity() {
-        return None;
+        return Ok(None);
     }
-    let bounds = unit_region(transform, geometry)?;
-    Some(PendingRegion::Tagged(
+    let Some(bounds) = unit_region(transform, geometry) else {
+        return Ok(None);
+    };
+    Ok(Some(PendingRegion::Tagged(
         node_type,
         format!("{name} region on page {page}"),
         bounds,
-    ))
+    )))
 }
 
 fn materialize_regions(pending: Vec<PendingRegion>, page: u32) -> Vec<PdfRegion> {
