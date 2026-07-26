@@ -129,6 +129,28 @@ fn rejects_empty_source_bytes() -> Result<(), PortError> {
     Ok(())
 }
 #[test]
+fn rejects_missing_embedding_in_response() -> Result<(), PortError> {
+    struct EmptyDataTransport;
+    impl VisualTransport for EmptyDataTransport {
+        fn post(&self, _endpoint: &str, _body: Vec<u8>) -> Result<Vec<u8>, PortError> {
+            Ok(br#"{"model":"siglip-v1","data":[]}"#.to_vec())
+        }
+    }
+    let provider = LocalHttpVisualProvider::with_transport(
+        "http://127.0.0.1:10001/v1/embeddings",
+        "siglip-v1",
+        identity()?,
+        Arc::new(EmptyDataTransport),
+    )?;
+    let result = provider.embed_query("table latency", identity()?);
+    assert!(
+        matches!(result, Err(PortError::Downstream { .. })),
+        "expected Downstream error for missing embedding, got {result:?}"
+    );
+    Ok(())
+}
+
+#[test]
 fn sends_text_query_and_preserves_identity() -> Result<(), PortError> {
     let transport = Arc::new(RecordingTransport::default());
     let expected_identity = identity()?;

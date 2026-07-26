@@ -26,6 +26,15 @@ impl TryFrom<VectorEmbedding> for PreparedEmbedding {
 
     fn try_from(embedding: VectorEmbedding) -> Result<Self, Self::Error> {
         validate_vector(&embedding.vector, "embedding vector")?;
+        if embedding.provenance.content_hash.is_empty()
+            || embedding.provenance.provider_id.is_empty()
+            || embedding.provenance.model.is_empty()
+            || embedding.provenance.model_version.is_empty()
+        {
+            return Err(PortError::InvalidInput {
+                message: "embedding provenance fields must not be empty".into(),
+            });
+        }
         let dimension = embedding.vector.len();
         if dimension != embedding.provenance.identity.fingerprint.dimensions as usize {
             return Err(PortError::InvalidInput {

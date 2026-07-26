@@ -152,6 +152,28 @@ fn rejects_empty_text() -> Result<(), PortError> {
     Ok(())
 }
 #[test]
+fn rejects_mismatched_model_version() -> Result<(), PortError> {
+    let provider = LocalHttpEmbeddingProvider::with_transport(
+        "http://127.0.0.1:8080/v1/embeddings",
+        "model-a",
+        Some(2),
+        Arc::new(FixtureTransport::new(Ok(
+            br#"{"data":[{"embedding":[0.1,0.2]}]}"#.to_vec(),
+        ))),
+    )?;
+    let result = provider.embed(EmbeddingRequest {
+        text: "hello".to_string(),
+        model: "model-b".to_string(),
+        kind: EmbeddingInputKind::Document,
+        identity: provider.identity().clone(),
+    });
+    assert!(
+        matches!(result, Err(PortError::InvalidInput { .. })),
+        "expected InvalidInput for mismatched model version, got {result:?}"
+    );
+    Ok(())
+}
+#[test]
 fn propagates_transport_error() -> Result<(), PortError> {
     let provider = LocalHttpEmbeddingProvider::with_transport(
         "http://127.0.0.1:8080/v1/embeddings",
