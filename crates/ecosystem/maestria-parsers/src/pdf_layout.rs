@@ -83,11 +83,11 @@ fn layout_regions(
     page: u32,
     geometry: PageGeometry,
 ) -> Result<(Vec<PdfRegion>, bool), PortError> {
-    let content = doc
-        .get_and_decode_page_content(page_id)
-        .map_err(|e| PortError::InvalidInput {
-            message: format!("PDF page content decode failed: {e}"),
-        })?;
+    let content =
+        doc.get_and_decode_page_content(page_id)
+            .map_err(|e| PortError::InvalidInput {
+                message: format!("PDF page content decode failed: {e}"),
+            })?;
     let pending = collect_pending_regions(&content.operations, page, geometry)?;
     let regions = materialize_regions(pending, page);
     Ok((regions, false))
@@ -140,12 +140,17 @@ fn try_tagged_region(
     geometry: PageGeometry,
     page: u32,
 ) -> Result<Option<PendingRegion>, PortError> {
-    let first_operand = operation.operands.first().ok_or_else(|| PortError::InvalidInput {
-        message: "PDF tagged region missing operand".to_string(),
-    })?;
-    let name_bytes = first_operand.as_name().map_err(|e| PortError::InvalidInput {
-        message: format!("PDF tagged region operand is not a name: {e}"),
-    })?;
+    let first_operand = operation
+        .operands
+        .first()
+        .ok_or_else(|| PortError::InvalidInput {
+            message: "PDF tagged region missing operand".to_string(),
+        })?;
+    let name_bytes = first_operand
+        .as_name()
+        .map_err(|e| PortError::InvalidInput {
+            message: format!("PDF tagged region operand is not a name: {e}"),
+        })?;
     let name = std::str::from_utf8(name_bytes).map_err(|e| PortError::InvalidInput {
         message: format!("PDF tagged region name is not valid UTF-8: {e}"),
     })?;

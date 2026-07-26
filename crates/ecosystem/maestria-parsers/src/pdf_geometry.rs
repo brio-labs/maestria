@@ -154,7 +154,10 @@ pub(super) fn as_float_result(object: &lopdf::Object) -> Result<f32, PortError> 
 pub(super) fn transform_from_operands(values: &[lopdf::Object]) -> Result<PdfTransform, PortError> {
     if values.len() != 6 {
         return Err(PortError::InvalidInput {
-            message: format!("PDF transform operand count is {}, expected 6", values.len()),
+            message: format!(
+                "PDF transform operand count is {}, expected 6",
+                values.len()
+            ),
         });
     }
     let a = as_float_result(&values[0])?;
@@ -179,7 +182,10 @@ pub(super) fn rectangle(
 ) -> Result<(u32, u32, u32, u32), PortError> {
     if values.len() != 4 {
         return Err(PortError::InvalidInput {
-            message: format!("PDF rectangle operand count is {}, expected 4", values.len()),
+            message: format!(
+                "PDF rectangle operand count is {}, expected 4",
+                values.len()
+            ),
         });
     }
     let x = as_float_result(&values[0])?;
