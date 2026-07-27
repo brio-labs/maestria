@@ -213,3 +213,37 @@ fn test_search_cards_lexical_filtered_acl() -> Result<(), Box<dyn std::error::Er
     assert_eq!(hits[0].card.card_id, CardId::new(21));
     Ok(())
 }
+
+#[test]
+fn rejects_invalid_lexical_queries() -> Result<(), Box<dyn std::error::Error>> {
+    let index = InMemoryFullTextIndex::new();
+    let empty_chunk_query = LexicalQuery {
+        q: " ".to_string(),
+        limit: 10,
+        offset: 0,
+        mode: MatchMode::Contains,
+        fields: vec![FieldSelector {
+            field: ChunkField::Text,
+            boost: 1.0,
+        }],
+    };
+    assert!(
+        index
+            .search_lexical(empty_chunk_query)
+            .is_err_and(|error| error.is_invalid_input())
+    );
+
+    let empty_card_query = LexicalQuery {
+        q: "term".to_string(),
+        limit: 10,
+        offset: 0,
+        mode: MatchMode::Contains,
+        fields: Vec::new(),
+    };
+    assert!(
+        index
+            .search_cards_lexical(empty_card_query)
+            .is_err_and(|error| error.is_invalid_input())
+    );
+    Ok(())
+}

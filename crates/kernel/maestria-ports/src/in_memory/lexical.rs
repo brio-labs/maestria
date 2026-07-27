@@ -13,8 +13,9 @@ fn validate_and_prepare_query(
     err_msg: &str,
 ) -> Result<String, PortError> {
     if q.trim().is_empty() {
-        return Err(PortError::InvalidInput {
-            message: err_msg.to_string(),
+        return Err(PortError::InvalidInputContext {
+            context: "lexical query is empty",
+            source: err_msg.to_string(),
         });
     }
     Ok(match mode {
@@ -115,9 +116,12 @@ pub(crate) fn index_lexical_chunks(
     lexical_chunks: &Arc<Mutex<Vec<IndexedLexicalChunk>>>,
     chunks: Vec<IndexedLexicalChunk>,
 ) -> Result<(), PortError> {
-    let mut guard = lexical_chunks.lock().map_err(|_| PortError::Internal {
-        message: "index lock poisoned".to_string(),
-    })?;
+    let mut guard = lexical_chunks
+        .lock()
+        .map_err(|_| PortError::InternalContext {
+            context: "lexical index lock poisoned",
+            source: "index mutex is poisoned".to_string(),
+        })?;
     for chunk in &chunks {
         guard.retain(|existing| {
             existing.artifact_id != chunk.artifact_id || existing.chunk_id != chunk.chunk_id
@@ -131,9 +135,12 @@ pub(crate) fn index_lexical_cards(
     lexical_cards: &Arc<Mutex<Vec<IndexedLexicalCard>>>,
     cards: Vec<IndexedLexicalCard>,
 ) -> Result<(), PortError> {
-    let mut guard = lexical_cards.lock().map_err(|_| PortError::Internal {
-        message: "index lock poisoned".to_string(),
-    })?;
+    let mut guard = lexical_cards
+        .lock()
+        .map_err(|_| PortError::InternalContext {
+            context: "lexical index lock poisoned",
+            source: "index mutex is poisoned".to_string(),
+        })?;
     for card in &cards {
         guard.retain(|c| c.artifact_id != card.artifact_id || c.card_id != card.card_id);
     }
@@ -159,13 +166,17 @@ pub(crate) fn search_lexical_filtered(
         "lexical search query must not be empty",
     )?;
     if query.fields.is_empty() {
-        return Err(PortError::InvalidInput {
-            message: "lexical search requires at least one field".to_string(),
+        return Err(PortError::InvalidInputContext {
+            context: "lexical chunk query has no fields",
+            source: "at least one field is required".to_string(),
         });
     }
-    let guard = lexical_chunks.lock().map_err(|_| PortError::Internal {
-        message: "index lock poisoned".to_string(),
-    })?;
+    let guard = lexical_chunks
+        .lock()
+        .map_err(|_| PortError::InternalContext {
+            context: "lexical index lock poisoned",
+            source: "index mutex is poisoned".to_string(),
+        })?;
 
     let hits = guard
         .iter()
@@ -255,13 +266,17 @@ pub(crate) fn search_cards_lexical_filtered(
         "lexical card search query must not be empty",
     )?;
     if query.fields.is_empty() {
-        return Err(PortError::InvalidInput {
-            message: "lexical card search requires at least one field".to_string(),
+        return Err(PortError::InvalidInputContext {
+            context: "lexical card query has no fields",
+            source: "at least one field is required".to_string(),
         });
     }
-    let guard = lexical_cards.lock().map_err(|_| PortError::Internal {
-        message: "index lock poisoned".to_string(),
-    })?;
+    let guard = lexical_cards
+        .lock()
+        .map_err(|_| PortError::InternalContext {
+            context: "lexical index lock poisoned",
+            source: "index mutex is poisoned".to_string(),
+        })?;
 
     let hits = guard
         .iter()
