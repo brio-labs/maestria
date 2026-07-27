@@ -44,9 +44,10 @@ async fn search_executed_persists_and_is_observable() -> Result<(), Box<dyn std:
     // Wait for the event to appear in the event log.
     tokio::time::timeout(Duration::from_secs(2), async {
         loop {
-            let events = event_log
-                .scan(EventFilter { artifact_id: None })
-                .map_or(Vec::new(), |events| events);
+            let mut events = Vec::new();
+            if let Ok(scanned) = event_log.scan(EventFilter { artifact_id: None }) {
+                events = scanned;
+            }
             if events
                 .iter()
                 .any(|env| matches!(env.event, DomainEvent::SearchExecuted { .. }))
@@ -58,9 +59,10 @@ async fn search_executed_persists_and_is_observable() -> Result<(), Box<dyn std:
     })
     .await?;
 
-    let events = event_log
-        .scan(EventFilter { artifact_id: None })
-        .map_or(Vec::new(), |events| events);
+    let mut events = Vec::new();
+    if let Ok(scanned) = event_log.scan(EventFilter { artifact_id: None }) {
+        events = scanned;
+    }
     assert_eq!(events.len(), 1);
     match &events[0].event {
         DomainEvent::SearchExecuted {

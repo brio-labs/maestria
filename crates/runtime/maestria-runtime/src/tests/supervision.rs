@@ -52,9 +52,10 @@ async fn parse_artifact_no_deadlock_at_max_concurrency_one()
     // Wait for the ParserStarted event to be persisted (proves no deadlock).
     let barrier_passed = tokio::time::timeout(Duration::from_secs(3), async {
         loop {
-            let events = event_log
-                .scan(EventFilter { artifact_id: None })
-                .map_or(Vec::new(), |events| events);
+            let mut events = Vec::new();
+            if let Ok(scanned) = event_log.scan(EventFilter { artifact_id: None }) {
+                events = scanned;
+            }
             if events.iter().any(|e| {
                 matches!(&e.event, DomainEvent::ParserStarted { artifact_id: id, .. } if *id == artifact_id)
             }) {

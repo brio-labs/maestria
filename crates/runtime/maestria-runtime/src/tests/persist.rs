@@ -49,9 +49,10 @@ async fn persist_effects_keep_duplicate_events_in_order() -> Result<(), Box<dyn 
 
     tokio::time::timeout(Duration::from_secs(2), async {
         loop {
-            let events = event_log
-                .scan(EventFilter { artifact_id: None })
-                .map_or(Vec::new(), |events| events);
+            let mut events = Vec::new();
+            if let Ok(scanned) = event_log.scan(EventFilter { artifact_id: None }) {
+                events = scanned;
+            }
             if events.len() == 2 {
                 break;
             }
@@ -60,9 +61,10 @@ async fn persist_effects_keep_duplicate_events_in_order() -> Result<(), Box<dyn 
     })
     .await?;
 
-    let events = event_log
-        .scan(EventFilter { artifact_id: None })
-        .map_or(Vec::new(), |events| events);
+    let mut events = Vec::new();
+    if let Ok(scanned) = event_log.scan(EventFilter { artifact_id: None }) {
+        events = scanned;
+    }
     assert_eq!(events[0].id.value(), 1);
     assert_eq!(events[0].sequence.value(), 1);
     assert_eq!(events[1].id.value(), 2);

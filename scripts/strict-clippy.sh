@@ -9,5 +9,4 @@ cargo clippy --workspace --all-targets --all-features -- \
   -D clippy::unwrap_used \
   -D clippy::expect_used \
   -D clippy::panic \
-  -D clippy::disallowed_methods \
-  -A clippy::map_or_identity
+  -D clippy::disallowed_methods
