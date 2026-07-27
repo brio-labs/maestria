@@ -51,7 +51,8 @@ pub(crate) fn resolve_working_directory(scope: &Scope) -> Result<PathBuf, PortEr
     if let Some(root) = scope.readable_roots().first() {
         return Ok(root.clone());
     }
-    std::env::current_dir().map_err(|error| PortError::InvalidInput {
-        message: format!("unable to resolve unrestricted harness working directory: {error}"),
+    std::env::current_dir().map_err(|error| PortError::InvalidInputContext {
+        context: "unable to resolve unrestricted harness working directory",
+        source: error.to_string(),
     })
 }

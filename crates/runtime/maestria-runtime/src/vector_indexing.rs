@@ -180,8 +180,9 @@ async fn embed_blocking(
 ) -> Result<maestria_ports::EmbeddingResponse, maestria_ports::PortError> {
     match tokio::task::spawn_blocking(move || provider.embed(request)).await {
         Ok(result) => result,
-        Err(error) => Err(maestria_ports::PortError::Internal {
-            message: format!("embedding provider task failed: {error}"),
+        Err(error) => Err(maestria_ports::PortError::InternalContext {
+            context: "embedding provider task failed",
+            source: error.to_string(),
         }),
     }
 }
