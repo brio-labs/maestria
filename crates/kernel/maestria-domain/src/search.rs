@@ -11,7 +11,7 @@ pub use search_intent::*;
 #[path = "retrieval_score.rs"]
 mod retrieval_score;
 pub use retrieval_score::*;
-#[path = "search_outcome.rs"]
+#[path = "search_outcome/mod.rs"]
 mod search_outcome;
 pub use search_outcome::*;
 #[path = "search_source.rs"]
