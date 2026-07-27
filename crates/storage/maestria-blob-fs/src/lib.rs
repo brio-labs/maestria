@@ -31,8 +31,9 @@ impl FsBlobStore {
             .map_err(|error| io_error("canonicalize blob root", root, error))?;
 
         if !root.is_dir() {
-            return Err(PortError::InvalidInput {
-                message: format!("blob root is not a directory: {}", root.display()),
+            return Err(PortError::InvalidInputContext {
+                context: "blob root is not a directory",
+                source: root.display().to_string(),
             });
         }
 
@@ -197,8 +198,9 @@ impl FsBlobStore {
             return Ok(temp_path);
         }
 
-        Err(PortError::Internal {
-            message: "could not allocate a unique blob temp file".to_string(),
+        Err(PortError::InternalContext {
+            context: "allocate unique blob temp file",
+            source: "exhausted temporary file allocation attempts".to_string(),
         })
     }
 
@@ -274,8 +276,9 @@ fn validate_digest_hex(digest_hex: &str) -> Result<&str, PortError> {
     {
         Ok(digest_hex)
     } else {
-        Err(PortError::InvalidInput {
-            message: "blob digest must be 64 lowercase hexadecimal characters".to_string(),
+        Err(PortError::InvalidInputContext {
+            context: "invalid blob digest",
+            source: "expected 64 lowercase hexadecimal characters".to_string(),
         })
     }
 }
@@ -369,7 +372,7 @@ mod tests {
         let malicious = "../aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
         assert!(matches!(
             store.object_path_for_digest(malicious),
-            Err(PortError::InvalidInput { .. })
+            Err(PortError::InvalidInputContext { .. })
         ));
         Ok(())
     }
