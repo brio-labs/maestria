@@ -8,7 +8,10 @@ async fn timeout_on_slow_command() -> Result<(), Box<dyn std::error::Error>> {
     req.readable_roots = vec![PathBuf::from("/dev")];
     let result = adapter().execute(req).await;
     assert!(
-        matches!(result, Err(PortError::Internal { .. })),
+        matches!(
+            result,
+            Err(PortError::Internal { .. } | PortError::InternalContext { .. })
+        ),
         "expected timeout Internal error, got {result:?}"
     );
     Ok(())

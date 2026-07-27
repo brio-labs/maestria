@@ -261,8 +261,9 @@ struct UreqTransport {
 impl HttpTransport for UreqTransport {
     fn get(&self, url: &str, max_bytes: usize) -> Result<HttpResponse, PortError> {
         if max_bytes == 0 || max_bytes > MAX_WEB_RESPONSE_BYTES {
-            return Err(PortError::InvalidInput {
-                message: format!("max_bytes must be between 1 and {MAX_WEB_RESPONSE_BYTES}"),
+            return Err(PortError::InvalidInputContext {
+                context: "max_bytes out of bounds",
+                source: max_bytes.to_string(),
             });
         }
         let response = match self.agent.get(url).call() {
@@ -348,8 +349,9 @@ impl WebFetcher for UreqWebFetcher {
         options: &WebFetchOptions,
     ) -> Result<WebSnapshotData, PortError> {
         if options.max_bytes == 0 || options.max_bytes > MAX_WEB_RESPONSE_BYTES {
-            return Err(PortError::InvalidInput {
-                message: format!("max_bytes must be between 1 and {MAX_WEB_RESPONSE_BYTES}"),
+            return Err(PortError::InvalidInputContext {
+                context: "max_bytes out of bounds",
+                source: options.max_bytes.to_string(),
             });
         }
         if options.max_latency_ms == 0 {
@@ -357,8 +359,9 @@ impl WebFetcher for UreqWebFetcher {
                 message: "max_latency_ms must be greater than zero".to_string(),
             });
         }
-        let parsed = url::Url::parse(url_str).map_err(|e| PortError::InvalidInput {
-            message: format!("invalid url: {e}"),
+        let parsed = url::Url::parse(url_str).map_err(|e| PortError::InvalidInputContext {
+            context: "invalid url",
+            source: e.to_string(),
         })?;
         validate_fetch_url(&parsed)?;
         if !options.allowed_domains.is_empty() && !domain_allowed(&parsed, &options.allowed_domains)
@@ -403,8 +406,9 @@ impl WebFetcher for UreqWebFetcher {
 }
 
 fn downstream_error(error: impl std::fmt::Display) -> PortError {
-    PortError::Downstream {
-        message: error.to_string(),
+    PortError::DownstreamContext {
+        context: "web response error",
+        source: error.to_string(),
     }
 }
 

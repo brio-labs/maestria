@@ -4,7 +4,10 @@ use super::*;
 #[tokio::test]
 async fn rejects_unknown_program() -> Result<(), Box<dyn std::error::Error>> {
     let result = adapter().execute(shell_request("ls -la", 5000)).await;
-    assert!(matches!(result, Err(PortError::InvalidInput { .. })));
+    assert!(matches!(
+        result,
+        Err(PortError::InvalidInput { .. } | PortError::InvalidInputContext { .. })
+    ));
     Ok(())
 }
 
@@ -14,7 +17,10 @@ async fn rejects_metacharacter_redirect() -> Result<(), Box<dyn std::error::Erro
         .execute(shell_request("echo foo > bar", 5000))
         .await;
     assert!(
-        matches!(result, Err(PortError::InvalidInput { .. })),
+        matches!(
+            result,
+            Err(PortError::InvalidInput { .. } | PortError::InvalidInputContext { .. })
+        ),
         "expected InvalidInput, got {result:?}"
     );
     Ok(())
@@ -25,14 +31,20 @@ async fn rejects_metacharacter_pipe() -> Result<(), Box<dyn std::error::Error>> 
     let result = adapter()
         .execute(shell_request("echo foo | cat", 5000))
         .await;
-    assert!(matches!(result, Err(PortError::InvalidInput { .. })));
+    assert!(matches!(
+        result,
+        Err(PortError::InvalidInput { .. } | PortError::InvalidInputContext { .. })
+    ));
     Ok(())
 }
 
 #[tokio::test]
 async fn rejects_metacharacter_dollar() -> Result<(), Box<dyn std::error::Error>> {
     let result = adapter().execute(shell_request("echo $HOME", 5000)).await;
-    assert!(matches!(result, Err(PortError::InvalidInput { .. })));
+    assert!(matches!(
+        result,
+        Err(PortError::InvalidInput { .. } | PortError::InvalidInputContext { .. })
+    ));
     Ok(())
 }
 
@@ -41,7 +53,10 @@ async fn rejects_metacharacter_backtick() -> Result<(), Box<dyn std::error::Erro
     let result = adapter()
         .execute(shell_request("echo `whoami`", 5000))
         .await;
-    assert!(matches!(result, Err(PortError::InvalidInput { .. })));
+    assert!(matches!(
+        result,
+        Err(PortError::InvalidInput { .. } | PortError::InvalidInputContext { .. })
+    ));
     Ok(())
 }
 
@@ -50,7 +65,10 @@ async fn rejects_metacharacter_semicolon() -> Result<(), Box<dyn std::error::Err
     let result = adapter()
         .execute(shell_request("echo a; echo b", 5000))
         .await;
-    assert!(matches!(result, Err(PortError::InvalidInput { .. })));
+    assert!(matches!(
+        result,
+        Err(PortError::InvalidInput { .. } | PortError::InvalidInputContext { .. })
+    ));
     Ok(())
 }
 
@@ -59,6 +77,9 @@ async fn rejects_metacharacter_ampersand() -> Result<(), Box<dyn std::error::Err
     let result = adapter()
         .execute(shell_request("echo a & echo b", 5000))
         .await;
-    assert!(matches!(result, Err(PortError::InvalidInput { .. })));
+    assert!(matches!(
+        result,
+        Err(PortError::InvalidInput { .. } | PortError::InvalidInputContext { .. })
+    ));
     Ok(())
 }

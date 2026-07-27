@@ -18,7 +18,10 @@ impl HttpTransport for FixtureTransport {
             match res {
                 Ok(s) => s.clone(),
                 Err(PortError::NotFound) => return Err(PortError::NotFound),
-                Err(PortError::Downstream { message }) => {
+                Err(PortError::Downstream { message })
+                | Err(PortError::DownstreamContext {
+                    source: message, ..
+                }) => {
                     return Err(PortError::Downstream {
                         message: message.clone(),
                     });
@@ -162,7 +165,7 @@ fn test_fetch_invalid_url() -> Result<(), Box<dyn std::error::Error>> {
         assert!(
             matches!(
                 fetcher.fetch(url, usize::MAX),
-                Err(PortError::InvalidInput { .. })
+                Err(PortError::InvalidInput { .. } | PortError::InvalidInputContext { .. })
             ),
             "Expected InvalidInput for url: '{url}'"
         );
@@ -175,7 +178,10 @@ fn test_fetch_connection_refused() -> Result<(), Box<dyn std::error::Error>> {
     let fetcher =
         UreqWebFetcher::with_transport(std::sync::Arc::new(FixtureTransport::new(BTreeMap::new())));
     let err = fetcher.fetch("http://example.invalid:12345", 4096);
-    assert!(matches!(err, Err(PortError::Downstream { .. })));
+    assert!(matches!(
+        err,
+        Err(PortError::Downstream { .. } | PortError::DownstreamContext { .. })
+    ));
     Ok(())
 }
 

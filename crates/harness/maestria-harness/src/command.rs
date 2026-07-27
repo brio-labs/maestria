@@ -8,20 +8,10 @@ pub(crate) const FORBIDDEN_CHARS: &[char] = &[
 pub(crate) const ALLOWED_PROGRAMS: &[&str] = &["echo", "pwd", "cat"];
 
 pub(crate) fn reject_metachar(arg: &str) -> Result<(), PortError> {
-    if let Some(pos) = arg.find(FORBIDDEN_CHARS) {
-        return Err(PortError::InvalidInput {
-            message: format!(
-                "forbidden metacharacter {:?} at offset {} in {:?}",
-                match arg.chars().nth(pos) {
-                    Some(c) => c,
-                    None => {
-                        let _ = ();
-                        '?'
-                    }
-                },
-                pos,
-                arg
-            ),
+    if arg.find(FORBIDDEN_CHARS).is_some() {
+        return Err(PortError::InvalidInputContext {
+            context: "forbidden metacharacter in command argument",
+            source: arg.to_string(),
         });
     }
     Ok(())
@@ -40,8 +30,9 @@ pub(crate) fn validate_readable_path(
     };
     let normalized = normalize_path(&candidate);
     if blocked_paths.iter().any(|b| normalized.starts_with(b)) {
-        return Err(PortError::InvalidInput {
-            message: format!("path {:?} is blocked by exclusion", raw_path),
+        return Err(PortError::InvalidInputContext {
+            context: "path is blocked by exclusion",
+            source: raw_path.to_string(),
         });
     }
     // Canonicalize the candidate to resolve symlinks, then re-check.
@@ -51,11 +42,9 @@ pub(crate) fn validate_readable_path(
             Err(_) => false,
         });
         if !real_allowed {
-            return Err(PortError::InvalidInput {
-                message: format!(
-                    "path {:?} resolves to {:?} which escapes readable roots",
-                    raw_path, real
-                ),
+            return Err(PortError::InvalidInputContext {
+                context: "path resolves outside readable roots",
+                source: format!("{raw_path:?} -> {real:?}"),
             });
         }
         return Ok(real);
@@ -66,8 +55,9 @@ pub(crate) fn validate_readable_path(
         Err(_) => false,
     });
     if !allowed {
-        return Err(PortError::InvalidInput {
-            message: format!("path {:?} is outside readable roots", raw_path),
+        return Err(PortError::InvalidInputContext {
+            context: "path is outside readable roots",
+            source: raw_path.to_string(),
         });
     }
     Ok(normalized)
@@ -139,8 +129,9 @@ pub(crate) fn validate_filename_patterns(
         let name = component.as_os_str().to_string_lossy();
         for pattern in patterns {
             if filename_matches(&name, pattern) {
-                return Err(PortError::InvalidInput {
-                    message: format!("path {raw_path:?} matches blocked pattern {pattern:?}"),
+                return Err(PortError::InvalidInputContext {
+                    context: "path matches blocked pattern",
+                    source: format!("{raw_path:?} matches {pattern:?}"),
                 });
             }
         }
@@ -159,8 +150,9 @@ pub(crate) fn validate_cat_args(
     let mut has_path_arg = false;
     for arg in &argv[1..] {
         if arg.starts_with('-') {
-            return Err(PortError::InvalidInput {
-                message: format!("cat option {arg:?} not allowed; only path operands"),
+            return Err(PortError::InvalidInputContext {
+                context: "cat option not allowed",
+                source: arg.to_string(),
             });
         }
         has_path_arg = true;
@@ -186,8 +178,9 @@ pub(crate) fn validate_cat_args(
             .iter()
             .any(|b| check_path.starts_with(b))
         {
-            return Err(PortError::InvalidInput {
-                message: format!("canonical path {:?} is blocked by exclusion", check_path),
+            return Err(PortError::InvalidInputContext {
+                context: "canonical path blocked by exclusion",
+                source: check_path.display().to_string(),
             });
         }
         let path_str = match check_path.to_str() {
