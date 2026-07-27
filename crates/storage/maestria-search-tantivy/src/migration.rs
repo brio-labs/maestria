@@ -69,22 +69,25 @@ pub(super) fn legacy_chunks(index: &Index) -> Result<Vec<IndexedChunk>, PortErro
             .get_first(artifact_field)
             .and_then(|value| value.as_u64())
             .map(ArtifactId::new)
-            .ok_or_else(|| PortError::InvalidInput {
-                message: "legacy chunk is missing artifact id".to_string(),
+            .ok_or_else(|| PortError::InternalContext {
+                context: "decode legacy chunk artifact id",
+                source: "legacy chunk is missing artifact id".to_string(),
             })?;
         let chunk_id = document
             .get_first(chunk_field)
             .and_then(|value| value.as_u64())
             .map(ChunkId::new)
-            .ok_or_else(|| PortError::InvalidInput {
-                message: "legacy chunk is missing chunk id".to_string(),
+            .ok_or_else(|| PortError::InternalContext {
+                context: "decode legacy chunk id",
+                source: "legacy chunk is missing chunk id".to_string(),
             })?;
         let text = document
             .get_first(text_field)
             .and_then(|value| value.as_str())
             .map(str::to_string)
-            .ok_or_else(|| PortError::InvalidInput {
-                message: "legacy chunk is missing text".to_string(),
+            .ok_or_else(|| PortError::InternalContext {
+                context: "decode legacy chunk text",
+                source: "legacy chunk is missing text".to_string(),
             })?;
         chunks.push(IndexedChunk {
             artifact_id,
