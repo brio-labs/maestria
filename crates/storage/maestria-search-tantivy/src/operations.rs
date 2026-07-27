@@ -354,8 +354,9 @@ impl TantivyFullTextIndex {
             let chunk = self.read_chunk(&document)?;
             if filter(chunk.chunk_id, chunk.artifact_id) {
                 if allowed.len() >= MAX_LEXICAL_CANDIDATES {
-                    return Err(PortError::Internal {
-                        message: "filtered lexical candidate set exceeds bounded limit".to_string(),
+                    return Err(PortError::InternalContext {
+                        context: "filtered chunk candidate bound exceeded",
+                        source: "filtered lexical candidate set exceeds bounded limit".to_string(),
                     });
                 }
                 allowed.insert(chunk_key(chunk.artifact_id, chunk.chunk_id));
@@ -383,8 +384,9 @@ impl TantivyFullTextIndex {
             let card = self.read_card(&document)?;
             if filter(card.card_id, card.artifact_id) {
                 if allowed.len() >= MAX_LEXICAL_CANDIDATES {
-                    return Err(PortError::Internal {
-                        message: "filtered lexical candidate set exceeds bounded limit".to_string(),
+                    return Err(PortError::InternalContext {
+                        context: "filtered card candidate bound exceeded",
+                        source: "filtered lexical candidate set exceeds bounded limit".to_string(),
                     });
                 }
                 allowed.insert(card_key(card.artifact_id, card.card_id));
