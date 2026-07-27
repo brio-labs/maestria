@@ -264,14 +264,31 @@ fn source_key(path: &Path) -> String {
 
 fn load_state(layout: &InstanceLayout) -> WatchState {
     let path = layout.system_dir.join(WATCH_STATE_FILE);
-    let contents = match fs::read_to_string(path) {
+    let contents = match fs::read_to_string(&path) {
         Ok(contents) => contents,
-        Err(_) => return WatchState::default(),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return WatchState::default();
+        }
+        Err(error) => {
+            tracing::warn!(
+                path = %path.display(),
+                %error,
+                "failed to read persisted watcher state; starting with empty state"
+            );
+            return WatchState::default();
+        }
     };
-    if let Ok(state) = serde_json::from_str(&contents) {
-        return state;
+    match serde_json::from_str(&contents) {
+        Ok(state) => state,
+        Err(error) => {
+            tracing::warn!(
+                path = %path.display(),
+                %error,
+                "failed to decode persisted watcher state; starting with empty state"
+            );
+            WatchState::default()
+        }
     }
-    WatchState::default()
 }
 
 fn persist_state(layout: &InstanceLayout, state: &WatchState) -> Result<()> {
