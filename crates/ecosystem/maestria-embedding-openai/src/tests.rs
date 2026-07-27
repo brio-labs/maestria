@@ -251,3 +251,16 @@ fn rejects_noncanonical_loopback_paths() {
         ));
     }
 }
+
+#[test]
+fn satisfies_shared_embedding_provider_contract() -> Result<(), Box<dyn std::error::Error>> {
+    let provider = LocalHttpEmbeddingProvider::with_transport(
+        "http://127.0.0.1:8080/v1/embeddings",
+        "model",
+        Some(2),
+        Arc::new(FixtureTransport::new(Ok(
+            br#"{"data":[{"embedding":[0.1,0.2]}],"model":"model-v1"}"#.to_vec(),
+        ))),
+    )?;
+    maestria_ports::contract_tests::assert_embedding_provider_contract(&provider)
+}

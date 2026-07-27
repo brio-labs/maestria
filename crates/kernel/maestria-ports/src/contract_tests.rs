@@ -848,3 +848,37 @@ pub fn assert_web_fetcher_contract(
 
     Ok(())
 }
+pub fn assert_embedding_provider_contract(
+    provider: &impl EmbeddingProvider,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let identity = provider
+        .identity()
+        .ok_or("embedding provider must disclose its identity")?;
+    let response = provider.embed(EmbeddingRequest {
+        text: "contract test input".to_string(),
+        model: identity.fingerprint.model.clone(),
+        kind: EmbeddingInputKind::Document,
+        identity: identity.clone(),
+    })?;
+
+    assert_eq!(response.identity, identity);
+    assert_eq!(
+        response.vector.len(),
+        identity.fingerprint.dimensions as usize,
+        "embedding dimensions must match the disclosed identity"
+    );
+    assert!(
+        !response.vector.is_empty(),
+        "embedding vector must not be empty"
+    );
+    assert!(
+        !response.provider_id.is_empty(),
+        "provider id must be disclosed"
+    );
+    assert!(!response.model.is_empty(), "model must be disclosed");
+    assert!(
+        !response.model_version.is_empty(),
+        "model version must be disclosed"
+    );
+    Ok(())
+}
