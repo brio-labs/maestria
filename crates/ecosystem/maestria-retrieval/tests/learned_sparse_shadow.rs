@@ -17,7 +17,7 @@ use maestria_retrieval::types::{
 };
 use maestria_retrieval::{
     CandidateRetriever, LearnedSparseExecutionPolicy, LearnedSparseShadowLaneStatus,
-    LearnedSparseShadowStore, RetrievalEngine, RetrievalEvaluator,
+    LearnedSparseShadowStore, LearnedSparseShadowStoreError, RetrievalEngine, RetrievalEvaluator,
 };
 
 fn fixture_scores(
@@ -254,6 +254,19 @@ fn engine(
     .with_learned_sparse_shadow_store(store))
 }
 
+async fn populated_store() -> TestResult<LearnedSparseShadowStore> {
+    let store = LearnedSparseShadowStore::new(4)?;
+    let engine = engine(LearnedSparseExecutionPolicy::Shadow, store.clone())?;
+    let _outcome = engine.search(&plan()?).await?;
+    for _ in 0..50 {
+        if !store.snapshot().is_empty() {
+            return Ok(store);
+        }
+        tokio::time::sleep(Duration::from_millis(1)).await;
+    }
+    Err("shadow execution produced no observation".into())
+}
+
 #[tokio::test]
 async fn shadow_sparse_observation_cannot_change_served_evidence() -> TestResult {
     let store = LearnedSparseShadowStore::new(4)?;
@@ -311,5 +324,59 @@ fn shadow_observations_round_trip_through_bounded_json() -> TestResult {
     let replay = LearnedSparseShadowStore::new(4)?;
     replay.replace_from_json(&empty)?;
     assert!(replay.snapshot().is_empty());
+    Ok(())
+}
+
+#[tokio::test]
+async fn rejects_shadow_observation_with_excessive_latency() -> TestResult {
+    let store = populated_store().await?;
+    let mut value: serde_json::Value = serde_json::from_str(&store.export_json()?)?;
+    value[0]["elapsed_ms"] = serde_json::Value::from(5_001_u64);
+    let replay = LearnedSparseShadowStore::new(4)?;
+    let result = replay.replace_from_json(&serde_json::to_string(&value)?);
+    assert!(
+        matches!(
+            result.as_ref(),
+            Err(LearnedSparseShadowStoreError::InvalidObservation(message))
+                if message.contains("latency")
+        ),
+        "expected bounded latency rejection, got {result:?}"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn rejects_shadow_observation_with_inconsistent_status() -> TestResult {
+    let store = populated_store().await?;
+    let mut value: serde_json::Value = serde_json::from_str(&store.export_json()?)?;
+    value[0]["lanes"][0]["status"] = serde_json::Value::String("Empty".to_string());
+    let replay = LearnedSparseShadowStore::new(4)?;
+    let result = replay.replace_from_json(&serde_json::to_string(&value)?);
+    assert!(
+        matches!(
+            result.as_ref(),
+            Err(LearnedSparseShadowStoreError::InvalidObservation(message))
+                if message.contains("status")
+        ),
+        "expected status consistency rejection, got {result:?}"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn rejects_shadow_observation_with_invalid_lane_rank() -> TestResult {
+    let store = populated_store().await?;
+    let mut value: serde_json::Value = serde_json::from_str(&store.export_json()?)?;
+    value[0]["lanes"][0]["candidates"][0]["lane_rank"] = serde_json::Value::from(0_u64);
+    let replay = LearnedSparseShadowStore::new(4)?;
+    let result = replay.replace_from_json(&serde_json::to_string(&value)?);
+    assert!(
+        matches!(
+            result.as_ref(),
+            Err(LearnedSparseShadowStoreError::InvalidObservation(message))
+                if message.contains("rank")
+        ),
+        "expected lane rank rejection, got {result:?}"
+    );
     Ok(())
 }
