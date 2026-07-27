@@ -158,8 +158,9 @@ pub(crate) fn validate_cat_args(
         has_path_arg = true;
     }
     if !has_path_arg {
-        return Err(PortError::InvalidInput {
-            message: "cat requires at least one path operand".to_string(),
+        return Err(PortError::InvalidInputContext {
+            context: "validate cat command operands",
+            source: "cat requires at least one path operand".to_string(),
         });
     }
     for arg in &argv[1..] {
