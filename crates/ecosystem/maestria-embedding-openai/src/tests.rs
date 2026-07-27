@@ -210,10 +210,7 @@ fn rejects_malformed_json_response() -> Result<(), PortError> {
         identity: provider.identity().clone(),
     });
     assert!(
-        matches!(
-            result,
-            Err(PortError::Downstream { .. } | PortError::DownstreamContext { .. })
-        ),
+        matches!(result, Err(PortError::DownstreamContext { .. })),
         "expected Downstream error for malformed JSON, got {result:?}"
     );
     Ok(())
@@ -233,10 +230,7 @@ fn rejects_empty_embedding_array() -> Result<(), PortError> {
         identity: provider.identity().clone(),
     });
     assert!(
-        matches!(
-            result,
-            Err(PortError::Downstream { .. } | PortError::DownstreamContext { .. })
-        ),
+        matches!(result, Err(PortError::DownstreamContext { .. })),
         "expected Downstream error for empty data array, got {result:?}"
     );
     Ok(())

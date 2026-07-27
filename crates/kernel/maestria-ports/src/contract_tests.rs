@@ -630,7 +630,7 @@ fn verify_vector_validation(
             vector: Vec::new(),
             provenance: prov(),
         }]),
-        Err(PortError::InvalidInput { .. } | PortError::InvalidInputContext { .. })
+        Err(PortError::InvalidInputContext { .. })
     ));
     assert!(matches!(
         index.search_similar(VectorSearchQuery {
@@ -641,7 +641,7 @@ fn verify_vector_validation(
             model_version: None,
             identity: None,
         }),
-        Err(PortError::InvalidInput { .. } | PortError::InvalidInputContext { .. })
+        Err(PortError::InvalidInputContext { .. })
     ));
     assert!(matches!(
         index.search_similar(VectorSearchQuery {
@@ -652,7 +652,7 @@ fn verify_vector_validation(
             model_version: None,
             identity: None,
         }),
-        Err(PortError::InvalidInput { .. } | PortError::InvalidInputContext { .. })
+        Err(PortError::InvalidInputContext { .. })
     ));
     Ok(())
 }
@@ -774,7 +774,7 @@ pub fn assert_parser_round_trip(
                 artifact_id: next_artifact_id,
             },
         ),
-        Err(PortError::InvalidInput { .. } | PortError::InvalidInputContext { .. })
+        Err(PortError::InvalidInputContext { .. })
     ));
     Ok(())
 }
@@ -837,11 +837,7 @@ pub fn assert_web_fetcher_contract(
 
     let empty_res = fetcher.fetch("", usize::MAX);
     assert!(
-        matches!(
-            empty_res,
-            Err(super::PortError::InvalidInput { .. }
-                | super::PortError::InvalidInputContext { .. })
-        ),
+        matches!(empty_res, Err(super::PortError::InvalidInputContext { .. })),
         "Empty URLs must map to PortError::InvalidInput, got {:?}",
         empty_res
     );

@@ -151,10 +151,7 @@ fn rejects_malformed_json_response() -> Result<(), PortError> {
         pages: vec![1],
     });
     assert!(
-        matches!(
-            result,
-            Err(PortError::Downstream { .. } | PortError::DownstreamContext { .. })
-        ),
+        matches!(result, Err(PortError::DownstreamContext { .. })),
         "expected Downstream error for malformed JSON, got {result:?}"
     );
     Ok(())
