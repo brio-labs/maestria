@@ -176,8 +176,9 @@ impl TantivyFullTextIndex {
         self.card_rebuild_required
             .lock()
             .map(|required| *required)
-            .map_err(|_| PortError::Internal {
-                message: "card rebuild flag lock poisoned".to_string(),
+            .map_err(|_| PortError::InternalContext {
+                context: "Tantivy card rebuild flag lock poisoned",
+                source: "card rebuild flag mutex is poisoned".to_string(),
             })
     }
     /// Mark a complete truth-backed card rebuild as durable.
@@ -187,12 +188,13 @@ impl TantivyFullTextIndex {
         {
             fs::remove_file(marker).map_err(to_io_port_error)?;
         }
-        let mut required = self
-            .card_rebuild_required
-            .lock()
-            .map_err(|_| PortError::Internal {
-                message: "card rebuild flag lock poisoned".to_string(),
-            })?;
+        let mut required =
+            self.card_rebuild_required
+                .lock()
+                .map_err(|_| PortError::InternalContext {
+                    context: "Tantivy card rebuild flag lock poisoned",
+                    source: "card rebuild flag mutex is poisoned".to_string(),
+                })?;
         *required = false;
         Ok(())
     }
