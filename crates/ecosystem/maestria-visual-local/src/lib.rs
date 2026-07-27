@@ -47,23 +47,27 @@ impl LocalHttpVisualProvider {
     ) -> Result<Self, PortError> {
         let endpoint = parse_loopback_endpoint(endpoint)?;
         if model.trim().is_empty() {
-            return Err(PortError::InvalidInput {
-                message: "visual model must not be empty".to_string(),
+            return Err(PortError::InvalidInputContext {
+                context: "visual model is empty",
+                source: "model must contain a non-whitespace value".to_string(),
             });
         }
         if identity.representation != RepresentationName::new("visual_page_v1") {
-            return Err(PortError::InvalidInput {
-                message: "visual provider identity must use visual_page_v1".to_string(),
+            return Err(PortError::InvalidInputContext {
+                context: "visual provider representation is invalid",
+                source: "identity representation must be visual_page_v1".to_string(),
             });
         }
         if identity.fingerprint.model != model {
-            return Err(PortError::InvalidInput {
-                message: "visual model does not match provider identity".to_string(),
+            return Err(PortError::InvalidInputContext {
+                context: "visual model identity mismatch",
+                source: "model does not match the provider identity".to_string(),
             });
         }
         if identity.fingerprint.dimensions == 0 {
-            return Err(PortError::InvalidInput {
-                message: "visual provider dimensions must be positive".to_string(),
+            return Err(PortError::InvalidInputContext {
+                context: "visual provider dimensions are zero",
+                source: "identity dimensions must be positive".to_string(),
             });
         }
         Ok(Self {
@@ -98,8 +102,9 @@ impl VisualEmbeddingProvider for LocalHttpVisualProvider {
         identity: EmbeddingIdentity,
     ) -> Result<EmbeddingResponse, PortError> {
         if query.trim().is_empty() {
-            return Err(PortError::InvalidInput {
-                message: "visual query must not be empty".to_string(),
+            return Err(PortError::InvalidInputContext {
+                context: "visual query is empty",
+                source: "query must contain a non-whitespace value".to_string(),
             });
         }
         self.embed(VisualEmbeddingPayload {
@@ -114,8 +119,9 @@ impl VisualEmbeddingProvider for LocalHttpVisualProvider {
         request: VisualEmbeddingRequest,
     ) -> Result<EmbeddingResponse, PortError> {
         if request.bytes.is_empty() {
-            return Err(PortError::InvalidInput {
-                message: "visual source bytes must not be empty".to_string(),
+            return Err(PortError::InvalidInputContext {
+                context: "visual source bytes are empty",
+                source: "source bytes must contain data".to_string(),
             });
         }
         self.embed(VisualEmbeddingPayload {
@@ -139,8 +145,9 @@ impl VisualEmbeddingProvider for LocalHttpVisualProvider {
 impl LocalHttpVisualProvider {
     fn embed(&self, request: VisualEmbeddingPayload) -> Result<EmbeddingResponse, PortError> {
         if request.identity != self.identity {
-            return Err(PortError::InvalidInput {
-                message: "visual request identity does not match provider".to_string(),
+            return Err(PortError::InvalidInputContext {
+                context: "visual request identity mismatch",
+                source: "request identity does not match the provider identity".to_string(),
             });
         }
         let body = serde_json::to_vec(&request).map_err(|error| PortError::InternalContext {
@@ -157,15 +164,17 @@ impl LocalHttpVisualProvider {
             .data
             .into_iter()
             .next()
-            .ok_or_else(|| PortError::Downstream {
-                message: "visual response contained no data".to_string(),
+            .ok_or_else(|| PortError::DownstreamContext {
+                context: "decode visual response data",
+                source: "visual response contained no data".to_string(),
             })?;
         let expected = self.identity.fingerprint.dimensions as usize;
         if first.embedding.len() != expected
             || first.embedding.iter().any(|value| !value.is_finite())
         {
-            return Err(PortError::Downstream {
-                message: format!("visual response dimensions must be {expected} finite values"),
+            return Err(PortError::DownstreamContext {
+                context: "validate visual response vector",
+                source: format!("visual response dimensions must be {expected} finite values"),
             });
         }
         Ok(EmbeddingResponse {
@@ -315,8 +324,9 @@ fn parse_loopback_endpoint(endpoint: &str) -> Result<Url, PortError> {
         && url.query().is_none()
         && url.fragment().is_none();
     if !valid {
-        return Err(PortError::InvalidInput {
-            message: "visual endpoint must be an http loopback /v1/embeddings URL".to_string(),
+        return Err(PortError::InvalidInputContext {
+            context: "visual endpoint is not canonical loopback",
+            source: "endpoint must be an http loopback /v1/embeddings URL".to_string(),
         });
     }
     Ok(url)

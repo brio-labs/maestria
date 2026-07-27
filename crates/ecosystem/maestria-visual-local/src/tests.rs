@@ -43,7 +43,7 @@ fn rejects_non_loopback_endpoint() -> Result<(), PortError> {
         "siglip-v1",
         identity()?,
     );
-    assert!(matches!(result, Err(PortError::InvalidInput { .. })));
+    assert!(result.is_err_and(|error| error.is_invalid_input()));
     Ok(())
 }
 #[test]
@@ -56,7 +56,7 @@ fn rejects_empty_query() -> Result<(), PortError> {
     )?;
     let result = provider.embed_query("   ", identity()?);
     assert!(
-        matches!(result, Err(PortError::InvalidInput { .. })),
+        result.as_ref().is_err_and(|error| error.is_invalid_input()),
         "expected InvalidInput for empty query, got {result:?}"
     );
     Ok(())
@@ -126,7 +126,7 @@ fn rejects_empty_source_bytes() -> Result<(), PortError> {
         identity: identity()?,
     });
     assert!(
-        matches!(result, Err(PortError::InvalidInput { .. })),
+        result.as_ref().is_err_and(|error| error.is_invalid_input()),
         "expected InvalidInput for empty source bytes, got {result:?}"
     );
     Ok(())
@@ -147,7 +147,10 @@ fn rejects_missing_embedding_in_response() -> Result<(), PortError> {
     )?;
     let result = provider.embed_query("table latency", identity()?);
     assert!(
-        matches!(result, Err(PortError::Downstream { .. })),
+        matches!(
+            result.as_ref(),
+            Err(PortError::Downstream { .. } | PortError::DownstreamContext { .. })
+        ),
         "expected Downstream error for missing embedding, got {result:?}"
     );
     Ok(())
