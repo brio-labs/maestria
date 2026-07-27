@@ -163,20 +163,23 @@ pub(crate) fn cosine_similarity(left: &[f32], right: &[f32]) -> Result<f32, Port
 }
 
 pub(crate) fn u64_to_i64(value: u64) -> Result<i64, PortError> {
-    i64::try_from(value).map_err(|_| PortError::InvalidInput {
-        message: format!("id {value} exceeds sqlite integer range"),
+    i64::try_from(value).map_err(|_| PortError::InvalidInputContext {
+        context: "id exceeds sqlite integer range",
+        source: value.to_string(),
     })
 }
 
 pub(crate) fn i64_to_u64(value: i64) -> Result<u64, PortError> {
-    u64::try_from(value).map_err(|_| PortError::Internal {
-        message: format!("stored id {value} is negative"),
+    u64::try_from(value).map_err(|_| PortError::InternalContext {
+        context: "stored id is negative",
+        source: value.to_string(),
     })
 }
 
 pub(crate) fn usize_to_i64(value: usize) -> Result<i64, PortError> {
-    i64::try_from(value).map_err(|_| PortError::InvalidInput {
-        message: format!("dimension {value} exceeds sqlite integer range"),
+    i64::try_from(value).map_err(|_| PortError::InvalidInputContext {
+        context: "dimension exceeds sqlite integer range",
+        source: value.to_string(),
     })
 }
 

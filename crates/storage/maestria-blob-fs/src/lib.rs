@@ -280,9 +280,10 @@ fn validate_digest_hex(digest_hex: &str) -> Result<&str, PortError> {
     }
 }
 
-fn io_error(action: &str, path: &Path, error: io::Error) -> PortError {
-    PortError::Internal {
-        message: format!("{action} at {}: {error}", path.display()),
+fn io_error(action: &'static str, path: &Path, error: io::Error) -> PortError {
+    PortError::InternalContext {
+        context: action,
+        source: format!("{}: {error}", path.display()),
     }
 }
 
