@@ -53,8 +53,9 @@ async fn execute_impl(request: HarnessRequest) -> Result<HarnessOutcome, PortErr
 
     let argv = tokenize(&request.command)?;
     if argv.is_empty() {
-        return Err(PortError::InvalidInput {
-            message: "command must not be empty".to_string(),
+        return Err(PortError::InvalidInputContext {
+            context: "validate harness command",
+            source: "command must not be empty".to_string(),
         });
     }
 

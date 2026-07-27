@@ -154,8 +154,9 @@ impl EmbeddingProvider for LocalHttpEmbeddingProvider {
             .data
             .into_iter()
             .next()
-            .ok_or_else(|| PortError::Downstream {
-                message: "embedding response contained no data".to_string(),
+            .ok_or_else(|| PortError::DownstreamContext {
+                context: "decode embedding response data",
+                source: "embedding response contained no data".to_string(),
             })?;
         validate_vector(&first.embedding, self.dimensions)?;
         let model_version = if parsed.model.trim().is_empty() {

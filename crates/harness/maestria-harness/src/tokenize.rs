@@ -17,8 +17,9 @@ pub(crate) fn tokenize(raw: &str) -> Result<Vec<String>, PortError> {
                 i += 1;
             }
             if i >= chars.len() {
-                return Err(PortError::InvalidInput {
-                    message: "unterminated single quote".to_string(),
+                return Err(PortError::InvalidInputContext {
+                    context: "tokenize single-quoted command",
+                    source: "unterminated single quote".to_string(),
                 });
             }
             i += 1;
@@ -40,8 +41,9 @@ pub(crate) fn tokenize(raw: &str) -> Result<Vec<String>, PortError> {
                 i += 1;
             }
             if i >= chars.len() {
-                return Err(PortError::InvalidInput {
-                    message: "unterminated double quote".to_string(),
+                return Err(PortError::InvalidInputContext {
+                    context: "tokenize double-quoted command",
+                    source: "unterminated double quote".to_string(),
                 });
             }
             i += 1;

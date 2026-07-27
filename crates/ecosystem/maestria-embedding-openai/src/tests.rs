@@ -233,7 +233,10 @@ fn rejects_empty_embedding_array() -> Result<(), PortError> {
         identity: provider.identity().clone(),
     });
     assert!(
-        matches!(result, Err(PortError::Downstream { .. })),
+        matches!(
+            result,
+            Err(PortError::Downstream { .. } | PortError::DownstreamContext { .. })
+        ),
         "expected Downstream error for empty data array, got {result:?}"
     );
     Ok(())

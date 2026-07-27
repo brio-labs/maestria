@@ -89,18 +89,21 @@ fn resolve_public(netloc: &str) -> std::io::Result<Vec<SocketAddr>> {
 fn validate_fetch_url(parsed: &url::Url) -> Result<(), PortError> {
     let scheme = parsed.scheme();
     if scheme != "http" && scheme != "https" {
-        return Err(PortError::InvalidInput {
-            message: "url must have http or https scheme".to_string(),
+        return Err(PortError::InvalidInputContext {
+            context: "validate web fetch URL scheme",
+            source: "url must have http or https scheme".to_string(),
         });
     }
     if !parsed.username().is_empty() || parsed.password().is_some() {
-        return Err(PortError::InvalidInput {
-            message: "url credentials are not allowed".to_string(),
+        return Err(PortError::InvalidInputContext {
+            context: "validate web fetch URL credentials",
+            source: "url credentials are not allowed".to_string(),
         });
     }
     let Some(host) = parsed.host() else {
-        return Err(PortError::InvalidInput {
-            message: "url must have a host".to_string(),
+        return Err(PortError::InvalidInputContext {
+            context: "validate web fetch URL host",
+            source: "url must have a host".to_string(),
         });
     };
     let blocked = match host {
@@ -115,8 +118,9 @@ fn validate_fetch_url(parsed: &url::Url) -> Result<(), PortError> {
         url::Host::Ipv6(ip) => blocked_ip(IpAddr::V6(ip)),
     };
     if blocked {
-        return Err(PortError::InvalidInput {
-            message: "private or local web hosts are not allowed".to_string(),
+        return Err(PortError::InvalidInputContext {
+            context: "validate web fetch URL host safety",
+            source: "private or local web hosts are not allowed".to_string(),
         });
     }
     Ok(())
@@ -141,8 +145,9 @@ impl HttpTransport for UreqTransport {
             Err(e) => return Err(downstream_error(e)),
         };
         if (300..400).contains(&response.status()) {
-            return Err(PortError::InvalidInput {
-                message: "web redirects are not allowed".to_string(),
+            return Err(PortError::InvalidInputContext {
+                context: "validate web response redirect",
+                source: "web redirects are not allowed".to_string(),
             });
         }
         let content_type = response.header("content-type").map(str::to_owned);
@@ -154,8 +159,9 @@ impl HttpTransport for UreqTransport {
             .read_to_end(&mut bytes)
             .map_err(downstream_error)?;
         if bytes.len() > max_bytes {
-            return Err(PortError::InvalidInput {
-                message: "web response exceeds max_bytes".to_string(),
+            return Err(PortError::InvalidInputContext {
+                context: "validate web response size",
+                source: "web response exceeds max_bytes".to_string(),
             });
         }
         let body = String::from_utf8(bytes).map_err(downstream_error)?;
@@ -224,8 +230,9 @@ impl WebFetcher for UreqWebFetcher {
             });
         }
         if options.max_latency_ms == 0 {
-            return Err(PortError::InvalidInput {
-                message: "max_latency_ms must be greater than zero".to_string(),
+            return Err(PortError::InvalidInputContext {
+                context: "validate web fetch latency",
+                source: "max_latency_ms must be greater than zero".to_string(),
             });
         }
         let parsed = url::Url::parse(url_str).map_err(|e| PortError::InvalidInputContext {
@@ -235,8 +242,9 @@ impl WebFetcher for UreqWebFetcher {
         validate_fetch_url(&parsed)?;
         if !options.allowed_domains.is_empty() && !domain_allowed(&parsed, &options.allowed_domains)
         {
-            return Err(PortError::InvalidInput {
-                message: "url is outside the allowed web domains".to_string(),
+            return Err(PortError::InvalidInputContext {
+                context: "validate web fetch domain",
+                source: "url is outside the allowed web domains".to_string(),
             });
         }
         let response = self.transport.get(url_str, options.max_bytes)?;
@@ -251,8 +259,9 @@ impl WebFetcher for UreqWebFetcher {
                         .any(|allowed| content_type.starts_with(allowed))
                 })
         {
-            return Err(PortError::InvalidInput {
-                message: "web response content type is not allowed".to_string(),
+            return Err(PortError::InvalidInputContext {
+                context: "validate web response content type",
+                source: "web response content type is not allowed".to_string(),
             });
         }
         let primary_source = parsed.host_str().is_some_and(|host| {
