@@ -22,16 +22,24 @@ impl InMemoryArtifactRepository {
 
 impl crate::ArtifactRepository for InMemoryArtifactRepository {
     fn get(&self, artifact_id: ArtifactId) -> Result<Option<Artifact>, PortError> {
-        let guard = self.artifacts.lock().map_err(|_| PortError::Internal {
-            message: "artifact store lock poisoned".to_string(),
-        })?;
+        let guard = self
+            .artifacts
+            .lock()
+            .map_err(|_| PortError::InternalContext {
+                context: "artifact repository lock poisoned",
+                source: "artifact repository mutex is poisoned".to_string(),
+            })?;
         Ok(guard.get(&artifact_id).cloned())
     }
 
     fn put(&self, artifact: Artifact) -> Result<(), PortError> {
-        let mut guard = self.artifacts.lock().map_err(|_| PortError::Internal {
-            message: "artifact store lock poisoned".to_string(),
-        })?;
+        let mut guard = self
+            .artifacts
+            .lock()
+            .map_err(|_| PortError::InternalContext {
+                context: "artifact repository lock poisoned",
+                source: "artifact repository mutex is poisoned".to_string(),
+            })?;
         guard.insert(artifact.id, artifact);
         Ok(())
     }
@@ -52,23 +60,26 @@ impl InMemoryChunkRepository {
 
 impl crate::ChunkRepository for InMemoryChunkRepository {
     fn get(&self, chunk_id: ChunkId) -> Result<Option<Chunk>, PortError> {
-        let guard = self.chunks.lock().map_err(|_| PortError::Internal {
-            message: "chunk store lock poisoned".to_string(),
+        let guard = self.chunks.lock().map_err(|_| PortError::InternalContext {
+            context: "chunk repository lock poisoned",
+            source: "chunk repository mutex is poisoned".to_string(),
         })?;
         Ok(guard.get(&chunk_id).cloned())
     }
 
     fn put(&self, chunk: Chunk) -> Result<(), PortError> {
-        let mut guard = self.chunks.lock().map_err(|_| PortError::Internal {
-            message: "chunk store lock poisoned".to_string(),
+        let mut guard = self.chunks.lock().map_err(|_| PortError::InternalContext {
+            context: "chunk repository lock poisoned",
+            source: "chunk repository mutex is poisoned".to_string(),
         })?;
         guard.insert(chunk.id, chunk);
         Ok(())
     }
 
     fn list_for_artifact(&self, artifact_id: ArtifactId) -> Result<Vec<Chunk>, PortError> {
-        let guard = self.chunks.lock().map_err(|_| PortError::Internal {
-            message: "chunk store lock poisoned".to_string(),
+        let guard = self.chunks.lock().map_err(|_| PortError::InternalContext {
+            context: "chunk repository lock poisoned",
+            source: "chunk repository mutex is poisoned".to_string(),
         })?;
         let mut chunks = guard
             .values()
@@ -95,23 +106,26 @@ impl InMemoryCardRepository {
 
 impl crate::CardRepository for InMemoryCardRepository {
     fn get(&self, card_id: CardId) -> Result<Option<Card>, PortError> {
-        let guard = self.cards.lock().map_err(|_| PortError::Internal {
-            message: "card store lock poisoned".to_string(),
+        let guard = self.cards.lock().map_err(|_| PortError::InternalContext {
+            context: "card repository lock poisoned",
+            source: "card repository mutex is poisoned".to_string(),
         })?;
         Ok(guard.get(&card_id).cloned())
     }
 
     fn put(&self, card: Card) -> Result<(), PortError> {
-        let mut guard = self.cards.lock().map_err(|_| PortError::Internal {
-            message: "card store lock poisoned".to_string(),
+        let mut guard = self.cards.lock().map_err(|_| PortError::InternalContext {
+            context: "card repository lock poisoned",
+            source: "card repository mutex is poisoned".to_string(),
         })?;
         guard.insert(card.id, card);
         Ok(())
     }
 
     fn list_for_artifact(&self, artifact_id: ArtifactId) -> Result<Vec<Card>, PortError> {
-        let guard = self.cards.lock().map_err(|_| PortError::Internal {
-            message: "card store lock poisoned".to_string(),
+        let guard = self.cards.lock().map_err(|_| PortError::InternalContext {
+            context: "card repository lock poisoned",
+            source: "card repository mutex is poisoned".to_string(),
         })?;
         Ok(guard
             .values()
@@ -136,16 +150,24 @@ impl InMemoryEvidenceRepository {
 
 impl crate::EvidenceRepository for InMemoryEvidenceRepository {
     fn get(&self, evidence_id: EvidenceId) -> Result<Option<Evidence>, PortError> {
-        let guard = self.evidences.lock().map_err(|_| PortError::Internal {
-            message: "evidence store lock poisoned".to_string(),
-        })?;
+        let guard = self
+            .evidences
+            .lock()
+            .map_err(|_| PortError::InternalContext {
+                context: "evidence repository lock poisoned",
+                source: "evidence repository mutex is poisoned".to_string(),
+            })?;
         Ok(guard.get(&evidence_id).cloned())
     }
 
     fn put(&self, evidence: Evidence) -> Result<(), PortError> {
-        let mut guard = self.evidences.lock().map_err(|_| PortError::Internal {
-            message: "evidence store lock poisoned".to_string(),
-        })?;
+        let mut guard = self
+            .evidences
+            .lock()
+            .map_err(|_| PortError::InternalContext {
+                context: "evidence repository lock poisoned",
+                source: "evidence repository mutex is poisoned".to_string(),
+            })?;
         if let Some(existing) = guard.get(&evidence.id) {
             if existing == &evidence {
                 return Ok(());
@@ -162,17 +184,25 @@ impl crate::EvidenceRepository for InMemoryEvidenceRepository {
     }
 
     fn replace(&self, evidence: Evidence) -> Result<(), PortError> {
-        let mut guard = self.evidences.lock().map_err(|_| PortError::Internal {
-            message: "evidence store lock poisoned".to_string(),
-        })?;
+        let mut guard = self
+            .evidences
+            .lock()
+            .map_err(|_| PortError::InternalContext {
+                context: "evidence repository lock poisoned",
+                source: "evidence repository mutex is poisoned".to_string(),
+            })?;
         guard.insert(evidence.id, evidence);
         Ok(())
     }
 
     fn list_for_artifact(&self, artifact_id: ArtifactId) -> Result<Vec<Evidence>, PortError> {
-        let guard = self.evidences.lock().map_err(|_| PortError::Internal {
-            message: "evidence store lock poisoned".to_string(),
-        })?;
+        let guard = self
+            .evidences
+            .lock()
+            .map_err(|_| PortError::InternalContext {
+                context: "evidence repository lock poisoned",
+                source: "evidence repository mutex is poisoned".to_string(),
+            })?;
         Ok(guard
             .values()
             .filter(|evidence| evidence.artifact_id == artifact_id)
@@ -199,8 +229,9 @@ impl crate::ApprovalRepository for InMemoryApprovalRepository {
         let mut guard = self
             .records
             .lock()
-            .map_err(|_| crate::PortError::Internal {
-                message: "in-memory approval repo lock poisoned".to_string(),
+            .map_err(|_| crate::PortError::InternalContext {
+                context: "approval repository lock poisoned",
+                source: "approval repository mutex is poisoned".to_string(),
             })?;
         guard.insert(record.id, record.clone());
         Ok(())
@@ -210,8 +241,9 @@ impl crate::ApprovalRepository for InMemoryApprovalRepository {
         let guard = self
             .records
             .lock()
-            .map_err(|_| crate::PortError::Internal {
-                message: "in-memory approval repo lock poisoned".to_string(),
+            .map_err(|_| crate::PortError::InternalContext {
+                context: "approval repository lock poisoned",
+                source: "approval repository mutex is poisoned".to_string(),
             })?;
         Ok(guard
             .values()
@@ -227,8 +259,9 @@ impl crate::ApprovalRepository for InMemoryApprovalRepository {
         let guard = self
             .records
             .lock()
-            .map_err(|_| crate::PortError::Internal {
-                message: "in-memory approval repo lock poisoned".to_string(),
+            .map_err(|_| crate::PortError::InternalContext {
+                context: "approval repository lock poisoned",
+                source: "approval repository mutex is poisoned".to_string(),
             })?;
         Ok(guard.get(&id).cloned())
     }
@@ -241,8 +274,9 @@ impl crate::ApprovalRepository for InMemoryApprovalRepository {
         let mut guard = self
             .records
             .lock()
-            .map_err(|_| crate::PortError::Internal {
-                message: "in-memory approval repo lock poisoned".to_string(),
+            .map_err(|_| crate::PortError::InternalContext {
+                context: "approval repository lock poisoned",
+                source: "approval repository mutex is poisoned".to_string(),
             })?;
         if let Some(record) = guard.get_mut(&id)
             && record.status == crate::ApprovalStatus::Pending
@@ -264,8 +298,9 @@ impl crate::ApprovalRepository for InMemoryApprovalRepository {
         let guard = self
             .records
             .lock()
-            .map_err(|_| crate::PortError::Internal {
-                message: "in-memory approval repo lock poisoned".to_string(),
+            .map_err(|_| crate::PortError::InternalContext {
+                context: "approval repository lock poisoned",
+                source: "approval repository mutex is poisoned".to_string(),
             })?;
         Ok(guard
             .values()
