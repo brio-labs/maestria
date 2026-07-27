@@ -114,8 +114,9 @@ impl EffectJournal for SqliteStore {
 }
 
 fn to_port_error(error: Error) -> PortError {
-    PortError::Downstream {
-        message: error.to_string(),
+    PortError::DownstreamContext {
+        context: "sqlite database query failed",
+        source: error.to_string(),
     }
 }
 
@@ -131,8 +132,9 @@ fn map_append_error(error: Error) -> PortError {
 }
 
 fn json_error(error: serde_json::Error) -> PortError {
-    PortError::Internal {
-        message: format!("event payload serialization failed: {error}"),
+    PortError::InternalContext {
+        context: "event payload serialization failed",
+        source: error.to_string(),
     }
 }
 

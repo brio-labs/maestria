@@ -42,18 +42,17 @@ impl StoredEvent {
                     .map_err(crate::json_error)?,
             ),
             other => {
-                return Err(PortError::Internal {
-                    message: format!("unsupported payload version {}", other),
+                return Err(PortError::InternalContext {
+                    context: "unsupported payload version",
+                    source: other.to_string(),
                 });
             }
         }?;
         let payload_kind = payload.kind()?;
         if payload_kind != self.kind {
-            return Err(PortError::Internal {
-                message: format!(
-                    "stored event kind mismatch: column {}, payload {}",
-                    self.kind, payload_kind
-                ),
+            return Err(PortError::InternalContext {
+                context: "stored event kind mismatch",
+                source: format!("column {}, payload {}", self.kind, payload_kind),
             });
         }
         if payload.filter_artifact_id() != self.artifact_id {
