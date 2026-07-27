@@ -141,12 +141,14 @@ fn try_tagged_region(
     geometry: PageGeometry,
     page: u32,
 ) -> Result<Option<PendingRegion>, PortError> {
-    let first_operand = operation
-        .operands
-        .first()
-        .ok_or_else(|| PortError::InvalidInput {
-            message: "PDF tagged region missing operand".to_string(),
-        })?;
+    let first_operand =
+        operation
+            .operands
+            .first()
+            .ok_or_else(|| PortError::InvalidInputContext {
+                context: "PDF tagged region operand is missing",
+                source: "tagged region operation requires an operand".to_string(),
+            })?;
     let name_bytes = first_operand
         .as_name()
         .map_err(|e| PortError::InvalidInputContext {
