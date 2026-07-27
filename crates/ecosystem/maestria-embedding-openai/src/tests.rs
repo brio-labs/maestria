@@ -101,14 +101,14 @@ fn rejects_incompatible_request_identity() -> Result<(), PortError> {
         kind: EmbeddingInputKind::Document,
         identity,
     });
-    assert!(matches!(result, Err(PortError::InvalidInput { .. })));
+    assert!(result.is_err_and(|error| error.is_invalid_input()));
     Ok(())
 }
 #[test]
 fn rejects_non_loopback_endpoint() {
     let result =
         LocalHttpEmbeddingProvider::new("https://example.com/v1/embeddings", "model", None);
-    assert!(matches!(result, Err(PortError::InvalidInput { .. })));
+    assert!(result.is_err_and(|error| error.is_invalid_input()));
 }
 #[test]
 fn parses_and_validates_embedding_response() -> Result<(), PortError> {
@@ -146,7 +146,7 @@ fn rejects_empty_text() -> Result<(), PortError> {
         identity: provider.identity().clone(),
     });
     assert!(
-        matches!(result, Err(PortError::InvalidInput { .. })),
+        result.as_ref().is_err_and(|error| error.is_invalid_input()),
         "expected InvalidInput for empty text, got {result:?}"
     );
     Ok(())
@@ -168,7 +168,7 @@ fn rejects_mismatched_model_version() -> Result<(), PortError> {
         identity: provider.identity().clone(),
     });
     assert!(
-        matches!(result, Err(PortError::InvalidInput { .. })),
+        result.as_ref().is_err_and(|error| error.is_invalid_input()),
         "expected InvalidInput for mismatched model version, got {result:?}"
     );
     Ok(())
@@ -245,10 +245,7 @@ fn rejects_noncanonical_loopback_paths() {
         "http://127.0.0.1:8080/v1/embeddings?token=secret",
         "http://127.0.0.1:8080/v1/embedding",
     ] {
-        assert!(matches!(
-            parse_loopback_endpoint(endpoint),
-            Err(PortError::InvalidInput { .. })
-        ));
+        assert!(parse_loopback_endpoint(endpoint).is_err_and(|error| error.is_invalid_input()));
     }
 }
 
