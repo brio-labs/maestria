@@ -45,28 +45,33 @@ impl LocalHttpEmbeddingProvider {
     ) -> Result<Self, PortError> {
         let endpoint = parse_loopback_endpoint(endpoint)?;
         if model.trim().is_empty() {
-            return Err(PortError::InvalidInput {
-                message: "embedding model must not be empty".to_string(),
+            return Err(PortError::InvalidInputContext {
+                context: "embedding model is empty",
+                source: "model must contain a non-whitespace value".to_string(),
             });
         }
         if dimensions == Some(0) {
-            return Err(PortError::InvalidInput {
-                message: "embedding dimensions must be positive".to_string(),
+            return Err(PortError::InvalidInputContext {
+                context: "embedding dimensions are zero",
+                source: "dimensions must be positive when provided".to_string(),
             });
         }
         if model != identity.fingerprint.model {
-            return Err(PortError::InvalidInput {
-                message: "embedding model does not match fingerprint".to_string(),
+            return Err(PortError::InvalidInputContext {
+                context: "embedding model identity mismatch",
+                source: "model does not match the identity fingerprint".to_string(),
             });
         }
         if dimensions.is_some_and(|value| value != identity.fingerprint.dimensions as usize) {
-            return Err(PortError::InvalidInput {
-                message: "embedding dimensions do not match fingerprint".to_string(),
+            return Err(PortError::InvalidInputContext {
+                context: "embedding dimensions identity mismatch",
+                source: "dimensions do not match the identity fingerprint".to_string(),
             });
         }
         if !document_template.contains("{{text}}") || !query_template.contains("{{text}}") {
-            return Err(PortError::InvalidInput {
-                message: "embedding templates must contain the {{text}} placeholder".to_string(),
+            return Err(PortError::InvalidInputContext {
+                context: "embedding template is missing text placeholder",
+                source: "document and query templates must contain {{text}}".to_string(),
             });
         }
         Ok(Self {
@@ -98,8 +103,9 @@ impl LocalHttpEmbeddingProvider {
 }
 
 fn legacy_identity(model: &str, dimensions: Option<usize>) -> Result<EmbeddingIdentity, PortError> {
-    let dimensions = dimensions.ok_or_else(|| PortError::InvalidInput {
-        message: "embedding dimensions are required for generation-aware indexing".to_string(),
+    let dimensions = dimensions.ok_or_else(|| PortError::InvalidInputContext {
+        context: "embedding dimensions are missing",
+        source: "dimensions are required for generation-aware indexing".to_string(),
     })?;
     EmbeddingIdentity::legacy(model.to_string(), dimensions)
 }
@@ -107,18 +113,21 @@ fn legacy_identity(model: &str, dimensions: Option<usize>) -> Result<EmbeddingId
 impl EmbeddingProvider for LocalHttpEmbeddingProvider {
     fn embed(&self, request: EmbeddingRequest) -> Result<EmbeddingResponse, PortError> {
         if request.text.trim().is_empty() {
-            return Err(PortError::InvalidInput {
-                message: "embedding text must not be empty".to_string(),
+            return Err(PortError::InvalidInputContext {
+                context: "embedding text is empty",
+                source: "text must contain a non-whitespace value".to_string(),
             });
         }
         if request.model != self.model {
-            return Err(PortError::InvalidInput {
-                message: "embedding request model does not match provider".to_string(),
+            return Err(PortError::InvalidInputContext {
+                context: "embedding request model mismatch",
+                source: "request model does not match the provider model".to_string(),
             });
         }
         if request.identity != self.identity {
-            return Err(PortError::InvalidInput {
-                message: "embedding request identity does not match provider".to_string(),
+            return Err(PortError::InvalidInputContext {
+                context: "embedding request identity mismatch",
+                source: "request identity does not match the provider identity".to_string(),
             });
         }
         let template = match request.kind {
@@ -241,8 +250,9 @@ pub fn parse_loopback_endpoint(endpoint: &str) -> Result<Url, PortError> {
         || url.query().is_some()
         || url.fragment().is_some()
     {
-        return Err(PortError::InvalidInput {
-            message: "embedding endpoint must be an http loopback /v1/embeddings URL".to_string(),
+        return Err(PortError::InvalidInputContext {
+            context: "embedding endpoint is not canonical loopback",
+            source: "endpoint must be an http loopback /v1/embeddings URL".to_string(),
         });
     }
     Ok(url)
@@ -250,13 +260,15 @@ pub fn parse_loopback_endpoint(endpoint: &str) -> Result<Url, PortError> {
 
 fn validate_vector(vector: &[f32], dimensions: Option<usize>) -> Result<(), PortError> {
     if vector.is_empty() || vector.iter().any(|value| !value.is_finite()) {
-        return Err(PortError::InvalidInput {
-            message: "embedding response must contain finite values".to_string(),
+        return Err(PortError::InvalidInputContext {
+            context: "embedding response vector is invalid",
+            source: "response must contain finite values".to_string(),
         });
     }
     if dimensions.is_some_and(|expected| expected != vector.len()) {
-        return Err(PortError::InvalidInput {
-            message: "embedding response dimensions do not match configuration".to_string(),
+        return Err(PortError::InvalidInputContext {
+            context: "embedding response dimensions mismatch",
+            source: "response vector dimensions do not match configuration".to_string(),
         });
     }
     Ok(())
