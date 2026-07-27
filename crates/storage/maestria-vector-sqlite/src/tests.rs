@@ -26,7 +26,7 @@ fn rejects_empty_vector_on_index() -> Result<(), PortError> {
         },
     }]);
     assert!(
-        matches!(result, Err(PortError::InvalidInput { .. })),
+        matches!(result, Err(PortError::InvalidInputContext { .. })),
         "expected InvalidInput for empty vector, got {result:?}"
     );
     Ok(())
@@ -51,7 +51,7 @@ fn rejects_missing_provenance_on_index() -> Result<(), PortError> {
         },
     }]);
     assert!(
-        matches!(result, Err(PortError::InvalidInput { .. })),
+        matches!(result, Err(PortError::InvalidInputContext { .. })),
         "expected InvalidInput for missing provenance, got {result:?}"
     );
     Ok(())
@@ -76,7 +76,7 @@ fn rejects_dimension_mismatch_on_index() -> Result<(), PortError> {
         },
     }]);
     assert!(
-        matches!(result, Err(PortError::InvalidInput { .. })),
+        matches!(result, Err(PortError::InvalidInputContext { .. })),
         "expected InvalidInput for dimension mismatch, got {result:?}"
     );
     Ok(())
@@ -221,8 +221,9 @@ fn rejects_unsupported_schema_version() -> Result<(), PortError> {
     .map_err(to_port_error)?;
 
     match super::migrate(&mut conn) {
-        Err(PortError::Internal { message }) => {
-            assert!(message.contains("unsupported vector projection schema version 999"));
+        Err(PortError::InternalContext { context, source }) => {
+            assert_eq!(context, "unsupported vector projection schema version");
+            assert_eq!(source, "999");
         }
         Err(_) => {
             return Err(PortError::Internal {
@@ -247,8 +248,9 @@ fn rejects_zero_schema_version() -> Result<(), PortError> {
     .map_err(to_port_error)?;
 
     match super::migrate(&mut conn) {
-        Err(PortError::Internal { message }) => {
-            assert!(message.contains("unsupported vector projection schema version 0"));
+        Err(PortError::InternalContext { context, source }) => {
+            assert_eq!(context, "unsupported vector projection schema version");
+            assert_eq!(source, "0");
         }
         Err(_) => {
             return Err(PortError::Internal {

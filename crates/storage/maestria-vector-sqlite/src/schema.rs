@@ -30,8 +30,9 @@ pub(crate) fn migrate(connection: &mut Connection) -> Result<(), PortError> {
 
     if let Some(v) = version {
         if !(1..=SCHEMA_VERSION).contains(&v) {
-            return Err(PortError::Internal {
-                message: format!("unsupported vector projection schema version {v}"),
+            return Err(PortError::InternalContext {
+                context: "unsupported vector projection schema version",
+                source: v.to_string(),
             });
         }
         if v == 1 {
