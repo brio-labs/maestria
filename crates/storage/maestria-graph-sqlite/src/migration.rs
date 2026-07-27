@@ -29,8 +29,9 @@ pub(super) fn migrate(connection: &mut Connection) -> Result<(), PortError> {
         Some(v) if v == SCHEMA_VERSION => {}
         Some(1) => migrate_v1_to_v2(&tx)?,
         Some(v) => {
-            return Err(PortError::Internal {
-                message: format!("unsupported graph projection schema version {v}"),
+            return Err(PortError::InternalContext {
+                context: "unsupported graph projection schema version",
+                source: v.to_string(),
             });
         }
         None => {

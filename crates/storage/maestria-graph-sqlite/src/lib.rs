@@ -104,8 +104,9 @@ impl GraphIndex for SqliteGraphIndex {
                     evidence_id,
                     confidence_milli,
                     serde_json::to_string(&relation.security).map_err(|error| {
-                        PortError::Internal {
-                            message: format!("serialize relation security: {error}"),
+                        PortError::InternalContext {
+                            context: "serialize relation security",
+                            source: error.to_string(),
                         }
                     })?,
                 ],
