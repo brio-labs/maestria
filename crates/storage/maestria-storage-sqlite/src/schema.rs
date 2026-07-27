@@ -45,8 +45,9 @@ fn detect_schema_state(connection: &Connection) -> Result<SchemaState, PortError
         match maybe_version {
             Some(v) => Some(v),
             None => {
-                return Err(PortError::Internal {
-                    message: "malformed sqlite schema_version table is empty".to_string(),
+                return Err(PortError::InternalContext {
+                    context: "malformed sqlite schema_version table",
+                    source: "schema_version table is empty".to_string(),
                 });
             }
         }
