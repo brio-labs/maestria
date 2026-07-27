@@ -36,6 +36,11 @@ fn in_memory_web_fetcher_satisfies_contract() -> Result<(), Box<dyn std::error::
         missing_res
     );
 
+    let zero_limit = fetcher.fetch("https://example.com/test", 0);
+    assert!(zero_limit.is_err_and(|error| error.is_invalid_input()));
+    let too_large = fetcher.fetch("https://example.com/test", 1);
+    assert!(too_large.is_err_and(|error| error.is_invalid_input()));
+
     Ok(())
 }
 
