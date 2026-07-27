@@ -39,8 +39,9 @@ impl HarnessAdapter for InMemoryHarnessAdapter {
         request: HarnessRequest,
     ) -> Pin<Box<dyn Future<Output = Result<HarnessOutcome, PortError>> + Send + '_>> {
         if request.command.trim().is_empty() {
-            return Box::pin(std::future::ready(Err(PortError::InvalidInput {
-                message: "command must not be empty".to_string(),
+            return Box::pin(std::future::ready(Err(PortError::InvalidInputContext {
+                context: "harness command is empty",
+                source: "command must contain a non-whitespace value".to_string(),
             })));
         }
 
