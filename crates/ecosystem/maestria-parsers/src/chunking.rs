@@ -63,8 +63,9 @@ pub(crate) fn extension_is(file: &FileMetadata, accepted: &[&str]) -> bool {
 
 pub(crate) fn decode_utf8(bytes: Vec<u8>) -> Result<String, PortError> {
     if bytes.is_empty() {
-        return Err(PortError::InvalidInput {
-            message: "input file is empty".to_string(),
+        return Err(PortError::InvalidInputContext {
+            context: "decode file bytes",
+            source: "input file is empty".to_string(),
         });
     }
 
@@ -84,8 +85,9 @@ pub(crate) fn parsed_artifact(
     language: Option<String>,
 ) -> Result<ParsedArtifact, PortError> {
     if chunks_with_spans.is_empty() {
-        return Err(PortError::InvalidInput {
-            message: "input file has no textual content".to_string(),
+        return Err(PortError::InvalidInputContext {
+            context: "build parsed artifact",
+            source: "input file has no textual content".to_string(),
         });
     }
 
@@ -100,8 +102,9 @@ pub(crate) fn parsed_artifact(
     let card_source_span = match chunks.first() {
         Some(chunk) => chunk.source_span.clone(),
         None => {
-            return Err(PortError::InvalidInput {
-                message: "parsed artifact has no card evidence span".to_string(),
+            return Err(PortError::InvalidInputContext {
+                context: "build parsed artifact card",
+                source: "parsed artifact has no card evidence span".to_string(),
             });
         }
     };
