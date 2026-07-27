@@ -48,8 +48,9 @@ impl DocumentTree {
         let mut ids = BTreeSet::new();
         for node in &nodes {
             if !ids.insert(node.id) {
-                return Err(PortError::InvalidInput {
-                    message: "document tree contains duplicate node ids".to_owned(),
+                return Err(PortError::InvalidInputContext {
+                    context: "document tree contains duplicate node IDs",
+                    source: "node identifiers must be unique".to_string(),
                 });
             }
         }
@@ -58,8 +59,9 @@ impl DocumentTree {
             .filter(|node| node.parent_id.is_none())
             .collect();
         if roots.len() != 1 || roots[0].id != root_id {
-            return Err(PortError::InvalidInput {
-                message: "document tree must have one declared rooted node".to_owned(),
+            return Err(PortError::InvalidInputContext {
+                context: "document tree root is invalid",
+                source: "tree must have one declared root matching root_id".to_string(),
             });
         }
         for node in &nodes {
@@ -68,8 +70,9 @@ impl DocumentTree {
                     .sibling_id
                     .is_some_and(|sibling| !ids.contains(&sibling))
             {
-                return Err(PortError::InvalidInput {
-                    message: "document tree contains a dangling link".to_owned(),
+                return Err(PortError::InvalidInputContext {
+                    context: "document tree contains a dangling link",
+                    source: "parent or sibling link targets an unknown node".to_string(),
                 });
             }
         }
@@ -78,8 +81,9 @@ impl DocumentTree {
             let mut visited = BTreeSet::new();
             while let Some(parent) = nodes.iter().find(|candidate| candidate.id == current) {
                 if !visited.insert(current) {
-                    return Err(PortError::InvalidInput {
-                        message: "document tree contains a parent cycle".to_owned(),
+                    return Err(PortError::InvalidInputContext {
+                        context: "document tree contains a parent cycle",
+                        source: "parent links must terminate at the root".to_string(),
                     });
                 }
                 match parent.parent_id {
@@ -93,8 +97,9 @@ impl DocumentTree {
             let mut visited = BTreeSet::new();
             while let Some(current_node) = nodes.iter().find(|candidate| candidate.id == current) {
                 if !visited.insert(current) {
-                    return Err(PortError::InvalidInput {
-                        message: "document tree contains a sibling cycle".to_owned(),
+                    return Err(PortError::InvalidInputContext {
+                        context: "document tree contains a sibling cycle",
+                        source: "sibling links must terminate at a null link".to_string(),
                     });
                 }
                 match current_node.sibling_id {
