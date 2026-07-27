@@ -820,7 +820,7 @@ pub async fn assert_harness_adapter_round_trip(
                 blocked_patterns: vec![],
             })
             .await,
-        Err(PortError::InvalidInput { .. } | PortError::InvalidInputContext { .. })
+        Err(error) if error.is_invalid_input()
     ));
     Ok(())
 }
