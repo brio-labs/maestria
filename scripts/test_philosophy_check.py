@@ -102,10 +102,18 @@ class PhilosophyCheckTests(unittest.TestCase):
                 "fn example(value: Option<u8>) { let _ = value.unwrap_or_default(); }\n",
                 encoding="utf-8",
             )
+            test_source = source.parent / "tests.rs"
+            test_source.write_text(
+                "mod tests { fn test_only(value: Option<u8>) { let _ = value.unwrap(); } }\n",
+                encoding="utf-8",
+            )
 
             self.assertEqual(
                 PHILOSOPHY_CHECK.scan_rust_forbidden_methods(),
-                ["crates/apps/example/src/lib.rs contains a forbidden Option/Result failure method"],
+                [
+                    "crates/apps/example/src/lib.rs contains a forbidden Option/Result failure method",
+                    "crates/apps/example/src/tests.rs contains a forbidden Option/Result failure method",
+                ],
             )
 
     def test_domain_scan_reports_runtime_tokens_and_production_failures(self) -> None:
@@ -142,7 +150,7 @@ class PhilosophyCheckTests(unittest.TestCase):
                 "crates/kernel/maestria-domain/src/lib.rs contains forbidden failure token panic!(",
                 source_violations,
             )
-            self.assertNotIn(
+            self.assertIn(
                 "crates/kernel/maestria-domain/src/lib.rs contains forbidden failure token unwrap(",
                 source_violations,
             )
@@ -164,6 +172,10 @@ class PhilosophyCheckTests(unittest.TestCase):
                 "pub fn invalid() { unreachable!(); }\n",
                 encoding="utf-8",
             )
+            (governance / "src" / "tests.rs").write_text(
+                "mod tests { fn test_only() { unreachable!(); } }\n",
+                encoding="utf-8",
+            )
 
             self.assertEqual(
                 PHILOSOPHY_CHECK.scan_kernel_manifests(),
@@ -176,7 +188,9 @@ class PhilosophyCheckTests(unittest.TestCase):
                 PHILOSOPHY_CHECK.scan_kernel_sources(),
                 [
                     "crates/kernel/maestria-governance/src/lib.rs "
-                    "contains forbidden failure token unreachable!("
+                    "contains forbidden failure token unreachable!(",
+                    "crates/kernel/maestria-governance/src/tests.rs "
+                    "contains forbidden failure token unreachable!(",
                 ],
             )
 
