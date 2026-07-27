@@ -63,9 +63,12 @@ impl SqliteStore {
     }
 
     fn lock(&self) -> Result<std::sync::MutexGuard<'_, Connection>, PortError> {
-        self.connection.lock().map_err(|_| PortError::Internal {
-            message: "sqlite connection lock poisoned".to_string(),
-        })
+        self.connection
+            .lock()
+            .map_err(|_| PortError::InternalContext {
+                context: "sqlite connection lock poisoned",
+                source: "connection mutex is poisoned".to_string(),
+            })
     }
 }
 
@@ -139,8 +142,9 @@ fn json_error(error: serde_json::Error) -> PortError {
 }
 
 fn u64_to_i64(value: u64) -> Result<i64, PortError> {
-    i64::try_from(value).map_err(|_| PortError::InvalidInput {
-        message: format!("identifier value {value} exceeds sqlite INTEGER range"),
+    i64::try_from(value).map_err(|_| PortError::InvalidInputContext {
+        context: "identifier exceeds sqlite INTEGER range",
+        source: value.to_string(),
     })
 }
 
@@ -149,14 +153,16 @@ fn optional_u64_to_i64(value: Option<u64>) -> Result<Option<i64>, PortError> {
 }
 
 fn i64_to_u64(value: i64) -> Result<u64, PortError> {
-    u64::try_from(value).map_err(|_| PortError::Internal {
-        message: format!("stored negative identifier value {value}"),
+    u64::try_from(value).map_err(|_| PortError::InternalContext {
+        context: "stored identifier is negative",
+        source: value.to_string(),
     })
 }
 
 fn i64_to_u32(value: i64) -> Result<u32, PortError> {
-    u32::try_from(value).map_err(|_| PortError::Internal {
-        message: format!("stored chunk order value {value} is outside u32 range"),
+    u32::try_from(value).map_err(|_| PortError::InternalContext {
+        context: "stored chunk order is outside u32 range",
+        source: value.to_string(),
     })
 }
 
