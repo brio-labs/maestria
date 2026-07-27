@@ -57,9 +57,12 @@ impl SqliteGraphIndex {
     }
 
     fn lock_connection(&self) -> Result<MutexGuard<'_, Connection>, PortError> {
-        self.connection.lock().map_err(|_| PortError::Internal {
-            message: "graph sqlite connection lock poisoned".to_string(),
-        })
+        self.connection
+            .lock()
+            .map_err(|_| PortError::InternalContext {
+                context: "graph sqlite connection lock poisoned",
+                source: "graph sqlite connection mutex is poisoned".to_string(),
+            })
     }
 }
 

@@ -105,8 +105,9 @@ fn validate_relations_columns(conn: &Connection, expected: usize) -> Result<(), 
         }
     }
     if cols_found != expected {
-        return Err(PortError::Internal {
-            message: "relations table is malformed or missing columns".to_string(),
+        return Err(PortError::InternalContext {
+            context: "validate graph relations columns",
+            source: "relations table is malformed or missing columns".to_string(),
         });
     }
     Ok(())
@@ -142,8 +143,9 @@ fn validate_relations_indexes(conn: &Connection) -> Result<(), PortError> {
     }
 
     if !has_source_idx || !has_target_idx {
-        return Err(PortError::Internal {
-            message: "relations table is missing required indexes".to_string(),
+        return Err(PortError::InternalContext {
+            context: "validate graph relations indexes",
+            source: "relations table is missing required indexes".to_string(),
         });
     }
     Ok(())
