@@ -247,7 +247,9 @@ impl MaestriaRuntime {
             effect_shutdown.cancel();
         }
         shutdown_token.cancel();
-        let _ = effect_executor.await;
+        if let Err(error) = effect_executor.await {
+            tracing::error!(%error, "effect executor task failed");
+        }
     }
 
     async fn wait_for_validation_report(
