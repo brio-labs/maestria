@@ -67,8 +67,9 @@ pub(super) fn relation_endpoint_from_parts(
             endpoint_id,
             "card id",
         )?))),
-        other => Err(PortError::Internal {
-            message: format!("unknown relation endpoint type {other}"),
+        other => Err(PortError::InternalContext {
+            context: "unknown relation endpoint type",
+            source: other.to_string(),
         }),
     }
 }

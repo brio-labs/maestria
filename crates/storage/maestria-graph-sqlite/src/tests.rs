@@ -242,7 +242,10 @@ fn rejects_unsupported_schema_version() -> Result<(), PortError> {
     let result = migrate(&mut conn);
     assert!(matches!(
         result,
-        Err(PortError::Internal { ref message }) if message.contains("unsupported graph projection schema version 9999")
+        Err(PortError::InternalContext {
+            context: "unsupported graph projection schema version",
+            ref source,
+        }) if source == "9999"
     ));
     Ok(())
 }
