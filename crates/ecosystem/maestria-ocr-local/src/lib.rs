@@ -47,13 +47,15 @@ impl LocalHttpOcrProvider {
     ) -> Result<Self, PortError> {
         let endpoint = parse_loopback_endpoint(endpoint)?;
         if model.trim().is_empty() {
-            return Err(PortError::InvalidInput {
-                message: "OCR model must not be empty".to_string(),
+            return Err(PortError::InvalidInputContext {
+                context: "OCR model is empty",
+                source: "model must contain a non-whitespace value".to_string(),
             });
         }
         if identity.model != model {
-            return Err(PortError::InvalidInput {
-                message: "OCR model does not match provider identity".to_string(),
+            return Err(PortError::InvalidInputContext {
+                context: "OCR model identity mismatch",
+                source: "model does not match the provider identity".to_string(),
             });
         }
         Ok(Self {
@@ -85,13 +87,15 @@ impl LocalHttpOcrProvider {
 impl OcrProvider for LocalHttpOcrProvider {
     fn recognize(&self, request: OcrRequest) -> Result<OcrResponse, PortError> {
         if request.file.bytes.is_empty() {
-            return Err(PortError::InvalidInput {
-                message: "cannot OCR an empty PDF".to_string(),
+            return Err(PortError::InvalidInputContext {
+                context: "OCR PDF is empty",
+                source: "PDF bytes must contain data".to_string(),
             });
         }
         if request.pages.is_empty() {
-            return Err(PortError::InvalidInput {
-                message: "OCR request must contain at least one page".to_string(),
+            return Err(PortError::InvalidInputContext {
+                context: "OCR request pages are empty",
+                source: "at least one page is required".to_string(),
             });
         }
         let rendered = self
@@ -100,8 +104,9 @@ impl OcrProvider for LocalHttpOcrProvider {
         let mut pages = Vec::with_capacity(rendered.len());
         for page in rendered {
             if page.bytes.is_empty() {
-                return Err(PortError::InvalidInput {
-                    message: format!("rasterized page {} is empty", page.page),
+                return Err(PortError::InvalidInputContext {
+                    context: "rasterized OCR page is empty",
+                    source: format!("page {} contains no image bytes", page.page),
                 });
             }
             let payload = ChatCompletionRequest::for_image(
@@ -123,8 +128,9 @@ impl OcrProvider for LocalHttpOcrProvider {
                         source: error.to_string(),
                     }
                 })?;
-            let text = parsed.text().ok_or_else(|| PortError::Downstream {
-                message: format!("OCR response contained no text for page {}", page.page),
+            let text = parsed.text().ok_or_else(|| PortError::DownstreamContext {
+                context: "decode OCR response text",
+                source: format!("OCR response contained no text for page {}", page.page),
             })?;
             pages.push(OcrPage {
                 page: page.page,
@@ -158,8 +164,9 @@ fn parse_loopback_endpoint(endpoint: &str) -> Result<Url, PortError> {
         && url.query().is_none()
         && url.fragment().is_none();
     if !valid {
-        return Err(PortError::InvalidInput {
-            message: "OCR endpoint must be an http loopback /v1/chat/completions URL".to_string(),
+        return Err(PortError::InvalidInputContext {
+            context: "OCR endpoint is not canonical loopback",
+            source: "endpoint must be an http loopback /v1/chat/completions URL".to_string(),
         });
     }
     Ok(url)
