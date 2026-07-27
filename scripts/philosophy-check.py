@@ -400,11 +400,8 @@ def scan_rust_forbidden_methods() -> list[str]:
         content = read_text(source)
         if content is None:
             continue
-        if is_test_source(source):
-            continue
-        production = production_rust(content)
         for pattern, description in FORBIDDEN_RUST_METHODS:
-            if re.search(pattern, production):
+            if re.search(pattern, content):
                 violations.append(f"{source.relative_to(ROOT)} contains {description}")
     return violations
 
@@ -460,18 +457,15 @@ def scan_kernel_sources() -> list[str]:
     violations = []
     for kernel_root in KERNEL_ROOTS:
         for source in (kernel_root / "src").rglob("*.rs"):
-            if is_test_source(source):
-                continue
             content = read_text(source)
             if content is None:
                 continue
-            production = production_rust(content)
             rel = source.relative_to(ROOT)
             for token in FORBIDDEN_KERNEL_TOKENS:
-                if token in production:
+                if token in content:
                     violations.append(f"{rel} contains forbidden kernel token {token}")
             for token in FORBIDDEN_DOMAIN_FAILURES:
-                if token in production:
+                if token in content:
                     violations.append(f"{rel} contains forbidden failure token {token}")
     return violations
 def scan_responsibility_maps() -> list[str]:
@@ -555,13 +549,12 @@ def scan_domain_sources() -> list[str]:
         content = read_text(source)
         if content is None:
             continue
-        production = production_rust(content)
         rel = source.relative_to(ROOT)
         for token in FORBIDDEN_KERNEL_TOKENS:
-            if token in production:
+            if token in content:
                 violations.append(f"{rel} contains forbidden domain token {token}")
         for token in FORBIDDEN_DOMAIN_FAILURES:
-            if token in production:
+            if token in content:
                 violations.append(f"{rel} contains forbidden failure token {token}")
     return violations
 
