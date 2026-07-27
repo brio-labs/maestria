@@ -110,13 +110,18 @@ impl OcrProvider for LocalHttpOcrProvider {
                 &page.mime_type,
                 &page.bytes,
             );
-            let body = serde_json::to_vec(&payload).map_err(|error| PortError::Internal {
-                message: format!("encode OCR request: {error}"),
-            })?;
+            let body =
+                serde_json::to_vec(&payload).map_err(|error| PortError::InternalContext {
+                    context: "encode OCR request",
+                    source: error.to_string(),
+                })?;
             let response = self.transport.post(self.endpoint.as_str(), body)?;
             let parsed: ChatCompletionResponse =
-                serde_json::from_slice(&response).map_err(|error| PortError::Downstream {
-                    message: format!("decode OCR response for page {}: {error}", page.page),
+                serde_json::from_slice(&response).map_err(|error| {
+                    PortError::DownstreamContext {
+                        context: "decode OCR response",
+                        source: error.to_string(),
+                    }
                 })?;
             let text = parsed.text().ok_or_else(|| PortError::Downstream {
                 message: format!("OCR response contained no text for page {}", page.page),
@@ -143,8 +148,9 @@ impl OcrProvider for LocalHttpOcrProvider {
 }
 
 fn parse_loopback_endpoint(endpoint: &str) -> Result<Url, PortError> {
-    let url = Url::parse(endpoint).map_err(|error| PortError::InvalidInput {
-        message: format!("invalid OCR endpoint: {error}"),
+    let url = Url::parse(endpoint).map_err(|error| PortError::InvalidInputContext {
+        context: "invalid OCR endpoint",
+        source: error.to_string(),
     })?;
     let valid = url.scheme() == "http"
         && matches!(url.host_str(), Some("127.0.0.1" | "::1" | "[::1]"))

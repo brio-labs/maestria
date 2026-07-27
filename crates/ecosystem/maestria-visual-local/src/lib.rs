@@ -143,13 +143,15 @@ impl LocalHttpVisualProvider {
                 message: "visual request identity does not match provider".to_string(),
             });
         }
-        let body = serde_json::to_vec(&request).map_err(|error| PortError::Internal {
-            message: format!("encode visual request: {error}"),
+        let body = serde_json::to_vec(&request).map_err(|error| PortError::InternalContext {
+            context: "encode visual request",
+            source: error.to_string(),
         })?;
         let response = self.transport.post(self.endpoint.as_str(), body)?;
         let parsed: VisualApiResponse =
-            serde_json::from_slice(&response).map_err(|error| PortError::Downstream {
-                message: format!("decode visual response: {error}"),
+            serde_json::from_slice(&response).map_err(|error| PortError::DownstreamContext {
+                context: "decode visual response",
+                source: error.to_string(),
             })?;
         let first = parsed
             .data
@@ -208,13 +210,15 @@ impl VisualTransport for UreqTransport {
             .post(endpoint)
             .set("content-type", "application/json")
             .send_bytes(&body)
-            .map_err(|error| PortError::Downstream {
-                message: format!("visual request failed: {error}"),
+            .map_err(|error| PortError::DownstreamContext {
+                context: "visual request failed",
+                source: error.to_string(),
             })?
             .into_string()
             .map(String::into_bytes)
-            .map_err(|error| PortError::Downstream {
-                message: format!("read visual response: {error}"),
+            .map_err(|error| PortError::DownstreamContext {
+                context: "read visual response",
+                source: error.to_string(),
             })
     }
 }
@@ -301,8 +305,9 @@ fn source_payload(source: &VisualSource) -> VisualSourcePayload {
 }
 
 fn parse_loopback_endpoint(endpoint: &str) -> Result<Url, PortError> {
-    let url = Url::parse(endpoint).map_err(|error| PortError::InvalidInput {
-        message: format!("invalid visual endpoint: {error}"),
+    let url = Url::parse(endpoint).map_err(|error| PortError::InvalidInputContext {
+        context: "invalid visual endpoint",
+        source: error.to_string(),
     })?;
     let valid = url.scheme() == "http"
         && matches!(url.host_str(), Some("127.0.0.1" | "::1" | "[::1]"))

@@ -100,7 +100,10 @@ fn rejects_malformed_json_response() -> Result<(), PortError> {
     )?;
     let result = provider.embed_query("table latency", identity()?);
     assert!(
-        matches!(result, Err(PortError::Downstream { .. })),
+        matches!(
+            result,
+            Err(PortError::Downstream { .. } | PortError::DownstreamContext { .. })
+        ),
         "expected Downstream error for malformed JSON, got {result:?}"
     );
     Ok(())
