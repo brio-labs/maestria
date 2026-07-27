@@ -270,7 +270,7 @@ impl EffectExecutionContext {
             Ok(parsed) => {
                 self.emit_parsed_artifact(request, artifact_id, parsed, blob_id, &source_hash)
             }
-            Err(maestria_ports::PortError::InvalidInput { .. }) => {
+            Err(error) if error.is_invalid_input() => {
                 tracing::warn!(
                     artifact_id = %artifact_id.value(),
                     "parser rejected artifact as invalid input"
