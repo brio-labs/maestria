@@ -25,21 +25,27 @@ impl InMemoryBlobStore {
 
 impl crate::BlobStore for InMemoryBlobStore {
     fn put(&self, bytes: Vec<u8>) -> Result<BlobId, PortError> {
-        let mut index_guard = self
-            .ids_by_content
-            .lock()
-            .map_err(|_| PortError::Internal {
-                message: "blob store lock poisoned".to_string(),
-            })?;
+        let mut index_guard =
+            self.ids_by_content
+                .lock()
+                .map_err(|_| PortError::InternalContext {
+                    context: "blob store lock poisoned",
+                    source: "blob store mutex is poisoned".to_string(),
+                })?;
         if let Some(id) = index_guard.get(&bytes) {
             return Ok(*id);
         }
 
-        let mut id_guard = self.next_id.lock().map_err(|_| PortError::Internal {
-            message: "blob store lock poisoned".to_string(),
-        })?;
-        let mut blob_guard = self.blobs.lock().map_err(|_| PortError::Internal {
-            message: "blob store lock poisoned".to_string(),
+        let mut id_guard = self
+            .next_id
+            .lock()
+            .map_err(|_| PortError::InternalContext {
+                context: "blob store lock poisoned",
+                source: "blob store mutex is poisoned".to_string(),
+            })?;
+        let mut blob_guard = self.blobs.lock().map_err(|_| PortError::InternalContext {
+            context: "blob store lock poisoned",
+            source: "blob store mutex is poisoned".to_string(),
         })?;
 
         let id = BlobId::new(*id_guard);
@@ -50,8 +56,9 @@ impl crate::BlobStore for InMemoryBlobStore {
     }
 
     fn get(&self, id: BlobId) -> Result<Vec<u8>, PortError> {
-        let guard = self.blobs.lock().map_err(|_| PortError::Internal {
-            message: "blob store lock poisoned".to_string(),
+        let guard = self.blobs.lock().map_err(|_| PortError::InternalContext {
+            context: "blob store lock poisoned",
+            source: "blob store mutex is poisoned".to_string(),
         })?;
         guard.get(&id).cloned().ok_or(PortError::NotFound)
     }
