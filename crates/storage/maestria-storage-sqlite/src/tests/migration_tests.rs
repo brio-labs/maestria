@@ -89,7 +89,7 @@ fn legacy_migration_rejects_lossy_existing_payloads() -> Result<(), Box<dyn std:
 
     assert!(matches!(
         SqliteStore::open(&path),
-        Err(PortError::InvalidInput { .. })
+        Err(error) if error.is_invalid_input()
     ));
     Ok(())
 }
@@ -145,7 +145,7 @@ fn legacy_event_rows_migrate_and_reject_lossy_payloads() -> Result<(), Box<dyn s
     }
     assert!(matches!(
         store.scan(EventFilter { artifact_id: None }),
-        Err(PortError::InvalidInput { .. })
+        Err(error) if error.is_invalid_input()
     ));
 
     let connection = store.lock()?;
