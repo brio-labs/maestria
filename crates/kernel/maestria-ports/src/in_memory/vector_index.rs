@@ -213,15 +213,17 @@ impl VectorIndex for InMemoryVectorIndex {
     }
 }
 
-fn validate_vector_values(vector: &[f32], label: &str) -> Result<(), PortError> {
+fn validate_vector_values(vector: &[f32], label: &'static str) -> Result<(), PortError> {
     if vector.is_empty() {
-        return Err(PortError::InvalidInput {
-            message: format!("{label} must not be empty"),
+        return Err(PortError::InvalidInputContext {
+            context: "vector is empty",
+            source: label.to_string(),
         });
     }
     if vector.iter().any(|value| !value.is_finite()) {
-        return Err(PortError::InvalidInput {
-            message: format!("{label} must contain only finite values"),
+        return Err(PortError::InvalidInputContext {
+            context: "vector contains non-finite values",
+            source: label.to_string(),
         });
     }
     Ok(())
