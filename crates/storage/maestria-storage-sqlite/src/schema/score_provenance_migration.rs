@@ -23,8 +23,9 @@ pub(super) fn migrate_score_provenance_v9(connection: &Connection) -> Result<(),
         let mut payload: StoredEventPayload =
             serde_json::from_str(&payload_json).map_err(json_error)?;
         let StoredEventPayload::SearchKnowledgeCompleted { outcome, .. } = &mut payload else {
-            return Err(PortError::Internal {
-                message: format!(
+            return Err(PortError::InternalContext {
+                context: "migrate search completion payload",
+                source: format!(
                     "stored {SEARCH_COMPLETED_KIND} row {id} has an incompatible payload variant"
                 ),
             });
@@ -33,8 +34,9 @@ pub(super) fn migrate_score_provenance_v9(connection: &Connection) -> Result<(),
         let old_trace = outcome.trace;
         outcome
             .canonicalize_score_provenance()
-            .map_err(|error| PortError::Internal {
-                message: format!(
+            .map_err(|error| PortError::InternalContext {
+                context: "canonicalize retrieval score provenance",
+                source: format!(
                     "cannot migrate retrieval score provenance for event {id}: {error}"
                 ),
             })?;
@@ -99,8 +101,9 @@ pub(super) fn validate_at_v9(
         let payload: StoredEventPayload =
             serde_json::from_str(&payload_json).map_err(json_error)?;
         let StoredEventPayload::SearchKnowledgeCompleted { outcome, .. } = payload else {
-            return Err(PortError::Internal {
-                message: format!(
+            return Err(PortError::InternalContext {
+                context: "validate search completion payload",
+                source: format!(
                     "stored {SEARCH_COMPLETED_KIND} row {id} has an incompatible payload variant"
                 ),
             });
@@ -118,8 +121,9 @@ pub(super) fn validate_at_v9(
                 candidate.scores.schema_version != maestria_domain::RETRIEVAL_SCORE_SCHEMA_VERSION
             })
         {
-            return Err(PortError::Internal {
-                message: format!("search outcome event {id} has a non-canonical score schema"),
+            return Err(PortError::InternalContext {
+                context: "validate retrieval score schema",
+                source: format!("search outcome event {id} has a non-canonical score schema"),
             });
         }
     }
