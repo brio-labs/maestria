@@ -76,16 +76,18 @@ impl TantivyFullTextIndex {
     ) -> Result<Vec<LexicalChunkHit>, PortError> {
         let trimmed = query.q.trim();
         if trimmed.is_empty() {
-            return Err(PortError::InvalidInput {
-                message: "lexical search query must not be empty".to_string(),
+            return Err(PortError::InvalidInputContext {
+                context: "empty lexical chunk search query",
+                source: "query must contain non-whitespace text".to_string(),
             });
         }
         if query.limit == 0 {
             return Ok(Vec::new());
         }
         if query.fields.is_empty() {
-            return Err(PortError::InvalidInput {
-                message: "lexical search requires at least one field".to_string(),
+            return Err(PortError::InvalidInputContext {
+                context: "lexical chunk search fields are empty",
+                source: "at least one field is required".to_string(),
             });
         }
         let mut fields = Vec::new();
@@ -172,8 +174,9 @@ impl TantivyFullTextIndex {
     ) -> Result<Vec<LexicalCardHit>, PortError> {
         let trimmed = query.q.trim();
         if trimmed.is_empty() {
-            return Err(PortError::InvalidInput {
-                message: "lexical card search query must not be empty".to_string(),
+            return Err(PortError::InvalidInputContext {
+                context: "empty lexical card search query",
+                source: "query must contain non-whitespace text".to_string(),
             });
         }
         if query.limit == 0 {
@@ -207,8 +210,9 @@ impl TantivyFullTextIndex {
             None => None,
         };
         if query.fields.is_empty() {
-            return Err(PortError::InvalidInput {
-                message: "lexical card search requires at least one field".to_string(),
+            return Err(PortError::InvalidInputContext {
+                context: "lexical card search fields are empty",
+                source: "at least one field is required".to_string(),
             });
         }
         let mut parsed_query = build_parsed_query(

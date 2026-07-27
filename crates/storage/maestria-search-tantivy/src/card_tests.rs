@@ -70,7 +70,7 @@ fn card_empty_query_is_invalid() -> Result<(), Box<dyn std::error::Error>> {
         offset: 0,
     });
 
-    assert!(matches!(result, Err(PortError::InvalidInput { .. })));
+    assert!(result.is_err_and(|error| error.is_invalid_input()));
     Ok(())
 }
 
