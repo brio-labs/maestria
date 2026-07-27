@@ -131,13 +131,15 @@ impl EmbeddingProvider for LocalHttpEmbeddingProvider {
             model: self.model.clone(),
             dimensions: self.dimensions,
         };
-        let body = serde_json::to_vec(&payload).map_err(|error| PortError::Internal {
-            message: format!("encode embedding request: {error}"),
+        let body = serde_json::to_vec(&payload).map_err(|error| PortError::InternalContext {
+            context: "encode embedding request",
+            source: error.to_string(),
         })?;
         let response = self.transport.post(self.endpoint.as_str(), body)?;
         let parsed: EmbeddingApiResponse =
-            serde_json::from_slice(&response).map_err(|error| PortError::Downstream {
-                message: format!("decode embedding response: {error}"),
+            serde_json::from_slice(&response).map_err(|error| PortError::DownstreamContext {
+                context: "decode embedding response",
+                source: error.to_string(),
             })?;
         let first = parsed
             .data
@@ -193,14 +195,16 @@ impl EmbeddingTransport for UreqTransport {
             .post(endpoint)
             .set("content-type", "application/json")
             .send_bytes(&body)
-            .map_err(|error| PortError::Downstream {
-                message: format!("embedding request failed: {error}"),
+            .map_err(|error| PortError::DownstreamContext {
+                context: "embedding request failed",
+                source: error.to_string(),
             })?;
         response
             .into_string()
             .map(String::into_bytes)
-            .map_err(|error| PortError::Downstream {
-                message: format!("read embedding response: {error}"),
+            .map_err(|error| PortError::DownstreamContext {
+                context: "read embedding response",
+                source: error.to_string(),
             })
     }
 }
@@ -226,8 +230,9 @@ struct EmbeddingData {
 }
 
 pub fn parse_loopback_endpoint(endpoint: &str) -> Result<Url, PortError> {
-    let url = Url::parse(endpoint).map_err(|error| PortError::InvalidInput {
-        message: format!("invalid embedding endpoint: {error}"),
+    let url = Url::parse(endpoint).map_err(|error| PortError::InvalidInputContext {
+        context: "invalid embedding endpoint",
+        source: error.to_string(),
     })?;
     let is_loopback =
         url.scheme() == "http" && matches!(url.host_str(), Some("127.0.0.1" | "::1" | "[::1]"));
