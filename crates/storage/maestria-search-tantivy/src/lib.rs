@@ -199,9 +199,12 @@ impl TantivyFullTextIndex {
 }
 
 fn schema_field(schema: &Schema, name: &str) -> Result<Field, PortError> {
-    schema.get_field(name).map_err(|_| PortError::Internal {
-        message: format!("tantivy schema is missing {name} field"),
-    })
+    schema
+        .get_field(name)
+        .map_err(|_| PortError::InternalContext {
+            context: "missing Tantivy schema field",
+            source: name.to_string(),
+        })
 }
 
 fn chunk_key(artifact_id: ArtifactId, chunk_id: ChunkId) -> String {
