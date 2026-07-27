@@ -208,6 +208,26 @@ fn state_persistence_round_trip() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+#[test]
+fn corrupt_state_recovers_with_empty_state() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = env::temp_dir().join(format!("maestria-watcher-corrupt-{}", process::id()));
+    let _ = fs::remove_dir_all(&dir);
+    let layout = InstanceLayout::for_root(dir.clone());
+    fs::create_dir_all(&layout.system_dir)?;
+    fs::write(
+        layout.system_dir.join(WATCH_STATE_FILE),
+        b"{ not valid watcher state",
+    )?;
+
+    let loaded = load_state(&layout);
+
+    assert!(loaded.files.is_empty());
+    assert!(loaded.removed.is_empty());
+    assert!(loaded.artifact_ids.is_empty());
+    fs::remove_dir_all(dir)?;
+    Ok(())
+}
+
 #[tokio::test]
 async fn scan_once_detects_creation_and_removal() -> Result<(), Box<dyn std::error::Error>> {
     let root = env::temp_dir().join(format!("maestria-watcher-e2e-{}", process::id()));
