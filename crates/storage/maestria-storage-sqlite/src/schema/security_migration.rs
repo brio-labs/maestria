@@ -40,8 +40,9 @@ pub(super) fn migrate_from_v7(
     state: &SchemaState,
 ) -> Result<(), PortError> {
     if !state.had_domain_events_table {
-        return Err(PortError::Internal {
-            message: "malformed sqlite schema: domain_events table missing".to_string(),
+        return Err(PortError::InternalContext {
+            context: "malformed sqlite schema",
+            source: "domain_events table missing".to_string(),
         });
     }
 
@@ -68,8 +69,9 @@ pub(super) fn validate_at_v8(
         || !table_exists(connection, "cards")?
         || !state.had_domain_events_table
     {
-        return Err(PortError::Internal {
-            message: "v8 validation failed: missing tables".to_string(),
+        return Err(PortError::InternalContext {
+            context: "v8 validation failed",
+            source: "missing tables".to_string(),
         });
     }
 
@@ -82,8 +84,9 @@ pub(super) fn validate_at_v8(
         "security_json",
     ] {
         if !table_has_column(connection, "artifacts", column)? {
-            return Err(PortError::Internal {
-                message: format!("v8 artifacts table missing required column {column}"),
+            return Err(PortError::InternalContext {
+                context: "v8 artifacts table missing required column",
+                source: column.to_string(),
             });
         }
     }
@@ -97,8 +100,9 @@ pub(super) fn validate_at_v8(
         "security_json",
     ] {
         if !table_has_column(connection, "cards", column)? {
-            return Err(PortError::Internal {
-                message: format!("v8 cards table missing required column {column}"),
+            return Err(PortError::InternalContext {
+                context: "v8 cards table missing required column",
+                source: column.to_string(),
             });
         }
     }
@@ -112,8 +116,9 @@ pub(super) fn validate_at_v8(
         "security_json",
     ] {
         if !table_has_column(connection, "evidence", column)? {
-            return Err(PortError::Internal {
-                message: format!("v8 evidence table missing required column {column}"),
+            return Err(PortError::InternalContext {
+                context: "v8 evidence table missing required column",
+                source: column.to_string(),
             });
         }
     }
