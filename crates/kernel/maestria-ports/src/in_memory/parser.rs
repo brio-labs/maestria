@@ -36,14 +36,16 @@ impl Parser for InMemoryParser {
 
     fn parse(&self, file: FileHandle, context: ParseContext) -> Result<ParsedArtifact, PortError> {
         if file.bytes.is_empty() {
-            return Err(PortError::InvalidInput {
-                message: "input file is empty".to_string(),
+            return Err(PortError::InvalidInputContext {
+                context: "input file is empty",
+                source: "file bytes are empty".to_string(),
             });
         }
 
         let content_hash_str = maestria_domain::content_hash(&file.bytes);
-        let text = String::from_utf8(file.bytes).map_err(|err| PortError::InvalidInput {
-            message: format!("file bytes are not utf8: {err}"),
+        let text = String::from_utf8(file.bytes).map_err(|err| PortError::InvalidInputContext {
+            context: "input file is not UTF-8",
+            source: err.to_string(),
         })?;
 
         let root_node_id = StructureNodeId::new(context.artifact_id.value());
