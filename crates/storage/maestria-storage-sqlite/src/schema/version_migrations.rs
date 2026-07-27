@@ -16,8 +16,9 @@ pub(super) fn migrate_from_v1(
     state: &SchemaState,
 ) -> Result<(), PortError> {
     if !state.had_domain_events_table {
-        return Err(PortError::Internal {
-            message: "malformed sqlite schema: domain_events table missing".to_string(),
+        return Err(PortError::InternalContext {
+            context: "schema migration requires domain_events table",
+            source: "malformed sqlite schema: domain_events table missing".to_string(),
         });
     }
 
@@ -51,15 +52,17 @@ pub(super) fn migrate_from_v2(
     state: &SchemaState,
 ) -> Result<(), PortError> {
     if !state.had_domain_events_table {
-        return Err(PortError::Internal {
-            message: "malformed sqlite schema: domain_events table missing".to_string(),
+        return Err(PortError::InternalContext {
+            context: "schema migration requires domain_events table",
+            source: "malformed sqlite schema: domain_events table missing".to_string(),
         });
     }
     if state.had_payload_version_column {
         validate_columns(connection, &DOMAIN_EVENTS_V2_COLUMNS)?;
     } else {
-        return Err(PortError::Internal {
-            message: "malformed sqlite schema: missing payload_version column".to_string(),
+        return Err(PortError::InternalContext {
+            context: "schema migration requires payload_version column",
+            source: "malformed sqlite schema: missing payload_version column".to_string(),
         });
     }
     ensure_artifact_v3_columns(connection)?;
@@ -83,8 +86,9 @@ pub(super) fn migrate_from_v3(
     state: &SchemaState,
 ) -> Result<(), PortError> {
     if !state.had_domain_events_table {
-        return Err(PortError::Internal {
-            message: "malformed sqlite schema: domain_events table missing".to_string(),
+        return Err(PortError::InternalContext {
+            context: "schema migration requires domain_events table",
+            source: "malformed sqlite schema: domain_events table missing".to_string(),
         });
     }
     ensure_artifact_v3_columns(connection)?;
@@ -104,8 +108,9 @@ pub(super) fn migrate_from_v4(
     state: &SchemaState,
 ) -> Result<(), PortError> {
     if !state.had_domain_events_table {
-        return Err(PortError::Internal {
-            message: "malformed sqlite schema: domain_events table missing".to_string(),
+        return Err(PortError::InternalContext {
+            context: "schema migration requires domain_events table",
+            source: "malformed sqlite schema: domain_events table missing".to_string(),
         });
     }
     connection
@@ -146,8 +151,9 @@ pub(super) fn migrate_from_fresh(
 ) -> Result<(), PortError> {
     if state.had_domain_events_table {
         if state.had_payload_version_column {
-            return Err(PortError::Internal {
-                message:
+            return Err(PortError::InternalContext {
+                context: "schema migration requires schema_version table",
+                source:
                     "malformed sqlite schema: schema_version table missing for domain_events v2 schema"
                         .to_string(),
             });
