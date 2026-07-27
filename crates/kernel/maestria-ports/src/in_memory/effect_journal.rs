@@ -13,8 +13,9 @@ pub struct InMemoryEffectJournal {
 
 impl InMemoryEffectJournal {
     fn lock(&self) -> Result<MutexGuard<'_, Vec<EffectJournalEntry>>, PortError> {
-        self.entries.lock().map_err(|_| PortError::Internal {
-            message: "effect journal lock poisoned".to_string(),
+        self.entries.lock().map_err(|_| PortError::InternalContext {
+            context: "effect journal lock poisoned",
+            source: "journal mutex is poisoned".to_string(),
         })
     }
 }
@@ -97,8 +98,9 @@ impl EffectJournal for InMemoryEffectJournal {
                 | EffectJournalStatus::Paused
                 | EffectJournalStatus::Superseded
         ) {
-            return Err(PortError::InvalidInput {
-                message: "terminal journal status required".to_string(),
+            return Err(PortError::InvalidInputContext {
+                context: "non-terminal effect journal status",
+                source: "record_terminal requires a terminal status".to_string(),
             });
         }
         let mut entries = self.lock()?;
@@ -237,7 +239,7 @@ mod tests {
         let entry = journal.record_intent(intent(1, None))?;
         let result =
             journal.record_terminal(entry.run_id, entry.generation, EffectJournalStatus::Started);
-        assert!(matches!(result, Err(PortError::InvalidInput { .. })));
+        assert!(result.is_err_and(|error| error.is_invalid_input()));
         Ok(())
     }
 }
