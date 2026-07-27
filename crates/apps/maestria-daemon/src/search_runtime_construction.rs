@@ -180,7 +180,7 @@ fn maybe_reconcile_vector_projection(
     if let Err(error) =
         crate::reconcile_vector_projection(state, vector_index, Some(provider), model)
     {
-        eprintln!("dense retrieval unavailable; using lexical fallback: {error}");
+        tracing::warn!(%error, "dense retrieval unavailable; using lexical fallback");
     }
 }
 
