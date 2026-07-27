@@ -339,6 +339,11 @@ fn validate_observation(
             "unsupported schema version".to_string(),
         ));
     }
+    if observation.elapsed_ms > MAX_SHADOW_LATENCY_MS {
+        return Err(LearnedSparseShadowStoreError::InvalidObservation(
+            "observation latency exceeds the bounded limit".to_string(),
+        ));
+    }
     if observation.lanes.len() > MAX_SHADOW_RETRIEVERS {
         return Err(LearnedSparseShadowStoreError::InvalidObservation(
             "retriever lane cap exceeded".to_string(),
@@ -355,6 +360,19 @@ fn validate_observation(
         {
             return Err(LearnedSparseShadowStoreError::InvalidObservation(
                 "lane identity or bounded candidate provenance is invalid".to_string(),
+            ));
+        }
+        if (matches!(lane.status, LearnedSparseShadowLaneStatus::Succeeded)
+            && lane.candidates.is_empty())
+            || (matches!(lane.status, LearnedSparseShadowLaneStatus::Empty)
+                && !lane.candidates.is_empty())
+            || lane.candidates.iter().any(|candidate| {
+                candidate.lane_rank == 0
+                    || candidate.lane_rank > MAX_SHADOW_CANDIDATES_PER_LANE as u32
+            })
+        {
+            return Err(LearnedSparseShadowStoreError::InvalidObservation(
+                "lane status or candidate rank is invalid".to_string(),
             ));
         }
         if let LearnedSparseShadowLaneStatus::Failed { error } = &lane.status
