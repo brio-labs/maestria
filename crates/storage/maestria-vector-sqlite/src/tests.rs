@@ -33,6 +33,31 @@ fn rejects_empty_vector_on_index() -> Result<(), PortError> {
 }
 
 #[test]
+fn rejects_missing_provenance_on_index() -> Result<(), PortError> {
+    let index = SqliteVectorIndex::in_memory()?;
+    let result = index.index_embeddings(vec![VectorEmbedding {
+        chunk_id: ChunkId::new(1),
+        vector: vec![1.0, 0.5],
+        provenance: EmbeddingProvenance {
+            content_hash: "".into(),
+            identity: EmbeddingIdentity::legacy("test-model", 2)?,
+            provider_id: "test-provider".into(),
+            model: "test-model".into(),
+            model_version: "v1".into(),
+            disclosure: ProviderDisclosure {
+                remote: false,
+                retention: RetentionPolicy::NoRetention,
+            },
+        },
+    }]);
+    assert!(
+        matches!(result, Err(PortError::InvalidInput { .. })),
+        "expected InvalidInput for missing provenance, got {result:?}"
+    );
+    Ok(())
+}
+
+#[test]
 fn rejects_dimension_mismatch_on_index() -> Result<(), PortError> {
     let index = SqliteVectorIndex::in_memory()?;
     let result = index.index_embeddings(vec![VectorEmbedding {
