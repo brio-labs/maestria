@@ -68,14 +68,14 @@ pub fn assert_learned_sparse_provider_contract(
     assert_eq!(query.identity(), &identity);
     assert!(matches!(
         provider.encode("", SparseInputKind::Query, identity.clone()),
-        Err(PortError::InvalidInput { .. })
+        Err(error) if error.is_invalid_input()
     ));
 
     let mut incompatible = identity;
     incompatible.generation_id = IndexGenerationId::new(99);
     assert!(matches!(
         provider.encode("alpha", SparseInputKind::Query, incompatible),
-        Err(PortError::InvalidInput { .. })
+        Err(error) if error.is_invalid_input()
     ));
     Ok(())
 }
@@ -167,7 +167,7 @@ mod tests {
         };
         assert!(matches!(
             index.index_documents(vec![document]),
-            Err(PortError::InvalidInput { .. })
+            Err(error) if error.is_invalid_input()
         ));
         Ok(())
     }

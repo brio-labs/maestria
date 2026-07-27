@@ -43,13 +43,15 @@ impl LearnedSparseProvider for InMemoryLearnedSparseProvider {
         identity: SparseIdentity,
     ) -> Result<SparseVector, PortError> {
         if identity != self.identity {
-            return Err(PortError::InvalidInput {
-                message: "sparse request identity does not match provider".to_string(),
+            return Err(PortError::InvalidInputContext {
+                context: "sparse provider identity mismatch",
+                source: "request identity differs from provider".to_string(),
             });
         }
         if text.trim().is_empty() {
-            return Err(PortError::InvalidInput {
-                message: "sparse input text must not be empty".to_string(),
+            return Err(PortError::InvalidInputContext {
+                context: "sparse input text is empty",
+                source: "text must contain a non-whitespace token".to_string(),
             });
         }
         let mut frequencies = BTreeMap::<u32, u32>::new();
@@ -61,8 +63,9 @@ impl LearnedSparseProvider for InMemoryLearnedSparseProvider {
                 .or_insert(1);
         }
         if frequencies.is_empty() {
-            return Err(PortError::InvalidInput {
-                message: "sparse input produced no indexable terms".to_string(),
+            return Err(PortError::InvalidInputContext {
+                context: "sparse input has no indexable terms",
+                source: "tokenization produced no terms".to_string(),
             });
         }
         let kind_boost = match kind {
@@ -84,8 +87,9 @@ impl LearnedSparseProvider for InMemoryLearnedSparseProvider {
                 .then_with(|| left.term_id().cmp(&right.term_id()))
         });
         let max_terms = usize::try_from(identity.fingerprint.max_terms).map_err(|_| {
-            PortError::InvalidInput {
-                message: "sparse max_terms does not fit this platform".to_string(),
+            PortError::InvalidInputContext {
+                context: "sparse max_terms exceeds platform range",
+                source: "max_terms does not fit this platform".to_string(),
             }
         })?;
         weighted.truncate(max_terms);
@@ -114,20 +118,27 @@ impl InMemoryLearnedSparseIndex {
         filter: &dyn Fn(ChunkId) -> bool,
     ) -> Result<Vec<SparseSearchHit>, PortError> {
         if query.vector.identity() != &self.identity {
-            return Err(PortError::InvalidInput {
-                message: "sparse query identity does not match index".to_string(),
+            return Err(PortError::InvalidInputContext {
+                context: "sparse query identity mismatch",
+                source: "query identity differs from index".to_string(),
             });
         }
         if query.limit == 0 {
             return Ok(Vec::new());
         }
-        let contribution_cap =
-            usize::try_from(query.max_contributions).map_err(|_| PortError::InvalidInput {
-                message: "sparse contribution cap does not fit this platform".to_string(),
-            })?;
-        let guard = self.documents.lock().map_err(|_| PortError::Internal {
-            message: "learned sparse index lock poisoned".to_string(),
+        let contribution_cap = usize::try_from(query.max_contributions).map_err(|_| {
+            PortError::InvalidInputContext {
+                context: "sparse contribution cap exceeds platform range",
+                source: "max_contributions does not fit this platform".to_string(),
+            }
         })?;
+        let guard = self
+            .documents
+            .lock()
+            .map_err(|_| PortError::InternalContext {
+                context: "learned sparse index lock poisoned",
+                source: "index mutex is poisoned".to_string(),
+            })?;
         let mut hits = Vec::new();
         for document in guard.iter() {
             if !filter(document.chunk_id) {
@@ -192,13 +203,18 @@ impl LearnedSparseIndex for InMemoryLearnedSparseIndex {
             .iter()
             .any(|document| document.vector.identity() != &self.identity)
         {
-            return Err(PortError::InvalidInput {
-                message: "sparse document identity does not match index".to_string(),
+            return Err(PortError::InvalidInputContext {
+                context: "sparse document identity mismatch",
+                source: "document identity differs from index".to_string(),
             });
         }
-        let mut guard = self.documents.lock().map_err(|_| PortError::Internal {
-            message: "learned sparse index lock poisoned".to_string(),
-        })?;
+        let mut guard = self
+            .documents
+            .lock()
+            .map_err(|_| PortError::InternalContext {
+                context: "learned sparse index lock poisoned",
+                source: "index mutex is poisoned".to_string(),
+            })?;
         for document in documents {
             if let Some(position) = guard
                 .iter()
@@ -226,17 +242,25 @@ impl LearnedSparseIndex for InMemoryLearnedSparseIndex {
     }
 
     fn delete_chunks(&self, chunk_ids: &[ChunkId]) -> Result<(), PortError> {
-        let mut guard = self.documents.lock().map_err(|_| PortError::Internal {
-            message: "learned sparse index lock poisoned".to_string(),
-        })?;
+        let mut guard = self
+            .documents
+            .lock()
+            .map_err(|_| PortError::InternalContext {
+                context: "learned sparse index lock poisoned",
+                source: "index mutex is poisoned".to_string(),
+            })?;
         guard.retain(|document| !chunk_ids.contains(&document.chunk_id));
         Ok(())
     }
 
     fn clear(&self) -> Result<(), PortError> {
-        let mut guard = self.documents.lock().map_err(|_| PortError::Internal {
-            message: "learned sparse index lock poisoned".to_string(),
-        })?;
+        let mut guard = self
+            .documents
+            .lock()
+            .map_err(|_| PortError::InternalContext {
+                context: "learned sparse index lock poisoned",
+                source: "index mutex is poisoned".to_string(),
+            })?;
         guard.clear();
         Ok(())
     }
