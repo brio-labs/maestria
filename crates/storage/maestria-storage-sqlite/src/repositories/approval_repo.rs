@@ -21,8 +21,9 @@ fn risk_from_text(text: &str) -> Result<ApprovalRiskLevel, PortError> {
         "medium" => Ok(ApprovalRiskLevel::Medium),
         "high" => Ok(ApprovalRiskLevel::High),
         "critical" => Ok(ApprovalRiskLevel::Critical),
-        other => Err(PortError::Internal {
-            message: format!("unknown approval risk level: {other}"),
+        other => Err(PortError::InternalContext {
+            context: "unknown approval risk level",
+            source: other.to_string(),
         }),
     }
 }
@@ -40,8 +41,9 @@ fn status_from_text(text: &str) -> Result<ApprovalStatus, PortError> {
         "pending" => Ok(ApprovalStatus::Pending),
         "approved" => Ok(ApprovalStatus::Approved),
         "denied" => Ok(ApprovalStatus::Denied),
-        other => Err(PortError::Internal {
-            message: format!("unknown approval status: {other}"),
+        other => Err(PortError::InternalContext {
+            context: "unknown approval status",
+            source: other.to_string(),
         }),
     }
 }

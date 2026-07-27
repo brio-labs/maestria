@@ -167,10 +167,9 @@ pub(crate) fn validate_event_order(connection: &Connection) -> Result<(), PortEr
         let id = i64_to_u64(row.get::<_, i64>(0).map_err(to_port_error)?)?;
         let sequence = i64_to_u64(row.get::<_, i64>(1).map_err(to_port_error)?)?;
         if id != expected || sequence != expected {
-            return Err(PortError::Internal {
-                message: format!(
-                    "domain event log is not contiguous at expected {expected}: id {id}, sequence {sequence}"
-                ),
+            return Err(PortError::InternalContext {
+                context: "domain event log is not contiguous",
+                source: format!("expected {expected}: id {id}, sequence {sequence}"),
             });
         }
         expected = expected.checked_add(1).ok_or_else(|| PortError::Internal {
@@ -202,17 +201,17 @@ pub(crate) fn validate_stored_event_payloads(connection: &Connection) -> Result<
             }
             2 => serde_json::from_str(&payload_json).map_err(crate::json_error)?,
             version => {
-                return Err(PortError::Internal {
-                    message: format!("unsupported event payload version {version}"),
+                return Err(PortError::InternalContext {
+                    context: "unsupported event payload version",
+                    source: version.to_string(),
                 });
             }
         };
         let payload_kind = payload.kind()?;
         if stored_kind != payload_kind {
-            return Err(PortError::Internal {
-                message: format!(
-                    "event kind column {stored_kind} does not match payload kind {payload_kind}",
-                ),
+            return Err(PortError::InternalContext {
+                context: "event kind column does not match payload kind",
+                source: format!("column {stored_kind}, payload {payload_kind}"),
             });
         }
         let stored_artifact_id = stored_artifact_id.map(i64_to_u64).transpose()?;

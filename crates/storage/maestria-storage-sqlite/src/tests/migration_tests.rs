@@ -203,10 +203,7 @@ fn legacy_migration_rejects_noncontiguous_event_rows() -> Result<(), Box<dyn std
         )?;
     }
 
-    assert!(matches!(
-        SqliteStore::open(&path),
-        Err(PortError::Internal { .. })
-    ));
+    assert!(SqliteStore::open(&path).is_err_and(|error| error.is_internal()));
     Ok(())
 }
 

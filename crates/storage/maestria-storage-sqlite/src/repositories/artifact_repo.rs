@@ -36,8 +36,9 @@ impl ArtifactRepository for crate::SqliteStore {
             "pending" => IndexStatus::Pending,
             "indexed" => IndexStatus::Indexed,
             other => {
-                return Err(PortError::Internal {
-                    message: format!("unknown stored index_status {other}"),
+                return Err(PortError::InternalContext {
+                    context: "unknown stored index_status",
+                    source: other.to_string(),
                 });
             }
         };
@@ -51,8 +52,9 @@ impl ArtifactRepository for crate::SqliteStore {
             Some("quarantined") => Some(maestria_domain::ParseStatus::Quarantined),
             None | Some("none") | Some("") => None,
             Some(other) => {
-                return Err(PortError::Internal {
-                    message: format!("unknown stored parse_status {other}"),
+                return Err(PortError::InternalContext {
+                    context: "unknown stored parse_status",
+                    source: other.to_string(),
                 });
             }
         };

@@ -182,9 +182,12 @@ const BASE_SCHEMA_SQL: &str = r#"PRAGMA foreign_keys = ON;
 /// matching events exist). Existing counters are advanced but never regressed.
 fn next_counter_value(max_id: Option<i64>, namespace: &str) -> Result<i64, PortError> {
     max_id.map_or(Ok(1), |value| {
-        value.checked_add(1).ok_or_else(|| PortError::Internal {
-            message: format!("{namespace} id counter exhausted"),
-        })
+        value
+            .checked_add(1)
+            .ok_or_else(|| PortError::InternalContext {
+                context: "id counter exhausted",
+                source: namespace.to_string(),
+            })
     })
 }
 
@@ -275,10 +278,9 @@ pub(crate) fn migrate(connection: &mut Connection) -> Result<(), PortError> {
         Some(8) => validate_at_v8(&transaction, &state)?,
         Some(9) => validate_at_v9(&transaction, &state)?,
         Some(version) => {
-            return Err(PortError::Internal {
-                message: format!(
-                    "unsupported sqlite schema version {version}; expected {CURRENT_SCHEMA_VERSION}"
-                ),
+            return Err(PortError::InternalContext {
+                context: "unsupported sqlite schema version",
+                source: format!("{version}; expected {CURRENT_SCHEMA_VERSION}"),
             });
         }
         None => migrate_from_fresh(&transaction, &state)?,
