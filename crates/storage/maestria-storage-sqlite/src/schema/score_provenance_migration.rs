@@ -42,10 +42,9 @@ pub(super) fn migrate_score_provenance_v9(connection: &Connection) -> Result<(),
         if let Some(previous) = trace_remap.insert(old_trace, new_trace)
             && previous != new_trace
         {
-            return Err(PortError::Internal {
-                message: format!(
-                    "legacy search trace {old_trace} maps to conflicting v6 identities"
-                ),
+            return Err(PortError::InternalContext {
+                context: "legacy search trace maps to conflicting v6 identities",
+                source: old_trace.to_string(),
             });
         }
 
@@ -58,10 +57,9 @@ pub(super) fn migrate_score_provenance_v9(connection: &Connection) -> Result<(),
         let mut payload: StoredEventPayload =
             serde_json::from_str(&payload_json).map_err(json_error)?;
         let StoredEventPayload::SearchExecuted { pack_metadata, .. } = &mut payload else {
-            return Err(PortError::Internal {
-                message: format!(
-                    "stored {SEARCH_EXECUTED_KIND} row {id} has an incompatible payload variant"
-                ),
+            return Err(PortError::InternalContext {
+                context: "stored search_executed row has incompatible payload variant",
+                source: id.to_string(),
             });
         };
         let Some(metadata) = pack_metadata.as_mut() else {
@@ -172,10 +170,9 @@ fn update_payload(
 fn reject_legacy_score_shape(id: i64, payload_json: &str) -> Result<(), PortError> {
     let value: serde_json::Value = serde_json::from_str(payload_json).map_err(json_error)?;
     if contains_legacy_score_key(&value) {
-        return Err(PortError::Internal {
-            message: format!(
-                "search outcome event {id} still contains a legacy retrieval score field"
-            ),
+        return Err(PortError::InternalContext {
+            context: "search outcome event contains legacy retrieval score field",
+            source: id.to_string(),
         });
     }
     Ok(())
