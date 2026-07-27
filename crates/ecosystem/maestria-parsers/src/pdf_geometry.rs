@@ -63,28 +63,32 @@ pub(super) fn page_bounds(
 
 fn parse_media_box(values: &[lopdf::Object]) -> Result<PageGeometry, PortError> {
     if values.len() != 4 {
-        return Err(PortError::InvalidInput {
-            message: format!(
-                "PDF MediaBox array has {} elements, expected 4",
-                values.len()
-            ),
+        return Err(PortError::InvalidInputContext {
+            context: "PDF MediaBox element count expected 4",
+            source: values.len().to_string(),
         });
     }
-    let c = |i: usize, label: &str| {
-        values[i].as_float().map_err(|e| PortError::InvalidInput {
-            message: format!("PDF MediaBox {label} coordinate not a number: {e}"),
-        })
+    let c = |i: usize, label: &'static str| {
+        values[i]
+            .as_float()
+            .map_err(|e| PortError::InvalidInputContext {
+                context: label,
+                source: e.to_string(),
+            })
     };
     let left = c(0, "left")?;
     let bottom = c(1, "bottom")?;
     let right = c(2, "right")?;
     let top = c(3, "top")?;
-    let width = positive_dimension(right - left).ok_or_else(|| PortError::InvalidInput {
-        message: format!("PDF MediaBox non-positive width: {}", right - left),
+    let width = positive_dimension(right - left).ok_or_else(|| PortError::InvalidInputContext {
+        context: "PDF MediaBox non-positive width",
+        source: (right - left).to_string(),
     })?;
-    let height = positive_dimension(top - bottom).ok_or_else(|| PortError::InvalidInput {
-        message: format!("PDF MediaBox non-positive height: {}", top - bottom),
-    })?;
+    let height =
+        positive_dimension(top - bottom).ok_or_else(|| PortError::InvalidInputContext {
+            context: "PDF MediaBox non-positive height",
+            source: (top - bottom).to_string(),
+        })?;
     Ok(PageGeometry {
         origin_x: left,
         origin_y: bottom,
@@ -146,18 +150,19 @@ impl PdfTransform {
 }
 
 pub(super) fn as_float_result(object: &lopdf::Object) -> Result<f32, PortError> {
-    object.as_float().map_err(|e| PortError::InvalidInput {
-        message: format!("PDF operand is not a number: {e}"),
-    })
+    object
+        .as_float()
+        .map_err(|e| PortError::InvalidInputContext {
+            context: "PDF operand is not a number",
+            source: e.to_string(),
+        })
 }
 
 pub(super) fn transform_from_operands(values: &[lopdf::Object]) -> Result<PdfTransform, PortError> {
     if values.len() != 6 {
-        return Err(PortError::InvalidInput {
-            message: format!(
-                "PDF transform operand count is {}, expected 6",
-                values.len()
-            ),
+        return Err(PortError::InvalidInputContext {
+            context: "PDF transform operand count expected 6",
+            source: values.len().to_string(),
         });
     }
     let a = as_float_result(&values[0])?;
@@ -181,11 +186,9 @@ pub(super) fn rectangle(
     geometry: PageGeometry,
 ) -> Result<(u32, u32, u32, u32), PortError> {
     if values.len() != 4 {
-        return Err(PortError::InvalidInput {
-            message: format!(
-                "PDF rectangle operand count is {}, expected 4",
-                values.len()
-            ),
+        return Err(PortError::InvalidInputContext {
+            context: "PDF rectangle operand count expected 4",
+            source: values.len().to_string(),
         });
     }
     let x = as_float_result(&values[0])?;

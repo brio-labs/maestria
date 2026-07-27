@@ -70,8 +70,9 @@ impl Parser for ParserRegistry {
         let metadata = metadata_for_handle(&file);
         let parser = self
             .parser_for(&metadata)
-            .ok_or_else(|| PortError::InvalidInput {
-                message: format!("unsupported file extension for {}", file.path.display()),
+            .ok_or_else(|| PortError::InvalidInputContext {
+                context: "unsupported file extension",
+                source: file.path.display().to_string(),
             })?;
         parser.parse(file, context)
     }

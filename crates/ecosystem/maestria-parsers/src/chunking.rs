@@ -14,8 +14,9 @@ pub(crate) const CARD_OFFSET: u64 = 900_001;
 
 pub fn chunk_id_for(artifact_id: ArtifactId, chunk_order: usize) -> Result<ChunkId, PortError> {
     if chunk_order as u64 >= ID_STRIDE {
-        return Err(PortError::InvalidInput {
-            message: format!("chunk order {chunk_order} exceeds parser id stride {ID_STRIDE}"),
+        return Err(PortError::InvalidInputContext {
+            context: "chunk order exceeds parser id stride",
+            source: chunk_order.to_string(),
         });
     }
 
@@ -24,13 +25,10 @@ pub fn chunk_id_for(artifact_id: ArtifactId, chunk_order: usize) -> Result<Chunk
         .checked_mul(ID_STRIDE)
         .and_then(|value| value.checked_add(chunk_order as u64))
         .and_then(|value| value.checked_add(1))
-        .ok_or_else(|| PortError::InvalidInput {
-            message: format!(
-                "artifact id {} cannot be expanded into deterministic chunk ids",
-                artifact_id.value()
-            ),
+        .ok_or_else(|| PortError::InvalidInputContext {
+            context: "artifact id cannot be expanded into deterministic chunk ids",
+            source: artifact_id.value().to_string(),
         })?;
-
     Ok(ChunkId::new(id))
 }
 
@@ -70,8 +68,9 @@ pub(crate) fn decode_utf8(bytes: Vec<u8>) -> Result<String, PortError> {
         });
     }
 
-    String::from_utf8(bytes).map_err(|err| PortError::InvalidInput {
-        message: format!("file bytes are not utf8: {err}"),
+    String::from_utf8(bytes).map_err(|err| PortError::InvalidInputContext {
+        context: "file bytes are not utf8",
+        source: err.to_string(),
     })
 }
 
@@ -116,11 +115,12 @@ pub(crate) fn parsed_artifact(
     };
     let hash_string = maestria_domain::content_hash(bytes);
     let artifact_version_id = artifact_version_id_for(artifact_id, &hash_string);
-    let content_hash =
-        maestria_domain::ContentHash::new(hash_string).map_err(|e| PortError::InvalidInput {
-            message: format!("invalid content hash: {:?}", e),
-        })?;
-
+    let content_hash = maestria_domain::ContentHash::new(hash_string).map_err(|e| {
+        PortError::InvalidInputContext {
+            context: "invalid content hash",
+            source: format!("{e:?}"),
+        }
+    })?;
     Ok(ParsedArtifact {
         artifact_id,
         artifact_version_id,

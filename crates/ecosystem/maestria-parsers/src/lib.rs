@@ -144,29 +144,33 @@ mod tests {
         let registry = ParserRegistry::with_defaults();
 
         assert!(!registry.supports(&metadata("image.bin", Some("bin"))));
+        let res = registry.parse(handle("image.bin", b"alpha"), context(13));
         assert!(matches!(
-            registry.parse(handle("image.bin", b"alpha"), context(13)),
-            Err(PortError::InvalidInput { .. })
+            res,
+            Err(PortError::InvalidInput { .. } | PortError::InvalidInputContext { .. })
         ));
     }
 
     #[test]
     fn parser_rejects_invalid_utf8() {
+        let res = PlainTextParser::new().parse(handle("notes.txt", &[0xff, 0xfe]), context(17));
         assert!(matches!(
-            PlainTextParser::new().parse(handle("notes.txt", &[0xff, 0xfe]), context(17)),
-            Err(PortError::InvalidInput { .. })
+            res,
+            Err(PortError::InvalidInput { .. } | PortError::InvalidInputContext { .. })
         ));
     }
 
     #[test]
     fn chunk_id_rejects_orders_outside_artifact_stride() {
+        let res1 = chunk_id_for(ArtifactId::new(1), crate::chunking::ID_STRIDE as usize);
         assert!(matches!(
-            chunk_id_for(ArtifactId::new(1), crate::chunking::ID_STRIDE as usize),
-            Err(PortError::InvalidInput { .. })
+            res1,
+            Err(PortError::InvalidInput { .. } | PortError::InvalidInputContext { .. })
         ));
+        let res2 = chunk_id_for(ArtifactId::new(u64::MAX), 0);
         assert!(matches!(
-            chunk_id_for(ArtifactId::new(u64::MAX), 0),
-            Err(PortError::InvalidInput { .. })
+            res2,
+            Err(PortError::InvalidInput { .. } | PortError::InvalidInputContext { .. })
         ));
     }
 }

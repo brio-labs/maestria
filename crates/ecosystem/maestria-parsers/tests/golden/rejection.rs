@@ -16,7 +16,8 @@ fn parsers_reject_empty_input() {
                 artifact_id: ArtifactId::new(99),
             },
         ),
-        Err(maestria_ports::PortError::InvalidInput { .. })
+        Err(maestria_ports::PortError::InvalidInput { .. }
+            | maestria_ports::PortError::InvalidInputContext { .. })
     ));
     assert!(matches!(
         PlainTextParser::new().parse(
@@ -28,7 +29,8 @@ fn parsers_reject_empty_input() {
                 artifact_id: ArtifactId::new(99),
             },
         ),
-        Err(maestria_ports::PortError::InvalidInput { .. })
+        Err(maestria_ports::PortError::InvalidInput { .. }
+            | maestria_ports::PortError::InvalidInputContext { .. })
     ));
     assert!(matches!(
         RustSourceParser::new().parse(
@@ -40,7 +42,8 @@ fn parsers_reject_empty_input() {
                 artifact_id: ArtifactId::new(99),
             },
         ),
-        Err(maestria_ports::PortError::InvalidInput { .. })
+        Err(maestria_ports::PortError::InvalidInput { .. }
+            | maestria_ports::PortError::InvalidInputContext { .. })
     ));
     assert!(matches!(
         CargoTomlParser::new().parse(
@@ -52,7 +55,8 @@ fn parsers_reject_empty_input() {
                 artifact_id: ArtifactId::new(99),
             },
         ),
-        Err(maestria_ports::PortError::InvalidInput { .. })
+        Err(maestria_ports::PortError::InvalidInput { .. }
+            | maestria_ports::PortError::InvalidInputContext { .. })
     ));
     assert!(matches!(
         PdfParser::new().parse(
@@ -64,6 +68,7 @@ fn parsers_reject_empty_input() {
                 artifact_id: ArtifactId::new(99),
             },
         ),
-        Err(maestria_ports::PortError::InvalidInput { .. })
+        Err(maestria_ports::PortError::InvalidInput { .. }
+            | maestria_ports::PortError::InvalidInputContext { .. })
     ));
 }
