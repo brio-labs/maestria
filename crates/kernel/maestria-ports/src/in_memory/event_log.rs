@@ -16,8 +16,9 @@ impl InMemoryEventLog {
 
 impl crate::EventLog for InMemoryEventLog {
     fn append(&self, event: DomainEventEnvelope) -> Result<(), PortError> {
-        let mut guard = self.events.lock().map_err(|_| PortError::Internal {
-            message: "event log lock poisoned".to_string(),
+        let mut guard = self.events.lock().map_err(|_| PortError::InternalContext {
+            context: "event log lock poisoned",
+            source: "event log mutex is poisoned".to_string(),
         })?;
         let expected_sequence = guard.len() as u64 + 1;
         if event.sequence.value() != expected_sequence || event.id.value() != expected_sequence {
@@ -35,8 +36,9 @@ impl crate::EventLog for InMemoryEventLog {
     }
 
     fn scan(&self, filter: EventFilter) -> Result<Vec<DomainEventEnvelope>, PortError> {
-        let guard = self.events.lock().map_err(|_| PortError::Internal {
-            message: "event log lock poisoned".to_string(),
+        let guard = self.events.lock().map_err(|_| PortError::InternalContext {
+            context: "event log lock poisoned",
+            source: "event log mutex is poisoned".to_string(),
         })?;
         let mut entries = guard.clone();
         if let Some(artifact_id) = filter.artifact_id {
