@@ -145,13 +145,16 @@ pub(crate) fn validate_domain_events_schema(connection: &Connection) -> Result<(
         }
     }
     if !has_unique_sequence {
-        return Err(PortError::Internal {
-            message: "malformed domain_events table sequence is not unique".to_string(),
+        return Err(PortError::InternalContext {
+            context: "domain_events sequence index is not unique",
+            source: "sequence must have a unique index".to_string(),
         });
     }
     if !has_artifact_sequence_index {
-        return Err(PortError::Internal {
-            message: "malformed domain_events artifact index".to_string(),
+        return Err(PortError::InternalContext {
+            context: "domain_events artifact index is invalid",
+            source: "expected idx_domain_events_artifact_sequence on artifact_id, sequence"
+                .to_string(),
         });
     }
     Ok(())
@@ -172,9 +175,12 @@ pub(crate) fn validate_event_order(connection: &Connection) -> Result<(), PortEr
                 source: format!("expected {expected}: id {id}, sequence {sequence}"),
             });
         }
-        expected = expected.checked_add(1).ok_or_else(|| PortError::Internal {
-            message: "domain event sequence exhausted u64 range".to_string(),
-        })?;
+        expected = expected
+            .checked_add(1)
+            .ok_or_else(|| PortError::InternalContext {
+                context: "domain event sequence exhausted",
+                source: "event sequence exceeded the u64 range".to_string(),
+            })?;
     }
     Ok(())
 }
@@ -216,8 +222,9 @@ pub(crate) fn validate_stored_event_payloads(connection: &Connection) -> Result<
         }
         let stored_artifact_id = stored_artifact_id.map(i64_to_u64).transpose()?;
         if stored_artifact_id != payload.filter_artifact_id() {
-            return Err(PortError::Internal {
-                message: "event artifact_id column does not match payload".to_string(),
+            return Err(PortError::InternalContext {
+                context: "event artifact_id column does not match payload",
+                source: "stored column and payload metadata differ".to_string(),
             });
         }
     }

@@ -61,7 +61,7 @@ fn migration_rejects_event_metadata_mismatch() -> Result<(), Box<dyn std::error:
 
     assert!(matches!(
         SqliteStore::open(&path),
-        Err(PortError::Internal { .. })
+        Err(error) if error.is_internal()
     ));
     Ok(())
 }
