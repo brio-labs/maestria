@@ -152,8 +152,9 @@ impl LegacyStoredEventPayload {
                 from_status,
                 to_status,
             } => {
-                let id = approval_id.ok_or_else(|| PortError::Internal {
-                    message: "legacy ApprovalRecorded payload missing approval_id".into(),
+                let id = approval_id.ok_or_else(|| PortError::InternalContext {
+                    context: "legacy approval payload is missing approval ID",
+                    source: "approval_id is null".to_string(),
                 })?;
                 Ok(StoredEventPayload::ApprovalRecorded {
                     approval_id: id,
@@ -243,14 +244,16 @@ impl LegacyStoredEventPayload {
                 exit_code,
             }),
             Self::TickObserved { at } => Ok(StoredEventPayload::TickObserved { at }),
-            _ => Err(PortError::Internal {
-                message: "into_v2_simple called on unsupported variant".into(),
+            _ => Err(PortError::InternalContext {
+                context: "legacy simple payload conversion received unsupported variant",
+                source: "conversion branch invariant was violated".to_string(),
             }),
         }
     }
     fn unsupported_error(kind: &str, field: &str) -> PortError {
-        PortError::InvalidInput {
-            message: format!("V1 {kind} event is missing required field(s): {field}"),
+        PortError::InvalidInputContext {
+            context: "legacy event payload is missing required fields",
+            source: format!("V1 {kind}: {field}"),
         }
     }
 
@@ -273,8 +276,9 @@ impl LegacyStoredEventPayload {
                 "RelationCreated",
                 "source, kind, target, evidence_id, confidence_milli",
             )),
-            _ => Err(PortError::Internal {
-                message: "into_v2_unsupported called on supported variant".into(),
+            _ => Err(PortError::InternalContext {
+                context: "legacy unsupported payload conversion received supported variant",
+                source: "conversion branch invariant was violated".to_string(),
             }),
         }
     }
@@ -318,8 +322,9 @@ impl LegacyStoredEventPayload {
                 memory_id,
                 by_memory_id,
             }),
-            _ => Err(PortError::Internal {
-                message: "into_v2_memory called on non-memory variant".into(),
+            _ => Err(PortError::InternalContext {
+                context: "legacy memory payload conversion received non-memory variant",
+                source: "conversion branch invariant was violated".to_string(),
             }),
         }
     }
