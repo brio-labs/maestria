@@ -136,16 +136,18 @@ pub(super) fn validate_at_v7(
     ] {
         for column in columns {
             if !table_has_column(connection, table, column)? {
-                return Err(PortError::Internal {
-                    message: format!("malformed sqlite schema: {table} missing {column}"),
+                return Err(PortError::InternalContext {
+                    context: "malformed sqlite schema: column missing",
+                    source: format!("{table}.{column}"),
                 });
             }
         }
     }
     for table in ["approval_requests", "effect_journal"] {
         if !table_exists(connection, table)? {
-            return Err(PortError::Internal {
-                message: format!("malformed sqlite schema: {table} missing"),
+            return Err(PortError::InternalContext {
+                context: "malformed sqlite schema: table missing",
+                source: table.to_string(),
             });
         }
     }
