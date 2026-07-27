@@ -7,7 +7,10 @@ static NEXT_INDEX_TEST_ID: AtomicU64 = AtomicU64::new(0);
 
 fn temporary_layout() -> InstanceLayout {
     let id = NEXT_INDEX_TEST_ID.fetch_add(1, Ordering::Relaxed);
-    let path = std::env::temp_dir().join(format!("maestria-daemon-runtime-code-index-{id}"));
+    let path = std::env::temp_dir().join(format!(
+        "maestria-daemon-runtime-code-index-{}-{id}",
+        std::process::id()
+    ));
     let _ = fs::remove_dir_all(&path);
     let _ = fs::create_dir_all(&path);
     InstanceLayout::for_root(path)
