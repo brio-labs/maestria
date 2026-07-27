@@ -19,8 +19,9 @@ impl IdAllocator for crate::SqliteStore {
 
         transaction.commit().map_err(to_port_error)?;
 
-        let id = u64::try_from(next).map_err(|_| PortError::Internal {
-            message: "claim id counter overflow".to_string(),
+        let id = u64::try_from(next).map_err(|_| PortError::InternalContext {
+            context: "allocate claim id",
+            source: "claim id counter overflow".to_string(),
         })?;
         Ok(ClaimId::new(id))
     }
@@ -40,8 +41,9 @@ impl IdAllocator for crate::SqliteStore {
 
         transaction.commit().map_err(to_port_error)?;
 
-        let id = u64::try_from(next).map_err(|_| PortError::Internal {
-            message: "memory candidate id counter overflow".to_string(),
+        let id = u64::try_from(next).map_err(|_| PortError::InternalContext {
+            context: "allocate memory candidate id",
+            source: "memory candidate id counter overflow".to_string(),
         })?;
         Ok(MemoryCandidateId::new(id))
     }
@@ -61,8 +63,9 @@ impl IdAllocator for crate::SqliteStore {
 
         transaction.commit().map_err(to_port_error)?;
 
-        let id = u64::try_from(next).map_err(|_| PortError::Internal {
-            message: "approval id counter overflow".to_string(),
+        let id = u64::try_from(next).map_err(|_| PortError::InternalContext {
+            context: "allocate approval id",
+            source: "approval id counter overflow".to_string(),
         })?;
         Ok(ApprovalId::new(id))
     }

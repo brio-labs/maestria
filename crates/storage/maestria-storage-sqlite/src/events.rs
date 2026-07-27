@@ -56,8 +56,9 @@ impl StoredEvent {
             });
         }
         if payload.filter_artifact_id() != self.artifact_id {
-            return Err(PortError::Internal {
-                message: "stored event artifact_id mismatch".to_string(),
+            return Err(PortError::InternalContext {
+                context: "stored event artifact identity mismatch",
+                source: "artifact_id column does not match payload".to_string(),
             });
         }
         Ok(DomainEventEnvelope {

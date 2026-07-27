@@ -216,8 +216,9 @@ impl StoredEventPayload {
             .or_else(|| Self::try_from_domain_claim(event))
             .or_else(|| Self::try_from_domain_memory(event))
             .or_else(|| Self::try_from_domain_misc(event))
-            .ok_or_else(|| PortError::Internal {
-                message: "unknown DomainEvent variant".to_string(),
+            .ok_or_else(|| PortError::InternalContext {
+                context: "encode domain event",
+                source: "unknown DomainEvent variant".to_string(),
             })
     }
 
@@ -227,8 +228,9 @@ impl StoredEventPayload {
             .or_else(|s| (*s).try_into_domain_claim())
             .or_else(|s| (*s).try_into_domain_memory())
             .or_else(|s| (*s).try_into_domain_misc())
-            .map_err(|_| PortError::Internal {
-                message: "unknown StoredEventPayload variant".to_string(),
+            .map_err(|_| PortError::InternalContext {
+                context: "decode stored event payload",
+                source: "unknown StoredEventPayload variant".to_string(),
             })
     }
 
@@ -238,8 +240,9 @@ impl StoredEventPayload {
             .or_else(|| self.try_kind_claim())
             .or_else(|| self.try_kind_memory())
             .or_else(|| self.try_kind_misc())
-            .ok_or_else(|| PortError::Internal {
-                message: "unknown StoredEventPayload variant".to_string(),
+            .ok_or_else(|| PortError::InternalContext {
+                context: "identify stored event payload kind",
+                source: "unknown StoredEventPayload variant".to_string(),
             })
     }
 
