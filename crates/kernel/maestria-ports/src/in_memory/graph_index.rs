@@ -19,17 +19,25 @@ impl InMemoryGraphIndex {
 
 impl GraphIndex for InMemoryGraphIndex {
     fn insert_relation(&self, relation: Relation) -> Result<(), PortError> {
-        let mut guard = self.relations.lock().map_err(|_| PortError::Internal {
-            message: "graph index lock poisoned".to_string(),
-        })?;
+        let mut guard = self
+            .relations
+            .lock()
+            .map_err(|_| PortError::InternalContext {
+                context: "graph index lock poisoned",
+                source: "graph relation mutex is poisoned".to_string(),
+            })?;
         guard.insert(relation.id, relation);
         Ok(())
     }
 
     fn get_relations_for(&self, endpoint: RelationEndpoint) -> Result<Vec<Relation>, PortError> {
-        let guard = self.relations.lock().map_err(|_| PortError::Internal {
-            message: "graph index lock poisoned".to_string(),
-        })?;
+        let guard = self
+            .relations
+            .lock()
+            .map_err(|_| PortError::InternalContext {
+                context: "graph index lock poisoned",
+                source: "graph relation mutex is poisoned".to_string(),
+            })?;
         Ok(guard
             .values()
             .filter(|r| r.source == endpoint || r.target == endpoint)
@@ -38,9 +46,13 @@ impl GraphIndex for InMemoryGraphIndex {
     }
 
     fn delete_relations(&self, relation_ids: &[RelationId]) -> Result<(), PortError> {
-        let mut guard = self.relations.lock().map_err(|_| PortError::Internal {
-            message: "graph index lock poisoned".to_string(),
-        })?;
+        let mut guard = self
+            .relations
+            .lock()
+            .map_err(|_| PortError::InternalContext {
+                context: "graph index lock poisoned",
+                source: "graph relation mutex is poisoned".to_string(),
+            })?;
         for id in relation_ids {
             guard.remove(id);
         }
@@ -48,9 +60,13 @@ impl GraphIndex for InMemoryGraphIndex {
     }
 
     fn clear(&self) -> Result<(), PortError> {
-        let mut guard = self.relations.lock().map_err(|_| PortError::Internal {
-            message: "graph index lock poisoned".to_string(),
-        })?;
+        let mut guard = self
+            .relations
+            .lock()
+            .map_err(|_| PortError::InternalContext {
+                context: "graph index lock poisoned",
+                source: "graph relation mutex is poisoned".to_string(),
+            })?;
         guard.clear();
         Ok(())
     }
