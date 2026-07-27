@@ -16,8 +16,9 @@ pub(super) fn read_relation(row: &Row<'_>) -> Result<Relation, PortError> {
     let confidence_milli = row.get::<_, i64>(7).map_err(to_port_error)?;
     let security_json = row.get::<_, String>(8).map_err(to_port_error)?;
     let security: SecurityMetadata =
-        serde_json::from_str(&security_json).map_err(|error| PortError::Internal {
-            message: format!("deserialize relation security: {error}"),
+        serde_json::from_str(&security_json).map_err(|error| PortError::InternalContext {
+            context: "deserialize relation security",
+            source: error.to_string(),
         })?;
 
     Ok(Relation {
@@ -97,8 +98,9 @@ pub(super) fn relation_kind_from_str(kind: &str) -> Result<RelationKind, PortErr
         "derived_from" => Ok(RelationKind::DerivedFrom),
         "applies_to" => Ok(RelationKind::AppliesTo),
         "related_to" => Ok(RelationKind::RelatedTo),
-        other => Err(PortError::Internal {
-            message: format!("unknown relation kind {other}"),
+        other => Err(PortError::InternalContext {
+            context: "unknown relation kind",
+            source: other.to_string(),
         }),
     }
 }
@@ -111,20 +113,25 @@ fn parse_evidence_id(value: &str) -> Result<EvidenceId, PortError> {
     parse_u64(value, "evidence id").map(EvidenceId::new)
 }
 
-fn parse_u64(value: &str, label: &str) -> Result<u64, PortError> {
-    value.parse::<u64>().map_err(|error| PortError::Internal {
-        message: format!("stored {label} is invalid: {error}"),
-    })
+fn parse_u64(value: &str, label: &'static str) -> Result<u64, PortError> {
+    value
+        .parse::<u64>()
+        .map_err(|error| PortError::InternalContext {
+            context: label,
+            source: error.to_string(),
+        })
 }
 
-fn i64_to_u16(value: i64, label: &str) -> Result<u16, PortError> {
-    u16::try_from(value).map_err(|_| PortError::Internal {
-        message: format!("stored {label} {value} is outside u16 range"),
+fn i64_to_u16(value: i64, label: &'static str) -> Result<u16, PortError> {
+    u16::try_from(value).map_err(|_| PortError::InternalContext {
+        context: label,
+        source: value.to_string(),
     })
 }
 
 pub(super) fn to_port_error(error: rusqlite::Error) -> PortError {
-    PortError::Internal {
-        message: format!("sqlite graph projection error: {error}"),
+    PortError::InternalContext {
+        context: "sqlite graph projection error",
+        source: error.to_string(),
     }
 }

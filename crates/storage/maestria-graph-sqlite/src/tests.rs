@@ -90,10 +90,15 @@ fn returns_error_for_invalid_stored_relation() -> Result<(), PortError> {
     drop(connection);
 
     let result = index.get_relations_for(RelationEndpoint::Artifact(ArtifactId::new(1)));
-    assert!(matches!(
-        result,
-        Err(PortError::Internal { ref message }) if message.contains("unknown relation kind unknown_kind")
-    ));
+    assert!(
+        matches!(
+            result,
+            Err(PortError::Internal { ref message }) if message.contains("unknown relation kind unknown_kind")
+        ) || matches!(
+            result,
+            Err(PortError::InternalContext { context, ref source }) if context == "unknown relation kind" && source == "unknown_kind"
+        )
+    );
     Ok(())
 }
 
