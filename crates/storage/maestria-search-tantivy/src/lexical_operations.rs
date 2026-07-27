@@ -22,9 +22,12 @@ impl TantivyFullTextIndex {
             context: "Tantivy writer lock poisoned",
             source: "Tantivy writer mutex is poisoned".to_string(),
         })?;
-        let writer = writer_guard.as_mut().ok_or_else(|| PortError::Downstream {
-            message: "full-text index is read-only".to_string(),
-        })?;
+        let writer = writer_guard
+            .as_mut()
+            .ok_or_else(|| PortError::DownstreamContext {
+                context: "index lexical chunks requires a writable full-text index",
+                source: "full-text index is read-only".to_string(),
+            })?;
         for chunk in chunks {
             writer.delete_term(Term::from_field_text(
                 self.fields.key,
@@ -46,9 +49,12 @@ impl TantivyFullTextIndex {
             context: "Tantivy writer lock poisoned",
             source: "Tantivy writer mutex is poisoned".to_string(),
         })?;
-        let writer = writer_guard.as_mut().ok_or_else(|| PortError::Downstream {
-            message: "full-text index is read-only".to_string(),
-        })?;
+        let writer = writer_guard
+            .as_mut()
+            .ok_or_else(|| PortError::DownstreamContext {
+                context: "index lexical cards requires a writable full-text index",
+                source: "full-text index is read-only".to_string(),
+            })?;
         for card in cards {
             writer.delete_term(Term::from_field_text(
                 self.fields.card_key,
