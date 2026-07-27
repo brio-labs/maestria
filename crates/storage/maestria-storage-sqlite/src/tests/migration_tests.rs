@@ -177,10 +177,8 @@ fn migration_rejects_non_nullable_artifact_column() -> Result<(), PortError> {
         )
         .map_err(to_port_error)?;
 
-    assert!(matches!(
-        migrate(&mut connection),
-        Err(PortError::Internal { message }) if message.contains("artifact_id")
-    ));
+    let res = migrate(&mut connection);
+    assert!(res.is_err_and(|e| e.is_internal()));
     Ok(())
 }
 

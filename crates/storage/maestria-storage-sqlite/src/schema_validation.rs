@@ -56,8 +56,9 @@ pub(crate) fn validate_columns(
 ) -> Result<(), PortError> {
     for column in required {
         if !table_has_column(connection, "domain_events", column)? {
-            return Err(PortError::Internal {
-                message: format!("malformed domain_events table missing required column {column}"),
+            return Err(PortError::InternalContext {
+                context: "malformed domain_events table missing required column",
+                source: column.to_string(),
             });
         }
     }
@@ -91,8 +92,9 @@ pub(crate) fn validate_domain_events_schema(connection: &Connection) -> Result<(
         let Some((_, actual_type, not_null, primary_key)) =
             columns.iter().find(|(column, _, _, _)| column == name)
         else {
-            return Err(PortError::Internal {
-                message: format!("malformed domain_events table missing required column {name}"),
+            return Err(PortError::InternalContext {
+                context: "malformed domain_events table missing required column",
+                source: name.to_string(),
             });
         };
         if !actual_type.trim().eq_ignore_ascii_case(expected_type)
@@ -100,8 +102,9 @@ pub(crate) fn validate_domain_events_schema(connection: &Connection) -> Result<(
             || (require_nullable && *not_null != 0)
             || (require_primary_key && *primary_key == 0)
         {
-            return Err(PortError::Internal {
-                message: format!("malformed domain_events column {name}"),
+            return Err(PortError::InternalContext {
+                context: "malformed domain_events table column definition invalid",
+                source: name.to_string(),
             });
         }
     }

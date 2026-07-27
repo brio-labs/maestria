@@ -180,10 +180,11 @@ fn malformed_v2_payload_is_rejected_without_defaults() -> Result<(), PortError> 
             )
             .map_err(to_port_error)?;
     }
-    assert!(matches!(
-        store.scan(EventFilter { artifact_id: None }),
-        Err(PortError::Internal { .. })
-    ));
+    assert!(
+        store
+            .scan(EventFilter { artifact_id: None })
+            .is_err_and(|e| e.is_internal())
+    );
     Ok(())
 }
 
@@ -202,10 +203,11 @@ fn strict_v2_payloads_reject_missing_and_unknown_fields() -> Result<(), PortErro
             )
             .map_err(to_port_error)?;
     }
-    assert!(matches!(
-        missing_warnings.scan(EventFilter { artifact_id: None }),
-        Err(PortError::Internal { .. })
-    ));
+    assert!(
+        missing_warnings
+            .scan(EventFilter { artifact_id: None })
+            .is_err_and(|e| e.is_internal())
+    );
 
     let unknown_field = SqliteStore::in_memory()?;
     {
@@ -220,10 +222,11 @@ fn strict_v2_payloads_reject_missing_and_unknown_fields() -> Result<(), PortErro
             )
             .map_err(to_port_error)?;
     }
-    assert!(matches!(
-        unknown_field.scan(EventFilter { artifact_id: None }),
-        Err(PortError::Internal { .. })
-    ));
+    assert!(
+        unknown_field
+            .scan(EventFilter { artifact_id: None })
+            .is_err_and(|e| e.is_internal())
+    );
     let unknown_nested_field = SqliteStore::in_memory()?;
     {
         let connection = unknown_nested_field.lock()?;
@@ -237,10 +240,11 @@ fn strict_v2_payloads_reject_missing_and_unknown_fields() -> Result<(), PortErro
             )
             .map_err(to_port_error)?;
     }
-    assert!(matches!(
-        unknown_nested_field.scan(EventFilter { artifact_id: None }),
-        Err(PortError::Internal { .. })
-    ));
+    assert!(
+        unknown_nested_field
+            .scan(EventFilter { artifact_id: None })
+            .is_err_and(|e| e.is_internal())
+    );
 
     let mismatched_metadata = SqliteStore::in_memory()?;
     {

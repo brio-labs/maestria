@@ -153,10 +153,11 @@ fn payload_rejects_missing_and_unknown_fields_for_generations() -> Result<(), Po
             )
             .map_err(to_port_error)?;
     }
-    assert!(matches!(
-        missing_field.scan(EventFilter { artifact_id: None }),
-        Err(PortError::Internal { .. })
-    ));
+    assert!(
+        missing_field
+            .scan(EventFilter { artifact_id: None })
+            .is_err_and(|e| e.is_internal())
+    );
 
     let unknown_field = SqliteStore::in_memory()?;
     {
@@ -171,10 +172,11 @@ fn payload_rejects_missing_and_unknown_fields_for_generations() -> Result<(), Po
             )
             .map_err(to_port_error)?;
     }
-    assert!(matches!(
-        unknown_field.scan(EventFilter { artifact_id: None }),
-        Err(PortError::Internal { .. })
-    ));
+    assert!(
+        unknown_field
+            .scan(EventFilter { artifact_id: None })
+            .is_err_and(|e| e.is_internal())
+    );
 
     let nested_unknown_field = SqliteStore::in_memory()?;
     {
@@ -189,10 +191,11 @@ fn payload_rejects_missing_and_unknown_fields_for_generations() -> Result<(), Po
             )
             .map_err(to_port_error)?;
     }
-    assert!(matches!(
-        nested_unknown_field.scan(EventFilter { artifact_id: None }),
-        Err(PortError::Internal { .. })
-    ));
+    assert!(
+        nested_unknown_field
+            .scan(EventFilter { artifact_id: None })
+            .is_err_and(|e| e.is_internal())
+    );
 
     Ok(())
 }
