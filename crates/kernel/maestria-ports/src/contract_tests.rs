@@ -560,7 +560,7 @@ pub fn assert_vector_index_contract(
     ])?;
     assert!(matches!(
         index.index_embeddings(vec![embedding(4, vec![1.0, 0.0, 0.0])]),
-        Err(PortError::InvalidInput { .. })
+        Err(error) if error.is_invalid_input()
     ));
     let equal_score_hits = index.search_similar(VectorSearchQuery {
         vector: vec![1.0, 0.0],

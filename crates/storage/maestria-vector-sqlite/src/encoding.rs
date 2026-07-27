@@ -31,15 +31,16 @@ impl TryFrom<VectorEmbedding> for PreparedEmbedding {
             || embedding.provenance.model.is_empty()
             || embedding.provenance.model_version.is_empty()
         {
-            return Err(PortError::InvalidInput {
-                message: "embedding provenance fields must not be empty".into(),
+            return Err(PortError::InvalidInputContext {
+                context: "embedding provenance fields are empty",
+                source: "content hash, provider ID, model, or model version".to_string(),
             });
         }
         let dimension = embedding.vector.len();
         if dimension != embedding.provenance.identity.fingerprint.dimensions as usize {
-            return Err(PortError::InvalidInput {
-                message: "embedding vector dimension does not match its identity fingerprint"
-                    .into(),
+            return Err(PortError::InvalidInputContext {
+                context: "embedding vector dimension mismatch",
+                source: "vector and identity fingerprint dimensions differ".to_string(),
             });
         }
         let bytes = encode_vector(&embedding.vector)?;
@@ -90,25 +91,29 @@ pub(crate) fn serialize_fingerprint(f: &IndexFingerprint) -> String {
 
 pub(crate) fn validate_vector(vector: &[f32], label: &str) -> Result<(), PortError> {
     if vector.is_empty() {
-        return Err(PortError::InvalidInput {
-            message: format!("{label} must not be empty"),
+        return Err(PortError::InvalidInputContext {
+            context: "vector is empty",
+            source: label.to_string(),
         });
     }
     if vector.iter().any(|value| !value.is_finite()) {
-        return Err(PortError::InvalidInput {
-            message: format!("{label} must contain only finite values"),
+        return Err(PortError::InvalidInputContext {
+            context: "vector contains non-finite values",
+            source: label.to_string(),
         });
     }
     Ok(())
 }
 
 pub(crate) fn encode_vector(vector: &[f32]) -> Result<Vec<u8>, PortError> {
-    let capacity = vector
-        .len()
-        .checked_mul(F32_BYTES)
-        .ok_or_else(|| PortError::InvalidInput {
-            message: "embedding vector is too large".to_string(),
-        })?;
+    let capacity =
+        vector
+            .len()
+            .checked_mul(F32_BYTES)
+            .ok_or_else(|| PortError::InvalidInputContext {
+                context: "embedding vector is too large",
+                source: "byte capacity overflow".to_string(),
+            })?;
     let mut bytes = Vec::with_capacity(capacity);
     for value in vector {
         bytes.extend_from_slice(&value.to_le_bytes());
@@ -118,8 +123,9 @@ pub(crate) fn encode_vector(vector: &[f32]) -> Result<Vec<u8>, PortError> {
 
 pub(crate) fn decode_vector(bytes: &[u8]) -> Result<Vec<f32>, PortError> {
     if !bytes.len().is_multiple_of(F32_BYTES) {
-        return Err(PortError::Internal {
-            message: "stored vector blob has invalid length".to_string(),
+        return Err(PortError::InternalContext {
+            context: "stored vector blob has invalid length",
+            source: "byte length is not divisible by f32 width".to_string(),
         });
     }
 
@@ -127,8 +133,9 @@ pub(crate) fn decode_vector(bytes: &[u8]) -> Result<Vec<f32>, PortError> {
     for chunk in bytes.chunks_exact(F32_BYTES) {
         let value = f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
         if !value.is_finite() {
-            return Err(PortError::Internal {
-                message: "stored vector blob contains non-finite value".to_string(),
+            return Err(PortError::InternalContext {
+                context: "stored vector blob contains non-finite value",
+                source: "decoded value is not finite".to_string(),
             });
         }
         vector.push(value);
@@ -138,8 +145,9 @@ pub(crate) fn decode_vector(bytes: &[u8]) -> Result<Vec<f32>, PortError> {
 
 pub(crate) fn cosine_similarity(left: &[f32], right: &[f32]) -> Result<f32, PortError> {
     if left.len() != right.len() {
-        return Err(PortError::Internal {
-            message: "stored vector dimension does not match query vector".to_string(),
+        return Err(PortError::InternalContext {
+            context: "stored vector dimension mismatch",
+            source: "stored and query dimensions differ".to_string(),
         });
     }
 
@@ -184,8 +192,9 @@ pub(crate) fn usize_to_i64(value: usize) -> Result<i64, PortError> {
 }
 
 pub(crate) fn to_port_error(error: rusqlite::Error) -> PortError {
-    PortError::Internal {
-        message: format!("sqlite vector projection error: {error}"),
+    PortError::InternalContext {
+        context: "sqlite vector projection error",
+        source: error.to_string(),
     }
 }
 #[cfg(test)]
