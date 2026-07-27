@@ -10,8 +10,9 @@ impl TantivyFullTextIndex {
         let schema_hash = content_hash(schema::CANONICAL_SCHEMA.as_bytes());
         let revision = env!("CARGO_PKG_VERSION").to_string();
         let artifact_hash =
-            ContentHash::new(schema_hash.clone()).map_err(|error| PortError::Internal {
-                message: format!("invalid Tantivy schema fingerprint: {error}"),
+            ContentHash::new(schema_hash.clone()).map_err(|error| PortError::InternalContext {
+                context: "invalid Tantivy schema fingerprint",
+                source: error.to_string(),
             })?;
         Ok(IndexFingerprint {
             provider: "tantivy".to_string(),
