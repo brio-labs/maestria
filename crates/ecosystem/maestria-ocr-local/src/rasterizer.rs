@@ -26,8 +26,9 @@ pub struct PdftoppmRasterizer;
 impl PdfRasterizer for PdftoppmRasterizer {
     fn rasterize(&self, pdf: &[u8], pages: &[u32]) -> Result<Vec<RasterizedPage>, PortError> {
         if pdf.is_empty() {
-            return Err(PortError::InvalidInput {
-                message: "cannot OCR an empty PDF".to_string(),
+            return Err(PortError::InvalidInputContext {
+                context: "OCR PDF is empty",
+                source: "PDF bytes must contain data".to_string(),
             });
         }
         let temporary = temporary_directory()?;
@@ -40,8 +41,9 @@ impl PdfRasterizer for PdftoppmRasterizer {
         for &page in pages {
             if page == 0 {
                 let _ = fs::remove_dir_all(&temporary);
-                return Err(PortError::InvalidInput {
-                    message: "PDF page numbers are one-based".to_string(),
+                return Err(PortError::InvalidInputContext {
+                    context: "OCR page number is zero",
+                    source: "PDF page numbers are one-based".to_string(),
                 });
             }
             let output_prefix = temporary.join(format!("page-{page}"));
@@ -68,8 +70,9 @@ impl PdfRasterizer for PdftoppmRasterizer {
             if !output.status.success() {
                 let stderr = String::from_utf8_lossy(&output.stderr);
                 let _ = fs::remove_dir_all(&temporary);
-                return Err(PortError::Downstream {
-                    message: format!("pdftoppm failed for page {page}: {stderr}"),
+                return Err(PortError::DownstreamContext {
+                    context: "pdftoppm failed",
+                    source: format!("pdftoppm failed for page {page}: {stderr}"),
                 });
             }
             let image_path = output_prefix.with_extension("png");
@@ -98,8 +101,9 @@ impl PdfRasterizer for PdftoppmRasterizer {
         if output.status.success() || !output.stderr.is_empty() {
             return Ok(());
         }
-        Err(PortError::Downstream {
-            message: "pdftoppm is unavailable".to_string(),
+        Err(PortError::DownstreamContext {
+            context: "pdftoppm is unavailable",
+            source: "pdftoppm did not report a usable version".to_string(),
         })
     }
 }
@@ -128,6 +132,6 @@ mod tests {
     #[test]
     fn rejects_zero_based_page_numbers() {
         let result = PdftoppmRasterizer.rasterize(b"pdf", &[0]);
-        assert!(matches!(result, Err(PortError::InvalidInput { .. })));
+        assert!(result.is_err_and(|error| error.is_invalid_input()));
     }
 }

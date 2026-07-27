@@ -61,7 +61,7 @@ fn rejects_non_loopback_endpoints() {
             requests: Mutex::new(Vec::new()),
         }),
     );
-    assert!(matches!(result, Err(PortError::InvalidInput { .. })));
+    assert!(result.is_err_and(|error| error.is_invalid_input()));
 }
 
 struct ErrorTransport {
@@ -93,7 +93,7 @@ fn rejects_empty_pages() -> Result<(), PortError> {
         pages: vec![],
     });
     assert!(
-        matches!(result, Err(PortError::InvalidInput { .. })),
+        result.as_ref().is_err_and(|error| error.is_invalid_input()),
         "expected InvalidInput for empty pages, got {result:?}"
     );
     Ok(())
@@ -179,7 +179,7 @@ fn rejects_zero_byte_pdf() -> Result<(), PortError> {
         pages: vec![1],
     });
     assert!(
-        matches!(result, Err(PortError::InvalidInput { .. })),
+        result.as_ref().is_err_and(|error| error.is_invalid_input()),
         "expected InvalidInput for zero-byte PDF, got {result:?}"
     );
     Ok(())
@@ -262,7 +262,7 @@ fn rejects_empty_rasterize_bytes() -> Result<(), PortError> {
         pages: vec![1],
     });
     assert!(
-        matches!(result, Err(PortError::InvalidInput { .. })),
+        result.as_ref().is_err_and(|error| error.is_invalid_input()),
         "expected InvalidInput for empty rasterized bytes, got {result:?}"
     );
     Ok(())
