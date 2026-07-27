@@ -22,8 +22,9 @@ impl EventLog for crate::SqliteStore {
                     |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
                 )
                 .map_err(to_port_error)?;
-        let count = u64::try_from(count).map_err(|_| PortError::Internal {
-            message: "stored event count is negative".to_string(),
+        let count = u64::try_from(count).map_err(|_| PortError::InternalContext {
+            context: "validate stored event count",
+            source: "stored event count is negative".to_string(),
         })?;
         if count > 0 {
             if mismatched != 0 {
@@ -31,11 +32,13 @@ impl EventLog for crate::SqliteStore {
                     message: "stored event log has mismatched ids and sequences".to_string(),
                 });
             }
-            let max_id = max_id.ok_or_else(|| PortError::Internal {
-                message: "stored event log has no maximum id".to_string(),
+            let max_id = max_id.ok_or_else(|| PortError::InternalContext {
+                context: "validate stored event log maximum id",
+                source: "stored event log has no maximum id".to_string(),
             })?;
-            let max_sequence = max_sequence.ok_or_else(|| PortError::Internal {
-                message: "stored event log has no maximum sequence".to_string(),
+            let max_sequence = max_sequence.ok_or_else(|| PortError::InternalContext {
+                context: "validate stored event log maximum sequence",
+                source: "stored event log has no maximum sequence".to_string(),
             })?;
             let max_id = i64_to_u64(max_id)?;
             let max_sequence = i64_to_u64(max_sequence)?;

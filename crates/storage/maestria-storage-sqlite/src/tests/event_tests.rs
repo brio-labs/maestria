@@ -259,10 +259,11 @@ fn strict_v2_payloads_reject_missing_and_unknown_fields() -> Result<(), PortErro
             )
             .map_err(to_port_error)?;
     }
-    assert!(matches!(
-        mismatched_metadata.scan(EventFilter { artifact_id: None }),
-        Err(PortError::Internal { .. })
-    ));
+    assert!(
+        mismatched_metadata
+            .scan(EventFilter { artifact_id: None })
+            .is_err_and(|error| error.is_internal())
+    );
 
     Ok(())
 }

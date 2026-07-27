@@ -121,8 +121,9 @@ pub(crate) fn record_terminal(
         EffectJournalStatus::Paused => "Paused",
         EffectJournalStatus::Superseded => "Superseded",
         _ => {
-            return Err(PortError::InvalidInput {
-                message: "terminal journal status required".to_string(),
+            return Err(PortError::InvalidInputContext {
+                context: "terminal journal status required",
+                source: "status must be terminal".to_string(),
             });
         }
     };
@@ -198,8 +199,9 @@ pub(crate) fn scan_in_flight(
             "Started" => EffectJournalStatus::Started,
             "FeedbackAccepted" => EffectJournalStatus::FeedbackAccepted,
             _ => {
-                return Err(PortError::Internal {
-                    message: "invalid status in db".to_string(),
+                return Err(PortError::InternalContext {
+                    context: "decode effect journal status",
+                    source: "invalid status in db".to_string(),
                 });
             }
         };
