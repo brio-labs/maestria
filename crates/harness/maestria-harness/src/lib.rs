@@ -45,8 +45,9 @@ async fn execute_impl(request: HarnessRequest) -> Result<HarnessOutcome, PortErr
     let start = SystemTime::now();
 
     if request.class != HarnessCommandClass::Shell {
-        return Err(PortError::Internal {
-            message: format!("unsupported harness class: {:?}", request.class),
+        return Err(PortError::InternalContext {
+            context: "unsupported harness class",
+            source: format!("{:?}", request.class),
         });
     }
 
@@ -59,11 +60,9 @@ async fn execute_impl(request: HarnessRequest) -> Result<HarnessOutcome, PortErr
 
     let program = &argv[0];
     if !ALLOWED_PROGRAMS.contains(&program.as_str()) {
-        return Err(PortError::InvalidInput {
-            message: format!(
-                "program {:?} not allowed; expected one of {:?}",
-                program, ALLOWED_PROGRAMS
-            ),
+        return Err(PortError::InvalidInputContext {
+            context: "program not allowed",
+            source: program.clone(),
         });
     }
 

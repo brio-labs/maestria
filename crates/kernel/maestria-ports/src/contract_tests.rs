@@ -820,7 +820,7 @@ pub async fn assert_harness_adapter_round_trip(
                 blocked_patterns: vec![],
             })
             .await,
-        Err(PortError::InvalidInput { .. })
+        Err(PortError::InvalidInput { .. } | PortError::InvalidInputContext { .. })
     ));
     Ok(())
 }
@@ -837,7 +837,11 @@ pub fn assert_web_fetcher_contract(
 
     let empty_res = fetcher.fetch("", usize::MAX);
     assert!(
-        matches!(empty_res, Err(super::PortError::InvalidInput { .. })),
+        matches!(
+            empty_res,
+            Err(super::PortError::InvalidInput { .. }
+                | super::PortError::InvalidInputContext { .. })
+        ),
         "Empty URLs must map to PortError::InvalidInput, got {:?}",
         empty_res
     );

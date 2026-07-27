@@ -39,14 +39,17 @@ pub(crate) async fn spawn_and_collect(
             drain_opt(&mut stdout_handle),
             drain_opt(&mut stderr_handle),
         );
-        let status = status_res.map_err(|e| PortError::Internal {
-            message: format!("{program}: {e}"),
+        let status = status_res.map_err(|e| PortError::InternalContext {
+            context: "child process wait error",
+            source: e.to_string(),
         })?;
-        let stdout_buf = stdout_buf.map_err(|e| PortError::Internal {
-            message: format!("{program}: stdout read error: {e}"),
+        let stdout_buf = stdout_buf.map_err(|e| PortError::InternalContext {
+            context: "stdout read error",
+            source: e.to_string(),
         })?;
-        let stderr_buf = stderr_buf.map_err(|e| PortError::Internal {
-            message: format!("{program}: stderr read error: {e}"),
+        let stderr_buf = stderr_buf.map_err(|e| PortError::InternalContext {
+            context: "stderr read error",
+            source: e.to_string(),
         })?;
         Ok((status, stdout_buf, stderr_buf))
     };
@@ -58,11 +61,13 @@ pub(crate) async fn spawn_and_collect(
             if let Ok(Some(s)) = child.try_wait() {
                 let (out_r, err_r) =
                     tokio::join!(drain_opt(&mut stdout_handle), drain_opt(&mut stderr_handle));
-                let out = out_r.map_err(|e| PortError::Internal {
-                    message: format!("{program}: stdout drain error after timeout: {e}"),
+                let out = out_r.map_err(|e| PortError::InternalContext {
+                    context: "stdout drain error after timeout",
+                    source: e.to_string(),
                 })?;
-                let err = err_r.map_err(|e| PortError::Internal {
-                    message: format!("{program}: stderr drain error after timeout: {e}"),
+                let err = err_r.map_err(|e| PortError::InternalContext {
+                    context: "stderr drain error after timeout",
+                    source: e.to_string(),
                 })?;
                 Ok((s, out, err))
             } else {
@@ -72,8 +77,9 @@ pub(crate) async fn spawn_and_collect(
                 if let Err(error) = child.wait().await {
                     tracing::warn!(%error, "failed to wait for child process after kill");
                 }
-                Err(PortError::Internal {
-                    message: format!("{program} timed out after {:?}", request.duration_budget),
+                Err(PortError::InternalContext {
+                    context: "harness process execution timed out",
+                    source: format!("{program} exceeded budget {:?}", request.duration_budget),
                 })
             }
         }
