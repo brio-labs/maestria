@@ -21,16 +21,20 @@ impl VectorIndex for InMemoryVectorIndex {
             if embedding.vector.len()
                 != embedding.provenance.identity.fingerprint.dimensions as usize
             {
-                return Err(PortError::InvalidInput {
-                    message: "embedding vector dimension does not match its identity fingerprint"
-                        .to_string(),
+                return Err(PortError::InvalidInputContext {
+                    context: "embedding vector dimension mismatch",
+                    source: "vector and identity fingerprint dimensions differ".to_string(),
                 });
             }
         }
 
-        let mut guard = self.embeddings.lock().map_err(|_| PortError::Internal {
-            message: "vector index lock poisoned".to_string(),
-        })?;
+        let mut guard = self
+            .embeddings
+            .lock()
+            .map_err(|_| PortError::InternalContext {
+                context: "vector index lock poisoned",
+                source: "index mutex is poisoned".to_string(),
+            })?;
         for emb in embeddings {
             if let Some(pos) = guard.iter().position(|e| e.chunk_id == emb.chunk_id) {
                 guard[pos] = emb;
@@ -48,9 +52,13 @@ impl VectorIndex for InMemoryVectorIndex {
             return Ok(Vec::new());
         }
 
-        let guard = self.embeddings.lock().map_err(|_| PortError::Internal {
-            message: "vector index lock poisoned".to_string(),
-        })?;
+        let guard = self
+            .embeddings
+            .lock()
+            .map_err(|_| PortError::InternalContext {
+                context: "vector index lock poisoned",
+                source: "index mutex is poisoned".to_string(),
+            })?;
         let mut hits = Vec::new();
 
         let q_norm_sq: f64 = query.vector.iter().map(|&v| (v as f64) * (v as f64)).sum();
@@ -124,9 +132,13 @@ impl VectorIndex for InMemoryVectorIndex {
             return Ok(Vec::new());
         }
 
-        let guard = self.embeddings.lock().map_err(|_| PortError::Internal {
-            message: "vector index lock poisoned".to_string(),
-        })?;
+        let guard = self
+            .embeddings
+            .lock()
+            .map_err(|_| PortError::InternalContext {
+                context: "vector index lock poisoned",
+                source: "index mutex is poisoned".to_string(),
+            })?;
         let mut hits = Vec::new();
 
         let q_norm_sq: f64 = query.vector.iter().map(|&v| (v as f64) * (v as f64)).sum();
@@ -197,17 +209,25 @@ impl VectorIndex for InMemoryVectorIndex {
     }
 
     fn delete_chunks(&self, chunk_ids: &[ChunkId]) -> Result<(), PortError> {
-        let mut guard = self.embeddings.lock().map_err(|_| PortError::Internal {
-            message: "vector index lock poisoned".to_string(),
-        })?;
+        let mut guard = self
+            .embeddings
+            .lock()
+            .map_err(|_| PortError::InternalContext {
+                context: "vector index lock poisoned",
+                source: "index mutex is poisoned".to_string(),
+            })?;
         guard.retain(|e| !chunk_ids.contains(&e.chunk_id));
         Ok(())
     }
 
     fn clear(&self) -> Result<(), PortError> {
-        let mut guard = self.embeddings.lock().map_err(|_| PortError::Internal {
-            message: "vector index lock poisoned".to_string(),
-        })?;
+        let mut guard = self
+            .embeddings
+            .lock()
+            .map_err(|_| PortError::InternalContext {
+                context: "vector index lock poisoned",
+                source: "index mutex is poisoned".to_string(),
+            })?;
         guard.clear();
         Ok(())
     }
@@ -232,8 +252,9 @@ fn validate_query_identity(query: &VectorSearchQuery) -> Result<(), PortError> {
     if let Some(identity) = &query.identity
         && identity.fingerprint.dimensions as usize != query.vector.len()
     {
-        return Err(PortError::InvalidInput {
-            message: "query vector dimension does not match identity fingerprint".to_string(),
+        return Err(PortError::InvalidInputContext {
+            context: "query vector dimension mismatch",
+            source: "vector and identity fingerprint dimensions differ".to_string(),
         });
     }
     Ok(())
