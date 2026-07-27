@@ -29,14 +29,16 @@ impl OcrTransport for UreqTransport {
             .post(endpoint)
             .set("content-type", "application/json")
             .send_bytes(&body)
-            .map_err(|error| PortError::Downstream {
-                message: format!("OCR request failed: {error}"),
+            .map_err(|error| PortError::DownstreamContext {
+                context: "OCR request failed",
+                source: error.to_string(),
             })?;
         response
             .into_string()
             .map(String::into_bytes)
-            .map_err(|error| PortError::Downstream {
-                message: format!("read OCR response: {error}"),
+            .map_err(|error| PortError::DownstreamContext {
+                context: "read OCR response",
+                source: error.to_string(),
             })
     }
 }
