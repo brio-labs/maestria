@@ -65,8 +65,9 @@ impl Parser for PdfParser {
             })?;
             let expected_identity = provider.identity();
             if expected_identity.as_ref() != Some(&response.identity) {
-                return Err(PortError::InvalidInput {
-                    message: "OCR response identity does not match configured provider".to_string(),
+                return Err(PortError::InvalidInputContext {
+                    context: "PDF OCR response identity mismatch",
+                    source: "response identity does not match the configured provider".to_string(),
                 });
             }
             let recognized: BTreeMap<u32, String> = response
@@ -85,8 +86,9 @@ impl Parser for PdfParser {
             }
         }
         if pages.is_empty() {
-            return Err(PortError::InvalidInput {
-                message: "PDF has no pages".to_string(),
+            return Err(PortError::InvalidInputContext {
+                context: "PDF has no pages",
+                source: "OCR and rasterization produced no pages".to_string(),
             });
         }
 
@@ -105,10 +107,12 @@ impl Parser for PdfParser {
         };
 
         let hash_string = content_hash(&file.bytes);
-        let content_hash =
-            ContentHash::new(hash_string.clone()).map_err(|error| PortError::InvalidInput {
-                message: error.to_string(),
-            })?;
+        let content_hash = ContentHash::new(hash_string.clone()).map_err(|error| {
+            PortError::InvalidInputContext {
+                context: "create PDF content hash",
+                source: error.to_string(),
+            }
+        })?;
         let artifact_version_id =
             crate::chunking::artifact_version_id_for(context.artifact_id, &hash_string);
         let status = if needs_ocr || !has_text {
@@ -177,8 +181,9 @@ fn root_node(
             artifact_id
                 .value()
                 .checked_mul(crate::chunking::ID_STRIDE)
-                .ok_or_else(|| PortError::InvalidInput {
-                    message: "artifact id cannot be expanded into PDF node ids".to_string(),
+                .ok_or_else(|| PortError::InvalidInputContext {
+                    context: "allocate PDF root node id",
+                    source: "artifact id cannot be expanded into PDF node ids".to_string(),
                 })?,
         ),
         parent_id: None,
@@ -206,8 +211,9 @@ fn page_node(
             .value()
             .checked_add(PAGE_NODE_OFFSET)
             .and_then(|value| value.checked_add(page_order as u64))
-            .ok_or_else(|| PortError::InvalidInput {
-                message: "PDF page node id overflow".to_string(),
+            .ok_or_else(|| PortError::InvalidInputContext {
+                context: "allocate PDF page node id",
+                source: "PDF page node id overflow".to_string(),
             })?,
     );
     Ok(StructureNode {
@@ -380,8 +386,9 @@ fn parsed_card_for(
     let card_source_span = match parsed_chunks.first() {
         Some(chunk) => chunk.source_span.clone(),
         None => {
-            return Err(PortError::InvalidInput {
-                message: "parsed PDF has no card evidence span".to_string(),
+            return Err(PortError::InvalidInputContext {
+                context: "build parsed PDF card",
+                source: "parsed PDF has no card evidence span".to_string(),
             });
         }
     };

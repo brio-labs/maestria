@@ -17,7 +17,10 @@ pub(super) fn page_bounds(
 ) -> Result<PageGeometry, PortError> {
     let mut current = page_id;
     let mut visited = std::collections::BTreeSet::new();
-    let err = |m: String| PortError::InvalidInput { message: m };
+    let err = |m: String| PortError::InvalidInputContext {
+        context: "validate PDF page geometry",
+        source: m,
+    };
     loop {
         if !visited.insert(current) {
             return Err(err("PDF page parent cycle while resolving MediaBox".into()));
@@ -174,8 +177,9 @@ pub(super) fn transform_from_operands(values: &[lopdf::Object]) -> Result<PdfTra
     if [a, b, c, d, e, f].iter().all(|v| v.is_finite()) {
         Ok(PdfTransform { a, b, c, d, e, f })
     } else {
-        Err(PortError::InvalidInput {
-            message: "PDF transform contains non-finite values".to_string(),
+        Err(PortError::InvalidInputContext {
+            context: "PDF transform contains non-finite values",
+            source: "transform values must be finite".to_string(),
         })
     }
 }
@@ -196,8 +200,9 @@ pub(super) fn rectangle(
     let width = as_float_result(&values[2])?;
     let height = as_float_result(&values[3])?;
     if ![x, y, width, height].iter().all(|v| v.is_finite()) || width == 0.0 || height == 0.0 {
-        return Err(PortError::InvalidInput {
-            message: "PDF rectangle has invalid dimensions".to_string(),
+        return Err(PortError::InvalidInputContext {
+            context: "PDF rectangle dimensions are invalid",
+            source: "rectangle dimensions must be finite and non-zero".to_string(),
         });
     }
     bounds(
@@ -209,8 +214,9 @@ pub(super) fn rectangle(
         ],
         geometry,
     )
-    .ok_or_else(|| PortError::InvalidInput {
-        message: "PDF rectangle bounds are invalid".to_string(),
+    .ok_or_else(|| PortError::InvalidInputContext {
+        context: "PDF rectangle bounds are invalid",
+        source: "rectangle falls outside page geometry".to_string(),
     })
 }
 
