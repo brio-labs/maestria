@@ -44,10 +44,12 @@ impl Parser for PdfParser {
     }
 
     fn parse(&self, file: FileHandle, context: ParseContext) -> Result<ParsedArtifact, PortError> {
-        let doc =
-            lopdf::Document::load_mem(&file.bytes).map_err(|error| PortError::InvalidInput {
-                message: format!("PDF parse error: {error}"),
-            })?;
+        let doc = lopdf::Document::load_mem(&file.bytes).map_err(|error| {
+            PortError::InvalidInputContext {
+                context: "PDF parse error",
+                source: error.to_string(),
+            }
+        })?;
         let mut pages = extract_page_layouts(&doc)?;
         let needs_ocr_pages: Vec<u32> = pages
             .iter()

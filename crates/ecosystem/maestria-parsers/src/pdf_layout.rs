@@ -85,8 +85,9 @@ fn layout_regions(
 ) -> Result<(Vec<PdfRegion>, bool), PortError> {
     let content =
         doc.get_and_decode_page_content(page_id)
-            .map_err(|e| PortError::InvalidInput {
-                message: format!("PDF page content decode failed: {e}"),
+            .map_err(|e| PortError::InvalidInputContext {
+                context: "PDF page content decode failed",
+                source: e.to_string(),
             })?;
     let pending = collect_pending_regions(&content.operations, page, geometry)?;
     let regions = materialize_regions(pending, page);
@@ -148,11 +149,13 @@ fn try_tagged_region(
         })?;
     let name_bytes = first_operand
         .as_name()
-        .map_err(|e| PortError::InvalidInput {
-            message: format!("PDF tagged region operand is not a name: {e}"),
+        .map_err(|e| PortError::InvalidInputContext {
+            context: "PDF tagged region operand is not a name",
+            source: e.to_string(),
         })?;
-    let name = std::str::from_utf8(name_bytes).map_err(|e| PortError::InvalidInput {
-        message: format!("PDF tagged region name is not valid UTF-8: {e}"),
+    let name = std::str::from_utf8(name_bytes).map_err(|e| PortError::InvalidInputContext {
+        context: "PDF tagged region name is not valid UTF-8",
+        source: e.to_string(),
     })?;
     let node_type = if name.eq_ignore_ascii_case("figure") {
         Some(StructureNodeType::Figure)

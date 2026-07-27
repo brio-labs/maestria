@@ -774,7 +774,7 @@ pub fn assert_parser_round_trip(
                 artifact_id: next_artifact_id,
             },
         ),
-        Err(PortError::InvalidInput { .. })
+        Err(PortError::InvalidInput { .. } | PortError::InvalidInputContext { .. })
     ));
     Ok(())
 }
