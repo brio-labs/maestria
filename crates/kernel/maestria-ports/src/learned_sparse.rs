@@ -39,24 +39,27 @@ impl SparseFingerprint {
             ("quantization", self.quantization.as_str()),
         ];
         if let Some((label, _)) = required.iter().find(|(_, value)| value.trim().is_empty()) {
-            return Err(PortError::InvalidInput {
-                message: format!("sparse fingerprint {label} must not be empty"),
+            return Err(PortError::InvalidInputContext {
+                context: "sparse fingerprint field is empty",
+                source: label.to_string(),
             });
         }
         if self.vocabulary_size == 0 {
-            return Err(PortError::InvalidInput {
-                message: "sparse fingerprint vocabulary size must be positive".to_string(),
+            return Err(PortError::InvalidInputContext {
+                context: "invalid sparse vocabulary size",
+                source: "vocabulary size must be positive".to_string(),
             });
         }
         if self.max_terms == 0 || self.max_terms > self.vocabulary_size {
-            return Err(PortError::InvalidInput {
-                message: "sparse fingerprint max_terms must be within the vocabulary".to_string(),
+            return Err(PortError::InvalidInputContext {
+                context: "invalid sparse max term budget",
+                source: "max_terms must be within the vocabulary".to_string(),
             });
         }
         if !self.pruning_threshold.is_finite() || self.pruning_threshold < 0.0 {
-            return Err(PortError::InvalidInput {
-                message: "sparse fingerprint pruning threshold must be finite and non-negative"
-                    .to_string(),
+            return Err(PortError::InvalidInputContext {
+                context: "invalid sparse pruning threshold",
+                source: "threshold must be finite and non-negative".to_string(),
             });
         }
         Ok(())
@@ -92,8 +95,9 @@ pub struct SparseTermWeight {
 impl SparseTermWeight {
     pub fn new(term_id: u32, weight: f32) -> Result<Self, PortError> {
         if !weight.is_finite() || weight <= 0.0 {
-            return Err(PortError::InvalidInput {
-                message: "sparse term weight must be finite and positive".to_string(),
+            return Err(PortError::InvalidInputContext {
+                context: "invalid sparse term weight",
+                source: "weight must be finite and positive".to_string(),
             });
         }
         Ok(Self { term_id, weight })
@@ -121,25 +125,29 @@ impl SparseVector {
     ) -> Result<Self, PortError> {
         identity.validate()?;
         if terms.is_empty() {
-            return Err(PortError::InvalidInput {
-                message: "sparse vector must contain at least one term".to_string(),
+            return Err(PortError::InvalidInputContext {
+                context: "sparse vector is empty",
+                source: "at least one term is required".to_string(),
             });
         }
         let max_terms = usize::try_from(identity.fingerprint.max_terms).map_err(|_| {
-            PortError::InvalidInput {
-                message: "sparse max_terms does not fit this platform".to_string(),
+            PortError::InvalidInputContext {
+                context: "sparse max_terms exceeds platform range",
+                source: "max_terms does not fit this platform".to_string(),
             }
         })?;
         if terms.len() > max_terms || terms.len() > DEFAULT_MAX_SPARSE_TERMS {
-            return Err(PortError::InvalidInput {
-                message: "sparse vector exceeds its term budget".to_string(),
+            return Err(PortError::InvalidInputContext {
+                context: "sparse vector exceeds term budget",
+                source: "term count exceeds max_terms or default limit".to_string(),
             });
         }
         terms.sort_by_key(|term| term.term_id);
         for window in terms.windows(2) {
             if window[0].term_id == window[1].term_id {
-                return Err(PortError::InvalidInput {
-                    message: "sparse vector contains duplicate term identifiers".to_string(),
+                return Err(PortError::InvalidInputContext {
+                    context: "sparse vector contains duplicate term identifiers",
+                    source: "term identifiers must be unique".to_string(),
                 });
             }
         }
@@ -147,8 +155,9 @@ impl SparseVector {
             .iter()
             .any(|term| term.term_id >= identity.fingerprint.vocabulary_size)
         {
-            return Err(PortError::InvalidInput {
-                message: "sparse term identifier is outside the declared vocabulary".to_string(),
+            return Err(PortError::InvalidInputContext {
+                context: "sparse term identifier is outside vocabulary",
+                source: "term identifier must be less than vocabulary size".to_string(),
             });
         }
         Ok(Self { identity, terms })
@@ -220,8 +229,9 @@ pub trait LearnedSparseIndex: Send + Sync {
         filter: &dyn Fn(ChunkId) -> bool,
     ) -> Result<Vec<SparseSearchHit>, PortError> {
         let _ = (query, filter);
-        Err(PortError::Internal {
-            message: "sparse search_filtered is required for governed retrieval".to_string(),
+        Err(PortError::InternalContext {
+            context: "sparse filtered search is unsupported",
+            source: "implementation must provide governed retrieval filtering".to_string(),
         })
     }
 
