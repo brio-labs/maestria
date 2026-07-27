@@ -20,8 +20,9 @@ pub trait FullTextIndex: Send + Sync {
         filter: &dyn Fn(maestria_domain::ChunkId, ArtifactId) -> bool,
     ) -> Result<Vec<SearchHit>, PortError> {
         let _ = (query, filter);
-        Err(PortError::Internal {
-            message: "search_filtered not supported by this index".into(),
+        Err(PortError::InternalContext {
+            context: "filtered chunk search is unsupported",
+            source: "adapter must implement pre-score filtering".to_string(),
         })
     }
 
@@ -32,8 +33,9 @@ pub trait FullTextIndex: Send + Sync {
         filter: &dyn Fn(CardId, ArtifactId) -> bool,
     ) -> Result<Vec<CardHit>, PortError> {
         let _ = (query, filter);
-        Err(PortError::Internal {
-            message: "search_cards_filtered not supported by this index".into(),
+        Err(PortError::InternalContext {
+            context: "filtered card search is unsupported",
+            source: "adapter must implement pre-score filtering".to_string(),
         })
     }
 
@@ -77,8 +79,9 @@ pub trait FullTextIndex: Send + Sync {
         query: LexicalQuery<ChunkField>,
     ) -> Result<Vec<LexicalChunkHit>, PortError> {
         let _ = query;
-        Err(PortError::Internal {
-            message: "search_lexical not supported by this index".into(),
+        Err(PortError::InternalContext {
+            context: "lexical chunk search is unsupported",
+            source: "adapter does not provide lexical retrieval".to_string(),
         })
     }
 
@@ -88,8 +91,9 @@ pub trait FullTextIndex: Send + Sync {
         query: LexicalQuery<CardField>,
     ) -> Result<Vec<LexicalCardHit>, PortError> {
         let _ = query;
-        Err(PortError::Internal {
-            message: "search_cards_lexical not supported by this index".into(),
+        Err(PortError::InternalContext {
+            context: "lexical card search is unsupported",
+            source: "adapter does not provide lexical retrieval".to_string(),
         })
     }
 
@@ -101,8 +105,9 @@ pub trait FullTextIndex: Send + Sync {
         filter: &dyn Fn(maestria_domain::ChunkId, ArtifactId) -> bool,
     ) -> Result<Vec<LexicalChunkHit>, PortError> {
         let _ = (query, filter);
-        Err(PortError::Internal {
-            message: "search_lexical_filtered not supported by this index".into(),
+        Err(PortError::InternalContext {
+            context: "filtered lexical chunk search is unsupported",
+            source: "adapter must implement pre-score filtering".to_string(),
         })
     }
 
@@ -114,8 +119,9 @@ pub trait FullTextIndex: Send + Sync {
         filter: &dyn Fn(CardId, ArtifactId) -> bool,
     ) -> Result<Vec<LexicalCardHit>, PortError> {
         let _ = (query, filter);
-        Err(PortError::Internal {
-            message: "search_cards_lexical_filtered not supported by this index".into(),
+        Err(PortError::InternalContext {
+            context: "filtered lexical card search is unsupported",
+            source: "adapter must implement pre-score filtering".to_string(),
         })
     }
 }
