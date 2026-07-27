@@ -342,19 +342,17 @@ async fn handle_model_agent_propose(
     ))
 }
 
-async fn search_knowledge(
+async fn prepare_read_only_search_runtime(
     context: &ApiContext,
-    governed: &maestria_ports::GovernedAgentProposal,
-) -> Result<(maestria_domain::SearchPlan, maestria_domain::SearchOutcome)> {
-    let layout_a = context.layout.clone();
-    let (state, manifest) = tokio::task::spawn_blocking(move || load_state_and_manifest(&layout_a))
+) -> Result<Arc<crate::SearchRuntime>> {
+    let layout = context.layout.clone();
+    let (state, manifest) = tokio::task::spawn_blocking(move || load_state_and_manifest(&layout))
         .await
-        .map_err(|error| anyhow!("load search state: {error}"))?
-        .map_err(|error| anyhow!("load search state: {error}"))?;
-    let layout_b = context.layout.clone();
+        .map_err(|error| anyhow!("load search state task failed: {error}"))??;
+    let layout = context.layout.clone();
     let runtime = tokio::task::spawn_blocking(move || {
         crate::prepare_search_runtime_read_only(
-            &layout_b,
+            &layout,
             &state,
             &manifest,
             maestria_governance::RetrievalSecurityPolicy::default()
@@ -363,8 +361,15 @@ async fn search_knowledge(
         )
     })
     .await
-    .map_err(|error| anyhow!("prepare search runtime: {error}"))?
-    .map_err(|error| anyhow!("prepare search runtime: {error}"))?;
+    .map_err(|error| anyhow!("prepare search runtime task failed: {error}"))??;
+    Ok(runtime)
+}
+
+async fn search_knowledge(
+    context: &ApiContext,
+    governed: &maestria_ports::GovernedAgentProposal,
+) -> Result<(maestria_domain::SearchPlan, maestria_domain::SearchOutcome)> {
+    let runtime = prepare_read_only_search_runtime(context).await?;
     runtime
         .execute(governed.search_query.clone(), governed.search_limit)
         .await
@@ -498,23 +503,7 @@ async fn search_with_retry(
 }
 
 async fn search(context: &ApiContext, query: String, limit: usize) -> Result<SearchResponse> {
-    let layout_a = context.layout.clone();
-    let (state, manifest) = tokio::task::spawn_blocking(move || load_state_and_manifest(&layout_a))
-        .await
-        .map_err(|error| anyhow!("load search state task failed: {error}"))??;
-    let layout_b = context.layout.clone();
-    let runtime = tokio::task::spawn_blocking(move || {
-        crate::prepare_search_runtime_read_only(
-            &layout_b,
-            &state,
-            &manifest,
-            maestria_governance::RetrievalSecurityPolicy::default()
-                .require_read_allowed(true)
-                .allow_unscoped_items(true),
-        )
-    })
-    .await
-    .map_err(|error| anyhow!("prepare search runtime task failed: {error}"))??;
+    let runtime = prepare_read_only_search_runtime(context).await?;
     let (plan, outcome) = runtime.execute(query, limit).await?;
     Ok(search_response(
         plan.original_query,
