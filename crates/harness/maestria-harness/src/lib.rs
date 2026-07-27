@@ -130,6 +130,9 @@ mod tests_rejected_grammar;
 mod tests_rejected_path;
 
 #[cfg(test)]
+mod tests_process;
+
+#[cfg(test)]
 mod tests_timeout;
 
 #[cfg(test)]

@@ -165,7 +165,7 @@ fn test_fetch_invalid_url() -> Result<(), Box<dyn std::error::Error>> {
         assert!(
             matches!(
                 fetcher.fetch(url, usize::MAX),
-                Err(PortError::InvalidInput { .. } | PortError::InvalidInputContext { .. })
+                Err(PortError::InvalidInputContext { .. })
             ),
             "Expected InvalidInput for url: '{url}'"
         );

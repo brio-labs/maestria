@@ -26,8 +26,9 @@ pub(crate) async fn spawn_and_collect(
         .stderr(std::process::Stdio::piped())
         .kill_on_drop(true);
 
-    let mut child = cmd.spawn().map_err(|e| PortError::Internal {
-        message: format!("failed to spawn {program}: {e}"),
+    let mut child = cmd.spawn().map_err(|error| PortError::InternalContext {
+        context: "spawn harness child process",
+        source: format!("{program}: {error}"),
     })?;
 
     let mut stdout_handle = child.stdout.take();

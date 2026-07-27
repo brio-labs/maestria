@@ -100,10 +100,7 @@ fn rejects_malformed_json_response() -> Result<(), PortError> {
     )?;
     let result = provider.embed_query("table latency", identity()?);
     assert!(
-        matches!(
-            result,
-            Err(PortError::Downstream { .. } | PortError::DownstreamContext { .. })
-        ),
+        matches!(result, Err(PortError::DownstreamContext { .. })),
         "expected Downstream error for malformed JSON, got {result:?}"
     );
     Ok(())
@@ -147,10 +144,7 @@ fn rejects_missing_embedding_in_response() -> Result<(), PortError> {
     )?;
     let result = provider.embed_query("table latency", identity()?);
     assert!(
-        matches!(
-            result.as_ref(),
-            Err(PortError::Downstream { .. } | PortError::DownstreamContext { .. })
-        ),
+        matches!(result.as_ref(), Err(PortError::DownstreamContext { .. })),
         "expected Downstream error for missing embedding, got {result:?}"
     );
     Ok(())
