@@ -1,6 +1,6 @@
 use crate::TantivyFullTextIndex;
 use maestria_domain::{ArtifactId, ChunkId};
-use maestria_ports::{FullTextIndex, IndexedChunk, PortError, SearchQuery};
+use maestria_ports::{FullTextIndex, IndexedChunk, SearchQuery};
 use tempfile::TempDir;
 
 fn chunk(artifact_id: u64, chunk_id: u64, text: &str) -> IndexedChunk {
@@ -86,7 +86,7 @@ fn empty_query_is_invalid() -> Result<(), Box<dyn std::error::Error>> {
         offset: 0,
     });
 
-    assert!(matches!(result, Err(PortError::InvalidInput { .. })));
+    assert!(result.is_err_and(|error| error.is_invalid_input()));
     Ok(())
 }
 

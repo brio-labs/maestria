@@ -43,8 +43,9 @@ impl FullTextIndex for TantivyFullTextIndex {
     fn search(&self, query: SearchQuery) -> Result<Vec<SearchHit>, PortError> {
         let trimmed = query.q.trim();
         if trimmed.is_empty() {
-            return Err(PortError::InvalidInput {
-                message: "search query must not be empty".to_string(),
+            return Err(PortError::InvalidInputContext {
+                context: "empty chunk search query",
+                source: "query must contain non-whitespace text".to_string(),
             });
         }
         if query.limit == 0 {
@@ -96,8 +97,9 @@ impl FullTextIndex for TantivyFullTextIndex {
     ) -> Result<Vec<SearchHit>, PortError> {
         let trimmed = query.q.trim();
         if trimmed.is_empty() {
-            return Err(PortError::InvalidInput {
-                message: "search query must not be empty".to_string(),
+            return Err(PortError::InvalidInputContext {
+                context: "empty filtered chunk search query",
+                source: "query must contain non-whitespace text".to_string(),
             });
         }
         if query.limit == 0 {
@@ -216,8 +218,9 @@ impl FullTextIndex for TantivyFullTextIndex {
     fn search_cards(&self, query: SearchQuery) -> Result<Vec<CardHit>, PortError> {
         let trimmed = query.q.trim();
         if trimmed.is_empty() {
-            return Err(PortError::InvalidInput {
-                message: "search query must not be empty".to_string(),
+            return Err(PortError::InvalidInputContext {
+                context: "empty card search query",
+                source: "query must contain non-whitespace text".to_string(),
             });
         }
         if query.limit == 0 {
@@ -267,8 +270,9 @@ impl FullTextIndex for TantivyFullTextIndex {
     ) -> Result<Vec<CardHit>, PortError> {
         let trimmed = query.q.trim();
         if trimmed.is_empty() {
-            return Err(PortError::InvalidInput {
-                message: "search query must not be empty".to_string(),
+            return Err(PortError::InvalidInputContext {
+                context: "empty filtered card search query",
+                source: "query must contain non-whitespace text".to_string(),
             });
         }
         if query.limit == 0 {
