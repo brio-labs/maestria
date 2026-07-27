@@ -60,6 +60,10 @@ FORBIDDEN_RUST_METHODS = [
     (r"\bstd::time::Instant::now\s*\(", "a forbidden wall-clock instant"),
     (r"\.swap_remove\s*\(", "a forbidden swap_remove call"),
 ]
+FORBIDDEN_UNBOUNDED_CHANNEL_PATTERNS = (
+    r"\b(?:tokio::sync::)?mpsc::unbounded_channel\s*\(",
+    r"\b(?:tokio::sync::)?mpsc::Unbounded(?:Sender|Receiver)\b",
+)
 MAX_PRODUCTION_LOGICAL_LINES = 400
 MAX_MODULE_PHYSICAL_LINES = 900
 MAX_FUNCTION_LOGICAL_LINES = 100
@@ -389,6 +393,21 @@ def scan_expect_clippy() -> list[str]:
                     f"{source.relative_to(ROOT)} contains expect-clippy size/complexity bypass"
                 )
                 break
+    return violations
+
+
+def scan_unbounded_channels() -> list[str]:
+    violations = []
+    for source in ROOT.rglob("*.rs"):
+        if should_skip(source):
+            continue
+        content = read_text(source)
+        if content is None:
+            continue
+        if any(re.search(pattern, content) for pattern in FORBIDDEN_UNBOUNDED_CHANNEL_PATTERNS):
+            violations.append(
+                f"{source.relative_to(ROOT)} contains an unbounded internal channel"
+            )
     return violations
 
 
@@ -827,6 +846,7 @@ def main() -> int:
         f"{path} contains a Rust lint-bypass attribute" for path in scan_rust_lint_bypasses()
     )
     violations.extend(scan_expect_clippy())
+    violations.extend(scan_unbounded_channels())
     violations.extend(scan_rust_forbidden_methods())
     violations.extend(scan_facade_boundaries())
     violations.extend(scan_cohesion())

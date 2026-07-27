@@ -116,6 +116,26 @@ class PhilosophyCheckTests(unittest.TestCase):
                 ],
             )
 
+    def test_scan_unbounded_channels_reports_constructor_and_types(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.configure_root(root)
+            source = root / "crates" / "apps" / "example" / "src" / "lib.rs"
+            source.parent.mkdir(parents=True)
+            source.write_text(
+                "use tokio::sync::mpsc;\n"
+                "fn example() -> mpsc::UnboundedSender<u8> {\n"
+                "    let (sender, _receiver) = mpsc::unbounded_channel();\n"
+                "    sender\n"
+                "}\n",
+                encoding="utf-8",
+            )
+
+            self.assertEqual(
+                PHILOSOPHY_CHECK.scan_unbounded_channels(),
+                ["crates/apps/example/src/lib.rs contains an unbounded internal channel"],
+            )
+
     def test_domain_scan_reports_runtime_tokens_and_production_failures(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
