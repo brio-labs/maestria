@@ -34,8 +34,9 @@ impl TantivyFullTextIndex {
     pub fn open_read_only(path: impl AsRef<Path>) -> Result<Self, PortError> {
         let path = path.as_ref();
         if !path.join("meta.json").exists() {
-            return Err(PortError::Downstream {
-                message: format!("full-text index is not initialized: {}", path.display()),
+            return Err(PortError::DownstreamContext {
+                context: "read-only full-text index directory missing meta.json",
+                source: path.display().to_string(),
             });
         }
         let index = Index::open_in_dir(path).map_err(super::to_port_error)?;

@@ -54,8 +54,9 @@ impl FullTextIndex for TantivyFullTextIndex {
         let parsed_query =
             parser
                 .parse_query(trimmed)
-                .map_err(|error| PortError::InvalidInput {
-                    message: format!("invalid search query: {error}"),
+                .map_err(|error| PortError::InvalidInputContext {
+                    context: "invalid search query",
+                    source: error.to_string(),
                 })?;
         let top_docs = collect_tie_complete(&searcher, &parsed_query, query.offset, query.limit)?;
         let mut scored = Vec::with_capacity(top_docs.len());

@@ -24,7 +24,7 @@ pub(super) fn build_parsed_query<T>(
     fields: &[(tantivy::schema::Field, f32, T)],
     trimmed: &str,
     mode: MatchMode,
-    error_context: &str,
+    error_context: &'static str,
 ) -> Result<Box<dyn tantivy::query::Query>, PortError> {
     let mut parser_fields = Vec::new();
     for (field, _, _) in fields {
@@ -44,8 +44,9 @@ pub(super) fn build_parsed_query<T>(
             parser.parse_query(&exact_query)
         }
     }
-    .map_err(|error| PortError::InvalidInput {
-        message: format!("invalid {error_context}: {error}"),
+    .map_err(|error| PortError::InvalidInputContext {
+        context: error_context,
+        source: error.to_string(),
     })?;
 
     if mode == MatchMode::Contains && !trimmed.chars().any(char::is_whitespace) {
@@ -54,8 +55,9 @@ pub(super) fn build_parsed_query<T>(
         for field in parser_fields {
             fallback_queries.push(Box::new(
                 RegexQuery::from_pattern(&pattern, field).map_err(|error| {
-                    PortError::InvalidInput {
-                        message: format!("invalid {error_context}: {error}"),
+                    PortError::InvalidInputContext {
+                        context: error_context,
+                        source: error.to_string(),
                     }
                 })?,
             ));
