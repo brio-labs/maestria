@@ -45,7 +45,7 @@ impl TempDir {
     pub fn new(prefix: &str) -> Result<Self, Box<dyn std::error::Error>> {
         let base = std::env::temp_dir();
         for n in 0..1000 {
-            let path = base.join(format!("{prefix}-{n}"));
+            let path = base.join(format!("{prefix}-{}-{n}", std::process::id()));
             match fs::create_dir(&path) {
                 Ok(()) => return Ok(Self(path)),
                 Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
