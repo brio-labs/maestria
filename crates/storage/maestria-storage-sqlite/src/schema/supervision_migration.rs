@@ -26,8 +26,9 @@ pub(super) fn migrate_from_v5(
     state: &SchemaState,
 ) -> Result<(), PortError> {
     if !state.had_domain_events_table {
-        return Err(PortError::Internal {
-            message: "malformed sqlite schema: domain_events table missing".to_string(),
+        return Err(PortError::InternalContext {
+            context: "schema migration requires domain_events table",
+            source: "malformed sqlite schema: domain_events table missing".to_string(),
         });
     }
     connection
