@@ -10,8 +10,9 @@ pub struct EmbeddingIdentity {
 impl EmbeddingIdentity {
     pub fn legacy(model: impl Into<String>, dimensions: usize) -> Result<Self, crate::PortError> {
         let artifact_hash = maestria_domain::ContentHash::new(format!("sha256:{}", "0".repeat(64)))
-            .map_err(|error| crate::PortError::Internal {
-                message: format!("create legacy embedding fingerprint: {error}"),
+            .map_err(|error| crate::PortError::InternalContext {
+                context: "create legacy embedding fingerprint",
+                source: error.to_string(),
             })?;
         Ok(Self {
             generation_id: IndexGenerationId::new(1),
@@ -121,8 +122,9 @@ pub trait VectorIndex: Send + Sync {
         filter: &dyn Fn(maestria_domain::ChunkId) -> bool,
     ) -> Result<Vec<VectorSearchHit>, crate::PortError> {
         let _ = (query, filter);
-        Err(crate::PortError::Internal {
-            message: "search_similar_filtered not supported by this index".into(),
+        Err(crate::PortError::InternalContext {
+            context: "filtered vector search is unsupported",
+            source: "index must implement governed pre-score filtering".to_string(),
         })
     }
     fn delete_chunks(&self, chunk_ids: &[maestria_domain::ChunkId])
