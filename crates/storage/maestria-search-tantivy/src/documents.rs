@@ -40,22 +40,25 @@ impl TantivyFullTextIndex {
             .get_first(self.fields.artifact_id)
             .and_then(|value| value.as_u64())
             .map(ArtifactId::new)
-            .ok_or_else(|| PortError::Internal {
-                message: "indexed chunk is missing artifact id".to_string(),
+            .ok_or_else(|| PortError::InternalContext {
+                context: "decode indexed chunk artifact id",
+                source: "indexed chunk is missing artifact id".to_string(),
             })?;
         let chunk_id = document
             .get_first(self.fields.chunk_id)
             .and_then(|value| value.as_u64())
             .map(ChunkId::new)
-            .ok_or_else(|| PortError::Internal {
-                message: "indexed chunk is missing chunk id".to_string(),
+            .ok_or_else(|| PortError::InternalContext {
+                context: "decode indexed chunk id",
+                source: "indexed chunk is missing chunk id".to_string(),
             })?;
         let text = document
             .get_first(self.fields.text)
             .and_then(|value| value.as_str())
             .map(str::to_string)
-            .ok_or_else(|| PortError::Internal {
-                message: "indexed chunk is missing text".to_string(),
+            .ok_or_else(|| PortError::InternalContext {
+                context: "decode indexed chunk text",
+                source: "indexed chunk is missing text".to_string(),
             })?;
 
         Ok(IndexedChunk {
@@ -127,29 +130,33 @@ impl TantivyFullTextIndex {
             .get_first(self.fields.card_artifact_id)
             .and_then(|value| value.as_u64())
             .map(ArtifactId::new)
-            .ok_or_else(|| PortError::Internal {
-                message: "indexed card is missing artifact id".to_string(),
+            .ok_or_else(|| PortError::InternalContext {
+                context: "decode indexed card artifact id",
+                source: "indexed card is missing artifact id".to_string(),
             })?;
         let card_id = document
             .get_first(self.fields.card_id)
             .and_then(|value| value.as_u64())
             .map(CardId::new)
-            .ok_or_else(|| PortError::Internal {
-                message: "indexed card is missing card id".to_string(),
+            .ok_or_else(|| PortError::InternalContext {
+                context: "decode indexed card id",
+                source: "indexed card is missing card id".to_string(),
             })?;
         let title = document
             .get_first(self.fields.card_title)
             .and_then(|value| value.as_str())
             .map(str::to_string)
-            .ok_or_else(|| PortError::Internal {
-                message: "indexed card is missing title".to_string(),
+            .ok_or_else(|| PortError::InternalContext {
+                context: "decode indexed card title",
+                source: "indexed card is missing title".to_string(),
             })?;
         let body = document
             .get_first(self.fields.card_body)
             .and_then(|value| value.as_str())
             .map(str::to_string)
-            .ok_or_else(|| PortError::Internal {
-                message: "indexed card is missing body".to_string(),
+            .ok_or_else(|| PortError::InternalContext {
+                context: "decode indexed card body",
+                source: "indexed card is missing body".to_string(),
             })?;
 
         Ok(IndexedCard {
