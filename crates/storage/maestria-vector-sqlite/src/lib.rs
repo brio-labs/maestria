@@ -73,9 +73,12 @@ impl SqliteVectorIndex {
     }
 
     fn lock_connection(&self) -> Result<MutexGuard<'_, Connection>, PortError> {
-        self.connection.lock().map_err(|_| PortError::Internal {
-            message: "vector index lock poisoned".to_string(),
-        })
+        self.connection
+            .lock()
+            .map_err(|_| PortError::InternalContext {
+                context: "vector index lock poisoned",
+                source: "connection mutex is poisoned".to_string(),
+            })
     }
 }
 
@@ -99,8 +102,9 @@ impl VectorIndex for SqliteVectorIndex {
         if let Some(identity) = &query.identity
             && identity.fingerprint.dimensions as usize != query.vector.len()
         {
-            return Err(PortError::InvalidInput {
-                message: "query vector dimension does not match identity fingerprint".into(),
+            return Err(PortError::InvalidInputContext {
+                context: "query vector dimension mismatch",
+                source: "vector and identity fingerprint dimensions differ".to_string(),
             });
         }
         if query.limit == 0 {
@@ -181,8 +185,9 @@ impl VectorIndex for SqliteVectorIndex {
         if let Some(identity) = &query.identity
             && identity.fingerprint.dimensions as usize != query.vector.len()
         {
-            return Err(PortError::InvalidInput {
-                message: "query vector dimension does not match identity fingerprint".into(),
+            return Err(PortError::InvalidInputContext {
+                context: "query vector dimension mismatch",
+                source: "vector and identity fingerprint dimensions differ".to_string(),
             });
         }
         if query.limit == 0 {

@@ -407,7 +407,7 @@ fn reopen_persistence_and_mismatch_rejection() -> Result<(), PortError> {
     });
 
     assert!(
-        matches!(res, Err(PortError::InvalidInput { .. })),
+        matches!(res, Err(PortError::InvalidInputContext { .. })),
         "Expected InvalidInput, got {:?}",
         res
     );
