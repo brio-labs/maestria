@@ -73,9 +73,12 @@ pub(crate) fn migrate_approval_payload_json(
     new_id: i64,
 ) -> Result<String, PortError> {
     let marker = "\"approval_recorded\"";
-    let pos = payload.find(marker).ok_or_else(|| PortError::Internal {
-        message: "malformed approval_recorded legacy payload".to_string(),
-    })?;
+    let pos = payload
+        .find(marker)
+        .ok_or_else(|| PortError::InternalContext {
+            context: "malformed approval_recorded legacy payload",
+            source: "missing marker".to_string(),
+        })?;
     let insert_at = pos + marker.len();
     let mut result = String::with_capacity(payload.len() + 30);
     result.push_str(&payload[..insert_at]);
@@ -84,11 +87,14 @@ pub(crate) fn migrate_approval_payload_json(
     Ok(result)
 }
 
-pub(crate) fn extract_json_field(payload: &str, field: &str) -> Result<i64, PortError> {
+pub(crate) fn extract_json_field(payload: &str, field: &'static str) -> Result<i64, PortError> {
     let key = format!("\"{field}\":");
-    let start = payload.find(&key).ok_or_else(|| PortError::Internal {
-        message: format!("missing field {field} in legacy payload"),
-    })?;
+    let start = payload
+        .find(&key)
+        .ok_or_else(|| PortError::InternalContext {
+            context: "missing field in legacy payload",
+            source: field.to_string(),
+        })?;
     let after_key = start + key.len();
     let value_str = &payload[after_key..];
     let end = match value_str.find(|c: char| !c.is_ascii_digit() && c != '-') {
@@ -100,16 +106,20 @@ pub(crate) fn extract_json_field(payload: &str, field: &str) -> Result<i64, Port
     };
     value_str[..end]
         .parse::<i64>()
-        .map_err(|_| PortError::Internal {
-            message: format!("invalid {field} value in legacy payload"),
+        .map_err(|_| PortError::InternalContext {
+            context: "invalid field value in legacy payload",
+            source: field.to_string(),
         })
 }
 
-pub(crate) fn extract_json_bool(payload: &str, field: &str) -> Result<bool, PortError> {
+pub(crate) fn extract_json_bool(payload: &str, field: &'static str) -> Result<bool, PortError> {
     let key = format!("\"{field}\":");
-    let start = payload.find(&key).ok_or_else(|| PortError::Internal {
-        message: format!("missing field {field} in legacy payload"),
-    })?;
+    let start = payload
+        .find(&key)
+        .ok_or_else(|| PortError::InternalContext {
+            context: "missing field in legacy payload",
+            source: field.to_string(),
+        })?;
     let after_key = start + key.len();
     let rest = payload[after_key..].trim_start();
     if rest.starts_with("true") {
@@ -117,8 +127,9 @@ pub(crate) fn extract_json_bool(payload: &str, field: &str) -> Result<bool, Port
     } else if rest.starts_with("false") {
         Ok(false)
     } else {
-        Err(PortError::Internal {
-            message: format!("invalid {field} bool in legacy payload"),
+        Err(PortError::InternalContext {
+            context: "invalid bool in legacy payload",
+            source: field.to_string(),
         })
     }
 }
