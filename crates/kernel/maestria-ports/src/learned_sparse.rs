@@ -74,11 +74,9 @@ pub struct SparseIdentity {
 impl SparseIdentity {
     pub fn validate(&self) -> Result<(), PortError> {
         if self.representation.0 != SPARSE_REPRESENTATION_V1 {
-            return Err(PortError::InvalidInput {
-                message: format!(
-                    "sparse representation must be {SPARSE_REPRESENTATION_V1}, found {}",
-                    self.representation.0
-                ),
+            return Err(PortError::InvalidInputContext {
+                context: "invalid sparse representation",
+                source: self.representation.0.clone(),
             });
         }
         self.fingerprint.validate()

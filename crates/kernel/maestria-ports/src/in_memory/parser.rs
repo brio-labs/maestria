@@ -64,8 +64,9 @@ impl Parser for InMemoryParser {
         };
 
         let tree = DocumentTree::new(root_node_id, vec![root_node]).map_err(|err| {
-            PortError::InvalidInput {
-                message: format!("invalid document tree: {:?}", err),
+            PortError::InvalidInputContext {
+                context: "invalid document tree",
+                source: format!("{err:?}"),
             }
         })?;
 
@@ -90,8 +91,9 @@ impl Parser for InMemoryParser {
             },
         };
         let content_hash =
-            ContentHash::new(content_hash_str).map_err(|err| PortError::InvalidInput {
-                message: format!("invalid content hash: {:?}", err),
+            ContentHash::new(content_hash_str).map_err(|err| PortError::InvalidInputContext {
+                context: "invalid content hash",
+                source: format!("{err:?}"),
             })?;
 
         Ok(ParsedArtifact {

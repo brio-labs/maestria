@@ -630,7 +630,7 @@ fn verify_vector_validation(
             vector: Vec::new(),
             provenance: prov(),
         }]),
-        Err(PortError::InvalidInput { .. })
+        Err(PortError::InvalidInput { .. } | PortError::InvalidInputContext { .. })
     ));
     assert!(matches!(
         index.search_similar(VectorSearchQuery {
@@ -641,7 +641,7 @@ fn verify_vector_validation(
             model_version: None,
             identity: None,
         }),
-        Err(PortError::InvalidInput { .. })
+        Err(PortError::InvalidInput { .. } | PortError::InvalidInputContext { .. })
     ));
     assert!(matches!(
         index.search_similar(VectorSearchQuery {
@@ -652,7 +652,7 @@ fn verify_vector_validation(
             model_version: None,
             identity: None,
         }),
-        Err(PortError::InvalidInput { .. })
+        Err(PortError::InvalidInput { .. } | PortError::InvalidInputContext { .. })
     ));
     Ok(())
 }
