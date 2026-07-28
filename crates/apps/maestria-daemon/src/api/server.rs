@@ -137,11 +137,17 @@ async fn read_request_line(stream: &mut UnixStream) -> Result<Vec<u8>> {
     let mut line = Vec::new();
     let mut buf = [0u8; 1];
     loop {
-        if stream.read_exact(&mut buf).await.is_err() {
-            if line.is_empty() {
-                return Err(anyhow!("connection closed before any data"));
+        match stream.read_exact(&mut buf).await {
+            Ok(_) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::UnexpectedEof => {
+                let message = if line.is_empty() {
+                    "connection closed before any data"
+                } else {
+                    "connection closed before end of request"
+                };
+                return Err(anyhow!(message));
             }
-            break;
+            Err(error) => return Err(error).context("read request line"),
         }
         if buf[0] == b'\n' {
             break;
@@ -166,4 +172,24 @@ async fn write_reply(
         .write_all(&bytes)
         .await
         .context("write daemon response")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn partial_request_disconnect_is_reported() -> Result<()> {
+        let (mut writer, mut reader) = UnixStream::pair()?;
+        writer.write_all(b"{\"token\":").await?;
+        drop(writer);
+
+        let result = read_request_line(&mut reader).await;
+
+        assert!(
+            matches!(result.as_ref(), Err(error) if error.to_string().contains("before end of request")),
+            "expected truncated request error, got {result:?}"
+        );
+        Ok(())
+    }
 }
