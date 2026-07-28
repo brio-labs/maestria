@@ -37,7 +37,9 @@ impl EffectJournal for InMemoryEffectJournal {
             entry.run_id == intent.run_id
                 && matches!(
                     entry.status,
-                    EffectJournalStatus::Intent | EffectJournalStatus::Started
+                    EffectJournalStatus::Intent
+                        | EffectJournalStatus::Started
+                        | EffectJournalStatus::FeedbackAccepted
                 )
         }) {
             entry.status = EffectJournalStatus::Superseded;
@@ -211,15 +213,17 @@ mod tests {
     }
 
     #[test]
-    fn claimed_feedback_remains_current_when_new_intent_arrives() -> Result<(), PortError> {
+    fn superseding_claimed_feedback_marks_old_generation_non_current() -> Result<(), PortError> {
         let journal = InMemoryEffectJournal::default();
         let first = journal.record_intent(intent(2, None))?;
         journal.record_started(first.run_id, first.generation)?;
         journal.claim_feedback(first.run_id, first.generation)?;
         let second = journal.record_intent(intent(2, None))?;
         assert_eq!(second.generation, first.generation + 1);
-        assert!(journal.is_feedback_accepted(first.run_id, first.generation)?);
-        assert!(journal.is_current(first.run_id, first.generation)?);
+        assert!(!journal.is_feedback_accepted(first.run_id, first.generation)?);
+        assert!(!journal.is_current(first.run_id, first.generation)?);
+        assert!(journal.is_current(second.run_id, second.generation)?);
+        assert_eq!(journal.scan_in_flight()?, vec![second]);
         Ok(())
     }
 

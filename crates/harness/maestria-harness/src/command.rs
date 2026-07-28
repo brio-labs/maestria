@@ -213,6 +213,9 @@ pub(crate) fn validate_cat_args(
     }
     let mut validated_args = Vec::with_capacity(argv.len() - 1);
     for arg in &argv[1..] {
+        // Check the lexical operand before resolving symlinks so blocked aliases
+        // cannot bypass filename policy.
+        validate_filename_patterns(arg, &request.blocked_patterns)?;
         let resolved = validate_readable_path(
             arg,
             &request.working_directory,

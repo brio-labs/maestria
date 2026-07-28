@@ -1,6 +1,7 @@
 use super::*;
 use maestria_domain::{
-    Artifact, ArtifactId, Evidence, EvidenceId, EvidenceKind, HarnessRunId, IndexStatus,
+    Artifact, ArtifactId, Evidence, EvidenceId, EvidenceKind, IndexStatus, ScopeId,
+    SecurityMetadata, ValidationReportId,
 };
 use maestria_governance::{DefaultApprovalGate, DefaultRiskClassifier, DefaultValidationGate};
 use maestria_ports::{
@@ -388,6 +389,66 @@ fn open_evidence_rejects_file_span_outside_current_manifest_roots() -> Result<()
             .to_string()
             .contains("outside instance read roots or excluded by policy"),
         "unexpected out-of-scope evidence error: {error:#}"
+    );
+    Ok(())
+}
+
+#[test]
+fn open_evidence_rejects_indexed_non_file_evidence_from_other_scope() -> Result<()> {
+    let fixture = fixture(8)?;
+    let store = SqliteStore::open(&fixture.layout.database_path)?;
+    let artifact_id = ArtifactId::new(51);
+    let evidence_id = EvidenceId::new(52);
+    ArtifactRepository::put(
+        &store,
+        Artifact {
+            id: artifact_id,
+            title: "validation-report".to_string(),
+            chunk_ids: BTreeSet::new(),
+            card_ids: BTreeSet::new(),
+            claim_ids: BTreeSet::new(),
+            evidence_ids: BTreeSet::new(),
+            index_status: IndexStatus::Indexed,
+            content_hash: None,
+            parse_status: None,
+            security: SecurityMetadata {
+                scope_id: Some(ScopeId::new(1)),
+                ..SecurityMetadata::default()
+            },
+        },
+    )?;
+    EvidenceRepository::put(
+        &store,
+        Evidence {
+            id: evidence_id,
+            artifact_id,
+            claim_id: None,
+            kind: EvidenceKind::Validation {
+                report_id: ValidationReportId::new(7),
+            },
+            excerpt: "validation report".to_string(),
+            observed_at: maestria_domain::LogicalTick::new(1),
+            security: SecurityMetadata {
+                scope_id: Some(ScopeId::new(99)),
+                ..SecurityMetadata::default()
+            },
+        },
+    )?;
+    drop(store);
+
+    let error = match open_evidence(&fixture.layout, evidence_id.value()) {
+        Ok(_) => {
+            return Err(anyhow::anyhow!(
+                "cross-instance indexed non-file evidence unexpectedly opened"
+            ));
+        }
+        Err(error) => error,
+    };
+    assert!(
+        error
+            .to_string()
+            .contains("evidence is not available: not available under retrieval policy"),
+        "unexpected cross-instance evidence error: {error:#}"
     );
     Ok(())
 }

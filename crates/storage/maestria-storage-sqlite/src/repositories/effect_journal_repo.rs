@@ -33,7 +33,7 @@ pub(crate) fn record_intent(
             .execute(
                 "UPDATE effect_journal SET status = 'Superseded' \
                  WHERE run_id = ?1 AND generation = ?2 \
-                 AND status IN ('Intent', 'Started')",
+                 AND status IN ('Intent', 'Started', 'FeedbackAccepted')",
                 params![run_id_i64, prev_gen],
             )
             .map_err(to_port_error)?;

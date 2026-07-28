@@ -9,6 +9,20 @@ use crate::types::{
     RetrievalResult,
 };
 
+fn lane_uses_primary_generation(descriptor: &crate::types::RetrieverDescriptor) -> bool {
+    !descriptor.modality.eq_ignore_ascii_case("dense")
+        && !descriptor.modality.eq_ignore_ascii_case("image")
+        && !descriptor.modality.eq_ignore_ascii_case("sparse")
+        && !descriptor.modality.eq_ignore_ascii_case("sparse-shadow")
+}
+
+fn lane_generation_is_current(
+    descriptor: &crate::types::RetrieverDescriptor,
+    plan: &SearchPlan,
+) -> bool {
+    !lane_uses_primary_generation(descriptor) || descriptor.generation == plan.index_generation
+}
+
 fn normalize_batch(
     mut batch: crate::types::CandidateBatch,
     descriptor: crate::types::RetrieverDescriptor,
@@ -16,15 +30,17 @@ fn normalize_batch(
     plan: &SearchPlan,
     bytes_read: &mut u64,
 ) -> crate::types::CandidateBatch {
+    let expected_generation = descriptor.generation;
     let batch_descriptor_generation = batch.descriptor.generation;
-    let generation_matches = descriptor.generation == plan.index_generation
-        && batch_descriptor_generation == descriptor.generation
-        && batch.generation == Some(plan.index_generation);
+    let generation_matches = lane_generation_is_current(&descriptor, plan)
+        && batch.descriptor == descriptor
+        && batch.generation == Some(expected_generation);
     if !generation_matches {
         batch.candidates.clear();
         batch.status = maestria_domain::SearchLaneStatus::Failed {
             error: format!(
-                "stale lane generation: expected {}, retriever {}, batch descriptor {}, batch {}",
+                "stale lane generation: expected lane {}, plan primary {}, retriever {}, batch descriptor {}, batch {}",
+                expected_generation,
                 plan.index_generation,
                 descriptor.generation,
                 batch_descriptor_generation,
@@ -92,11 +108,11 @@ pub(super) async fn collect_batches(
     for (index, retriever) in retrievers.iter().enumerate() {
         let descriptor = retriever.descriptor();
         let generation = descriptor.generation;
-        if generation != plan.index_generation {
+        if !lane_generation_is_current(&descriptor, plan) {
             completed[index] = Some((
                 descriptor,
                 Err(RetrievalError::Internal(format!(
-                    "stale retriever generation: expected {}, got {}",
+                    "stale retriever generation: expected primary {}, got {}",
                     plan.index_generation, generation
                 ))),
             ));
@@ -120,7 +136,7 @@ pub(super) async fn collect_batches(
         let request = CandidateRequest {
             plan: plan.clone(),
             query: query.clone(),
-            expected_generation: plan.index_generation,
+            expected_generation: generation,
         };
         let semaphore = Arc::clone(&semaphore);
         tasks.spawn(async move {

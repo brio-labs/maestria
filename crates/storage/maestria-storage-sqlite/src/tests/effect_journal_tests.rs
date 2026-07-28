@@ -86,6 +86,43 @@ fn journal_intent_supersedes_in_flight() -> Result<(), Box<dyn std::error::Error
 }
 
 #[test]
+fn journal_intent_supersedes_feedback_accepted() -> Result<(), Box<dyn std::error::Error>> {
+    let store = SqliteStore::in_memory()?;
+    let run_id = HarnessRunId::new(11);
+    let scope_id = ScopeId::new(1);
+
+    let intent1 = EffectJournalIntent {
+        run_id,
+        task_id: None,
+        capability: "test".to_string(),
+        command: "cmd1".to_string(),
+        scope_id,
+        requested_generation: None,
+    };
+    let entry1 = store.record_intent(intent1)?;
+    assert_eq!(entry1.generation, 1);
+    store.claim_feedback(run_id, entry1.generation)?;
+
+    let intent2 = EffectJournalIntent {
+        run_id,
+        task_id: None,
+        capability: "test".to_string(),
+        command: "cmd2".to_string(),
+        scope_id,
+        requested_generation: None,
+    };
+    let entry2 = store.record_intent(intent2)?;
+    assert_eq!(entry2.generation, 2);
+
+    assert!(!store.is_current(run_id, entry1.generation)?);
+    let in_flight = store.scan_in_flight()?;
+    assert_eq!(in_flight.len(), 1);
+    assert_eq!(in_flight[0].generation, entry2.generation);
+    assert!(store.is_current(run_id, entry2.generation)?);
+    Ok(())
+}
+
+#[test]
 fn journal_started_requires_intent() -> Result<(), Box<dyn std::error::Error>> {
     let store = SqliteStore::in_memory()?;
     let run_id = HarnessRunId::new(99);

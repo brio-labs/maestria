@@ -4,8 +4,8 @@ use maestria_domain::{
     SearchStatus, SearchTraceId,
 };
 use maestria_retrieval::{
-    CandidateRetriever, FixedKRrf, RetrievalEngine, RetrievalError, RetrievalEvaluator,
-    RetrievalResult,
+    CandidateRetriever, FixedKRrf, HybridExecutionPolicy, HybridPromotionRecord, RetrievalEngine,
+    RetrievalError, RetrievalEvaluator, RetrievalResult,
     golden::Metric,
     repository_benchmark::{
         MeasurementStatus, RepositoryBenchmarkComparison, RepositoryBenchmarkCorpus,
@@ -180,6 +180,44 @@ impl CandidateRetriever for StaleGenerationLane {
         Err(RetrievalError::Internal(
             "stale lane should not be dispatched".to_string(),
         ))
+    }
+}
+
+struct SpecializedGenerationLane {
+    calls: Arc<AtomicUsize>,
+    candidate: EvidenceCandidate,
+}
+
+#[async_trait]
+impl CandidateRetriever for SpecializedGenerationLane {
+    fn descriptor(&self) -> maestria_retrieval::types::RetrieverDescriptor {
+        maestria_retrieval::types::RetrieverDescriptor {
+            id: "dense_chunks".to_string(),
+            modality: "dense".to_string(),
+            representation: maestria_domain::RepresentationName::new("dense_text_v1"),
+            generation: IndexGenerationId::new(2),
+        }
+    }
+
+    async fn retrieve(
+        &self,
+        request: maestria_retrieval::types::CandidateRequest,
+    ) -> Result<maestria_retrieval::types::CandidateBatch, RetrievalError> {
+        let descriptor = self.descriptor();
+        if request.expected_generation != descriptor.generation {
+            return Err(RetrievalError::Internal(
+                "specialized lane received the wrong generation".to_string(),
+            ));
+        }
+        self.calls.fetch_add(1, Ordering::SeqCst);
+        Ok(maestria_retrieval::types::CandidateBatch {
+            descriptor,
+            query: request.query.q,
+            candidates: vec![self.candidate.clone()],
+            status: maestria_domain::SearchLaneStatus::Succeeded,
+            generation: Some(IndexGenerationId::new(2)),
+            bytes_read: 0,
+        })
     }
 }
 
@@ -396,6 +434,77 @@ async fn stale_generation_lane_is_rejected_before_dispatch() -> RetrievalResult<
         trace.stop_reason,
         maestria_domain::SearchStopReason::NoEvidence
     );
+    Ok(())
+}
+
+#[tokio::test]
+async fn specialized_generation_is_served_while_primary_stale_lane_is_rejected()
+-> RetrievalResult<()> {
+    let plan = dummy_plan()?;
+    let specialized_calls = Arc::new(AtomicUsize::new(0));
+    let stale_calls = Arc::new(AtomicUsize::new(0));
+    let promotion =
+        HybridPromotionRecord::new("dense-generation-test".to_string(), "test".to_string())
+            .ok_or_else(|| {
+                RetrievalError::Internal("invalid hybrid promotion fixture".to_string())
+            })?;
+    let engine = RetrievalEngine::new(
+        vec![
+            Arc::new(SpecializedGenerationLane {
+                calls: Arc::clone(&specialized_calls),
+                candidate: candidate_fixture()?,
+            }),
+            Arc::new(StaleGenerationLane {
+                calls: Arc::clone(&stale_calls),
+            }),
+        ],
+        Arc::new(AsyncEvaluator),
+        maestria_governance::RetrievalSecurityPolicy::new()
+            .require_read_allowed(true)
+            .allow_unscoped_items(true),
+    )
+    .with_hybrid_policy(HybridExecutionPolicy::Active(promotion))
+    .with_fusion(Arc::new(FixedKRrf::new(60)))
+    .with_capabilities(
+        maestria_governance::SearchCapabilities::core_defaults(
+            maestria_domain::CorpusSnapshotId::new(1),
+            maestria_domain::IndexGenerationId::new(1),
+            (1_000, 30_000),
+        )
+        .with_generation(maestria_domain::IndexGenerationId::new(2)),
+    );
+
+    let outcome = engine.search(&plan).await?;
+    assert_eq!(specialized_calls.load(Ordering::SeqCst), 1);
+    assert_eq!(stale_calls.load(Ordering::SeqCst), 0);
+    assert_eq!(outcome.evidence.len(), 1);
+    let trace = outcome
+        .trace_data
+        .ok_or(RetrievalError::Internal("missing search trace".into()))?;
+    let specialized = trace
+        .lanes
+        .iter()
+        .find(|lane| lane.retriever_id == "dense_chunks")
+        .ok_or(RetrievalError::Internal(
+            "missing specialized lane trace".into(),
+        ))?;
+    assert_eq!(specialized.generation, Some(IndexGenerationId::new(2)));
+    assert_eq!(specialized.candidates.len(), 1);
+    assert!(matches!(
+        specialized.status,
+        maestria_domain::SearchLaneStatus::Succeeded
+    ));
+    let stale = trace
+        .lanes
+        .iter()
+        .find(|lane| lane.retriever_id == "stale")
+        .ok_or(RetrievalError::Internal("missing stale lane trace".into()))?;
+    assert_eq!(stale.generation, Some(IndexGenerationId::new(2)));
+    assert!(stale.candidates.is_empty());
+    assert!(matches!(
+        stale.status,
+        maestria_domain::SearchLaneStatus::Failed { .. }
+    ));
     Ok(())
 }
 
