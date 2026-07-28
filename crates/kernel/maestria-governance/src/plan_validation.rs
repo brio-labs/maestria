@@ -295,7 +295,8 @@ impl SearchPlanValidator {
     ) -> Result<(), SearchPlanValidationError> {
         match &plan.scope {
             CorpusScope::Global
-                if !capabilities.global_scope
+                if policy.required_scope_id.is_some()
+                    || !capabilities.global_scope
                     || capabilities
                         .allowed_scopes
                         .as_ref()
