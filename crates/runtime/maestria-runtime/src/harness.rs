@@ -132,13 +132,22 @@ impl EffectExecutionContext {
                     .effect_journal
                     .claim_feedback(request.run_id, generation)
                 {
-                    tracing::warn!(
+                    if error.is_not_found() {
+                        tracing::warn!(
+                            run_id = %request.run_id,
+                            %generation,
+                            %error,
+                            "harness feedback rejected as stale"
+                        );
+                        return true;
+                    }
+                    tracing::error!(
                         run_id = %request.run_id,
                         %generation,
                         %error,
-                        "harness feedback rejected as stale"
+                        "harness feedback claim failed"
                     );
-                    return true;
+                    return false;
                 }
 
                 let mut output = String::from_utf8_lossy(&outcome.stdout).into_owned();
@@ -174,11 +183,13 @@ impl EffectExecutionContext {
                 true
             }
             Err(error) => {
-                let _ = self.adapters.effect_journal.record_terminal(
+                if let Err(journal_error) = self.adapters.effect_journal.record_terminal(
                     request.run_id,
                     generation,
                     maestria_ports::EffectJournalStatus::Failed,
-                );
+                ) {
+                    tracing::error!(%journal_error, "failed to record harness terminal failure");
+                }
                 tracing::error!(run_id = %request.run_id, %error, "harness execution failed");
                 false
             }
