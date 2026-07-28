@@ -338,6 +338,7 @@ impl SearchRuntime {
         let mut engine = RetrievalEngine::new(
             retrievers,
             Arc::new(EvidenceOutcomeEvaluator::new(self.evidence.clone())),
+            self.retrieval_policy.clone(),
         )
         .with_fusion(Arc::new(FixedKRrf::new(60)));
         if let Some(reranker) = self.reranker.clone() {

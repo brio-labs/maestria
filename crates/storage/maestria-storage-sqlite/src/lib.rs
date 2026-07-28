@@ -12,11 +12,14 @@
 /// - `repositories`: module responsibility.
 /// - `schema`: module responsibility.
 /// - `schema_validation`: module responsibility.
+use std::collections::BTreeSet;
+
+use maestria_domain::{CardId, ChunkId, EvidenceId};
 use maestria_ports::PortError;
 use maestria_ports::{
     EffectJournal, EffectJournalEntry, EffectJournalIntent, EffectJournalStatus, HarnessRunId,
 };
-use rusqlite::{Connection, Error, ErrorCode};
+use rusqlite::{Connection, Error, ErrorCode, Transaction, params};
 
 mod events;
 mod id_allocator;
@@ -62,6 +65,40 @@ impl SqliteStore {
         })
     }
 
+    /// Remove child projection rows whose IDs are absent from replayed state.
+    ///
+    /// The operation runs in one SQLite transaction and only deletes IDs not
+    /// present in the typed keep sets. Entity upserts happen separately in the
+    /// daemon after this cleanup, so missing valid rows are still repaired.
+    pub fn remove_stale_projection_children(
+        &self,
+        chunk_ids: &BTreeSet<ChunkId>,
+        card_ids: &BTreeSet<CardId>,
+        evidence_ids: &BTreeSet<EvidenceId>,
+    ) -> Result<(), PortError> {
+        let mut connection = self.lock()?;
+        let transaction = connection.transaction().map_err(to_port_error)?;
+        remove_stale_projection_rows(
+            &transaction,
+            "SELECT id FROM chunks",
+            "DELETE FROM chunks WHERE id = ?1",
+            chunk_ids.iter().map(|id| id.value()),
+        )?;
+        remove_stale_projection_rows(
+            &transaction,
+            "SELECT id FROM cards",
+            "DELETE FROM cards WHERE id = ?1",
+            card_ids.iter().map(|id| id.value()),
+        )?;
+        remove_stale_projection_rows(
+            &transaction,
+            "SELECT id FROM evidence",
+            "DELETE FROM evidence WHERE id = ?1",
+            evidence_ids.iter().map(|id| id.value()),
+        )?;
+        transaction.commit().map_err(to_port_error)
+    }
+
     fn lock(&self) -> Result<std::sync::MutexGuard<'_, Connection>, PortError> {
         self.connection
             .lock()
@@ -70,6 +107,33 @@ impl SqliteStore {
                 source: "connection mutex is poisoned".to_string(),
             })
     }
+}
+
+fn remove_stale_projection_rows(
+    transaction: &Transaction<'_>,
+    select_sql: &'static str,
+    delete_sql: &'static str,
+    keep_ids: impl Iterator<Item = u64>,
+) -> Result<(), PortError> {
+    let keep_ids = keep_ids.collect::<BTreeSet<_>>();
+    let mut statement = transaction.prepare(select_sql).map_err(to_port_error)?;
+    let mut rows = statement.query([]).map_err(to_port_error)?;
+    let mut stale_ids = Vec::new();
+    while let Some(row) = rows.next().map_err(to_port_error)? {
+        let stored_id = row.get::<_, i64>(0).map_err(to_port_error)?;
+        if !keep_ids.contains(&i64_to_u64(stored_id)?) {
+            stale_ids.push(stored_id);
+        }
+    }
+    drop(rows);
+    drop(statement);
+
+    for stale_id in stale_ids {
+        transaction
+            .execute(delete_sql, params![stale_id])
+            .map_err(to_port_error)?;
+    }
+    Ok(())
 }
 
 impl EffectJournal for SqliteStore {

@@ -1,3 +1,4 @@
+use std::cell::Cell;
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -70,10 +71,22 @@ impl CandidateRetriever for LexicalChunkRetriever {
                 self.descriptor.generation,
             ));
         }
+        let filter_error = Cell::new(None);
         let hits = self
             .index
-            .search(request.query.clone())
+            .search_filtered(request.query.clone(), &|chunk_id, artifact_id| match self
+                .prefilter_hit(chunk_id, artifact_id)
+            {
+                Ok(allowed) => allowed,
+                Err(error) => {
+                    filter_error.set(Some(error));
+                    false
+                }
+            })
             .map_err(port_error)?;
+        if let Some(error) = filter_error.take() {
+            return Err(port_error(error));
+        }
         let mut candidates = Vec::with_capacity(hits.len());
         let mut bytes_read = 0_u64;
         for (raw_rank, hit) in hits.into_iter().enumerate() {
@@ -97,6 +110,7 @@ impl CandidateRetriever for LexicalChunkRetriever {
         } else {
             SearchLaneStatus::Succeeded
         };
+
         Ok(CandidateBatch {
             descriptor: self.descriptor.clone(),
             query: request.query.q,
@@ -105,6 +119,36 @@ impl CandidateRetriever for LexicalChunkRetriever {
             generation: Some(self.descriptor.generation),
             bytes_read,
         })
+    }
+}
+impl LexicalChunkRetriever {
+    fn prefilter_hit(
+        &self,
+        chunk_id: maestria_domain::ChunkId,
+        artifact_id: maestria_domain::ArtifactId,
+    ) -> Result<bool, maestria_ports::PortError> {
+        let Some(artifact) = self.artifacts.get(artifact_id)? else {
+            return Ok(false);
+        };
+        if artifact.index_status != IndexStatus::Indexed
+            || self.policy.evaluate(&artifact.security) != RetrievalDecision::Allowed
+        {
+            return Ok(false);
+        }
+        let Some(chunk) = self.chunks.get(chunk_id)? else {
+            return Ok(false);
+        };
+        if chunk.artifact_id != artifact.id || !scan_secrets(&chunk.text).is_clean() {
+            return Ok(false);
+        }
+        let evidence_id = maestria_domain::evidence_id_for(chunk.artifact_id, chunk.order);
+        let Some(evidence) = self.evidence.get(evidence_id)? else {
+            return Ok(false);
+        };
+        Ok(
+            self.policy.evaluate(&evidence.security) == RetrievalDecision::Allowed
+                && scan_secrets(&evidence.excerpt).is_clean(),
+        )
     }
 }
 
@@ -154,5 +198,50 @@ impl LexicalChunkRetriever {
             vec![maestria_domain::RetrievalReason::LexicalMatch],
         )
         .map(Some)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::adapters::filtered_test_support::{FilteredFullTextSpy, denied_artifact, request};
+    use crate::traits::CandidateRetriever;
+    use maestria_domain::{ArtifactId, ChunkId, SearchIntent};
+    use maestria_ports::{
+        InMemoryArtifactRepository, InMemoryBlobStore, InMemoryChunkRepository,
+        InMemoryEvidenceRepository,
+    };
+
+    #[tokio::test]
+    async fn denied_lexical_candidates_are_filtered_before_scoring()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let generation = IndexGenerationId::new(1);
+        let artifact_id = ArtifactId::new(7);
+        let index = Arc::new(FilteredFullTextSpy::new(
+            ChunkId::new(11),
+            maestria_domain::CardId::new(12),
+            artifact_id,
+        ));
+        let artifacts = InMemoryArtifactRepository::new();
+        artifacts.put(denied_artifact(artifact_id))?;
+        let retriever = LexicalChunkRetriever::new(
+            LexicalChunkRetrieverParts {
+                index: index.clone(),
+                artifacts: Arc::new(artifacts),
+                chunks: Arc::new(InMemoryChunkRepository::new()),
+                evidence: Arc::new(InMemoryEvidenceRepository::new()),
+                blobs: Arc::new(InMemoryBlobStore::new()),
+            },
+            RetrievalSecurityPolicy::default(),
+            generation,
+        );
+
+        let batch = retriever
+            .retrieve(request(SearchIntent::FactualLocal, generation)?)
+            .await?;
+        assert_eq!(index.chunk_filter_calls(), 1);
+        assert_eq!(index.chunk_score_calls(), 0);
+        assert!(batch.candidates.is_empty());
+        Ok(())
     }
 }

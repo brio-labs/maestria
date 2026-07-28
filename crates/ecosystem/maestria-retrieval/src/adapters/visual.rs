@@ -1,3 +1,4 @@
+use std::cell::Cell;
 use std::sync::Arc;
 
 use super::common::{
@@ -170,6 +171,39 @@ impl VisualPageRegionRetriever {
         .map(Some)
     }
 
+    fn prefilter_hit(
+        &self,
+        chunk_id: maestria_domain::ChunkId,
+    ) -> Result<bool, maestria_ports::PortError> {
+        let Some(chunk) = self.chunks.get(chunk_id)? else {
+            return Ok(false);
+        };
+        if !matches!(
+            &chunk.source_span,
+            SourceSpan::PdfSpan { .. } | SourceSpan::PdfRegion { .. }
+        ) {
+            return Ok(false);
+        }
+        let Some(artifact) = self.artifacts.get(chunk.artifact_id)? else {
+            return Ok(false);
+        };
+        if artifact.index_status != IndexStatus::Indexed
+            || self.policy.evaluate(&artifact.security) != RetrievalDecision::Allowed
+            || !scan_secrets(&chunk.text).is_clean()
+        {
+            return Ok(false);
+        }
+        let evidence_id = maestria_domain::evidence_id_for(chunk.artifact_id, chunk.order);
+        let Some(evidence) = self.evidence.get(evidence_id)? else {
+            return Ok(false);
+        };
+        Ok(matches!(
+            evidence.kind,
+            EvidenceKind::PdfSpan { .. } | EvidenceKind::PdfRegion { .. }
+        ) && self.policy.evaluate(&evidence.security) == RetrievalDecision::Allowed
+            && scan_secrets(&evidence.excerpt).is_clean())
+    }
+
     fn retrieve_with_vector(
         &self,
         vector: VectorSearchQuery,
@@ -182,7 +216,20 @@ impl VisualPageRegionRetriever {
                 self.descriptor.generation,
             ));
         }
-        let hits = self.index.search_similar(vector).map_err(port_error)?;
+        let filter_error = Cell::new(None);
+        let hits = self
+            .index
+            .search_similar_filtered(vector, &|chunk_id| match self.prefilter_hit(chunk_id) {
+                Ok(allowed) => allowed,
+                Err(error) => {
+                    filter_error.set(Some(error));
+                    false
+                }
+            })
+            .map_err(port_error)?;
+        if let Some(error) = filter_error.take() {
+            return Err(port_error(error));
+        }
         let mut candidates = Vec::with_capacity(request.query.limit.min(hits.len()));
         for (index, hit) in hits.into_iter().enumerate() {
             let raw_rank = one_based_rank(index);

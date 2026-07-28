@@ -6,7 +6,6 @@ use maestria_graph_sqlite::SqliteGraphIndex;
 use maestria_ports::{EventFilter, EventLog};
 use maestria_storage_sqlite::SqliteStore;
 use std::collections::BTreeMap;
-use std::sync::Arc;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
@@ -28,10 +27,11 @@ pub struct RecoveryQueue {
 
 /// Owns instance locking, startup recovery, runtime execution, and shutdown.
 pub struct InstanceLifecycle {
+    state: KernelState,
     layout: InstanceLayout,
     manifest: InstanceManifest,
-    state: KernelState,
     recovery: Option<RecoveryInputs>,
+    recovery_queue: Option<RecoveryQueue>,
     paused_effects: usize,
     input_tx: mpsc::Sender<DomainInput>,
     shutdown_token: CancellationToken,
@@ -84,6 +84,10 @@ impl InstanceLifecycle {
             .with_context(|| "validate recovery scope against instance manifest")?;
         verify_pending_blobs(&layout, &diagnostics.inputs.resume_parsers)
             .with_context(|| "verify pending parser blobs for resume")?;
+        let recovery_queue = RecoveryQueue {
+            artifact_ids: recovery_artifact_ids(&diagnostics.inputs),
+            validation_task_ids: validation_task_ids(&diagnostics.inputs),
+        };
 
         let (runtime, input_tx, input_rx, shutdown_token) =
             build_runtime(&layout, state.clone(), profile)?;
@@ -98,6 +102,7 @@ impl InstanceLifecycle {
             layout,
             state,
             recovery: Some(diagnostics.inputs),
+            recovery_queue: Some(recovery_queue),
             paused_effects: diagnostics.paused_effects.len(),
             manifest,
             input_tx,
@@ -137,40 +142,43 @@ impl InstanceLifecycle {
 
     /// Queue recovery in dependency order: parsers, full-text, then validation.
     ///
-    /// # Cancellation
-    /// If the future is dropped between sends, recovery may be partially queued. Because the
-    /// recovery inputs are consumed at the start, a cancelled call cannot be retried.
+    /// A failed or cancelled queue attempt leaves every input not yet accepted by the channel in
+    /// `self.recovery`, so callers can retry without losing or duplicating work.
     pub async fn queue_recovery(&mut self) -> Result<RecoveryQueue> {
-        let recovery = self
-            .recovery
-            .take()
+        let recovery_queue = self
+            .recovery_queue
+            .as_ref()
+            .cloned()
             .ok_or_else(|| anyhow!("recovery inputs already queued"))?;
-        let artifact_ids = recovery_artifact_ids(&recovery);
-        let validation_task_ids = validation_task_ids(&recovery);
+        {
+            let recovery = self
+                .recovery
+                .as_mut()
+                .ok_or_else(|| anyhow!("recovery inputs already queued"))?;
 
-        for input in recovery.resume_parsers {
-            self.input_tx
-                .send(input)
-                .await
-                .context("failed to queue resume parser")?;
-        }
-        for input in recovery.start_full_text {
-            self.input_tx
-                .send(input)
-                .await
-                .context("failed to queue restart full-text index")?;
-        }
-        for input in recovery.run_validations {
-            self.input_tx
-                .send(input)
-                .await
-                .context("failed to queue task validation")?;
+            queue_recovery_inputs(
+                &self.input_tx,
+                &mut recovery.resume_parsers,
+                RecoveryQueueStage::ResumeParser,
+            )
+            .await?;
+            queue_recovery_inputs(
+                &self.input_tx,
+                &mut recovery.start_full_text,
+                RecoveryQueueStage::FullText,
+            )
+            .await?;
+            queue_recovery_inputs(
+                &self.input_tx,
+                &mut recovery.run_validations,
+                RecoveryQueueStage::Validation,
+            )
+            .await?;
         }
 
-        Ok(RecoveryQueue {
-            artifact_ids,
-            validation_task_ids,
-        })
+        self.recovery = None;
+        self.recovery_queue = None;
+        Ok(recovery_queue)
     }
 
     /// Signal shutdown and await the runtime and watcher tasks.
@@ -231,6 +239,47 @@ impl InstanceLifecycle {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+enum RecoveryQueueStage {
+    ResumeParser,
+    FullText,
+    Validation,
+}
+
+impl std::fmt::Display for RecoveryQueueStage {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let label = match self {
+            Self::ResumeParser => "resume parser",
+            Self::FullText => "restart full-text index",
+            Self::Validation => "task validation",
+        };
+        formatter.write_str(label)
+    }
+}
+
+async fn queue_recovery_inputs(
+    input_tx: &mpsc::Sender<DomainInput>,
+    inputs: &mut Vec<DomainInput>,
+    stage: RecoveryQueueStage,
+) -> Result<()> {
+    while !inputs.is_empty() {
+        // Reserve before removing the input. `reserve` is cancellation safe, while removing
+        // first and awaiting `send` would lose that input if the queue operation is dropped.
+        let permit = input_tx
+            .reserve()
+            .await
+            .with_context(|| format!("failed to queue {stage} recovery input"))?;
+        if input_tx.is_closed() {
+            return Err(anyhow!(
+                "failed to queue {stage} recovery input: channel closed"
+            ));
+        }
+        let input = inputs.remove(0);
+        permit.send(input);
+    }
+    Ok(())
+}
+
 fn source_artifact_ids(store: &SqliteStore) -> Result<BTreeMap<String, (ArtifactId, String)>> {
     let mut identities = BTreeMap::new();
     for envelope in store.scan(EventFilter { artifact_id: None })? {
@@ -282,57 +331,6 @@ fn validation_task_ids(recovery: &RecoveryInputs) -> Vec<TaskId> {
         .collect()
 }
 
-pub async fn run_instance(instance_dir: std::path::PathBuf) -> Result<()> {
-    let shutdown = CancellationToken::new();
-    let signal_shutdown = shutdown.clone();
-    let signal_task = tokio::spawn(async move {
-        if tokio::signal::ctrl_c().await.is_ok() {
-            signal_shutdown.cancel();
-        }
-    });
-    let result = run_instance_with_shutdown(instance_dir, shutdown).await;
-    signal_task.abort();
-    result
-}
-
-pub async fn run_instance_with_shutdown(
-    instance_dir: std::path::PathBuf,
-    shutdown: CancellationToken,
-) -> Result<()> {
-    let layout =
-        crate::prepare_instance(instance_dir).with_context(|| "prepare instance layout")?;
-    let lifecycle = InstanceLifecycle::start(layout.clone(), AutonomyProfile::ReadOnly).await?;
-    let input_tx = lifecycle.input_sender();
-
-    // Build adapters and governance for the model agent API endpoint.
-    let state =
-        crate::load_kernel_state(&layout).with_context(|| "load kernel state for api context")?;
-    let manifest_contents = std::fs::read_to_string(&layout.manifest_path)
-        .with_context(|| format!("read instance manifest {}", layout.manifest_path.display()))?;
-    let manifest = maestria_core::InstanceManifest::decode(&manifest_contents)
-        .map_err(|error| anyhow!("parse instance manifest: {error}"))?;
-    let adapters = Arc::new(
-        crate::build_adapters(
-            &layout,
-            &state,
-            &manifest,
-            None,
-            maestria_retrieval::RepositoryExecutionPolicy::Shadow,
-            true,
-        )
-        .with_context(|| "build api adapters")?,
-    );
-    let governance = Arc::new(maestria_runtime::Governance {
-        classifier: Arc::new(maestria_governance::DefaultRiskClassifier),
-        approval_gate: Arc::new(maestria_governance::DefaultApprovalGate),
-        validation_gate: Arc::new(maestria_governance::DefaultValidationGate::new(true)),
-        memory_promotion_gate: Arc::new(maestria_governance::DefaultMemoryPromotionGate),
-    });
-
-    let api = crate::ApiServer::start(layout, input_tx, adapters, governance).await?;
-    println!("daemon_api_socket={}", api.socket_path().display());
-    let lifecycle_result = lifecycle.run_until_shutdown(shutdown).await;
-    let api_result = api.shutdown().await;
-    lifecycle_result?;
-    api_result
-}
+#[cfg(test)]
+#[path = "lifecycle_tests.rs"]
+mod tests;

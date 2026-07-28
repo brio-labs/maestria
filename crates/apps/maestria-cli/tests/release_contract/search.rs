@@ -136,7 +136,7 @@ fn prompt_injection_search_is_quarantined_and_trace_refuses_candidates()
             "explain output missing quarantine status for `{query}`: {explained}"
         );
         assert!(
-            explained.contains("filters=[PromptInjection]"),
+            explained.contains("PromptInjection"),
             "explain output missing injection filter for `{query}`: {explained}"
         );
         assert!(

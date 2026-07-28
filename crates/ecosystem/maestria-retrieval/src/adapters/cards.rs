@@ -1,3 +1,4 @@
+use std::cell::Cell;
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -63,7 +64,7 @@ impl CardRetriever {
         &self,
         query: SearchQuery,
     ) -> Result<Vec<maestria_ports::CardHit>, RetrievalError> {
-        let hits = self.index.search_cards(query).map_err(port_error)?;
+        let hits = self.filtered_hits(query)?;
         let mut allowed = Vec::with_capacity(hits.len());
         for (raw_rank, hit) in hits.into_iter().enumerate() {
             if self
@@ -74,6 +75,69 @@ impl CardRetriever {
             }
         }
         Ok(allowed)
+    }
+
+    fn filtered_hits(
+        &self,
+        query: SearchQuery,
+    ) -> Result<Vec<maestria_ports::CardHit>, RetrievalError> {
+        let filter_error = Cell::new(None);
+        let hits = self
+            .index
+            .search_cards_filtered(query, &|card_id, artifact_id| match self
+                .prefilter_hit(card_id, artifact_id)
+            {
+                Ok(allowed) => allowed,
+                Err(error) => {
+                    filter_error.set(Some(error));
+                    false
+                }
+            })
+            .map_err(port_error)?;
+        if let Some(error) = filter_error.take() {
+            return Err(port_error(error));
+        }
+        Ok(hits)
+    }
+
+    fn prefilter_hit(
+        &self,
+        card_id: maestria_domain::CardId,
+        artifact_id: maestria_domain::ArtifactId,
+    ) -> Result<bool, maestria_ports::PortError> {
+        let Some(artifact) = self.artifacts.get(artifact_id)? else {
+            return Ok(false);
+        };
+        let Some(card) = self.cards.get(card_id)? else {
+            return Ok(false);
+        };
+        if card.artifact_id != artifact.id
+            || artifact.index_status != IndexStatus::Indexed
+            || self.policy.evaluate(&artifact.security) != RetrievalDecision::Allowed
+            || self.policy.evaluate(&card.security) != RetrievalDecision::Allowed
+            || !scan_secrets(&card.body).is_clean()
+        {
+            return Ok(false);
+        }
+        let mut chunks = self.chunks.list_for_artifact(card.artifact_id)?;
+        chunks.sort_by_key(|chunk| (chunk.order, chunk.id));
+        let Some(chunk) = chunks
+            .into_iter()
+            .find(|chunk| chunk.node_id == card.node_id)
+        else {
+            return Ok(false);
+        };
+        if !scan_secrets(&chunk.text).is_clean() {
+            return Ok(false);
+        }
+        let evidence_id = maestria_domain::evidence_id_for(chunk.artifact_id, chunk.order);
+        let Some(evidence) = self.evidence.get(evidence_id)? else {
+            return Ok(false);
+        };
+        Ok(
+            self.policy.evaluate(&evidence.security) == RetrievalDecision::Allowed
+                && scan_secrets(&evidence.excerpt).is_clean(),
+        )
     }
 
     fn candidate_from_hit(
@@ -147,10 +211,7 @@ impl CandidateRetriever for CardRetriever {
                 self.descriptor.generation,
             ));
         }
-        let hits = self
-            .index
-            .search_cards(request.query.clone())
-            .map_err(port_error)?;
+        let hits = self.filtered_hits(request.query.clone())?;
         let mut bytes_read = 0_u64;
         let mut candidates = Vec::with_capacity(hits.len());
         for (raw_rank, hit) in hits.into_iter().enumerate() {
@@ -177,5 +238,51 @@ impl CandidateRetriever for CardRetriever {
             candidates,
             bytes_read,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::adapters::filtered_test_support::{FilteredFullTextSpy, denied_artifact, request};
+    use crate::traits::CandidateRetriever;
+    use maestria_domain::{ArtifactId, CardId, ChunkId, SearchIntent};
+    use maestria_ports::{
+        InMemoryArtifactRepository, InMemoryBlobStore, InMemoryCardRepository,
+        InMemoryChunkRepository, InMemoryEvidenceRepository,
+    };
+
+    #[tokio::test]
+    async fn denied_card_candidates_are_filtered_before_scoring()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let generation = IndexGenerationId::new(1);
+        let artifact_id = ArtifactId::new(7);
+        let index = Arc::new(FilteredFullTextSpy::new(
+            ChunkId::new(11),
+            CardId::new(12),
+            artifact_id,
+        ));
+        let artifacts = InMemoryArtifactRepository::new();
+        artifacts.put(denied_artifact(artifact_id))?;
+        let retriever = CardRetriever::new(
+            CardRetrieverParts {
+                index: index.clone(),
+                artifacts: Arc::new(artifacts),
+                cards: Arc::new(InMemoryCardRepository::new()),
+                chunks: Arc::new(InMemoryChunkRepository::new()),
+                evidence: Arc::new(InMemoryEvidenceRepository::new()),
+                blobs: Arc::new(InMemoryBlobStore::new()),
+            },
+            RetrievalSecurityPolicy::default(),
+            generation,
+        );
+
+        let batch = retriever
+            .retrieve(request(SearchIntent::FactualLocal, generation)?)
+            .await?;
+        assert_eq!(index.card_filter_calls(), 1);
+        assert_eq!(index.card_score_calls(), 0);
+        assert!(batch.candidates.is_empty());
+        Ok(())
     }
 }

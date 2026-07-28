@@ -1,6 +1,6 @@
 use maestria_domain::{
     CorpusSnapshotId, EvidenceCoverage, IndexGenerationId, RetrievalModelFingerprint,
-    SearchOutcome, SearchPlan, SearchStatus, SearchStopReason, SearchTrace, SearchTraceFilter,
+    SearchOutcome, SearchPlan, SearchStatus, SearchStopReason, SearchTrace,
 };
 use maestria_ports::SearchQuery;
 use std::sync::Arc;
@@ -46,7 +46,9 @@ pub(crate) fn rewrite_session(plan: &SearchPlan) -> crate::rewrite::QueryRewrite
 
 #[path = "engine_trace.rs"]
 mod engine_trace;
-pub(super) use engine_trace::{EnsureTraceOptions, ensure_trace};
+pub(super) use engine_trace::{
+    EnsureTraceOptions, applied_security_filters, ensure_trace, security_policy_fingerprint,
+};
 
 /// Runtime inputs used to build a deterministic search plan.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -64,6 +66,7 @@ pub struct RetrievalEngine {
     expander: Option<Arc<dyn ContextExpander>>,
     evaluator: Arc<dyn RetrievalEvaluator>,
     capabilities: maestria_governance::SearchCapabilities,
+    security_policy: maestria_governance::RetrievalSecurityPolicy,
     hybrid_policy: crate::types::HybridExecutionPolicy,
     learned_sparse_execution_policy: crate::learned_sparse_policy::LearnedSparseExecutionPolicy,
     learned_sparse_shadow_store: learned_sparse_shadow::LearnedSparseShadowStore,
@@ -79,8 +82,11 @@ impl RetrievalEngine {
             .capabilities
             .clone()
             .with_snapshot(plan.corpus_snapshot);
-        let policy = maestria_governance::RetrievalSecurityPolicy::default();
-        match maestria_governance::SearchPlanValidator::validate(plan, &capabilities, &policy) {
+        match maestria_governance::SearchPlanValidator::validate(
+            plan,
+            &capabilities,
+            &self.security_policy,
+        ) {
             Ok(()) => Ok(()),
             Err(maestria_governance::SearchPlanValidationError::IntentMismatch {
                 declared: maestria_domain::SearchIntent::FactualLocal,
@@ -91,7 +97,7 @@ impl RetrievalEngine {
                 maestria_governance::SearchPlanValidator::validate(
                     &fallback_plan,
                     &capabilities,
-                    &policy,
+                    &self.security_policy,
                 )
                 .map_err(RetrievalError::SearchPlan)
             }
@@ -102,6 +108,7 @@ impl RetrievalEngine {
     pub fn new(
         retrievers: Vec<Arc<dyn CandidateRetriever>>,
         evaluator: Arc<dyn RetrievalEvaluator>,
+        security_policy: maestria_governance::RetrievalSecurityPolicy,
     ) -> Self {
         let capabilities = engine_capabilities::capabilities_from_retrievers(&retrievers);
         Self {
@@ -112,6 +119,7 @@ impl RetrievalEngine {
             expander: None,
             evaluator,
             capabilities,
+            security_policy,
             hybrid_policy: crate::types::HybridExecutionPolicy::Shadow,
             learned_sparse_execution_policy:
                 crate::learned_sparse_policy::LearnedSparseExecutionPolicy::Shadow,
@@ -299,11 +307,12 @@ impl RetrievalEngine {
             plan,
             retriever_ids,
             &[],
-            vec![SearchTraceFilter::PromptInjection],
+            applied_security_filters(plan, &self.security_policy),
             self.fusion.as_ref().map(|_| "configured".to_string()),
             Vec::new(),
             SearchStopReason::PolicyDenied,
-        );
+        )
+        .with_policy_fingerprint(security_policy_fingerprint(&self.security_policy));
         SearchOutcome {
             trace: trace.deterministic_id(),
             trace_data: Some(Box::new(trace)),
@@ -336,10 +345,7 @@ impl RetrievalEngine {
             ),
             ..maestria_domain::SecurityMetadata::default()
         };
-        let decision = maestria_governance::RetrievalSecurityPolicy::new()
-            .require_read_allowed(true)
-            .allow_unscoped_items(true)
-            .evaluate(&metadata);
+        let decision = self.security_policy.evaluate(&metadata);
         if matches!(decision, maestria_governance::RetrievalDecision::Denied(_))
             && metadata.prompt_injection_risk
         {
@@ -384,6 +390,7 @@ impl RetrievalEngine {
             state.outcome,
             state.lanes,
             EnsureTraceOptions {
+                security_policy: self.security_policy.clone(),
                 fusion_enabled: self.fusion.is_some(),
                 expansion_enabled,
                 rerank_trace: state.rerank_trace,

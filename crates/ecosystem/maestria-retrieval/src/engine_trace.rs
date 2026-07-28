@@ -1,8 +1,52 @@
 use maestria_domain::{
-    SearchOutcome, SearchPlan, SearchStatus, SearchStopReason, SearchTrace, SearchTraceExpansion,
+    CorpusScope, FreshnessRequirement, SearchOutcome, SearchPlan, SearchStatus, SearchStopReason,
+    SearchTrace, SearchTraceExpansion, SearchTraceFilter,
 };
 
+/// Serializes the engine-owned retrieval security policy into the provenance format
+/// consumed by the retrieval security validator.
+pub(crate) fn security_policy_fingerprint(
+    policy: &maestria_governance::RetrievalSecurityPolicy,
+) -> String {
+    format!(
+        "trust={:?};sensitivity={:?};read_allowed={};scope={:?};unscoped={}",
+        policy.require_trust_zone,
+        policy.max_sensitivity,
+        policy.require_read_allowed,
+        policy.required_scope_id,
+        policy.allow_unscoped_items,
+    )
+}
+
+/// Lists every security filter enabled for a governed search trace.
+pub(crate) fn applied_security_filters(
+    plan: &SearchPlan,
+    policy: &maestria_governance::RetrievalSecurityPolicy,
+) -> Vec<SearchTraceFilter> {
+    let mut filters = vec![
+        SearchTraceFilter::Quarantine,
+        SearchTraceFilter::PromptInjection,
+    ];
+    if matches!(plan.scope, CorpusScope::Restricted(_)) || policy.required_scope_id.is_some() {
+        filters.push(SearchTraceFilter::Scope);
+    }
+    if policy.require_read_allowed {
+        filters.push(SearchTraceFilter::Acl);
+    }
+    if policy.require_trust_zone.is_some() {
+        filters.push(SearchTraceFilter::Trust);
+    }
+    if policy.max_sensitivity.is_some() {
+        filters.push(SearchTraceFilter::Sensitivity);
+    }
+    if !matches!(plan.freshness, FreshnessRequirement::Any) {
+        filters.push(SearchTraceFilter::Freshness);
+    }
+    filters
+}
+
 pub(crate) struct EnsureTraceOptions {
+    pub(crate) security_policy: maestria_governance::RetrievalSecurityPolicy,
     pub(crate) fusion_enabled: bool,
     pub(crate) expansion_enabled: bool,
     pub(crate) rerank_trace: Option<maestria_domain::SearchTraceRerank>,
@@ -16,6 +60,10 @@ pub(crate) struct EnsureTraceOptions {
 /// Derived from the plan, outcome, lanes, and `EnsureTraceOptions`. Every field
 /// is mirrored by a corresponding check in [`trace_matches_expected`].
 struct ExpectedTraceState {
+    /// Canonical fingerprint of the engine-owned retrieval security policy.
+    policy_fingerprint: String,
+    /// Security filters applied by the engine-owned retrieval policy.
+    filters: Vec<SearchTraceFilter>,
     /// Stop reason derived from the outcome status, explicit override, or result count.
     stop_reason: SearchStopReason,
     /// Fusion marker when fusion is enabled (`"configured"`).
@@ -44,6 +92,8 @@ fn compute_expected_trace_state(
     lanes: &[maestria_domain::SearchTraceLane],
     options: &EnsureTraceOptions,
 ) -> ExpectedTraceState {
+    let expected_policy_fingerprint = security_policy_fingerprint(&options.security_policy);
+    let expected_filters = applied_security_filters(plan, &options.security_policy);
     let expected_stop_reason = match options.explicit_stop_reason.clone() {
         Some(stop_reason) => stop_reason,
         None => match &outcome.status {
@@ -92,6 +142,8 @@ fn compute_expected_trace_state(
         (visual_plan_fallback || visual_lane_failed).then(|| "visual provider".to_string());
 
     ExpectedTraceState {
+        policy_fingerprint: expected_policy_fingerprint,
+        filters: expected_filters,
         stop_reason: expected_stop_reason,
         fusion: expected_fusion,
         expansions: expected_expansions,
@@ -116,6 +168,8 @@ fn trace_matches_expected(
 ) -> bool {
     outcome.trace == trace.deterministic_id()
         && trace.matches_plan(plan)
+        && trace.policy_fingerprint.as_deref() == Some(expected.policy_fingerprint.as_str())
+        && trace.filters == expected.filters
         && trace.degradation == expected.degradation
         && trace.unavailable_capability == expected.unavailable_capability
         && trace.retrievers
@@ -148,11 +202,12 @@ fn assemble_trace(
         plan,
         lanes.iter().map(|lane| lane.retriever_id.clone()).collect(),
         &outcome.evidence,
-        Vec::new(),
+        expected.filters.clone(),
         expected.fusion.clone(),
         expected.expansions.clone(),
         expected.stop_reason.clone(),
     )
+    .with_policy_fingerprint(expected.policy_fingerprint.clone())
     .with_lanes(lanes)
     .with_gaps_and_conflicts(
         outcome.coverage.gaps_identified.clone(),

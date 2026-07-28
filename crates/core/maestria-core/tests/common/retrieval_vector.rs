@@ -187,10 +187,8 @@ fn build_search_engine(
         context.primary_generation,
     )));
 
-    let engine = RetrievalEngine::new(
-        retrievers,
-        Arc::new(EvidenceOutcomeEvaluator::new(fixture.evidence.clone())),
-    )
+    let engine = RetrievalEngine::new(retrievers,
+    Arc::new(EvidenceOutcomeEvaluator::new(fixture.evidence.clone())), maestria_governance::RetrievalSecurityPolicy::default())
     .with_hybrid_policy(policy);
 
     Ok((engine, context, fixture))

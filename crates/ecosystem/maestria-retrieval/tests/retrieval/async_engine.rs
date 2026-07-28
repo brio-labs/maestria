@@ -137,6 +137,9 @@ async fn failed_lane_is_degraded_without_losing_successful_evidence() -> Retriev
             }),
         ],
         Arc::new(AsyncEvaluator),
+        maestria_governance::RetrievalSecurityPolicy::new()
+            .require_read_allowed(true)
+            .allow_unscoped_items(true),
     )
     .with_fusion(Arc::new(FixedKRrf::new(60)));
 
@@ -145,6 +148,18 @@ async fn failed_lane_is_degraded_without_losing_successful_evidence() -> Retriev
     let trace = outcome
         .trace_data
         .ok_or(RetrievalError::Internal("missing search trace".into()))?;
+    assert_eq!(
+        trace.policy_fingerprint.as_deref(),
+        Some("trust=None;sensitivity=None;read_allowed=true;scope=None;unscoped=true")
+    );
+    assert_eq!(
+        trace.filters,
+        vec![
+            maestria_domain::SearchTraceFilter::Quarantine,
+            maestria_domain::SearchTraceFilter::PromptInjection,
+            maestria_domain::SearchTraceFilter::Acl,
+        ]
+    );
     assert_eq!(
         trace
             .lanes
@@ -185,6 +200,7 @@ async fn web_budget_applies_across_deterministic_rewrites() -> RetrievalResult<(
             calls: Arc::clone(&calls),
         })],
         Arc::new(AsyncEvaluator),
+        maestria_governance::RetrievalSecurityPolicy::default(),
     );
 
     let outcome = engine.search(&plan).await?;

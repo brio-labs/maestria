@@ -1,6 +1,7 @@
 use crate::test_support::*;
 use maestria_domain::{
-    Artifact, ArtifactId, DomainInput, EvidenceKind, IndexStatus, LogicalTick, ParseArtifactRequest,
+    Artifact, ArtifactId, DomainInput, EvidenceKind, IndexStatus, LogicalTick,
+    ParseArtifactRequest, ParserStarted,
 };
 use maestria_ports::{
     ArtifactRepository, FileHandle, FileMetadata, InMemoryArtifactRepository, ParseContext,
@@ -346,6 +347,26 @@ async fn parse_artifact_repository_error_returns_failure() -> Result<(), Box<dyn
     Ok(())
 }
 
+struct MismatchedArtifactIdParser;
+
+impl Parser for MismatchedArtifactIdParser {
+    fn id(&self) -> &'static str {
+        "mismatched-artifact-id"
+    }
+
+    fn supports(&self, _file: &FileMetadata) -> bool {
+        true
+    }
+
+    fn parse(&self, file: FileHandle, context: ParseContext) -> Result<ParsedArtifact, PortError> {
+        let mismatched_artifact_id = ArtifactId::new(context.artifact_id.value() + 1);
+        let parsed = maestria_ports::InMemoryParser::new().parse(file, context)?;
+        Ok(ParsedArtifact {
+            artifact_id: mismatched_artifact_id,
+            ..parsed
+        })
+    }
+}
 struct MismatchedHashParser;
 
 impl Parser for MismatchedHashParser {
@@ -470,5 +491,134 @@ async fn parse_artifact_mismatched_content_hash_rejects_completion()
             "expected no further inputs after hash mismatch, got {unexpected:?}"
         )
         .into()),
+    }
+}
+
+#[tokio::test]
+async fn parse_artifact_mismatched_artifact_id_rejects_completion_and_index_inputs()
+-> Result<(), Box<dyn std::error::Error>> {
+    let artifact_id = ArtifactId::new(78);
+    let artifact_repo = InMemoryArtifactRepository::new();
+    artifact_repo.put(Artifact {
+        id: artifact_id,
+        title: "identity-mismatch-test".to_string(),
+        chunk_ids: BTreeSet::new(),
+        card_ids: BTreeSet::new(),
+        claim_ids: BTreeSet::new(),
+        evidence_ids: BTreeSet::new(),
+        index_status: IndexStatus::Unindexed,
+        content_hash: None,
+        parse_status: None,
+        security: maestria_domain::SecurityMetadata::default(),
+    })?;
+
+    let adapters = Adapters {
+        parser: Arc::new(MismatchedArtifactIdParser),
+        artifact_repo: Arc::new(artifact_repo),
+        ..crate::test_helpers::test_adapters()
+    };
+    let governance = crate::test_helpers::test_governance();
+    let (input_tx, mut input_rx) = mpsc::channel(8);
+    let ctx = EffectExecutionContext::test_default(
+        Arc::new(adapters),
+        Arc::new(governance),
+        Arc::new(RwLock::new(KernelState::new())),
+        input_tx,
+    );
+
+    let result = MaestriaRuntime::test_execute_effect(
+        MaestriaEffect::ParseArtifact(ParseArtifactRequest {
+            artifact_id,
+            source_path: "/repo/identity.rs".to_string(),
+            source_bytes: b"fn identity() {}".to_vec(),
+            source_blob: None,
+        }),
+        ctx,
+        None,
+    )
+    .await;
+
+    assert!(!result, "cross-artifact parser output must be rejected");
+    match tokio::time::timeout(Duration::from_secs(1), input_rx.recv()).await {
+        Ok(Some(DomainInput::ParserStarted(started))) => {
+            assert_eq!(started.artifact_id, artifact_id);
+        }
+        other => return Err(format!("expected ParserStarted, got {other:?}").into()),
+    }
+    match tokio::time::timeout(Duration::from_secs(1), input_rx.recv()).await {
+        Ok(Some(unexpected)) => {
+            Err(format!("cross-artifact parse emitted an unexpected input: {unexpected:?}").into())
+        }
+        Ok(None) | Err(_) => Ok(()),
+    }
+}
+
+#[tokio::test]
+async fn resume_parse_rejects_blob_when_durable_parser_hash_differs()
+-> Result<(), Box<dyn std::error::Error>> {
+    let artifact_id = ArtifactId::new(79);
+    let expected_bytes = b"durable resume bytes";
+    let blob_store = Arc::new(InMemoryBlobStore::new());
+    let blob_id = blob_store.put(b"tampered resume bytes".to_vec())?;
+
+    let artifact_repo = InMemoryArtifactRepository::new();
+    artifact_repo.put(Artifact {
+        id: artifact_id,
+        title: "resume-hash-test".to_string(),
+        chunk_ids: BTreeSet::new(),
+        card_ids: BTreeSet::new(),
+        claim_ids: BTreeSet::new(),
+        evidence_ids: BTreeSet::new(),
+        index_status: IndexStatus::Unindexed,
+        content_hash: None,
+        parse_status: None,
+        security: maestria_domain::SecurityMetadata::default(),
+    })?;
+
+    let expected_content_hash = content_hash(expected_bytes);
+    let mut state = KernelState::new();
+    state.pending_parsers.insert(
+        artifact_id,
+        ParserStarted {
+            artifact_id,
+            title: "resume-hash-test".to_string(),
+            source_path: "/repo/resume-hash.rs".to_string(),
+            content_hash: expected_content_hash,
+            blob_id,
+        },
+    );
+
+    let adapters = Adapters {
+        blob_store,
+        artifact_repo: Arc::new(artifact_repo),
+        ..crate::test_helpers::test_adapters()
+    };
+    let governance = crate::test_helpers::test_governance();
+    let (input_tx, mut input_rx) = mpsc::channel(8);
+    let ctx = EffectExecutionContext::test_default(
+        Arc::new(adapters),
+        Arc::new(governance),
+        Arc::new(RwLock::new(state)),
+        input_tx,
+    );
+
+    let result = MaestriaRuntime::test_execute_effect(
+        MaestriaEffect::ParseArtifact(ParseArtifactRequest {
+            artifact_id,
+            source_path: "/repo/resume-hash.rs".to_string(),
+            source_bytes: Vec::new(),
+            source_blob: Some(blob_id),
+        }),
+        ctx,
+        None,
+    )
+    .await;
+
+    assert!(!result, "resume with tampered bytes must be rejected");
+    match tokio::time::timeout(Duration::from_secs(1), input_rx.recv()).await {
+        Ok(Some(unexpected)) => {
+            Err(format!("wrong resume blob emitted an unexpected input: {unexpected:?}").into())
+        }
+        Ok(None) | Err(_) => Ok(()),
     }
 }

@@ -89,3 +89,35 @@ fn security_validator_enforces_typed_policy_values() -> Result<(), Box<dyn std::
     assert!(check.message.contains("1 denied candidate(s)"));
     Ok(())
 }
+
+#[test]
+fn retrieval_security_validator_requires_complete_policy_provenance()
+-> Result<(), Box<dyn std::error::Error>> {
+    let mut fixture = fixture()?;
+    let check = RetrievalSecurityValidator.validate(&fixture.context());
+    assert!(
+        check.passed,
+        "complete policy provenance should pass: {}",
+        check.message
+    );
+
+    let Some(trace) = fixture.outcome.trace_data.as_mut() else {
+        return Err("fixture lost its trace".into());
+    };
+    trace.policy_fingerprint = None;
+    let check = RetrievalSecurityValidator.validate(&fixture.context());
+    assert!(!check.passed);
+    assert!(check.message.contains("requires a policy fingerprint"));
+
+    let Some(trace) = fixture.outcome.trace_data.as_mut() else {
+        return Err("fixture lost its trace".into());
+    };
+    trace.policy_fingerprint = Some(
+        "trust=Some(Verified);sensitivity=Some(Internal);read_allowed=true;scope=None;unscoped=true"
+            .to_string(),
+    );
+    let check = RetrievalSecurityValidator.validate(&fixture.context());
+    assert!(!check.passed);
+    assert!(check.message.contains("denied candidate"));
+    Ok(())
+}
