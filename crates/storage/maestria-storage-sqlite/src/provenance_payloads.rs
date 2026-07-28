@@ -58,15 +58,6 @@ pub(crate) enum StoredSourceSpan {
     },
 }
 
-impl Default for StoredSourceSpan {
-    fn default() -> Self {
-        Self::TextSpan {
-            start_line: 1,
-            end_line: 1,
-        }
-    }
-}
-
 impl From<SourceSpan> for StoredSourceSpan {
     fn from(span: SourceSpan) -> Self {
         match span {

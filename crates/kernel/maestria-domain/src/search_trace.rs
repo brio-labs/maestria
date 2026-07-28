@@ -333,6 +333,10 @@ impl SearchOutcome {
                     "stop reason differs",
                 ));
             }
+        } else {
+            return Err(SearchCompatibilityError::TracePlanMismatch(
+                "trace data is missing",
+            ));
         }
         Ok(())
     }

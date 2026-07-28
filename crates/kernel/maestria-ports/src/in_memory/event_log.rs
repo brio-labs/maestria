@@ -78,6 +78,26 @@ impl crate::EventLog for InMemoryEventLog {
                 | DomainEvent::SearchCompleted {
                     artifact_id: current,
                     ..
+                }
+                | DomainEvent::PendingIndex {
+                    artifact_id: current,
+                    ..
+                }
+                | DomainEvent::FullTextIndexed {
+                    artifact_id: current,
+                    ..
+                }
+                | DomainEvent::ArtifactIndexed {
+                    artifact_id: current,
+                    ..
+                }
+                | DomainEvent::ParserStarted {
+                    artifact_id: current,
+                    ..
+                }
+                | DomainEvent::SourceBecameStale {
+                    artifact_id: current,
+                    ..
                 } => *current == artifact_id,
                 _ => false,
             });

@@ -5,7 +5,7 @@ use maestria_domain::{
     FreshnessStatus, IndexGenerationId, Modality, ModalitySet, QueryId, RetrievalModelFingerprint,
     RetrievalReason, RetrievalScoreSet, SearchBudget, SearchCompatibilityError, SearchIntent,
     SearchOutcome, SearchPlan, SearchStage, SearchStatus, SearchStopReason, SearchTrace,
-    SearchTraceFilter, SearchTraceId, SourceLocation, StopConditions, StructureNodeId, TrustLabel,
+    SearchTraceFilter, SourceLocation, StopConditions, StructureNodeId, TrustLabel,
 };
 
 fn fixture_scores(
@@ -122,13 +122,29 @@ fn candidate() -> Result<EvidenceCandidate, Box<dyn std::error::Error>> {
 }
 
 fn outcome() -> Result<SearchOutcome, Box<dyn std::error::Error>> {
+    let plan = plan()?;
+    let evidence = vec![candidate()?];
+    let trace = SearchTrace::from_plan(
+        &plan,
+        vec![],
+        &evidence,
+        vec![],
+        None,
+        vec![],
+        SearchStopReason::EvidenceComplete,
+    )
+    .with_gaps_and_conflicts(
+        vec!["missing section".to_owned()],
+        vec![ConflictSetId::new(41)],
+    );
+    let trace_id = trace.deterministic_id();
     Ok(SearchOutcome {
-        trace: SearchTraceId::new(37),
-        trace_data: None,
+        trace: trace_id,
+        trace_data: Some(Box::new(trace)),
         fingerprint: RetrievalModelFingerprint::new("model:v1".to_owned())?,
         index_generation: IndexGenerationId::new(13),
         status: SearchStatus::Answerable,
-        evidence: vec![candidate()?],
+        evidence,
         coverage: EvidenceCoverage {
             percent_covered: 50,
             gaps_identified: vec!["missing section".to_owned()],
@@ -367,5 +383,25 @@ fn serde_rejects_invalid_spans_and_coverage() -> Result<(), Box<dyn std::error::
 
     let invalid_coverage = r#"{"percent_covered":101,"gaps_identified":[]}"#;
     assert!(serde_json::from_str::<EvidenceCoverage>(invalid_coverage).is_err());
+    Ok(())
+}
+
+#[test]
+fn trace_less_outcome_is_rejected_and_traced_outcome_passes()
+-> Result<(), Box<dyn std::error::Error>> {
+    let plan = plan()?;
+    let mut outcome = outcome()?;
+
+    // A valid traced outcome must pass compatibility.
+    assert_eq!(outcome.verify_compatibility(&plan), Ok(()));
+
+    // Removing trace_data must produce a typed rejection.
+    outcome.trace_data = None;
+    assert!(matches!(
+        outcome.verify_compatibility(&plan),
+        Err(SearchCompatibilityError::TracePlanMismatch(
+            "trace data is missing"
+        ))
+    ));
     Ok(())
 }

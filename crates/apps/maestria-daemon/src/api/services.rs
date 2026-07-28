@@ -11,9 +11,9 @@ use maestria_domain::{
     EvidenceSpan, HarnessRunCompleted, HarnessRunId, KernelState, MemoryCandidateId,
     RetrievalRawRank, RetrievalScoreKind, RetrievalScoreScale, SearchOutcome, Task, TaskId,
 };
-use maestria_governance::{ScopeGuard, ValidationRequest};
+use maestria_governance::ValidationRequest;
 use maestria_parsers::ParserRegistry;
-use maestria_ports::{HarnessRequest, ModelAgentProposal};
+use maestria_ports::{EffectJournalIntent, HarnessRequest, ModelAgentProposal};
 use maestria_search_tantivy::TantivyFullTextIndex;
 use maestria_storage_sqlite::SqliteStore;
 
@@ -179,28 +179,34 @@ async fn execute_proposal_effects(
     }
 
     let harness = if !governed.harness.command.trim().is_empty() {
-        match execute_governed_harness(context, governed).await {
-            Ok(outcome) => {
+        match execute_governed_harness(context, proposal, governed).await {
+            Ok((outcome, generation)) => {
                 let completion = HarnessRunCompleted {
                     run_id: governed.harness.run_id,
-                    generation: current_generation(state),
+                    generation,
                     task_id: proposal.task_id,
                     command: governed.harness.command.clone(),
                     exit_code: outcome.exit_code,
                     output: String::from_utf8_lossy(&outcome.stdout).to_string(),
                 };
-                if let Err(error) = context
+                match context
                     .input_tx
-                    .try_send(DomainInput::HarnessRunCompleted(completion))
+                    .send(DomainInput::HarnessRunCompleted(completion))
+                    .await
                 {
-                    tracing::error!(%error, "failed to send harness run completed to domain input channel");
+                    Ok(()) => Some(ModelAgentHarnessOutcome {
+                        exit_code: outcome.exit_code,
+                        stdout: truncate_utf8(&outcome.stdout, 4096),
+                        stderr: truncate_utf8(&outcome.stderr, 4096),
+                        duration_ms: outcome.duration.as_millis() as u64,
+                    }),
+                    Err(error) => {
+                        warnings.push(format!(
+                            "harness completion delivery failed: channel closed ({error})"
+                        ));
+                        None
+                    }
                 }
-                Some(ModelAgentHarnessOutcome {
-                    exit_code: outcome.exit_code,
-                    stdout: truncate_utf8(&outcome.stdout, 4096),
-                    stderr: truncate_utf8(&outcome.stderr, 4096),
-                    duration_ms: outcome.duration.as_millis() as u64,
-                })
             }
             Err(e) => {
                 warnings.push(format!("harness execution warning: {e}"));
@@ -215,7 +221,11 @@ async fn execute_proposal_effects(
     if let Some(warning) = validation_warning {
         warnings.push(warning);
     }
-    let memory_candidate = create_memory_candidate(context, governed, state, &harness);
+    let (memory_candidate, memory_warning) =
+        create_memory_candidate(context, governed, state, &harness).await;
+    if let Some(warning) = memory_warning {
+        warnings.push(warning);
+    }
 
     ProposalEffects {
         trace_id,
@@ -261,14 +271,14 @@ fn evaluate_validation_gate(
     (summary, None)
 }
 
-fn create_memory_candidate(
+async fn create_memory_candidate(
     context: &ApiContext,
     governed: &maestria_ports::GovernedAgentProposal,
     state: &KernelState,
     harness: &Option<ModelAgentHarnessOutcome>,
-) -> Option<ModelAgentMemoryCandidateSummary> {
+) -> (Option<ModelAgentMemoryCandidateSummary>, Option<String>) {
     if harness.is_none() || governed.evidence_ids.is_empty() {
-        return None;
+        return (None, None);
     }
     let candidate_id = MemoryCandidateId::new(
         match state.memory_candidates.keys().map(|id| id.value()).max() {
@@ -297,9 +307,9 @@ fn create_memory_candidate(
         maestria_governance::MemoryPromotionDecision::RequireReview { .. } => "require_review",
         maestria_governance::MemoryPromotionDecision::Deny { .. } => "deny",
     };
-    if let Err(error) = context
+    match context
         .input_tx
-        .try_send(DomainInput::CreateMemoryCandidate(
+        .send(DomainInput::CreateMemoryCandidate(
             maestria_domain::CreateMemoryCandidateInput {
                 candidate_id,
                 claim_id: ClaimId::new(1),
@@ -308,14 +318,23 @@ fn create_memory_candidate(
                 security: None,
             },
         ))
+        .await
     {
-        tracing::error!(%error, "failed to send create memory candidate to domain input channel");
+        Ok(()) => (
+            Some(ModelAgentMemoryCandidateSummary {
+                candidate_id: candidate_id.value(),
+                confidence_milli: 800,
+                decision: decision_str.to_string(),
+            }),
+            None,
+        ),
+        Err(error) => (
+            None,
+            Some(format!(
+                "memory candidate delivery failed: channel closed ({error})"
+            )),
+        ),
     }
-    Some(ModelAgentMemoryCandidateSummary {
-        candidate_id: candidate_id.value(),
-        confidence_milli: 800,
-        decision: decision_str.to_string(),
-    })
 }
 
 async fn handle_model_agent_propose(
@@ -377,8 +396,9 @@ async fn search_knowledge(
 
 async fn execute_governed_harness(
     context: &ApiContext,
+    proposal: &ModelAgentProposal,
     governed: &maestria_ports::GovernedAgentProposal,
-) -> Result<maestria_ports::HarnessOutcome> {
+) -> Result<(maestria_ports::HarnessOutcome, u64)> {
     let harness = &context.adapters.harness;
     let capabilities = harness
         .capabilities()
@@ -412,15 +432,7 @@ async fn execute_governed_harness(
         return Err(anyhow!("command contains prohibited shell metacharacters"));
     }
 
-    let current_directory = std::env::current_dir().context("resolve daemon working directory")?;
-    let scope_guard = ScopeGuard::new(maestria_governance::Scope::new(
-        vec![current_directory],
-        vec![],
-        vec!["shell".into()],
-        vec![],
-        false,
-    ));
-    let scope = scope_guard.scope();
+    let scope = harness_scope(context, &governed.harness.working_directory)?;
 
     let request = HarnessRequest {
         run_id: governed.harness.run_id,
@@ -433,10 +445,82 @@ async fn execute_governed_harness(
         blocked_patterns: scope.blocked_patterns().to_vec(),
     };
 
-    harness
+    let generation = record_harness_start(context, proposal, governed, command)?;
+    let outcome = harness
         .execute(request)
         .await
-        .map_err(|e| anyhow!("harness execution failed: {e}"))
+        .map_err(|e| anyhow!("harness execution failed: {e}"))?;
+    context
+        .adapters
+        .effect_journal
+        .claim_feedback(governed.harness.run_id, generation)
+        .map_err(|e| anyhow!("failed to claim harness feedback: {e}"))?;
+
+    Ok((outcome, generation))
+}
+
+fn harness_scope(
+    context: &ApiContext,
+    working_directory: &std::path::Path,
+) -> Result<maestria_governance::Scope> {
+    let manifest = InstanceManifest::decode(&fs::read_to_string(&context.layout.manifest_path)?)
+        .map_err(|error| anyhow!("parse instance manifest: {error}"))?;
+    let working_directory = working_directory.canonicalize().with_context(|| {
+        format!(
+            "canonicalize working directory {}",
+            working_directory.display()
+        )
+    })?;
+    let roots = manifest
+        .read_roots
+        .iter()
+        .map(|root| {
+            root.canonicalize()
+                .with_context(|| format!("canonicalize manifest read root {}", root.display()))
+        })
+        .collect::<Result<Vec<_>>>()?;
+    if roots.is_empty() {
+        return Err(anyhow!("no valid read roots in manifest"));
+    }
+    if !roots.iter().any(|root| working_directory.starts_with(root)) {
+        return Err(anyhow!(
+            "working directory {} is outside instance read roots",
+            working_directory.display()
+        ));
+    }
+    Ok(maestria_governance::Scope::new(
+        roots,
+        vec![],
+        vec!["shell".into()],
+        manifest.excluded_patterns,
+        false,
+    ))
+}
+
+fn record_harness_start(
+    context: &ApiContext,
+    proposal: &ModelAgentProposal,
+    governed: &maestria_ports::GovernedAgentProposal,
+    command: &str,
+) -> Result<u64> {
+    let entry = context
+        .adapters
+        .effect_journal
+        .record_intent(EffectJournalIntent {
+            run_id: governed.harness.run_id,
+            task_id: proposal.task_id,
+            capability: "shell".to_string(),
+            command: command.to_string(),
+            scope_id: maestria_domain::ScopeId::new(1),
+            requested_generation: None,
+        })
+        .map_err(|e| anyhow!("failed to record harness intent: {e}"))?;
+    context
+        .adapters
+        .effect_journal
+        .record_started(governed.harness.run_id, entry.generation)
+        .map_err(|e| anyhow!("failed to record harness started: {e}"))?;
+    Ok(entry.generation)
 }
 
 fn status(layout: &InstanceLayout, socket_path: &std::path::Path) -> Result<StatusResponse> {
@@ -776,3 +860,7 @@ fn truncate_utf8(bytes: &[u8], max_len: usize) -> String {
         format!("{}...", &s[..max_len.saturating_sub(3)])
     }
 }
+
+#[cfg(test)]
+#[path = "services_tests.rs"]
+mod tests;

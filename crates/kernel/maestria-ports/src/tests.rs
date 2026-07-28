@@ -2,9 +2,9 @@ use super::contract_tests::*;
 use super::graph_contract_tests::assert_graph_index_contract;
 use super::*;
 use maestria_domain::{
-    ArtifactId, ContentRange, DomainEvent, DomainEventEnvelope, Evidence, EvidenceId, EvidenceKind,
-    LogicalTick, RelationEndpoint, StructureNode, StructureNodeId, StructureNodeType,
-    ValidationReportId,
+    ArtifactId, BlobId, ChunkId, ContentRange, DomainEvent, DomainEventEnvelope, Evidence,
+    EvidenceId, EvidenceKind, LogicalTick, RelationEndpoint, StructureNode, StructureNodeId,
+    StructureNodeType, ValidationReportId,
 };
 use std::path::PathBuf;
 
@@ -299,6 +299,121 @@ fn in_memory_event_log_roundtrips_search_executed() -> Result<(), PortError> {
     Ok(())
 }
 
+fn artifact_filter_events(
+    artifact_a: ArtifactId,
+    artifact_b: ArtifactId,
+) -> Vec<DomainEventEnvelope> {
+    vec![
+        DomainEventEnvelope {
+            id: maestria_domain::EventId::new(1),
+            sequence: maestria_domain::SequenceNumber::new(1),
+            event: DomainEvent::PendingIndex {
+                artifact_id: artifact_a,
+                content_hash: "hash-a".to_string(),
+            },
+        },
+        DomainEventEnvelope {
+            id: maestria_domain::EventId::new(2),
+            sequence: maestria_domain::SequenceNumber::new(2),
+            event: DomainEvent::FullTextIndexed {
+                artifact_id: artifact_a,
+                chunk_id: ChunkId::new(1),
+            },
+        },
+        DomainEventEnvelope {
+            id: maestria_domain::EventId::new(3),
+            sequence: maestria_domain::SequenceNumber::new(3),
+            event: DomainEvent::ArtifactIndexed {
+                artifact_id: artifact_a,
+            },
+        },
+        DomainEventEnvelope {
+            id: maestria_domain::EventId::new(4),
+            sequence: maestria_domain::SequenceNumber::new(4),
+            event: DomainEvent::ParserStarted {
+                artifact_id: artifact_a,
+                title: "doc".to_string(),
+                source_path: "/a.md".to_string(),
+                content_hash: "hash-a".to_string(),
+                blob_id: BlobId::new(1),
+            },
+        },
+        DomainEventEnvelope {
+            id: maestria_domain::EventId::new(5),
+            sequence: maestria_domain::SequenceNumber::new(5),
+            event: DomainEvent::SourceBecameStale {
+                artifact_id: artifact_a,
+                source_path: "/a.md".to_string(),
+                content_hash: "hash-a".to_string(),
+            },
+        },
+        DomainEventEnvelope {
+            id: maestria_domain::EventId::new(6),
+            sequence: maestria_domain::SequenceNumber::new(6),
+            event: DomainEvent::PendingIndex {
+                artifact_id: artifact_b,
+                content_hash: "hash-b".to_string(),
+            },
+        },
+    ]
+}
+
+#[test]
+fn in_memory_event_log_filters_all_artifact_variants() -> Result<(), PortError> {
+    let log = InMemoryEventLog::new();
+    let artifact_a = ArtifactId::new(1);
+    let artifact_b = ArtifactId::new(2);
+    let events = artifact_filter_events(artifact_a, artifact_b);
+
+    for event in &events {
+        log.append(event.clone())?;
+    }
+
+    assert_eq!(
+        log.scan(EventFilter { artifact_id: None })?,
+        events,
+        "global scan should return all events"
+    );
+
+    let filtered_a = log.scan(EventFilter {
+        artifact_id: Some(artifact_a),
+    })?;
+    assert_eq!(filtered_a.len(), 5);
+    for event in &filtered_a {
+        match &event.event {
+            DomainEvent::PendingIndex { artifact_id, .. }
+            | DomainEvent::FullTextIndexed { artifact_id, .. }
+            | DomainEvent::ArtifactIndexed { artifact_id }
+            | DomainEvent::ParserStarted { artifact_id, .. }
+            | DomainEvent::SourceBecameStale { artifact_id, .. } => {
+                assert_eq!(*artifact_id, artifact_a);
+            }
+            other => {
+                return Err(PortError::InternalContext {
+                    context: "unexpected artifact-filtered event variant",
+                    source: format!("{other:?}"),
+                });
+            }
+        }
+    }
+
+    let filtered_b = log.scan(EventFilter {
+        artifact_id: Some(artifact_b),
+    })?;
+    assert_eq!(filtered_b.len(), 1);
+    assert!(matches!(
+        filtered_b[0].event,
+        DomainEvent::PendingIndex { artifact_id, .. } if artifact_id == artifact_b
+    ));
+    assert!(
+        log.scan(EventFilter {
+            artifact_id: Some(ArtifactId::new(99)),
+        })?
+        .is_empty()
+    );
+    Ok(())
+}
+
 #[test]
 fn in_memory_blob_store_satisfies_contract() -> Result<(), Box<dyn std::error::Error>> {
     assert_blob_store_round_trip(&InMemoryBlobStore::new())?;
@@ -329,6 +444,82 @@ fn in_memory_parser_satisfies_contract() -> Result<(), Box<dyn std::error::Error
             artifact_id: ArtifactId::new(7),
         },
     )?;
+    Ok(())
+}
+
+#[test]
+fn in_memory_parser_multiline_source_span() -> Result<(), Box<dyn std::error::Error>> {
+    let parser = InMemoryParser::new();
+    let parsed = parser.parse(
+        FileHandle {
+            path: PathBuf::from("notes.md"),
+            bytes: b"line one\nline two\nline three".to_vec(),
+        },
+        ParseContext {
+            artifact_id: ArtifactId::new(1),
+        },
+    )?;
+    assert_eq!(parsed.chunks.len(), 1);
+    match parsed.chunks[0].source_span {
+        SourceSpan::TextSpan {
+            start_line,
+            end_line,
+        } => {
+            assert_eq!(start_line, 1);
+            assert_eq!(end_line, 3, "expected end_line == 3 for three-line input");
+        }
+        _ => return Err("expected TextSpan".into()),
+    }
+    Ok(())
+}
+
+#[test]
+fn in_memory_parser_version_id_changes_with_content() -> Result<(), Box<dyn std::error::Error>> {
+    let parser = InMemoryParser::new();
+    let artifact_id = ArtifactId::new(42);
+    let first = parser.parse(
+        FileHandle {
+            path: PathBuf::from("notes.md"),
+            bytes: b"first draft".to_vec(),
+        },
+        ParseContext { artifact_id },
+    )?;
+    let second = parser.parse(
+        FileHandle {
+            path: PathBuf::from("notes.md"),
+            bytes: b"second draft".to_vec(),
+        },
+        ParseContext { artifact_id },
+    )?;
+    assert_ne!(
+        first.artifact_version_id, second.artifact_version_id,
+        "same artifact with different bytes must yield different version ids"
+    );
+    Ok(())
+}
+
+#[test]
+fn in_memory_parser_version_id_is_deterministic() -> Result<(), Box<dyn std::error::Error>> {
+    let parser = InMemoryParser::new();
+    let artifact_id = ArtifactId::new(42);
+    let first = parser.parse(
+        FileHandle {
+            path: PathBuf::from("notes.md"),
+            bytes: b"stable content".to_vec(),
+        },
+        ParseContext { artifact_id },
+    )?;
+    let second = parser.parse(
+        FileHandle {
+            path: PathBuf::from("notes.md"),
+            bytes: b"stable content".to_vec(),
+        },
+        ParseContext { artifact_id },
+    )?;
+    assert_eq!(
+        first.artifact_version_id, second.artifact_version_id,
+        "same artifact with identical bytes must yield identical version ids"
+    );
     Ok(())
 }
 

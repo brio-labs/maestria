@@ -1,4 +1,4 @@
-use crate::SqliteStore;
+use crate::{SqliteStore, to_port_error};
 use maestria_domain::*;
 use maestria_ports::*;
 
@@ -364,5 +364,51 @@ fn security_metadata_round_trips() -> Result<(), Box<dyn std::error::Error>> {
     EvidenceRepository::put(&store, evidence.clone())?;
     let fetched_ev = EvidenceRepository::get(&store, evidence.id)?.ok_or(PortError::NotFound)?;
     assert_eq!(fetched_ev.security, sec);
+    Ok(())
+}
+
+#[test]
+fn chunk_with_null_source_span_json_returns_error() -> Result<(), Box<dyn std::error::Error>> {
+    let store = SqliteStore::in_memory()?;
+    let connection = store.lock()?;
+    connection.execute(
+        "INSERT INTO chunks (id, artifact_id, chunk_order, text, node_id, source_span_json, representations_json)
+         VALUES (1, 1, 0, 'text', 0, NULL, '[]')",
+        [],
+    ).map_err(to_port_error)?;
+    drop(connection);
+
+    let err = match ChunkRepository::get(&store, ChunkId::new(1)) {
+        Ok(Some(_)) => return Err("expected error for null source_span_json".into()),
+        Ok(None) => return Err("expected error for null source_span_json".into()),
+        Err(e) => e,
+    };
+    assert!(
+        err.is_internal(),
+        "null source_span_json must return internal error, got {err:?}"
+    );
+    Ok(())
+}
+
+#[test]
+fn card_with_null_source_span_json_returns_error() -> Result<(), Box<dyn std::error::Error>> {
+    let store = SqliteStore::in_memory()?;
+    let connection = store.lock()?;
+    connection.execute(
+        "INSERT INTO cards (id, artifact_id, title, body, node_id, source_span_json, security_json)
+         VALUES (1, 1, 'title', 'body', 0, NULL, '{}')",
+        [],
+    ).map_err(to_port_error)?;
+    drop(connection);
+
+    let err = match CardRepository::get(&store, CardId::new(1)) {
+        Ok(Some(_)) => return Err("expected error for null source_span_json".into()),
+        Ok(None) => return Err("expected error for null source_span_json".into()),
+        Err(e) => e,
+    };
+    assert!(
+        err.is_internal(),
+        "null source_span_json must return internal error, got {err:?}"
+    );
     Ok(())
 }

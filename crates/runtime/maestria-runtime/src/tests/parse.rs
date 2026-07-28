@@ -4,7 +4,7 @@ use maestria_domain::{
 };
 use maestria_ports::{
     ArtifactRepository, FileHandle, FileMetadata, InMemoryArtifactRepository, ParseContext,
-    ParsedArtifact, Parser, PortError,
+    ParsedArtifact, ParsedChunk, Parser, PortError, SourceSpan,
 };
 use std::collections::BTreeSet;
 use std::sync::Arc;
@@ -344,4 +344,131 @@ async fn parse_artifact_repository_error_returns_failure() -> Result<(), Box<dyn
         "repository error should return false so retry policy remains active"
     );
     Ok(())
+}
+
+struct MismatchedHashParser;
+
+impl Parser for MismatchedHashParser {
+    fn id(&self) -> &'static str {
+        "mismatched-hash"
+    }
+
+    fn supports(&self, _file: &FileMetadata) -> bool {
+        true
+    }
+
+    fn parse(&self, file: FileHandle, context: ParseContext) -> Result<ParsedArtifact, PortError> {
+        let actual_hash = maestria_domain::content_hash(&file.bytes);
+        let wrong_hash = "sha256:0000000000000000000000000000000000000000000000000000000000000000";
+        if actual_hash == wrong_hash {
+            return Err(PortError::Internal {
+                message: "test hash must differ from source hash".to_string(),
+            });
+        }
+        let node_id = maestria_domain::StructureNodeId::new(context.artifact_id.value());
+        let tree = maestria_ports::DocumentTree::new(
+            node_id,
+            vec![maestria_domain::StructureNode {
+                id: node_id,
+                parent_id: None,
+                sibling_id: None,
+                node_type: maestria_domain::StructureNodeType::Document,
+                source_range: maestria_domain::ContentRange { start: 0, end: 1 },
+                page: None,
+                section_path: vec![],
+                parser_generation: "test".to_string(),
+                schema_generation: "v1".to_string(),
+                language: None,
+            }],
+        )
+        .map_err(|e| PortError::Internal {
+            message: format!("{e:?}"),
+        })?;
+        let chunk = ParsedChunk {
+            chunk_id: maestria_domain::ChunkId::new(context.artifact_id.value()),
+            artifact_id: context.artifact_id,
+            node_id,
+            text: "irrelevant".to_string(),
+            representations: vec![],
+            source_span: SourceSpan::TextSpan {
+                start_line: 1,
+                end_line: 1,
+            },
+        };
+        Ok(ParsedArtifact {
+            artifact_id: context.artifact_id,
+            artifact_version_id: maestria_domain::ArtifactVersionId::new(1),
+            content_hash: maestria_domain::ContentHash::new(wrong_hash.to_string()).map_err(
+                |e| PortError::Internal {
+                    message: e.to_string(),
+                },
+            )?,
+            tree,
+            status: maestria_ports::ParseStatus::Parsed,
+            chunks: vec![chunk],
+            cards: vec![],
+        })
+    }
+}
+
+#[tokio::test]
+async fn parse_artifact_mismatched_content_hash_rejects_completion()
+-> Result<(), Box<dyn std::error::Error>> {
+    let artifact_repo = InMemoryArtifactRepository::new();
+    artifact_repo.put(Artifact {
+        id: ArtifactId::new(77),
+        title: "mismatch-test".to_string(),
+        chunk_ids: BTreeSet::new(),
+        card_ids: BTreeSet::new(),
+        claim_ids: BTreeSet::new(),
+        evidence_ids: BTreeSet::new(),
+        index_status: IndexStatus::Unindexed,
+        content_hash: None,
+        parse_status: None,
+        security: maestria_domain::SecurityMetadata::default(),
+    })?;
+
+    let adapters = Adapters {
+        parser: Arc::new(MismatchedHashParser),
+        artifact_repo: Arc::new(artifact_repo),
+        ..crate::test_helpers::test_adapters()
+    };
+    let governance = crate::test_helpers::test_governance();
+    let (input_tx, mut input_rx) = mpsc::channel(8);
+    let ctx = EffectExecutionContext::test_default(
+        Arc::new(adapters),
+        Arc::new(governance),
+        Arc::new(RwLock::new(KernelState::new())),
+        input_tx,
+    );
+    let result = MaestriaRuntime::test_execute_effect(
+        MaestriaEffect::ParseArtifact(ParseArtifactRequest {
+            artifact_id: ArtifactId::new(77),
+            source_path: "/repo/mismatch.rs".to_string(),
+            source_bytes: b"fn mismatch() {}".to_vec(),
+            source_blob: None,
+        }),
+        ctx,
+        None,
+    )
+    .await;
+
+    if result {
+        return Err("mismatched content hash should reject parse".into());
+    }
+    match tokio::time::timeout(Duration::from_secs(1), input_rx.recv()).await {
+        Ok(Some(DomainInput::ParserStarted(ps))) => {
+            if ps.artifact_id != ArtifactId::new(77) {
+                return Err("ParserStarted carried the wrong artifact".into());
+            }
+        }
+        other => return Err(format!("expected ParserStarted, got {other:?}").into()),
+    }
+    match tokio::time::timeout(Duration::from_secs(1), input_rx.recv()).await {
+        Ok(None) | Err(_) => Ok(()),
+        Ok(Some(unexpected)) => Err(format!(
+            "expected no further inputs after hash mismatch, got {unexpected:?}"
+        )
+        .into()),
+    }
 }

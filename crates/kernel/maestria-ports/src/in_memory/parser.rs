@@ -72,6 +72,8 @@ impl Parser for InMemoryParser {
             }
         })?;
 
+        let line_count = text.lines().count().max(1);
+
         let chunk = ParsedChunk {
             chunk_id: ChunkId::new(context.artifact_id.value()),
             artifact_id: context.artifact_id,
@@ -89,18 +91,38 @@ impl Parser for InMemoryParser {
             ],
             source_span: SourceSpan::TextSpan {
                 start_line: 1,
-                end_line: 1,
+                end_line: line_count,
             },
         };
-        let content_hash =
-            ContentHash::new(content_hash_str).map_err(|err| PortError::InvalidInputContext {
+        let content_hash = ContentHash::new(content_hash_str.clone()).map_err(|err| {
+            PortError::InvalidInputContext {
                 context: "invalid content hash",
                 source: format!("{err:?}"),
+            }
+        })?;
+
+        let digest = content_hash_str.strip_prefix("sha256:").ok_or_else(|| {
+            PortError::InvalidInputContext {
+                context: "invalid content hash prefix",
+                source: content_hash_str.clone(),
+            }
+        })?;
+        let prefix = digest
+            .get(..16)
+            .ok_or_else(|| PortError::InvalidInputContext {
+                context: "content hash too short for artifact version",
+                source: content_hash_str.clone(),
             })?;
+        let value =
+            u64::from_str_radix(prefix, 16).map_err(|error| PortError::InvalidInputContext {
+                context: "invalid content hash digest",
+                source: error.to_string(),
+            })?;
+        let artifact_version_id = ArtifactVersionId::new(value);
 
         Ok(ParsedArtifact {
             artifact_id: context.artifact_id,
-            artifact_version_id: ArtifactVersionId::new(context.artifact_id.value()),
+            artifact_version_id,
             content_hash,
             tree,
             status: ParseStatus::Parsed,

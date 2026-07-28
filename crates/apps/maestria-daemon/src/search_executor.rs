@@ -98,6 +98,28 @@ pub struct SearchRuntime {
     pub(crate) fingerprint: RetrievalModelFingerprint,
 }
 
+pub(crate) fn reconcile_active_versions(
+    events: Vec<DomainEventEnvelope>,
+) -> BTreeSet<ArtifactVersionId> {
+    let mut latest_by_path = BTreeMap::new();
+    for envelope in events {
+        match envelope.event {
+            DomainEvent::ParserStarted {
+                artifact_id,
+                source_path,
+                ..
+            } => {
+                latest_by_path.insert(source_path, ArtifactVersionId::new(artifact_id.value()));
+            }
+            DomainEvent::SourceBecameStale { source_path, .. } => {
+                latest_by_path.remove(&source_path);
+            }
+            _ => {}
+        }
+    }
+    latest_by_path.into_values().collect()
+}
+
 impl SearchRuntime {
     pub(crate) fn from_parts(
         parts: SearchRuntimeParts,
@@ -247,18 +269,7 @@ impl SearchRuntime {
             .map_err(|error| {
                 anyhow!("scan parser history for current artifact versions: {error}")
             })?;
-        let mut latest_by_path = BTreeMap::new();
-        for envelope in events {
-            if let DomainEvent::ParserStarted {
-                artifact_id,
-                source_path,
-                ..
-            } = envelope.event
-            {
-                latest_by_path.insert(source_path, ArtifactVersionId::new(artifact_id.value()));
-            }
-        }
-        Ok(latest_by_path.into_values().collect())
+        Ok(reconcile_active_versions(events))
     }
 
     fn retrieval_engine(&self) -> Result<RetrievalEngine> {

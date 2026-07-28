@@ -486,7 +486,7 @@ async fn model_agent_proposal_round_trips_through_running_daemon()
                 limit: 1,
                 capability: "shell".into(),
                 command: "echo model-agent-smoke".into(),
-                working_directory: ".".into(),
+                working_directory: notes.display().to_string(),
                 timeout_secs: 5,
                 expected_generation: 1,
                 evidence_ids: Vec::new(),
