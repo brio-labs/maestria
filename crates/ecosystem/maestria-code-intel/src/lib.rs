@@ -81,10 +81,12 @@ impl RepositoryCodeIndex {
             details: format!("{path:?}: {error}", path = path),
         })?;
         let reader = BufReader::new(file);
-        from_reader(reader).map_err(|error| CodeIntelError::Persist {
+        let index: Self = from_reader(reader).map_err(|error| CodeIntelError::Persist {
             context: "deserialize index".to_string(),
             details: error.to_string(),
-        })
+        })?;
+        index.validate_provenance()?;
+        Ok(index)
     }
 
     /// Query extracted symbols.
