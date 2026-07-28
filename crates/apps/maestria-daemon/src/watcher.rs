@@ -135,6 +135,7 @@ impl Watcher {
                     .get(&key)
                     .is_some_and(|(_, known_hash)| known_hash == &observation.hash)
             {
+                self.state.removed.remove(&key);
                 continue;
             }
 
@@ -167,6 +168,7 @@ impl Watcher {
                 }
             }
 
+            self.state.removed.remove(&key);
             self.artifact_ids
                 .insert(key.clone(), (artifact_id, observed_hash));
             self.state.artifact_ids.insert(
@@ -185,11 +187,11 @@ impl Watcher {
         &mut self,
         previous_files: BTreeMap<String, String>,
     ) -> Result<()> {
-        let hash_index: BTreeMap<&str, &str> = self
+        let hash_index: BTreeMap<String, String> = self
             .state
             .files
             .iter()
-            .map(|(k, h)| (h.as_str(), k.as_str()))
+            .map(|(k, h)| (h.clone(), k.clone()))
             .collect();
 
         for (prev_key, prev_hash) in &previous_files {
@@ -197,7 +199,7 @@ impl Watcher {
                 continue;
             }
 
-            if let Some(&new_key) = hash_index.get(prev_hash.as_str())
+            if let Some(new_key) = hash_index.get(prev_hash.as_str())
                 && new_key != prev_key
             {
                 tracing::info!(
@@ -212,17 +214,19 @@ impl Watcher {
                 .entry(prev_key.clone())
                 .or_insert_with(|| prev_hash.clone());
 
-            if !self.emit_source_removed(prev_key, prev_hash) {
-                tracing::debug!(
-                    source_path = %prev_key,
-                    "deferring SourceRemoved emission (channel full or missing artifact id)"
-                );
+            match self.emit_source_removed(prev_key, prev_hash)? {
+                true => {}
+                false => {
+                    tracing::debug!(
+                        source_path = %prev_key,
+                        "deferring SourceRemoved emission (channel full or missing artifact id)"
+                    );
+                    if self.state.artifact_ids.contains_key(prev_key) {
+                        self.state.files.insert(prev_key.clone(), prev_hash.clone());
+                    }
+                }
             }
         }
-
-        self.state
-            .removed
-            .retain(|key, _| !self.state.files.contains_key(key));
 
         self.state.artifact_ids.retain(|key, _| {
             self.state.files.contains_key(key) || self.state.removed.contains_key(key)
@@ -231,32 +235,34 @@ impl Watcher {
         Ok(())
     }
 
-    fn emit_source_removed(&self, prev_key: &str, _prev_hash: &str) -> bool {
+    fn emit_source_removed(&self, prev_key: &str, _prev_hash: &str) -> Result<bool> {
         let Some(ArtifactIdEntry {
             artifact_id: aid_val,
             content_hash: entry_hash,
         }) = self.state.artifact_ids.get(prev_key)
         else {
-            return false;
+            return Ok(false);
         };
 
-        if self
+        match self
             .input_tx
             .try_send(DomainInput::SourceRemoved(SourceRemoved {
                 artifact_id: maestria_domain::ArtifactId::new(*aid_val),
                 source_path: prev_key.to_string(),
                 content_hash: entry_hash.clone(),
-            }))
-            .is_err()
-        {
-            tracing::debug!(
-                source_path = %prev_key,
-                "channel full, deferring SourceRemoved emission"
-            );
-            return false;
+            })) {
+            Ok(()) => Ok(true),
+            Err(mpsc::error::TrySendError::Full(_)) => {
+                tracing::debug!(
+                    source_path = %prev_key,
+                    "channel full, deferring SourceRemoved emission"
+                );
+                Ok(false)
+            }
+            Err(mpsc::error::TrySendError::Closed(_)) => Err(anyhow::anyhow!(
+                "submit source removed: input channel closed"
+            )),
         }
-
-        true
     }
 }
 
@@ -424,5 +430,22 @@ fn is_supported_file(path: &Path) -> bool {
 }
 
 #[cfg(test)]
+fn test_manifest(root: PathBuf) -> InstanceManifest {
+    InstanceManifest {
+        schema_version: 1,
+        root: root.clone(),
+        read_roots: vec![root],
+        excluded_patterns: vec![".env".to_string()],
+        embeddings: None,
+        ocr: None,
+        visual: None,
+    }
+}
+
+#[cfg(test)]
 #[path = "watcher_tests.rs"]
 mod watcher_tests;
+
+#[cfg(test)]
+#[path = "watcher_removal_tests.rs"]
+mod watcher_removal_tests;

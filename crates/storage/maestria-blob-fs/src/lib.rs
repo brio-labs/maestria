@@ -241,10 +241,19 @@ impl BlobStore for FsBlobStore {
     fn get(&self, id: BlobId) -> Result<Vec<u8>, PortError> {
         let digest_hex = self.digest_for_id(id)?;
         let path = self.object_path(&digest_hex);
-        fs::read(&path).map_err(|error| match error.kind() {
+        let bytes = fs::read(&path).map_err(|error| match error.kind() {
             io::ErrorKind::NotFound => PortError::NotFound,
             _ => io_error("read blob object", &path, error),
-        })
+        })?;
+        let actual_digest = sha256_digest(&bytes);
+        let actual_hex = hex_digest(&actual_digest);
+        if actual_hex != digest_hex {
+            return Err(PortError::InternalContext {
+                context: "blob integrity check failed",
+                source: format!("expected digest {digest_hex}, actual digest {actual_hex}"),
+            });
+        }
+        Ok(bytes)
     }
 }
 
@@ -338,6 +347,38 @@ mod tests {
         let store = FsBlobStore::open(root.path())?;
 
         assert_eq!(store.get(BlobId::new(42)), Err(PortError::NotFound));
+        Ok(())
+    }
+
+    #[test]
+    fn tampered_blob_rejected_on_get() -> Result<(), Box<dyn std::error::Error>> {
+        let root = tempdir()?;
+        let store = FsBlobStore::open(root.path())?;
+
+        let bytes = b"untampered payload".to_vec();
+        let id = store.put(bytes.clone())?;
+
+        // Verify normal roundtrip works before tampering.
+        assert_eq!(store.get(id)?, bytes);
+
+        let digest_hex = store.digest_for_id(id)?;
+        let object_path = store.object_path_for_digest(&digest_hex)?;
+
+        // Tamper with the object file while leaving the index intact.
+        fs::write(&object_path, b"tampered payload")?;
+
+        let result = store.get(id);
+        assert!(
+            matches!(
+                &result,
+                Err(PortError::InternalContext {
+                    context: "blob integrity check failed",
+                    ..
+                })
+            ),
+            "expected integrity error for tampered blob, got {result:?}"
+        );
+
         Ok(())
     }
 
