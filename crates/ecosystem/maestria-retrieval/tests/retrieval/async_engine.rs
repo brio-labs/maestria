@@ -6,6 +6,12 @@ use maestria_domain::{
 use maestria_retrieval::{
     CandidateRetriever, FixedKRrf, RetrievalEngine, RetrievalError, RetrievalEvaluator,
     RetrievalResult,
+    golden::Metric,
+    repository_benchmark::{
+        MeasurementStatus, RepositoryBenchmarkComparison, RepositoryBenchmarkCorpus,
+        RepositoryBenchmarkObservation, RepositoryExecutionPolicy, RepositoryExpectedOutcome,
+        RepositoryQueryClass, RepositoryRoute,
+    },
 };
 use std::sync::{
     Arc,
@@ -47,6 +53,77 @@ impl CandidateRetriever for AsyncLane {
             bytes_read: 0,
         })
     }
+}
+
+struct StaleCodeLane {
+    candidate: EvidenceCandidate,
+}
+
+#[async_trait]
+impl CandidateRetriever for StaleCodeLane {
+    fn descriptor(&self) -> maestria_retrieval::types::RetrieverDescriptor {
+        maestria_retrieval::types::RetrieverDescriptor {
+            id: "code_intel".to_string(),
+            modality: "code".to_string(),
+            representation: maestria_domain::RepresentationName::new("repository_code_v1"),
+            generation: IndexGenerationId::new(1),
+        }
+    }
+
+    async fn retrieve(
+        &self,
+        request: maestria_retrieval::types::CandidateRequest,
+    ) -> Result<maestria_retrieval::types::CandidateBatch, RetrievalError> {
+        Ok(maestria_retrieval::types::CandidateBatch {
+            descriptor: self.descriptor(),
+            query: request.query.q,
+            candidates: vec![self.candidate.clone()],
+            status: maestria_domain::SearchLaneStatus::Succeeded,
+            generation: Some(IndexGenerationId::new(1)),
+            bytes_read: 1,
+        })
+    }
+}
+
+fn promoted_exact_symbol_policy() -> Result<RepositoryExecutionPolicy, Box<dyn std::error::Error>> {
+    let corpus = RepositoryBenchmarkCorpus::from_json(include_str!(
+        "../fixtures/rust-repository-benchmark-v1.json"
+    ))?;
+    let mut observations = Vec::with_capacity(corpus.cases.len() * 2);
+    for case in &corpus.cases {
+        for route in [RepositoryRoute::PhaseC, RepositoryRoute::CodeSpecialized] {
+            let specialized = route == RepositoryRoute::CodeSpecialized;
+            let exact_symbol_win = specialized && case.class == RepositoryQueryClass::ExactSymbol;
+            let expected_abstention = matches!(case.expected, RepositoryExpectedOutcome::Abstain);
+            observations.push(RepositoryBenchmarkObservation {
+                corpus_id: corpus.corpus_id.clone(),
+                repository_revision: corpus.repository_revision.clone(),
+                evaluation_date: "test".to_string(),
+                index_generation: "test".to_string(),
+                model_fingerprint: "test".to_string(),
+                route_config: serde_json::Value::Null,
+                case_id: case.case_id.clone(),
+                route,
+                exact_span_hits: usize::from(exact_symbol_win),
+                evidence_chain_length: usize::from(exact_symbol_win),
+                latency_ms: 1,
+                freshness_error: false,
+                abstained: expected_abstention,
+                outcome_correct: !(case.class == RepositoryQueryClass::ExactSymbol && !specialized),
+                memory_bytes: 0,
+                disk_bytes: 0,
+                privacy_violation: false,
+                security_violation: false,
+                energy_milliwatt_seconds: 0,
+                citation_alignment: Metric::ZERO,
+                measurement_status: MeasurementStatus::default(),
+            });
+        }
+    }
+    let comparison = RepositoryBenchmarkComparison::evaluate(&corpus, &observations)?;
+    Ok(RepositoryExecutionPolicy::Active(
+        comparison.promotion("test-exact-symbol".to_string())?,
+    ))
 }
 
 struct CountingWebLane {
@@ -240,6 +317,43 @@ async fn failed_lane_is_degraded_without_losing_successful_evidence() -> Retriev
             .iter()
             .all(|lane| lane.generation == Some(plan.index_generation))
     );
+    Ok(())
+}
+
+#[tokio::test]
+async fn stale_code_only_evidence_is_not_served_and_retains_stale_trace() -> RetrievalResult<()> {
+    let mut plan = dummy_plan()?;
+    plan.original_query = "find function symbol compute".to_string();
+    plan.intent = SearchIntent::RepositoryCode;
+    plan.modalities = maestria_domain::ModalitySet::new(vec![maestria_domain::Modality::Code]);
+    let mut candidate = candidate_fixture()?;
+    candidate.freshness = maestria_domain::FreshnessStatus::Stale;
+    let engine = RetrievalEngine::new(
+        vec![Arc::new(StaleCodeLane { candidate })],
+        Arc::new(AsyncEvaluator),
+        maestria_governance::RetrievalSecurityPolicy::default(),
+    )
+    .with_repository_execution_policy(
+        promoted_exact_symbol_policy()
+            .map_err(|error| RetrievalError::Internal(error.to_string()))?,
+    );
+
+    let outcome = engine.search(&plan).await?;
+    assert!(outcome.evidence.is_empty());
+    assert_eq!(outcome.status, SearchStatus::StaleEvidenceOnly);
+    let trace = outcome
+        .trace_data
+        .ok_or(RetrievalError::Internal("missing search trace".into()))?;
+    assert_eq!(
+        trace.stop_reason,
+        maestria_domain::SearchStopReason::RequirementsUnmet
+    );
+    let lane = trace
+        .lanes
+        .iter()
+        .find(|lane| lane.retriever_id == "code_intel")
+        .ok_or(RetrievalError::Internal("missing code lane trace".into()))?;
+    assert_eq!(lane.candidates.len(), 1);
     Ok(())
 }
 

@@ -3,6 +3,15 @@ use maestria_ports::SearchQuery;
 
 use super::{RetrievalEngine, engine_pipeline, reconcile_status};
 use crate::types::{RankedCandidate, RerankRequest, RetrievalResult};
+fn batch_is_code(batch: &crate::types::CandidateBatch) -> bool {
+    batch.descriptor.modality.eq_ignore_ascii_case("code")
+        || batch.descriptor.modality.eq_ignore_ascii_case("rust")
+        || batch
+            .descriptor
+            .id
+            .to_ascii_lowercase()
+            .contains("code_intel")
+}
 
 pub(super) async fn evaluate_batches(
     engine: &RetrievalEngine,
@@ -25,49 +34,13 @@ pub(super) async fn evaluate_batches(
     let sparse_enabled = engine
         .learned_sparse_execution_policy
         .allows_sparse(&query.q);
-    let has_non_code_evidence = batches.iter().any(|batch| {
-        let is_code = batch.descriptor.modality.eq_ignore_ascii_case("code")
-            || batch.descriptor.modality.eq_ignore_ascii_case("rust")
-            || batch
-                .descriptor
-                .id
-                .to_ascii_lowercase()
-                .contains("code_intel");
-        !is_code && !batch.candidates.is_empty()
-    });
-    let fusion_batches: Vec<_> = batches
-        .iter()
-        .filter(|batch| {
-            crate::visual_benchmark::visual_lane_is_eligible(&batch.descriptor, visual_enabled)
-        })
-        .filter(|batch| {
-            crate::learned_sparse_policy::sparse_lane_is_eligible(&batch.descriptor, sparse_enabled)
-        })
-        .filter(|batch| {
-            super::batch_is_eligible(
-                &batch.descriptor,
-                &engine.hybrid_policy,
-                repository_specialized,
-            )
-        })
-        .filter_map(|batch| {
-            let is_code = batch.descriptor.modality.eq_ignore_ascii_case("code")
-                || batch.descriptor.modality.eq_ignore_ascii_case("rust")
-                || batch
-                    .descriptor
-                    .id
-                    .to_ascii_lowercase()
-                    .contains("code_intel");
-            let has_stale_evidence = batch.candidates.iter().any(|candidate| {
-                matches!(candidate.freshness, maestria_domain::FreshnessStatus::Stale)
-            });
-            if is_code && has_non_code_evidence && has_stale_evidence {
-                None
-            } else {
-                Some(batch.clone())
-            }
-        })
-        .collect();
+    let (fusion_batches, stale_code_only) = prepare_fusion_batches(
+        engine,
+        batches,
+        visual_enabled,
+        sparse_enabled,
+        repository_specialized,
+    );
     let ranked = if let Some(fusion) = &engine.fusion {
         fusion
             .fuse(query, &fusion_batches)?
@@ -103,8 +76,72 @@ pub(super) async fn evaluate_batches(
     )
     .await?;
     raw_outcome.status = reconcile_status(&raw_outcome.status, &final_diversity.status);
+    if stale_code_only
+        && raw_outcome.evidence.is_empty()
+        && matches!(
+            raw_outcome.status,
+            maestria_domain::SearchStatus::NoEvidenceFound
+        )
+    {
+        raw_outcome.status = maestria_domain::SearchStatus::StaleEvidenceOnly;
+    }
     raw_outcome.coverage = final_diversity.coverage.clone();
     Ok((raw_outcome, lanes, rerank_trace, final_diversity.trace))
+}
+
+fn prepare_fusion_batches(
+    engine: &RetrievalEngine,
+    batches: &[crate::types::CandidateBatch],
+    visual_enabled: bool,
+    sparse_enabled: bool,
+    repository_specialized: bool,
+) -> (Vec<crate::types::CandidateBatch>, bool) {
+    let has_non_code_evidence = batches
+        .iter()
+        .any(|batch| !batch_is_code(batch) && !batch.candidates.is_empty());
+    let has_fresh_code_evidence = batches.iter().any(|batch| {
+        batch_is_code(batch)
+            && batch.candidates.iter().any(|candidate| {
+                !matches!(candidate.freshness, maestria_domain::FreshnessStatus::Stale)
+            })
+    });
+    let stale_code_only = !has_non_code_evidence
+        && !has_fresh_code_evidence
+        && batches.iter().any(|batch| {
+            batch_is_code(batch)
+                && batch.candidates.iter().any(|candidate| {
+                    matches!(candidate.freshness, maestria_domain::FreshnessStatus::Stale)
+                })
+        });
+    let fusion_batches: Vec<_> = batches
+        .iter()
+        .filter(|batch| {
+            crate::visual_benchmark::visual_lane_is_eligible(&batch.descriptor, visual_enabled)
+        })
+        .filter(|batch| {
+            crate::learned_sparse_policy::sparse_lane_is_eligible(&batch.descriptor, sparse_enabled)
+        })
+        .filter(|batch| {
+            super::batch_is_eligible(
+                &batch.descriptor,
+                &engine.hybrid_policy,
+                repository_specialized,
+            )
+        })
+        .filter_map(|batch| {
+            let mut batch = batch.clone();
+            if batch_is_code(&batch) {
+                batch.candidates.retain(|candidate| {
+                    !matches!(candidate.freshness, maestria_domain::FreshnessStatus::Stale)
+                });
+                if batch.candidates.is_empty() {
+                    return None;
+                }
+            }
+            Some(batch)
+        })
+        .collect();
+    (fusion_batches, stale_code_only)
 }
 
 async fn apply_reranking(

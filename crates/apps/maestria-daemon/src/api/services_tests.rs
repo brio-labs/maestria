@@ -1,13 +1,18 @@
 use super::*;
-use maestria_domain::{ArtifactId, EvidenceId, HarnessRunId};
+use maestria_domain::{
+    Artifact, ArtifactId, Evidence, EvidenceId, EvidenceKind, HarnessRunId, IndexStatus,
+};
 use maestria_governance::{DefaultApprovalGate, DefaultRiskClassifier, DefaultValidationGate};
 use maestria_ports::{
-    HarnessAdapter, HarnessCapabilities, HarnessCommandClass, HarnessOutcome, HarnessRequest,
-    InMemoryApprovalRepository, InMemoryArtifactRepository, InMemoryBlobStore,
-    InMemoryCardRepository, InMemoryChunkRepository, InMemoryEffectJournal, InMemoryEventLog,
-    InMemoryEvidenceRepository, InMemoryFullTextIndex, InMemoryGraphIndex, InMemoryHarnessAdapter,
-    InMemoryIdAllocator, InMemoryParser, InMemoryVectorIndex, InMemoryWebFetcher, PortError,
+    ArtifactRepository, EvidenceRepository, HarnessAdapter, HarnessCapabilities,
+    HarnessCommandClass, HarnessOutcome, HarnessRequest, InMemoryApprovalRepository,
+    InMemoryArtifactRepository, InMemoryBlobStore, InMemoryCardRepository, InMemoryChunkRepository,
+    InMemoryEffectJournal, InMemoryEventLog, InMemoryEvidenceRepository, InMemoryFullTextIndex,
+    InMemoryGraphIndex, InMemoryHarnessAdapter, InMemoryIdAllocator, InMemoryParser,
+    InMemoryVectorIndex, InMemoryWebFetcher, PortError,
 };
+use maestria_storage_sqlite::SqliteStore;
+use std::collections::BTreeSet;
 use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -274,6 +279,115 @@ async fn harness_scope_and_journal_are_enforced() -> Result<()> {
             .adapters
             .effect_journal
             .is_feedback_accepted(inside.harness.run_id, generation)?
+    );
+
+    Ok(())
+}
+
+#[test]
+fn harness_scope_keeps_runtime_privacy_patterns_when_manifest_omits_pem() -> Result<()> {
+    let fixture = fixture(8)?;
+    let mut manifest = InstanceManifest::default_for_root(fixture.layout.root.clone());
+    manifest
+        .excluded_patterns
+        .retain(|pattern| pattern != "*.pem");
+    std::fs::write(&fixture.layout.manifest_path, manifest.encode())?;
+
+    let scope = harness_scope(&fixture.context, &fixture.layout.root)?;
+    assert!(
+        scope
+            .blocked_patterns()
+            .iter()
+            .any(|pattern| pattern == ".ssh"),
+        "manifest .ssh exclusion was not forwarded to the harness scope"
+    );
+    assert!(
+        scope
+            .blocked_patterns()
+            .iter()
+            .any(|pattern| pattern == "*.pem"),
+        "default pem privacy exclusion was not forwarded to the harness scope"
+    );
+    assert!(
+        scope
+            .blocked_patterns()
+            .iter()
+            .any(|pattern| pattern == "password"),
+        "default sensitive-name privacy exclusion was not forwarded to the harness scope"
+    );
+    let pem_path = fixture
+        .layout
+        .root
+        .join("private.pem")
+        .display()
+        .to_string();
+    assert!(
+        !source_scope_allowed(&manifest, &pem_path),
+        "default pem privacy exclusion did not protect evidence access"
+    );
+    let ssh_path = fixture.layout.root.join(".ssh").join("id_rsa");
+    let ssh_path = ssh_path.display().to_string();
+    assert!(
+        !source_scope_allowed(&manifest, &ssh_path),
+        "manifest .ssh exclusion did not protect evidence access"
+    );
+    Ok(())
+}
+
+#[test]
+fn open_evidence_rejects_file_span_outside_current_manifest_roots() -> Result<()> {
+    let fixture = fixture(8)?;
+    let store = SqliteStore::open(&fixture.layout.database_path)?;
+    let artifact_id = ArtifactId::new(41);
+    let evidence_id = EvidenceId::new(42);
+    ArtifactRepository::put(
+        &store,
+        Artifact {
+            id: artifact_id,
+            title: "outside.md".to_string(),
+            chunk_ids: BTreeSet::new(),
+            card_ids: BTreeSet::new(),
+            claim_ids: BTreeSet::new(),
+            evidence_ids: BTreeSet::new(),
+            index_status: IndexStatus::Indexed,
+            content_hash: Some("hash".to_string()),
+            parse_status: None,
+            security: maestria_domain::SecurityMetadata::default(),
+        },
+    )?;
+    let outside_path = fixture.layout.root.join("..").join("indexed-outside.md");
+    EvidenceRepository::put(
+        &store,
+        Evidence {
+            id: evidence_id,
+            artifact_id,
+            claim_id: None,
+            kind: EvidenceKind::FileSpan {
+                path: outside_path.display().to_string(),
+                range: maestria_domain::ContentRange { start: 1, end: 1 },
+                content_hash: "hash".to_string(),
+                snapshot: None,
+            },
+            excerpt: "outside".to_string(),
+            observed_at: maestria_domain::LogicalTick::new(1),
+            security: maestria_domain::SecurityMetadata::default(),
+        },
+    )?;
+    drop(store);
+
+    let error = match open_evidence(&fixture.layout, evidence_id.value()) {
+        Ok(_) => {
+            return Err(anyhow::anyhow!(
+                "out-of-scope indexed evidence unexpectedly opened"
+            ));
+        }
+        Err(error) => error,
+    };
+    assert!(
+        error
+            .to_string()
+            .contains("outside instance read roots or excluded by policy"),
+        "unexpected out-of-scope evidence error: {error:#}"
     );
     Ok(())
 }

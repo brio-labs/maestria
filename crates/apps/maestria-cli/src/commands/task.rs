@@ -130,7 +130,7 @@ pub async fn run_add_evidence(instance_dir: PathBuf, task_id: u64, evidence_id: 
 }
 
 pub fn run_show(instance_dir: PathBuf, task_id: Option<u64>) -> Result<()> {
-    let layout = InstanceLayout::for_root(instance_dir);
+    let layout = helpers::validated_instance(instance_dir)?;
     let state = maestria_daemon::load_kernel_state(&layout).with_context(|| "load kernel state")?;
 
     if let Some(requested) = task_id {

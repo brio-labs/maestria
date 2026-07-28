@@ -182,6 +182,64 @@ fn evidence_put_is_idempotent() -> Result<(), Box<dyn std::error::Error>> {
     assert_eq!(stored, evidence);
     Ok(())
 }
+#[test]
+fn evidence_put_is_idempotent_across_alternating_stores() -> Result<(), Box<dyn std::error::Error>>
+{
+    let directory = tempfile::tempdir()?;
+    let path = directory.path().join("evidence.db");
+    let first_store = SqliteStore::open(&path)?;
+    let second_store = SqliteStore::open(&path)?;
+    let original = Evidence {
+        id: EvidenceId::new(101),
+        artifact_id: ArtifactId::new(10),
+        claim_id: None,
+        kind: EvidenceKind::Validation {
+            report_id: ValidationReportId::new(1),
+        },
+        excerpt: "original".to_string(),
+        observed_at: LogicalTick::new(1),
+        security: SecurityMetadata::default(),
+    };
+    let conflict = Evidence {
+        id: original.id,
+        artifact_id: original.artifact_id,
+        claim_id: original.claim_id,
+        kind: EvidenceKind::Validation {
+            report_id: ValidationReportId::new(2),
+        },
+        excerpt: "different".to_string(),
+        observed_at: LogicalTick::new(2),
+        security: SecurityMetadata::default(),
+    };
+
+    EvidenceRepository::put(&first_store, original.clone())?;
+    EvidenceRepository::put(&second_store, original.clone())?;
+
+    let first_conflict = match EvidenceRepository::put(&first_store, conflict.clone()) {
+        Err(error) => error,
+        Ok(()) => return Err("expected conflicting evidence put to fail".into()),
+    };
+    assert!(matches!(first_conflict, PortError::Conflict { .. }));
+
+    EvidenceRepository::put(&second_store, original.clone())?;
+
+    let second_conflict = match EvidenceRepository::put(&second_store, conflict) {
+        Err(error) => error,
+        Ok(()) => return Err("expected conflicting evidence put to fail".into()),
+    };
+    assert!(matches!(second_conflict, PortError::Conflict { .. }));
+
+    EvidenceRepository::put(&first_store, original.clone())?;
+    assert_eq!(
+        EvidenceRepository::get(&first_store, original.id)?,
+        Some(original.clone())
+    );
+    assert_eq!(
+        EvidenceRepository::get(&second_store, original.id)?,
+        Some(original)
+    );
+    Ok(())
+}
 
 #[test]
 fn evidence_put_rejects_conflicting_overwrite() -> Result<(), Box<dyn std::error::Error>> {
@@ -410,5 +468,66 @@ fn card_with_null_source_span_json_returns_error() -> Result<(), Box<dyn std::er
         err.is_internal(),
         "null source_span_json must return internal error, got {err:?}"
     );
+    Ok(())
+}
+
+#[test]
+fn chunk_with_null_node_id_returns_typed_error() -> Result<(), Box<dyn std::error::Error>> {
+    let store = SqliteStore::in_memory()?;
+    let connection = store.lock()?;
+    connection
+        .execute(
+            "INSERT INTO chunks (id, artifact_id, chunk_order, text, node_id, source_span_json, representations_json)
+             VALUES (1, 1, 0, 'text', NULL, '{\"kind\":\"text_span\",\"start_line\":1,\"end_line\":2}', '[]')",
+            [],
+        )
+        .map_err(to_port_error)?;
+    drop(connection);
+
+    let expected = PortError::InternalContext {
+        context: "chunk repository row missing node_id",
+        source: "chunk_id=1".to_string(),
+    };
+    let get_error = match ChunkRepository::get(&store, ChunkId::new(1)) {
+        Err(error) => error,
+        Ok(_) => return Err("NULL node_id must fail for chunk get".into()),
+    };
+    assert_eq!(get_error, expected);
+    let list_error = match ChunkRepository::list_for_artifact(&store, ArtifactId::new(1)) {
+        Err(error) => error,
+        Ok(_) => return Err("NULL node_id must fail for chunk list".into()),
+    };
+    assert_eq!(list_error, expected);
+    Ok(())
+}
+
+#[test]
+fn card_with_null_node_id_returns_typed_error() -> Result<(), Box<dyn std::error::Error>> {
+    let store = SqliteStore::in_memory()?;
+    let connection = store.lock()?;
+    connection
+        .execute(
+            "INSERT INTO cards (id, artifact_id, title, body, node_id, source_span_json, security_json)
+             VALUES (1, 1, 'title', 'body', NULL, '{\"kind\":\"text_span\",\"start_line\":1,\"end_line\":2}',
+                     '{\"trust_zone\":\"Untrusted\",\"authority\":\"External\",\"integrity\":\"Unverified\",\"sensitivity\":\"Internal\",\"review_status\":\"Unreviewed\",\"quarantined\":false,\"prompt_injection_risk\":false,\"poisoning_flags\":[],\"read_allowed\":true,\"write_allowed\":false,\"scope_id\":null}')",
+            [],
+        )
+        .map_err(to_port_error)?;
+    drop(connection);
+
+    let expected = PortError::InternalContext {
+        context: "card repository row missing node_id",
+        source: "card_id=1".to_string(),
+    };
+    let get_error = match CardRepository::get(&store, CardId::new(1)) {
+        Err(error) => error,
+        Ok(_) => return Err("NULL node_id must fail for card get".into()),
+    };
+    assert_eq!(get_error, expected);
+    let list_error = match CardRepository::list_for_artifact(&store, ArtifactId::new(1)) {
+        Err(error) => error,
+        Ok(_) => return Err("NULL node_id must fail for card list".into()),
+    };
+    assert_eq!(list_error, expected);
     Ok(())
 }

@@ -28,36 +28,25 @@ pub(crate) fn validate_readable_path(
     } else {
         cwd.join(raw_path)
     };
-    let normalized = normalize_path(&candidate);
-    if blocked_paths.iter().any(|b| normalized.starts_with(b)) {
+    let normalized = match canonicalize_existing_prefix(&candidate) {
+        Some(path) => path,
+        None => normalize_absolute_path(&candidate),
+    };
+    if path_is_blocked(&candidate, blocked_paths) {
         return Err(PortError::InvalidInputContext {
             context: "path is blocked by exclusion",
             source: raw_path.to_string(),
         });
     }
     // Canonicalize the candidate to resolve symlinks, then re-check.
-    if let Ok(real) = std::fs::canonicalize(&candidate) {
-        let real_allowed = readable_roots.iter().any(|root| match root.canonicalize() {
-            Ok(cr) => real.starts_with(&cr),
-            Err(_) => false,
-        });
-        if !real_allowed {
-            return Err(PortError::InvalidInputContext {
-                context: "path resolves outside readable roots",
-                source: format!("{raw_path:?} -> {real:?}"),
-            });
-        }
-        return Ok(real);
-    }
-    // Candidate does not exist — fall back to lexical check.
-    let allowed = readable_roots.iter().any(|root| match root.canonicalize() {
+    let real_allowed = readable_roots.iter().any(|root| match root.canonicalize() {
         Ok(cr) => normalized.starts_with(&cr),
         Err(_) => false,
     });
-    if !allowed {
+    if !real_allowed {
         return Err(PortError::InvalidInputContext {
-            context: "path is outside readable roots",
-            source: raw_path.to_string(),
+            context: "path resolves outside readable roots",
+            source: format!("{raw_path:?} -> {normalized:?}"),
         });
     }
     Ok(normalized)
@@ -82,6 +71,65 @@ pub(crate) fn normalize_path(path: &Path) -> PathBuf {
         }
     }
     components.iter().collect()
+}
+
+/// Resolves symlinks in the existing prefix of a path and preserves any
+/// non-existent suffix. This keeps scope checks correct for paths such as
+/// `link/new-file`, where `link` is a symlink but the final file is not yet
+/// present.
+pub(crate) fn canonicalize_existing_prefix(path: &Path) -> Option<PathBuf> {
+    let absolute = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        let current = std::env::current_dir().ok()?;
+        current.join(path)
+    };
+    let mut candidate = absolute;
+    let mut missing = Vec::new();
+    loop {
+        match std::fs::canonicalize(&candidate) {
+            Ok(real) => {
+                let mut resolved = real;
+                for component in missing.iter().rev() {
+                    resolved.push(component);
+                }
+                return Some(normalize_path(&resolved));
+            }
+            Err(_) => {
+                let name = candidate.file_name()?.to_os_string();
+                missing.push(name);
+                if !candidate.pop() {
+                    return None;
+                }
+            }
+        }
+    }
+}
+
+pub(crate) fn normalize_absolute_path(path: &Path) -> PathBuf {
+    let absolute = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        match std::env::current_dir() {
+            Ok(current) => current.join(path),
+            Err(_) => path.to_path_buf(),
+        }
+    };
+    normalize_path(&absolute)
+}
+
+pub(crate) fn path_is_blocked(candidate: &Path, blocked_paths: &[PathBuf]) -> bool {
+    let candidate = match canonicalize_existing_prefix(candidate) {
+        Some(path) => path,
+        None => normalize_absolute_path(candidate),
+    };
+    blocked_paths.iter().any(|blocked| {
+        let blocked = match canonicalize_existing_prefix(blocked) {
+            Some(path) => path,
+            None => normalize_absolute_path(blocked),
+        };
+        candidate.starts_with(&blocked)
+    })
 }
 
 pub(crate) fn filename_matches(name: &str, pattern: &str) -> bool {
@@ -174,11 +222,7 @@ pub(crate) fn validate_cat_args(
         // Re-check blocked paths against the resolved path (canonical for
         // existing files, normalized for non-existing) to catch symlinks that
         // resolve into a blocked area.
-        if request
-            .blocked_paths
-            .iter()
-            .any(|b| resolved.starts_with(b))
-        {
+        if path_is_blocked(&resolved, &request.blocked_paths) {
             return Err(PortError::InvalidInputContext {
                 context: "canonical path blocked by exclusion",
                 source: resolved.display().to_string(),

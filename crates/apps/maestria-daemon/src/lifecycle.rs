@@ -222,21 +222,60 @@ impl InstanceLifecycle {
         shutdown_result
     }
 
-    /// Run until the external `shutdown` token is triggered, then shut down cleanly.
+    /// Run until the external `shutdown` token is triggered, or until the runtime stops itself.
     ///
     /// # Cancellation
-    /// If the future is dropped before the token fires, recovery may be partially queued and the
-    /// watcher may have started, but shutdown is not performed.
+    /// If the future is dropped before either shutdown condition is observed, recovery may be
+    /// partially queued and the watcher may have started, but shutdown is not performed.
     pub async fn run_until_shutdown(mut self, shutdown: CancellationToken) -> Result<()> {
         let result = self.queue_recovery().await;
-        if result.is_ok() {
-            self.start_watcher();
-            shutdown.cancelled().await;
+        if result.is_err() {
+            let shutdown_result = self.shutdown().await;
+            result?;
+            return shutdown_result;
         }
+
+        self.start_watcher();
+
+        let (termination, runtime_result) = match self.runtime_task.as_mut() {
+            Some(runtime_task) => {
+                tokio::select! {
+                    biased;
+                    runtime_result = runtime_task => {
+                        (RuntimeTermination::TaskCompleted, Some(runtime_result))
+                    }
+                    () = self.shutdown_token.cancelled() => (RuntimeTermination::InternalShutdown, None),
+                    () = shutdown.cancelled() => (RuntimeTermination::ExternalShutdown, None),
+                }
+            }
+            None => (RuntimeTermination::InternalShutdown, None),
+        };
+        if matches!(termination, RuntimeTermination::TaskCompleted) {
+            self.runtime_task.take();
+        }
+
         let shutdown_result = self.shutdown().await;
-        result?;
-        shutdown_result
+        match termination {
+            RuntimeTermination::ExternalShutdown => shutdown_result,
+            RuntimeTermination::InternalShutdown => match shutdown_result {
+                Err(error) => Err(error),
+                Ok(()) => Err(anyhow!(
+                    "runtime requested shutdown before external shutdown"
+                )),
+            },
+            RuntimeTermination::TaskCompleted => match runtime_result {
+                Some(Err(error)) => Err(anyhow!(error).context("runtime loop join failed")),
+                Some(Ok(())) | None => Err(anyhow!("runtime loop stopped unexpectedly")),
+            },
+        }
     }
+}
+
+#[derive(Debug, Clone, Copy)]
+enum RuntimeTermination {
+    ExternalShutdown,
+    InternalShutdown,
+    TaskCompleted,
 }
 
 #[derive(Debug, Clone, Copy)]

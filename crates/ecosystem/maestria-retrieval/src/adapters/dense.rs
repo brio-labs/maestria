@@ -10,7 +10,8 @@ use maestria_ports::{
 };
 
 use super::common::{
-    SourceSnapshotVerifier, candidate_from_records, generation_mismatch, one_based_rank, port_error,
+    SourceSnapshotVerifier, bounded_candidate_bytes, candidate_from_records, generation_mismatch,
+    one_based_rank, port_error,
 };
 use super::score_provenance::dense_score;
 use crate::traits::CandidateRetriever;
@@ -90,12 +91,14 @@ impl DenseChunkRetriever {
             return Err(port_error(error));
         }
         let mut candidates = Vec::with_capacity(hits.len());
+        let mut bytes_read = 0_u64;
         for (raw_rank, hit) in hits.into_iter().enumerate() {
             let Some(candidate) =
                 self.candidate_from_hit(hit, one_based_rank(raw_rank), &identity)?
             else {
                 continue;
             };
+            bytes_read = bytes_read.saturating_add(bounded_candidate_bytes(&candidate));
             candidates.push(candidate);
             if candidates.len() >= request.query.limit {
                 break;
@@ -112,7 +115,7 @@ impl DenseChunkRetriever {
             candidates,
             status,
             generation: Some(self.descriptor.generation),
-            bytes_read: 0,
+            bytes_read,
         })
     }
 
@@ -243,8 +246,9 @@ mod tests {
         FilteredVectorSpy, chunk, denied_artifact, request,
     };
     use maestria_ports::{
-        EmbeddingProvider, EmbeddingRequest, EmbeddingResponse, InMemoryArtifactRepository,
-        InMemoryBlobStore, InMemoryChunkRepository, InMemoryEvidenceRepository,
+        EmbeddingProvenance, EmbeddingProvider, EmbeddingRequest, EmbeddingResponse,
+        InMemoryArtifactRepository, InMemoryBlobStore, InMemoryChunkRepository,
+        InMemoryEvidenceRepository, InMemoryVectorIndex, VectorEmbedding, VectorIndex,
     };
 
     struct UnusedEmbeddingProvider;
@@ -305,6 +309,101 @@ mod tests {
         assert_eq!(index.filter_calls(), 1);
         assert_eq!(index.score_calls(), 0);
         assert!(batch.candidates.is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn dense_batch_reports_bounded_bytes() -> Result<(), Box<dyn std::error::Error>> {
+        let generation = IndexGenerationId::new(1);
+        let artifact_id = maestria_domain::ArtifactId::new(7);
+        let chunk_id = maestria_domain::ChunkId::new(11);
+        let source = b"alpha\nbeta\n";
+        let blobs = InMemoryBlobStore::new();
+        let snapshot = blobs.put(source.to_vec())?;
+        let content_hash = maestria_domain::content_hash(source);
+        let artifacts = InMemoryArtifactRepository::new();
+        artifacts.put(maestria_domain::Artifact {
+            id: artifact_id,
+            title: "dense".to_string(),
+            chunk_ids: std::iter::once(chunk_id).collect(),
+            card_ids: Default::default(),
+            claim_ids: Default::default(),
+            evidence_ids: Default::default(),
+            index_status: IndexStatus::Indexed,
+            content_hash: Some(content_hash.clone()),
+            parse_status: None,
+            security: Default::default(),
+        })?;
+        let chunks = InMemoryChunkRepository::new();
+        chunks.put(maestria_domain::Chunk {
+            id: chunk_id,
+            artifact_id,
+            node_id: maestria_domain::StructureNodeId::new(1),
+            source_span: maestria_domain::SourceSpan::TextSpan {
+                start_line: 1,
+                end_line: 2,
+            },
+            representations: Vec::new(),
+            order: 0,
+            text: "alpha".to_string(),
+        })?;
+        let evidence = InMemoryEvidenceRepository::new();
+        evidence.put(maestria_domain::Evidence {
+            id: maestria_domain::evidence_id_for(artifact_id, 0),
+            artifact_id,
+            claim_id: None,
+            kind: maestria_domain::EvidenceKind::FileSpan {
+                path: "dense.md".to_string(),
+                range: maestria_domain::ContentRange { start: 1, end: 2 },
+                content_hash,
+                snapshot: Some(snapshot),
+            },
+            excerpt: "alpha".to_string(),
+            observed_at: maestria_domain::LogicalTick::new(1),
+            security: Default::default(),
+        })?;
+        let identity = maestria_ports::EmbeddingIdentity::legacy("dense-test", 1)?;
+        let index = InMemoryVectorIndex::new();
+        index.index_embeddings(vec![VectorEmbedding {
+            chunk_id,
+            vector: vec![1.0],
+            provenance: EmbeddingProvenance {
+                content_hash: "embedding".to_string(),
+                identity: identity.clone(),
+                provider_id: "dense-test".to_string(),
+                model: "dense-test".to_string(),
+                model_version: "1".to_string(),
+                disclosure: maestria_ports::ProviderDisclosure {
+                    remote: false,
+                    retention: maestria_ports::RetentionPolicy::NoRetention,
+                },
+            },
+        }])?;
+        let retriever = DenseChunkRetriever::new(
+            DenseChunkRetrieverParts {
+                index: Arc::new(index),
+                artifacts: Arc::new(artifacts),
+                chunks: Arc::new(chunks),
+                evidence: Arc::new(evidence),
+                blobs: Arc::new(blobs),
+                embedding_provider: Arc::new(UnusedEmbeddingProvider),
+            },
+            RetrievalSecurityPolicy::default(),
+            generation,
+        );
+        let batch = retriever.retrieve_with_vector(
+            request(maestria_domain::SearchIntent::FactualLocal, generation)?,
+            VectorSearchQuery {
+                vector: vec![1.0],
+                limit: 5,
+                provider_id: Some("dense-test".to_string()),
+                model: Some("dense-test".to_string()),
+                model_version: Some("1".to_string()),
+                identity: Some(identity),
+            },
+        )?;
+        assert_eq!(batch.candidates.len(), 1);
+        assert_eq!(batch.bytes_read, 1);
         Ok(())
     }
 }

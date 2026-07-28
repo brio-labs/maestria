@@ -32,6 +32,7 @@ pub struct VisualPageRegionRetrieverParts {
 #[derive(Clone)]
 pub struct VisualGenerationCapability {
     identity: EmbeddingIdentity,
+    corpus_snapshot: CorpusSnapshotId,
 }
 
 impl VisualGenerationCapability {
@@ -61,7 +62,10 @@ impl VisualGenerationCapability {
                     .to_string(),
             ));
         }
-        Ok(Self { identity })
+        Ok(Self {
+            identity,
+            corpus_snapshot,
+        })
     }
 
     /// Returns the validated active generation.
@@ -72,6 +76,11 @@ impl VisualGenerationCapability {
     /// Returns the exact provider identity validated by this capability.
     pub fn identity(&self) -> &EmbeddingIdentity {
         &self.identity
+    }
+
+    /// Returns the validated corpus snapshot bound to the generation.
+    pub fn corpus_snapshot(&self) -> CorpusSnapshotId {
+        self.corpus_snapshot
     }
 }
 
@@ -85,6 +94,7 @@ pub struct VisualPageRegionRetriever {
     evidence: Arc<dyn EvidenceRepository + Send + Sync>,
     embedding_provider: Arc<dyn VisualEmbeddingProvider + Send + Sync>,
     expected_identity: EmbeddingIdentity,
+    expected_corpus_snapshot: CorpusSnapshotId,
     verifier: SourceSnapshotVerifier,
     policy: RetrievalSecurityPolicy,
     descriptor: RetrieverDescriptor,
@@ -97,6 +107,7 @@ impl VisualPageRegionRetriever {
         capability: VisualGenerationCapability,
     ) -> Self {
         let expected_identity = capability.identity().clone();
+        let expected_corpus_snapshot = capability.corpus_snapshot();
         Self {
             index: parts.index,
             artifacts: parts.artifacts,
@@ -104,6 +115,7 @@ impl VisualPageRegionRetriever {
             evidence: parts.evidence,
             embedding_provider: parts.embedding_provider,
             expected_identity: expected_identity.clone(),
+            expected_corpus_snapshot,
             verifier: SourceSnapshotVerifier::new(parts.blobs),
             policy,
             descriptor: RetrieverDescriptor {
@@ -210,6 +222,12 @@ impl VisualPageRegionRetriever {
         request: CandidateRequest,
         identity: &EmbeddingIdentity,
     ) -> Result<CandidateBatch, RetrievalError> {
+        if request.plan.corpus_snapshot != self.expected_corpus_snapshot {
+            return Err(RetrievalError::Internal(format!(
+                "visual corpus snapshot mismatch: expected {}, found {}",
+                self.expected_corpus_snapshot, request.plan.corpus_snapshot
+            )));
+        }
         if request.expected_generation != self.descriptor.generation {
             return Err(generation_mismatch(
                 request.expected_generation,
@@ -231,11 +249,14 @@ impl VisualPageRegionRetriever {
             return Err(port_error(error));
         }
         let mut candidates = Vec::with_capacity(request.query.limit.min(hits.len()));
+        let mut bytes_read = 0_u64;
         for (index, hit) in hits.into_iter().enumerate() {
             let raw_rank = one_based_rank(index);
             let Some(candidate) = self.candidate_from_hit(hit, raw_rank, identity)? else {
                 continue;
             };
+            bytes_read =
+                bytes_read.saturating_add(super::common::bounded_candidate_bytes(&candidate));
             candidates.push(candidate);
             if candidates.len() >= request.query.limit {
                 break;
@@ -252,7 +273,7 @@ impl VisualPageRegionRetriever {
             candidates,
             status,
             generation: Some(self.descriptor.generation),
-            bytes_read: 0,
+            bytes_read,
         })
     }
 }
@@ -289,6 +310,12 @@ impl CandidateRetriever for VisualPageRegionRetriever {
                 generation: Some(self.descriptor.generation),
                 bytes_read: 0,
             });
+        }
+        if request.plan.corpus_snapshot != self.expected_corpus_snapshot {
+            return Err(RetrievalError::Internal(format!(
+                "visual corpus snapshot mismatch: expected {}, found {}",
+                self.expected_corpus_snapshot, request.plan.corpus_snapshot
+            )));
         }
         if !scan_secrets(&request.query.q).is_clean() {
             return Err(RetrievalError::Internal(

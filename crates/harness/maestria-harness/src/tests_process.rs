@@ -6,8 +6,7 @@ use std::path::PathBuf;
 async fn reports_spawn_failures_with_context() -> Result<(), Box<dyn std::error::Error>> {
     let mut request = shell_request("cat /etc/hostname", 5000);
     request.working_directory = PathBuf::from("/definitely/missing/maestria-working-directory");
-
-    let result = adapter().execute(request).await;
+    let result = crate::process::spawn_and_collect("cat", &[], &request).await;
 
     assert!(
         matches!(

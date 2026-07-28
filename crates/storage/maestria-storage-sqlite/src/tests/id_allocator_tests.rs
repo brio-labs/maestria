@@ -1,4 +1,8 @@
 use crate::SqliteStore;
+use maestria_domain::{
+    ApprovalId, DomainEvent, DomainEventEnvelope, EventId, SequenceNumber, TaskId,
+};
+use maestria_ports::EventLog;
 use maestria_ports::IdAllocator;
 
 #[test]
@@ -134,5 +138,28 @@ fn allocation_after_invalid_proposal_does_not_skip_ids() -> Result<(), Box<dyn s
             "rejected proposal must not cause ID reuse"
         );
     }
+    Ok(())
+}
+
+#[test]
+fn approval_allocation_advances_past_event_backed_id() -> Result<(), Box<dyn std::error::Error>> {
+    let store = SqliteStore::in_memory()?;
+    store.append(DomainEventEnvelope {
+        id: EventId::new(1),
+        sequence: SequenceNumber::new(1),
+        event: DomainEvent::ApprovalRecorded {
+            approval_id: ApprovalId::new(1),
+            task_id: TaskId::new(1),
+            approved: true,
+            from_status: None,
+            to_status: None,
+        },
+    })?;
+
+    let allocated = store.allocate_approval_id()?;
+    assert!(
+        allocated.value() > 1,
+        "approval allocator must not reuse event-backed IDs"
+    );
     Ok(())
 }

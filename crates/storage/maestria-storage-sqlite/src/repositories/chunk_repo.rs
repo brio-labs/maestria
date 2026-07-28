@@ -71,8 +71,11 @@ fn read_chunk(row: &Row<'_>) -> Result<Chunk, PortError> {
     let node_id = match row.get::<_, Option<i64>>(4).map_err(to_port_error)? {
         Some(value) => value,
         None => {
-            let _ = ();
-            0
+            let chunk_id = row.get::<_, i64>(0).map_err(to_port_error)?;
+            return Err(PortError::InternalContext {
+                context: "chunk repository row missing node_id",
+                source: format!("chunk_id={chunk_id}"),
+            });
         }
     };
     let source_span_json = row.get::<_, Option<String>>(5).map_err(to_port_error)?;

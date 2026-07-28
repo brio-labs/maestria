@@ -185,6 +185,12 @@ pub(super) fn candidate_from_records(
     scores: RetrievalScoreSet,
     reasons: Vec<RetrievalReason>,
 ) -> Result<EvidenceCandidate, RetrievalError> {
+    if evidence.artifact_id != artifact_id {
+        return Err(RetrievalError::Internal(format!(
+            "candidate evidence {} belongs to artifact {}, expected {}",
+            evidence.id, evidence.artifact_id, artifact_id
+        )));
+    }
     let (location, range) = evidence_location(evidence, source_span)?;
     let source_span = EvidenceSpan::new(Some(node_id), location, range)
         .map_err(|error| RetrievalError::Internal(error.to_string()))?;
@@ -199,6 +205,11 @@ pub(super) fn candidate_from_records(
         reasons,
         coverage_keys: Vec::new(),
     })
+}
+
+pub(super) fn bounded_candidate_bytes(candidate: &EvidenceCandidate) -> u64 {
+    let range = candidate.source_span.range();
+    range.end.saturating_sub(range.start) as u64
 }
 
 fn evidence_location(
@@ -319,5 +330,39 @@ mod tests {
             file_evidence(ContentRange { start: 2, end: 2 }, "alpha line")?;
         assert!(verifier.verify(&wrong_range).is_err());
         Ok(())
+    }
+    #[test]
+    fn candidate_construction_rejects_cross_artifact_evidence() {
+        let artifact_id = maestria_domain::ArtifactId::new(1);
+        let evidence = Evidence {
+            id: maestria_domain::EvidenceId::new(2),
+            artifact_id: maestria_domain::ArtifactId::new(2),
+            claim_id: None,
+            kind: EvidenceKind::FileSpan {
+                path: "notes.md".to_string(),
+                range: ContentRange { start: 1, end: 1 },
+                content_hash: "sha256:test".to_string(),
+                snapshot: None,
+            },
+            excerpt: "alpha".to_string(),
+            observed_at: maestria_domain::LogicalTick::new(1),
+            security: Default::default(),
+        };
+        let result = candidate_from_records(
+            artifact_id,
+            &SourceSpan::TextSpan {
+                start_line: 1,
+                end_line: 1,
+            },
+            &evidence,
+            StructureNodeId::new(1),
+            RetrievalScoreSet::empty(),
+            Vec::new(),
+        );
+        assert!(matches!(
+            result,
+            Err(RetrievalError::Internal(message))
+                if message.contains("belongs to artifact")
+        ));
     }
 }

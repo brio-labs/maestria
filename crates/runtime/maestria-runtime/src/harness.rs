@@ -3,7 +3,7 @@ use crate::effect_result::EffectFailure;
 use crate::shell_policy::{cat_path_args, is_shell_grammar_allowed, resolve_working_directory};
 use maestria_domain::{DomainInput, HarnessRunCompleted, QueryHarnessRequest};
 use maestria_ports::{HarnessCommandClass, HarnessRequest};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 impl EffectExecutionContext {
     /// Execute a harness command on behalf of a task.
@@ -107,10 +107,21 @@ impl EffectExecutionContext {
             )));
         }
 
-        // ── cat path containment ─────────────────────────────────
+        // ── harness working directory ─────────────────────────────
+        let working_directory = match resolve_working_directory(scope) {
+            Ok(path) => path,
+            Err(error) => {
+                tracing::error!(%error, "unable to resolve harness working directory");
+                return Err(EffectFailure::Failed(format!(
+                    "unable to resolve harness working directory: {error}"
+                )));
+            }
+        };
+
+        // ── cat path policy ────────────────────────────────────────
         if class == HarnessCommandClass::Shell && request.command.trim().starts_with("cat") {
             for arg in cat_path_args(&request.command) {
-                let path = PathBuf::from(arg);
+                let path = resolve_cat_path(arg, &working_directory);
                 if let Err(containment_err) = scope_guard.check_read_containment(&path) {
                     tracing::warn!(
                         path = %path.display(),
@@ -122,17 +133,28 @@ impl EffectExecutionContext {
                         path.display()
                     )));
                 }
+                if path_is_blocked(&path, &working_directory, scope.blocked_paths()) {
+                    tracing::warn!(
+                        path = %path.display(),
+                        "cat path blocked by scope; not spawning"
+                    );
+                    return Err(EffectFailure::Denied(format!(
+                        "cat path `{}` is blocked by scope",
+                        path.display()
+                    )));
+                }
+                if path_matches_blocked_pattern(&path, scope.blocked_patterns()) {
+                    tracing::warn!(
+                        path = %path.display(),
+                        "cat path matches a blocked scope pattern; not spawning"
+                    );
+                    return Err(EffectFailure::Denied(format!(
+                        "cat path `{}` matches a blocked scope pattern",
+                        path.display()
+                    )));
+                }
             }
         }
-        let working_directory = match resolve_working_directory(scope) {
-            Ok(path) => path,
-            Err(error) => {
-                tracing::error!(%error, "unable to resolve harness working directory");
-                return Err(EffectFailure::Failed(format!(
-                    "unable to resolve harness working directory: {error}"
-                )));
-            }
-        };
 
         Ok((class, working_directory))
     }
@@ -246,4 +268,77 @@ impl EffectExecutionContext {
             }
         }
     }
+}
+
+fn resolve_cat_path(raw_path: &str, working_directory: &Path) -> PathBuf {
+    let path = Path::new(raw_path);
+    if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        working_directory.join(path)
+    }
+}
+
+fn normalize_path(path: &Path) -> PathBuf {
+    let mut normalized = PathBuf::new();
+    for component in path.components() {
+        match component {
+            std::path::Component::CurDir => {}
+            std::path::Component::ParentDir => {
+                normalized.pop();
+            }
+            other => normalized.push(other.as_os_str()),
+        }
+    }
+    normalized
+}
+
+fn path_is_blocked(path: &Path, working_directory: &Path, blocked_paths: &[PathBuf]) -> bool {
+    let normalized = normalize_path(path);
+    blocked_paths.iter().any(|blocked| {
+        let blocked = if blocked.is_absolute() {
+            blocked.clone()
+        } else {
+            working_directory.join(blocked)
+        };
+        normalized.starts_with(normalize_path(&blocked))
+    })
+}
+
+fn path_matches_blocked_pattern(path: &Path, patterns: &[String]) -> bool {
+    path.components().any(|component| {
+        let name = component.as_os_str().to_string_lossy();
+        patterns
+            .iter()
+            .any(|pattern| filename_matches(&name, pattern))
+    })
+}
+
+fn filename_matches(name: &str, pattern: &str) -> bool {
+    if !pattern.contains('*') && !pattern.contains('?') {
+        return name == pattern;
+    }
+    let name: Vec<char> = name.chars().collect();
+    let pattern: Vec<char> = pattern.chars().collect();
+    let mut matches = vec![vec![false; pattern.len() + 1]; name.len() + 1];
+    matches[0][0] = true;
+    for pattern_index in 1..=pattern.len() {
+        if pattern[pattern_index - 1] == '*' {
+            matches[0][pattern_index] = matches[0][pattern_index - 1];
+        }
+    }
+    for name_index in 1..=name.len() {
+        for pattern_index in 1..=pattern.len() {
+            matches[name_index][pattern_index] = match pattern[pattern_index - 1] {
+                '*' => {
+                    matches[name_index - 1][pattern_index] || matches[name_index][pattern_index - 1]
+                }
+                '?' => matches[name_index - 1][pattern_index - 1],
+                character => {
+                    character == name[name_index - 1] && matches[name_index - 1][pattern_index - 1]
+                }
+            };
+        }
+    }
+    matches[name.len()][pattern.len()]
 }

@@ -79,8 +79,11 @@ fn read_card(row: &Row<'_>, connection: &Connection) -> Result<Card, PortError> 
     let node_id = match row.get::<_, Option<i64>>(4).map_err(to_port_error)? {
         Some(value) => value,
         None => {
-            let _ = ();
-            0
+            let card_id = row.get::<_, i64>(0).map_err(to_port_error)?;
+            return Err(PortError::InternalContext {
+                context: "card repository row missing node_id",
+                source: format!("card_id={card_id}"),
+            });
         }
     };
     let source_span_json = row.get::<_, Option<String>>(5).map_err(to_port_error)?;

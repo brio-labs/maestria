@@ -12,7 +12,7 @@ use tokio::time::{sleep, timeout};
 use crate::helpers;
 
 pub fn run(instance_dir: PathBuf, limit: usize) -> Result<()> {
-    let layout = InstanceLayout::for_root(instance_dir);
+    let layout = helpers::validated_instance(instance_dir)?;
     let state = maestria_daemon::load_kernel_state(&layout).with_context(|| "load kernel state")?;
 
     if state.memory_candidates.is_empty() {

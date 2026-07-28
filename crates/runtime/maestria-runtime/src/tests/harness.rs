@@ -1,3 +1,4 @@
+use crate::effect_result::EffectFailure;
 use crate::test_support::*;
 use maestria_domain::{DomainInput, KernelState, MaestriaEffect};
 use maestria_governance::Scope;
@@ -108,6 +109,122 @@ async fn query_harness_rejects_cat_outside_scope() -> Result<(), Box<dyn std::er
     assert!(
         !harness_called.load(Ordering::Relaxed),
         "harness must not be invoked for out-of-scope cat"
+    );
+    Ok(())
+}
+
+/// Verify that a manifest/privacy filename exclusion is enforced before a
+/// custom harness adapter can observe or execute a cat request.
+#[tokio::test]
+async fn query_harness_rejects_blocked_pattern_before_custom_adapter()
+-> Result<(), Box<dyn std::error::Error>> {
+    let harness_called = Arc::new(AtomicBool::new(false));
+    let harness = Arc::new(SpyHarnessAdapter::new(harness_called.clone()));
+    let adapters = test_adapters(harness);
+    let governance = test_governance();
+    let (input_tx, _input_rx) = mpsc::channel(8);
+
+    let request = maestria_domain::QueryHarnessRequest {
+        run_id: maestria_domain::HarnessRunId(6),
+        task_id: None,
+        generation: None,
+        capability: "shell".to_string(),
+        scope_id: maestria_domain::ScopeId(1),
+        approval_id: None,
+        command: "cat /workspace/.env".to_string(),
+    };
+
+    let ctx = EffectExecutionContext {
+        scope: Scope::new(
+            vec![PathBuf::from("/workspace")],
+            vec![],
+            vec!["shell".into()],
+            vec![],
+            false,
+        )
+        .with_blocked_patterns(vec![".env".into()]),
+        ..EffectExecutionContext::test_default(
+            adapters,
+            governance,
+            Arc::new(RwLock::new(KernelState::new())),
+            input_tx,
+        )
+    };
+
+    let result = ctx
+        .execute_effect(MaestriaEffect::QueryHarness(request), None)
+        .await;
+    match result {
+        Err(EffectFailure::Denied(reason)) => {
+            assert!(
+                reason.contains("blocked scope pattern"),
+                "denial reason should identify the blocked pattern: {reason}"
+            );
+        }
+        Err(other) => return Err(format!("expected typed denial, got {other}").into()),
+        Ok(()) => return Err("blocked pattern unexpectedly succeeded".into()),
+    }
+    assert!(
+        !harness_called.load(Ordering::Relaxed),
+        "blocked-pattern harness must not be invoked"
+    );
+    Ok(())
+}
+
+/// Verify that a blocked scope path is enforced before a custom harness
+/// adapter can observe or execute a cat request.
+#[tokio::test]
+async fn query_harness_rejects_blocked_path_before_custom_adapter()
+-> Result<(), Box<dyn std::error::Error>> {
+    let harness_called = Arc::new(AtomicBool::new(false));
+    let harness = Arc::new(SpyHarnessAdapter::new(harness_called.clone()));
+    let adapters = test_adapters(harness);
+    let governance = test_governance();
+    let (input_tx, _input_rx) = mpsc::channel(8);
+
+    let request = maestria_domain::QueryHarnessRequest {
+        run_id: maestria_domain::HarnessRunId(7),
+        task_id: None,
+        generation: None,
+        capability: "shell".to_string(),
+        scope_id: maestria_domain::ScopeId(1),
+        approval_id: None,
+        command: "cat /workspace/private/notes.txt".to_string(),
+    };
+
+    let ctx = EffectExecutionContext {
+        scope: Scope::new(
+            vec![PathBuf::from("/workspace")],
+            vec![],
+            vec!["shell".into()],
+            vec![],
+            false,
+        )
+        .with_blocked_read_paths(vec![PathBuf::from("/workspace/private")]),
+        ..EffectExecutionContext::test_default(
+            adapters,
+            governance,
+            Arc::new(RwLock::new(KernelState::new())),
+            input_tx,
+        )
+    };
+
+    let result = ctx
+        .execute_effect(MaestriaEffect::QueryHarness(request), None)
+        .await;
+    match result {
+        Err(EffectFailure::Denied(reason)) => {
+            assert!(
+                reason.contains("blocked by scope"),
+                "denial reason should identify the blocked path: {reason}"
+            );
+        }
+        Err(other) => return Err(format!("expected typed denial, got {other}").into()),
+        Ok(()) => return Err("blocked path unexpectedly succeeded".into()),
+    }
+    assert!(
+        !harness_called.load(Ordering::Relaxed),
+        "blocked-path harness must not be invoked"
     );
     Ok(())
 }

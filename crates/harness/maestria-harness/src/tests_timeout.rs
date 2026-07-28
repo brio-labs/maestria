@@ -5,7 +5,7 @@ use std::path::PathBuf;
 #[tokio::test]
 async fn timeout_on_slow_command() -> Result<(), Box<dyn std::error::Error>> {
     let mut req = shell_request("cat /dev/urandom", 200);
-    req.readable_roots = vec![PathBuf::from("/dev")];
+    req.readable_roots = vec![PathBuf::from("/tmp"), PathBuf::from("/dev")];
     let result = adapter().execute(req).await;
     assert!(
         matches!(result, Err(PortError::InternalContext { .. })),
