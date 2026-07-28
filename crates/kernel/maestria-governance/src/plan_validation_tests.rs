@@ -59,6 +59,53 @@ fn accepts_plan_with_matching_capabilities() -> Result<(), Box<dyn std::error::E
     );
     Ok(())
 }
+
+#[test]
+fn rejects_byte_read_budget_above_capability() -> Result<(), Box<dyn std::error::Error>> {
+    let mut candidate = plan()?;
+    candidate.budgets = SearchBudget::with_resource_limits(100, 1000, 1, 1, 0, 2048, 1)?;
+    let limited = capabilities().max_bytes_read(1024);
+
+    assert!(matches!(
+        SearchPlanValidator::validate(&candidate, &limited, &RetrievalSecurityPolicy::default()),
+        Err(SearchPlanValidationError::BudgetExceeded {
+            budget: "bytes_read",
+            requested: 2048,
+            allowed: 1024,
+        })
+    ));
+    Ok(())
+}
+
+#[test]
+fn rejects_concurrency_budget_above_capability() -> Result<(), Box<dyn std::error::Error>> {
+    let mut candidate = plan()?;
+    candidate.budgets = SearchBudget::with_resource_limits(100, 1000, 1, 1, 0, 1024, 4)?;
+    let limited = capabilities().max_concurrency(2);
+
+    assert!(matches!(
+        SearchPlanValidator::validate(&candidate, &limited, &RetrievalSecurityPolicy::default()),
+        Err(SearchPlanValidationError::BudgetExceeded {
+            budget: "concurrency",
+            requested: 4,
+            allowed: 2,
+        })
+    ));
+    Ok(())
+}
+
+#[test]
+fn accepts_resource_budgets_at_capabilities() -> Result<(), Box<dyn std::error::Error>> {
+    let mut candidate = plan()?;
+    candidate.budgets = SearchBudget::with_resource_limits(100, 1000, 1, 1, 0, 1024, 2)?;
+    let limited = capabilities().max_bytes_read(1024).max_concurrency(2);
+
+    assert!(
+        SearchPlanValidator::validate(&candidate, &limited, &RetrievalSecurityPolicy::default())
+            .is_ok()
+    );
+    Ok(())
+}
 #[test]
 fn rejects_unsupported_stage_and_budget() -> Result<(), Box<dyn std::error::Error>> {
     let mut candidate = plan()?;

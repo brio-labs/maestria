@@ -71,9 +71,9 @@ async fn execute_impl(request: HarnessRequest) -> Result<HarnessOutcome, PortErr
         command::reject_metachar(arg)?;
     }
 
-    validate_cat_args(program, &argv, &request)?;
+    let validated_args = validate_cat_args(program, &argv, &request)?;
 
-    let (status, stdout, stderr) = spawn_and_collect(program, &argv[1..], &request).await?;
+    let (status, stdout, stderr) = spawn_and_collect(program, &validated_args, &request).await?;
 
     let duration = match start.elapsed() {
         Ok(d) => d,
