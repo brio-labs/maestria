@@ -294,6 +294,18 @@ fn reconcile_projections_removes_stale_children_and_preserves_valid_rows()
     artifact.evidence_ids.clear();
 
     reconcile_projections(&corrected_state, &store)?;
+    let reconciled_artifact = ArtifactRepository::get(&store, fixture.artifact_id)?
+        .ok_or_else(|| std::io::Error::other("reconciled artifact projection missing"))?;
+    assert_eq!(
+        reconciled_artifact.chunk_ids,
+        corrected_state
+            .artifacts
+            .get(&fixture.artifact_id)
+            .ok_or_else(|| std::io::Error::other("corrected artifact missing"))?
+            .chunk_ids
+    );
+    assert!(reconciled_artifact.card_ids.is_empty());
+    assert!(reconciled_artifact.evidence_ids.is_empty());
 
     let chunks = ChunkRepository::list_for_artifact(&store, fixture.artifact_id)?;
     assert_eq!(chunks.len(), 1);
@@ -327,6 +339,48 @@ fn reconcile_projections_removes_stale_children_and_preserves_valid_rows()
             .text,
         "first chunk"
     );
+    Ok(())
+}
+
+/// Reconciliation removes stale artifact parents and their child mappings when
+/// replayed state no longer contains the artifact.
+#[test]
+fn reconcile_projections_removes_stale_artifact_parent_and_mappings()
+-> Result<(), Box<dyn std::error::Error>> {
+    let mut state = KernelState::new();
+    let fixture = build_recovery_domain_state(&mut state)?;
+    let store = SqliteStore::in_memory()?;
+
+    reconcile_projections(&state, &store)?;
+    let seeded = ArtifactRepository::get(&store, fixture.artifact_id)?
+        .ok_or_else(|| std::io::Error::other("seeded artifact projection missing"))?;
+    assert_eq!(seeded.chunk_ids.len(), 2);
+    assert_eq!(seeded.card_ids.len(), 1);
+    assert_eq!(seeded.evidence_ids.len(), 1);
+
+    let replayed_without_artifact = KernelState::new();
+    reconcile_projections(&replayed_without_artifact, &store)?;
+
+    assert!(
+        ArtifactRepository::get(&store, fixture.artifact_id)?.is_none(),
+        "artifact absent from replayed state must be deleted"
+    );
+    assert!(
+        ChunkRepository::list_for_artifact(&store, fixture.artifact_id)?.is_empty(),
+        "artifact chunk mappings must be absent after parent deletion"
+    );
+    assert!(
+        CardRepository::list_for_artifact(&store, fixture.artifact_id)?.is_empty(),
+        "artifact card mappings must be absent after parent deletion"
+    );
+    assert!(
+        EvidenceRepository::list_for_artifact(&store, fixture.artifact_id)?.is_empty(),
+        "artifact evidence mappings must be absent after parent deletion"
+    );
+
+    // A second replay of the same empty state must remain idempotent.
+    reconcile_projections(&replayed_without_artifact, &store)?;
+    assert!(ArtifactRepository::get(&store, fixture.artifact_id)?.is_none());
     Ok(())
 }
 

@@ -177,12 +177,13 @@ const BASE_SCHEMA_SQL: &str = r#"CREATE TABLE IF NOT EXISTS schema_version (
          PRIMARY KEY (run_id, generation)
      );"#;
 
-/// Seeds the per-namespace `id_counters` rows from existing domain events
+/// Seeds the per-namespace `id_counters` rows from durable identity truth
 /// so that fresh or migrated databases never start at the wrong counter value.
 ///
-/// Scans `domain_events` for the maximum `claim_id` and `memory_candidate_id`
-/// already persisted, then seeds each counter at `max_id + 1` (or 1 if no
-/// matching events exist). Existing counters are advanced but never regressed.
+/// Scans `domain_events` for the maximum `claim_id`, `memory_candidate_id`, and
+/// event-backed `approval_id`, and scans `approval_requests` for persisted
+/// approval requests. Each counter is seeded at `max_id + 1` (or 1 if no
+/// matching rows exist). Existing counters are advanced but never regressed.
 fn next_counter_value(max_id: Option<i64>, namespace: &str) -> Result<i64, PortError> {
     max_id.map_or(Ok(1), |value| {
         value
@@ -231,13 +232,22 @@ pub(crate) fn seed_id_counters(connection: &Connection) -> Result<(), PortError>
         )
         .map_err(to_port_error)?;
 
-    // Seed approval counter: query approval_requests if the table exists,
-    // otherwise start at 1. Silently skip if table is absent (pre-migration).
+    // Approval IDs have two durable sources of truth: request rows and
+    // ApprovalRecorded events. Both must advance the namespace so a crash
+    // between event append and repository reconciliation cannot reuse an ID.
     let max_approval: Option<i64> = connection
-        .query_row("SELECT MAX(id) FROM approval_requests", [], |row| {
-            row.get(0)
-        })
-        .ok();
+        .query_row(
+            "SELECT MAX(id) FROM (
+                 SELECT id FROM approval_requests
+                 UNION ALL
+                 SELECT CAST(json_extract(payload_json, '$.approval_id') AS INTEGER)
+                 FROM domain_events
+                 WHERE event_kind = 'approval_recorded'
+             )",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(to_port_error)?;
     let next_approval = next_counter_value(max_approval, "approval")?;
     connection
         .execute(

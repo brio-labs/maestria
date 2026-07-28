@@ -5,6 +5,75 @@ use std::sync::{
 };
 use tokio::io::AsyncReadExt;
 use tokio::process::{Child, Command};
+#[cfg(unix)]
+const TRUSTED_PATH: &str = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin";
+#[cfg(windows)]
+const TRUSTED_PATH: &str = r"C:\Windows\System32;C:\Windows";
+#[cfg(not(any(unix, windows)))]
+const TRUSTED_PATH: &str = "";
+
+fn trusted_path() -> &'static str {
+    TRUSTED_PATH
+}
+
+fn trusted_candidate(root: &std::path::Path, program: &str) -> Option<std::path::PathBuf> {
+    let root = std::fs::canonicalize(root).ok()?;
+    let candidate = root.join(program);
+    let executable = std::fs::canonicalize(candidate).ok()?;
+    if !executable.starts_with(&root) {
+        return None;
+    }
+    let metadata = std::fs::metadata(&executable).ok()?;
+    if !metadata.is_file() {
+        return None;
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if metadata.permissions().mode() & 0o111 == 0 {
+            return None;
+        }
+    }
+    Some(executable)
+}
+
+pub(crate) fn resolve_trusted_program(program: &str) -> Result<std::path::PathBuf, PortError> {
+    if program.is_empty() || std::path::Path::new(program).components().count() != 1 {
+        return Err(PortError::InvalidInputContext {
+            context: "resolve trusted harness executable",
+            source: program.to_string(),
+        });
+    }
+
+    #[cfg(unix)]
+    for root in ["/usr/local/bin", "/usr/bin", "/bin"] {
+        if let Some(executable) = trusted_candidate(std::path::Path::new(root), program) {
+            return Ok(executable);
+        }
+    }
+
+    #[cfg(windows)]
+    {
+        let system_root = match std::env::var_os("SystemRoot") {
+            Some(path) => std::path::PathBuf::from(path),
+            None => std::path::PathBuf::from(r"C:\Windows"),
+        };
+        for root in [system_root.join("System32"), system_root] {
+            if let Some(executable) = trusted_candidate(&root, program) {
+                return Ok(executable);
+            }
+            let with_extension = format!("{program}.exe");
+            if let Some(executable) = trusted_candidate(&root, &with_extension) {
+                return Ok(executable);
+            }
+        }
+    }
+
+    Err(PortError::InternalContext {
+        context: "resolve trusted harness executable",
+        source: program.to_string(),
+    })
+}
 
 pub(crate) const MAX_STDOUT_BYTES: usize = 1024 * 1024;
 pub(crate) const MAX_STDERR_BYTES: usize = 1024 * 1024;
@@ -122,8 +191,10 @@ pub(crate) async fn spawn_and_collect(
     args: &[String],
     request: &HarnessRequest,
 ) -> Result<(std::process::ExitStatus, Vec<u8>, Vec<u8>), PortError> {
-    let mut cmd = Command::new(program);
+    let executable = resolve_trusted_program(program)?;
+    let mut cmd = Command::new(&executable);
     cmd.args(args)
+        .env("PATH", trusted_path())
         .current_dir(&request.working_directory)
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())

@@ -421,3 +421,39 @@ fn legacy_v7_migration_adds_security_json_and_defaults() -> Result<(), Box<dyn s
 
     Ok(())
 }
+
+#[test]
+fn seed_id_counters_rejects_malformed_approval_requests_schema() -> Result<(), PortError> {
+    let connection = Connection::open_in_memory().map_err(to_port_error)?;
+    connection
+        .execute_batch(
+            "CREATE TABLE domain_events (
+                 id INTEGER NOT NULL PRIMARY KEY,
+                 sequence INTEGER NOT NULL UNIQUE,
+                 event_kind TEXT NOT NULL,
+                 artifact_id INTEGER,
+                 payload_json TEXT NOT NULL
+             );
+             CREATE TABLE id_counters (
+                 namespace TEXT NOT NULL PRIMARY KEY,
+                 next_id INTEGER NOT NULL
+             );
+             CREATE TABLE approval_requests (request_id INTEGER);",
+        )
+        .map_err(to_port_error)?;
+
+    let error = match crate::schema::seed_id_counters(&connection) {
+        Err(error) => error,
+        Ok(()) => {
+            return Err(PortError::InternalContext {
+                context: "malformed approval_requests must abort counter seeding",
+                source: "seed_id_counters unexpectedly succeeded".to_string(),
+            });
+        }
+    };
+    assert!(
+        error.is_downstream(),
+        "schema query failures must remain typed storage errors: {error}"
+    );
+    Ok(())
+}

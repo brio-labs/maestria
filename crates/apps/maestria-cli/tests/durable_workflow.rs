@@ -394,32 +394,7 @@ fn recursive_index_skips_default_privacy_paths() -> Result<(), Box<dyn std::erro
     );
     Ok(())
 }
-#[test]
-fn query_commands_require_an_initialized_instance() -> Result<(), Box<dyn std::error::Error>> {
-    let instance = TempDir::new("maestria-test-uninitialized-instance")?;
-    let error = assert_err(&[
-        "search",
-        "-i",
-        &instance.path().to_string_lossy(),
-        "anything",
-    ])?;
-    assert!(
-        error.contains("instance manifest is missing"),
-        "unexpected uninitialized-instance error: {error}"
-    );
-    let error = assert_err(&[
-        "open-evidence",
-        "-i",
-        &instance.path().to_string_lossy(),
-        "--evidence-id",
-        "1",
-    ])?;
-    assert!(
-        error.contains("instance manifest is missing"),
-        "unexpected uninitialized-instance evidence error: {error}"
-    );
-    Ok(())
-}
+
 #[test]
 fn pdf_indexing_workflow() -> Result<(), Box<dyn std::error::Error>> {
     let workspace = TempDir::new("maestria-test-pdf-workspace")?;

@@ -1,6 +1,3 @@
-use std::sync::Arc;
-use std::time::Duration;
-
 use async_trait::async_trait;
 use maestria_domain::{
     ArtifactVersionId, ContentRange, CorpusScope, CorpusSnapshotId, DuplicateClusterId,
@@ -19,6 +16,11 @@ use maestria_retrieval::{
     CandidateRetriever, LearnedSparseExecutionPolicy, LearnedSparseShadowLaneStatus,
     LearnedSparseShadowStore, LearnedSparseShadowStoreError, RetrievalEngine, RetrievalEvaluator,
 };
+use std::sync::{
+    Arc,
+    atomic::{AtomicUsize, Ordering},
+};
+use std::time::Duration;
 
 fn fixture_scores(
     bm25: u32,
@@ -85,6 +87,34 @@ impl CandidateRetriever for FixedRetriever {
     }
 
     async fn retrieve(&self, request: CandidateRequest) -> Result<CandidateBatch, RetrievalError> {
+        Ok(CandidateBatch {
+            descriptor: self.descriptor.clone(),
+            query: request.query.q,
+            candidates: vec![self.candidate.clone()],
+            status: maestria_domain::SearchLaneStatus::Succeeded,
+            generation: Some(self.descriptor.generation),
+            bytes_read: 1,
+        })
+    }
+}
+
+struct SlowRetriever {
+    descriptor: RetrieverDescriptor,
+    candidate: EvidenceCandidate,
+    started: Arc<AtomicUsize>,
+    completed: Arc<AtomicUsize>,
+}
+
+#[async_trait]
+impl CandidateRetriever for SlowRetriever {
+    fn descriptor(&self) -> RetrieverDescriptor {
+        self.descriptor.clone()
+    }
+
+    async fn retrieve(&self, request: CandidateRequest) -> Result<CandidateBatch, RetrievalError> {
+        self.started.fetch_add(1, Ordering::SeqCst);
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        self.completed.fetch_add(1, Ordering::SeqCst);
         Ok(CandidateBatch {
             descriptor: self.descriptor.clone(),
             query: request.query.q,
@@ -305,6 +335,52 @@ async fn shadow_sparse_observation_cannot_change_served_evidence() -> TestResult
         lane.candidates[0].score.score_kind,
         maestria_domain::RetrievalScoreKind::LearnedSparse
     );
+    Ok(())
+}
+
+#[tokio::test]
+async fn cancelled_search_aborts_shadow_provider_and_discards_observation() -> TestResult<()> {
+    let store = LearnedSparseShadowStore::new(4)?;
+    let started = Arc::new(AtomicUsize::new(0));
+    let completed = Arc::new(AtomicUsize::new(0));
+    let engine = RetrievalEngine::new(
+        vec![
+            Arc::new(SlowRetriever {
+                descriptor: descriptor("lexical", "text", "lexical_text_v1"),
+                candidate: lexical_candidate()?,
+                started: Arc::clone(&started),
+                completed: Arc::clone(&completed),
+            }),
+            Arc::new(SlowRetriever {
+                descriptor: descriptor("learned_sparse_chunks", "sparse-shadow", "sparse_text_v1"),
+                candidate: sparse_candidate()?,
+                started: Arc::clone(&started),
+                completed: Arc::clone(&completed),
+            }),
+        ],
+        Arc::new(PassthroughEvaluator),
+        maestria_governance::RetrievalSecurityPolicy::default(),
+    )
+    .with_learned_sparse_execution_policy(LearnedSparseExecutionPolicy::Shadow)
+    .with_learned_sparse_shadow_store(store.clone());
+    let plan = plan()?;
+    let search = tokio::spawn(async move { engine.search(&plan).await });
+    for _ in 0..100 {
+        if started.load(Ordering::SeqCst) == 2 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(1)).await;
+    }
+    if started.load(Ordering::SeqCst) != 2 {
+        search.abort();
+        let _ = search.await;
+        return Err("cancellation fixture did not start both providers".into());
+    }
+    search.abort();
+    let _ = search.await;
+    tokio::time::sleep(Duration::from_millis(150)).await;
+    assert_eq!(completed.load(Ordering::SeqCst), 0);
+    assert!(store.snapshot().is_empty());
     Ok(())
 }
 

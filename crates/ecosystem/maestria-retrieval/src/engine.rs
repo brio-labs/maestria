@@ -352,55 +352,68 @@ impl RetrievalEngine {
         {
             return Ok(self.prompt_injection_outcome(plan));
         }
-        learned_sparse_shadow::spawn_learned_sparse_shadow(
+        let shadow_task = learned_sparse_shadow::spawn_learned_sparse_shadow(
             self.learned_sparse_shadow_retrievers(plan),
             plan.clone(),
             self.learned_sparse_shadow_store.clone(),
         );
-        let active_retrievers = self.active_retrievers(plan);
-        if active_retrievers.is_empty() {
-            return Err(RetrievalError::Internal("No retrievers configured".into()));
+        let active_result = async {
+            let active_retrievers = self.active_retrievers(plan);
+            if active_retrievers.is_empty() {
+                return Err(RetrievalError::Internal("No retrievers configured".into()));
+            }
+            let query = SearchQuery {
+                q: plan.original_query.clone(),
+                limit: plan.stop_conditions.max_results as usize,
+                offset: 0,
+            };
+            let (batches, rewrites, web_requests_used, mut bytes_read) =
+                engine_pipeline::collect_initial_batches(&active_retrievers, plan).await?;
+            let (outcome, lanes, rerank_trace, diversity_trace) = self
+                .evaluate_batches(plan, &query, &batches, started, &mut bytes_read)
+                .await?;
+            let mut state = engine_adaptive::AdaptiveSearchState {
+                batches,
+                rewrites,
+                web_requests_used,
+                bytes_read,
+                outcome,
+                lanes,
+                rerank_trace,
+                diversity_trace,
+            };
+            let explicit_stop_reason =
+                engine_adaptive::iterate_until_stop(self, plan, &query, &mut state, started)
+                    .await?;
+            let expansion_enabled = plan
+                .stages
+                .contains(&maestria_domain::SearchStage::Filtering);
+            let outcome = ensure_trace(
+                plan,
+                state.outcome,
+                state.lanes,
+                EnsureTraceOptions {
+                    security_policy: self.security_policy.clone(),
+                    fusion_enabled: self.fusion.is_some(),
+                    expansion_enabled,
+                    rerank_trace: state.rerank_trace,
+                    diversity_trace: Some(state.diversity_trace),
+                    rewrites: state.rewrites.trace_records(),
+                    explicit_stop_reason,
+                },
+            );
+            outcome.verify_compatibility(plan)?;
+            Ok(outcome)
         }
-        let query = SearchQuery {
-            q: plan.original_query.clone(),
-            limit: plan.stop_conditions.max_results as usize,
-            offset: 0,
-        };
-        let (batches, rewrites, web_requests_used, mut bytes_read) =
-            engine_pipeline::collect_initial_batches(&active_retrievers, plan).await?;
-        let (outcome, lanes, rerank_trace, diversity_trace) = self
-            .evaluate_batches(plan, &query, &batches, started, &mut bytes_read)
-            .await?;
-        let mut state = engine_adaptive::AdaptiveSearchState {
-            batches,
-            rewrites,
-            web_requests_used,
-            bytes_read,
-            outcome,
-            lanes,
-            rerank_trace,
-            diversity_trace,
-        };
-        let explicit_stop_reason =
-            engine_adaptive::iterate_until_stop(self, plan, &query, &mut state, started).await?;
-        let expansion_enabled = plan
-            .stages
-            .contains(&maestria_domain::SearchStage::Filtering);
-        let outcome = ensure_trace(
-            plan,
-            state.outcome,
-            state.lanes,
-            EnsureTraceOptions {
-                security_policy: self.security_policy.clone(),
-                fusion_enabled: self.fusion.is_some(),
-                expansion_enabled,
-                rerank_trace: state.rerank_trace,
-                diversity_trace: Some(state.diversity_trace),
-                rewrites: state.rewrites.trace_records(),
-                explicit_stop_reason,
-            },
-        );
-        outcome.verify_compatibility(plan)?;
-        Ok(outcome)
+        .await;
+        match active_result {
+            Ok(outcome) => {
+                if let Some(shadow_task) = shadow_task {
+                    shadow_task.release();
+                }
+                Ok(outcome)
+            }
+            Err(error) => Err(error),
+        }
     }
 }

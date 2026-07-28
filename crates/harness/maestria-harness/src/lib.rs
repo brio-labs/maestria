@@ -7,13 +7,14 @@ mod command;
 mod process;
 mod tokenize;
 
-use command::{ALLOWED_PROGRAMS, validate_cat_args};
+use command::{ALLOWED_PROGRAMS, path_is_blocked, validate_cat_args};
 use maestria_ports::{
     HarnessAdapter, HarnessCapabilities, HarnessCommandClass, HarnessOutcome, HarnessRequest,
     PortError,
 };
 use process::spawn_and_collect;
 use std::future::Future;
+use std::path::PathBuf;
 use std::pin::Pin;
 use std::time::SystemTime;
 pub(crate) use tokenize::tokenize;
@@ -41,6 +42,44 @@ impl HarnessAdapter for LocalShellHarnessAdapter {
     }
 }
 
+fn validate_working_directory(request: &HarnessRequest) -> Result<PathBuf, PortError> {
+    let canonical = std::fs::canonicalize(&request.working_directory).map_err(|error| {
+        PortError::InvalidInputContext {
+            context: "validate harness working directory",
+            source: format!("{}: {error}", request.working_directory.display()),
+        }
+    })?;
+    if !canonical.is_dir() {
+        return Err(PortError::InvalidInputContext {
+            context: "validate harness working directory",
+            source: format!("{} is not a directory", canonical.display()),
+        });
+    }
+
+    let contained = request
+        .readable_roots
+        .iter()
+        .any(|root| match root.canonicalize() {
+            Ok(canonical_root) => canonical.starts_with(&canonical_root),
+            Err(_) => false,
+        });
+    if !contained {
+        return Err(PortError::InvalidInputContext {
+            context: "working directory outside readable roots",
+            source: canonical.display().to_string(),
+        });
+    }
+
+    if path_is_blocked(&canonical, &request.blocked_paths) {
+        return Err(PortError::InvalidInputContext {
+            context: "working directory blocked by exclusion",
+            source: canonical.display().to_string(),
+        });
+    }
+
+    Ok(canonical)
+}
+
 async fn execute_impl(request: HarnessRequest) -> Result<HarnessOutcome, PortError> {
     let start = SystemTime::now();
 
@@ -50,6 +89,9 @@ async fn execute_impl(request: HarnessRequest) -> Result<HarnessOutcome, PortErr
             source: format!("{:?}", request.class),
         });
     }
+    let working_directory = validate_working_directory(&request)?;
+    let mut request = request;
+    request.working_directory = working_directory;
 
     let argv = tokenize(&request.command)?;
     if argv.is_empty() {
@@ -146,3 +188,6 @@ mod tests_filename_pattern;
 
 #[cfg(test)]
 mod tests_contract;
+
+#[cfg(test)]
+mod tests_boundary;

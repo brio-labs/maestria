@@ -53,7 +53,7 @@ pub struct LearnedSparseShadowLane {
     pub candidates: Vec<LearnedSparseShadowCandidate>,
 }
 
-/// A detached learned-sparse observation that cannot alter the served outcome.
+/// A non-serving learned-sparse observation that cannot alter the served outcome.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LearnedSparseShadowObservation {
     pub schema_version: u16,
@@ -81,6 +81,29 @@ pub enum LearnedSparseShadowStoreError {
 pub struct LearnedSparseShadowStore {
     capacity: usize,
     observations: Arc<Mutex<VecDeque<LearnedSparseShadowObservation>>>,
+}
+
+/// Owned handle for one non-serving shadow execution.
+///
+/// Dropping the handle aborts the provider task. A successfully completed
+/// search may call [`Self::release`] to preserve the existing fire-and-forget
+/// observation semantics.
+pub(crate) struct LearnedSparseShadowTask {
+    handle: Option<tokio::task::JoinHandle<()>>,
+}
+
+impl Drop for LearnedSparseShadowTask {
+    fn drop(&mut self) {
+        if let Some(handle) = self.handle.take() {
+            handle.abort();
+        }
+    }
+}
+
+impl LearnedSparseShadowTask {
+    pub(crate) fn release(mut self) {
+        let _released = self.handle.take();
+    }
 }
 
 impl Default for LearnedSparseShadowStore {
@@ -163,7 +186,7 @@ pub(crate) fn spawn_learned_sparse_shadow(
     retrievers: Vec<Arc<dyn CandidateRetriever>>,
     plan: SearchPlan,
     store: LearnedSparseShadowStore,
-) {
+) -> Option<LearnedSparseShadowTask> {
     let retrievers = retrievers
         .into_iter()
         .take(MAX_SHADOW_RETRIEVERS)
@@ -173,13 +196,14 @@ pub(crate) fn spawn_learned_sparse_shadow(
         })
         .collect::<Vec<_>>();
     if retrievers.is_empty() {
-        return;
+        return None;
     }
-    let handle = tokio::spawn(async move {
-        let observation = run_shadow(retrievers, plan).await;
-        store.record(observation);
-    });
-    drop(handle);
+    Some(LearnedSparseShadowTask {
+        handle: Some(tokio::spawn(async move {
+            let observation = run_shadow(retrievers, plan).await;
+            store.record(observation);
+        })),
+    })
 }
 
 async fn run_shadow(

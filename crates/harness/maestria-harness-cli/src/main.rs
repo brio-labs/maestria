@@ -41,6 +41,13 @@ fn enforce_policy_decision(decision: &PolicyDecision) -> Result<()> {
         }
     }
 }
+fn normalize_exit_code(exit_code: i32) -> i32 {
+    if exit_code <= 0 {
+        1
+    } else {
+        exit_code.min(u8::MAX as i32)
+    }
+}
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -107,10 +114,14 @@ async fn main() -> Result<()> {
     }
 
     if !outcome.stderr.is_empty() {
-        println!(
+        eprintln!(
             "--- STDERR ---\n{}",
             String::from_utf8_lossy(&outcome.stderr)
         );
+    }
+
+    if outcome.exit_code != 0 {
+        std::process::exit(normalize_exit_code(outcome.exit_code));
     }
 
     Ok(())
@@ -123,6 +134,14 @@ mod tests {
     fn enforce_policy_decision_allows_allowing_decision() {
         let decision = PolicyDecision::Allow;
         assert!(enforce_policy_decision(&decision).is_ok());
+    }
+
+    #[test]
+    fn normalize_exit_code_preserves_platform_exit_range() {
+        assert_eq!(normalize_exit_code(1), 1);
+        assert_eq!(normalize_exit_code(i32::MAX), i32::from(u8::MAX));
+        assert_eq!(normalize_exit_code(-1), 1);
+        assert_eq!(normalize_exit_code(0), 1);
     }
 
     #[test]

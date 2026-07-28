@@ -796,7 +796,7 @@ pub async fn assert_harness_adapter_round_trip(
             working_directory: PathBuf::from("/tmp"),
             duration_budget: Duration::from_secs(1),
             class: HarnessCommandClass::Shell,
-            readable_roots: vec![],
+            readable_roots: vec![PathBuf::from("/tmp")],
             blocked_paths: vec![],
             blocked_patterns: vec![],
         })
@@ -815,7 +815,7 @@ pub async fn assert_harness_adapter_round_trip(
                 working_directory: PathBuf::from("/tmp"),
                 duration_budget: Duration::from_secs(1),
                 class: HarnessCommandClass::Shell,
-                readable_roots: vec![],
+                readable_roots: vec![PathBuf::from("/tmp")],
                 blocked_paths: vec![],
                 blocked_patterns: vec![],
             })

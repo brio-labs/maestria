@@ -86,6 +86,12 @@ fn visual_embedding_for_chunk(
     let Some(record) = evidence.get(evidence_id).map_err(port_error)? else {
         return Ok(None);
     };
+    if record.artifact_id != chunk.artifact_id {
+        return Err(RetrievalError::Internal(format!(
+            "visual evidence {} belongs to artifact {}, expected {}",
+            record.id, record.artifact_id, chunk.artifact_id
+        )));
+    }
     if policy.evaluate(&record.security) != RetrievalDecision::Allowed
         || !scan_secrets(&record.excerpt).is_clean()
     {
@@ -160,5 +166,90 @@ fn visual_source_for_evidence(kind: &EvidenceKind) -> Option<VisualSource> {
             height: *height,
         }),
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use maestria_ports::{
+        EmbeddingResponse, InMemoryBlobStore, InMemoryEvidenceRepository, PortError,
+    };
+
+    struct UnusedVisualProvider;
+
+    impl VisualEmbeddingProvider for UnusedVisualProvider {
+        fn disclosure(&self) -> Option<maestria_ports::ProviderDisclosure> {
+            Some(maestria_ports::ProviderDisclosure {
+                remote: false,
+                retention: RetentionPolicy::NoRetention,
+            })
+        }
+
+        fn embed_query(
+            &self,
+            _query: &str,
+            _identity: EmbeddingIdentity,
+        ) -> Result<EmbeddingResponse, PortError> {
+            Err(PortError::Downstream {
+                message: "visual provider must not be called".to_string(),
+            })
+        }
+
+        fn embed_source(
+            &self,
+            _request: VisualEmbeddingRequest,
+        ) -> Result<EmbeddingResponse, PortError> {
+            Err(PortError::Downstream {
+                message: "visual provider must not be called".to_string(),
+            })
+        }
+
+        fn identity(&self) -> Option<EmbeddingIdentity> {
+            None
+        }
+    }
+
+    #[test]
+    fn projection_rejects_cross_artifact_evidence() -> Result<(), Box<dyn std::error::Error>> {
+        let artifact_id = ArtifactId::new(1);
+        let evidence = InMemoryEvidenceRepository::new();
+        evidence.put(maestria_domain::Evidence {
+            id: maestria_domain::evidence_id_for(artifact_id, 0),
+            artifact_id: ArtifactId::new(2),
+            claim_id: None,
+            kind: EvidenceKind::PdfSpan {
+                blob: maestria_domain::BlobId::new(9),
+                page_start: 1,
+                page_end: 1,
+            },
+            excerpt: "figure".to_string(),
+            observed_at: maestria_domain::LogicalTick::new(1),
+            security: Default::default(),
+        })?;
+        let chunk = maestria_domain::Chunk {
+            id: maestria_domain::ChunkId::new(1),
+            artifact_id,
+            node_id: maestria_domain::StructureNodeId::new(1),
+            source_span: SourceSpan::PdfSpan { page: 1 },
+            representations: Vec::new(),
+            order: 0,
+            text: "figure".to_string(),
+        };
+        let identity = EmbeddingIdentity::legacy("visual", 1)?;
+        let result = visual_embedding_for_chunk(
+            &chunk,
+            &evidence,
+            &InMemoryBlobStore::new(),
+            &RetrievalSecurityPolicy::default(),
+            &UnusedVisualProvider,
+            &identity,
+        );
+        assert!(matches!(
+            result,
+            Err(RetrievalError::Internal(message))
+                if message.contains("visual evidence") && message.contains("expected")
+        ));
+        Ok(())
     }
 }
