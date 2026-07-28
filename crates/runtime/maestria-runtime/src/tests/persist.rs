@@ -2,19 +2,140 @@ use crate::test_support::*;
 use crate::tests::FailingEventLog;
 use maestria_domain::{
     Artifact, ArtifactId, Card, CardId, Chunk, ChunkId, DomainEvent, DomainEventEnvelope, EventId,
-    Evidence, EvidenceId, EvidenceKind, IndexStatus, LogicalTick, SequenceNumber, SourceSpan,
-    StructureNodeId,
+    Evidence, EvidenceId, EvidenceKind, HarnessRunId, IndexStatus, KernelState, LogicalTick,
+    SequenceNumber, SourceSpan, StructureNodeId,
 };
 use maestria_ports::{
-    CardRepository, ChunkRepository, EventFilter, EventLog, EvidenceRepository,
-    InMemoryArtifactRepository, InMemoryCardRepository, InMemoryChunkRepository, InMemoryEventLog,
-    InMemoryEvidenceRepository,
+    CardRepository, ChunkRepository, EffectJournal, EffectJournalEntry, EffectJournalIntent,
+    EffectJournalStatus, EventFilter, EventLog, InMemoryArtifactRepository, InMemoryCardRepository,
+    InMemoryChunkRepository, InMemoryEffectJournal, InMemoryEventLog, InMemoryEvidenceRepository,
+    PortError,
 };
 use std::collections::BTreeSet;
-use std::sync::Arc;
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, Ordering},
+};
 use std::time::Duration;
 use tokio::sync::{RwLock, mpsc};
 use tokio_util::sync::CancellationToken;
+
+struct FailOnceEffectJournal {
+    inner: Arc<InMemoryEffectJournal>,
+    fail_terminal: AtomicBool,
+}
+
+impl EffectJournal for FailOnceEffectJournal {
+    fn record_intent(&self, intent: EffectJournalIntent) -> Result<EffectJournalEntry, PortError> {
+        self.inner.record_intent(intent)
+    }
+
+    fn record_started(&self, run_id: HarnessRunId, generation: u64) -> Result<(), PortError> {
+        self.inner.record_started(run_id, generation)
+    }
+
+    fn claim_feedback(&self, run_id: HarnessRunId, generation: u64) -> Result<(), PortError> {
+        self.inner.claim_feedback(run_id, generation)
+    }
+
+    fn record_terminal(
+        &self,
+        run_id: HarnessRunId,
+        generation: u64,
+        status: EffectJournalStatus,
+    ) -> Result<(), PortError> {
+        if status == EffectJournalStatus::Completed
+            && self.fail_terminal.swap(false, Ordering::SeqCst)
+        {
+            return Err(PortError::InternalContext {
+                context: "fail-once journal terminalization",
+                source: "injected terminalization failure".to_string(),
+            });
+        }
+        self.inner.record_terminal(run_id, generation, status)
+    }
+
+    fn scan_in_flight(&self) -> Result<Vec<EffectJournalEntry>, PortError> {
+        self.inner.scan_in_flight()
+    }
+
+    fn is_feedback_accepted(
+        &self,
+        run_id: HarnessRunId,
+        generation: u64,
+    ) -> Result<bool, PortError> {
+        self.inner.is_feedback_accepted(run_id, generation)
+    }
+
+    fn is_current(&self, run_id: HarnessRunId, generation: u64) -> Result<bool, PortError> {
+        self.inner.is_current(run_id, generation)
+    }
+}
+
+#[tokio::test]
+async fn failed_feedback_terminalization_is_retryable() -> Result<(), Box<dyn std::error::Error>> {
+    let inner = Arc::new(InMemoryEffectJournal::default());
+    let journal = Arc::new(FailOnceEffectJournal {
+        inner: inner.clone(),
+        fail_terminal: AtomicBool::new(true),
+    });
+    let run_id = HarnessRunId::new(7);
+    let entry = inner.record_intent(EffectJournalIntent {
+        run_id,
+        task_id: None,
+        capability: "shell".to_string(),
+        command: "echo test".to_string(),
+        scope_id: maestria_domain::ScopeId::new(1),
+        requested_generation: None,
+    })?;
+    inner.record_started(run_id, entry.generation)?;
+    inner.claim_feedback(run_id, entry.generation)?;
+
+    let adapters = Adapters {
+        effect_journal: journal,
+        ..crate::test_helpers::test_adapters()
+    };
+    let (input_tx, _input_rx) = mpsc::channel(8);
+    let context = EffectExecutionContext::test_default(
+        Arc::new(adapters),
+        Arc::new(crate::test_helpers::test_governance()),
+        Arc::new(RwLock::new(KernelState::new())),
+        input_tx,
+    );
+    context
+        .feedback_acks
+        .lock()
+        .map_err(|_| "feedback acknowledgement lock poisoned")?
+        .insert(EventId::new(1), (run_id, entry.generation));
+    let envelope = DomainEventEnvelope {
+        id: EventId::new(1),
+        sequence: SequenceNumber::new(1),
+        event: DomainEvent::TickObserved {
+            at: LogicalTick::new(1),
+        },
+    };
+
+    assert!(!context.handle_persist_event(envelope.clone()).await);
+    assert!(
+        context
+            .feedback_acks
+            .lock()
+            .map_err(|_| "feedback acknowledgement lock poisoned")?
+            .contains_key(&EventId::new(1))
+    );
+    assert!(inner.is_feedback_accepted(run_id, entry.generation)?);
+
+    assert!(context.handle_persist_event(envelope).await);
+    assert!(
+        !context
+            .feedback_acks
+            .lock()
+            .map_err(|_| "feedback acknowledgement lock poisoned")?
+            .contains_key(&EventId::new(1))
+    );
+    assert!(inner.scan_in_flight()?.is_empty());
+    Ok(())
+}
 
 #[tokio::test]
 async fn persist_effects_keep_duplicate_events_in_order() -> Result<(), Box<dyn std::error::Error>>

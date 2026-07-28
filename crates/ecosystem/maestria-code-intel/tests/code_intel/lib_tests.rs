@@ -1,6 +1,7 @@
 use crate::common::*;
 use maestria_code_intel::*;
 use std::error::Error;
+use std::fs;
 
 #[test]
 fn build_collects_out_of_line_modules() -> Result<(), Box<dyn Error>> {
@@ -116,6 +117,136 @@ fn provenance_and_stale_generation_identity() -> Result<(), Box<dyn Error>> {
         );
     }
 
+    Ok(())
+}
+
+#[test]
+fn load_rejects_tampered_provenance_commit_sha() -> Result<(), Box<dyn Error>> {
+    let tmp = make_workspace_with_routes()?;
+    let path = tmp.path().join("index.json");
+    let index = build_index(tmp.path(), "g2")?;
+    index.save(&path)?;
+
+    let json = fs::read_to_string(&path)?;
+    let mut value: serde_json::Value = serde_json::from_str(&json)?;
+    value["summary"]["commit_sha"] = serde_json::Value::String("tampered".into());
+    fs::write(&path, serde_json::to_vec_pretty(&value)?)?;
+
+    match RepositoryCodeIndex::load(&path) {
+        Err(CodeIntelError::Integrity { .. }) => {}
+        other => return Err(format!("expected Integrity error, got {other:?}").into()),
+    }
+    Ok(())
+}
+
+#[test]
+fn load_rejects_tampered_symbol_count() -> Result<(), Box<dyn Error>> {
+    let tmp = make_workspace_with_routes()?;
+    let path = tmp.path().join("index.json");
+    let index = build_index(tmp.path(), "g2")?;
+    index.save(&path)?;
+
+    let json = fs::read_to_string(&path)?;
+    let mut value: serde_json::Value = serde_json::from_str(&json)?;
+    value["summary"]["symbol_count"] = serde_json::Value::Number(serde_json::Number::from(0));
+    fs::write(&path, serde_json::to_vec_pretty(&value)?)?;
+
+    match RepositoryCodeIndex::load(&path) {
+        Err(CodeIntelError::Integrity { .. }) => {}
+        other => return Err(format!("expected Integrity error, got {other:?}").into()),
+    }
+    Ok(())
+}
+
+#[test]
+fn load_rejects_tampered_symbol_provenance() -> Result<(), Box<dyn Error>> {
+    let tmp = make_workspace_with_routes()?;
+    let path = tmp.path().join("index.json");
+    let index = build_index(tmp.path(), "g2")?;
+    index.save(&path)?;
+
+    let json = fs::read_to_string(&path)?;
+    let mut value: serde_json::Value = serde_json::from_str(&json)?;
+    if let Some(symbols) = value["symbols"].as_array_mut()
+        && let Some(first) = symbols.first_mut()
+    {
+        first["provenance"]["parser_generation"] = serde_json::Value::String("stale".into());
+    }
+    fs::write(&path, serde_json::to_vec_pretty(&value)?)?;
+
+    match RepositoryCodeIndex::load(&path) {
+        Err(CodeIntelError::Integrity { .. }) => {}
+        other => return Err(format!("expected Integrity error, got {other:?}").into()),
+    }
+    Ok(())
+}
+
+#[test]
+fn load_rejects_absolute_source_path() -> Result<(), Box<dyn Error>> {
+    let tmp = make_workspace_with_routes()?;
+    let path = tmp.path().join("index.json");
+    let index = build_index(tmp.path(), "g2")?;
+    index.save(&path)?;
+
+    let json = fs::read_to_string(&path)?;
+    let mut value: serde_json::Value = serde_json::from_str(&json)?;
+    if let Some(symbols) = value["symbols"].as_array_mut()
+        && let Some(first) = symbols.first_mut()
+    {
+        first["provenance"]["file_path"] = serde_json::Value::String("/etc/passwd".into());
+    }
+    fs::write(&path, serde_json::to_vec_pretty(&value)?)?;
+
+    match RepositoryCodeIndex::load(&path) {
+        Err(CodeIntelError::Integrity { .. }) => {}
+        other => return Err(format!("expected Integrity error, got {other:?}").into()),
+    }
+    Ok(())
+}
+
+#[test]
+fn load_rejects_tampered_relation_endpoint() -> Result<(), Box<dyn Error>> {
+    let tmp = make_workspace_with_relations()?;
+    let path = tmp.path().join("index.json");
+    let index = build_index(tmp.path(), "g2")?;
+    index.save(&path)?;
+
+    let json = fs::read_to_string(&path)?;
+    let mut value: serde_json::Value = serde_json::from_str(&json)?;
+    if let Some(relations) = value["relations"].as_array_mut()
+        && let Some(first) = relations.first_mut()
+    {
+        first["source_record_id"] = serde_json::Value::String("nonexistent-id".into());
+    }
+    fs::write(&path, serde_json::to_vec_pretty(&value)?)?;
+
+    match RepositoryCodeIndex::load(&path) {
+        Err(CodeIntelError::Integrity { .. }) => {}
+        other => return Err(format!("expected Integrity error, got {other:?}").into()),
+    }
+    Ok(())
+}
+
+#[test]
+fn load_rejects_stale_relation_parser_generation() -> Result<(), Box<dyn Error>> {
+    let tmp = make_workspace_with_relations()?;
+    let path = tmp.path().join("index.json");
+    let index = build_index(tmp.path(), "g2")?;
+    index.save(&path)?;
+
+    let json = fs::read_to_string(&path)?;
+    let mut value: serde_json::Value = serde_json::from_str(&json)?;
+    if let Some(relations) = value["relations"].as_array_mut()
+        && let Some(first) = relations.first_mut()
+    {
+        first["parser_generation"] = serde_json::Value::String("g1".into());
+    }
+    fs::write(&path, serde_json::to_vec_pretty(&value)?)?;
+
+    match RepositoryCodeIndex::load(&path) {
+        Err(CodeIntelError::Integrity { .. }) => {}
+        other => return Err(format!("expected Integrity error, got {other:?}").into()),
+    }
     Ok(())
 }
 

@@ -15,32 +15,46 @@ impl EffectExecutionContext {
             return false;
         }
         let persisted = self.persist_event_entity(&envelope.event).await;
-        if persisted {
-            self.ack_harness_feedback(envelope.id);
+        if persisted && !self.ack_harness_feedback(envelope.id) {
+            return false;
         }
         persisted
     }
-    fn ack_harness_feedback(&self, event_id: maestria_domain::EventId) {
+    fn ack_harness_feedback(&self, event_id: maestria_domain::EventId) -> bool {
         let feedback = match self.feedback_acks.lock() {
-            Ok(mut pending) => pending.remove(&event_id),
+            Ok(pending) => pending.get(&event_id).copied(),
             Err(_) => {
                 tracing::error!("harness feedback acknowledgement lock poisoned");
-                None
+                return false;
             }
         };
-        if let Some((run_id, generation)) = feedback
-            && let Err(error) = self.adapters.effect_journal.record_terminal(
-                run_id,
-                generation,
-                maestria_ports::EffectJournalStatus::Completed,
-            )
-        {
+        let Some((run_id, generation)) = feedback else {
+            return true;
+        };
+        if let Err(error) = self.adapters.effect_journal.record_terminal(
+            run_id,
+            generation,
+            maestria_ports::EffectJournalStatus::Completed,
+        ) {
             tracing::error!(
                 %error,
                 %run_id,
                 generation,
                 "failed to finalize persisted harness feedback"
             );
+            return false;
+        }
+        match self.feedback_acks.lock() {
+            Ok(mut pending) => {
+                pending.remove(&event_id);
+                true
+            }
+            Err(_) => {
+                tracing::error!(
+                    "harness feedback acknowledgement lock poisoned after finalization"
+                );
+                false
+            }
         }
     }
 
