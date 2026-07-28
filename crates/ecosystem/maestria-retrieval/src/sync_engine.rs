@@ -1,7 +1,8 @@
 use crate::SyncPipeline;
 use maestria_domain::{
     EvidenceCandidate, EvidenceCoverage, SearchLaneStatus, SearchOutcome, SearchPlan, SearchStatus,
-    SearchStopReason, SearchTrace, SearchTraceLane, SearchTraceLaneCandidate,
+    SearchStopReason, SearchTrace, SearchTraceLane, SearchTraceLaneCandidate, SecurityMetadata,
+    TrustLabel, TrustZone,
 };
 
 use crate::engine::{
@@ -9,6 +10,59 @@ use crate::engine::{
     security_policy_fingerprint,
 };
 use crate::types::{RankedCandidate, RetrievalResult};
+
+fn candidate_security_metadata(candidate: &EvidenceCandidate) -> SecurityMetadata {
+    let mut metadata = SecurityMetadata::default();
+    match candidate.trust {
+        TrustLabel::Verified => {
+            metadata.trust_zone = TrustZone::Verified;
+            metadata.integrity = maestria_domain::IntegrityState::Verified;
+            metadata.review_status = maestria_domain::ReviewStatus::Approved;
+            metadata.authority = maestria_domain::Authority::User;
+        }
+        TrustLabel::Unverified => {}
+        TrustLabel::Disputed => {
+            metadata.review_status = maestria_domain::ReviewStatus::Pending;
+        }
+        TrustLabel::Deprecated => {
+            metadata.trust_zone = TrustZone::Quarantined;
+            metadata.integrity = maestria_domain::IntegrityState::Compromised;
+            metadata.review_status = maestria_domain::ReviewStatus::Rejected;
+            metadata.read_allowed = false;
+            metadata.quarantined = true;
+        }
+    }
+    metadata
+}
+
+fn filter_sync_candidates(
+    candidates: Vec<EvidenceCandidate>,
+    _plan: &SearchPlan,
+    policy: &maestria_governance::RetrievalSecurityPolicy,
+) -> RetrievalResult<(Vec<EvidenceCandidate>, SearchLaneStatus)> {
+    let mut allowed = Vec::with_capacity(candidates.len());
+    let mut first_denial = None;
+    for candidate in candidates {
+        match policy.evaluate(&candidate_security_metadata(&candidate)) {
+            maestria_governance::RetrievalDecision::Allowed => allowed.push(candidate),
+            maestria_governance::RetrievalDecision::Denied(reason) => {
+                if first_denial.is_none() {
+                    first_denial = Some(reason);
+                }
+            }
+        }
+    }
+    let status = if !allowed.is_empty() {
+        SearchLaneStatus::Succeeded
+    } else if let Some(reason) = first_denial {
+        SearchLaneStatus::Failed {
+            error: format!("candidate denied by security policy: {reason}"),
+        }
+    } else {
+        SearchLaneStatus::Empty
+    };
+    Ok((allowed, status))
+}
 
 pub struct SyncRetrievalEngine<'a> {
     pipeline: SyncPipeline<'a, EvidenceCandidate, SearchOutcome>,
@@ -24,8 +78,13 @@ impl<'a> SyncRetrievalEngine<'a> {
         R: Fn(&SearchPlan) -> RetrievalResult<Vec<EvidenceCandidate>> + 'a,
         V: Fn(Vec<EvidenceCandidate>, &SearchPlan) -> RetrievalResult<SearchOutcome> + 'a,
     {
-        let pipeline =
-            SyncPipeline::new(retrievers, evaluator).with_pre_expander(|candidates, plan| {
+        let candidate_policy = security_policy.clone();
+        let pipeline = SyncPipeline::new(retrievers, evaluator)
+            .with_security_policy(security_policy.clone())
+            .with_candidate_filter(move |candidates, plan| {
+                filter_sync_candidates(candidates, plan, &candidate_policy)
+            })
+            .with_pre_expander(|candidates, plan| {
                 let ranked = candidates
                     .into_iter()
                     .enumerate()
@@ -78,6 +137,18 @@ impl<'a> SyncRetrievalEngine<'a> {
             return Ok(self.quarantine_outcome(plan));
         }
         let (mut outcome, lane_sets) = self.pipeline.run_with_trace(plan)?;
+        let policy_denied = !lane_sets.is_empty()
+            && lane_sets.iter().all(|(_, candidates, status)| {
+                candidates.is_empty()
+                    && matches!(
+                        status,
+                        SearchLaneStatus::Failed { error }
+                            if error.starts_with("candidate denied by security policy:")
+                    )
+            });
+        if policy_denied && outcome.evidence.is_empty() {
+            outcome.status = SearchStatus::DeniedByPolicy;
+        }
         let ranked = outcome
             .evidence
             .iter()
@@ -95,15 +166,11 @@ impl<'a> SyncRetrievalEngine<'a> {
         outcome.status = reconcile_status(&outcome.status, &diversity.status);
         let lanes = lane_sets
             .into_iter()
-            .map(|(query, candidates)| SearchTraceLane {
+            .map(|(query, candidates, status)| SearchTraceLane {
                 retriever_id: "sync_pipeline".to_string(),
                 generation: Some(plan.index_generation),
                 query,
-                status: if candidates.is_empty() {
-                    SearchLaneStatus::Empty
-                } else {
-                    SearchLaneStatus::Succeeded
-                },
+                status,
                 candidates: candidates
                     .into_iter()
                     .enumerate()

@@ -65,57 +65,83 @@ impl SqliteGraphIndex {
             })
     }
 }
+fn insert_relation_with_connection(
+    connection: &Connection,
+    relation: Relation,
+) -> Result<(), PortError> {
+    let (source_type, source_id) = relation_endpoint_to_parts(relation.source);
+    let (target_type, target_id) = relation_endpoint_to_parts(relation.target);
+    let evidence_id = relation.evidence_id.map(|id| id.value().to_string());
+    let confidence_milli = i64::from(relation.confidence_milli);
+
+    connection
+        .execute(
+            "INSERT INTO relations (
+                 id,
+                 source_type,
+                 source_id,
+                 kind,
+                 target_type,
+                 target_id,
+                 evidence_id,
+                 confidence_milli,
+                 security_json
+             )
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+             ON CONFLICT(id) DO UPDATE SET
+                 source_type = excluded.source_type,
+                 source_id = excluded.source_id,
+                 kind = excluded.kind,
+                 target_type = excluded.target_type,
+                 target_id = excluded.target_id,
+                 evidence_id = excluded.evidence_id,
+                 confidence_milli = excluded.confidence_milli,
+                 security_json = excluded.security_json",
+            params![
+                relation.id.value().to_string(),
+                source_type,
+                source_id,
+                relation_kind_to_str(relation.kind),
+                target_type,
+                target_id,
+                evidence_id,
+                confidence_milli,
+                serde_json::to_string(&relation.security).map_err(|error| {
+                    PortError::InternalContext {
+                        context: "serialize relation security",
+                        source: error.to_string(),
+                    }
+                })?,
+            ],
+        )
+        .map_err(to_port_error)?;
+    Ok(())
+}
+
+fn rebuild_relations(
+    connection: &mut Connection,
+    relations: Vec<Relation>,
+) -> Result<(), PortError> {
+    let transaction = connection.transaction().map_err(to_port_error)?;
+    transaction
+        .execute("DELETE FROM relations", [])
+        .map_err(to_port_error)?;
+    for relation in relations {
+        insert_relation_with_connection(&transaction, relation)?;
+    }
+    transaction.commit().map_err(to_port_error)?;
+    Ok(())
+}
 
 impl GraphIndex for SqliteGraphIndex {
     fn insert_relation(&self, relation: Relation) -> Result<(), PortError> {
-        let (source_type, source_id) = relation_endpoint_to_parts(relation.source);
-        let (target_type, target_id) = relation_endpoint_to_parts(relation.target);
-        let evidence_id = relation.evidence_id.map(|id| id.value().to_string());
-        let confidence_milli = i64::from(relation.confidence_milli);
         let connection = self.lock_connection()?;
+        insert_relation_with_connection(&connection, relation)
+    }
 
-        connection
-            .execute(
-                "INSERT INTO relations (
-                     id,
-                     source_type,
-                     source_id,
-                     kind,
-                     target_type,
-                     target_id,
-                     evidence_id,
-                     confidence_milli,
-                     security_json
-                 )
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
-                 ON CONFLICT(id) DO UPDATE SET
-                     source_type = excluded.source_type,
-                     source_id = excluded.source_id,
-                     kind = excluded.kind,
-                     target_type = excluded.target_type,
-                     target_id = excluded.target_id,
-                     evidence_id = excluded.evidence_id,
-                     confidence_milli = excluded.confidence_milli,
-                     security_json = excluded.security_json",
-                params![
-                    relation.id.value().to_string(),
-                    source_type,
-                    source_id,
-                    relation_kind_to_str(relation.kind),
-                    target_type,
-                    target_id,
-                    evidence_id,
-                    confidence_milli,
-                    serde_json::to_string(&relation.security).map_err(|error| {
-                        PortError::InternalContext {
-                            context: "serialize relation security",
-                            source: error.to_string(),
-                        }
-                    })?,
-                ],
-            )
-            .map_err(to_port_error)?;
-        Ok(())
+    fn rebuild(&self, relations: Vec<Relation>) -> Result<(), PortError> {
+        let mut connection = self.lock_connection()?;
+        rebuild_relations(&mut connection, relations)
     }
 
     fn get_relations_for(&self, endpoint: RelationEndpoint) -> Result<Vec<Relation>, PortError> {

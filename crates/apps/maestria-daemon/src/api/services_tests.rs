@@ -2,12 +2,13 @@ use super::*;
 use maestria_domain::{ArtifactId, EvidenceId, HarnessRunId};
 use maestria_governance::{DefaultApprovalGate, DefaultRiskClassifier, DefaultValidationGate};
 use maestria_ports::{
-    HarnessCommandClass, HarnessRequest, InMemoryApprovalRepository, InMemoryArtifactRepository,
-    InMemoryBlobStore, InMemoryCardRepository, InMemoryChunkRepository, InMemoryEffectJournal,
-    InMemoryEventLog, InMemoryEvidenceRepository, InMemoryFullTextIndex, InMemoryGraphIndex,
-    InMemoryHarnessAdapter, InMemoryIdAllocator, InMemoryParser, InMemoryVectorIndex,
-    InMemoryWebFetcher,
+    HarnessAdapter, HarnessCapabilities, HarnessCommandClass, HarnessOutcome, HarnessRequest,
+    InMemoryApprovalRepository, InMemoryArtifactRepository, InMemoryBlobStore,
+    InMemoryCardRepository, InMemoryChunkRepository, InMemoryEffectJournal, InMemoryEventLog,
+    InMemoryEvidenceRepository, InMemoryFullTextIndex, InMemoryGraphIndex, InMemoryHarnessAdapter,
+    InMemoryIdAllocator, InMemoryParser, InMemoryVectorIndex, InMemoryWebFetcher, PortError,
 };
+use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -33,6 +34,30 @@ fn test_adapters() -> maestria_runtime::Adapters {
         id_allocator: Arc::new(InMemoryIdAllocator::new()),
         effect_journal: Arc::new(InMemoryEffectJournal::default()),
         approval_repo: Arc::new(InMemoryApprovalRepository::new()),
+    }
+}
+
+struct FailingHarnessAdapter;
+
+impl HarnessAdapter for FailingHarnessAdapter {
+    fn capabilities(&self) -> std::result::Result<HarnessCapabilities, PortError> {
+        Ok(HarnessCapabilities {
+            command_classes: vec![HarnessCommandClass::Shell],
+            write_enabled: false,
+            read_enabled: true,
+            web_enabled: false,
+        })
+    }
+
+    fn execute(
+        &self,
+        _request: HarnessRequest,
+    ) -> std::pin::Pin<
+        Box<dyn Future<Output = std::result::Result<HarnessOutcome, PortError>> + Send + '_>,
+    > {
+        Box::pin(std::future::ready(Err(PortError::Internal {
+            message: "simulated harness failure".to_string(),
+        })))
     }
 }
 
@@ -157,7 +182,7 @@ async fn harness_completion_waits_for_bounded_delivery() -> Result<()> {
 
     let filler = fixture.input_rx.recv().await;
     assert!(matches!(filler, Some(DomainInput::ClockTick(_))));
-    let effects = tokio::time::timeout(Duration::from_secs(2), handle).await??;
+    let effects = tokio::time::timeout(Duration::from_secs(2), handle).await???;
     assert!(effects.harness.is_some());
     assert!(
         effects.warnings.is_empty(),
@@ -172,25 +197,63 @@ async fn harness_completion_waits_for_bounded_delivery() -> Result<()> {
 }
 
 #[tokio::test]
-async fn closed_harness_channel_preserves_delivery_failure() -> Result<()> {
+async fn closed_harness_channel_returns_typed_failure_and_pauses_journal() -> Result<()> {
     let fixture = fixture(1)?;
     let input_rx = fixture.input_rx;
     drop(input_rx);
+    let run_id = proposal().run_id;
     let governed = governed(fixture.layout.root.clone(), Vec::new());
-    let effects = execute_proposal_effects(
+    let failure = match execute_proposal_effects(
         &fixture.context,
         &proposal(),
         &governed,
         &KernelState::new(),
     )
-    .await;
-    assert!(effects.harness.is_none());
+    .await
+    {
+        Ok(_) => return Err(anyhow::anyhow!("closed channel unexpectedly succeeded")),
+        Err(failure) => failure,
+    };
+    assert!(matches!(
+        failure,
+        ProposalEffectFailure::CompletionDelivery { .. }
+    ));
     assert!(
-        effects
-            .warnings
-            .iter()
-            .any(|warning| warning.contains("channel closed"))
+        fixture
+            .context
+            .adapters
+            .effect_journal
+            .scan_in_flight()?
+            .is_empty()
     );
+    assert!(
+        !fixture
+            .context
+            .adapters
+            .effect_journal
+            .is_current(run_id, 1)?
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn harness_execution_failure_returns_typed_failure_and_terminalizes_journal() -> Result<()> {
+    let fixture = fixture(8)?;
+    let mut context = fixture.context;
+    let mut adapters = test_adapters();
+    adapters.harness = Arc::new(FailingHarnessAdapter);
+    context.adapters = Arc::new(adapters);
+    let run_id = proposal().run_id;
+    let governed = governed(fixture.layout.root.clone(), Vec::new());
+    let failure =
+        match execute_proposal_effects(&context, &proposal(), &governed, &KernelState::new()).await
+        {
+            Ok(_) => return Err(anyhow::anyhow!("failing harness unexpectedly succeeded")),
+            Err(failure) => failure,
+        };
+    assert!(matches!(failure, ProposalEffectFailure::Harness { .. }));
+    assert!(context.adapters.effect_journal.scan_in_flight()?.is_empty());
+    assert!(!context.adapters.effect_journal.is_current(run_id, 1)?);
     Ok(())
 }
 
@@ -251,18 +314,107 @@ async fn memory_candidate_waits_for_bounded_delivery() -> Result<()> {
     let governed = governed(fixture.layout.root.clone(), vec![evidence_id]);
     let context = fixture.context;
     let handle = tokio::spawn(async move {
-        create_memory_candidate(&context, &governed, &state, &harness).await
+        create_memory_candidate(&context, &governed, &state, &harness, None).await
     });
     assert!(matches!(
         fixture.input_rx.recv().await,
         Some(DomainInput::ClockTick(_))
     ));
-    let (candidate, warning) = tokio::time::timeout(Duration::from_secs(2), handle).await??;
+    let candidate = tokio::time::timeout(Duration::from_secs(2), handle).await???;
     assert!(candidate.is_some());
-    assert!(warning.is_none(), "unexpected warning: {warning:?}");
     assert!(matches!(
         fixture.input_rx.recv().await,
         Some(DomainInput::CreateMemoryCandidate(_))
     ));
     Ok(())
+}
+
+#[tokio::test]
+async fn search_failure_returns_typed_failure_without_starting_harness() -> Result<()> {
+    let fixture = fixture(8)?;
+    let mut governed = governed(fixture.layout.root.clone(), Vec::new());
+    governed.search_query = "missing search index".to_string();
+    let failure = match execute_proposal_effects(
+        &fixture.context,
+        &proposal(),
+        &governed,
+        &KernelState::new(),
+    )
+    .await
+    {
+        Ok(_) => {
+            return Err(anyhow::anyhow!(
+                "missing search index unexpectedly succeeded"
+            ));
+        }
+        Err(failure) => failure,
+    };
+    assert!(matches!(failure, ProposalEffectFailure::Search { .. }));
+    assert!(
+        fixture
+            .context
+            .adapters
+            .effect_journal
+            .scan_in_flight()?
+            .is_empty()
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn candidate_delivery_failure_returns_typed_failure() -> Result<()> {
+    let fixture = fixture(1)?;
+    let input_rx = fixture.input_rx;
+    drop(input_rx);
+    let evidence_id = EvidenceId::new(1);
+    let mut state = KernelState::new();
+    state.evidences.insert(
+        evidence_id,
+        maestria_domain::Evidence {
+            id: evidence_id,
+            artifact_id: ArtifactId::new(1),
+            claim_id: None,
+            kind: maestria_domain::EvidenceKind::FileSpan {
+                path: "test.md".to_string(),
+                range: maestria_domain::ContentRange { start: 0, end: 1 },
+                content_hash: "sha256:test".to_string(),
+                snapshot: None,
+            },
+            excerpt: "test".to_string(),
+            observed_at: maestria_domain::LogicalTick::new(1),
+            security: maestria_domain::SecurityMetadata::default(),
+        },
+    );
+    let harness = Some(ModelAgentHarnessOutcome {
+        exit_code: 0,
+        stdout: "ok".to_string(),
+        stderr: String::new(),
+        duration_ms: 1,
+    });
+    let governed = governed(fixture.layout.root.clone(), vec![evidence_id]);
+    let failure =
+        match create_memory_candidate(&fixture.context, &governed, &state, &harness, None).await {
+            Ok(_) => return Err(anyhow::anyhow!("closed channel unexpectedly succeeded")),
+            Err(failure) => failure,
+        };
+    assert!(matches!(
+        failure,
+        ProposalEffectFailure::CandidateDelivery { .. }
+    ));
+    Ok(())
+}
+
+#[test]
+fn truncate_utf8_keeps_multibyte_output_on_character_boundaries() {
+    let truncated = truncate_utf8("😀😀😀".as_bytes(), 7);
+    assert_eq!(truncated, "😀...");
+    assert!(std::str::from_utf8(truncated.as_bytes()).is_ok());
+}
+
+#[test]
+fn truncate_utf8_handles_repeated_unicode_over_limit() {
+    let truncated = truncate_utf8("界".repeat(128).as_bytes(), 10);
+    assert_eq!(truncated, "界界...");
+    assert!(truncated.len() <= 10);
+    assert!(std::str::from_utf8(truncated.as_bytes()).is_ok());
 }

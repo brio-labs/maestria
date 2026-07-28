@@ -13,7 +13,9 @@ use maestria_domain::{
 };
 use maestria_governance::ValidationRequest;
 use maestria_parsers::ParserRegistry;
-use maestria_ports::{EffectJournalIntent, HarnessRequest, ModelAgentProposal};
+use maestria_ports::{
+    EffectJournalIntent, EffectJournalStatus, HarnessRequest, ModelAgentProposal,
+};
 use maestria_search_tantivy::TantivyFullTextIndex;
 use maestria_storage_sqlite::SqliteStore;
 
@@ -137,8 +139,8 @@ fn validate_proposal_against_state(
 
 /// Accumulated side-effects produced by executing a model-agent proposal.
 ///
-/// Each field is optional because individual effect steps may be skipped or fail
-/// without aborting the overall operation. Warnings collect non-fatal errors.
+/// Required effects either complete or return a typed [`ProposalEffectFailure`]. Warnings are
+/// reserved for non-fatal validation diagnostics.
 struct ProposalEffects {
     trace_id: Option<u64>,
     evidence_count: usize,
@@ -148,93 +150,114 @@ struct ProposalEffects {
     warnings: Vec<String>,
 }
 
+#[derive(Debug)]
+enum ProposalEffectFailure {
+    Search { message: String },
+    Harness { message: String },
+    CompletionDelivery { message: String },
+    CandidateDelivery { message: String },
+    Journal { message: String },
+}
+
+impl std::fmt::Display for ProposalEffectFailure {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Search { message } => write!(formatter, "search effect failed: {message}"),
+            Self::Harness { message } => write!(formatter, "harness effect failed: {message}"),
+            Self::CompletionDelivery { message } => {
+                write!(formatter, "harness completion delivery failed: {message}")
+            }
+            Self::CandidateDelivery { message } => {
+                write!(formatter, "memory candidate delivery failed: {message}")
+            }
+            Self::Journal { message } => write!(formatter, "effect journal failure: {message}"),
+        }
+    }
+}
+
+impl std::error::Error for ProposalEffectFailure {}
+
 /// Orchestrates the side-effects of a proposal: search, harness, validation, and memory promotion.
 ///
 /// Ordering invariant: search runs first (if a query is present), then harness execution
 /// (if a command is present), then validation, and finally memory-candidate creation.
 ///
-/// Error handling: each step is independent; failures are logged as warnings and do not
-/// abort subsequent steps. The harness step additionally emits a `HarnessRunCompleted`
-/// domain event on success.
+/// Required effect failures abort the workflow with a typed error. Harness failures terminalize
+/// the durable effect journal as `Failed`; failures delivering feedback or a memory candidate
+/// pause the harness generation so recovery can resume it.
 async fn execute_proposal_effects(
     context: &ApiContext,
     proposal: &ModelAgentProposal,
     governed: &maestria_ports::GovernedAgentProposal,
     state: &KernelState,
-) -> ProposalEffects {
-    let mut warnings = Vec::new();
-
+) -> std::result::Result<ProposalEffects, ProposalEffectFailure> {
     let mut trace_id = None;
     let mut evidence_count = 0usize;
     if !governed.search_query.trim().is_empty() {
-        match search_knowledge(context, governed).await {
-            Ok((_plan, outcome)) => {
-                trace_id = Some(outcome.trace.value());
-                evidence_count = outcome.evidence.len();
+        let (_plan, outcome) = search_knowledge(context, governed).await.map_err(|error| {
+            ProposalEffectFailure::Search {
+                message: error.to_string(),
             }
-            Err(error) => {
-                warnings.push(format!("search step warning: {error}"));
-            }
-        }
+        })?;
+        trace_id = Some(outcome.trace.value());
+        evidence_count = outcome.evidence.len();
     }
 
-    let harness = if !governed.harness.command.trim().is_empty() {
-        match execute_governed_harness(context, proposal, governed).await {
-            Ok((outcome, generation)) => {
-                let completion = HarnessRunCompleted {
-                    run_id: governed.harness.run_id,
-                    generation,
-                    task_id: proposal.task_id,
-                    command: governed.harness.command.clone(),
-                    exit_code: outcome.exit_code,
-                    output: String::from_utf8_lossy(&outcome.stdout).to_string(),
-                };
-                match context
-                    .input_tx
-                    .send(DomainInput::HarnessRunCompleted(completion))
-                    .await
-                {
-                    Ok(()) => Some(ModelAgentHarnessOutcome {
-                        exit_code: outcome.exit_code,
-                        stdout: truncate_utf8(&outcome.stdout, 4096),
-                        stderr: truncate_utf8(&outcome.stderr, 4096),
-                        duration_ms: outcome.duration.as_millis() as u64,
-                    }),
-                    Err(error) => {
-                        warnings.push(format!(
-                            "harness completion delivery failed: channel closed ({error})"
-                        ));
-                        None
-                    }
-                }
-            }
-            Err(e) => {
-                warnings.push(format!("harness execution warning: {e}"));
-                None
-            }
+    let (harness, harness_generation) = if !governed.harness.command.trim().is_empty() {
+        let (outcome, generation) = execute_governed_harness(context, proposal, governed).await?;
+        let completion = HarnessRunCompleted {
+            run_id: governed.harness.run_id,
+            generation,
+            task_id: proposal.task_id,
+            command: governed.harness.command.clone(),
+            exit_code: outcome.exit_code,
+            output: String::from_utf8_lossy(&outcome.stdout).to_string(),
+        };
+        if let Err(error) = context
+            .input_tx
+            .send(DomainInput::HarnessRunCompleted(completion))
+            .await
+        {
+            let failure = ProposalEffectFailure::CompletionDelivery {
+                message: format!("channel closed ({error})"),
+            };
+            return Err(terminalize_harness_failure(
+                context,
+                governed.harness.run_id,
+                generation,
+                EffectJournalStatus::Paused,
+                failure,
+            ));
         }
+        (
+            Some(ModelAgentHarnessOutcome {
+                exit_code: outcome.exit_code,
+                stdout: truncate_utf8(&outcome.stdout, 4096),
+                stderr: truncate_utf8(&outcome.stderr, 4096),
+                duration_ms: outcome.duration.as_millis() as u64,
+            }),
+            Some(generation),
+        )
     } else {
-        None
+        (None, None)
     };
 
     let (validation, validation_warning) = evaluate_validation_gate(context, proposal, state);
+    let mut warnings = Vec::new();
     if let Some(warning) = validation_warning {
         warnings.push(warning);
     }
-    let (memory_candidate, memory_warning) =
-        create_memory_candidate(context, governed, state, &harness).await;
-    if let Some(warning) = memory_warning {
-        warnings.push(warning);
-    }
+    let memory_candidate =
+        create_memory_candidate(context, governed, state, &harness, harness_generation).await?;
 
-    ProposalEffects {
+    Ok(ProposalEffects {
         trace_id,
         evidence_count,
         harness,
         validation,
         memory_candidate,
         warnings,
-    }
+    })
 }
 
 fn evaluate_validation_gate(
@@ -276,18 +299,18 @@ async fn create_memory_candidate(
     governed: &maestria_ports::GovernedAgentProposal,
     state: &KernelState,
     harness: &Option<ModelAgentHarnessOutcome>,
-) -> (Option<ModelAgentMemoryCandidateSummary>, Option<String>) {
+    harness_generation: Option<u64>,
+) -> std::result::Result<Option<ModelAgentMemoryCandidateSummary>, ProposalEffectFailure> {
     if harness.is_none() || governed.evidence_ids.is_empty() {
-        return (None, None);
+        return Ok(None);
     }
     let candidate_id = MemoryCandidateId::new(
-        match state.memory_candidates.keys().map(|id| id.value()).max() {
-            Some(candidate_id) => candidate_id,
-            None => {
-                let _ = ();
-                0
-            }
-        } + 1,
+        state
+            .memory_candidates
+            .keys()
+            .map(|id| id.value())
+            .fold(0, u64::max)
+            + 1,
     );
     let candidate = maestria_domain::MemoryCandidate {
         id: candidate_id,
@@ -320,20 +343,26 @@ async fn create_memory_candidate(
         ))
         .await
     {
-        Ok(()) => (
-            Some(ModelAgentMemoryCandidateSummary {
-                candidate_id: candidate_id.value(),
-                confidence_milli: 800,
-                decision: decision_str.to_string(),
-            }),
-            None,
-        ),
-        Err(error) => (
-            None,
-            Some(format!(
-                "memory candidate delivery failed: channel closed ({error})"
-            )),
-        ),
+        Ok(()) => Ok(Some(ModelAgentMemoryCandidateSummary {
+            candidate_id: candidate_id.value(),
+            confidence_milli: 800,
+            decision: decision_str.to_string(),
+        })),
+        Err(error) => {
+            let failure = ProposalEffectFailure::CandidateDelivery {
+                message: format!("channel closed ({error})"),
+            };
+            match harness_generation {
+                Some(generation) => Err(terminalize_harness_failure(
+                    context,
+                    governed.harness.run_id,
+                    generation,
+                    EffectJournalStatus::Paused,
+                    failure,
+                )),
+                None => Err(failure),
+            }
+        }
     }
 }
 
@@ -345,7 +374,7 @@ async fn handle_model_agent_propose(
     let state = crate::load_kernel_state(&context.layout)
         .with_context(|| "load kernel state for proposal validation")?;
     let governed = validate_proposal_against_state(&proposal, &state)?;
-    let effects = execute_proposal_effects(context, &proposal, &governed, &state).await;
+    let effects = execute_proposal_effects(context, &proposal, &governed, &state).await?;
 
     Ok(ClientResponse::ModelAgentProposal(
         ModelAgentProposalResponse {
@@ -398,41 +427,57 @@ async fn execute_governed_harness(
     context: &ApiContext,
     proposal: &ModelAgentProposal,
     governed: &maestria_ports::GovernedAgentProposal,
-) -> Result<(maestria_ports::HarnessOutcome, u64)> {
+) -> std::result::Result<(maestria_ports::HarnessOutcome, u64), ProposalEffectFailure> {
     let harness = &context.adapters.harness;
     let capabilities = harness
         .capabilities()
-        .map_err(|e| anyhow!("harness capabilities: {e}"))?;
+        .map_err(|error| ProposalEffectFailure::Harness {
+            message: format!("harness capabilities: {error}"),
+        })?;
 
     if !capabilities
         .command_classes
         .contains(&governed.harness.class)
     {
-        return Err(anyhow!(
-            "harness adapter does not support capability {:?}",
-            governed.harness.class
-        ));
+        return Err(ProposalEffectFailure::Harness {
+            message: format!(
+                "harness adapter does not support capability {:?}",
+                governed.harness.class
+            ),
+        });
     }
 
     let command = governed.harness.command.trim();
     if command.is_empty() {
-        return Err(anyhow!("harness command must not be empty"));
+        return Err(ProposalEffectFailure::Harness {
+            message: "harness command must not be empty".to_string(),
+        });
     }
     let allowed_commands = ["echo", "pwd", "cat"];
     let Some(first_word) = command.split_ascii_whitespace().next() else {
-        return Err(anyhow!("harness command must contain a command name"));
+        return Err(ProposalEffectFailure::Harness {
+            message: "harness command must contain a command name".to_string(),
+        });
     };
     if !allowed_commands.contains(&first_word) {
-        return Err(anyhow!("command not in allowed set: {first_word}"));
+        return Err(ProposalEffectFailure::Harness {
+            message: format!("command not in allowed set: {first_word}"),
+        });
     }
     let prohibited_chars = &[
         '|', '&', ';', '$', '`', '(', ')', '{', '}', '<', '>', '\\', '!', '~', '*', '?',
     ];
     if command.contains(prohibited_chars) {
-        return Err(anyhow!("command contains prohibited shell metacharacters"));
+        return Err(ProposalEffectFailure::Harness {
+            message: "command contains prohibited shell metacharacters".to_string(),
+        });
     }
 
-    let scope = harness_scope(context, &governed.harness.working_directory)?;
+    let scope = harness_scope(context, &governed.harness.working_directory).map_err(|error| {
+        ProposalEffectFailure::Harness {
+            message: error.to_string(),
+        }
+    })?;
 
     let request = HarnessRequest {
         run_id: governed.harness.run_id,
@@ -446,15 +491,37 @@ async fn execute_governed_harness(
     };
 
     let generation = record_harness_start(context, proposal, governed, command)?;
-    let outcome = harness
-        .execute(request)
-        .await
-        .map_err(|e| anyhow!("harness execution failed: {e}"))?;
-    context
+    let outcome = match harness.execute(request).await {
+        Ok(outcome) => outcome,
+        Err(error) => {
+            let failure = ProposalEffectFailure::Harness {
+                message: format!("harness execution failed: {error}"),
+            };
+            return Err(terminalize_harness_failure(
+                context,
+                governed.harness.run_id,
+                generation,
+                EffectJournalStatus::Failed,
+                failure,
+            ));
+        }
+    };
+    if let Err(error) = context
         .adapters
         .effect_journal
         .claim_feedback(governed.harness.run_id, generation)
-        .map_err(|e| anyhow!("failed to claim harness feedback: {e}"))?;
+    {
+        let failure = ProposalEffectFailure::Harness {
+            message: format!("failed to claim harness feedback: {error}"),
+        };
+        return Err(terminalize_harness_failure(
+            context,
+            governed.harness.run_id,
+            generation,
+            EffectJournalStatus::Failed,
+            failure,
+        ));
+    }
 
     Ok((outcome, generation))
 }
@@ -502,7 +569,7 @@ fn record_harness_start(
     proposal: &ModelAgentProposal,
     governed: &maestria_ports::GovernedAgentProposal,
     command: &str,
-) -> Result<u64> {
+) -> std::result::Result<u64, ProposalEffectFailure> {
     let entry = context
         .adapters
         .effect_journal
@@ -514,13 +581,48 @@ fn record_harness_start(
             scope_id: maestria_domain::ScopeId::new(1),
             requested_generation: None,
         })
-        .map_err(|e| anyhow!("failed to record harness intent: {e}"))?;
-    context
+        .map_err(|error| ProposalEffectFailure::Harness {
+            message: format!("failed to record harness intent: {error}"),
+        })?;
+    if let Err(error) = context
         .adapters
         .effect_journal
         .record_started(governed.harness.run_id, entry.generation)
-        .map_err(|e| anyhow!("failed to record harness started: {e}"))?;
+    {
+        let failure = ProposalEffectFailure::Harness {
+            message: format!("failed to record harness started: {error}"),
+        };
+        return Err(terminalize_harness_failure(
+            context,
+            governed.harness.run_id,
+            entry.generation,
+            EffectJournalStatus::Failed,
+            failure,
+        ));
+    }
     Ok(entry.generation)
+}
+
+fn terminalize_harness_failure(
+    context: &ApiContext,
+    run_id: HarnessRunId,
+    generation: u64,
+    status: EffectJournalStatus,
+    failure: ProposalEffectFailure,
+) -> ProposalEffectFailure {
+    match context
+        .adapters
+        .effect_journal
+        .record_terminal(run_id, generation, status)
+    {
+        Ok(()) => failure,
+        Err(error) => ProposalEffectFailure::Journal {
+            message: format!(
+                "{failure}; failed to record harness status {status:?} for run {run_id} generation \
+                 {generation}: {error}"
+            ),
+        },
+    }
 }
 
 fn status(layout: &InstanceLayout, socket_path: &std::path::Path) -> Result<StatusResponse> {
@@ -853,12 +955,26 @@ fn task_summary(task: &Task) -> TaskSummary {
 }
 
 fn truncate_utf8(bytes: &[u8], max_len: usize) -> String {
-    let s = String::from_utf8_lossy(bytes);
-    if s.len() <= max_len {
-        s.to_string()
-    } else {
-        format!("{}...", &s[..max_len.saturating_sub(3)])
+    let text = String::from_utf8_lossy(bytes);
+    if text.len() <= max_len {
+        return text.into_owned();
     }
+    if max_len <= 3 {
+        return "...".chars().take(max_len).collect();
+    }
+    let prefix_limit = max_len - 3;
+    let prefix_end = text.char_indices().fold(0, |end, (index, character)| {
+        let candidate = index + character.len_utf8();
+        if candidate <= prefix_limit {
+            candidate
+        } else {
+            end
+        }
+    });
+    let mut truncated = String::with_capacity(prefix_end + 3);
+    truncated.push_str(&text[..prefix_end]);
+    truncated.push_str("...");
+    truncated
 }
 
 #[cfg(test)]

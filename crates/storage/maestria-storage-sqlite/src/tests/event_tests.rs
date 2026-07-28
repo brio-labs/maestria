@@ -290,6 +290,41 @@ fn task_evidence_linked_event_round_trips() -> Result<(), PortError> {
 }
 
 #[test]
+fn source_became_stale_round_trips_after_restart_and_rebuilds_stale_sources()
+-> Result<(), Box<dyn std::error::Error>> {
+    let directory = tempfile::tempdir()?;
+    let db_path = directory.path().join("stale-source.db");
+    let envelope = DomainEventEnvelope {
+        id: EventId::new(1),
+        sequence: SequenceNumber::new(1),
+        event: DomainEvent::SourceBecameStale {
+            artifact_id: ArtifactId::new(7),
+            source_path: "notes/source.md".to_string(),
+            content_hash: "sha256:stale-content".to_string(),
+        },
+    };
+
+    {
+        let store = SqliteStore::open(&db_path)?;
+        store.append(envelope.clone())?;
+        assert_eq!(
+            store.scan(EventFilter { artifact_id: None })?,
+            vec![envelope.clone()]
+        );
+    }
+
+    let store = SqliteStore::open(&db_path)?;
+    let scanned = store.scan(EventFilter {
+        artifact_id: Some(ArtifactId::new(7)),
+    })?;
+    assert_eq!(scanned, vec![envelope]);
+    let replayed = replay_events(&scanned)?;
+    assert!(replayed.stale_sources.contains("notes/source.md"));
+    assert_eq!(replayed.stale_sources.len(), 1);
+    Ok(())
+}
+
+#[test]
 fn search_executed_roundtrips_through_appended_scan() -> Result<(), Box<dyn std::error::Error>> {
     let store = SqliteStore::in_memory()?;
     let metadata = EvidencePackMetadataRecord {

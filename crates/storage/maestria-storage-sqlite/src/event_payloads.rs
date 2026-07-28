@@ -205,11 +205,17 @@ pub(crate) enum StoredEventPayload {
         to: maestria_domain::IndexLifecycle,
         replaced_active_id: Option<u64>,
     },
+    SourceBecameStale {
+        artifact_id: u64,
+        source_path: String,
+        content_hash: String,
+    },
 }
 
 impl StoredEventPayload {
     pub(crate) fn from_domain(event: &DomainEvent) -> Result<Self, PortError> {
-        Self::try_from_domain_artifact(event)
+        Self::try_from_domain_stale(event)
+            .or_else(|| Self::try_from_domain_artifact(event))
             .or_else(|| Self::try_from_domain_task(event))
             .or_else(|| Self::try_from_domain_claim(event))
             .or_else(|| Self::try_from_domain_memory(event))
@@ -221,7 +227,8 @@ impl StoredEventPayload {
     }
 
     pub(crate) fn into_domain(self) -> Result<DomainEvent, PortError> {
-        self.try_into_domain_artifact()
+        self.try_into_domain_stale()
+            .or_else(|s| (*s).try_into_domain_artifact())
             .or_else(|s| (*s).try_into_domain_task())
             .or_else(|s| (*s).try_into_domain_claim())
             .or_else(|s| (*s).try_into_domain_memory())
@@ -233,7 +240,8 @@ impl StoredEventPayload {
     }
 
     pub(crate) fn kind(&self) -> Result<&'static str, PortError> {
-        self.try_kind_artifact()
+        self.try_kind_stale()
+            .or_else(|| self.try_kind_artifact())
             .or_else(|| self.try_kind_task())
             .or_else(|| self.try_kind_claim())
             .or_else(|| self.try_kind_memory())
@@ -245,10 +253,55 @@ impl StoredEventPayload {
     }
 
     pub(crate) fn filter_artifact_id(&self) -> Option<u64> {
-        self.try_filter_artifact_id_artifact()
+        self.try_filter_artifact_id_stale()
+            .or_else(|| self.try_filter_artifact_id_artifact())
             .or_else(|| self.try_filter_artifact_id_task())
             .or_else(|| self.try_filter_artifact_id_claim())
             .or_else(|| self.try_filter_artifact_id_memory())
             .or_else(|| self.try_filter_artifact_id_misc())
+    }
+
+    fn try_from_domain_stale(event: &DomainEvent) -> Option<Self> {
+        match event {
+            DomainEvent::SourceBecameStale {
+                artifact_id,
+                source_path,
+                content_hash,
+            } => Some(Self::SourceBecameStale {
+                artifact_id: artifact_id.value(),
+                source_path: source_path.clone(),
+                content_hash: content_hash.clone(),
+            }),
+            _ => None,
+        }
+    }
+
+    fn try_into_domain_stale(self) -> Result<DomainEvent, Box<Self>> {
+        match self {
+            Self::SourceBecameStale {
+                artifact_id,
+                source_path,
+                content_hash,
+            } => Ok(DomainEvent::SourceBecameStale {
+                artifact_id: maestria_domain::ArtifactId::new(artifact_id),
+                source_path,
+                content_hash,
+            }),
+            other => Err(Box::new(other)),
+        }
+    }
+
+    fn try_kind_stale(&self) -> Option<&'static str> {
+        match self {
+            Self::SourceBecameStale { .. } => Some("source_became_stale"),
+            _ => None,
+        }
+    }
+
+    fn try_filter_artifact_id_stale(&self) -> Option<u64> {
+        match self {
+            Self::SourceBecameStale { artifact_id, .. } => Some(*artifact_id),
+            _ => None,
+        }
     }
 }

@@ -80,6 +80,63 @@ impl CandidateRetriever for CountingWebLane {
     }
 }
 
+struct StaleGenerationLane {
+    calls: Arc<AtomicUsize>,
+}
+
+#[async_trait]
+impl CandidateRetriever for StaleGenerationLane {
+    fn descriptor(&self) -> maestria_retrieval::types::RetrieverDescriptor {
+        maestria_retrieval::types::RetrieverDescriptor {
+            id: "stale".to_string(),
+            modality: "text".to_string(),
+            representation: maestria_domain::RepresentationName::new("text"),
+            generation: IndexGenerationId::new(2),
+        }
+    }
+
+    async fn retrieve(
+        &self,
+        _request: maestria_retrieval::types::CandidateRequest,
+    ) -> Result<maestria_retrieval::types::CandidateBatch, RetrievalError> {
+        self.calls.fetch_add(1, Ordering::SeqCst);
+        Err(RetrievalError::Internal(
+            "stale lane should not be dispatched".to_string(),
+        ))
+    }
+}
+
+struct ByteOverrunLane {
+    candidate: EvidenceCandidate,
+    bytes_read: u64,
+}
+
+#[async_trait]
+impl CandidateRetriever for ByteOverrunLane {
+    fn descriptor(&self) -> maestria_retrieval::types::RetrieverDescriptor {
+        maestria_retrieval::types::RetrieverDescriptor {
+            id: "local".to_string(),
+            modality: "text".to_string(),
+            representation: maestria_domain::RepresentationName::new("text"),
+            generation: IndexGenerationId::new(1),
+        }
+    }
+
+    async fn retrieve(
+        &self,
+        _request: maestria_retrieval::types::CandidateRequest,
+    ) -> Result<maestria_retrieval::types::CandidateBatch, RetrievalError> {
+        Ok(maestria_retrieval::types::CandidateBatch {
+            descriptor: self.descriptor(),
+            query: "test query".to_string(),
+            candidates: vec![self.candidate.clone()],
+            status: maestria_domain::SearchLaneStatus::Succeeded,
+            generation: Some(IndexGenerationId::new(1)),
+            bytes_read: self.bytes_read,
+        })
+    }
+}
+
 struct AsyncEvaluator;
 
 #[async_trait]
@@ -182,6 +239,91 @@ async fn failed_lane_is_degraded_without_losing_successful_evidence() -> Retriev
             .lanes
             .iter()
             .all(|lane| lane.generation == Some(plan.index_generation))
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn stale_generation_lane_is_rejected_before_dispatch() -> RetrievalResult<()> {
+    let plan = dummy_plan()?;
+    let calls = Arc::new(AtomicUsize::new(0));
+    let engine = RetrievalEngine::new(
+        vec![Arc::new(StaleGenerationLane {
+            calls: Arc::clone(&calls),
+        })],
+        Arc::new(AsyncEvaluator),
+        maestria_governance::RetrievalSecurityPolicy::default(),
+    )
+    .with_capabilities(
+        maestria_governance::SearchCapabilities::core_defaults(
+            maestria_domain::CorpusSnapshotId::new(1),
+            maestria_domain::IndexGenerationId::new(1),
+            (1_000, 30_000),
+        )
+        .with_generation(maestria_domain::IndexGenerationId::new(2)),
+    );
+
+    let outcome = engine.search(&plan).await?;
+    assert!(outcome.evidence.is_empty());
+    assert_eq!(calls.load(Ordering::SeqCst), 0);
+    let trace = outcome
+        .trace_data
+        .ok_or(RetrievalError::Internal("missing search trace".into()))?;
+    let lane = trace
+        .lanes
+        .first()
+        .ok_or(RetrievalError::Internal("missing stale lane trace".into()))?;
+    assert!(matches!(
+        &lane.status,
+        maestria_domain::SearchLaneStatus::Failed { error }
+            if error.contains("stale retriever generation")
+    ));
+    assert_eq!(
+        trace.stop_reason,
+        maestria_domain::SearchStopReason::NoEvidence
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn local_lane_byte_overrun_is_rejected_before_scoring() -> RetrievalResult<()> {
+    let mut plan = dummy_plan()?;
+    plan.budgets =
+        maestria_domain::SearchBudget::with_resource_limits(1_000, 1_000, 1, 1, 0, 4, 1)?;
+    let engine = RetrievalEngine::new(
+        vec![Arc::new(ByteOverrunLane {
+            candidate: candidate_fixture()?,
+            bytes_read: 5,
+        })],
+        Arc::new(AsyncEvaluator),
+        maestria_governance::RetrievalSecurityPolicy::default(),
+    )
+    .with_capabilities(
+        maestria_governance::SearchCapabilities::core_defaults(
+            maestria_domain::CorpusSnapshotId::new(1),
+            maestria_domain::IndexGenerationId::new(1),
+            (1_000, 30_000),
+        )
+        .max_bytes_read(4),
+    );
+
+    let outcome = engine.search(&plan).await?;
+    assert!(outcome.evidence.is_empty());
+    let trace = outcome
+        .trace_data
+        .ok_or(RetrievalError::Internal("missing search trace".into()))?;
+    let lane = trace
+        .lanes
+        .first()
+        .ok_or(RetrievalError::Internal("missing local lane trace".into()))?;
+    assert!(matches!(
+        &lane.status,
+        maestria_domain::SearchLaneStatus::Failed { error }
+            if error.contains("byte budget exhausted for text lane")
+    ));
+    assert_eq!(
+        trace.stop_reason,
+        maestria_domain::SearchStopReason::NoEvidence
     );
     Ok(())
 }

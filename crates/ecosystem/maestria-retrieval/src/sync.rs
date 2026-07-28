@@ -1,4 +1,4 @@
-use maestria_domain::SearchPlan;
+use maestria_domain::{SearchLaneStatus, SearchPlan};
 
 use crate::engine::rewrite_session;
 use crate::types::{RetrievalError, RetrievalResult};
@@ -21,8 +21,10 @@ type PipelineRetriever<'a, C> = Box<dyn Fn(&SearchPlan) -> RetrievalResult<Vec<C
 type PipelineQueryRetriever<'a, C> = Box<dyn Fn(&SearchPlan, &str) -> RetrievalResult<Vec<C>> + 'a>;
 type PipelineFusion<'a, C> = Box<dyn Fn(Vec<Vec<C>>) -> RetrievalResult<Vec<C>> + 'a>;
 type PipelineStage<'a, C> = Box<dyn Fn(Vec<C>, &SearchPlan) -> RetrievalResult<Vec<C>> + 'a>;
+type PipelineCandidateFilter<'a, C> =
+    Box<dyn Fn(Vec<C>, &SearchPlan) -> RetrievalResult<(Vec<C>, SearchLaneStatus)> + 'a>;
 type PipelineEvaluator<'a, C, O> = Box<dyn Fn(Vec<C>, &SearchPlan) -> RetrievalResult<O> + 'a>;
-type SyncLaneSets<C> = Vec<(String, Vec<C>)>;
+type SyncLaneSets<C> = Vec<(String, Vec<C>, SearchLaneStatus)>;
 
 pub struct SyncPipeline<'a, C, O> {
     retrievers: Vec<PipelineRetriever<'a, C>>,
@@ -31,8 +33,10 @@ pub struct SyncPipeline<'a, C, O> {
     reranker: Option<PipelineStage<'a, C>>,
     pre_expander: Option<PipelineStage<'a, C>>,
     expander: Option<PipelineStage<'a, C>>,
+    candidate_filter: Option<PipelineCandidateFilter<'a, C>>,
     evaluator: PipelineEvaluator<'a, C, O>,
     capabilities: maestria_governance::SearchCapabilities,
+    security_policy: maestria_governance::RetrievalSecurityPolicy,
 }
 
 impl<'a, C, O> SyncPipeline<'a, C, O> {
@@ -51,8 +55,10 @@ impl<'a, C, O> SyncPipeline<'a, C, O> {
             reranker: None,
             pre_expander: None,
             expander: None,
+            candidate_filter: None,
             evaluator: Box::new(evaluator),
             capabilities: default_capabilities(),
+            security_policy: maestria_governance::RetrievalSecurityPolicy::default(),
         }
     }
     pub fn with_capabilities(
@@ -60,6 +66,20 @@ impl<'a, C, O> SyncPipeline<'a, C, O> {
         capabilities: maestria_governance::SearchCapabilities,
     ) -> Self {
         self.capabilities = capabilities;
+        self
+    }
+    pub fn with_security_policy(
+        mut self,
+        security_policy: maestria_governance::RetrievalSecurityPolicy,
+    ) -> Self {
+        self.security_policy = security_policy;
+        self
+    }
+    pub fn with_candidate_filter<F>(mut self, filter: F) -> Self
+    where
+        F: Fn(Vec<C>, &SearchPlan) -> RetrievalResult<(Vec<C>, SearchLaneStatus)> + 'a,
+    {
+        self.candidate_filter = Some(Box::new(filter));
         self
     }
     pub fn with_query_retriever<F>(mut self, retriever: F) -> Self
@@ -124,6 +144,21 @@ impl<'a, C, O> SyncPipeline<'a, C, O> {
     pub(crate) fn query_rewrites_enabled(&self) -> bool {
         !self.query_retrievers.is_empty()
     }
+    fn apply_candidate_filter(
+        &self,
+        candidates: Vec<C>,
+        plan: &SearchPlan,
+    ) -> RetrievalResult<(Vec<C>, SearchLaneStatus)> {
+        if let Some(filter) = &self.candidate_filter {
+            return filter(candidates, plan);
+        }
+        let status = if candidates.is_empty() {
+            SearchLaneStatus::Empty
+        } else {
+            SearchLaneStatus::Succeeded
+        };
+        Ok((candidates, status))
+    }
 
     pub fn run(&self, plan: &SearchPlan) -> RetrievalResult<O>
     where
@@ -139,7 +174,7 @@ impl<'a, C, O> SyncPipeline<'a, C, O> {
         maestria_governance::SearchPlanValidator::validate(
             plan,
             &self.capabilities,
-            &maestria_governance::RetrievalSecurityPolicy::default(),
+            &self.security_policy,
         )
         .map_err(RetrievalError::SearchPlan)?;
         let start = crate::MonotonicInstant::now();
@@ -160,7 +195,8 @@ impl<'a, C, O> SyncPipeline<'a, C, O> {
         for retriever in &self.retrievers {
             let mut set = retriever(plan)?;
             set.truncate(plan.stop_conditions.max_results as usize);
-            lane_sets.push((plan.original_query.clone(), set.clone()));
+            let (set, status) = self.apply_candidate_filter(set, plan)?;
+            lane_sets.push((plan.original_query.clone(), set.clone(), status));
             sets.push(set);
             check_timeout()?;
         }
@@ -173,7 +209,8 @@ impl<'a, C, O> SyncPipeline<'a, C, O> {
                 for retriever in &self.query_retrievers {
                     let mut set = retriever(plan, &rewrite.query)?;
                     set.truncate(plan.stop_conditions.max_results as usize);
-                    lane_sets.push((rewrite.query.clone(), set.clone()));
+                    let (set, status) = self.apply_candidate_filter(set, plan)?;
+                    lane_sets.push((rewrite.query.clone(), set.clone(), status));
                     sets.push(set);
                     check_timeout()?;
                 }

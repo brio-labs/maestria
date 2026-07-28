@@ -37,6 +37,21 @@ struct ArtifactIdEntry {
     content_hash: String,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PendingDeliveryStatus {
+    /// The input was accepted by the bounded channel, but the runtime has not
+    /// durably reported acceptance yet.
+    Enqueued,
+    /// The input could not be queued because the bounded channel was full.
+    Deferred,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct PendingDelivery {
+    content_hash: String,
+    status: PendingDeliveryStatus,
+}
+
 #[derive(Debug, Clone)]
 struct Observation {
     path: PathBuf,
@@ -73,6 +88,7 @@ pub(crate) fn spawn(
             artifact_ids: artifact_ids.into_iter().collect(),
             shutdown,
             state,
+            pending: BTreeMap::new(),
             scan_permits,
         };
         watcher.run().await;
@@ -86,6 +102,10 @@ struct Watcher {
     artifact_ids: BTreeMap<String, (maestria_domain::ArtifactId, String)>,
     shutdown: CancellationToken,
     state: WatchState,
+    /// Inputs accepted by the bounded channel but not yet confirmed by a
+    /// durable runtime-derived artifact identity. This is intentionally
+    /// in-memory: shutdown must not turn channel enqueue into acceptance.
+    pending: BTreeMap<String, PendingDelivery>,
     scan_permits: Arc<Semaphore>,
 }
 
@@ -114,8 +134,30 @@ impl Watcher {
 
         let observations = scan_manifest(&self.manifest)?;
         let current = self.phase_detect_additions(&observations).await?;
+        self.pending.retain(|key, pending| {
+            current
+                .get(key)
+                .is_some_and(|hash| hash == &pending.content_hash)
+        });
+
+        // Use the observed map while detecting removals so a source that is
+        // waiting for runtime acceptance is not mistaken for a deletion.
         let previous_files = std::mem::replace(&mut self.state.files, current);
-        self.phase_detect_removals(previous_files).await?;
+        let removals_result = self.phase_detect_removals(previous_files).await;
+
+        // Only durably retain files that were already accepted before this
+        // scan. Newly enqueued or backpressured observations remain in the
+        // in-memory pending map and are intentionally retried after restart.
+        self.state.files.retain(|key, hash| {
+            !self
+                .pending
+                .get(key)
+                .is_some_and(|pending| pending.content_hash == *hash)
+        });
+        self.state.artifact_ids.retain(|key, _| {
+            self.state.files.contains_key(key) || self.state.removed.contains_key(key)
+        });
+        removals_result?;
         persist_state(&self.layout, &self.state)
     }
 
@@ -129,14 +171,40 @@ impl Watcher {
             let key = source_key(&observation.path);
             current.insert(key.clone(), observation.hash.clone());
 
-            if self.state.files.get(&key) == Some(&observation.hash)
-                || self
-                    .artifact_ids
-                    .get(&key)
-                    .is_some_and(|(_, known_hash)| known_hash == &observation.hash)
-            {
+            let accepted_artifact = self
+                .artifact_ids
+                .get(&key)
+                .filter(|(_, known_hash)| known_hash.as_str() == observation.hash.as_str())
+                .map(|(artifact_id, _)| *artifact_id);
+            let accepted = self.state.files.get(&key) == Some(&observation.hash)
+                || accepted_artifact.is_some();
+            if accepted {
+                if let Some(artifact_id) = accepted_artifact {
+                    self.state.artifact_ids.insert(
+                        key.clone(),
+                        ArtifactIdEntry {
+                            artifact_id: artifact_id.value(),
+                            content_hash: observation.hash.clone(),
+                        },
+                    );
+                }
+                self.pending.remove(&key);
                 self.state.removed.remove(&key);
                 continue;
+            }
+
+            let pending_status = self.pending.get(&key).and_then(|pending| {
+                (pending.content_hash == observation.hash).then_some(pending.status)
+            });
+            if let Some(status) = pending_status {
+                if status == PendingDeliveryStatus::Enqueued {
+                    self.state.removed.remove(&key);
+                    continue;
+                }
+            } else {
+                // The source changed before the previous delivery was
+                // accepted; retry the newest deterministic content.
+                self.pending.remove(&key);
             }
 
             let artifact_id = artifact_id_for(&observation.path, &observation.bytes);
@@ -144,7 +212,6 @@ impl Watcher {
                 Some(name) => name.to_string(),
                 None => "unknown".to_string(),
             };
-            let observed_hash = observation.hash.clone();
 
             match self
                 .input_tx
@@ -155,11 +222,24 @@ impl Watcher {
                     source_bytes: observation.bytes.clone(),
                     content_hash: observation.hash.clone(),
                 })) {
-                Ok(()) => {}
+                Ok(()) => {
+                    self.pending.insert(
+                        key.clone(),
+                        PendingDelivery {
+                            content_hash: observation.hash.clone(),
+                            status: PendingDeliveryStatus::Enqueued,
+                        },
+                    );
+                }
                 Err(mpsc::error::TrySendError::Full(_)) => {
                     tracing::debug!("watcher input channel full — deferring artifact detection");
-                    current.remove(&key);
-                    continue;
+                    self.pending.insert(
+                        key.clone(),
+                        PendingDelivery {
+                            content_hash: observation.hash.clone(),
+                            status: PendingDeliveryStatus::Deferred,
+                        },
+                    );
                 }
                 Err(mpsc::error::TrySendError::Closed(_)) => {
                     return Err(anyhow::anyhow!(
@@ -169,15 +249,6 @@ impl Watcher {
             }
 
             self.state.removed.remove(&key);
-            self.artifact_ids
-                .insert(key.clone(), (artifact_id, observed_hash));
-            self.state.artifact_ids.insert(
-                key.clone(),
-                ArtifactIdEntry {
-                    artifact_id: artifact_id.value(),
-                    content_hash: observation.hash.clone(),
-                },
-            );
         }
 
         Ok(current)

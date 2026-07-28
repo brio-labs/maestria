@@ -1,6 +1,6 @@
 use maestria_domain::{
     ContentRange, CorpusScope, EvidenceCandidate, EvidenceId, ScopeId, SearchBudget, SearchPlan,
-    SearchStatus, SearchStopReason, SearchTraceFilter,
+    SearchStatus, SearchStopReason, SearchTraceFilter, TrustLabel, TrustZone,
 };
 use maestria_retrieval::traits::RankFusion;
 use maestria_retrieval::types::{CandidateBatch, RetrieverDescriptor};
@@ -27,6 +27,46 @@ fn test_sync_engine_orchestration() -> RetrievalResult<()> {
     );
     let result = engine.search_sync(&plan)?;
     assert_eq!(result.status, SearchStatus::NoEvidenceFound);
+    Ok(())
+}
+
+#[test]
+fn sync_engine_filters_policy_denied_closure_candidates() -> RetrievalResult<()> {
+    let plan = dummy_plan()?;
+    let mut denied = candidate_fixture()?;
+    denied.trust = TrustLabel::Unverified;
+    let retriever = move |_: &SearchPlan| Ok(vec![denied.clone()]);
+    let evaluator = |candidates: Vec<EvidenceCandidate>, plan: &SearchPlan| {
+        assert!(
+            candidates.is_empty(),
+            "policy-denied closure candidate reached evaluator"
+        );
+        let mut outcome = dummy_outcome()?;
+        outcome.fingerprint = plan.fingerprint.clone();
+        outcome.status = SearchStatus::NoEvidenceFound;
+        Ok(outcome)
+    };
+    let engine = SyncRetrievalEngine::new(
+        vec![retriever],
+        evaluator,
+        maestria_governance::RetrievalSecurityPolicy::new().require_trust_zone(TrustZone::Verified),
+    );
+
+    let outcome = engine.search_sync(&plan)?;
+    assert!(outcome.evidence.is_empty());
+    assert_eq!(outcome.status, SearchStatus::DeniedByPolicy);
+    let trace = outcome
+        .trace_data
+        .ok_or(RetrievalError::Internal("missing search trace".into()))?;
+    assert_eq!(trace.stop_reason, SearchStopReason::PolicyDenied);
+    assert!(trace.lanes.iter().all(|lane| {
+        matches!(
+            &lane.status,
+            maestria_domain::SearchLaneStatus::Failed { error }
+                if error.contains("candidate denied by security policy")
+        )
+    }));
+    assert!(trace.filters.contains(&SearchTraceFilter::Trust));
     Ok(())
 }
 

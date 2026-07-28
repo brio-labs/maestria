@@ -1,9 +1,19 @@
 mod common;
 
 use common::{
-    TempDir, assert_index_ok, assert_init_ok, assert_ok, assert_ok_lines, run, write_file,
+    TempDir, assert_index_ok, assert_init_ok, assert_ok, assert_ok_lines, run, run_bounded,
+    write_file,
 };
+use maestria_core::InstanceLayout;
+use maestria_domain::{
+    ArtifactId, Authority, ClaimId, ContentRange, DomainEvent, DomainEventEnvelope, EventId,
+    EvidenceId, EvidenceKind, IntegrityState, LogicalTick, MemoryCandidateId, ReviewStatus,
+    SecurityMetadata, Sensitivity, SequenceNumber, TrustZone,
+};
+use maestria_ports::EventLog;
+use maestria_storage_sqlite::SqliteStore;
 use std::path::Path;
+use std::time::Duration;
 
 fn parse_kv_value<'a>(line: &'a str, key: &str) -> Option<&'a str> {
     line.split_whitespace()
@@ -56,6 +66,118 @@ fn index_claim(
         .and_then(|line| line.split_whitespace().next())
         .ok_or("content must have a searchable word")?;
     search_evidence(instance_path, query)
+}
+
+fn seed_promotable_candidate(instance_path: &Path) -> Result<(), Box<dyn std::error::Error>> {
+    let layout = InstanceLayout::for_root(instance_path.to_path_buf());
+    let store = SqliteStore::open(&layout.database_path)?;
+    let security = SecurityMetadata {
+        trust_zone: TrustZone::Verified,
+        authority: Authority::User,
+        integrity: IntegrityState::Verified,
+        sensitivity: Sensitivity::Internal,
+        review_status: ReviewStatus::Approved,
+        quarantined: false,
+        prompt_injection_risk: false,
+        poisoning_flags: Vec::new(),
+        read_allowed: true,
+        write_allowed: true,
+        scope_id: None,
+    };
+    let artifact_id = ArtifactId::new(1);
+    let claim_id = ClaimId::new(1);
+    let evidence_id = EvidenceId::new(1);
+    let candidate_id = MemoryCandidateId::new(1);
+    let events = [
+        DomainEvent::ArtifactRegistered {
+            artifact_id,
+            title: "notes.md".to_string(),
+            security: security.clone(),
+        },
+        DomainEvent::EvidenceRecorded {
+            evidence_id,
+            artifact_id,
+            claim_id: None,
+            kind: EvidenceKind::FileSpan {
+                path: "notes.md".to_string(),
+                range: ContentRange { start: 1, end: 1 },
+                content_hash: "sha256:test".to_string(),
+                snapshot: None,
+            },
+            excerpt: "A trusted claim.".to_string(),
+            observed_at: LogicalTick::new(1),
+            security: security.clone(),
+        },
+        DomainEvent::ClaimCreated {
+            claim_id,
+            artifact_id,
+            text: "A trusted claim.".to_string(),
+            evidence_ids: vec![evidence_id],
+            security: security.clone(),
+        },
+        DomainEvent::ClaimEvidenceLinked {
+            claim_id,
+            evidence_id,
+        },
+        DomainEvent::MemoryCandidateCreated {
+            candidate_id,
+            claim_id,
+            evidence_ids: std::iter::once(evidence_id).collect(),
+            confidence_milli: 750,
+            security,
+        },
+    ];
+    for (offset, event) in events.into_iter().enumerate() {
+        let id = (offset + 1) as u64;
+        store.append(DomainEventEnvelope {
+            id: EventId::new(id),
+            sequence: SequenceNumber::new(id),
+            event,
+        })?;
+    }
+    Ok(())
+}
+
+#[test]
+fn memory_promote_returns_and_persists_within_bound() -> Result<(), Box<dyn std::error::Error>> {
+    let workspace = TempDir::new("maestria-test-mem-promote-success-workspace")?;
+    let instance = TempDir::new("maestria-test-mem-promote-success-instance")?;
+    assert_init_ok(
+        &instance.path().to_string_lossy(),
+        &workspace.path().to_string_lossy(),
+    )?;
+    seed_promotable_candidate(instance.path())?;
+
+    let instance_path = instance.path().to_string_lossy();
+    let (code, stdout, stderr) = run_bounded(
+        &[
+            "memory",
+            "promote",
+            "-i",
+            instance_path.as_ref(),
+            "--candidate-id",
+            "1",
+            "--approve",
+        ],
+        Duration::from_secs(10),
+    )?;
+    assert_eq!(
+        code, 0,
+        "promotion failed within timeout\nstdout: {stdout}\nstderr: {stderr}"
+    );
+    assert!(
+        stdout.contains("promoted candidate=1 memory=1"),
+        "promotion output missing success: {stdout}"
+    );
+
+    let state = maestria_daemon::load_kernel_state(&InstanceLayout::for_root(instance.path()))?;
+    assert!(
+        state
+            .memories
+            .contains_key(&maestria_domain::MemoryId::new(1)),
+        "successful promotion did not persist memory"
+    );
+    Ok(())
 }
 
 #[test]

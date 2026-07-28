@@ -8,6 +8,69 @@ use rusqlite::{Connection, params};
 
 use super::artifact;
 
+fn assert_foreign_keys_enforced(store: &SqliteStore) -> Result<(), Box<dyn std::error::Error>> {
+    let connection = store.lock()?;
+    let foreign_keys: i64 = connection.query_row("PRAGMA foreign_keys", [], |row| row.get(0))?;
+    assert_eq!(foreign_keys, 1);
+
+    let dangling = connection.execute(
+        "INSERT INTO artifact_chunks (artifact_id, related_id) VALUES (?1, ?2)",
+        params![999_i64, 1_i64],
+    );
+    assert!(
+        dangling.is_err(),
+        "foreign-key enforcement must reject dangling children"
+    );
+
+    connection.execute(
+        "INSERT INTO artifacts (id, title) VALUES (?1, ?2)",
+        params![1_i64, "parent"],
+    )?;
+    connection.execute(
+        "INSERT INTO artifact_chunks (artifact_id, related_id) VALUES (?1, ?2)",
+        params![1_i64, 2_i64],
+    )?;
+    connection.execute("DELETE FROM artifacts WHERE id = ?1", [1_i64])?;
+    let remaining_children: i64 = connection.query_row(
+        "SELECT COUNT(*) FROM artifact_chunks WHERE artifact_id = ?1",
+        [1_i64],
+        |row| row.get(0),
+    )?;
+    assert_eq!(
+        remaining_children, 0,
+        "deleting a parent must cascade to children"
+    );
+    Ok(())
+}
+
+#[test]
+fn fresh_and_migrated_stores_enforce_foreign_keys() -> Result<(), Box<dyn std::error::Error>> {
+    let fresh = SqliteStore::in_memory()?;
+    assert_foreign_keys_enforced(&fresh)?;
+
+    let directory = tempfile::tempdir()?;
+    let path = directory.path().join("existing.db");
+    {
+        let connection = Connection::open(&path)?;
+        connection.execute_batch(
+            "CREATE TABLE artifacts (
+                 id INTEGER NOT NULL PRIMARY KEY,
+                 title TEXT NOT NULL
+             );
+             CREATE TABLE domain_events (
+                 id INTEGER NOT NULL PRIMARY KEY,
+                 sequence INTEGER NOT NULL UNIQUE,
+                 event_kind TEXT NOT NULL,
+                 artifact_id INTEGER,
+                 payload_json TEXT NOT NULL
+             );",
+        )?;
+    }
+    let migrated = SqliteStore::open(&path)?;
+    assert_foreign_keys_enforced(&migrated)?;
+    Ok(())
+}
+
 #[test]
 fn migrations_are_idempotent() -> Result<(), Box<dyn std::error::Error>> {
     let directory = tempfile::tempdir()?;

@@ -218,13 +218,14 @@ impl RetrievalEngine {
         query: &SearchQuery,
         batches: &[crate::types::CandidateBatch],
         started: tokio::time::Instant,
+        bytes_read: &mut u64,
     ) -> RetrievalResult<(
         SearchOutcome,
         Vec<maestria_domain::SearchTraceLane>,
         Option<maestria_domain::SearchTraceRerank>,
         maestria_domain::SearchTraceDiversity,
     )> {
-        engine_evaluation::evaluate_batches(self, plan, query, batches, started).await
+        engine_evaluation::evaluate_batches(self, plan, query, batches, started, bytes_read).await
     }
 
     /// Execute the search plan and return the outcome.
@@ -365,16 +366,16 @@ impl RetrievalEngine {
             limit: plan.stop_conditions.max_results as usize,
             offset: 0,
         };
-        let (batches, rewrites, web_requests_used, web_bytes_read) =
+        let (batches, rewrites, web_requests_used, mut bytes_read) =
             engine_pipeline::collect_initial_batches(&active_retrievers, plan).await?;
         let (outcome, lanes, rerank_trace, diversity_trace) = self
-            .evaluate_batches(plan, &query, &batches, started)
+            .evaluate_batches(plan, &query, &batches, started, &mut bytes_read)
             .await?;
         let mut state = engine_adaptive::AdaptiveSearchState {
             batches,
             rewrites,
             web_requests_used,
-            web_bytes_read,
+            bytes_read,
             outcome,
             lanes,
             rerank_trace,

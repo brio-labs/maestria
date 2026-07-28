@@ -14,33 +14,36 @@ fn normalize_batch(
     descriptor: crate::types::RetrieverDescriptor,
     query: &SearchQuery,
     plan: &SearchPlan,
-    web_bytes_read: &mut u64,
+    bytes_read: &mut u64,
 ) -> crate::types::CandidateBatch {
-    if batch.generation != Some(descriptor.generation) {
+    let batch_descriptor_generation = batch.descriptor.generation;
+    let generation_matches = descriptor.generation == plan.index_generation
+        && batch_descriptor_generation == descriptor.generation
+        && batch.generation == Some(plan.index_generation);
+    if !generation_matches {
         batch.candidates.clear();
         batch.status = maestria_domain::SearchLaneStatus::Failed {
             error: format!(
-                "stale lane generation: expected {}, got {}",
+                "stale lane generation: expected {}, retriever {}, batch descriptor {}, batch {}",
+                plan.index_generation,
                 descriptor.generation,
+                batch_descriptor_generation,
                 batch.generation.map_or_else(
                     || "missing".to_string(),
                     |generation| generation.to_string()
                 ),
             ),
         };
-    }
-    if descriptor.modality.eq_ignore_ascii_case("web") {
-        let remaining_bytes = plan
-            .budgets
-            .max_bytes_read()
-            .saturating_sub(*web_bytes_read);
-        if batch.bytes_read > remaining_bytes {
+    } else {
+        let max_bytes = plan.budgets.max_bytes_read();
+        let remaining_bytes = max_bytes.saturating_sub(*bytes_read);
+        if max_bytes > 0 && batch.bytes_read > remaining_bytes {
             batch.candidates.clear();
             batch.status = maestria_domain::SearchLaneStatus::Failed {
-                error: "web byte budget exhausted".to_string(),
+                error: format!("byte budget exhausted for {} lane", descriptor.modality),
             };
         } else {
-            *web_bytes_read = (*web_bytes_read).saturating_add(batch.bytes_read);
+            *bytes_read = (*bytes_read).saturating_add(batch.bytes_read);
         }
     }
     batch
@@ -66,11 +69,16 @@ pub(super) async fn collect_batches(
     plan: &SearchPlan,
     query: &SearchQuery,
     web_requests_used: &mut u32,
-    web_bytes_read: &mut u64,
+    bytes_read: &mut u64,
 ) -> RetrievalResult<Vec<crate::types::CandidateBatch>> {
     let mut completed = std::iter::repeat_with(|| None)
         .take(retrievers.len())
-        .collect::<Vec<_>>();
+        .collect::<Vec<
+            Option<(
+                crate::types::RetrieverDescriptor,
+                RetrievalResult<crate::types::CandidateBatch>,
+            )>,
+        >>();
     let mut tasks = JoinSet::new();
     let concurrency = match usize::try_from(plan.budgets.max_concurrency()) {
         Ok(value) => value,
@@ -84,19 +92,25 @@ pub(super) async fn collect_batches(
     for (index, retriever) in retrievers.iter().enumerate() {
         let descriptor = retriever.descriptor();
         let generation = descriptor.generation;
+        if generation != plan.index_generation {
+            completed[index] = Some((
+                descriptor,
+                Err(RetrievalError::Internal(format!(
+                    "stale retriever generation: expected {}, got {}",
+                    plan.index_generation, generation
+                ))),
+            ));
+            continue;
+        }
         if descriptor.modality.eq_ignore_ascii_case("web")
             && *web_requests_used >= plan.budgets.max_web_requests()
         {
-            completed[index] = Some(crate::types::CandidateBatch {
+            completed[index] = Some((
                 descriptor,
-                query: query.q.clone(),
-                candidates: Vec::new(),
-                status: maestria_domain::SearchLaneStatus::Failed {
-                    error: "web request budget exhausted".to_string(),
-                },
-                generation: Some(generation),
-                bytes_read: 0,
-            });
+                Err(RetrievalError::Internal(
+                    "web request budget exhausted".to_string(),
+                )),
+            ));
             continue;
         }
         if descriptor.modality.eq_ignore_ascii_case("web") {
@@ -106,7 +120,7 @@ pub(super) async fn collect_batches(
         let request = CandidateRequest {
             plan: plan.clone(),
             query: query.clone(),
-            expected_generation: descriptor.generation,
+            expected_generation: plan.index_generation,
         };
         let semaphore = Arc::clone(&semaphore);
         tasks.spawn(async move {
@@ -125,30 +139,30 @@ pub(super) async fn collect_batches(
     while let Some(result) = tasks.join_next().await {
         let (index, descriptor, result) = result
             .map_err(|error| RetrievalError::Internal(format!("retriever task failed: {error}")))?;
-        let generation = descriptor.generation;
-        let batch = match result {
-            Ok(batch) => normalize_batch(batch, descriptor, query, plan, web_bytes_read),
-            Err(RetrievalError::Cancelled) => return Err(RetrievalError::Cancelled),
-            Err(error) => crate::types::CandidateBatch {
-                descriptor,
-                query: query.q.clone(),
-                candidates: Vec::new(),
-                status: maestria_domain::SearchLaneStatus::Failed {
-                    error: error.to_string(),
-                },
-                generation: Some(generation),
-                bytes_read: 0,
-            },
-        };
-        completed[index] = Some(batch);
+        completed[index] = Some((descriptor, result));
     }
 
     completed
         .into_iter()
-        .map(|batch| {
-            batch.ok_or_else(|| {
+        .map(|entry| {
+            let (descriptor, result) = entry.ok_or_else(|| {
                 RetrievalError::Internal("retriever task produced no result".to_string())
-            })
+            })?;
+            let generation = descriptor.generation;
+            match result {
+                Ok(batch) => Ok(normalize_batch(batch, descriptor, query, plan, bytes_read)),
+                Err(RetrievalError::Cancelled) => Err(RetrievalError::Cancelled),
+                Err(error) => Ok(crate::types::CandidateBatch {
+                    descriptor,
+                    query: query.q.clone(),
+                    candidates: Vec::new(),
+                    status: maestria_domain::SearchLaneStatus::Failed {
+                        error: error.to_string(),
+                    },
+                    generation: Some(generation),
+                    bytes_read: 0,
+                }),
+            }
         })
         .collect()
 }
@@ -173,7 +187,7 @@ pub(super) async fn collect_initial_batches(
     }
     let mut batches = Vec::new();
     let mut web_requests_used = 0_u32;
-    let mut web_bytes_read = 0_u64;
+    let mut bytes_read = 0_u64;
     for rewrite in session.records() {
         let rewrite_query = SearchQuery {
             q: rewrite.query.clone(),
@@ -186,12 +200,12 @@ pub(super) async fn collect_initial_batches(
                 plan,
                 &rewrite_query,
                 &mut web_requests_used,
-                &mut web_bytes_read,
+                &mut bytes_read,
             )
             .await?,
         );
     }
-    Ok((batches, session, web_requests_used, web_bytes_read))
+    Ok((batches, session, web_requests_used, bytes_read))
 }
 
 pub(super) async fn collect_missing_slot_batches(
@@ -199,14 +213,14 @@ pub(super) async fn collect_missing_slot_batches(
     plan: &SearchPlan,
     query: &str,
     web_requests_used: &mut u32,
-    web_bytes_read: &mut u64,
+    bytes_read: &mut u64,
 ) -> RetrievalResult<Vec<crate::types::CandidateBatch>> {
     let query = SearchQuery {
         q: query.to_string(),
         limit: plan.stop_conditions.max_results as usize,
         offset: 0,
     };
-    collect_batches(retrievers, plan, &query, web_requests_used, web_bytes_read).await
+    collect_batches(retrievers, plan, &query, web_requests_used, bytes_read).await
 }
 
 pub(super) fn trace_lanes(
@@ -244,6 +258,7 @@ pub(super) async fn run_diversity_stage(
     initial: crate::diversity::DiversitySelection,
     expander: &Option<Arc<dyn ContextExpander>>,
     evaluator: &Arc<dyn RetrievalEvaluator>,
+    bytes_read: &mut u64,
 ) -> RetrievalResult<(SearchOutcome, crate::diversity::DiversitySelection)> {
     let selected_candidates = initial.candidates.clone();
     let expansion_policy = ExpansionPolicy {
@@ -264,12 +279,33 @@ pub(super) async fn run_diversity_stage(
             .map(|candidate| candidate.candidate.clone())
             .collect()
     };
-    let expanded_ranked = expanded
+    let mut expansion_budget_exhausted = false;
+    let mut bounded_expanded = Vec::with_capacity(expanded.len());
+    for candidate in expanded {
+        let is_seed = selected_candidates
+            .iter()
+            .any(|seed| seed.candidate.evidence_id == candidate.evidence_id);
+        if !is_seed {
+            let range = candidate.source_span.range();
+            let candidate_bytes = range.end.saturating_sub(range.start) as u64;
+            let max_bytes = plan.budgets.max_bytes_read();
+            if max_bytes > 0 && candidate_bytes > max_bytes.saturating_sub(*bytes_read) {
+                expansion_budget_exhausted = true;
+                continue;
+            }
+            *bytes_read = (*bytes_read).saturating_add(candidate_bytes);
+        }
+        bounded_expanded.push(candidate);
+    }
+    let expanded_ranked = bounded_expanded
         .into_iter()
         .enumerate()
         .map(|(rank, candidate)| RankedCandidate { candidate, rank })
         .collect::<Vec<_>>();
-    let final_diversity = crate::diversity::select_candidates(&expanded_ranked, plan);
+    let mut final_diversity = crate::diversity::select_candidates(&expanded_ranked, plan);
+    if expansion_budget_exhausted {
+        final_diversity.trace.stop_reason = maestria_domain::SearchStopReason::BudgetExhausted;
+    }
     ensure_exact_lineage(&final_diversity.candidates, &selected_candidates)?;
     let candidates = final_diversity
         .candidates
