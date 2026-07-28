@@ -33,22 +33,35 @@ class PhilosophyCheckTests(unittest.TestCase):
         kernel_root = root / "crates" / "kernel"
         domain_root = kernel_root / "maestria-domain"
         setattr(PHILOSOPHY_CHECK, "ROOT", root)
-        setattr(PHILOSOPHY_CHECK, "THIS_SCRIPT", root / "scripts" / "philosophy-check.py")
+        setattr(
+            PHILOSOPHY_CHECK, "THIS_SCRIPT", root / "scripts" / "philosophy-check.py"
+        )
         setattr(PHILOSOPHY_CHECK, "DOMAIN_ROOT", domain_root)
         setattr(PHILOSOPHY_CHECK, "DOMAIN_SRC", domain_root / "src")
         setattr(PHILOSOPHY_CHECK, "DOMAIN_MANIFEST", domain_root / "Cargo.toml")
         setattr(
             PHILOSOPHY_CHECK,
             "KERNEL_ROOTS",
-            tuple(kernel_root / name for name in ("maestria-domain", "maestria-governance", "maestria-ports")),
+            tuple(
+                kernel_root / name
+                for name in ("maestria-domain", "maestria-governance", "maestria-ports")
+            ),
         )
         setattr(
             PHILOSOPHY_CHECK,
             "RESPONSIBILITY_MAPS",
             {
                 "crates/kernel/maestria-ports/src/traits.rs": (
-                    "errors", "repositories", "lifecycle", "indexing",
-                    "embedding", "harness", "graph", "web", "approval", "search",
+                    "errors",
+                    "repositories",
+                    "lifecycle",
+                    "indexing",
+                    "embedding",
+                    "harness",
+                    "graph",
+                    "web",
+                    "approval",
+                    "search",
                 ),
             },
         )
@@ -59,9 +72,14 @@ class PhilosophyCheckTests(unittest.TestCase):
             self.configure_root(root)
             source = root / "crates" / "kernel" / "maestria-domain" / "src" / "lib.rs"
             source.parent.mkdir(parents=True)
-            source.write_text("// " + "TO" + "DO" + ": remove marker\n", encoding="utf-8")
+            source.write_text(
+                "// " + "TO" + "DO" + ": remove marker\n", encoding="utf-8"
+            )
 
-            self.assertEqual(PHILOSOPHY_CHECK.scan_markers(), ["crates/kernel/maestria-domain/src/lib.rs"])
+            self.assertEqual(
+                PHILOSOPHY_CHECK.scan_markers(),
+                ["crates/kernel/maestria-domain/src/lib.rs"],
+            )
 
     def test_scan_rust_lint_bypasses_reports_allow_attribute(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -69,7 +87,9 @@ class PhilosophyCheckTests(unittest.TestCase):
             self.configure_root(root)
             source = root / "crates" / "apps" / "example" / "src" / "lib.rs"
             source.parent.mkdir(parents=True)
-            source.write_text("#[allow(dead_code)]\nfn example() {}\n", encoding="utf-8")
+            source.write_text(
+                "#[allow(dead_code)]\nfn example() {}\n", encoding="utf-8"
+            )
 
             self.assertEqual(
                 PHILOSOPHY_CHECK.scan_rust_lint_bypasses(),
@@ -83,7 +103,7 @@ class PhilosophyCheckTests(unittest.TestCase):
             source = root / "crates" / "apps" / "example" / "src" / "lib.rs"
             source.parent.mkdir(parents=True)
             source.write_text(
-                '#[cfg_attr(test, allow(dead_code))]\nfn example() {}\n',
+                "#[cfg_attr(test, allow(dead_code))]\nfn example() {}\n",
                 encoding="utf-8",
             )
 
@@ -133,7 +153,30 @@ class PhilosophyCheckTests(unittest.TestCase):
 
             self.assertEqual(
                 PHILOSOPHY_CHECK.scan_unbounded_channels(),
-                ["crates/apps/example/src/lib.rs contains an unbounded internal channel"],
+                [
+                    "crates/apps/example/src/lib.rs contains an unbounded internal channel"
+                ],
+            )
+
+    def test_scan_unbounded_channels_covers_std_and_crossbeam(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.configure_root(root)
+            source = root / "crates" / "apps" / "example" / "src" / "channels.rs"
+            source.parent.mkdir(parents=True)
+            source.write_text(
+                "fn example() {\n"
+                "    let _ = std::sync::mpsc::channel::<u8>();\n"
+                "    let _ = crossbeam_channel::unbounded::<u8>();\n"
+                "}\n",
+                encoding="utf-8",
+            )
+
+            self.assertEqual(
+                PHILOSOPHY_CHECK.scan_unbounded_channels(),
+                [
+                    "crates/apps/example/src/channels.rs contains an unbounded internal channel"
+                ],
             )
 
     def test_domain_scan_reports_runtime_tokens_and_production_failures(self) -> None:
@@ -144,12 +187,12 @@ class PhilosophyCheckTests(unittest.TestCase):
             source = domain / "src" / "lib.rs"
             source.parent.mkdir(parents=True)
             (domain / "Cargo.toml").write_text(
-                "[package]\nname = \"maestria-domain\"\n[dependencies]\ntokio = \"1\"\n",
+                '[package]\nname = "maestria-domain"\n[dependencies]\ntokio = "1"\n',
                 encoding="utf-8",
             )
             source.write_text(
                 "use std::fs;\n"
-                "pub fn production_failure() { panic!(\"forbidden\"); }\n"
+                'pub fn production_failure() { panic!("forbidden"); }\n'
                 "#[cfg(test)]\n"
                 "mod tests { fn test_only() { value.unwrap(); } }\n",
                 encoding="utf-8",
@@ -160,7 +203,9 @@ class PhilosophyCheckTests(unittest.TestCase):
 
             self.assertEqual(
                 manifest_violations,
-                ["crates/kernel/maestria-domain/Cargo.toml contains forbidden dependency token tokio"],
+                [
+                    "crates/kernel/maestria-domain/Cargo.toml contains forbidden dependency token tokio"
+                ],
             )
             self.assertIn(
                 "crates/kernel/maestria-domain/src/lib.rs contains forbidden domain token std::fs",
@@ -182,10 +227,12 @@ class PhilosophyCheckTests(unittest.TestCase):
             for name in ("maestria-domain", "maestria-governance", "maestria-ports"):
                 crate = root / "crates" / "kernel" / name
                 (crate / "src").mkdir(parents=True)
-                (crate / "Cargo.toml").write_text("[package]\nname = \"test\"\n", encoding="utf-8")
+                (crate / "Cargo.toml").write_text(
+                    '[package]\nname = "test"\n', encoding="utf-8"
+                )
             governance = root / "crates" / "kernel" / "maestria-governance"
             (governance / "Cargo.toml").write_text(
-                "[package]\nname = \"test\"\n[dependencies]\nreqwest = \"1\"\n",
+                '[package]\nname = "test"\n[dependencies]\nreqwest = "1"\n',
                 encoding="utf-8",
             )
             (governance / "src" / "lib.rs").write_text(
@@ -214,6 +261,30 @@ class PhilosophyCheckTests(unittest.TestCase):
                 ],
             )
 
+    def test_kernel_scan_rejects_std_network_and_unsafe_rust(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.configure_root(root)
+            domain = root / "crates" / "kernel" / "maestria-domain"
+            source = domain / "src" / "network.rs"
+            source.parent.mkdir(parents=True)
+            source.write_text(
+                "use std::net::TcpStream;\n"
+                "// unsafe fn in a comment is not a violation by itself\n"
+                "pub unsafe fn connect() {}\n",
+                encoding="utf-8",
+            )
+
+            self.assertEqual(
+                PHILOSOPHY_CHECK.scan_kernel_sources(),
+                [
+                    "crates/kernel/maestria-domain/src/network.rs contains "
+                    "forbidden kernel token std::net",
+                    "crates/kernel/maestria-domain/src/network.rs contains "
+                    "forbidden unsafe Rust",
+                ],
+            )
+
     def test_responsibility_map_accepts_valid_trait_split(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -226,7 +297,9 @@ class PhilosophyCheckTests(unittest.TestCase):
             ]
 
             traits_lines = ["//! Responsibility map:"]
-            traits_lines.extend(f"//! - `{module}`: test ownership." for module in modules)
+            traits_lines.extend(
+                f"//! - `{module}`: test ownership." for module in modules
+            )
             traits_lines.extend(f"mod {module};" for module in modules)
             traits_file.write_text("\n".join(traits_lines), encoding="utf-8")
             for module in modules:
@@ -246,8 +319,12 @@ class PhilosophyCheckTests(unittest.TestCase):
             ]
 
             traits_lines = ["//! Responsibility map:"]
-            traits_lines.extend(f"//! - `{module}`: test ownership." for module in modules)
-            traits_lines.extend(f"mod {module};" for module in modules if module != "repositories")
+            traits_lines.extend(
+                f"//! - `{module}`: test ownership." for module in modules
+            )
+            traits_lines.extend(
+                f"mod {module};" for module in modules if module != "repositories"
+            )
             traits_file.write_text("\n".join(traits_lines), encoding="utf-8")
             for module in modules:
                 (traits_dir / f"{module}.rs").write_text("// test\n", encoding="utf-8")
@@ -259,12 +336,14 @@ class PhilosophyCheckTests(unittest.TestCase):
                 ],
             )
 
-
     def test_documentation_contract_requires_canonical_markers(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             self.configure_root(root)
-            for relative_path, markers in PHILOSOPHY_CHECK.CANONICAL_DOC_MARKERS.items():
+            for (
+                relative_path,
+                markers,
+            ) in PHILOSOPHY_CHECK.CANONICAL_DOC_MARKERS.items():
                 path = root / relative_path
                 path.parent.mkdir(parents=True, exist_ok=True)
                 sections = PHILOSOPHY_CHECK.CANONICAL_DOC_SECTIONS[relative_path]
@@ -299,7 +378,10 @@ class PhilosophyCheckTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             self.configure_root(root)
-            for relative_path, markers in PHILOSOPHY_CHECK.CANONICAL_DOC_MARKERS.items():
+            for (
+                relative_path,
+                markers,
+            ) in PHILOSOPHY_CHECK.CANONICAL_DOC_MARKERS.items():
                 path = root / relative_path
                 path.parent.mkdir(parents=True, exist_ok=True)
                 sections = PHILOSOPHY_CHECK.CANONICAL_DOC_SECTIONS[relative_path]
@@ -375,7 +457,7 @@ class PhilosophyCheckTests(unittest.TestCase):
             root = Path(tmp)
             self.configure_root(root)
             (root / "Cargo.toml").write_text(
-                "[workspace.package]\nversion = \"0.6.1\"\n\n[workspace]\nmembers = []\n",
+                '[workspace.package]\nversion = "0.6.1"\n\n[workspace]\nmembers = []\n',
                 encoding="utf-8",
             )
             self.assertEqual(PHILOSOPHY_CHECK.workspace_version(), "0.6.1")
@@ -407,7 +489,9 @@ class PhilosophyCheckTests(unittest.TestCase):
             self.configure_root(root)
             source = root / "crates" / "core" / "maestria-core" / "tests" / "large.rs"
             source.parent.mkdir(parents=True)
-            source.write_text("\n".join("fn test_case() {}" for _ in range(901)), encoding="utf-8")
+            source.write_text(
+                "\n".join("fn test_case() {}" for _ in range(901)), encoding="utf-8"
+            )
 
             violations = PHILOSOPHY_CHECK.scan_module_sizes()
 
@@ -418,6 +502,7 @@ class PhilosophyCheckTests(unittest.TestCase):
                     "901 physical lines (limit 900)"
                 ],
             )
+
     def test_facade_boundary_reports_impl_in_lib_rs(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -500,7 +585,9 @@ class PhilosophyCheckTests(unittest.TestCase):
             self.configure_root(root)
             source = root / "crates" / "apps" / "example" / "src" / "lib.rs"
             source.parent.mkdir(parents=True)
-            source.write_text("#[expect(dead_code)]\nfn example() {}\n", encoding="utf-8")
+            source.write_text(
+                "#[expect(dead_code)]\nfn example() {}\n", encoding="utf-8"
+            )
 
             self.assertEqual(
                 PHILOSOPHY_CHECK.scan_rust_lint_bypasses(),
@@ -584,7 +671,9 @@ class PhilosophyCheckTests(unittest.TestCase):
             with tempfile.TemporaryDirectory() as tmp:
                 root = Path(tmp)
                 self.configure_root(root)
-                source = root / "crates" / "apps" / "example" / "src" / "orchestrator.rs"
+                source = (
+                    root / "crates" / "apps" / "example" / "src" / "orchestrator.rs"
+                )
                 source.parent.mkdir(parents=True)
                 lines = ["mod a;", "mod b;", "mod c;"]
                 lines.extend(f"pub fn item_{i}() {{}}" for i in range(300))
@@ -594,7 +683,9 @@ class PhilosophyCheckTests(unittest.TestCase):
         finally:
             PHILOSOPHY_CHECK.MIXED_RESPONSIBILITY_EXEMPTIONS = old_exemptions
 
-    def test_exemption_expiry_covers_function_and_mixed_responsibility_exemptions(self) -> None:
+    def test_exemption_expiry_covers_function_and_mixed_responsibility_exemptions(
+        self,
+    ) -> None:
         old_fn = PHILOSOPHY_CHECK.FUNCTION_SIZE_EXEMPTIONS
         old_mixed = PHILOSOPHY_CHECK.MIXED_RESPONSIBILITY_EXEMPTIONS
         try:
@@ -619,6 +710,141 @@ class PhilosophyCheckTests(unittest.TestCase):
         finally:
             PHILOSOPHY_CHECK.FUNCTION_SIZE_EXEMPTIONS = old_fn
             PHILOSOPHY_CHECK.MIXED_RESPONSIBILITY_EXEMPTIONS = old_mixed
+
+    def test_type_invariant_scan_rejects_opposite_boolean_states(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.configure_root(root)
+            source = (
+                root / "crates" / "kernel" / "maestria-domain" / "src" / "approval.rs"
+            )
+            source.parent.mkdir(parents=True)
+            source.write_text(
+                "pub struct Approval<T: Marker<Vec<u8>>> {\n"
+                "    pub is_approved: bool, // misleading { and , tokens\n"
+                '    #[serde(rename = "denied{,")]\n'
+                "    pub denied: bool,\n"
+                "    pub marker: PhantomData<T>,\n"
+                "}\n"
+                "pub const fn resolve(approved: bool, denied: bool) {}\n",
+                encoding="utf-8",
+            )
+
+            self.assertEqual(
+                PHILOSOPHY_CHECK.scan_type_invariant_modeling(),
+                [
+                    "crates/kernel/maestria-domain/src/approval.rs struct `Approval` "
+                    "represents opposite states `approved` and `denied` as booleans; "
+                    "use an enum",
+                    "crates/kernel/maestria-domain/src/approval.rs function `resolve` "
+                    "accepts opposite states `approved` and `denied` as booleans; "
+                    "accept an enum",
+                ],
+            )
+
+    def test_type_invariant_scan_rejects_boolean_with_optional_state_payload(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.configure_root(root)
+            source = root / "crates" / "kernel" / "maestria-domain" / "src" / "job.rs"
+            source.parent.mkdir(parents=True)
+            source.write_text(
+                "pub struct Job { pub failed: bool, pub error: Option<String> }\n"
+                "pub fn finish(failed: bool, error: Option<String>) {}\n",
+                encoding="utf-8",
+            )
+
+            self.assertEqual(
+                PHILOSOPHY_CHECK.scan_type_invariant_modeling(),
+                [
+                    "crates/kernel/maestria-domain/src/job.rs struct `Job` coordinates "
+                    "boolean state `failed` with optional payload `error`; put the "
+                    "payload on an enum variant",
+                    "crates/kernel/maestria-domain/src/job.rs function `finish` "
+                    "coordinates boolean state `failed` with optional payload "
+                    "`error`; accept an enum carrying the payload",
+                ],
+            )
+
+    def test_type_invariant_scan_rejects_stringly_state(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.configure_root(root)
+            source = root / "crates" / "kernel" / "maestria-domain" / "src" / "task.rs"
+            source.parent.mkdir(parents=True)
+            source.write_text(
+                "pub struct Task { pub status: String, pub title: String }\n"
+                "pub const fn transition(status: &str) {}\n",
+                encoding="utf-8",
+            )
+
+            self.assertEqual(
+                PHILOSOPHY_CHECK.scan_type_invariant_modeling(),
+                [
+                    "crates/kernel/maestria-domain/src/task.rs struct `Task` "
+                    "represents state field `status` as `String`; use an enum or "
+                    "validated domain type",
+                    "crates/kernel/maestria-domain/src/task.rs function `transition` "
+                    "accepts state parameter `status` as `&str`; accept an enum or "
+                    "validated domain type",
+                ],
+            )
+
+    def test_type_invariant_scan_rejects_swappable_primitive_ids(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.configure_root(root)
+            source = (
+                root / "crates" / "kernel" / "maestria-domain" / "src" / "relation.rs"
+            )
+            source.parent.mkdir(parents=True)
+            source.write_text(
+                "pub struct Relation { pub source_id: u64, pub target_id: u64 }\n"
+                "pub fn connect(parent_id: u64, child_id: u64) {}\n"
+                'extern "C" fn link(left_id: u64, right_id: u64) {}\n',
+                encoding="utf-8",
+            )
+
+            self.assertEqual(
+                PHILOSOPHY_CHECK.scan_type_invariant_modeling(),
+                [
+                    "crates/kernel/maestria-domain/src/relation.rs struct `Relation` "
+                    "has swappable primitive identities `source_id`, `target_id` of "
+                    "type `u64`; use distinct ID types",
+                    "crates/kernel/maestria-domain/src/relation.rs function `connect` "
+                    "accepts swappable primitive identities `parent_id`, `child_id` "
+                    "of type `u64`; use distinct ID types",
+                    "crates/kernel/maestria-domain/src/relation.rs function `link` "
+                    "accepts swappable primitive identities `left_id`, `right_id` "
+                    "of type `u64`; use distinct ID types",
+                ],
+            )
+
+    def test_type_invariant_scan_accepts_independent_flags_and_typed_ids(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.configure_root(root)
+            source = (
+                root / "crates" / "kernel" / "maestria-domain" / "src" / "search.rs"
+            )
+            source.parent.mkdir(parents=True)
+            source.write_text(
+                "pub struct QueryId(u64);\n"
+                "pub struct CorpusId(u64);\n"
+                "pub struct SearchOptions {\n"
+                "    pub include_archived: bool,\n"
+                "    pub preserve_seed: bool,\n"
+                "    pub query_hint: Option<String>,\n"
+                "}\n"
+                "pub enum SearchState { Planned, Running, Complete }\n"
+                "pub fn search(query_id: QueryId, corpus_id: CorpusId) {}\n"
+                "fn format_label(kind: &str) {}\n",
+                encoding="utf-8",
+            )
+
+            self.assertEqual(PHILOSOPHY_CHECK.scan_type_invariant_modeling(), [])
 
 
 if __name__ == "__main__":

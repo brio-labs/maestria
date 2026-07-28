@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import re
-import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -36,7 +35,13 @@ FORBIDDEN_KERNEL_TOKENS = [
     "std::process",
     "SystemTime",
     "Instant::now",
+    "std::env",
+    "std::net",
+    "std::thread",
 ]
+FORBIDDEN_KERNEL_PATTERNS = (
+    (r"\bunsafe\s+(?:fn|impl|trait)\b|\bunsafe\s*\{", "unsafe Rust"),
+)
 FORBIDDEN_DOMAIN_FAILURES = [
     "unwrap(",
     "expect(",
@@ -63,7 +68,40 @@ FORBIDDEN_RUST_METHODS = [
 FORBIDDEN_UNBOUNDED_CHANNEL_PATTERNS = (
     r"\b(?:tokio::sync::)?mpsc::unbounded_channel\s*\(",
     r"\b(?:tokio::sync::)?mpsc::Unbounded(?:Sender|Receiver)\b",
+    r"\bstd::sync::mpsc::channel(?:\s*::\s*<[^>]+>)?\s*\(",
+    r"\bcrossbeam(?:_channel|::channel)::unbounded(?:\s*::\s*<[^>]+>)?\s*\(",
 )
+PRIMITIVE_ID_TYPES = {"String", "u8", "u16", "u32", "u64", "u128", "usize"}
+STRINGLY_STATE_FIELD_NAMES = {
+    "decision",
+    "kind",
+    "mode",
+    "outcome",
+    "phase",
+    "state",
+    "status",
+}
+BOOLEAN_STATE_OPPOSITES = {
+    "approved": "denied",
+    "closed": "open",
+    "completed": "pending",
+    "disabled": "enabled",
+    "failed": "passed",
+    "failure": "success",
+    "found": "missing",
+    "invalid": "valid",
+    "rejected": "accepted",
+}
+STATE_OPTIONAL_PAYLOADS = {
+    "approved": {"approved_at", "approved_by"},
+    "closed": {"closed_at", "close_reason"},
+    "completed": {"completed_at", "completion_result"},
+    "denied": {"denial_reason", "denied_at", "denied_by"},
+    "failed": {"error", "error_message", "failed_at", "failure_reason"},
+    "open": {"opened_at", "opened_by"},
+    "rejected": {"rejected_at", "rejected_by", "rejection_reason"},
+}
+BOOLEAN_STATE_PREFIXES = ("is_", "was_")
 MAX_PRODUCTION_LOGICAL_LINES = 400
 MAX_MODULE_PHYSICAL_LINES = 900
 MAX_FUNCTION_LOGICAL_LINES = 100
@@ -123,7 +161,9 @@ def scan_exemption_expiry(current_version: str | None = None) -> list[str]:
         return ["workspace Cargo.toml has no parseable [workspace.package] version"]
     current = parse_release_version(current_text)
     if current is None:
-        return [f"workspace version {current_text!r} is not a supported release version"]
+        return [
+            f"workspace version {current_text!r} is not a supported release version"
+        ]
 
     violations = []
     exemptions = {
@@ -154,78 +194,181 @@ KERNEL_ALLOWED_DEPENDENCIES = {
 RESPONSIBILITY_MAPS: dict[str, tuple[str, ...]] = {
     # ── kernel ───────────────────────────────────────────────────────
     "crates/kernel/maestria-ports/src/traits.rs": (
-        "errors", "repositories", "lifecycle", "indexing", "embedding",
-        "harness", "graph", "web", "approval", "search",
+        "errors",
+        "repositories",
+        "lifecycle",
+        "indexing",
+        "embedding",
+        "harness",
+        "graph",
+        "web",
+        "approval",
+        "search",
     ),
     "crates/kernel/maestria-domain/src/lib.rs": (
-        "effects", "entities", "errors", "events", "evidence_pack",
-        "generations", "ids", "input", "inputs", "kernel_state",
-        "provenance", "replay", "search", "security", "types",
+        "effects",
+        "entities",
+        "errors",
+        "events",
+        "evidence_pack",
+        "generations",
+        "ids",
+        "input",
+        "inputs",
+        "kernel_state",
+        "provenance",
+        "replay",
+        "search",
+        "security",
+        "types",
     ),
     "crates/kernel/maestria-governance/src/lib.rs": (
-        "approval", "autonomy", "memory", "plan_validation", "privacy",
-        "retrieval", "risk", "scope", "validation",
+        "approval",
+        "autonomy",
+        "memory",
+        "plan_validation",
+        "privacy",
+        "retrieval",
+        "risk",
+        "scope",
+        "validation",
     ),
     # ── runtime ──────────────────────────────────────────────────────
     "crates/runtime/maestria-runtime/src/lib.rs": (
-        "config", "effect_dispatch", "effect_execution", "effect_result",
-        "harness", "indexing", "parser_mapping", "parsing",
-        "parsing_records", "persistence", "shell_policy", "supervision",
-        "validation", "vector_indexing", "web_evidence", "approval",
+        "config",
+        "effect_dispatch",
+        "effect_execution",
+        "effect_result",
+        "harness",
+        "indexing",
+        "parser_mapping",
+        "parsing",
+        "parsing_records",
+        "persistence",
+        "shell_policy",
+        "supervision",
+        "validation",
+        "vector_indexing",
+        "web_evidence",
+        "approval",
         "completion",
     ),
     # ── core ──────────────────────────────────────────────────────────
     "crates/core/maestria-core/src/lib.rs": (
-        "error", "evidence_opening", "evidence_pack_provenance",
-        "ingestion", "instance", "manifest", "ports", "provenance", "types",
+        "error",
+        "evidence_opening",
+        "evidence_pack_provenance",
+        "ingestion",
+        "instance",
+        "manifest",
+        "ports",
+        "provenance",
+        "types",
     ),
     "crates/apps/maestria-daemon/src/lib.rs": (
-        "api", "lock", "search_executor", "approval_recovery", "projection_recovery",
-        "vector_startup", "full_text_recovery", "parser_resume",
-        "recovery_inputs", "supervision_recovery", "validation_recovery",
-        "lifecycle", "watcher",
+        "api",
+        "lock",
+        "search_executor",
+        "approval_recovery",
+        "projection_recovery",
+        "vector_startup",
+        "full_text_recovery",
+        "parser_resume",
+        "recovery_inputs",
+        "supervision_recovery",
+        "validation_recovery",
+        "lifecycle",
+        "watcher",
     ),
     "crates/apps/maestria-daemon/src/api.rs": (
-        "protocol", "server", "services", "token",
+        "protocol",
+        "server",
+        "services",
+        "token",
     ),
     # ── harness ───────────────────────────────────────────────────────
     "crates/harness/maestria-harness/src/lib.rs": (
-        "command", "process", "tokenize",
+        "command",
+        "process",
+        "tokenize",
     ),
     # ── storage ───────────────────────────────────────────────────────
     "crates/storage/maestria-storage-sqlite/src/lib.rs": (
-        "events", "id_allocator", "payloads", "repositories",
-        "schema", "schema_validation",
+        "events",
+        "id_allocator",
+        "payloads",
+        "repositories",
+        "schema",
+        "schema_validation",
     ),
     "crates/storage/maestria-search-tantivy/src/lib.rs": (
-        "constructors", "lexical_helpers", "lexical_operations",
-        "migration", "operations", "schema", "search_helpers",
+        "constructors",
+        "lexical_helpers",
+        "lexical_operations",
+        "migration",
+        "operations",
+        "schema",
+        "search_helpers",
     ),
     "crates/storage/maestria-graph-sqlite/src/lib.rs": (
-        "conversion", "migration",
+        "conversion",
+        "migration",
     ),
     "crates/storage/maestria-vector-sqlite/src/lib.rs": (
-        "encoding", "schema",
+        "encoding",
+        "schema",
     ),
     # ── ecosystem ─────────────────────────────────────────────────────
     "crates/ecosystem/maestria-retrieval/src/lib.rs": (
-        "adapters", "bounded_reranker", "diversity", "engine", "fusion",
-        "golden", "learned_sparse_benchmark", "learned_sparse_policy",
-        "repository_benchmark", "rewrite", "sync", "sync_engine", "traits",
-        "types", "visual_benchmark", "visual_reranker",
+        "adapters",
+        "bounded_reranker",
+        "diversity",
+        "engine",
+        "fusion",
+        "golden",
+        "learned_sparse_benchmark",
+        "learned_sparse_policy",
+        "repository_benchmark",
+        "rewrite",
+        "sync",
+        "sync_engine",
+        "traits",
+        "types",
+        "visual_benchmark",
+        "visual_reranker",
     ),
     "crates/ecosystem/maestria-code-intel/src/lib.rs": (
-        "builder", "context", "context_assembly", "context_support",
-        "error", "freshness", "identity", "metadata", "query",
-        "symbols", "types",
+        "builder",
+        "context",
+        "context_assembly",
+        "context_support",
+        "error",
+        "freshness",
+        "identity",
+        "metadata",
+        "query",
+        "symbols",
+        "types",
     ),
     "crates/ecosystem/maestria-parsers/src/lib.rs": (
-        "cargo_toml", "chunking", "markdown", "pdf", "pdf_geometry", "pdf_layout",
-        "plain_text", "registry", "rust_source", "tree_builder",
+        "cargo_toml",
+        "chunking",
+        "markdown",
+        "pdf",
+        "pdf_geometry",
+        "pdf_layout",
+        "plain_text",
+        "registry",
+        "rust_source",
+        "tree_builder",
     ),
     "crates/ecosystem/maestria-validation/src/lib.rs": (
-        "runner", "search_provenance", "search_security",
-        "search_validators", "types", "validators",
+        "runner",
+        "search_provenance",
+        "search_security",
+        "search_validators",
+        "types",
+        "validators",
     ),
 }
 
@@ -239,11 +382,30 @@ CANONICAL_DOC_MARKERS = {
     "docs/RESEARCH.md": ("NON-NORMATIVE", "quality", "security", "energy"),
 }
 CANONICAL_DOC_SECTIONS = {
-    "docs/ARCHITECTURE.md": ("## 2. System Identity", "## 3. Architectural Dependency Direction"),
-    "docs/SEARCH.md": ("## Search Boundary Objects", "## Search Execution Model", "## Budgets and Stop Conditions"),
-    "docs/MEMORY.md": ("## 1. Information Lifecycle", "## 2. Provenance and Staleness", "## 3. Boundaries and Overclaiming"),
-    "docs/SECURITY.md": ("## 2. Security Invariants", "## 5. Taint and Quarantine", "## 6. Prompt Injection as Data"),
-    "docs/OPERATIONS.md": ("## 1. Bounded Runtime Lifecycle", "## 2. State and Recovery", "## 4. Data Evolution"),
+    "docs/ARCHITECTURE.md": (
+        "## 2. System Identity",
+        "## 3. Architectural Dependency Direction",
+    ),
+    "docs/SEARCH.md": (
+        "## Search Boundary Objects",
+        "## Search Execution Model",
+        "## Budgets and Stop Conditions",
+    ),
+    "docs/MEMORY.md": (
+        "## 1. Information Lifecycle",
+        "## 2. Provenance and Staleness",
+        "## 3. Boundaries and Overclaiming",
+    ),
+    "docs/SECURITY.md": (
+        "## 2. Security Invariants",
+        "## 5. Taint and Quarantine",
+        "## 6. Prompt Injection as Data",
+    ),
+    "docs/OPERATIONS.md": (
+        "## 1. Bounded Runtime Lifecycle",
+        "## 2. State and Recovery",
+        "## 4. Data Evolution",
+    ),
     "docs/ROADMAP.md": ("## Phase 1:", "## Phase 6:"),
     "docs/RESEARCH.md": ("## 1. Evaluation Framework", "## 3. Promotion Criteria"),
 }
@@ -257,12 +419,14 @@ POLICY_DOC_MARKERS = {
         "46. Maestria preserves",
         "47. Model-generated search plans",
         "55. Learned-sparse retrieval",
+        "56. Domain types own",
     ),
     "docs/SPECS.md": (
         "I-Search-TypedBudgeted",
         "I-Search-TraceFingerprint",
         "I-Search-SecurityBeforeScore",
         "I-Search-Evaluated",
+        "I-Domain-ValidStates",
     ),
 }
 FORBIDDEN_EXTERNAL_TRUTH_WORDING = (
@@ -289,6 +453,7 @@ def read_text(path: Path) -> str | None:
     except (OSError, UnicodeDecodeError):
         return None
 
+
 def scan_documentation_contract() -> list[str]:
     violations = []
     for relative_path, markers in CANONICAL_DOC_MARKERS.items():
@@ -300,7 +465,9 @@ def scan_documentation_contract() -> list[str]:
         lowered = content.casefold()
         for marker in markers:
             if marker.casefold() not in lowered:
-                violations.append(f"{relative_path} is missing required marker {marker!r}")
+                violations.append(
+                    f"{relative_path} is missing required marker {marker!r}"
+                )
         lines = {line.strip() for line in content.splitlines()}
         for section in CANONICAL_DOC_SECTIONS[relative_path]:
             section_found = (
@@ -309,7 +476,9 @@ def scan_documentation_contract() -> list[str]:
                 else section in lines
             )
             if not section_found:
-                violations.append(f"{relative_path} is missing required section {section!r}")
+                violations.append(
+                    f"{relative_path} is missing required section {section!r}"
+                )
 
     for relative_path, markers in POLICY_DOC_MARKERS.items():
         content = read_text(ROOT / relative_path)
@@ -319,7 +488,9 @@ def scan_documentation_contract() -> list[str]:
         lowered = content.casefold()
         for marker in markers:
             if marker.casefold() not in lowered:
-                violations.append(f"{relative_path} is missing required marker {marker!r}")
+                violations.append(
+                    f"{relative_path} is missing required marker {marker!r}"
+                )
 
     for path in (ROOT / "docs").rglob("*.md"):
         if should_skip(path):
@@ -340,6 +511,351 @@ def scan_documentation_contract() -> list[str]:
 def production_rust(text: str) -> str:
     return text.split("#[cfg(test)]", 1)[0]
 
+
+_NAMED_STRUCT_PATTERN = re.compile(
+    r"^\s*(?:pub(?:\s*\([^)]*\))?\s+)?struct\s+(\w+)\b",
+    re.MULTILINE,
+)
+_FUNCTION_PARAMETER_PATTERN = re.compile(
+    r"^\s*(?:pub(?:\s*\([^)]*\))?\s+)?"
+    r"(?:const\s+|async\s+|unsafe\s+|extern(?:\s+\"[^\"]*\")?\s+)*"
+    r"fn\s+(\w+)\b",
+    re.MULTILINE,
+)
+_PUBLIC_FUNCTION_PATTERN = re.compile(
+    r"^\s*pub(?:\s*\([^)]*\))?\s+"
+    r"(?:const\s+|async\s+|unsafe\s+|extern(?:\s+\"[^\"]*\")?\s+)*"
+    r"fn\s+(\w+)\b",
+    re.MULTILINE,
+)
+_SIMPLE_FIELD_PATTERN = re.compile(
+    r"\s*(?:#\[[^\]]+\]\s*)*(?:pub(?:\s*\([^)]*\))?\s+)?"
+    r"(\w+)\s*:\s*(.+?)\s*",
+    re.DOTALL,
+)
+_SIMPLE_PARAMETER_PATTERN = re.compile(
+    r"\s*(?:mut\s+)?(\w+)\s*:\s*(.+?)\s*",
+    re.DOTALL,
+)
+
+
+def _blank_non_newlines(chars: list[str], start: int, end: int) -> None:
+    for index in range(start, end):
+        if chars[index] not in {"\n", "\r"}:
+            chars[index] = " "
+
+
+def _rust_syntax(text: str) -> str:
+    """Blank comments and literals while preserving source positions."""
+    chars = list(text)
+    index = 0
+    while index < len(text):
+        if text.startswith("//", index):
+            end = text.find("\n", index)
+            end = len(text) if end == -1 else end
+            _blank_non_newlines(chars, index, end)
+            index = end
+            continue
+
+        if text.startswith("/*", index):
+            depth = 1
+            end = index + 2
+            while end < len(text) and depth:
+                if text.startswith("/*", end):
+                    depth += 1
+                    end += 2
+                elif text.startswith("*/", end):
+                    depth -= 1
+                    end += 2
+                else:
+                    end += 1
+            _blank_non_newlines(chars, index, end)
+            index = end
+            continue
+
+        raw = re.match(r"(?:br|r)(?P<hashes>#{0,255})\"", text[index:])
+        if raw is not None:
+            delimiter = '"' + raw.group("hashes")
+            content_start = index + raw.end()
+            closing = text.find(delimiter, content_start)
+            end = len(text) if closing == -1 else closing + len(delimiter)
+            _blank_non_newlines(chars, index, end)
+            index = end
+            continue
+
+        if text[index] == '"':
+            end = index + 1
+            escaped = False
+            while end < len(text):
+                token = text[end]
+                end += 1
+                if escaped:
+                    escaped = False
+                elif token == "\\":
+                    escaped = True
+                elif token == '"':
+                    break
+            _blank_non_newlines(chars, index, end)
+            index = end
+            continue
+
+        if text[index] == "'":
+            lifetime = re.match(r"'[A-Za-z_][A-Za-z0-9_]*", text[index:])
+            if lifetime is not None:
+                lifetime_end = index + lifetime.end()
+                if lifetime_end >= len(text) or text[lifetime_end] != "'":
+                    index = lifetime_end
+                    continue
+            end = index + 1
+            escaped = False
+            while end < len(text):
+                token = text[end]
+                end += 1
+                if escaped:
+                    escaped = False
+                elif token == "\\":
+                    escaped = True
+                elif token == "'":
+                    break
+            _blank_non_newlines(chars, index, end)
+            index = end
+            continue
+
+        index += 1
+    return "".join(chars)
+
+
+def _matching_delimiter(text: str, opening: int, left: str, right: str) -> int | None:
+    depth = 0
+    for index in range(opening, len(text)):
+        token = text[index]
+        if token == left:
+            depth += 1
+        elif token == right:
+            depth -= 1
+            if depth == 0:
+                return index
+    return None
+
+
+def _item_opening(text: str, start: int, target: str) -> int | None:
+    depths = {"<": 0, "(": 0, "[": 0}
+    closing = {">": "<", ")": "(", "]": "["}
+    for index in range(start, len(text)):
+        token = text[index]
+        if token == target and not any(depths.values()):
+            return index
+        if token == ";" and not any(depths.values()):
+            return None
+        if token in depths:
+            depths[token] += 1
+        elif token in closing:
+            opener = closing[token]
+            depths[opener] = max(0, depths[opener] - 1)
+        elif token == "{" and target != "{" and not any(depths.values()):
+            return None
+    return None
+
+
+def _top_level_comma_items(text: str) -> list[str]:
+    items = []
+    start = 0
+    depths = {"<": 0, "(": 0, "[": 0, "{": 0}
+    closing = {">": "<", ")": "(", "]": "[", "}": "{"}
+    for index, token in enumerate(text):
+        if token in depths:
+            depths[token] += 1
+        elif token in closing:
+            opener = closing[token]
+            depths[opener] = max(0, depths[opener] - 1)
+        elif token == "," and not any(depths.values()):
+            item = text[start:index].strip()
+            if item:
+                items.append(item)
+            start = index + 1
+    final = text[start:].strip()
+    if final:
+        items.append(final)
+    return items
+
+
+def _named_values(text: str, pattern: re.Pattern[str]) -> list[tuple[str, str]]:
+    values = []
+    for item in _top_level_comma_items(text):
+        match = pattern.fullmatch(item)
+        if match is not None:
+            values.append((match.group(1), match.group(2).strip()))
+    return values
+
+
+def _named_struct_fields(text: str) -> list[tuple[str, list[tuple[str, str]]]]:
+    structs = []
+    for match in _NAMED_STRUCT_PATTERN.finditer(text):
+        opening = _item_opening(text, match.end(), "{")
+        if opening is None:
+            continue
+        closing = _matching_delimiter(text, opening, "{", "}")
+        if closing is None:
+            continue
+        fields = _named_values(text[opening + 1 : closing], _SIMPLE_FIELD_PATTERN)
+        structs.append((match.group(1), fields))
+    return structs
+
+
+def _function_parameters(text: str) -> list[tuple[str, list[tuple[str, str]]]]:
+    functions = []
+    for match in _FUNCTION_PARAMETER_PATTERN.finditer(text):
+        opening = _item_opening(text, match.end(), "(")
+        if opening is None:
+            continue
+        closing = _matching_delimiter(text, opening, "(", ")")
+        if closing is None:
+            continue
+        parameters = _named_values(
+            text[opening + 1 : closing], _SIMPLE_PARAMETER_PATTERN
+        )
+        functions.append((match.group(1), parameters))
+    return functions
+
+
+def _state_name(field_name: str) -> str:
+    for prefix in BOOLEAN_STATE_PREFIXES:
+        if field_name.startswith(prefix):
+            return field_name.removeprefix(prefix)
+    return field_name
+
+
+def _primitive_identity_groups(
+    values: list[tuple[str, str]],
+) -> dict[str, list[str]]:
+    groups: dict[str, list[str]] = {}
+    for name, value_type in values:
+        if (
+            name.endswith("_id")
+            and not name.startswith(("max_", "min_"))
+            and value_type in PRIMITIVE_ID_TYPES
+        ):
+            groups.setdefault(value_type, []).append(name)
+    return {value_type: names for value_type, names in groups.items() if len(names) > 1}
+
+
+def scan_type_invariant_modeling() -> list[str]:
+    """Reject high-confidence representations of invalid kernel states.
+
+    This deliberately avoids blanket bans on booleans, optional values, and
+    primitives. It catches only mechanically defensible cases; Rule 56 keeps
+    correlated payloads and constructor visibility under architectural review.
+    """
+    violations = []
+    for kernel_root in KERNEL_ROOTS:
+        for source in (kernel_root / "src").rglob("*.rs"):
+            if is_test_source(source):
+                continue
+            content = read_text(source)
+            if content is None:
+                continue
+            relative_path = source.relative_to(ROOT)
+            production = _rust_syntax(production_rust(content))
+            public_functions = set(_PUBLIC_FUNCTION_PATTERN.findall(production))
+
+            for struct_name, fields in _named_struct_fields(production):
+                bool_states = {
+                    _state_name(name)
+                    for name, value_type in fields
+                    if value_type == "bool"
+                }
+                for left, right in BOOLEAN_STATE_OPPOSITES.items():
+                    if left in bool_states and right in bool_states:
+                        violations.append(
+                            f"{relative_path} struct `{struct_name}` represents "
+                            f"opposite states `{left}` and `{right}` as booleans; "
+                            "use an enum"
+                        )
+
+                optional_fields = {
+                    name
+                    for name, value_type in fields
+                    if value_type.startswith("Option<")
+                }
+                for state, payload_names in STATE_OPTIONAL_PAYLOADS.items():
+                    correlated = sorted(optional_fields & payload_names)
+                    if state in bool_states and correlated:
+                        joined = "`, `".join(correlated)
+                        violations.append(
+                            f"{relative_path} struct `{struct_name}` coordinates "
+                            f"boolean state `{state}` with optional payload "
+                            f"`{joined}`; put the payload on an enum variant"
+                        )
+
+                for name, value_type in fields:
+                    if name in STRINGLY_STATE_FIELD_NAMES and value_type in {
+                        "String",
+                        "&str",
+                        "&'static str",
+                    }:
+                        violations.append(
+                            f"{relative_path} struct `{struct_name}` represents "
+                            f"state field `{name}` as `{value_type}`; use an enum "
+                            "or validated domain type"
+                        )
+
+                for value_type, names in _primitive_identity_groups(fields).items():
+                    joined = "`, `".join(names)
+                    violations.append(
+                        f"{relative_path} struct `{struct_name}` has swappable "
+                        f"primitive identities `{joined}` of type `{value_type}`; "
+                        "use distinct ID types"
+                    )
+
+            for function_name, parameters in _function_parameters(production):
+                bool_states = {
+                    _state_name(name)
+                    for name, value_type in parameters
+                    if value_type == "bool"
+                }
+                for left, right in BOOLEAN_STATE_OPPOSITES.items():
+                    if left in bool_states and right in bool_states:
+                        violations.append(
+                            f"{relative_path} function `{function_name}` accepts "
+                            f"opposite states `{left}` and `{right}` as booleans; "
+                            "accept an enum"
+                        )
+
+                optional_parameters = {
+                    name
+                    for name, value_type in parameters
+                    if value_type.startswith("Option<")
+                }
+                for state, payload_names in STATE_OPTIONAL_PAYLOADS.items():
+                    correlated = sorted(optional_parameters & payload_names)
+                    if state in bool_states and correlated:
+                        joined = "`, `".join(correlated)
+                        violations.append(
+                            f"{relative_path} function `{function_name}` coordinates "
+                            f"boolean state `{state}` with optional payload "
+                            f"`{joined}`; accept an enum carrying the payload"
+                        )
+
+                for name, value_type in parameters:
+                    if (
+                        function_name in public_functions
+                        and name in STRINGLY_STATE_FIELD_NAMES
+                        and value_type in {"String", "&str", "&'static str"}
+                    ):
+                        violations.append(
+                            f"{relative_path} function `{function_name}` accepts "
+                            f"state parameter `{name}` as `{value_type}`; accept an "
+                            "enum or validated domain type"
+                        )
+
+                for value_type, names in _primitive_identity_groups(parameters).items():
+                    joined = "`, `".join(names)
+                    violations.append(
+                        f"{relative_path} function `{function_name}` accepts "
+                        f"swappable primitive identities `{joined}` of type "
+                        f"`{value_type}`; use distinct ID types"
+                    )
+    return violations
 
 
 def scan_markers() -> list[str]:
@@ -404,7 +920,10 @@ def scan_unbounded_channels() -> list[str]:
         content = read_text(source)
         if content is None:
             continue
-        if any(re.search(pattern, content) for pattern in FORBIDDEN_UNBOUNDED_CHANNEL_PATTERNS):
+        if any(
+            re.search(pattern, content)
+            for pattern in FORBIDDEN_UNBOUNDED_CHANNEL_PATTERNS
+        ):
             violations.append(
                 f"{source.relative_to(ROOT)} contains an unbounded internal channel"
             )
@@ -486,7 +1005,13 @@ def scan_kernel_sources() -> list[str]:
             for token in FORBIDDEN_DOMAIN_FAILURES:
                 if token in content:
                     violations.append(f"{rel} contains forbidden failure token {token}")
+            production = _rust_syntax(production_rust(content))
+            for pattern, description in FORBIDDEN_KERNEL_PATTERNS:
+                if re.search(pattern, production):
+                    violations.append(f"{rel} contains forbidden {description}")
     return violations
+
+
 def scan_responsibility_maps() -> list[str]:
     violations = []
     header_pattern = re.compile(r"^//[!|/] Responsibility map:\s*$")
@@ -521,7 +1046,9 @@ def scan_responsibility_maps() -> list[str]:
                         f"{rel_path} responsibility map has extra module '{module}'"
                     )
 
-        declared_pattern = re.compile(r"^(?:pub(?:\s*\([^)]*\))?\s+)?mod\s+([a-z0-9_]+)\s*;\s*$")
+        declared_pattern = re.compile(
+            r"^(?:pub(?:\s*\([^)]*\))?\s+)?mod\s+([a-z0-9_]+)\s*;\s*$"
+        )
         declared_mods = set(
             match.group(1)
             for line in lines
@@ -600,7 +1127,9 @@ def scan_module_sizes() -> list[str]:
             continue
         logical_lines = logical_line_count(content)
         physical_lines = len(content.splitlines())
-        if logical_lines > MAX_PRODUCTION_LOGICAL_LINES and not is_test_source(rel_path):
+        if logical_lines > MAX_PRODUCTION_LOGICAL_LINES and not is_test_source(
+            rel_path
+        ):
             violations.append(
                 f"{rel} has {logical_lines} module logical lines "
                 f"(limit {MAX_PRODUCTION_LOGICAL_LINES})"
@@ -618,7 +1147,11 @@ def production_strip_line_comments(body: str) -> str:
     lines = []
     for line in body.splitlines(keepends=True):
         stripped = line.lstrip()
-        if stripped.startswith("// ") or stripped.startswith("//\n") or stripped.startswith("//\r"):
+        if (
+            stripped.startswith("// ")
+            or stripped.startswith("//\n")
+            or stripped.startswith("//\r")
+        ):
             lines.append("\n")
         elif stripped.startswith("/*"):
             lines.append("\n")
@@ -638,23 +1171,23 @@ def scan_facade_boundaries() -> list[str]:
     violations = []
     # Check for fn definitions (handles pub, pub(crate), async, pub async)
     fn_pat = re.compile(
-        r'^\s*(?:pub(?:\s*\([^)]*\))?\s+)?(?:async\s+)?fn\s+\w+\s*\(',
+        r"^\s*(?:pub(?:\s*\([^)]*\))?\s+)?(?:async\s+)?fn\s+\w+\s*\(",
         re.MULTILINE,
     )
     # Check for struct/enum definitions with bodies
     se_pat = re.compile(
-        r'^\s*(?:pub\s+)?(?:struct|enum)\s+\w+(?:\s*<[^>]*>)?\s*(?::\s*[^{;]+)?\{',
+        r"^\s*(?:pub\s+)?(?:struct|enum)\s+\w+(?:\s*<[^>]*>)?\s*(?::\s*[^{;]+)?\{",
         re.MULTILINE,
     )
     # Check for impl blocks
     impl_pat = re.compile(
-        r'^\s*(?:pub\s+)?(?:unsafe\s+)?impl\s+(?:<[^>]*>\s*)?\w+(?:::\w+)?'
-        r'(?:\s*<[^>]*>)?(?:\s+for\s+\w+(?:::\w+)?(?:\s*<[^>]*>)?)?\{',
+        r"^\s*(?:pub\s+)?(?:unsafe\s+)?impl\s+(?:<[^>]*>\s*)?\w+(?:::\w+)?"
+        r"(?:\s*<[^>]*>)?(?:\s+for\s+\w+(?:::\w+)?(?:\s*<[^>]*>)?)?\{",
         re.MULTILINE,
     )
     # Check for const/static definitions
     const_pat = re.compile(
-        r'^\s*(?:pub\s+)?(?:const|static)\s+\w+\s*(?::|=)',
+        r"^\s*(?:pub\s+)?(?:const|static)\s+\w+\s*(?::|=)",
         re.MULTILINE,
     )
     for rel_path in RESPONSIBILITY_MAPS:
@@ -670,10 +1203,12 @@ def scan_facade_boundaries() -> list[str]:
         # Remove line comments so doc-comment //! descriptions don't match
         cleaned = production_strip_line_comments(content)
 
-        hits = (fn_pat.findall(cleaned)
-                + se_pat.findall(cleaned)
-                + impl_pat.findall(cleaned)
-                + const_pat.findall(cleaned))
+        hits = (
+            fn_pat.findall(cleaned)
+            + se_pat.findall(cleaned)
+            + impl_pat.findall(cleaned)
+            + const_pat.findall(cleaned)
+        )
         if hits:
             violations.append(
                 f"{rel_path} contains {len(hits)} implementation body(s) "
@@ -718,7 +1253,7 @@ def scan_cohesion() -> list[str]:
 
 
 _FN_DECL_PATTERN = re.compile(
-    r'^\s*(?:pub(?:\s*\([^)]*\))?\s+)?(?:async\s+)?fn\s+(\w+)\s*\(',
+    r"^\s*(?:pub(?:\s*\([^)]*\))?\s+)?(?:async\s+)?fn\s+(\w+)\s*\(",
     re.MULTILINE,
 )
 
@@ -740,23 +1275,23 @@ def _find_function_bodies(text: str) -> list[tuple[str, str]]:
         while j < len(text):
             c = text[j]
             if in_string:
-                if c == '\\' and j + 1 < len(text):
+                if c == "\\" and j + 1 < len(text):
                     j += 2
                     continue
                 if c == string_char:
                     in_string = False
                 j += 1
                 continue
-            if c in '"\'':
+            if c in "\"'":
                 in_string = True
                 string_char = c
                 j += 1
                 continue
-            if c == '{':
+            if c == "{":
                 if brace_depth == 0:
                     start = j
                 brace_depth += 1
-            elif c == '}':
+            elif c == "}":
                 brace_depth -= 1
                 if brace_depth == 0:
                     body = text[start + 1 : j]
@@ -804,7 +1339,7 @@ def scan_mixed_responsibilities() -> list[str]:
     """
     violations: list[str] = []
     mod_pattern = re.compile(
-        r'^\s*(?:pub(?:\s*\([^)]*\))?\s+)?mod\s+([a-z0-9_]+)\s*;',
+        r"^\s*(?:pub(?:\s*\([^)]*\))?\s+)?mod\s+([a-z0-9_]+)\s*;",
         re.MULTILINE,
     )
     for source in ROOT.rglob("*.rs"):
@@ -835,15 +1370,19 @@ def scan_mixed_responsibilities() -> list[str]:
 def main() -> int:
     violations = []
     marker_violations = scan_markers()
-    violations.extend(f"{path} contains forbidden task marker" for path in marker_violations)
+    violations.extend(
+        f"{path} contains forbidden task marker" for path in marker_violations
+    )
     violations.extend(scan_kernel_manifests())
     violations.extend(scan_kernel_sources())
+    violations.extend(scan_type_invariant_modeling())
     violations.extend(scan_documentation_contract())
     violations.extend(scan_responsibility_maps())
     violations.extend(scan_module_sizes())
     violations.extend(scan_exemption_expiry())
     violations.extend(
-        f"{path} contains a Rust lint-bypass attribute" for path in scan_rust_lint_bypasses()
+        f"{path} contains a Rust lint-bypass attribute"
+        for path in scan_rust_lint_bypasses()
     )
     violations.extend(scan_expect_clippy())
     violations.extend(scan_unbounded_channels())
