@@ -306,6 +306,11 @@ impl SearchOutcome {
                 found: self.index_generation,
             });
         }
+        if self.evidence.len() > plan.stop_conditions.max_results as usize {
+            return Err(SearchCompatibilityError::TracePlanMismatch(
+                "evidence exceeds plan max_results",
+            ));
+        }
         if let Some(trace) = &self.trace_data {
             if self.trace != trace.deterministic_id() {
                 return Err(SearchCompatibilityError::TracePlanMismatch(

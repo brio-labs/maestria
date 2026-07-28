@@ -5,8 +5,8 @@ use crate::types::{CandidateBatch, CandidateRequest, RetrievalError, RetrieverDe
 use async_trait::async_trait;
 use maestria_domain::{
     ArtifactVersionId, ContentRange, Evidence, EvidenceCandidate, EvidenceKind, EvidenceSpan,
-    FreshnessStatus, IndexGenerationId, RetrievalReason, RetrievalScoreSet, SourceLocation,
-    SourceSpan, StructureNodeId, TrustLabel,
+    FreshnessStatus, IndexGenerationId, RetrievalReason, RetrievalScoreSet, SearchLaneStatus,
+    SourceLocation, SourceSpan, StructureNodeId, TrustLabel,
 };
 use maestria_ports::BlobStore;
 
@@ -59,10 +59,16 @@ impl CandidateRetriever for CurrentVersionFilter {
 
     async fn retrieve(&self, request: CandidateRequest) -> Result<CandidateBatch, RetrievalError> {
         let mut batch = self.inner.retrieve(request).await?;
-        if !self.active_versions.is_empty() {
+        if self.active_versions.is_empty() {
+            batch.candidates.clear();
+            batch.status = SearchLaneStatus::Empty;
+        } else {
             batch
                 .candidates
                 .retain(|candidate| self.active_versions.contains(&candidate.artifact_version));
+            if batch.candidates.is_empty() && matches!(batch.status, SearchLaneStatus::Succeeded) {
+                batch.status = SearchLaneStatus::Empty;
+            }
         }
         Ok(batch)
     }

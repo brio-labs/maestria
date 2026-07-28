@@ -55,6 +55,8 @@ pub struct MaestriaRuntime {
     input_tx: mpsc::Sender<DomainInput>,
     next_validation_report_id: Arc<AtomicU64>,
     feedback_acks: HarnessFeedbackAcks,
+    #[cfg(test)]
+    test_pre_failed_effect_task: bool,
 }
 
 pub struct RuntimeHandle {
@@ -107,6 +109,8 @@ impl MaestriaRuntime {
                 input_tx,
                 feedback_acks: Arc::new(Mutex::new(BTreeMap::new())),
                 next_validation_report_id,
+                #[cfg(test)]
+                test_pre_failed_effect_task: false,
             },
             input_rx,
         )
@@ -301,102 +305,170 @@ impl MaestriaRuntime {
         )
     }
 
+    fn supervise_effect_join(
+        result: Result<(), tokio::task::JoinError>,
+        effect_shutdown: &tokio_util::sync::CancellationToken,
+        runtime_shutdown: &tokio_util::sync::CancellationToken,
+    ) {
+        let Err(error) = result else {
+            return;
+        };
+        tracing::error!(
+            %error,
+            task_panicked = error.is_panic(),
+            task_cancelled = error.is_cancelled(),
+            "spawned effect task join failed; cancelling runtime execution"
+        );
+        effect_shutdown.cancel();
+        runtime_shutdown.cancel();
+    }
+
+    fn spawn_effect_task(
+        in_flight: &mut tokio::task::JoinSet<()>,
+        context: ExecutionContext,
+        effect: MaestriaEffect,
+        permit: tokio::sync::OwnedSemaphorePermit,
+        effect_shutdown: tokio_util::sync::CancellationToken,
+        runtime_shutdown: tokio_util::sync::CancellationToken,
+    ) {
+        in_flight.spawn(async move {
+            if let Err(error) = context.execute_with_retries(effect).await {
+                tracing::error!(%error, "spawned effect failed");
+                if error.fatal() {
+                    tracing::error!("fatal spawned effect failure; cancelling runtime execution");
+                    effect_shutdown.cancel();
+                    runtime_shutdown.cancel();
+                }
+            }
+            drop(permit);
+        });
+    }
+
+    async fn finish_effect_executor(
+        in_flight: &mut tokio::task::JoinSet<()>,
+        drain_effects_on_shutdown: bool,
+        effect_shutdown: &tokio_util::sync::CancellationToken,
+        runtime_shutdown: &tokio_util::sync::CancellationToken,
+    ) {
+        if drain_effects_on_shutdown && !effect_shutdown.is_cancelled() {
+            while let Some(result) = in_flight.join_next().await {
+                Self::supervise_effect_join(result, effect_shutdown, runtime_shutdown);
+            }
+        } else {
+            in_flight.abort_all();
+            while let Some(result) = in_flight.join_next().await {
+                Self::supervise_effect_join(result, effect_shutdown, runtime_shutdown);
+            }
+        }
+    }
+
     fn spawn_effect_executor(
         &self,
         mut receiver: mpsc::Receiver<MaestriaEffect>,
         effect_shutdown: tokio_util::sync::CancellationToken,
         runtime_shutdown: tokio_util::sync::CancellationToken,
     ) -> tokio::task::JoinHandle<()> {
-        let adapters = Arc::clone(&self.adapters);
-        let governance = Arc::clone(&self.governance);
-        let input_tx = self.input_tx.clone();
-        let state = Arc::clone(&self.state);
-        let profile = self.config.profile;
-        let scope = self.config.scope.clone();
+        let execution_context = ExecutionContext {
+            adapters: Arc::clone(&self.adapters),
+            governance: Arc::clone(&self.governance),
+            profile: self.config.profile,
+            scope: self.config.scope.clone(),
+            scope_id: self.config.scope_id,
+            state: Arc::clone(&self.state),
+            input_tx: self.input_tx.clone(),
+            embedding_model: self.config.embedding_model.clone(),
+            feedback_acks: Arc::clone(&self.feedback_acks),
+            default_effect_timeout: self.config.default_effect_timeout,
+            max_retries: self.config.max_retries,
+        };
         let max_concurrent_effects = self.config.max_concurrent_effects;
-        let default_effect_timeout = self.config.default_effect_timeout;
-        let max_retries = self.config.max_retries;
-        let scope_id = self.config.scope_id;
         let next_validation_report_id = Arc::clone(&self.next_validation_report_id);
-        let feedback_acks = Arc::clone(&self.feedback_acks);
-        let embedding_model = self.config.embedding_model.clone();
         let drain_effects_on_shutdown = self.config.drain_effects_on_shutdown;
+        #[cfg(test)]
+        let test_pre_failed_effect_task = self.test_pre_failed_effect_task;
         tokio::spawn(async move {
             let semaphore = Arc::new(tokio::sync::Semaphore::new(max_concurrent_effects));
             let mut in_flight = tokio::task::JoinSet::new();
+            #[cfg(test)]
+            if test_pre_failed_effect_task {
+                let abort_handle = in_flight.spawn(std::future::pending::<()>());
+                abort_handle.abort();
+            }
             loop {
-                while in_flight.try_join_next().is_some() {}
-                tokio::select! {
+                while let Some(result) = in_flight.try_join_next() {
+                    Self::supervise_effect_join(result, &effect_shutdown, &runtime_shutdown);
+                }
+                let has_in_flight = !in_flight.is_empty();
+                let message = tokio::select! {
                     biased;
                     () = effect_shutdown.cancelled() => break,
-                    message = receiver.recv() => {
-                        let Some(mut effect) = message else { break };
-                        if effect_shutdown.is_cancelled() {
-                            break;
-                        }
-                        if let MaestriaEffect::RunValidation(request) = &mut effect {
-                            request.validation_report_id = ValidationReportId::new(
-                                next_validation_report_id.fetch_add(1, Ordering::Relaxed),
+                    join_result = in_flight.join_next(), if has_in_flight => {
+                        if let Some(result) = join_result {
+                            Self::supervise_effect_join(
+                                result,
+                                &effect_shutdown,
+                                &runtime_shutdown,
                             );
                         }
-                        let context = ExecutionContext {
-                            adapters: Arc::clone(&adapters),
-                            governance: Arc::clone(&governance),
-                            profile,
-                            scope: scope.clone(),
-                            scope_id,
-                            state: Arc::clone(&state),
-                            input_tx: input_tx.clone(),
-                            embedding_model: embedding_model.clone(),
-                            feedback_acks: Arc::clone(&feedback_acks),
-                            default_effect_timeout,
-                            max_retries,
-                        };
-                        if matches!(&effect, MaestriaEffect::PersistEvent { .. }) {
-                            if context.execute_with_retries(effect).await.is_err() {
-                                effect_shutdown.cancel();
-                                runtime_shutdown.cancel();
-                                break;
-                            }
-                            continue;
-                        }
-                        let permit = tokio::select! {
-                            biased;
-                            () = effect_shutdown.cancelled() => break,
-                            permit = Arc::clone(&semaphore).acquire_owned() => {
-                                match permit {
-                                    Ok(permit) => permit,
-                                    Err(_) => break,
-                                }
-                            }
-                        };
-                        let shutdown = effect_shutdown.clone();
-                        let runtime_shutdown = runtime_shutdown.clone();
-                        in_flight.spawn(async move {
-                            if let Err(error) = context.execute_with_retries(effect).await {
-                                tracing::error!(%error, "spawned effect failed");
-                                if error.fatal() {
-                                    tracing::error!("fatal spawned effect failure; cancelling runtime execution");
-                                    shutdown.cancel();
-                                    runtime_shutdown.cancel();
-                                }
-                            }
-                            drop(permit);
-                        });
-                    }
+                        continue;
+                    },
+                    message = receiver.recv() => message,
+                };
+                let Some(mut effect) = message else { break };
+                if effect_shutdown.is_cancelled() {
+                    break;
                 }
+                if let MaestriaEffect::RunValidation(request) = &mut effect {
+                    request.validation_report_id = ValidationReportId::new(
+                        next_validation_report_id.fetch_add(1, Ordering::Relaxed),
+                    );
+                }
+                let context = execution_context.clone();
+                if matches!(&effect, MaestriaEffect::PersistEvent { .. }) {
+                    if context.execute_with_retries(effect).await.is_err() {
+                        effect_shutdown.cancel();
+                        runtime_shutdown.cancel();
+                        break;
+                    }
+                    continue;
+                }
+                let permit = tokio::select! {
+                    biased;
+                    () = effect_shutdown.cancelled() => break,
+                    permit = Arc::clone(&semaphore).acquire_owned() => {
+                        match permit {
+                            Ok(permit) => permit,
+                            Err(_) => break,
+                        }
+                    }
+                };
+                Self::spawn_effect_task(
+                    &mut in_flight,
+                    context,
+                    effect,
+                    permit,
+                    effect_shutdown.clone(),
+                    runtime_shutdown.clone(),
+                );
             }
-            if drain_effects_on_shutdown && !effect_shutdown.is_cancelled() {
-                while in_flight.join_next().await.is_some() {}
-            } else {
-                in_flight.shutdown().await;
-            }
+            Self::finish_effect_executor(
+                &mut in_flight,
+                drain_effects_on_shutdown,
+                &effect_shutdown,
+                &runtime_shutdown,
+            )
+            .await;
         })
     }
 }
 
 #[cfg(test)]
 impl MaestriaRuntime {
+    pub(crate) fn test_with_pre_failed_effect_task(mut self) -> Self {
+        self.test_pre_failed_effect_task = true;
+        self
+    }
+
     pub(crate) async fn test_execute_effect(
         effect: MaestriaEffect,
         context: ExecutionContext,

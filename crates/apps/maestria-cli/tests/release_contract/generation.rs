@@ -187,7 +187,7 @@ fn configured_dense_generation_survives_projection_rebuild_and_fallback()
         "dense generation",
     ])?;
     assert!(
-        explained.contains("retrieval_mode=lexical-only"),
+        explained.contains("retrieval_mode=hybrid-shadow"),
         "{explained}"
     );
     assert!(explained.contains("dense_chunks"), "{explained}");

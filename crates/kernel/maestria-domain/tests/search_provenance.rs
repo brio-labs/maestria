@@ -405,3 +405,77 @@ fn trace_less_outcome_is_rejected_and_traced_outcome_passes()
     ));
     Ok(())
 }
+
+#[test]
+fn results_limit_accepts_exact_boundary_but_rejects_over_limit_outcome()
+-> Result<(), Box<dyn std::error::Error>> {
+    let mut plan = plan()?;
+    plan.stop_conditions.max_results = 1;
+
+    let first = candidate()?;
+    let mut second = candidate()?;
+    second.evidence_id = EvidenceId::new(24);
+    let coverage = EvidenceCoverage {
+        percent_covered: 100,
+        gaps_identified: vec![],
+        required_claims: vec![],
+        required_subquestions: vec![],
+        distinct_sources: 0,
+        distinct_documents: 0,
+        distinct_sections: 0,
+        candidate_coverage_keys: vec![],
+    };
+
+    let boundary_evidence = vec![first.clone()];
+    let boundary_trace = SearchTrace::from_plan(
+        &plan,
+        vec![],
+        &boundary_evidence,
+        vec![],
+        None,
+        vec![],
+        SearchStopReason::ResultsLimit,
+    );
+    let boundary_trace_id = boundary_trace.deterministic_id();
+    assert!(boundary_trace.matches_outcome(&SearchStatus::Answerable, 1));
+    assert!(!boundary_trace.matches_outcome(&SearchStatus::Answerable, 0));
+    let boundary = SearchOutcome {
+        trace: boundary_trace_id,
+        trace_data: Some(Box::new(boundary_trace)),
+        fingerprint: plan.fingerprint.clone(),
+        index_generation: plan.index_generation,
+        status: SearchStatus::Answerable,
+        evidence: boundary_evidence,
+        coverage: coverage.clone(),
+        conflicts: vec![],
+    };
+    assert_eq!(boundary.verify_compatibility(&plan), Ok(()));
+
+    let over_limit_evidence = vec![first, second];
+    let over_limit_trace = SearchTrace::from_plan(
+        &plan,
+        vec![],
+        &over_limit_evidence,
+        vec![],
+        None,
+        vec![],
+        SearchStopReason::ResultsLimit,
+    );
+    let over_limit = SearchOutcome {
+        trace: over_limit_trace.deterministic_id(),
+        trace_data: Some(Box::new(over_limit_trace)),
+        fingerprint: plan.fingerprint.clone(),
+        index_generation: plan.index_generation,
+        status: SearchStatus::Answerable,
+        evidence: over_limit_evidence,
+        coverage,
+        conflicts: vec![],
+    };
+    assert!(matches!(
+        over_limit.verify_compatibility(&plan),
+        Err(SearchCompatibilityError::TracePlanMismatch(
+            "evidence exceeds plan max_results"
+        ))
+    ));
+    Ok(())
+}

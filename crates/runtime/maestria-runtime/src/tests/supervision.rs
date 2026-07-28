@@ -128,6 +128,35 @@ async fn spawned_effect_failure_propagates_to_supervisor_and_cancels_runtime()
     Ok(())
 }
 
+/// A pre-aborted JoinSet task must be supervised as a runtime failure rather
+/// than disappearing during the executor's non-blocking reap.
+#[tokio::test]
+async fn pre_failed_spawned_task_cancels_runtime() -> Result<(), Box<dyn std::error::Error>> {
+    let (runtime, input_rx) = MaestriaRuntime::new(
+        RuntimeConfig::default(),
+        KernelState::new(),
+        crate::test_helpers::test_adapters(),
+        crate::test_helpers::test_governance(),
+    );
+    let input_tx = runtime.handle().input_tx;
+    let shutdown = CancellationToken::new();
+    let run = tokio::spawn(
+        runtime
+            .test_with_pre_failed_effect_task()
+            .run(input_rx, shutdown.clone()),
+    );
+
+    // Wake the executor after the injected task has been aborted. A normal
+    // persistence effect keeps this test independent of network fixtures.
+    input_tx
+        .send(DomainInput::ClockTick(LogicalTick::new(1)))
+        .await?;
+
+    tokio::time::timeout(Duration::from_secs(2), run).await??;
+    assert!(shutdown.is_cancelled());
+    Ok(())
+}
+
 // ── feedback capacity ─────────────────────────────────────────────────
 
 #[test]

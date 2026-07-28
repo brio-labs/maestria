@@ -9,13 +9,14 @@ use maestria_core::{CorePorts, CoreServices, InstanceLayout, InstanceManifest, O
 use maestria_domain::{
     ClaimId, DomainEvent, DomainInput, Evidence, EvidenceCandidate, EvidenceId, EvidenceKind,
     EvidenceSpan, HarnessRunCompleted, HarnessRunId, KernelState, MemoryCandidateId,
-    RetrievalRawRank, RetrievalScoreKind, RetrievalScoreScale, SearchOutcome, Task, TaskId,
+    RetrievalRawRank, RetrievalScoreKind, RetrievalScoreScale, ScopeId, SearchOutcome, Task,
+    TaskId,
 };
 use maestria_governance::{PrivacyExclusions, ValidationRequest};
 use maestria_parsers::ParserRegistry;
 use maestria_ports::{
-    EffectJournalIntent, EffectJournalStatus, EvidenceRepository, HarnessRequest,
-    ModelAgentProposal,
+    ArtifactRepository, EffectJournalIntent, EffectJournalStatus, EvidenceRepository,
+    HarnessRequest, ModelAgentProposal,
 };
 use maestria_search_tantivy::TantivyFullTextIndex;
 use maestria_storage_sqlite::SqliteStore;
@@ -719,8 +720,30 @@ fn open_evidence(layout: &InstanceLayout, evidence_id: u64) -> Result<EvidenceRe
         .map_err(|error| anyhow!("parse instance manifest: {error}"))?;
     let sqlite = SqliteStore::open(&layout.database_path)?;
     let evidence_id = maestria_domain::EvidenceId::new(evidence_id);
+    let retrieval_policy = maestria_governance::RetrievalSecurityPolicy::default()
+        .require_read_allowed(true)
+        .required_scope(ScopeId::new(1))
+        .allow_unscoped_items(true);
     if let Some(evidence) = EvidenceRepository::get(&sqlite, evidence_id)? {
         validate_evidence_scope(&manifest, &evidence)?;
+        if !matches!(
+            retrieval_policy.evaluate(&evidence.security),
+            maestria_governance::RetrievalDecision::Allowed
+        ) {
+            return Err(anyhow!(
+                "evidence is not available: not available under retrieval policy"
+            ));
+        }
+        if let Some(artifact) = ArtifactRepository::get(&sqlite, evidence.artifact_id)?
+            && !matches!(
+                retrieval_policy.evaluate(&artifact.security),
+                maestria_governance::RetrievalDecision::Allowed
+            )
+        {
+            return Err(anyhow!(
+                "artifact is not available: not available under retrieval policy"
+            ));
+        }
     }
     let blobs = FsBlobStore::open(&layout.blobs_dir)?;
     let search_index = TantivyFullTextIndex::open_read_only(&layout.full_text_index_dir)?;
@@ -736,7 +759,8 @@ fn open_evidence(layout: &InstanceLayout, evidence_id: u64) -> Result<EvidenceRe
         blobs: &blobs,
         vector_index: None,
         graph_index: None,
-    });
+    })
+    .with_retrieval_policy(retrieval_policy);
     let output = core.open_evidence(OpenEvidenceInput { evidence_id })?;
     Ok(EvidenceResponse {
         evidence_id: output.evidence.id.value(),

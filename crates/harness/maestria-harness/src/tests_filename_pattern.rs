@@ -53,3 +53,22 @@ async fn cat_rejects_dotenv_pattern() -> Result<(), Box<dyn std::error::Error>> 
     assert!(adapter().execute(req).await.is_err());
     Ok(())
 }
+#[cfg(unix)]
+#[tokio::test]
+async fn cat_rejects_blocked_pattern_on_symlink_alias() -> Result<(), Box<dyn std::error::Error>> {
+    use std::os::unix::fs::symlink;
+
+    let tmp = tempfile::tempdir()?;
+    let safe_target = tmp.path().join("safe.txt");
+    let dotenv_alias = tmp.path().join(".env");
+    std::fs::write(&safe_target, b"safe data")?;
+    symlink(&safe_target, &dotenv_alias)?;
+
+    let mut req = shell_request("cat .env", 5000);
+    req.working_directory = tmp.path().to_path_buf();
+    req.readable_roots = vec![tmp.path().to_path_buf()];
+    req.blocked_patterns = vec![".env".into()];
+
+    assert!(adapter().execute(req).await.is_err());
+    Ok(())
+}
