@@ -61,6 +61,38 @@ fn accepts_plan_with_matching_capabilities() -> Result<(), Box<dyn std::error::E
 }
 
 #[test]
+fn rejects_global_scope_when_policy_requires_scope() -> Result<(), Box<dyn std::error::Error>> {
+    let candidate = plan()?;
+    let policy = RetrievalSecurityPolicy::default().required_scope(ScopeId::new(42));
+
+    assert!(matches!(
+        SearchPlanValidator::validate(&candidate, &capabilities(), &policy),
+        Err(SearchPlanValidationError::ScopeDenied)
+    ));
+    Ok(())
+}
+
+#[test]
+fn required_scope_policy_accepts_matching_restricted_scope()
+-> Result<(), Box<dyn std::error::Error>> {
+    let required = ScopeId::new(42);
+    let mut candidate = plan()?;
+    candidate.scope = CorpusScope::Restricted(vec![required]);
+    let policy = RetrievalSecurityPolicy::default().required_scope(required);
+
+    assert!(
+        SearchPlanValidator::validate(&candidate, &capabilities(), &policy).is_ok(),
+        "matching restricted scope should remain authorized"
+    );
+    candidate.scope = CorpusScope::Restricted(vec![ScopeId::new(7)]);
+    assert!(matches!(
+        SearchPlanValidator::validate(&candidate, &capabilities(), &policy),
+        Err(SearchPlanValidationError::ScopeDenied)
+    ));
+    Ok(())
+}
+
+#[test]
 fn rejects_byte_read_budget_above_capability() -> Result<(), Box<dyn std::error::Error>> {
     let mut candidate = plan()?;
     candidate.budgets = SearchBudget::with_resource_limits(100, 1000, 1, 1, 0, 2048, 1)?;
