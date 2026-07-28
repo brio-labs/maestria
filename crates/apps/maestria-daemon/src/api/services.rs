@@ -725,7 +725,6 @@ fn open_evidence(layout: &InstanceLayout, evidence_id: u64) -> Result<EvidenceRe
         .required_scope(ScopeId::new(1))
         .allow_unscoped_items(true);
     if let Some(evidence) = EvidenceRepository::get(&sqlite, evidence_id)? {
-        validate_evidence_scope(&manifest, &evidence)?;
         if !matches!(
             retrieval_policy.evaluate(&evidence.security),
             maestria_governance::RetrievalDecision::Allowed
@@ -734,6 +733,7 @@ fn open_evidence(layout: &InstanceLayout, evidence_id: u64) -> Result<EvidenceRe
                 "evidence is not available: not available under retrieval policy"
             ));
         }
+        validate_evidence_scope(&manifest, &evidence)?;
         if let Some(artifact) = ArtifactRepository::get(&sqlite, evidence.artifact_id)?
             && !matches!(
                 retrieval_policy.evaluate(&artifact.security),
