@@ -145,22 +145,27 @@ impl Watcher {
             };
             let observed_hash = observation.hash.clone();
 
-            if self.input_tx.max_capacity() > 0 && self.input_tx.capacity() == 0 {
-                tracing::debug!("watcher input channel full — deferring artifact detection");
-                current.remove(&key);
-                continue;
-            }
-
-            self.input_tx
-                .send(DomainInput::ArtifactDetected(ArtifactDetected {
+            match self
+                .input_tx
+                .try_send(DomainInput::ArtifactDetected(ArtifactDetected {
                     artifact_id,
                     title,
                     source_path: key.clone(),
                     source_bytes: observation.bytes.clone(),
                     content_hash: observation.hash.clone(),
-                }))
-                .await
-                .context("submit watched artifact")?;
+                })) {
+                Ok(()) => {}
+                Err(mpsc::error::TrySendError::Full(_)) => {
+                    tracing::debug!("watcher input channel full — deferring artifact detection");
+                    current.remove(&key);
+                    continue;
+                }
+                Err(mpsc::error::TrySendError::Closed(_)) => {
+                    return Err(anyhow::anyhow!(
+                        "submit watched artifact: input channel closed"
+                    ));
+                }
+            }
 
             self.artifact_ids
                 .insert(key.clone(), (artifact_id, observed_hash));

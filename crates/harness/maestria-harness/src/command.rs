@@ -143,9 +143,9 @@ pub(crate) fn validate_cat_args(
     program: &str,
     argv: &[String],
     request: &HarnessRequest,
-) -> Result<(), PortError> {
+) -> Result<Vec<String>, PortError> {
     if program != "cat" {
-        return Ok(());
+        return Ok(argv.iter().skip(1).cloned().collect());
     }
     let mut has_path_arg = false;
     for arg in &argv[1..] {
@@ -163,6 +163,7 @@ pub(crate) fn validate_cat_args(
             source: "cat requires at least one path operand".to_string(),
         });
     }
+    let mut validated_args = Vec::with_capacity(argv.len() - 1);
     for arg in &argv[1..] {
         let resolved = validate_readable_path(
             arg,
@@ -170,25 +171,29 @@ pub(crate) fn validate_cat_args(
             &request.readable_roots,
             &request.blocked_paths,
         )?;
-        let check_path = match std::fs::canonicalize(&resolved) {
-            Ok(p) => p,
-            Err(_) => resolved,
-        };
+        // Re-check blocked paths against the resolved path (canonical for
+        // existing files, normalized for non-existing) to catch symlinks that
+        // resolve into a blocked area.
         if request
             .blocked_paths
             .iter()
-            .any(|b| check_path.starts_with(b))
+            .any(|b| resolved.starts_with(b))
         {
             return Err(PortError::InvalidInputContext {
                 context: "canonical path blocked by exclusion",
-                source: check_path.display().to_string(),
+                source: resolved.display().to_string(),
             });
         }
-        let path_str = match check_path.to_str() {
+        let path_str = match resolved.to_str() {
             Some(s) => s,
             None => arg,
         };
         validate_filename_patterns(path_str, &request.blocked_patterns)?;
+        let arg_to_pass = match resolved.to_str() {
+            Some(s) => s.to_string(),
+            None => arg.clone(),
+        };
+        validated_args.push(arg_to_pass);
     }
-    Ok(())
+    Ok(validated_args)
 }

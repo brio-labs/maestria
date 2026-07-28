@@ -598,6 +598,32 @@ async fn phase_detect_additions_respects_backpressure() -> Result<(), Box<dyn st
 }
 
 #[tokio::test]
+async fn phase_detect_additions_reports_closed_input_channel()
+-> Result<(), Box<dyn std::error::Error>> {
+    let (input_tx, input_rx) = mpsc::channel(1);
+    drop(input_rx);
+    let mut watcher = Watcher {
+        layout: InstanceLayout::for_root(PathBuf::from("/tmp")),
+        manifest: test_manifest(PathBuf::from("/tmp")),
+        input_tx,
+        artifact_ids: BTreeMap::new(),
+        shutdown: CancellationToken::new(),
+        state: WatchState::default(),
+        scan_permits: Arc::new(Semaphore::new(MAX_CONCURRENT_SCANS)),
+    };
+    let obs = Observation {
+        path: PathBuf::from("/tmp/closed.md"),
+        bytes: b"content".to_vec(),
+        hash: "hash_closed".to_string(),
+    };
+
+    let result = watcher.phase_detect_additions(&[obs]).await;
+
+    assert!(result.is_err(), "closed input channel must be reported");
+    Ok(())
+}
+
+#[tokio::test]
 async fn phase_detect_removals_emits_source_removed() -> Result<(), Box<dyn std::error::Error>> {
     let (input_tx, mut input_rx) = mpsc::channel(256);
     let mut watcher = Watcher {

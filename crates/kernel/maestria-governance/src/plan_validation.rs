@@ -28,8 +28,8 @@ pub enum SearchPlanValidationError {
     FreshnessUnsupported,
     BudgetExceeded {
         budget: &'static str,
-        requested: u32,
-        allowed: u32,
+        requested: u64,
+        allowed: u64,
     },
     SecurityCapabilityMissing(&'static str),
     WebCapabilityMissing,
@@ -108,12 +108,16 @@ pub struct SearchCapabilities {
     max_queries: u32,
     max_stages: u32,
     max_web_requests: u32,
+    max_bytes_read: u64,
+    max_concurrency: u32,
 }
 
 impl SearchCapabilities {
     pub fn new() -> Self {
         Self {
             max_scope_ids: u32::MAX,
+            max_bytes_read: u64::MAX,
+            max_concurrency: u32::MAX,
             ..Self::default()
         }
     }
@@ -212,6 +216,16 @@ impl SearchCapabilities {
         self.max_queries = max_queries;
         self.max_stages = max_stages;
         self.max_web_requests = max_web_requests;
+        self
+    }
+
+    pub fn max_bytes_read(mut self, max_bytes_read: u64) -> Self {
+        self.max_bytes_read = max_bytes_read;
+        self
+    }
+
+    pub fn max_concurrency(mut self, max_concurrency: u32) -> Self {
+        self.max_concurrency = max_concurrency;
         self
     }
 }
@@ -334,22 +348,40 @@ impl SearchPlanValidator {
         capabilities: &SearchCapabilities,
     ) -> Result<(), SearchPlanValidationError> {
         let budgets = [
-            ("token", plan.budgets.max_tokens(), capabilities.max_tokens),
+            (
+                "token",
+                u64::from(plan.budgets.max_tokens()),
+                u64::from(capabilities.max_tokens),
+            ),
             (
                 "latency_ms",
-                plan.budgets.max_latency_ms(),
-                capabilities.max_latency_ms,
+                u64::from(plan.budgets.max_latency_ms()),
+                u64::from(capabilities.max_latency_ms),
             ),
             (
                 "query",
-                plan.budgets.max_queries(),
-                capabilities.max_queries,
+                u64::from(plan.budgets.max_queries()),
+                u64::from(capabilities.max_queries),
             ),
-            ("stage", plan.budgets.max_stages(), capabilities.max_stages),
+            (
+                "stage",
+                u64::from(plan.budgets.max_stages()),
+                u64::from(capabilities.max_stages),
+            ),
             (
                 "web_request",
-                plan.budgets.max_web_requests(),
-                capabilities.max_web_requests,
+                u64::from(plan.budgets.max_web_requests()),
+                u64::from(capabilities.max_web_requests),
+            ),
+            (
+                "bytes_read",
+                plan.budgets.max_bytes_read(),
+                capabilities.max_bytes_read,
+            ),
+            (
+                "concurrency",
+                u64::from(plan.budgets.max_concurrency()),
+                u64::from(capabilities.max_concurrency),
             ),
         ];
         budgets
