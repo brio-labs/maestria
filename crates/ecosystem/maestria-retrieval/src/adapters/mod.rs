@@ -2,6 +2,8 @@ mod cards;
 mod code_intel;
 mod common;
 mod dense;
+#[cfg(test)]
+pub(super) mod filtered_test_support;
 mod learned_sparse;
 mod learned_sparse_generation;
 mod lexical;

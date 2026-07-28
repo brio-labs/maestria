@@ -258,6 +258,78 @@ fn reconcile_projections_repairs_missing_rows() -> Result<(), Box<dyn std::error
     Ok(())
 }
 
+/// Reconciliation is an exact child projection rebuild: rows seeded from a
+/// previous state disappear when replayed state no longer contains them,
+/// while still-valid rows survive.
+#[test]
+fn reconcile_projections_removes_stale_children_and_preserves_valid_rows()
+-> Result<(), Box<dyn std::error::Error>> {
+    let mut state = KernelState::new();
+    let fixture = build_recovery_domain_state(&mut state)?;
+    let store = SqliteStore::in_memory()?;
+
+    // Seed the projection with the complete previous state. The second chunk,
+    // card, and evidence become stale in the corrected replay below.
+    for chunk in state.chunks.values() {
+        ChunkRepository::put(&store, chunk.clone())?;
+    }
+    for card in state.cards.values() {
+        CardRepository::put(&store, card.clone())?;
+    }
+    for evidence in state.evidences.values() {
+        EvidenceRepository::put(&store, evidence.clone())?;
+    }
+
+    let mut corrected_state = state.clone();
+    corrected_state.chunks.remove(&fixture.chunk_id_b);
+    corrected_state.chunk_nodes.remove(&fixture.chunk_id_b);
+    corrected_state.cards.clear();
+    corrected_state.evidences.clear();
+    let artifact = corrected_state
+        .artifacts
+        .get_mut(&fixture.artifact_id)
+        .ok_or_else(|| std::io::Error::other("replay artifact missing"))?;
+    artifact.chunk_ids.remove(&fixture.chunk_id_b);
+    artifact.card_ids.clear();
+    artifact.evidence_ids.clear();
+
+    reconcile_projections(&corrected_state, &store)?;
+
+    let chunks = ChunkRepository::list_for_artifact(&store, fixture.artifact_id)?;
+    assert_eq!(chunks.len(), 1);
+    assert_eq!(chunks[0].id, fixture.chunk_id_a);
+    assert!(
+        ChunkRepository::get(&store, fixture.chunk_id_b)?.is_none(),
+        "chunk absent from replayed state must be removed"
+    );
+    assert!(
+        CardRepository::list_for_artifact(&store, fixture.artifact_id)?.is_empty(),
+        "stale card must be absent from artifact listing"
+    );
+    assert!(
+        CardRepository::get(&store, fixture.card_id)?.is_none(),
+        "card absent from replayed state must be removed"
+    );
+    assert!(
+        EvidenceRepository::list_for_artifact(&store, fixture.artifact_id)?.is_empty(),
+        "stale evidence must be absent from artifact listing"
+    );
+    assert!(
+        EvidenceRepository::get(&store, fixture.evidence_id)?.is_none(),
+        "evidence absent from replayed state must be removed"
+    );
+
+    // A second rebuild must remain idempotent and keep the valid chunk.
+    reconcile_projections(&corrected_state, &store)?;
+    assert_eq!(
+        ChunkRepository::get(&store, fixture.chunk_id_a)?
+            .ok_or_else(|| std::io::Error::other("valid chunk was removed"))?
+            .text,
+        "first chunk"
+    );
+    Ok(())
+}
+
 /// Projection repair only writes the four projection entity types;
 /// it never appends domain events.
 #[test]

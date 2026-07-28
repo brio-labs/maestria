@@ -264,6 +264,7 @@ async fn bounded_search_retrieves_declared_missing_slot() -> RetrievalResult<()>
             stale_generation: false,
         })],
         Arc::new(AdaptiveEvaluator),
+        maestria_governance::RetrievalSecurityPolicy::default(),
     );
 
     let outcome = engine.search(&plan).await?;
@@ -292,6 +293,7 @@ async fn bounded_search_reports_budget_exhaustion() -> RetrievalResult<()> {
             stale_generation: false,
         })],
         Arc::new(AdaptiveEvaluator),
+        maestria_governance::RetrievalSecurityPolicy::default(),
     );
 
     let outcome = engine.search(&plan).await?;
@@ -315,6 +317,7 @@ async fn bounded_search_stops_on_low_marginal_gain() -> RetrievalResult<()> {
             stale_generation: false,
         })],
         Arc::new(AdaptiveEvaluator),
+        maestria_governance::RetrievalSecurityPolicy::default(),
     );
 
     let outcome = engine.search(&plan).await?;
@@ -338,6 +341,7 @@ async fn bounded_search_rejects_stale_generation_results() -> RetrievalResult<()
             stale_generation: true,
         })],
         Arc::new(AdaptiveEvaluator),
+        maestria_governance::RetrievalSecurityPolicy::default(),
     );
 
     let outcome = engine.search(&plan).await?;
@@ -368,6 +372,7 @@ async fn planner_accepts_context_snapshot_with_installed_generation() -> Retriev
             stale_generation: false,
         })],
         Arc::new(AdaptiveEvaluator),
+        maestria_governance::RetrievalSecurityPolicy::default(),
     );
     let plan = engine.plan("context snapshot", 1, &context)?;
     assert_eq!(plan.corpus_snapshot, context.corpus_snapshot);
@@ -389,6 +394,7 @@ async fn planner_prefers_text_routing_when_web_or_visual_lanes_are_unavailable()
             stale_generation: false,
         })],
         Arc::new(AnswerableEvaluator),
+        maestria_governance::RetrievalSecurityPolicy::default(),
     );
 
     for query in ["current source version", "find the chart in the PDF"] {
@@ -414,6 +420,7 @@ async fn planner_quarantines_prompt_injection_before_capability_routing() -> Ret
             stale_generation: false,
         })],
         Arc::new(AnswerableEvaluator),
+        maestria_governance::RetrievalSecurityPolicy::default(),
     );
 
     for query in [
@@ -455,6 +462,7 @@ async fn explicit_current_web_plan_preserves_validation_error() -> RetrievalResu
             stale_generation: false,
         })],
         Arc::new(AnswerableEvaluator),
+        maestria_governance::RetrievalSecurityPolicy::default(),
     );
 
     assert!(matches!(

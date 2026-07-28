@@ -1,18 +1,25 @@
+use crate::SyncPipeline;
 use maestria_domain::{
     EvidenceCandidate, EvidenceCoverage, SearchLaneStatus, SearchOutcome, SearchPlan, SearchStatus,
-    SearchStopReason, SearchTrace, SearchTraceFilter, SearchTraceLane, SearchTraceLaneCandidate,
+    SearchStopReason, SearchTrace, SearchTraceLane, SearchTraceLaneCandidate,
 };
 
-use crate::engine::{EnsureTraceOptions, ensure_trace, reconcile_status};
-use crate::sync::SyncPipeline;
+use crate::engine::{
+    EnsureTraceOptions, applied_security_filters, ensure_trace, reconcile_status,
+    security_policy_fingerprint,
+};
 use crate::types::{RankedCandidate, RetrievalResult};
 
 pub struct SyncRetrievalEngine<'a> {
     pipeline: SyncPipeline<'a, EvidenceCandidate, SearchOutcome>,
+    security_policy: maestria_governance::RetrievalSecurityPolicy,
 }
-
 impl<'a> SyncRetrievalEngine<'a> {
-    pub fn new<R, V>(retrievers: Vec<R>, evaluator: V) -> Self
+    pub fn new<R, V>(
+        retrievers: Vec<R>,
+        evaluator: V,
+        security_policy: maestria_governance::RetrievalSecurityPolicy,
+    ) -> Self
     where
         R: Fn(&SearchPlan) -> RetrievalResult<Vec<EvidenceCandidate>> + 'a,
         V: Fn(Vec<EvidenceCandidate>, &SearchPlan) -> RetrievalResult<SearchOutcome> + 'a,
@@ -30,7 +37,10 @@ impl<'a> SyncRetrievalEngine<'a> {
                     .map(|candidate| candidate.candidate)
                     .collect())
             });
-        Self { pipeline }
+        Self {
+            pipeline,
+            security_policy,
+        }
     }
     pub fn with_query_retriever<F>(mut self, retriever: F) -> Self
     where
@@ -65,7 +75,7 @@ impl<'a> SyncRetrievalEngine<'a> {
     }
     pub fn search_sync(&self, plan: &SearchPlan) -> RetrievalResult<SearchOutcome> {
         if maestria_governance::contains_prompt_injection_risk(&plan.original_query) {
-            return Ok(Self::quarantine_outcome(plan));
+            return Ok(self.quarantine_outcome(plan));
         }
         let (mut outcome, lane_sets) = self.pipeline.run_with_trace(plan)?;
         let ranked = outcome
@@ -125,6 +135,7 @@ impl<'a> SyncRetrievalEngine<'a> {
             outcome,
             lanes,
             EnsureTraceOptions {
+                security_policy: self.security_policy.clone(),
                 fusion_enabled: self.pipeline.fusion_enabled(),
                 expansion_enabled: self.pipeline.expander_enabled(),
                 rerank_trace: None,
@@ -137,16 +148,17 @@ impl<'a> SyncRetrievalEngine<'a> {
         Ok(outcome)
     }
 
-    fn quarantine_outcome(plan: &SearchPlan) -> SearchOutcome {
+    fn quarantine_outcome(&self, plan: &SearchPlan) -> SearchOutcome {
         let trace = SearchTrace::from_plan(
             plan,
             Vec::new(),
             &[],
-            vec![SearchTraceFilter::PromptInjection],
+            applied_security_filters(plan, &self.security_policy),
             None,
             Vec::new(),
             SearchStopReason::PolicyDenied,
-        );
+        )
+        .with_policy_fingerprint(security_policy_fingerprint(&self.security_policy));
         SearchOutcome {
             trace: trace.deterministic_id(),
             trace_data: Some(Box::new(trace)),

@@ -82,8 +82,10 @@ pub use supervision_recovery::{RecoveryDiagnostics, supervise_recovery};
 mod validation_recovery;
 pub use validation_recovery::has_current_validation_report;
 mod lifecycle;
+mod lifecycle_entry;
 mod watcher;
-pub use lifecycle::{InstanceLifecycle, RecoveryQueue, run_instance, run_instance_with_shutdown};
+pub use lifecycle::{InstanceLifecycle, RecoveryQueue};
+pub use lifecycle_entry::{run_instance, run_instance_with_shutdown};
 /// Validate that every pending `ResumeParser` source path is within the
 /// instance manifest read scope before the daemon touches blobs or runtime
 /// infrastructure.  Out-of-scope and excluded pending parsers fail fast

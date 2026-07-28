@@ -1,3 +1,4 @@
+use std::cell::Cell;
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -74,7 +75,20 @@ impl DenseChunkRetriever {
         let identity = vector.identity.clone().ok_or_else(|| {
             RetrievalError::Internal("dense vector query identity unavailable".to_string())
         })?;
-        let hits = self.index.search_similar(vector).map_err(port_error)?;
+        let filter_error = Cell::new(None);
+        let hits = self
+            .index
+            .search_similar_filtered(vector, &|chunk_id| match self.prefilter_hit(chunk_id) {
+                Ok(allowed) => allowed,
+                Err(error) => {
+                    filter_error.set(Some(error));
+                    false
+                }
+            })
+            .map_err(port_error)?;
+        if let Some(error) = filter_error.take() {
+            return Err(port_error(error));
+        }
         let mut candidates = Vec::with_capacity(hits.len());
         for (raw_rank, hit) in hits.into_iter().enumerate() {
             let Some(candidate) =
@@ -100,6 +114,32 @@ impl DenseChunkRetriever {
             generation: Some(self.descriptor.generation),
             bytes_read: 0,
         })
+    }
+
+    fn prefilter_hit(
+        &self,
+        chunk_id: maestria_domain::ChunkId,
+    ) -> Result<bool, maestria_ports::PortError> {
+        let Some(chunk) = self.chunks.get(chunk_id)? else {
+            return Ok(false);
+        };
+        let Some(artifact) = self.artifacts.get(chunk.artifact_id)? else {
+            return Ok(false);
+        };
+        if artifact.index_status != IndexStatus::Indexed
+            || self.policy.evaluate(&artifact.security) != RetrievalDecision::Allowed
+            || !scan_secrets(&chunk.text).is_clean()
+        {
+            return Ok(false);
+        }
+        let evidence_id = maestria_domain::evidence_id_for(chunk.artifact_id, chunk.order);
+        let Some(evidence) = self.evidence.get(evidence_id)? else {
+            return Ok(false);
+        };
+        Ok(
+            self.policy.evaluate(&evidence.security) == RetrievalDecision::Allowed
+                && scan_secrets(&evidence.excerpt).is_clean(),
+        )
     }
 
     fn candidate_from_hit(
@@ -193,5 +233,78 @@ impl CandidateRetriever for DenseChunkRetriever {
                 identity: Some(response.identity),
             },
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::adapters::filtered_test_support::{
+        FilteredVectorSpy, chunk, denied_artifact, request,
+    };
+    use maestria_ports::{
+        EmbeddingProvider, EmbeddingRequest, EmbeddingResponse, InMemoryArtifactRepository,
+        InMemoryBlobStore, InMemoryChunkRepository, InMemoryEvidenceRepository,
+    };
+
+    struct UnusedEmbeddingProvider;
+
+    impl EmbeddingProvider for UnusedEmbeddingProvider {
+        fn embed(
+            &self,
+            _request: EmbeddingRequest,
+        ) -> Result<EmbeddingResponse, maestria_ports::PortError> {
+            Err(maestria_ports::PortError::Downstream {
+                message: "embedding provider must not be called".to_string(),
+            })
+        }
+    }
+
+    #[test]
+    fn denied_dense_candidates_are_filtered_before_scoring()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let generation = IndexGenerationId::new(1);
+        let artifact_id = maestria_domain::ArtifactId::new(7);
+        let chunk_id = maestria_domain::ChunkId::new(11);
+        let index = Arc::new(FilteredVectorSpy::new(chunk_id));
+        let artifacts = InMemoryArtifactRepository::new();
+        artifacts.put(denied_artifact(artifact_id))?;
+        let chunks = InMemoryChunkRepository::new();
+        chunks.put(chunk(
+            chunk_id,
+            artifact_id,
+            maestria_domain::SourceSpan::TextSpan {
+                start_line: 1,
+                end_line: 1,
+            },
+        ))?;
+        let retriever = DenseChunkRetriever::new(
+            DenseChunkRetrieverParts {
+                index: index.clone(),
+                artifacts: Arc::new(artifacts),
+                chunks: Arc::new(chunks),
+                evidence: Arc::new(InMemoryEvidenceRepository::new()),
+                blobs: Arc::new(InMemoryBlobStore::new()),
+                embedding_provider: Arc::new(UnusedEmbeddingProvider),
+            },
+            RetrievalSecurityPolicy::default(),
+            generation,
+        );
+        let identity = maestria_ports::EmbeddingIdentity::legacy("dense-test", 1)?;
+        let batch = retriever.retrieve_with_vector(
+            request(maestria_domain::SearchIntent::FactualLocal, generation)?,
+            VectorSearchQuery {
+                vector: vec![1.0],
+                limit: 5,
+                identity: Some(identity.clone()),
+                provider_id: None,
+                model: None,
+                model_version: None,
+            },
+        )?;
+        assert_eq!(index.filter_calls(), 1);
+        assert_eq!(index.score_calls(), 0);
+        assert!(batch.candidates.is_empty());
+        Ok(())
     }
 }

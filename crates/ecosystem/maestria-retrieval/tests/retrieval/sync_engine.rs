@@ -20,7 +20,11 @@ fn test_sync_engine_orchestration() -> RetrievalResult<()> {
     let outcome = dummy_outcome()?;
     let retriever = |_: &SearchPlan| -> RetrievalResult<Vec<EvidenceCandidate>> { Ok(vec![]) };
     let evaluator = move |_: Vec<EvidenceCandidate>, _: &_| Ok(outcome.clone());
-    let engine = SyncRetrievalEngine::new(vec![retriever], evaluator);
+    let engine = SyncRetrievalEngine::new(
+        vec![retriever],
+        evaluator,
+        maestria_governance::RetrievalSecurityPolicy::default(),
+    );
     let result = engine.search_sync(&plan)?;
     assert_eq!(result.status, SearchStatus::NoEvidenceFound);
     Ok(())
@@ -31,7 +35,11 @@ fn sync_engine_quarantines_prompt_injection() -> RetrievalResult<()> {
     let outcome = dummy_outcome()?;
     let retriever = |_: &SearchPlan| -> RetrievalResult<Vec<EvidenceCandidate>> { Ok(vec![]) };
     let evaluator = move |_: Vec<EvidenceCandidate>, _: &_| Ok(outcome.clone());
-    let engine = SyncRetrievalEngine::new(vec![retriever], evaluator);
+    let engine = SyncRetrievalEngine::new(
+        vec![retriever],
+        evaluator,
+        maestria_governance::RetrievalSecurityPolicy::default(),
+    );
 
     let clean_plan = dummy_plan()?;
     let clean_result = engine.search_sync(&clean_plan)?;
@@ -104,8 +112,12 @@ fn sync_trace_preserves_rewritten_lane_queries() -> RetrievalResult<()> {
         outcome.coverage.percent_covered = if outcome.evidence.is_empty() { 0 } else { 100 };
         Ok(outcome)
     };
-    let engine =
-        SyncRetrievalEngine::new(vec![retriever], evaluator).with_query_retriever(query_retriever);
+    let engine = SyncRetrievalEngine::new(
+        vec![retriever],
+        evaluator,
+        maestria_governance::RetrievalSecurityPolicy::default(),
+    )
+    .with_query_retriever(query_retriever);
     let outcome = engine.search_sync(&plan)?;
     let trace = outcome
         .trace_data
@@ -128,7 +140,11 @@ fn test_timeout_cancellation() -> RetrievalResult<()> {
         Ok(vec![])
     };
     let evaluator = move |_: Vec<EvidenceCandidate>, _: &_| dummy_outcome();
-    let engine = SyncRetrievalEngine::new(vec![retriever], evaluator);
+    let engine = SyncRetrievalEngine::new(
+        vec![retriever],
+        evaluator,
+        maestria_governance::RetrievalSecurityPolicy::default(),
+    );
     let result = engine.search_sync(&plan);
     assert!(matches!(result, Err(RetrievalError::Timeout)));
     Ok(())
@@ -148,7 +164,11 @@ fn test_fingerprint_compatibility_pass() -> RetrievalResult<()> {
         out.fingerprint = p.fingerprint.clone();
         Ok(out)
     };
-    let engine = SyncRetrievalEngine::new(vec![retriever], evaluator);
+    let engine = SyncRetrievalEngine::new(
+        vec![retriever],
+        evaluator,
+        maestria_governance::RetrievalSecurityPolicy::default(),
+    );
     assert!(engine.search_sync(&plan).is_ok());
     Ok(())
 }
@@ -164,7 +184,11 @@ fn test_scope_acl_filtering() -> RetrievalResult<()> {
         }
     };
     let evaluator = move |_: Vec<EvidenceCandidate>, _: &_| dummy_outcome();
-    let engine = SyncRetrievalEngine::new(vec![retriever], evaluator);
+    let engine = SyncRetrievalEngine::new(
+        vec![retriever],
+        evaluator,
+        maestria_governance::RetrievalSecurityPolicy::default(),
+    );
     assert!(engine.search_sync(&plan).is_ok());
     Ok(())
 }
@@ -184,7 +208,11 @@ fn test_provenance_scores_reasons_and_determinism() -> RetrievalResult<()> {
         outcome.coverage.percent_covered = if outcome.evidence.is_empty() { 0 } else { 100 };
         Ok(outcome)
     };
-    let engine = SyncRetrievalEngine::new(vec![retriever], evaluator);
+    let engine = SyncRetrievalEngine::new(
+        vec![retriever],
+        evaluator,
+        maestria_governance::RetrievalSecurityPolicy::default(),
+    );
     let first = engine.search_sync(&plan)?;
     let second = engine.search_sync(&plan)?;
     assert_eq!(first, second);
@@ -221,7 +249,11 @@ fn test_missing_artifacts_return_no_evidence() -> RetrievalResult<()> {
         outcome.coverage.percent_covered = 0;
         Ok(outcome)
     };
-    let engine = SyncRetrievalEngine::new(vec![retriever], evaluator);
+    let engine = SyncRetrievalEngine::new(
+        vec![retriever],
+        evaluator,
+        maestria_governance::RetrievalSecurityPolicy::default(),
+    );
     let outcome = engine.search_sync(&plan)?;
     assert_eq!(outcome.status, SearchStatus::NoEvidenceFound);
     assert!(outcome.evidence.is_empty());
@@ -240,7 +272,11 @@ fn test_sync_pipeline_bounds_multiple_retrievers() -> RetrievalResult<()> {
         outcome.coverage.percent_covered = if outcome.evidence.is_empty() { 0 } else { 100 };
         Ok(outcome)
     };
-    let engine = SyncRetrievalEngine::new(vec![one_candidate, one_candidate], evaluator);
+    let engine = SyncRetrievalEngine::new(
+        vec![one_candidate, one_candidate],
+        evaluator,
+        maestria_governance::RetrievalSecurityPolicy::default(),
+    );
     let outcome = engine.search_sync(&plan)?;
     assert_eq!(outcome.evidence.len(), 1);
     Ok(())

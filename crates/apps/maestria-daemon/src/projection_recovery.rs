@@ -1,3 +1,5 @@
+use std::collections::BTreeSet;
+
 use anyhow::{Context, Result};
 use maestria_domain::KernelState;
 use maestria_governance::scan_secrets;
@@ -8,10 +10,13 @@ use maestria_ports::{
 use maestria_storage_sqlite::SqliteStore;
 /// Reconcile projection repositories from replayed domain truth.
 ///
-/// After `load_kernel_state` replays the event log, this helper idempotently upserts every artifact,
-/// chunk, and card, and unconditionally replaces every evidence row from the replayed state into
-/// the SQLite projection tables. Evidence uses `replace` so a valid replayed row overwrites a
-/// stale, malformed, or partial row from a prior crash without tripping a `Conflict` error.
+/// After `load_kernel_state` replays the event log, this helper first removes
+/// child projection rows whose IDs are absent from the replayed state, then
+/// idempotently upserts every artifact, chunk, and card, and unconditionally
+/// replaces every evidence row from the replayed state into the SQLite
+/// projection tables. Evidence uses `replace` so a valid replayed row
+/// overwrites a stale, malformed, or partial row from a prior crash without
+/// tripping a `Conflict` error.
 ///
 /// Projection repair never emits domain events and never changes event truth. Startup recovery can
 /// then search/open evidence even if the previous process crashed after event append but before a
@@ -21,6 +26,12 @@ pub fn reconcile_projections(state: &KernelState, store: &SqliteStore) -> Result
         ArtifactRepository::put(store, artifact.clone())
             .with_context(|| format!("put artifact {}", artifact.id))?;
     }
+    let chunk_ids: BTreeSet<_> = state.chunks.keys().copied().collect();
+    let card_ids: BTreeSet<_> = state.cards.keys().copied().collect();
+    let evidence_ids: BTreeSet<_> = state.evidences.keys().copied().collect();
+    store
+        .remove_stale_projection_children(&chunk_ids, &card_ids, &evidence_ids)
+        .context("remove stale child projection rows")?;
     for chunk in state.chunks.values() {
         ChunkRepository::put(store, chunk.clone())
             .with_context(|| format!("put chunk {}", chunk.id))?;

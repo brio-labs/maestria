@@ -104,6 +104,7 @@ fn with_indexed_retrieval(
     let engine = RetrievalEngine::new(
         vec![lexical],
         Arc::new(EvidenceOutcomeEvaluator::new(evidence)),
+        maestria_governance::RetrievalSecurityPolicy::default(),
     );
     f(&engine, &context, artifact_id, evidence_id)
 }

@@ -27,6 +27,7 @@ mod indexing;
 mod parser_mapping;
 mod parsing;
 mod parsing_records;
+mod parsing_terminal;
 mod persistence;
 mod shell_policy;
 mod supervision;

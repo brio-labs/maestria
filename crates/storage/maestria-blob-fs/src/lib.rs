@@ -73,7 +73,20 @@ impl FsBlobStore {
             io::ErrorKind::NotFound => PortError::NotFound,
             _ => io_error("read blob index", &path, error),
         })?;
-        validate_digest_hex(digest_hex.trim()).map(str::to_owned)
+        let digest_hex = validate_digest_hex(digest_hex.trim())?;
+        let digest = digest_from_hex(digest_hex)?;
+        let derived_id = id_from_digest(&digest);
+        if derived_id != id {
+            return Err(PortError::InternalContext {
+                context: "blob integrity check failed",
+                source: format!(
+                    "blob index for id {} points to digest {digest_hex}, which derives id {}",
+                    id.value(),
+                    derived_id.value()
+                ),
+            });
+        }
+        Ok(digest_hex.to_owned())
     }
 
     pub fn object_path_for_digest(&self, digest_hex: &str) -> Result<PathBuf, PortError> {
@@ -291,6 +304,40 @@ fn validate_digest_hex(digest_hex: &str) -> Result<&str, PortError> {
         })
     }
 }
+fn digest_from_hex(digest_hex: &str) -> Result<[u8; 32], PortError> {
+    let digest_hex = validate_digest_hex(digest_hex)?;
+    let mut digest = [0_u8; 32];
+    let mut bytes = digest_hex.bytes();
+    for output in &mut digest {
+        let Some(high) = bytes.next() else {
+            return Err(PortError::InternalContext {
+                context: "decode blob digest",
+                source: "validated digest ended unexpectedly".to_string(),
+            });
+        };
+        let Some(low) = bytes.next() else {
+            return Err(PortError::InternalContext {
+                context: "decode blob digest",
+                source: "validated digest ended unexpectedly".to_string(),
+            });
+        };
+        let high = hex_nibble(high)?;
+        let low = hex_nibble(low)?;
+        *output = (high << 4) | low;
+    }
+    Ok(digest)
+}
+
+fn hex_nibble(byte: u8) -> Result<u8, PortError> {
+    match byte {
+        b'0'..=b'9' => Ok(byte - b'0'),
+        b'a'..=b'f' => Ok(byte - b'a' + 10),
+        _ => Err(PortError::InternalContext {
+            context: "decode blob digest",
+            source: "validated digest contains an invalid character".to_string(),
+        }),
+    }
+}
 
 fn io_error(action: &'static str, path: &Path, error: io::Error) -> PortError {
     PortError::InternalContext {
@@ -300,121 +347,5 @@ fn io_error(action: &'static str, path: &Path, error: io::Error) -> PortError {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use maestria_ports::{BlobStore, contract_tests};
-    use tempfile::tempdir;
-
-    #[test]
-    fn satisfies_shared_blob_store_contract() -> Result<(), Box<dyn std::error::Error>> {
-        let root = tempdir()?;
-        let store = FsBlobStore::open(root.path())?;
-
-        contract_tests::assert_blob_store_round_trip(&store)?;
-        Ok(())
-    }
-
-    #[test]
-    fn same_bytes_produce_same_id_and_digest() -> Result<(), Box<dyn std::error::Error>> {
-        let root = tempdir()?;
-        let store = FsBlobStore::open(root.path())?;
-
-        let first = store.put_with_digest(b"same bytes".to_vec())?;
-        let second = store.put_with_digest(b"same bytes".to_vec())?;
-
-        assert_eq!(first, second);
-        assert_eq!(first.1, store.digest_for_id(first.0)?);
-        Ok(())
-    }
-
-    #[test]
-    fn different_bytes_round_trip() -> Result<(), Box<dyn std::error::Error>> {
-        let root = tempdir()?;
-        let store = FsBlobStore::open(root.path())?;
-
-        let first = store.put(b"first".to_vec())?;
-        let second = store.put(b"second".to_vec())?;
-
-        assert_ne!(first, second);
-        assert_eq!(store.get(first)?, b"first");
-        assert_eq!(store.get(second)?, b"second");
-        Ok(())
-    }
-
-    #[test]
-    fn missing_blob_returns_not_found() -> Result<(), Box<dyn std::error::Error>> {
-        let root = tempdir()?;
-        let store = FsBlobStore::open(root.path())?;
-
-        assert_eq!(store.get(BlobId::new(42)), Err(PortError::NotFound));
-        Ok(())
-    }
-
-    #[test]
-    fn tampered_blob_rejected_on_get() -> Result<(), Box<dyn std::error::Error>> {
-        let root = tempdir()?;
-        let store = FsBlobStore::open(root.path())?;
-
-        let bytes = b"untampered payload".to_vec();
-        let id = store.put(bytes.clone())?;
-
-        // Verify normal roundtrip works before tampering.
-        assert_eq!(store.get(id)?, bytes);
-
-        let digest_hex = store.digest_for_id(id)?;
-        let object_path = store.object_path_for_digest(&digest_hex)?;
-
-        // Tamper with the object file while leaving the index intact.
-        fs::write(&object_path, b"tampered payload")?;
-
-        let result = store.get(id);
-        assert!(
-            matches!(
-                &result,
-                Err(PortError::InternalContext {
-                    context: "blob integrity check failed",
-                    ..
-                })
-            ),
-            "expected integrity error for tampered blob, got {result:?}"
-        );
-
-        Ok(())
-    }
-
-    #[test]
-    fn stores_on_same_root_share_blobs() -> Result<(), Box<dyn std::error::Error>> {
-        let root = tempdir()?;
-        let writer = FsBlobStore::open(root.path())?;
-        let reader = FsBlobStore::open(root.path())?;
-
-        let id = writer.put(b"shared".to_vec())?;
-
-        assert_eq!(reader.get(id)?, b"shared");
-        Ok(())
-    }
-
-    #[test]
-    fn digest_derived_paths_stay_under_root() -> Result<(), Box<dyn std::error::Error>> {
-        let root = tempdir()?;
-        let store = FsBlobStore::open(root.path())?;
-        let (_, digest) = store.put_with_digest(b"caller cannot pick paths".to_vec())?;
-
-        let object_path = store.object_path_for_digest(&digest)?;
-        assert!(object_path.starts_with(store.root()));
-        assert!(object_path.exists());
-        assert!(
-            object_path
-                .strip_prefix(store.root())?
-                .components()
-                .all(|component| !matches!(component, std::path::Component::ParentDir))
-        );
-
-        let malicious = "../aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-        assert!(matches!(
-            store.object_path_for_digest(malicious),
-            Err(PortError::InvalidInputContext { .. })
-        ));
-        Ok(())
-    }
-}
+#[path = "tests.rs"]
+mod tests;

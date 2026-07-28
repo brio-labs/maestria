@@ -86,15 +86,20 @@ impl ContextExpander for HierarchyGraphExpander {
                 )
             })
             .collect::<VecDeque<_>>();
+        let relation_budget = policy.max_results.saturating_sub(expanded.len());
         let mut state = ExpansionState {
             expanded,
             seen_evidence,
             queue,
             visited_artifacts: BTreeSet::new(),
             next_graph_rank: 1,
+            relation_visits_remaining: relation_budget,
         };
         while let Some((endpoint, seed_rank, depth)) = state.queue.pop_front() {
-            if depth >= policy.max_depth || state.expanded.len() >= policy.max_results {
+            if depth >= policy.max_depth
+                || state.expanded.len() >= policy.max_results
+                || state.relation_visits_remaining == 0
+            {
                 continue;
             }
             self.expand_endpoint(endpoint, seed_rank, depth, policy, &mut state)?;
@@ -109,6 +114,7 @@ struct ExpansionState {
     queue: VecDeque<(RelationEndpoint, u32, usize)>,
     visited_artifacts: BTreeSet<maestria_domain::ArtifactId>,
     next_graph_rank: u32,
+    relation_visits_remaining: usize,
 }
 
 struct RelatedArtifact {
@@ -127,8 +133,16 @@ impl HierarchyGraphExpander {
         policy: &ExpansionPolicy,
         state: &mut ExpansionState,
     ) -> Result<(), RetrievalError> {
-        let relations = self.graph.get_relations_for(endpoint).map_err(port_error)?;
+        if state.expanded.len() >= policy.max_results || state.relation_visits_remaining == 0 {
+            return Ok(());
+        }
+        let mut relations = self.graph.get_relations_for(endpoint).map_err(port_error)?;
+        relations.sort_by_key(|relation| relation.id);
         for relation in relations {
+            if state.expanded.len() >= policy.max_results || state.relation_visits_remaining == 0 {
+                break;
+            }
+            state.relation_visits_remaining = state.relation_visits_remaining.saturating_sub(1);
             let Some(related) =
                 self.related_artifact(endpoint, relation, depth, &mut state.visited_artifacts)?
             else {
@@ -143,7 +157,17 @@ impl HierarchyGraphExpander {
         }
         Ok(())
     }
+}
 
+/*
+ * The relation budget is intentionally global to one expansion. A high-degree
+ * endpoint can return many relations, and invalid relation evidence must not
+ * allow that endpoint to consume unbounded repository work while the output
+ * remains below its cap. Once this budget is exhausted, queued endpoints are
+ * skipped explicitly and the caller retains the verified seed candidates.
+ */
+
+impl HierarchyGraphExpander {
     fn related_artifact(
         &self,
         endpoint: RelationEndpoint,

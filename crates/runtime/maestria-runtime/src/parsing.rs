@@ -30,7 +30,7 @@ impl EffectExecutionContext {
 
         // 2. Resolve the bytes to parse and the blob identity.
         let Ok((parse_bytes, blob_id, is_resume)) =
-            self.resolve_blob_for_parse(&request, artifact.id)
+            self.resolve_blob_for_parse(&request, artifact.id).await
         else {
             return false;
         };
@@ -124,14 +124,43 @@ impl EffectExecutionContext {
     /// - Fresh ingestion (`source_blob` is `None`): store bytes in the blob store
     ///   and obtain an immutable `BlobId`.
     /// - Resume (`source_blob` is `Some`): fetch the exact bytes from the blob store.
-    fn resolve_blob_for_parse(
+    async fn resolve_blob_for_parse(
         &self,
         request: &ParseArtifactRequest,
         artifact_id: ArtifactId,
     ) -> Result<(Vec<u8>, BlobId, bool), ()> {
         if let Some(blob_id) = request.source_blob {
+            let expected_content_hash = {
+                let state_read = self.state.read().await;
+                state_read
+                    .pending_parsers
+                    .get(&artifact_id)
+                    .filter(|started| started.artifact_id == artifact_id)
+                    .map(|started| started.content_hash.clone())
+            };
+            let Some(expected_content_hash) = expected_content_hash else {
+                tracing::error!(
+                    artifact_id = %artifact_id,
+                    %blob_id,
+                    "resume parse has no durable ParserStarted content hash; rejecting"
+                );
+                return Err(());
+            };
             match self.adapters.blob_store.get(blob_id) {
-                Ok(bytes) => Ok((bytes, blob_id, true)),
+                Ok(bytes) => {
+                    let actual_content_hash = content_hash(&bytes);
+                    if actual_content_hash != expected_content_hash {
+                        tracing::error!(
+                            artifact_id = %artifact_id,
+                            %blob_id,
+                            expected = %expected_content_hash,
+                            actual = %actual_content_hash,
+                            "resume blob content hash does not match durable ParserStarted hash; rejecting"
+                        );
+                        return Err(());
+                    }
+                    Ok((bytes, blob_id, true))
+                }
                 Err(error) => {
                     tracing::error!(
                         artifact_id = %artifact_id,
@@ -297,6 +326,14 @@ impl EffectExecutionContext {
         blob_id: BlobId,
         source_hash: &str,
     ) -> bool {
+        if parsed.artifact_id != artifact_id {
+            tracing::error!(
+                requested_artifact_id = %artifact_id.value(),
+                parsed_artifact_id = %parsed.artifact_id.value(),
+                "parser returned a result for a different artifact; rejecting"
+            );
+            return false;
+        }
         if parsed.content_hash.as_str() != source_hash {
             tracing::error!(
                 artifact_id = %artifact_id.value(),
@@ -381,34 +418,6 @@ impl EffectExecutionContext {
                 artifact_id: parsed.artifact_id,
             }),
             "start full-text index",
-        )
-        .is_ok()
-    }
-
-    fn emit_terminal_parser_completed(
-        &self,
-        artifact_id: ArtifactId,
-        artifact_version_id: maestria_domain::ArtifactVersionId,
-        status: maestria_ports::ParseStatus,
-        source_hash: &str,
-    ) -> bool {
-        let Ok(content_hash) = maestria_domain::ContentHash::new(source_hash.to_string()) else {
-            tracing::error!(artifact_id = %artifact_id.value(), "invalid content hash for terminal parse completion");
-            return false;
-        };
-        Self::send_input(
-            &self.input_tx,
-            DomainInput::ParserCompleted(ParserResult {
-                artifact_id,
-                artifact_version_id,
-                content_hash,
-                status: domain_parse_status(status),
-                tree_root_id: None,
-                tree_nodes: Vec::new(),
-                chunks: Vec::new(),
-                cards: Vec::new(),
-            }),
-            "parser completion",
         )
         .is_ok()
     }

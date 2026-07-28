@@ -2,7 +2,7 @@ use crate::EffectExecutionContext;
 use crate::test_support::*;
 use maestria_domain::{
     Artifact, ArtifactId, BlobId, Evidence, EvidenceId, EvidenceKind, IndexStatus, LogicalTick,
-    ParseArtifactRequest,
+    ParseArtifactRequest, ParserStarted,
 };
 use maestria_governance::{DefaultApprovalGate, DefaultRiskClassifier, DefaultValidationGate};
 use maestria_ports::{
@@ -66,10 +66,22 @@ async fn resume_parse_uses_existing_blob_and_skips_storage()
     };
     let (input_tx, mut input_rx) = mpsc::channel(8);
 
+    let mut state = KernelState::new();
+    state.pending_parsers.insert(
+        ArtifactId::new(200),
+        ParserStarted {
+            artifact_id: ArtifactId::new(200),
+            title: "resume-artifact".to_string(),
+            source_path: "/repo/resume.rs".to_string(),
+            content_hash: content_hash(&resume_bytes),
+            blob_id,
+        },
+    );
+
     let ctx = EffectExecutionContext::test_default(
         Arc::new(adapters),
         Arc::new(governance),
-        Arc::new(RwLock::new(KernelState::new())),
+        Arc::new(RwLock::new(state)),
         input_tx,
     );
     let result = MaestriaRuntime::test_execute_effect(
@@ -151,10 +163,22 @@ async fn resume_parse_missing_blob_returns_failure() -> Result<(), Box<dyn std::
     };
     let (input_tx, _input_rx) = mpsc::channel(8);
 
+    let mut state = KernelState::new();
+    state.pending_parsers.insert(
+        ArtifactId::new(201),
+        ParserStarted {
+            artifact_id: ArtifactId::new(201),
+            title: "missing-blob-artifact".to_string(),
+            source_path: "/repo/missing.rs".to_string(),
+            content_hash: content_hash(b"missing resume bytes"),
+            blob_id,
+        },
+    );
+
     let ctx = EffectExecutionContext::test_default(
         Arc::new(adapters),
         Arc::new(governance),
-        Arc::new(RwLock::new(KernelState::new())),
+        Arc::new(RwLock::new(state)),
         input_tx,
     );
     let result = MaestriaRuntime::test_execute_effect(
@@ -283,6 +307,16 @@ fn populate_resume_event_log_and_state(
             blob_id,
         },
     })?;
+    state.pending_parsers.insert(
+        art_id,
+        ParserStarted {
+            artifact_id: art_id,
+            title: "repair-artifact".to_string(),
+            source_path: "/repo/repair.rs".to_string(),
+            content_hash: content_hash(resume_bytes),
+            blob_id,
+        },
+    );
     state.evidences.insert(
         ev_id,
         Evidence {

@@ -249,6 +249,7 @@ fn engine(
             }),
         ],
         Arc::new(PassthroughEvaluator),
+        maestria_governance::RetrievalSecurityPolicy::default(),
     )
     .with_learned_sparse_execution_policy(policy)
     .with_learned_sparse_shadow_store(store))

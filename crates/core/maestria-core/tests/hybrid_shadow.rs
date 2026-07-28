@@ -174,6 +174,7 @@ fn build_search_engine(
     let engine = RetrievalEngine::new(
         retrievers,
         Arc::new(EvidenceOutcomeEvaluator::new(fixture.evidence)),
+        maestria_governance::RetrievalSecurityPolicy::default(),
     )
     .with_fusion(Arc::new(FixedKRrf::new(60)))
     .with_hybrid_policy(policy);
