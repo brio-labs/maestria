@@ -24,6 +24,7 @@ async fn phase_detect_removals_emits_source_removed() -> Result<(), Box<dyn std:
             .collect(),
             ..Default::default()
         },
+        pending: BTreeMap::new(),
         scan_permits: Arc::new(Semaphore::new(MAX_CONCURRENT_SCANS)),
     };
     let previous_files = [("/tmp/old.md".to_string(), "hash_old".to_string())]
@@ -78,6 +79,7 @@ async fn phase_detect_removals_retries_after_channel_backpressure()
             .collect(),
             ..Default::default()
         },
+        pending: BTreeMap::new(),
         scan_permits: Arc::new(Semaphore::new(MAX_CONCURRENT_SCANS)),
     };
 
@@ -140,6 +142,7 @@ async fn phase_detect_removals_detects_rename() -> Result<(), Box<dyn std::error
             .collect(),
             ..Default::default()
         },
+        pending: BTreeMap::new(),
         scan_permits: Arc::new(Semaphore::new(MAX_CONCURRENT_SCANS)),
     };
     let previous_files = [("/tmp/old.md".to_string(), "hash1".to_string())]
@@ -193,6 +196,7 @@ async fn phase_detect_removals_cleans_up_stale_artifact_ids()
             .collect(),
             ..Default::default()
         },
+        pending: BTreeMap::new(),
         scan_permits: Arc::new(Semaphore::new(MAX_CONCURRENT_SCANS)),
     };
     watcher.phase_detect_removals(BTreeMap::new()).await?;
@@ -225,6 +229,7 @@ fn emit_source_removed_returns_true_on_success() -> Result<(), Box<dyn std::erro
             .collect(),
             ..Default::default()
         },
+        pending: BTreeMap::new(),
         scan_permits: Arc::new(Semaphore::new(MAX_CONCURRENT_SCANS)),
     };
     assert!(watcher.emit_source_removed("/tmp/old.md", "hash_old")?);
@@ -267,6 +272,7 @@ fn emit_source_removed_returns_false_when_channel_full() -> Result<(), Box<dyn s
             .collect(),
             ..Default::default()
         },
+        pending: BTreeMap::new(),
         scan_permits: Arc::new(Semaphore::new(MAX_CONCURRENT_SCANS)),
     };
     assert!(!watcher.emit_source_removed("/tmp/old.md", "hash_old")?);
@@ -284,6 +290,7 @@ fn emit_source_removed_returns_false_when_artifact_id_missing()
         artifact_ids: BTreeMap::new(),
         shutdown: CancellationToken::new(),
         state: WatchState::default(),
+        pending: BTreeMap::new(),
         scan_permits: Arc::new(Semaphore::new(MAX_CONCURRENT_SCANS)),
     };
     assert!(!watcher.emit_source_removed("/tmp/unknown.md", "hash")?);

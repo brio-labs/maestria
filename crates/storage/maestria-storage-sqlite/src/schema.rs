@@ -62,8 +62,11 @@ fn detect_schema_state(connection: &Connection) -> Result<SchemaState, PortError
 }
 
 /// SQL that bootstraps every table for a fresh database (all `IF NOT EXISTS`).
-const BASE_SCHEMA_SQL: &str = r#"PRAGMA foreign_keys = ON;
-     CREATE TABLE IF NOT EXISTS schema_version (
+///
+/// Foreign-key enforcement is enabled and validated by [`migrate`] before the
+/// migration transaction starts. SQLite ignores a `PRAGMA foreign_keys` write
+/// made while a transaction is active.
+const BASE_SCHEMA_SQL: &str = r#"CREATE TABLE IF NOT EXISTS schema_version (
          version INTEGER NOT NULL PRIMARY KEY,
          applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
      );
@@ -254,11 +257,29 @@ fn create_base_schema(connection: &Connection) -> Result<(), PortError> {
         .execute_batch(BASE_SCHEMA_SQL)
         .map_err(to_port_error)
 }
+/// Enables SQLite foreign-key enforcement before any migration transaction
+/// begins, then verifies that SQLite accepted the setting.
+fn ensure_foreign_keys(connection: &Connection) -> Result<(), PortError> {
+    connection
+        .pragma_update(None, "foreign_keys", 1_i64)
+        .map_err(to_port_error)?;
+    let enabled = connection
+        .query_row("PRAGMA foreign_keys", [], |row| row.get::<_, i64>(0))
+        .map_err(to_port_error)?;
+    if enabled != 1 {
+        return Err(PortError::InternalContext {
+            context: "enable sqlite foreign-key enforcement",
+            source: format!("PRAGMA foreign_keys reported {enabled}"),
+        });
+    }
+    Ok(())
+}
 
 /// Applies any necessary schema migrations so the database matches
 /// [`CURRENT_SCHEMA_VERSION`]. Idempotent — safe to call on a database that is
 /// already at the current version.
 pub(crate) fn migrate(connection: &mut Connection) -> Result<(), PortError> {
+    ensure_foreign_keys(connection)?;
     let transaction = connection.transaction().map_err(to_port_error)?;
     let state = detect_schema_state(&transaction)?;
     create_base_schema(&transaction)?;

@@ -1,4 +1,4 @@
-use std::{path::Path, sync::Arc};
+use std::{future::Future, path::Path, sync::Arc};
 
 use anyhow::{Context, Result, anyhow};
 use maestria_core::InstanceLayout;
@@ -6,8 +6,8 @@ use maestria_domain::DomainInput;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{UnixListener, UnixStream},
-    sync::{Semaphore, mpsc},
-    task::JoinHandle,
+    sync::{Mutex, Semaphore, mpsc},
+    task::{JoinHandle, JoinSet},
     time::{Duration, timeout},
 };
 use tokio_util::sync::CancellationToken;
@@ -23,6 +23,7 @@ pub struct ApiServer {
     socket_path: std::path::PathBuf,
     shutdown: CancellationToken,
     task: JoinHandle<()>,
+    connections: ConnectionTasks,
 }
 
 impl ApiServer {
@@ -53,11 +54,18 @@ impl ApiServer {
             governance,
         });
         let shutdown = CancellationToken::new();
-        let task = tokio::spawn(serve(listener, context.clone(), shutdown.clone()));
+        let connections = ConnectionTasks::default();
+        let task = tokio::spawn(serve(
+            listener,
+            context.clone(),
+            shutdown.clone(),
+            connections.clone(),
+        ));
         Ok(Self {
             socket_path: context.socket_path.clone(),
             shutdown,
             task,
+            connections,
         })
     }
 
@@ -65,17 +73,65 @@ impl ApiServer {
         &self.socket_path
     }
 
-    /// Signal shutdown and await the acceptor task.
+    /// Signal shutdown and await the acceptor and all connection handler tasks.
     ///
     /// # Cancellation
-    /// Once called, the shutdown token is cancelled. If this future is dropped before the task
-    /// joins, the acceptor continues until it observes the token but completion is not awaited.
+    /// Once called, the shutdown token is cancelled. If this future is dropped before the tasks
+    /// join, the acceptor and connection handlers continue in the background until the acceptor
+    /// observes the token; completion is not awaited.
     pub async fn shutdown(self) -> Result<()> {
         self.shutdown.cancel();
-        self.task
+        let task_result = self
+            .task
             .await
-            .map_err(|error| anyhow!("daemon API task failed: {error}"))?;
+            .map_err(|error| anyhow!("daemon API task failed: {error}"));
+        let connections_result = self.connections.join_all().await;
+
+        task_result?;
+        connections_result?;
         remove_stale_socket(&self.socket_path)
+    }
+}
+
+#[derive(Clone, Default)]
+struct ConnectionTasks {
+    tasks: Arc<Mutex<JoinSet<()>>>,
+}
+
+impl ConnectionTasks {
+    async fn spawn<F>(&self, handler: F)
+    where
+        F: Future<Output = ()> + Send + 'static,
+    {
+        self.tasks.lock().await.spawn(handler);
+    }
+
+    async fn join_all(&self) -> Result<()> {
+        let mut tasks = self.tasks.lock().await;
+        let mut first_error = None;
+        while let Some(result) = tasks.join_next().await {
+            if let (true, Err(error)) = (first_error.is_none(), result) {
+                first_error = Some(error);
+            }
+        }
+        if let Some(error) = first_error {
+            return Err(anyhow!("daemon API connection task failed: {error}"));
+        }
+        Ok(())
+    }
+
+    #[cfg(test)]
+    async fn len(&self) -> usize {
+        self.tasks.lock().await.len()
+    }
+
+    async fn reap_finished(&self) {
+        let mut tasks = self.tasks.lock().await;
+        while let Some(result) = tasks.try_join_next() {
+            if let Err(error) = result {
+                error!(%error, "daemon API connection task failed");
+            }
+        }
     }
 }
 
@@ -88,48 +144,129 @@ pub(crate) struct ApiContext {
     pub(crate) governance: Arc<maestria_runtime::Governance>,
 }
 
-async fn serve(listener: UnixListener, context: Arc<ApiContext>, shutdown: CancellationToken) {
+async fn serve(
+    listener: UnixListener,
+    context: Arc<ApiContext>,
+    shutdown: CancellationToken,
+    connections: ConnectionTasks,
+) {
     let permits = Arc::new(Semaphore::new(32));
     loop {
+        connections.reap_finished().await;
         tokio::select! {
+            biased;
             _ = shutdown.cancelled() => break,
             accepted = listener.accept() => {
                 let Ok((stream, _)) = accepted else { break };
                 let Ok(permit) = permits.clone().try_acquire_owned() else { continue };
                 let context = context.clone();
-                tokio::spawn(async move {
+                let shutdown = shutdown.clone();
+                connections.spawn(async move {
                     let _permit = permit;
-                    if let Err(error) = handle_connection(stream, context).await {
+                    if let Err(error) = handle_connection(stream, context, shutdown).await {
                         error!(%error, "api connection handler failed");
                     }
-                });
+                }).await;
             }
         }
     }
 }
 
-async fn handle_connection(mut stream: UnixStream, context: Arc<ApiContext>) -> Result<()> {
-    let line = match timeout(Duration::from_secs(5), read_request_line(&mut stream)).await {
-        Ok(Ok(line)) => line,
-        Ok(Err(error)) => {
-            return write_reply(&mut stream, None, Some(error.to_string())).await;
+async fn handle_connection(
+    mut stream: UnixStream,
+    context: Arc<ApiContext>,
+    shutdown: CancellationToken,
+) -> Result<()> {
+    let line = match run_until_shutdown(
+        &shutdown,
+        timeout(Duration::from_secs(5), read_request_line(&mut stream)),
+    )
+    .await
+    {
+        Some(Ok(Ok(line))) => line,
+        Some(Ok(Err(error))) => {
+            return match run_until_shutdown(
+                &shutdown,
+                write_reply(&mut stream, None, Some(error.to_string())),
+            )
+            .await
+            {
+                Some(result) => result,
+                None => Ok(()),
+            };
         }
-        Err(_) => {
-            return write_reply(&mut stream, None, Some("request timed out".to_string())).await;
+        Some(Err(_)) => {
+            return match run_until_shutdown(
+                &shutdown,
+                write_reply(&mut stream, None, Some("request timed out".to_string())),
+            )
+            .await
+            {
+                Some(result) => result,
+                None => Ok(()),
+            };
         }
+        None => return Ok(()),
     };
     let request = match serde_json::from_slice::<ClientRequest>(line.trim_ascii()) {
         Ok(request) => request,
         Err(error) => {
-            return write_reply(&mut stream, None, Some(format!("invalid request: {error}"))).await;
+            return match run_until_shutdown(
+                &shutdown,
+                write_reply(&mut stream, None, Some(format!("invalid request: {error}"))),
+            )
+            .await
+            {
+                Some(result) => result,
+                None => Ok(()),
+            };
         }
     };
     if request.token != context.token {
-        return write_reply(&mut stream, None, Some("unauthorized".to_string())).await;
+        return match run_until_shutdown(
+            &shutdown,
+            write_reply(&mut stream, None, Some("unauthorized".to_string())),
+        )
+        .await
+        {
+            Some(result) => result,
+            None => Ok(()),
+        };
     }
-    match dispatch(&context, request.operation).await {
-        Ok(response) => write_reply(&mut stream, Some(response), None).await,
-        Err(error) => write_reply(&mut stream, None, Some(error.to_string())).await,
+    let response = match run_until_shutdown(&shutdown, dispatch(&context, request.operation)).await
+    {
+        Some(response) => response,
+        None => return Ok(()),
+    };
+    match response {
+        Ok(response) => {
+            match run_until_shutdown(&shutdown, write_reply(&mut stream, Some(response), None))
+                .await
+            {
+                Some(result) => result,
+                None => Ok(()),
+            }
+        }
+        Err(error) => match run_until_shutdown(
+            &shutdown,
+            write_reply(&mut stream, None, Some(error.to_string())),
+        )
+        .await
+        {
+            Some(result) => result,
+            None => Ok(()),
+        },
+    }
+}
+
+async fn run_until_shutdown<T, F>(shutdown: &CancellationToken, future: F) -> Option<T>
+where
+    F: Future<Output = T>,
+{
+    tokio::select! {
+        biased;
+        _ = shutdown.cancelled() => None,
+        output = future => Some(output),
     }
 }
 
@@ -175,21 +312,5 @@ async fn write_reply(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[tokio::test]
-    async fn partial_request_disconnect_is_reported() -> Result<()> {
-        let (mut writer, mut reader) = UnixStream::pair()?;
-        writer.write_all(b"{\"token\":").await?;
-        drop(writer);
-
-        let result = read_request_line(&mut reader).await;
-
-        assert!(
-            matches!(result.as_ref(), Err(error) if error.to_string().contains("before end of request")),
-            "expected truncated request error, got {result:?}"
-        );
-        Ok(())
-    }
-}
+#[path = "server_tests.rs"]
+mod server_tests;

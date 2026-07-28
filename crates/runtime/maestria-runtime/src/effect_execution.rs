@@ -61,9 +61,7 @@ impl EffectExecutionContext {
             MaestriaEffect::UpdateGraph(request) => {
                 handler_result(self.handle_update_graph(request).await, "update graph")
             }
-            MaestriaEffect::QueryHarness(request) => {
-                handler_result(self.handle_query_harness(request).await, "query harness")
-            }
+            MaestriaEffect::QueryHarness(request) => self.handle_query_harness(request).await,
             MaestriaEffect::FetchWeb(request) => {
                 handler_result(self.handle_fetch_web(request).await, "fetch web")
             }

@@ -204,10 +204,18 @@ pub async fn run_promote(
         wait_for_memory(&layout, memory_id, Duration::from_secs(5)).await
     }
     .await;
-
+    shutdown_token.cancel();
     let join_result = runtime_task.await;
-    result?;
-    join_result.with_context(|| "runtime loop join failed")?;
+    let _state = match (result, join_result) {
+        (Ok(state), Ok(())) => state,
+        (Err(error), Ok(())) => return Err(error),
+        (Ok(_), Err(join_error)) => {
+            return Err(anyhow!("runtime loop join failed: {join_error}"));
+        }
+        (Err(error), Err(join_error)) => {
+            return Err(anyhow!("{error}; runtime loop join failed: {join_error}"));
+        }
+    };
 
     println!("promoted candidate={candidate_id} memory={memory_id}");
     Ok(())
