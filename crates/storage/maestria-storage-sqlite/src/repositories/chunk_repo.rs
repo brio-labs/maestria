@@ -76,12 +76,19 @@ fn read_chunk(row: &Row<'_>) -> Result<Chunk, PortError> {
         }
     };
     let source_span_json = row.get::<_, Option<String>>(5).map_err(to_port_error)?;
-    let source_span = if let Some(json) = source_span_json {
-        serde_json::from_str::<crate::payloads::provenance_payloads::StoredSourceSpan>(&json)
-            .map_err(crate::json_error)?
-            .into()
-    } else {
-        crate::payloads::provenance_payloads::StoredSourceSpan::default().into()
+    let source_span = match source_span_json {
+        Some(json) => {
+            serde_json::from_str::<crate::payloads::provenance_payloads::StoredSourceSpan>(&json)
+                .map_err(crate::json_error)?
+                .into()
+        }
+        None => {
+            let chunk_id = row.get::<_, i64>(0).map_err(to_port_error)?;
+            return Err(PortError::InternalContext {
+                context: "chunk repository row missing source_span_json",
+                source: format!("chunk_id={chunk_id}"),
+            });
+        }
     };
     let representations_json = row.get::<_, Option<String>>(6).map_err(to_port_error)?;
     let representations = if let Some(json) = representations_json {

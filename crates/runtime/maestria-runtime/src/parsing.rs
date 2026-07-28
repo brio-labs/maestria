@@ -297,6 +297,15 @@ impl EffectExecutionContext {
         blob_id: BlobId,
         source_hash: &str,
     ) -> bool {
+        if parsed.content_hash.as_str() != source_hash {
+            tracing::error!(
+                artifact_id = %artifact_id.value(),
+                expected = %source_hash,
+                actual = %parsed.content_hash.as_str(),
+                "parsed artifact content hash does not match source hash; rejecting"
+            );
+            return false;
+        }
         let parser_status = parsed.status.clone();
         let indexable = matches!(
             parser_status,

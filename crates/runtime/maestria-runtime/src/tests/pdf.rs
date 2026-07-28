@@ -22,7 +22,7 @@ impl Parser for PageFivePdfParser {
             .as_deref()
             .is_some_and(|ext| ext.eq_ignore_ascii_case("pdf"))
     }
-    fn parse(&self, _file: FileHandle, context: ParseContext) -> Result<ParsedArtifact, PortError> {
+    fn parse(&self, file: FileHandle, context: ParseContext) -> Result<ParsedArtifact, PortError> {
         let chunks: Vec<ParsedChunk> = [1, 3, 5]
             .into_iter()
             .enumerate()
@@ -53,10 +53,9 @@ impl Parser for PageFivePdfParser {
         Ok(ParsedArtifact {
             artifact_id: context.artifact_id,
             artifact_version_id: maestria_domain::ArtifactVersionId::new(1),
-            content_hash: maestria_domain::ContentHash::new(
-                "sha256:0000000000000000000000000000000000000000000000000000000000000000"
-                    .to_string(),
-            )
+            content_hash: maestria_domain::ContentHash::new(maestria_domain::content_hash(
+                &file.bytes,
+            ))
             .map_err(|e| maestria_ports::PortError::Internal {
                 message: e.to_string(),
             })?,
@@ -80,7 +79,7 @@ impl Parser for PageOnePdfParser {
             .is_some_and(|ext| ext.eq_ignore_ascii_case("pdf"))
     }
 
-    fn parse(&self, _file: FileHandle, context: ParseContext) -> Result<ParsedArtifact, PortError> {
+    fn parse(&self, file: FileHandle, context: ParseContext) -> Result<ParsedArtifact, PortError> {
         let chunk = ParsedChunk {
             chunk_id: ChunkId::new(context.artifact_id.value()),
             artifact_id: context.artifact_id,
@@ -107,10 +106,9 @@ impl Parser for PageOnePdfParser {
         Ok(ParsedArtifact {
             artifact_id: context.artifact_id,
             artifact_version_id: maestria_domain::ArtifactVersionId::new(1),
-            content_hash: maestria_domain::ContentHash::new(
-                "sha256:0000000000000000000000000000000000000000000000000000000000000000"
-                    .to_string(),
-            )
+            content_hash: maestria_domain::ContentHash::new(maestria_domain::content_hash(
+                &file.bytes,
+            ))
             .map_err(|e| maestria_ports::PortError::Internal {
                 message: e.to_string(),
             })?,

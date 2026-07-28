@@ -84,12 +84,19 @@ fn read_card(row: &Row<'_>, connection: &Connection) -> Result<Card, PortError> 
         }
     };
     let source_span_json = row.get::<_, Option<String>>(5).map_err(to_port_error)?;
-    let source_span = if let Some(json) = source_span_json {
-        serde_json::from_str::<crate::payloads::provenance_payloads::StoredSourceSpan>(&json)
-            .map_err(crate::json_error)?
-            .into()
-    } else {
-        crate::payloads::provenance_payloads::StoredSourceSpan::default().into()
+    let source_span = match source_span_json {
+        Some(json) => {
+            serde_json::from_str::<crate::payloads::provenance_payloads::StoredSourceSpan>(&json)
+                .map_err(crate::json_error)?
+                .into()
+        }
+        None => {
+            let card_id = row.get::<_, i64>(0).map_err(to_port_error)?;
+            return Err(PortError::InternalContext {
+                context: "card repository row missing source_span_json",
+                source: format!("card_id={card_id}"),
+            });
+        }
     };
 
     let security_json = row.get::<_, String>(6).map_err(to_port_error)?;

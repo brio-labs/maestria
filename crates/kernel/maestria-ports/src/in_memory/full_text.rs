@@ -36,6 +36,9 @@ impl crate::FullTextIndex for InMemoryFullTextIndex {
                 })?;
 
         for chunk in &chunks {
+            guard.retain(|existing| {
+                existing.artifact_id != chunk.artifact_id || existing.chunk_id != chunk.chunk_id
+            });
             lexical_guard.retain(|existing| {
                 existing.artifact_id != chunk.artifact_id || existing.chunk_id != chunk.chunk_id
             });
@@ -53,11 +56,18 @@ impl crate::FullTextIndex for InMemoryFullTextIndex {
     }
 
     fn search(&self, query: SearchQuery) -> Result<Vec<SearchHit>, PortError> {
+        let trimmed = query.q.trim();
+        if trimmed.is_empty() {
+            return Err(PortError::InvalidInputContext {
+                context: "empty chunk search query",
+                source: "query must contain non-whitespace text".to_string(),
+            });
+        }
         let guard = self.chunks.lock().map_err(|_| PortError::InternalContext {
             context: "full-text chunk index lock poisoned",
             source: "chunk index mutex is poisoned".to_string(),
         })?;
-        let needle = query.q.to_lowercase();
+        let needle = trimmed.to_lowercase();
         let mut hits = guard
             .iter()
             .filter(|chunk| chunk.text.to_lowercase().contains(&needle))
@@ -85,11 +95,18 @@ impl crate::FullTextIndex for InMemoryFullTextIndex {
         query: SearchQuery,
         filter: &dyn Fn(maestria_domain::ChunkId, maestria_domain::ArtifactId) -> bool,
     ) -> Result<Vec<SearchHit>, PortError> {
+        let trimmed = query.q.trim();
+        if trimmed.is_empty() {
+            return Err(PortError::InvalidInputContext {
+                context: "empty filtered chunk search query",
+                source: "query must contain non-whitespace text".to_string(),
+            });
+        }
         let guard = self.chunks.lock().map_err(|_| PortError::InternalContext {
             context: "full-text chunk index lock poisoned",
             source: "chunk index mutex is poisoned".to_string(),
         })?;
-        let needle = query.q.to_lowercase();
+        let needle = trimmed.to_lowercase();
         let mut hits = guard
             .iter()
             .filter(|chunk| chunk.text.to_lowercase().contains(&needle))
@@ -144,11 +161,18 @@ impl crate::FullTextIndex for InMemoryFullTextIndex {
     }
 
     fn search_cards(&self, query: SearchQuery) -> Result<Vec<CardHit>, PortError> {
+        let trimmed = query.q.trim();
+        if trimmed.is_empty() {
+            return Err(PortError::InvalidInputContext {
+                context: "empty card search query",
+                source: "query must contain non-whitespace text".to_string(),
+            });
+        }
         let guard = self.cards.lock().map_err(|_| PortError::InternalContext {
             context: "full-text card index lock poisoned",
             source: "card index mutex is poisoned".to_string(),
         })?;
-        let needle = query.q.to_lowercase();
+        let needle = trimmed.to_lowercase();
         let mut hits: Vec<CardHit> = guard
             .iter()
             .filter(|card| {
@@ -182,11 +206,18 @@ impl crate::FullTextIndex for InMemoryFullTextIndex {
         query: SearchQuery,
         filter: &dyn Fn(maestria_domain::CardId, maestria_domain::ArtifactId) -> bool,
     ) -> Result<Vec<CardHit>, PortError> {
+        let trimmed = query.q.trim();
+        if trimmed.is_empty() {
+            return Err(PortError::InvalidInputContext {
+                context: "empty filtered card search query",
+                source: "query must contain non-whitespace text".to_string(),
+            });
+        }
         let guard = self.cards.lock().map_err(|_| PortError::InternalContext {
             context: "full-text card index lock poisoned",
             source: "card index mutex is poisoned".to_string(),
         })?;
-        let needle = query.q.to_lowercase();
+        let needle = trimmed.to_lowercase();
         let mut hits: Vec<CardHit> = guard
             .iter()
             .filter(|card| {
@@ -256,3 +287,7 @@ impl crate::FullTextIndex for InMemoryFullTextIndex {
         super::lexical::search_cards_lexical_filtered(&self.lexical_cards, query, filter)
     }
 }
+
+#[cfg(test)]
+#[path = "full_text_tests.rs"]
+mod tests;

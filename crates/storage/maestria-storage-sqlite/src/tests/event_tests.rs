@@ -435,3 +435,49 @@ fn document_tree_captured_event_round_trips() -> Result<(), Box<dyn std::error::
 
     Ok(())
 }
+
+#[test]
+fn chunk_registered_missing_source_span_is_rejected() -> Result<(), PortError> {
+    let store = SqliteStore::in_memory()?;
+    {
+        let connection = store.lock()?;
+        connection
+            .execute(
+                "INSERT INTO domain_events (id, sequence, event_kind, artifact_id, payload_json, payload_version)
+                     VALUES (1, 1, 'chunk_registered', 1, ?1, 2)",
+                params![
+                    r#"{"event_kind":"chunk_registered","chunk_id":1,"artifact_id":1,"order":0,"text":"t","node_id":0,"representations":[]}"#
+                ],
+            )
+            .map_err(to_port_error)?;
+    }
+    assert!(
+        store
+            .scan(EventFilter { artifact_id: None })
+            .is_err_and(|e| e.is_internal())
+    );
+    Ok(())
+}
+
+#[test]
+fn card_created_missing_source_span_is_rejected() -> Result<(), PortError> {
+    let store = SqliteStore::in_memory()?;
+    {
+        let connection = store.lock()?;
+        connection
+            .execute(
+                "INSERT INTO domain_events (id, sequence, event_kind, artifact_id, payload_json, payload_version)
+                     VALUES (1, 1, 'card_created', 1, ?1, 2)",
+                params![
+                    r#"{"event_kind":"card_created","card_id":1,"artifact_id":1,"title":"t","body":"b","node_id":0}"#
+                ],
+            )
+            .map_err(to_port_error)?;
+    }
+    assert!(
+        store
+            .scan(EventFilter { artifact_id: None })
+            .is_err_and(|e| e.is_internal())
+    );
+    Ok(())
+}

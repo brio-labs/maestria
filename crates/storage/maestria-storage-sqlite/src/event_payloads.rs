@@ -20,7 +20,6 @@ pub(crate) enum StoredEventPayload {
         artifact_id: u64,
         #[serde(default)]
         node_id: u64,
-        #[serde(default)]
         source_span: crate::payloads::StoredSourceSpan,
         #[serde(default)]
         representations: Vec<crate::payloads::StoredParsedRepresentation>,
@@ -32,7 +31,6 @@ pub(crate) enum StoredEventPayload {
         artifact_id: u64,
         #[serde(default)]
         node_id: u64,
-        #[serde(default)]
         source_span: crate::payloads::StoredSourceSpan,
         title: String,
         body: String,
