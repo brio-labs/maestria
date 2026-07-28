@@ -1,4 +1,5 @@
 use super::*;
+use anyhow::Context as _;
 use maestria_domain::{CorpusSnapshotId, IndexGenerationId};
 
 impl SearchRuntime {
@@ -23,7 +24,6 @@ impl SearchRuntime {
                     blobs: self.blobs.clone(),
                     embedding_provider: provider,
                 },
-                self.retrieval_policy.clone(),
                 capability,
             )),
             active_versions,
@@ -177,9 +177,12 @@ fn maybe_reconcile_vector_projection(
         .as_ref()
         .filter(|config| config.enabled)
         .map(|config| config.model.as_str());
-    if let Err(error) =
-        crate::reconcile_vector_projection(state, vector_index, Some(provider), model)
-    {
+    if let Err(error) = crate::projection_recovery::reconcile_vector_projection(
+        state,
+        vector_index,
+        Some(provider),
+        model,
+    ) {
         tracing::warn!(%error, "dense retrieval unavailable; using lexical fallback");
     }
 }
@@ -194,7 +197,7 @@ fn open_graph_index(
             .with_context(|| format!("open graph index {}", layout.graph_index_dir.display()))?,
     );
     if allow_projection_writes {
-        crate::reconcile_graph_projection(state, &*graph_index)
+        crate::projection_recovery::reconcile_graph_projection(state, &*graph_index)
             .with_context(|| "reconcile graph projection for search")?;
     }
     Ok(graph_index)
@@ -230,7 +233,7 @@ fn prepare_search_runtime_with_options(
     let search_index = open_full_text_index(layout, state, allow_projection_writes)?;
     let repository_code_index = load_repository_code_index_with_exclusions(layout, Some(manifest))
         .context("load repository code index")?;
-    let embedding_provider = crate::build_embedding_provider(manifest, state)?;
+    let embedding_provider = crate::vector_startup::build_embedding_provider(manifest, state)?;
     let vector_index = open_vector_index(layout, embedding_provider.is_some())?;
     maybe_reconcile_vector_projection(
         state,

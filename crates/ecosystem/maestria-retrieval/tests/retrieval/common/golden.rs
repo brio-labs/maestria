@@ -39,6 +39,7 @@ pub fn plan() -> Result<SearchPlan, Box<dyn std::error::Error>> {
             minimum_corroboration: 1,
         },
         fingerprint: RetrievalModelFingerprint::new("trace:v1".to_owned())?,
+        authorization: Some(maestria_domain::RetrievalPolicySnapshot::global_default()),
         original_intent: None,
         route_decision: None,
     })
@@ -75,6 +76,7 @@ pub fn query_plan(
             minimum_corroboration: 1,
         },
         fingerprint: RetrievalModelFingerprint::new("trace:v1".to_owned())?,
+        authorization: Some(maestria_domain::RetrievalPolicySnapshot::global_default()),
         original_intent: None,
         route_decision: None,
     })

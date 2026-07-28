@@ -166,13 +166,7 @@ impl KernelState {
         input: CompleteTaskInput,
     ) -> Result<KernelOutput, DomainError> {
         let event = self.handle_complete_task(input)?;
-        let mut output = Self::output_for_event(event);
-        output
-            .effects
-            .push(MaestriaEffect::PersistState(PersistStateRequest {
-                reason: "validated task completion".to_string(),
-            }));
-        Ok(output)
+        Ok(Self::output_for_event(event))
     }
 
     pub(super) fn process_link_evidence_to_claim(

@@ -1,6 +1,6 @@
-use super::lexical_helpers::MAX_LEXICAL_CANDIDATES;
-use super::search_helpers::collect_tie_complete;
-use super::{
+use crate::lexical_helpers::MAX_LEXICAL_CANDIDATES;
+use crate::search_helpers::collect_tie_complete;
+use crate::tantivy_index::{
     TantivyFullTextIndex, card_key, chunk_key, descending_score, score_to_u32, to_port_error,
 };
 use maestria_domain::{ArtifactId, CardId, ChunkId};

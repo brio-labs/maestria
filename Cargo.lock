@@ -1385,7 +1385,6 @@ name = "maestria-ports"
 version = "0.6.1"
 dependencies = [
  "maestria-domain",
- "tokio",
 ]
 
 [[package]]
@@ -1413,6 +1412,8 @@ dependencies = [
  "maestria-ports",
  "maestria-validation",
  "parking_lot",
+ "serde",
+ "serde_json",
  "tokio",
  "tokio-test",
  "tokio-util",

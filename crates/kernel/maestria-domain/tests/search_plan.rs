@@ -32,6 +32,7 @@ fn plan() -> Result<SearchPlan, Box<dyn Error>> {
             minimum_sections: 0,
         },
         fingerprint: RetrievalModelFingerprint::new("test:v1".to_string())?,
+        authorization: Some(maestria_domain::RetrievalPolicySnapshot::global_default()),
         original_intent: None,
         route_decision: None,
     })

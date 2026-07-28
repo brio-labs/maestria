@@ -1,7 +1,7 @@
 use crate::entities::{EvidenceKind, RelationEndpoint, RelationKind, TaskPriority, TaskStatus};
 use crate::ids::{
     ApprovalId, ArtifactId, BlobId, CardId, ChunkId, ClaimId, EvidenceId, HarnessRunId,
-    IndexGenerationId, LogicalTick, MemoryCandidateId, MemoryId, RelationId, TaskId,
+    IndexGenerationId, LogicalTick, MemoryCandidateId, MemoryId, RelationId, ScopeId, TaskId,
     ValidationReportId,
 };
 
@@ -219,6 +219,113 @@ pub struct HarnessRunCompleted {
     pub output: String,
 }
 
+/// Request execution of a harness command. The runtime owns governance,
+/// effect-journal admission, and adapter execution for this request.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HarnessRunRequested {
+    pub run_id: HarnessRunId,
+    pub task_id: Option<TaskId>,
+    pub generation: Option<u64>,
+    pub capability: String,
+    pub scope_id: ScopeId,
+    pub approval_id: Option<ApprovalId>,
+    pub command: String,
+}
+/// A fully validated model-agent proposal crossing the canonical runtime boundary.
+///
+/// The runtime and effect executor carry this value unchanged so approval
+/// continuations can resume the exact request rather than reconstructing it
+/// from a command string.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct ModelAgentProposalRequest {
+    pub run_id: HarnessRunId,
+    pub task_id: Option<TaskId>,
+    pub query: String,
+    pub limit: usize,
+    pub evidence_ids: Vec<EvidenceId>,
+    pub capability: String,
+    pub command: String,
+    pub working_directory: String,
+    pub timeout_secs: u64,
+    pub expected_generation: u64,
+    pub task_validation: bool,
+    pub memory_candidate: bool,
+    pub approval_id: Option<ApprovalId>,
+    pub journal_generation: Option<u64>,
+    pub correlation_id: u64,
+}
+
+impl ModelAgentProposalRequest {
+    pub fn into_harness_request(self) -> crate::effects::QueryHarnessProposalRequest {
+        crate::effects::QueryHarnessProposalRequest { proposal: self }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct ModelAgentSearchResult {
+    pub trace_id: u64,
+    pub evidence_count: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct ModelAgentHarnessResult {
+    pub exit_code: i32,
+    pub stdout: String,
+    pub stderr: String,
+    pub duration_ms: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct ModelAgentValidationResult {
+    pub passed: bool,
+    pub warnings: Vec<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum ModelAgentMemoryDecision {
+    Promote,
+    RequireEvidence,
+    RequireReview,
+    Deny,
+}
+
+impl ModelAgentMemoryDecision {
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Promote => "promote",
+            Self::RequireEvidence => "require_evidence",
+            Self::RequireReview => "require_review",
+            Self::Deny => "deny",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct ModelAgentMemoryResult {
+    pub candidate_id: MemoryCandidateId,
+    pub confidence_milli: u16,
+    pub decision: ModelAgentMemoryDecision,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum ModelAgentTerminalStatus {
+    Succeeded,
+    Failed,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct ModelAgentProposalResult {
+    pub run_id: HarnessRunId,
+    pub correlation_id: u64,
+    pub status: ModelAgentTerminalStatus,
+    pub search: Option<ModelAgentSearchResult>,
+    pub harness: Option<ModelAgentHarnessResult>,
+    pub validation: Option<ModelAgentValidationResult>,
+    pub memory_candidate: Option<ModelAgentMemoryResult>,
+    pub error: Option<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ValidationCompleted {
     pub claim_id: ClaimId,
@@ -232,8 +339,9 @@ pub struct RequestTaskValidation {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ApprovalDecision {
     pub approval_id: ApprovalId,
-    pub task_id: TaskId,
+    pub task_id: Option<TaskId>,
     pub approved: bool,
+    pub affects_task: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -254,7 +362,7 @@ pub struct SearchKnowledgeRequested {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SearchKnowledgeCompleted {
     pub task_id: Option<TaskId>,
-    pub plan: Option<Box<crate::search::SearchPlan>>,
+    pub plan: Box<crate::search::SearchPlan>,
     pub outcome: crate::search::SearchOutcome,
 }
 
@@ -279,8 +387,12 @@ pub struct TransitionIndexGenerationInput {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DomainInput {
+    ModelAgentProposalRequested(ModelAgentProposalRequest),
+    /// Resume a previously recorded proposal without creating a duplicate run request event.
+    ModelAgentProposalResumed(ModelAgentProposalRequest),
     RegisterArtifact(RegisterArtifactInput),
     RegisterChunk(RegisterChunkInput),
+    ModelAgentProposalCompleted(ModelAgentProposalResult),
     CreateCard(CreateCardInput),
     RecordEvidence(RecordEvidenceInput),
     CreateClaim(CreateClaimInput),
@@ -307,6 +419,7 @@ pub enum DomainInput {
     ResumeParser(ParserStarted),
     ParserCompleted(ParserResult),
     SearchCompleted(SearchResultSet),
+    HarnessRunRequested(HarnessRunRequested),
     HarnessRunCompleted(HarnessRunCompleted),
     ValidationCompleted(ValidationCompleted),
     ApprovalResolved(ApprovalDecision),

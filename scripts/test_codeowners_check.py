@@ -93,6 +93,14 @@ class CodeownersCheckTests(unittest.TestCase):
         owned = {"/required/path/"}
         self.assertEqual(CHECK.check_required_coverage(owned), ["/missing/"])
 
+    def test_clippy_configuration_has_explicit_ownership_requirement(self) -> None:
+        self.assertIn("/clippy.toml", CHECK.REQUIRED_OWNERSHIP_PATHS)
+    def test_clippy_configuration_is_in_both_ci_trigger_filters(self) -> None:
+        workflow = Path(__file__).parents[1] / ".github" / "workflows" / "ci.yml"
+        content = workflow.read_text(encoding="utf-8")
+        self.assertGreaterEqual(content.count("- 'clippy.toml'"), 2)
+
+
     # ── all_entries_exist ────────────────────────────────────────────
 
     def test_all_entries_exist(self) -> None:
@@ -188,6 +196,7 @@ class CodeownersCheckTests(unittest.TestCase):
                 ".github/workflows/release.yml       @carabistouflette",
                 ".github/workflows/ci.yml            @carabistouflette",
                 "/deny.toml                          @carabistouflette",
+                "/clippy.toml                         @carabistouflette",
             ])
             # Create all required paths as files/dirs so they exist.
             for p in CHECK.REQUIRED_OWNERSHIP_PATHS:

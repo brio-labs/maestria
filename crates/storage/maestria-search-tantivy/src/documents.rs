@@ -4,7 +4,7 @@ use maestria_ports::{
 };
 use tantivy::{TantivyDocument, doc, schema::Value};
 
-use super::{TantivyFullTextIndex, card_key, chunk_key};
+use crate::tantivy_index::{TantivyFullTextIndex, card_key, chunk_key};
 
 impl TantivyFullTextIndex {
     pub(crate) fn chunk_document(&self, chunk: &IndexedChunk) -> TantivyDocument {

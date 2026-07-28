@@ -153,3 +153,7 @@ pub fn reconcile_vector_projection(
         .context("rebuild vector projection from domain state")?;
     Ok(())
 }
+
+#[cfg(test)]
+#[path = "projection_recovery_tests.rs"]
+mod tests;

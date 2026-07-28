@@ -1,7 +1,7 @@
 use maestria_ports::PortError;
 use rusqlite::{Connection, OptionalExtension, params};
 
-use crate::{i64_to_u64, to_port_error};
+use crate::sqlite_store::{i64_to_u64, json_error, to_port_error};
 
 pub(crate) const DOMAIN_EVENTS_V1_COLUMNS: [&str; 5] = [
     "id",
@@ -188,9 +188,11 @@ pub(crate) fn validate_event_order(connection: &Connection) -> Result<(), PortEr
 pub(crate) fn validate_stored_event_payloads(connection: &Connection) -> Result<(), PortError> {
     let mut statement = connection
         .prepare(
-            "SELECT event_kind, artifact_id, payload_json, payload_version
-             FROM domain_events
-             ORDER BY sequence ASC",
+            "SELECT e.event_kind, e.artifact_id, e.payload_json, e.payload_version,
+                    m.approval_id
+             FROM domain_events e
+             LEFT JOIN approval_event_mapping m ON m.event_id = e.id
+             ORDER BY e.sequence ASC",
         )
         .map_err(to_port_error)?;
     let mut rows = statement.query([]).map_err(to_port_error)?;
@@ -199,13 +201,23 @@ pub(crate) fn validate_stored_event_payloads(connection: &Connection) -> Result<
         let stored_artifact_id: Option<i64> = row.get(1).map_err(to_port_error)?;
         let payload_json: String = row.get(2).map_err(to_port_error)?;
         let payload_version: i64 = row.get(3).map_err(to_port_error)?;
+        let mapped_approval_id: Option<u64> = row
+            .get::<_, Option<i64>>(4)
+            .map_err(to_port_error)?
+            .map(u64::try_from)
+            .transpose()
+            .map_err(|_| PortError::InternalContext {
+                context: "decode mapped legacy approval id",
+                source: "approval id is negative".to_string(),
+            })?;
+        let value = crate::events::upcast_legacy_approval_id(&payload_json, mapped_approval_id)?;
         let payload = match payload_version {
             1 => {
                 let legacy: crate::payloads::LegacyStoredEventPayload =
-                    serde_json::from_str(&payload_json).map_err(crate::json_error)?;
+                    serde_json::from_value(value).map_err(json_error)?;
                 legacy.into_v2()?
             }
-            2 => serde_json::from_str(&payload_json).map_err(crate::json_error)?,
+            2 => serde_json::from_value(value).map_err(json_error)?,
             version => {
                 return Err(PortError::InternalContext {
                     context: "unsupported event payload version",

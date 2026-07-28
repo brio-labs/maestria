@@ -185,6 +185,7 @@ impl LearnedSparseShadowStore {
 pub(crate) fn spawn_learned_sparse_shadow(
     retrievers: Vec<Arc<dyn CandidateRetriever>>,
     plan: SearchPlan,
+    authorization: maestria_governance::RetrievalAuthorizationContext,
     store: LearnedSparseShadowStore,
 ) -> Option<LearnedSparseShadowTask> {
     let retrievers = retrievers
@@ -200,7 +201,7 @@ pub(crate) fn spawn_learned_sparse_shadow(
     }
     Some(LearnedSparseShadowTask {
         handle: Some(tokio::spawn(async move {
-            let observation = run_shadow(retrievers, plan).await;
+            let observation = run_shadow(retrievers, plan, authorization).await;
             store.record(observation);
         })),
     })
@@ -209,6 +210,7 @@ pub(crate) fn spawn_learned_sparse_shadow(
 async fn run_shadow(
     retrievers: Vec<(Arc<dyn CandidateRetriever>, RetrieverDescriptor)>,
     plan: SearchPlan,
+    authorization: maestria_governance::RetrievalAuthorizationContext,
 ) -> LearnedSparseShadowObservation {
     let started = tokio::time::Instant::now();
     let timeout_ms = u64::from(plan.budgets.max_latency_ms()).clamp(1, MAX_SHADOW_LATENCY_MS);
@@ -218,7 +220,7 @@ async fn run_shadow(
         .collect::<Vec<_>>();
     let lanes = match tokio::time::timeout(
         Duration::from_millis(timeout_ms),
-        collect_shadow_lanes(retrievers, &plan),
+        collect_shadow_lanes(retrievers, &plan, &authorization),
     )
     .await
     {
@@ -244,10 +246,10 @@ async fn run_shadow(
         lanes,
     }
 }
-
 async fn collect_shadow_lanes(
     retrievers: Vec<(Arc<dyn CandidateRetriever>, RetrieverDescriptor)>,
     plan: &SearchPlan,
+    authorization: &maestria_governance::RetrievalAuthorizationContext,
 ) -> Vec<LearnedSparseShadowLane> {
     let mut lanes = Vec::with_capacity(retrievers.len());
     for (retriever, descriptor) in retrievers {
@@ -262,6 +264,7 @@ async fn collect_shadow_lanes(
                 offset: 0,
             },
             expected_generation: descriptor.generation,
+            authorization: authorization.clone(),
         };
         let lane = match retriever.retrieve(request).await {
             Ok(batch) if batch.generation != Some(descriptor.generation) => failed_lane(

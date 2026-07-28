@@ -139,9 +139,15 @@ pub enum DomainEvent {
         command: String,
         exit_code: i32,
     },
+    ModelAgentProposalRequested {
+        request: crate::inputs::ModelAgentProposalRequest,
+    },
+    ModelAgentProposalCompleted {
+        result: crate::inputs::ModelAgentProposalResult,
+    },
     ApprovalRecorded {
         approval_id: ApprovalId,
-        task_id: TaskId,
+        task_id: Option<TaskId>,
         approved: bool,
         from_status: Option<TaskStatus>,
         to_status: Option<TaskStatus>,

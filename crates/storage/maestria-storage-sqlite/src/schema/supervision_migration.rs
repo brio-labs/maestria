@@ -2,7 +2,7 @@ use maestria_ports::PortError;
 use rusqlite::Connection;
 
 use super::{CURRENT_SCHEMA_VERSION, SchemaState};
-use crate::{schema_validation::table_has_column, to_port_error};
+use crate::{schema_validation::table_has_column, sqlite_store::to_port_error};
 
 pub(super) fn ensure_artifact_v3_columns(connection: &Connection) -> Result<(), PortError> {
     if !table_has_column(connection, "artifacts", "content_hash")? {
@@ -52,5 +52,16 @@ pub(super) fn migrate_from_v5(
             [CURRENT_SCHEMA_VERSION],
         )
         .map_err(to_port_error)?;
+    Ok(())
+}
+pub(super) fn ensure_feedback_outcome_column(connection: &Connection) -> Result<(), PortError> {
+    if !table_has_column(connection, "effect_journal", "feedback_json")? {
+        connection
+            .execute(
+                "ALTER TABLE effect_journal ADD COLUMN feedback_json TEXT",
+                [],
+            )
+            .map_err(to_port_error)?;
+    }
     Ok(())
 }

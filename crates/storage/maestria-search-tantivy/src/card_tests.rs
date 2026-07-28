@@ -1,6 +1,6 @@
-use super::*;
-
-use maestria_ports::{IndexedCard, IndexedChunk, SearchQuery};
+use crate::TantivyFullTextIndex;
+use maestria_domain::{ArtifactId, CardId, ChunkId};
+use maestria_ports::{FullTextIndex, IndexedCard, IndexedChunk, SearchQuery};
 
 fn card(artifact_id: u64, card_id: u64, title: &str, body: &str) -> IndexedCard {
     IndexedCard {

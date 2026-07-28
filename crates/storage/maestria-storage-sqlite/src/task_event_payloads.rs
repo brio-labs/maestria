@@ -60,7 +60,7 @@ impl StoredEventPayload {
                 to_status,
             } => Some(Self::ApprovalRecorded {
                 approval_id: approval_id.value(),
-                task_id: task_id.value(),
+                task_id: task_id.map(|id| id.value()),
                 approved: *approved,
                 from_status: from_status.map(StoredTaskStatus::from_domain),
                 to_status: to_status.map(StoredTaskStatus::from_domain),
@@ -135,7 +135,7 @@ impl StoredEventPayload {
                 to_status,
             } => Ok(DomainEvent::ApprovalRecorded {
                 approval_id: ApprovalId::new(approval_id),
-                task_id: TaskId::new(task_id),
+                task_id: task_id.map(TaskId::new),
                 approved,
                 from_status: from_status.map(|s| s.into_domain()),
                 to_status: to_status.map(|s| s.into_domain()),

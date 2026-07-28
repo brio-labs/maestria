@@ -220,6 +220,84 @@ class PhilosophyCheckTests(unittest.TestCase):
                 source_violations,
             )
 
+    def test_manifest_dependencies_normalizes_all_dependency_tables(self) -> None:
+        content = """
+[dependencies]
+renamed_sha = { package = "sha2", version = "1" }
+[dev-dependencies]
+tokio_alias = { package = "tokio", version = "1" }
+[build-dependencies]
+build_tool = "1"
+[target.'cfg(unix)'.dependencies]
+target_alias = { package = "Reqwest", version = "1" }
+[target.'cfg(unix)'.dev-dependencies]
+dev_alias = { package = "unknown-package", version = "1" }
+"""
+        self.assertEqual(
+            PHILOSOPHY_CHECK._manifest_dependencies(content),
+            {"sha2", "tokio", "build-tool", "reqwest", "unknown-package"},
+        )
+
+    def test_kernel_manifest_rejects_unknown_and_forbidden_target_build_dev_dependencies(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.configure_root(root)
+            for name in ("maestria-domain", "maestria-governance", "maestria-ports"):
+                crate = root / "crates" / "kernel" / name
+                (crate / "src").mkdir(parents=True)
+                dependency = {
+                    "maestria-domain": 'sha2 = "0.10"',
+                    "maestria-governance": 'maestria_domain = { package = "maestria-domain", path = "../../domain" }',
+                    "maestria-ports": 'maestria_domain = { package = "maestria-domain", path = "../../domain" }',
+                }[name]
+                (crate / "Cargo.toml").write_text(
+                    f'[package]\nname = "test"\n[dependencies]\n{dependency}\n',
+                    encoding="utf-8",
+                )
+            manifest = root / "crates" / "kernel" / "maestria-domain" / "Cargo.toml"
+            manifest.write_text(
+                '[package]\nname = "test"\n[dependencies]\nsha2 = "0.10"\n'
+                '[target."cfg(unix)".dependencies]\nrenamed = { package = "unknown-ext", version = "1" }\n'
+                '[build-dependencies]\nbuilder = "1"\n'
+                '[dev-dependencies]\ntokio_alias = { package = "tokio", version = "1" }\n',
+                encoding="utf-8",
+            )
+
+            violations = PHILOSOPHY_CHECK.scan_kernel_manifests()
+
+            self.assertIn(
+                "crates/kernel/maestria-domain/Cargo.toml contains disallowed kernel dependency unknown-ext",
+                violations,
+            )
+            self.assertIn(
+                "crates/kernel/maestria-domain/Cargo.toml contains disallowed kernel dependency builder",
+                violations,
+            )
+            self.assertIn(
+                "crates/kernel/maestria-domain/Cargo.toml contains forbidden dependency token tokio",
+                violations,
+            )
+
+    def test_kernel_manifest_allows_only_declared_kernel_dependencies(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.configure_root(root)
+            manifests = {
+                "maestria-domain": '[dependencies]\nsha2 = "0.10"\n',
+                "maestria-governance": '[dependencies]\nmaestria_domain = { package = "maestria-domain", path = "../../domain" }\n',
+                "maestria-ports": '[dependencies]\nmaestria_domain = { package = "maestria-domain", path = "../../domain" }\n',
+            }
+            for name, dependencies in manifests.items():
+                crate = root / "crates" / "kernel" / name
+                (crate / "src").mkdir(parents=True)
+                (crate / "Cargo.toml").write_text(
+                    f'[package]\nname = "test"\n{dependencies}',
+                    encoding="utf-8",
+                )
+            self.assertEqual(PHILOSOPHY_CHECK.scan_kernel_manifests(), [])
+
     def test_kernel_scan_covers_all_kernel_crates_and_failure_macros(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -227,12 +305,20 @@ class PhilosophyCheckTests(unittest.TestCase):
             for name in ("maestria-domain", "maestria-governance", "maestria-ports"):
                 crate = root / "crates" / "kernel" / name
                 (crate / "src").mkdir(parents=True)
+                dependency = {
+                    "maestria-domain": 'sha2 = "0.10"',
+                    "maestria-governance": 'maestria_domain = { package = "maestria-domain", path = "../../domain" }',
+                    "maestria-ports": 'maestria_domain = { package = "maestria-domain", path = "../../domain" }',
+                }[name]
                 (crate / "Cargo.toml").write_text(
-                    '[package]\nname = "test"\n', encoding="utf-8"
+                    f'[package]\nname = "test"\n[dependencies]\n{dependency}\n',
+                    encoding="utf-8",
                 )
             governance = root / "crates" / "kernel" / "maestria-governance"
             (governance / "Cargo.toml").write_text(
-                '[package]\nname = "test"\n[dependencies]\nreqwest = "1"\n',
+                '[package]\nname = "test"\n[dependencies]\n'
+                'maestria_domain = { package = "maestria-domain", path = "../../domain" }\n'
+                'reqwest = "1"\n',
                 encoding="utf-8",
             )
             (governance / "src" / "lib.rs").write_text(
@@ -533,7 +619,7 @@ class PhilosophyCheckTests(unittest.TestCase):
             lib_dir.mkdir(parents=True)
             lib_rs = lib_dir / "lib.rs"
             lib_rs.write_text(
-                "pub mod foo;\npub mod bar;\npub use foo::*;\npub use bar::*;\n",
+                "pub mod foo;\npub mod bar;\npub use foo::Foo;\npub use bar::Bar;\n",
                 encoding="utf-8",
             )
             (lib_dir / "foo.rs").write_text("// foo\n", encoding="utf-8")
@@ -547,6 +633,255 @@ class PhilosophyCheckTests(unittest.TestCase):
                 self.assertEqual(violations, [])
             finally:
                 PHILOSOPHY_CHECK.RESPONSIBILITY_MAPS = old_maps
+
+    def test_facade_boundary_discovers_unlisted_lib_rs(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.configure_root(root)
+            lib_dir = root / "crates" / "ecosystem" / "example" / "src"
+            lib_dir.mkdir(parents=True)
+            (lib_dir / "lib.rs").write_text(
+                "pub fn unlisted_helper() -> i32 { 42 }\n", encoding="utf-8"
+            )
+
+            violations = PHILOSOPHY_CHECK.scan_facade_boundaries()
+
+            self.assertEqual(len(violations), 1)
+            self.assertIn("crates/ecosystem/example/src/lib.rs", violations[0])
+
+    def test_facade_boundary_accepts_unlisted_pure_lib_rs(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.configure_root(root)
+            lib_dir = root / "crates" / "ecosystem" / "pure" / "src"
+            lib_dir.mkdir(parents=True)
+            (lib_dir / "lib.rs").write_text(
+                "mod implementation;\npub use implementation::Helper;\n",
+                encoding="utf-8",
+            )
+            (lib_dir / "implementation.rs").write_text(
+                "pub fn helper() -> i32 { 42 }\n", encoding="utf-8"
+            )
+
+            self.assertEqual(PHILOSOPHY_CHECK.scan_facade_boundaries(), [])
+
+    def test_facade_boundary_rejects_syntax_bypass_items(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.configure_root(root)
+            lib_dir = root / "crates" / "kernel" / "example" / "src"
+            lib_dir.mkdir(parents=True)
+            (lib_dir / "lib.rs").write_text(
+                "pub fn generic<T>() {}\n"
+                "pub const fn constant() {}\n"
+                "pub trait Trait {}\n"
+                "pub union Union { value: u8 }\n"
+                "macro_rules! generated { () => {} }\n"
+                "pub type Alias = u8;\n"
+                "pub use implementation::{Helper, *};\n"
+                "pub use implementation::*;\n",
+                encoding="utf-8",
+            )
+            violations = PHILOSOPHY_CHECK.scan_facade_boundaries()
+            self.assertEqual(len(violations), 1)
+            self.assertIn("8 implementation item(s)", violations[0])
+
+    def test_facade_boundary_rejects_whitespace_separated_wildcard(self) -> None:
+        self.assertFalse(
+            PHILOSOPHY_CHECK._facade_item_allowed("pub use x::\n\t *;")
+        )
+
+    def test_production_lib_paths_discovers_external_workspace_members_and_excludes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.configure_root(root)
+            (root / "Cargo.toml").write_text(
+                '[package]\nname = "root"\n\n[workspace]\n'
+                'members = ["external/*"]\nexclude = ["external/excluded"]\n',
+                encoding="utf-8",
+            )
+            (root / "src").mkdir()
+            (root / "src" / "lib.rs").write_text("mod root_impl;\n", encoding="utf-8")
+            for name in ("kept", "excluded"):
+                crate = root / "external" / name
+                (crate / "src").mkdir(parents=True)
+                (crate / "Cargo.toml").write_text(
+                    f'[package]\nname = "{name}"\n', encoding="utf-8"
+                )
+                (crate / "src" / "lib.rs").write_text("mod implementation;\n", encoding="utf-8")
+            discovered = {
+                path.relative_to(root).as_posix()
+                for path in PHILOSOPHY_CHECK.production_lib_paths()
+            }
+            self.assertEqual(
+                discovered,
+                {"src/lib.rs", "external/kept/src/lib.rs"},
+            )
+
+    def test_production_lib_paths_discovers_implicit_in_tree_path_dependency(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.configure_root(root)
+            (root / "Cargo.toml").write_text(
+                '[workspace]\nmembers = ["member"]\n', encoding="utf-8"
+            )
+            member = root / "member"
+            implicit = root / "implicit"
+            for crate, dependency in ((member, 'implicit = { path = "../implicit" }'), (implicit, "")):
+                (crate / "src").mkdir(parents=True)
+                (crate / "Cargo.toml").write_text(
+                    f'[package]\nname = "{crate.name}"\n[dependencies]\n{dependency}\n',
+                    encoding="utf-8",
+                )
+                (crate / "src" / "lib.rs").write_text("mod implementation;\n", encoding="utf-8")
+            discovered = {
+                path.relative_to(root).as_posix()
+                for path in PHILOSOPHY_CHECK.production_lib_paths()
+            }
+            self.assertEqual(discovered, {"member/src/lib.rs", "implicit/src/lib.rs"})
+
+    def test_production_lib_paths_resolves_inherited_workspace_path_dependency(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.configure_root(root)
+            (root / "Cargo.toml").write_text(
+                "[workspace]\n"
+                'members = ["member"]\n\n'
+                "[workspace.dependencies]\n"
+                'implicit_alias = { package = "implicit", path = "implicit" }\n',
+                encoding="utf-8",
+            )
+            member = root / "member"
+            implicit = root / "implicit"
+            (member / "src").mkdir(parents=True)
+            (implicit / "src").mkdir(parents=True)
+            (member / "Cargo.toml").write_text(
+                '[package]\nname = "member"\n[dependencies]\n'
+                'implicit_alias = { workspace = true }\n',
+                encoding="utf-8",
+            )
+            (implicit / "Cargo.toml").write_text(
+                '[package]\nname = "implicit"\n', encoding="utf-8"
+            )
+            (member / "src" / "lib.rs").write_text("mod implementation;\n", encoding="utf-8")
+            (implicit / "src" / "lib.rs").write_text("mod implementation;\n", encoding="utf-8")
+            discovered = {
+                path.relative_to(root).as_posix()
+                for path in PHILOSOPHY_CHECK.production_lib_paths()
+            }
+            self.assertEqual(discovered, {"member/src/lib.rs", "implicit/src/lib.rs"})
+
+    def test_responsibility_maps_detect_split_pub_mod_and_non_test_cfg(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.configure_root(root)
+            source = root / "crates" / "kernel" / "example" / "src" / "lib.rs"
+            source.parent.mkdir(parents=True)
+            source.write_text(
+                "//! Responsibility map:\n"
+                "//! - `split`: split declaration.\n"
+                "#[cfg(test)]\nmod tests;\n"
+                "#[cfg(any(test, feature = \"shipping\"))]\nmod shipping;\n"
+                "pub\nmod split;\n",
+                encoding="utf-8",
+            )
+            (source.parent / "split.rs").write_text("", encoding="utf-8")
+            old_maps = PHILOSOPHY_CHECK.RESPONSIBILITY_MAPS
+            PHILOSOPHY_CHECK.RESPONSIBILITY_MAPS = {
+                "crates/kernel/example/src/lib.rs": ("split",)
+            }
+            try:
+                violations = PHILOSOPHY_CHECK.scan_responsibility_maps()
+                self.assertIn(
+                    "crates/kernel/example/src/lib.rs responsibility map omits module 'shipping'",
+                    violations,
+                )
+                self.assertNotIn(
+                    "crates/kernel/example/src/lib.rs responsibility map omits module 'tests'",
+                    violations,
+                )
+            finally:
+                PHILOSOPHY_CHECK.RESPONSIBILITY_MAPS = old_maps
+
+    def test_module_scanner_handles_same_line_attributes_without_nested_matches(self) -> None:
+        modules = PHILOSOPHY_CHECK._top_level_module_declarations(
+            "#[cfg(test)] mod tests; "
+            "#[cfg(any(test, feature = \"shipping\"))] mod shipping; "
+            "pub\nmod split; "
+            "mod outer { mod nested; }\n"
+        )
+        self.assertEqual(modules, {"shipping", "split"})
+
+    def test_kernel_manifest_resolves_inherited_renamed_workspace_dependency(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.configure_root(root)
+            (root / "Cargo.toml").write_text(
+                "[workspace]\n"
+                'members = ["crates/kernel/*"]\n\n'
+                "[workspace.dependencies]\n"
+                'network_alias = { package = "reqwest", version = "1" }\n',
+                encoding="utf-8",
+            )
+            for name, dependency in {
+                "maestria-domain": "network_alias = { workspace = true }",
+                "maestria-governance": 'maestria-domain = { package = "maestria-domain", path = "../../domain" }',
+                "maestria-ports": 'maestria-domain = { package = "maestria-domain", path = "../../domain" }',
+            }.items():
+                crate = root / "crates" / "kernel" / name
+                (crate / "src").mkdir(parents=True)
+                (crate / "Cargo.toml").write_text(
+                    f'[package]\nname = "{name}"\n[dependencies]\n{dependency}\n',
+                    encoding="utf-8",
+                )
+            violations = PHILOSOPHY_CHECK.scan_kernel_manifests()
+            self.assertIn(
+                "crates/kernel/maestria-domain/Cargo.toml contains forbidden dependency token reqwest",
+                violations,
+            )
+
+    def test_responsibility_maps_reject_production_module_omitted_from_configuration(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.configure_root(root)
+            (root / "Cargo.toml").write_text(
+                '[workspace]\nmembers = ["external/example"]\n',
+                encoding="utf-8",
+            )
+            crate = root / "external" / "example"
+            (crate / "src").mkdir(parents=True)
+            (crate / "Cargo.toml").write_text(
+                '[package]\nname = "example"\n', encoding="utf-8"
+            )
+            (crate / "src" / "lib.rs").write_text("mod implementation;\n", encoding="utf-8")
+            old_maps = PHILOSOPHY_CHECK.RESPONSIBILITY_MAPS
+            PHILOSOPHY_CHECK.RESPONSIBILITY_MAPS = {}
+            try:
+                self.assertEqual(
+                    PHILOSOPHY_CHECK.scan_responsibility_maps(),
+                    ["external/example/src/lib.rs production module has no configured responsibility map"],
+                )
+            finally:
+                PHILOSOPHY_CHECK.RESPONSIBILITY_MAPS = old_maps
+
+    def test_facade_boundary_honors_existing_adr_exemption_only_for_named_path(self) -> None:
+        old_exemptions = PHILOSOPHY_CHECK.ADR_MODULE_EXEMPTIONS
+        try:
+            PHILOSOPHY_CHECK.ADR_MODULE_EXEMPTIONS = {
+                "crates/runtime/example/src/lib.rs": "v9.0.0",
+            }
+            with tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                self.configure_root(root)
+                lib_dir = root / "crates" / "runtime" / "example" / "src"
+                lib_dir.mkdir(parents=True)
+                (lib_dir / "lib.rs").write_text(
+                    "pub fn reviewed_legacy_body() {}\n", encoding="utf-8"
+                )
+
+                self.assertEqual(len(PHILOSOPHY_CHECK.scan_facade_boundaries()), 1)
+        finally:
+            PHILOSOPHY_CHECK.ADR_MODULE_EXEMPTIONS = old_exemptions
 
     def test_cohesion_reports_dense_lib_rs(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -622,7 +957,7 @@ class PhilosophyCheckTests(unittest.TestCase):
         old_exemptions = PHILOSOPHY_CHECK.FUNCTION_SIZE_EXEMPTIONS
         try:
             PHILOSOPHY_CHECK.FUNCTION_SIZE_EXEMPTIONS = {
-                "crates/apps/example/src/logic.rs": "v0.9.0",
+                "crates/apps/example/src/logic.rs": {"big": "v0.9.0"},
             }
             with tempfile.TemporaryDirectory() as tmp:
                 root = Path(tmp)
@@ -633,6 +968,31 @@ class PhilosophyCheckTests(unittest.TestCase):
                 source.write_text(f"pub fn big() {{\n{body}\n}}\n", encoding="utf-8")
 
                 self.assertEqual(PHILOSOPHY_CHECK.scan_function_sizes(), [])
+        finally:
+            PHILOSOPHY_CHECK.FUNCTION_SIZE_EXEMPTIONS = old_exemptions
+
+    def test_function_exemption_is_scoped_to_named_item(self) -> None:
+        old_exemptions = PHILOSOPHY_CHECK.FUNCTION_SIZE_EXEMPTIONS
+        try:
+            PHILOSOPHY_CHECK.FUNCTION_SIZE_EXEMPTIONS = {
+                "crates/apps/example/src/logic.rs": {"known": "v0.9.0"},
+            }
+            with tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                self.configure_root(root)
+                source = root / "crates" / "apps" / "example" / "src" / "logic.rs"
+                source.parent.mkdir(parents=True)
+                body = "\n".join(f"    let _ = {i};" for i in range(101))
+                source.write_text(
+                    f"pub fn known() {{\n{body}\n}}\n"
+                    f"pub fn newly_added() {{\n{body}\n}}\n",
+                    encoding="utf-8",
+                )
+
+                violations = PHILOSOPHY_CHECK.scan_function_sizes()
+
+                self.assertEqual(len(violations), 1)
+                self.assertIn("function `newly_added`", violations[0])
         finally:
             PHILOSOPHY_CHECK.FUNCTION_SIZE_EXEMPTIONS = old_exemptions
 
@@ -690,7 +1050,7 @@ class PhilosophyCheckTests(unittest.TestCase):
         old_mixed = PHILOSOPHY_CHECK.MIXED_RESPONSIBILITY_EXEMPTIONS
         try:
             PHILOSOPHY_CHECK.FUNCTION_SIZE_EXEMPTIONS = {
-                "crates/example/src/large_fn.rs": "v0.6.0",
+                "crates/example/src/large_fn.rs": {"large": "v0.6.0"},
             }
             PHILOSOPHY_CHECK.MIXED_RESPONSIBILITY_EXEMPTIONS = {
                 "crates/example/src/mixed.rs": "v0.6.0",
@@ -703,7 +1063,7 @@ class PhilosophyCheckTests(unittest.TestCase):
             self.assertEqual(
                 paths,
                 {
-                    "crates/example/src/large_fn.rs",
+                    "crates/example/src/large_fn.rs::large",
                     "crates/example/src/mixed.rs",
                 },
             )

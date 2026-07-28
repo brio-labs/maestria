@@ -64,6 +64,7 @@ REQUIRED_OWNERSHIP_PATHS: set[str] = {
     "/scripts/strict-clippy.sh",
     "/docs/SECURITY.md",
     ".github/workflows/ci.yml",
+    "/clippy.toml",
 }
 
 # A CODEOWNERS rule must use GitHub's @user or @org/team owner syntax. Multiple

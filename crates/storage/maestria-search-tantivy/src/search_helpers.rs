@@ -1,13 +1,14 @@
+use maestria_ports::PortError;
 use tantivy::{DocAddress, Searcher, collector::TopDocs, query::Query};
 
-use super::to_port_error;
+use crate::tantivy_index::to_port_error;
 
 pub(super) fn collect_tie_complete(
     searcher: &Searcher,
     query: &dyn Query,
     offset: usize,
     limit: usize,
-) -> Result<Vec<(f32, DocAddress)>, super::PortError> {
+) -> Result<Vec<(f32, DocAddress)>, PortError> {
     let total_docs = searcher.num_docs() as usize;
     let safe_limit = limit.min(total_docs).max(1);
     let requested = offset.saturating_add(limit).min(total_docs);

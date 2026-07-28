@@ -1,15 +1,12 @@
 //! Initial Maestria crate.
 
 //! Generated during bootstrap. Keep this crate intentionally minimal.
+//!
+//! Responsibility map:
+//! - `version`: package version metadata.
 
-pub const MAESTRIA_VERSION: &str = "0.1.0";
+mod version;
+pub use version::MAESTRIA_VERSION;
 
 #[cfg(test)]
-mod tests {
-    use super::MAESTRIA_VERSION;
-
-    #[test]
-    fn exposes_version() {
-        assert!(!MAESTRIA_VERSION.is_empty());
-    }
-}
+mod tests;

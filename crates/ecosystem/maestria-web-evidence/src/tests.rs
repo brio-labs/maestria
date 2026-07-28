@@ -1,4 +1,6 @@
-use super::*;
+use crate::web_fetcher::{HttpResponse, HttpTransport, UreqWebFetcher, downstream_error};
+use maestria_domain::content_hash;
+use maestria_ports::{PortError, WebFetcher};
 use std::collections::BTreeMap;
 
 #[derive(Debug)]

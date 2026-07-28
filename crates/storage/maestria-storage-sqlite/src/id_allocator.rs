@@ -1,7 +1,7 @@
 use maestria_domain::{ApprovalId, ClaimId, MemoryCandidateId};
 use maestria_ports::{IdAllocator, PortError};
 
-use crate::{map_append_error, to_port_error};
+use crate::sqlite_store::{map_append_error, to_port_error};
 
 impl IdAllocator for crate::SqliteStore {
     fn allocate_claim_id(&self) -> Result<ClaimId, PortError> {

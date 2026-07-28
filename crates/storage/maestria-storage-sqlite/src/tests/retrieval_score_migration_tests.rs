@@ -2,6 +2,7 @@ use std::collections::BTreeMap;
 
 use crate::{SqliteStore, payloads::StoredEventPayload};
 use maestria_domain::*;
+use maestria_ports::{EventFilter, EventLog};
 
 fn plan() -> Result<SearchPlan, Box<dyn std::error::Error>> {
     Ok(SearchPlan {
@@ -29,6 +30,7 @@ fn plan() -> Result<SearchPlan, Box<dyn std::error::Error>> {
             minimum_sections: 0,
         },
         fingerprint: RetrievalModelFingerprint::new("migration-model-v1".to_string())?,
+        authorization: Some(maestria_domain::RetrievalPolicySnapshot::global_default()),
         original_intent: None,
         route_decision: None,
     })
@@ -171,8 +173,7 @@ fn legacy_payloads() -> Result<(String, String, SearchTraceId), Box<dyn std::err
 }
 
 #[test]
-fn v8_migration_rewrites_scores_and_all_trace_references() -> Result<(), Box<dyn std::error::Error>>
-{
+fn v8_migration_preserves_bytes_and_upcasts_on_scan() -> Result<(), Box<dyn std::error::Error>> {
     let directory = tempfile::tempdir()?;
     let path = directory.path().join("score-migration.db");
     let store = SqliteStore::open(&path)?;
@@ -185,70 +186,75 @@ fn v8_migration_rewrites_scores_and_all_trace_references() -> Result<(), Box<dyn
             "INSERT INTO domain_events
              (id, sequence, event_kind, artifact_id, payload_json, payload_version)
              VALUES (1, 1, 'search_knowledge_completed', NULL, ?1, 2)",
-            [knowledge],
+            [&knowledge],
         )?;
         connection.execute(
             "INSERT INTO domain_events
              (id, sequence, event_kind, artifact_id, payload_json, payload_version)
              VALUES (2, 2, 'search_executed', NULL, ?1, 2)",
-            [search],
+            [&search],
         )?;
     }
     drop(store);
 
     let migrated = SqliteStore::open(&path)?;
-    let connection = migrated.lock()?;
-    let version: i64 =
-        connection.query_row("SELECT MAX(version) FROM schema_version", [], |row| {
-            row.get(0)
-        })?;
-    assert_eq!(version, 9);
-    let knowledge_json: String = connection.query_row(
-        "SELECT payload_json FROM domain_events WHERE id = 1",
-        [],
-        |row| row.get(0),
-    )?;
-    assert!(!knowledge_json.contains("\"bm25\""));
-    assert!(!knowledge_json.contains("semantic_similarity"));
-    let knowledge: StoredEventPayload = serde_json::from_str(&knowledge_json)?;
-    let StoredEventPayload::SearchKnowledgeCompleted { outcome, .. } = knowledge else {
-        return Err("migrated knowledge payload has the wrong kind".into());
-    };
-    assert_ne!(outcome.trace, old_trace);
-    assert_eq!(
-        outcome
-            .trace_data
-            .as_deref()
-            .map(SearchTrace::deterministic_id),
-        Some(outcome.trace)
-    );
-    assert_eq!(outcome.evidence[0].scores.schema_version, 2);
+    {
+        let connection = migrated.lock()?;
+        let version: i64 =
+            connection.query_row("SELECT MAX(version) FROM schema_version", [], |row| {
+                row.get(0)
+            })?;
+        assert_eq!(version, 9);
+        let raw_knowledge: String = connection.query_row(
+            "SELECT payload_json FROM domain_events WHERE id = 1",
+            [],
+            |row| row.get(0),
+        )?;
+        let raw_search: String = connection.query_row(
+            "SELECT payload_json FROM domain_events WHERE id = 2",
+            [],
+            |row| row.get(0),
+        )?;
+        assert_eq!(raw_knowledge, knowledge);
+        assert_eq!(raw_search, search);
+    }
 
-    let search_json: String = connection.query_row(
-        "SELECT payload_json FROM domain_events WHERE id = 2",
-        [],
-        |row| row.get(0),
-    )?;
-    let search: StoredEventPayload = serde_json::from_str(&search_json)?;
-    let StoredEventPayload::SearchExecuted {
-        pack_metadata: Some(metadata),
-        ..
-    } = search
-    else {
-        return Err("migrated search payload is missing evidence-pack metadata".into());
+    let scanned = migrated.scan(EventFilter { artifact_id: None })?;
+    let knowledge_event = scanned.first().ok_or("missing search completion")?;
+    let canonical_trace = match &knowledge_event.event {
+        DomainEvent::SearchKnowledgeCompleted { outcome, .. } => {
+            assert_ne!(outcome.trace, old_trace);
+            assert_eq!(outcome.evidence[0].scores.schema_version, 2);
+            assert_eq!(
+                outcome
+                    .trace_data
+                    .as_deref()
+                    .map(SearchTrace::deterministic_id),
+                Some(outcome.trace)
+            );
+            outcome.trace
+        }
+        _ => return Err("first scanned event has the wrong kind".into()),
     };
-    assert_eq!(metadata.search_trace, Some(outcome.trace));
-    let EvidencePackReproducibilityRecord::Frozen(key) = metadata.reproducibility else {
-        return Err("migrated evidence pack lost its frozen replay key".into());
-    };
-    assert_eq!(key.trace, outcome.trace);
-    let before = (knowledge_json, search_json);
-    drop(connection);
+    let search_event = scanned.get(1).ok_or("missing search execution")?;
+    match &search_event.event {
+        DomainEvent::SearchExecuted {
+            pack_metadata: Some(metadata),
+            ..
+        } => {
+            assert_eq!(metadata.search_trace, Some(canonical_trace));
+            let EvidencePackReproducibilityRecord::Frozen(key) = &metadata.reproducibility else {
+                return Err("scanned evidence pack lost its frozen replay key".into());
+            };
+            assert_eq!(key.trace, canonical_trace);
+        }
+        _ => return Err("second scanned event has the wrong kind".into()),
+    }
+
     drop(migrated);
-
     let reopened = SqliteStore::open(&path)?;
     let connection = reopened.lock()?;
-    let after = (
+    let raw_after = (
         connection.query_row(
             "SELECT payload_json FROM domain_events WHERE id = 1",
             [],
@@ -260,6 +266,6 @@ fn v8_migration_rewrites_scores_and_all_trace_references() -> Result<(), Box<dyn
             |row| row.get::<_, String>(0),
         )?,
     );
-    assert_eq!(before, after);
+    assert_eq!(raw_after, (knowledge, search));
     Ok(())
 }

@@ -1,7 +1,7 @@
 use crate::entities::TaskStatus;
 use crate::ids::{
-    ArtifactId, CardId, ChunkId, ClaimId, EvidenceId, IndexGenerationId, MemoryCandidateId,
-    MemoryId, RelationId, TaskId, ValidationReportId,
+    ArtifactId, CardId, ChunkId, ClaimId, EvidenceId, HarnessRunId, IndexGenerationId,
+    MemoryCandidateId, MemoryId, RelationId, TaskId, ValidationReportId,
 };
 use std::fmt;
 
@@ -10,6 +10,9 @@ pub enum DomainError {
     DuplicateId {
         kind: &'static str,
         id: u64,
+    },
+    DuplicateModelAgentProposalRunId {
+        run_id: HarnessRunId,
     },
     MissingArtifact {
         id: ArtifactId,
@@ -106,6 +109,9 @@ pub enum DomainError {
         evidence_id: EvidenceId,
         reason: &'static str,
     },
+    SearchIncompatible {
+        error: crate::search::SearchCompatibilityError,
+    },
     InternalInvariantViolation {
         detail: &'static str,
     },
@@ -135,6 +141,9 @@ impl fmt::Display for DomainError {
             Self::MissingChunk { id } => Self::fmt_missing(f, "chunk", id),
             Self::MissingCard { id } => Self::fmt_missing(f, "card", id),
             Self::MissingEvidence { id } => Self::fmt_missing(f, "evidence", id),
+            Self::DuplicateModelAgentProposalRunId { run_id } => {
+                write!(f, "duplicate model-agent proposal run id: {run_id}")
+            }
             Self::MissingClaim { id } => Self::fmt_missing(f, "claim", id),
             Self::MissingTask { id } => Self::fmt_missing(f, "task", id),
             Self::MissingRelation { id } => Self::fmt_missing(f, "relation", id),
@@ -222,6 +231,9 @@ impl fmt::Display for DomainError {
                 f,
                 "malformed deterministic evidence {evidence_id}: {reason}"
             ),
+            Self::SearchIncompatible { error } => {
+                write!(f, "search contract violation: {error}")
+            }
             Self::InternalInvariantViolation { detail } => {
                 write!(f, "internal invariant violation: {detail}")
             }

@@ -1,4 +1,4 @@
-use super::{card_key, chunk_key, descending_score};
+use crate::tantivy_index::{card_key, chunk_key, descending_score};
 use maestria_ports::{
     CardField, ChunkField, HitReason, IndexedLexicalCard, IndexedLexicalChunk, LexicalCardHit,
     LexicalChunkHit, LexicalHitMetadata, LexicalQuery, MatchMode, PortError, RetrieverIdentity,

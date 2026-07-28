@@ -5,11 +5,6 @@ use crate::ids::{
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PersistStateRequest {
-    pub reason: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ParseArtifactRequest {
     pub artifact_id: ArtifactId,
     pub source_path: String,
@@ -55,6 +50,19 @@ pub struct QueryHarnessRequest {
     pub command: String,
 }
 
+/// A model-agent proposal effect preserves the complete validated request
+/// through governance and effect execution.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct QueryHarnessProposalRequest {
+    pub proposal: crate::inputs::ModelAgentProposalRequest,
+}
+
+impl QueryHarnessProposalRequest {
+    pub fn run_id(&self) -> HarnessRunId {
+        self.proposal.run_id
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RunValidationRequest {
     pub task_id: Option<TaskId>,
@@ -82,11 +90,11 @@ pub struct SearchKnowledgeRequest {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MaestriaEffect {
     PersistEvent { envelope: Box<DomainEventEnvelope> },
-    PersistState(PersistStateRequest),
     ParseArtifact(ParseArtifactRequest),
     IndexFullText(IndexFullTextRequest),
     IndexVector(IndexVectorRequest),
     UpdateGraph(UpdateGraphRequest),
+    QueryHarnessProposal(QueryHarnessProposalRequest),
     QueryHarness(QueryHarnessRequest),
     FetchWeb(FetchWebRequest),
     RunValidation(RunValidationRequest),

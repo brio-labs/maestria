@@ -1,11 +1,56 @@
-use maestria_domain::DomainEventEnvelope;
+use maestria_domain::{DomainEvent, DomainEventEnvelope, SearchTraceId};
 use maestria_ports::{EventFilter, EventLog, PortError};
 use rusqlite::params;
+use std::collections::BTreeMap;
 
 use crate::{
     events::{StoredEvent, read_stored_event},
-    i64_to_u64, map_append_error, optional_u64_to_i64, to_port_error, u64_to_i64,
+    sqlite_store::{i64_to_u64, map_append_error, optional_u64_to_i64, to_port_error, u64_to_i64},
 };
+fn decode_scanned_events(stored: Vec<StoredEvent>) -> Result<Vec<DomainEventEnvelope>, PortError> {
+    let mut trace_remap = BTreeMap::<SearchTraceId, SearchTraceId>::new();
+    for event in &stored {
+        let Some(old_trace) = event.raw_search_trace()? else {
+            continue;
+        };
+        let canonical = event.clone().into_domain()?;
+        let DomainEvent::SearchKnowledgeCompleted { outcome, .. } = canonical.event else {
+            continue;
+        };
+        if let Some(previous) = trace_remap.insert(old_trace, outcome.trace)
+            && previous != outcome.trace
+        {
+            return Err(PortError::Conflict {
+                message: format!(
+                    "legacy search trace maps to conflicting canonical identities: {old_trace}"
+                ),
+            });
+        }
+    }
+
+    stored
+        .into_iter()
+        .map(|event| {
+            let mut envelope = event.into_domain()?;
+            if let DomainEvent::SearchExecuted {
+                pack_metadata: Some(metadata),
+                ..
+            } = &mut envelope.event
+            {
+                if let Some(trace) = metadata.search_trace {
+                    metadata.search_trace = trace_remap.get(&trace).copied().or(Some(trace));
+                }
+                if let maestria_domain::EvidencePackReproducibilityRecord::Frozen(replay) =
+                    &mut metadata.reproducibility
+                    && let Some(replacement) = trace_remap.get(&replay.trace)
+                {
+                    replay.trace = *replacement;
+                }
+            }
+            Ok(envelope)
+        })
+        .collect()
+}
 
 impl EventLog for crate::SqliteStore {
     fn append(&self, event: DomainEventEnvelope) -> Result<(), PortError> {
@@ -77,37 +122,43 @@ impl EventLog for crate::SqliteStore {
 
     fn scan(&self, filter: EventFilter) -> Result<Vec<DomainEventEnvelope>, PortError> {
         let connection = self.lock()?;
-        let mut events = Vec::new();
+        let mut stored = Vec::new();
 
         if let Some(artifact_id) = filter.artifact_id {
             let mut statement = connection
                 .prepare(
-                    "SELECT id, sequence, event_kind, artifact_id, payload_json, payload_version
-                     FROM domain_events
-                     WHERE artifact_id = ?1
-                     ORDER BY sequence ASC",
+                    "SELECT e.id, e.sequence, e.event_kind, e.artifact_id, e.payload_json,
+                            e.payload_version,
+                            m.approval_id
+                     FROM domain_events e
+                     LEFT JOIN approval_event_mapping m ON m.event_id = e.id
+                     WHERE e.artifact_id = ?1
+                     ORDER BY e.sequence ASC",
                 )
                 .map_err(to_port_error)?;
             let mut rows = statement
                 .query(params![u64_to_i64(artifact_id.value())?])
                 .map_err(to_port_error)?;
             while let Some(row) = rows.next().map_err(to_port_error)? {
-                events.push(read_stored_event(row)?.into_domain()?);
+                stored.push(read_stored_event(row)?);
             }
         } else {
             let mut statement = connection
                 .prepare(
-                    "SELECT id, sequence, event_kind, artifact_id, payload_json, payload_version
-                     FROM domain_events
-                     ORDER BY sequence ASC",
+                    "SELECT e.id, e.sequence, e.event_kind, e.artifact_id, e.payload_json,
+                            e.payload_version,
+                            m.approval_id
+                     FROM domain_events e
+                     LEFT JOIN approval_event_mapping m ON m.event_id = e.id
+                     ORDER BY e.sequence ASC",
                 )
                 .map_err(to_port_error)?;
             let mut rows = statement.query([]).map_err(to_port_error)?;
             while let Some(row) = rows.next().map_err(to_port_error)? {
-                events.push(read_stored_event(row)?.into_domain()?);
+                stored.push(read_stored_event(row)?);
             }
         }
 
-        Ok(events)
+        decode_scanned_events(stored)
     }
 }

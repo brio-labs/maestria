@@ -66,6 +66,16 @@ impl KernelState {
             }
             DomainInput::StartFullTextIndex(input) => self.process_start_full_text_index(input),
             DomainInput::SearchCompleted(input) => self.process_search_completed(input),
+            DomainInput::ModelAgentProposalResumed(input) => {
+                self.process_model_agent_proposal_resumed(input)
+            }
+            DomainInput::ModelAgentProposalRequested(input) => {
+                self.process_model_agent_proposal_requested(input)
+            }
+            DomainInput::ModelAgentProposalCompleted(input) => {
+                self.process_model_agent_proposal_completed(input)
+            }
+            DomainInput::HarnessRunRequested(input) => self.process_harness_run_requested(input),
             DomainInput::HarnessRunCompleted(input) => self.process_harness_run_completed(input),
             DomainInput::ValidationCompleted(input) => self.process_validation_completed(input),
             DomainInput::ApprovalResolved(input) => self.process_approval_resolved(input),

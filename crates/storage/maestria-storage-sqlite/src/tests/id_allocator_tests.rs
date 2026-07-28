@@ -149,7 +149,7 @@ fn approval_allocation_advances_past_event_backed_id() -> Result<(), Box<dyn std
         sequence: SequenceNumber::new(1),
         event: DomainEvent::ApprovalRecorded {
             approval_id: ApprovalId::new(1),
-            task_id: TaskId::new(1),
+            task_id: Some(TaskId::new(1)),
             approved: true,
             from_status: None,
             to_status: None,

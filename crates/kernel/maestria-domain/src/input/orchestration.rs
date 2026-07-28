@@ -1,3 +1,4 @@
+use crate::SearchCompatibilityError;
 use crate::types::*;
 
 impl KernelState {
@@ -152,25 +153,47 @@ impl KernelState {
         if self.resolved_approvals.contains(&input.approval_id) {
             return Ok(vec![]);
         }
+        let mut emitted = vec![];
+        if !input.affects_task {
+            emitted.push(self.emit_event(DomainEvent::ApprovalRecorded {
+                approval_id: input.approval_id,
+                task_id: input.task_id,
+                approved: input.approved,
+                from_status: None,
+                to_status: None,
+            }));
+            self.resolved_approvals.insert(input.approval_id);
+            return Ok(emitted);
+        }
+        let Some(task_id) = input.task_id else {
+            emitted.push(self.emit_event(DomainEvent::ApprovalRecorded {
+                approval_id: input.approval_id,
+                task_id: None,
+                approved: input.approved,
+                from_status: None,
+                to_status: None,
+            }));
+            self.resolved_approvals.insert(input.approval_id);
+            return Ok(emitted);
+        };
 
         let task = self
             .tasks
-            .get(&input.task_id)
-            .ok_or(DomainError::MissingTask { id: input.task_id })?;
+            .get(&task_id)
+            .ok_or(DomainError::MissingTask { id: task_id })?;
 
         let from_status = task.status;
-        let mut emitted = vec![];
 
         if input.approved {
             match from_status {
                 TaskStatus::Draft => {
                     // Two-step domain transition: Draft→Open→Active,
                     // but emit a single authoritative event.
-                    self.handle_change_task_status(input.task_id, TaskStatus::Open)?;
-                    self.handle_change_task_status(input.task_id, TaskStatus::Active)?;
+                    self.handle_change_task_status(task_id, TaskStatus::Open)?;
+                    self.handle_change_task_status(task_id, TaskStatus::Active)?;
                     emitted.push(self.emit_event(DomainEvent::ApprovalRecorded {
                         approval_id: input.approval_id,
-                        task_id: input.task_id,
+                        task_id: Some(task_id),
                         approved: true,
                         from_status: Some(TaskStatus::Draft),
                         to_status: Some(TaskStatus::Active),
@@ -178,20 +201,19 @@ impl KernelState {
                 }
                 TaskStatus::Open | TaskStatus::Blocked => {
                     let to_status = TaskStatus::Active;
-                    self.handle_change_task_status(input.task_id, to_status)?;
+                    self.handle_change_task_status(task_id, to_status)?;
                     emitted.push(self.emit_event(DomainEvent::ApprovalRecorded {
                         approval_id: input.approval_id,
-                        task_id: input.task_id,
+                        task_id: Some(task_id),
                         approved: true,
                         from_status: Some(from_status),
                         to_status: Some(to_status),
                     }));
                 }
                 _ => {
-                    // Already in terminal state; record without transition.
                     emitted.push(self.emit_event(DomainEvent::ApprovalRecorded {
                         approval_id: input.approval_id,
-                        task_id: input.task_id,
+                        task_id: Some(task_id),
                         approved: true,
                         from_status: Some(from_status),
                         to_status: Some(from_status),
@@ -200,14 +222,14 @@ impl KernelState {
             }
         } else {
             let to_status = if from_status.can_transition_to(TaskStatus::Blocked) {
-                self.handle_change_task_status(input.task_id, TaskStatus::Blocked)?;
+                self.handle_change_task_status(task_id, TaskStatus::Blocked)?;
                 TaskStatus::Blocked
             } else {
                 from_status
             };
             emitted.push(self.emit_event(DomainEvent::ApprovalRecorded {
                 approval_id: input.approval_id,
-                task_id: input.task_id,
+                task_id: Some(task_id),
                 approved: false,
                 from_status: Some(from_status),
                 to_status: Some(to_status),
@@ -241,9 +263,39 @@ impl KernelState {
         &mut self,
         input: crate::inputs::SearchKnowledgeCompleted,
     ) -> Result<DomainEventEnvelope, DomainError> {
+        input
+            .plan
+            .validate_schema()
+            .map_err(|error| DomainError::SearchIncompatible { error })?;
+        input
+            .outcome
+            .verify_compatibility(&input.plan)
+            .map_err(|error| DomainError::SearchIncompatible { error })?;
+        let expected_policy = input
+            .plan
+            .authorization
+            .as_ref()
+            .ok_or(DomainError::SearchIncompatible {
+                error: SearchCompatibilityError::TracePlanMismatch(
+                    "authorization snapshot is missing",
+                ),
+            })?
+            .canonical_fingerprint();
+        let found_policy = input
+            .outcome
+            .trace_data
+            .as_ref()
+            .and_then(|trace| trace.policy_fingerprint.as_deref());
+        if found_policy != Some(expected_policy.as_str()) {
+            return Err(DomainError::SearchIncompatible {
+                error: SearchCompatibilityError::TracePlanMismatch(
+                    "authorization policy differs from trusted plan snapshot",
+                ),
+            });
+        }
         Ok(self.emit_event(DomainEvent::SearchKnowledgeCompleted {
             task_id: input.task_id,
-            plan: input.plan,
+            plan: Some(input.plan),
             outcome: input.outcome,
         }))
     }
@@ -288,16 +340,22 @@ impl KernelState {
     pub(crate) fn apply_approval_recorded(
         &mut self,
         approval_id: ApprovalId,
-        task_id: TaskId,
+        task_id: Option<TaskId>,
         from_status: Option<TaskStatus>,
         to_status: Option<TaskStatus>,
     ) -> Result<(), DomainError> {
-        let task = self
-            .tasks
-            .get_mut(&task_id)
-            .ok_or(DomainError::MissingTask { id: task_id })?;
-        // Legacy events (None/None) only record identity without status mutation.
-        // Authoritative events (Some/Some) must have matching current status.
+        if from_status.is_none() && to_status.is_none() {
+            self.resolved_approvals.insert(approval_id);
+            return Ok(());
+        }
+        let Some(task_id) = task_id else {
+            return Err(DomainError::InternalInvariantViolation {
+                detail: "taskless approval event cannot carry task status transition",
+            });
+        };
+        let Some(task) = self.tasks.get_mut(&task_id) else {
+            return Err(DomainError::MissingTask { id: task_id });
+        };
         match (from_status, to_status) {
             (None, None) => {}
             (Some(from), Some(to)) => {
@@ -338,6 +396,38 @@ impl KernelState {
     }
 
     pub(crate) fn apply_search_knowledge_completed(&mut self) -> Result<(), DomainError> {
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn effect_approval_retains_task_audit_without_transition() -> Result<(), DomainError> {
+        let task_id = TaskId::new(7);
+        let mut state = KernelState::new();
+        state.tasks.insert(
+            task_id,
+            Task::new(task_id, "task".into(), TaskPriority::High),
+        );
+        let output = state.apply_input(DomainInput::ApprovalResolved(ApprovalDecision {
+            approval_id: ApprovalId::new(9),
+            task_id: Some(task_id),
+            approved: true,
+            affects_task: false,
+        }))?;
+        assert_eq!(state.tasks[&task_id].status, TaskStatus::Draft);
+        assert!(matches!(
+            output.events[0].event,
+            DomainEvent::ApprovalRecorded {
+                task_id: Some(id),
+                from_status: None,
+                to_status: None,
+                ..
+            } if id == task_id
+        ));
         Ok(())
     }
 }

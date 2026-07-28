@@ -84,6 +84,7 @@ pub(super) async fn collect_batches(
     retrievers: &[Arc<dyn CandidateRetriever>],
     plan: &SearchPlan,
     query: &SearchQuery,
+    authorization: &maestria_governance::RetrievalAuthorizationContext,
     web_requests_used: &mut u32,
     bytes_read: &mut u64,
 ) -> RetrievalResult<Vec<crate::types::CandidateBatch>> {
@@ -137,6 +138,7 @@ pub(super) async fn collect_batches(
             plan: plan.clone(),
             query: query.clone(),
             expected_generation: generation,
+            authorization: authorization.clone(),
         };
         let semaphore = Arc::clone(&semaphore);
         tasks.spawn(async move {
@@ -185,6 +187,7 @@ pub(super) async fn collect_batches(
 pub(super) async fn collect_initial_batches(
     retrievers: &[Arc<dyn CandidateRetriever>],
     plan: &SearchPlan,
+    authorization: &maestria_governance::RetrievalAuthorizationContext,
 ) -> RetrievalResult<(
     Vec<crate::types::CandidateBatch>,
     crate::rewrite::QueryRewriteSession,
@@ -215,6 +218,7 @@ pub(super) async fn collect_initial_batches(
                 retrievers,
                 plan,
                 &rewrite_query,
+                authorization,
                 &mut web_requests_used,
                 &mut bytes_read,
             )
@@ -228,6 +232,7 @@ pub(super) async fn collect_missing_slot_batches(
     retrievers: &[Arc<dyn CandidateRetriever>],
     plan: &SearchPlan,
     query: &str,
+    authorization: &maestria_governance::RetrievalAuthorizationContext,
     web_requests_used: &mut u32,
     bytes_read: &mut u64,
 ) -> RetrievalResult<Vec<crate::types::CandidateBatch>> {
@@ -236,7 +241,15 @@ pub(super) async fn collect_missing_slot_batches(
         limit: plan.stop_conditions.max_results as usize,
         offset: 0,
     };
-    collect_batches(retrievers, plan, &query, web_requests_used, bytes_read).await
+    collect_batches(
+        retrievers,
+        plan,
+        &query,
+        authorization,
+        web_requests_used,
+        bytes_read,
+    )
+    .await
 }
 
 pub(super) fn trace_lanes(
@@ -275,6 +288,7 @@ pub(super) async fn run_diversity_stage(
     expander: &Option<Arc<dyn ContextExpander>>,
     evaluator: &Arc<dyn RetrievalEvaluator>,
     bytes_read: &mut u64,
+    authorization: &maestria_governance::RetrievalAuthorizationContext,
 ) -> RetrievalResult<(SearchOutcome, crate::diversity::DiversitySelection)> {
     let selected_candidates = initial.candidates.clone();
     let expansion_policy = ExpansionPolicy {
@@ -286,6 +300,7 @@ pub(super) async fn run_diversity_stage(
             .collect(),
         required_claims: initial.coverage.required_claims.clone(),
         required_subquestions: initial.coverage.required_subquestions.clone(),
+        authorization: authorization.clone(),
     };
     let expanded = if let Some(expander) = expander {
         expander.expand(&selected_candidates, &expansion_policy)?

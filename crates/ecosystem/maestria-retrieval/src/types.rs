@@ -18,6 +18,7 @@ pub struct CandidateRequest {
     pub plan: SearchPlan,
     pub query: SearchQuery,
     pub expected_generation: IndexGenerationId,
+    pub authorization: maestria_governance::RetrievalAuthorizationContext,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -115,6 +116,7 @@ pub struct ExpansionPolicy {
     pub selected_seeds: Vec<maestria_domain::EvidenceCandidate>,
     pub required_claims: Vec<String>,
     pub required_subquestions: Vec<String>,
+    pub authorization: maestria_governance::RetrievalAuthorizationContext,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -150,15 +152,18 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_bounded_expansion_inputs() {
+    fn test_bounded_expansion_inputs() -> Result<(), Box<dyn std::error::Error>> {
         let policy = ExpansionPolicy {
             max_results: 5,
             max_depth: 2,
             selected_seeds: vec![],
             required_claims: vec!["claim".to_string()],
             required_subquestions: vec![],
+            authorization: maestria_governance::RetrievalSecurityPolicy::default()
+                .authorization_context(&maestria_domain::CorpusScope::Global)?,
         };
         assert_eq!(policy.max_results, 5);
         assert_eq!(policy.required_claims.len(), 1);
+        Ok(())
     }
 }

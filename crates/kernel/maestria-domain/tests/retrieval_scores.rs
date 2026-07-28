@@ -235,6 +235,7 @@ fn complete_fingerprint_and_rank_change_the_trace_identity()
             minimum_corroboration: 1,
         },
         fingerprint: RetrievalModelFingerprint::new("trace-model-v1".to_string())?,
+        authorization: Some(maestria_domain::RetrievalPolicySnapshot::global_default()),
         original_intent: None,
         route_decision: None,
     };

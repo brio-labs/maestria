@@ -132,14 +132,9 @@ fn validated_completion_is_the_only_completion_path() -> Result<(), DomainError>
     ));
     assert_eq!(
         output.effects,
-        vec![
-            MaestriaEffect::PersistEvent {
-                envelope: Box::new(output.events[0].clone()),
-            },
-            MaestriaEffect::PersistState(PersistStateRequest {
-                reason: "validated task completion".to_string(),
-            }),
-        ]
+        vec![MaestriaEffect::PersistEvent {
+            envelope: Box::new(output.events[0].clone()),
+        }]
     );
     Ok(())
 }

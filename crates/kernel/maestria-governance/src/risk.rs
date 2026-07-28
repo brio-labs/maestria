@@ -47,7 +47,6 @@ impl ClassifyRisk for DefaultRiskClassifier {
         match effect {
             // Rebuildable projections: low-risk, no user-facing write or action authorization.
             MaestriaEffect::PersistEvent { .. }
-            | MaestriaEffect::PersistState(_)
             | MaestriaEffect::ParseArtifact(_)
             | MaestriaEffect::EmitDiagnostic(_)
             | MaestriaEffect::IndexFullText(_) => RiskClass::Low,
@@ -61,6 +60,18 @@ impl ClassifyRisk for DefaultRiskClassifier {
                     RiskClass::Medium
                 } else {
                     RiskClass::High
+                }
+            }
+            MaestriaEffect::QueryHarnessProposal(req) => {
+                let command = req.proposal.command.to_lowercase();
+                if command.starts_with("rm") || command.contains("delete") {
+                    if scope.web_allowed() {
+                        RiskClass::High
+                    } else {
+                        RiskClass::Critical
+                    }
+                } else {
+                    RiskClass::Medium
                 }
             }
             MaestriaEffect::QueryHarness(req) => {

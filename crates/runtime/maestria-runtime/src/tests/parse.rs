@@ -4,8 +4,8 @@ use maestria_domain::{
     ParseArtifactRequest, ParserStarted,
 };
 use maestria_ports::{
-    ArtifactRepository, FileHandle, FileMetadata, InMemoryArtifactRepository, ParseContext,
-    ParsedArtifact, ParsedChunk, Parser, PortError, SourceSpan,
+    ArtifactRepository, BlobStore, FileHandle, FileMetadata, InMemoryArtifactRepository,
+    ParseContext, ParsedArtifact, ParsedChunk, Parser, PortError, SourceSpan,
 };
 use std::collections::BTreeSet;
 use std::sync::Arc;

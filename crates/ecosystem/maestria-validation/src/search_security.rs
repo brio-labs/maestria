@@ -8,15 +8,16 @@ use super::types::{SearchValidationContext, ValidationCheck, ValidationContext, 
 fn denied_candidate_count(
     search: &SearchValidationContext<'_>,
     scope: &CorpusScope,
+    effective_scopes: Option<&[ScopeId]>,
     required_trust: Option<&TrustZone>,
     maximum_sensitivity: Option<&Sensitivity>,
-    required_scope: Option<ScopeId>,
     policy_allows_unscoped: bool,
 ) -> usize {
-    let restricted_scopes = match scope {
-        CorpusScope::Restricted(scopes) => Some(scopes),
+    let plan_scopes = match scope {
+        CorpusScope::Restricted(scopes) => Some(scopes.as_slice()),
         CorpusScope::Global => None,
     };
+    let allowed_scopes = effective_scopes.or(plan_scopes);
     search
         .outcome
         .evidence
@@ -29,13 +30,10 @@ fn denied_candidate_count(
                 return true;
             };
             let security = artifact.security.taint_from(&evidence.security);
-            let scope_denied = restricted_scopes.is_some_and(|scopes| {
+            let scope_denied = allowed_scopes.is_some_and(|scopes| {
                 security
                     .scope_id
                     .is_none_or(|scope| !scopes.contains(&scope))
-                    && !(policy_allows_unscoped && security.scope_id.is_none())
-            }) || required_scope.is_some_and(|scope| {
-                security.scope_id != Some(scope)
                     && !(policy_allows_unscoped && security.scope_id.is_none())
             });
             let trust_denied = required_trust.is_some_and(|trust| security.trust_zone != *trust);
@@ -51,43 +49,9 @@ fn denied_candidate_count(
         })
         .count()
 }
-fn policy_trust(policy: &str) -> Option<TrustZone> {
-    [
-        ("System", TrustZone::System),
-        ("Verified", TrustZone::Verified),
-        ("Untrusted", TrustZone::Untrusted),
-        ("Quarantined", TrustZone::Quarantined),
-    ]
-    .into_iter()
-    .find_map(|(name, zone)| {
-        policy
-            .contains(&format!("trust=Some({name})"))
-            .then_some(zone)
-    })
-}
-
-fn policy_sensitivity(policy: &str) -> Option<Sensitivity> {
-    [
-        ("Public", Sensitivity::Public),
-        ("Internal", Sensitivity::Internal),
-        ("Confidential", Sensitivity::Confidential),
-        ("Restricted", Sensitivity::Restricted),
-    ]
-    .into_iter()
-    .find_map(|(name, sensitivity)| {
-        policy
-            .contains(&format!("sensitivity=Some({name})"))
-            .then_some(sensitivity)
-    })
-}
-
-fn policy_scope(policy: &str) -> Option<ScopeId> {
-    policy.split(';').find_map(|field| {
-        let value = field
-            .strip_prefix("scope=Some(ScopeId(")?
-            .strip_suffix("))")?;
-        value.parse().ok().map(ScopeId::new)
-    })
+fn policy_snapshot(value: &str) -> Result<maestria_domain::RetrievalPolicySnapshot, String> {
+    maestria_domain::RetrievalPolicySnapshot::from_canonical(value)
+        .map_err(|error| format!("invalid policy snapshot: {error:?}"))
 }
 
 fn sensitivity_level(sensitivity: &Sensitivity) -> u8 {
@@ -114,28 +78,29 @@ impl Validator for RetrievalSecurityValidator {
                     "retrieval security cannot be checked without a SearchTrace".to_string()
                 );
             };
-            let Some(policy) = trace
+            let Some(policy_fingerprint) = trace
                 .policy_fingerprint
                 .as_deref()
                 .filter(|value| !value.trim().is_empty())
             else {
                 return Err("retrieval security requires a policy fingerprint".to_string());
             };
-            let required_trust = policy_trust(policy);
-            let maximum_sensitivity = policy_sensitivity(policy);
-            let required_scope = policy_scope(policy);
-            let policy_allows_unscoped = policy.contains("unscoped=true");
-            let malformed_policy = (policy.contains("trust=Some(") && required_trust.is_none())
-                || (policy.contains("sensitivity=Some(") && maximum_sensitivity.is_none())
-                || (policy.contains("scope=Some(") && required_scope.is_none());
+            let policy = match policy_snapshot(policy_fingerprint) {
+                Ok(policy) => policy,
+                Err(error) => return Err(error),
+            };
+            let required_trust = policy.require_trust_zone.clone();
+            let maximum_sensitivity = policy.max_sensitivity.clone();
+            let effective_scopes = policy.effective_scope_set();
+            let policy_allows_unscoped = policy.allow_unscoped_items;
             let mut required_filters = vec![
                 SearchTraceFilter::Quarantine,
                 SearchTraceFilter::PromptInjection,
             ];
-            if matches!(trace.scope, CorpusScope::Restricted(_)) || policy.contains("scope=Some") {
+            if matches!(trace.scope, CorpusScope::Restricted(_)) || effective_scopes.is_some() {
                 required_filters.push(SearchTraceFilter::Scope);
             }
-            if policy.contains("read_allowed=true") {
+            if policy.require_read_allowed {
                 required_filters.push(SearchTraceFilter::Acl);
             }
             if required_trust.is_some() {
@@ -154,9 +119,9 @@ impl Validator for RetrievalSecurityValidator {
             let denied_count = denied_candidate_count(
                 search,
                 &trace.scope,
+                effective_scopes,
                 required_trust.as_ref(),
                 maximum_sensitivity.as_ref(),
-                required_scope,
                 policy_allows_unscoped,
             );
             let missing_records = search
@@ -165,16 +130,11 @@ impl Validator for RetrievalSecurityValidator {
                 .iter()
                 .filter(|candidate| search.evidence_record(candidate.evidence_id).is_none())
                 .count();
-            let malformed_policy_count = usize::from(malformed_policy);
-            if missing_filters == 0
-                && denied_count == 0
-                && missing_records == 0
-                && malformed_policy_count == 0
-            {
+            if missing_filters == 0 && denied_count == 0 && missing_records == 0 {
                 Ok("retrieval filters and evidence security metadata permit release".to_string())
             } else {
                 Err(format!(
-                    "retrieval security failed: {missing_filters} required filter(s) missing, {denied_count} denied candidate(s), {missing_records} missing record(s), {malformed_policy_count} malformed policy fingerprint(s)"
+                    "retrieval security failed: {missing_filters} required filter(s) missing, {denied_count} denied candidate(s), {missing_records} missing record(s)"
                 ))
             }
         })

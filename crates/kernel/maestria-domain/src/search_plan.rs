@@ -257,6 +257,10 @@ pub struct SearchPlan {
     pub stop_conditions: StopConditions,
     pub evidence_requirements: EvidenceRequirements,
     pub fingerprint: super::RetrievalModelFingerprint,
+    /// Trusted request-bound authorization captured when the plan was created.
+    /// Missing snapshots represent legacy plans and are rejected on execution.
+    #[serde(default)]
+    pub authorization: Option<crate::RetrievalPolicySnapshot>,
     pub original_intent: Option<SearchIntent>,
     pub route_decision: Option<String>,
 }
@@ -281,6 +285,11 @@ fn validate_web_budget(plan: &SearchPlan) -> Result<(), SearchCompatibilityError
 impl SearchPlan {
     /// Validates schema invariants before policy or runtime evaluation.
     pub fn validate_schema(&self) -> Result<(), SearchCompatibilityError> {
+        if self.authorization.is_none() {
+            return Err(SearchCompatibilityError::InvalidPlan(
+                "authorization snapshot is required",
+            ));
+        }
         if self.original_query.trim().is_empty() {
             return Err(SearchCompatibilityError::InvalidPlan(
                 "original_query must not be empty",

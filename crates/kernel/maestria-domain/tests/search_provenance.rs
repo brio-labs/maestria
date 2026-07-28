@@ -85,9 +85,18 @@ fn plan() -> Result<SearchPlan, Box<dyn std::error::Error>> {
             minimum_corroboration: 2,
         },
         fingerprint: RetrievalModelFingerprint::new("model:v1".to_owned())?,
+        authorization: Some(maestria_domain::RetrievalPolicySnapshot::global_default()),
         original_intent: None,
         route_decision: None,
     })
+}
+
+fn policy_fingerprint(plan: &SearchPlan) -> Result<String, Box<dyn std::error::Error>> {
+    Ok(plan
+        .authorization
+        .as_ref()
+        .ok_or("fixture authorization is missing")?
+        .canonical_fingerprint())
 }
 fn artifact_version() -> Result<ArtifactVersion, Box<dyn std::error::Error>> {
     Ok(ArtifactVersion::new(
@@ -124,6 +133,7 @@ fn candidate() -> Result<EvidenceCandidate, Box<dyn std::error::Error>> {
 fn outcome() -> Result<SearchOutcome, Box<dyn std::error::Error>> {
     let plan = plan()?;
     let evidence = vec![candidate()?];
+    let policy_fingerprint = policy_fingerprint(&plan)?;
     let trace = SearchTrace::from_plan(
         &plan,
         vec![],
@@ -133,6 +143,7 @@ fn outcome() -> Result<SearchOutcome, Box<dyn std::error::Error>> {
         vec![],
         SearchStopReason::EvidenceComplete,
     )
+    .with_policy_fingerprint(policy_fingerprint)
     .with_gaps_and_conflicts(
         vec!["missing section".to_owned()],
         vec![ConflictSetId::new(41)],
@@ -216,6 +227,7 @@ fn trace_captures_plan_and_rejects_incompatible_replay() -> Result<(), Box<dyn s
         vec![],
         SearchStopReason::EvidenceComplete,
     )
+    .with_policy_fingerprint(policy_fingerprint(&plan)?)
     .with_gaps_and_conflicts(
         vec!["missing section".to_owned()],
         vec![ConflictSetId::new(41)],
@@ -407,6 +419,26 @@ fn trace_less_outcome_is_rejected_and_traced_outcome_passes()
 }
 
 #[test]
+fn compatibility_rejects_missing_policy_fingerprint() -> Result<(), Box<dyn std::error::Error>> {
+    let plan = plan()?;
+    let mut outcome = outcome()?;
+    let trace = outcome
+        .trace_data
+        .as_mut()
+        .ok_or("fixture trace is missing")?;
+    trace.policy_fingerprint = None;
+    outcome.trace = trace.deterministic_id();
+
+    assert!(matches!(
+        outcome.verify_compatibility(&plan),
+        Err(SearchCompatibilityError::TracePlanMismatch(
+            "authorization policy differs from trusted plan snapshot"
+        ))
+    ));
+    Ok(())
+}
+
+#[test]
 fn results_limit_accepts_exact_boundary_but_rejects_over_limit_outcome()
 -> Result<(), Box<dyn std::error::Error>> {
     let mut plan = plan()?;
@@ -435,7 +467,8 @@ fn results_limit_accepts_exact_boundary_but_rejects_over_limit_outcome()
         None,
         vec![],
         SearchStopReason::ResultsLimit,
-    );
+    )
+    .with_policy_fingerprint(policy_fingerprint(&plan)?);
     let boundary_trace_id = boundary_trace.deterministic_id();
     assert!(boundary_trace.matches_outcome(&SearchStatus::Answerable, 1));
     assert!(!boundary_trace.matches_outcome(&SearchStatus::Answerable, 0));
@@ -460,7 +493,8 @@ fn results_limit_accepts_exact_boundary_but_rejects_over_limit_outcome()
         None,
         vec![],
         SearchStopReason::ResultsLimit,
-    );
+    )
+    .with_policy_fingerprint(policy_fingerprint(&plan)?);
     let over_limit = SearchOutcome {
         trace: over_limit_trace.deterministic_id(),
         trace_data: Some(Box::new(over_limit_trace)),

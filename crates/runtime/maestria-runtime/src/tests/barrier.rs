@@ -4,7 +4,8 @@ use maestria_domain::{
     ParseArtifactRequest, SequenceNumber, content_hash,
 };
 use maestria_ports::{
-    BlobStore, EventLog, InMemoryArtifactRepository, InMemoryBlobStore, InMemoryEventLog,
+    ArtifactRepository, BlobStore, EventLog, InMemoryArtifactRepository, InMemoryBlobStore,
+    InMemoryEventLog,
 };
 use std::collections::BTreeSet;
 use std::sync::Arc;

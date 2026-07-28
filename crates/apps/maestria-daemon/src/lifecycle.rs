@@ -11,11 +11,16 @@ use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 use tracing::info;
 
-use crate::{
-    RecoveryInputs, acquire_instance_write_lock, build_runtime, load_kernel_state,
-    reconcile_approval_repo, reconcile_graph_projection, reconcile_pending_approvals,
-    reconcile_projections, reconcile_retrieval_generations, reconcile_vector_projection_for_layout,
-    supervise_recovery, validate_recovery_scope, verify_pending_blobs,
+use crate::approval_recovery::{reconcile_approval_repo, reconcile_pending_approvals};
+use crate::instance_setup::{load_kernel_state, validate_recovery_scope};
+use crate::lock::acquire as acquire_instance_write_lock;
+use crate::parser_resume::verify_pending_blobs;
+use crate::projection_recovery::{reconcile_graph_projection, reconcile_projections};
+use crate::recovery_inputs::RecoveryInputs;
+use crate::runtime_construction::build_runtime;
+use crate::supervision_recovery::supervise_recovery;
+use crate::vector_startup::{
+    reconcile_retrieval_generations, reconcile_vector_projection_for_layout,
 };
 
 /// Recovery work queued by the shared lifecycle and available to command-specific drain logic.
@@ -34,6 +39,7 @@ pub struct InstanceLifecycle {
     recovery_queue: Option<RecoveryQueue>,
     paused_effects: usize,
     input_tx: mpsc::Sender<DomainInput>,
+    runtime_handle: maestria_runtime::RuntimeHandle,
     shutdown_token: CancellationToken,
     runtime_task: Option<JoinHandle<()>>,
     watcher_task: Option<JoinHandle<()>>,
@@ -91,6 +97,7 @@ impl InstanceLifecycle {
 
         let (runtime, input_tx, input_rx, shutdown_token) =
             build_runtime(&layout, state.clone(), profile)?;
+        let runtime_handle = runtime.handle();
         let runtime = runtime.with_graceful_shutdown();
         let runtime_shutdown = shutdown_token.clone();
         let runtime_task = tokio::spawn(async move {
@@ -106,6 +113,7 @@ impl InstanceLifecycle {
             paused_effects: diagnostics.paused_effects.len(),
             manifest,
             input_tx,
+            runtime_handle,
             shutdown_token,
             runtime_task: Some(runtime_task),
             watcher_task: None,
@@ -127,6 +135,10 @@ impl InstanceLifecycle {
 
     pub fn input_sender(&self) -> mpsc::Sender<DomainInput> {
         self.input_tx.clone()
+    }
+
+    pub fn runtime_handle(&self) -> maestria_runtime::RuntimeHandle {
+        self.runtime_handle.clone()
     }
     fn start_watcher(&mut self) {
         if self.watcher_task.is_none() {

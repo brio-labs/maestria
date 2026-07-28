@@ -1,9 +1,23 @@
 use crate::parser_mapping::{domain_representation, domain_source_span};
 use maestria_domain::{
     ArtifactId, BlobId, ContentRange, EvidenceKind, LogicalTick, RecordEvidenceInput,
-    RegisterChunkInput, evidence_id_for, excerpt_for,
+    RegisterChunkInput, SecurityMetadata, TrustZone, evidence_id_for, excerpt_for,
 };
+use maestria_governance::contains_prompt_injection_risk;
 use maestria_ports::{ParsedArtifact, ParsedCard, ParsedChunk, SourceSpan};
+fn security_for_text(text: &str) -> SecurityMetadata {
+    let prompt_injection_risk = contains_prompt_injection_risk(text);
+    SecurityMetadata {
+        trust_zone: if prompt_injection_risk {
+            TrustZone::Quarantined
+        } else {
+            TrustZone::Untrusted
+        },
+        quarantined: prompt_injection_risk,
+        prompt_injection_risk,
+        ..SecurityMetadata::default()
+    }
+}
 
 pub(crate) fn build_indexable_records(
     parsed: &ParsedArtifact,
@@ -65,7 +79,7 @@ fn chunk_to_evidence(
         kind,
         excerpt,
         observed_at,
-        security: None,
+        security: Some(security_for_text(&chunk.text)),
     })
 }
 
@@ -164,6 +178,7 @@ fn build_cards(parsed_cards: &[ParsedCard]) -> Vec<maestria_domain::CreateCardIn
             let mut card = parsed_card.card.clone();
             card.node_id = parsed_card.node_id;
             card.source_span = domain_source_span(&parsed_card.source_span);
+            card.security = Some(security_for_text(&card.body));
             card
         })
         .collect()

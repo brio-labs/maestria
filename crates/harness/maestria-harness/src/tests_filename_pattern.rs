@@ -1,6 +1,6 @@
 use super::command::filename_matches;
 use super::test_helpers::{adapter, shell_request};
-use super::*;
+use maestria_ports::HarnessAdapter;
 
 #[test]
 fn filename_matches_exact() -> Result<(), Box<dyn std::error::Error>> {

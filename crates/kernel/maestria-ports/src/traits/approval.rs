@@ -16,7 +16,7 @@ pub enum ApprovalStatus {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ApprovalRecord {
     pub id: maestria_domain::ApprovalId,
-    pub task_id: maestria_domain::TaskId,
+    pub task_id: Option<maestria_domain::TaskId>,
     pub effect_kind: String,
     pub risk_level: ApprovalRiskLevel,
     pub capability: String,
@@ -29,6 +29,8 @@ pub struct ApprovalRecord {
 pub trait ApprovalRepository: Send + Sync {
     fn save(&self, record: &ApprovalRecord) -> Result<(), crate::PortError>;
     fn find_pending(&self) -> Result<Vec<ApprovalRecord>, crate::PortError>;
+    /// Return every approval record, including terminal records, for restart recovery.
+    fn find_all(&self) -> Result<Vec<ApprovalRecord>, crate::PortError>;
     fn find_by_id(
         &self,
         id: maestria_domain::ApprovalId,

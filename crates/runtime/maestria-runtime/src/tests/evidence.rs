@@ -3,7 +3,7 @@ use maestria_domain::{
     Artifact, ArtifactId, DomainEventEnvelope, EventId, Evidence, EvidenceId, EvidenceKind,
     IndexStatus, LogicalTick, SequenceNumber,
 };
-use maestria_ports::{EvidenceRepository, InMemoryEvidenceRepository};
+use maestria_ports::{BlobStore, EvidenceRepository, InMemoryEvidenceRepository};
 use std::collections::BTreeSet;
 use std::sync::Arc;
 use tokio::sync::{RwLock, mpsc};
@@ -134,12 +134,13 @@ async fn fetch_web_records_hashed_blob_and_security_boundary()
         ..crate::test_helpers::test_adapters()
     };
     let (input_tx, mut input_rx) = mpsc::channel(8);
-    let ctx = EffectExecutionContext::test_default(
+    let mut ctx = EffectExecutionContext::test_default(
         Arc::new(adapters),
         Arc::new(crate::test_helpers::test_governance()),
         Arc::new(RwLock::new(KernelState::new())),
         input_tx,
     );
+    ctx.scope = maestria_governance::Scope::new(vec![], vec![], vec!["shell".into()], vec![], true);
 
     let result = MaestriaRuntime::test_execute_effect(
         MaestriaEffect::FetchWeb(maestria_domain::FetchWebRequest {

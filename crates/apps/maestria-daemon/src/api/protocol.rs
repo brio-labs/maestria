@@ -28,6 +28,14 @@ pub enum ClientOperation {
     ModelAgentPropose {
         proposal: ModelAgentProposalPayload,
     },
+    ModelAgentStatus {
+        run_id: u64,
+    },
+    ModelAgentResolve {
+        run_id: u64,
+        approval_id: u64,
+        approved: bool,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -35,7 +43,6 @@ pub struct ClientRequest {
     pub token: String,
     pub operation: ClientOperation,
 }
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", content = "data", rename_all = "snake_case")]
 pub enum ClientResponse {
@@ -44,6 +51,7 @@ pub enum ClientResponse {
     Evidence(EvidenceResponse),
     Task(TaskResponse),
     ModelAgentProposal(ModelAgentProposalResponse),
+    ModelAgentStatus(ModelAgentStatusResponse),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -213,12 +221,17 @@ pub struct ModelAgentProposalPayload {
     pub timeout_secs: u64,
     pub expected_generation: u64,
     pub evidence_ids: Vec<u64>,
+    #[serde(default)]
+    pub task_validation: bool,
+    #[serde(default)]
+    pub memory_candidate: bool,
 }
-
-/// Result of a model agent proposal workflow.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ModelAgentProposalResponse {
     pub run_id: u64,
+    pub correlation_id: u64,
+    pub status: String,
+    pub approval_id: Option<u64>,
     pub trace_id: Option<u64>,
     pub index_generation: u64,
     pub evidence_count: usize,
@@ -226,6 +239,21 @@ pub struct ModelAgentProposalResponse {
     pub validation: Option<ModelAgentValidationSummary>,
     pub memory_candidate: Option<ModelAgentMemoryCandidateSummary>,
     pub warnings: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ModelAgentStatusResponse {
+    pub run_id: u64,
+    pub correlation_id: Option<u64>,
+    pub status: String,
+    pub approval_id: Option<u64>,
+    pub journal_generation: Option<u64>,
+    pub trace_id: Option<u64>,
+    pub evidence_count: usize,
+    pub harness: Option<ModelAgentHarnessOutcome>,
+    pub validation: Option<ModelAgentValidationSummary>,
+    pub memory_candidate: Option<ModelAgentMemoryCandidateSummary>,
+    pub error: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -355,6 +383,8 @@ mod tests {
             timeout_secs: 30,
             expected_generation: 4,
             evidence_ids: vec![9],
+            task_validation: true,
+            memory_candidate: true,
         };
         let json = serde_json::to_string(&payload)?;
         let deserialized: ModelAgentProposalPayload = serde_json::from_str(&json)?;

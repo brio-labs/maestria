@@ -8,14 +8,7 @@ use maestria_domain::{
 pub(crate) fn security_policy_fingerprint(
     policy: &maestria_governance::RetrievalSecurityPolicy,
 ) -> String {
-    format!(
-        "trust={:?};sensitivity={:?};read_allowed={};scope={:?};unscoped={}",
-        policy.require_trust_zone,
-        policy.max_sensitivity,
-        policy.require_read_allowed,
-        policy.required_scope_id,
-        policy.allow_unscoped_items,
-    )
+    policy.canonical_fingerprint()
 }
 
 /// Lists every security filter enabled for a governed search trace.
@@ -92,7 +85,10 @@ fn compute_expected_trace_state(
     lanes: &[maestria_domain::SearchTraceLane],
     options: &EnsureTraceOptions,
 ) -> ExpectedTraceState {
-    let expected_policy_fingerprint = security_policy_fingerprint(&options.security_policy);
+    let expected_policy_fingerprint = match plan.authorization.as_ref() {
+        Some(authorization) => authorization.canonical_fingerprint(),
+        None => security_policy_fingerprint(&options.security_policy),
+    };
     let expected_filters = applied_security_filters(plan, &options.security_policy);
     let expected_stop_reason = match options.explicit_stop_reason.clone() {
         Some(stop_reason) => stop_reason,

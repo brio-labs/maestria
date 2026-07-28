@@ -7,7 +7,7 @@ use super::{
 };
 use crate::{
     schema_validation::{table_exists, table_has_column},
-    to_port_error,
+    sqlite_store::to_port_error,
 };
 
 pub(super) fn ensure_security_v8_columns(connection: &Connection) -> Result<(), PortError> {

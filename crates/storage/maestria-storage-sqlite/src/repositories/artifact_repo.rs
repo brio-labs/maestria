@@ -5,7 +5,7 @@ use maestria_ports::{ArtifactRepository, PortError};
 use rusqlite::OptionalExtension;
 use rusqlite::{Connection, Transaction, params};
 
-use crate::{i64_to_u64, to_port_error, u64_to_i64};
+use crate::sqlite_store::{i64_to_u64, json_error, to_port_error, u64_to_i64};
 
 impl ArtifactRepository for crate::SqliteStore {
     fn get(&self, artifact_id: ArtifactId) -> Result<Option<Artifact>, PortError> {
@@ -74,7 +74,7 @@ impl ArtifactRepository for crate::SqliteStore {
             index_status,
             content_hash,
             parse_status,
-            security: serde_json::from_str(&security_json).map_err(crate::json_error)?,
+            security: serde_json::from_str(&security_json).map_err(json_error)?,
         }))
     }
 
@@ -105,7 +105,7 @@ impl ArtifactRepository for crate::SqliteStore {
                         Some(maestria_domain::ParseStatus::Quarantined) => "quarantined",
                         None => "none",
                     },
-                    serde_json::to_string(&artifact.security).map_err(crate::json_error)?,
+                    serde_json::to_string(&artifact.security).map_err(json_error)?,
                 ],
             )
             .map_err(to_port_error)?;

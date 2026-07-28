@@ -69,7 +69,6 @@ fn visual_lane_is_named_and_generation_aware() -> Result<(), Box<dyn std::error:
             blobs: Arc::new(InMemoryBlobStore::new()),
             embedding_provider: Arc::new(UnavailableVisualProvider),
         },
-        RetrievalSecurityPolicy::default(),
         capability,
     );
     let descriptor = retriever.descriptor();
@@ -129,7 +128,6 @@ fn denied_visual_candidates_are_filtered_before_scoring() -> Result<(), Box<dyn 
             blobs: Arc::new(InMemoryBlobStore::new()),
             embedding_provider: Arc::new(UnavailableVisualProvider),
         },
-        RetrievalSecurityPolicy::default(),
         capability,
     );
     let mut mismatched_request =
@@ -273,7 +271,6 @@ fn visual_batch_reports_bounded_bytes() -> Result<(), Box<dyn std::error::Error>
             blobs: Arc::new(blob_store),
             embedding_provider: Arc::new(UnavailableVisualProvider),
         },
-        RetrievalSecurityPolicy::default(),
         capability,
     );
     let mut request = request(maestria_domain::SearchIntent::VisualDocument, generation)?;

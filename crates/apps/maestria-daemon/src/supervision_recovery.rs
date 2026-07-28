@@ -2,7 +2,7 @@ use anyhow::{Context, Result};
 use maestria_domain::KernelState;
 use maestria_ports::{EffectJournal, EffectJournalEntry, EffectJournalStatus};
 
-use crate::{RecoveryInputs, recovery_inputs};
+use crate::recovery_inputs::{RecoveryInputs, recovery_inputs};
 
 /// Public diagnostics computed during startup before any runtime replay.
 /// This exposes paused in-flight non-idempotent work without replaying it.

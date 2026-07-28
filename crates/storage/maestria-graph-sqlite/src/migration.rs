@@ -5,7 +5,7 @@ use super::conversion::to_port_error;
 
 pub(super) const SCHEMA_VERSION: i64 = 2;
 
-pub(super) fn migrate(connection: &mut Connection) -> Result<(), PortError> {
+pub(crate) fn migrate(connection: &mut Connection) -> Result<(), PortError> {
     let tx = connection.transaction().map_err(to_port_error)?;
 
     tx.execute_batch(

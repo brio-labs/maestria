@@ -1,9 +1,12 @@
-use super::*;
+use crate::conversion::to_port_error;
+use crate::graph::SqliteGraphIndex;
+use crate::migration::migrate;
+
 use maestria_domain::{
     ArtifactId, CardId, ClaimId, EvidenceId, MemoryId, Relation, RelationEndpoint, RelationId,
     RelationKind, TaskId,
 };
-use maestria_ports::PortError;
+use maestria_ports::{GraphIndex, PortError};
 use rusqlite::Connection;
 
 #[test]

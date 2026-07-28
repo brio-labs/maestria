@@ -4,7 +4,7 @@ use maestria_ports::{
 };
 use rusqlite::params;
 
-use crate::{to_port_error, u64_to_i64};
+use crate::sqlite_store::{to_port_error, u64_to_i64};
 
 fn risk_to_text(level: ApprovalRiskLevel) -> &'static str {
     match level {
@@ -50,7 +50,7 @@ fn status_from_text(text: &str) -> Result<ApprovalStatus, PortError> {
 
 fn read_approval_row(row: &rusqlite::Row<'_>) -> Result<ApprovalRecord, rusqlite::Error> {
     let id: i64 = row.get(0)?;
-    let task_id: i64 = row.get(1)?;
+    let task_id: Option<i64> = row.get(1)?;
     let effect_kind: String = row.get(2)?;
     let risk_text: String = row.get(3)?;
     let capability: String = row.get(4)?;
@@ -59,8 +59,13 @@ fn read_approval_row(row: &rusqlite::Row<'_>) -> Result<ApprovalRecord, rusqlite
     let status_text: String = row.get(7)?;
 
     let id = u64::try_from(id).map_err(|_| rusqlite::Error::IntegralValueOutOfRange(0, id))?;
-    let task_id =
-        u64::try_from(task_id).map_err(|_| rusqlite::Error::IntegralValueOutOfRange(1, task_id))?;
+    let task_id = task_id
+        .map(|value| {
+            u64::try_from(value)
+                .map(TaskId::new)
+                .map_err(|_| rusqlite::Error::IntegralValueOutOfRange(1, value))
+        })
+        .transpose()?;
     let scope_id = u64::try_from(scope_id)
         .map_err(|_| rusqlite::Error::IntegralValueOutOfRange(5, scope_id))?;
     let tick =
@@ -72,10 +77,9 @@ fn read_approval_row(row: &rusqlite::Row<'_>) -> Result<ApprovalRecord, rusqlite
     let status = status_from_text(&status_text).map_err(|e| {
         rusqlite::Error::FromSqlConversionFailure(7, rusqlite::types::Type::Text, Box::new(e))
     })?;
-
     Ok(ApprovalRecord {
         id: ApprovalId::new(id),
-        task_id: TaskId::new(task_id),
+        task_id,
         effect_kind,
         risk_level,
         capability,
@@ -95,7 +99,10 @@ impl ApprovalRepository for crate::SqliteStore {
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
                 params![
                     u64_to_i64(record.id.value())?,
-                    u64_to_i64(record.task_id.value())?,
+                    record
+                        .task_id
+                        .map(|task_id| u64_to_i64(task_id.value()))
+                        .transpose()?,
                     record.effect_kind,
                     risk_to_text(record.risk_level),
                     record.capability,
@@ -114,6 +121,23 @@ impl ApprovalRepository for crate::SqliteStore {
             .prepare(
                 "SELECT id, task_id, effect_kind, risk_level, capability, scope_id, tick, status \
                  FROM approval_requests WHERE status = 'pending' ORDER BY id",
+            )
+            .map_err(to_port_error)?;
+        let rows = stmt
+            .query_map([], read_approval_row)
+            .map_err(to_port_error)?;
+        let mut records = Vec::new();
+        for row in rows {
+            records.push(row.map_err(to_port_error)?);
+        }
+        Ok(records)
+    }
+    fn find_all(&self) -> Result<Vec<ApprovalRecord>, PortError> {
+        let connection = self.lock()?;
+        let mut stmt = connection
+            .prepare(
+                "SELECT id, task_id, effect_kind, risk_level, capability, scope_id, tick, status \
+                 FROM approval_requests ORDER BY id",
             )
             .map_err(to_port_error)?;
         let rows = stmt
@@ -205,7 +229,7 @@ mod tests {
     fn pending_record(id: u64) -> ApprovalRecord {
         ApprovalRecord {
             id: ApprovalId::new(id),
-            task_id: TaskId::new(100 + id),
+            task_id: Some(TaskId::new(100 + id)),
             effect_kind: "task_activation".to_string(),
             risk_level: ApprovalRiskLevel::Medium,
             capability: String::new(),

@@ -7,7 +7,7 @@ use maestria_core::InstanceLayout;
 use maestria_domain::{ArtifactId, BlobId, DomainInput, KernelState, ParserStarted, content_hash};
 use maestria_ports::BlobStore;
 
-use super::parser_resume::{pending_resume_parsers, verify_pending_blobs};
+use super::{pending_resume_parsers, verify_pending_blobs};
 
 /// A temporary directory that is removed on drop. Each instance gets a unique
 /// path via an atomic counter so tests running in the same process do not collide.

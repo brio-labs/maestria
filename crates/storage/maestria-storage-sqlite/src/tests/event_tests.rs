@@ -1,4 +1,4 @@
-use crate::{SqliteStore, to_port_error};
+use crate::{SqliteStore, sqlite_store::to_port_error};
 use maestria_domain::*;
 use maestria_ports::*;
 use rusqlite::params;
@@ -513,6 +513,51 @@ fn card_created_missing_source_span_is_rejected() -> Result<(), PortError> {
         store
             .scan(EventFilter { artifact_id: None })
             .is_err_and(|e| e.is_internal())
+    );
+    Ok(())
+}
+#[test]
+fn model_agent_proposal_request_payload_round_trips_with_event_kind() -> Result<(), PortError> {
+    let store = SqliteStore::in_memory()?;
+    let request = ModelAgentProposalRequest {
+        run_id: HarnessRunId::new(77),
+        task_id: None,
+        query: "durable request".to_string(),
+        limit: 5,
+        evidence_ids: vec![EvidenceId::new(9)],
+        capability: "model-agent".to_string(),
+        command: String::new(),
+        working_directory: String::new(),
+        timeout_secs: 10,
+        expected_generation: 4,
+        task_validation: false,
+        memory_candidate: false,
+        approval_id: None,
+        journal_generation: None,
+        correlation_id: 12,
+    };
+    let envelope = DomainEventEnvelope {
+        id: EventId::new(1),
+        sequence: SequenceNumber::new(1),
+        event: DomainEvent::ModelAgentProposalRequested {
+            request: request.clone(),
+        },
+    };
+
+    store.append(envelope.clone())?;
+    let connection = store.lock()?;
+    let kind: String = connection
+        .query_row(
+            "SELECT event_kind FROM domain_events WHERE id = 1",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(to_port_error)?;
+    assert_eq!(kind, "model_agent_proposal_requested");
+    drop(connection);
+    assert_eq!(
+        store.scan(EventFilter { artifact_id: None })?,
+        vec![envelope]
     );
     Ok(())
 }

@@ -1,0 +1,346 @@
+use crate::config::EffectExecutionContext;
+use crate::runtime::MaestriaRuntime;
+use maestria_domain::{DomainInput, KernelState, MaestriaEffect, ValidationReportId};
+use std::sync::{Arc, atomic::Ordering};
+use tokio::sync::mpsc;
+
+impl MaestriaRuntime {
+    pub(crate) fn seed_next_validation_report_id(state: &KernelState) -> u64 {
+        state
+            .validation_reports
+            .keys()
+            .map(|id| id.value())
+            .max()
+            .map_or(1, |value| value.saturating_add(1))
+    }
+
+    fn supervise_effect_join(
+        result: Result<(), tokio::task::JoinError>,
+        effect_shutdown: &tokio_util::sync::CancellationToken,
+        runtime_shutdown: &tokio_util::sync::CancellationToken,
+    ) {
+        let Err(error) = result else {
+            return;
+        };
+        tracing::error!(
+            %error,
+            task_panicked = error.is_panic(),
+            task_cancelled = error.is_cancelled(),
+            "spawned effect task join failed; cancelling runtime execution"
+        );
+        effect_shutdown.cancel();
+        runtime_shutdown.cancel();
+    }
+
+    fn spawn_effect_task(
+        in_flight: &mut tokio::task::JoinSet<()>,
+        context: EffectExecutionContext,
+        effect: MaestriaEffect,
+        permit: tokio::sync::OwnedSemaphorePermit,
+        effect_shutdown: tokio_util::sync::CancellationToken,
+        runtime_shutdown: tokio_util::sync::CancellationToken,
+    ) {
+        in_flight.spawn(async move {
+            if let Err(error) = context.execute_with_retries(effect).await {
+                tracing::error!(%error, "spawned effect failed");
+                if error.fatal() {
+                    tracing::error!("fatal spawned effect failure; cancelling runtime execution");
+                    effect_shutdown.cancel();
+                    runtime_shutdown.cancel();
+                }
+            }
+            drop(permit);
+        });
+    }
+
+    async fn finish_effect_executor(
+        in_flight: &mut tokio::task::JoinSet<()>,
+        drain_effects_on_shutdown: bool,
+        effect_shutdown: &tokio_util::sync::CancellationToken,
+        runtime_shutdown: &tokio_util::sync::CancellationToken,
+    ) {
+        if drain_effects_on_shutdown && !effect_shutdown.is_cancelled() {
+            while let Some(result) = in_flight.join_next().await {
+                Self::supervise_effect_join(result, effect_shutdown, runtime_shutdown);
+            }
+        } else {
+            in_flight.abort_all();
+            while let Some(result) = in_flight.join_next().await {
+                Self::supervise_effect_join(result, effect_shutdown, runtime_shutdown);
+            }
+        }
+    }
+
+    pub(crate) fn spawn_effect_executor(
+        &self,
+        mut receiver: mpsc::Receiver<crate::effect_dispatch::EffectBatch>,
+        effect_shutdown: tokio_util::sync::CancellationToken,
+        runtime_shutdown: tokio_util::sync::CancellationToken,
+    ) -> tokio::task::JoinHandle<()> {
+        let execution_context = EffectExecutionContext {
+            adapters: Arc::clone(&self.adapters),
+            governance: Arc::clone(&self.governance),
+            profile: self.config.profile,
+            scope: self.config.scope.clone(),
+            scope_id: self.config.scope_id,
+            state: Arc::clone(&self.state),
+            input_tx: self.input_tx.clone(),
+            embedding_model: self.config.embedding_model.clone(),
+            feedback_acks: Arc::clone(&self.feedback_acks),
+            default_effect_timeout: self.config.default_effect_timeout,
+            max_retries: self.config.max_retries,
+        };
+        let max_concurrent_effects = self.config.max_concurrent_effects;
+        let next_validation_report_id = Arc::clone(&self.next_validation_report_id);
+        let drain_effects_on_shutdown = self.config.drain_effects_on_shutdown;
+        #[cfg(test)]
+        let test_pre_failed_effect_task = self.test_pre_failed_effect_task;
+        tokio::spawn(async move {
+            let semaphore = Arc::new(tokio::sync::Semaphore::new(max_concurrent_effects));
+            let mut in_flight = tokio::task::JoinSet::new();
+            #[cfg(test)]
+            if test_pre_failed_effect_task {
+                let abort_handle = in_flight.spawn(std::future::pending::<()>());
+                abort_handle.abort();
+            }
+            loop {
+                while let Some(result) = in_flight.try_join_next() {
+                    Self::supervise_effect_join(result, &effect_shutdown, &runtime_shutdown);
+                }
+                let has_in_flight = !in_flight.is_empty();
+                let message = tokio::select! {
+                    biased;
+                    () = effect_shutdown.cancelled() => break,
+                    join_result = in_flight.join_next(), if has_in_flight => {
+                        if let Some(result) = join_result {
+                            Self::supervise_effect_join(
+                                result,
+                                &effect_shutdown,
+                                &runtime_shutdown,
+                            );
+                        }
+                        continue;
+                    },
+                    message = receiver.recv() => message,
+                };
+                let Some(effects) = message else { break };
+                if effect_shutdown.is_cancelled() {
+                    break;
+                }
+                for mut effect in effects {
+                    if effect_shutdown.is_cancelled() {
+                        break;
+                    }
+                    if let MaestriaEffect::RunValidation(request) = &mut effect {
+                        request.validation_report_id = ValidationReportId::new(
+                            next_validation_report_id.fetch_add(1, Ordering::Relaxed),
+                        );
+                    }
+                    let context = execution_context.clone();
+                    if matches!(&effect, MaestriaEffect::PersistEvent { .. }) {
+                        if context.execute_with_retries(effect).await.is_err() {
+                            effect_shutdown.cancel();
+                            runtime_shutdown.cancel();
+                            break;
+                        }
+                        continue;
+                    }
+                    let permit = tokio::select! {
+                        biased;
+                        () = effect_shutdown.cancelled() => break,
+                        permit = Arc::clone(&semaphore).acquire_owned() => {
+                            match permit {
+                                Ok(permit) => permit,
+                                Err(_) => break,
+                            }
+                        }
+                    };
+                    Self::spawn_effect_task(
+                        &mut in_flight,
+                        context,
+                        effect,
+                        permit,
+                        effect_shutdown.clone(),
+                        runtime_shutdown.clone(),
+                    );
+                }
+            }
+            Self::finish_effect_executor(
+                &mut in_flight,
+                drain_effects_on_shutdown,
+                &effect_shutdown,
+                &runtime_shutdown,
+            )
+            .await;
+        })
+    }
+
+    pub(crate) async fn wait_for_validation_report(
+        &self,
+        report_id: maestria_domain::ValidationReportId,
+        shutdown_token: &tokio_util::sync::CancellationToken,
+    ) -> bool {
+        let check = async {
+            loop {
+                if shutdown_token.is_cancelled() {
+                    return false;
+                }
+                match self
+                    .adapters
+                    .event_log
+                    .scan(maestria_ports::EventFilter { artifact_id: None })
+                {
+                    Ok(events) => {
+                        if events.iter().any(|env| {
+                            matches!(
+                                &env.event,
+                                maestria_domain::DomainEvent::ValidationReportCreated {
+                                    report_id: id,
+                                    ..
+                                } if *id == report_id
+                            )
+                        }) {
+                            return true;
+                        }
+                    }
+                    Err(error) => {
+                        tracing::error!(
+                            %error,
+                            "failed to scan event log during validation report barrier"
+                        );
+                        return false;
+                    }
+                }
+                tokio::select! {
+                    () = shutdown_token.cancelled() => return false,
+                    () = tokio::time::sleep(std::time::Duration::from_millis(5)) => {}
+                }
+            }
+        };
+        matches!(
+            tokio::time::timeout(self.config.default_effect_timeout, check).await,
+            Ok(true)
+        )
+    }
+
+    pub(crate) async fn wait_for_event_persistence(
+        &self,
+        event_id: maestria_domain::EventId,
+        shutdown_token: &tokio_util::sync::CancellationToken,
+    ) -> bool {
+        let check = async {
+            loop {
+                if shutdown_token.is_cancelled() {
+                    return false;
+                }
+                match self
+                    .adapters
+                    .event_log
+                    .scan(maestria_ports::EventFilter { artifact_id: None })
+                {
+                    Ok(events) if events.iter().any(|event| event.id == event_id) => return true,
+                    Ok(_) => {}
+                    Err(error) => {
+                        tracing::error!(%error, "failed to scan event log during persistence barrier");
+                        return false;
+                    }
+                }
+                tokio::select! {
+                    () = shutdown_token.cancelled() => return false,
+                    () = tokio::time::sleep(std::time::Duration::from_millis(5)) => {}
+                }
+            }
+        };
+        matches!(
+            tokio::time::timeout(self.config.default_effect_timeout, check).await,
+            Ok(true)
+        )
+    }
+    pub(crate) async fn wait_for_approval_resolution(
+        &self,
+        event_id: maestria_domain::EventId,
+        approval_id: maestria_domain::ApprovalId,
+        approved: bool,
+        shutdown_token: &tokio_util::sync::CancellationToken,
+    ) -> bool {
+        let check = async {
+            loop {
+                if shutdown_token.is_cancelled() {
+                    return false;
+                }
+                let event_persisted = match self
+                    .adapters
+                    .event_log
+                    .scan(maestria_ports::EventFilter { artifact_id: None })
+                {
+                    Ok(events) => events.iter().any(|event| {
+                        event.id == event_id
+                            && matches!(
+                                &event.event,
+                                maestria_domain::DomainEvent::ApprovalRecorded {
+                                    approval_id: id,
+                                    approved: event_approved,
+                                    ..
+                                } if *id == approval_id && *event_approved == approved
+                            )
+                    }),
+                    Err(error) => {
+                        tracing::error!(
+                            %error,
+                            "failed to scan event log during approval persistence barrier"
+                        );
+                        return false;
+                    }
+                };
+                if event_persisted {
+                    let projected = self
+                        .adapters
+                        .approval_repo
+                        .find_by_id(approval_id)
+                        .ok()
+                        .flatten()
+                        .is_some_and(|record| {
+                            record.status
+                                == if approved {
+                                    maestria_ports::ApprovalStatus::Approved
+                                } else {
+                                    maestria_ports::ApprovalStatus::Denied
+                                }
+                        });
+                    if projected {
+                        return true;
+                    }
+                }
+                tokio::select! {
+                    () = shutdown_token.cancelled() => return false,
+                    () = tokio::time::sleep(std::time::Duration::from_millis(5)) => {}
+                }
+            }
+        };
+        matches!(
+            tokio::time::timeout(self.config.default_effect_timeout, check).await,
+            Ok(true)
+        )
+    }
+
+    pub(crate) fn resume_model_agent_after_approval(
+        &self,
+        proposal: maestria_domain::ModelAgentProposalRequest,
+        shutdown: tokio_util::sync::CancellationToken,
+    ) {
+        let input_tx = self.input_tx.clone();
+        tokio::spawn(async move {
+            tokio::select! {
+                () = shutdown.cancelled() => {}
+                result = input_tx.send(DomainInput::ModelAgentProposalResumed(proposal)) => {
+                    if let Err(error) = result {
+                        tracing::warn!(
+                            %error,
+                            "approval continuation input channel closed"
+                        );
+                    }
+                }
+            }
+        });
+    }
+}

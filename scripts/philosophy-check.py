@@ -111,7 +111,7 @@ MODULE_SIZE_EXEMPTIONS: dict[str, str] = {
     "crates/ecosystem/maestria-retrieval/src/repository_benchmark.rs": "v0.7.0",
     "crates/ecosystem/maestria-retrieval/tests/contract_tests.rs": "v0.7.0",
 }
-FUNCTION_SIZE_EXEMPTIONS: dict[str, str] = {}
+FUNCTION_SIZE_EXEMPTIONS: dict[str, dict[str, str]] = {}
 MIXED_RESPONSIBILITY_EXEMPTIONS: dict[str, str] = {
     "crates/storage/maestria-storage-sqlite/src/schema.rs": "v0.7.0",
     "crates/ecosystem/maestria-retrieval/src/visual_benchmark.rs": "v0.7.0",
@@ -119,16 +119,6 @@ MIXED_RESPONSIBILITY_EXEMPTIONS: dict[str, str] = {
 ADR_MODULE_EXEMPTIONS: dict[str, str] = {
     "crates/apps/maestria-daemon/src/lib.rs": "v0.7.0",
     "crates/runtime/maestria-runtime/src/lib.rs": "v0.8.0",
-    "crates/storage/maestria-storage-sqlite/src/lib.rs": "v0.7.0",
-    "crates/storage/maestria-search-tantivy/src/lib.rs": "v0.7.0",
-    "crates/storage/maestria-graph-sqlite/src/lib.rs": "v0.7.0",
-    "crates/storage/maestria-vector-sqlite/src/lib.rs": "v0.7.0",
-    "crates/harness/maestria-harness/src/lib.rs": "v0.7.0",
-    "crates/core/maestria-core/src/lib.rs": "v0.8.0",
-    "crates/kernel/maestria-governance/src/lib.rs": "v0.7.0",
-    "crates/ecosystem/maestria-retrieval/src/lib.rs": "v0.7.0",
-    "crates/ecosystem/maestria-code-intel/src/lib.rs": "v0.7.0",
-    "crates/ecosystem/maestria-parsers/src/lib.rs": "v0.7.0",
 }
 
 VERSION_PATTERN = re.compile(r"^v?(\d+)\.(\d+)\.(\d+)(?:[-+][0-9A-Za-z.-]+)?$")
@@ -165,33 +155,37 @@ def scan_exemption_expiry(current_version: str | None = None) -> list[str]:
             f"workspace version {current_text!r} is not a supported release version"
         ]
 
-    violations = []
-    exemptions = {
+    violations: list[str] = []
+    exemptions: dict[str, str] = {
         **MODULE_SIZE_EXEMPTIONS,
         **ADR_MODULE_EXEMPTIONS,
-        **FUNCTION_SIZE_EXEMPTIONS,
         **MIXED_RESPONSIBILITY_EXEMPTIONS,
     }
+    for path, items in FUNCTION_SIZE_EXEMPTIONS.items():
+        for item, target_text in items.items():
+            exemptions[f"{path}::{item}"] = target_text
     for path, target_text in sorted(exemptions.items()):
         target = parse_release_version(target_text)
         if target is None:
             violations.append(
-                f"{path} has malformed module exemption expiry {target_text!r}"
+                f"{path} has malformed exemption expiry {target_text!r}"
             )
         elif current >= target:
             violations.append(
-                f"{path} module exemption expired at {target_text} "
+                f"{path} exemption expired at {target_text} "
                 f"(workspace version {current_text}); refactor or renew the ADR"
             )
     return violations
 
-
 KERNEL_ALLOWED_DEPENDENCIES = {
-    "maestria-domain": {"sha2"},
-    "maestria-governance": {"maestria_domain"},
-    "maestria-ports": {"maestria_domain"},
+    "maestria-domain": {"serde", "serde-json", "sha2"},
+    "maestria-governance": {"maestria-domain"},
+    "maestria-ports": {"maestria-domain"},
 }
 RESPONSIBILITY_MAPS: dict[str, tuple[str, ...]] = {
+    "src/lib.rs": (
+        "version",
+    ),
     # ── kernel ───────────────────────────────────────────────────────
     "crates/kernel/maestria-ports/src/traits.rs": (
         "errors",
@@ -204,6 +198,20 @@ RESPONSIBILITY_MAPS: dict[str, tuple[str, ...]] = {
         "web",
         "approval",
         "search",
+    ),
+    "crates/kernel/maestria-ports/src/lib.rs": (
+        "version",
+        "learned_sparse",
+        "lexical",
+        "full_text",
+        "traits",
+        "visual",
+        "ocr",
+        "parsing",
+        "in_memory",
+        "contract_tests",
+        "graph_contract_tests",
+        "learned_sparse_contract_tests",
     ),
     "crates/kernel/maestria-domain/src/lib.rs": (
         "effects",
@@ -220,6 +228,7 @@ RESPONSIBILITY_MAPS: dict[str, tuple[str, ...]] = {
         "replay",
         "search",
         "security",
+        "security_snapshot",
         "types",
     ),
     "crates/kernel/maestria-governance/src/lib.rs": (
@@ -232,12 +241,14 @@ RESPONSIBILITY_MAPS: dict[str, tuple[str, ...]] = {
         "risk",
         "scope",
         "validation",
+        "version",
     ),
     # ── runtime ──────────────────────────────────────────────────────
     "crates/runtime/maestria-runtime/src/lib.rs": (
         "config",
         "effect_dispatch",
         "effect_execution",
+        "effect_execution_dispatch",
         "effect_result",
         "harness",
         "indexing",
@@ -245,13 +256,19 @@ RESPONSIBILITY_MAPS: dict[str, tuple[str, ...]] = {
         "parsing",
         "parsing_records",
         "persistence",
+        "proposal_workflow",
         "shell_policy",
         "supervision",
         "validation",
         "vector_indexing",
         "web_evidence",
+        "parsing_terminal",
         "approval",
         "completion",
+        "runtime",
+        "runtime_effects",
+        "runtime_handle",
+        "runtime_loop",
     ),
     # ── core ──────────────────────────────────────────────────────────
     "crates/core/maestria-core/src/lib.rs": (
@@ -264,6 +281,7 @@ RESPONSIBILITY_MAPS: dict[str, tuple[str, ...]] = {
         "ports",
         "provenance",
         "types",
+        "version",
     ),
     "crates/apps/maestria-daemon/src/lib.rs": (
         "api",
@@ -279,6 +297,10 @@ RESPONSIBILITY_MAPS: dict[str, tuple[str, ...]] = {
         "validation_recovery",
         "lifecycle",
         "watcher",
+        "lifecycle_entry",
+        "instance_setup",
+        "providers",
+        "runtime_construction",
     ),
     "crates/apps/maestria-daemon/src/api.rs": (
         "protocol",
@@ -288,11 +310,15 @@ RESPONSIBILITY_MAPS: dict[str, tuple[str, ...]] = {
     ),
     # ── harness ───────────────────────────────────────────────────────
     "crates/harness/maestria-harness/src/lib.rs": (
+        "adapter",
         "command",
         "process",
         "tokenize",
     ),
     # ── storage ───────────────────────────────────────────────────────
+    "crates/storage/maestria-blob-fs/src/lib.rs": (
+        "store",
+    ),
     "crates/storage/maestria-storage-sqlite/src/lib.rs": (
         "events",
         "id_allocator",
@@ -300,6 +326,7 @@ RESPONSIBILITY_MAPS: dict[str, tuple[str, ...]] = {
         "repositories",
         "schema",
         "schema_validation",
+        "sqlite_store",
     ),
     "crates/storage/maestria-search-tantivy/src/lib.rs": (
         "constructors",
@@ -309,16 +336,38 @@ RESPONSIBILITY_MAPS: dict[str, tuple[str, ...]] = {
         "operations",
         "schema",
         "search_helpers",
+        "documents",
+        "tantivy_index",
     ),
     "crates/storage/maestria-graph-sqlite/src/lib.rs": (
         "conversion",
         "migration",
+        "graph",
     ),
     "crates/storage/maestria-vector-sqlite/src/lib.rs": (
         "encoding",
         "schema",
+        "operations",
+        "vector_index",
     ),
     # ── ecosystem ─────────────────────────────────────────────────────
+    "crates/ecosystem/maestria-memory/src/lib.rs": (
+        "memory_service",
+    ),
+    "crates/ecosystem/maestria-ocr-local/src/lib.rs": (
+        "rasterizer",
+        "transport",
+        "ocr_provider",
+    ),
+    "crates/ecosystem/maestria-web-evidence/src/lib.rs": (
+        "web_fetcher",
+    ),
+    "crates/ecosystem/maestria-embedding-openai/src/lib.rs": (
+        "embedding_provider",
+    ),
+    "crates/ecosystem/maestria-visual-local/src/lib.rs": (
+        "visual_provider",
+    ),
     "crates/ecosystem/maestria-retrieval/src/lib.rs": (
         "adapters",
         "bounded_reranker",
@@ -336,6 +385,7 @@ RESPONSIBILITY_MAPS: dict[str, tuple[str, ...]] = {
         "types",
         "visual_benchmark",
         "visual_reranker",
+        "monotonic",
     ),
     "crates/ecosystem/maestria-code-intel/src/lib.rs": (
         "builder",
@@ -349,6 +399,7 @@ RESPONSIBILITY_MAPS: dict[str, tuple[str, ...]] = {
         "query",
         "symbols",
         "types",
+        "index",
     ),
     "crates/ecosystem/maestria-parsers/src/lib.rs": (
         "cargo_toml",
@@ -944,44 +995,125 @@ def scan_rust_forbidden_methods() -> list[str]:
     return violations
 
 
-def _manifest_dependencies(content: str) -> set[str]:
+def _normalize_dependency_name(name: str) -> str:
+    return name.strip().lower().replace("_", "-")
+
+
+def _toml_document(content: str) -> dict[str, object]:
     try:
         import tomllib
 
         document = tomllib.loads(content)
     except (tomllib.TOMLDecodeError, ValueError):
+        return {}
+    return document if isinstance(document, dict) else {}
+
+
+def _workspace_dependency_specifications(
+    content: str | None,
+) -> dict[str, dict[str, object]]:
+    if content is None:
+        return {}
+    document = _toml_document(content)
+    specifications: dict[str, dict[str, object]] = {}
+
+    def collect(table: object) -> None:
+        if not isinstance(table, dict):
+            return
+        for dependency, specification in table.items():
+            if isinstance(specification, dict):
+                specifications[_normalize_dependency_name(str(dependency))] = specification
+            else:
+                specifications[_normalize_dependency_name(str(dependency))] = {}
+
+    workspace = document.get("workspace")
+    if isinstance(workspace, dict):
+        collect(workspace.get("dependencies"))
+    targets = document.get("target", {})
+    if isinstance(targets, dict):
+        for target in targets.values():
+            if not isinstance(target, dict):
+                continue
+            target_workspace = target.get("workspace")
+            if isinstance(target_workspace, dict):
+                collect(target_workspace.get("dependencies"))
+    return specifications
+
+
+def _workspace_dependency_aliases(content: str | None) -> dict[str, str]:
+    """Return normalized dependency aliases to their resolved package names."""
+    aliases: dict[str, str] = {}
+    for alias, specification in _workspace_dependency_specifications(content).items():
+        package = specification.get("package", alias)
+        aliases[alias] = _normalize_dependency_name(str(package))
+    return aliases
+
+
+def _manifest_dependencies(
+    content: str,
+    workspace_content: str | None = None,
+) -> set[str]:
+    document = _toml_document(content)
+    if not document:
         return set()
-    dependencies = set(document.get("dependencies", {}))
-    for target in document.get("target", {}).values():
-        dependencies.update(target.get("dependencies", {}))
+
+    workspace_aliases = _workspace_dependency_aliases(workspace_content)
+    dependencies: set[str] = set()
+
+    def collect(table: object) -> None:
+        if not isinstance(table, dict):
+            return
+        for dependency, specification in table.items():
+            alias = _normalize_dependency_name(str(dependency))
+            if isinstance(specification, dict) and specification.get("workspace") is True:
+                # Cargo resolves an inherited dependency by the root alias.  The
+                # root `package` field is authoritative for renamed packages.
+                package = workspace_aliases.get(alias, alias)
+            elif isinstance(specification, dict):
+                package = specification.get("package", dependency)
+            else:
+                package = dependency
+            dependencies.add(_normalize_dependency_name(str(package)))
+
+    for table_name in ("dependencies", "dev-dependencies", "build-dependencies"):
+        collect(document.get(table_name))
+    targets = document.get("target", {})
+    if isinstance(targets, dict):
+        for target in targets.values():
+            if not isinstance(target, dict):
+                continue
+            for table_name in (
+                "dependencies",
+                "dev-dependencies",
+                "build-dependencies",
+            ):
+                collect(target.get(table_name))
     return dependencies
 
 
 def scan_kernel_manifests() -> list[str]:
     violations = []
+    workspace_content = read_text(ROOT / "Cargo.toml")
     for kernel_root in KERNEL_ROOTS:
         manifest = kernel_root / "Cargo.toml"
         content = read_text(manifest)
         if content is None:
             violations.append(str(manifest.relative_to(ROOT)))
             continue
-        dependencies = _manifest_dependencies(content)
+        dependencies = _manifest_dependencies(content, workspace_content)
         crate_name = kernel_root.name
         allowed = KERNEL_ALLOWED_DEPENDENCIES.get(crate_name, set())
         for dependency in sorted(dependencies & FORBIDDEN_KERNEL_DEPENDENCIES):
             violations.append(
                 f"{manifest.relative_to(ROOT)} contains forbidden dependency token {dependency}"
             )
-        for dependency in sorted(
-            dependency
-            for dependency in dependencies
-            if dependency.startswith("maestria_") and dependency not in allowed
-        ):
+        for dependency in sorted(dependencies - allowed):
+            if dependency in FORBIDDEN_KERNEL_DEPENDENCIES:
+                continue
             violations.append(
                 f"{manifest.relative_to(ROOT)} contains disallowed kernel dependency {dependency}"
             )
     return violations
-
 
 def is_test_source(path: Path) -> bool:
     return (
@@ -989,6 +1121,41 @@ def is_test_source(path: Path) -> bool:
         or path.stem in {"tests", "contract_tests"}
         or path.stem.endswith("_tests")
     )
+
+def _top_level_module_declarations(text: str) -> set[str]:
+    """Return top-level module declarations, excluding exact cfg(test) only."""
+    source = _rust_syntax(text)
+    pattern = re.compile(
+        r"\bmod\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*;"
+    )
+    declarations: set[str] = set()
+    depth = 0
+    cursor = 0
+    for match in pattern.finditer(source):
+        between = source[cursor : match.start()]
+        for token in between:
+            if token == "{":
+                depth += 1
+            elif token == "}":
+                depth = max(0, depth - 1)
+        cursor = match.end()
+        if depth:
+            continue
+        prefix = source[: match.start()]
+        tail = re.split(r"[;}]", prefix)[-1]
+        attributes = re.findall(r"#\s*\[[^\]]*\]", tail)
+        remainder = re.sub(r"#\s*\[[^\]]*\]", "", tail).strip()
+        test_cfg = any(
+            re.fullmatch(r"#\s*\[\s*cfg\s*\(\s*test\s*\)\s*\]", attribute)
+            for attribute in attributes
+        )
+        if test_cfg and re.fullmatch(
+            r"(?:pub(?:\s*\([^)]*\))?)?", remainder
+        ):
+            continue
+        declarations.add(match.group(1))
+    return declarations
+
 
 
 def scan_kernel_sources() -> list[str]:
@@ -1046,15 +1213,9 @@ def scan_responsibility_maps() -> list[str]:
                         f"{rel_path} responsibility map has extra module '{module}'"
                     )
 
-        declared_pattern = re.compile(
-            r"^(?:pub(?:\s*\([^)]*\))?\s+)?mod\s+([a-z0-9_]+)\s*;\s*$"
-        )
-        declared_mods = set(
-            match.group(1)
-            for line in lines
-            for match in [declared_pattern.match(line)]
-            if match is not None
-        )
+        declared_mods = _top_level_module_declarations(content)
+        for module in sorted(declared_mods - set(declared_modules)):
+            violations.append(f"{rel_path} responsibility map omits module '{module}'")
         for module in declared_modules:
             if module not in declared_mods:
                 violations.append(f"{rel_path} does not declare module '{module}'")
@@ -1072,6 +1233,13 @@ def scan_responsibility_maps() -> list[str]:
                             violations.append(
                                 f"{rel_path} responsibility module file missing: {module}.rs"
                             )
+    configured_maps = set(RESPONSIBILITY_MAPS)
+    for source in production_lib_paths():
+        rel_path = source.relative_to(ROOT).as_posix()
+        if rel_path not in configured_maps:
+            violations.append(
+                f"{rel_path} production module has no configured responsibility map"
+            )
     return violations
 
 
@@ -1081,7 +1249,7 @@ def scan_domain_manifest() -> list[str]:
         return [str(DOMAIN_MANIFEST.relative_to(ROOT))]
     violations = []
     for dependency in sorted(
-        _manifest_dependencies(content) & FORBIDDEN_KERNEL_DEPENDENCIES
+        _manifest_dependencies(content, read_text(ROOT / "Cargo.toml"))
     ):
         violations.append(
             f"{DOMAIN_MANIFEST.relative_to(ROOT)} contains forbidden dependency token {dependency}"
@@ -1160,59 +1328,242 @@ def production_strip_line_comments(body: str) -> str:
     return "".join(lines)
 
 
-def scan_facade_boundaries() -> list[str]:
-    """Verify that lib.rs files act as façades (Rule 19).
+def _workspace_member_roots() -> list[Path] | None:
+    """Discover workspace packages from Cargo members, globs, excludes, and root."""
+    manifest_path = ROOT / "Cargo.toml"
+    content = read_text(manifest_path)
+    if content is None:
+        return None
+    document = _toml_document(content)
+    workspace = document.get("workspace")
+    package = document.get("package")
+    if not isinstance(workspace, dict) and not isinstance(package, dict):
+        return None
 
-    A lib.rs should only contain module declarations, re-exports, and
-    metadata constants. Implementation bodies (fn, struct, enum, impl blocks)
-    indicate accumulated responsibility and should be extracted to sibling
-    modules.
-    """
+    roots: set[Path] = set()
+    if isinstance(package, dict):
+        roots.add(ROOT)
+    members = workspace.get("members", []) if isinstance(workspace, dict) else []
+    if isinstance(members, str):
+        members = [members]
+    if isinstance(members, list):
+        for member in members:
+            if not isinstance(member, str):
+                continue
+            matches = list(ROOT.glob(member))
+            if not matches and (ROOT / member).is_dir():
+                matches = [ROOT / member]
+            for match in matches:
+                candidate = match.parent if match.name == "Cargo.toml" else match
+                if candidate.is_dir() and (candidate / "Cargo.toml").is_file():
+                    roots.add(candidate)
+
+    excluded: set[Path] = set()
+    excludes = workspace.get("exclude", []) if isinstance(workspace, dict) else []
+    if isinstance(excludes, str):
+        excludes = [excludes]
+    if isinstance(excludes, list):
+        for excluded_pattern in excludes:
+            if not isinstance(excluded_pattern, str):
+                continue
+            matches = list(ROOT.glob(excluded_pattern))
+            if not matches and (ROOT / excluded_pattern).exists():
+                matches = [ROOT / excluded_pattern]
+            for match in matches:
+                excluded.add(match.parent if match.name == "Cargo.toml" else match)
+    return sorted(
+        root
+        for root in roots
+        if not any(root == excluded_root or excluded_root in root.parents for excluded_root in excluded)
+    )
+
+
+def _path_dependency_roots(crate_root: Path) -> set[Path]:
+    """Find in-tree packages referenced by direct or inherited path dependencies."""
+    document = _toml_document(read_text(crate_root / "Cargo.toml") or "")
+    workspace_specs = _workspace_dependency_specifications(
+        read_text(ROOT / "Cargo.toml")
+    )
+    roots: set[Path] = set()
+
+    def collect(table: object) -> None:
+        if not isinstance(table, dict):
+            return
+        for dependency, specification in table.items():
+            if not isinstance(specification, dict):
+                continue
+            resolved = specification
+            base = crate_root
+            if specification.get("workspace") is True:
+                resolved = workspace_specs.get(
+                    _normalize_dependency_name(str(dependency)), {}
+                )
+                base = ROOT
+            dependency_path = resolved.get("path")
+            if not isinstance(dependency_path, str):
+                continue
+            candidate = (base / dependency_path).resolve()
+            try:
+                candidate.relative_to(ROOT.resolve())
+            except ValueError:
+                continue
+            if (candidate / "Cargo.toml").is_file():
+                roots.add(candidate)
+
+    for table_name in ("dependencies", "dev-dependencies", "build-dependencies"):
+        collect(document.get(table_name))
+    targets = document.get("target", {})
+    if isinstance(targets, dict):
+        for target in targets.values():
+            if not isinstance(target, dict):
+                continue
+            for table_name in ("dependencies", "dev-dependencies", "build-dependencies"):
+                collect(target.get(table_name))
+    return roots
+
+
+def _workspace_production_roots() -> list[Path] | None:
+    roots = _workspace_member_roots()
+    if roots is None:
+        return None
+    discovered = set(roots)
+    pending = list(roots)
+    while pending:
+        crate_root = pending.pop()
+        for dependency_root in _path_dependency_roots(crate_root):
+            if dependency_root not in discovered:
+                discovered.add(dependency_root)
+                pending.append(dependency_root)
+    return sorted(discovered)
+
+
+def _library_target_path(crate_root: Path) -> Path | None:
+    manifest = _toml_document(read_text(crate_root / "Cargo.toml") or "")
+    lib = manifest.get("lib")
+    if isinstance(lib, dict) and isinstance(lib.get("path"), str):
+        return crate_root / str(lib["path"])
+    default = crate_root / "src" / "lib.rs"
+    return default if default.is_file() else None
+
+
+def production_lib_paths() -> list[Path]:
+    roots = _workspace_production_roots()
+    if roots is None:
+        candidates = ROOT.glob("**/src/lib.rs")
+    else:
+        candidates = (_library_target_path(root) for root in roots)
+    return sorted(
+        source
+        for source in candidates
+        if source is not None
+        and source.is_file()
+        and not should_skip(source)
+        and not is_test_source(source)
+    )
+
+
+def _rust_item_fragments(text: str) -> list[str]:
+    """Split top-level Rust items without relying on keyword-shaped regexes."""
+    source = _rust_syntax(text)
+    fragments: list[str] = []
+    index = 0
+    while index < len(source):
+        while index < len(source) and source[index].isspace():
+            index += 1
+        if index >= len(source):
+            break
+        if source.startswith("#[", index) or source.startswith("#![", index):
+            opening = source.find("[", index)
+            # Attributes may contain nested macro delimiters, so balance square
+            # brackets directly instead of treating the attribute as an item.
+            depth = 0
+            cursor = opening
+            while cursor != -1 and cursor < len(source):
+                if source[cursor] == "[":
+                    depth += 1
+                elif source[cursor] == "]":
+                    depth -= 1
+                    if depth == 0:
+                        cursor += 1
+                        break
+                cursor += 1
+            if opening == -1 or depth:
+                break
+            index = cursor
+            continue
+
+        start = index
+        stack: list[str] = []
+        close_for = {")": "(", "]": "[", "}": "{"}
+        ended = False
+        while index < len(source):
+            token = source[index]
+            if token in "([{":
+                if token == "{" and not stack:
+                    prefix = source[start:index]
+                    if re.match(r"\s*(?:pub(?:\s*\([^)]*\))?\s+)?use\b", prefix):
+                        stack.append(token)
+                    else:
+                        closing = _matching_delimiter(source, index, "{", "}")
+                        if closing is None:
+                            index = len(source)
+                        else:
+                            index = closing + 1
+                        fragments.append(source[start:index])
+                        ended = True
+                        break
+                else:
+                    stack.append(token)
+            elif token in close_for and stack:
+                if stack[-1] == close_for[token]:
+                    stack.pop()
+            elif token == ";" and not stack:
+                index += 1
+                fragments.append(source[start:index])
+                ended = True
+                break
+            index += 1
+        if not ended:
+            if start < len(source):
+                fragments.append(source[start:index])
+            break
+    return fragments
+
+
+def _facade_item_allowed(fragment: str) -> bool:
+    item = fragment.strip()
+    if not item:
+        return True
+    # Visibility is deliberately required for reexports: ordinary implementation
+    # imports belong in the implementation module, not in the façade.
+    use_match = re.match(r"^(pub(?:\s*\([^)]*\))?)\s+use\b", item, re.DOTALL)
+    if use_match is not None:
+        use_source = _rust_syntax(item)
+        return "*" not in use_source
+    mod_match = re.match(
+        r"^(?:(?:pub(?:\s*\([^)]*\))?|unsafe)\s+)*mod\s+[A-Za-z_][A-Za-z0-9_]*\s*;\s*$",
+        item,
+        re.DOTALL,
+    )
+    return mod_match is not None
+
+
+def scan_facade_boundaries() -> list[str]:
+    """Require every production library target to be a declarative façade."""
     violations = []
-    # Check for fn definitions (handles pub, pub(crate), async, pub async)
-    fn_pat = re.compile(
-        r"^\s*(?:pub(?:\s*\([^)]*\))?\s+)?(?:async\s+)?fn\s+\w+\s*\(",
-        re.MULTILINE,
-    )
-    # Check for struct/enum definitions with bodies
-    se_pat = re.compile(
-        r"^\s*(?:pub\s+)?(?:struct|enum)\s+\w+(?:\s*<[^>]*>)?\s*(?::\s*[^{;]+)?\{",
-        re.MULTILINE,
-    )
-    # Check for impl blocks
-    impl_pat = re.compile(
-        r"^\s*(?:pub\s+)?(?:unsafe\s+)?impl\s+(?:<[^>]*>\s*)?\w+(?:::\w+)?"
-        r"(?:\s*<[^>]*>)?(?:\s+for\s+\w+(?:::\w+)?(?:\s*<[^>]*>)?)?\{",
-        re.MULTILINE,
-    )
-    # Check for const/static definitions
-    const_pat = re.compile(
-        r"^\s*(?:pub\s+)?(?:const|static)\s+\w+\s*(?::|=)",
-        re.MULTILINE,
-    )
-    for rel_path in RESPONSIBILITY_MAPS:
-        source = ROOT / rel_path
-        if not source.exists():
-            continue
-        if rel_path in ADR_MODULE_EXEMPTIONS:
-            continue
+    for source in production_lib_paths():
+        rel_path = source.relative_to(ROOT).as_posix()
         content = read_text(source)
         if content is None:
             continue
-
-        # Remove line comments so doc-comment //! descriptions don't match
-        cleaned = production_strip_line_comments(content)
-
-        hits = (
-            fn_pat.findall(cleaned)
-            + se_pat.findall(cleaned)
-            + impl_pat.findall(cleaned)
-            + const_pat.findall(cleaned)
-        )
-        if hits:
+        invalid_items = [
+            fragment for fragment in _rust_item_fragments(content)
+            if not _facade_item_allowed(fragment)
+        ]
+        if invalid_items:
             violations.append(
-                f"{rel_path} contains {len(hits)} implementation body(s) "
-                f"(lib.rs should be a façade per Rule 19)"
+                f"{rel_path} contains {len(invalid_items)} implementation item(s); "
+                f"implementation body/item detected (lib.rs should be a façade per Rule 19)"
             )
     return violations
 
@@ -1314,15 +1665,14 @@ def scan_function_sizes() -> list[str]:
             continue
         rel_path = source.relative_to(ROOT)
         rel = rel_path.as_posix()
-        if rel in FUNCTION_SIZE_EXEMPTIONS:
-            continue
         content = read_text(source)
         if content is None:
             continue
         production = production_rust(content)
+        exemptions = FUNCTION_SIZE_EXEMPTIONS.get(rel, {})
         for name, body in _find_function_bodies(production):
             lines = logical_line_count(body)
-            if lines > MAX_FUNCTION_LOGICAL_LINES:
+            if lines > MAX_FUNCTION_LOGICAL_LINES and name not in exemptions:
                 violations.append(
                     f"{rel} function `{name}` has {lines} logical lines "
                     f"(limit {MAX_FUNCTION_LOGICAL_LINES})"

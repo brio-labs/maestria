@@ -218,11 +218,6 @@ fn replay_keeps_new_event_and_effect_shapes_deterministic() -> Result<(), Box<dy
     )));
     assert!(effects_a.iter().any(|effect| matches!(
         effect,
-        MaestriaEffect::PersistState(PersistStateRequest { reason })
-            if reason == "validated task completion"
-    )));
-    assert!(effects_a.iter().any(|effect| matches!(
-        effect,
         MaestriaEffect::UpdateGraph(UpdateGraphRequest { relation_id })
             if *relation_id == RelationId::new(70)
     )));

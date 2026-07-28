@@ -3,8 +3,10 @@ use maestria_ports::{EvidenceRepository, PortError};
 use rusqlite::{Row, params};
 
 use crate::{
-    i64_to_u64, json_error, optional_i64_to_u64, optional_u64_to_i64, payloads::StoredEvidenceKind,
-    to_port_error, u64_to_i64,
+    payloads::StoredEvidenceKind,
+    sqlite_store::{
+        i64_to_u64, json_error, optional_i64_to_u64, optional_u64_to_i64, to_port_error, u64_to_i64,
+    },
 };
 
 impl EvidenceRepository for crate::SqliteStore {
@@ -29,7 +31,7 @@ impl EvidenceRepository for crate::SqliteStore {
     fn put(&self, evidence: Evidence) -> Result<(), PortError> {
         let kind_json = serde_json::to_string(&StoredEvidenceKind::from_domain(&evidence.kind))
             .map_err(json_error)?;
-        let security_json = serde_json::to_string(&evidence.security).map_err(crate::json_error)?;
+        let security_json = serde_json::to_string(&evidence.security).map_err(json_error)?;
         let evidence_id = u64_to_i64(evidence.id.value())?;
         let artifact_id = u64_to_i64(evidence.artifact_id.value())?;
         let claim_id = optional_u64_to_i64(evidence.claim_id.map(|id| id.value()))?;
@@ -103,7 +105,7 @@ impl EvidenceRepository for crate::SqliteStore {
                     kind_json,
                     evidence.excerpt,
                     u64_to_i64(evidence.observed_at.value())?,
-                    serde_json::to_string(&evidence.security).map_err(crate::json_error)?,
+                    serde_json::to_string(&evidence.security).map_err(json_error)?,
                 ],
             )
             .map(|_| ())
@@ -137,7 +139,7 @@ fn read_evidence(row: &Row<'_>) -> Result<Evidence, PortError> {
         .map_err(json_error)?
         .into_domain();
     let security_json = row.get::<_, String>(6).map_err(to_port_error)?;
-    let security = serde_json::from_str(&security_json).map_err(crate::json_error)?;
+    let security = serde_json::from_str(&security_json).map_err(json_error)?;
 
     Ok(Evidence {
         id: EvidenceId::new(i64_to_u64(row.get::<_, i64>(0).map_err(to_port_error)?)?),

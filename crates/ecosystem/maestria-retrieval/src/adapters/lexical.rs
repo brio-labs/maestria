@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use maestria_domain::{EvidenceCandidate, IndexGenerationId, IndexStatus, SearchLaneStatus};
-use maestria_governance::{RetrievalDecision, RetrievalSecurityPolicy, scan_secrets};
+use maestria_governance::{RetrievalDecision, scan_secrets};
 use maestria_ports::{
     ArtifactRepository, BlobStore, ChunkRepository, EvidenceRepository, FullTextIndex,
 };
@@ -31,23 +31,17 @@ pub struct LexicalChunkRetriever {
     chunks: Arc<dyn ChunkRepository + Send + Sync>,
     evidence: Arc<dyn EvidenceRepository + Send + Sync>,
     verifier: SourceSnapshotVerifier,
-    policy: RetrievalSecurityPolicy,
     descriptor: RetrieverDescriptor,
 }
 
 impl LexicalChunkRetriever {
-    pub fn new(
-        parts: LexicalChunkRetrieverParts,
-        policy: RetrievalSecurityPolicy,
-        generation: IndexGenerationId,
-    ) -> Self {
+    pub fn new(parts: LexicalChunkRetrieverParts, generation: IndexGenerationId) -> Self {
         Self {
             index: parts.index,
             artifacts: parts.artifacts,
             chunks: parts.chunks,
             evidence: parts.evidence,
             verifier: SourceSnapshotVerifier::new(parts.blobs),
-            policy,
             descriptor: RetrieverDescriptor {
                 id: "lexical_chunks".to_string(),
                 modality: "text".to_string(),
@@ -75,7 +69,7 @@ impl CandidateRetriever for LexicalChunkRetriever {
         let hits = self
             .index
             .search_filtered(request.query.clone(), &|chunk_id, artifact_id| match self
-                .prefilter_hit(chunk_id, artifact_id)
+                .prefilter_hit(chunk_id, artifact_id, &request.authorization)
             {
                 Ok(allowed) => allowed,
                 Err(error) => {
@@ -91,7 +85,8 @@ impl CandidateRetriever for LexicalChunkRetriever {
         let mut bytes_read = 0_u64;
         for (raw_rank, hit) in hits.into_iter().enumerate() {
             let raw_rank = one_based_rank(raw_rank);
-            let Some(candidate) = self.candidate_from_hit(hit, raw_rank)? else {
+            let Some(candidate) = self.candidate_from_hit(hit, raw_rank, &request.authorization)?
+            else {
                 continue;
             };
             let span_len = candidate
@@ -126,12 +121,13 @@ impl LexicalChunkRetriever {
         &self,
         chunk_id: maestria_domain::ChunkId,
         artifact_id: maestria_domain::ArtifactId,
+        authorization: &maestria_governance::RetrievalAuthorizationContext,
     ) -> Result<bool, maestria_ports::PortError> {
         let Some(artifact) = self.artifacts.get(artifact_id)? else {
             return Ok(false);
         };
         if artifact.index_status != IndexStatus::Indexed
-            || self.policy.evaluate(&artifact.security) != RetrievalDecision::Allowed
+            || authorization.evaluate(&artifact.security) != RetrievalDecision::Allowed
         {
             return Ok(false);
         }
@@ -146,7 +142,7 @@ impl LexicalChunkRetriever {
             return Ok(false);
         };
         Ok(
-            self.policy.evaluate(&evidence.security) == RetrievalDecision::Allowed
+            authorization.evaluate(&evidence.security) == RetrievalDecision::Allowed
                 && scan_secrets(&evidence.excerpt).is_clean(),
         )
     }
@@ -157,6 +153,7 @@ impl LexicalChunkRetriever {
         &self,
         hit: maestria_ports::SearchHit,
         raw_rank: u32,
+        authorization: &maestria_governance::RetrievalAuthorizationContext,
     ) -> Result<Option<EvidenceCandidate>, RetrievalError> {
         let Some(artifact) = self
             .artifacts
@@ -166,7 +163,7 @@ impl LexicalChunkRetriever {
             return Ok(None);
         };
         if artifact.index_status != IndexStatus::Indexed
-            || self.policy.evaluate(&artifact.security) != RetrievalDecision::Allowed
+            || authorization.evaluate(&artifact.security) != RetrievalDecision::Allowed
         {
             return Ok(None);
         }
@@ -183,7 +180,7 @@ impl LexicalChunkRetriever {
         let Some(evidence) = self.evidence.get(evidence_id).map_err(port_error)? else {
             return Ok(None);
         };
-        if self.policy.evaluate(&evidence.security) != RetrievalDecision::Allowed
+        if authorization.evaluate(&evidence.security) != RetrievalDecision::Allowed
             || !scan_secrets(&evidence.excerpt).is_clean()
         {
             return Ok(None);
@@ -232,7 +229,6 @@ mod tests {
                 evidence: Arc::new(InMemoryEvidenceRepository::new()),
                 blobs: Arc::new(InMemoryBlobStore::new()),
             },
-            RetrievalSecurityPolicy::default(),
             generation,
         );
 

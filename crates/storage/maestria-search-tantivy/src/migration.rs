@@ -7,7 +7,7 @@ use tantivy::{
     schema::{Schema, Value},
 };
 
-use super::{
+use crate::tantivy_index::{
     FIELD_ARTIFACT_ID, FIELD_CARD_ARTIFACT_ID, FIELD_CARD_BODY, FIELD_CARD_FILENAME, FIELD_CARD_ID,
     FIELD_CARD_KEY, FIELD_CARD_PATH, FIELD_CARD_SYMBOL, FIELD_CARD_TITLE, FIELD_CHUNK_ID,
     FIELD_FILENAME, FIELD_PATH, FIELD_SYMBOL, FIELD_TEXT, schema_field, to_port_error,

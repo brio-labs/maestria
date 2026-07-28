@@ -112,11 +112,18 @@ async fn retrieve_missing_slot(
             RetrievalError::Internal("accepted missing-slot rewrite was not retained".to_string())
         })?;
     let active_retrievers = engine.active_retrievers(plan);
+    let authorization = engine
+        .security_policy
+        .authorization_context(&plan.scope)
+        .map_err(|error| {
+            RetrievalError::Internal(format!("retrieval authorization denied: {error:?}"))
+        })?;
     state.batches.extend(
         engine_pipeline::collect_missing_slot_batches(
             &active_retrievers,
             plan,
             &query_text,
+            &authorization,
             &mut state.web_requests_used,
             &mut state.bytes_read,
         )
@@ -128,7 +135,14 @@ async fn retrieve_missing_slot(
         state.rerank_trace,
         state.diversity_trace,
     ) = engine
-        .evaluate_batches(plan, query, &state.batches, started, &mut state.bytes_read)
+        .evaluate_batches(
+            plan,
+            query,
+            &state.batches,
+            started,
+            &mut state.bytes_read,
+            &authorization,
+        )
         .await?;
     Ok(true)
 }

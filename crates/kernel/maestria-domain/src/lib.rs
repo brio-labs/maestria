@@ -20,6 +20,7 @@
 /// - `replay`: module responsibility.
 /// - `search`: module responsibility.
 /// - `security`: module responsibility.
+/// - `security_snapshot`: authorization and integrity security snapshots.
 /// - `types`: module responsibility.
 mod effects;
 mod entities;
@@ -35,22 +36,73 @@ mod provenance;
 mod replay;
 mod search;
 mod security;
+mod security_snapshot;
 mod types;
 
-// Public API — stable boundary types re-exported at crate root.
-// Only `pub` items from each module are re-exported; `pub(crate)` items
-// (constructors, internal constants) remain crate-internal.
-pub use crate::effects::*;
-pub use crate::entities::*;
-pub use crate::errors::*;
-pub use crate::events::*;
-pub use crate::evidence_pack::*;
-pub use crate::generations::*;
-pub use crate::ids::*;
-pub use crate::inputs::*;
-pub use crate::kernel_state::*;
-
-pub use crate::provenance::*;
-pub use crate::search::*;
-pub use crate::security::*;
-pub use replay::{replay_events, replay_inputs};
+// Public API — explicit stable boundary exports.
+pub use crate::effects::{
+    DiagnosticEvent, FetchWebRequest, IndexFullTextRequest, IndexVectorRequest, KernelOutput,
+    MaestriaEffect, ParseArtifactRequest, QueryHarnessProposalRequest, QueryHarnessRequest,
+    RequestApprovalRequest, RunValidationRequest, SearchKnowledgeRequest, UpdateGraphRequest,
+};
+pub use crate::entities::{
+    Artifact, Card, Chunk, Claim, ClaimStatus, ContentRange, Evidence, EvidenceKind, IndexStatus,
+    Memory, MemoryCandidate, MemoryStatus, OutputStream, PendingArtifact, Relation,
+    RelationEndpoint, RelationKind, Task, TaskPriority, TaskStatus, TestStatus,
+    ValidationReportRecord, WebEvidenceMetadata,
+};
+pub use crate::errors::DomainError;
+pub use crate::events::{DomainEvent, DomainEventEnvelope};
+pub use crate::evidence_pack::{
+    ClaimCoverageStatusRecord, ClaimEvidenceCoverageRecord, EvidenceFreshnessRecord,
+    EvidencePackCompressionRecord, EvidencePackMetadataRecord, EvidencePackReplayKeyRecord,
+    EvidencePackReproducibilityRecord, SourceIndependenceRecord,
+};
+pub use crate::generations::{
+    IndexFingerprint, IndexGeneration, IndexGenerationRegistry, IndexLifecycle, RepresentationName,
+};
+pub use crate::ids::{
+    ApprovalId, ArtifactId, ArtifactVersionId, BlobId, CardId, ChunkId, ClaimId, ConflictSetId,
+    CorpusSnapshotId, DOMAIN_VERSION, DuplicateClusterId, EventId, EvidenceId, HarnessRunId,
+    IndexGenerationId, LogicalTick, MemoryCandidateId, MemoryId, QueryId, RelationId, ScopeId,
+    SearchTraceId, SequenceNumber, SnapshotId, StructureNodeId, TaskId, ValidationReportId,
+};
+pub use crate::inputs::{
+    ApprovalDecision, ArtifactDetected, ChangeTaskStatusInput, CompleteTaskInput,
+    ContradictMemoryInput, CreateCardInput, CreateClaimInput, CreateMemoryCandidateInput,
+    CreateRelationInput, DeprecateMemoryInput, DomainInput, FetchWebRequested,
+    FullTextIndexCompleted, HarnessRunCompleted, HarnessRunRequested, LinkEvidenceToClaimInput,
+    LinkEvidenceToTaskInput, ModelAgentHarnessResult, ModelAgentMemoryDecision,
+    ModelAgentMemoryResult, ModelAgentProposalRequest, ModelAgentProposalResult,
+    ModelAgentSearchResult, ModelAgentTerminalStatus, ModelAgentValidationResult, OpenTaskInput,
+    ParserResult, ParserStarted, PromoteMemoryInput, ProposeMemoryCandidateInput,
+    RecordEvidenceInput, RecordValidationReportInput, RegisterArtifactInput, RegisterChunkInput,
+    RequestTaskValidation, SearchExecutedInput, SearchKnowledgeCompleted, SearchKnowledgeRequested,
+    SearchResultSet, SourceRemoved, StartFullTextIndex, StartIndexGenerationInput,
+    SupersedeMemoryInput, TransitionIndexGenerationInput, UserIntent, ValidationCompleted,
+};
+pub use crate::kernel_state::KernelState;
+pub use crate::provenance::{
+    ParseStatus, ParsedRepresentation, RepresentationKind, SourceSpan, content_hash,
+    evidence_id_for, excerpt_for, line_range_for_chunk, web_artifact_id_for, web_evidence_id_for,
+};
+pub use crate::replay::{replay_events, replay_inputs};
+pub use crate::search::{
+    ArtifactVersion, ConflictSet, ContentHash, CorpusScope, EvidenceCandidate, EvidenceCoverage,
+    EvidenceRequirements, EvidenceSpan, FreshnessRequirement, FreshnessStatus,
+    LearnedSparseContribution, LearnedSparseReason, Modality, ModalitySet,
+    RETRIEVAL_SCORE_SCHEMA_VERSION, RerankCandidateStatus, RetrievalLaneScore,
+    RetrievalModelFingerprint, RetrievalRawRank, RetrievalReason, RetrievalScoreFingerprint,
+    RetrievalScoreKind, RetrievalScoreScale, RetrievalScoreSet, SearchBudget,
+    SearchCompatibilityError, SearchIntent, SearchLaneStatus, SearchOutcome, SearchPlan,
+    SearchRewriteAccounting, SearchRewriteOrigin, SearchRewriteStage, SearchStage, SearchStatus,
+    SearchStopReason, SearchTrace, SearchTraceCandidate, SearchTraceConstraintScore,
+    SearchTraceDiversity, SearchTraceDiversityCandidate, SearchTraceExpansion, SearchTraceFilter,
+    SearchTraceLane, SearchTraceLaneCandidate, SearchTraceRerank, SearchTraceRerankCandidate,
+    SearchTraceRewrite, SourceLocation, StopConditions, StructureNode, StructureNodeType,
+    TrustLabel,
+};
+pub use crate::security::{
+    Authority, IntegrityState, ReviewStatus, SecurityMetadata, Sensitivity, TrustZone,
+};
+pub use crate::security_snapshot::{RetrievalPolicySnapshot, RetrievalPolicySnapshotError};

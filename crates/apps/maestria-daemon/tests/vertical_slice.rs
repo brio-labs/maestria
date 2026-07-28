@@ -8,8 +8,8 @@ use maestria_governance::{AutonomyProfile, RetrievalSecurityPolicy};
 use maestria_graph_sqlite::SqliteGraphIndex;
 use maestria_parsers::ParserRegistry;
 use maestria_ports::{
-    ArtifactRepository, EmbeddingProvenance, EventFilter, EventLog, GraphIndex, VectorEmbedding,
-    VectorIndex, VectorSearchQuery,
+    ArtifactRepository, EffectJournal, EmbeddingProvenance, EventFilter, EventLog, GraphIndex,
+    VectorEmbedding, VectorIndex, VectorSearchQuery,
 };
 use maestria_search_tantivy::TantivyFullTextIndex;
 use maestria_storage_sqlite::SqliteStore;
@@ -490,6 +490,8 @@ async fn model_agent_proposal_round_trips_through_running_daemon()
                 timeout_secs: 5,
                 expected_generation: 1,
                 evidence_ids: Vec::new(),
+                task_validation: false,
+                memory_candidate: false,
             },
         })
         .await?;
@@ -498,15 +500,73 @@ async fn model_agent_proposal_round_trips_through_running_daemon()
         maestria_daemon::ClientResponse::ModelAgentProposal(result) => {
             assert_eq!(result.run_id, 77);
             assert_eq!(result.evidence_count, 0);
-            assert_eq!(
-                result.harness.as_ref().map(|outcome| outcome.exit_code),
-                Some(0)
+            assert!(result.harness.is_none());
+            assert!(
+                result
+                    .warnings
+                    .iter()
+                    .any(|warning| warning.contains("runtime accepted proposal correlation"))
             );
             assert!(result.validation.is_none());
             assert!(result.memory_candidate.is_none());
         }
         other => return Err(format!("unexpected model-agent response: {other:?}").into()),
     }
+
+    let mut terminal = None;
+    let mut approved = false;
+    let mut last_status = "unobserved".to_string();
+    for _ in 0..400 {
+        let status = client
+            .request(maestria_daemon::ClientOperation::ModelAgentStatus { run_id: 77 })
+            .await?;
+        if let maestria_daemon::ClientResponse::ModelAgentStatus(status) = status {
+            last_status = status.status.clone();
+            if matches!(status.status.as_str(), "succeeded" | "failed") {
+                terminal = Some(status);
+                break;
+            }
+            if !approved && let Some(approval_id) = status.approval_id {
+                let generation = status
+                    .journal_generation
+                    .ok_or("pending approval omitted journal generation")?;
+                let entries = SqliteStore::open(&layout.database_path)?.scan_in_flight()?;
+                assert!(
+                    entries.iter().any(|entry| {
+                        entry.run_id.value() == 77 && entry.generation == generation
+                    }),
+                    "pending approval journal entry missing: {entries:?}"
+                );
+                client
+                    .request(maestria_daemon::ClientOperation::ModelAgentResolve {
+                        run_id: 77,
+                        approval_id,
+                        approved: true,
+                    })
+                    .await?;
+                approved = true;
+            }
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    let terminal = terminal.ok_or_else(|| {
+        format!(
+            "model-agent proposal did not reach a terminal state; last status: {last_status}; approved: {approved}"
+        )
+    })?;
+    assert_eq!(
+        terminal.status, "succeeded",
+        "terminal proposal failed: {:?}",
+        terminal.error
+    );
+    assert!(terminal.trace_id.is_some());
+    assert_eq!(terminal.evidence_count, 0);
+    let harness = terminal
+        .harness
+        .ok_or("terminal proposal omitted harness outcome")?;
+    assert_eq!(harness.exit_code, 0);
+    assert_eq!(harness.stdout.trim(), "model-agent-smoke");
+    assert!(terminal.error.is_none());
 
     shutdown.cancel();
     daemon.await??;

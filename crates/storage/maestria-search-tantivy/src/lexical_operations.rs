@@ -1,8 +1,8 @@
-use super::lexical_helpers::{
+use crate::lexical_helpers::{
     MAX_LEXICAL_CANDIDATES, build_parsed_query, page_card_hits, page_chunk_hits, score_card,
     score_chunk,
 };
-use super::{TantivyFullTextIndex, card_key, chunk_key, to_port_error};
+use crate::tantivy_index::{TantivyFullTextIndex, card_key, chunk_key, to_port_error};
 use maestria_ports::{
     CardField, ChunkField, IndexedLexicalCard, IndexedLexicalChunk, LexicalCardHit,
     LexicalChunkHit, LexicalQuery, MatchMode, PortError,

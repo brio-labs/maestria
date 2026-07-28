@@ -47,6 +47,14 @@
             "minimum_sections": 0
           },
           "fingerprint": "trace:v1",
+          "authorization": {
+            "require_trust_zone": null,
+            "max_sensitivity": null,
+            "require_read_allowed": true,
+            "required_scope_id": null,
+            "effective_scopes": null,
+            "allow_unscoped_items": false
+          },
           "original_intent": null,
           "route_decision": null
         },
@@ -222,6 +230,14 @@
             "minimum_sections": 0
           },
           "fingerprint": "trace:v1",
+          "authorization": {
+            "require_trust_zone": null,
+            "max_sensitivity": null,
+            "require_read_allowed": true,
+            "required_scope_id": null,
+            "effective_scopes": null,
+            "allow_unscoped_items": false
+          },
           "original_intent": null,
           "route_decision": null
         },
@@ -441,6 +457,14 @@
             "minimum_sections": 0
           },
           "fingerprint": "trace:v1",
+          "authorization": {
+            "require_trust_zone": null,
+            "max_sensitivity": null,
+            "require_read_allowed": true,
+            "required_scope_id": null,
+            "effective_scopes": null,
+            "allow_unscoped_items": false
+          },
           "original_intent": null,
           "route_decision": null
         },
@@ -621,6 +645,14 @@
             "minimum_sections": 0
           },
           "fingerprint": "trace:v1",
+          "authorization": {
+            "require_trust_zone": null,
+            "max_sensitivity": null,
+            "require_read_allowed": true,
+            "required_scope_id": null,
+            "effective_scopes": null,
+            "allow_unscoped_items": false
+          },
           "original_intent": null,
           "route_decision": null
         },
@@ -796,6 +828,14 @@
             "minimum_sections": 0
           },
           "fingerprint": "trace:v1",
+          "authorization": {
+            "require_trust_zone": null,
+            "max_sensitivity": null,
+            "require_read_allowed": true,
+            "required_scope_id": null,
+            "effective_scopes": null,
+            "allow_unscoped_items": false
+          },
           "original_intent": null,
           "route_decision": null
         },
@@ -918,6 +958,14 @@
             "minimum_sections": 0
           },
           "fingerprint": "trace:v1",
+          "authorization": {
+            "require_trust_zone": null,
+            "max_sensitivity": null,
+            "require_read_allowed": true,
+            "required_scope_id": null,
+            "effective_scopes": null,
+            "allow_unscoped_items": false
+          },
           "original_intent": null,
           "route_decision": null
         },
@@ -1040,6 +1088,14 @@
             "minimum_sections": 0
           },
           "fingerprint": "trace:v1",
+          "authorization": {
+            "require_trust_zone": null,
+            "max_sensitivity": null,
+            "require_read_allowed": true,
+            "required_scope_id": null,
+            "effective_scopes": null,
+            "allow_unscoped_items": false
+          },
           "original_intent": null,
           "route_decision": null
         },
@@ -1160,6 +1216,14 @@
             "minimum_sections": 0
           },
           "fingerprint": "trace:v1",
+          "authorization": {
+            "require_trust_zone": null,
+            "max_sensitivity": null,
+            "require_read_allowed": true,
+            "required_scope_id": null,
+            "effective_scopes": null,
+            "allow_unscoped_items": false
+          },
           "original_intent": null,
           "route_decision": null
         },

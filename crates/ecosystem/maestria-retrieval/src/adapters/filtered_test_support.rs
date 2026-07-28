@@ -218,6 +218,7 @@ pub fn plan(intent: SearchIntent) -> Result<SearchPlan, SearchCompatibilityError
             minimum_corroboration: 1,
         },
         fingerprint: RetrievalModelFingerprint::new("maestria:test".to_string())?,
+        authorization: Some(maestria_domain::RetrievalPolicySnapshot::global_default()),
         original_intent: None,
         route_decision: None,
     })
@@ -227,13 +228,18 @@ pub fn request(
     intent: SearchIntent,
     generation: IndexGenerationId,
 ) -> Result<crate::types::CandidateRequest, SearchCompatibilityError> {
+    let plan = plan(intent)?;
+    let authorization = maestria_governance::RetrievalSecurityPolicy::default()
+        .authorization_context(&plan.scope)
+        .map_err(|_| SearchCompatibilityError::InvalidPlan("authorization context"))?;
     Ok(crate::types::CandidateRequest {
-        plan: plan(intent)?,
+        plan,
         query: SearchQuery {
             q: "needle".to_string(),
             limit: 5,
             offset: 0,
         },
         expected_generation: generation,
+        authorization,
     })
 }

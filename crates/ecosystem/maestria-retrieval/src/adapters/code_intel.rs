@@ -10,7 +10,7 @@ use maestria_domain::{
     IndexGenerationId, RetrievalReason, SearchLaneStatus, SecurityMetadata, SourceLocation,
     TrustLabel,
 };
-use maestria_governance::{RetrievalDecision, RetrievalSecurityPolicy, scan_secrets};
+use maestria_governance::{RetrievalDecision, scan_secrets};
 
 use crate::adapters::common::{generation_mismatch, one_based_rank};
 use crate::adapters::score_provenance::specialized_score;
@@ -31,18 +31,12 @@ pub struct CodeIntelRetrieverParts {
 pub struct CodeIntelRetriever {
     index: Arc<RepositoryCodeIndex>,
     descriptor: RetrieverDescriptor,
-    policy: RetrievalSecurityPolicy,
 }
 
 impl CodeIntelRetriever {
-    pub fn new(
-        parts: CodeIntelRetrieverParts,
-        policy: RetrievalSecurityPolicy,
-        generation: IndexGenerationId,
-    ) -> Self {
+    pub fn new(parts: CodeIntelRetrieverParts, generation: IndexGenerationId) -> Self {
         Self {
             index: parts.index,
-            policy,
             descriptor: RetrieverDescriptor {
                 id: "code_intel".to_string(),
                 modality: "code".to_string(),
@@ -244,7 +238,9 @@ impl CandidateRetriever for CodeIntelRetriever {
                 bytes_read: 0,
             });
         }
-        if self.policy.evaluate(&SecurityMetadata::default()) != RetrievalDecision::Allowed {
+        if request.authorization.evaluate(&SecurityMetadata::default())
+            != RetrievalDecision::Allowed
+        {
             return Err(RetrievalError::Internal(
                 "repository code retrieval denied by security policy".to_string(),
             ));

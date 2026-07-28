@@ -7,7 +7,7 @@ use std::collections::BTreeSet;
 
 use maestria_storage_sqlite::SqliteStore;
 
-use crate::reconcile_approval_repo;
+use super::{reconcile_approval_repo, reconcile_pending_approvals};
 
 fn make_task(id: u64) -> maestria_domain::Task {
     maestria_domain::Task {
@@ -24,7 +24,7 @@ fn make_task(id: u64) -> maestria_domain::Task {
 fn pending_record(id: u64, task_id: u64) -> ApprovalRecord {
     ApprovalRecord {
         id: ApprovalId::new(id),
-        task_id: TaskId::new(task_id),
+        task_id: Some(TaskId::new(task_id)),
         effect_kind: "task_activation".to_string(),
         risk_level: ApprovalRiskLevel::Medium,
         capability: "task_activation".to_string(),
@@ -45,8 +45,9 @@ fn reconciliation_repairs_stale_repo_after_crash() -> Result<(), Box<dyn std::er
     let approval_id = ApprovalId::new(42);
     state.apply_input(DomainInput::ApprovalResolved(ApprovalDecision {
         approval_id,
-        task_id,
+        task_id: Some(task_id),
         approved: true,
+        affects_task: true,
     }))?;
 
     let pending = store.find_pending()?;
@@ -71,8 +72,9 @@ fn reconciliation_handles_denied_approval() -> Result<(), Box<dyn std::error::Er
     state.tasks.insert(task_id, task);
     state.apply_input(DomainInput::ApprovalResolved(ApprovalDecision {
         approval_id: ApprovalId::new(7),
-        task_id,
+        task_id: Some(task_id),
         approved: false,
+        affects_task: true,
     }))?;
 
     reconcile_approval_repo(&state, &store)?;
@@ -93,8 +95,9 @@ fn reconciliation_idempotent_across_restarts() -> Result<(), Box<dyn std::error:
     state.tasks.insert(task_id, make_task(1));
     state.apply_input(DomainInput::ApprovalResolved(ApprovalDecision {
         approval_id: ApprovalId::new(1),
-        task_id,
+        task_id: Some(task_id),
         approved: true,
+        affects_task: true,
     }))?;
 
     reconcile_approval_repo(&state, &store)?;
@@ -120,8 +123,9 @@ fn reconciliation_errors_on_missing_record() -> Result<(), Box<dyn std::error::E
     state.tasks.insert(task_id, make_task(1));
     state.apply_input(DomainInput::ApprovalResolved(ApprovalDecision {
         approval_id: ApprovalId::new(99),
-        task_id,
+        task_id: Some(task_id),
         approved: true,
+        affects_task: true,
     }))?;
 
     let result = reconcile_approval_repo(&state, &store);
@@ -133,5 +137,33 @@ fn reconciliation_errors_on_missing_record() -> Result<(), Box<dyn std::error::E
         let err_str = err.to_string();
         assert!(err_str.contains("not found"));
     }
+    Ok(())
+}
+
+#[test]
+fn model_agent_approval_does_not_mask_task_activation_recovery()
+-> Result<(), Box<dyn std::error::Error>> {
+    let store = SqliteStore::in_memory()?;
+    store.save(&ApprovalRecord {
+        id: ApprovalId::new(9),
+        task_id: Some(TaskId::new(1)),
+        effect_kind: "model_agent_harness".to_string(),
+        risk_level: ApprovalRiskLevel::High,
+        capability: "shell".to_string(),
+        scope_id: ScopeId::new(1),
+        tick: LogicalTick::new(1),
+        status: ApprovalStatus::Pending,
+    })?;
+    let mut state = KernelState::new();
+    state.tasks.insert(TaskId::new(1), make_task(1));
+    reconcile_pending_approvals(&state, &store, &store)?;
+    let records = store.find_by_task_id(TaskId::new(1))?;
+    assert_eq!(
+        records
+            .iter()
+            .filter(|record| record.effect_kind == "task_activation")
+            .count(),
+        1
+    );
     Ok(())
 }

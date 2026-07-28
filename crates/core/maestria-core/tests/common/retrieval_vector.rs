@@ -163,29 +163,21 @@ fn build_search_engine(
     let fixture = seed_vector_fixture()?;
     let context = planner_context()?;
     let mut retrievers: Vec<Arc<dyn CandidateRetriever>> = Vec::new();
-    retrievers.push(Arc::new(LexicalChunkRetriever::new(
-        LexicalChunkRetrieverParts {
-            index: fixture.search_index.clone(),
-            artifacts: fixture.artifacts.clone(),
-            chunks: fixture.chunks.clone(),
-            evidence: fixture.evidence.clone(),
-            blobs: fixture.blobs.clone(),
-        },
-        RetrievalSecurityPolicy::default(),
-        context.primary_generation,
-    )));
-    retrievers.push(Arc::new(DenseChunkRetriever::new(
-        DenseChunkRetrieverParts {
-            index: fixture.vector_index.clone(),
-            artifacts: fixture.artifacts.clone(),
-            chunks: fixture.chunks.clone(),
-            evidence: fixture.evidence.clone(),
-            blobs: fixture.blobs.clone(),
-            embedding_provider: Arc::new(DenseVectorFixtureEmbeddingProvider),
-        },
-        RetrievalSecurityPolicy::default(),
-        context.primary_generation,
-    )));
+    retrievers.push(Arc::new(LexicalChunkRetriever::new(LexicalChunkRetrieverParts {
+        index: fixture.search_index.clone(),
+        artifacts: fixture.artifacts.clone(),
+        chunks: fixture.chunks.clone(),
+        evidence: fixture.evidence.clone(),
+        blobs: fixture.blobs.clone(),
+    }, context.primary_generation)));
+    retrievers.push(Arc::new(DenseChunkRetriever::new(DenseChunkRetrieverParts {
+        index: fixture.vector_index.clone(),
+        artifacts: fixture.artifacts.clone(),
+        chunks: fixture.chunks.clone(),
+        evidence: fixture.evidence.clone(),
+        blobs: fixture.blobs.clone(),
+        embedding_provider: Arc::new(DenseVectorFixtureEmbeddingProvider),
+    }, context.primary_generation)));
 
     let engine = RetrievalEngine::new(retrievers,
     Arc::new(EvidenceOutcomeEvaluator::new(fixture.evidence.clone())), maestria_governance::RetrievalSecurityPolicy::default())
