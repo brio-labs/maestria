@@ -9,6 +9,7 @@
 //! - `freshness`: repository snapshot freshness comparison.
 //! - `identity`: repository and worktree provenance discovery.
 //! - `metadata`: bounded Cargo workspace metadata extraction.
+//! - `provenance`: canonical per-file content hashing and hash validation.
 //! - `query`: bounded in-memory symbol query execution.
 //! - `symbols`: Rust source symbol and relation extraction.
 //! - `types`: serializable index, symbol, relation, and query records.
@@ -22,6 +23,7 @@ mod error;
 mod freshness;
 mod identity;
 mod metadata;
+mod provenance;
 mod query;
 mod symbols;
 mod types;

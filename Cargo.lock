@@ -1216,6 +1216,7 @@ dependencies = [
  "maestria-governance",
  "maestria-parsers",
  "maestria-ports",
+ "maestria-retrieval",
  "maestria-search-tantivy",
  "maestria-storage-sqlite",
  "serde_json",

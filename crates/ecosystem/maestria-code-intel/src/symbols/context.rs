@@ -8,6 +8,7 @@ pub(crate) struct FileContext<'a> {
     pub(crate) package: &'a str,
     pub(crate) target: &'a str,
     pub(crate) relative_path: String,
+    pub(crate) content_hash: String,
     pub(crate) identity: &'a RepositoryIdentity,
     pub(crate) parser_generation: &'a str,
     pub(crate) file_markers: SymbolMarkers,

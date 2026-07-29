@@ -69,7 +69,7 @@ fn parser_started_then_source_became_stale_excludes_version() {
             },
         },
     ];
-    let active = reconcile_active_versions(events);
+    let active = reconcile_active_versions(&events);
     assert!(active.is_empty());
 }
 
@@ -111,7 +111,7 @@ fn re_ingestion_after_stale_reactivates_version() {
             },
         },
     ];
-    let active = reconcile_active_versions(events);
+    let active = reconcile_active_versions(&events);
     assert_eq!(active.len(), 1);
     assert!(active.contains(&ArtifactVersionId::new(artifact_id_v2.value())));
 }
@@ -158,7 +158,7 @@ fn latest_by_path_semantics_preserved_across_mixed_events() {
             },
         },
     ];
-    let active = reconcile_active_versions(events);
+    let active = reconcile_active_versions(&events);
     assert_eq!(active.len(), 2);
     assert!(active.contains(&ArtifactVersionId::new(id_a2.value())));
     assert!(active.contains(&ArtifactVersionId::new(id_b1.value())));

@@ -5,11 +5,15 @@ use regex::Regex;
 pub(crate) const MAX_QUERY_LIMIT: usize = 1_000;
 
 /// Apply a bounded query over extracted symbols.
-pub(crate) fn execute_query(
+pub(crate) fn execute_query<E, F>(
     symbols: &[SymbolRecord],
     query: CodeQuery,
     limit: usize,
-) -> QueryResult {
+    authorize: &mut F,
+) -> Result<QueryResult, E>
+where
+    F: FnMut(&SymbolRecord) -> Result<bool, E>,
+{
     let limit = limit.min(MAX_QUERY_LIMIT);
     let matcher = match &query {
         CodeQuery::All => QueryMatcher::All,
@@ -24,7 +28,7 @@ pub(crate) fn execute_query(
         CodeQuery::Regex { pattern } => match Regex::new(pattern) {
             Ok(regex) => QueryMatcher::Regex(regex),
             Err(error) => {
-                return QueryResult {
+                return Ok(QueryResult {
                     summary: QuerySummary {
                         query,
                         matched: 0,
@@ -34,7 +38,7 @@ pub(crate) fn execute_query(
                         regex_error: Some(error.to_string()),
                     },
                     records: Vec::new(),
-                };
+                });
             }
         },
     };
@@ -42,6 +46,9 @@ pub(crate) fn execute_query(
     let mut matched = 0;
     let mut selected: Vec<&SymbolRecord> = Vec::with_capacity(limit);
     for symbol in symbols.iter().filter(|symbol| matcher.matches(symbol)) {
+        if !authorize(symbol)? {
+            continue;
+        }
         matched += 1;
         if limit == 0 {
             continue;
@@ -55,7 +62,7 @@ pub(crate) fn execute_query(
 
     let records: Vec<SymbolRecord> = selected.into_iter().cloned().collect();
 
-    QueryResult {
+    Ok(QueryResult {
         summary: QuerySummary {
             query,
             matched,
@@ -65,7 +72,7 @@ pub(crate) fn execute_query(
             regex_error: None,
         },
         records,
-    }
+    })
 }
 
 fn symbol_order(left: &SymbolRecord, right: &SymbolRecord) -> std::cmp::Ordering {

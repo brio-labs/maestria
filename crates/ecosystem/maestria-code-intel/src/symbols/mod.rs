@@ -1,4 +1,5 @@
 //! Rust symbol extraction from workspace sources.
+use crate::provenance::content_hash;
 
 use crate::identity::RepositoryIdentity;
 use crate::query::execute_query;
@@ -135,9 +136,14 @@ fn extract_target_symbols(
             })?
             .to_string_lossy()
             .into_owned();
-        let source = fs::read_to_string(&file).map_err(|error| CodeIntelError::Io {
+        let source_bytes = fs::read(&file).map_err(|error| CodeIntelError::Io {
             operation: "read source file".to_string(),
             path: file.to_string_lossy().into_owned(),
+            details: error.to_string(),
+        })?;
+        let source_content_hash = content_hash(&source_bytes);
+        let source = String::from_utf8(source_bytes).map_err(|error| CodeIntelError::Parse {
+            context: format!("decode Rust source {}", file.display()),
             details: error.to_string(),
         })?;
         let module_context = match module_contexts.get(&file) {
@@ -152,6 +158,7 @@ fn extract_target_symbols(
             package: package_name,
             target: target.name.as_str(),
             relative_path,
+            content_hash: source_content_hash,
             identity,
             parser_generation,
             file_markers: markers::file_markers(&file, &source),
@@ -168,10 +175,14 @@ fn extract_target_symbols(
 }
 
 /// Query extracted symbols.
-pub(crate) fn query_symbols(
+pub(crate) fn query_symbols<E, F>(
     symbols: &[SymbolRecord],
     query: CodeQuery,
     limit: usize,
-) -> QueryResult {
-    execute_query(symbols, query, limit)
+    authorize: &mut F,
+) -> Result<QueryResult, E>
+where
+    F: FnMut(&SymbolRecord) -> Result<bool, E>,
+{
+    execute_query(symbols, query, limit, authorize)
 }

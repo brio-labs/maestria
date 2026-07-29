@@ -4,7 +4,11 @@ use maestria_domain::{
     ArtifactDetected, ArtifactId, DomainInput, IndexStatus, KernelState, TaskId,
 };
 use maestria_governance::{PrivacyExclusions, Scope};
-use std::{fs, path::PathBuf, time::Duration};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+    time::Duration,
+};
 use tokio::sync::mpsc;
 use tokio::time::{sleep, timeout};
 
@@ -31,11 +35,14 @@ struct ProcessContext<'a> {
 /// Returns an error for scope violations, I/O failures, channel send errors,
 /// indexing errors, or timeouts.  The caller is responsible for shutting down
 /// the runtime on error.
-async fn process_file(file: &PathBuf, ctx: &ProcessContext<'_>) -> Result<()> {
+async fn process_file(file: &Path, ctx: &ProcessContext<'_>) -> Result<()> {
+    let file = file
+        .canonicalize()
+        .with_context(|| format!("canonicalize index path {}", file.display()))?;
     // Preserve scope, privacy, and manifest checks before reading.
-    if ctx.scope.check_read_containment(file).is_err()
-        || ctx.privacy.is_excluded(file)
-        || !ctx.manifest.allows_source(file)
+    if ctx.scope.check_read_containment(&file).is_err()
+        || ctx.privacy.is_excluded(&file)
+        || !ctx.manifest.allows_source(&file)
     {
         return Err(anyhow!(
             "index path is outside the instance read scope or excluded by policy: {}",
@@ -43,8 +50,8 @@ async fn process_file(file: &PathBuf, ctx: &ProcessContext<'_>) -> Result<()> {
         ));
     }
 
-    let bytes = fs::read(file)?;
-    let artifact_id = artifact_id_for(file, &bytes);
+    let bytes = fs::read(&file)?;
+    let artifact_id = artifact_id_for(&file, &bytes);
     let hash = content_hash(&bytes);
     // Check whether this exact artifact was already indexed before this session.
     if let Some(artifact) = ctx.preexisting_state.artifacts.get(&artifact_id)

@@ -19,8 +19,10 @@ pub struct RecordProvenance {
     pub repository_root: String,
     /// `git rev-parse HEAD` output.
     pub commit_sha: String,
-    /// Deterministic hash derived from tracked file contents/paths.
+    /// Deterministic identity of the indexed worktree contents and paths.
     pub worktree_identity: String,
+    /// Deterministic SHA-256 hash of the persisted source bytes (`sha256:<lowercase hex>`).
+    pub content_hash: String,
     /// Relative file path from repository root.
     pub file_path: String,
     /// Source span for this record.

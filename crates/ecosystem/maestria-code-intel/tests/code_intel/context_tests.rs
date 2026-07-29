@@ -6,6 +6,8 @@ fn make_provenance(file_path: &str, start_line: usize) -> RecordProvenance {
         repository_root: "/work".to_string(),
         commit_sha: "0000000".to_string(),
         worktree_identity: "local".to_string(),
+        content_hash: "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+            .to_string(),
         file_path: file_path.to_string(),
         source_range: SourceRange {
             start_line,
@@ -101,17 +103,20 @@ fn context_fixture() -> RepositoryCodeIndex {
 }
 
 #[test]
-fn context_outgoing_traverses_outgoing_relations() {
+fn context_outgoing_traverses_outgoing_relations() -> Result<(), Box<dyn Error>> {
     let index = context_fixture();
-    let result = index.context(RepositoryContextQuery {
-        query: CodeQuery::Symbol {
-            pattern: "seed_a".to_string(),
+    let result = index.context(
+        RepositoryContextQuery {
+            query: CodeQuery::Symbol {
+                pattern: "seed_a".to_string(),
+            },
+            direction: ContextDirection::Outgoing,
+            relation_kinds: None,
+            max_depth: 3,
+            max_nodes: 10,
         },
-        direction: ContextDirection::Outgoing,
-        relation_kinds: None,
-        max_depth: 3,
-        max_nodes: 10,
-    });
+        |_: &SymbolRecord| Ok::<bool, Box<dyn Error>>(true),
+    )?;
 
     let nodes: Vec<_> = result
         .nodes
@@ -140,20 +145,24 @@ fn context_outgoing_traverses_outgoing_relations() {
             ("seed_a", CodeRelationKind::Calls, "mid"),
         ]
     );
+    Ok(())
 }
 
 #[test]
-fn context_incoming_traverses_incoming_relations() {
+fn context_incoming_traverses_incoming_relations() -> Result<(), Box<dyn Error>> {
     let index = context_fixture();
-    let result = index.context(RepositoryContextQuery {
-        query: CodeQuery::Symbol {
-            pattern: "leaf".to_string(),
+    let result = index.context(
+        RepositoryContextQuery {
+            query: CodeQuery::Symbol {
+                pattern: "leaf".to_string(),
+            },
+            direction: ContextDirection::Incoming,
+            relation_kinds: None,
+            max_depth: 4,
+            max_nodes: 10,
         },
-        direction: ContextDirection::Incoming,
-        relation_kinds: None,
-        max_depth: 4,
-        max_nodes: 10,
-    });
+        |_: &SymbolRecord| Ok::<bool, Box<dyn Error>>(true),
+    )?;
 
     let nodes: Vec<_> = result
         .nodes
@@ -181,20 +190,24 @@ fn context_incoming_traverses_incoming_relations() {
             ("seed_b", CodeRelationKind::Calls, "mid"),
         ]
     );
+    Ok(())
 }
 
 #[test]
-fn context_filters_relation_kinds() {
+fn context_filters_relation_kinds() -> Result<(), Box<dyn Error>> {
     let index = context_fixture();
-    let result = index.context(RepositoryContextQuery {
-        query: CodeQuery::Symbol {
-            pattern: "seed".to_string(),
+    let result = index.context(
+        RepositoryContextQuery {
+            query: CodeQuery::Symbol {
+                pattern: "seed".to_string(),
+            },
+            direction: ContextDirection::Both,
+            relation_kinds: Some(vec![CodeRelationKind::Calls]),
+            max_depth: 4,
+            max_nodes: 10,
         },
-        direction: ContextDirection::Both,
-        relation_kinds: Some(vec![CodeRelationKind::Calls]),
-        max_depth: 4,
-        max_nodes: 10,
-    });
+        |_: &SymbolRecord| Ok::<bool, Box<dyn Error>>(true),
+    )?;
 
     let relation_kinds: Vec<_> = result.edges.iter().map(|edge| edge.relation.kind).collect();
     assert!(
@@ -229,40 +242,48 @@ fn context_filters_relation_kinds() {
             ("seed_b", "mid"),
         ]
     );
+    Ok(())
 }
 
 #[test]
-fn context_rejects_relation_with_forged_endpoint_provenance() {
+fn context_rejects_relation_with_forged_endpoint_provenance() -> Result<(), Box<dyn Error>> {
     let mut index = context_fixture();
     index.relations[0].source_provenance.file_path = "forged.rs".to_string();
 
-    let result = index.context(RepositoryContextQuery {
-        query: CodeQuery::Symbol {
-            pattern: "seed_b".to_string(),
+    let result = index.context(
+        RepositoryContextQuery {
+            query: CodeQuery::Symbol {
+                pattern: "seed_b".to_string(),
+            },
+            direction: ContextDirection::Outgoing,
+            relation_kinds: None,
+            max_depth: 1,
+            max_nodes: 10,
         },
-        direction: ContextDirection::Outgoing,
-        relation_kinds: None,
-        max_depth: 1,
-        max_nodes: 10,
-    });
+        |_: &SymbolRecord| Ok::<bool, Box<dyn Error>>(true),
+    )?;
 
     assert!(result.edges.is_empty());
     assert_eq!(result.nodes.len(), 1);
+    Ok(())
 }
 
 #[test]
-fn context_respects_depth_and_node_caps() {
+fn context_respects_depth_and_node_caps() -> Result<(), Box<dyn Error>> {
     let index = context_fixture();
 
-    let depth_limited = index.context(RepositoryContextQuery {
-        query: CodeQuery::Symbol {
-            pattern: "seed_a".to_string(),
+    let depth_limited = index.context(
+        RepositoryContextQuery {
+            query: CodeQuery::Symbol {
+                pattern: "seed_a".to_string(),
+            },
+            direction: ContextDirection::Outgoing,
+            relation_kinds: None,
+            max_depth: 1,
+            max_nodes: 10,
         },
-        direction: ContextDirection::Outgoing,
-        relation_kinds: None,
-        max_depth: 1,
-        max_nodes: 10,
-    });
+        |_: &SymbolRecord| Ok::<bool, Box<dyn Error>>(true),
+    )?;
 
     let depth_nodes: Vec<_> = depth_limited
         .nodes
@@ -278,15 +299,18 @@ fn context_respects_depth_and_node_caps() {
             .all(|node| node.record.record_id != "leaf")
     );
 
-    let node_capped = index.context(RepositoryContextQuery {
-        query: CodeQuery::Symbol {
-            pattern: "seed".to_string(),
+    let node_capped = index.context(
+        RepositoryContextQuery {
+            query: CodeQuery::Symbol {
+                pattern: "seed".to_string(),
+            },
+            direction: ContextDirection::Both,
+            relation_kinds: None,
+            max_depth: 4,
+            max_nodes: 3,
         },
-        direction: ContextDirection::Both,
-        relation_kinds: None,
-        max_depth: 4,
-        max_nodes: 3,
-    });
+        |_: &SymbolRecord| Ok::<bool, Box<dyn Error>>(true),
+    )?;
 
     let capped_nodes: Vec<_> = node_capped
         .nodes
@@ -295,30 +319,37 @@ fn context_respects_depth_and_node_caps() {
         .collect();
     assert_eq!(capped_nodes, vec!["seed_a", "seed_b", "extra"]);
     assert!(node_capped.summary.nodes_truncated);
+    Ok(())
 }
 
 #[test]
-fn context_reports_deterministic_ordering() {
+fn context_reports_deterministic_ordering() -> Result<(), Box<dyn Error>> {
     let index = context_fixture();
-    let first = index.context(RepositoryContextQuery {
-        query: CodeQuery::Symbol {
-            pattern: "seed".to_string(),
+    let first = index.context(
+        RepositoryContextQuery {
+            query: CodeQuery::Symbol {
+                pattern: "seed".to_string(),
+            },
+            direction: ContextDirection::Both,
+            relation_kinds: None,
+            max_depth: 2,
+            max_nodes: 10,
         },
-        direction: ContextDirection::Both,
-        relation_kinds: None,
-        max_depth: 2,
-        max_nodes: 10,
-    });
+        |_: &SymbolRecord| Ok::<bool, Box<dyn Error>>(true),
+    )?;
 
-    let second = index.context(RepositoryContextQuery {
-        query: CodeQuery::Symbol {
-            pattern: "seed".to_string(),
+    let second = index.context(
+        RepositoryContextQuery {
+            query: CodeQuery::Symbol {
+                pattern: "seed".to_string(),
+            },
+            direction: ContextDirection::Both,
+            relation_kinds: None,
+            max_depth: 2,
+            max_nodes: 10,
         },
-        direction: ContextDirection::Both,
-        relation_kinds: None,
-        max_depth: 2,
-        max_nodes: 10,
-    });
+        |_: &SymbolRecord| Ok::<bool, Box<dyn Error>>(true),
+    )?;
 
     let first_nodes: Vec<_> = first
         .nodes
@@ -362,20 +393,24 @@ fn context_reports_deterministic_ordering() {
         })
         .collect();
     assert_eq!(first_edges, second_edges);
+    Ok(())
 }
 
 #[test]
 fn context_preserves_seed_lineage_for_nodes_and_edges() -> Result<(), Box<dyn Error>> {
     let index = context_fixture();
-    let result = index.context(RepositoryContextQuery {
-        query: CodeQuery::Symbol {
-            pattern: "seed".to_string(),
+    let result = index.context(
+        RepositoryContextQuery {
+            query: CodeQuery::Symbol {
+                pattern: "seed".to_string(),
+            },
+            direction: ContextDirection::Both,
+            relation_kinds: Some(vec![CodeRelationKind::Calls]),
+            max_depth: 4,
+            max_nodes: 10,
         },
-        direction: ContextDirection::Both,
-        relation_kinds: Some(vec![CodeRelationKind::Calls]),
-        max_depth: 4,
-        max_nodes: 10,
-    });
+        |_: &SymbolRecord| Ok::<bool, Box<dyn Error>>(true),
+    )?;
 
     let mid_node = result
         .nodes
@@ -416,4 +451,68 @@ fn context_preserves_seed_lineage_for_nodes_and_edges() -> Result<(), Box<dyn Er
         assert_eq!(target.provenance, edge.relation.target_provenance);
     }
     Ok(())
+}
+
+#[test]
+fn context_authorizes_seed_and_expanded_endpoints_before_limits() -> Result<(), Box<dyn Error>> {
+    let index = context_fixture();
+    let result = index.context(
+        RepositoryContextQuery {
+            query: CodeQuery::Symbol {
+                pattern: "seed".to_string(),
+            },
+            direction: ContextDirection::Outgoing,
+            relation_kinds: None,
+            max_depth: 4,
+            max_nodes: 10,
+        },
+        |symbol: &SymbolRecord| {
+            Ok::<bool, Box<dyn Error>>(symbol.record_id != "seed_a" && symbol.record_id != "leaf")
+        },
+    )?;
+
+    let nodes: Vec<_> = result
+        .nodes
+        .iter()
+        .map(|node| node.record.record_id.as_str())
+        .collect();
+    assert_eq!(nodes, vec!["seed_b", "mid"]);
+    assert!(
+        result
+            .edges
+            .iter()
+            .all(|edge| edge.relation.source_record_id != "leaf"
+                && edge.relation.target_record_id != "leaf"
+                && edge.relation.source_record_id != "seed_a"
+                && edge.relation.target_record_id != "seed_a")
+    );
+    assert_eq!(
+        result.summary.relation_summary.total_relations,
+        result.edges.len()
+    );
+    Ok(())
+}
+
+#[test]
+fn context_propagates_expanded_endpoint_authorization_failure() {
+    let index = context_fixture();
+    let result = index.context(
+        RepositoryContextQuery {
+            query: CodeQuery::Symbol {
+                pattern: "seed_a".to_string(),
+            },
+            direction: ContextDirection::Outgoing,
+            relation_kinds: None,
+            max_depth: 4,
+            max_nodes: 10,
+        },
+        |symbol: &SymbolRecord| {
+            if symbol.record_id == "mid" {
+                Err("endpoint authorization failed")
+            } else {
+                Ok(true)
+            }
+        },
+    );
+    assert_eq!(result.err(), Some("endpoint authorization failed"));
 }

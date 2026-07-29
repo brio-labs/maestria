@@ -5,6 +5,7 @@ use std::path::{Component, Path};
 use serde_json::{from_reader, to_vec_pretty};
 
 use crate::error::CodeIntelError;
+use crate::provenance::is_well_formed_content_hash;
 use crate::symbols;
 use crate::types::{
     CodeIndexSummary, CodeQuery, QueryResult, RecordProvenance, RepositoryCodeIndex,
@@ -12,9 +13,7 @@ use crate::types::{
 
 /// Persisted filename for the repository code projection.
 pub const REPOSITORY_CODE_INDEX_FILENAME: &str = "repository-code-index.json";
-
-/// Parser generation used by the current Rust repository projection.
-pub const REPOSITORY_CODE_PARSER_GENERATION: &str = "cargo-rust-code-v1";
+pub const REPOSITORY_CODE_PARSER_GENERATION: &str = "cargo-rust-code-v2";
 
 impl RepositoryCodeIndex {
     /// Save index to JSON without exposing a partially written prior index.
@@ -57,9 +56,17 @@ impl RepositoryCodeIndex {
         Ok(index)
     }
 
-    /// Query extracted symbols.
-    pub fn query(&self, query: CodeQuery, limit: usize) -> QueryResult {
-        symbols::query_symbols(&self.symbols, query, limit)
+    /// Query extracted symbols through the caller's authorization policy.
+    pub fn query<E, F>(
+        &self,
+        query: CodeQuery,
+        limit: usize,
+        mut authorize: F,
+    ) -> Result<QueryResult, E>
+    where
+        F: FnMut(&crate::SymbolRecord) -> Result<bool, E>,
+    {
+        symbols::query_symbols(&self.symbols, query, limit, &mut authorize)
     }
 
     /// Whether stored parser generation matches `parser_generation`.
@@ -143,6 +150,21 @@ fn validate_record_provenance(
     provenance: &RecordProvenance,
     record_kind: &str,
 ) -> Result<(), CodeIntelError> {
+    if !is_well_formed_content_hash(&provenance.content_hash) {
+        return Err(CodeIntelError::Integrity {
+            context: format!("{record_kind} content hash"),
+            details: provenance.content_hash.clone(),
+        });
+    }
+    if provenance.file_path.is_empty()
+        || provenance.source_range.start_line == 0
+        || provenance.source_range.end_line < provenance.source_range.start_line
+    {
+        return Err(CodeIntelError::Integrity {
+            context: format!("{record_kind} source range"),
+            details: provenance.file_path.clone(),
+        });
+    }
     let source_path = Path::new(&provenance.file_path);
     if source_path.is_absolute()
         || source_path

@@ -82,24 +82,46 @@ pub struct RepositoryContextResult {
 }
 
 impl RepositoryCodeIndex {
-    /// Build a bounded, deterministic context graph from matching seed symbols.
-    pub fn context(&self, query: RepositoryContextQuery) -> RepositoryContextResult {
+    /// Build a bounded, deterministic context graph from matching authorized seed symbols.
+    pub fn context<E, F>(
+        &self,
+        query: RepositoryContextQuery,
+        mut authorize: F,
+    ) -> Result<RepositoryContextResult, E>
+    where
+        F: FnMut(&SymbolRecord) -> Result<bool, E>,
+    {
         let query = normalize_context_query(query);
-        let seed_query =
-            symbols::query_symbols(&self.symbols, query.query.clone(), MAX_CONTEXT_SEED_MATCHES);
+        let seed_query = symbols::query_symbols(
+            &self.symbols,
+            query.query.clone(),
+            MAX_CONTEXT_SEED_MATCHES,
+            &mut authorize,
+        )?;
         let symbol_by_id = self
             .symbols
             .iter()
             .map(|symbol| (symbol.record_id.as_str(), symbol))
             .collect::<BTreeMap<_, _>>();
         let (outgoing, incoming) = relation_adjacency(&self.relations);
-        let expansion = expand_context(&query, &seed_query, &symbol_by_id, &outgoing, &incoming);
-        assemble_context_result(ContextAssembly {
+        let expansion = expand_context(
+            &query,
+            &seed_query,
+            &symbol_by_id,
+            &outgoing,
+            &incoming,
+            &mut authorize,
+        )?;
+        let relation_summary = CodeRelationSummary {
+            total_relations: expansion.reached_edges.len(),
+            source_statuses: self.summary.relation_summary.source_statuses.clone(),
+        };
+        Ok(assemble_context_result(ContextAssembly {
             query,
             seed_query,
             symbol_by_id: &symbol_by_id,
             expansion,
-            relation_summary: self.summary.relation_summary.clone(),
-        })
+            relation_summary,
+        }))
     }
 }

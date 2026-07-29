@@ -144,18 +144,18 @@
       "data_fidelity": "real",
       "corpus": {
         "id": "rust-repository-frozen-v1",
-        "snapshot": "sha256:ec190d9505d03b87dbc02d322717a5643016c0eff404effc025f9f70c0e8c64b",
+        "snapshot": "sha256:dc28820538e89742b3a56900832842dfc02a93fd119e594c397224303492c548",
         "judgment_set": "rust-repository-benchmark-v1",
         "source_paths": [
           "crates/ecosystem/maestria-retrieval/tests/fixtures/rust-repository-benchmark-v1.json",
           "crates/ecosystem/maestria-retrieval/src/repository_benchmark_runner.rs"
         ],
-        "source_hash": "ec190d9505d03b87dbc02d322717a5643016c0eff404effc025f9f70c0e8c64b"
+        "source_hash": "dc28820538e89742b3a56900832842dfc02a93fd119e594c397224303492c548"
       },
       "fingerprints": {
         "corpus_snapshot": "rust-repository-frozen-v1",
-        "index_generation": "cargo-rust-code-v1",
-        "model_fingerprint": "repository-code-index-v1"
+        "index_generation": "cargo-rust-code-v2",
+        "model_fingerprint": "repository-code-index-v2"
       },
       "environment": {
         "os": "ubuntu-24.04",

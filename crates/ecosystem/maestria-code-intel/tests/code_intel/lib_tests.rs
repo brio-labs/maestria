@@ -63,7 +63,8 @@ fn query_symbol_path_and_regex_filters() -> Result<(), Box<dyn Error>> {
             pattern: "add".to_string(),
         },
         20,
-    );
+        |_: &SymbolRecord| Ok::<bool, Box<dyn Error>>(true),
+    )?;
     assert_eq!(symbol_query.summary.matched, 1);
 
     let path_query = index.query(
@@ -71,7 +72,8 @@ fn query_symbol_path_and_regex_filters() -> Result<(), Box<dyn Error>> {
             pattern: "crate_one/src/lib.rs".to_string(),
         },
         20,
-    );
+        |_: &SymbolRecord| Ok::<bool, Box<dyn Error>>(true),
+    )?;
     assert_eq!(path_query.summary.matched, index.summary.symbol_count);
 
     let regex_query = index.query(
@@ -79,15 +81,45 @@ fn query_symbol_path_and_regex_filters() -> Result<(), Box<dyn Error>> {
             pattern: "math::add".to_string(),
         },
         20,
-    );
+        |_: &SymbolRecord| Ok::<bool, Box<dyn Error>>(true),
+    )?;
     assert!(regex_query.summary.matched >= 1);
     let signature_query = index.query(
         CodeQuery::Regex {
             pattern: "impl Widget".to_string(),
         },
         20,
-    );
+        |_: &SymbolRecord| Ok::<bool, Box<dyn Error>>(true),
+    )?;
     assert_eq!(signature_query.summary.matched, 1);
+    Ok(())
+}
+
+#[test]
+fn query_authorizes_before_limit_selection() -> Result<(), Box<dyn Error>> {
+    let tmp = make_workspace()?;
+    let index = build_index(tmp.path(), "g1")?;
+    let mut callbacks = 0;
+    let result = index.query(CodeQuery::All, 1, |_: &SymbolRecord| {
+        callbacks += 1;
+        Ok::<bool, Box<dyn Error>>(callbacks > 1)
+    })?;
+
+    assert_eq!(callbacks, index.summary.symbol_count);
+    assert_eq!(result.summary.matched, index.summary.symbol_count - 1);
+    assert_eq!(result.summary.returned, 1);
+    assert_eq!(result.records.len(), 1);
+    Ok(())
+}
+
+#[test]
+fn query_propagates_authorization_failure() -> Result<(), Box<dyn Error>> {
+    let tmp = make_workspace()?;
+    let index = build_index(tmp.path(), "g1")?;
+    let result = index.query(CodeQuery::All, 1, |_: &SymbolRecord| {
+        Err::<bool, &'static str>("authorization failed")
+    });
+    assert_eq!(result.err(), Some("authorization failed"));
     Ok(())
 }
 
@@ -135,6 +167,28 @@ fn load_rejects_tampered_provenance_commit_sha() -> Result<(), Box<dyn Error>> {
     match RepositoryCodeIndex::load(&path) {
         Err(CodeIntelError::Integrity { .. }) => {}
         other => return Err(format!("expected Integrity error, got {other:?}").into()),
+    }
+    Ok(())
+}
+
+#[test]
+fn load_rejects_legacy_provenance_without_content_hash() -> Result<(), Box<dyn Error>> {
+    let tmp = make_workspace_with_routes()?;
+    let path = tmp.path().join("index.json");
+    let index = build_index(tmp.path(), "g2")?;
+    index.save(&path)?;
+
+    let json = fs::read_to_string(&path)?;
+    let mut value: serde_json::Value = serde_json::from_str(&json)?;
+    value["symbols"][0]["provenance"]
+        .as_object_mut()
+        .ok_or("missing symbol provenance")?
+        .remove("content_hash");
+    fs::write(&path, serde_json::to_vec_pretty(&value)?)?;
+
+    match RepositoryCodeIndex::load(&path) {
+        Err(CodeIntelError::Persist { context, .. }) if context == "deserialize index" => {}
+        other => return Err(format!("expected decode Persist error, got {other:?}").into()),
     }
     Ok(())
 }
