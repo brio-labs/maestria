@@ -58,8 +58,17 @@ pub fn prepare_instance(instance_dir: PathBuf) -> Result<InstanceLayout> {
 }
 
 pub fn load_kernel_state(layout: &InstanceLayout) -> Result<KernelState> {
-    let sqlite_store = SqliteStore::open(&layout.database_path)
-        .with_context(|| format!("open sqlite store {}", layout.database_path.display()))?;
+    let sqlite_store = if layout.database_path.exists() {
+        SqliteStore::open_read_only(&layout.database_path)
+    } else {
+        SqliteStore::open(&layout.database_path)
+    }
+    .with_context(|| {
+        format!(
+            "open sqlite store for replay {}",
+            layout.database_path.display()
+        )
+    })?;
     let events =
         maestria_ports::EventLog::scan(&sqlite_store, EventFilter { artifact_id: None })
             .with_context(|| format!("scan domain events {}", layout.database_path.display()))?;
