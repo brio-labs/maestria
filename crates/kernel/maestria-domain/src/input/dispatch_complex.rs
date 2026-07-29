@@ -119,8 +119,16 @@ impl KernelState {
 
     pub(super) fn process_model_agent_proposal_requested(
         &mut self,
-        input: crate::inputs::ModelAgentProposalRequest,
+        input: crate::model_agent::ModelAgentProposalRequest,
     ) -> Result<KernelOutput, DomainError> {
+        if !matches!(
+            input.execution,
+            crate::model_agent::ModelAgentProposalExecution::Fresh
+        ) {
+            return Err(DomainError::ModelAgentProposalRequestNotFresh {
+                run_id: input.run_id,
+            });
+        }
         if self.model_agent_requests.contains_key(&input.run_id)
             || self.model_agent_results.contains_key(&input.run_id)
         {
@@ -141,13 +149,36 @@ impl KernelState {
     }
     pub(super) fn process_model_agent_proposal_resumed(
         &mut self,
-        input: crate::inputs::ModelAgentProposalRequest,
+        input: crate::model_agent::ModelAgentProposalRequest,
     ) -> Result<KernelOutput, DomainError> {
-        if !self.model_agent_requests.contains_key(&input.run_id)
-            || self.model_agent_results.contains_key(&input.run_id)
+        if matches!(
+            input.execution,
+            crate::model_agent::ModelAgentProposalExecution::Fresh
+        ) {
+            return Err(DomainError::ModelAgentProposalNotResumable {
+                run_id: input.run_id,
+            });
+        }
+        let Some(canonical) = self.model_agent_requests.get(&input.run_id) else {
+            return Err(DomainError::ModelAgentProposalNotResumable {
+                run_id: input.run_id,
+            });
+        };
+        if self.model_agent_results.contains_key(&input.run_id)
+            || !matches!(
+                canonical.execution,
+                crate::model_agent::ModelAgentProposalExecution::Fresh
+            )
         {
-            return Err(DomainError::InternalInvariantViolation {
-                detail: "cannot resume missing or terminal model-agent proposal",
+            return Err(DomainError::ModelAgentProposalNotResumable {
+                run_id: input.run_id,
+            });
+        }
+        let mut canonicalized = input.clone();
+        canonicalized.execution = crate::model_agent::ModelAgentProposalExecution::Fresh;
+        if canonicalized != *canonical {
+            return Err(DomainError::ModelAgentProposalResumeMismatch {
+                run_id: input.run_id,
             });
         }
         Ok(KernelOutput {
@@ -159,7 +190,7 @@ impl KernelState {
     }
     pub(super) fn process_model_agent_proposal_completed(
         &mut self,
-        result: crate::inputs::ModelAgentProposalResult,
+        result: crate::model_agent::ModelAgentProposalResult,
     ) -> Result<KernelOutput, DomainError> {
         if self.model_agent_results.contains_key(&result.run_id) {
             return Err(DomainError::DuplicateModelAgentProposalRunId {

@@ -1,4 +1,5 @@
 use crate::config::EffectExecutionContext;
+use crate::effect_result::EffectFailure;
 use crate::runtime::MaestriaRuntime;
 use maestria_domain::{DomainInput, KernelState, MaestriaEffect, ValidationReportId};
 use std::sync::{Arc, atomic::Ordering};
@@ -12,6 +13,51 @@ impl MaestriaRuntime {
             .map(|id| id.value())
             .max()
             .map_or(1, |value| value.saturating_add(1))
+    }
+
+    fn supervise_effect_failure(
+        error: EffectFailure,
+        effect_shutdown: &tokio_util::sync::CancellationToken,
+        runtime_shutdown: &tokio_util::sync::CancellationToken,
+    ) -> bool {
+        match error {
+            EffectFailure::Denied(reason) => {
+                tracing::warn!(%reason, "spawned effect denied; continuing runtime execution");
+                false
+            }
+            EffectFailure::RequiresApproval(reason) => {
+                tracing::info!(
+                    %reason,
+                    "spawned effect is awaiting approval; continuing runtime execution"
+                );
+                false
+            }
+            EffectFailure::ApprovalLookup(error) => {
+                tracing::error!(
+                    %error,
+                    "spawned effect approval lookup failed; cancelling runtime execution"
+                );
+                effect_shutdown.cancel();
+                runtime_shutdown.cancel();
+                true
+            }
+            EffectFailure::Failed(reason) => {
+                tracing::error!(
+                    reason = %reason,
+                    "spawned effect failed; cancelling runtime execution"
+                );
+                effect_shutdown.cancel();
+                runtime_shutdown.cancel();
+                true
+            }
+            EffectFailure::Degraded(reason) => {
+                tracing::warn!(
+                    %reason,
+                    "spawned effect degraded but remains recoverable; continuing runtime execution"
+                );
+                false
+            }
+        }
     }
 
     fn supervise_effect_join(
@@ -42,12 +88,7 @@ impl MaestriaRuntime {
     ) {
         in_flight.spawn(async move {
             if let Err(error) = context.execute_with_retries(effect).await {
-                tracing::error!(%error, "spawned effect failed");
-                if error.fatal() {
-                    tracing::error!("fatal spawned effect failure; cancelling runtime execution");
-                    effect_shutdown.cancel();
-                    runtime_shutdown.cancel();
-                }
+                Self::supervise_effect_failure(error, &effect_shutdown, &runtime_shutdown);
             }
             drop(permit);
         });
@@ -70,14 +111,8 @@ impl MaestriaRuntime {
             }
         }
     }
-
-    pub(crate) fn spawn_effect_executor(
-        &self,
-        mut receiver: mpsc::Receiver<crate::effect_dispatch::EffectBatch>,
-        effect_shutdown: tokio_util::sync::CancellationToken,
-        runtime_shutdown: tokio_util::sync::CancellationToken,
-    ) -> tokio::task::JoinHandle<()> {
-        let execution_context = EffectExecutionContext {
+    fn effect_execution_context(&self) -> EffectExecutionContext {
+        EffectExecutionContext {
             adapters: Arc::clone(&self.adapters),
             governance: Arc::clone(&self.governance),
             profile: self.config.profile,
@@ -87,9 +122,19 @@ impl MaestriaRuntime {
             input_tx: self.input_tx.clone(),
             embedding_model: self.config.embedding_model.clone(),
             feedback_acks: Arc::clone(&self.feedback_acks),
+            journal_recovery_claims: Arc::clone(&self.journal_recovery_claims),
             default_effect_timeout: self.config.default_effect_timeout,
             max_retries: self.config.max_retries,
-        };
+        }
+    }
+
+    pub(crate) fn spawn_effect_executor(
+        &self,
+        mut receiver: mpsc::Receiver<crate::effect_dispatch::EffectBatch>,
+        effect_shutdown: tokio_util::sync::CancellationToken,
+        runtime_shutdown: tokio_util::sync::CancellationToken,
+    ) -> tokio::task::JoinHandle<()> {
+        let execution_context = self.effect_execution_context();
         let max_concurrent_effects = self.config.max_concurrent_effects;
         let next_validation_report_id = Arc::clone(&self.next_validation_report_id);
         let drain_effects_on_shutdown = self.config.drain_effects_on_shutdown;
@@ -103,7 +148,7 @@ impl MaestriaRuntime {
                 let abort_handle = in_flight.spawn(std::future::pending::<()>());
                 abort_handle.abort();
             }
-            loop {
+            'executor: loop {
                 while let Some(result) = in_flight.try_join_next() {
                     Self::supervise_effect_join(result, &effect_shutdown, &runtime_shutdown);
                 }
@@ -138,10 +183,14 @@ impl MaestriaRuntime {
                     }
                     let context = execution_context.clone();
                     if matches!(&effect, MaestriaEffect::PersistEvent { .. }) {
-                        if context.execute_with_retries(effect).await.is_err() {
+                        if let Err(error) = context.execute_with_retries(effect).await {
+                            tracing::error!(
+                                %error,
+                                "persist event failed; stopping effect executor"
+                            );
                             effect_shutdown.cancel();
                             runtime_shutdown.cancel();
-                            break;
+                            break 'executor;
                         }
                         continue;
                     }
@@ -293,20 +342,24 @@ impl MaestriaRuntime {
                     }
                 };
                 if event_persisted {
-                    let projected = self
-                        .adapters
-                        .approval_repo
-                        .find_by_id(approval_id)
-                        .ok()
-                        .flatten()
-                        .is_some_and(|record| {
+                    let projected = match self.adapters.approval_repo.find_by_id(approval_id) {
+                        Ok(Some(record)) => {
                             record.status
                                 == if approved {
                                     maestria_ports::ApprovalStatus::Approved
                                 } else {
                                     maestria_ports::ApprovalStatus::Denied
                                 }
-                        });
+                        }
+                        Ok(None) => false,
+                        Err(error) => {
+                            tracing::error!(
+                                %error,
+                                "failed to read approval projection during persistence barrier"
+                            );
+                            return false;
+                        }
+                    };
                     if projected {
                         return true;
                     }

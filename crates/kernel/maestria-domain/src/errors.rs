@@ -14,6 +14,15 @@ pub enum DomainError {
     DuplicateModelAgentProposalRunId {
         run_id: HarnessRunId,
     },
+    ModelAgentProposalRequestNotFresh {
+        run_id: HarnessRunId,
+    },
+    ModelAgentProposalResumeMismatch {
+        run_id: HarnessRunId,
+    },
+    ModelAgentProposalNotResumable {
+        run_id: HarnessRunId,
+    },
     MissingArtifact {
         id: ArtifactId,
     },
@@ -149,6 +158,25 @@ impl DomainError {
     ) -> fmt::Result {
         write!(f, "{prefix} {id}: {from:?} -> {to:?}")
     }
+    fn fmt_model_agent(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let (message, run_id) = match self {
+            Self::DuplicateModelAgentProposalRunId { run_id } => {
+                ("duplicate model-agent proposal run id", run_id)
+            }
+            Self::ModelAgentProposalRequestNotFresh { run_id } => {
+                ("model-agent proposal request must be fresh", run_id)
+            }
+            Self::ModelAgentProposalResumeMismatch { run_id } => (
+                "model-agent proposal resume does not match its canonical request",
+                run_id,
+            ),
+            Self::ModelAgentProposalNotResumable { run_id } => {
+                ("model-agent proposal is missing or terminal", run_id)
+            }
+            _ => return Err(fmt::Error),
+        };
+        write!(f, "{message}: {run_id}")
+    }
 }
 
 impl fmt::Display for DomainError {
@@ -159,9 +187,10 @@ impl fmt::Display for DomainError {
             Self::MissingChunk { id } => Self::fmt_missing(f, "chunk", id),
             Self::MissingCard { id } => Self::fmt_missing(f, "card", id),
             Self::MissingEvidence { id } => Self::fmt_missing(f, "evidence", id),
-            Self::DuplicateModelAgentProposalRunId { run_id } => {
-                write!(f, "duplicate model-agent proposal run id: {run_id}")
-            }
+            error @ (Self::DuplicateModelAgentProposalRunId { .. }
+            | Self::ModelAgentProposalRequestNotFresh { .. }
+            | Self::ModelAgentProposalResumeMismatch { .. }
+            | Self::ModelAgentProposalNotResumable { .. }) => error.fmt_model_agent(f),
             Self::MissingClaim { id } => Self::fmt_missing(f, "claim", id),
             Self::MissingTask { id } => Self::fmt_missing(f, "task", id),
             Self::MissingRelation { id } => Self::fmt_missing(f, "relation", id),

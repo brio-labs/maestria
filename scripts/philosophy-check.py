@@ -225,6 +225,7 @@ RESPONSIBILITY_MAPS: dict[str, tuple[str, ...]] = {
         "ids",
         "input",
         "inputs",
+        "model_agent",
         "kernel_state",
         "ocr",
         "provenance",
@@ -249,6 +250,7 @@ RESPONSIBILITY_MAPS: dict[str, tuple[str, ...]] = {
     # ── runtime ──────────────────────────────────────────────────────
     "crates/runtime/maestria-runtime/src/lib.rs": (
         "config",
+        "effect_admission",
         "effect_dispatch",
         "effect_execution",
         "effect_execution_dispatch",
@@ -260,6 +262,7 @@ RESPONSIBILITY_MAPS: dict[str, tuple[str, ...]] = {
         "parsing",
         "parsing_records",
         "persistence",
+        "proposal_recovery",
         "proposal_workflow",
         "shell_policy",
         "supervision",

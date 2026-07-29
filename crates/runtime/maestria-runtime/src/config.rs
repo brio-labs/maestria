@@ -8,7 +8,7 @@ use maestria_ports::{
     HarnessAdapter, IdAllocator, OcrProvider, Parser, SearchKnowledgeExecutor, VectorIndex,
     WebFetcher,
 };
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::sync::{RwLock, mpsc};
@@ -68,6 +68,7 @@ pub struct Governance {
     pub memory_promotion_gate: Arc<dyn MemoryPromotionGate + Send + Sync>,
 }
 pub(crate) type HarnessFeedbackAcks = Arc<Mutex<BTreeMap<EventId, (HarnessRunId, u64)>>>;
+pub(crate) type JournalRecoveryClaims = Arc<Mutex<BTreeSet<(HarnessRunId, u64)>>>;
 
 /// Bundles everything an effect handler needs at execution time.
 #[derive(Clone)]
@@ -80,6 +81,7 @@ pub struct EffectExecutionContext {
     pub state: Arc<RwLock<KernelState>>,
     pub input_tx: mpsc::Sender<DomainInput>,
     pub feedback_acks: HarnessFeedbackAcks,
+    pub journal_recovery_claims: JournalRecoveryClaims,
     pub embedding_model: Option<String>,
     pub default_effect_timeout: Duration,
     pub max_retries: u32,
@@ -103,6 +105,7 @@ impl EffectExecutionContext {
             state,
             input_tx,
             feedback_acks: Arc::new(Mutex::new(BTreeMap::new())),
+            journal_recovery_claims: Arc::new(Mutex::new(BTreeSet::new())),
             embedding_model: None,
             default_effect_timeout: Duration::from_secs(300),
             max_retries: 3,

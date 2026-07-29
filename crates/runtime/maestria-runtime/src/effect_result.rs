@@ -2,16 +2,14 @@
 pub(crate) enum EffectFailure {
     Denied(String),
     RequiresApproval(String),
+    ApprovalLookup(maestria_ports::PortError),
     Failed(String),
     Degraded(String),
 }
 
 impl EffectFailure {
     pub(crate) fn retryable(&self) -> bool {
-        matches!(self, Self::Failed(_))
-    }
-    pub(crate) fn fatal(&self) -> bool {
-        matches!(self, Self::Failed(_))
+        matches!(self, Self::ApprovalLookup(_) | Self::Failed(_))
     }
 }
 
@@ -21,6 +19,9 @@ impl std::fmt::Display for EffectFailure {
             Self::Denied(reason) => write!(formatter, "effect denied: {reason}"),
             Self::RequiresApproval(reason) => {
                 write!(formatter, "effect requires approval: {reason}")
+            }
+            Self::ApprovalLookup(error) => {
+                write!(formatter, "approval repository lookup failed: {error}")
             }
             Self::Failed(reason) => write!(formatter, "effect failed: {reason}"),
             Self::Degraded(reason) => write!(formatter, "effect degraded: {reason}"),

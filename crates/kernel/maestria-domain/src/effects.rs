@@ -64,7 +64,7 @@ pub struct QueryHarnessRequest {
 /// through governance and effect execution.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct QueryHarnessProposalRequest {
-    pub proposal: crate::inputs::ModelAgentProposalRequest,
+    pub proposal: crate::model_agent::ModelAgentProposalRequest,
 }
 
 impl QueryHarnessProposalRequest {

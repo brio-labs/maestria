@@ -29,11 +29,23 @@ fn pending_capability(token: &PendingHarnessContinuation) -> Result<String, Effe
 pub(crate) fn decode_pending_continuation(
     record: &ApprovalRecord,
 ) -> Option<maestria_domain::ModelAgentProposalRequest> {
-    record
+    let token = record
         .capability
         .strip_prefix("model_agent_pending:")
-        .and_then(|json| serde_json::from_str::<PendingHarnessContinuation>(json).ok())
-        .map(|token| token.proposal)
+        .and_then(|json| serde_json::from_str::<PendingHarnessContinuation>(json).ok())?;
+    let maestria_domain::ModelAgentProposalExecution::ApprovalContinuation {
+        approval_id: _,
+        journal_generation,
+    } = token.proposal.execution
+    else {
+        return None;
+    };
+    if token.journal_generation != journal_generation
+        || token.correlation_id != token.proposal.correlation_id
+    {
+        return None;
+    }
+    Some(token.proposal)
 }
 
 pub(crate) async fn persist_pending_harness(
@@ -41,6 +53,14 @@ pub(crate) async fn persist_pending_harness(
     request: &QueryHarnessProposalRequest,
 ) -> Result<(), EffectFailure> {
     let proposal = &request.proposal;
+    if !matches!(
+        &proposal.execution,
+        maestria_domain::ModelAgentProposalExecution::Fresh
+    ) {
+        return Err(EffectFailure::Failed(
+            "only a fresh proposal can create an approval continuation".to_string(),
+        ));
+    }
     let entry = context
         .adapters
         .effect_journal
@@ -50,7 +70,7 @@ pub(crate) async fn persist_pending_harness(
             capability: proposal.capability.clone(),
             command: proposal.command.clone(),
             scope_id: context.scope_id,
-            requested_generation: proposal.journal_generation,
+            requested_generation: None,
         })
         .map_err(|error| {
             EffectFailure::Failed(format!("record pending harness intent: {error}"))
@@ -61,8 +81,10 @@ pub(crate) async fn persist_pending_harness(
         .allocate_approval_id()
         .map_err(|error| EffectFailure::Failed(format!("allocate harness approval id: {error}")))?;
     let mut continuation = proposal.clone();
-    continuation.approval_id = Some(approval_id);
-    continuation.journal_generation = Some(entry.generation);
+    continuation.execution = maestria_domain::ModelAgentProposalExecution::ApprovalContinuation {
+        approval_id,
+        journal_generation: entry.generation,
+    };
     let token = PendingHarnessContinuation {
         proposal: continuation,
         journal_generation: entry.generation,
@@ -98,23 +120,6 @@ pub(crate) async fn persist_pending_harness(
         .map_err(|error| EffectFailure::Failed(format!("persist harness approval: {error}")))?;
     tracing::info!(approval_id = %approval_id, correlation_id = proposal.correlation_id, "harness proposal pending approval");
     Ok(())
-}
-
-pub(crate) fn resume_harness_journal(
-    context: &EffectExecutionContext,
-    proposal: &maestria_domain::ModelAgentProposalRequest,
-) -> Result<u64, EffectFailure> {
-    let generation = proposal.journal_generation.ok_or_else(|| {
-        EffectFailure::Failed("approval continuation missing journal generation".into())
-    })?;
-    context
-        .adapters
-        .effect_journal
-        .record_started(proposal.run_id, generation)
-        .map_err(|error| {
-            EffectFailure::Failed(format!("resume pending harness intent: {error}"))
-        })?;
-    Ok(generation)
 }
 
 pub(crate) fn record_denied_harness(

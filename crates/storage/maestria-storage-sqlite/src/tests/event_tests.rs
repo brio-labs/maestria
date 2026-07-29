@@ -575,8 +575,7 @@ fn model_agent_proposal_request_payload_round_trips_with_event_kind() -> Result<
         expected_generation: 4,
         task_validation: false,
         memory_candidate: false,
-        approval_id: None,
-        journal_generation: None,
+        execution: ModelAgentProposalExecution::Fresh,
         correlation_id: 12,
     };
     let envelope = DomainEventEnvelope {

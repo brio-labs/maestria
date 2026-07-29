@@ -42,6 +42,31 @@ impl MaestriaRuntime {
         let Some(proposal) = crate::effect_execution::decode_pending_continuation(&record) else {
             return true;
         };
+        let maestria_domain::ModelAgentProposalExecution::ApprovalContinuation {
+            approval_id,
+            journal_generation: _,
+        } = &proposal.execution
+        else {
+            tracing::warn!(
+                approval_id = %decision.approval_id,
+                "approval resolve rejected: continuation has invalid execution mode"
+            );
+            return false;
+        };
+        if *approval_id != decision.approval_id
+            || record.effect_kind != "model_agent_harness"
+            || record.scope_id != self.config.scope_id
+            || record
+                .capability
+                .strip_prefix("model_agent_pending:")
+                .is_none()
+        {
+            tracing::warn!(
+                approval_id = %decision.approval_id,
+                "approval resolve rejected: stored approval metadata mismatch"
+            );
+            return false;
+        }
         let state = self.state.read().await;
         let Some(stored) = state.model_agent_requests.get(&proposal.run_id) else {
             tracing::warn!(
@@ -51,10 +76,20 @@ impl MaestriaRuntime {
             );
             return false;
         };
-        let mut stored_identity = stored.clone();
-        stored_identity.approval_id = proposal.approval_id;
-        stored_identity.journal_generation = proposal.journal_generation;
-        if stored_identity != proposal || proposal.approval_id != Some(decision.approval_id) {
+        if !matches!(
+            &stored.execution,
+            maestria_domain::ModelAgentProposalExecution::Fresh
+        ) {
+            tracing::warn!(
+                approval_id = %decision.approval_id,
+                run_id = %proposal.run_id,
+                "approval resolve rejected: stored request is not fresh"
+            );
+            return false;
+        }
+        let mut expected = stored.clone();
+        expected.execution = proposal.execution.clone();
+        if expected != proposal {
             tracing::warn!(
                 approval_id = %decision.approval_id,
                 run_id = %proposal.run_id,

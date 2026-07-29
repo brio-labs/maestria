@@ -73,8 +73,22 @@ impl EffectExecutionContext {
         &self,
         proposal: &ModelAgentProposalRequest,
     ) -> Result<ModelAgentProposalResult, EffectFailure> {
-        let search = self.execute_proposal_search(proposal).await?;
-        let harness = self.execute_proposal_harness(proposal).await?;
+        let (search, harness) = match &proposal.execution {
+            maestria_domain::ModelAgentProposalExecution::Fresh
+            | maestria_domain::ModelAgentProposalExecution::ApprovalContinuation { .. } => {
+                let search = self.execute_proposal_search(proposal).await?;
+                let harness = self.execute_proposal_harness(proposal).await?;
+                (search, harness)
+            }
+            maestria_domain::ModelAgentProposalExecution::JournalRecovery {
+                journal_generation,
+            } => {
+                let harness = self
+                    .execute_recovered_harness(proposal, *journal_generation)
+                    .await?;
+                (None, harness)
+            }
+        };
         let validation = self.evaluate_proposal_validation(proposal).await;
         let memory_candidate = self
             .create_proposal_memory_candidate(proposal, harness.is_some())
@@ -125,60 +139,17 @@ impl EffectExecutionContext {
         Ok(Some(result))
     }
 
-    fn prepare_proposal_journal(
+    fn prepare_fresh_proposal_journal(
         &self,
         proposal: &ModelAgentProposalRequest,
     ) -> Result<u64, EffectFailure> {
-        if let Some(generation) = proposal.journal_generation {
-            let has_stored_outcome = self
-                .adapters
-                .effect_journal
-                .feedback_outcome(proposal.run_id, generation)
-                .map_err(|error| {
-                    EffectFailure::Failed(format!("read proposal harness feedback: {error}"))
-                })?
-                .is_some();
-            if !has_stored_outcome {
-                let entry = self
-                    .adapters
-                    .effect_journal
-                    .scan_in_flight()
-                    .map_err(|error| {
-                        EffectFailure::Failed(format!("scan proposal harness intent: {error}"))
-                    })?
-                    .into_iter()
-                    .find(|entry| entry.run_id == proposal.run_id && entry.generation == generation)
-                    .ok_or_else(|| {
-                        EffectFailure::Failed("proposal harness intent is missing".to_string())
-                    })?;
-                match entry.status {
-                    maestria_ports::EffectJournalStatus::Started => {}
-                    maestria_ports::EffectJournalStatus::Intent
-                    | maestria_ports::EffectJournalStatus::Paused => {
-                        self.adapters
-                            .effect_journal
-                            .record_started(proposal.run_id, generation)
-                            .map_err(|error| {
-                                EffectFailure::Failed(format!(
-                                    "resume proposal harness intent: {error}"
-                                ))
-                            })?;
-                    }
-                    maestria_ports::EffectJournalStatus::FeedbackAccepted => {
-                        return Err(EffectFailure::Failed(
-                            "accepted harness feedback is missing its durable outcome".to_string(),
-                        ));
-                    }
-                    maestria_ports::EffectJournalStatus::Completed
-                    | maestria_ports::EffectJournalStatus::Failed
-                    | maestria_ports::EffectJournalStatus::Superseded => {
-                        return Err(EffectFailure::Failed(
-                            "proposal harness intent is already terminal".to_string(),
-                        ));
-                    }
-                }
-            }
-            return Ok(generation);
+        if !matches!(
+            &proposal.execution,
+            maestria_domain::ModelAgentProposalExecution::Fresh
+        ) {
+            return Err(EffectFailure::Failed(
+                "only a fresh proposal can create a harness journal intent".to_string(),
+            ));
         }
         let entry = self
             .adapters
@@ -213,10 +184,10 @@ impl EffectExecutionContext {
         let ordinary = QueryHarnessRequest {
             run_id: proposal.run_id,
             task_id: proposal.task_id,
-            generation: proposal.journal_generation,
+            generation: proposal.execution.journal_generation(),
             capability: proposal.capability.clone(),
             scope_id: self.scope_id,
-            approval_id: proposal.approval_id,
+            approval_id: proposal.execution.approval_id(),
             command: proposal.command.clone(),
         };
         let (class, default_working_directory) = self.gate_harness_request(&ordinary)?;
@@ -234,7 +205,20 @@ impl EffectExecutionContext {
                 })?;
             requested
         };
-        let generation = self.prepare_proposal_journal(proposal)?;
+        let generation = match &proposal.execution {
+            maestria_domain::ModelAgentProposalExecution::Fresh => {
+                self.prepare_fresh_proposal_journal(proposal)?
+            }
+            maestria_domain::ModelAgentProposalExecution::ApprovalContinuation {
+                journal_generation,
+                ..
+            } => *journal_generation,
+            maestria_domain::ModelAgentProposalExecution::JournalRecovery { .. } => {
+                return Err(EffectFailure::Failed(
+                    "journal recovery cannot execute a harness provider".to_string(),
+                ));
+            }
+        };
         let outcome = self
             .execute_and_process_harness(
                 QueryHarnessRequest {

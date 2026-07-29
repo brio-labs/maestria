@@ -230,6 +230,14 @@ impl KernelState {
                 self.apply_harness_run_completed(*task_id)
             }
             DomainEvent::ModelAgentProposalRequested { request } => {
+                if !matches!(
+                    request.execution,
+                    crate::model_agent::ModelAgentProposalExecution::Fresh
+                ) {
+                    return Err(DomainError::ModelAgentProposalRequestNotFresh {
+                        run_id: request.run_id,
+                    });
+                }
                 if self.model_agent_requests.contains_key(&request.run_id)
                     || self.model_agent_results.contains_key(&request.run_id)
                 {

@@ -139,10 +139,10 @@ pub enum DomainEvent {
         exit_code: i32,
     },
     ModelAgentProposalRequested {
-        request: crate::inputs::ModelAgentProposalRequest,
+        request: crate::model_agent::ModelAgentProposalRequest,
     },
     ModelAgentProposalCompleted {
-        result: crate::inputs::ModelAgentProposalResult,
+        result: crate::model_agent::ModelAgentProposalResult,
     },
     ApprovalRecorded {
         approval_id: ApprovalId,
