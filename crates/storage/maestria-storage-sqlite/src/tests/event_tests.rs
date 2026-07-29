@@ -76,9 +76,11 @@ fn artifact_filter_includes_evidence_and_search_events() -> Result<(), Box<dyn s
             claim_id: None,
             kind: EvidenceKind::FileSpan {
                 path: "notes.md".to_string(),
-                range: ContentRange { start: 1, end: 4 },
-                content_hash: "sha256:notes".to_string(),
-                snapshot: None,
+                range: LineRange::new(1, 4)?,
+                snapshot: SnapshotRef::new(
+                    BlobId::new(1),
+                    ContentHash::new(format!("sha256:{}", "a".repeat(64)))?,
+                ),
             },
             excerpt: "excerpt".to_string(),
             observed_at: LogicalTick::new(1),
@@ -600,5 +602,48 @@ fn model_agent_proposal_request_payload_round_trips_with_event_kind() -> Result<
         store.scan(EventFilter { artifact_id: None })?,
         vec![envelope]
     );
+    Ok(())
+}
+
+#[test]
+fn malformed_evidence_snapshot_reports_validation_cause() -> Result<(), Box<dyn std::error::Error>>
+{
+    let payload = serde_json::from_str::<crate::payloads::StoredEventPayload>(
+        r#"{"event_kind":"evidence_recorded","evidence_id":40,"artifact_id":7,"claim_id":null,"evidence_kind":{"kind":"file_span","path":"notes.md","start":1,"end":1,"snapshot":{"blob_id":1,"content_hash":"not-a-sha256"}},"excerpt":"excerpt","observed_at":1}"#,
+    )?;
+
+    let error = match payload.into_domain() {
+        Ok(_) => return Err(std::io::Error::other("invalid snapshot must fail").into()),
+        Err(error) => error,
+    };
+    assert!(matches!(
+        error,
+        PortError::InternalContext {
+            context: "decode stored evidence kind",
+            source
+        } if source.contains("invalid snapshot content hash")
+    ));
+    Ok(())
+}
+
+#[test]
+fn malformed_evidence_line_range_reports_validation_cause() -> Result<(), Box<dyn std::error::Error>>
+{
+    let payload = serde_json::from_str::<crate::payloads::StoredEventPayload>(&format!(
+        r#"{{"event_kind":"evidence_recorded","evidence_id":40,"artifact_id":7,"claim_id":null,"evidence_kind":{{"kind":"file_span","path":"notes.md","start":0,"end":1,"snapshot":{{"blob_id":1,"content_hash":"sha256:{}"}}}},"excerpt":"excerpt","observed_at":1}}"#,
+        "a".repeat(64)
+    ))?;
+
+    let error = match payload.into_domain() {
+        Ok(_) => return Err(std::io::Error::other("invalid line range must fail").into()),
+        Err(error) => error,
+    };
+    assert!(matches!(
+        error,
+        PortError::InternalContext {
+            context: "decode stored evidence kind",
+            source
+        } if source.contains("invalid evidence line range")
+    ));
     Ok(())
 }

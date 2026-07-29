@@ -113,9 +113,11 @@ fn dense_batch_reports_bounded_bytes() -> Result<(), Box<dyn std::error::Error>>
         claim_id: None,
         kind: maestria_domain::EvidenceKind::FileSpan {
             path: "dense.md".to_string(),
-            range: maestria_domain::ContentRange { start: 1, end: 2 },
-            content_hash,
-            snapshot: Some(snapshot),
+            range: maestria_domain::LineRange::new(1, 2)?,
+            snapshot: maestria_domain::SnapshotRef::new(
+                snapshot,
+                maestria_domain::ContentHash::new(content_hash.clone())?,
+            ),
         },
         excerpt: "alpha".to_string(),
         observed_at: maestria_domain::LogicalTick::new(1),

@@ -8,9 +8,8 @@ use maestria_ports::{
     ArtifactRepository, BlobStore, ChunkRepository, EvidenceRepository, FullTextIndex,
 };
 
-use super::common::{
-    SourceSnapshotVerifier, candidate_from_records, generation_mismatch, one_based_rank, port_error,
-};
+use super::SourceSnapshotVerifier;
+use super::common::{candidate_from_records, generation_mismatch, one_based_rank, port_error};
 use super::score_provenance::lexical_score;
 use crate::traits::CandidateRetriever;
 use crate::types::{CandidateBatch, CandidateRequest, RetrievalError, RetrieverDescriptor};
@@ -185,7 +184,7 @@ impl LexicalChunkRetriever {
         {
             return Ok(None);
         }
-        self.verifier.verify(&evidence)?;
+        self.verifier.verify(&evidence, &artifact)?;
         candidate_from_records(
             artifact.id,
             &chunk.source_span,

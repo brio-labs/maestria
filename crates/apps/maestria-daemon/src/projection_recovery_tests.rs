@@ -9,10 +9,10 @@ use super::{reconcile_graph_projection, reconcile_projections, reconcile_vector_
 use crate::instance_setup::prepare_instance;
 use crate::runtime_construction::build_runtime;
 use maestria_domain::{
-    ArtifactDetected, ArtifactId, ArtifactVersionId, CardId, ChunkId, ContentHash, ContentRange,
-    CreateCardInput, DomainInput, EvidenceId, EvidenceKind, KernelState, LogicalTick, ParseStatus,
-    ParserResult, RecordEvidenceInput, RegisterChunkInput, SourceSpan, StructureNode,
-    StructureNodeId, StructureNodeType,
+    ArtifactDetected, ArtifactId, ArtifactVersionId, BlobId, CardId, ChunkId, ContentHash,
+    ContentRange, CreateCardInput, DomainInput, EvidenceId, EvidenceKind, KernelState, LineRange,
+    LogicalTick, ParseStatus, ParserResult, RecordEvidenceInput, RegisterChunkInput, SnapshotRef,
+    SourceSpan, StructureNode, StructureNodeId, StructureNodeType,
 };
 use maestria_ports::{
     ArtifactRepository, CardRepository, ChunkRepository, EmbeddingProvider, EmbeddingRequest,
@@ -135,9 +135,11 @@ fn build_recovery_domain_state(
         claim_id: None,
         kind: EvidenceKind::FileSpan {
             path: "/tmp/crash-test.md".to_string(),
-            range: ContentRange { start: 0, end: 10 },
-            content_hash: "sha256:fff".to_string(),
-            snapshot: None,
+            range: LineRange::new(1, 10)?,
+            snapshot: SnapshotRef::new(
+                BlobId::new(42),
+                ContentHash::new(format!("sha256:{}", "0".repeat(64)))?,
+            ),
         },
         excerpt: "first chu".to_string(),
         observed_at: LogicalTick::new(7),
@@ -459,9 +461,11 @@ fn reconcile_projections_evidence_replace_overwrites_stale_row()
         claim_id: None,
         kind: EvidenceKind::FileSpan {
             path: "/tmp/replace-test.md".to_string(),
-            range: ContentRange { start: 0, end: 5 },
-            content_hash: "sha256:rrr".to_string(),
-            snapshot: None,
+            range: LineRange::new(1, 5)?,
+            snapshot: SnapshotRef::new(
+                BlobId::new(42),
+                ContentHash::new(format!("sha256:{}", "0".repeat(64)))?,
+            ),
         },
         excerpt: "stale excerpt".to_string(),
         observed_at: LogicalTick::new(1),
@@ -495,9 +499,11 @@ fn reconcile_projections_evidence_replace_overwrites_stale_row()
         claim_id: None,
         kind: EvidenceKind::FileSpan {
             path: "/tmp/replace-test.md".to_string(),
-            range: ContentRange { start: 0, end: 5 },
-            content_hash: "sha256:rrr".to_string(),
-            snapshot: None,
+            range: LineRange::new(1, 5)?,
+            snapshot: SnapshotRef::new(
+                BlobId::new(42),
+                ContentHash::new(format!("sha256:{}", "0".repeat(64)))?,
+            ),
         },
         excerpt: "corrected excerpt".to_string(),
         observed_at: LogicalTick::new(2),

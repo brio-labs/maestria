@@ -1,10 +1,10 @@
 use std::sync::Arc;
 
 use maestria_domain::{
-    Artifact, ArtifactId, Chunk, ChunkId, Evidence, EvidenceId, EvidenceKind, IndexGenerationId,
-    IndexStatus, SearchPlan, SearchStatus, SourceSpan, StructureNodeId, CorpusSnapshotId,
+    Artifact, ArtifactId, Chunk, ChunkId, ContentHash, CorpusSnapshotId, Evidence, EvidenceId,
+    EvidenceKind, IndexGenerationId, IndexStatus, LineRange, RetrievalModelFingerprint, SearchPlan,
+    SearchStatus, SnapshotRef, SourceSpan, StructureNodeId,
 };
-use maestria_domain::{RetrievalModelFingerprint};
 use maestria_governance::RetrievalSecurityPolicy;
 use maestria_ports::{
     ArtifactRepository, BlobStore, ChunkRepository, EmbeddingIdentity, EmbeddingProvider,
@@ -71,9 +71,11 @@ fn seed_vector_artifact(
         claim_id: None,
         kind: EvidenceKind::FileSpan {
             path: "semantic.md".to_string(),
-            range: maestria_domain::ContentRange { start: 1, end: 1 },
-            content_hash: maestria_core::content_hash(source.as_bytes()),
-            snapshot: Some(blob_id),
+            range: LineRange::new(1, 1)?,
+            snapshot: SnapshotRef::new(
+                blob_id,
+                ContentHash::new(maestria_core::content_hash(source.as_bytes()))?,
+            ),
         },
         excerpt: "literal source text".to_string(),
         observed_at: maestria_domain::LogicalTick::new(1),

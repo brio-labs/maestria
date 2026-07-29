@@ -1,6 +1,5 @@
-use crate::entities::{
-    ClaimStatus, EvidenceKind, RelationEndpoint, RelationKind, TaskPriority, TaskStatus,
-};
+use crate::entities::{ClaimStatus, RelationEndpoint, RelationKind, TaskPriority, TaskStatus};
+use crate::evidence_source::EvidenceKind;
 use crate::ids::StructureNodeId;
 use crate::ids::{
     ApprovalId, ArtifactId, ArtifactVersionId, BlobId, CardId, ChunkId, ClaimId, EventId,

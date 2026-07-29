@@ -7,23 +7,25 @@ pub(super) mod filtered_test_support;
 mod learned_sparse;
 mod learned_sparse_generation;
 mod lexical;
+mod outcome_evaluator;
 mod score_provenance;
 mod secondary;
+mod source_snapshot;
 mod visual;
 mod visual_projection;
 
 pub use cards::{CardRetriever, CardRetrieverParts};
 pub use code_intel::{CodeIntelRetriever, CodeIntelRetrieverParts};
-pub use common::{CurrentVersionFilter, SourceSnapshotVerifier};
+pub use common::CurrentVersionFilter;
 pub use dense::{DenseChunkRetriever, DenseChunkRetrieverParts};
 pub use learned_sparse::{LearnedSparseChunkRetriever, LearnedSparseChunkRetrieverParts};
 pub use learned_sparse_generation::{
     LearnedSparseGenerationCapability, LearnedSparseGenerationMode,
 };
 pub use lexical::{LexicalChunkRetriever, LexicalChunkRetrieverParts};
-pub use secondary::{
-    EvidenceOutcomeEvaluator, HierarchyGraphExpander, HierarchyGraphExpanderParts,
-};
+pub use outcome_evaluator::EvidenceOutcomeEvaluator;
+pub use secondary::{HierarchyGraphExpander, HierarchyGraphExpanderParts};
+pub use source_snapshot::SourceSnapshotVerifier;
 pub use visual::{
     VisualGenerationCapability, VisualPageRegionRetriever, VisualPageRegionRetrieverParts,
 };

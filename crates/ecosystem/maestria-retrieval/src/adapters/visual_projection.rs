@@ -1,4 +1,4 @@
-use maestria_domain::{ArtifactId, EvidenceKind, IndexStatus, SourceSpan};
+use maestria_domain::{ArtifactId, EvidenceKind, IndexStatus, SourceSpan, verify_snapshot_bytes};
 use maestria_governance::{RetrievalDecision, RetrievalSecurityPolicy, scan_secrets};
 use maestria_ports::{
     ArtifactRepository, BlobStore, ChunkRepository, EmbeddingIdentity, EmbeddingProvenance,
@@ -54,10 +54,8 @@ pub fn rebuild_visual_projection(
         {
             if let Some(embedding) = visual_embedding_for_chunk(
                 &chunk,
-                parts.evidence,
-                parts.blobs,
-                parts.policy,
-                parts.provider,
+                &artifact,
+                &parts,
                 capability.identity(),
                 &disclosure,
             )? {
@@ -70,10 +68,8 @@ pub fn rebuild_visual_projection(
 
 fn visual_embedding_for_chunk(
     chunk: &maestria_domain::Chunk,
-    evidence: &dyn EvidenceRepository,
-    blobs: &dyn BlobStore,
-    policy: &RetrievalSecurityPolicy,
-    provider: &dyn VisualEmbeddingProvider,
+    artifact: &maestria_domain::Artifact,
+    parts: &VisualProjectionRebuildParts<'_>,
     identity: &EmbeddingIdentity,
     disclosure: &ProviderDisclosure,
 ) -> RetrievalResult<Option<VectorEmbedding>> {
@@ -85,7 +81,7 @@ fn visual_embedding_for_chunk(
         return Ok(None);
     }
     let evidence_id = maestria_domain::evidence_id_for(chunk.artifact_id, chunk.order);
-    let Some(record) = evidence.get(evidence_id).map_err(port_error)? else {
+    let Some(record) = parts.evidence.get(evidence_id).map_err(port_error)? else {
         return Ok(None);
     };
     if record.artifact_id != chunk.artifact_id {
@@ -94,23 +90,46 @@ fn visual_embedding_for_chunk(
             record.id, record.artifact_id, chunk.artifact_id
         )));
     }
-    if policy.evaluate(&record.security) != RetrievalDecision::Allowed
+    if parts.policy.evaluate(&record.security) != RetrievalDecision::Allowed
         || !scan_secrets(&record.excerpt).is_clean()
     {
         return Ok(None);
     }
+    let snapshot = match &record.kind {
+        EvidenceKind::PdfSpan { snapshot, .. } | EvidenceKind::PdfRegion { snapshot, .. } => {
+            snapshot
+        }
+        _ => return Ok(None),
+    };
+    if artifact.id != chunk.artifact_id || record.artifact_id != artifact.id {
+        return Err(RetrievalError::Internal(format!(
+            "visual evidence {} belongs to artifact {}, expected {}",
+            record.id, record.artifact_id, artifact.id
+        )));
+    }
+    if artifact.content_hash.as_deref() != Some(snapshot.content_hash().as_str()) {
+        return Err(RetrievalError::Internal(format!(
+            "visual evidence {} source snapshot hash does not match owning artifact: expected {:?}, got {}",
+            record.id,
+            artifact.content_hash,
+            snapshot.content_hash().as_str()
+        )));
+    }
     let Some(source) = visual_source_for_evidence(&record.kind) else {
         return Ok(None);
     };
-    let blob = match &record.kind {
-        EvidenceKind::PdfSpan { blob, .. } | EvidenceKind::PdfRegion { blob, .. } => *blob,
-        _ => return Ok(None),
-    };
-    let bytes = blobs.get(blob).map_err(port_error)?;
-    if bytes.is_empty() || !scan_secrets(&String::from_utf8_lossy(&bytes)).is_clean() {
+    let bytes = parts.blobs.get(snapshot.blob_id()).map_err(port_error)?;
+    verify_snapshot_bytes(snapshot, &bytes).map_err(|error| {
+        RetrievalError::Internal(format!(
+            "visual evidence {} source snapshot verification failed: {}",
+            record.id, error
+        ))
+    })?;
+    if !scan_secrets(&String::from_utf8_lossy(&bytes)).is_clean() {
         return Ok(None);
     }
-    let response = provider
+    let response = parts
+        .provider
         .embed_source(VisualEmbeddingRequest {
             source,
             bytes: bytes.clone(),
@@ -144,23 +163,23 @@ fn visual_embedding_for_chunk(
 fn visual_source_for_evidence(kind: &EvidenceKind) -> Option<VisualSource> {
     match kind {
         EvidenceKind::PdfSpan {
-            blob,
+            snapshot,
             page_start,
             page_end,
         } => Some(VisualSource::Page {
-            blob: *blob,
+            blob: snapshot.blob_id(),
             page_start: *page_start,
             page_end: *page_end,
         }),
         EvidenceKind::PdfRegion {
-            blob,
+            snapshot,
             page,
             x,
             y,
             width,
             height,
         } => Some(VisualSource::Region {
-            blob: *blob,
+            blob: snapshot.blob_id(),
             page: *page,
             x: *x,
             y: *y,
@@ -175,8 +194,8 @@ fn visual_source_for_evidence(kind: &EvidenceKind) -> Option<VisualSource> {
 mod tests {
     use super::*;
     use maestria_ports::{
-        EmbeddingResponse, InMemoryBlobStore, InMemoryEvidenceRepository, PortError,
-        RetentionPolicy,
+        EmbeddingResponse, InMemoryArtifactRepository, InMemoryBlobStore, InMemoryChunkRepository,
+        InMemoryEvidenceRepository, InMemoryVectorIndex, PortError, RetentionPolicy,
     };
 
     struct UnusedVisualProvider;
@@ -222,7 +241,10 @@ mod tests {
             artifact_id: ArtifactId::new(2),
             claim_id: None,
             kind: EvidenceKind::PdfSpan {
-                blob: maestria_domain::BlobId::new(9),
+                snapshot: maestria_domain::SnapshotRef::new(
+                    maestria_domain::BlobId::new(9),
+                    maestria_domain::ContentHash::new("sha256:".to_owned() + &"0".repeat(64))?,
+                ),
                 page_start: 1,
                 page_end: 1,
             },
@@ -240,14 +262,39 @@ mod tests {
             text: "figure".to_string(),
         };
         let identity = EmbeddingIdentity::legacy("visual", 1)?;
+        let artifact = maestria_domain::Artifact {
+            id: artifact_id,
+            title: "test".to_string(),
+            chunk_ids: Default::default(),
+            card_ids: Default::default(),
+            claim_ids: Default::default(),
+            evidence_ids: Default::default(),
+            index_status: IndexStatus::Indexed,
+            content_hash: Some("sha256:".to_owned() + &"0".repeat(64)),
+            parse_status: None,
+            security: Default::default(),
+        };
+        let index = InMemoryVectorIndex::new();
+        let artifacts = InMemoryArtifactRepository::new();
+        let chunks = InMemoryChunkRepository::new();
+        let blobs = InMemoryBlobStore::new();
+        let policy = RetrievalSecurityPolicy::default();
+        let provider = UnusedVisualProvider;
+        let parts = VisualProjectionRebuildParts {
+            index: &index,
+            artifacts: &artifacts,
+            chunks: &chunks,
+            evidence: &evidence,
+            blobs: &blobs,
+            policy: &policy,
+            provider: &provider,
+        };
         let result = visual_embedding_for_chunk(
             &chunk,
-            &evidence,
-            &InMemoryBlobStore::new(),
-            &RetrievalSecurityPolicy::default(),
-            &UnusedVisualProvider,
+            &artifact,
+            &parts,
             &identity,
-            &UnusedVisualProvider.disclosure(),
+            &provider.disclosure(),
         );
         assert!(matches!(
             result,

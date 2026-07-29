@@ -6,9 +6,9 @@ use common::{
 };
 use maestria_core::InstanceLayout;
 use maestria_domain::{
-    ArtifactId, Authority, ClaimId, ContentRange, DomainEvent, DomainEventEnvelope, EventId,
-    EvidenceId, EvidenceKind, IntegrityState, LogicalTick, MemoryCandidateId, ReviewStatus,
-    SecurityMetadata, Sensitivity, SequenceNumber, TrustZone,
+    ArtifactId, Authority, BlobId, ClaimId, ContentHash, DomainEvent, DomainEventEnvelope, EventId,
+    EvidenceId, EvidenceKind, IntegrityState, LineRange, LogicalTick, MemoryCandidateId,
+    ReviewStatus, SecurityMetadata, Sensitivity, SequenceNumber, SnapshotRef, TrustZone,
 };
 use maestria_ports::EventLog;
 use maestria_storage_sqlite::SqliteStore;
@@ -100,9 +100,11 @@ fn seed_promotable_candidate(instance_path: &Path) -> Result<(), Box<dyn std::er
             claim_id: None,
             kind: EvidenceKind::FileSpan {
                 path: "notes.md".to_string(),
-                range: ContentRange { start: 1, end: 1 },
-                content_hash: "sha256:test".to_string(),
-                snapshot: None,
+                range: LineRange::new(1, 1)?,
+                snapshot: SnapshotRef::new(
+                    BlobId::new(1),
+                    ContentHash::new(format!("sha256:{}", "0".repeat(64)))?,
+                ),
             },
             excerpt: "A trusted claim.".to_string(),
             observed_at: LogicalTick::new(1),

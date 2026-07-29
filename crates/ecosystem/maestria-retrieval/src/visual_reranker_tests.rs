@@ -14,6 +14,7 @@ use maestria_ports::{
     ArtifactRepository, BlobStore, EmbeddingIdentity, EmbeddingResponse, EvidenceRepository,
     InMemoryArtifactRepository, InMemoryBlobStore, InMemoryEvidenceRepository, PortError,
     ProviderDisclosure, RetentionPolicy, VisualEmbeddingProvider, VisualEmbeddingRequest,
+    VisualSource,
 };
 
 use super::*;
@@ -94,7 +95,7 @@ impl VisualEmbeddingProvider for FakeVisualProvider {
         &self,
         request: VisualEmbeddingRequest,
     ) -> Result<EmbeddingResponse, PortError> {
-        let vector = if request.bytes.first() == Some(&2) {
+        let vector = if matches!(request.source, VisualSource::Region { page: 2, .. }) {
             vec![1.0, 0.0]
         } else {
             vec![0.0, 1.0]
@@ -184,7 +185,7 @@ fn artifact(id: ArtifactId) -> Artifact {
         claim_ids: BTreeSet::new(),
         evidence_ids: BTreeSet::new(),
         index_status: IndexStatus::Indexed,
-        content_hash: None,
+        content_hash: Some(maestria_domain::content_hash(&[1])),
         parse_status: None,
         security: SecurityMetadata::default(),
     }
@@ -227,7 +228,7 @@ async fn visual_reranker_reorders_visual_slots_and_preserves_coordinates()
     let evidence_repo = Arc::new(InMemoryEvidenceRepository::new());
     let blob_store = Arc::new(InMemoryBlobStore::new());
     let blob_one = blob_store.put(vec![1])?;
-    let blob_two = blob_store.put(vec![2])?;
+    let blob_two = blob_store.put(vec![1])?;
     let first_id = EvidenceId::new(101);
     let second_id = EvidenceId::new(102);
     evidence_repo.put(Evidence {
@@ -235,7 +236,10 @@ async fn visual_reranker_reorders_visual_slots_and_preserves_coordinates()
         artifact_id: ArtifactId::new(1),
         claim_id: None,
         kind: EvidenceKind::PdfRegion {
-            blob: blob_one,
+            snapshot: maestria_domain::SnapshotRef::new(
+                blob_one,
+                maestria_domain::ContentHash::new(maestria_domain::content_hash(&[1]))?,
+            ),
             page: 1,
             x: 1,
             y: 2,
@@ -251,7 +255,10 @@ async fn visual_reranker_reorders_visual_slots_and_preserves_coordinates()
         artifact_id: ArtifactId::new(1),
         claim_id: None,
         kind: EvidenceKind::PdfRegion {
-            blob: blob_two,
+            snapshot: maestria_domain::SnapshotRef::new(
+                blob_two,
+                maestria_domain::ContentHash::new(maestria_domain::content_hash(&[1]))?,
+            ),
             page: 2,
             x: 20,
             y: 2,

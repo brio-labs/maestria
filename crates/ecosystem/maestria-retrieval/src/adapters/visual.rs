@@ -1,9 +1,8 @@
 use std::cell::Cell;
 use std::sync::Arc;
 
-use super::common::{
-    SourceSnapshotVerifier, candidate_from_records, generation_mismatch, one_based_rank, port_error,
-};
+use super::SourceSnapshotVerifier;
+use super::common::{candidate_from_records, generation_mismatch, one_based_rank, port_error};
 use super::score_provenance::dense_score;
 use crate::traits::CandidateRetriever;
 use crate::types::{CandidateBatch, CandidateRequest, RetrievalError, RetrieverDescriptor};
@@ -158,7 +157,7 @@ impl VisualPageRegionRetriever {
         {
             return Ok(None);
         }
-        self.verifier.verify(&evidence)?;
+        self.verifier.verify(&evidence, &artifact)?;
         let score = if hit.score.is_finite() && hit.score > 0.0 {
             (hit.score.min(1.0) * 1_000_000.0).floor() as u32
         } else {

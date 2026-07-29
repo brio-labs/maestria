@@ -1,11 +1,12 @@
 use std::sync::Arc;
 
 use maestria_domain::{
-    Artifact, ArtifactId, Chunk, ChunkId, Evidence, EvidenceId, EvidenceKind, IndexGenerationId,
-    IndexStatus, SearchStatus, SourceSpan, StructureNodeId,
+    Artifact, ArtifactId, Chunk, ChunkId, ContentHash, Evidence, EvidenceId, EvidenceKind,
+    IndexGenerationId, IndexStatus, LineRange, SearchStatus, SnapshotRef, SourceSpan,
+    StructureNodeId,
 };
 use maestria_ports::{
-    ArtifactRepository, ChunkRepository, EvidenceRepository, FullTextIndex,
+    ArtifactRepository, BlobStore, ChunkRepository, EvidenceRepository, FullTextIndex,
     InMemoryArtifactRepository, InMemoryBlobStore, InMemoryChunkRepository,
     InMemoryEvidenceRepository, InMemoryFullTextIndex, IndexedChunk,
 };
@@ -36,6 +37,7 @@ fn with_indexed_retrieval(
     let chunk_id = ChunkId::new(11);
     let evidence_id = maestria_domain::evidence_id_for(artifact_id, 0);
     let content_hash = maestria_core::content_hash(b"alpha-token paragraph.");
+    let snapshot_id = blobs.put(b"alpha-token paragraph.".to_vec())?;
 
     artifacts.put(Artifact {
         id: artifact_id,
@@ -45,7 +47,7 @@ fn with_indexed_retrieval(
         claim_ids: Default::default(),
         evidence_ids: [evidence_id].into(),
         index_status: IndexStatus::Indexed,
-        content_hash: None,
+        content_hash: Some(content_hash.clone()),
         parse_status: None,
         security: Default::default(),
     })?;
@@ -67,9 +69,8 @@ fn with_indexed_retrieval(
         claim_id: None,
         kind: EvidenceKind::FileSpan {
             path: "notes.md".to_owned(),
-            range: maestria_domain::ContentRange { start: 1, end: 1 },
-            content_hash,
-            snapshot: None,
+            range: LineRange::new(1, 1)?,
+            snapshot: SnapshotRef::new(snapshot_id, ContentHash::new(content_hash.clone())?),
         },
         excerpt: "alpha-token paragraph.".to_owned(),
         observed_at: maestria_domain::LogicalTick::new(1),

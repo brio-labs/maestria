@@ -1,13 +1,15 @@
 use maestria_domain::*;
+#[path = "content_hash.rs"]
+mod fixtures;
 
-/// Event log that replays a malformed deterministic evidence record followed
-/// by a valid replacement at the same ID.
-pub fn malformed_to_valid_replacement_events(
+/// Event log that replays a malformed deterministic evidence record.
+pub fn malformed_deterministic_evidence_events(
     art_id: ArtifactId,
     chunk_id: ChunkId,
     ev_id: EvidenceId,
-) -> Vec<DomainEventEnvelope> {
-    vec![
+) -> Result<Vec<DomainEventEnvelope>, Box<dyn std::error::Error>> {
+    let content_hash = fixtures::test_content_hash()?;
+    Ok(vec![
         DomainEventEnvelope {
             id: EventId::new(1),
             sequence: SequenceNumber::new(1),
@@ -24,7 +26,7 @@ pub fn malformed_to_valid_replacement_events(
                 artifact_id: art_id,
                 title: "Test".to_string(),
                 source_path: "/tmp/test.md".to_string(),
-                content_hash: "sha256:abc".to_string(),
+                content_hash: content_hash.as_str().to_string(),
                 blob_id: BlobId::new(42),
             },
         },
@@ -33,7 +35,7 @@ pub fn malformed_to_valid_replacement_events(
             sequence: SequenceNumber::new(3),
             event: DomainEvent::PendingIndex {
                 artifact_id: art_id,
-                content_hash: "sha256:abc".to_string(),
+                content_hash: content_hash.as_str().to_string(),
             },
         },
         DomainEventEnvelope {
@@ -79,35 +81,18 @@ pub fn malformed_to_valid_replacement_events(
                 security: SecurityMetadata::default(),
             },
         },
-        // Valid replacement (FileSpan with snapshot and correct hash).
-        DomainEventEnvelope {
-            id: EventId::new(7),
-            sequence: SequenceNumber::new(7),
-            event: DomainEvent::EvidenceRecorded {
-                evidence_id: ev_id,
-                artifact_id: art_id,
-                claim_id: None,
-                kind: EvidenceKind::FileSpan {
-                    path: "/tmp/test.md".to_string(),
-                    range: ContentRange { start: 0, end: 1 },
-                    content_hash: "sha256:abc".to_string(),
-                    snapshot: Some(BlobId::new(42)),
-                },
-                excerpt: "hello".to_string(),
-                observed_at: LogicalTick::new(2),
-                security: SecurityMetadata::default(),
-            },
-        },
-    ]
+    ])
 }
 
 /// Event log with two *different* valid deterministic evidence records at the
 /// same ID — replay must reject the second as a duplicate.
-pub fn valid_duplicate_evidence_events() -> Vec<DomainEventEnvelope> {
+pub fn valid_duplicate_evidence_events()
+-> Result<Vec<DomainEventEnvelope>, Box<dyn std::error::Error>> {
     let art_id = ArtifactId::new(1);
     let chunk_id = ChunkId::new(10);
     let ev_id = evidence_id_for(art_id, 0);
-    vec![
+    let content_hash = fixtures::test_content_hash()?;
+    Ok(vec![
         DomainEventEnvelope {
             id: EventId::new(1),
             sequence: SequenceNumber::new(1),
@@ -124,7 +109,7 @@ pub fn valid_duplicate_evidence_events() -> Vec<DomainEventEnvelope> {
                 artifact_id: art_id,
                 title: "Test".to_string(),
                 source_path: "/tmp/test.md".to_string(),
-                content_hash: "sha256:abc".to_string(),
+                content_hash: content_hash.as_str().to_string(),
                 blob_id: BlobId::new(42),
             },
         },
@@ -133,7 +118,7 @@ pub fn valid_duplicate_evidence_events() -> Vec<DomainEventEnvelope> {
             sequence: SequenceNumber::new(3),
             event: DomainEvent::PendingIndex {
                 artifact_id: art_id,
-                content_hash: "sha256:abc".to_string(),
+                content_hash: content_hash.as_str().to_string(),
             },
         },
         DomainEventEnvelope {
@@ -171,9 +156,8 @@ pub fn valid_duplicate_evidence_events() -> Vec<DomainEventEnvelope> {
                 claim_id: None,
                 kind: EvidenceKind::FileSpan {
                     path: "/tmp/test.md".to_string(),
-                    range: ContentRange { start: 0, end: 1 },
-                    content_hash: "sha256:abc".to_string(),
-                    snapshot: Some(BlobId::new(42)),
+                    range: LineRange::new(1, 1)?,
+                    snapshot: SnapshotRef::new(BlobId::new(42), content_hash.clone()),
                 },
                 excerpt: "hello".to_string(),
                 observed_at: LogicalTick::new(1),
@@ -190,14 +174,13 @@ pub fn valid_duplicate_evidence_events() -> Vec<DomainEventEnvelope> {
                 claim_id: None,
                 kind: EvidenceKind::FileSpan {
                     path: "/tmp/test.md".to_string(),
-                    range: ContentRange { start: 1, end: 2 },
-                    content_hash: "sha256:abc".to_string(),
-                    snapshot: Some(BlobId::new(42)),
+                    range: LineRange::new(2, 2)?,
+                    snapshot: SnapshotRef::new(BlobId::new(42), content_hash),
                 },
                 excerpt: "different".to_string(),
                 observed_at: LogicalTick::new(2),
                 security: SecurityMetadata::default(),
             },
         },
-    ]
+    ])
 }

@@ -14,7 +14,7 @@ fn full_text_index_partial_feedback() -> Result<(), Box<dyn std::error::Error>> 
         title: "Notes".to_string(),
         source_path: String::new(),
         source_bytes: vec![1, 2, 3],
-        content_hash: "sha256:abc".to_string(),
+        content_hash: fixtures::test_content_hash()?.as_str().to_string(),
     }))?;
     // Parse with two chunks
     state.apply_input(DomainInput::ParserCompleted(ParserResult {
@@ -98,7 +98,7 @@ fn full_text_index_final_feedback_emits_artifact_indexed() -> Result<(), Box<dyn
         title: "Notes".to_string(),
         source_path: String::new(),
         source_bytes: vec![1, 2, 3],
-        content_hash: "sha256:abc".to_string(),
+        content_hash: fixtures::test_content_hash()?.as_str().to_string(),
     }))?;
     state.apply_input(DomainInput::ParserCompleted(ParserResult {
         status: maestria_domain::ParseStatus::Parsed,
@@ -128,9 +128,8 @@ fn full_text_index_final_feedback_emits_artifact_indexed() -> Result<(), Box<dyn
         claim_id: None,
         kind: EvidenceKind::FileSpan {
             path: "/tmp/notes.md".to_string(),
-            range: ContentRange { start: 0, end: 1 },
-            content_hash: "sha256:abc".to_string(),
-            snapshot: Some(BlobId::new(42)),
+            range: LineRange::new(1, 1)?,
+            snapshot: SnapshotRef::new(BlobId::new(42), fixtures::test_content_hash()?),
         },
         excerpt: "a".to_string(),
         observed_at: LogicalTick::new(1),
@@ -175,7 +174,7 @@ fn duplicate_full_text_index_feedback_is_idempotent() -> Result<(), Box<dyn std:
         title: "Notes".to_string(),
         source_path: String::new(),
         source_bytes: vec![1, 2, 3],
-        content_hash: "sha256:abc".to_string(),
+        content_hash: fixtures::test_content_hash()?.as_str().to_string(),
     }))?;
     state.apply_input(DomainInput::ParserCompleted(ParserResult {
         status: maestria_domain::ParseStatus::Parsed,
@@ -206,9 +205,8 @@ fn duplicate_full_text_index_feedback_is_idempotent() -> Result<(), Box<dyn std:
         claim_id: None,
         kind: EvidenceKind::FileSpan {
             path: "/tmp/notes.md".to_string(),
-            range: ContentRange { start: 0, end: 1 },
-            content_hash: "sha256:abc".to_string(),
-            snapshot: Some(BlobId::new(42)),
+            range: LineRange::new(1, 1)?,
+            snapshot: SnapshotRef::new(BlobId::new(42), fixtures::test_content_hash()?),
         },
         excerpt: "a".to_string(),
         observed_at: LogicalTick::new(1),

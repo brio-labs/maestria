@@ -32,7 +32,7 @@ fn replay_events_reconstructs_new_memory_event_state() -> Result<(), Box<dyn std
             evidence_id: EvidenceId::new(40),
             artifact_id: ArtifactId::new(1),
             claim_id: Some(ClaimId::new(20)),
-            kind: file_span_kind(),
+            kind: file_span_kind()?,
             excerpt: "first chunk".to_string(),
             observed_at: LogicalTick::new(12),
             security: Some(trusted_security()),
@@ -113,8 +113,8 @@ fn replay_events_reconstructs_new_memory_event_state() -> Result<(), Box<dyn std
     Ok(())
 }
 
-fn deterministic_shape_inputs() -> Vec<DomainInput> {
-    vec![
+fn deterministic_shape_inputs() -> Result<Vec<DomainInput>, Box<dyn std::error::Error>> {
+    Ok(vec![
         DomainInput::RegisterArtifact(RegisterArtifactInput {
             artifact_id: ArtifactId::new(1),
             title: "Project Notes".to_string(),
@@ -131,7 +131,7 @@ fn deterministic_shape_inputs() -> Vec<DomainInput> {
             evidence_id: EvidenceId::new(40),
             artifact_id: ArtifactId::new(1),
             claim_id: Some(ClaimId::new(20)),
-            kind: file_span_kind(),
+            kind: file_span_kind()?,
             excerpt: "first chunk".to_string(),
             observed_at: LogicalTick::new(12),
             security: None,
@@ -180,12 +180,12 @@ fn deterministic_shape_inputs() -> Vec<DomainInput> {
             confidence_milli: 720,
             security: None,
         }),
-    ]
+    ])
 }
 #[test]
 fn replay_keeps_new_event_and_effect_shapes_deterministic() -> Result<(), Box<dyn std::error::Error>>
 {
-    let inputs = deterministic_shape_inputs();
+    let inputs = deterministic_shape_inputs()?;
 
     let (state_a, events_a, effects_a) = replay_inputs(&inputs)?;
     let (state_b, events_b, effects_b) = replay_inputs(&inputs)?;

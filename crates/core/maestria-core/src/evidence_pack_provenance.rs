@@ -23,7 +23,7 @@ fn source_kind_matches_hit(
 ) -> bool {
     match kind {
         EvidenceKind::FileSpan { path, range, .. } => {
-            file_span_matches(path, *range, source_span, hit)
+            file_span_matches(path, range, source_span, hit)
         }
         EvidenceKind::PdfSpan {
             page_start,
@@ -72,7 +72,7 @@ fn source_kind_matches_hit(
 
 fn file_span_matches(
     path: &str,
-    range: ContentRange,
+    range: &maestria_domain::LineRange,
     source_span: &EvidenceSpan,
     hit: &SourceGroundedSearchHit,
 ) -> bool {
@@ -85,7 +85,8 @@ fn file_span_matches(
         return false;
     };
     path == candidate_path
-        && range == source_span.range()
+        && range.start() == source_span.range().start
+        && range.end() == source_span.range().end
         && matches!(
             hit.chunk.source_span,
             maestria_domain::SourceSpan::TextSpan {

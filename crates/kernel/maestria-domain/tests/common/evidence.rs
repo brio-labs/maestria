@@ -1,4 +1,7 @@
 use maestria_domain::*;
+#[path = "file_evidence.rs"]
+mod file_evidence;
+pub use file_evidence::file_span_kind;
 
 pub fn register_artifact_and_claim(state: &mut KernelState) -> Result<(), DomainError> {
     state.apply_input(DomainInput::RegisterArtifact(RegisterArtifactInput {
@@ -16,18 +19,9 @@ pub fn register_artifact_and_claim(state: &mut KernelState) -> Result<(), Domain
     Ok(())
 }
 
-pub fn file_span_kind() -> EvidenceKind {
-    EvidenceKind::FileSpan {
-        path: "notes.txt".to_string(),
-        range: ContentRange { start: 1, end: 2 },
-        content_hash: "sha256:notes".to_string(),
-        snapshot: None,
-    }
-}
-
 pub fn state_with_memory_candidate(
     candidate_id: MemoryCandidateId,
-) -> Result<KernelState, DomainError> {
+) -> Result<KernelState, Box<dyn std::error::Error>> {
     let mut state = KernelState::new();
     register_artifact_and_claim(&mut state)?;
     let trusted_security = SecurityMetadata {
@@ -53,7 +47,7 @@ pub fn state_with_memory_candidate(
         evidence_id: EvidenceId::new(40),
         artifact_id: ArtifactId::new(1),
         claim_id: Some(ClaimId::new(20)),
-        kind: file_span_kind(),
+        kind: file_span_kind()?,
         excerpt: "first chunk".to_string(),
         observed_at: LogicalTick::new(12),
         security: Some(trusted_security.clone()),

@@ -3,14 +3,14 @@ use maestria_core::{
     EvidencePackError, EvidencePackReproducibility, SourceGroundedSearchHit,
 };
 use maestria_domain::{
-    Artifact, ArtifactId, ArtifactVersionId, BlobId, Chunk, ChunkId, ConflictSet, ContentRange,
-    CorpusScope, CorpusSnapshotId, Evidence, EvidenceCandidate, EvidenceId, EvidenceKind,
-    EvidenceRequirements, EvidenceSpan, FreshnessRequirement, FreshnessStatus, IndexGenerationId,
-    IndexStatus, LogicalTick, Modality, ModalitySet, QueryId, RetrievalLaneScore,
-    RetrievalModelFingerprint, RetrievalRawRank, RetrievalReason, RetrievalScoreFingerprint,
-    RetrievalScoreKind, RetrievalScoreScale, RetrievalScoreSet, SearchBudget, SearchIntent,
-    SearchPlan, SearchStage, SearchStopReason, SearchTrace, SourceLocation, SourceSpan,
-    StopConditions, StructureNodeId, TrustLabel,
+    Artifact, ArtifactId, ArtifactVersionId, BlobId, Chunk, ChunkId, ConflictSet, ContentHash,
+    ContentRange, CorpusScope, CorpusSnapshotId, Evidence, EvidenceCandidate, EvidenceId,
+    EvidenceKind, EvidenceRequirements, EvidenceSpan, FreshnessRequirement, FreshnessStatus,
+    IndexGenerationId, IndexStatus, LineRange, LogicalTick, Modality, ModalitySet, QueryId,
+    RetrievalLaneScore, RetrievalModelFingerprint, RetrievalRawRank, RetrievalReason,
+    RetrievalScoreFingerprint, RetrievalScoreKind, RetrievalScoreScale, RetrievalScoreSet,
+    SearchBudget, SearchIntent, SearchPlan, SearchStage, SearchStopReason, SearchTrace,
+    SnapshotRef, SourceLocation, SourceSpan, StopConditions, StructureNodeId, TrustLabel,
 };
 use std::error::Error;
 
@@ -103,11 +103,19 @@ fn trace_for(
     trace.policy_fingerprint = Some("policy-v1".to_string());
     Ok(trace)
 }
-fn file_hit(snapshot: Option<BlobId>) -> SourceGroundedSearchHit {
+fn file_hit(snapshot: Option<BlobId>) -> Result<SourceGroundedSearchHit, Box<dyn Error>> {
     let artifact_id = ArtifactId::new(101);
     let chunk_id = ChunkId::new(102);
     let evidence_id = EvidenceId::new(103);
-    SourceGroundedSearchHit {
+    let blob_id = match snapshot {
+        Some(snapshot) => snapshot,
+        None => BlobId::new(7),
+    };
+    let snapshot = SnapshotRef::new(
+        blob_id,
+        ContentHash::new(format!("sha256:{}", "0".repeat(64)))?,
+    );
+    Ok(SourceGroundedSearchHit {
         artifact: Artifact {
             id: artifact_id,
             title: "source.md".to_string(),
@@ -138,8 +146,7 @@ fn file_hit(snapshot: Option<BlobId>) -> SourceGroundedSearchHit {
             claim_id: None,
             kind: EvidenceKind::FileSpan {
                 path: "source.md".to_string(),
-                range: ContentRange { start: 1, end: 1 },
-                content_hash: "hash".to_string(),
+                range: LineRange::new(1, 1)?,
                 snapshot,
             },
             excerpt: "evidence".to_string(),
@@ -148,12 +155,12 @@ fn file_hit(snapshot: Option<BlobId>) -> SourceGroundedSearchHit {
         },
         score: 1,
         lexical_metadata: None,
-    }
+    })
 }
 
 #[test]
-fn mutable_file_evidence_cannot_be_frozen() -> Result<(), Box<dyn Error>> {
-    let hit = file_hit(None);
+fn file_evidence_is_immutable() -> Result<(), Box<dyn Error>> {
+    let hit = file_hit(None)?;
     let evidence_id = hit.evidence.id;
     let plan = plan(Vec::new())?;
     let mut pack = EvidencePack::from_plan(
@@ -163,10 +170,10 @@ fn mutable_file_evidence_cannot_be_frozen() -> Result<(), Box<dyn Error>> {
         vec![evidence_id],
         &plan,
     )?;
-    assert!(matches!(
-        pack.freeze(trace_for(&plan, &[evidence_id])?, "policy-v1".to_string()),
-        Err(EvidencePackError::InvalidFreeze(_))
-    ));
+    assert!(
+        pack.freeze(trace_for(&plan, &[evidence_id])?, "policy-v1".to_string())
+            .is_ok()
+    );
     Ok(())
 }
 
@@ -227,7 +234,7 @@ fn pack_rejects_unmaterialized_evidence_ids() -> Result<(), Box<dyn Error>> {
 #[test]
 fn explicit_claim_coverage_can_be_recorded_without_guessing() -> Result<(), Box<dyn Error>> {
     let pack_plan = plan(vec!["claim-a".to_string()])?;
-    let hit = file_hit(Some(BlobId::new(23)));
+    let hit = file_hit(Some(BlobId::new(23)))?;
     let evidence_id = hit.evidence.id;
     let mut pack = EvidencePack::from_plan(
         "evidence query".to_string(),
@@ -251,7 +258,7 @@ fn explicit_claim_coverage_can_be_recorded_without_guessing() -> Result<(), Box<
 
 #[test]
 fn primary_source_verification_is_a_lifecycle_transition() -> Result<(), Box<dyn Error>> {
-    let hit = file_hit(Some(BlobId::new(23)));
+    let hit = file_hit(Some(BlobId::new(23)))?;
     let evidence_id = hit.evidence.id;
     let mut primary_plan = plan(Vec::new())?;
     primary_plan.evidence_requirements.require_primary_sources = true;
@@ -279,7 +286,7 @@ fn primary_source_verification_is_a_lifecycle_transition() -> Result<(), Box<dyn
 
 #[test]
 fn frozen_pack_reproduces_only_for_the_same_identity() -> Result<(), Box<dyn Error>> {
-    let hit = file_hit(Some(BlobId::new(23)));
+    let hit = file_hit(Some(BlobId::new(23)))?;
     let evidence_id = hit.evidence.id;
     let plan = plan(Vec::new())?;
     let mut pack = EvidencePack::from_plan(
@@ -317,7 +324,7 @@ fn frozen_pack_reproduces_only_for_the_same_identity() -> Result<(), Box<dyn Err
 
 #[test]
 fn freeze_rejects_mismatched_candidate_provenance() -> Result<(), Box<dyn Error>> {
-    let hit = file_hit(Some(BlobId::new(23)));
+    let hit = file_hit(Some(BlobId::new(23)))?;
     let evidence_id = hit.evidence.id;
     let plan = plan(Vec::new())?;
     let mut trace = trace_for(&plan, &[evidence_id])?;
@@ -347,7 +354,7 @@ fn freeze_rejects_mismatched_candidate_provenance() -> Result<(), Box<dyn Error>
 
 #[test]
 fn compression_preserves_lineage_and_is_not_verbatim() -> Result<(), Box<dyn Error>> {
-    let hit = file_hit(Some(BlobId::new(23)));
+    let hit = file_hit(Some(BlobId::new(23)))?;
     let evidence_id = hit.evidence.id;
     let mut pack = EvidencePack::from_plan(
         "evidence query".to_string(),

@@ -1,11 +1,11 @@
 use std::sync::Arc;
 
 use maestria_domain::{
-    Artifact, ArtifactId, Chunk, ChunkId, ContentHash, ContentRange, CorpusScope, CorpusSnapshotId,
-    Evidence, EvidenceKind, EvidenceRequirements, FreshnessRequirement, IndexFingerprint,
-    IndexGeneration, IndexGenerationId, IndexGenerationRegistry, IndexLifecycle, IndexStatus,
+    Artifact, ArtifactId, Chunk, ChunkId, ContentHash, CorpusScope, CorpusSnapshotId, Evidence,
+    EvidenceKind, EvidenceRequirements, FreshnessRequirement, IndexFingerprint, IndexGeneration,
+    IndexGenerationId, IndexGenerationRegistry, IndexLifecycle, IndexStatus, LineRange,
     LogicalTick, Modality, ModalitySet, QueryId, RepresentationName, RetrievalModelFingerprint,
-    RetrievalReason, SearchBudget, SearchIntent, SearchPlan, SearchStage, SourceSpan,
+    RetrievalReason, SearchBudget, SearchIntent, SearchPlan, SearchStage, SnapshotRef, SourceSpan,
     StopConditions, StructureNodeId,
 };
 use maestria_governance::RetrievalSecurityPolicy;
@@ -176,7 +176,7 @@ fn fixture_with_document() -> Result<RetrieverFixture, Box<dyn std::error::Error
         security.clone(),
     ))?;
     chunks.put(fixture_chunk(artifact_id, chunk_id))?;
-    evidence.put(fixture_evidence(artifact_id, snapshot, &source, security))?;
+    evidence.put(fixture_evidence(artifact_id, snapshot, &source, security)?)?;
     index.index_documents(vec![SparseDocument {
         chunk_id,
         content_hash: fixture_hash('4')?,
@@ -244,21 +244,23 @@ fn fixture_evidence(
     snapshot: maestria_domain::BlobId,
     source: &[u8],
     security: maestria_domain::SecurityMetadata,
-) -> Evidence {
-    Evidence {
+) -> Result<Evidence, Box<dyn std::error::Error>> {
+    Ok(Evidence {
         id: maestria_domain::evidence_id_for(artifact_id, 0),
         artifact_id,
         claim_id: None,
         kind: EvidenceKind::FileSpan {
             path: "fixture.md".to_string(),
-            range: ContentRange { start: 1, end: 1 },
-            content_hash: maestria_domain::content_hash(source),
-            snapshot: Some(snapshot),
+            range: LineRange::new(1, 1)?,
+            snapshot: SnapshotRef::new(
+                snapshot,
+                ContentHash::new(maestria_domain::content_hash(source))?,
+            ),
         },
         excerpt: "semantic expansion evidence".to_string(),
         observed_at: LogicalTick::new(1),
         security,
-    }
+    })
 }
 
 #[test]

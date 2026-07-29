@@ -8,7 +8,6 @@ use maestria_domain::{
     FreshnessStatus, IndexGenerationId, RetrievalReason, RetrievalScoreSet, SearchLaneStatus,
     SourceLocation, SourceSpan, StructureNodeId, TrustLabel,
 };
-use maestria_ports::BlobStore;
 
 pub(super) fn port_error(error: maestria_ports::PortError) -> RetrievalError {
     RetrievalError::Internal(error.to_string())
@@ -71,115 +70,6 @@ impl CandidateRetriever for CurrentVersionFilter {
             }
         }
         Ok(batch)
-    }
-}
-
-/// Verifies immutable source snapshots before a candidate crosses retrieval.
-pub struct SourceSnapshotVerifier {
-    blobs: Arc<dyn BlobStore + Send + Sync>,
-}
-
-impl SourceSnapshotVerifier {
-    pub fn new(blobs: Arc<dyn BlobStore + Send + Sync>) -> Self {
-        Self { blobs }
-    }
-
-    pub fn verify(&self, evidence: &Evidence) -> Result<(), RetrievalError> {
-        let (snapshot, expected_hash, excerpt, file_range) = match &evidence.kind {
-            EvidenceKind::WebSnapshot {
-                snapshot,
-                content_hash,
-                ..
-            } => (
-                Some(*snapshot),
-                Some(content_hash),
-                evidence.excerpt.as_str(),
-                None,
-            ),
-            EvidenceKind::FileSpan {
-                snapshot: Some(snapshot),
-                content_hash,
-                range,
-                ..
-            } => (
-                Some(*snapshot),
-                Some(content_hash),
-                evidence.excerpt.as_str(),
-                Some(*range),
-            ),
-            EvidenceKind::PdfSpan { blob, .. } | EvidenceKind::PdfRegion { blob, .. } => {
-                (Some(*blob), None, "", None)
-            }
-            _ => (None, None, "", None),
-        };
-        let Some(snapshot) = snapshot else {
-            return Ok(());
-        };
-        let bytes = self.blobs.get(snapshot).map_err(port_error)?;
-        if bytes.is_empty() {
-            return Err(RetrievalError::Internal(format!(
-                "evidence {} source snapshot is empty",
-                evidence.id
-            )));
-        }
-        let actual_hash = maestria_domain::content_hash(&bytes);
-        if expected_hash.is_some_and(|expected| expected != &actual_hash) {
-            return Err(RetrievalError::Internal(format!(
-                "evidence {} source snapshot hash mismatch",
-                evidence.id
-            )));
-        }
-        let source = String::from_utf8_lossy(&bytes);
-        if let Some(range) = file_range {
-            verify_file_range(source.as_ref(), range, evidence.id, &evidence.excerpt)?;
-        } else if !excerpt.is_empty() && !contains_compact_excerpt(&source, excerpt) {
-            return Err(RetrievalError::Internal(format!(
-                "evidence {} excerpt is absent from its source snapshot",
-                evidence.id
-            )));
-        }
-        Ok(())
-    }
-}
-
-fn verify_file_range(
-    source: &str,
-    range: ContentRange,
-    evidence_id: maestria_domain::EvidenceId,
-    excerpt: &str,
-) -> Result<(), RetrievalError> {
-    let lines = source.lines().collect::<Vec<_>>();
-    if range.start == 0 || range.start > range.end || range.end > lines.len() {
-        return Err(RetrievalError::Internal(format!(
-            "evidence {evidence_id} file range is outside its source snapshot"
-        )));
-    }
-    let selected = lines[range.start - 1..range.end].join("\n");
-    if !excerpt.is_empty() && !contains_compact_excerpt(&selected, excerpt) {
-        return Err(RetrievalError::Internal(format!(
-            "evidence {evidence_id} excerpt does not match its source range"
-        )));
-    }
-    Ok(())
-}
-
-fn contains_compact_excerpt(source: &str, excerpt: &str) -> bool {
-    let needle: Vec<_> = excerpt.split_whitespace().collect();
-    if needle.is_empty() {
-        return true;
-    }
-    let mut remaining = source.split_whitespace();
-    loop {
-        let mut candidate = remaining.clone();
-        if needle
-            .iter()
-            .all(|expected| candidate.next() == Some(*expected))
-        {
-            return true;
-        }
-        if remaining.next().is_none() {
-            return false;
-        }
     }
 }
 
@@ -246,7 +136,10 @@ fn evidence_location(
                     start_line,
                     end_line,
                 },
-                *range,
+                ContentRange {
+                    start: range.start(),
+                    end: range.end(),
+                },
             ))
         }
         EvidenceKind::PdfSpan {
@@ -297,63 +190,22 @@ fn evidence_location(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use maestria_ports::{BlobStore, InMemoryBlobStore};
-
-    fn file_evidence(
-        range: ContentRange,
-        excerpt: &str,
-    ) -> Result<(SourceSnapshotVerifier, Evidence), Box<dyn std::error::Error>> {
-        let source = b"alpha line\nbeta line\n";
-        let blobs = Arc::new(InMemoryBlobStore::new());
-        let snapshot = blobs.put(source.to_vec())?;
-        let evidence = Evidence {
+    #[test]
+    fn candidate_construction_rejects_cross_artifact_evidence()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let artifact_id = maestria_domain::ArtifactId::new(1);
+        let mut evidence = Evidence {
             id: maestria_domain::EvidenceId::new(1),
             artifact_id: maestria_domain::ArtifactId::new(1),
             claim_id: None,
-            kind: EvidenceKind::FileSpan {
-                path: "notes.md".to_string(),
-                range,
-                content_hash: maestria_domain::content_hash(source),
-                snapshot: Some(snapshot),
-            },
-            excerpt: excerpt.to_string(),
-            observed_at: maestria_domain::LogicalTick::new(1),
-            security: Default::default(),
-        };
-        Ok((SourceSnapshotVerifier::new(blobs), evidence))
-    }
-
-    #[test]
-    fn file_snapshot_range_must_bound_its_excerpt() -> Result<(), Box<dyn std::error::Error>> {
-        let (verifier, valid) = file_evidence(ContentRange { start: 1, end: 1 }, "alpha line")?;
-        verifier.verify(&valid)?;
-
-        let (verifier, out_of_bounds) =
-            file_evidence(ContentRange { start: 1, end: 3 }, "alpha line")?;
-        assert!(verifier.verify(&out_of_bounds).is_err());
-
-        let (verifier, wrong_range) =
-            file_evidence(ContentRange { start: 2, end: 2 }, "alpha line")?;
-        assert!(verifier.verify(&wrong_range).is_err());
-        Ok(())
-    }
-    #[test]
-    fn candidate_construction_rejects_cross_artifact_evidence() {
-        let artifact_id = maestria_domain::ArtifactId::new(1);
-        let evidence = Evidence {
-            id: maestria_domain::EvidenceId::new(2),
-            artifact_id: maestria_domain::ArtifactId::new(2),
-            claim_id: None,
-            kind: EvidenceKind::FileSpan {
-                path: "notes.md".to_string(),
-                range: ContentRange { start: 1, end: 1 },
-                content_hash: "sha256:test".to_string(),
-                snapshot: None,
+            kind: EvidenceKind::Validation {
+                report_id: maestria_domain::ValidationReportId::new(1),
             },
             excerpt: "alpha".to_string(),
             observed_at: maestria_domain::LogicalTick::new(1),
             security: Default::default(),
         };
+        evidence.artifact_id = maestria_domain::ArtifactId::new(2);
         let result = candidate_from_records(
             artifact_id,
             &SourceSpan::TextSpan {
@@ -370,5 +222,6 @@ mod tests {
             Err(RetrievalError::Internal(message))
                 if message.contains("belongs to artifact")
         ));
+        Ok(())
     }
 }

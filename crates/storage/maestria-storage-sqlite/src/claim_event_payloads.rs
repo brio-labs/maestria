@@ -80,6 +80,12 @@ impl StoredEventPayload {
                 claim_id: maestria_domain::ClaimId::new(claim_id),
                 evidence_id: EvidenceId::new(evidence_id),
             }),
+            other => Err(Box::new(other)),
+        }
+    }
+
+    pub(crate) fn try_into_domain_evidence(self) -> Result<DomainEvent, maestria_ports::PortError> {
+        match self {
             Self::EvidenceRecorded {
                 evidence_id,
                 artifact_id,
@@ -88,16 +94,27 @@ impl StoredEventPayload {
                 excerpt,
                 observed_at,
                 security,
-            } => Ok(DomainEvent::EvidenceRecorded {
-                evidence_id: EvidenceId::new(evidence_id),
-                artifact_id: ArtifactId::new(artifact_id),
-                claim_id: claim_id.map(maestria_domain::ClaimId::new),
-                kind: evidence_kind.into_domain(),
-                excerpt,
-                security,
-                observed_at: LogicalTick::new(observed_at),
+            } => {
+                let kind = evidence_kind.try_into_domain().map_err(|source| {
+                    maestria_ports::PortError::InternalContext {
+                        context: "decode stored evidence kind",
+                        source,
+                    }
+                })?;
+                Ok(DomainEvent::EvidenceRecorded {
+                    evidence_id: EvidenceId::new(evidence_id),
+                    artifact_id: ArtifactId::new(artifact_id),
+                    claim_id: claim_id.map(maestria_domain::ClaimId::new),
+                    kind,
+                    excerpt,
+                    security,
+                    observed_at: LogicalTick::new(observed_at),
+                })
+            }
+            _ => Err(maestria_ports::PortError::InternalContext {
+                context: "decode stored evidence event",
+                source: "conversion branch invariant was violated".to_string(),
             }),
-            other => Err(Box::new(other)),
         }
     }
 

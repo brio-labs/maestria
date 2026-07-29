@@ -1,28 +1,51 @@
 use super::web_evidence_payload::StoredWebEvidenceMetadata;
 use maestria_domain::{
-    BlobId, ClaimStatus, ContentRange, EvidenceKind, HarnessRunId, LogicalTick, OutputStream,
-    TaskPriority, TaskStatus, ValidationReportId,
+    BlobId, ClaimStatus, ContentHash, EvidenceKind, HarnessRunId, LineRange, LogicalTick,
+    OutputStream, SnapshotRef, TaskPriority, TaskStatus, ValidationReportId,
 };
 use serde::{Deserialize, Serialize};
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct StoredSnapshotRef {
+    blob_id: u64,
+    content_hash: String,
+}
 
-#[derive(Debug, Serialize, Deserialize)]
+impl From<&SnapshotRef> for StoredSnapshotRef {
+    fn from(snapshot: &SnapshotRef) -> Self {
+        Self {
+            blob_id: snapshot.blob_id().value(),
+            content_hash: snapshot.content_hash().as_str().to_owned(),
+        }
+    }
+}
+
+impl TryFrom<StoredSnapshotRef> for SnapshotRef {
+    type Error = String;
+
+    fn try_from(snapshot: StoredSnapshotRef) -> Result<Self, Self::Error> {
+        let content_hash = ContentHash::new(snapshot.content_hash)
+            .map_err(|error| format!("invalid snapshot content hash: {error}"))?;
+        Ok(Self::new(BlobId::new(snapshot.blob_id), content_hash))
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub(crate) enum StoredEvidenceKind {
     FileSpan {
         path: String,
         start: usize,
         end: usize,
-        content_hash: String,
-        #[serde(default)]
-        snapshot: Option<u64>,
+        snapshot: StoredSnapshotRef,
     },
     PdfSpan {
-        blob: u64,
+        snapshot: StoredSnapshotRef,
         page_start: u32,
         page_end: u32,
     },
     PdfRegion {
-        blob: u64,
+        snapshot: StoredSnapshotRef,
         page: u32,
         x: u32,
         y: u32,
@@ -31,9 +54,8 @@ pub(crate) enum StoredEvidenceKind {
     },
     WebSnapshot {
         url: String,
-        snapshot: u64,
+        snapshot: StoredSnapshotRef,
         fetched_at: u64,
-        content_hash: String,
         #[serde(default)]
         metadata: StoredWebEvidenceMetadata,
     },
@@ -62,33 +84,31 @@ impl StoredEvidenceKind {
             EvidenceKind::FileSpan {
                 path,
                 range,
-                content_hash,
                 snapshot,
             } => Self::FileSpan {
                 path: path.clone(),
-                start: range.start,
-                end: range.end,
-                content_hash: content_hash.clone(),
-                snapshot: snapshot.map(|id| id.value()),
+                start: range.start(),
+                end: range.end(),
+                snapshot: StoredSnapshotRef::from(snapshot),
             },
             EvidenceKind::PdfSpan {
-                blob,
+                snapshot,
                 page_start,
                 page_end,
             } => Self::PdfSpan {
-                blob: blob.value(),
+                snapshot: StoredSnapshotRef::from(snapshot),
                 page_start: *page_start,
                 page_end: *page_end,
             },
             EvidenceKind::PdfRegion {
-                blob,
+                snapshot,
                 page,
                 x,
                 y,
                 width,
                 height,
             } => Self::PdfRegion {
-                blob: blob.value(),
+                snapshot: StoredSnapshotRef::from(snapshot),
                 page: *page,
                 x: *x,
                 y: *y,
@@ -99,13 +119,11 @@ impl StoredEvidenceKind {
                 url,
                 snapshot,
                 fetched_at,
-                content_hash,
                 metadata,
             } => Self::WebSnapshot {
                 url: url.clone(),
-                snapshot: snapshot.value(),
+                snapshot: StoredSnapshotRef::from(snapshot),
                 fetched_at: fetched_at.value(),
-                content_hash: content_hash.clone(),
                 metadata: StoredWebEvidenceMetadata::from_domain(metadata),
             },
             EvidenceKind::CommandOutput {
@@ -139,90 +157,98 @@ impl StoredEvidenceKind {
         }
     }
 
-    pub(crate) fn into_domain(self) -> EvidenceKind {
-        match self {
-            Self::FileSpan {
+    pub(crate) fn try_into_domain(self) -> Result<EvidenceKind, String> {
+        self.try_into()
+    }
+}
+
+impl TryFrom<StoredEvidenceKind> for EvidenceKind {
+    type Error = String;
+
+    fn try_from(value: StoredEvidenceKind) -> Result<Self, Self::Error> {
+        match value {
+            StoredEvidenceKind::FileSpan {
                 path,
                 start,
                 end,
-                content_hash,
                 snapshot,
-            } => EvidenceKind::FileSpan {
-                path,
-                range: ContentRange { start, end },
-                content_hash,
-                snapshot: snapshot.map(BlobId::new),
-            },
-            Self::PdfRegion {
-                blob,
+            } => {
+                let snapshot = SnapshotRef::try_from(snapshot)?;
+                Ok(EvidenceKind::FileSpan {
+                    path,
+                    range: LineRange::new(start, end)
+                        .map_err(|error| format!("invalid evidence line range: {error}"))?,
+                    snapshot,
+                })
+            }
+            StoredEvidenceKind::PdfRegion {
+                snapshot,
                 page,
                 x,
                 y,
                 width,
                 height,
-            } => EvidenceKind::PdfRegion {
-                blob: BlobId::new(blob),
+            } => Ok(EvidenceKind::PdfRegion {
+                snapshot: SnapshotRef::try_from(snapshot)?,
                 page,
                 x,
                 y,
                 width,
                 height,
-            },
-            Self::PdfSpan {
-                blob,
+            }),
+            StoredEvidenceKind::PdfSpan {
+                snapshot,
                 page_start,
                 page_end,
-            } => EvidenceKind::PdfSpan {
-                blob: BlobId::new(blob),
+            } => Ok(EvidenceKind::PdfSpan {
+                snapshot: SnapshotRef::try_from(snapshot)?,
                 page_start,
                 page_end,
-            },
-            Self::WebSnapshot {
+            }),
+            StoredEvidenceKind::WebSnapshot {
                 url,
                 snapshot,
                 fetched_at,
-                content_hash,
                 metadata,
-            } => EvidenceKind::WebSnapshot {
+            } => Ok(EvidenceKind::WebSnapshot {
                 url,
-                snapshot: BlobId::new(snapshot),
+                snapshot: SnapshotRef::try_from(snapshot)?,
                 fetched_at: LogicalTick::new(fetched_at),
-                content_hash,
                 metadata: metadata.into_domain(),
-            },
-            Self::CommandOutput {
+            }),
+            StoredEvidenceKind::CommandOutput {
                 harness_run,
                 stream,
                 blob,
-            } => EvidenceKind::CommandOutput {
+            } => Ok(EvidenceKind::CommandOutput {
                 harness_run: HarnessRunId::new(harness_run),
                 stream: stream.into_domain(),
                 blob: BlobId::new(blob),
-            },
-            Self::TestResult {
+            }),
+            StoredEvidenceKind::TestResult {
                 harness_run,
                 status,
                 log,
-            } => EvidenceKind::TestResult {
+            } => Ok(EvidenceKind::TestResult {
                 harness_run: HarnessRunId::new(harness_run),
                 status: status.into_domain(),
                 log: BlobId::new(log),
-            },
-            Self::Diff {
+            }),
+            StoredEvidenceKind::Diff {
                 harness_run,
                 patch_blob,
-            } => EvidenceKind::Diff {
+            } => Ok(EvidenceKind::Diff {
                 harness_run: HarnessRunId::new(harness_run),
                 patch_blob: BlobId::new(patch_blob),
-            },
-            Self::Validation { report_id } => EvidenceKind::Validation {
+            }),
+            StoredEvidenceKind::Validation { report_id } => Ok(EvidenceKind::Validation {
                 report_id: ValidationReportId::new(report_id),
-            },
+            }),
         }
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum StoredOutputStream {
     Stdout,
@@ -248,7 +274,7 @@ impl StoredOutputStream {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum StoredTestStatus {
     Passed,
@@ -274,7 +300,7 @@ impl StoredTestStatus {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum StoredTaskPriority {
     Low,
@@ -300,7 +326,7 @@ impl StoredTaskPriority {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum StoredTaskStatus {
     Draft,
@@ -344,7 +370,7 @@ impl StoredTaskStatus {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum StoredClaimStatus {
     Draft,
@@ -375,36 +401,6 @@ impl StoredClaimStatus {
         }
     }
 }
-
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use maestria_domain::{BlobId, EvidenceKind, LogicalTick, WebEvidenceMetadata};
-
-    #[test]
-    fn web_snapshot_metadata_roundtrips_through_storage_payload()
-    -> Result<(), Box<dyn std::error::Error>> {
-        let kind = EvidenceKind::WebSnapshot {
-            url: "https://example.com/report".to_string(),
-            snapshot: BlobId::new(7),
-            fetched_at: LogicalTick::new(11),
-            content_hash: "sha256:abc".to_string(),
-            metadata: WebEvidenceMetadata {
-                published_at: Some("2026-07-16".to_string()),
-                updated_at: Some("2026-07-17".to_string()),
-                effective_at: None,
-                accessed_at: Some("12".to_string()),
-                content_type: Some("text/html".to_string()),
-                primary_source: true,
-                is_dynamic: true,
-                is_paywalled: false,
-            },
-        };
-
-        let stored = StoredEvidenceKind::from_domain(&kind);
-        let decoded = serde_json::from_str::<StoredEvidenceKind>(&serde_json::to_string(&stored)?)?;
-
-        assert_eq!(decoded.into_domain(), kind);
-        Ok(())
-    }
-}
+#[path = "evidence_payload_tests.rs"]
+mod tests;

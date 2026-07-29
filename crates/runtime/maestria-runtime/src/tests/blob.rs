@@ -1,7 +1,7 @@
 use crate::test_support::*;
 use maestria_domain::{
-    Artifact, ArtifactId, BlobId, Evidence, EvidenceKind, IndexStatus, LogicalTick,
-    ParseArtifactRequest,
+    Artifact, ArtifactId, BlobId, ContentHash, Evidence, EvidenceKind, IndexStatus, LineRange,
+    LogicalTick, ParseArtifactRequest, SnapshotRef,
 };
 use maestria_ports::{ArtifactRepository, BlobStore, InMemoryArtifactRepository, PortError};
 use std::collections::BTreeSet;
@@ -122,9 +122,11 @@ async fn parse_artifact_retry_redrives_existing_evidence() -> Result<(), Box<dyn
             claim_id: None,
             kind: EvidenceKind::FileSpan {
                 path: "/repo/retry.rs".into(),
-                range: maestria_domain::ContentRange { start: 1, end: 1 },
-                content_hash: content_hash(b"existing"),
-                snapshot: Some(BlobId::new(1)),
+                range: LineRange::new(1, 1)?,
+                snapshot: SnapshotRef::new(
+                    BlobId::new(1),
+                    ContentHash::new(content_hash(b"existing"))?,
+                ),
             },
             excerpt: "existing excerpt".into(),
             observed_at: LogicalTick::new(1),

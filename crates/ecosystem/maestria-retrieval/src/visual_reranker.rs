@@ -4,7 +4,7 @@ use std::time::Duration;
 use async_trait::async_trait;
 use maestria_domain::{
     Evidence, EvidenceCandidate, EvidenceKind, RerankCandidateStatus, RetrievalModelFingerprint,
-    SearchTraceRerank, SearchTraceRerankCandidate, SourceLocation,
+    SearchTraceRerank, SearchTraceRerankCandidate, SourceLocation, verify_snapshot_bytes,
 };
 use maestria_governance::{RetrievalDecision, RetrievalSecurityPolicy, scan_secrets};
 use maestria_ports::{
@@ -141,30 +141,30 @@ impl VisualReranker {
     }
 
     fn visual_source(evidence: &Evidence) -> Option<VisualSource> {
-        match evidence.kind {
+        match &evidence.kind {
             EvidenceKind::PdfSpan {
-                blob,
+                snapshot,
                 page_start,
                 page_end,
             } => Some(VisualSource::Page {
-                blob,
-                page_start,
-                page_end,
+                blob: snapshot.blob_id(),
+                page_start: *page_start,
+                page_end: *page_end,
             }),
             EvidenceKind::PdfRegion {
-                blob,
+                snapshot,
                 page,
                 x,
                 y,
                 width,
                 height,
             } => Some(VisualSource::Region {
-                blob,
-                page,
-                x,
-                y,
-                width,
-                height,
+                blob: snapshot.blob_id(),
+                page: *page,
+                x: *x,
+                y: *y,
+                width: *width,
+                height: *height,
             }),
             _ => None,
         }
@@ -215,16 +215,42 @@ impl VisualReranker {
                 "visual reranker candidate failed security checks".to_string(),
             ));
         }
-        let blob = match &source {
-            VisualSource::Page { blob, .. } | VisualSource::Region { blob, .. } => *blob,
+        let snapshot = match &evidence.kind {
+            EvidenceKind::PdfSpan { snapshot, .. } | EvidenceKind::PdfRegion { snapshot, .. } => {
+                snapshot
+            }
+            _ => {
+                return Err(RetrievalError::Internal(
+                    "visual reranker candidate has no PDF snapshot".to_string(),
+                ));
+            }
         };
+        if evidence.artifact_id != artifact.id {
+            return Err(RetrievalError::Internal(format!(
+                "visual reranker evidence {} belongs to artifact {}, expected {}",
+                evidence.id, evidence.artifact_id, artifact.id
+            )));
+        }
+        if artifact.content_hash.as_deref() != Some(snapshot.content_hash().as_str()) {
+            return Err(RetrievalError::Internal(format!(
+                "visual reranker evidence {} source snapshot hash does not match owning artifact: expected {:?}, got {}",
+                evidence.id,
+                artifact.content_hash,
+                snapshot.content_hash().as_str()
+            )));
+        }
         let bytes = self
             .parts
             .blobs
-            .get(blob)
+            .get(snapshot.blob_id())
             .map_err(|error| RetrievalError::Internal(error.to_string()))?;
-        if bytes.is_empty()
-            || bytes.len() > MAX_VISUAL_SOURCE_BYTES
+        verify_snapshot_bytes(snapshot, &bytes).map_err(|error| {
+            RetrievalError::Internal(format!(
+                "visual reranker evidence {} source snapshot verification failed: {}",
+                evidence.id, error
+            ))
+        })?;
+        if bytes.len() > MAX_VISUAL_SOURCE_BYTES
             || !scan_secrets(&String::from_utf8_lossy(&bytes)).is_clean()
         {
             return Err(RetrievalError::Internal(

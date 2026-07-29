@@ -4,6 +4,8 @@ use rusqlite::Connection;
 use crate::sqlite_store::to_port_error;
 
 mod approval_migration;
+mod evidence_snapshot_migration;
+mod evidence_snapshot_payload;
 mod provenance_migration;
 mod score_provenance_migration;
 mod security_migration;
@@ -13,6 +15,7 @@ use crate::schema_validation::*;
 use approval_migration::ensure_nullable_approval_task_id;
 #[cfg(test)]
 pub(crate) use approval_migration::migrate_approval_recorded_payloads;
+use evidence_snapshot_migration::migrate_evidence_snapshots_v10;
 use provenance_migration::{ensure_provenance_v7_columns, migrate_from_v6};
 use score_provenance_migration::{migrate_score_provenance_v9, validate_at_v9};
 use security_migration::{ensure_security_v8_columns, migrate_from_v7, validate_at_v8};
@@ -22,7 +25,7 @@ mod version_migrations;
 use version_migrations::*;
 
 /// Current storage schema version supported by this adapter.
-pub(crate) const CURRENT_SCHEMA_VERSION: i64 = 9;
+pub(crate) const CURRENT_SCHEMA_VERSION: i64 = 10;
 /// Captures the pre-migration state of the database.
 struct SchemaState {
     version: Option<i64>,
@@ -318,6 +321,7 @@ pub(crate) fn migrate(connection: &mut Connection) -> Result<(), PortError> {
         Some(7) => migrate_from_v7(&transaction, &state)?,
         Some(8) => validate_at_v8(&transaction, &state)?,
         Some(9) => validate_at_v9(&transaction, &state)?,
+        Some(10) => {}
         Some(version) => {
             return Err(PortError::InternalContext {
                 context: "unsupported sqlite schema version",
@@ -328,5 +332,6 @@ pub(crate) fn migrate(connection: &mut Connection) -> Result<(), PortError> {
     }
 
     migrate_score_provenance_v9(&transaction)?;
+    migrate_evidence_snapshots_v10(&transaction)?;
     finalize_migration(transaction)
 }

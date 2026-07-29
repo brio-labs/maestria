@@ -1,13 +1,13 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use maestria_domain::{
-    Artifact, ArtifactId, ArtifactVersionId, BlobId, Claim, ClaimId, ClaimStatus, ContentRange,
-    CorpusScope, Evidence, EvidenceCandidate, EvidenceCoverage, EvidenceId, EvidenceKind,
-    EvidenceRequirements, EvidenceSpan, FreshnessRequirement, FreshnessStatus, IndexGenerationId,
-    IndexStatus, LogicalTick, Modality, ModalitySet, QueryId, RetrievalModelFingerprint,
-    RetrievalReason, RetrievalScoreSet, SearchBudget, SearchIntent, SearchOutcome, SearchPlan,
-    SearchStage, SearchStatus, SearchStopReason, SearchTrace, SearchTraceFilter, SecurityMetadata,
-    SourceLocation, StopConditions, TrustLabel,
+    Artifact, ArtifactId, ArtifactVersionId, Claim, ClaimId, ClaimStatus, ContentHash,
+    ContentRange, CorpusScope, Evidence, EvidenceCandidate, EvidenceCoverage, EvidenceId,
+    EvidenceKind, EvidenceRequirements, EvidenceSpan, FreshnessRequirement, FreshnessStatus,
+    IndexGenerationId, IndexStatus, LineRange, LogicalTick, Modality, ModalitySet, QueryId,
+    RetrievalModelFingerprint, RetrievalReason, RetrievalScoreSet, SearchBudget, SearchIntent,
+    SearchOutcome, SearchPlan, SearchStage, SearchStatus, SearchStopReason, SearchTrace,
+    SearchTraceFilter, SecurityMetadata, SnapshotRef, SourceLocation, StopConditions, TrustLabel,
 };
 
 use super::{SearchValidationContext, ValidationContext};
@@ -147,21 +147,23 @@ pub fn candidate() -> Result<EvidenceCandidate, Box<dyn std::error::Error>> {
     })
 }
 
-pub fn evidence() -> Evidence {
-    Evidence {
+pub fn evidence() -> Result<Evidence, Box<dyn std::error::Error>> {
+    Ok(Evidence {
         id: EvidenceId::new(10),
         artifact_id: ArtifactId::new(12),
         claim_id: None,
         kind: EvidenceKind::FileSpan {
             path: "notes.md".to_string(),
-            range: ContentRange { start: 1, end: 1 },
-            content_hash: "sha256:fixture".to_string(),
-            snapshot: Some(BlobId::new(13)),
+            range: LineRange::new(1, 1)?,
+            snapshot: SnapshotRef::new(
+                maestria_domain::BlobId::new(13),
+                ContentHash::new(format!("sha256:{}", "a".repeat(64)))?,
+            ),
         },
         excerpt: "evidence excerpt".to_string(),
         observed_at: LogicalTick::new(14),
         security: SecurityMetadata::default(),
-    }
+    })
 }
 
 pub fn fixture() -> Result<SearchFixture, Box<dyn std::error::Error>> {
@@ -209,7 +211,7 @@ pub fn fixture() -> Result<SearchFixture, Box<dyn std::error::Error>> {
     Ok(SearchFixture {
         plan,
         outcome,
-        evidences: BTreeMap::from([(EvidenceId::new(10), evidence())]),
+        evidences: BTreeMap::from([(EvidenceId::new(10), evidence()?)]),
         artifacts: BTreeMap::from([(
             ArtifactId::new(12),
             Artifact {

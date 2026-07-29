@@ -9,9 +9,10 @@ use maestria_ports::{
     EmbeddingRequest, EvidenceRepository, VectorIndex, VectorSearchQuery,
 };
 
+use super::SourceSnapshotVerifier;
 use super::common::{
-    SourceSnapshotVerifier, bounded_candidate_bytes, candidate_from_records, generation_mismatch,
-    one_based_rank, port_error,
+    bounded_candidate_bytes, candidate_from_records, generation_mismatch, one_based_rank,
+    port_error,
 };
 use super::score_provenance::dense_score;
 use crate::traits::CandidateRetriever;
@@ -173,7 +174,7 @@ impl DenseChunkRetriever {
         {
             return Ok(None);
         }
-        self.verifier.verify(&evidence)?;
+        self.verifier.verify(&evidence, &artifact)?;
         let score = if hit.score.is_finite() && hit.score > 0.0 {
             (hit.score.min(1.0) * 1_000_000.0).floor() as u32
         } else {

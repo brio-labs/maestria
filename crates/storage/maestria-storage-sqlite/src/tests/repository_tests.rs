@@ -89,9 +89,11 @@ fn brain_state_round_trips_and_lists_deterministically() -> Result<(), Box<dyn s
         claim_id: Some(ClaimId::new(3)),
         kind: EvidenceKind::FileSpan {
             path: "notes.md".to_string(),
-            range: ContentRange { start: 3, end: 8 },
-            content_hash: "sha256:abc".to_string(),
-            snapshot: None,
+            range: LineRange::new(3, 8)?,
+            snapshot: SnapshotRef::new(
+                BlobId::new(1),
+                ContentHash::new(format!("sha256:{}", "b".repeat(64)))?,
+            ),
         },
         excerpt: "grounded excerpt".to_string(),
         observed_at: LogicalTick::new(4),

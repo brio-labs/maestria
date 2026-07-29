@@ -210,7 +210,7 @@ fn relation_and_memory_candidates_are_domain_owned_and_evidence_bound()
         security: None,
         artifact_id: ArtifactId::new(1),
         claim_id: Some(ClaimId::new(20)),
-        kind: file_span_kind(),
+        kind: file_span_kind()?,
         excerpt: "first chunk".to_string(),
         observed_at: LogicalTick::new(12),
     }))?;

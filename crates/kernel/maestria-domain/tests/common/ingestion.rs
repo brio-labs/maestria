@@ -1,3 +1,4 @@
+use crate::fixtures;
 use maestria_domain::*;
 
 /// Build a [`ParserResult`] with exactly two chunks and no cards.
@@ -6,7 +7,7 @@ pub fn parser_result_two_chunks() -> Result<ParserResult, Box<dyn std::error::Er
         status: maestria_domain::ParseStatus::Parsed,
         artifact_id: ArtifactId::new(1),
         artifact_version_id: ArtifactVersionId::new(1),
-        content_hash: ContentHash::new("sha256:".to_owned() + &"0".repeat(64))?,
+        content_hash: fixtures::test_content_hash()?,
         tree_root_id: Some(StructureNodeId::new(10)),
         tree_nodes: vec![StructureNode {
             id: StructureNodeId::new(10),
@@ -56,16 +57,15 @@ pub fn record_file_evidence(
     start: usize,
     end: usize,
     excerpt: &str,
-) -> Result<(), DomainError> {
+) -> Result<(), Box<dyn std::error::Error>> {
     state.apply_input(DomainInput::RecordEvidence(RecordEvidenceInput {
         evidence_id: evidence_id_for(ArtifactId::new(1), order),
         artifact_id: ArtifactId::new(1),
         claim_id: None,
         kind: EvidenceKind::FileSpan {
             path: "/tmp/notes.md".to_string(),
-            range: ContentRange { start, end },
-            content_hash: "sha256:abc".to_string(),
-            snapshot: Some(BlobId::new(42)),
+            range: LineRange::new(start + 1, end)?,
+            snapshot: SnapshotRef::new(BlobId::new(42), fixtures::test_content_hash()?),
         },
         excerpt: excerpt.to_string(),
         observed_at: LogicalTick::new(1),

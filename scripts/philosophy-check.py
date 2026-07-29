@@ -216,6 +216,7 @@ RESPONSIBILITY_MAPS: dict[str, tuple[str, ...]] = {
     ),
     "crates/kernel/maestria-domain/src/lib.rs": (
         "effects",
+        "evidence_source",
         "entities",
         "errors",
         "events",

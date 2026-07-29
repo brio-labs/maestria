@@ -1,4 +1,6 @@
 use maestria_domain::*;
+#[path = "common/content_hash.rs"]
+mod fixtures;
 
 fn require_error<T, E>(
     result: Result<T, E>,
@@ -10,7 +12,7 @@ fn require_error<T, E>(
     }
 }
 #[test]
-fn test_replay_artifact_chunk_card_evidence() -> Result<(), DomainError> {
+fn test_replay_artifact_chunk_card_evidence() -> Result<(), Box<dyn std::error::Error>> {
     let mut state = KernelState::new();
 
     let art_id = ArtifactId::new(1);
@@ -66,9 +68,8 @@ fn test_replay_artifact_chunk_card_evidence() -> Result<(), DomainError> {
         claim_id: Some(claim_id),
         kind: EvidenceKind::FileSpan {
             path: "a".to_string(),
-            range: ContentRange { start: 0, end: 1 },
-            content_hash: "h".to_string(),
-            snapshot: None,
+            range: LineRange::new(1, 1)?,
+            snapshot: SnapshotRef::new(BlobId::new(42), fixtures::test_content_hash()?),
         },
         excerpt: "excerpt text".to_string(),
         observed_at: LogicalTick::new(0),
@@ -434,7 +435,7 @@ fn test_relation_constraints() -> Result<(), DomainError> {
 }
 
 #[test]
-fn test_claim_evidence_constraints() -> Result<(), DomainError> {
+fn test_claim_evidence_constraints() -> Result<(), Box<dyn std::error::Error>> {
     let mut state = KernelState::new();
 
     let art_id = ArtifactId::new(1);
@@ -451,9 +452,8 @@ fn test_claim_evidence_constraints() -> Result<(), DomainError> {
         claim_id: None,
         kind: EvidenceKind::FileSpan {
             path: "a".into(),
-            range: ContentRange { start: 1, end: 2 },
-            content_hash: "a".into(),
-            snapshot: None,
+            range: LineRange::new(2, 2)?,
+            snapshot: SnapshotRef::new(BlobId::new(42), fixtures::test_content_hash()?),
         },
         excerpt: "".to_string(),
         observed_at: LogicalTick::new(1),
@@ -468,7 +468,7 @@ fn test_claim_evidence_constraints() -> Result<(), DomainError> {
         security: None,
     })) {
         Err(e) => e,
-        Ok(_) => return Err(DomainError::EmptyIntent),
+        Ok(_) => return Err("duplicate claim evidence unexpectedly accepted".into()),
     };
 
     assert!(matches!(
@@ -495,7 +495,7 @@ fn test_claim_evidence_constraints() -> Result<(), DomainError> {
         security: None,
     })) {
         Err(e) => e,
-        Ok(_) => return Err(DomainError::EmptyIntent),
+        Ok(_) => return Err("cross-artifact claim evidence unexpectedly accepted".into()),
     };
     assert!(matches!(
         err2,

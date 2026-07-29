@@ -12,9 +12,8 @@ use maestria_ports::{
     SparseSearchQuery,
 };
 
-use super::common::{
-    SourceSnapshotVerifier, candidate_from_records, generation_mismatch, one_based_rank, port_error,
-};
+use super::SourceSnapshotVerifier;
+use super::common::{candidate_from_records, generation_mismatch, one_based_rank, port_error};
 use super::learned_sparse_generation::LearnedSparseGenerationCapability;
 use super::score_provenance::learned_sparse_score;
 use crate::traits::CandidateRetriever;
@@ -177,7 +176,7 @@ impl LearnedSparseChunkRetriever {
         {
             return Ok(None);
         }
-        self.verifier.verify(&evidence)?;
+        self.verifier.verify(&evidence, &artifact)?;
         Ok(Some((artifact, chunk, evidence)))
     }
 

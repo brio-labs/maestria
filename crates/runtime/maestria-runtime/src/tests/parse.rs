@@ -57,17 +57,18 @@ async fn parse_artifact_passes_exact_source_path_and_bytes()
     assert!(result, "ParseArtifact should succeed");
 
     // First input: ParserStarted (sent before parsing so crash-recovery can resume).
-    match tokio::time::timeout(Duration::from_secs(1), input_rx.recv()).await {
+    let source_blob = match tokio::time::timeout(Duration::from_secs(1), input_rx.recv()).await {
         Ok(Some(DomainInput::ParserStarted(ps))) => {
             assert_eq!(ps.artifact_id, ArtifactId::new(42));
             assert_eq!(ps.source_path, "/repo/src/main.rs");
             assert!(!ps.content_hash.is_empty());
             assert!(ps.blob_id.value() > 0);
+            ps.blob_id
         }
         Ok(Some(other)) => return Err(format!("expected ParserStarted, got {other:?}").into()),
         Ok(None) => return Err("channel closed before ParserStarted".to_string().into()),
         Err(_) => return Err("timeout waiting for ParserStarted".to_string().into()),
-    }
+    };
 
     // Second input: ParserCompleted (sent before evidence so the domain can commit the artifact).
     match tokio::time::timeout(Duration::from_secs(1), input_rx.recv()).await {
@@ -91,14 +92,13 @@ async fn parse_artifact_passes_exact_source_path_and_bytes()
                 EvidenceKind::FileSpan {
                     path,
                     range,
-                    content_hash,
                     snapshot,
                 } => {
                     assert_eq!(path, "/repo/src/main.rs");
-                    assert_eq!(range.start, 1);
-                    assert_eq!(range.end, 1);
-                    assert!(content_hash.starts_with("sha256:"));
-                    assert!(snapshot.is_some());
+                    assert_eq!(range.start(), 1);
+                    assert_eq!(range.end(), 1);
+                    assert!(snapshot.content_hash().as_str().starts_with("sha256:"));
+                    assert_eq!(snapshot.blob_id(), source_blob);
                 }
                 _ => return Err(format!("expected FileSpan evidence, got {:?}", ev.kind).into()),
             }
@@ -286,7 +286,7 @@ async fn parse_artifact_staged_ingestion_constructs_ephemeral_context()
             match &ev.kind {
                 EvidenceKind::FileSpan { path, snapshot, .. } => {
                     assert_eq!(path, "/repo/ghost.rs");
-                    assert!(snapshot.is_some(), "evidence must carry a blob snapshot");
+                    assert!(snapshot.blob_id().value() > 0);
                 }
                 _ => return Err(format!("expected FileSpan evidence, got {:?}", ev.kind).into()),
             }

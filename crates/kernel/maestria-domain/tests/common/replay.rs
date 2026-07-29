@@ -1,11 +1,13 @@
 use maestria_domain::*;
+#[path = "content_hash.rs"]
+mod fixtures;
 
 fn sample_parser_result() -> Result<ParserResult, Box<dyn std::error::Error>> {
     Ok(ParserResult {
         status: maestria_domain::ParseStatus::Parsed,
         artifact_id: ArtifactId::new(1),
         artifact_version_id: ArtifactVersionId::new(1),
-        content_hash: ContentHash::new("sha256:".to_owned() + &"0".repeat(64))?,
+        content_hash: fixtures::test_content_hash()?,
         tree_root_id: Some(StructureNodeId::new(10)),
         tree_nodes: vec![StructureNode {
             id: StructureNodeId::new(10),
@@ -50,13 +52,14 @@ fn sample_parser_result() -> Result<ParserResult, Box<dyn std::error::Error>> {
 }
 
 fn sample_inputs() -> Result<Vec<DomainInput>, Box<dyn std::error::Error>> {
+    let content_hash = fixtures::test_content_hash()?;
     Ok(vec![
         DomainInput::ArtifactDetected(ArtifactDetected {
             artifact_id: ArtifactId::new(1),
             title: "Project Notes".to_string(),
             source_path: "notes.txt".to_string(),
             source_bytes: b"project notes content".to_vec(),
-            content_hash: "sha256:abc".to_string(),
+            content_hash: content_hash.as_str().to_string(),
         }),
         DomainInput::ParserCompleted(sample_parser_result()?),
         DomainInput::CreateClaim(CreateClaimInput {
@@ -84,9 +87,8 @@ fn sample_inputs() -> Result<Vec<DomainInput>, Box<dyn std::error::Error>> {
             claim_id: Some(ClaimId::new(20)),
             kind: EvidenceKind::FileSpan {
                 path: "notes.txt".to_string(),
-                range: ContentRange { start: 1, end: 2 },
-                content_hash: "sha256:notes".to_string(),
-                snapshot: None,
+                range: LineRange::new(2, 2)?,
+                snapshot: SnapshotRef::new(BlobId::new(42), content_hash),
             },
             excerpt: "first chunk".to_string(),
             observed_at: LogicalTick::new(12),
@@ -117,11 +119,10 @@ pub fn run_replay_once() -> ReplayResult {
     Ok(replay_inputs(&sample_inputs()?)?)
 }
 
-pub fn file_span_kind() -> EvidenceKind {
-    EvidenceKind::FileSpan {
+pub fn file_span_kind() -> Result<EvidenceKind, Box<dyn std::error::Error>> {
+    Ok(EvidenceKind::FileSpan {
         path: "notes.txt".to_string(),
-        range: ContentRange { start: 1, end: 2 },
-        content_hash: "sha256:notes".to_string(),
-        snapshot: None,
-    }
+        range: LineRange::new(2, 2)?,
+        snapshot: SnapshotRef::new(BlobId::new(42), fixtures::test_content_hash()?),
+    })
 }

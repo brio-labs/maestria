@@ -168,30 +168,44 @@ pub(crate) fn source_label(evidence: &maestria_domain::Evidence) -> String {
         EvidenceKind::FileSpan {
             path,
             range,
-            content_hash,
-            ..
+            snapshot,
         } => format!(
             "source=file path={} lines={}-{} hash={}",
-            path, range.start, range.end, content_hash
+            path,
+            range.start(),
+            range.end(),
+            snapshot.content_hash().as_str()
         ),
         EvidenceKind::PdfSpan {
-            blob,
+            snapshot,
             page_start,
             page_end,
-        } => format!("source=pdf blob={} pages={}-{}", blob, page_start, page_end),
+        } => format!(
+            "source=pdf blob={} pages={}-{} hash={}",
+            snapshot.blob_id(),
+            page_start,
+            page_end,
+            snapshot.content_hash().as_str()
+        ),
         EvidenceKind::PdfRegion {
-            blob,
+            snapshot,
             page,
             x,
             y,
             width,
             height,
         } => format!(
-            "source=pdf blob={} page={} region={},{} {}x{}",
-            blob, page, x, y, width, height
+            "source=pdf blob={} page={} region={},{} {}x{} hash={}",
+            snapshot.blob_id(),
+            page,
+            x,
+            y,
+            width,
+            height,
+            snapshot.content_hash().as_str()
         ),
         EvidenceKind::WebSnapshot { url, snapshot, .. } => {
-            format!("source=web url={} snapshot={}", url, snapshot)
+            format!("source=web url={} snapshot={}", url, snapshot.blob_id())
         }
         EvidenceKind::CommandOutput {
             harness_run,

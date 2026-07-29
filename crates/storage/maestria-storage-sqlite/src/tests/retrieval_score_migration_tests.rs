@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 
+use crate::schema::CURRENT_SCHEMA_VERSION;
 use crate::{SqliteStore, payloads::StoredEventPayload};
 use maestria_domain::*;
 use maestria_ports::{EventFilter, EventLog};
@@ -204,7 +205,7 @@ fn v8_migration_preserves_bytes_and_upcasts_on_scan() -> Result<(), Box<dyn std:
             connection.query_row("SELECT MAX(version) FROM schema_version", [], |row| {
                 row.get(0)
             })?;
-        assert_eq!(version, 9);
+        assert_eq!(version, CURRENT_SCHEMA_VERSION);
         let raw_knowledge: String = connection.query_row(
             "SELECT payload_json FROM domain_events WHERE id = 1",
             [],
