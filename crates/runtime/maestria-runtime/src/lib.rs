@@ -59,6 +59,7 @@ mod web_evidence;
 pub use config::{Adapters, Governance, RuntimeConfig};
 pub use runtime::{
     DomainApplicationResult, FeedbackError, MaestriaRuntime, RuntimeHandle, RuntimeSubmissionError,
+    RuntimeSubmissionPermit,
 };
 
 #[cfg(test)]

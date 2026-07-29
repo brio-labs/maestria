@@ -169,19 +169,19 @@ impl InstanceLifecycle {
                 .ok_or_else(|| anyhow!("recovery inputs already queued"))?;
 
             queue_recovery_inputs(
-                &self.input_tx,
+                &self.runtime_handle,
                 &mut recovery.resume_parsers,
                 RecoveryQueueStage::ResumeParser,
             )
             .await?;
             queue_recovery_inputs(
-                &self.input_tx,
+                &self.runtime_handle,
                 &mut recovery.start_full_text,
                 RecoveryQueueStage::FullText,
             )
             .await?;
             queue_recovery_inputs(
-                &self.input_tx,
+                &self.runtime_handle,
                 &mut recovery.run_validations,
                 RecoveryQueueStage::Validation,
             )
@@ -309,24 +309,20 @@ impl std::fmt::Display for RecoveryQueueStage {
 }
 
 async fn queue_recovery_inputs(
-    input_tx: &mpsc::Sender<DomainInput>,
+    runtime: &maestria_runtime::RuntimeHandle,
     inputs: &mut Vec<DomainInput>,
     stage: RecoveryQueueStage,
 ) -> Result<()> {
     while !inputs.is_empty() {
-        // Reserve before removing the input. `reserve` is cancellation safe, while removing
-        // first and awaiting `send` would lose that input if the queue operation is dropped.
-        let permit = input_tx
-            .reserve()
+        let permit = runtime
+            .reserve_submission()
             .await
-            .with_context(|| format!("failed to queue {stage} recovery input"))?;
-        if input_tx.is_closed() {
-            return Err(anyhow!(
-                "failed to queue {stage} recovery input: channel closed"
-            ));
-        }
+            .with_context(|| format!("failed to reserve {stage} recovery submission"))?;
         let input = inputs.remove(0);
-        permit.send(input);
+        permit
+            .submit(input)
+            .await
+            .with_context(|| format!("failed to apply {stage} recovery input"))?;
     }
     Ok(())
 }

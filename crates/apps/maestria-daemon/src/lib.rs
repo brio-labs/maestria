@@ -11,6 +11,7 @@
 /// - `supervision_recovery`: supervised recovery diagnostics.
 /// - `validation_recovery`: validation report recovery checks.
 /// - `lifecycle`: instance runtime lifecycle and recovery queue.
+/// - `mutation_session`: ready, correlated one-shot mutation lifecycle.
 /// - `watcher`: filesystem watcher ingestion.
 /// - `lifecycle_entry`: lifecycle entrypoint orchestration.
 /// - `instance_setup`: instance initialization, replay, and recovery scope validation.
@@ -23,6 +24,7 @@ mod instance_setup;
 mod lifecycle;
 mod lifecycle_entry;
 mod lock;
+mod mutation_session;
 mod parser_resume;
 mod projection_recovery;
 mod providers;
@@ -44,13 +46,13 @@ pub use lock::{
     InstanceWriteLock, acquire as acquire_instance_write_lock,
     try_acquire as try_acquire_instance_write_lock,
 };
+pub use mutation_session::MutationSession;
 pub use parser_resume::verify_pending_blobs;
 pub use projection_recovery::{
     reconcile_graph_projection, reconcile_projections, reconcile_vector_projection,
 };
 pub use providers::{build_visual_provider, ocr_status, visual_status};
 pub use recovery_inputs::{RecoveryInputs, recovery_inputs};
-pub use runtime_construction::{build_runtime, build_runtime_with_repository_policy};
 pub use search_executor::{
     SearchRuntime, prepare_search_runtime, prepare_search_runtime_read_only,
     prepare_search_runtime_read_only_with_repository_policy,

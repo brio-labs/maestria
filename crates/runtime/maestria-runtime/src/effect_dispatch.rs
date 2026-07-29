@@ -1,10 +1,16 @@
 use crate::MaestriaRuntime;
+use crate::effect_execution_dispatch::PreparedEffect;
 use maestria_domain::MaestriaEffect;
 use std::fmt;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
-pub(crate) type EffectBatch = Vec<MaestriaEffect>;
+pub(crate) enum EffectWork {
+    Pending(MaestriaEffect),
+    Prepared(PreparedEffect),
+}
+
+pub(crate) type EffectBatch = Vec<EffectWork>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum EffectAdmissionError {
@@ -64,17 +70,18 @@ mod tests {
         let (sender, mut receiver) = mpsc::channel::<EffectBatch>(1);
         let batch = (0..8)
             .map(|index| {
-                MaestriaEffect::EmitDiagnostic(DiagnosticEvent {
+                EffectWork::Pending(MaestriaEffect::EmitDiagnostic(DiagnosticEvent {
                     task_id: None,
                     message: format!("effect-{index}"),
-                })
+                }))
             })
             .collect::<Vec<_>>();
+        let expected_len = batch.len();
         let permit = sender.reserve().await?;
-        permit.send(batch.clone());
+        permit.send(batch);
 
         let admitted = receiver.recv().await.ok_or("batch should be admitted")?;
-        assert_eq!(admitted, batch);
+        assert_eq!(admitted.len(), expected_len);
         Ok(())
     }
 }

@@ -1,11 +1,12 @@
 use crate::test_support::*;
 use maestria_domain::{
-    ApprovalDecision, ApprovalId, ArtifactDetected, ArtifactId, DomainEvent, FetchWebRequest,
-    FetchWebRequested, LogicalTick, RegisterArtifactInput, ScopeId, content_hash,
+    ApprovalDecision, ApprovalId, ArtifactDetected, ArtifactId, DomainEvent, DomainInput,
+    FetchWebRequest, FetchWebRequested, LogicalTick, ModelAgentProposalExecution,
+    RegisterArtifactInput, ScopeId, content_hash,
 };
 use maestria_ports::{
     ApprovalRecord, ApprovalRepository, ApprovalRiskLevel, ApprovalStatus, EventFilter, EventLog,
-    InMemoryApprovalRepository, PortError,
+    InMemoryApprovalRepository, InMemoryEffectJournal, PortError,
 };
 use std::sync::{
     Arc,
@@ -407,5 +408,129 @@ fn feedback_reports_capacity_without_waiting() -> Result<(), FeedbackError> {
         handle.try_send_feedback(DomainInput::ClockTick(LogicalTick::new(3))),
         Err(FeedbackError::RuntimeShutdown)
     );
+    Ok(())
+}
+
+#[tokio::test]
+async fn approval_ack_includes_inline_continuation_admission_before_shutdown()
+-> Result<(), Box<dyn std::error::Error>> {
+    let approval_id = ApprovalId::new(91);
+    let generation = 1;
+    let proposal =
+        super::admission_support::proposal(ModelAgentProposalExecution::ApprovalContinuation {
+            approval_id,
+            journal_generation: generation,
+        });
+    let approval_repo = InMemoryApprovalRepository::new();
+    approval_repo.save(&super::admission_support::approval_record(
+        &proposal,
+        ApprovalStatus::Pending,
+    )?)?;
+    let journal = Arc::new(InMemoryEffectJournal::default());
+    super::admission_support::seed_intent(
+        &journal,
+        &proposal,
+        proposal.task_id,
+        &proposal.capability,
+        &proposal.command,
+        ScopeId::new(1),
+        Some(generation),
+    )?;
+    let mut canonical = proposal.clone();
+    canonical.execution = ModelAgentProposalExecution::Fresh;
+    let mut state = KernelState::new();
+    state
+        .model_agent_requests
+        .insert(canonical.run_id, canonical);
+    let adapters = Adapters {
+        approval_repo: Arc::new(approval_repo),
+        effect_journal: journal.clone(),
+        ..crate::test_helpers::test_adapters()
+    };
+    let (runtime, input_rx) = MaestriaRuntime::new(
+        RuntimeConfig::default(),
+        state,
+        adapters,
+        crate::test_helpers::test_governance(),
+    );
+    let handle = runtime.handle();
+    let shutdown = CancellationToken::new();
+    let run_shutdown = shutdown.clone();
+    let run = tokio::spawn(runtime.with_graceful_shutdown().run(input_rx, run_shutdown));
+
+    let application = handle
+        .submit(DomainInput::ApprovalResolved(ApprovalDecision {
+            approval_id,
+            task_id: proposal.task_id,
+            approved: true,
+            affects_task: false,
+        }))
+        .await?;
+    assert_eq!(application.effects_admitted, 3);
+    shutdown.cancel();
+    tokio::time::timeout(Duration::from_secs(2), run).await??;
+
+    assert!(application.events.iter().any(|event| {
+        matches!(
+            &event.event,
+            maestria_domain::DomainEvent::ModelAgentProposalCompleted { result }
+                if result.run_id == proposal.run_id
+        )
+    }));
+    Ok(())
+}
+
+#[tokio::test]
+async fn approval_ack_propagates_inline_continuation_admission_failure()
+-> Result<(), Box<dyn std::error::Error>> {
+    let approval_id = ApprovalId::new(92);
+    let proposal =
+        super::admission_support::proposal(ModelAgentProposalExecution::ApprovalContinuation {
+            approval_id,
+            journal_generation: 1,
+        });
+    let approval_repo = InMemoryApprovalRepository::new();
+    approval_repo.save(&super::admission_support::approval_record(
+        &proposal,
+        ApprovalStatus::Pending,
+    )?)?;
+    let mut canonical = proposal.clone();
+    canonical.execution = ModelAgentProposalExecution::Fresh;
+    let mut state = KernelState::new();
+    state
+        .model_agent_requests
+        .insert(canonical.run_id, canonical);
+    let adapters = Adapters {
+        approval_repo: Arc::new(approval_repo),
+        effect_journal: Arc::new(InMemoryEffectJournal::default()),
+        ..crate::test_helpers::test_adapters()
+    };
+    let (runtime, input_rx) = MaestriaRuntime::new(
+        RuntimeConfig::default(),
+        state,
+        adapters,
+        crate::test_helpers::test_governance(),
+    );
+    let handle = runtime.handle();
+    let shutdown = CancellationToken::new();
+    let run_shutdown = shutdown.clone();
+    let run = tokio::spawn(runtime.with_graceful_shutdown().run(input_rx, run_shutdown));
+
+    let result = handle
+        .submit(DomainInput::ApprovalResolved(ApprovalDecision {
+            approval_id,
+            task_id: proposal.task_id,
+            approved: true,
+            affects_task: false,
+        }))
+        .await;
+    match result {
+        Err(crate::RuntimeSubmissionError::EffectPreparationRejected { reason, .. }) => {
+            assert!(reason.contains("journal entry is missing"), "{reason}");
+        }
+        other => return Err(format!("unexpected approval result: {other:?}").into()),
+    }
+    shutdown.cancel();
+    tokio::time::timeout(Duration::from_secs(2), run).await??;
     Ok(())
 }

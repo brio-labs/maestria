@@ -1,7 +1,8 @@
 use crate::config::EffectExecutionContext;
+use crate::effect_dispatch::EffectWork;
 use crate::effect_result::EffectFailure;
 use crate::runtime::MaestriaRuntime;
-use maestria_domain::{DomainInput, KernelState, MaestriaEffect, ValidationReportId};
+use maestria_domain::{KernelState, MaestriaEffect, ValidationReportId};
 use std::sync::{Arc, atomic::Ordering};
 use tokio::sync::mpsc;
 
@@ -81,13 +82,19 @@ impl MaestriaRuntime {
     fn spawn_effect_task(
         in_flight: &mut tokio::task::JoinSet<()>,
         context: EffectExecutionContext,
-        effect: MaestriaEffect,
+        work: EffectWork,
         permit: tokio::sync::OwnedSemaphorePermit,
         effect_shutdown: tokio_util::sync::CancellationToken,
         runtime_shutdown: tokio_util::sync::CancellationToken,
     ) {
         in_flight.spawn(async move {
-            if let Err(error) = context.execute_with_retries(effect).await {
+            let result = match work {
+                EffectWork::Pending(effect) => context.execute_with_retries(effect).await,
+                EffectWork::Prepared(effect) => {
+                    context.execute_prepared_with_watchdog(effect).await
+                }
+            };
+            if let Err(error) = result {
                 Self::supervise_effect_failure(error, &effect_shutdown, &runtime_shutdown);
             }
             drop(permit);
@@ -111,7 +118,7 @@ impl MaestriaRuntime {
             }
         }
     }
-    fn effect_execution_context(&self) -> EffectExecutionContext {
+    pub(crate) fn effect_execution_context(&self) -> EffectExecutionContext {
         EffectExecutionContext {
             adapters: Arc::clone(&self.adapters),
             governance: Arc::clone(&self.governance),
@@ -172,17 +179,20 @@ impl MaestriaRuntime {
                 if effect_shutdown.is_cancelled() {
                     break;
                 }
-                for mut effect in effects {
+                for mut work in effects {
                     if effect_shutdown.is_cancelled() {
                         break;
                     }
-                    if let MaestriaEffect::RunValidation(request) = &mut effect {
+                    if let EffectWork::Pending(MaestriaEffect::RunValidation(request)) = &mut work {
                         request.validation_report_id = ValidationReportId::new(
                             next_validation_report_id.fetch_add(1, Ordering::Relaxed),
                         );
                     }
                     let context = execution_context.clone();
-                    if matches!(&effect, MaestriaEffect::PersistEvent { .. }) {
+                    if let EffectWork::Pending(MaestriaEffect::PersistEvent { .. }) = &work {
+                        let EffectWork::Pending(effect) = work else {
+                            continue;
+                        };
                         if let Err(error) = context.execute_with_retries(effect).await {
                             tracing::error!(
                                 %error,
@@ -207,7 +217,7 @@ impl MaestriaRuntime {
                     Self::spawn_effect_task(
                         &mut in_flight,
                         context,
-                        effect,
+                        work,
                         permit,
                         effect_shutdown.clone(),
                         runtime_shutdown.clone(),
@@ -374,26 +384,5 @@ impl MaestriaRuntime {
             tokio::time::timeout(self.config.default_effect_timeout, check).await,
             Ok(true)
         )
-    }
-
-    pub(crate) fn resume_model_agent_after_approval(
-        &self,
-        proposal: maestria_domain::ModelAgentProposalRequest,
-        shutdown: tokio_util::sync::CancellationToken,
-    ) {
-        let input_tx = self.input_tx.clone();
-        tokio::spawn(async move {
-            tokio::select! {
-                () = shutdown.cancelled() => {}
-                result = input_tx.send(DomainInput::ModelAgentProposalResumed(proposal)) => {
-                    if let Err(error) = result {
-                        tracing::warn!(
-                            %error,
-                            "approval continuation input channel closed"
-                        );
-                    }
-                }
-            }
-        });
     }
 }

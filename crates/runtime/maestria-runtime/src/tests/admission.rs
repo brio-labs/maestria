@@ -5,6 +5,7 @@ use super::admission_support::{
 };
 use crate::config::Adapters;
 use crate::effect_admission::{EffectAdmission, RejectionCause, RejectionHandling};
+use crate::effect_dispatch::EffectWork;
 use crate::effect_result::EffectFailure;
 use crate::test_helpers;
 use maestria_domain::{
@@ -328,14 +329,10 @@ async fn exact_denied_stored_proposal_terminalizes_decoded_proposal()
     let calls = Arc::new(AtomicUsize::new(0));
     let (context, journal, mut receiver) =
         seed_exact_approval(&request, ApprovalStatus::Denied, calls)?;
-    let result = context
-        .execute_effect(
-            MaestriaEffect::QueryHarnessProposal(QueryHarnessProposalRequest {
-                proposal: request.clone(),
-            }),
-            None,
-        )
-        .await;
+    let effect = MaestriaEffect::QueryHarnessProposal(QueryHarnessProposalRequest {
+        proposal: request.clone(),
+    });
+    let result = context.clone().execute_effect(effect.clone(), None).await;
     assert!(matches!(result, Err(EffectFailure::Denied(_))));
     assert!(journal.scan_in_flight()?.is_empty());
     match receiver.try_recv() {
@@ -350,6 +347,20 @@ async fn exact_denied_stored_proposal_terminalizes_decoded_proposal()
             );
         }
     }
+    let prepared = context
+        .prepare_effect_before_reply(effect)
+        .await
+        .map_err(|error| error.to_string())?;
+    context
+        .execute_prepared(prepared, None)
+        .await
+        .map_err(|error| error.to_string())?;
+    assert!(matches!(
+        receiver.try_recv(),
+        Ok(DomainInput::ModelAgentProposalCompleted(result))
+            if result.run_id == request.run_id
+                && result.status == ModelAgentTerminalStatus::Failed
+    ));
     Ok(())
 }
 
@@ -488,7 +499,7 @@ async fn persist_event_failure_cancels_effect_and_runtime_executors()
     let executor =
         runtime.spawn_effect_executor(effect_rx, effect_shutdown.clone(), runtime_shutdown.clone());
     effect_tx
-        .send(vec![MaestriaEffect::PersistEvent {
+        .send(vec![EffectWork::Pending(MaestriaEffect::PersistEvent {
             envelope: Box::new(DomainEventEnvelope {
                 id: EventId::new(1),
                 sequence: SequenceNumber::new(1),
@@ -496,7 +507,7 @@ async fn persist_event_failure_cancels_effect_and_runtime_executors()
                     at: LogicalTick::new(1),
                 },
             }),
-        }])
+        })])
         .await?;
     tokio::time::timeout(
         std::time::Duration::from_secs(1),

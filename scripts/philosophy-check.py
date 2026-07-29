@@ -304,6 +304,7 @@ RESPONSIBILITY_MAPS: dict[str, tuple[str, ...]] = {
         "supervision_recovery",
         "validation_recovery",
         "lifecycle",
+        "mutation_session",
         "watcher",
         "lifecycle_entry",
         "instance_setup",

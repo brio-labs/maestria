@@ -21,46 +21,32 @@ pub async fn run_start(
     artifact_id: Option<u64>,
 ) -> Result<()> {
     let layout = helpers::ensure_instance(instance_dir)?;
-    let _instance_lock = maestria_daemon::acquire_instance_write_lock(&layout).await?;
-    let state = helpers::load_kernel_state_with_retry(
-        &layout,
-        Duration::from_secs(2),
-        "load kernel state before task start",
-    )?;
-    let task_id = next_task_id(&state);
-    create_task_workspace_directories(&layout, task_id)?;
-
-    let (runtime, input_tx, input_rx, shutdown_token) =
-        maestria_daemon::build_runtime(&layout, state, AutonomyProfile::TrustedWorkspace)
-            .with_context(|| "build runtime")?;
-    let runtime_task = tokio::spawn(runtime.run(input_rx, shutdown_token.clone()));
+    let session =
+        maestria_daemon::MutationSession::start(layout.clone(), AutonomyProfile::TrustedWorkspace)
+            .await?;
 
     let result = async {
+        let task_id = next_task_id(session.state());
+        create_task_workspace_directories(&layout, task_id)?;
+
         let input = DomainInput::OpenTask(OpenTaskInput {
             task_id,
             title,
             priority: priority.into(),
             artifact_id: artifact_id.map(ArtifactId::new),
         });
-        input_tx
-            .send(input)
-            .await
-            .map_err(|error| anyhow!("failed to queue task open input: {error}"))?;
-        wait_for_task_in_state(&layout, task_id, Duration::from_secs(2)).await
+        session.submit(input).await?;
+        let state = wait_for_task_in_state(&layout, task_id, Duration::from_secs(2)).await?;
+
+        state
+            .tasks
+            .get(&task_id)
+            .cloned()
+            .ok_or_else(|| anyhow!("task {} was not persisted", task_id))
     }
     .await;
 
-    shutdown_token.cancel();
-    let join_result = runtime_task.await;
-    let state = result?;
-    join_result.with_context(|| "runtime loop join failed")?;
-
-    let task = state
-        .tasks
-        .get(&task_id)
-        .cloned()
-        .ok_or_else(|| anyhow!("task {} was not persisted", task_id))?;
-
+    let task = session.finish(result).await?;
     println!(
         "task={} title={} status={:?} priority={:?}",
         task.id, task.title, task.status, task.priority
@@ -71,56 +57,49 @@ pub async fn run_start(
 
 pub async fn run_add_evidence(instance_dir: PathBuf, task_id: u64, evidence_id: u64) -> Result<()> {
     let layout = helpers::ensure_instance(instance_dir)?;
-    let _instance_lock = maestria_daemon::acquire_instance_write_lock(&layout).await?;
-    let state = helpers::load_kernel_state_with_retry(
-        &layout,
-        Duration::from_secs(2),
-        "load kernel state before add-evidence",
-    )?;
-    let task_id = TaskId::new(task_id);
-    let evidence_id = EvidenceId::new(evidence_id);
+    let session =
+        maestria_daemon::MutationSession::start(layout.clone(), AutonomyProfile::TrustedWorkspace)
+            .await?;
 
-    if !state.tasks.contains_key(&task_id) {
-        return Err(anyhow!("task {} not found", task_id));
-    }
-    if !state.evidences.contains_key(&evidence_id) {
-        return Err(anyhow!("evidence {} not found", evidence_id));
-    }
-
-    let (runtime, input_tx, input_rx, shutdown_token) =
-        maestria_daemon::build_runtime(&layout, state, AutonomyProfile::TrustedWorkspace)
-            .with_context(|| "build runtime")?;
-    let runtime_task = tokio::spawn(runtime.run(input_rx, shutdown_token.clone()));
     let result = async {
+        let state = session.state();
+        let task_id = TaskId::new(task_id);
+        let evidence_id = EvidenceId::new(evidence_id);
+
+        if !state.tasks.contains_key(&task_id) {
+            return Err(anyhow!("task {} not found", task_id));
+        }
+        if !state.evidences.contains_key(&evidence_id) {
+            return Err(anyhow!("evidence {} not found", evidence_id));
+        }
+
         let input = DomainInput::LinkEvidenceToTask(LinkEvidenceToTaskInput {
             task_id,
             evidence_id,
         });
-        input_tx
-            .send(input)
-            .await
-            .map_err(|error| anyhow!("failed to queue link-evidence input: {error}"))?;
-        wait_for_task_evidence_link(&layout, task_id, evidence_id, Duration::from_secs(2)).await
+        session.submit(input).await?;
+        let state =
+            wait_for_task_evidence_link(&layout, task_id, evidence_id, Duration::from_secs(2))
+                .await?;
+
+        let task = state
+            .tasks
+            .get(&task_id)
+            .cloned()
+            .ok_or_else(|| anyhow!("task {} not found after persistence", task_id))?;
+        if !task.evidence_ids.contains(&evidence_id) {
+            return Err(anyhow!(
+                "evidence {} was not linked to task {} after persistence",
+                evidence_id,
+                task_id
+            ));
+        }
+
+        Ok(task)
     }
     .await;
 
-    shutdown_token.cancel();
-    let join_result = runtime_task.await;
-    let state = result?;
-    join_result.with_context(|| "runtime loop join failed")?;
-
-    let task = state
-        .tasks
-        .get(&task_id)
-        .ok_or_else(|| anyhow!("task {} not found after persistence", task_id))?;
-    if !task.evidence_ids.contains(&evidence_id) {
-        return Err(anyhow!(
-            "evidence {} was not linked to task {} after persistence",
-            evidence_id,
-            task_id
-        ));
-    }
-
+    let task = session.finish(result).await?;
     println!(
         "linked evidence={evidence_id} to task={task_id} status={:?}",
         task.status

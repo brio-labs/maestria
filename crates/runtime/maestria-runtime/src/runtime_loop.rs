@@ -1,12 +1,25 @@
 use crate::config::{Adapters, Governance, RuntimeConfig};
-use crate::proposal_recovery::journal_entry_matches_proposal;
-use crate::runtime::{DomainApplicationResult, MaestriaRuntime};
+use crate::effect_dispatch::EffectWork;
+use crate::runtime::{
+    DomainApplicationResult, EffectPreparation, MaestriaRuntime, PendingApplication,
+    RuntimeCommand, RuntimeSubmissionError,
+};
 use maestria_domain::{
-    DomainError, DomainInput, KernelState, MaestriaEffect, ModelAgentProposalExecution,
+    DomainError, DomainEventEnvelope, DomainInput, KernelState, MaestriaEffect,
+    ModelAgentProposalExecution, ModelAgentProposalRequest,
 };
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Mutex, atomic::AtomicU64};
-use tokio::sync::{RwLock, mpsc};
+use tokio::sync::{RwLock, mpsc, oneshot};
+
+struct ApplicationOutcome {
+    events: Vec<DomainEventEnvelope>,
+    effects_admitted: usize,
+}
+enum EffectBatchPreparationError {
+    Admission,
+    Preparation(String),
+}
 
 impl MaestriaRuntime {
     pub fn new(
@@ -33,105 +46,13 @@ impl MaestriaRuntime {
                 next_command_id,
                 journal_recovery_claims: Arc::new(Mutex::new(BTreeSet::new())),
                 feedback_acks: Arc::new(Mutex::new(BTreeMap::new())),
+                pending_applications: Mutex::new(BTreeMap::new()),
                 next_validation_report_id,
                 #[cfg(test)]
                 test_pre_failed_effect_task: false,
             },
             input_rx,
         )
-    }
-
-    fn spawn_model_agent_recovery(
-        &self,
-        shutdown_token: tokio_util::sync::CancellationToken,
-        snapshot: KernelState,
-        effect_tx: mpsc::Sender<crate::effect_dispatch::EffectBatch>,
-    ) {
-        let adapters = Arc::clone(&self.adapters);
-        let scope_id = self.config.scope_id;
-        tokio::spawn(async move {
-            let mut proposals = BTreeMap::new();
-            let mut approval_owned_runs = BTreeSet::new();
-            match adapters.effect_journal.scan_in_flight() {
-                Ok(entries) => {
-                    for entry in entries {
-                        if entry.status != maestria_ports::EffectJournalStatus::FeedbackAccepted
-                            || entry.feedback.is_none()
-                            || snapshot.model_agent_results.contains_key(&entry.run_id)
-                        {
-                            continue;
-                        }
-                        let Some(proposal) = snapshot.model_agent_requests.get(&entry.run_id)
-                        else {
-                            continue;
-                        };
-                        if !matches!(&proposal.execution, ModelAgentProposalExecution::Fresh) {
-                            continue;
-                        }
-                        if !journal_entry_matches_proposal(&entry, proposal, scope_id) {
-                            continue;
-                        }
-                        let mut resumed = proposal.clone();
-                        resumed.execution = ModelAgentProposalExecution::JournalRecovery {
-                            journal_generation: entry.generation,
-                        };
-                        proposals.insert(entry.run_id, resumed);
-                    }
-                }
-                Err(error) => {
-                    tracing::error!(%error, "failed to scan effect journal for model-agent recovery");
-                }
-            }
-            match adapters.approval_repo.find_all() {
-                Ok(records) => {
-                    for record in records {
-                        let Some(proposal) =
-                            crate::effect_execution::decode_pending_continuation(&record)
-                        else {
-                            continue;
-                        };
-                        if !snapshot.model_agent_requests.contains_key(&proposal.run_id) {
-                            continue;
-                        }
-                        approval_owned_runs.insert(proposal.run_id);
-                        if !matches!(
-                            record.status,
-                            maestria_ports::ApprovalStatus::Approved
-                                | maestria_ports::ApprovalStatus::Denied
-                        ) || snapshot.model_agent_results.contains_key(&proposal.run_id)
-                        {
-                            continue;
-                        }
-                        proposals.entry(proposal.run_id).or_insert(proposal);
-                    }
-                }
-                Err(error) => {
-                    tracing::error!(%error, "failed to scan approvals for model-agent recovery");
-                }
-            }
-            for proposal in snapshot.model_agent_requests.values() {
-                if matches!(&proposal.execution, ModelAgentProposalExecution::Fresh)
-                    && !snapshot.model_agent_results.contains_key(&proposal.run_id)
-                    && !approval_owned_runs.contains(&proposal.run_id)
-                    && !proposals.contains_key(&proposal.run_id)
-                {
-                    proposals.insert(proposal.run_id, proposal.clone());
-                }
-            }
-            for proposal in proposals.into_values() {
-                tokio::select! {
-                    () = shutdown_token.cancelled() => break,
-                    result = effect_tx.send(vec![MaestriaEffect::QueryHarnessProposal(
-                        proposal.into_harness_request(),
-                    )]) => {
-                        if let Err(error) = result {
-                            tracing::warn!(%error, "model-agent recovery effect channel closed");
-                            break;
-                        }
-                    }
-                }
-            }
-        });
     }
 
     /// Runs the domain-input loop until the shutdown token is cancelled or
@@ -152,18 +73,16 @@ impl MaestriaRuntime {
         let effect_executor =
             self.spawn_effect_executor(effect_rx, effect_shutdown.clone(), shutdown_token.clone());
         let recovery_snapshot = self.state.read().await.clone();
-        self.spawn_model_agent_recovery(
-            shutdown_token.clone(),
-            recovery_snapshot,
-            effect_tx.clone(),
-        );
+        let recovery = self.plan_model_agent_recovery(&recovery_snapshot);
         let Some(command_rx) = self.command_rx.take() else {
             tracing::error!("runtime command receiver missing");
             return;
         };
 
-        self.run_input_loop(input_rx, command_rx, &effect_tx, &shutdown_token)
-            .await;
+        let queue_recovery =
+            Self::queue_model_agent_recovery(recovery, &shutdown_token, &effect_tx);
+        let run_inputs = self.run_input_loop(input_rx, command_rx, &effect_tx, &shutdown_token);
+        tokio::join!(queue_recovery, run_inputs);
         drop(effect_tx);
         if !self.config.drain_effects_on_shutdown {
             effect_shutdown.cancel();
@@ -201,6 +120,194 @@ impl MaestriaRuntime {
         }
     }
 
+    async fn process_inline_approval_continuation(
+        &self,
+        proposal: maestria_domain::ModelAgentProposalRequest,
+        correlation_id: Option<u64>,
+        effect_tx: &mpsc::Sender<crate::effect_dispatch::EffectBatch>,
+        shutdown_token: &tokio_util::sync::CancellationToken,
+    ) -> (
+        bool,
+        Option<Result<DomainApplicationResult, RuntimeSubmissionError>>,
+    ) {
+        let input = DomainInput::ModelAgentProposalResumed(proposal);
+        let Some(correlation_id) = correlation_id else {
+            let keep_running =
+                Box::pin(self.process_input(input, None, effect_tx, shutdown_token)).await;
+            return (keep_running, None);
+        };
+        let (reply, result) = oneshot::channel();
+        let command = RuntimeCommand {
+            correlation_id,
+            input: input.clone(),
+            effect_preparation: EffectPreparation::BeforeReply,
+            reply,
+        };
+        let keep_running =
+            Box::pin(self.process_input(input, Some(command), effect_tx, shutdown_token)).await;
+        let result = match result.await {
+            Ok(result) => result,
+            Err(_) => Err(RuntimeSubmissionError::RuntimeShutdown),
+        };
+        (keep_running, Some(result))
+    }
+
+    async fn merge_inline_approval_continuation(
+        &self,
+        proposal: Option<ModelAgentProposalRequest>,
+        should_resume: bool,
+        command: &mut Option<RuntimeCommand>,
+        outcome: &mut ApplicationOutcome,
+        effect_tx: &mpsc::Sender<crate::effect_dispatch::EffectBatch>,
+        shutdown_token: &tokio_util::sync::CancellationToken,
+    ) -> Result<Option<maestria_domain::HarnessRunId>, bool> {
+        let Some(proposal) = proposal.filter(|proposal| {
+            should_resume
+                && matches!(
+                    proposal.execution,
+                    ModelAgentProposalExecution::ApprovalContinuation { .. }
+                )
+        }) else {
+            return Ok(None);
+        };
+        let run_id = proposal.run_id;
+        let correlation_id = command.as_ref().map(|command| command.correlation_id);
+        let (keep_running, continuation) = self
+            .process_inline_approval_continuation(
+                proposal,
+                correlation_id,
+                effect_tx,
+                shutdown_token,
+            )
+            .await;
+        if let Some(continuation) = continuation {
+            match continuation {
+                Ok(result) => {
+                    outcome.effects_admitted = outcome
+                        .effects_admitted
+                        .saturating_add(result.effects_admitted);
+                    outcome.events.extend(result.events);
+                }
+                Err(error) => {
+                    if let Some(command) = command.take() {
+                        let _ = command.reply.send(Err(error));
+                    }
+                    return Err(keep_running);
+                }
+            }
+        }
+        if keep_running {
+            return Ok(Some(run_id));
+        }
+        if let Some(command) = command.take() {
+            let _ = command
+                .reply
+                .send(Err(RuntimeSubmissionError::RuntimeShutdown));
+        }
+        Err(false)
+    }
+
+    fn defer_application(
+        &self,
+        run_id: maestria_domain::HarnessRunId,
+        command: RuntimeCommand,
+        outcome: ApplicationOutcome,
+    ) -> bool {
+        let application = PendingApplication {
+            outcome: DomainApplicationResult {
+                correlation_id: command.correlation_id,
+                events: outcome.events,
+                effects_admitted: outcome.effects_admitted,
+            },
+            command,
+        };
+        match self.pending_applications.lock() {
+            Ok(mut pending) => {
+                pending.insert(run_id, application);
+                true
+            }
+            Err(_) => {
+                tracing::error!("pending application lock poisoned");
+                let _ = application
+                    .command
+                    .reply
+                    .send(Err(RuntimeSubmissionError::RuntimeShutdown));
+                false
+            }
+        }
+    }
+
+    fn complete_pending_application(
+        &self,
+        run_id: maestria_domain::HarnessRunId,
+        outcome: &mut ApplicationOutcome,
+    ) {
+        let application = match self.pending_applications.lock() {
+            Ok(mut pending) => pending.remove(&run_id),
+            Err(_) => {
+                tracing::error!("pending application lock poisoned");
+                None
+            }
+        };
+        let Some(mut application) = application else {
+            return;
+        };
+        application.outcome.effects_admitted = application
+            .outcome
+            .effects_admitted
+            .saturating_add(outcome.effects_admitted);
+        application.outcome.events.append(&mut outcome.events);
+        let _ = application.command.reply.send(Ok(application.outcome));
+    }
+
+    async fn prepare_effect_work(
+        &self,
+        effects: &[MaestriaEffect],
+        prepare_before_reply: bool,
+    ) -> Result<Option<Vec<EffectWork>>, String> {
+        if !prepare_before_reply {
+            return Ok(None);
+        }
+        let context = self.effect_execution_context();
+        let mut prepared = Vec::with_capacity(effects.len());
+        for effect in effects.iter().cloned() {
+            let effect = context
+                .prepare_effect_before_reply(effect)
+                .await
+                .map_err(|error| error.to_string())?;
+            prepared.push(EffectWork::Prepared(effect));
+        }
+        Ok(Some(prepared))
+    }
+    async fn prepare_effect_batch<'a>(
+        &self,
+        effects: &[MaestriaEffect],
+        prepare_before_reply: bool,
+        effect_tx: &'a mpsc::Sender<crate::effect_dispatch::EffectBatch>,
+        shutdown_token: &tokio_util::sync::CancellationToken,
+    ) -> Result<
+        (
+            Option<mpsc::Permit<'a, crate::effect_dispatch::EffectBatch>>,
+            Option<Vec<EffectWork>>,
+        ),
+        EffectBatchPreparationError,
+    > {
+        let permit = if effects.is_empty() {
+            None
+        } else {
+            Some(
+                self.reserve_effect_batch(effect_tx, shutdown_token)
+                    .await
+                    .map_err(|_| EffectBatchPreparationError::Admission)?,
+            )
+        };
+        let prepared = self
+            .prepare_effect_work(effects, prepare_before_reply)
+            .await
+            .map_err(EffectBatchPreparationError::Preparation)?;
+        Ok((permit, prepared))
+    }
+
     async fn process_input(
         &self,
         input: DomainInput,
@@ -209,6 +316,7 @@ impl MaestriaRuntime {
         shutdown_token: &tokio_util::sync::CancellationToken,
     ) -> bool {
         let input = Self::correlate_proposal(input, command.as_ref());
+        let completed_run_id = Self::completed_run_id(&input);
         let approval_continuation = self.approval_continuation(&input);
         if let Some(detail) = self.boundary_error(&input).await {
             Self::reply_domain_error(command, DomainError::InternalInvariantViolation { detail });
@@ -226,27 +334,42 @@ impl MaestriaRuntime {
                 return true;
             }
         };
-        let permit = if output.effects.is_empty() {
-            None
-        } else {
-            match self.reserve_effect_batch(effect_tx, shutdown_token).await {
-                Ok(permit) => Some(permit),
-                Err(_) => {
-                    Self::reply_admission_error(command);
-                    return !shutdown_token.is_cancelled();
-                }
+        let effects = output.effects;
+        let prepare_before_reply = matches!(
+            command.as_ref().map(|command| command.effect_preparation),
+            Some(EffectPreparation::BeforeReply)
+        );
+        let (permit, prepared) = match self
+            .prepare_effect_batch(&effects, prepare_before_reply, effect_tx, shutdown_token)
+            .await
+        {
+            Ok(prepared) => prepared,
+            Err(EffectBatchPreparationError::Admission) => {
+                Self::reply_admission_error(command);
+                return !shutdown_token.is_cancelled();
+            }
+            Err(EffectBatchPreparationError::Preparation(error)) => {
+                tracing::warn!(%error, "effect rejected before correlated reply");
+                Self::reply_preparation_error(command, error);
+                return !shutdown_token.is_cancelled();
             }
         };
-        let effects_admitted = output.effects.len();
-        let events = output.events.clone();
-        let barriers = Self::transition_barriers(&events, &output.effects, approval_barrier);
+        let mut outcome = ApplicationOutcome {
+            effects_admitted: effects.len(),
+            events: output.events.clone(),
+        };
+        let barriers = Self::transition_barriers(&outcome.events, &effects, approval_barrier);
         {
             let mut state = self.state.write().await;
             *state = candidate;
-            self.register_harness_feedback(harness_feedback, &output.effects);
+            self.register_harness_feedback(harness_feedback, &effects);
         }
+        let effect_batch = match prepared {
+            Some(prepared) => prepared,
+            None => effects.into_iter().map(EffectWork::Pending).collect(),
+        };
         if let Some(permit) = permit
-            && self.send_reserved_effects(permit, output.effects).is_err()
+            && self.send_reserved_effects(permit, effect_batch).is_err()
         {
             Self::reply_admission_error(command);
             shutdown_token.cancel();
@@ -259,20 +382,33 @@ impl MaestriaRuntime {
             Self::reply_persistence_error(command);
             return true;
         }
-        if should_resume_approval
-            && let Some(proposal) = approval_continuation
-            && matches!(
-                proposal.execution,
-                ModelAgentProposalExecution::ApprovalContinuation { .. }
+        let deferred_run_id = match self
+            .merge_inline_approval_continuation(
+                approval_continuation,
+                should_resume_approval,
+                &mut command,
+                &mut outcome,
+                effect_tx,
+                shutdown_token,
             )
+            .await
         {
-            self.resume_model_agent_after_approval(proposal, shutdown_token.clone());
+            Ok(run_id) => run_id,
+            Err(keep_running) => return keep_running,
+        };
+        if let Some(run_id) = completed_run_id {
+            self.complete_pending_application(run_id, &mut outcome);
+        }
+        if let Some(run_id) = deferred_run_id
+            && let Some(command) = command.take()
+        {
+            return self.defer_application(run_id, command, outcome);
         }
         if let Some(command) = command.take() {
             let _ = command.reply.send(Ok(DomainApplicationResult {
                 correlation_id: command.correlation_id,
-                events,
-                effects_admitted,
+                events: outcome.events,
+                effects_admitted: outcome.effects_admitted,
             }));
         }
         self.finish_validation_barrier(barriers.validation_report_id, shutdown_token)
