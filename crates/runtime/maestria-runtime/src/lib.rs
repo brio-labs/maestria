@@ -25,6 +25,7 @@ mod completion;
 /// - `runtime_effects`: concurrent effect executor lifecycle.
 /// - `runtime_handle`: runtime handle command and feedback submission.
 /// - `runtime_loop`: runtime lifecycle and command loop.
+/// - `runtime_transition`: staged transition metadata and persistence barriers.
 mod config;
 mod effect_dispatch;
 mod effect_execution;
@@ -42,6 +43,7 @@ mod runtime;
 mod runtime_effects;
 mod runtime_handle;
 mod runtime_loop;
+mod runtime_transition;
 mod shell_policy;
 mod supervision;
 mod validation;

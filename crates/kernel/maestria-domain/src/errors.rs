@@ -122,6 +122,24 @@ impl DomainError {
         write!(f, "missing {kind} {id}")
     }
 
+    fn fmt_validation_report_task_mismatch(
+        f: &mut fmt::Formatter,
+        report_id: ValidationReportId,
+        report_task_id: Option<TaskId>,
+        task_id: TaskId,
+    ) -> fmt::Result {
+        match report_task_id {
+            Some(report_task_id) => write!(
+                f,
+                "validation report {report_id} is for task {report_task_id}, not {task_id}"
+            ),
+            None => write!(
+                f,
+                "validation report {report_id} is not associated with task {task_id}"
+            ),
+        }
+    }
+
     fn fmt_transition(
         f: &mut fmt::Formatter,
         prefix: impl fmt::Display,
@@ -155,16 +173,9 @@ impl fmt::Display for DomainError {
                 report_id,
                 report_task_id,
                 task_id,
-            } => match report_task_id {
-                Some(report_task_id) => write!(
-                    f,
-                    "validation report {report_id} is for task {report_task_id}, not {task_id}"
-                ),
-                None => write!(
-                    f,
-                    "validation report {report_id} is not associated with task {task_id}"
-                ),
-            },
+            } => {
+                Self::fmt_validation_report_task_mismatch(f, *report_id, *report_task_id, *task_id)
+            }
             Self::InvalidTaskTransition { task_id, from, to } => {
                 Self::fmt_transition(f, "invalid task transition", task_id, from, to)
             }

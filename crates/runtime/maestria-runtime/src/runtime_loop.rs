@@ -1,6 +1,6 @@
 use crate::config::{Adapters, Governance, RuntimeConfig};
-use crate::runtime::{DomainApplicationResult, MaestriaRuntime, RuntimeSubmissionError};
-use maestria_domain::{DomainError, DomainInput, KernelState, MaestriaEffect};
+use crate::runtime::{DomainApplicationResult, MaestriaRuntime};
+use maestria_domain::{DomainError, DomainInput, KernelState};
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Mutex, atomic::AtomicU64};
 use tokio::sync::{RwLock, mpsc};
@@ -126,7 +126,7 @@ impl MaestriaRuntime {
     /// executor has observed the selected shutdown policy.
     pub async fn run(
         mut self,
-        mut input_rx: mpsc::Receiver<DomainInput>,
+        input_rx: mpsc::Receiver<DomainInput>,
         shutdown_token: tokio_util::sync::CancellationToken,
     ) {
         let (effect_tx, effect_rx) =
@@ -134,252 +134,15 @@ impl MaestriaRuntime {
         let effect_shutdown = tokio_util::sync::CancellationToken::new();
         let effect_executor =
             self.spawn_effect_executor(effect_rx, effect_shutdown.clone(), shutdown_token.clone());
-
         let recovery_snapshot = self.state.read().await.clone();
         self.spawn_model_agent_recovery(shutdown_token.clone(), recovery_snapshot);
-        let Some(mut command_rx) = self.command_rx.take() else {
+        let Some(command_rx) = self.command_rx.take() else {
             tracing::error!("runtime command receiver missing");
             return;
         };
-        loop {
-            let incoming = tokio::select! {
-                () = shutdown_token.cancelled() => break,
-                msg = input_rx.recv() => msg.map(|input| (input, None)),
-                msg = command_rx.recv() => msg.map(|command| (command.input.clone(), Some(command))),
-            };
-            let Some((input, command)) = incoming else {
-                break;
-            };
-            let input = match input {
-                DomainInput::ModelAgentProposalRequested(mut proposal) => {
-                    if let Some(command) = &command {
-                        proposal.correlation_id = command.correlation_id;
-                    }
-                    DomainInput::ModelAgentProposalRequested(proposal)
-                }
-                other => other,
-            };
-            let approval_continuation = match &input {
-                DomainInput::ApprovalResolved(decision) => self
-                    .adapters
-                    .approval_repo
-                    .find_by_id(decision.approval_id)
-                    .ok()
-                    .flatten()
-                    .and_then(|record| {
-                        crate::effect_execution::decode_pending_continuation(&record)
-                    }),
-                _ => None,
-            };
-            let boundary_error = match &input {
-                DomainInput::ApprovalResolved(decision)
-                    if !self.check_approval_boundary(decision).await =>
-                {
-                    Some("approval decision failed boundary validation")
-                }
-                DomainInput::CompleteTask(complete_input)
-                    if !self.check_completion_validation(complete_input).await =>
-                {
-                    Some("task completion failed validation boundary")
-                }
-                DomainInput::HarnessRunCompleted(completion)
-                    if !self.check_harness_feedback_boundary(completion) =>
-                {
-                    Some("harness completion failed journal boundary validation")
-                }
-                _ => None,
-            };
-            if let Some(detail) = boundary_error {
-                if let Some(command) = command {
-                    let _ = command
-                        .reply
-                        .send(Err(RuntimeSubmissionError::DomainRejected {
-                            correlation_id: command.correlation_id,
-                            error: DomainError::InternalInvariantViolation { detail },
-                        }));
-                }
-                continue;
-            }
 
-            let harness_feedback = match &input {
-                DomainInput::HarnessRunCompleted(completion) => {
-                    Some((completion.run_id, completion.generation))
-                }
-                _ => None,
-            };
-            let approval_barrier = match (&input, command.as_ref()) {
-                (DomainInput::ApprovalResolved(decision), Some(_)) => {
-                    Some((decision.approval_id, decision.approved))
-                }
-                _ => None,
-            };
-
-            // The runtime loop is the sole state writer. Stage from a read
-            // snapshot, then release it before waiting for effect capacity so
-            // in-flight persistence effects can continue reading state.
-            let state = self.state.read().await;
-            let mut candidate = state.clone();
-            let should_resume_approval = matches!(
-                &input,
-                DomainInput::ApprovalResolved(decision)
-                    if approval_continuation.is_some()
-                        && !state.resolved_approvals.contains(&decision.approval_id)
-            );
-            drop(state);
-            let output = match candidate.apply_input(input) {
-                Ok(output) => output,
-                Err(error) => {
-                    if let Some(command) = command {
-                        let _ = command
-                            .reply
-                            .send(Err(RuntimeSubmissionError::DomainRejected {
-                                correlation_id: command.correlation_id,
-                                error,
-                            }));
-                    } else {
-                        tracing::warn!(%error, "domain rejected input");
-                    }
-                    continue;
-                }
-            };
-            let permit = if output.effects.is_empty() {
-                None
-            } else {
-                match self.reserve_effect_batch(&effect_tx, &shutdown_token).await {
-                    Ok(permit) => Some(permit),
-                    Err(_) => {
-                        if let Some(command) = command {
-                            let _ = command.reply.send(Err(
-                                RuntimeSubmissionError::EffectAdmissionRejected {
-                                    correlation_id: command.correlation_id,
-                                },
-                            ));
-                        }
-                        if shutdown_token.is_cancelled() {
-                            break;
-                        }
-                        continue;
-                    }
-                }
-            };
-            let effects_admitted = output.effects.len();
-            let events = output.events.clone();
-            let mut state = self.state.write().await;
-            let proposal_event_id = events.iter().find_map(|event| {
-                matches!(
-                    &event.event,
-                    maestria_domain::DomainEvent::ModelAgentProposalRequested { .. }
-                )
-                .then_some(event.id)
-            });
-            let approval_event_barrier = approval_barrier.and_then(|(approval_id, approved)| {
-                events.iter().find_map(|event| {
-                    matches!(
-                        &event.event,
-                        maestria_domain::DomainEvent::ApprovalRecorded {
-                            approval_id: event_approval_id,
-                            approved: event_approved,
-                            ..
-                        } if *event_approval_id == approval_id && *event_approved == approved
-                    )
-                    .then_some((event.id, approval_id, approved))
-                })
-            });
-            *state = candidate;
-            let mut wait_for_report_id = None;
-            for effect in &output.effects {
-                if let MaestriaEffect::PersistEvent { envelope } = effect
-                    && let maestria_domain::DomainEvent::ValidationReportCreated {
-                        report_id, ..
-                    } = &envelope.event
-                {
-                    wait_for_report_id = Some(*report_id);
-                }
-            }
-            self.register_harness_feedback(harness_feedback, &output.effects);
-            drop(state);
-            if let Some(permit) = permit
-                && self.send_reserved_effects(permit, output.effects).is_err()
-            {
-                if let Some(command) = command {
-                    let _ =
-                        command
-                            .reply
-                            .send(Err(RuntimeSubmissionError::EffectAdmissionRejected {
-                                correlation_id: command.correlation_id,
-                            }));
-                }
-                shutdown_token.cancel();
-                break;
-            }
-            let approval_barrier_failed = match approval_barrier {
-                Some((approval_id, approved)) => match approval_event_barrier {
-                    Some((event_id, event_approval_id, event_approved)) => {
-                        debug_assert_eq!(approval_id, event_approval_id);
-                        debug_assert_eq!(approved, event_approved);
-                        !self
-                            .wait_for_approval_resolution(
-                                event_id,
-                                event_approval_id,
-                                event_approved,
-                                &shutdown_token,
-                            )
-                            .await
-                    }
-                    None => true,
-                },
-                None => false,
-            };
-            let proposal_barrier_failed = if let (Some(event_id), Some(_command_ref)) =
-                (proposal_event_id, command.as_ref())
-            {
-                !self
-                    .wait_for_event_persistence(event_id, &shutdown_token)
-                    .await
-            } else {
-                false
-            };
-            if approval_barrier_failed || proposal_barrier_failed {
-                if let Some(command) = command {
-                    let correlation_id = command.correlation_id;
-                    let _ =
-                        command
-                            .reply
-                            .send(Err(RuntimeSubmissionError::PersistenceBarrierFailed {
-                                correlation_id,
-                            }));
-                }
-                continue;
-            }
-            if should_resume_approval
-                && let Some(proposal) = approval_continuation
-                && proposal.approval_id.is_some()
-            {
-                self.resume_model_agent_after_approval(proposal, shutdown_token.clone());
-            }
-            if let Some(command) = command {
-                let _ = command.reply.send(Ok(DomainApplicationResult {
-                    correlation_id: command.correlation_id,
-                    events,
-                    effects_admitted,
-                }));
-            }
-            if let Some(report_id) = wait_for_report_id {
-                let found = self
-                    .wait_for_validation_report(report_id, &shutdown_token)
-                    .await;
-                if !found {
-                    if !shutdown_token.is_cancelled() {
-                        tracing::error!(
-                            "fatal: timeout or error waiting for durable ValidationReportCreated; stopping runtime"
-                        );
-                        shutdown_token.cancel();
-                    }
-                    break;
-                }
-            }
-        }
-
+        self.run_input_loop(input_rx, command_rx, &effect_tx, &shutdown_token)
+            .await;
         drop(effect_tx);
         if !self.config.drain_effects_on_shutdown {
             effect_shutdown.cancel();
@@ -388,5 +151,107 @@ impl MaestriaRuntime {
         if let Err(error) = effect_executor.await {
             tracing::error!(%error, "effect executor task failed");
         }
+    }
+
+    async fn run_input_loop(
+        &self,
+        mut input_rx: mpsc::Receiver<DomainInput>,
+        mut command_rx: mpsc::Receiver<crate::runtime::RuntimeCommand>,
+        effect_tx: &mpsc::Sender<crate::effect_dispatch::EffectBatch>,
+        shutdown_token: &tokio_util::sync::CancellationToken,
+    ) {
+        loop {
+            let incoming = tokio::select! {
+                () = shutdown_token.cancelled() => break,
+                input = input_rx.recv() => input.map(|input| (input, None)),
+                command = command_rx.recv() => {
+                    command.map(|command| (command.input.clone(), Some(command)))
+                },
+            };
+            let Some((input, command)) = incoming else {
+                break;
+            };
+            if !self
+                .process_input(input, command, effect_tx, shutdown_token)
+                .await
+            {
+                break;
+            }
+        }
+    }
+
+    async fn process_input(
+        &self,
+        input: DomainInput,
+        mut command: Option<crate::runtime::RuntimeCommand>,
+        effect_tx: &mpsc::Sender<crate::effect_dispatch::EffectBatch>,
+        shutdown_token: &tokio_util::sync::CancellationToken,
+    ) -> bool {
+        let input = Self::correlate_proposal(input, command.as_ref());
+        let approval_continuation = self.approval_continuation(&input);
+        if let Some(detail) = self.boundary_error(&input).await {
+            Self::reply_domain_error(command, DomainError::InternalInvariantViolation { detail });
+            return true;
+        }
+        let harness_feedback = Self::harness_feedback(&input);
+        let approval_barrier = Self::approval_barrier(&input, command.as_ref());
+        let (candidate, output, should_resume_approval) = match self
+            .stage_input(input, approval_continuation.is_some())
+            .await
+        {
+            Ok(staged) => staged,
+            Err(error) => {
+                Self::reply_domain_error(command, error);
+                return true;
+            }
+        };
+        let permit = if output.effects.is_empty() {
+            None
+        } else {
+            match self.reserve_effect_batch(effect_tx, shutdown_token).await {
+                Ok(permit) => Some(permit),
+                Err(_) => {
+                    Self::reply_admission_error(command);
+                    return !shutdown_token.is_cancelled();
+                }
+            }
+        };
+        let effects_admitted = output.effects.len();
+        let events = output.events.clone();
+        let barriers = Self::transition_barriers(&events, &output.effects, approval_barrier);
+        {
+            let mut state = self.state.write().await;
+            *state = candidate;
+            self.register_harness_feedback(harness_feedback, &output.effects);
+        }
+        if let Some(permit) = permit
+            && self.send_reserved_effects(permit, output.effects).is_err()
+        {
+            Self::reply_admission_error(command);
+            shutdown_token.cancel();
+            return false;
+        }
+        if !self
+            .wait_transition_barriers(&barriers, command.is_some(), shutdown_token)
+            .await
+        {
+            Self::reply_persistence_error(command);
+            return true;
+        }
+        if should_resume_approval
+            && let Some(proposal) = approval_continuation
+            && proposal.approval_id.is_some()
+        {
+            self.resume_model_agent_after_approval(proposal, shutdown_token.clone());
+        }
+        if let Some(command) = command.take() {
+            let _ = command.reply.send(Ok(DomainApplicationResult {
+                correlation_id: command.correlation_id,
+                events,
+                effects_admitted,
+            }));
+        }
+        self.finish_validation_barrier(barriers.validation_report_id, shutdown_token)
+            .await
     }
 }

@@ -269,6 +269,7 @@ RESPONSIBILITY_MAPS: dict[str, tuple[str, ...]] = {
         "runtime_effects",
         "runtime_handle",
         "runtime_loop",
+        "runtime_transition",
     ),
     # ── core ──────────────────────────────────────────────────────────
     "crates/core/maestria-core/src/lib.rs": (

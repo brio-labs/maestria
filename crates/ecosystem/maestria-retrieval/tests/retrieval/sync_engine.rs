@@ -142,10 +142,14 @@ fn sync_engine_quarantines_prompt_injection() -> RetrievalResult<()> {
 #[test]
 fn sync_engine_rejects_untrusted_authorization_before_quarantine() -> RetrievalResult<()> {
     let retriever = |_: &SearchPlan| -> RetrievalResult<Vec<EvidenceCandidate>> {
-        panic!("untrusted plans must be rejected before retrieval")
+        Err(RetrievalError::Internal(
+            "untrusted plan reached retrieval".to_string(),
+        ))
     };
     let evaluator = |_: Vec<EvidenceCandidate>, _: &_| {
-        panic!("untrusted plans must be rejected before evaluation")
+        Err(RetrievalError::Internal(
+            "untrusted plan reached evaluation".to_string(),
+        ))
     };
     let engine = SyncRetrievalEngine::new(
         vec![retriever],
