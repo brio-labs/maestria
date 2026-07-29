@@ -1,9 +1,9 @@
 use crate::test_support::*;
 use crate::tests::FailingEventLog;
 use maestria_domain::{
-    Artifact, ArtifactId, Card, CardId, Chunk, ChunkId, DomainEvent, DomainEventEnvelope, EventId,
-    Evidence, EvidenceId, EvidenceKind, HarnessRunId, IndexStatus, KernelState, LogicalTick,
-    SequenceNumber, SourceSpan, StructureNodeId,
+    Artifact, ArtifactId, BlobId, Card, CardId, Chunk, ChunkId, ContentHash, DomainEvent,
+    DomainEventEnvelope, EventId, Evidence, EvidenceId, EvidenceKind, HarnessRunId, IndexStatus,
+    KernelState, LineRange, LogicalTick, SequenceNumber, SnapshotRef, SourceSpan, StructureNodeId,
 };
 use maestria_ports::{
     CardRepository, ChunkRepository, EffectJournal, EffectJournalEntry, EffectJournalIntent,
@@ -227,10 +227,12 @@ async fn failed_event_persistence_stops_runtime() -> Result<(), Box<dyn std::err
     Ok(())
 }
 
+type PersistTestState = (KernelState, ChunkId, CardId, EvidenceId, ArtifactId);
+
 /// Builds a KernelState pre-populated with one artifact, chunk, card, and
 /// evidence record, returning the state together with the IDs for later
 /// assertion.
-fn build_persist_test_state() -> (KernelState, ChunkId, CardId, EvidenceId, ArtifactId) {
+fn build_persist_test_state() -> Result<PersistTestState, Box<dyn std::error::Error>> {
     let artifact_id = ArtifactId::new(1);
     let chunk_id = ChunkId::new(1);
     let card_id = CardId::new(1);
@@ -279,9 +281,11 @@ fn build_persist_test_state() -> (KernelState, ChunkId, CardId, EvidenceId, Arti
         claim_id: None,
         kind: EvidenceKind::FileSpan {
             path: "/test.txt".into(),
-            range: maestria_domain::ContentRange { start: 0, end: 10 },
-            content_hash: "abc".into(),
-            snapshot: None,
+            range: LineRange::new(1, 10)?,
+            snapshot: SnapshotRef::new(
+                BlobId::new(1),
+                ContentHash::new(format!("sha256:{}", "a".repeat(64)))?,
+            ),
         },
         excerpt: "excerpt".into(),
         observed_at: LogicalTick::new(1),
@@ -293,7 +297,7 @@ fn build_persist_test_state() -> (KernelState, ChunkId, CardId, EvidenceId, Arti
     state.chunks.insert(chunk_id, chunk);
     state.cards.insert(card_id, card);
     state.evidences.insert(evidence_id, evidence);
-    (state, chunk_id, card_id, evidence_id, artifact_id)
+    Ok((state, chunk_id, card_id, evidence_id, artifact_id))
 }
 
 fn build_persist_test_envelopes(
@@ -301,8 +305,8 @@ fn build_persist_test_envelopes(
     card_id: CardId,
     evidence_id: EvidenceId,
     artifact_id: ArtifactId,
-) -> Vec<DomainEventEnvelope> {
-    vec![
+) -> Result<Vec<DomainEventEnvelope>, Box<dyn std::error::Error>> {
+    Ok(vec![
         DomainEventEnvelope {
             id: EventId::new(1),
             sequence: SequenceNumber::new(1),
@@ -344,22 +348,24 @@ fn build_persist_test_envelopes(
                 claim_id: None,
                 kind: EvidenceKind::FileSpan {
                     path: "/test.txt".into(),
-                    range: maestria_domain::ContentRange { start: 0, end: 10 },
-                    content_hash: "abc".into(),
-                    snapshot: None,
+                    range: LineRange::new(1, 10)?,
+                    snapshot: SnapshotRef::new(
+                        BlobId::new(1),
+                        ContentHash::new(format!("sha256:{}", "a".repeat(64)))?,
+                    ),
                 },
                 excerpt: "excerpt".into(),
                 observed_at: LogicalTick::new(1),
                 security: maestria_domain::SecurityMetadata::default(),
             },
         },
-    ]
+    ])
 }
 
 #[tokio::test]
 async fn persist_event_dispatches_chunk_card_evidence_to_repositories()
 -> Result<(), Box<dyn std::error::Error>> {
-    let (state, chunk_id, card_id, evidence_id, artifact_id) = build_persist_test_state();
+    let (state, chunk_id, card_id, evidence_id, artifact_id) = build_persist_test_state()?;
 
     let chunk_repo = Arc::new(InMemoryChunkRepository::new());
     let card_repo = Arc::new(InMemoryCardRepository::new());
@@ -378,7 +384,7 @@ async fn persist_event_dispatches_chunk_card_evidence_to_repositories()
     let governance = crate::test_helpers::test_governance();
     let (input_tx, _input_rx) = mpsc::channel(8);
 
-    let envelopes = build_persist_test_envelopes(chunk_id, card_id, evidence_id, artifact_id);
+    let envelopes = build_persist_test_envelopes(chunk_id, card_id, evidence_id, artifact_id)?;
 
     let adapters = Arc::new(adapters);
     let governance = Arc::new(governance);

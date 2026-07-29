@@ -137,7 +137,11 @@ fn read_evidence(row: &Row<'_>) -> Result<Evidence, PortError> {
     let kind_json = row.get::<_, String>(3).map_err(to_port_error)?;
     let kind = serde_json::from_str::<StoredEvidenceKind>(&kind_json)
         .map_err(json_error)?
-        .into_domain();
+        .try_into_domain()
+        .map_err(|error| PortError::InternalContext {
+            context: "decode stored evidence kind",
+            source: error,
+        })?;
     let security_json = row.get::<_, String>(6).map_err(to_port_error)?;
     let security = serde_json::from_str(&security_json).map_err(json_error)?;
 

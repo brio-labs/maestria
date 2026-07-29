@@ -130,11 +130,11 @@ async fn assert_pdf_span_evidence(
                 assert_eq!(ev.artifact_id, ArtifactId::new(200));
                 match &ev.kind {
                     EvidenceKind::PdfSpan {
-                        blob,
+                        snapshot,
                         page_start,
                         page_end,
                     } => {
-                        assert!(blob.value() > 0, "blob id must be non-zero");
+                        assert!(snapshot.blob_id().value() > 0, "blob id must be non-zero");
                         assert_eq!(
                             *page_start, *expected_page,
                             "page_start mismatch for evidence {i}"
@@ -225,11 +225,11 @@ async fn pdf_evidence_maps_page_one_to_pdf_span() -> Result<(), Box<dyn std::err
             assert_eq!(ev.artifact_id, ArtifactId::new(100));
             match &ev.kind {
                 EvidenceKind::PdfSpan {
-                    blob,
+                    snapshot,
                     page_start,
                     page_end,
                 } => {
-                    assert!(blob.value() > 0, "blob id must be non-zero");
+                    assert!(snapshot.blob_id().value() > 0, "blob id must be non-zero");
                     assert_eq!(*page_start, 1, "page_start must be 1");
                     assert_eq!(*page_end, 1, "page_end must equal page_start");
                 }

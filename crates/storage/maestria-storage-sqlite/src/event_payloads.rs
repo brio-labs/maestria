@@ -260,6 +260,9 @@ impl StoredEventPayload {
     }
 
     pub(crate) fn into_domain(self) -> Result<DomainEvent, PortError> {
+        if matches!(&self, Self::EvidenceRecorded { .. }) {
+            return self.try_into_domain_evidence();
+        }
         self.try_into_domain_stale()
             .or_else(|s| (*s).try_into_domain_ocr())
             .or_else(|s| (*s).try_into_domain_artifact())

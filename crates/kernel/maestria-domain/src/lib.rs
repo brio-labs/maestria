@@ -10,6 +10,7 @@ mod entities;
 mod errors;
 mod events;
 mod evidence_pack;
+mod evidence_source;
 mod generations;
 mod ids;
 mod input;
@@ -17,6 +18,7 @@ mod inputs;
 mod kernel_state;
 /// Responsibility map:
 /// - `effects`: module responsibility.
+/// - `evidence_source`: immutable text and snapshot evidence boundaries.
 /// - `entities`: module responsibility.
 /// - `errors`: module responsibility.
 /// - `events`: module responsibility.
@@ -48,10 +50,9 @@ pub use crate::effects::{
     UpdateGraphRequest,
 };
 pub use crate::entities::{
-    Artifact, Card, Chunk, Claim, ClaimStatus, ContentRange, Evidence, EvidenceKind, IndexStatus,
-    Memory, MemoryCandidate, MemoryStatus, OutputStream, PendingArtifact, Relation,
-    RelationEndpoint, RelationKind, Task, TaskPriority, TaskStatus, TestStatus,
-    ValidationReportRecord, WebEvidenceMetadata,
+    Artifact, Card, Chunk, Claim, ClaimStatus, ContentRange, Evidence, IndexStatus, Memory,
+    MemoryCandidate, MemoryStatus, OutputStream, PendingArtifact, Relation, RelationEndpoint,
+    RelationKind, Task, TaskPriority, TaskStatus, TestStatus, ValidationReportRecord,
 };
 pub use crate::errors::DomainError;
 pub use crate::events::{DomainEvent, DomainEventEnvelope};
@@ -59,6 +60,11 @@ pub use crate::evidence_pack::{
     ClaimCoverageStatusRecord, ClaimEvidenceCoverageRecord, EvidenceFreshnessRecord,
     EvidencePackCompressionRecord, EvidencePackMetadataRecord, EvidencePackReplayKeyRecord,
     EvidencePackReproducibilityRecord, SourceIndependenceRecord,
+};
+pub use crate::evidence_source::{
+    EvidenceKind, LineRange, LineRangeError, SnapshotRef, SnapshotVerificationError,
+    TextSnapshotVerificationError, WebEvidenceMetadata, verify_snapshot_bytes,
+    verify_text_snapshot,
 };
 pub use crate::generations::{
     IndexFingerprint, IndexGeneration, IndexGenerationRegistry, IndexLifecycle, RepresentationName,

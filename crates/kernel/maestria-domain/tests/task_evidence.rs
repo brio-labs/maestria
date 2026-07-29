@@ -1,9 +1,12 @@
 use maestria_domain::*;
+#[path = "common/file_evidence.rs"]
+mod common;
+use common::file_span_kind;
 
 // ── Task evidence linking ─────────────────────────────────────────
 
 #[test]
-fn link_evidence_to_task_succeeds() -> Result<(), DomainError> {
+fn link_evidence_to_task_succeeds() -> Result<(), Box<dyn std::error::Error>> {
     let mut state = KernelState::new();
     state.apply_input(DomainInput::RegisterArtifact(RegisterArtifactInput {
         artifact_id: ArtifactId::new(1),
@@ -14,12 +17,7 @@ fn link_evidence_to_task_succeeds() -> Result<(), DomainError> {
         evidence_id: EvidenceId::new(10),
         artifact_id: ArtifactId::new(1),
         claim_id: None,
-        kind: EvidenceKind::FileSpan {
-            path: "notes.txt".to_string(),
-            range: ContentRange { start: 1, end: 2 },
-            content_hash: "sha256:notes".to_string(),
-            snapshot: None,
-        },
+        kind: file_span_kind()?,
         excerpt: "first chunk".to_string(),
         observed_at: LogicalTick::new(1),
         security: None,
@@ -59,7 +57,7 @@ fn link_evidence_to_task_succeeds() -> Result<(), DomainError> {
 // ── SearchExecuted audit event ────────────────────────────────────
 
 #[test]
-fn link_evidence_to_task_idempotent() -> Result<(), DomainError> {
+fn link_evidence_to_task_idempotent() -> Result<(), Box<dyn std::error::Error>> {
     let mut state = KernelState::new();
     state.apply_input(DomainInput::RegisterArtifact(RegisterArtifactInput {
         artifact_id: ArtifactId::new(1),
@@ -70,12 +68,7 @@ fn link_evidence_to_task_idempotent() -> Result<(), DomainError> {
         evidence_id: EvidenceId::new(10),
         artifact_id: ArtifactId::new(1),
         claim_id: None,
-        kind: EvidenceKind::FileSpan {
-            path: "notes.txt".to_string(),
-            range: ContentRange { start: 1, end: 2 },
-            content_hash: "sha256:notes".to_string(),
-            snapshot: None,
-        },
+        kind: file_span_kind()?,
         excerpt: "first chunk".to_string(),
         observed_at: LogicalTick::new(1),
         security: None,
@@ -114,7 +107,7 @@ fn link_evidence_to_task_idempotent() -> Result<(), DomainError> {
 }
 
 #[test]
-fn link_evidence_to_missing_task_is_rejected() -> Result<(), DomainError> {
+fn link_evidence_to_missing_task_is_rejected() -> Result<(), Box<dyn std::error::Error>> {
     let mut state = KernelState::new();
     state.apply_input(DomainInput::RegisterArtifact(RegisterArtifactInput {
         artifact_id: ArtifactId::new(1),
@@ -125,12 +118,7 @@ fn link_evidence_to_missing_task_is_rejected() -> Result<(), DomainError> {
         evidence_id: EvidenceId::new(10),
         artifact_id: ArtifactId::new(1),
         claim_id: None,
-        kind: EvidenceKind::FileSpan {
-            path: "notes.txt".to_string(),
-            range: ContentRange { start: 1, end: 2 },
-            content_hash: "sha256:notes".to_string(),
-            snapshot: None,
-        },
+        kind: file_span_kind()?,
         excerpt: "first chunk".to_string(),
         observed_at: LogicalTick::new(1),
         security: None,

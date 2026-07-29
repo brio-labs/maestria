@@ -1,7 +1,7 @@
 use super::*;
 use maestria_domain::{
-    Artifact, ArtifactId, Evidence, EvidenceId, EvidenceKind, IndexStatus, ScopeId,
-    SecurityMetadata, ValidationReportId,
+    Artifact, ArtifactId, BlobId, ContentHash, Evidence, EvidenceId, EvidenceKind, IndexStatus,
+    LineRange, ScopeId, SecurityMetadata, SnapshotRef, ValidationReportId,
 };
 use maestria_ports::{ArtifactRepository, EvidenceRepository};
 use maestria_storage_sqlite::SqliteStore;
@@ -87,9 +87,11 @@ fn open_evidence_rejects_file_span_outside_current_manifest_roots() -> Result<()
             claim_id: None,
             kind: EvidenceKind::FileSpan {
                 path: outside_path.display().to_string(),
-                range: maestria_domain::ContentRange { start: 1, end: 1 },
-                content_hash: "hash".to_string(),
-                snapshot: None,
+                range: LineRange::new(1, 1)?,
+                snapshot: SnapshotRef::new(
+                    BlobId::new(1),
+                    ContentHash::new(format!("sha256:{}", "0".repeat(64)))?,
+                ),
             },
             excerpt: "outside".to_string(),
             observed_at: maestria_domain::LogicalTick::new(1),

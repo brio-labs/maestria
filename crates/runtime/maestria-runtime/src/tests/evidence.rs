@@ -1,13 +1,28 @@
 use crate::test_support::*;
 use maestria_domain::{
-    Artifact, ArtifactId, DomainEventEnvelope, EventId, Evidence, EvidenceId, EvidenceKind,
-    IndexStatus, LogicalTick, SequenceNumber,
+    Artifact, ArtifactId, BlobId, ContentHash, DomainEventEnvelope, EventId, Evidence, EvidenceId,
+    EvidenceKind, IndexStatus, LineRange, LogicalTick, SequenceNumber, SnapshotRef,
 };
-use maestria_ports::{BlobStore, EvidenceRepository, InMemoryEvidenceRepository};
+use maestria_ports::{BlobStore, EvidenceRepository};
 use std::collections::BTreeSet;
 use std::sync::Arc;
 use tokio::sync::{RwLock, mpsc};
 
+fn file_kind(
+    path: &str,
+    start: usize,
+    end: usize,
+    blob_id: u64,
+) -> Result<EvidenceKind, Box<dyn std::error::Error>> {
+    Ok(EvidenceKind::FileSpan {
+        path: path.to_string(),
+        range: LineRange::new(start, end)?,
+        snapshot: SnapshotRef::new(
+            BlobId::new(blob_id),
+            ContentHash::new(format!("sha256:{}", "a".repeat(64)))?,
+        ),
+    })
+}
 #[tokio::test]
 async fn evidence_recorded_persistence_replaces_malformed_record()
 -> Result<(), Box<dyn std::error::Error>> {
@@ -21,12 +36,7 @@ async fn evidence_recorded_persistence_replaces_malformed_record()
         id: evidence_id,
         artifact_id,
         claim_id: None,
-        kind: EvidenceKind::FileSpan {
-            path: "/wrong.txt".into(),
-            range: maestria_domain::ContentRange { start: 0, end: 1 },
-            content_hash: "bad".into(),
-            snapshot: None,
-        },
+        kind: file_kind("/wrong.txt", 1, 1, 1)?,
         excerpt: "malformed excerpt".into(),
         observed_at: LogicalTick::new(1),
         security: maestria_domain::SecurityMetadata::default(),
@@ -49,12 +59,7 @@ async fn evidence_recorded_persistence_replaces_malformed_record()
         id: evidence_id,
         artifact_id,
         claim_id: None,
-        kind: EvidenceKind::FileSpan {
-            path: "/correct.txt".into(),
-            range: maestria_domain::ContentRange { start: 0, end: 10 },
-            content_hash: "abc".into(),
-            snapshot: None,
-        },
+        kind: file_kind("/correct.txt", 1, 10, 1)?,
         excerpt: "valid excerpt".into(),
         observed_at: LogicalTick::new(2),
         security: maestria_domain::SecurityMetadata::default(),
@@ -77,12 +82,7 @@ async fn evidence_recorded_persistence_replaces_malformed_record()
             evidence_id,
             artifact_id,
             claim_id: None,
-            kind: EvidenceKind::FileSpan {
-                path: "/correct.txt".into(),
-                range: maestria_domain::ContentRange { start: 0, end: 10 },
-                content_hash: "abc".into(),
-                snapshot: None,
-            },
+            kind: file_kind("/correct.txt", 1, 10, 1)?,
             excerpt: "valid excerpt".into(),
             observed_at: LogicalTick::new(2),
             security: maestria_domain::SecurityMetadata::default(),
@@ -174,12 +174,13 @@ async fn fetch_web_records_hashed_blob_and_security_boundary()
                     url: recorded_url,
                     snapshot,
                     fetched_at,
-                    content_hash,
                     metadata,
-                    ..
                 } => {
                     assert_eq!(recorded_url, url);
-                    assert_eq!(content_hash, maestria_domain::content_hash(html.as_bytes()));
+                    assert_eq!(
+                        snapshot.content_hash().as_str(),
+                        maestria_domain::content_hash(html.as_bytes())
+                    );
                     assert!(!metadata.primary_source);
                     assert_eq!(fetched_at.value(), 0);
                     assert!(
@@ -188,7 +189,7 @@ async fn fetch_web_records_hashed_blob_and_security_boundary()
                             .as_deref()
                             .is_some_and(|value| !value.is_empty())
                     );
-                    assert_eq!(blob_store.get(snapshot)?, html.as_bytes());
+                    assert_eq!(blob_store.get(snapshot.blob_id())?, html.as_bytes());
                 }
                 other => return Err(format!("unexpected evidence kind: {other:?}").into()),
             }

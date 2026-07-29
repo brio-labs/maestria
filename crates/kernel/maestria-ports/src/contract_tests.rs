@@ -3,9 +3,9 @@ use std::time::Duration;
 
 use super::*;
 use maestria_domain::{
-    Artifact, ArtifactId, BlobId, Card, CardId, Chunk, ChunkId, ClaimId, ContentRange, DomainEvent,
-    DomainEventEnvelope, EventId, Evidence, EvidenceId, EvidenceKind, LogicalTick, SequenceNumber,
-    ValidationReportId,
+    Artifact, ArtifactId, BlobId, Card, CardId, Chunk, ChunkId, ClaimId, ContentHash, DomainEvent,
+    DomainEventEnvelope, EventId, Evidence, EvidenceId, EvidenceKind, LineRange, LogicalTick,
+    SequenceNumber, SnapshotRef, ValidationReportId,
 };
 
 pub fn sample_artifact(id: u64) -> Artifact {
@@ -153,9 +153,11 @@ pub fn assert_evidence_repository_round_trip(
         claim_id: Some(ClaimId::new(7)),
         kind: EvidenceKind::FileSpan {
             path: "notes.md".to_string(),
-            range: ContentRange { start: 1, end: 4 },
-            content_hash: "sha256:notes".to_string(),
-            snapshot: None,
+            range: LineRange::new(1, 4)?,
+            snapshot: SnapshotRef::new(
+                BlobId::new(40),
+                ContentHash::new(maestria_domain::content_hash(b"source excerpt"))?,
+            ),
         },
         excerpt: "source excerpt".to_string(),
         observed_at: LogicalTick::new(9),
@@ -273,9 +275,11 @@ pub fn assert_event_log_round_trip(log: &impl EventLog) -> Result<(), Box<dyn st
             claim_id: None,
             kind: EvidenceKind::FileSpan {
                 path: "notes.md".to_string(),
-                range: ContentRange { start: 1, end: 4 },
-                content_hash: "sha256:notes".to_string(),
-                snapshot: None,
+                range: LineRange::new(1, 4)?,
+                snapshot: SnapshotRef::new(
+                    BlobId::new(40),
+                    ContentHash::new(maestria_domain::content_hash(b"excerpt"))?,
+                ),
             },
             excerpt: "excerpt".to_string(),
             observed_at: LogicalTick::new(0),

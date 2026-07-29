@@ -31,7 +31,12 @@ fn span_matches_record(
                 range,
                 ..
             },
-        ) => path == evidence_path && candidate.source_span.range() == *range,
+        ) => {
+            let candidate_range = candidate.source_span.range();
+            path == evidence_path
+                && candidate_range.start == range.start()
+                && candidate_range.end == range.end()
+        }
         (
             SourceLocation::Page {
                 page_start,

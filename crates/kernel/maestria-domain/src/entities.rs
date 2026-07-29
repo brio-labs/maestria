@@ -1,6 +1,7 @@
+use crate::evidence_source::EvidenceKind;
 use crate::ids::{
-    ArtifactId, BlobId, CardId, ChunkId, ClaimId, EvidenceId, HarnessRunId, LogicalTick,
-    MemoryCandidateId, MemoryId, RelationId, TaskId, ValidationReportId,
+    ArtifactId, CardId, ChunkId, ClaimId, EvidenceId, LogicalTick, MemoryCandidateId, MemoryId,
+    RelationId, TaskId, ValidationReportId,
 };
 use crate::security::SecurityMetadata;
 use std::collections::BTreeSet;
@@ -134,65 +135,6 @@ impl Card {
             security,
         }
     }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub struct WebEvidenceMetadata {
-    pub published_at: Option<String>,
-    pub updated_at: Option<String>,
-    pub effective_at: Option<String>,
-    pub accessed_at: Option<String>,
-    pub content_type: Option<String>,
-    pub primary_source: bool,
-    pub is_dynamic: bool,
-    pub is_paywalled: bool,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum EvidenceKind {
-    FileSpan {
-        path: String,
-        range: ContentRange,
-        content_hash: String,
-        snapshot: Option<BlobId>,
-    },
-    PdfSpan {
-        blob: BlobId,
-        page_start: u32,
-        page_end: u32,
-    },
-    PdfRegion {
-        blob: BlobId,
-        page: u32,
-        x: u32,
-        y: u32,
-        width: u32,
-        height: u32,
-    },
-    WebSnapshot {
-        url: String,
-        snapshot: BlobId,
-        fetched_at: LogicalTick,
-        content_hash: String,
-        metadata: WebEvidenceMetadata,
-    },
-    CommandOutput {
-        harness_run: HarnessRunId,
-        stream: OutputStream,
-        blob: BlobId,
-    },
-    TestResult {
-        harness_run: HarnessRunId,
-        status: TestStatus,
-        log: BlobId,
-    },
-    Diff {
-        harness_run: HarnessRunId,
-        patch_blob: BlobId,
-    },
-    Validation {
-        report_id: ValidationReportId,
-    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -190,8 +190,15 @@ impl EffectExecutionContext {
                 &request.source_path,
                 source_hash,
             ) {
-                Some(records) => records,
-                None => return false,
+                Ok(records) => records,
+                Err(error) => {
+                    tracing::error!(
+                        artifact_id = %artifact_id.value(),
+                        %error,
+                        "parser emitted malformed indexable records"
+                    );
+                    return false;
+                }
             }
         } else {
             if !parsed.chunks.is_empty() || !parsed.cards.is_empty() {

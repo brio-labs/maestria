@@ -740,48 +740,42 @@ fn evidence_source(evidence: &Evidence) -> Result<EvidenceSourceResponse> {
         EvidenceKind::FileSpan {
             path,
             range,
-            content_hash,
-            ..
+            snapshot,
         } => EvidenceSourceResponse::File {
             path: path.clone(),
-            start_line: u32::try_from(range.start)
+            start_line: u32::try_from(range.start())
                 .context("file evidence start line exceeds u32")?,
-            end_line: u32::try_from(range.end).context("file evidence end line exceeds u32")?,
-            content_hash: content_hash.clone(),
+            end_line: u32::try_from(range.end()).context("file evidence end line exceeds u32")?,
+            content_hash: snapshot.content_hash().as_str().to_string(),
         },
         EvidenceKind::PdfSpan {
-            blob,
+            snapshot,
             page_start,
             page_end,
         } => EvidenceSourceResponse::Pdf {
-            snapshot_id: blob.value(),
+            snapshot_id: snapshot.blob_id().value(),
             page_start: *page_start,
             page_end: *page_end,
         },
         EvidenceKind::PdfRegion {
-            blob,
+            snapshot,
             page,
             x,
             y,
             width,
             height,
         } => EvidenceSourceResponse::PdfRegion {
-            snapshot_id: blob.value(),
+            snapshot_id: snapshot.blob_id().value(),
             page: *page,
             x: *x,
             y: *y,
             width: *width,
             height: *height,
         },
-        EvidenceKind::WebSnapshot {
-            url,
-            snapshot,
-            content_hash,
-            ..
-        } => EvidenceSourceResponse::Web {
+        EvidenceKind::WebSnapshot { url, snapshot, .. } => EvidenceSourceResponse::Web {
             url: url.clone(),
-            content_hash: content_hash.clone(),
-            snapshot_id: snapshot.value(),
+            content_hash: snapshot.content_hash().as_str().to_string(),
+            snapshot_id: snapshot.blob_id().value(),
         },
         EvidenceKind::CommandOutput {
             harness_run,

@@ -20,7 +20,7 @@ fn ingestion_replay_from_detection_only() -> Result<(), Box<dyn std::error::Erro
         title: "Notes".to_string(),
         source_path: String::new(),
         source_bytes: Vec::new(),
-        content_hash: "sha256:abc".to_string(),
+        content_hash: fixtures::test_content_hash()?.as_str().to_owned(),
     })];
     let (state, events, _effects) = replay_inputs(&inputs)?;
     // Detection is a pure preflight — no persisted events or artifact.
@@ -42,7 +42,7 @@ fn ingestion_replay_full_flow_reconstructs_state() -> Result<(), Box<dyn std::er
             title: "Notes".to_string(),
             source_path: String::new(),
             source_bytes: Vec::new(),
-            content_hash: "sha256:abc".to_string(),
+            content_hash: fixtures::test_content_hash()?.as_str().to_owned(),
         }),
         DomainInput::ParserCompleted(ParserResult {
             status: maestria_domain::ParseStatus::Parsed,
@@ -184,7 +184,7 @@ fn replay_reconstructs_pending_and_indexed_state() -> Result<(), Box<dyn std::er
         title: "Notes".to_string(),
         source_path: String::new(),
         source_bytes: vec![1, 2, 3],
-        content_hash: "sha256:abc".to_string(),
+        content_hash: fixtures::test_content_hash()?.as_str().to_owned(),
     }))?;
     state.apply_input(DomainInput::ParserCompleted(parser_result_two_chunks()?))?;
 

@@ -2,6 +2,50 @@ use crate::security::SecurityMetadata;
 use crate::types::*;
 
 impl KernelState {
+    fn validate_existing_deterministic_evidence_for_chunk(
+        &self,
+        artifact_id: ArtifactId,
+        order: u32,
+    ) -> Result<(), DomainError> {
+        let evidence_id = crate::provenance::evidence_id_for(artifact_id, order);
+        let Some(existing) = self.evidences.get(&evidence_id) else {
+            return Ok(());
+        };
+        if existing.artifact_id != artifact_id {
+            return Err(DomainError::MalformedDeterministicEvidence {
+                evidence_id,
+                reason: "artifact owner does not match chunk owner",
+            });
+        }
+        match &existing.kind {
+            EvidenceKind::FileSpan { snapshot, .. }
+            | EvidenceKind::PdfSpan { snapshot, .. }
+            | EvidenceKind::PdfRegion { snapshot, .. } => {
+                let Some(expected_hash) = self
+                    .artifacts
+                    .get(&artifact_id)
+                    .and_then(|artifact| artifact.content_hash.as_deref())
+                else {
+                    return Err(DomainError::MalformedDeterministicEvidence {
+                        evidence_id,
+                        reason: "artifact has no content hash for deterministic evidence",
+                    });
+                };
+                if snapshot.content_hash().as_str() == expected_hash {
+                    Ok(())
+                } else {
+                    Err(DomainError::MalformedDeterministicEvidence {
+                        evidence_id,
+                        reason: "snapshot content hash does not match artifact content_hash",
+                    })
+                }
+            }
+            _ => Err(DomainError::MalformedDeterministicEvidence {
+                evidence_id,
+                reason: "deterministic evidence must be a source-backed span with a snapshot",
+            }),
+        }
+    }
     // ── Handlers ─────────────────────────────────────────────────
 
     pub(super) fn handle_register_artifact(
@@ -54,6 +98,7 @@ impl KernelState {
                 id: input.chunk_id.value(),
             });
         }
+        self.validate_existing_deterministic_evidence_for_chunk(input.artifact_id, input.order)?;
 
         let chunk = Chunk::new(
             input.chunk_id,
@@ -130,6 +175,8 @@ impl KernelState {
                 id: input.chunk_id.value(),
             });
         }
+        self.validate_existing_deterministic_evidence_for_chunk(input.artifact_id, input.order)?;
+
         self.chunks.insert(
             input.chunk_id,
             Chunk::new(

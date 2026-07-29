@@ -1,8 +1,9 @@
 use crate::config::EffectExecutionContext;
 use maestria_domain::{
-    ArtifactDetected, Authority, DomainInput, EvidenceKind, FetchWebRequest, IntegrityState,
-    LogicalTick, RecordEvidenceInput, RegisterArtifactInput, ReviewStatus, SecurityMetadata,
-    TrustZone, content_hash, web_artifact_id_for, web_evidence_id_for,
+    ArtifactDetected, Authority, ContentHash, DomainInput, EvidenceKind, FetchWebRequest,
+    IntegrityState, LogicalTick, RecordEvidenceInput, RegisterArtifactInput, ReviewStatus,
+    SecurityMetadata, SnapshotRef, TrustZone, content_hash, web_artifact_id_for,
+    web_evidence_id_for,
 };
 use maestria_governance::{contains_prompt_injection_risk, scan_secrets};
 use maestria_ports::WebFetchOptions;
@@ -158,6 +159,14 @@ impl EffectExecutionContext {
         };
         let source_bytes = snapshot.html.as_bytes().to_vec();
         let snapshot_hash = snapshot.content_hash.clone();
+        let snapshot_hash_typed = match ContentHash::new(snapshot_hash.clone()) {
+            Ok(hash) => hash,
+            Err(error) => {
+                tracing::error!(url = %snapshot.url, %error, "web snapshot hash is invalid");
+                return false;
+            }
+        };
+        let snapshot_ref = SnapshotRef::new(blob_id, snapshot_hash_typed);
         let artifact_id = web_artifact_id_for(&snapshot.url, &snapshot.content_hash);
         let evidence_id = web_evidence_id_for(artifact_id);
         if self
@@ -181,9 +190,8 @@ impl EffectExecutionContext {
                 claim_id: None,
                 kind: EvidenceKind::WebSnapshot {
                     url: snapshot.url.clone(),
-                    snapshot: blob_id,
+                    snapshot: snapshot_ref,
                     fetched_at: LogicalTick::new(observed_at),
-                    content_hash: snapshot_hash.clone(),
                     metadata,
                 },
                 excerpt: snapshot.html,

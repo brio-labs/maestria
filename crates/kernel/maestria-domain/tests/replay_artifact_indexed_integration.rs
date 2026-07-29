@@ -1,5 +1,8 @@
 use maestria_domain::*;
 
+#[path = "common/content_hash.rs"]
+mod fixtures;
+
 fn new_envelope(id: u64, event: DomainEvent) -> DomainEventEnvelope {
     DomainEventEnvelope {
         id: EventId::new(id),
@@ -99,7 +102,7 @@ fn replay_artifact_indexed_clears_pending_parsers() -> Result<(), Box<dyn std::e
             artifact_id: ArtifactId::new(1),
             title: "Notes".to_string(),
             source_path: "/tmp/notes.md".to_string(),
-            content_hash: "sha256:abc".to_string(),
+            content_hash: fixtures::test_content_hash()?.as_str().to_string(),
             blob_id: BlobId::new(42),
         },
     })?;
@@ -112,7 +115,7 @@ fn replay_artifact_indexed_clears_pending_parsers() -> Result<(), Box<dyn std::e
         sequence: SequenceNumber::new(3),
         event: DomainEvent::PendingIndex {
             artifact_id: ArtifactId::new(1),
-            content_hash: "sha256:abc".to_string(),
+            content_hash: fixtures::test_content_hash()?.as_str().to_string(),
         },
     })?;
 
@@ -145,9 +148,8 @@ fn replay_artifact_indexed_clears_pending_parsers() -> Result<(), Box<dyn std::e
             claim_id: None,
             kind: EvidenceKind::FileSpan {
                 path: "/tmp/notes.md".to_string(),
-                range: ContentRange { start: 0, end: 1 },
-                content_hash: "sha256:abc".to_string(),
-                snapshot: Some(BlobId::new(42)),
+                range: LineRange::new(1, 1)?,
+                snapshot: SnapshotRef::new(BlobId::new(42), fixtures::test_content_hash()?),
             },
             excerpt: "hello".to_string(),
             observed_at: LogicalTick::new(1),
@@ -219,7 +221,7 @@ fn replay_artifact_indexed_rejects_incomplete_evidence() -> Result<(), Box<dyn s
             artifact_id: art_id,
             title: "Notes".to_string(),
             source_path: "/tmp/notes.md".to_string(),
-            content_hash: "sha256:abc".to_string(),
+            content_hash: fixtures::test_content_hash()?.as_str().to_string(),
             blob_id: BlobId::new(42),
         },
     })?;
@@ -232,7 +234,7 @@ fn replay_artifact_indexed_rejects_incomplete_evidence() -> Result<(), Box<dyn s
         sequence: SequenceNumber::new(3),
         event: DomainEvent::PendingIndex {
             artifact_id: art_id,
-            content_hash: "sha256:abc".to_string(),
+            content_hash: fixtures::test_content_hash()?.as_str().to_string(),
         },
     })?;
 
@@ -291,6 +293,8 @@ fn replay_artifact_indexed_rejects_invalid_evidence() -> Result<(), Box<dyn std:
     let mut state = KernelState::new();
     let art_id = ArtifactId::new(1);
     let det_ev_id = evidence_id_for(art_id, 0);
+    let content_hash = fixtures::test_content_hash()?;
+    let wrong_content_hash = ContentHash::new("sha256:".to_owned() + &"f".repeat(64))?;
 
     replay_setup_artifact(
         &mut state,
@@ -298,16 +302,15 @@ fn replay_artifact_indexed_rejects_invalid_evidence() -> Result<(), Box<dyn std:
             art_id,
             title: "Notes",
             source_path: "/tmp/notes.md",
-            content_hash: "sha256:abc",
+            content_hash: content_hash.as_str(),
             blob_id: BlobId::new(42),
             chunk_id: ChunkId::new(10),
             chunk_text: "hello",
         },
     )?;
 
-    // Record deterministic evidence with a WRONG content_hash so
-    // evidence_complete_for returns false but the record exists.
-    state.apply_event(new_envelope(
+    let before = state.clone();
+    let error = match state.apply_event(new_envelope(
         5,
         DomainEvent::EvidenceRecorded {
             evidence_id: det_ev_id,
@@ -315,62 +318,23 @@ fn replay_artifact_indexed_rejects_invalid_evidence() -> Result<(), Box<dyn std:
             claim_id: None,
             kind: EvidenceKind::FileSpan {
                 path: "/tmp/notes.md".to_string(),
-                range: ContentRange { start: 0, end: 1 },
-                content_hash: "sha256:wrong".to_string(),
-                snapshot: Some(BlobId::new(42)),
+                range: LineRange::new(1, 1)?,
+                snapshot: SnapshotRef::new(BlobId::new(42), wrong_content_hash),
             },
             excerpt: "hello".to_string(),
             observed_at: LogicalTick::new(1),
             security: SecurityMetadata::default(),
         },
-    ))?;
-
-    // Confirm invalid evidence landed in state.
-    assert!(
-        state.evidences.contains_key(&det_ev_id),
-        "invalid evidence must exist before ArtifactIndexed"
-    );
-    assert!(
-        state.artifacts[&art_id].evidence_ids.contains(&det_ev_id),
-        "artifact must track the invalid evidence id"
-    );
-
-    state.apply_event(new_envelope(
-        6,
-        DomainEvent::FullTextIndexed {
-            artifact_id: art_id,
-            chunk_id: ChunkId::new(10),
-        },
-    ))?;
-
-    state.apply_event(new_envelope(
-        7,
-        DomainEvent::ArtifactParsed {
-            status: maestria_domain::ParseStatus::Parsed,
-            artifact_id: art_id,
-            chunks_added: 1,
-        },
-    ))?;
-
-    let before = state.clone();
-    let err = match state.apply_event(new_envelope(
-        8,
-        DomainEvent::ArtifactIndexed {
-            artifact_id: art_id,
-        },
     )) {
-        Ok(()) => return Err("invalid ArtifactIndexed unexpectedly replayed".into()),
+        Ok(()) => return Err("mismatched evidence snapshot unexpectedly replayed".into()),
         Err(error) => error,
     };
     assert!(matches!(
-        err,
+        error,
         DomainError::MalformedDeterministicEvidence { evidence_id, .. }
             if evidence_id == det_ev_id
     ));
-    assert_eq!(
-        state, before,
-        "invalid replay must preserve every state map"
-    );
-    assert_eq!(state.event_log.len(), 7);
+    assert_eq!(state, before, "invalid evidence replay must be atomic");
+    assert!(!state.evidences.contains_key(&det_ev_id));
     Ok(())
 }

@@ -372,7 +372,7 @@ async fn assert_record_evidence_for_repair(
             assert_eq!(ev.claim_id, None);
             match &ev.kind {
                 EvidenceKind::FileSpan { snapshot, .. } => {
-                    assert!(snapshot.is_some(), "evidence must carry a blob snapshot");
+                    assert!(snapshot.blob_id().value() > 0);
                 }
                 _ => return Err(format!("expected FileSpan evidence, got {:?}", ev.kind).into()),
             }

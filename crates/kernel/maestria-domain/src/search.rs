@@ -116,7 +116,10 @@ impl TryFrom<String> for ContentHash {
 impl ContentHash {
     pub fn new(hash: String) -> Result<Self, SearchCompatibilityError> {
         let valid_digest = hash.strip_prefix("sha256:").is_some_and(|digest| {
-            digest.len() == 64 && digest.bytes().all(|byte| byte.is_ascii_hexdigit())
+            digest.len() == 64
+                && digest
+                    .bytes()
+                    .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
         });
         if !valid_digest {
             return Err(SearchCompatibilityError::InvalidContentHash(
