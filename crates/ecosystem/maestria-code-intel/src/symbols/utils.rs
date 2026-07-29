@@ -145,6 +145,7 @@ pub(crate) fn provenance(context: &FileContext, range: SourceRange) -> RecordPro
         repository_root: context.identity.root.clone(),
         commit_sha: context.identity.commit.clone(),
         worktree_identity: context.identity.worktree_identity.clone(),
+        content_hash: context.content_hash.clone(),
         file_path: context.relative_path.clone(),
         source_range: range,
         parser_generation: context.parser_generation.to_string(),

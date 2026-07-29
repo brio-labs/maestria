@@ -25,6 +25,8 @@ fn route_config() -> serde_json::Value {
         ),
     ]))
 }
+use std::convert::Infallible;
+
 use maestria_code_intel::{CodeQuery, RepositoryCodeIndex, RepositoryFreshness};
 
 /// Executes one frozen repository case against one route and reports measurements.
@@ -84,7 +86,7 @@ impl<'a> RepositoryCodeIndexExecutor<'a> {
             repository_revision: repository_revision.into(),
             evaluation_date: now,
             index_generation: maestria_code_intel::REPOSITORY_CODE_PARSER_GENERATION.to_string(),
-            model_fingerprint: "repository-code-index-v1".into(),
+            model_fingerprint: "repository-code-index-v2".into(),
             route_config: route_config(),
         }
     }
@@ -111,14 +113,15 @@ impl RepositoryBenchmarkExecutor for RepositoryCodeIndexExecutor<'_> {
                 Ok(RepositoryFreshness::Current { .. }) | Err(_) => (0, false, false, true),
             },
             RepositoryExpectedOutcome::Evidence { .. } => {
-                let result = match route {
-                    RepositoryRoute::PhaseC => self.index.query(CodeQuery::All, 32),
-                    RepositoryRoute::CodeSpecialized => self.index.query(
-                        CodeQuery::Symbol {
-                            pattern: Self::pattern(&case),
-                        },
-                        32,
-                    ),
+                let query = match route {
+                    RepositoryRoute::PhaseC => CodeQuery::All,
+                    RepositoryRoute::CodeSpecialized => CodeQuery::Symbol {
+                        pattern: Self::pattern(&case),
+                    },
+                };
+                let result = match self.index.query(query, 32, benchmark_record_authorization) {
+                    Ok(result) => result,
+                    Err(error) => match error {},
                 };
                 (result.records.len(), false, false, false)
             }
@@ -157,6 +160,13 @@ impl RepositoryBenchmarkExecutor for RepositoryCodeIndexExecutor<'_> {
             },
         })
     }
+}
+
+fn benchmark_record_authorization(
+    _: &maestria_code_intel::SymbolRecord,
+) -> Result<bool, Infallible> {
+    // Frozen benchmark records measure route quality and never cross a serving boundary.
+    Ok(true)
 }
 
 /// Execute every frozen case on both routes before comparison.

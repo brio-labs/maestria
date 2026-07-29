@@ -65,7 +65,7 @@ impl CandidateRetriever for StaleCodeLane {
         maestria_retrieval::types::RetrieverDescriptor {
             id: "code_intel".to_string(),
             modality: "code".to_string(),
-            representation: maestria_domain::RepresentationName::new("repository_code_v1"),
+            representation: maestria_domain::RepresentationName::new("repository_code_v2"),
             generation: IndexGenerationId::new(1),
         }
     }

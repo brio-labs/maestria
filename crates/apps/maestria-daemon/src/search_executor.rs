@@ -36,7 +36,8 @@ use maestria_ports::{
 };
 use maestria_retrieval::adapters::{
     CardRetriever, CardRetrieverParts, CodeIntelRetriever, CodeIntelRetrieverParts,
-    CurrentVersionFilter, DenseChunkRetriever, DenseChunkRetrieverParts, EvidenceOutcomeEvaluator,
+    CodeIntelSecurityResolver, CodeIntelSecurityResolverParts, CurrentVersionFilter,
+    DenseChunkRetriever, DenseChunkRetrieverParts, EvidenceOutcomeEvaluator,
     HierarchyGraphExpander, HierarchyGraphExpanderParts, LexicalChunkRetriever,
     LexicalChunkRetrieverParts, VisualGenerationCapability, VisualPageRegionRetriever,
     VisualPageRegionRetrieverParts, VisualProjectionRebuildParts, rebuild_visual_projection,
@@ -99,20 +100,23 @@ pub struct SearchRuntime {
 }
 
 pub(crate) fn reconcile_active_versions(
-    events: Vec<DomainEventEnvelope>,
+    events: &[DomainEventEnvelope],
 ) -> BTreeSet<ArtifactVersionId> {
     let mut latest_by_path = BTreeMap::new();
     for envelope in events {
-        match envelope.event {
+        match &envelope.event {
             DomainEvent::ParserStarted {
                 artifact_id,
                 source_path,
                 ..
             } => {
-                latest_by_path.insert(source_path, ArtifactVersionId::new(artifact_id.value()));
+                latest_by_path.insert(
+                    source_path.clone(),
+                    ArtifactVersionId::new(artifact_id.value()),
+                );
             }
             DomainEvent::SourceBecameStale { source_path, .. } => {
-                latest_by_path.remove(&source_path);
+                latest_by_path.remove(source_path);
             }
             _ => {}
         }
@@ -262,16 +266,19 @@ impl SearchRuntime {
         Ok(())
     }
 
+    fn domain_events(&self) -> Result<Vec<DomainEventEnvelope>> {
+        EventLog::scan(self.event_log.as_ref(), EventFilter { artifact_id: None })
+            .map_err(|error| anyhow!("scan domain history for retrieval: {error}"))
+    }
+
     fn current_artifact_versions(&self) -> Result<BTreeSet<ArtifactVersionId>> {
-        let events = EventLog::scan(self.event_log.as_ref(), EventFilter { artifact_id: None })
-            .map_err(|error| {
-                anyhow!("scan parser history for current artifact versions: {error}")
-            })?;
-        Ok(reconcile_active_versions(events))
+        let events = self.domain_events()?;
+        Ok(reconcile_active_versions(&events))
     }
 
     fn retrieval_engine(&self) -> Result<RetrievalEngine> {
-        let active_versions = self.current_artifact_versions()?;
+        let events = self.domain_events()?;
+        let active_versions = reconcile_active_versions(&events);
         let card: Arc<dyn CandidateRetriever> = Arc::new(CurrentVersionFilter::new(
             Arc::new(CardRetriever::new(
                 CardRetrieverParts {
@@ -302,8 +309,17 @@ impl SearchRuntime {
         ));
         let mut retrievers: Vec<Arc<dyn CandidateRetriever>> = vec![card, lexical];
         if let Some(index) = self.repository_code_index.clone() {
+            let security = CodeIntelSecurityResolver::from_events(
+                CodeIntelSecurityResolverParts {
+                    artifacts: self.artifacts.clone(),
+                    evidence: self.evidence.clone(),
+                    blobs: self.blobs.clone(),
+                },
+                &events,
+            )
+            .map_err(|error| anyhow!("prepare repository code security resolver: {error}"))?;
             retrievers.push(Arc::new(CodeIntelRetriever::new(
-                CodeIntelRetrieverParts { index },
+                CodeIntelRetrieverParts { index, security },
                 self.primary_generation,
             )));
         }

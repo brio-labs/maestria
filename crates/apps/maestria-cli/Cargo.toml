@@ -17,6 +17,7 @@ maestria-search-tantivy = { path = "../../storage/maestria-search-tantivy" }
 maestria-ports = { path = "../../kernel/maestria-ports" }
 maestria-parsers = { path = "../../ecosystem/maestria-parsers" }
 maestria-code-intel = { path = "../../ecosystem/maestria-code-intel" }
+maestria-retrieval = { path = "../../ecosystem/maestria-retrieval" }
 
 tokio = { version = "1.37", features = ["full"] }
 tracing-subscriber = "0.3"

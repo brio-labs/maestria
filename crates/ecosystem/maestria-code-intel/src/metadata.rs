@@ -2,6 +2,7 @@
 
 use crate::CodeIntelError;
 use crate::identity::{RepositoryIdentity, is_excluded_path};
+use crate::provenance::content_hash;
 use crate::types::{DependencyRecord, PackageRecord, RecordProvenance, SourceRange, TargetRecord};
 use serde::Deserialize;
 use std::collections::BTreeSet;
@@ -118,14 +119,13 @@ pub(crate) fn extract_workspace_packages(
     })?;
 
     let workspace_members: BTreeSet<String> = metadata.workspace_members.into_iter().collect();
-
     let mut packages: Vec<PackageRecord> = metadata
         .packages
         .into_iter()
         .filter(|package| workspace_members.contains(&package.id))
         .filter(|package| !is_excluded_path(Path::new(&package.manifest_path), excluded_patterns))
         .map(|package| convert_package(package, identity, parser_generation, excluded_patterns))
-        .collect();
+        .collect::<Result<_, _>>()?;
 
     packages.sort_by(|left, right| left.name.cmp(&right.name));
     Ok(packages)
@@ -135,9 +135,9 @@ fn convert_package(
     identity: &RepositoryIdentity,
     parser_generation: &str,
     excluded_patterns: &[String],
-) -> PackageRecord {
+) -> Result<PackageRecord, CodeIntelError> {
     let package_provenance =
-        metadata_provenance(&package.manifest_path, identity, parser_generation);
+        metadata_provenance(&package.manifest_path, identity, parser_generation)?;
     let dependencies = package
         .dependencies
         .into_iter()
@@ -178,7 +178,7 @@ fn convert_package(
         })
         .collect();
 
-    PackageRecord {
+    Ok(PackageRecord {
         package_id: package.id,
         name: package.name,
         version: package.version,
@@ -191,28 +191,34 @@ fn convert_package(
         dependencies,
         targets,
         provenance: package_provenance,
-    }
+    })
 }
 
 fn metadata_provenance(
     manifest_path: &str,
     identity: &RepositoryIdentity,
     parser_generation: &str,
-) -> RecordProvenance {
+) -> Result<RecordProvenance, CodeIntelError> {
     let manifest_path = PathBuf::from(manifest_path);
+    let bytes = std::fs::read(&manifest_path).map_err(|error| CodeIntelError::Io {
+        operation: "read Cargo manifest for provenance".to_string(),
+        path: manifest_path.to_string_lossy().into_owned(),
+        details: error.to_string(),
+    })?;
     let file_path = match manifest_path.strip_prefix(Path::new(&identity.root)) {
         Ok(path) => path.to_string_lossy().into_owned(),
         Err(_) => manifest_path.to_string_lossy().into_owned(),
     };
-    RecordProvenance {
+    Ok(RecordProvenance {
         repository_root: identity.root.clone(),
         commit_sha: identity.commit.clone(),
         worktree_identity: identity.worktree_identity.clone(),
+        content_hash: content_hash(&bytes),
         file_path,
         source_range: SourceRange {
             start_line: 1,
             end_line: 1,
         },
         parser_generation: parser_generation.to_string(),
-    }
+    })
 }

@@ -6,6 +6,7 @@ use maestria_ports::BlobStore;
 use crate::types::RetrievalError;
 
 /// Verifies immutable source snapshots before a candidate crosses retrieval.
+#[derive(Clone)]
 pub struct SourceSnapshotVerifier {
     blobs: Arc<dyn BlobStore + Send + Sync>,
 }

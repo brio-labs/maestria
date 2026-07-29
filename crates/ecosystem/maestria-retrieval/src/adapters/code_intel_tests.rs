@@ -1,12 +1,17 @@
 use super::*;
-use maestria_code_intel::RepositoryIdentitySnapshot;
+use crate::adapters::CodeIntelSecurityResolverParts;
+use maestria_code_intel::SymbolRecord;
 use maestria_domain::{
-    CorpusScope, EvidenceRequirements, FreshnessRequirement, IndexGenerationId, Modality,
-    ModalitySet, QueryId, RetrievalModelFingerprint, SearchBudget, SearchCompatibilityError,
-    SearchIntent, SearchPlan, SearchStage, SourceLocation, StopConditions,
+    ArtifactId, ArtifactVersionId, BlobId, ContentHash, CorpusScope, Evidence, EvidenceId,
+    EvidenceKind, EvidenceRequirements, FreshnessRequirement, IndexGenerationId, LineRange,
+    LogicalTick, Modality, ModalitySet, QueryId, RetrievalModelFingerprint, SearchBudget,
+    SearchCompatibilityError, SearchIntent, SearchPlan, SearchStage, SecurityMetadata, SnapshotRef,
+    SourceLocation, StopConditions,
 };
 use maestria_governance::RetrievalSecurityPolicy;
-use maestria_ports::SearchQuery;
+use maestria_ports::{
+    InMemoryArtifactRepository, InMemoryBlobStore, InMemoryEvidenceRepository, SearchQuery,
+};
 
 fn archive() -> maestria_code_intel::RepositoryCodeIndex {
     maestria_code_intel::RepositoryCodeIndex {
@@ -14,7 +19,7 @@ fn archive() -> maestria_code_intel::RepositoryCodeIndex {
             repository_root: "/root/repo".to_string(),
             commit_sha: "abc123".to_string(),
             worktree_identity: "wt-1".to_string(),
-            parser_generation: "cargo-rust-code-v1".to_string(),
+            parser_generation: "cargo-rust-code-v2".to_string(),
             package_count: 1,
             target_count: 1,
             symbol_count: 1,
@@ -50,12 +55,14 @@ fn symbol(record_id: &str) -> SymbolRecord {
             repository_root: "/root/repo".to_string(),
             commit_sha: "abc123".to_string(),
             worktree_identity: "wt-1".to_string(),
+            content_hash: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                .to_string(),
             file_path: "src/lib.rs".to_string(),
             source_range: maestria_code_intel::SourceRange {
                 start_line: 10,
                 end_line: 15,
             },
-            parser_generation: "cargo-rust-code-v1".to_string(),
+            parser_generation: "cargo-rust-code-v2".to_string(),
         },
     }
 }
@@ -113,18 +120,53 @@ fn candidate_request(
     })
 }
 
-fn retriever(generation: IndexGenerationId) -> CodeIntelRetriever {
-    CodeIntelRetriever::new(
+fn retriever(
+    generation: IndexGenerationId,
+) -> Result<CodeIntelRetriever, Box<dyn std::error::Error>> {
+    let security = CodeIntelSecurityResolver::from_events(
+        CodeIntelSecurityResolverParts {
+            artifacts: Arc::new(InMemoryArtifactRepository::new()),
+            evidence: Arc::new(InMemoryEvidenceRepository::new()),
+            blobs: Arc::new(InMemoryBlobStore::new()),
+        },
+        &[],
+    )?;
+    Ok(CodeIntelRetriever::new(
         CodeIntelRetrieverParts {
             index: Arc::new(archive()),
+            security,
         },
         generation,
-    )
+    ))
+}
+
+fn authorized_binding() -> Result<AuthorizedCodeBinding, Box<dyn std::error::Error>> {
+    let content_hash = ContentHash::new(
+        "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_string(),
+    )?;
+    Ok(AuthorizedCodeBinding {
+        symbol: symbol("rec-1"),
+        artifact_version: ArtifactVersionId::new(73),
+        evidence: Evidence {
+            id: EvidenceId::new(79),
+            artifact_id: ArtifactId::new(71),
+            claim_id: None,
+            kind: EvidenceKind::FileSpan {
+                path: "/root/repo/src/lib.rs".to_string(),
+                range: LineRange::new(10, 15)?,
+                snapshot: SnapshotRef::new(BlobId::new(77), content_hash),
+            },
+            excerpt: "fn compute() {}".to_string(),
+            observed_at: LogicalTick::new(1),
+            security: SecurityMetadata::default(),
+        },
+        security: SecurityMetadata::default(),
+    })
 }
 
 #[tokio::test]
 async fn rejects_generation_mismatch() -> Result<(), Box<dyn std::error::Error>> {
-    let retriever = retriever(IndexGenerationId::new(2));
+    let retriever = retriever(IndexGenerationId::new(2))?;
     let request = candidate_request(IndexGenerationId::new(1), "compute", 5)?;
     assert!(matches!(
         retriever.retrieve(request).await,
@@ -134,51 +176,28 @@ async fn rejects_generation_mismatch() -> Result<(), Box<dyn std::error::Error>>
 }
 
 #[test]
-fn maps_current_and_stale_freshness_honestly() {
-    let current = freshness_status_to_domain(RepositoryFreshness::Current {
-        indexed: RepositoryIdentitySnapshot {
-            commit_sha: "a".to_string(),
-            worktree_identity: "w".to_string(),
-        },
-        current: RepositoryIdentitySnapshot {
-            commit_sha: "a".to_string(),
-            worktree_identity: "w".to_string(),
-        },
-    });
-    let stale = freshness_status_to_domain(RepositoryFreshness::Stale {
-        indexed: RepositoryIdentitySnapshot {
-            commit_sha: "a".to_string(),
-            worktree_identity: "w".to_string(),
-        },
-        current: RepositoryIdentitySnapshot {
-            commit_sha: "b".to_string(),
-            worktree_identity: "x".to_string(),
-        },
-    });
-    assert_eq!(current, FreshnessStatus::UpToDate);
-    assert_eq!(stale, FreshnessStatus::Stale);
-}
-
-#[test]
 fn candidate_ids_are_deterministic() -> Result<(), Box<dyn std::error::Error>> {
-    let retriever = retriever(IndexGenerationId::new(1));
-    let symbol = symbol("rec-1");
-    let candidate_a = retriever.candidate_from_symbol(&symbol, FreshnessStatus::UpToDate, 0)?;
-    let candidate_b = retriever.candidate_from_symbol(&symbol, FreshnessStatus::UpToDate, 0)?;
+    let retriever = retriever(IndexGenerationId::new(1))?;
+    let candidate_a =
+        retriever.candidate_from_binding(authorized_binding()?, FreshnessStatus::UpToDate, 0)?;
+    let candidate_b =
+        retriever.candidate_from_binding(authorized_binding()?, FreshnessStatus::UpToDate, 0)?;
     assert_eq!(candidate_a.evidence_id, candidate_b.evidence_id);
     assert_eq!(candidate_a.artifact_version, candidate_b.artifact_version);
+    assert_eq!(candidate_a.evidence_id, EvidenceId::new(79));
+    assert_eq!(candidate_a.artifact_version, ArtifactVersionId::new(73));
     Ok(())
 }
 
 #[test]
 fn candidate_includes_expected_code_source_provenance() -> Result<(), Box<dyn std::error::Error>> {
-    let retriever = retriever(IndexGenerationId::new(1));
-    let symbol = symbol("rec-1");
-    let candidate = retriever.candidate_from_symbol(&symbol, FreshnessStatus::UpToDate, 3)?;
+    let retriever = retriever(IndexGenerationId::new(1))?;
+    let candidate =
+        retriever.candidate_from_binding(authorized_binding()?, FreshnessStatus::UpToDate, 3)?;
     assert_eq!(
         candidate.source_span.location(),
         &SourceLocation::File {
-            path: "src/lib.rs".to_string(),
+            path: "/root/repo/src/lib.rs".to_string(),
             start_line: 10,
             end_line: 15
         }

@@ -181,15 +181,24 @@ pub(crate) fn relation_kind_order(kind: &CodeRelationKind) -> u8 {
         CodeRelationKind::Tests => 4,
     }
 }
-pub(crate) fn expand_context<'a>(
+pub(crate) fn expand_context<'a, E, F>(
     query: &NormalizedContextQuery,
     seed_query: &QueryResult,
     symbol_by_id: &BTreeMap<&'a str, &'a SymbolRecord>,
     outgoing: &RelationAdjacency<'a>,
     incoming: &RelationAdjacency<'a>,
-) -> ContextExpansion {
+    authorize: &mut F,
+) -> Result<ContextExpansion, E>
+where
+    F: FnMut(&SymbolRecord) -> Result<bool, E>,
+{
     let mut discovered_nodes = BTreeMap::new();
     let mut frontier = BTreeMap::new();
+    let mut authorized = seed_query
+        .records
+        .iter()
+        .map(|symbol| (symbol.record_id.clone(), true))
+        .collect::<BTreeMap<_, _>>();
     let mut node_limit_reached = false;
     for (index, seed) in seed_query.records.iter().enumerate() {
         if index >= query.max_nodes {
@@ -238,21 +247,26 @@ pub(crate) fn expand_context<'a>(
                 node_limit_reached: &mut node_limit_reached,
                 relation_visits: &mut relation_visits,
                 relation_visit_limit_reached: &mut relation_visit_limit_reached,
+                authorize,
+                authorized: &mut authorized,
             };
-            expand_direction(outgoing.get(record_id.as_str()), false, &mut state);
-            expand_direction(incoming.get(record_id.as_str()), true, &mut state);
+            expand_direction(outgoing.get(record_id.as_str()), false, &mut state)?;
+            expand_direction(incoming.get(record_id.as_str()), true, &mut state)?;
         }
         frontier = next_frontier;
     }
-    ContextExpansion {
+    Ok(ContextExpansion {
         discovered_nodes,
         reached_edges,
         node_limit_reached,
         relation_visit_limit_reached,
-    }
+    })
 }
 
-struct DirectionExpansion<'a, 'b> {
+struct DirectionExpansion<'a, 'b, E, F>
+where
+    F: FnMut(&SymbolRecord) -> Result<bool, E>,
+{
     query: &'a NormalizedContextQuery,
     symbol_by_id: &'b BTreeMap<&'b str, &'b SymbolRecord>,
     seed_ids: &'a BTreeSet<String>,
@@ -263,28 +277,61 @@ struct DirectionExpansion<'a, 'b> {
     node_limit_reached: &'a mut bool,
     relation_visits: &'a mut usize,
     relation_visit_limit_reached: &'a mut bool,
+    authorize: &'a mut F,
+    authorized: &'a mut BTreeMap<String, bool>,
 }
 
-fn expand_direction<'b>(
+fn authorize_record<E, F>(
+    symbol: &SymbolRecord,
+    authorized: &mut BTreeMap<String, bool>,
+    authorize: &mut F,
+) -> Result<bool, E>
+where
+    F: FnMut(&SymbolRecord) -> Result<bool, E>,
+{
+    if let Some(allowed) = authorized.get(&symbol.record_id) {
+        return Ok(*allowed);
+    }
+    let allowed = authorize(symbol)?;
+    authorized.insert(symbol.record_id.clone(), allowed);
+    Ok(allowed)
+}
+
+fn expand_direction<'b, E, F>(
     relations: Option<&Vec<&'b CodeRelationRecord>>,
     incoming: bool,
-    state: &mut DirectionExpansion<'_, 'b>,
-) {
+    state: &mut DirectionExpansion<'_, 'b, E, F>,
+) -> Result<(), E>
+where
+    F: FnMut(&SymbolRecord) -> Result<bool, E>,
+{
     if !direction_enabled(state.query.direction, incoming) {
-        return;
+        return Ok(());
     }
     let Some(relations) = relations else {
-        return;
+        return Ok(());
     };
     for relation in relations {
         if *state.relation_visits >= MAX_CONTEXT_RELATION_VISITS {
             *state.relation_visit_limit_reached = true;
-            return;
+            return Ok(());
         }
         *state.relation_visits += 1;
-        if !relation_matches_kinds(state.query.relation_kinds.as_deref(), relation.kind)
-            || !relation_is_grounded(relation, state.symbol_by_id)
+        if !relation_matches_kinds(state.query.relation_kinds.as_deref(), relation.kind) {
+            continue;
+        }
+        let Some(source) = state.symbol_by_id.get(relation.source_record_id.as_str()) else {
+            continue;
+        };
+        let Some(target) = state.symbol_by_id.get(relation.target_record_id.as_str()) else {
+            continue;
+        };
+        if !authorize_record(source, state.authorized, state.authorize)?
+            || !authorize_record(target, state.authorized, state.authorize)?
         {
+            continue;
+        }
+        if !relation_is_grounded(relation, state.symbol_by_id) {
             continue;
         }
         let next_record_id = if incoming {
@@ -304,6 +351,7 @@ fn expand_direction<'b>(
             record_edge(relation, state.seed_ids, state.depth, state.reached_edges);
         }
     }
+    Ok(())
 }
 
 fn direction_enabled(direction: ContextDirection, incoming: bool) -> bool {

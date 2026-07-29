@@ -1,0 +1,514 @@
+{
+  "measurement_kind": "real_repository_code_index",
+  "corpus_id": "rust-repository-frozen-v1",
+  "repository_revision": "99e66ce986ed0fab044abba12bffa3f4b08db156",
+  "evaluation_date": "1785367613",
+  "index_generation": "cargo-rust-code-v2",
+  "model_fingerprint": "repository-code-index-v2",
+  "route_config": {
+    "code_specialized": {
+      "limit": 32,
+      "strategy": "Symbol"
+    },
+    "phase_c": {
+      "strategy": "All"
+    }
+  },
+  "measurement_status": {
+    "Unavailable": {
+      "reason": "platform counters not available in code-intel adapter"
+    }
+  },
+  "observations": [
+    {
+      "corpus_id": "rust-repository-frozen-v1",
+      "repository_revision": "99e66ce986ed0fab044abba12bffa3f4b08db156",
+      "evaluation_date": "1785367613",
+      "index_generation": "cargo-rust-code-v2",
+      "model_fingerprint": "repository-code-index-v2",
+      "route_config": {
+        "code_specialized": {
+          "limit": 32,
+          "strategy": "Symbol"
+        },
+        "phase_c": {
+          "strategy": "All"
+        }
+      },
+      "case_id": "rust-exact-symbol",
+      "route": "PhaseC",
+      "exact_span_hits": 32,
+      "evidence_chain_length": 32,
+      "latency_ms": 149,
+      "freshness_error": false,
+      "abstained": false,
+      "outcome_correct": true,
+      "memory_bytes": 0,
+      "disk_bytes": 0,
+      "privacy_violation": false,
+      "security_violation": false,
+      "energy_milliwatt_seconds": 0,
+      "citation_alignment": 0,
+      "measurement_status": {
+        "Unavailable": {
+          "reason": "platform counters not available in code-intel adapter"
+        }
+      }
+    },
+    {
+      "corpus_id": "rust-repository-frozen-v1",
+      "repository_revision": "99e66ce986ed0fab044abba12bffa3f4b08db156",
+      "evaluation_date": "1785367613",
+      "index_generation": "cargo-rust-code-v2",
+      "model_fingerprint": "repository-code-index-v2",
+      "route_config": {
+        "code_specialized": {
+          "limit": 32,
+          "strategy": "Symbol"
+        },
+        "phase_c": {
+          "strategy": "All"
+        }
+      },
+      "case_id": "rust-exact-symbol",
+      "route": "CodeSpecialized",
+      "exact_span_hits": 7,
+      "evidence_chain_length": 7,
+      "latency_ms": 25,
+      "freshness_error": false,
+      "abstained": false,
+      "outcome_correct": true,
+      "memory_bytes": 0,
+      "disk_bytes": 0,
+      "privacy_violation": false,
+      "security_violation": false,
+      "energy_milliwatt_seconds": 0,
+      "citation_alignment": 0,
+      "measurement_status": {
+        "Unavailable": {
+          "reason": "platform counters not available in code-intel adapter"
+        }
+      }
+    },
+    {
+      "corpus_id": "rust-repository-frozen-v1",
+      "repository_revision": "99e66ce986ed0fab044abba12bffa3f4b08db156",
+      "evaluation_date": "1785367613",
+      "index_generation": "cargo-rust-code-v2",
+      "model_fingerprint": "repository-code-index-v2",
+      "route_config": {
+        "code_specialized": {
+          "limit": 32,
+          "strategy": "Symbol"
+        },
+        "phase_c": {
+          "strategy": "All"
+        }
+      },
+      "case_id": "rust-definition-reference",
+      "route": "PhaseC",
+      "exact_span_hits": 32,
+      "evidence_chain_length": 32,
+      "latency_ms": 175,
+      "freshness_error": false,
+      "abstained": false,
+      "outcome_correct": true,
+      "memory_bytes": 0,
+      "disk_bytes": 0,
+      "privacy_violation": false,
+      "security_violation": false,
+      "energy_milliwatt_seconds": 0,
+      "citation_alignment": 0,
+      "measurement_status": {
+        "Unavailable": {
+          "reason": "platform counters not available in code-intel adapter"
+        }
+      }
+    },
+    {
+      "corpus_id": "rust-repository-frozen-v1",
+      "repository_revision": "99e66ce986ed0fab044abba12bffa3f4b08db156",
+      "evaluation_date": "1785367613",
+      "index_generation": "cargo-rust-code-v2",
+      "model_fingerprint": "repository-code-index-v2",
+      "route_config": {
+        "code_specialized": {
+          "limit": 32,
+          "strategy": "Symbol"
+        },
+        "phase_c": {
+          "strategy": "All"
+        }
+      },
+      "case_id": "rust-definition-reference",
+      "route": "CodeSpecialized",
+      "exact_span_hits": 0,
+      "evidence_chain_length": 0,
+      "latency_ms": 38,
+      "freshness_error": false,
+      "abstained": false,
+      "outcome_correct": false,
+      "memory_bytes": 0,
+      "disk_bytes": 0,
+      "privacy_violation": false,
+      "security_violation": false,
+      "energy_milliwatt_seconds": 0,
+      "citation_alignment": 0,
+      "measurement_status": {
+        "Unavailable": {
+          "reason": "platform counters not available in code-intel adapter"
+        }
+      }
+    },
+    {
+      "corpus_id": "rust-repository-frozen-v1",
+      "repository_revision": "99e66ce986ed0fab044abba12bffa3f4b08db156",
+      "evaluation_date": "1785367613",
+      "index_generation": "cargo-rust-code-v2",
+      "model_fingerprint": "repository-code-index-v2",
+      "route_config": {
+        "code_specialized": {
+          "limit": 32,
+          "strategy": "Symbol"
+        },
+        "phase_c": {
+          "strategy": "All"
+        }
+      },
+      "case_id": "rust-issue-to-file",
+      "route": "PhaseC",
+      "exact_span_hits": 32,
+      "evidence_chain_length": 32,
+      "latency_ms": 150,
+      "freshness_error": false,
+      "abstained": false,
+      "outcome_correct": true,
+      "memory_bytes": 0,
+      "disk_bytes": 0,
+      "privacy_violation": false,
+      "security_violation": false,
+      "energy_milliwatt_seconds": 0,
+      "citation_alignment": 0,
+      "measurement_status": {
+        "Unavailable": {
+          "reason": "platform counters not available in code-intel adapter"
+        }
+      }
+    },
+    {
+      "corpus_id": "rust-repository-frozen-v1",
+      "repository_revision": "99e66ce986ed0fab044abba12bffa3f4b08db156",
+      "evaluation_date": "1785367613",
+      "index_generation": "cargo-rust-code-v2",
+      "model_fingerprint": "repository-code-index-v2",
+      "route_config": {
+        "code_specialized": {
+          "limit": 32,
+          "strategy": "Symbol"
+        },
+        "phase_c": {
+          "strategy": "All"
+        }
+      },
+      "case_id": "rust-issue-to-file",
+      "route": "CodeSpecialized",
+      "exact_span_hits": 0,
+      "evidence_chain_length": 0,
+      "latency_ms": 2,
+      "freshness_error": false,
+      "abstained": false,
+      "outcome_correct": false,
+      "memory_bytes": 0,
+      "disk_bytes": 0,
+      "privacy_violation": false,
+      "security_violation": false,
+      "energy_milliwatt_seconds": 0,
+      "citation_alignment": 0,
+      "measurement_status": {
+        "Unavailable": {
+          "reason": "platform counters not available in code-intel adapter"
+        }
+      }
+    },
+    {
+      "corpus_id": "rust-repository-frozen-v1",
+      "repository_revision": "99e66ce986ed0fab044abba12bffa3f4b08db156",
+      "evaluation_date": "1785367613",
+      "index_generation": "cargo-rust-code-v2",
+      "model_fingerprint": "repository-code-index-v2",
+      "route_config": {
+        "code_specialized": {
+          "limit": 32,
+          "strategy": "Symbol"
+        },
+        "phase_c": {
+          "strategy": "All"
+        }
+      },
+      "case_id": "rust-multi-hop-dependency",
+      "route": "PhaseC",
+      "exact_span_hits": 32,
+      "evidence_chain_length": 32,
+      "latency_ms": 154,
+      "freshness_error": false,
+      "abstained": false,
+      "outcome_correct": true,
+      "memory_bytes": 0,
+      "disk_bytes": 0,
+      "privacy_violation": false,
+      "security_violation": false,
+      "energy_milliwatt_seconds": 0,
+      "citation_alignment": 0,
+      "measurement_status": {
+        "Unavailable": {
+          "reason": "platform counters not available in code-intel adapter"
+        }
+      }
+    },
+    {
+      "corpus_id": "rust-repository-frozen-v1",
+      "repository_revision": "99e66ce986ed0fab044abba12bffa3f4b08db156",
+      "evaluation_date": "1785367613",
+      "index_generation": "cargo-rust-code-v2",
+      "model_fingerprint": "repository-code-index-v2",
+      "route_config": {
+        "code_specialized": {
+          "limit": 32,
+          "strategy": "Symbol"
+        },
+        "phase_c": {
+          "strategy": "All"
+        }
+      },
+      "case_id": "rust-multi-hop-dependency",
+      "route": "CodeSpecialized",
+      "exact_span_hits": 0,
+      "evidence_chain_length": 0,
+      "latency_ms": 16,
+      "freshness_error": false,
+      "abstained": false,
+      "outcome_correct": false,
+      "memory_bytes": 0,
+      "disk_bytes": 0,
+      "privacy_violation": false,
+      "security_violation": false,
+      "energy_milliwatt_seconds": 0,
+      "citation_alignment": 0,
+      "measurement_status": {
+        "Unavailable": {
+          "reason": "platform counters not available in code-intel adapter"
+        }
+      }
+    },
+    {
+      "corpus_id": "rust-repository-frozen-v1",
+      "repository_revision": "99e66ce986ed0fab044abba12bffa3f4b08db156",
+      "evaluation_date": "1785367613",
+      "index_generation": "cargo-rust-code-v2",
+      "model_fingerprint": "repository-code-index-v2",
+      "route_config": {
+        "code_specialized": {
+          "limit": 32,
+          "strategy": "Symbol"
+        },
+        "phase_c": {
+          "strategy": "All"
+        }
+      },
+      "case_id": "rust-test-association",
+      "route": "PhaseC",
+      "exact_span_hits": 32,
+      "evidence_chain_length": 32,
+      "latency_ms": 149,
+      "freshness_error": false,
+      "abstained": false,
+      "outcome_correct": true,
+      "memory_bytes": 0,
+      "disk_bytes": 0,
+      "privacy_violation": false,
+      "security_violation": false,
+      "energy_milliwatt_seconds": 0,
+      "citation_alignment": 0,
+      "measurement_status": {
+        "Unavailable": {
+          "reason": "platform counters not available in code-intel adapter"
+        }
+      }
+    },
+    {
+      "corpus_id": "rust-repository-frozen-v1",
+      "repository_revision": "99e66ce986ed0fab044abba12bffa3f4b08db156",
+      "evaluation_date": "1785367613",
+      "index_generation": "cargo-rust-code-v2",
+      "model_fingerprint": "repository-code-index-v2",
+      "route_config": {
+        "code_specialized": {
+          "limit": 32,
+          "strategy": "Symbol"
+        },
+        "phase_c": {
+          "strategy": "All"
+        }
+      },
+      "case_id": "rust-test-association",
+      "route": "CodeSpecialized",
+      "exact_span_hits": 0,
+      "evidence_chain_length": 0,
+      "latency_ms": 22,
+      "freshness_error": false,
+      "abstained": false,
+      "outcome_correct": false,
+      "memory_bytes": 0,
+      "disk_bytes": 0,
+      "privacy_violation": false,
+      "security_violation": false,
+      "energy_milliwatt_seconds": 0,
+      "citation_alignment": 0,
+      "measurement_status": {
+        "Unavailable": {
+          "reason": "platform counters not available in code-intel adapter"
+        }
+      }
+    },
+    {
+      "corpus_id": "rust-repository-frozen-v1",
+      "repository_revision": "99e66ce986ed0fab044abba12bffa3f4b08db156",
+      "evaluation_date": "1785367613",
+      "index_generation": "cargo-rust-code-v2",
+      "model_fingerprint": "repository-code-index-v2",
+      "route_config": {
+        "code_specialized": {
+          "limit": 32,
+          "strategy": "Symbol"
+        },
+        "phase_c": {
+          "strategy": "All"
+        }
+      },
+      "case_id": "rust-stale-worktree",
+      "route": "PhaseC",
+      "exact_span_hits": 0,
+      "evidence_chain_length": 0,
+      "latency_ms": 391,
+      "freshness_error": true,
+      "abstained": false,
+      "outcome_correct": false,
+      "memory_bytes": 0,
+      "disk_bytes": 0,
+      "privacy_violation": false,
+      "security_violation": false,
+      "energy_milliwatt_seconds": 0,
+      "citation_alignment": 0,
+      "measurement_status": {
+        "Unavailable": {
+          "reason": "platform counters not available in code-intel adapter"
+        }
+      }
+    },
+    {
+      "corpus_id": "rust-repository-frozen-v1",
+      "repository_revision": "99e66ce986ed0fab044abba12bffa3f4b08db156",
+      "evaluation_date": "1785367613",
+      "index_generation": "cargo-rust-code-v2",
+      "model_fingerprint": "repository-code-index-v2",
+      "route_config": {
+        "code_specialized": {
+          "limit": 32,
+          "strategy": "Symbol"
+        },
+        "phase_c": {
+          "strategy": "All"
+        }
+      },
+      "case_id": "rust-stale-worktree",
+      "route": "CodeSpecialized",
+      "exact_span_hits": 0,
+      "evidence_chain_length": 0,
+      "latency_ms": 391,
+      "freshness_error": true,
+      "abstained": false,
+      "outcome_correct": false,
+      "memory_bytes": 0,
+      "disk_bytes": 0,
+      "privacy_violation": false,
+      "security_violation": false,
+      "energy_milliwatt_seconds": 0,
+      "citation_alignment": 0,
+      "measurement_status": {
+        "Unavailable": {
+          "reason": "platform counters not available in code-intel adapter"
+        }
+      }
+    },
+    {
+      "corpus_id": "rust-repository-frozen-v1",
+      "repository_revision": "99e66ce986ed0fab044abba12bffa3f4b08db156",
+      "evaluation_date": "1785367613",
+      "index_generation": "cargo-rust-code-v2",
+      "model_fingerprint": "repository-code-index-v2",
+      "route_config": {
+        "code_specialized": {
+          "limit": 32,
+          "strategy": "Symbol"
+        },
+        "phase_c": {
+          "strategy": "All"
+        }
+      },
+      "case_id": "rust-correct-abstention",
+      "route": "PhaseC",
+      "exact_span_hits": 0,
+      "evidence_chain_length": 0,
+      "latency_ms": 0,
+      "freshness_error": false,
+      "abstained": true,
+      "outcome_correct": true,
+      "memory_bytes": 0,
+      "disk_bytes": 0,
+      "privacy_violation": false,
+      "security_violation": false,
+      "energy_milliwatt_seconds": 0,
+      "citation_alignment": 0,
+      "measurement_status": {
+        "Unavailable": {
+          "reason": "platform counters not available in code-intel adapter"
+        }
+      }
+    },
+    {
+      "corpus_id": "rust-repository-frozen-v1",
+      "repository_revision": "99e66ce986ed0fab044abba12bffa3f4b08db156",
+      "evaluation_date": "1785367613",
+      "index_generation": "cargo-rust-code-v2",
+      "model_fingerprint": "repository-code-index-v2",
+      "route_config": {
+        "code_specialized": {
+          "limit": 32,
+          "strategy": "Symbol"
+        },
+        "phase_c": {
+          "strategy": "All"
+        }
+      },
+      "case_id": "rust-correct-abstention",
+      "route": "CodeSpecialized",
+      "exact_span_hits": 0,
+      "evidence_chain_length": 0,
+      "latency_ms": 0,
+      "freshness_error": false,
+      "abstained": true,
+      "outcome_correct": true,
+      "memory_bytes": 0,
+      "disk_bytes": 0,
+      "privacy_violation": false,
+      "security_violation": false,
+      "energy_milliwatt_seconds": 0,
+      "citation_alignment": 0,
+      "measurement_status": {
+        "Unavailable": {
+          "reason": "platform counters not available in code-intel adapter"
+        }
+      }
+    }
+  ]
+}

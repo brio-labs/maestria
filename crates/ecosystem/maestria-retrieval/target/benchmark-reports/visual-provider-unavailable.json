@@ -1,0 +1,321 @@
+{
+  "measurement_kind": "real_visual_provider_unavailable",
+  "evaluation_date": "1785367616",
+  "corpus_id": "visual-retrieval-benchmark-v1",
+  "corpus_revision": "visual-fixture-r2",
+  "provider_status": "unavailable",
+  "observations": [
+    {
+      "corpus_id": "visual-retrieval-benchmark-v1",
+      "corpus_revision": "visual-fixture-r2",
+      "evaluation_date": "1785367616",
+      "model_fingerprint": "visual-unavailable-v1",
+      "provider_config": {
+        "provider": "none",
+        "reason": "unavailable"
+      },
+      "case_id": "text-001",
+      "route": "TextLayout",
+      "page_region_recall": null,
+      "ndcg_at_10": null,
+      "citation_alignment": null,
+      "latency_ms": null,
+      "memory_bytes": null,
+      "disk_bytes": null,
+      "energy_millijoules": null,
+      "privacy_violations": null,
+      "security_violations": null,
+      "provider_status": {
+        "Degraded": {
+          "reason": "no configured visual provider"
+        }
+      }
+    },
+    {
+      "corpus_id": "visual-retrieval-benchmark-v1",
+      "corpus_revision": "visual-fixture-r2",
+      "evaluation_date": "1785367616",
+      "model_fingerprint": "visual-unavailable-v1",
+      "provider_config": {
+        "provider": "none",
+        "reason": "unavailable"
+      },
+      "case_id": "text-001",
+      "route": "Visual",
+      "page_region_recall": null,
+      "ndcg_at_10": null,
+      "citation_alignment": null,
+      "latency_ms": null,
+      "memory_bytes": null,
+      "disk_bytes": null,
+      "energy_millijoules": null,
+      "privacy_violations": null,
+      "security_violations": null,
+      "provider_status": {
+        "Unavailable": {
+          "reason": "no configured visual provider"
+        }
+      }
+    },
+    {
+      "corpus_id": "visual-retrieval-benchmark-v1",
+      "corpus_revision": "visual-fixture-r2",
+      "evaluation_date": "1785367616",
+      "model_fingerprint": "visual-unavailable-v1",
+      "provider_config": {
+        "provider": "none",
+        "reason": "unavailable"
+      },
+      "case_id": "table-001",
+      "route": "TextLayout",
+      "page_region_recall": null,
+      "ndcg_at_10": null,
+      "citation_alignment": null,
+      "latency_ms": null,
+      "memory_bytes": null,
+      "disk_bytes": null,
+      "energy_millijoules": null,
+      "privacy_violations": null,
+      "security_violations": null,
+      "provider_status": {
+        "Degraded": {
+          "reason": "no configured visual provider"
+        }
+      }
+    },
+    {
+      "corpus_id": "visual-retrieval-benchmark-v1",
+      "corpus_revision": "visual-fixture-r2",
+      "evaluation_date": "1785367616",
+      "model_fingerprint": "visual-unavailable-v1",
+      "provider_config": {
+        "provider": "none",
+        "reason": "unavailable"
+      },
+      "case_id": "table-001",
+      "route": "Visual",
+      "page_region_recall": null,
+      "ndcg_at_10": null,
+      "citation_alignment": null,
+      "latency_ms": null,
+      "memory_bytes": null,
+      "disk_bytes": null,
+      "energy_millijoules": null,
+      "privacy_violations": null,
+      "security_violations": null,
+      "provider_status": {
+        "Unavailable": {
+          "reason": "no configured visual provider"
+        }
+      }
+    },
+    {
+      "corpus_id": "visual-retrieval-benchmark-v1",
+      "corpus_revision": "visual-fixture-r2",
+      "evaluation_date": "1785367616",
+      "model_fingerprint": "visual-unavailable-v1",
+      "provider_config": {
+        "provider": "none",
+        "reason": "unavailable"
+      },
+      "case_id": "chart-001",
+      "route": "TextLayout",
+      "page_region_recall": null,
+      "ndcg_at_10": null,
+      "citation_alignment": null,
+      "latency_ms": null,
+      "memory_bytes": null,
+      "disk_bytes": null,
+      "energy_millijoules": null,
+      "privacy_violations": null,
+      "security_violations": null,
+      "provider_status": {
+        "Degraded": {
+          "reason": "no configured visual provider"
+        }
+      }
+    },
+    {
+      "corpus_id": "visual-retrieval-benchmark-v1",
+      "corpus_revision": "visual-fixture-r2",
+      "evaluation_date": "1785367616",
+      "model_fingerprint": "visual-unavailable-v1",
+      "provider_config": {
+        "provider": "none",
+        "reason": "unavailable"
+      },
+      "case_id": "chart-001",
+      "route": "Visual",
+      "page_region_recall": null,
+      "ndcg_at_10": null,
+      "citation_alignment": null,
+      "latency_ms": null,
+      "memory_bytes": null,
+      "disk_bytes": null,
+      "energy_millijoules": null,
+      "privacy_violations": null,
+      "security_violations": null,
+      "provider_status": {
+        "Unavailable": {
+          "reason": "no configured visual provider"
+        }
+      }
+    },
+    {
+      "corpus_id": "visual-retrieval-benchmark-v1",
+      "corpus_revision": "visual-fixture-r2",
+      "evaluation_date": "1785367616",
+      "model_fingerprint": "visual-unavailable-v1",
+      "provider_config": {
+        "provider": "none",
+        "reason": "unavailable"
+      },
+      "case_id": "figure-001",
+      "route": "TextLayout",
+      "page_region_recall": null,
+      "ndcg_at_10": null,
+      "citation_alignment": null,
+      "latency_ms": null,
+      "memory_bytes": null,
+      "disk_bytes": null,
+      "energy_millijoules": null,
+      "privacy_violations": null,
+      "security_violations": null,
+      "provider_status": {
+        "Degraded": {
+          "reason": "no configured visual provider"
+        }
+      }
+    },
+    {
+      "corpus_id": "visual-retrieval-benchmark-v1",
+      "corpus_revision": "visual-fixture-r2",
+      "evaluation_date": "1785367616",
+      "model_fingerprint": "visual-unavailable-v1",
+      "provider_config": {
+        "provider": "none",
+        "reason": "unavailable"
+      },
+      "case_id": "figure-001",
+      "route": "Visual",
+      "page_region_recall": null,
+      "ndcg_at_10": null,
+      "citation_alignment": null,
+      "latency_ms": null,
+      "memory_bytes": null,
+      "disk_bytes": null,
+      "energy_millijoules": null,
+      "privacy_violations": null,
+      "security_violations": null,
+      "provider_status": {
+        "Unavailable": {
+          "reason": "no configured visual provider"
+        }
+      }
+    },
+    {
+      "corpus_id": "visual-retrieval-benchmark-v1",
+      "corpus_revision": "visual-fixture-r2",
+      "evaluation_date": "1785367616",
+      "model_fingerprint": "visual-unavailable-v1",
+      "provider_config": {
+        "provider": "none",
+        "reason": "unavailable"
+      },
+      "case_id": "formula-001",
+      "route": "TextLayout",
+      "page_region_recall": null,
+      "ndcg_at_10": null,
+      "citation_alignment": null,
+      "latency_ms": null,
+      "memory_bytes": null,
+      "disk_bytes": null,
+      "energy_millijoules": null,
+      "privacy_violations": null,
+      "security_violations": null,
+      "provider_status": {
+        "Degraded": {
+          "reason": "no configured visual provider"
+        }
+      }
+    },
+    {
+      "corpus_id": "visual-retrieval-benchmark-v1",
+      "corpus_revision": "visual-fixture-r2",
+      "evaluation_date": "1785367616",
+      "model_fingerprint": "visual-unavailable-v1",
+      "provider_config": {
+        "provider": "none",
+        "reason": "unavailable"
+      },
+      "case_id": "formula-001",
+      "route": "Visual",
+      "page_region_recall": null,
+      "ndcg_at_10": null,
+      "citation_alignment": null,
+      "latency_ms": null,
+      "memory_bytes": null,
+      "disk_bytes": null,
+      "energy_millijoules": null,
+      "privacy_violations": null,
+      "security_violations": null,
+      "provider_status": {
+        "Unavailable": {
+          "reason": "no configured visual provider"
+        }
+      }
+    },
+    {
+      "corpus_id": "visual-retrieval-benchmark-v1",
+      "corpus_revision": "visual-fixture-r2",
+      "evaluation_date": "1785367616",
+      "model_fingerprint": "visual-unavailable-v1",
+      "provider_config": {
+        "provider": "none",
+        "reason": "unavailable"
+      },
+      "case_id": "scan-001",
+      "route": "TextLayout",
+      "page_region_recall": null,
+      "ndcg_at_10": null,
+      "citation_alignment": null,
+      "latency_ms": null,
+      "memory_bytes": null,
+      "disk_bytes": null,
+      "energy_millijoules": null,
+      "privacy_violations": null,
+      "security_violations": null,
+      "provider_status": {
+        "Degraded": {
+          "reason": "no configured visual provider"
+        }
+      }
+    },
+    {
+      "corpus_id": "visual-retrieval-benchmark-v1",
+      "corpus_revision": "visual-fixture-r2",
+      "evaluation_date": "1785367616",
+      "model_fingerprint": "visual-unavailable-v1",
+      "provider_config": {
+        "provider": "none",
+        "reason": "unavailable"
+      },
+      "case_id": "scan-001",
+      "route": "Visual",
+      "page_region_recall": null,
+      "ndcg_at_10": null,
+      "citation_alignment": null,
+      "latency_ms": null,
+      "memory_bytes": null,
+      "disk_bytes": null,
+      "energy_millijoules": null,
+      "privacy_violations": null,
+      "security_violations": null,
+      "provider_status": {
+        "Unavailable": {
+          "reason": "no configured visual provider"
+        }
+      }
+    }
+  ]
+}

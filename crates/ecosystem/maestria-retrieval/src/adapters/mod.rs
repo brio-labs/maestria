@@ -1,6 +1,7 @@
 mod cards;
 mod chunk_access;
 mod code_intel;
+mod code_intel_security;
 mod common;
 mod dense;
 #[cfg(test)]
@@ -19,6 +20,7 @@ mod visual_projection;
 
 pub use cards::{CardRetriever, CardRetrieverParts};
 pub use code_intel::{CodeIntelRetriever, CodeIntelRetrieverParts};
+pub use code_intel_security::{CodeIntelSecurityResolver, CodeIntelSecurityResolverParts};
 pub use common::CurrentVersionFilter;
 pub use dense::{DenseChunkRetriever, DenseChunkRetrieverParts};
 pub use learned_sparse::{LearnedSparseChunkRetriever, LearnedSparseChunkRetrieverParts};

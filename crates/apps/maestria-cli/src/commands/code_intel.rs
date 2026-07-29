@@ -1,12 +1,44 @@
 use anyhow::{Context, Result, bail};
+use maestria_blob_fs::FsBlobStore;
 use maestria_code_intel::{
     CodeQuery, ContextDirection, REPOSITORY_CODE_INDEX_FILENAME, REPOSITORY_CODE_PARSER_GENERATION,
     RepositoryCodeIndex, RepositoryContextQuery, RepositoryFreshness,
 };
-use maestria_core::InstanceManifest;
+use maestria_core::{InstanceLayout, InstanceManifest};
+use maestria_domain::CorpusScope;
+use maestria_governance::{RetrievalAuthorizationContext, RetrievalSecurityPolicy};
+use maestria_ports::{EventFilter, EventLog};
+use maestria_retrieval::adapters::{CodeIntelSecurityResolver, CodeIntelSecurityResolverParts};
+use maestria_storage_sqlite::SqliteStore;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 const MAX_QUERY_LIMIT: usize = 1_000;
+
+struct CodeIntelAuthorization {
+    resolver: CodeIntelSecurityResolver,
+    context: RetrievalAuthorizationContext,
+}
+
+fn code_intel_authorization(layout: &InstanceLayout) -> Result<CodeIntelAuthorization> {
+    let store = Arc::new(SqliteStore::open_read_only(&layout.database_path)?);
+    let events = EventLog::scan(store.as_ref(), EventFilter { artifact_id: None })?;
+    let resolver = CodeIntelSecurityResolver::from_events(
+        CodeIntelSecurityResolverParts {
+            artifacts: store.clone(),
+            evidence: store,
+            blobs: Arc::new(FsBlobStore::open(&layout.blobs_dir)?),
+        },
+        &events,
+    )
+    .map_err(|error| anyhow::anyhow!("prepare repository code authorization: {error}"))?;
+    let context = RetrievalSecurityPolicy::default()
+        .require_read_allowed(true)
+        .allow_unscoped_items(true)
+        .authorization_context(&CorpusScope::Global)
+        .map_err(|error| anyhow::anyhow!("authorize repository code query: {error}"))?;
+    Ok(CodeIntelAuthorization { resolver, context })
+}
 
 pub(crate) fn run_index(instance_dir: PathBuf, repository: PathBuf) -> Result<()> {
     let layout = super::super::helpers::validated_instance(instance_dir)?;
@@ -51,7 +83,12 @@ pub(crate) fn run_search(instance_dir: PathBuf, query: CodeQuery, limit: usize) 
     index
         .validate_provenance()
         .map_err(|error| anyhow::anyhow!("validate repository code index integrity: {error}"))?;
-    let result = index.query(query, limit);
+    let authorization = code_intel_authorization(&layout)?;
+    let result = index.query(query, limit, |symbol| {
+        authorization
+            .resolver
+            .authorizes(symbol, &authorization.context)
+    })?;
     println!("{}", serde_json::to_string_pretty(&result)?);
     Ok(())
 }
@@ -83,13 +120,21 @@ pub(crate) fn run_context(
         .validate_provenance()
         .map_err(|error| anyhow::anyhow!("validate repository code index integrity: {error}"))?;
     let direction = parse_context_direction(&direction)?;
-    let result = index.context(RepositoryContextQuery {
-        query: CodeQuery::Symbol { pattern },
-        direction,
-        relation_kinds: None,
-        max_depth: depth,
-        max_nodes: nodes,
-    });
+    let authorization = code_intel_authorization(&layout)?;
+    let result = index.context(
+        RepositoryContextQuery {
+            query: CodeQuery::Symbol { pattern },
+            direction,
+            relation_kinds: None,
+            max_depth: depth,
+            max_nodes: nodes,
+        },
+        |symbol| {
+            authorization
+                .resolver
+                .authorizes(symbol, &authorization.context)
+        },
+    )?;
     println!("{}", serde_json::to_string_pretty(&result)?);
     Ok(())
 }
