@@ -5,7 +5,8 @@ use maestria_governance::{
 use maestria_ports::{
     ApprovalRepository, ArtifactRepository, BlobStore, CardRepository, ChunkRepository,
     EffectJournal, EmbeddingProvider, EventLog, EvidenceRepository, FullTextIndex, GraphIndex,
-    HarnessAdapter, IdAllocator, Parser, SearchKnowledgeExecutor, VectorIndex, WebFetcher,
+    HarnessAdapter, IdAllocator, OcrProvider, Parser, SearchKnowledgeExecutor, VectorIndex,
+    WebFetcher,
 };
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
@@ -45,6 +46,7 @@ pub struct Adapters {
     pub search_index: Arc<dyn FullTextIndex + Send + Sync>,
     pub harness: Arc<dyn HarnessAdapter + Send + Sync>,
     pub parser: Arc<dyn Parser + Send + Sync>,
+    pub ocr_provider: Option<Arc<dyn OcrProvider + Send + Sync>>,
     pub artifact_repo: Arc<dyn ArtifactRepository + Send + Sync>,
     pub chunk_repo: Arc<dyn ChunkRepository + Send + Sync>,
     pub card_repo: Arc<dyn CardRepository + Send + Sync>,

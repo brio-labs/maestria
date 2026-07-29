@@ -8,6 +8,7 @@ mod completion;
 /// - `effect_result`: effect failure and result handling.
 /// - `harness`: harness execution effects.
 /// - `indexing`: full-text indexing effects.
+/// - `ocr`: module responsibility.
 /// - `parser_mapping`: parser status mappings.
 /// - `parsing`: artifact parsing effects.
 /// - `parsing_records`: parser record construction.
@@ -33,6 +34,7 @@ mod effect_execution_dispatch;
 mod effect_result;
 mod harness;
 mod indexing;
+mod ocr;
 mod parser_mapping;
 mod parsing;
 mod parsing_records;

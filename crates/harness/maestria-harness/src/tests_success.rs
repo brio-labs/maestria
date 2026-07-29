@@ -38,3 +38,23 @@ async fn cat_reads_file_in_readable_root() -> Result<(), Box<dyn std::error::Err
     std::fs::remove_file(path).ok();
     Ok(())
 }
+
+#[tokio::test]
+async fn cat_preserves_ordered_multi_file_output() -> Result<(), Box<dyn std::error::Error>> {
+    let root = tempfile::tempdir()?;
+    let first = root.path().join("first.txt");
+    let second = root.path().join("second.txt");
+    std::fs::write(&first, b"first\n")?;
+    std::fs::write(&second, b"second\n")?;
+
+    let mut request = shell_request(
+        &format!("cat {} {}", first.display(), second.display()),
+        5000,
+    );
+    request.working_directory = root.path().to_path_buf();
+    request.readable_roots = vec![root.path().to_path_buf()];
+    let outcome = adapter().execute(request).await?;
+    assert_eq!(outcome.exit_code, 0);
+    assert_eq!(outcome.stdout, b"first\nsecond\n");
+    Ok(())
+}

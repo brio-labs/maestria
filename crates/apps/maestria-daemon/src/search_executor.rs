@@ -179,9 +179,7 @@ impl SearchRuntime {
         let identity = provider
             .identity()
             .ok_or_else(|| anyhow!("visual provider identity is unavailable"))?;
-        let disclosure = provider
-            .disclosure()
-            .ok_or_else(|| anyhow!("visual provider disclosure is unavailable"))?;
+        let disclosure = provider.disclosure();
         if disclosure.remote || disclosure.retention != maestria_ports::RetentionPolicy::NoRetention
         {
             return Err(anyhow!(

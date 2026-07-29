@@ -8,7 +8,7 @@ use maestria_visual_local::LocalHttpVisualProvider;
 
 pub(crate) fn build_ocr_provider(
     manifest: &InstanceManifest,
-) -> Result<Option<Arc<dyn OcrProvider>>> {
+) -> Result<Option<Arc<dyn OcrProvider + Send + Sync>>> {
     let Some(config) = manifest.ocr.as_ref().filter(|config| config.enabled) else {
         return Ok(None);
     };
@@ -35,16 +35,6 @@ pub fn build_visual_provider(
     let Some(config) = manifest.visual.as_ref().filter(|config| config.enabled) else {
         return Ok(None);
     };
-    if config.remote_provider
-        || !matches!(
-            config.retention_policy,
-            maestria_ports::RetentionPolicy::NoRetention
-        )
-    {
-        return Err(anyhow!(
-            "visual provider must be local and no-retention before activation"
-        ));
-    }
     if identity.fingerprint.model != config.model
         || identity.fingerprint.dimensions != config.dimensions as u32
         || identity.fingerprint.provider != config.provider
@@ -58,6 +48,15 @@ pub fn build_visual_provider(
     }
     let provider = LocalHttpVisualProvider::new(&config.endpoint, &config.model, identity)
         .map_err(|error| anyhow!("configure local visual provider: {error}"))?;
+    let expected = maestria_ports::ProviderDisclosure {
+        remote: config.remote_provider,
+        retention: config.retention_policy.clone(),
+    };
+    if provider.disclosure() != expected {
+        return Err(anyhow!(
+            "visual provider disclosure does not match manifest expectation"
+        ));
+    }
     Ok(Some(Arc::new(provider)))
 }
 

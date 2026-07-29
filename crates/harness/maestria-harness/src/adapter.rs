@@ -1,12 +1,11 @@
-use super::command::{self, ALLOWED_PROGRAMS, path_is_blocked, validate_cat_args};
-use super::process::spawn_and_collect;
+use super::command::{self, ALLOWED_PROGRAMS, authorize_paths, validate_command_args};
+use super::process::execute_command;
 use super::tokenize::tokenize;
 use maestria_ports::{
     HarnessAdapter, HarnessCapabilities, HarnessCommandClass, HarnessOutcome, HarnessRequest,
     PortError,
 };
 use std::future::Future;
-use std::path::PathBuf;
 use std::pin::Pin;
 use std::time::SystemTime;
 
@@ -18,7 +17,7 @@ impl HarnessAdapter for LocalShellHarnessAdapter {
         Ok(HarnessCapabilities {
             command_classes: vec![HarnessCommandClass::Shell],
             write_enabled: false,
-            read_enabled: true,
+            read_enabled: cfg!(target_os = "linux"),
             web_enabled: false,
         })
     }
@@ -31,44 +30,6 @@ impl HarnessAdapter for LocalShellHarnessAdapter {
     }
 }
 
-fn validate_working_directory(request: &HarnessRequest) -> Result<PathBuf, PortError> {
-    let canonical = std::fs::canonicalize(&request.working_directory).map_err(|error| {
-        PortError::InvalidInputContext {
-            context: "validate harness working directory",
-            source: format!("{}: {error}", request.working_directory.display()),
-        }
-    })?;
-    if !canonical.is_dir() {
-        return Err(PortError::InvalidInputContext {
-            context: "validate harness working directory",
-            source: format!("{} is not a directory", canonical.display()),
-        });
-    }
-
-    let contained = request
-        .readable_roots
-        .iter()
-        .any(|root| match root.canonicalize() {
-            Ok(canonical_root) => canonical.starts_with(&canonical_root),
-            Err(_) => false,
-        });
-    if !contained {
-        return Err(PortError::InvalidInputContext {
-            context: "working directory outside readable roots",
-            source: canonical.display().to_string(),
-        });
-    }
-
-    if path_is_blocked(&canonical, &request.blocked_paths) {
-        return Err(PortError::InvalidInputContext {
-            context: "working directory blocked by exclusion",
-            source: canonical.display().to_string(),
-        });
-    }
-
-    Ok(canonical)
-}
-
 async fn execute_impl(request: HarnessRequest) -> Result<HarnessOutcome, PortError> {
     let start = SystemTime::now();
 
@@ -78,9 +39,9 @@ async fn execute_impl(request: HarnessRequest) -> Result<HarnessOutcome, PortErr
             source: format!("{:?}", request.class),
         });
     }
-    let working_directory = validate_working_directory(&request)?;
+    let authorization = authorize_paths(&request)?;
     let mut request = request;
-    request.working_directory = working_directory;
+    request.working_directory = authorization.working_directory.clone();
 
     let argv = tokenize(&request.command)?;
     if argv.is_empty() {
@@ -102,34 +63,13 @@ async fn execute_impl(request: HarnessRequest) -> Result<HarnessOutcome, PortErr
         command::reject_metachar(arg)?;
     }
 
-    let validated_args = validate_cat_args(program, &argv, &request)?;
-
-    let (status, stdout, stderr) = spawn_and_collect(program, &validated_args, &request).await?;
+    let validated_args = validate_command_args(program, &argv, &request)?;
+    let (exit_code, stdout, stderr) =
+        execute_command(program, &validated_args, &request, &authorization).await?;
 
     let duration = match start.elapsed() {
         Ok(d) => d,
         Err(_) => std::time::Duration::ZERO,
-    };
-    let exit_code = match status.code() {
-        Some(c) => c,
-        None => {
-            #[cfg(unix)]
-            {
-                use std::os::unix::process::ExitStatusExt;
-                match status.signal() {
-                    Some(s) => 128 + s,
-                    None => {
-                        let _ = ();
-                        -1
-                    }
-                }
-            }
-            #[cfg(not(unix))]
-            {
-                let _ = ();
-                -1
-            }
-        }
     };
 
     Ok(HarnessOutcome {

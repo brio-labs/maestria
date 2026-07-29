@@ -1,20 +1,23 @@
 use super::*;
 use crate::adapters::filtered_test_support::request;
+use crate::adapters::visual_projection::{VisualProjectionRebuildParts, rebuild_visual_projection};
 use maestria_domain::{IndexGeneration, IndexLifecycle};
+use maestria_governance::RetrievalSecurityPolicy;
 use maestria_ports::{
-    EmbeddingProvenance, EmbeddingResponse, InMemoryArtifactRepository, InMemoryBlobStore,
-    InMemoryChunkRepository, InMemoryEvidenceRepository, InMemoryVectorIndex, PortError,
-    VectorEmbedding, VectorIndex, VisualEmbeddingRequest,
+    BlobStore, EmbeddingProvenance, EmbeddingResponse, InMemoryArtifactRepository,
+    InMemoryBlobStore, InMemoryChunkRepository, InMemoryEvidenceRepository, InMemoryVectorIndex,
+    PortError, VectorEmbedding, VectorIndex, VisualEmbeddingRequest,
 };
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 struct UnavailableVisualProvider;
 
 impl VisualEmbeddingProvider for UnavailableVisualProvider {
-    fn disclosure(&self) -> Option<maestria_ports::ProviderDisclosure> {
-        Some(maestria_ports::ProviderDisclosure {
+    fn disclosure(&self) -> maestria_ports::ProviderDisclosure {
+        maestria_ports::ProviderDisclosure {
             remote: false,
             retention: RetentionPolicy::NoRetention,
-        })
+        }
     }
 
     fn embed_query(
@@ -38,6 +41,60 @@ impl VisualEmbeddingProvider for UnavailableVisualProvider {
 
     fn identity(&self) -> Option<EmbeddingIdentity> {
         None
+    }
+}
+
+struct DeniedVisualProvider {
+    identity: EmbeddingIdentity,
+    post_count: AtomicUsize,
+}
+
+impl VisualEmbeddingProvider for DeniedVisualProvider {
+    fn disclosure(&self) -> maestria_ports::ProviderDisclosure {
+        maestria_ports::ProviderDisclosure {
+            remote: true,
+            retention: maestria_ports::RetentionPolicy::ProviderDefined,
+        }
+    }
+
+    fn embed_query(
+        &self,
+        _query: &str,
+        _identity: EmbeddingIdentity,
+    ) -> Result<EmbeddingResponse, PortError> {
+        self.post_count.fetch_add(1, Ordering::Relaxed);
+        Err(PortError::Downstream {
+            message: "denied visual transport must not be called".to_string(),
+        })
+    }
+
+    fn embed_source(
+        &self,
+        _request: VisualEmbeddingRequest,
+    ) -> Result<EmbeddingResponse, PortError> {
+        self.post_count.fetch_add(1, Ordering::Relaxed);
+        Err(PortError::Downstream {
+            message: "denied visual transport must not be called".to_string(),
+        })
+    }
+
+    fn identity(&self) -> Option<EmbeddingIdentity> {
+        Some(self.identity.clone())
+    }
+}
+
+struct CountingBlobStore {
+    gets: AtomicUsize,
+}
+
+impl BlobStore for CountingBlobStore {
+    fn put(&self, _bytes: Vec<u8>) -> Result<maestria_domain::BlobId, PortError> {
+        Ok(maestria_domain::BlobId::new(1))
+    }
+
+    fn get(&self, _id: maestria_domain::BlobId) -> Result<Vec<u8>, PortError> {
+        self.gets.fetch_add(1, Ordering::Relaxed);
+        Ok(vec![1])
     }
 }
 
@@ -75,6 +132,57 @@ fn visual_lane_is_named_and_generation_aware() -> Result<(), Box<dyn std::error:
     assert_eq!(descriptor.modality, "image");
     assert_eq!(descriptor.representation.0, "visual_page_v1");
     assert_eq!(descriptor.generation, generation);
+    Ok(())
+}
+
+#[test]
+fn denied_visual_projection_reads_no_blob_and_posts_no_bytes()
+-> Result<(), Box<dyn std::error::Error>> {
+    let generation = IndexGenerationId::new(84);
+    let corpus_snapshot = CorpusSnapshotId::new(9);
+    let mut identity = EmbeddingIdentity::legacy("visual", 1)?;
+    identity.generation_id = generation;
+    identity.representation = RepresentationName::new("visual_page_v1");
+    let mut registry = IndexGenerationRegistry::default();
+    registry.register(IndexGeneration {
+        id: generation,
+        name: RepresentationName::new("visual_page_v1"),
+        corpus_snapshot,
+        fingerprint: identity.fingerprint.clone(),
+        lifecycle: IndexLifecycle::Building,
+    })?;
+    registry.transition_lifecycle(generation, IndexLifecycle::Evaluated)?;
+    registry.transition_lifecycle(generation, IndexLifecycle::Shadow)?;
+    registry.transition_lifecycle(generation, IndexLifecycle::Active)?;
+    let capability =
+        VisualGenerationCapability::activate(&registry, identity.clone(), corpus_snapshot)?;
+    let provider = Arc::new(DeniedVisualProvider {
+        identity,
+        post_count: AtomicUsize::new(0),
+    });
+    let blobs = Arc::new(CountingBlobStore {
+        gets: AtomicUsize::new(0),
+    });
+    let result = rebuild_visual_projection(
+        VisualProjectionRebuildParts {
+            index: &InMemoryVectorIndex::new(),
+            artifacts: &InMemoryArtifactRepository::new(),
+            chunks: &InMemoryChunkRepository::new(),
+            evidence: &InMemoryEvidenceRepository::new(),
+            blobs: blobs.as_ref(),
+            policy: &RetrievalSecurityPolicy::default(),
+            provider: provider.as_ref(),
+        },
+        &[maestria_domain::ArtifactId::new(1)],
+        &capability,
+    );
+    assert!(matches!(
+        result,
+        Err(RetrievalError::Internal(message))
+            if message.contains("local and no-retention")
+    ));
+    assert_eq!(provider.post_count.load(Ordering::Relaxed), 0);
+    assert_eq!(blobs.gets.load(Ordering::Relaxed), 0);
     Ok(())
 }
 

@@ -178,11 +178,13 @@ impl KernelState {
                     detail: "parser document tree failed structural validation",
                 });
             }
-            let tree_changed = self.artifact_versions.get(&input.artifact_id)
-                != Some(&input.artifact_version_id)
-                || self.artifact_content_hashes.get(&input.artifact_id)
-                    != Some(&input.content_hash)
-                || !self.document_trees.contains_key(&input.artifact_id);
+            let tree_changed =
+                self.artifact_versions.get(&input.artifact_id) != Some(&input.artifact_version_id)
+                    || self.artifact_content_hashes.get(&input.artifact_id)
+                        != Some(&input.content_hash)
+                    || self.document_trees.get(&input.artifact_id).is_none_or(
+                        |(root_id, nodes)| *root_id != tree_root_id || nodes != &input.tree_nodes,
+                    );
             if tree_changed {
                 let tree_event = self.emit_event(DomainEvent::DocumentTreeCaptured {
                     artifact_id: input.artifact_id,

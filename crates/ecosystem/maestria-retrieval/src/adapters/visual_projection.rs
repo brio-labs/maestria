@@ -2,7 +2,7 @@ use maestria_domain::{ArtifactId, EvidenceKind, IndexStatus, SourceSpan};
 use maestria_governance::{RetrievalDecision, RetrievalSecurityPolicy, scan_secrets};
 use maestria_ports::{
     ArtifactRepository, BlobStore, ChunkRepository, EmbeddingIdentity, EmbeddingProvenance,
-    EvidenceRepository, RetentionPolicy, VectorEmbedding, VectorIndex, VisualEmbeddingProvider,
+    EvidenceRepository, ProviderDisclosure, VectorEmbedding, VectorIndex, VisualEmbeddingProvider,
     VisualEmbeddingRequest, VisualSource,
 };
 
@@ -36,7 +36,7 @@ pub fn rebuild_visual_projection(
             "visual provider identity does not match active generation capability".to_string(),
         ));
     }
-    ensure_local_no_retention(parts.provider)?;
+    let disclosure = ensure_local_no_retention(parts.provider)?;
     let mut embeddings = Vec::new();
     for artifact_id in artifact_ids {
         let Some(artifact) = parts.artifacts.get(*artifact_id).map_err(port_error)? else {
@@ -59,6 +59,7 @@ pub fn rebuild_visual_projection(
                 parts.policy,
                 parts.provider,
                 capability.identity(),
+                &disclosure,
             )? {
                 embeddings.push(embedding);
             }
@@ -74,6 +75,7 @@ fn visual_embedding_for_chunk(
     policy: &RetrievalSecurityPolicy,
     provider: &dyn VisualEmbeddingProvider,
     identity: &EmbeddingIdentity,
+    disclosure: &ProviderDisclosure,
 ) -> RetrievalResult<Option<VectorEmbedding>> {
     if !matches!(
         &chunk.source_span,
@@ -120,9 +122,9 @@ fn visual_embedding_for_chunk(
             "visual source response identity changed during projection rebuild".to_string(),
         ));
     }
-    if response.disclosure.remote || response.disclosure.retention != RetentionPolicy::NoRetention {
+    if response.disclosure != *disclosure {
         return Err(RetrievalError::Internal(
-            "visual provider violates local no-retention policy".to_string(),
+            "visual provider response disclosure changed during projection rebuild".to_string(),
         ));
     }
     Ok(Some(VectorEmbedding {
@@ -174,16 +176,17 @@ mod tests {
     use super::*;
     use maestria_ports::{
         EmbeddingResponse, InMemoryBlobStore, InMemoryEvidenceRepository, PortError,
+        RetentionPolicy,
     };
 
     struct UnusedVisualProvider;
 
     impl VisualEmbeddingProvider for UnusedVisualProvider {
-        fn disclosure(&self) -> Option<maestria_ports::ProviderDisclosure> {
-            Some(maestria_ports::ProviderDisclosure {
+        fn disclosure(&self) -> maestria_ports::ProviderDisclosure {
+            maestria_ports::ProviderDisclosure {
                 remote: false,
                 retention: RetentionPolicy::NoRetention,
-            })
+            }
         }
 
         fn embed_query(
@@ -244,6 +247,7 @@ mod tests {
             &RetrievalSecurityPolicy::default(),
             &UnusedVisualProvider,
             &identity,
+            &UnusedVisualProvider.disclosure(),
         );
         assert!(matches!(
             result,

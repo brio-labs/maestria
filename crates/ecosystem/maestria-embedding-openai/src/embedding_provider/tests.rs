@@ -1,18 +1,42 @@
 use super::*;
-use std::sync::Mutex;
-#[derive(Default)]
+use std::sync::{
+    Mutex,
+    atomic::{AtomicUsize, Ordering},
+};
+const ENDPOINT: &str = "http://127.0.0.1:8080/v1/embeddings";
+fn endpoint() -> Result<ProviderEndpoint, PortError> {
+    ProviderEndpoint::loopback_http(ENDPOINT, EMBEDDING_ENDPOINT_PATH)
+}
+
 struct FixtureTransport {
     response: Mutex<Option<Result<Vec<u8>, PortError>>>,
+    endpoint: ProviderEndpoint,
+    disclosure: ProviderDisclosure,
 }
+
 impl FixtureTransport {
-    fn new(response: Result<Vec<u8>, PortError>) -> Self {
-        Self {
+    fn new(response: Result<Vec<u8>, PortError>) -> Result<Self, PortError> {
+        Ok(Self {
             response: Mutex::new(Some(response)),
-        }
+            endpoint: endpoint()?,
+            disclosure: ProviderDisclosure {
+                remote: false,
+                retention: RetentionPolicy::NoRetention,
+            },
+        })
     }
 }
-impl EmbeddingTransport for FixtureTransport {
-    fn post(&self, _endpoint: &str, _body: Vec<u8>) -> Result<Vec<u8>, PortError> {
+
+impl ProviderTransport for FixtureTransport {
+    fn endpoint(&self) -> &ProviderEndpoint {
+        &self.endpoint
+    }
+
+    fn disclosure(&self) -> &ProviderDisclosure {
+        &self.disclosure
+    }
+
+    fn post(&self, _body: Vec<u8>) -> Result<Vec<u8>, PortError> {
         self.response
             .lock()
             .map_err(|_| PortError::Internal {
@@ -24,12 +48,37 @@ impl EmbeddingTransport for FixtureTransport {
             })?
     }
 }
+
 struct RecordingTransport {
     response: Vec<u8>,
     body: Mutex<Option<Vec<u8>>>,
+    post_count: AtomicUsize,
+    endpoint: ProviderEndpoint,
+    disclosure: ProviderDisclosure,
 }
-impl EmbeddingTransport for RecordingTransport {
-    fn post(&self, _endpoint: &str, body: Vec<u8>) -> Result<Vec<u8>, PortError> {
+impl RecordingTransport {
+    fn new(response: Vec<u8>, disclosure: ProviderDisclosure) -> Result<Self, PortError> {
+        Ok(Self {
+            response,
+            body: Mutex::new(None),
+            post_count: AtomicUsize::new(0),
+            endpoint: endpoint()?,
+            disclosure,
+        })
+    }
+}
+
+impl ProviderTransport for RecordingTransport {
+    fn endpoint(&self) -> &ProviderEndpoint {
+        &self.endpoint
+    }
+
+    fn disclosure(&self) -> &ProviderDisclosure {
+        &self.disclosure
+    }
+
+    fn post(&self, body: Vec<u8>) -> Result<Vec<u8>, PortError> {
+        self.post_count.fetch_add(1, Ordering::Relaxed);
         *self.body.lock().map_err(|_| PortError::Internal {
             message: "recording lock poisoned".to_string(),
         })? = Some(body);
@@ -38,22 +87,21 @@ impl EmbeddingTransport for RecordingTransport {
 }
 #[test]
 fn applies_kind_template_and_preserves_disclosure() -> Result<(), PortError> {
-    let transport = Arc::new(RecordingTransport {
-        response: br#"{"data":[{"embedding":[0.1,0.2]}]}"#.to_vec(),
-        body: Mutex::new(None),
-    });
+    let transport = Arc::new(RecordingTransport::new(
+        br#"{"data":[{"embedding":[0.1,0.2]}]}"#.to_vec(),
+        ProviderDisclosure {
+            remote: true,
+            retention: RetentionPolicy::ProviderDefined,
+        },
+    )?);
     let identity = EmbeddingIdentity::legacy("profiled-model", 2)?;
     let mut provider = LocalHttpEmbeddingProvider::with_profile(
-        "http://127.0.0.1:8080/v1/embeddings",
+        ENDPOINT,
         "profiled-model",
         Some(2),
         identity.clone(),
         "document: {{text}}".to_string(),
         "query: {{text}}".to_string(),
-        ProviderDisclosure {
-            remote: true,
-            retention: RetentionPolicy::ProviderDefined,
-        },
     )?;
     provider.transport = transport.clone();
     let response = provider.embed(EmbeddingRequest {
@@ -84,6 +132,45 @@ fn applies_kind_template_and_preserves_disclosure() -> Result<(), PortError> {
     );
     Ok(())
 }
+
+#[test]
+fn denied_transport_disclosure_posts_zero_bytes() -> Result<(), PortError> {
+    let transport = Arc::new(RecordingTransport::new(
+        br#"{"data":[{"embedding":[0.1,0.2]}]}"#.to_vec(),
+        ProviderDisclosure {
+            remote: true,
+            retention: RetentionPolicy::ProviderDefined,
+        },
+    )?);
+    let identity = EmbeddingIdentity::legacy("denied-model", 2)?;
+    let mut provider = LocalHttpEmbeddingProvider::with_profile(
+        ENDPOINT,
+        "denied-model",
+        Some(2),
+        identity.clone(),
+        "{{text}}".to_string(),
+        "{{text}}".to_string(),
+    )?;
+    provider.transport = transport.clone();
+    let expected = ProviderDisclosure {
+        remote: false,
+        retention: RetentionPolicy::NoRetention,
+    };
+    assert_ne!(provider.disclosure(), expected);
+    let denied = provider.disclosure() != expected;
+    assert!(denied);
+    assert_eq!(transport.post_count.load(Ordering::Relaxed), 0);
+    assert!(
+        transport
+            .body
+            .lock()
+            .map_err(|_| PortError::Internal {
+                message: "recording lock poisoned".to_string(),
+            })?
+            .is_none()
+    );
+    Ok(())
+}
 #[test]
 fn rejects_incompatible_request_identity() -> Result<(), PortError> {
     let provider = LocalHttpEmbeddingProvider::with_transport(
@@ -92,7 +179,7 @@ fn rejects_incompatible_request_identity() -> Result<(), PortError> {
         Some(2),
         Arc::new(FixtureTransport::new(Ok(
             br#"{"data":[{"embedding":[0.1,0.2]}]}"#.to_vec(),
-        ))),
+        ))?),
     )?;
     let identity = EmbeddingIdentity::legacy("different-model", 2)?;
     let result = provider.embed(EmbeddingRequest {
@@ -117,7 +204,7 @@ fn parses_and_validates_embedding_response() -> Result<(), PortError> {
         "http://127.0.0.1:8080/v1/embeddings",
         "model",
         Some(2),
-        Arc::new(FixtureTransport::new(Ok(response.to_vec()))),
+        Arc::new(FixtureTransport::new(Ok(response.to_vec()))?),
     )?;
     let result = provider.embed(EmbeddingRequest {
         text: "hello".to_string(),
@@ -137,7 +224,7 @@ fn rejects_empty_text() -> Result<(), PortError> {
         Some(2),
         Arc::new(FixtureTransport::new(Ok(
             br#"{"data":[{"embedding":[0.1,0.2]}]}"#.to_vec(),
-        ))),
+        ))?),
     )?;
     let result = provider.embed(EmbeddingRequest {
         text: "   ".to_string(),
@@ -159,7 +246,7 @@ fn rejects_mismatched_model_version() -> Result<(), PortError> {
         Some(2),
         Arc::new(FixtureTransport::new(Ok(
             br#"{"data":[{"embedding":[0.1,0.2]}]}"#.to_vec(),
-        ))),
+        ))?),
     )?;
     let result = provider.embed(EmbeddingRequest {
         text: "hello".to_string(),
@@ -181,7 +268,7 @@ fn propagates_transport_error() -> Result<(), PortError> {
         Some(2),
         Arc::new(FixtureTransport::new(Err(PortError::Downstream {
             message: "connection refused".to_string(),
-        }))),
+        }))?),
     )?;
     let result = provider.embed(EmbeddingRequest {
         text: "hello".to_string(),
@@ -201,7 +288,7 @@ fn rejects_malformed_json_response() -> Result<(), PortError> {
         "http://127.0.0.1:8080/v1/embeddings",
         "model",
         Some(2),
-        Arc::new(FixtureTransport::new(Ok(br#"not-json"#.to_vec()))),
+        Arc::new(FixtureTransport::new(Ok(br#"not-json"#.to_vec()))?),
     )?;
     let result = provider.embed(EmbeddingRequest {
         text: "hello".to_string(),
@@ -221,7 +308,7 @@ fn rejects_empty_embedding_array() -> Result<(), PortError> {
         "http://127.0.0.1:8080/v1/embeddings",
         "model",
         Some(2),
-        Arc::new(FixtureTransport::new(Ok(br#"{"data":[]}"#.to_vec()))),
+        Arc::new(FixtureTransport::new(Ok(br#"{"data":[]}"#.to_vec()))?),
     )?;
     let result = provider.embed(EmbeddingRequest {
         text: "hello".to_string(),
@@ -254,7 +341,7 @@ fn satisfies_shared_embedding_provider_contract() -> Result<(), Box<dyn std::err
         Some(2),
         Arc::new(FixtureTransport::new(Ok(
             br#"{"data":[{"embedding":[0.1,0.2]}],"model":"model-v1"}"#.to_vec(),
-        ))),
+        ))?),
     )?;
     maestria_ports::contract_tests::assert_embedding_provider_contract(&provider)
 }

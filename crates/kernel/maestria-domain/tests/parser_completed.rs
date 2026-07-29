@@ -319,3 +319,82 @@ fn parser_completed_duplicate_zero_output_suppresses_artifact_parsed()
     );
     Ok(())
 }
+
+#[test]
+fn parsed_tree_replaces_needs_ocr_tree_for_same_version() -> Result<(), Box<dyn std::error::Error>>
+{
+    let artifact_id = ArtifactId::new(31);
+    let root_id = StructureNodeId::new(310);
+    let text_id = StructureNodeId::new(311);
+    let version_id = ArtifactVersionId::new(31);
+    let content_hash = fixtures::test_content_hash()?;
+    let mut state = KernelState::new();
+    state.apply_input(DomainInput::RegisterArtifact(RegisterArtifactInput {
+        artifact_id,
+        title: "Scanned".to_string(),
+        security: None,
+    }))?;
+
+    state.apply_input(DomainInput::ParserCompleted(ParserResult {
+        status: maestria_domain::ParseStatus::NeedsOcr,
+        artifact_id,
+        artifact_version_id: version_id,
+        content_hash: content_hash.clone(),
+        tree_root_id: Some(root_id),
+        tree_nodes: vec![fixtures::tree_root_node(root_id)],
+        chunks: Vec::new(),
+        cards: Vec::new(),
+    }))?;
+
+    let text_node = StructureNode {
+        id: text_id,
+        parent_id: Some(root_id),
+        sibling_id: None,
+        node_type: StructureNodeType::Paragraph,
+        source_range: ContentRange { start: 0, end: 4 },
+        page: Some(1),
+        section_path: Vec::new(),
+        parser_generation: "test".to_string(),
+        schema_generation: "1".to_string(),
+        language: None,
+    };
+    let output = state.apply_input(DomainInput::ParserCompleted(ParserResult {
+        status: maestria_domain::ParseStatus::Parsed,
+        artifact_id,
+        artifact_version_id: version_id,
+        content_hash,
+        tree_root_id: Some(root_id),
+        tree_nodes: vec![fixtures::tree_root_node(root_id), text_node],
+        chunks: vec![RegisterChunkInput {
+            chunk_id: ChunkId::new(311),
+            artifact_id,
+            node_id: text_id,
+            source_span: SourceSpan::TextSpan {
+                start_line: 1,
+                end_line: 1,
+            },
+            representations: Vec::new(),
+            order: 0,
+            text: "ocr text".to_string(),
+        }],
+        cards: Vec::new(),
+    }))?;
+
+    assert!(output.events.iter().any(|envelope| matches!(
+        envelope.event,
+        DomainEvent::DocumentTreeCaptured { ref nodes, .. }
+            if nodes.iter().any(|node| node.id == text_id)
+    )));
+    let (_, stored_nodes) = state
+        .document_trees
+        .get(&artifact_id)
+        .ok_or("updated tree missing")?;
+    assert!(stored_nodes.iter().any(|node| node.id == text_id));
+    assert!(
+        state
+            .chunks
+            .values()
+            .all(|chunk| stored_nodes.iter().any(|node| node.id == chunk.node_id))
+    );
+    Ok(())
+}

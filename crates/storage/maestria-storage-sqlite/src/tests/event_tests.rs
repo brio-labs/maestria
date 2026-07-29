@@ -109,6 +109,47 @@ fn artifact_filter_includes_evidence_and_search_events() -> Result<(), Box<dyn s
 }
 
 #[test]
+fn artifact_filter_includes_ocr_request_and_terminals() -> Result<(), Box<dyn std::error::Error>> {
+    let store = SqliteStore::in_memory()?;
+    let request = OcrIntent::new(
+        ArtifactId::new(7),
+        BlobId::new(11),
+        ContentHash::new(format!("sha256:{}", "0".repeat(64)))?,
+        [1],
+        OcrProviderIdentity::new("fixture", "ocr", "v1", "sha256:provider", "prep-v1")?,
+        OcrDisclosure::new(false, OcrRetentionPolicy::NoRetention),
+    )?;
+    let completion = OcrCompletion::new(&request, [OcrPageText::new(1, "one")?])?;
+    let requested = DomainEventEnvelope {
+        id: EventId::new(1),
+        sequence: SequenceNumber::new(1),
+        event: DomainEvent::OcrRequested {
+            intent: request.clone(),
+        },
+    };
+    let completed = DomainEventEnvelope {
+        id: EventId::new(2),
+        sequence: SequenceNumber::new(2),
+        event: DomainEvent::OcrCompleted {
+            artifact_id: request.artifact_id(),
+            completion,
+        },
+    };
+    let unrelated = registered(3, 3, 9);
+    store.append(requested.clone())?;
+    store.append(completed.clone())?;
+    store.append(unrelated)?;
+
+    assert_eq!(
+        store.scan(EventFilter {
+            artifact_id: Some(ArtifactId::new(7)),
+        })?,
+        vec![requested, completed]
+    );
+    Ok(())
+}
+
+#[test]
 fn duplicate_event_id_or_sequence_conflicts() -> Result<(), Box<dyn std::error::Error>> {
     let store = SqliteStore::in_memory()?;
     store.append(registered(1, 1, 1))?;

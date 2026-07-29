@@ -102,6 +102,8 @@ pub struct EmbeddingResponse {
 }
 
 pub trait EmbeddingProvider: Send + Sync {
+    /// The transport-bound disclosure that must be checked before input bytes.
+    fn disclosure(&self) -> ProviderDisclosure;
     fn embed(&self, request: EmbeddingRequest) -> Result<EmbeddingResponse, crate::PortError>;
     fn identity(&self) -> Option<EmbeddingIdentity> {
         None

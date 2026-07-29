@@ -2,8 +2,8 @@
 //!
 //! Responsibility map:
 //! - `adapter`: port adapter and request execution.
-//! - `command`: command and path validation.
-//! - `process`: trusted process spawning and bounded output collection.
+//! - `command`: command and path authorization.
+//! - `process`: bounded in-process command interpretation and pinned reads.
 //! - `tokenize`: restricted command tokenization.
 
 mod adapter;

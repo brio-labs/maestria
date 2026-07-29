@@ -1,79 +1,12 @@
+use super::command::{AuthorizedPaths, normalize_path, validate_filename_patterns};
 use maestria_ports::{HarnessRequest, PortError};
-use std::sync::{
-    Arc,
-    atomic::{AtomicUsize, Ordering},
-};
+use std::path::Path;
 use tokio::io::AsyncReadExt;
-use tokio::process::{Child, Command};
-#[cfg(unix)]
-const TRUSTED_PATH: &str = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin";
-#[cfg(windows)]
-const TRUSTED_PATH: &str = r"C:\Windows\System32;C:\Windows";
-#[cfg(not(any(unix, windows)))]
-const TRUSTED_PATH: &str = "";
 
-fn trusted_path() -> &'static str {
-    TRUSTED_PATH
-}
-
-fn trusted_candidate(root: &std::path::Path, program: &str) -> Option<std::path::PathBuf> {
-    let root = std::fs::canonicalize(root).ok()?;
-    let candidate = root.join(program);
-    let executable = std::fs::canonicalize(candidate).ok()?;
-    if !executable.starts_with(&root) {
-        return None;
-    }
-    let metadata = std::fs::metadata(&executable).ok()?;
-    if !metadata.is_file() {
-        return None;
-    }
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        if metadata.permissions().mode() & 0o111 == 0 {
-            return None;
-        }
-    }
-    Some(executable)
-}
-
-pub(crate) fn resolve_trusted_program(program: &str) -> Result<std::path::PathBuf, PortError> {
-    if program.is_empty() || std::path::Path::new(program).components().count() != 1 {
-        return Err(PortError::InvalidInputContext {
-            context: "resolve trusted harness executable",
-            source: program.to_string(),
-        });
-    }
-
-    #[cfg(unix)]
-    for root in ["/usr/local/bin", "/usr/bin", "/bin"] {
-        if let Some(executable) = trusted_candidate(std::path::Path::new(root), program) {
-            return Ok(executable);
-        }
-    }
-
-    #[cfg(windows)]
-    {
-        let system_root = match std::env::var_os("SystemRoot") {
-            Some(path) => std::path::PathBuf::from(path),
-            None => std::path::PathBuf::from(r"C:\Windows"),
-        };
-        for root in [system_root.join("System32"), system_root] {
-            if let Some(executable) = trusted_candidate(&root, program) {
-                return Ok(executable);
-            }
-            let with_extension = format!("{program}.exe");
-            if let Some(executable) = trusted_candidate(&root, &with_extension) {
-                return Ok(executable);
-            }
-        }
-    }
-
-    Err(PortError::InternalContext {
-        context: "resolve trusted harness executable",
-        source: program.to_string(),
-    })
-}
+#[cfg(target_os = "linux")]
+mod pinned_file;
+#[cfg(target_os = "linux")]
+use pinned_file::{ensure_regular_file, fd_identity, open_beneath};
 
 pub(crate) const MAX_STDOUT_BYTES: usize = 1024 * 1024;
 pub(crate) const MAX_STDERR_BYTES: usize = 1024 * 1024;
@@ -81,7 +14,7 @@ pub(crate) const MAX_TOTAL_OUTPUT_BYTES: usize = 2 * 1024 * 1024;
 const READ_BUFFER_BYTES: usize = 8 * 1024;
 
 #[derive(Debug)]
-enum DrainError {
+enum OutputError {
     Io {
         stream: &'static str,
         source: std::io::Error,
@@ -96,7 +29,7 @@ enum DrainError {
     },
 }
 
-impl DrainError {
+impl OutputError {
     fn into_port_error(self) -> PortError {
         match self {
             Self::Io { stream, source } => PortError::InternalContext {
@@ -117,36 +50,35 @@ impl DrainError {
     }
 }
 
-fn reserve_total_output(total: &AtomicUsize, amount: usize, limit: usize) -> bool {
-    let mut current = total.load(Ordering::Acquire);
-    loop {
-        let Some(next) = current.checked_add(amount) else {
-            return false;
-        };
-        if next > limit {
-            return false;
-        }
-        match total.compare_exchange_weak(current, next, Ordering::AcqRel, Ordering::Acquire) {
-            Ok(_) => return true,
-            Err(observed) => current = observed,
-        }
+fn reserve_total_output(total: &mut usize, amount: usize) -> Result<(), OutputError> {
+    let Some(next) = total.checked_add(amount) else {
+        return Err(OutputError::TotalLimitExceeded {
+            stream: "stdout",
+            limit: MAX_TOTAL_OUTPUT_BYTES,
+        });
+    };
+    if next > MAX_TOTAL_OUTPUT_BYTES {
+        return Err(OutputError::TotalLimitExceeded {
+            stream: "stdout",
+            limit: MAX_TOTAL_OUTPUT_BYTES,
+        });
     }
+    *total = next;
+    Ok(())
 }
 
-async fn drain_limited<R: tokio::io::AsyncRead + Unpin>(
-    handle: &mut Option<R>,
+async fn read_limited(
+    file: &mut tokio::fs::File,
     stream: &'static str,
-    stream_limit: usize,
-    total_limit: usize,
-    total: &AtomicUsize,
-) -> Result<Vec<u8>, DrainError> {
-    let Some(reader) = handle.as_mut() else {
-        return Ok(Vec::new());
+    output: &mut Vec<u8>,
+    total: &mut usize,
+) -> Result<(), OutputError> {
+    let stream_limit = match stream {
+        "stdout" => MAX_STDOUT_BYTES,
+        "stderr" => MAX_STDERR_BYTES,
+        _ => 0,
     };
-
-    let mut output = Vec::with_capacity(stream_limit);
     let mut buffer = [0u8; READ_BUFFER_BYTES];
-
     loop {
         let remaining = stream_limit.saturating_sub(output.len());
         let read_size = if remaining == 0 {
@@ -154,133 +86,318 @@ async fn drain_limited<R: tokio::io::AsyncRead + Unpin>(
         } else {
             remaining.saturating_add(1).min(READ_BUFFER_BYTES)
         };
-        let read = reader
+        let read = file
             .read(&mut buffer[..read_size])
             .await
-            .map_err(|source| DrainError::Io { stream, source })?;
+            .map_err(|source| OutputError::Io { stream, source })?;
         if read == 0 {
-            return Ok(output);
+            return Ok(());
         }
         if read > remaining {
-            return Err(DrainError::StreamLimitExceeded {
+            return Err(OutputError::StreamLimitExceeded {
                 stream,
                 limit: stream_limit,
             });
         }
-        if !reserve_total_output(total, read, total_limit) {
-            return Err(DrainError::TotalLimitExceeded {
-                stream,
-                limit: total_limit,
-            });
-        }
+        reserve_total_output(total, read)?;
         output.extend_from_slice(&buffer[..read]);
     }
 }
 
-async fn kill_and_reap(child: &mut Child) {
-    if let Err(error) = child.start_kill() {
-        tracing::warn!(%error, "failed to kill child process");
+fn append_stderr(stderr: &mut Vec<u8>, total: &mut usize, message: &[u8]) -> Result<(), PortError> {
+    if stderr.len().saturating_add(message.len()) > MAX_STDERR_BYTES {
+        return Err(PortError::InternalContext {
+            context: "harness process output limit exceeded",
+            source: format!("stderr output exceeded stream limit of {MAX_STDERR_BYTES} bytes"),
+        });
     }
-    if let Err(error) = child.wait().await {
-        tracing::warn!(%error, "failed to reap child process");
-    }
+    reserve_total_output(total, message.len()).map_err(OutputError::into_port_error)?;
+    stderr.extend_from_slice(message);
+    Ok(())
 }
 
-pub(crate) async fn spawn_and_collect(
-    program: &str,
+enum PinnedOperand {
+    File { raw: String, file: std::fs::File },
+    Missing(String),
+}
+
+fn is_environment_path(path: &Path) -> bool {
+    path.starts_with("/proc")
+        && path
+            .components()
+            .any(|component| component.as_os_str() == "environ")
+}
+
+fn environment_denied(raw: &str) -> Result<(), PortError> {
+    if is_environment_path(Path::new(raw)) {
+        return Err(PortError::InvalidInputContext {
+            context: "cat environment disclosure denied",
+            source: raw.to_string(),
+        });
+    }
+    Ok(())
+}
+
+fn missing_operand(raw: &str, error: &std::io::Error) -> PinnedOperand {
+    PinnedOperand::Missing(format!("cat: {raw}: {error}\n"))
+}
+
+#[cfg(target_os = "linux")]
+fn validate_opened_path_policy(
+    identity: &Path,
+    root_handle: &std::fs::File,
+    request: &HarnessRequest,
+    authorization: &AuthorizedPaths,
+    raw: &str,
+) -> Result<(), PortError> {
+    environment_denied(&identity.to_string_lossy())?;
+    if authorization
+        .blocked_paths
+        .iter()
+        .any(|blocked| identity.starts_with(blocked))
+    {
+        return Err(PortError::InvalidInputContext {
+            context: "opened cat path violates readable policy",
+            source: format!("{raw:?} -> {identity:?}"),
+        });
+    }
+    let root_identity = fd_identity(root_handle)?;
+    identity
+        .strip_prefix(&root_identity)
+        .map_err(|_| PortError::InternalContext {
+            context: "verify opened file is beneath retained root",
+            source: format!("{identity:?} is not beneath {root_identity:?}"),
+        })?;
+    for blocked_handle in &authorization.blocked_path_handles {
+        let blocked_identity = fd_identity(blocked_handle)?;
+        if identity.starts_with(&blocked_identity) {
+            return Err(PortError::InvalidInputContext {
+                context: "opened cat path violates readable policy",
+                source: format!("{raw:?} -> {identity:?}"),
+            });
+        }
+    }
+    for (blocked_root, blocked_paths) in authorization
+        .readable_root_handles
+        .iter()
+        .zip(authorization.blocked_relative_paths.iter())
+    {
+        let blocked_root_identity = fd_identity(blocked_root)?;
+        if identity
+            .strip_prefix(blocked_root_identity)
+            .is_ok_and(|relative| {
+                blocked_paths
+                    .iter()
+                    .any(|blocked| relative.starts_with(blocked))
+            })
+        {
+            return Err(PortError::InvalidInputContext {
+                context: "opened cat path violates readable policy",
+                source: format!("{raw:?} -> {identity:?}"),
+            });
+        }
+    }
+    validate_filename_patterns(&identity.to_string_lossy(), &request.blocked_patterns)
+}
+
+#[cfg(target_os = "linux")]
+fn pin_operand(
+    raw: &str,
+    request: &HarnessRequest,
+    authorization: &AuthorizedPaths,
+) -> Result<PinnedOperand, PortError> {
+    let candidate = if Path::new(raw).is_absolute() {
+        normalize_path(Path::new(raw))
+    } else {
+        normalize_path(&authorization.working_directory.join(raw))
+    };
+    environment_denied(raw)?;
+    environment_denied(&candidate.to_string_lossy())?;
+
+    for (root_index, (root, root_handle)) in authorization
+        .readable_roots
+        .iter()
+        .zip(authorization.readable_root_handles.iter())
+        .enumerate()
+    {
+        if !candidate.starts_with(root) {
+            continue;
+        }
+        let relative = match candidate.strip_prefix(root) {
+            Ok(relative) => relative,
+            Err(_) => {
+                return Err(PortError::InvalidInputContext {
+                    context: "cat path escapes readable roots",
+                    source: raw.to_string(),
+                });
+            }
+        };
+        if authorization.blocked_relative_paths[root_index]
+            .iter()
+            .any(|blocked| relative.starts_with(blocked))
+        {
+            return Err(PortError::InvalidInputContext {
+                context: "cat path violates readable policy",
+                source: raw.to_string(),
+            });
+        }
+        let file = match open_beneath(root_handle, relative) {
+            Ok(file) => file,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                return Ok(missing_operand(raw, &error));
+            }
+            Err(error)
+                if matches!(
+                    error.raw_os_error(),
+                    Some(code) if code == libc::ENOSYS || code == libc::EOPNOTSUPP
+                ) =>
+            {
+                return Err(PortError::InternalContext {
+                    context: "secure harness file handles unavailable",
+                    source: error.to_string(),
+                });
+            }
+            Err(error) if matches!(error.raw_os_error(), Some(code) if code == libc::EXDEV || code == libc::ELOOP) =>
+            {
+                return Err(PortError::InvalidInputContext {
+                    context: "cat path escapes readable roots",
+                    source: raw.to_string(),
+                });
+            }
+            Err(error) => return Ok(missing_operand(raw, &error)),
+        };
+        if let Err(error) = ensure_regular_file(&file) {
+            return Ok(missing_operand(raw, &error));
+        }
+        let identity = fd_identity(&file)?;
+        validate_opened_path_policy(&identity, root_handle, request, authorization, raw)?;
+        return Ok(PinnedOperand::File {
+            raw: raw.to_string(),
+            file,
+        });
+    }
+
+    Err(PortError::InvalidInputContext {
+        context: "cat path outside readable roots",
+        source: raw.to_string(),
+    })
+}
+
+#[cfg(not(target_os = "linux"))]
+fn pin_operand(
+    _raw: &str,
+    _request: &HarnessRequest,
+    _authorization: &AuthorizedPaths,
+) -> Result<PinnedOperand, PortError> {
+    Err(PortError::InternalContext {
+        context: "secure harness file handles unavailable",
+        source: "cat is disabled on this platform".to_string(),
+    })
+}
+
+async fn execute_cat(
     args: &[String],
     request: &HarnessRequest,
-) -> Result<(std::process::ExitStatus, Vec<u8>, Vec<u8>), PortError> {
-    let executable = resolve_trusted_program(program)?;
-    let mut cmd = Command::new(&executable);
-    cmd.args(args)
-        .env("PATH", trusted_path())
-        .current_dir(&request.working_directory)
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .kill_on_drop(true);
+    authorization: &AuthorizedPaths,
+) -> Result<(i32, Vec<u8>, Vec<u8>), PortError> {
+    // Pin and verify every existing operand before materializing any output.
+    let mut operands = Vec::with_capacity(args.len());
+    for raw in args {
+        operands.push(pin_operand(raw, request, authorization)?);
+    }
 
-    let mut child = cmd.spawn().map_err(|error| PortError::InternalContext {
-        context: "spawn harness child process",
-        source: format!("{program}: {error}"),
-    })?;
-
-    let mut stdout_handle = child.stdout.take();
-    let mut stderr_handle = child.stderr.take();
-    let total_output = Arc::new(AtomicUsize::new(0));
-    let work = async {
-        let mut stdout_reader = Box::pin(drain_limited(
-            &mut stdout_handle,
-            "stdout",
-            MAX_STDOUT_BYTES,
-            MAX_TOTAL_OUTPUT_BYTES,
-            total_output.as_ref(),
-        ));
-        let mut stderr_reader = Box::pin(drain_limited(
-            &mut stderr_handle,
-            "stderr",
-            MAX_STDERR_BYTES,
-            MAX_TOTAL_OUTPUT_BYTES,
-            total_output.as_ref(),
-        ));
-        let mut stdout_result = None;
-        let mut stderr_result = None;
-
-        while stdout_result.is_none() || stderr_result.is_none() {
-            tokio::select! {
-                result = &mut stdout_reader, if stdout_result.is_none() => {
-                    match result {
-                        Ok(output) => stdout_result = Some(Ok(output)),
-                        Err(error) => {
-                            kill_and_reap(&mut child).await;
-                            return Err(error.into_port_error());
-                        }
+    let mut stdout = Vec::new();
+    let mut stderr = Vec::new();
+    let mut total = 0usize;
+    let mut exit_code = 0;
+    for operand in operands {
+        match operand {
+            PinnedOperand::Missing(message) => {
+                exit_code = 1;
+                append_stderr(&mut stderr, &mut total, message.as_bytes())?;
+            }
+            PinnedOperand::File { raw, file } => {
+                let mut file = tokio::fs::File::from_std(file);
+                match read_limited(&mut file, "stdout", &mut stdout, &mut total).await {
+                    Ok(()) => {}
+                    Err(OutputError::Io { source, .. }) => {
+                        exit_code = 1;
+                        let message = format!("cat: {raw}: {source}\n");
+                        append_stderr(&mut stderr, &mut total, message.as_bytes())?;
                     }
-                }
-                result = &mut stderr_reader, if stderr_result.is_none() => {
-                    match result {
-                        Ok(output) => stderr_result = Some(Ok(output)),
-                        Err(error) => {
-                            kill_and_reap(&mut child).await;
-                            return Err(error.into_port_error());
-                        }
-                    }
+                    Err(error) => return Err(error.into_port_error()),
                 }
             }
         }
+    }
+    Ok((exit_code, stdout, stderr))
+}
 
-        let Some(stdout_result) = stdout_result else {
-            return Err(PortError::InternalContext {
-                context: "stdout collector completed without a result",
-                source: "collector state invariant violated".to_string(),
-            });
-        };
-        let Some(stderr_result) = stderr_result else {
-            return Err(PortError::InternalContext {
-                context: "stderr collector completed without a result",
-                source: "collector state invariant violated".to_string(),
-            });
-        };
-        let stdout = stdout_result.map_err(DrainError::into_port_error)?;
-        let stderr = stderr_result.map_err(DrainError::into_port_error)?;
-        let status = child
-            .wait()
-            .await
-            .map_err(|source| PortError::InternalContext {
-                context: "child process wait error",
-                source: source.to_string(),
-            })?;
-        Ok((status, stdout, stderr))
-    };
-
-    match tokio::time::timeout(request.duration_budget, work).await {
-        Ok(result) => result,
-        Err(_elapsed) => {
-            kill_and_reap(&mut child).await;
-            Err(PortError::InternalContext {
-                context: "harness process execution timed out",
-                source: format!("{program} exceeded budget {:?}", request.duration_budget),
-            })
+async fn execute_inner(
+    program: &str,
+    args: &[String],
+    request: &HarnessRequest,
+    authorization: &AuthorizedPaths,
+) -> Result<(i32, Vec<u8>, Vec<u8>), PortError> {
+    match program {
+        "echo" => {
+            let output_len = args
+                .iter()
+                .map(|arg| arg.len())
+                .sum::<usize>()
+                .saturating_add(args.len().saturating_sub(1))
+                .saturating_add(1);
+            if output_len > MAX_STDOUT_BYTES || output_len > MAX_TOTAL_OUTPUT_BYTES {
+                return Err(PortError::InternalContext {
+                    context: "harness process output limit exceeded",
+                    source: format!(
+                        "stdout output exceeded stream limit of {MAX_STDOUT_BYTES} bytes"
+                    ),
+                });
+            }
+            let mut stdout = Vec::with_capacity(output_len);
+            for (index, arg) in args.iter().enumerate() {
+                if index != 0 {
+                    stdout.push(b' ');
+                }
+                stdout.extend_from_slice(arg.as_bytes());
+            }
+            stdout.push(b'\n');
+            Ok((0, stdout, Vec::new()))
         }
+        "pwd" => {
+            let mut stdout = authorization
+                .working_directory
+                .to_string_lossy()
+                .into_owned()
+                .into_bytes();
+            stdout.push(b'\n');
+            Ok((0, stdout, Vec::new()))
+        }
+        "cat" => execute_cat(args, request, authorization).await,
+        _ => Err(PortError::InvalidInputContext {
+            context: "program not allowed",
+            source: program.to_string(),
+        }),
+    }
+}
+
+pub(crate) async fn execute_command(
+    program: &str,
+    args: &[String],
+    request: &HarnessRequest,
+    authorization: &AuthorizedPaths,
+) -> Result<(i32, Vec<u8>, Vec<u8>), PortError> {
+    match tokio::time::timeout(
+        request.duration_budget,
+        execute_inner(program, args, request, authorization),
+    )
+    .await
+    {
+        Ok(result) => result,
+        Err(_) => Err(PortError::InternalContext {
+            context: "harness process execution timed out",
+            source: format!("{program} exceeded budget {:?}", request.duration_budget),
+        }),
     }
 }

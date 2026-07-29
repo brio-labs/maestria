@@ -35,6 +35,6 @@ pub struct OcrResponse {
 /// degradation in the parser result.
 pub trait OcrProvider: Send + Sync {
     fn recognize(&self, request: OcrRequest) -> Result<OcrResponse, PortError>;
-    fn identity(&self) -> Option<OcrIdentity>;
-    fn disclosure(&self) -> Option<ProviderDisclosure>;
+    fn identity(&self) -> OcrIdentity;
+    fn disclosure(&self) -> ProviderDisclosure;
 }

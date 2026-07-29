@@ -191,6 +191,19 @@ pub enum DomainEvent {
         content_hash: String,
         blob_id: BlobId,
     },
+
+    OcrRequested {
+        intent: crate::ocr::OcrIntent,
+    },
+    OcrCompleted {
+        artifact_id: ArtifactId,
+        completion: crate::ocr::OcrCompletion,
+    },
+    OcrFailed {
+        artifact_id: ArtifactId,
+        request_id: crate::ocr::OcrRequestId,
+        reason: String,
+    },
     SearchKnowledgeCompleted {
         task_id: Option<TaskId>,
         plan: Option<Box<crate::search::SearchPlan>>,

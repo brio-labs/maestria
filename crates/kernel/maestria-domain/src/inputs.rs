@@ -193,6 +193,24 @@ pub struct ParserResult {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OcrRequested {
+    pub intent: crate::ocr::OcrIntent,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OcrCompleted {
+    pub artifact_id: ArtifactId,
+    pub completion: crate::ocr::OcrCompletion,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OcrFailed {
+    pub artifact_id: ArtifactId,
+    pub request_id: crate::ocr::OcrRequestId,
+    pub reason: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SearchResultSet {
     pub artifact_id: ArtifactId,
     pub cards: Vec<CreateCardInput>,
@@ -415,9 +433,12 @@ pub enum DomainInput {
     StartFullTextIndex(StartFullTextIndex),
     ArtifactDetected(ArtifactDetected),
     SourceRemoved(SourceRemoved),
+    ParserCompleted(ParserResult),
+    OcrRequested(OcrRequested),
+    OcrCompleted(OcrCompleted),
+    OcrFailed(OcrFailed),
     ParserStarted(ParserStarted),
     ResumeParser(ParserStarted),
-    ParserCompleted(ParserResult),
     SearchCompleted(SearchResultSet),
     HarnessRunRequested(HarnessRunRequested),
     HarnessRunCompleted(HarnessRunCompleted),

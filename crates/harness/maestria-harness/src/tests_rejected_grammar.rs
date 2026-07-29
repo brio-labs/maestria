@@ -62,3 +62,19 @@ async fn rejects_metacharacter_ampersand() -> Result<(), Box<dyn std::error::Err
     assert!(matches!(result, Err(PortError::InvalidInputContext { .. })));
     Ok(())
 }
+
+#[tokio::test]
+async fn rejects_pwd_operands() -> Result<(), Box<dyn std::error::Error>> {
+    let result = adapter().execute(shell_request("pwd /tmp", 5000)).await;
+    assert!(
+        matches!(
+            result,
+            Err(PortError::InvalidInputContext {
+                context: "pwd operands are not allowed",
+                ..
+            })
+        ),
+        "expected pwd operands to be rejected, got {result:?}"
+    );
+    Ok(())
+}

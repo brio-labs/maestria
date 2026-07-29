@@ -16,7 +16,8 @@ async fn cat_rejects_path_outside_readable_roots() -> Result<(), Box<dyn std::er
 
 #[cfg(unix)]
 #[test]
-fn cat_validation_returns_canonical_existing_operand() -> Result<(), Box<dyn std::error::Error>> {
+fn cat_validation_preserves_caller_operand_for_pinned_open()
+-> Result<(), Box<dyn std::error::Error>> {
     use std::os::unix::fs::symlink;
 
     let temp_dir = tempfile::tempdir()?;
@@ -31,7 +32,6 @@ fn cat_validation_returns_canonical_existing_operand() -> Result<(), Box<dyn std
     let argv = vec!["cat".to_string(), "alias.txt".to_string()];
 
     let validated = super::command::validate_cat_args("cat", &argv, &request)?;
-
-    assert_eq!(validated, vec![target.to_string_lossy().into_owned()]);
+    assert_eq!(validated, vec!["alias.txt".to_string()]);
     Ok(())
 }

@@ -17,41 +17,6 @@ pub(crate) fn reject_metachar(arg: &str) -> Result<(), PortError> {
     Ok(())
 }
 
-pub(crate) fn validate_readable_path(
-    raw_path: &str,
-    cwd: &Path,
-    readable_roots: &[PathBuf],
-    blocked_paths: &[PathBuf],
-) -> Result<PathBuf, PortError> {
-    let candidate = if Path::new(raw_path).is_absolute() {
-        PathBuf::from(raw_path)
-    } else {
-        cwd.join(raw_path)
-    };
-    let normalized = match canonicalize_existing_prefix(&candidate) {
-        Some(path) => path,
-        None => normalize_absolute_path(&candidate),
-    };
-    if path_is_blocked(&candidate, blocked_paths) {
-        return Err(PortError::InvalidInputContext {
-            context: "path is blocked by exclusion",
-            source: raw_path.to_string(),
-        });
-    }
-    // Canonicalize the candidate to resolve symlinks, then re-check.
-    let real_allowed = readable_roots.iter().any(|root| match root.canonicalize() {
-        Ok(cr) => normalized.starts_with(&cr),
-        Err(_) => false,
-    });
-    if !real_allowed {
-        return Err(PortError::InvalidInputContext {
-            context: "path resolves outside readable roots",
-            source: format!("{raw_path:?} -> {normalized:?}"),
-        });
-    }
-    Ok(normalized)
-}
-
 pub(crate) fn normalize_path(path: &Path) -> PathBuf {
     let mut components: Vec<Component<'_>> = Vec::new();
     for c in path.components() {
@@ -118,20 +83,6 @@ pub(crate) fn normalize_absolute_path(path: &Path) -> PathBuf {
     normalize_path(&absolute)
 }
 
-pub(crate) fn path_is_blocked(candidate: &Path, blocked_paths: &[PathBuf]) -> bool {
-    let candidate = match canonicalize_existing_prefix(candidate) {
-        Some(path) => path,
-        None => normalize_absolute_path(candidate),
-    };
-    blocked_paths.iter().any(|blocked| {
-        let blocked = match canonicalize_existing_prefix(blocked) {
-            Some(path) => path,
-            None => normalize_absolute_path(blocked),
-        };
-        candidate.starts_with(&blocked)
-    })
-}
-
 pub(crate) fn filename_matches(name: &str, pattern: &str) -> bool {
     if !pattern.contains('*') && !pattern.contains('?') {
         return name == pattern;
@@ -187,6 +138,187 @@ pub(crate) fn validate_filename_patterns(
     Ok(())
 }
 
+pub(crate) struct AuthorizedPaths {
+    pub(crate) working_directory: PathBuf,
+    pub(crate) readable_roots: Vec<PathBuf>,
+    pub(crate) blocked_paths: Vec<PathBuf>,
+    #[cfg(target_os = "linux")]
+    pub(crate) blocked_relative_paths: Vec<Vec<PathBuf>>,
+    #[cfg(target_os = "linux")]
+    pub(crate) blocked_path_handles: Vec<std::fs::File>,
+    #[cfg(target_os = "linux")]
+    pub(crate) readable_root_handles: Vec<std::fs::File>,
+}
+#[cfg(target_os = "linux")]
+fn open_readable_root(root: &Path) -> Result<(PathBuf, std::fs::File), PortError> {
+    use std::os::unix::fs::OpenOptionsExt;
+
+    let file = std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_CLOEXEC | libc::O_DIRECTORY)
+        .open(root)
+        .map_err(|error| PortError::InvalidInputContext {
+            context: "validate harness readable root",
+            source: format!("{}: {error}", root.display()),
+        })?;
+    use std::os::fd::AsRawFd;
+    let identity =
+        std::fs::read_link(format!("/proc/self/fd/{}", file.as_raw_fd())).map_err(|error| {
+            PortError::InternalContext {
+                context: "verify harness readable root identity",
+                source: error.to_string(),
+            }
+        })?;
+    let identity_string = identity.to_string_lossy();
+    if identity_string.ends_with(" (deleted)") || !identity.is_absolute() {
+        return Err(PortError::InternalContext {
+            context: "verify harness readable root identity",
+            source: format!("opened root has unstable identity {}", identity.display()),
+        });
+    }
+    Ok((normalize_path(&identity), file))
+}
+
+#[cfg(target_os = "linux")]
+fn open_blocked_path(path: &Path) -> Result<Option<std::fs::File>, PortError> {
+    use std::os::fd::AsRawFd;
+    use std::os::unix::fs::OpenOptionsExt;
+
+    let file = match std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_CLOEXEC | libc::O_PATH)
+        .open(path)
+    {
+        Ok(file) => file,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => {
+            return Err(PortError::InvalidInputContext {
+                context: "pin harness blocked path",
+                source: format!("{}: {error}", path.display()),
+            });
+        }
+    };
+    let identity =
+        std::fs::read_link(format!("/proc/self/fd/{}", file.as_raw_fd())).map_err(|error| {
+            PortError::InternalContext {
+                context: "verify harness blocked path identity",
+                source: error.to_string(),
+            }
+        })?;
+    if normalize_path(&identity) != path {
+        return Err(PortError::InvalidInputContext {
+            context: "pin harness blocked path",
+            source: format!("{} changed identity during authorization", path.display()),
+        });
+    }
+    Ok(Some(file))
+}
+
+/// Authorize path policy once. Execution later checks opened file identities
+/// against these canonical policy paths; it never re-resolves caller paths.
+pub(crate) fn authorize_paths(request: &HarnessRequest) -> Result<AuthorizedPaths, PortError> {
+    let working_directory = std::fs::canonicalize(&request.working_directory).map_err(|error| {
+        PortError::InvalidInputContext {
+            context: "validate harness working directory",
+            source: format!("{}: {error}", request.working_directory.display()),
+        }
+    })?;
+    if !working_directory.is_dir() {
+        return Err(PortError::InvalidInputContext {
+            context: "validate harness working directory",
+            source: format!("{} is not a directory", working_directory.display()),
+        });
+    }
+
+    #[cfg(target_os = "linux")]
+    let (readable_roots, readable_root_handles) = request
+        .readable_roots
+        .iter()
+        .map(|root| open_readable_root(root))
+        .collect::<Result<Vec<_>, _>>()?
+        .into_iter()
+        .unzip::<PathBuf, std::fs::File, Vec<_>, Vec<_>>();
+    #[cfg(not(target_os = "linux"))]
+    let readable_roots = request
+        .readable_roots
+        .iter()
+        .map(|root| {
+            root.canonicalize()
+                .map_err(|error| PortError::InvalidInputContext {
+                    context: "validate harness readable root",
+                    source: format!("{}: {error}", root.display()),
+                })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    #[cfg(not(target_os = "linux"))]
+    if readable_roots.iter().any(|root| !root.is_dir()) {
+        return Err(PortError::InvalidInputContext {
+            context: "validate harness readable root",
+            source: "readable roots must be directories".to_string(),
+        });
+    }
+    if !readable_roots
+        .iter()
+        .any(|root| working_directory.starts_with(root))
+    {
+        return Err(PortError::InvalidInputContext {
+            context: "working directory outside readable roots",
+            source: working_directory.display().to_string(),
+        });
+    }
+
+    let blocked_paths = request
+        .blocked_paths
+        .iter()
+        .map(|path| {
+            canonicalize_existing_prefix(path)
+                .or_else(|| Some(normalize_absolute_path(path)))
+                .ok_or_else(|| PortError::InvalidInputContext {
+                    context: "validate harness blocked path",
+                    source: path.display().to_string(),
+                })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    if blocked_paths
+        .iter()
+        .any(|blocked| working_directory.starts_with(blocked))
+    {
+        return Err(PortError::InvalidInputContext {
+            context: "working directory blocked by exclusion",
+            source: working_directory.display().to_string(),
+        });
+    }
+
+    #[cfg(target_os = "linux")]
+    let blocked_path_handles = blocked_paths
+        .iter()
+        .filter_map(|path| open_blocked_path(path).transpose())
+        .collect::<Result<Vec<_>, _>>()?;
+
+    #[cfg(target_os = "linux")]
+    let blocked_relative_paths = readable_roots
+        .iter()
+        .map(|root| {
+            blocked_paths
+                .iter()
+                .filter_map(|blocked| blocked.strip_prefix(root).ok().map(Path::to_path_buf))
+                .collect()
+        })
+        .collect();
+
+    Ok(AuthorizedPaths {
+        working_directory,
+        readable_roots,
+        blocked_paths,
+        #[cfg(target_os = "linux")]
+        blocked_relative_paths,
+        #[cfg(target_os = "linux")]
+        blocked_path_handles,
+        #[cfg(target_os = "linux")]
+        readable_root_handles,
+    })
+}
+
 pub(crate) fn validate_cat_args(
     program: &str,
     argv: &[String],
@@ -195,7 +327,12 @@ pub(crate) fn validate_cat_args(
     if program != "cat" {
         return Ok(argv.iter().skip(1).cloned().collect());
     }
-    let mut has_path_arg = false;
+    if argv.len() == 1 {
+        return Err(PortError::InvalidInputContext {
+            context: "validate cat command operands",
+            source: "cat requires at least one path operand".to_string(),
+        });
+    }
     for arg in &argv[1..] {
         if arg.starts_with('-') {
             return Err(PortError::InvalidInputContext {
@@ -203,44 +340,23 @@ pub(crate) fn validate_cat_args(
                 source: arg.to_string(),
             });
         }
-        has_path_arg = true;
-    }
-    if !has_path_arg {
-        return Err(PortError::InvalidInputContext {
-            context: "validate cat command operands",
-            source: "cat requires at least one path operand".to_string(),
-        });
-    }
-    let mut validated_args = Vec::with_capacity(argv.len() - 1);
-    for arg in &argv[1..] {
-        // Check the lexical operand before resolving symlinks so blocked aliases
-        // cannot bypass filename policy.
+        // Lexical policy is checked before opening any operand. Canonical
+        // policy is checked against each pinned file identity in process.rs.
         validate_filename_patterns(arg, &request.blocked_patterns)?;
-        let resolved = validate_readable_path(
-            arg,
-            &request.working_directory,
-            &request.readable_roots,
-            &request.blocked_paths,
-        )?;
-        // Re-check blocked paths against the resolved path (canonical for
-        // existing files, normalized for non-existing) to catch symlinks that
-        // resolve into a blocked area.
-        if path_is_blocked(&resolved, &request.blocked_paths) {
-            return Err(PortError::InvalidInputContext {
-                context: "canonical path blocked by exclusion",
-                source: resolved.display().to_string(),
-            });
-        }
-        let path_str = match resolved.to_str() {
-            Some(s) => s,
-            None => arg,
-        };
-        validate_filename_patterns(path_str, &request.blocked_patterns)?;
-        let arg_to_pass = match resolved.to_str() {
-            Some(s) => s.to_string(),
-            None => arg.clone(),
-        };
-        validated_args.push(arg_to_pass);
     }
-    Ok(validated_args)
+    Ok(argv[1..].to_vec())
+}
+pub(crate) fn validate_command_args(
+    program: &str,
+    argv: &[String],
+    request: &HarnessRequest,
+) -> Result<Vec<String>, PortError> {
+    match program {
+        "cat" => validate_cat_args(program, argv, request),
+        "pwd" if argv.len() > 1 => Err(PortError::InvalidInputContext {
+            context: "pwd operands are not allowed",
+            source: argv[1..].join(" "),
+        }),
+        _ => Ok(argv.iter().skip(1).cloned().collect()),
+    }
 }

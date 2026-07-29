@@ -47,9 +47,10 @@ pub use traits::{
     EventLog, EvidenceRepository, FileHandle, FileMetadata, GovernedAgentProposal, GraphIndex,
     HarnessAdapter, HarnessCapabilities, HarnessCommandClass, HarnessOutcome, HarnessRequest,
     HarnessRunId, IdAllocator, IndexedCard, IndexedChunk, ModelAgentProposal,
-    ModelAgentProposalError, PortError, ProviderDisclosure, RetentionPolicy, SearchFuture,
-    SearchHit, SearchKnowledgeExecutor, SearchQuery, VectorEmbedding, VectorIndex, VectorSearchHit,
-    VectorSearchQuery, WebFetchOptions, WebFetcher, WebSnapshotData,
+    ModelAgentProposalError, PortError, ProviderDisclosure, ProviderEndpoint, ProviderTransport,
+    RetentionPolicy, SearchFuture, SearchHit, SearchKnowledgeExecutor, SearchQuery,
+    VectorEmbedding, VectorIndex, VectorSearchHit, VectorSearchQuery, WebFetchOptions, WebFetcher,
+    WebSnapshotData,
 };
 mod visual;
 pub use visual::{VisualEmbeddingProvider, VisualEmbeddingRequest, VisualSource};
@@ -58,8 +59,8 @@ mod ocr;
 pub use ocr::{OcrIdentity, OcrPage, OcrProvider, OcrRequest, OcrResponse};
 mod parsing;
 pub use parsing::{
-    DocumentTree, ParseContext, ParseStatus, ParsedArtifact, ParsedCard, ParsedChunk,
-    ParsedRepresentation, Parser, RepresentationKind, SourceSpan,
+    DocumentTree, OcrPageSet, ParseContext, ParseOutcome, ParseStatus, ParsedArtifact, ParsedCard,
+    ParsedChunk, ParsedRepresentation, Parser, RepresentationKind, SourceSpan,
 };
 
 mod in_memory;

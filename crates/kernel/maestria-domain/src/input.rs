@@ -13,6 +13,7 @@ mod handlers;
 mod index;
 mod memory;
 mod memory_replay;
+mod ocr;
 mod orchestration;
 mod parser_recovery;
 mod relation;
@@ -55,6 +56,9 @@ impl KernelState {
             }
             DomainInput::UserIntent(input) => self.process_user_intent(input),
             DomainInput::ArtifactDetected(input) => self.process_artifact_detected(input),
+            DomainInput::OcrRequested(input) => self.process_ocr_requested(input),
+            DomainInput::OcrCompleted(input) => self.process_ocr_completed(input),
+            DomainInput::OcrFailed(input) => self.process_ocr_failed(input),
             DomainInput::SourceRemoved(input) => self.process_source_removed(input),
             DomainInput::ParserCompleted(input) => self.process_parser_completed(input),
             DomainInput::StartIndexGeneration(input) => self.process_start_index_generation(input),

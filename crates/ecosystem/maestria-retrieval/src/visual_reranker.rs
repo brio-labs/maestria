@@ -126,9 +126,7 @@ impl VisualReranker {
         if self.parts.provider.identity().as_ref() != Some(self.identity()) {
             return Err("visual reranker provider identity changed".to_string());
         }
-        let Some(disclosure) = self.parts.provider.disclosure() else {
-            return Err("visual reranker provider disclosure unavailable".to_string());
-        };
+        let disclosure = self.parts.provider.disclosure();
         if disclosure.remote || disclosure.retention != RetentionPolicy::NoRetention {
             return Err("visual reranker provider is not local and no-retention".to_string());
         }
@@ -242,6 +240,7 @@ impl VisualReranker {
         query: &str,
         remaining: Duration,
     ) -> Result<EmbeddingResponse, String> {
+        let disclosure = self.parts.provider.disclosure();
         let response = tokio::time::timeout(remaining, async {
             self.parts
                 .provider
@@ -251,8 +250,7 @@ impl VisualReranker {
         .map_err(|_| RetrievalError::Timeout.to_string())?
         .map_err(|error| RetrievalError::Internal(error.to_string()).to_string())?;
         if response.identity != *self.identity()
-            || response.disclosure.remote
-            || response.disclosure.retention != RetentionPolicy::NoRetention
+            || response.disclosure != disclosure
             || response.vector.len() > MAX_VISUAL_VECTOR_DIMENSIONS
         {
             return Err("visual query response failed identity/privacy checks".to_string());
@@ -290,8 +288,7 @@ impl VisualReranker {
         .map_err(|_| RetrievalError::Timeout.to_string())?
         .map_err(|error| RetrievalError::Internal(error.to_string()).to_string())?;
         if response.identity != *self.identity()
-            || response.disclosure.remote
-            || response.disclosure.retention != RetentionPolicy::NoRetention
+            || response.disclosure != self.parts.provider.disclosure()
             || response.vector.len() > MAX_VISUAL_VECTOR_DIMENSIONS
         {
             return Err("visual source response failed identity/privacy checks".to_string());

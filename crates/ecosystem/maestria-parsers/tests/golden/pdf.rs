@@ -1,13 +1,9 @@
 use std::error::Error;
 use std::path::PathBuf;
-use std::sync::Arc;
 
 use maestria_domain::ArtifactId;
 use maestria_parsers::*;
-use maestria_ports::{
-    FileHandle, OcrIdentity, OcrPage, OcrProvider, OcrRequest, OcrResponse, ParseContext, Parser,
-    ProviderDisclosure, RetentionPolicy,
-};
+use maestria_ports::{FileHandle, ParseContext, ParseOutcome, Parser};
 
 #[test]
 fn pdf_golden_snapshot() -> Result<(), Box<dyn Error>> {
@@ -50,53 +46,8 @@ fn pdf_without_extractable_text_is_explicitly_ocr_pending() -> Result<(), Box<dy
 }
 
 #[test]
-fn configured_ocr_provider_replaces_scanned_page_text() -> Result<(), Box<dyn Error>> {
-    struct FixtureOcrProvider;
-
-    impl OcrProvider for FixtureOcrProvider {
-        fn recognize(&self, request: OcrRequest) -> Result<OcrResponse, maestria_ports::PortError> {
-            Ok(OcrResponse {
-                pages: request
-                    .pages
-                    .into_iter()
-                    .map(|page| OcrPage {
-                        page,
-                        text: "OCR recognized text".to_string(),
-                    })
-                    .collect(),
-                identity: self
-                    .identity()
-                    .ok_or_else(|| maestria_ports::PortError::Internal {
-                        message: "fixture OCR identity missing".to_string(),
-                    })?,
-                disclosure: ProviderDisclosure {
-                    remote: false,
-                    retention: RetentionPolicy::NoRetention,
-                },
-            })
-        }
-
-        fn identity(&self) -> Option<OcrIdentity> {
-            Some(OcrIdentity {
-                provider: "fixture".to_string(),
-                model: "fixture-ocr".to_string(),
-                revision: "test".to_string(),
-                artifact_hash:
-                    "sha256:0000000000000000000000000000000000000000000000000000000000000000"
-                        .to_string(),
-                preprocessing_version: "fixture-v1".to_string(),
-            })
-        }
-
-        fn disclosure(&self) -> Option<ProviderDisclosure> {
-            Some(ProviderDisclosure {
-                remote: false,
-                retention: RetentionPolicy::NoRetention,
-            })
-        }
-    }
-
-    let parsed = PdfParser::with_ocr_provider(Arc::new(FixtureOcrProvider)).parse(
+fn pdf_parser_returns_typed_ocr_outcome_without_provider_io() -> Result<(), Box<dyn Error>> {
+    let outcome = PdfParser::new().parse_outcome(
         FileHandle {
             path: PathBuf::from("scan.pdf"),
             bytes: create_no_text_pdf()?,
@@ -105,12 +56,14 @@ fn configured_ocr_provider_replaces_scanned_page_text() -> Result<(), Box<dyn Er
             artifact_id: ArtifactId::new(8),
         },
     )?;
-    assert_eq!(parsed.status, maestria_ports::ParseStatus::Parsed);
-    assert_eq!(parsed.chunks[0].text, "OCR recognized text");
-    assert!(matches!(
-        parsed.chunks[0].source_span,
-        maestria_ports::SourceSpan::PdfSpan { page: 1 }
-    ));
+    match outcome {
+        ParseOutcome::NeedsOcr { partial, pages } => {
+            assert_eq!(partial.status, maestria_ports::ParseStatus::NeedsOcr);
+            assert_eq!(pages.as_slice(), &[1]);
+            assert!(partial.chunks.is_empty());
+        }
+        ParseOutcome::Complete(_) => return Err("scanned PDF unexpectedly completed".into()),
+    }
     Ok(())
 }
 

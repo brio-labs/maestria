@@ -6,7 +6,7 @@ use maestria_domain::{
     ContentHash, DomainInput, IndexFingerprint, IndexGenerationId, IndexLifecycle, KernelState,
     RepresentationName, StartIndexGenerationInput, TransitionIndexGenerationInput,
 };
-use maestria_ports::EventLog;
+use maestria_ports::{EmbeddingProvider, EventLog};
 use maestria_search_tantivy::TantivyFullTextIndex;
 use maestria_storage_sqlite::SqliteStore;
 use maestria_vector_sqlite::SqliteVectorIndex;
@@ -202,22 +202,24 @@ pub fn build_embedding_provider(
             let document_template = "doc: {{text}}";
             let query_template = "query: {{text}}";
             validate_profile_fingerprint(&identity, document_template, query_template)?;
-            maestria_embedding_openai::LocalHttpEmbeddingProvider::with_profile(
+            let provider = maestria_embedding_openai::LocalHttpEmbeddingProvider::with_profile(
                 &config.endpoint,
                 &config.model,
                 Some(config.dimensions),
                 identity,
                 document_template.to_string(),
                 query_template.to_string(),
-                maestria_ports::ProviderDisclosure {
-                    remote: config.remote_provider,
-                    retention: config.retention_policy.clone(),
-                },
-            )
-            .map(|provider| {
-                Arc::new(provider) as Arc<dyn maestria_ports::EmbeddingProvider + Send + Sync>
-            })
-            .map_err(Into::into)
+            )?;
+            let expected = maestria_ports::ProviderDisclosure {
+                remote: config.remote_provider,
+                retention: config.retention_policy.clone(),
+            };
+            if provider.disclosure() != expected {
+                return Err(anyhow!(
+                    "embedding provider disclosure does not match manifest expectation"
+                ));
+            }
+            Ok(Arc::new(provider) as Arc<dyn maestria_ports::EmbeddingProvider + Send + Sync>)
         })
         .transpose()
 }

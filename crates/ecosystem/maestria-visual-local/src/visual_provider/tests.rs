@@ -1,16 +1,108 @@
 use super::*;
 use maestria_domain::{BlobId, ContentHash, IndexFingerprint, IndexGenerationId};
-use std::sync::Mutex;
-#[derive(Default)]
+use std::sync::{
+    Mutex,
+    atomic::{AtomicUsize, Ordering},
+};
+
+const ENDPOINT: &str = "http://127.0.0.1:10001/v1/embeddings";
+
+fn endpoint() -> Result<ProviderEndpoint, PortError> {
+    ProviderEndpoint::loopback_http(ENDPOINT, VISUAL_ENDPOINT_PATH)
+}
+
+fn disclosure() -> ProviderDisclosure {
+    ProviderDisclosure {
+        remote: false,
+        retention: RetentionPolicy::NoRetention,
+    }
+}
+
 struct RecordingTransport {
     body: Mutex<Option<Vec<u8>>>,
+    response: Vec<u8>,
+    endpoint: ProviderEndpoint,
+    disclosure: ProviderDisclosure,
 }
-impl VisualTransport for RecordingTransport {
-    fn post(&self, _endpoint: &str, body: Vec<u8>) -> Result<Vec<u8>, PortError> {
+
+impl RecordingTransport {
+    fn new(response: Vec<u8>) -> Result<Self, PortError> {
+        Ok(Self {
+            body: Mutex::new(None),
+            response,
+            endpoint: endpoint()?,
+            disclosure: disclosure(),
+        })
+    }
+}
+
+impl ProviderTransport for RecordingTransport {
+    fn endpoint(&self) -> &ProviderEndpoint {
+        &self.endpoint
+    }
+
+    fn disclosure(&self) -> &ProviderDisclosure {
+        &self.disclosure
+    }
+
+    fn post(&self, body: Vec<u8>) -> Result<Vec<u8>, PortError> {
         *self.body.lock().map_err(|_| PortError::Internal {
             message: "recording mutex poisoned".to_string(),
         })? = Some(body);
-        Ok(br#"{"model":"siglip-v1","data":[{"embedding":[0.1,0.2]}]}"#.to_vec())
+        Ok(self.response.clone())
+    }
+}
+
+struct StaticTransport {
+    response: Mutex<Option<Result<Vec<u8>, PortError>>>,
+    post_count: AtomicUsize,
+    endpoint: ProviderEndpoint,
+    disclosure: ProviderDisclosure,
+}
+
+impl StaticTransport {
+    fn new(response: Result<Vec<u8>, PortError>) -> Result<Self, PortError> {
+        Ok(Self {
+            response: Mutex::new(Some(response)),
+            post_count: AtomicUsize::new(0),
+            endpoint: endpoint()?,
+            disclosure: disclosure(),
+        })
+    }
+
+    fn denied(response: Result<Vec<u8>, PortError>) -> Result<Self, PortError> {
+        Ok(Self {
+            response: Mutex::new(Some(response)),
+            post_count: AtomicUsize::new(0),
+            endpoint: endpoint()?,
+            disclosure: ProviderDisclosure {
+                remote: true,
+                retention: RetentionPolicy::ProviderDefined,
+            },
+        })
+    }
+}
+
+impl ProviderTransport for StaticTransport {
+    fn endpoint(&self) -> &ProviderEndpoint {
+        &self.endpoint
+    }
+
+    fn disclosure(&self) -> &ProviderDisclosure {
+        &self.disclosure
+    }
+
+    fn post(&self, _body: Vec<u8>) -> Result<Vec<u8>, PortError> {
+        self.post_count.fetch_add(1, Ordering::Relaxed);
+        self.response
+            .lock()
+            .map_err(|_| PortError::Internal {
+                message: "static mutex poisoned".to_string(),
+            })?
+            .take()
+            .ok_or_else(|| PortError::Internal {
+                message: "static response already consumed".to_string(),
+            })?
     }
 }
 fn identity() -> Result<EmbeddingIdentity, PortError> {
@@ -52,7 +144,9 @@ fn rejects_empty_query() -> Result<(), PortError> {
         "http://127.0.0.1:10001/v1/embeddings",
         "siglip-v1",
         identity()?,
-        Arc::new(RecordingTransport::default()),
+        Arc::new(RecordingTransport::new(
+            br#"{"model":"siglip-v1","data":[{"embedding":[0.1,0.2]}]}"#.to_vec(),
+        )?),
     )?;
     let result = provider.embed_query("   ", identity()?);
     assert!(
@@ -62,20 +156,34 @@ fn rejects_empty_query() -> Result<(), PortError> {
     Ok(())
 }
 #[test]
-fn propagates_transport_error() -> Result<(), PortError> {
-    struct ErrorTransport;
-    impl VisualTransport for ErrorTransport {
-        fn post(&self, _endpoint: &str, _body: Vec<u8>) -> Result<Vec<u8>, PortError> {
-            Err(PortError::Downstream {
-                message: "visual transport failed".to_string(),
-            })
-        }
-    }
+fn denied_transport_disclosure_posts_zero_bytes() -> Result<(), PortError> {
+    let transport = Arc::new(StaticTransport::denied(Ok(
+        br#"{"model":"siglip-v1","data":[{"embedding":[0.1,0.2]}]}"#.to_vec(),
+    ))?);
     let provider = LocalHttpVisualProvider::with_transport(
-        "http://127.0.0.1:10001/v1/embeddings",
+        ENDPOINT,
         "siglip-v1",
         identity()?,
-        Arc::new(ErrorTransport),
+        transport.clone(),
+    )?;
+    let expected = ProviderDisclosure {
+        remote: false,
+        retention: RetentionPolicy::NoRetention,
+    };
+    assert_ne!(provider.disclosure(), expected);
+    assert!(provider.disclosure() != expected);
+    assert_eq!(transport.post_count.load(Ordering::Relaxed), 0);
+    Ok(())
+}
+#[test]
+fn propagates_transport_error() -> Result<(), PortError> {
+    let provider = LocalHttpVisualProvider::with_transport(
+        ENDPOINT,
+        "siglip-v1",
+        identity()?,
+        Arc::new(StaticTransport::new(Err(PortError::Downstream {
+            message: "visual transport failed".to_string(),
+        }))?),
     )?;
     let result = provider.embed_query("table latency", identity()?);
     assert!(
@@ -86,17 +194,11 @@ fn propagates_transport_error() -> Result<(), PortError> {
 }
 #[test]
 fn rejects_malformed_json_response() -> Result<(), PortError> {
-    struct MalformedTransport;
-    impl VisualTransport for MalformedTransport {
-        fn post(&self, _endpoint: &str, _body: Vec<u8>) -> Result<Vec<u8>, PortError> {
-            Ok(br#"not-json"#.to_vec())
-        }
-    }
     let provider = LocalHttpVisualProvider::with_transport(
-        "http://127.0.0.1:10001/v1/embeddings",
+        ENDPOINT,
         "siglip-v1",
         identity()?,
-        Arc::new(MalformedTransport),
+        Arc::new(StaticTransport::new(Ok(br#"not-json"#.to_vec()))?),
     )?;
     let result = provider.embed_query("table latency", identity()?);
     assert!(
@@ -108,10 +210,12 @@ fn rejects_malformed_json_response() -> Result<(), PortError> {
 #[test]
 fn rejects_empty_source_bytes() -> Result<(), PortError> {
     let provider = LocalHttpVisualProvider::with_transport(
-        "http://127.0.0.1:10001/v1/embeddings",
+        ENDPOINT,
         "siglip-v1",
         identity()?,
-        Arc::new(RecordingTransport::default()),
+        Arc::new(RecordingTransport::new(
+            br#"{"model":"siglip-v1","data":[{"embedding":[0.1,0.2]}]}"#.to_vec(),
+        )?),
     )?;
     let result = provider.embed_source(maestria_ports::VisualEmbeddingRequest {
         source: maestria_ports::VisualSource::Page {
@@ -130,17 +234,13 @@ fn rejects_empty_source_bytes() -> Result<(), PortError> {
 }
 #[test]
 fn rejects_missing_embedding_in_response() -> Result<(), PortError> {
-    struct EmptyDataTransport;
-    impl VisualTransport for EmptyDataTransport {
-        fn post(&self, _endpoint: &str, _body: Vec<u8>) -> Result<Vec<u8>, PortError> {
-            Ok(br#"{"model":"siglip-v1","data":[]}"#.to_vec())
-        }
-    }
     let provider = LocalHttpVisualProvider::with_transport(
-        "http://127.0.0.1:10001/v1/embeddings",
+        ENDPOINT,
         "siglip-v1",
         identity()?,
-        Arc::new(EmptyDataTransport),
+        Arc::new(StaticTransport::new(Ok(
+            br#"{"model":"siglip-v1","data":[]}"#.to_vec(),
+        ))?),
     )?;
     let result = provider.embed_query("table latency", identity()?);
     assert!(
@@ -152,10 +252,12 @@ fn rejects_missing_embedding_in_response() -> Result<(), PortError> {
 
 #[test]
 fn sends_text_query_and_preserves_identity() -> Result<(), PortError> {
-    let transport = Arc::new(RecordingTransport::default());
+    let transport = Arc::new(RecordingTransport::new(
+        br#"{"model":"siglip-v1","data":[{"embedding":[0.1,0.2]}]}"#.to_vec(),
+    )?);
     let expected_identity = identity()?;
     let provider = LocalHttpVisualProvider::with_transport(
-        "http://127.0.0.1:10001/v1/embeddings",
+        ENDPOINT,
         "siglip-v1",
         expected_identity.clone(),
         transport.clone(),
