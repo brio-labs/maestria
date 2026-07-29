@@ -66,6 +66,13 @@ impl crate::ChunkRepository for InMemoryChunkRepository {
         })?;
         Ok(guard.get(&chunk_id).cloned())
     }
+    fn find_artifact_id(&self, chunk_id: ChunkId) -> Result<Option<ArtifactId>, PortError> {
+        let guard = self.chunks.lock().map_err(|_| PortError::InternalContext {
+            context: "chunk repository lock poisoned",
+            source: "chunk repository mutex is poisoned".to_string(),
+        })?;
+        Ok(guard.get(&chunk_id).map(|chunk| chunk.artifact_id))
+    }
 
     fn put(&self, chunk: Chunk) -> Result<(), PortError> {
         let mut guard = self.chunks.lock().map_err(|_| PortError::InternalContext {

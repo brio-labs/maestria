@@ -1,5 +1,8 @@
 use std::collections::BTreeSet;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{
+    Arc,
+    atomic::{AtomicUsize, Ordering},
+};
 
 use maestria_domain::{
     Artifact, ArtifactId, Chunk, ChunkId, CorpusScope, EvidenceRequirements, FreshnessRequirement,
@@ -9,8 +12,9 @@ use maestria_domain::{
 };
 use maestria_ports::FullTextIndex;
 use maestria_ports::{
-    CardHit, IndexedCard, IndexedChunk, PortError, SearchHit, SearchQuery, VectorEmbedding,
-    VectorIndex, VectorSearchHit, VectorSearchQuery,
+    CardHit, ChunkRepository, EvidenceRepository, InMemoryChunkRepository,
+    InMemoryEvidenceRepository, IndexedCard, IndexedChunk, PortError, SearchHit, SearchQuery,
+    VectorEmbedding, VectorIndex, VectorSearchHit, VectorSearchQuery,
 };
 
 pub struct FilteredFullTextSpy {
@@ -159,6 +163,93 @@ impl VectorIndex for FilteredVectorSpy {
 
     fn clear(&self) -> Result<(), PortError> {
         Ok(())
+    }
+}
+
+pub struct CountingChunkRepository {
+    inner: Arc<InMemoryChunkRepository>,
+    owner_gets: Arc<AtomicUsize>,
+    full_gets: Arc<AtomicUsize>,
+}
+
+impl CountingChunkRepository {
+    pub fn new(inner: Arc<InMemoryChunkRepository>) -> Self {
+        Self {
+            inner,
+            owner_gets: Arc::new(AtomicUsize::new(0)),
+            full_gets: Arc::new(AtomicUsize::new(0)),
+        }
+    }
+
+    pub fn owner_gets(&self) -> usize {
+        self.owner_gets.load(Ordering::SeqCst)
+    }
+
+    pub fn full_gets(&self) -> usize {
+        self.full_gets.load(Ordering::SeqCst)
+    }
+}
+
+impl ChunkRepository for CountingChunkRepository {
+    fn get(&self, chunk_id: ChunkId) -> Result<Option<Chunk>, PortError> {
+        self.full_gets.fetch_add(1, Ordering::SeqCst);
+        self.inner.get(chunk_id)
+    }
+
+    fn find_artifact_id(&self, chunk_id: ChunkId) -> Result<Option<ArtifactId>, PortError> {
+        self.owner_gets.fetch_add(1, Ordering::SeqCst);
+        self.inner.find_artifact_id(chunk_id)
+    }
+
+    fn put(&self, chunk: Chunk) -> Result<(), PortError> {
+        self.inner.put(chunk)
+    }
+
+    fn list_for_artifact(&self, artifact_id: ArtifactId) -> Result<Vec<Chunk>, PortError> {
+        self.inner.list_for_artifact(artifact_id)
+    }
+}
+
+pub struct CountingEvidenceRepository {
+    inner: Arc<InMemoryEvidenceRepository>,
+    gets: Arc<AtomicUsize>,
+}
+
+impl CountingEvidenceRepository {
+    pub fn new(inner: Arc<InMemoryEvidenceRepository>) -> Self {
+        Self {
+            inner,
+            gets: Arc::new(AtomicUsize::new(0)),
+        }
+    }
+
+    pub fn gets(&self) -> usize {
+        self.gets.load(Ordering::SeqCst)
+    }
+}
+
+impl EvidenceRepository for CountingEvidenceRepository {
+    fn get(
+        &self,
+        evidence_id: maestria_domain::EvidenceId,
+    ) -> Result<Option<maestria_domain::Evidence>, PortError> {
+        self.gets.fetch_add(1, Ordering::SeqCst);
+        self.inner.get(evidence_id)
+    }
+
+    fn put(&self, evidence: maestria_domain::Evidence) -> Result<(), PortError> {
+        self.inner.put(evidence)
+    }
+
+    fn replace(&self, evidence: maestria_domain::Evidence) -> Result<(), PortError> {
+        self.inner.replace(evidence)
+    }
+
+    fn list_for_artifact(
+        &self,
+        artifact_id: ArtifactId,
+    ) -> Result<Vec<maestria_domain::Evidence>, PortError> {
+        self.inner.list_for_artifact(artifact_id)
     }
 }
 

@@ -18,6 +18,20 @@ impl ChunkRepository for crate::SqliteStore {
             .map(|row| read_chunk(row))
             .transpose()
     }
+    fn find_artifact_id(&self, chunk_id: ChunkId) -> Result<Option<ArtifactId>, PortError> {
+        let connection = self.lock()?;
+        let mut statement = connection
+            .prepare("SELECT artifact_id FROM chunks WHERE id = ?1")
+            .map_err(to_port_error)?;
+        let mut rows = statement
+            .query(params![u64_to_i64(chunk_id.value())?])
+            .map_err(to_port_error)?;
+        let Some(row) = rows.next().map_err(to_port_error)? else {
+            return Ok(None);
+        };
+        let artifact_id = i64_to_u64(row.get::<_, i64>(0).map_err(to_port_error)?)?;
+        Ok(Some(ArtifactId::new(artifact_id)))
+    }
 
     fn put(&self, chunk: Chunk) -> Result<(), PortError> {
         let connection = self.lock()?;

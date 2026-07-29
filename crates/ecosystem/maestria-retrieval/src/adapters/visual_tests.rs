@@ -1,12 +1,14 @@
 use super::*;
 use crate::adapters::filtered_test_support::request;
+use crate::adapters::visual_access::visual_pdf_prerequisites;
 use crate::adapters::visual_projection::{VisualProjectionRebuildParts, rebuild_visual_projection};
-use maestria_domain::{IndexGeneration, IndexLifecycle};
+use maestria_domain::{EvidenceKind, IndexGeneration, IndexLifecycle, IndexStatus, SourceSpan};
 use maestria_governance::RetrievalSecurityPolicy;
 use maestria_ports::{
-    BlobStore, EmbeddingProvenance, EmbeddingResponse, InMemoryArtifactRepository,
-    InMemoryBlobStore, InMemoryChunkRepository, InMemoryEvidenceRepository, InMemoryVectorIndex,
-    PortError, VectorEmbedding, VectorIndex, VisualEmbeddingRequest,
+    BlobStore, ChunkRepository, EmbeddingProvenance, EmbeddingResponse, EvidenceRepository,
+    InMemoryArtifactRepository, InMemoryBlobStore, InMemoryChunkRepository,
+    InMemoryEvidenceRepository, InMemoryVectorIndex, PortError, VectorEmbedding, VectorIndex,
+    VisualEmbeddingRequest,
 };
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -95,6 +97,98 @@ impl BlobStore for CountingBlobStore {
     fn get(&self, _id: maestria_domain::BlobId) -> Result<Vec<u8>, PortError> {
         self.gets.fetch_add(1, Ordering::Relaxed);
         Ok(vec![1])
+    }
+}
+
+struct CountingChunkRepository {
+    inner: InMemoryChunkRepository,
+    full_reads: AtomicUsize,
+    owner_reads: AtomicUsize,
+}
+
+impl CountingChunkRepository {
+    fn new() -> Self {
+        Self {
+            inner: InMemoryChunkRepository::new(),
+            full_reads: AtomicUsize::new(0),
+            owner_reads: AtomicUsize::new(0),
+        }
+    }
+
+    fn full_reads(&self) -> usize {
+        self.full_reads.load(Ordering::Relaxed)
+    }
+}
+
+impl ChunkRepository for CountingChunkRepository {
+    fn get(
+        &self,
+        chunk_id: maestria_domain::ChunkId,
+    ) -> Result<Option<maestria_domain::Chunk>, PortError> {
+        self.full_reads.fetch_add(1, Ordering::Relaxed);
+        self.inner.get(chunk_id)
+    }
+
+    fn find_artifact_id(
+        &self,
+        chunk_id: maestria_domain::ChunkId,
+    ) -> Result<Option<maestria_domain::ArtifactId>, PortError> {
+        self.owner_reads.fetch_add(1, Ordering::Relaxed);
+        self.inner.find_artifact_id(chunk_id)
+    }
+
+    fn put(&self, chunk: maestria_domain::Chunk) -> Result<(), PortError> {
+        self.inner.put(chunk)
+    }
+
+    fn list_for_artifact(
+        &self,
+        artifact_id: maestria_domain::ArtifactId,
+    ) -> Result<Vec<maestria_domain::Chunk>, PortError> {
+        self.inner.list_for_artifact(artifact_id)
+    }
+}
+
+struct CountingEvidenceRepository {
+    inner: InMemoryEvidenceRepository,
+    reads: AtomicUsize,
+}
+
+impl CountingEvidenceRepository {
+    fn new() -> Self {
+        Self {
+            inner: InMemoryEvidenceRepository::new(),
+            reads: AtomicUsize::new(0),
+        }
+    }
+
+    fn reads(&self) -> usize {
+        self.reads.load(Ordering::Relaxed)
+    }
+}
+
+impl EvidenceRepository for CountingEvidenceRepository {
+    fn get(
+        &self,
+        evidence_id: maestria_domain::EvidenceId,
+    ) -> Result<Option<maestria_domain::Evidence>, PortError> {
+        self.reads.fetch_add(1, Ordering::Relaxed);
+        self.inner.get(evidence_id)
+    }
+
+    fn put(&self, evidence: maestria_domain::Evidence) -> Result<(), PortError> {
+        self.inner.put(evidence)
+    }
+
+    fn replace(&self, evidence: maestria_domain::Evidence) -> Result<(), PortError> {
+        self.inner.replace(evidence)
+    }
+
+    fn list_for_artifact(
+        &self,
+        artifact_id: maestria_domain::ArtifactId,
+    ) -> Result<Vec<maestria_domain::Evidence>, PortError> {
+        self.inner.list_for_artifact(artifact_id)
     }
 }
 
@@ -187,15 +281,12 @@ fn denied_visual_projection_reads_no_blob_and_posts_no_bytes()
 }
 
 #[test]
-fn denied_visual_candidates_are_filtered_before_scoring() -> Result<(), Box<dyn std::error::Error>>
-{
+fn denied_visual_candidates_are_authorized_before_content_reads()
+-> Result<(), Box<dyn std::error::Error>> {
     use crate::adapters::filtered_test_support::{
         FilteredVectorSpy, chunk, denied_artifact, request,
     };
-    use maestria_ports::{
-        InMemoryArtifactRepository, InMemoryBlobStore, InMemoryChunkRepository,
-        InMemoryEvidenceRepository,
-    };
+    use maestria_ports::InMemoryArtifactRepository;
 
     let generation = IndexGenerationId::new(42);
     let corpus_snapshot = CorpusSnapshotId::new(7);
@@ -221,20 +312,28 @@ fn denied_visual_candidates_are_filtered_before_scoring() -> Result<(), Box<dyn 
     let index = Arc::new(FilteredVectorSpy::new(chunk_id));
     let artifacts = InMemoryArtifactRepository::new();
     artifacts.put(denied_artifact(artifact_id))?;
-    let chunks = InMemoryChunkRepository::new();
+    let chunks = Arc::new(CountingChunkRepository::new());
     chunks.put(chunk(
         chunk_id,
         artifact_id,
         SourceSpan::PdfSpan { page: 1 },
     ))?;
+    let evidence = Arc::new(CountingEvidenceRepository::new());
+    let blobs = Arc::new(CountingBlobStore {
+        gets: AtomicUsize::new(0),
+    });
+    let provider = Arc::new(DeniedVisualProvider {
+        identity: identity.clone(),
+        post_count: AtomicUsize::new(0),
+    });
     let retriever = VisualPageRegionRetriever::new(
         VisualPageRegionRetrieverParts {
             index: index.clone(),
             artifacts: Arc::new(artifacts),
-            chunks: Arc::new(chunks),
-            evidence: Arc::new(InMemoryEvidenceRepository::new()),
-            blobs: Arc::new(InMemoryBlobStore::new()),
-            embedding_provider: Arc::new(UnavailableVisualProvider),
+            chunks: chunks.clone(),
+            evidence: evidence.clone(),
+            blobs: blobs.clone(),
+            embedding_provider: provider.clone(),
         },
         capability,
     );
@@ -276,6 +375,11 @@ fn denied_visual_candidates_are_filtered_before_scoring() -> Result<(), Box<dyn 
     assert_eq!(index.filter_calls(), 1);
     assert_eq!(index.score_calls(), 0);
     assert!(batch.candidates.is_empty());
+    assert_eq!(chunks.owner_reads.load(Ordering::Relaxed), 1);
+    assert_eq!(chunks.full_reads(), 0);
+    assert_eq!(evidence.reads(), 0);
+    assert_eq!(blobs.gets.load(Ordering::Relaxed), 0);
+    assert_eq!(provider.post_count.load(Ordering::Relaxed), 0);
     Ok(())
 }
 
@@ -332,7 +436,7 @@ fn visual_batch_reports_bounded_bytes() -> Result<(), Box<dyn std::error::Error>
         parse_status: None,
         security: Default::default(),
     })?;
-    let chunks = InMemoryChunkRepository::new();
+    let chunks = Arc::new(CountingChunkRepository::new());
     chunks.put(maestria_domain::Chunk {
         id: chunk_id,
         artifact_id,
@@ -342,7 +446,7 @@ fn visual_batch_reports_bounded_bytes() -> Result<(), Box<dyn std::error::Error>
         order: 0,
         text: "figure".to_string(),
     })?;
-    let evidence = InMemoryEvidenceRepository::new();
+    let evidence = Arc::new(CountingEvidenceRepository::new());
     evidence.put(maestria_domain::Evidence {
         id: maestria_domain::evidence_id_for(artifact_id, 0),
         artifact_id,
@@ -379,8 +483,8 @@ fn visual_batch_reports_bounded_bytes() -> Result<(), Box<dyn std::error::Error>
         VisualPageRegionRetrieverParts {
             index: Arc::new(index),
             artifacts: Arc::new(artifacts),
-            chunks: Arc::new(chunks),
-            evidence: Arc::new(evidence),
+            chunks: chunks.clone(),
+            evidence: evidence.clone(),
             blobs: Arc::new(blob_store),
             embedding_provider: Arc::new(UnavailableVisualProvider),
         },
@@ -402,5 +506,252 @@ fn visual_batch_reports_bounded_bytes() -> Result<(), Box<dyn std::error::Error>
     )?;
     assert_eq!(batch.candidates.len(), 1);
     assert_eq!(batch.bytes_read, 1);
+    assert_eq!(chunks.full_reads(), 1);
+    assert_eq!(evidence.reads(), 1);
+    Ok(())
+}
+
+#[test]
+fn visual_pdf_prefilter_requires_exact_kind_and_ranges() -> Result<(), Box<dyn std::error::Error>> {
+    let hash = maestria_domain::ContentHash::new("sha256:".to_owned() + &"0".repeat(64))?;
+    let snapshot = maestria_domain::SnapshotRef::new(maestria_domain::BlobId::new(1), hash);
+    assert!(visual_pdf_prerequisites(
+        &SourceSpan::PdfSpan { page: 2 },
+        &EvidenceKind::PdfSpan {
+            snapshot: snapshot.clone(),
+            page_start: 1,
+            page_end: 3,
+        },
+    ));
+    assert!(!visual_pdf_prerequisites(
+        &SourceSpan::PdfSpan { page: 2 },
+        &EvidenceKind::PdfRegion {
+            snapshot: snapshot.clone(),
+            page: 2,
+            x: 1,
+            y: 2,
+            width: 3,
+            height: 4,
+        },
+    ));
+    assert!(visual_pdf_prerequisites(
+        &SourceSpan::PdfRegion {
+            page: 2,
+            x: 1,
+            y: 2,
+            width: 3,
+            height: 4,
+        },
+        &EvidenceKind::PdfRegion {
+            snapshot: snapshot.clone(),
+            page: 2,
+            x: 1,
+            y: 2,
+            width: 3,
+            height: 4,
+        },
+    ));
+    assert!(!visual_pdf_prerequisites(
+        &SourceSpan::PdfRegion {
+            page: 2,
+            x: 1,
+            y: 2,
+            width: 3,
+            height: 4,
+        },
+        &EvidenceKind::PdfRegion {
+            snapshot,
+            page: 2,
+            x: 1,
+            y: 2,
+            width: 4,
+            height: 4,
+        },
+    ));
+    Ok(())
+}
+
+#[test]
+fn visual_evidence_owner_mismatch_is_typed_conflict() -> Result<(), Box<dyn std::error::Error>> {
+    let (generation, corpus_snapshot, identity, capability) = visual_batch_generation_fixture()?;
+    let artifact_id = maestria_domain::ArtifactId::new(7);
+    let chunk_id = maestria_domain::ChunkId::new(11);
+    let artifacts = InMemoryArtifactRepository::new();
+    artifacts.put(maestria_domain::Artifact {
+        id: artifact_id,
+        title: "visual".to_string(),
+        chunk_ids: std::iter::once(chunk_id).collect(),
+        card_ids: Default::default(),
+        claim_ids: Default::default(),
+        evidence_ids: Default::default(),
+        index_status: IndexStatus::Indexed,
+        content_hash: None,
+        parse_status: None,
+        security: Default::default(),
+    })?;
+    let chunks = InMemoryChunkRepository::new();
+    chunks.put(maestria_domain::Chunk {
+        id: chunk_id,
+        artifact_id,
+        node_id: maestria_domain::StructureNodeId::new(1),
+        source_span: SourceSpan::PdfSpan { page: 1 },
+        representations: Vec::new(),
+        order: 0,
+        text: "figure".to_string(),
+    })?;
+    let evidence = InMemoryEvidenceRepository::new();
+    evidence.put(maestria_domain::Evidence {
+        id: maestria_domain::evidence_id_for(artifact_id, 0),
+        artifact_id: maestria_domain::ArtifactId::new(99),
+        claim_id: None,
+        kind: EvidenceKind::PdfSpan {
+            snapshot: maestria_domain::SnapshotRef::new(
+                maestria_domain::BlobId::new(1),
+                maestria_domain::ContentHash::new("sha256:".to_owned() + &"0".repeat(64))?,
+            ),
+            page_start: 1,
+            page_end: 1,
+        },
+        excerpt: "figure".to_string(),
+        observed_at: maestria_domain::LogicalTick::new(1),
+        security: Default::default(),
+    })?;
+    let retriever = VisualPageRegionRetriever::new(
+        VisualPageRegionRetrieverParts {
+            index: Arc::new(InMemoryVectorIndex::new()),
+            artifacts: Arc::new(artifacts),
+            chunks: Arc::new(chunks),
+            evidence: Arc::new(evidence),
+            blobs: Arc::new(InMemoryBlobStore::new()),
+            embedding_provider: Arc::new(UnavailableVisualProvider),
+        },
+        capability,
+    );
+    let request = request(maestria_domain::SearchIntent::VisualDocument, generation)?;
+    let result = retriever.authorized_record(chunk_id, &request.authorization);
+    assert!(matches!(
+        result,
+        Err(RetrievalError::Internal(message)) if message.contains("visual evidence")
+    ));
+    let _ = (corpus_snapshot, identity);
+    Ok(())
+}
+
+fn assert_visual_evidence_denied_before_score(
+    evidence_record: Option<maestria_domain::Evidence>,
+    chunk_text: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use crate::adapters::filtered_test_support::FilteredVectorSpy;
+
+    let (generation, corpus_snapshot, identity, capability) = visual_batch_generation_fixture()?;
+    let artifact_id = maestria_domain::ArtifactId::new(7);
+    let chunk_id = maestria_domain::ChunkId::new(11);
+    let index = Arc::new(FilteredVectorSpy::new(chunk_id));
+    let artifacts = InMemoryArtifactRepository::new();
+    artifacts.put(maestria_domain::Artifact {
+        id: artifact_id,
+        title: "visual".to_string(),
+        chunk_ids: std::iter::once(chunk_id).collect(),
+        card_ids: Default::default(),
+        claim_ids: Default::default(),
+        evidence_ids: Default::default(),
+        index_status: IndexStatus::Indexed,
+        content_hash: None,
+        parse_status: None,
+        security: Default::default(),
+    })?;
+    let chunks = Arc::new(CountingChunkRepository::new());
+    chunks.put(maestria_domain::Chunk {
+        id: chunk_id,
+        artifact_id,
+        node_id: maestria_domain::StructureNodeId::new(1),
+        source_span: SourceSpan::PdfSpan { page: 1 },
+        representations: Vec::new(),
+        order: 0,
+        text: chunk_text.to_string(),
+    })?;
+    let evidence = Arc::new(CountingEvidenceRepository::new());
+    if let Some(record) = evidence_record {
+        evidence.put(record)?;
+    }
+    let blobs = Arc::new(CountingBlobStore {
+        gets: AtomicUsize::new(0),
+    });
+    let provider = Arc::new(DeniedVisualProvider {
+        identity: identity.clone(),
+        post_count: AtomicUsize::new(0),
+    });
+    let retriever = VisualPageRegionRetriever::new(
+        VisualPageRegionRetrieverParts {
+            index: index.clone(),
+            artifacts: Arc::new(artifacts),
+            chunks: chunks.clone(),
+            evidence: evidence.clone(),
+            blobs: blobs.clone(),
+            embedding_provider: provider.clone(),
+        },
+        capability,
+    );
+    let mut request = request(maestria_domain::SearchIntent::VisualDocument, generation)?;
+    request.plan.corpus_snapshot = corpus_snapshot;
+    let batch = retriever.retrieve_with_vector(
+        VectorSearchQuery {
+            vector: vec![1.0],
+            limit: 5,
+            provider_id: None,
+            model: None,
+            model_version: None,
+            identity: Some(identity.clone()),
+        },
+        request,
+        &identity,
+    )?;
+    assert!(batch.candidates.is_empty());
+    assert_eq!(index.filter_calls(), 1);
+    assert_eq!(index.score_calls(), 0);
+    assert_eq!(blobs.gets.load(Ordering::Relaxed), 0);
+    assert_eq!(provider.post_count.load(Ordering::Relaxed), 0);
+    Ok(())
+}
+
+#[test]
+fn visual_denied_secret_and_missing_evidence_never_score() -> Result<(), Box<dyn std::error::Error>>
+{
+    let artifact_id = maestria_domain::ArtifactId::new(7);
+    let hash = maestria_domain::ContentHash::new("sha256:".to_owned() + &"0".repeat(64))?;
+    let snapshot = maestria_domain::SnapshotRef::new(maestria_domain::BlobId::new(1), hash);
+    let denied = maestria_domain::Evidence {
+        id: maestria_domain::evidence_id_for(artifact_id, 0),
+        artifact_id,
+        claim_id: None,
+        kind: EvidenceKind::PdfSpan {
+            snapshot: snapshot.clone(),
+            page_start: 1,
+            page_end: 1,
+        },
+        excerpt: "figure".to_string(),
+        observed_at: maestria_domain::LogicalTick::new(1),
+        security: maestria_domain::SecurityMetadata {
+            read_allowed: false,
+            ..Default::default()
+        },
+    };
+    assert_visual_evidence_denied_before_score(Some(denied), "figure")?;
+    let secret = maestria_domain::Evidence {
+        id: maestria_domain::evidence_id_for(artifact_id, 0),
+        artifact_id,
+        claim_id: None,
+        kind: EvidenceKind::PdfSpan {
+            snapshot,
+            page_start: 1,
+            page_end: 1,
+        },
+        excerpt: "password=super-secret-value".to_string(),
+        observed_at: maestria_domain::LogicalTick::new(1),
+        security: Default::default(),
+    };
+    assert_visual_evidence_denied_before_score(Some(secret), "figure")?;
+    assert_visual_evidence_denied_before_score(None, "figure")?;
+    assert_visual_evidence_denied_before_score(None, "password=super-secret-value")?;
     Ok(())
 }

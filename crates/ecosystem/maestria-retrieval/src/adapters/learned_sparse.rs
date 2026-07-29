@@ -1,11 +1,11 @@
-use std::sync::Arc;
+use std::{cell::Cell, sync::Arc};
 
 use async_trait::async_trait;
 use maestria_domain::{
-    EvidenceCandidate, IndexStatus, LearnedSparseContribution, LearnedSparseReason,
-    RetrievalModelFingerprint, RetrievalReason, SearchLaneStatus,
+    EvidenceCandidate, LearnedSparseContribution, LearnedSparseReason, RetrievalModelFingerprint,
+    RetrievalReason, SearchLaneStatus,
 };
-use maestria_governance::{RetrievalDecision, scan_secrets};
+use maestria_governance::scan_secrets;
 use maestria_ports::{
     ArtifactRepository, BlobStore, ChunkRepository, EvidenceRepository, LearnedSparseIndex,
     LearnedSparseProvider, RetentionPolicy, SparseIdentity, SparseInputKind, SparseSearchHit,
@@ -13,8 +13,10 @@ use maestria_ports::{
 };
 
 use super::SourceSnapshotVerifier;
+use super::chunk_access::load_authorized_chunk;
 use super::common::{candidate_from_records, generation_mismatch, one_based_rank, port_error};
 use super::learned_sparse_generation::LearnedSparseGenerationCapability;
+use super::prescore_cache::PrescoreCache;
 use super::score_provenance::learned_sparse_score;
 use crate::traits::CandidateRetriever;
 use crate::types::{CandidateBatch, CandidateRequest, RetrievalError, RetrieverDescriptor};
@@ -133,16 +135,6 @@ impl LearnedSparseChunkRetriever {
         }
         Ok(())
     }
-
-    fn chunk_allowed(
-        &self,
-        chunk_id: maestria_domain::ChunkId,
-        authorization: &maestria_governance::RetrievalAuthorizationContext,
-    ) -> bool {
-        self.checked_records(chunk_id, authorization)
-            .is_ok_and(|records| records.is_some())
-    }
-
     fn checked_records(
         &self,
         chunk_id: maestria_domain::ChunkId,
@@ -155,23 +147,30 @@ impl LearnedSparseChunkRetriever {
         )>,
         RetrievalError,
     > {
-        let Some(chunk) = self.chunks.get(chunk_id).map_err(port_error)? else {
+        let Some((artifact, chunk)) = load_authorized_chunk(
+            self.chunks.as_ref(),
+            self.artifacts.as_ref(),
+            chunk_id,
+            authorization,
+        )
+        .map_err(port_error)?
+        else {
             return Ok(None);
         };
-        let Some(artifact) = self.artifacts.get(chunk.artifact_id).map_err(port_error)? else {
-            return Ok(None);
-        };
-        if artifact.index_status != IndexStatus::Indexed
-            || authorization.evaluate(&artifact.security) != RetrievalDecision::Allowed
-            || !scan_secrets(&chunk.text).is_clean()
-        {
-            return Ok(None);
-        }
         let evidence_id = maestria_domain::evidence_id_for(chunk.artifact_id, chunk.order);
         let Some(evidence) = self.evidence.get(evidence_id).map_err(port_error)? else {
             return Ok(None);
         };
-        if authorization.evaluate(&evidence.security) != RetrievalDecision::Allowed
+        if evidence.artifact_id != artifact.id {
+            return Err(port_error(maestria_ports::PortError::Conflict {
+                message: format!(
+                    "evidence {} owner mismatch: expected artifact {}, got {}",
+                    evidence.id, artifact.id, evidence.artifact_id
+                ),
+            }));
+        }
+        if authorization.evaluate(&evidence.security)
+            != maestria_governance::RetrievalDecision::Allowed
             || !scan_secrets(&evidence.excerpt).is_clean()
         {
             return Ok(None);
@@ -185,10 +184,17 @@ impl LearnedSparseChunkRetriever {
         hit: SparseSearchHit,
         raw_rank: u32,
         authorization: &maestria_governance::RetrievalAuthorizationContext,
+        prescore_cache: &PrescoreCache<(
+            maestria_domain::Artifact,
+            maestria_domain::Chunk,
+            maestria_domain::Evidence,
+        )>,
     ) -> Result<Option<EvidenceCandidate>, RetrievalError> {
-        let Some((artifact, chunk, evidence)) =
-            self.checked_records(hit.chunk_id, authorization)?
-        else {
+        let records = match prescore_cache.take(hit.chunk_id) {
+            Some(records) => Some(records),
+            None => self.checked_records(hit.chunk_id, authorization)?,
+        };
+        let Some((artifact, chunk, evidence)) = records else {
             return Ok(None);
         };
         let contributions = hit
@@ -246,6 +252,8 @@ impl CandidateRetriever for LearnedSparseChunkRetriever {
                 u32::MAX
             }
         };
+        let filter_error = Cell::new(None);
+        let prescore_cache = PrescoreCache::new(request.query.limit);
         let hits = self
             .index
             .search_filtered(
@@ -254,14 +262,31 @@ impl CandidateRetriever for LearnedSparseChunkRetriever {
                     limit,
                     max_contributions: 16,
                 },
-                &|chunk_id| self.chunk_allowed(chunk_id, &request.authorization),
+                &|chunk_id| match self.checked_records(chunk_id, &request.authorization) {
+                    Ok(Some(records)) => {
+                        prescore_cache.insert(chunk_id, records);
+                        true
+                    }
+                    Ok(None) => false,
+                    Err(error) => {
+                        filter_error.set(Some(error));
+                        false
+                    }
+                },
             )
             .map_err(port_error)?;
+        if let Some(error) = filter_error.take() {
+            return Err(error);
+        }
         let mut candidates = Vec::with_capacity(hits.len());
         let mut bytes_read = 0_u64;
         for (raw_rank, hit) in hits.into_iter().enumerate() {
-            let Some(candidate) =
-                self.candidate_from_hit(hit, one_based_rank(raw_rank), &request.authorization)?
+            let Some(candidate) = self.candidate_from_hit(
+                hit,
+                one_based_rank(raw_rank),
+                &request.authorization,
+                &prescore_cache,
+            )?
             else {
                 continue;
             };

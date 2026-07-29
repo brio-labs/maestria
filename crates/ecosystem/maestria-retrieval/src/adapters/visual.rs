@@ -3,15 +3,17 @@ use std::sync::Arc;
 
 use super::SourceSnapshotVerifier;
 use super::common::{candidate_from_records, generation_mismatch, one_based_rank, port_error};
+use super::prescore_cache::PrescoreCache;
 use super::score_provenance::dense_score;
+use super::visual_access::{VisualPrescoreRecord, load_authorized_visual_record};
 use crate::traits::CandidateRetriever;
 use crate::types::{CandidateBatch, CandidateRequest, RetrievalError, RetrieverDescriptor};
 use async_trait::async_trait;
 use maestria_domain::{
-    CorpusSnapshotId, EvidenceCandidate, EvidenceKind, IndexGenerationId, IndexGenerationRegistry,
-    IndexStatus, RepresentationName, RetrievalReason, SearchLaneStatus, SourceSpan,
+    CorpusSnapshotId, EvidenceCandidate, IndexGenerationId, IndexGenerationRegistry,
+    RepresentationName, RetrievalReason, SearchLaneStatus,
 };
-use maestria_governance::{RetrievalDecision, scan_secrets};
+use maestria_governance::scan_secrets;
 use maestria_ports::{
     ArtifactRepository, BlobStore, ChunkRepository, EmbeddingIdentity, EvidenceRepository,
     RetentionPolicy, VectorIndex, VectorSearchQuery, VisualEmbeddingProvider,
@@ -123,47 +125,43 @@ impl VisualPageRegionRetriever {
         }
     }
 
+    fn authorized_record(
+        &self,
+        chunk_id: maestria_domain::ChunkId,
+        authorization: &maestria_governance::RetrievalAuthorizationContext,
+    ) -> Result<Option<VisualPrescoreRecord>, RetrievalError> {
+        load_authorized_visual_record(
+            self.chunks.as_ref(),
+            self.artifacts.as_ref(),
+            self.evidence.as_ref(),
+            &self.verifier,
+            chunk_id,
+            authorization,
+        )
+    }
+
     fn candidate_from_hit(
         &self,
         hit: maestria_ports::VectorSearchHit,
         raw_rank: u32,
         identity: &EmbeddingIdentity,
         authorization: &maestria_governance::RetrievalAuthorizationContext,
+        cache: &PrescoreCache<VisualPrescoreRecord>,
     ) -> Result<Option<EvidenceCandidate>, RetrievalError> {
-        let Some(chunk) = self.chunks.get(hit.chunk_id).map_err(port_error)? else {
-            return Ok(None);
+        let record = match cache.take(hit.chunk_id) {
+            Some(record) => record,
+            None => match self.authorized_record(hit.chunk_id, authorization)? {
+                Some(record) => record,
+                None => return Ok(None),
+            },
         };
-        if !matches!(
-            &chunk.source_span,
-            SourceSpan::PdfSpan { .. } | SourceSpan::PdfRegion { .. }
-        ) {
-            return Ok(None);
-        }
-        let Some(artifact) = self.artifacts.get(chunk.artifact_id).map_err(port_error)? else {
-            return Ok(None);
-        };
-        let evidence_id = maestria_domain::evidence_id_for(chunk.artifact_id, chunk.order);
-        let Some(evidence) = self.evidence.get(evidence_id).map_err(port_error)? else {
-            return Ok(None);
-        };
-        if !matches!(
-            evidence.kind,
-            EvidenceKind::PdfSpan { .. } | EvidenceKind::PdfRegion { .. }
-        ) || artifact.index_status != IndexStatus::Indexed
-            || authorization.evaluate(&artifact.security) != RetrievalDecision::Allowed
-            || authorization.evaluate(&evidence.security) != RetrievalDecision::Allowed
-            || !scan_secrets(&chunk.text).is_clean()
-            || !scan_secrets(&evidence.excerpt).is_clean()
-        {
-            return Ok(None);
-        }
-        self.verifier.verify(&evidence, &artifact)?;
+        let (artifact, chunk, evidence) = record;
         let score = if hit.score.is_finite() && hit.score > 0.0 {
             (hit.score.min(1.0) * 1_000_000.0).floor() as u32
         } else {
             0
         };
-        candidate_from_records(
+        let candidate = candidate_from_records(
             artifact.id,
             &chunk.source_span,
             &evidence,
@@ -176,41 +174,21 @@ impl VisualPageRegionRetriever {
                 "visual_cosine_similarity_micros",
             )?,
             vec![RetrievalReason::SemanticSimilarity],
-        )
-        .map(Some)
+        )?;
+        Ok(Some(candidate))
     }
+
     fn prefilter_hit(
         &self,
         chunk_id: maestria_domain::ChunkId,
         authorization: &maestria_governance::RetrievalAuthorizationContext,
-    ) -> Result<bool, maestria_ports::PortError> {
-        let Some(chunk) = self.chunks.get(chunk_id)? else {
+        cache: &PrescoreCache<VisualPrescoreRecord>,
+    ) -> Result<bool, RetrievalError> {
+        let Some(record) = self.authorized_record(chunk_id, authorization)? else {
             return Ok(false);
         };
-        if !matches!(
-            &chunk.source_span,
-            SourceSpan::PdfSpan { .. } | SourceSpan::PdfRegion { .. }
-        ) {
-            return Ok(false);
-        }
-        let Some(artifact) = self.artifacts.get(chunk.artifact_id)? else {
-            return Ok(false);
-        };
-        if artifact.index_status != IndexStatus::Indexed
-            || authorization.evaluate(&artifact.security) != RetrievalDecision::Allowed
-            || !scan_secrets(&chunk.text).is_clean()
-        {
-            return Ok(false);
-        }
-        let evidence_id = maestria_domain::evidence_id_for(chunk.artifact_id, chunk.order);
-        let Some(evidence) = self.evidence.get(evidence_id)? else {
-            return Ok(false);
-        };
-        Ok(matches!(
-            evidence.kind,
-            EvidenceKind::PdfSpan { .. } | EvidenceKind::PdfRegion { .. }
-        ) && authorization.evaluate(&evidence.security) == RetrievalDecision::Allowed
-            && scan_secrets(&evidence.excerpt).is_clean())
+        cache.insert(chunk_id, record);
+        Ok(true)
     }
 
     fn retrieve_with_vector(
@@ -232,11 +210,14 @@ impl VisualPageRegionRetriever {
             ));
         }
         let filter_error = Cell::new(None);
+        let cache = PrescoreCache::new(request.query.limit);
         let hits = self
             .index
-            .search_similar_filtered(vector, &|chunk_id| match self
-                .prefilter_hit(chunk_id, &request.authorization)
-            {
+            .search_similar_filtered(vector, &|chunk_id| match self.prefilter_hit(
+                chunk_id,
+                &request.authorization,
+                &cache,
+            ) {
                 Ok(allowed) => allowed,
                 Err(error) => {
                     filter_error.set(Some(error));
@@ -245,14 +226,14 @@ impl VisualPageRegionRetriever {
             })
             .map_err(port_error)?;
         if let Some(error) = filter_error.take() {
-            return Err(port_error(error));
+            return Err(error);
         }
         let mut candidates = Vec::with_capacity(request.query.limit.min(hits.len()));
         let mut bytes_read = 0_u64;
         for (index, hit) in hits.into_iter().enumerate() {
             let raw_rank = one_based_rank(index);
             let Some(candidate) =
-                self.candidate_from_hit(hit, raw_rank, identity, &request.authorization)?
+                self.candidate_from_hit(hit, raw_rank, identity, &request.authorization, &cache)?
             else {
                 continue;
             };

@@ -17,6 +17,11 @@ pub trait ArtifactRepository: Send + Sync {
 
 pub trait ChunkRepository: Send + Sync {
     fn get(&self, chunk_id: ChunkId) -> Result<Option<Chunk>, PortError>;
+    /// Look up the owning artifact identity without loading chunk content.
+    ///
+    /// Implementations must inspect only metadata needed to determine ownership;
+    /// in particular, this method must not read or materialize the chunk text.
+    fn find_artifact_id(&self, chunk_id: ChunkId) -> Result<Option<ArtifactId>, PortError>;
     fn put(&self, chunk: Chunk) -> Result<(), PortError>;
     fn list_for_artifact(&self, artifact_id: ArtifactId) -> Result<Vec<Chunk>, PortError>;
 }

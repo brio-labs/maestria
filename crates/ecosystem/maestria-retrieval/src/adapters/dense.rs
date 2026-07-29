@@ -2,24 +2,31 @@ use std::cell::Cell;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use maestria_domain::{EvidenceCandidate, IndexGenerationId, IndexStatus, SearchLaneStatus};
-use maestria_governance::{RetrievalDecision, scan_secrets};
+use maestria_domain::{EvidenceCandidate, IndexGenerationId, SearchLaneStatus};
+use maestria_governance::scan_secrets;
 use maestria_ports::{
     ArtifactRepository, BlobStore, ChunkRepository, EmbeddingInputKind, EmbeddingProvider,
     EmbeddingRequest, EvidenceRepository, VectorIndex, VectorSearchQuery,
 };
 
 use super::SourceSnapshotVerifier;
+use super::chunk_access::load_authorized_chunk;
 use super::common::{
     bounded_candidate_bytes, candidate_from_records, generation_mismatch, one_based_rank,
     port_error,
 };
+use super::prescore_cache::PrescoreCache;
 use super::score_provenance::dense_score;
 use crate::traits::CandidateRetriever;
 use crate::types::{CandidateBatch, CandidateRequest, RetrievalError, RetrieverDescriptor};
 #[cfg(test)]
 #[path = "dense_tests.rs"]
 mod tests;
+type AuthorizedDenseRecord = (
+    maestria_domain::Artifact,
+    maestria_domain::Chunk,
+    maestria_domain::Evidence,
+);
 
 /// Dependencies required by the dense chunk adapter.
 pub struct DenseChunkRetrieverParts {
@@ -75,11 +82,14 @@ impl DenseChunkRetriever {
             RetrievalError::Internal("dense vector query identity unavailable".to_string())
         })?;
         let filter_error = Cell::new(None);
+        let authorized = PrescoreCache::new(request.query.limit);
         let hits = self
             .index
-            .search_similar_filtered(vector, &|chunk_id| match self
-                .prefilter_hit(chunk_id, &request.authorization)
-            {
+            .search_similar_filtered(vector, &|chunk_id| match self.prefilter_hit(
+                chunk_id,
+                &request.authorization,
+                &authorized,
+            ) {
                 Ok(allowed) => allowed,
                 Err(error) => {
                     filter_error.set(Some(error));
@@ -98,6 +108,7 @@ impl DenseChunkRetriever {
                 one_based_rank(raw_rank),
                 &identity,
                 &request.authorization,
+                &authorized,
             )?
             else {
                 continue;
@@ -127,27 +138,48 @@ impl DenseChunkRetriever {
         &self,
         chunk_id: maestria_domain::ChunkId,
         authorization: &maestria_governance::RetrievalAuthorizationContext,
+        authorized: &PrescoreCache<AuthorizedDenseRecord>,
     ) -> Result<bool, maestria_ports::PortError> {
-        let Some(chunk) = self.chunks.get(chunk_id)? else {
+        let Some(record) = self.authorized_record(chunk_id, authorization)? else {
             return Ok(false);
         };
-        let Some(artifact) = self.artifacts.get(chunk.artifact_id)? else {
-            return Ok(false);
+        authorized.insert(chunk_id, record);
+        Ok(true)
+    }
+
+    fn authorized_record(
+        &self,
+        chunk_id: maestria_domain::ChunkId,
+        authorization: &maestria_governance::RetrievalAuthorizationContext,
+    ) -> Result<Option<AuthorizedDenseRecord>, maestria_ports::PortError> {
+        let Some((artifact, chunk)) = load_authorized_chunk(
+            self.chunks.as_ref(),
+            self.artifacts.as_ref(),
+            chunk_id,
+            authorization,
+        )?
+        else {
+            return Ok(None);
         };
-        if artifact.index_status != IndexStatus::Indexed
-            || authorization.evaluate(&artifact.security) != RetrievalDecision::Allowed
-            || !scan_secrets(&chunk.text).is_clean()
-        {
-            return Ok(false);
-        }
         let evidence_id = maestria_domain::evidence_id_for(chunk.artifact_id, chunk.order);
         let Some(evidence) = self.evidence.get(evidence_id)? else {
-            return Ok(false);
+            return Ok(None);
         };
-        Ok(
-            authorization.evaluate(&evidence.security) == RetrievalDecision::Allowed
-                && scan_secrets(&evidence.excerpt).is_clean(),
-        )
+        if evidence.artifact_id != artifact.id {
+            return Err(maestria_ports::PortError::Conflict {
+                message: format!(
+                    "evidence {} owner mismatch: expected artifact {}, found {}",
+                    evidence.id, artifact.id, evidence.artifact_id
+                ),
+            });
+        }
+        if authorization.evaluate(&evidence.security)
+            != maestria_governance::RetrievalDecision::Allowed
+            || !scan_secrets(&evidence.excerpt).is_clean()
+        {
+            return Ok(None);
+        }
+        Ok(Some((artifact, chunk, evidence)))
     }
     fn candidate_from_hit(
         &self,
@@ -155,25 +187,17 @@ impl DenseChunkRetriever {
         raw_rank: u32,
         identity: &maestria_ports::EmbeddingIdentity,
         authorization: &maestria_governance::RetrievalAuthorizationContext,
+        authorized: &PrescoreCache<AuthorizedDenseRecord>,
     ) -> Result<Option<EvidenceCandidate>, RetrievalError> {
-        let Some(chunk) = self.chunks.get(hit.chunk_id).map_err(port_error)? else {
+        let record = match authorized.take(hit.chunk_id) {
+            Some(record) => Some(record),
+            None => self
+                .authorized_record(hit.chunk_id, authorization)
+                .map_err(port_error)?,
+        };
+        let Some((artifact, chunk, evidence)) = record else {
             return Ok(None);
         };
-        let Some(artifact) = self.artifacts.get(chunk.artifact_id).map_err(port_error)? else {
-            return Ok(None);
-        };
-        let evidence_id = maestria_domain::evidence_id_for(chunk.artifact_id, chunk.order);
-        let Some(evidence) = self.evidence.get(evidence_id).map_err(port_error)? else {
-            return Ok(None);
-        };
-        if artifact.index_status != IndexStatus::Indexed
-            || authorization.evaluate(&artifact.security) != RetrievalDecision::Allowed
-            || authorization.evaluate(&evidence.security) != RetrievalDecision::Allowed
-            || !scan_secrets(&chunk.text).is_clean()
-            || !scan_secrets(&evidence.excerpt).is_clean()
-        {
-            return Ok(None);
-        }
         self.verifier.verify(&evidence, &artifact)?;
         let score = if hit.score.is_finite() && hit.score > 0.0 {
             (hit.score.min(1.0) * 1_000_000.0).floor() as u32

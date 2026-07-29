@@ -1,4 +1,5 @@
 mod cards;
+mod chunk_access;
 mod code_intel;
 mod common;
 mod dense;
@@ -8,10 +9,12 @@ mod learned_sparse;
 mod learned_sparse_generation;
 mod lexical;
 mod outcome_evaluator;
+mod prescore_cache;
 mod score_provenance;
 mod secondary;
 mod source_snapshot;
 mod visual;
+mod visual_access;
 mod visual_projection;
 
 pub use cards::{CardRetriever, CardRetrieverParts};
