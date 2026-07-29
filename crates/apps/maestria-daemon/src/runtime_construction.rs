@@ -41,6 +41,7 @@ struct IndexAdapters {
 
 struct EcosystemAdapters {
     parser: Arc<dyn Parser + Send + Sync>,
+    ocr_provider: Option<Arc<dyn maestria_ports::OcrProvider + Send + Sync>>,
     repository_code_index: Option<Arc<RepositoryCodeIndex>>,
 }
 
@@ -103,13 +104,13 @@ fn build_ecosystem_adapters(
     layout: &InstanceLayout,
     manifest: &InstanceManifest,
 ) -> Result<EcosystemAdapters> {
-    let parser = Arc::new(ParserRegistry::with_optional_ocr(build_ocr_provider(
-        manifest,
-    )?));
+    let ocr_provider = build_ocr_provider(manifest)?;
+    let parser = Arc::new(ParserRegistry::with_defaults());
     let repository_code_index = load_repository_code_index_with_exclusions(layout, Some(manifest))
         .with_context(|| "load repository code index for runtime construction")?;
     Ok(EcosystemAdapters {
         parser,
+        ocr_provider,
         repository_code_index,
     })
 }
@@ -180,6 +181,7 @@ fn build_adapters(
         blob_store: storage.blob_store,
         search_index: indexes.search_index,
         parser: ecosystem.parser,
+        ocr_provider: ecosystem.ocr_provider,
         harness: Arc::new(LocalShellHarnessAdapter),
         artifact_repo: storage.sqlite_store.clone(),
         chunk_repo: storage.sqlite_store.clone(),

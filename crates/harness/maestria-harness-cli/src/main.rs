@@ -65,7 +65,7 @@ async fn main() -> Result<()> {
     );
     let guard = ScopeGuard::new(scope.clone());
 
-    // Governance authorization — decide before spawn
+    // Governance authorization — decide before execution.
     if !scope.harness_allowed("shell") {
         println!("Governance: Denied. Shell harness not permitted by scope.");
         return Ok(());

@@ -75,11 +75,11 @@ struct FakeVisualProvider {
 }
 
 impl VisualEmbeddingProvider for FakeVisualProvider {
-    fn disclosure(&self) -> Option<ProviderDisclosure> {
-        Some(ProviderDisclosure {
+    fn disclosure(&self) -> ProviderDisclosure {
+        ProviderDisclosure {
             remote: false,
             retention: RetentionPolicy::NoRetention,
-        })
+        }
     }
 
     fn embed_query(

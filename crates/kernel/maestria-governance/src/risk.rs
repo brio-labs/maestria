@@ -50,6 +50,18 @@ impl ClassifyRisk for DefaultRiskClassifier {
             | MaestriaEffect::ParseArtifact(_)
             | MaestriaEffect::EmitDiagnostic(_)
             | MaestriaEffect::IndexFullText(_) => RiskClass::Low,
+            MaestriaEffect::Ocr(request) => {
+                if request.intent.disclosure().remote() {
+                    RiskClass::High
+                } else if matches!(
+                    request.intent.disclosure().retention(),
+                    maestria_domain::OcrRetentionPolicy::NoRetention
+                ) {
+                    RiskClass::Low
+                } else {
+                    RiskClass::Medium
+                }
+            }
             MaestriaEffect::SearchKnowledge(_) => RiskClass::Low,
             MaestriaEffect::RunValidation(_)
             | MaestriaEffect::RequestApproval(_)

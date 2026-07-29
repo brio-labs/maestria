@@ -5,6 +5,16 @@
 //! This module is pure and side-effect free. All environment interaction is
 //! represented via `MaestriaEffect` values and executed by a runtime layer.
 
+mod effects;
+mod entities;
+mod errors;
+mod events;
+mod evidence_pack;
+mod generations;
+mod ids;
+mod input;
+mod inputs;
+mod kernel_state;
 /// Responsibility map:
 /// - `effects`: module responsibility.
 /// - `entities`: module responsibility.
@@ -16,22 +26,14 @@
 /// - `input`: module responsibility.
 /// - `inputs`: module responsibility.
 /// - `kernel_state`: module responsibility.
+/// - `ocr`: module responsibility.
 /// - `provenance`: module responsibility.
 /// - `replay`: module responsibility.
 /// - `search`: module responsibility.
 /// - `security`: module responsibility.
 /// - `security_snapshot`: authorization and integrity security snapshots.
 /// - `types`: module responsibility.
-mod effects;
-mod entities;
-mod errors;
-mod events;
-mod evidence_pack;
-mod generations;
-mod ids;
-mod input;
-mod inputs;
-mod kernel_state;
+mod ocr;
 mod provenance;
 mod replay;
 mod search;
@@ -39,11 +41,11 @@ mod security;
 mod security_snapshot;
 mod types;
 
-// Public API — explicit stable boundary exports.
 pub use crate::effects::{
     DiagnosticEvent, FetchWebRequest, IndexFullTextRequest, IndexVectorRequest, KernelOutput,
-    MaestriaEffect, ParseArtifactRequest, QueryHarnessProposalRequest, QueryHarnessRequest,
-    RequestApprovalRequest, RunValidationRequest, SearchKnowledgeRequest, UpdateGraphRequest,
+    MaestriaEffect, OcrEffect, ParseArtifactRequest, QueryHarnessProposalRequest,
+    QueryHarnessRequest, RequestApprovalRequest, RunValidationRequest, SearchKnowledgeRequest,
+    UpdateGraphRequest,
 };
 pub use crate::entities::{
     Artifact, Card, Chunk, Claim, ClaimStatus, ContentRange, Evidence, EvidenceKind, IndexStatus,
@@ -74,14 +76,19 @@ pub use crate::inputs::{
     FullTextIndexCompleted, HarnessRunCompleted, HarnessRunRequested, LinkEvidenceToClaimInput,
     LinkEvidenceToTaskInput, ModelAgentHarnessResult, ModelAgentMemoryDecision,
     ModelAgentMemoryResult, ModelAgentProposalRequest, ModelAgentProposalResult,
-    ModelAgentSearchResult, ModelAgentTerminalStatus, ModelAgentValidationResult, OpenTaskInput,
-    ParserResult, ParserStarted, PromoteMemoryInput, ProposeMemoryCandidateInput,
-    RecordEvidenceInput, RecordValidationReportInput, RegisterArtifactInput, RegisterChunkInput,
-    RequestTaskValidation, SearchExecutedInput, SearchKnowledgeCompleted, SearchKnowledgeRequested,
-    SearchResultSet, SourceRemoved, StartFullTextIndex, StartIndexGenerationInput,
-    SupersedeMemoryInput, TransitionIndexGenerationInput, UserIntent, ValidationCompleted,
+    ModelAgentSearchResult, ModelAgentTerminalStatus, ModelAgentValidationResult, OcrCompleted,
+    OcrFailed, OcrRequested, OpenTaskInput, ParserResult, ParserStarted, PromoteMemoryInput,
+    ProposeMemoryCandidateInput, RecordEvidenceInput, RecordValidationReportInput,
+    RegisterArtifactInput, RegisterChunkInput, RequestTaskValidation, SearchExecutedInput,
+    SearchKnowledgeCompleted, SearchKnowledgeRequested, SearchResultSet, SourceRemoved,
+    StartFullTextIndex, StartIndexGenerationInput, SupersedeMemoryInput,
+    TransitionIndexGenerationInput, UserIntent, ValidationCompleted,
 };
 pub use crate::kernel_state::KernelState;
+pub use crate::ocr::{
+    OcrCompletion, OcrDisclosure, OcrIntent, OcrPageText, OcrProviderIdentity, OcrRequestId,
+    OcrRetentionPolicy, OcrValidationError,
+};
 pub use crate::provenance::{
     ParseStatus, ParsedRepresentation, RepresentationKind, SourceSpan, content_hash,
     evidence_id_for, excerpt_for, line_range_for_chunk, web_artifact_id_for, web_evidence_id_for,

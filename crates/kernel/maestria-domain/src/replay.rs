@@ -1,5 +1,7 @@
 use crate::types::*;
 
+mod ocr;
+
 impl KernelState {
     pub fn apply_event(&mut self, envelope: DomainEventEnvelope) -> Result<(), DomainError> {
         let expected_id = self.event_log.len() as u64 + 1;
@@ -23,7 +25,10 @@ impl KernelState {
             | DomainEvent::DocumentTreeCaptured { .. }
             | DomainEvent::PendingIndex { .. }
             | DomainEvent::FullTextIndexed { .. }
-            | DomainEvent::ArtifactIndexed { .. } => {
+            | DomainEvent::ArtifactIndexed { .. }
+            | DomainEvent::OcrRequested { .. }
+            | DomainEvent::OcrCompleted { .. }
+            | DomainEvent::OcrFailed { .. } => {
                 self.replay_artifact_events(&envelope.event)?;
             }
             DomainEvent::IndexGenerationStarted { .. }
@@ -132,6 +137,16 @@ impl KernelState {
                 artifact_id,
                 chunk_id,
             } => self.apply_full_text_indexed(*artifact_id, *chunk_id),
+            DomainEvent::OcrRequested { intent } => self.replay_ocr_requested(intent),
+            DomainEvent::OcrCompleted {
+                artifact_id,
+                completion,
+            } => self.replay_ocr_completed(*artifact_id, completion),
+            DomainEvent::OcrFailed {
+                artifact_id,
+                request_id,
+                reason,
+            } => self.replay_ocr_failed(*artifact_id, request_id, reason),
             DomainEvent::ArtifactIndexed { artifact_id } => {
                 self.apply_artifact_indexed(*artifact_id)
             }

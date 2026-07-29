@@ -39,9 +39,13 @@ impl KernelState {
         // Resume/recovery path: pending_parsers survived via replay.
         generated.extend(self.process_parser_pending_parsers(&input)?);
 
-        // Remove parser-retry entries for terminal parser outcomes; non-terminal
-        // statuses move into indexed evidence lifecycle and may require recovery.
-        if input.status != crate::provenance::ParseStatus::Parsed {
+        // Keep the durable parser marker while governed OCR is outstanding.
+        let ocr_pending = input.status == crate::provenance::ParseStatus::NeedsOcr
+            && self
+                .pending_ocr
+                .values()
+                .any(|intent| intent.artifact_id() == input.artifact_id);
+        if input.status != crate::provenance::ParseStatus::Parsed && !ocr_pending {
             self.pending_parsers.remove(&input.artifact_id);
         }
         if !self.artifacts.contains_key(&input.artifact_id) {

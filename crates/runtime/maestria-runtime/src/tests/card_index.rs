@@ -11,6 +11,12 @@ use std::collections::BTreeSet;
 struct ProviderWithoutIdentity;
 
 impl EmbeddingProvider for ProviderWithoutIdentity {
+    fn disclosure(&self) -> maestria_ports::ProviderDisclosure {
+        maestria_ports::ProviderDisclosure {
+            remote: false,
+            retention: maestria_ports::RetentionPolicy::NoRetention,
+        }
+    }
     fn embed(&self, _request: EmbeddingRequest) -> Result<EmbeddingResponse, PortError> {
         Err(PortError::Internal {
             message: "test provider must not be called without a model".into(),

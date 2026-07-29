@@ -1,5 +1,7 @@
 #[path = "event_payloads.rs"]
 pub(crate) mod event_payloads;
+#[path = "ocr_event_payloads.rs"]
+pub(crate) mod ocr_event_payloads;
 
 #[path = "legacy_payloads.rs"]
 pub(crate) mod legacy_payloads;

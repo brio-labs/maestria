@@ -19,6 +19,20 @@ impl EffectExecutionContext {
                 )
                 .await;
         };
+        let disclosure = provider.disclosure();
+        if disclosure.remote || disclosure.retention != maestria_ports::RetentionPolicy::NoRetention
+        {
+            tracing::warn!(
+                chunk_id = %request.chunk_id,
+                "embedding transport violates local no-retention policy"
+            );
+            return self
+                .degraded_after_invalidation(
+                    request.chunk_id,
+                    "embedding transport violates local no-retention policy",
+                )
+                .await;
+        }
         let Some(model) = self
             .embedding_model
             .clone()

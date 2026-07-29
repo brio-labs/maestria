@@ -9,6 +9,7 @@
 /// - `pdf`: module responsibility.
 /// - `pdf_geometry`: PDF page geometry, transform, and bounds utilities.
 /// - `pdf_layout`: PDF region extraction and layout building.
+/// - `pdf_tree`: module responsibility.
 /// - `plain_text`: module responsibility.
 /// - `registry`: module responsibility.
 /// - `rust_source`: module responsibility.
@@ -19,6 +20,7 @@ mod markdown;
 mod pdf;
 mod pdf_geometry;
 mod pdf_layout;
+mod pdf_tree;
 mod plain_text;
 mod registry;
 mod rust_source;

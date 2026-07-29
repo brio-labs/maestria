@@ -99,6 +99,15 @@ impl crate::EventLog for InMemoryEventLog {
                     artifact_id: current,
                     ..
                 } => *current == artifact_id,
+                DomainEvent::OcrRequested { intent } => intent.artifact_id() == artifact_id,
+                DomainEvent::OcrCompleted {
+                    artifact_id: current,
+                    ..
+                }
+                | DomainEvent::OcrFailed {
+                    artifact_id: current,
+                    ..
+                } => *current == artifact_id,
                 _ => false,
             });
         }

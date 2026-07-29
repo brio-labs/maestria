@@ -4,6 +4,7 @@
 //! - `lifecycle`: module responsibility.
 //! - `indexing`: module responsibility.
 //! - `embedding`: module responsibility.
+//! - `provider_transport`: module responsibility.
 //! - `harness`: module responsibility.
 //! - `graph`: module responsibility.
 //! - `web`: module responsibility.
@@ -18,8 +19,10 @@ mod graph;
 mod harness;
 mod indexing;
 mod lifecycle;
+mod provider_transport;
 mod repositories;
 mod search;
+pub use provider_transport::{ProviderEndpoint, ProviderTransport};
 mod web;
 
 pub use approval::*;

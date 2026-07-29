@@ -1,15 +1,17 @@
 use super::test_helpers::{adapter, shell_request};
-use maestria_ports::{HarnessAdapter, PortError};
+use maestria_ports::HarnessAdapter;
 use std::path::PathBuf;
 
 #[tokio::test]
-async fn timeout_on_slow_command() -> Result<(), Box<dyn std::error::Error>> {
+async fn non_regular_device_is_rejected_without_waiting() -> Result<(), Box<dyn std::error::Error>>
+{
     let mut req = shell_request("cat /dev/urandom", 200);
     req.readable_roots = vec![PathBuf::from("/tmp"), PathBuf::from("/dev")];
-    let result = adapter().execute(req).await;
+    let outcome = adapter().execute(req).await?;
+    assert_eq!(outcome.exit_code, 1);
     assert!(
-        matches!(result, Err(PortError::InternalContext { .. })),
-        "expected timeout Internal error, got {result:?}"
+        String::from_utf8_lossy(&outcome.stderr).contains("unsupported file type"),
+        "expected typed file-kind diagnostic, got {outcome:?}"
     );
     Ok(())
 }

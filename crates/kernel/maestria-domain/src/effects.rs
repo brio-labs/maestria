@@ -13,6 +13,16 @@ pub struct ParseArtifactRequest {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OcrEffect {
+    pub intent: crate::ocr::OcrIntent,
+}
+
+impl OcrEffect {
+    pub fn new(intent: crate::ocr::OcrIntent) -> Self {
+        Self { intent }
+    }
+}
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IndexFullTextRequest {
     pub artifact_id: ArtifactId,
     pub chunk_id: ChunkId,
@@ -91,6 +101,7 @@ pub struct SearchKnowledgeRequest {
 pub enum MaestriaEffect {
     PersistEvent { envelope: Box<DomainEventEnvelope> },
     ParseArtifact(ParseArtifactRequest),
+    Ocr(OcrEffect),
     IndexFullText(IndexFullTextRequest),
     IndexVector(IndexVectorRequest),
     UpdateGraph(UpdateGraphRequest),

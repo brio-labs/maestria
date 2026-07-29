@@ -20,6 +20,7 @@ mod evidence;
 mod graph;
 mod harness;
 mod harness_terminalization;
+mod ocr;
 mod parse;
 mod pdf;
 mod persist;

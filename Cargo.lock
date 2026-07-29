@@ -1330,6 +1330,7 @@ dependencies = [
 name = "maestria-harness"
 version = "0.6.1"
 dependencies = [
+ "libc",
  "maestria-ports",
  "tempfile",
  "tokio",

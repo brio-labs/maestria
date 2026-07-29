@@ -156,6 +156,12 @@ fn build_recovery_domain_state(
 struct RecoveryEmbeddingProvider;
 
 impl EmbeddingProvider for RecoveryEmbeddingProvider {
+    fn disclosure(&self) -> maestria_ports::ProviderDisclosure {
+        maestria_ports::ProviderDisclosure {
+            remote: false,
+            retention: maestria_ports::RetentionPolicy::NoRetention,
+        }
+    }
     fn embed(&self, request: EmbeddingRequest) -> Result<EmbeddingResponse, PortError> {
         let vector = if request.text.contains("first") {
             vec![1.0, 0.0]

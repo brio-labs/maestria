@@ -282,20 +282,15 @@ impl VisualPageRegionRetriever {
 
 pub(super) fn ensure_local_no_retention(
     provider: &dyn VisualEmbeddingProvider,
-) -> Result<(), RetrievalError> {
-    let Some(disclosure) = provider.disclosure() else {
-        return Err(RetrievalError::Internal(
-            "visual provider disclosure is unavailable".to_string(),
-        ));
-    };
+) -> Result<maestria_ports::ProviderDisclosure, RetrievalError> {
+    let disclosure = provider.disclosure();
     if disclosure.remote || disclosure.retention != RetentionPolicy::NoRetention {
         return Err(RetrievalError::Internal(
             "visual provider must be local and no-retention".to_string(),
         ));
     }
-    Ok(())
+    Ok(disclosure)
 }
-
 #[async_trait]
 impl CandidateRetriever for VisualPageRegionRetriever {
     fn descriptor(&self) -> RetrieverDescriptor {
@@ -333,7 +328,7 @@ impl CandidateRetriever for VisualPageRegionRetriever {
                 "visual provider identity does not match active retriever capability".to_string(),
             ));
         }
-        ensure_local_no_retention(self.embedding_provider.as_ref())?;
+        let disclosure = ensure_local_no_retention(self.embedding_provider.as_ref())?;
         let response = self
             .embedding_provider
             .embed_query(&request.query.q, identity.clone())
@@ -343,11 +338,9 @@ impl CandidateRetriever for VisualPageRegionRetriever {
                 "visual provider response identity changed during query".to_string(),
             ));
         }
-        if response.disclosure.remote
-            || response.disclosure.retention != RetentionPolicy::NoRetention
-        {
+        if response.disclosure != disclosure {
             return Err(RetrievalError::Internal(
-                "visual provider violates local no-retention policy".to_string(),
+                "visual provider response disclosure changed during query".to_string(),
             ));
         }
         self.retrieve_with_vector(

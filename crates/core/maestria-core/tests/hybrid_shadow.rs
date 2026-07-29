@@ -118,6 +118,12 @@ fn planner_context() -> Result<SearchPlannerContext, Box<dyn std::error::Error>>
 struct DenseFixtureEmbeddingProvider;
 
 impl EmbeddingProvider for DenseFixtureEmbeddingProvider {
+    fn disclosure(&self) -> ProviderDisclosure {
+        ProviderDisclosure {
+            remote: false,
+            retention: RetentionPolicy::NoRetention,
+        }
+    }
     fn embed(&self, request: EmbeddingRequest) -> Result<EmbeddingResponse, PortError> {
         Ok(EmbeddingResponse {
             vector: vec![0.0, 1.0],

@@ -1,7 +1,5 @@
-use std::sync::Arc;
-
 use maestria_ports::{
-    FileHandle, FileMetadata, OcrProvider, ParseContext, ParsedArtifact, Parser, PortError,
+    FileHandle, FileMetadata, ParseContext, ParseOutcome, ParsedArtifact, Parser, PortError,
 };
 
 use crate::cargo_toml::CargoTomlParser;
@@ -22,21 +20,15 @@ impl ParserRegistry {
     }
 
     pub fn with_defaults() -> Self {
-        Self::with_optional_ocr(None)
-    }
-
-    pub fn with_optional_ocr(ocr_provider: Option<Arc<dyn OcrProvider>>) -> Self {
         let mut registry = Self::new();
         registry.register(MarkdownParser::new());
         registry.register(PlainTextParser::new());
         registry.register(RustSourceParser::new());
         registry.register(CargoTomlParser::new());
-        match ocr_provider {
-            Some(provider) => registry.register(PdfParser::with_ocr_provider(provider)),
-            None => registry.register(PdfParser::new()),
-        }
+        registry.register(PdfParser::new());
         registry
     }
+
     pub fn register<P>(&mut self, parser: P)
     where
         P: Parser + Send + Sync + 'static,
@@ -75,5 +67,36 @@ impl Parser for ParserRegistry {
                 source: file.path.display().to_string(),
             })?;
         parser.parse(file, context)
+    }
+
+    fn parse_outcome(
+        &self,
+        file: FileHandle,
+        context: ParseContext,
+    ) -> Result<ParseOutcome, PortError> {
+        let metadata = metadata_for_handle(&file);
+        let parser = self
+            .parser_for(&metadata)
+            .ok_or_else(|| PortError::InvalidInputContext {
+                context: "unsupported file extension",
+                source: file.path.display().to_string(),
+            })?;
+        parser.parse_outcome(file, context)
+    }
+
+    fn parse_with_ocr(
+        &self,
+        file: FileHandle,
+        context: ParseContext,
+        pages: &[maestria_domain::OcrPageText],
+    ) -> Result<ParsedArtifact, PortError> {
+        let metadata = metadata_for_handle(&file);
+        let parser = self
+            .parser_for(&metadata)
+            .ok_or_else(|| PortError::InvalidInputContext {
+                context: "unsupported file extension",
+                source: file.path.display().to_string(),
+            })?;
+        parser.parse_with_ocr(file, context, pages)
     }
 }

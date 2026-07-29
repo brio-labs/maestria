@@ -1,6 +1,7 @@
 use super::evidence_payloads::{
     StoredClaimStatus, StoredEvidenceKind, StoredTaskPriority, StoredTaskStatus,
 };
+use super::ocr_event_payloads::StoredOcrPage;
 use super::relation_payloads::{StoredRelationEndpoint, StoredRelationKind};
 use maestria_domain::DomainEvent;
 use maestria_ports::PortError;
@@ -200,6 +201,30 @@ pub(crate) enum StoredEventPayload {
         content_hash: String,
         blob_id: u64,
     },
+    OcrRequested {
+        request_id: String,
+        artifact_id: u64,
+        source_blob: u64,
+        source_hash: maestria_domain::ContentHash,
+        pages: Vec<u32>,
+        provider: String,
+        model: String,
+        revision: String,
+        provider_artifact_hash: String,
+        preprocessing_version: String,
+        remote: bool,
+        retention: String,
+    },
+    OcrCompleted {
+        artifact_id: u64,
+        request_id: String,
+        pages: Vec<StoredOcrPage>,
+    },
+    OcrFailed {
+        artifact_id: u64,
+        request_id: String,
+        reason: String,
+    },
     IndexGenerationStarted {
         id: u64,
         name: maestria_domain::RepresentationName,
@@ -222,6 +247,7 @@ pub(crate) enum StoredEventPayload {
 impl StoredEventPayload {
     pub(crate) fn from_domain(event: &DomainEvent) -> Result<Self, PortError> {
         Self::try_from_domain_stale(event)
+            .or_else(|| Self::try_from_domain_ocr(event))
             .or_else(|| Self::try_from_domain_artifact(event))
             .or_else(|| Self::try_from_domain_task(event))
             .or_else(|| Self::try_from_domain_claim(event))
@@ -235,6 +261,7 @@ impl StoredEventPayload {
 
     pub(crate) fn into_domain(self) -> Result<DomainEvent, PortError> {
         self.try_into_domain_stale()
+            .or_else(|s| (*s).try_into_domain_ocr())
             .or_else(|s| (*s).try_into_domain_artifact())
             .or_else(|s| (*s).try_into_domain_task())
             .or_else(|s| (*s).try_into_domain_claim())
@@ -248,6 +275,7 @@ impl StoredEventPayload {
 
     pub(crate) fn kind(&self) -> Result<&'static str, PortError> {
         self.try_kind_stale()
+            .or_else(|| self.try_kind_ocr())
             .or_else(|| self.try_kind_artifact())
             .or_else(|| self.try_kind_task())
             .or_else(|| self.try_kind_claim())
@@ -261,6 +289,7 @@ impl StoredEventPayload {
 
     pub(crate) fn filter_artifact_id(&self) -> Option<u64> {
         self.try_filter_artifact_id_stale()
+            .or_else(|| self.try_filter_artifact_id_ocr())
             .or_else(|| self.try_filter_artifact_id_artifact())
             .or_else(|| self.try_filter_artifact_id_task())
             .or_else(|| self.try_filter_artifact_id_claim())

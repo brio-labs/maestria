@@ -22,6 +22,52 @@ pub enum ParseStatus {
     Quarantined,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OcrPageSet(Vec<u32>);
+
+impl OcrPageSet {
+    pub fn try_new(pages: impl IntoIterator<Item = u32>) -> Result<Self, PortError> {
+        let mut pages = pages.into_iter().collect::<Vec<_>>();
+        if pages.is_empty() {
+            return Err(PortError::InvalidInputContext {
+                context: "OCR page set is empty",
+                source: "at least one page is required".to_string(),
+            });
+        }
+        pages.sort_unstable();
+        for page in &pages {
+            if *page == 0 {
+                return Err(PortError::InvalidInputContext {
+                    context: "OCR page is zero",
+                    source: "PDF pages are one-based".to_string(),
+                });
+            }
+        }
+        if pages.windows(2).any(|pair| pair[0] == pair[1]) {
+            return Err(PortError::InvalidInputContext {
+                context: "OCR page set contains duplicates",
+                source: "each page may be requested once".to_string(),
+            });
+        }
+        Ok(Self(pages))
+    }
+    pub fn as_slice(&self) -> &[u32] {
+        &self.0
+    }
+    pub fn into_vec(self) -> Vec<u32> {
+        self.0
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ParseOutcome {
+    Complete(ParsedArtifact),
+    NeedsOcr {
+        partial: ParsedArtifact,
+        pages: OcrPageSet,
+    },
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum RepresentationKind {
     Raw,
@@ -162,4 +208,26 @@ pub trait Parser: Send + Sync {
     fn id(&self) -> &'static str;
     fn supports(&self, file: &FileMetadata) -> bool;
     fn parse(&self, file: FileHandle, context: ParseContext) -> Result<ParsedArtifact, PortError>;
+    fn parse_outcome(
+        &self,
+        file: FileHandle,
+        context: ParseContext,
+    ) -> Result<ParseOutcome, PortError> {
+        let parsed = self.parse(file, context)?;
+        if parsed.status == ParseStatus::NeedsOcr {
+            return Err(PortError::InvalidInputContext {
+                context: "parser returned OCR pending without a page set",
+                source: "OCR-capable parsers must implement parse_outcome".to_string(),
+            });
+        }
+        Ok(ParseOutcome::Complete(parsed))
+    }
+    fn parse_with_ocr(
+        &self,
+        file: FileHandle,
+        context: ParseContext,
+        _pages: &[maestria_domain::OcrPageText],
+    ) -> Result<ParsedArtifact, PortError> {
+        self.parse(file, context)
+    }
 }

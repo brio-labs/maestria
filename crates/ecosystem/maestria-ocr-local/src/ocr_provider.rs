@@ -138,12 +138,12 @@ impl OcrProvider for LocalHttpOcrProvider {
         })
     }
 
-    fn identity(&self) -> Option<OcrIdentity> {
-        Some(self.identity.clone())
+    fn identity(&self) -> OcrIdentity {
+        self.identity.clone()
     }
 
-    fn disclosure(&self) -> Option<ProviderDisclosure> {
-        Some(self.disclosure.clone())
+    fn disclosure(&self) -> ProviderDisclosure {
+        self.disclosure.clone()
     }
 }
 
