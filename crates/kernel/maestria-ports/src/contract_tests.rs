@@ -81,10 +81,15 @@ pub fn assert_chunk_repository_round_trip(
 
     assert_eq!(repository.get(first.id)?, Some(first.clone()));
     assert_eq!(
+        repository.find_artifact_id(first.id)?,
+        Some(first.artifact_id)
+    );
+    assert_eq!(
         repository.list_for_artifact(ArtifactId::new(1))?,
         vec![second, first]
     );
     assert_eq!(repository.get(ChunkId::new(99))?, None);
+    assert_eq!(repository.find_artifact_id(ChunkId::new(99))?, None);
     Ok(())
 }
 
