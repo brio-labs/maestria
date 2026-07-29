@@ -6,7 +6,7 @@ use crate::schema::{
     approval_migration::migrate_approval_recorded_payloads,
     supervision_migration::ensure_artifact_v3_columns,
 };
-use crate::{schema_validation::*, to_port_error};
+use crate::{schema_validation::*, sqlite_store::to_port_error};
 
 /// Migrates a v1 database to the current version: validates domain_events columns,
 /// adds the `payload_version` column with `DEFAULT 1` if not already present,
@@ -117,7 +117,7 @@ pub(super) fn migrate_from_v4(
         .execute_batch(
             "CREATE TABLE IF NOT EXISTS approval_requests (
                 id INTEGER NOT NULL PRIMARY KEY,
-                task_id INTEGER NOT NULL,
+                task_id INTEGER,
                 effect_kind TEXT NOT NULL,
                 risk_level TEXT NOT NULL,
                 capability TEXT NOT NULL DEFAULT '',
@@ -128,8 +128,8 @@ pub(super) fn migrate_from_v4(
         )
         .map_err(to_port_error)?;
 
-    // Data migration: old ApprovalRecorded payloads lack approval_id.
-    // Allocate real IDs and rewrite the payload JSON before v5 replay.
+    // Data migration: legacy ApprovalRecorded payloads lack approval_id.
+    // Allocate collision-free identities and persist event-to-approval mappings.
     migrate_approval_recorded_payloads(connection)?;
 
     connection

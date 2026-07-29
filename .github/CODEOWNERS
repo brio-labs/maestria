@@ -75,6 +75,7 @@
 /scripts/strict-clippy.sh                                                      @carabistouflette
 /docs/SECURITY.md                                                              @carabistouflette
 .github/workflows/ci.yml                                                       @carabistouflette
+/clippy.toml                                                                    @carabistouflette
 # ── Documentation-specific invariants ────────────────────────────────────────
 /docs/SPECS.md                                                                @carabistouflette
 /docs/adr/                                                                    @carabistouflette

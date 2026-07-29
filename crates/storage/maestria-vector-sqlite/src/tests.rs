@@ -5,8 +5,9 @@ use maestria_ports::{
 };
 use rusqlite::Connection;
 
-use super::{SqliteVectorIndex, to_port_error};
-use crate::schema::SCHEMA_VERSION;
+use crate::encoding::to_port_error;
+use crate::schema::{SCHEMA_VERSION, migrate, sqlite_vec_available};
+use crate::vector_index::SqliteVectorIndex;
 #[test]
 fn rejects_empty_vector_on_index() -> Result<(), PortError> {
     let index = SqliteVectorIndex::in_memory()?;
@@ -220,7 +221,7 @@ fn rejects_unsupported_schema_version() -> Result<(), PortError> {
     )
     .map_err(to_port_error)?;
 
-    match super::migrate(&mut conn) {
+    match migrate(&mut conn) {
         Err(PortError::InternalContext { context, source }) => {
             assert_eq!(context, "unsupported vector projection schema version");
             assert_eq!(source, "999");
@@ -247,7 +248,7 @@ fn rejects_zero_schema_version() -> Result<(), PortError> {
     )
     .map_err(to_port_error)?;
 
-    match super::migrate(&mut conn) {
+    match migrate(&mut conn) {
         Err(PortError::InternalContext { context, source }) => {
             assert_eq!(context, "unsupported vector projection schema version");
             assert_eq!(source, "0");
@@ -280,7 +281,7 @@ fn migrates_version_1_schema_to_current() -> Result<(), PortError> {
     )
     .map_err(to_port_error)?;
 
-    super::migrate(&mut conn)?;
+    migrate(&mut conn)?;
 
     let v: i64 = conn
         .query_row(
@@ -303,7 +304,7 @@ fn sqlite_vec_detection_verifies_virtual_table() -> Result<(), PortError> {
     conn.execute("CREATE TABLE vec_docs (id INTEGER /* USING VEC0 */)", [])
         .map_err(to_port_error)?;
 
-    assert!(!super::sqlite_vec_available(&conn)?);
+    assert!(!sqlite_vec_available(&conn)?);
 
     Ok(())
 }

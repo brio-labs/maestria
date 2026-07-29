@@ -1,4 +1,7 @@
-use super::{TantivyFullTextIndex, schema};
+use crate::{
+    schema::{self, schema},
+    tantivy_index::{TantivyFullTextIndex, to_port_error},
+};
 use maestria_domain::{ContentHash, IndexFingerprint, content_hash};
 use maestria_ports::PortError;
 use std::path::Path;
@@ -40,7 +43,7 @@ impl TantivyFullTextIndex {
                 source: path.display().to_string(),
             });
         }
-        let index = Index::open_in_dir(path).map_err(super::to_port_error)?;
+        let index = Index::open_in_dir(path).map_err(to_port_error)?;
         let marker = path.join(".cards-rebuild");
         Self::from_index(index, marker.exists(), Some(marker), true)
     }

@@ -2,11 +2,10 @@ use std::{future::Future, path::Path, sync::Arc};
 
 use anyhow::{Context, Result, anyhow};
 use maestria_core::InstanceLayout;
-use maestria_domain::DomainInput;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{UnixListener, UnixStream},
-    sync::{Mutex, Semaphore, mpsc},
+    sync::{Mutex, Semaphore},
     task::{JoinHandle, JoinSet},
     time::{Duration, timeout},
 };
@@ -34,9 +33,7 @@ impl ApiServer {
     /// is aborted and the socket file may be left on disk.
     pub async fn start(
         layout: InstanceLayout,
-        input_tx: mpsc::Sender<DomainInput>,
-        adapters: Arc<maestria_runtime::Adapters>,
-        governance: Arc<maestria_runtime::Governance>,
+        runtime: maestria_runtime::RuntimeHandle,
     ) -> Result<Self> {
         let socket = socket_path(&layout);
         super::set_private_directory_permissions(&layout.system_dir)?;
@@ -49,9 +46,7 @@ impl ApiServer {
             layout,
             token,
             socket_path: socket,
-            input_tx,
-            adapters,
-            governance,
+            runtime: Some(runtime),
         });
         let shutdown = CancellationToken::new();
         let connections = ConnectionTasks::default();
@@ -139,9 +134,7 @@ pub(crate) struct ApiContext {
     pub(crate) layout: InstanceLayout,
     pub(crate) token: String,
     pub(crate) socket_path: std::path::PathBuf,
-    pub(crate) input_tx: mpsc::Sender<DomainInput>,
-    pub(crate) adapters: Arc<maestria_runtime::Adapters>,
-    pub(crate) governance: Arc<maestria_runtime::Governance>,
+    pub(crate) runtime: Option<maestria_runtime::RuntimeHandle>,
 }
 
 async fn serve(

@@ -81,6 +81,7 @@ fn build_plan(
             minimum_sections: 0,
         },
         fingerprint: context.fingerprint.clone(),
+        authorization: None,
         original_intent: route.original_intent,
         route_decision: route.route_decision,
     })
@@ -94,7 +95,7 @@ impl RetrievalEngine {
     ) -> RetrievalResult<SearchPlan> {
         let original_query = query.into();
         if maestria_governance::contains_prompt_injection_risk(&original_query) {
-            return build_plan(
+            let mut plan = build_plan(
                 &original_query,
                 limit,
                 context,
@@ -110,10 +111,13 @@ impl RetrievalEngine {
                     original_intent: None,
                     route_decision: None,
                 },
-            );
+            )?;
+            self.bind_authorization(&mut plan)?;
+            return Ok(plan);
         }
         let (options, route, inferred_intent) = self.select_plan_options(&original_query);
-        let inferred_plan = build_plan(&original_query, limit, context, options, route)?;
+        let mut inferred_plan = build_plan(&original_query, limit, context, options, route)?;
+        self.bind_authorization(&mut inferred_plan)?;
         let capabilities = self
             .capabilities
             .clone()
@@ -134,6 +138,16 @@ impl RetrievalEngine {
                 inferred_intent,
             ),
         }
+    }
+    fn bind_authorization(&self, plan: &mut SearchPlan) -> RetrievalResult<()> {
+        let context = self
+            .security_policy
+            .authorization_context(&plan.scope)
+            .map_err(|error| {
+                RetrievalError::Internal(format!("retrieval authorization denied: {error:?}"))
+            })?;
+        plan.authorization = Some(context.policy_snapshot());
+        Ok(())
     }
 
     fn select_plan_options(
@@ -232,6 +246,8 @@ impl RetrievalEngine {
                 route_decision: Some(fallback_reason),
             },
         )?;
+        let mut fallback_plan = fallback_plan;
+        self.bind_authorization(&mut fallback_plan)?;
         let mut validation_plan = fallback_plan.clone();
         validation_plan.original_query = "fallback local text retrieval".to_string();
         maestria_governance::SearchPlanValidator::validate(

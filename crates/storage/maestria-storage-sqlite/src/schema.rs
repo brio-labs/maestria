@@ -1,7 +1,7 @@
 use maestria_ports::PortError;
 use rusqlite::Connection;
 
-use crate::to_port_error;
+use crate::sqlite_store::to_port_error;
 
 mod approval_migration;
 mod provenance_migration;
@@ -10,10 +10,13 @@ mod security_migration;
 mod supervision_migration;
 
 use crate::schema_validation::*;
+use approval_migration::ensure_nullable_approval_task_id;
+#[cfg(test)]
+pub(crate) use approval_migration::migrate_approval_recorded_payloads;
 use provenance_migration::{ensure_provenance_v7_columns, migrate_from_v6};
 use score_provenance_migration::{migrate_score_provenance_v9, validate_at_v9};
 use security_migration::{ensure_security_v8_columns, migrate_from_v7, validate_at_v8};
-use supervision_migration::migrate_from_v5;
+use supervision_migration::{ensure_feedback_outcome_column, migrate_from_v5};
 
 mod version_migrations;
 use version_migrations::*;
@@ -157,13 +160,17 @@ const BASE_SCHEMA_SQL: &str = r#"CREATE TABLE IF NOT EXISTS schema_version (
      );
      CREATE TABLE IF NOT EXISTS approval_requests (
          id INTEGER NOT NULL PRIMARY KEY,
-         task_id INTEGER NOT NULL,
+         task_id INTEGER,
          effect_kind TEXT NOT NULL,
          risk_level TEXT NOT NULL,
          capability TEXT NOT NULL DEFAULT '',
          scope_id INTEGER NOT NULL DEFAULT 0,
          tick INTEGER NOT NULL,
          status TEXT NOT NULL DEFAULT 'pending'
+     );
+     CREATE TABLE IF NOT EXISTS approval_event_mapping (
+         event_id INTEGER NOT NULL PRIMARY KEY,
+         approval_id INTEGER NOT NULL UNIQUE
      );
      CREATE TABLE IF NOT EXISTS effect_journal (
          run_id INTEGER NOT NULL,
@@ -174,6 +181,7 @@ const BASE_SCHEMA_SQL: &str = r#"CREATE TABLE IF NOT EXISTS schema_version (
          scope_id INTEGER NOT NULL,
          requested_generation INTEGER,
          status TEXT NOT NULL,
+         feedback_json TEXT,
          PRIMARY KEY (run_id, generation)
      );"#;
 
@@ -293,6 +301,8 @@ pub(crate) fn migrate(connection: &mut Connection) -> Result<(), PortError> {
     let transaction = connection.transaction().map_err(to_port_error)?;
     let state = detect_schema_state(&transaction)?;
     create_base_schema(&transaction)?;
+    ensure_nullable_approval_task_id(&transaction)?;
+    ensure_feedback_outcome_column(&transaction)?;
     seed_id_counters(&transaction)?;
 
     ensure_provenance_v7_columns(&transaction)?;

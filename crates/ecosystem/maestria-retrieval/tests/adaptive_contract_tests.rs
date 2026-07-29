@@ -111,6 +111,7 @@ fn adaptive_plan(max_queries: u32, max_stages: u32) -> RetrievalResult<SearchPla
             minimum_corroboration: 1,
         },
         fingerprint: RetrievalModelFingerprint::new("dummy-model".into())?,
+        authorization: Some(maestria_domain::RetrievalPolicySnapshot::global_default()),
         original_intent: None,
         route_decision: None,
     };

@@ -39,6 +39,9 @@ impl CandidateRetriever for FixedRetriever {
 
 fn request() -> RetrievalResult<CandidateRequest> {
     let plan = common::dummy_plan()?;
+    let authorization = maestria_governance::RetrievalSecurityPolicy::default()
+        .authorization_context(&plan.scope)
+        .map_err(|error| RetrievalError::Internal(format!("{error:?}")))?;
     Ok(CandidateRequest {
         plan,
         query: maestria_ports::SearchQuery {
@@ -47,6 +50,7 @@ fn request() -> RetrievalResult<CandidateRequest> {
             offset: 0,
         },
         expected_generation: maestria_domain::IndexGenerationId::new(1),
+        authorization,
     })
 }
 

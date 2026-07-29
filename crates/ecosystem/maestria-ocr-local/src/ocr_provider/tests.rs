@@ -1,4 +1,5 @@
 use super::*;
+use crate::rasterizer::RasterizedPage;
 use maestria_ports::FileHandle;
 use std::path::PathBuf;
 use std::sync::Mutex;

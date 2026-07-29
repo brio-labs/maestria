@@ -1,7 +1,8 @@
 use crate::SqliteStore;
 use crate::schema::CURRENT_SCHEMA_VERSION;
+use crate::schema::migrate_approval_recorded_payloads;
 use crate::schema_validation::table_has_column;
-use crate::to_port_error;
+use crate::sqlite_store::to_port_error;
 use maestria_domain::*;
 use maestria_ports::*;
 use rusqlite::{Connection, params};
@@ -455,5 +456,90 @@ fn seed_id_counters_rejects_malformed_approval_requests_schema() -> Result<(), P
         error.is_downstream(),
         "schema query failures must remain typed storage errors: {error}"
     );
+    Ok(())
+}
+
+#[test]
+fn legacy_approval_mapping_skips_colliding_request_and_replays_deterministically()
+-> Result<(), Box<dyn std::error::Error>> {
+    let store = SqliteStore::in_memory()?;
+    let connection = store.lock()?;
+    connection.execute(
+        "INSERT INTO approval_requests
+         (id, task_id, effect_kind, risk_level, capability, scope_id, tick, status)
+         VALUES (1, 999, 'task_activation', 'medium', 'task_activation', 1, 0, 'pending')",
+        [],
+    )?;
+    connection.execute(
+        "INSERT INTO domain_events
+         (id, sequence, event_kind, artifact_id, payload_json, payload_version)
+         VALUES (1, 1, 'approval_recorded', NULL, ?1, 1)",
+        [r#"{"event_kind":"approval_recorded","task_id":42,"approved":true,"from_status":"draft","to_status":"active"}"#],
+    )?;
+    connection.execute(
+        "INSERT INTO domain_events
+         (id, sequence, event_kind, artifact_id, payload_json, payload_version)
+         VALUES (2, 2, 'approval_recorded', NULL, ?1, 1)",
+        [r#"{"event_kind":"approval_recorded","approved":false,"from_status":null,"to_status":null}"#],
+    )?;
+    migrate_approval_recorded_payloads(&connection)?;
+
+    let mapped: i64 = connection.query_row(
+        "SELECT approval_id FROM approval_event_mapping WHERE event_id = 1",
+        [],
+        |row| row.get(0),
+    )?;
+    let taskless_mapped: i64 = connection.query_row(
+        "SELECT approval_id FROM approval_event_mapping WHERE event_id = 2",
+        [],
+        |row| row.get(0),
+    )?;
+    assert_eq!(taskless_mapped, 3);
+    let taskless_task: Option<i64> = connection.query_row(
+        "SELECT task_id FROM approval_requests WHERE id = ?1",
+        [taskless_mapped],
+        |row| row.get(0),
+    )?;
+    assert_eq!(taskless_task, None);
+    migrate_approval_recorded_payloads(&connection)?;
+    assert_eq!(
+        mapped, 2,
+        "legacy event must not reuse unrelated approval id"
+    );
+    let projected_task: i64 = connection.query_row(
+        "SELECT task_id FROM approval_requests WHERE id = ?1",
+        [mapped],
+        |row| row.get(0),
+    )?;
+    assert_eq!(projected_task, 42);
+    drop(connection);
+
+    let events = store.scan(EventFilter { artifact_id: None })?;
+    assert_eq!(events.len(), 2);
+    assert!(matches!(
+        events.first(),
+        Some(DomainEventEnvelope {
+            event: DomainEvent::ApprovalRecorded {
+                approval_id,
+                task_id,
+                approved: true,
+                ..
+            },
+            ..
+        }) if approval_id.value() == 2
+            && task_id.as_ref().is_some_and(|id| id.value() == 42)
+    ));
+    assert!(matches!(
+        events.get(1),
+        Some(DomainEventEnvelope {
+            event: DomainEvent::ApprovalRecorded {
+                approval_id,
+                task_id: None,
+                approved: false,
+                ..
+            },
+            ..
+        }) if approval_id.value() == 3
+    ));
     Ok(())
 }

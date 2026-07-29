@@ -86,6 +86,7 @@ fn plan() -> Result<SearchPlan, SearchCompatibilityError> {
             minimum_corroboration: 1,
         },
         fingerprint: RetrievalModelFingerprint::new("maestria:test".into())?,
+        authorization: Some(maestria_domain::RetrievalPolicySnapshot::global_default()),
         original_intent: None,
         route_decision: None,
     };
@@ -98,14 +99,17 @@ fn candidate_request(
     query: &str,
     limit: usize,
 ) -> Result<CandidateRequest, Box<dyn std::error::Error>> {
+    let plan = plan()?;
+    let authorization = RetrievalSecurityPolicy::default().authorization_context(&plan.scope)?;
     Ok(CandidateRequest {
-        plan: plan()?,
+        plan,
         query: SearchQuery {
             q: query.to_string(),
             limit,
             offset: 0,
         },
         expected_generation,
+        authorization,
     })
 }
 
@@ -114,7 +118,6 @@ fn retriever(generation: IndexGenerationId) -> CodeIntelRetriever {
         CodeIntelRetrieverParts {
             index: Arc::new(archive()),
         },
-        RetrievalSecurityPolicy::default(),
         generation,
     )
 }

@@ -15,6 +15,7 @@
 /// - `ports`: module responsibility.
 /// - `provenance`: module responsibility.
 /// - `types`: module responsibility.
+/// - `version`: core version metadata.
 mod error;
 mod evidence_opening;
 mod evidence_pack_provenance;
@@ -25,7 +26,9 @@ mod ports;
 mod provenance;
 mod types;
 
-pub const CORE_VERSION: &str = env!("CARGO_PKG_VERSION");
+mod version;
+
+pub use version::CORE_VERSION;
 
 pub use error::{CoreError, CoreResult};
 pub use ingestion::build_artifact_detected_input;
@@ -38,5 +41,5 @@ pub use types::{
     ClaimCoverageStatus, ClaimEvidenceCoverage, EvidenceFreshness, EvidencePack,
     EvidencePackCompression, EvidencePackError, EvidencePackMetadata, EvidencePackReplayKey,
     EvidencePackReproducibility, OpenChunkEvidenceInput, OpenEvidenceInput, OpenEvidenceOutput,
-    SourceGroundedSearchHit,
+    SourceGroundedCardHit, SourceGroundedSearchHit,
 };

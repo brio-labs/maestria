@@ -285,83 +285,30 @@ impl KernelState {
         if has_pending {
             return Err(DomainError::PendingChunksExist { artifact_id });
         }
-        // Only terminalize when evidence is source-backed and complete.
-        // Invalid ArtifactIndexed events (e.g. from a corrupt log) are
-        // still appended to the event log but leave the artifact Pending
-        // and retain recovery metadata so retry/resume can regenerate evidence.
-        if self.evidence_complete_for(artifact_id) {
-            let artifact = self
-                .artifacts
-                .get_mut(&artifact_id)
-                .ok_or(DomainError::MissingArtifact { id: artifact_id })?;
-            artifact.index_status = IndexStatus::Indexed;
-            // Terminal indexing frees the pending parser entry.
-            self.pending_parsers.remove(&artifact_id);
-        } else {
-            // Remove each invalid deterministic source-evidence record
-            // so ResumeParser can regenerate and RecordEvidence can
-            // replace it without tripping duplicate-ID rejection.
-            let expected_hash = self
-                .artifacts
-                .get(&artifact_id)
-                .and_then(|a| a.content_hash.as_deref());
-            // Collect (evidence_id, actual_owner_artifact_id,
-            // claim_id) so we can repair cross-artifact references
-            // and claim reverse-links without borrow conflicts.
-            let mut to_remove: Vec<(EvidenceId, ArtifactId, Option<ClaimId>)> = Vec::new();
-            for chunk in self.chunks.values() {
-                if chunk.artifact_id != artifact_id {
-                    continue;
-                }
-                let expected_id = crate::evidence_id_for(chunk.artifact_id, chunk.order);
-                if let Some(ev) = self.evidences.get(&expected_id) {
-                    let is_valid = ev.artifact_id == artifact_id
-                        && (matches!(
-                            &ev.kind,
-                            EvidenceKind::FileSpan {
-                                content_hash,
-                                snapshot: Some(_),
-                                ..
-                            } if expected_hash == Some(content_hash.as_str())
-                        ) || matches!(&ev.kind, EvidenceKind::PdfSpan { .. }));
-                    if !is_valid {
-                        to_remove.push((expected_id, ev.artifact_id, ev.claim_id));
-                    }
-                }
+        if !self.evidence_complete_for(artifact_id) {
+            let evidence_id = self
+                .chunks
+                .values()
+                .find(|chunk| chunk.artifact_id == artifact_id)
+                .map(|chunk| crate::evidence_id_for(chunk.artifact_id, chunk.order))
+                .ok_or(DomainError::EvidenceRequired {
+                    kind: "artifact_indexed",
+                    id: artifact_id.value(),
+                })?;
+            if !self.evidences.contains_key(&evidence_id) {
+                return Err(DomainError::MissingEvidence { id: evidence_id });
             }
-            if !to_remove.is_empty() {
-                // Remove all invalid records from the evidence map
-                // first — no borrow conflict with artifacts or claims.
-                for (id, _owner, _claim_id) in &to_remove {
-                    self.evidences.remove(id);
-                }
-                // Clean up the ArtifactIndexed target artifact.
-                if let Some(artifact) = self.artifacts.get_mut(&artifact_id) {
-                    for (id, _owner, _claim_id) in &to_remove {
-                        artifact.evidence_ids.remove(id);
-                    }
-                }
-                // Clean up each actual owner artifact when it
-                // differs from the indexed target (cross-artifact
-                // malformed evidence).
-                for (id, owner_id, _claim_id) in &to_remove {
-                    if *owner_id != artifact_id
-                        && let Some(owner) = self.artifacts.get_mut(owner_id)
-                    {
-                        owner.evidence_ids.remove(id);
-                    }
-                }
-                // Clean up claim reverse-links so no dangling
-                // evidence-ID references remain.
-                for (id, _owner_id, claim_id) in &to_remove {
-                    if let Some(cid) = claim_id
-                        && let Some(claim) = self.claims.get_mut(cid)
-                    {
-                        claim.evidence_ids.remove(id);
-                    }
-                }
-            }
+            return Err(DomainError::MalformedDeterministicEvidence {
+                evidence_id,
+                reason: "ArtifactIndexed requires complete source-backed evidence",
+            });
         }
+        let artifact = self
+            .artifacts
+            .get_mut(&artifact_id)
+            .ok_or(DomainError::MissingArtifact { id: artifact_id })?;
+        artifact.index_status = IndexStatus::Indexed;
+        self.pending_parsers.remove(&artifact_id);
         Ok(())
     }
 }

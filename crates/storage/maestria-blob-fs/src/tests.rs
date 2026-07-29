@@ -1,5 +1,7 @@
 use super::*;
+use maestria_domain::BlobId;
 use maestria_ports::{BlobStore, PortError, contract_tests};
+use std::fs;
 use tempfile::tempdir;
 
 #[test]

@@ -132,6 +132,7 @@ fn fixture_plan(
             minimum_sections: 1,
         },
         fingerprint: RetrievalModelFingerprint::new("fixture-search-v1".to_string())?,
+        authorization: Some(maestria_domain::RetrievalPolicySnapshot::global_default()),
         original_intent: None,
         route_decision: None,
     })
@@ -141,14 +142,17 @@ fn request(
     identity: &SparseIdentity,
     query: &str,
 ) -> Result<CandidateRequest, Box<dyn std::error::Error>> {
+    let plan = fixture_plan(identity, query)?;
+    let authorization = RetrievalSecurityPolicy::default().authorization_context(&plan.scope)?;
     Ok(CandidateRequest {
-        plan: fixture_plan(identity, query)?,
+        plan,
         query: SearchQuery {
             q: query.to_string(),
             limit: 5,
             offset: 0,
         },
         expected_generation: identity.generation_id,
+        authorization,
     })
 }
 
@@ -191,9 +195,6 @@ fn fixture_with_document() -> Result<RetrieverFixture, Box<dyn std::error::Error
             blobs,
             provider,
         },
-        RetrievalSecurityPolicy::new()
-            .require_read_allowed(true)
-            .allow_unscoped_items(true),
         fixture_capability(&identity)?,
     )?;
     Ok(RetrieverFixture {
@@ -311,7 +312,6 @@ async fn learned_sparse_retriever_rejects_secret_queries() -> Result<(), Box<dyn
             blobs: Arc::new(InMemoryBlobStore::new()),
             provider,
         },
-        RetrievalSecurityPolicy::new().allow_unscoped_items(true),
         fixture_capability(&identity)?,
     )?;
     let result = retriever

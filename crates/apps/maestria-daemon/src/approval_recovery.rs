@@ -66,7 +66,10 @@ pub fn reconcile_pending_approvals(
         let existing = store
             .find_by_task_id(task.id)
             .map_err(|e| anyhow!("find approvals for task {}: {e}", task.id))?;
-        if !existing.is_empty() {
+        let has_task_activation = existing.iter().any(|record| {
+            record.effect_kind == "task_activation" && record.capability == "task_activation"
+        });
+        if has_task_activation {
             continue;
         }
 
@@ -75,7 +78,7 @@ pub fn reconcile_pending_approvals(
             .map_err(|e| anyhow!("allocate approval id for task {}: {e}", task.id))?;
         let record = ApprovalRecord {
             id: approval_id,
-            task_id: task.id,
+            task_id: Some(task.id),
             effect_kind: "task_activation".to_string(),
             risk_level: ApprovalRiskLevel::Medium,
             capability: "task_activation".to_string(),
@@ -89,3 +92,7 @@ pub fn reconcile_pending_approvals(
     }
     Ok(())
 }
+
+#[cfg(test)]
+#[path = "approval_recovery_tests.rs"]
+mod tests;

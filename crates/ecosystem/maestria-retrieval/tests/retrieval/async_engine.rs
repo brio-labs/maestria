@@ -294,7 +294,10 @@ impl RetrievalEvaluator for AsyncEvaluator {
 
 #[tokio::test]
 async fn failed_lane_is_degraded_without_losing_successful_evidence() -> RetrievalResult<()> {
-    let plan = dummy_plan()?;
+    let mut plan = dummy_plan()?;
+    if let Some(authorization) = &mut plan.authorization {
+        authorization.allow_unscoped_items = true;
+    }
     let engine = RetrievalEngine::new(
         vec![
             Arc::new(AsyncLane {
@@ -440,7 +443,10 @@ async fn stale_generation_lane_is_rejected_before_dispatch() -> RetrievalResult<
 #[tokio::test]
 async fn specialized_generation_is_served_while_primary_stale_lane_is_rejected()
 -> RetrievalResult<()> {
-    let plan = dummy_plan()?;
+    let mut plan = dummy_plan()?;
+    if let Some(authorization) = &mut plan.authorization {
+        authorization.allow_unscoped_items = true;
+    }
     let specialized_calls = Arc::new(AtomicUsize::new(0));
     let stale_calls = Arc::new(AtomicUsize::new(0));
     let promotion =

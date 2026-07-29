@@ -1,7 +1,7 @@
 use crate::entities::TaskStatus;
 use crate::ids::{
-    ArtifactId, CardId, ChunkId, ClaimId, EvidenceId, IndexGenerationId, MemoryCandidateId,
-    MemoryId, RelationId, TaskId, ValidationReportId,
+    ArtifactId, CardId, ChunkId, ClaimId, EvidenceId, HarnessRunId, IndexGenerationId,
+    MemoryCandidateId, MemoryId, RelationId, TaskId, ValidationReportId,
 };
 use std::fmt;
 
@@ -10,6 +10,9 @@ pub enum DomainError {
     DuplicateId {
         kind: &'static str,
         id: u64,
+    },
+    DuplicateModelAgentProposalRunId {
+        run_id: HarnessRunId,
     },
     MissingArtifact {
         id: ArtifactId,
@@ -106,6 +109,9 @@ pub enum DomainError {
         evidence_id: EvidenceId,
         reason: &'static str,
     },
+    SearchIncompatible {
+        error: crate::search::SearchCompatibilityError,
+    },
     InternalInvariantViolation {
         detail: &'static str,
     },
@@ -114,6 +120,24 @@ pub enum DomainError {
 impl DomainError {
     fn fmt_missing(f: &mut fmt::Formatter, kind: &str, id: impl fmt::Display) -> fmt::Result {
         write!(f, "missing {kind} {id}")
+    }
+
+    fn fmt_validation_report_task_mismatch(
+        f: &mut fmt::Formatter,
+        report_id: ValidationReportId,
+        report_task_id: Option<TaskId>,
+        task_id: TaskId,
+    ) -> fmt::Result {
+        match report_task_id {
+            Some(report_task_id) => write!(
+                f,
+                "validation report {report_id} is for task {report_task_id}, not {task_id}"
+            ),
+            None => write!(
+                f,
+                "validation report {report_id} is not associated with task {task_id}"
+            ),
+        }
     }
 
     fn fmt_transition(
@@ -135,6 +159,9 @@ impl fmt::Display for DomainError {
             Self::MissingChunk { id } => Self::fmt_missing(f, "chunk", id),
             Self::MissingCard { id } => Self::fmt_missing(f, "card", id),
             Self::MissingEvidence { id } => Self::fmt_missing(f, "evidence", id),
+            Self::DuplicateModelAgentProposalRunId { run_id } => {
+                write!(f, "duplicate model-agent proposal run id: {run_id}")
+            }
             Self::MissingClaim { id } => Self::fmt_missing(f, "claim", id),
             Self::MissingTask { id } => Self::fmt_missing(f, "task", id),
             Self::MissingRelation { id } => Self::fmt_missing(f, "relation", id),
@@ -146,16 +173,9 @@ impl fmt::Display for DomainError {
                 report_id,
                 report_task_id,
                 task_id,
-            } => match report_task_id {
-                Some(report_task_id) => write!(
-                    f,
-                    "validation report {report_id} is for task {report_task_id}, not {task_id}"
-                ),
-                None => write!(
-                    f,
-                    "validation report {report_id} is not associated with task {task_id}"
-                ),
-            },
+            } => {
+                Self::fmt_validation_report_task_mismatch(f, *report_id, *report_task_id, *task_id)
+            }
             Self::InvalidTaskTransition { task_id, from, to } => {
                 Self::fmt_transition(f, "invalid task transition", task_id, from, to)
             }
@@ -222,6 +242,9 @@ impl fmt::Display for DomainError {
                 f,
                 "malformed deterministic evidence {evidence_id}: {reason}"
             ),
+            Self::SearchIncompatible { error } => {
+                write!(f, "search contract violation: {error}")
+            }
             Self::InternalInvariantViolation { detail } => {
                 write!(f, "internal invariant violation: {detail}")
             }

@@ -2,8 +2,8 @@ use maestria_ports::{HarnessCommandClass, HarnessRequest};
 use std::path::PathBuf;
 use std::time::Duration;
 
-pub fn adapter() -> crate::LocalShellHarnessAdapter {
-    crate::LocalShellHarnessAdapter
+pub fn adapter() -> crate::adapter::LocalShellHarnessAdapter {
+    crate::adapter::LocalShellHarnessAdapter
 }
 
 pub fn shell_request(command: &str, budget_ms: u64) -> HarnessRequest {

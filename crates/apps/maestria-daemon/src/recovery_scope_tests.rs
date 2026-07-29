@@ -1,5 +1,5 @@
 use super::*;
-use maestria_domain::{BlobId, ParserStarted};
+use maestria_domain::{ArtifactId, BlobId, ParserStarted};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};

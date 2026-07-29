@@ -1,35 +1,80 @@
 use crate::MaestriaRuntime;
 use maestria_domain::MaestriaEffect;
+use std::fmt;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
+pub(crate) type EffectBatch = Vec<MaestriaEffect>;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum EffectAdmissionError {
+    Cancelled,
+    ChannelClosed,
+}
+
+impl fmt::Display for EffectAdmissionError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Cancelled => f.write_str("effect batch admission cancelled"),
+            Self::ChannelClosed => f.write_str("effect channel closed during batch admission"),
+        }
+    }
+}
+
+impl std::error::Error for EffectAdmissionError {}
+
 impl MaestriaRuntime {
-    pub(crate) async fn dispatch_effects(
+    /// Reserve one channel item for the complete effect batch before the
+    /// domain transition is committed. A successful reservation is the
+    /// all-or-none admission cutoff.
+    pub(crate) async fn reserve_effect_batch<'a>(
         &self,
-        effects: Vec<MaestriaEffect>,
-        effect_tx: &mpsc::Sender<MaestriaEffect>,
+        effect_tx: &'a mpsc::Sender<EffectBatch>,
         shutdown_token: &CancellationToken,
-    ) -> bool {
-        for effect in effects {
-            if self.config.drain_effects_on_shutdown {
-                if let Err(error) = effect_tx.send(effect).await {
-                    tracing::error!(%error, "failed to dispatch effect");
-                    shutdown_token.cancel();
-                    return false;
-                }
-            } else {
-                tokio::select! {
-                    () = shutdown_token.cancelled() => return false,
-                    result = effect_tx.send(effect) => {
-                        if let Err(error) = result {
-                            tracing::error!(%error, "failed to dispatch effect");
-                            shutdown_token.cancel();
-                            return false;
-                        }
-                    }
-                }
+    ) -> Result<mpsc::Permit<'a, EffectBatch>, EffectAdmissionError> {
+        tokio::select! {
+            biased;
+            () = shutdown_token.cancelled() => Err(EffectAdmissionError::Cancelled),
+            result = effect_tx.reserve() => {
+                result.map_err(|_| EffectAdmissionError::ChannelClosed)
             }
         }
-        true
+    }
+
+    /// Send an already-reserved batch. The vector is one bounded channel
+    /// item, so no prefix can be admitted independently of the transition.
+    pub(crate) fn send_reserved_effects(
+        &self,
+        permit: mpsc::Permit<'_, EffectBatch>,
+        effects: EffectBatch,
+    ) -> Result<(), EffectAdmissionError> {
+        permit.send(effects);
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use maestria_domain::DiagnosticEvent;
+
+    #[tokio::test]
+    async fn admission_carries_a_large_transition_batch_as_one_item()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let (sender, mut receiver) = mpsc::channel::<EffectBatch>(1);
+        let batch = (0..8)
+            .map(|index| {
+                MaestriaEffect::EmitDiagnostic(DiagnosticEvent {
+                    task_id: None,
+                    message: format!("effect-{index}"),
+                })
+            })
+            .collect::<Vec<_>>();
+        let permit = sender.reserve().await?;
+        permit.send(batch.clone());
+
+        let admitted = receiver.recv().await.ok_or("batch should be admitted")?;
+        assert_eq!(admitted, batch);
+        Ok(())
     }
 }

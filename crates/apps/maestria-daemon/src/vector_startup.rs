@@ -11,7 +11,7 @@ use maestria_search_tantivy::TantivyFullTextIndex;
 use maestria_storage_sqlite::SqliteStore;
 use maestria_vector_sqlite::SqliteVectorIndex;
 
-use crate::reconcile_vector_projection;
+use crate::projection_recovery::reconcile_vector_projection;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RetrievalGenerations {

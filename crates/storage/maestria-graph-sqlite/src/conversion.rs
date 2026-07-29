@@ -130,7 +130,7 @@ fn i64_to_u16(value: i64, label: &'static str) -> Result<u16, PortError> {
     })
 }
 
-pub(super) fn to_port_error(error: rusqlite::Error) -> PortError {
+pub(crate) fn to_port_error(error: rusqlite::Error) -> PortError {
     PortError::InternalContext {
         context: "sqlite graph projection error",
         source: error.to_string(),

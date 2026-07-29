@@ -56,3 +56,7 @@ pub fn verify_pending_blobs(layout: &InstanceLayout, pending: &[DomainInput]) ->
     }
     Ok(())
 }
+
+#[cfg(test)]
+#[path = "parser_resume_tests.rs"]
+mod tests;

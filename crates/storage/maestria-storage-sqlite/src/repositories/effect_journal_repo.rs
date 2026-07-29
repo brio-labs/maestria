@@ -1,9 +1,65 @@
-use crate::{i64_to_u64, optional_i64_to_u64, optional_u64_to_i64, to_port_error, u64_to_i64};
-use maestria_domain::{ScopeId, TaskId};
+use crate::sqlite_store::{
+    i64_to_u64, optional_i64_to_u64, optional_u64_to_i64, to_port_error, u64_to_i64,
+};
+use maestria_domain::{BlobId, HarnessRunId, ScopeId, TaskId};
 use maestria_ports::{
-    EffectJournalEntry, EffectJournalIntent, EffectJournalStatus, HarnessRunId, PortError,
+    EffectJournalEntry, EffectJournalIntent, EffectJournalStatus, HarnessOutcome, PortError,
 };
 use rusqlite::{Connection, OptionalExtension, params};
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Serialize, Deserialize)]
+struct StoredHarnessOutcome {
+    run_id: u64,
+    command: String,
+    exit_code: i32,
+    stdout: Vec<u8>,
+    stderr: Vec<u8>,
+    duration_secs: u64,
+    duration_nanos: u32,
+    artifacts_created: Vec<u64>,
+    diff_summary: Option<String>,
+    validation_hints: Vec<String>,
+}
+
+impl StoredHarnessOutcome {
+    fn from_domain(outcome: &HarnessOutcome) -> Self {
+        Self {
+            run_id: outcome.run_id.value(),
+            command: outcome.command.clone(),
+            exit_code: outcome.exit_code,
+            stdout: outcome.stdout.clone(),
+            stderr: outcome.stderr.clone(),
+            duration_secs: outcome.duration.as_secs(),
+            duration_nanos: outcome.duration.subsec_nanos(),
+            artifacts_created: outcome
+                .artifacts_created
+                .iter()
+                .map(BlobId::value)
+                .collect(),
+            diff_summary: outcome.diff_summary.clone(),
+            validation_hints: outcome.validation_hints.clone(),
+        }
+    }
+
+    fn into_domain(self) -> HarnessOutcome {
+        HarnessOutcome {
+            run_id: HarnessRunId::new(self.run_id),
+            command: self.command,
+            exit_code: self.exit_code,
+            stdout: self.stdout,
+            stderr: self.stderr,
+            duration: std::time::Duration::new(self.duration_secs, self.duration_nanos),
+            artifacts_created: self
+                .artifacts_created
+                .into_iter()
+                .map(BlobId::new)
+                .collect(),
+            diff_summary: self.diff_summary,
+            validation_hints: self.validation_hints,
+        }
+    }
+}
 
 pub(crate) fn record_intent(
     connection: &mut Connection,
@@ -59,7 +115,6 @@ pub(crate) fn record_intent(
         )
         .map_err(to_port_error)?;
     transaction.commit().map_err(to_port_error)?;
-
     Ok(EffectJournalEntry {
         run_id: intent.run_id,
         task_id: intent.task_id,
@@ -68,6 +123,7 @@ pub(crate) fn record_intent(
         scope_id: intent.scope_id,
         generation,
         status: EffectJournalStatus::Intent,
+        feedback: None,
     })
 }
 
@@ -93,20 +149,65 @@ pub(crate) fn claim_feedback(
     run_id: HarnessRunId,
     generation: u64,
 ) -> Result<(), PortError> {
+    claim_feedback_with_outcome(connection, run_id, generation, None)
+}
+
+pub(crate) fn claim_feedback_with_outcome(
+    connection: &Connection,
+    run_id: HarnessRunId,
+    generation: u64,
+    outcome: Option<&HarnessOutcome>,
+) -> Result<(), PortError> {
+    let transaction = connection.unchecked_transaction().map_err(to_port_error)?;
     let run_id_i64 = u64_to_i64(run_id.value())?;
     let generation_i64 = u64_to_i64(generation)?;
-    let updated = connection
+    let feedback = outcome
+        .map(StoredHarnessOutcome::from_domain)
+        .as_ref()
+        .map(serde_json::to_string)
+        .transpose()
+        .map_err(|error| PortError::InternalContext {
+            context: "encode harness feedback",
+            source: error.to_string(),
+        })?;
+    let updated = transaction
         .execute(
-            "UPDATE effect_journal SET status = 'FeedbackAccepted' \
+            "UPDATE effect_journal SET status = 'FeedbackAccepted', feedback_json = ?3 \
              WHERE run_id = ?1 AND generation = ?2 \
              AND status IN ('Intent', 'Started')",
-            params![run_id_i64, generation_i64],
+            params![run_id_i64, generation_i64, feedback],
         )
         .map_err(to_port_error)?;
     if updated == 0 {
         return Err(PortError::NotFound);
     }
-    Ok(())
+    transaction.commit().map_err(to_port_error)
+}
+pub(crate) fn feedback_outcome(
+    connection: &Connection,
+    run_id: HarnessRunId,
+    generation: u64,
+) -> Result<Option<HarnessOutcome>, PortError> {
+    let run_id_i64 = u64_to_i64(run_id.value())?;
+    let generation_i64 = u64_to_i64(generation)?;
+    let feedback_json: Option<String> = connection
+        .query_row(
+            "SELECT feedback_json FROM effect_journal WHERE run_id = ?1 AND generation = ?2",
+            params![run_id_i64, generation_i64],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(to_port_error)?
+        .flatten();
+    feedback_json
+        .as_deref()
+        .map(serde_json::from_str::<StoredHarnessOutcome>)
+        .transpose()
+        .map_err(|error| PortError::InternalContext {
+            context: "decode harness feedback",
+            source: error.to_string(),
+        })
+        .map(|outcome| outcome.map(StoredHarnessOutcome::into_domain))
 }
 
 pub(crate) fn record_terminal(
@@ -127,57 +228,47 @@ pub(crate) fn record_terminal(
             });
         }
     };
-
     let run_id_i64 = u64_to_i64(run_id.value())?;
     let generation_i64 = u64_to_i64(generation)?;
     let updated = connection
         .execute(
             "UPDATE effect_journal SET status = ?1 \
              WHERE run_id = ?2 AND generation = ?3 \
-             AND status IN ('Intent', 'Started', 'FeedbackAccepted')",
+             AND (status IN ('Intent', 'Started', 'FeedbackAccepted') OR status = ?1)",
             params![status_str, run_id_i64, generation_i64],
         )
         .map_err(to_port_error)?;
-
     if updated == 0 {
         return Err(PortError::NotFound);
     }
     Ok(())
 }
+
 pub(crate) fn scan_in_flight(
     connection: &Connection,
 ) -> Result<Vec<EffectJournalEntry>, PortError> {
     let mut stmt = connection
         .prepare(
-            "SELECT run_id, generation, task_id, capability, command, scope_id, status \
+            "SELECT run_id, generation, task_id, capability, command, scope_id, status, feedback_json \
              FROM effect_journal \
              WHERE status IN ('Intent', 'Started', 'FeedbackAccepted') \
              ORDER BY run_id, generation",
         )
         .map_err(to_port_error)?;
-
     let entries = stmt
         .query_map([], |row| {
-            let run_id_i64: i64 = row.get(0)?;
-            let generation_i64: i64 = row.get(1)?;
-            let task_id_i64: Option<i64> = row.get(2)?;
-            let capability: String = row.get(3)?;
-            let command: String = row.get(4)?;
-            let scope_id_i64: i64 = row.get(5)?;
-            let status_str: String = row.get(6)?;
-
             Ok((
-                run_id_i64,
-                generation_i64,
-                task_id_i64,
-                capability,
-                command,
-                scope_id_i64,
-                status_str,
+                row.get::<_, i64>(0)?,
+                row.get::<_, i64>(1)?,
+                row.get::<_, Option<i64>>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, String>(4)?,
+                row.get::<_, i64>(5)?,
+                row.get::<_, String>(6)?,
+                row.get::<_, Option<String>>(7)?,
             ))
         })
         .map_err(to_port_error)?;
-
     let mut result = Vec::new();
     for row in entries {
         let (
@@ -188,12 +279,8 @@ pub(crate) fn scan_in_flight(
             command,
             scope_id_i64,
             status_str,
+            feedback_json,
         ) = row.map_err(to_port_error)?;
-
-        let run_id = HarnessRunId::new(i64_to_u64(run_id_i64)?);
-        let generation = i64_to_u64(generation_i64)?;
-        let task_id = optional_i64_to_u64(task_id_i64)?.map(TaskId::new);
-        let scope_id = ScopeId::new(i64_to_u64(scope_id_i64)?);
         let status = match status_str.as_str() {
             "Intent" => EffectJournalStatus::Intent,
             "Started" => EffectJournalStatus::Started,
@@ -205,15 +292,24 @@ pub(crate) fn scan_in_flight(
                 });
             }
         };
-
+        let feedback = feedback_json
+            .as_deref()
+            .map(serde_json::from_str::<StoredHarnessOutcome>)
+            .transpose()
+            .map_err(|error| PortError::InternalContext {
+                context: "decode harness feedback",
+                source: error.to_string(),
+            })?
+            .map(StoredHarnessOutcome::into_domain);
         result.push(EffectJournalEntry {
-            run_id,
-            task_id,
+            run_id: HarnessRunId::new(i64_to_u64(run_id_i64)?),
+            task_id: optional_i64_to_u64(task_id_i64)?.map(TaskId::new),
             capability,
             command,
-            scope_id,
-            generation,
+            scope_id: ScopeId::new(i64_to_u64(scope_id_i64)?),
+            generation: i64_to_u64(generation_i64)?,
             status,
+            feedback,
         });
     }
     Ok(result)

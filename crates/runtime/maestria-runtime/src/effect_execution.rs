@@ -1,95 +1,163 @@
 use crate::config::EffectExecutionContext;
-use crate::effect_result::{EffectFailure, handler_result};
+use crate::effect_result::EffectFailure;
 use maestria_domain::{
-    CorpusScope, DiagnosticEvent, DomainInput, LogicalTick, MaestriaEffect, RequestApprovalRequest,
-    SearchKnowledgeCompleted, SearchKnowledgeRequest, UpdateGraphRequest,
+    CorpusScope, DiagnosticEvent, DomainInput, LogicalTick, MaestriaEffect,
+    QueryHarnessProposalRequest, RequestApprovalRequest, SearchKnowledgeCompleted,
+    SearchKnowledgeRequest, UpdateGraphRequest,
 };
-use maestria_governance::{ApprovalRequest, PolicyDecision, RiskClass, ScopeGuard};
-use maestria_ports::{ApprovalRecord, ApprovalRiskLevel, ApprovalStatus};
+use maestria_governance::{RiskClass, ScopeGuard};
+use maestria_ports::{
+    ApprovalRecord, ApprovalRiskLevel, ApprovalStatus, EffectJournalIntent, EffectJournalStatus,
+};
+use serde::{Deserialize, Serialize};
 use std::time::Duration;
 use tokio::sync::mpsc;
 
-// ── dispatch ──────────────────────────────────────────────────────────
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct PendingHarnessContinuation {
+    proposal: maestria_domain::ModelAgentProposalRequest,
+    journal_generation: u64,
+    correlation_id: u64,
+}
+
+fn pending_capability(token: &PendingHarnessContinuation) -> Result<String, EffectFailure> {
+    serde_json::to_string(token)
+        .map(|json| format!("model_agent_pending:{json}"))
+        .map_err(|error| EffectFailure::Failed(format!("encode pending proposal: {error}")))
+}
+
+pub(crate) fn decode_pending_continuation(
+    record: &ApprovalRecord,
+) -> Option<maestria_domain::ModelAgentProposalRequest> {
+    record
+        .capability
+        .strip_prefix("model_agent_pending:")
+        .and_then(|json| serde_json::from_str::<PendingHarnessContinuation>(json).ok())
+        .map(|token| token.proposal)
+}
+
+pub(crate) async fn persist_pending_harness(
+    context: &EffectExecutionContext,
+    request: &QueryHarnessProposalRequest,
+) -> Result<(), EffectFailure> {
+    let proposal = &request.proposal;
+    let entry = context
+        .adapters
+        .effect_journal
+        .record_intent(EffectJournalIntent {
+            run_id: proposal.run_id,
+            task_id: proposal.task_id,
+            capability: proposal.capability.clone(),
+            command: proposal.command.clone(),
+            scope_id: context.scope_id,
+            requested_generation: proposal.journal_generation,
+        })
+        .map_err(|error| {
+            EffectFailure::Failed(format!("record pending harness intent: {error}"))
+        })?;
+    let approval_id = context
+        .adapters
+        .id_allocator
+        .allocate_approval_id()
+        .map_err(|error| EffectFailure::Failed(format!("allocate harness approval id: {error}")))?;
+    let mut continuation = proposal.clone();
+    continuation.approval_id = Some(approval_id);
+    continuation.journal_generation = Some(entry.generation);
+    let token = PendingHarnessContinuation {
+        proposal: continuation,
+        journal_generation: entry.generation,
+        correlation_id: proposal.correlation_id,
+    };
+    let capability = pending_capability(&token)?;
+    let tick = {
+        let state = context.state.read().await;
+        state
+            .event_log
+            .last()
+            .map_or(0, |event| event.sequence.value())
+    };
+    let scope_guard = ScopeGuard::new(context.scope.clone());
+    let risk = context.governance.classifier.classify(
+        &MaestriaEffect::QueryHarnessProposal(request.clone()),
+        &scope_guard,
+    );
+    let record = ApprovalRecord {
+        id: approval_id,
+        task_id: proposal.task_id,
+        effect_kind: "model_agent_harness".to_string(),
+        risk_level: risk_class_to_approval_risk_level(risk),
+        capability,
+        scope_id: context.scope_id,
+        tick: LogicalTick::new(tick),
+        status: ApprovalStatus::Pending,
+    };
+    context
+        .adapters
+        .approval_repo
+        .save(&record)
+        .map_err(|error| EffectFailure::Failed(format!("persist harness approval: {error}")))?;
+    tracing::info!(approval_id = %approval_id, correlation_id = proposal.correlation_id, "harness proposal pending approval");
+    Ok(())
+}
+
+pub(crate) fn resume_harness_journal(
+    context: &EffectExecutionContext,
+    proposal: &maestria_domain::ModelAgentProposalRequest,
+) -> Result<u64, EffectFailure> {
+    let generation = proposal.journal_generation.ok_or_else(|| {
+        EffectFailure::Failed("approval continuation missing journal generation".into())
+    })?;
+    context
+        .adapters
+        .effect_journal
+        .record_started(proposal.run_id, generation)
+        .map_err(|error| {
+            EffectFailure::Failed(format!("resume pending harness intent: {error}"))
+        })?;
+    Ok(generation)
+}
+
+pub(crate) fn record_denied_harness(
+    context: &EffectExecutionContext,
+    request: &maestria_domain::QueryHarnessRequest,
+) -> Result<(), EffectFailure> {
+    let entry = context
+        .adapters
+        .effect_journal
+        .record_intent(EffectJournalIntent {
+            run_id: request.run_id,
+            task_id: request.task_id,
+            capability: request.capability.clone(),
+            command: request.command.clone(),
+            scope_id: request.scope_id,
+            requested_generation: request.generation,
+        })
+        .map_err(|error| EffectFailure::Failed(format!("record denied harness intent: {error}")))?;
+    context
+        .adapters
+        .effect_journal
+        .record_started(request.run_id, entry.generation)
+        .and_then(|_| {
+            context.adapters.effect_journal.record_terminal(
+                request.run_id,
+                entry.generation,
+                EffectJournalStatus::Failed,
+            )
+        })
+        .map_err(|error| EffectFailure::Failed(format!("record denied harness terminal: {error}")))
+}
 
 impl EffectExecutionContext {
-    /// Execute a single effect after governance classification.
-    /// Persistence variants delegate to the persistence module;
-    /// heavy handlers (parsing, indexing, harness, validation) live
-    /// in their own modules to keep focused responsibility boundaries.
-    pub(crate) async fn execute_effect(
-        self,
-        effect: MaestriaEffect,
-        persistence_barrier_timeout: Option<Duration>,
-    ) -> Result<(), EffectFailure> {
-        let scope = ScopeGuard::new(self.scope.clone());
-        let risk = self.governance.classifier.classify(&effect, &scope);
-        let decision = self.governance.approval_gate.decide(&ApprovalRequest {
-            effect: &effect,
-            profile: self.profile,
-            scope: &scope,
-        });
-
-        match decision.decision {
-            PolicyDecision::Allow => {}
-            PolicyDecision::Deny { reason } => {
-                tracing::warn!(?risk, %reason, "effect denied");
-                return Err(EffectFailure::Denied(reason));
-            }
-            PolicyDecision::RequireApproval { reason } => {
-                tracing::info!(?risk, %reason, "effect requires approval");
-                return Err(EffectFailure::RequiresApproval(reason));
-            }
-        }
-
-        match effect {
-            MaestriaEffect::PersistEvent { envelope } => {
-                handler_result(self.handle_persist_event(*envelope).await, "persist event")
-            }
-            MaestriaEffect::PersistState(request) => {
-                handler_result(self.handle_persist_state(request).await, "persist state")
-            }
-            MaestriaEffect::ParseArtifact(request) => handler_result(
-                self.handle_parse_artifact(request, persistence_barrier_timeout)
-                    .await,
-                "parse artifact",
-            ),
-            MaestriaEffect::IndexFullText(request) => handler_result(
-                self.handle_index_full_text(request).await,
-                "index full text",
-            ),
-            MaestriaEffect::IndexVector(request) => self.handle_index_vector(request).await,
-            MaestriaEffect::UpdateGraph(request) => {
-                handler_result(self.handle_update_graph(request).await, "update graph")
-            }
-            MaestriaEffect::QueryHarness(request) => self.handle_query_harness(request).await,
-            MaestriaEffect::FetchWeb(request) => {
-                handler_result(self.handle_fetch_web(request).await, "fetch web")
-            }
-            MaestriaEffect::RunValidation(request) => {
-                handler_result(self.handle_run_validation(request).await, "run validation")
-            }
-            MaestriaEffect::RequestApproval(request) => handler_result(
-                self.handle_request_approval(request).await,
-                "request approval",
-            ),
-            MaestriaEffect::EmitDiagnostic(diagnostic) => handler_result(
-                self.handle_emit_diagnostic(diagnostic).await,
-                "emit diagnostic",
-            ),
-            MaestriaEffect::SearchKnowledge(request) => handler_result(
-                self.handle_search_knowledge(*request).await,
-                "search knowledge",
-            ),
-        }
-    }
-
     /// Retry loop with timeout watchdog. Non-idempotent harness effects never
     /// replay automatically; their journal entry pauses or fails instead.
     pub(crate) async fn execute_with_retries(
         self,
         effect: MaestriaEffect,
     ) -> Result<(), EffectFailure> {
-        let non_idempotent = matches!(&effect, MaestriaEffect::QueryHarness(_));
+        let non_idempotent = matches!(
+            &effect,
+            MaestriaEffect::QueryHarness(_) | MaestriaEffect::QueryHarnessProposal(_)
+        );
         let watchdog = self.default_effect_timeout + Duration::from_secs(5);
         let result = tokio::time::timeout(watchdog, async {
             let mut attempts = 0;
@@ -142,7 +210,7 @@ impl EffectExecutionContext {
 
     // ── lightweight handlers ──────────────────────────────────────────
 
-    async fn handle_search_knowledge(&self, request: SearchKnowledgeRequest) -> bool {
+    pub(crate) async fn handle_search_knowledge(&self, request: SearchKnowledgeRequest) -> bool {
         let Some(executor) = &self.adapters.search_executor else {
             tracing::error!("search knowledge effect has no configured executor");
             return false;
@@ -168,7 +236,7 @@ impl EffectExecutionContext {
                     &self.input_tx,
                     DomainInput::SearchKnowledgeCompleted(SearchKnowledgeCompleted {
                         task_id: request.task_id,
-                        plan: Some(Box::new(plan)),
+                        plan: Box::new(plan),
                         outcome,
                     }),
                     "search knowledge completion",
@@ -182,7 +250,7 @@ impl EffectExecutionContext {
         }
     }
 
-    async fn handle_update_graph(&self, request: UpdateGraphRequest) -> bool {
+    pub(crate) async fn handle_update_graph(&self, request: UpdateGraphRequest) -> bool {
         let relation = {
             let state = self.state.read().await;
             state.relations.get(&request.relation_id).cloned()
@@ -205,7 +273,7 @@ impl EffectExecutionContext {
         true
     }
 
-    async fn handle_request_approval(&self, request: RequestApprovalRequest) -> bool {
+    pub(crate) async fn handle_request_approval(&self, request: RequestApprovalRequest) -> bool {
         let approval_id = match self.adapters.id_allocator.allocate_approval_id() {
             Ok(id) => id,
             Err(e) => {
@@ -232,7 +300,7 @@ impl EffectExecutionContext {
 
         let record = ApprovalRecord {
             id: approval_id,
-            task_id: request.task_id,
+            task_id: Some(request.task_id),
             effect_kind: "task_activation".to_string(),
             risk_level,
             capability: "task_activation".to_string(),
@@ -254,7 +322,7 @@ impl EffectExecutionContext {
         true
     }
 
-    async fn handle_emit_diagnostic(&self, diagnostic: DiagnosticEvent) -> bool {
+    pub(crate) async fn handle_emit_diagnostic(&self, diagnostic: DiagnosticEvent) -> bool {
         tracing::info!(
             task_id = ?diagnostic.task_id,
             message = %diagnostic.message,

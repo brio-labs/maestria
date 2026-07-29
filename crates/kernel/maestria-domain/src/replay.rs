@@ -42,6 +42,8 @@ impl KernelState {
             | DomainEvent::SearchExecuted { .. }
             | DomainEvent::SearchKnowledgeCompleted { .. }
             | DomainEvent::HarnessRunCompleted { .. }
+            | DomainEvent::ModelAgentProposalRequested { .. }
+            | DomainEvent::ModelAgentProposalCompleted { .. }
             | DomainEvent::ApprovalRecorded { .. }
             | DomainEvent::TickObserved { .. } => {
                 self.replay_orchestration_events(&envelope.event)?;
@@ -211,6 +213,29 @@ impl KernelState {
             DomainEvent::SearchKnowledgeCompleted { .. } => self.apply_search_knowledge_completed(),
             DomainEvent::HarnessRunCompleted { task_id, .. } => {
                 self.apply_harness_run_completed(*task_id)
+            }
+            DomainEvent::ModelAgentProposalRequested { request } => {
+                if self.model_agent_requests.contains_key(&request.run_id)
+                    || self.model_agent_results.contains_key(&request.run_id)
+                {
+                    return Err(DomainError::DuplicateModelAgentProposalRunId {
+                        run_id: request.run_id,
+                    });
+                }
+                self.model_agent_requests
+                    .insert(request.run_id, request.clone());
+                Ok(())
+            }
+            DomainEvent::ModelAgentProposalCompleted { result } => {
+                if self.model_agent_results.contains_key(&result.run_id) {
+                    return Err(DomainError::DuplicateModelAgentProposalRunId {
+                        run_id: result.run_id,
+                    });
+                }
+                self.model_agent_requests.remove(&result.run_id);
+                self.model_agent_results
+                    .insert(result.run_id, result.clone());
+                Ok(())
             }
             DomainEvent::ApprovalRecorded {
                 approval_id,

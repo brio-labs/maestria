@@ -5,7 +5,6 @@ use maestria_domain::{
     IndexGenerationId, IndexStatus, RetrievalModelFingerprint, SearchLaneStatus, SearchPlan,
     SearchRewriteOrigin, SearchStatus, SourceSpan, StructureNodeId,
 };
-use maestria_governance::RetrievalSecurityPolicy;
 use maestria_ports::{
     ArtifactRepository, BlobStore, ChunkRepository, EmbeddingIdentity, EmbeddingProvider,
     EmbeddingRequest, EmbeddingResponse, EvidenceRepository, InMemoryArtifactRepository,
@@ -153,7 +152,6 @@ fn build_search_engine(
             evidence: fixture.evidence.clone(),
             blobs: fixture.blobs.clone(),
         },
-        RetrievalSecurityPolicy::default(),
         context.primary_generation,
     )));
     if include_dense {
@@ -166,7 +164,6 @@ fn build_search_engine(
                 blobs: fixture.blobs,
                 embedding_provider: Arc::new(DenseFixtureEmbeddingProvider),
             },
-            RetrievalSecurityPolicy::default(),
             context.primary_generation,
         )));
     }

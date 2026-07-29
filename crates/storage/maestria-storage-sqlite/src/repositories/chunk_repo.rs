@@ -2,7 +2,7 @@ use maestria_domain::{ArtifactId, Chunk, ChunkId};
 use maestria_ports::{ChunkRepository, PortError};
 use rusqlite::{Row, params};
 
-use crate::{i64_to_u32, i64_to_u64, to_port_error, u64_to_i64};
+use crate::sqlite_store::{i64_to_u32, i64_to_u64, json_error, to_port_error, u64_to_i64};
 
 impl ChunkRepository for crate::SqliteStore {
     fn get(&self, chunk_id: ChunkId) -> Result<Option<Chunk>, PortError> {
@@ -37,8 +37,8 @@ impl ChunkRepository for crate::SqliteStore {
                     i64::from(chunk.order),
                     chunk.text,
                     u64_to_i64(chunk.node_id.value())?,
-                    serde_json::to_string(&crate::payloads::provenance_payloads::StoredSourceSpan::from(chunk.source_span)).map_err(crate::json_error)?,
-                    serde_json::to_string(&chunk.representations.into_iter().map(crate::payloads::provenance_payloads::StoredParsedRepresentation::from).collect::<Vec<_>>()).map_err(crate::json_error)?,
+                    serde_json::to_string(&crate::payloads::provenance_payloads::StoredSourceSpan::from(chunk.source_span)).map_err(json_error)?,
+                    serde_json::to_string(&chunk.representations.into_iter().map(crate::payloads::provenance_payloads::StoredParsedRepresentation::from).collect::<Vec<_>>()).map_err(json_error)?,
                 ],
             )
             .map(|_| ())
@@ -82,7 +82,7 @@ fn read_chunk(row: &Row<'_>) -> Result<Chunk, PortError> {
     let source_span = match source_span_json {
         Some(json) => {
             serde_json::from_str::<crate::payloads::provenance_payloads::StoredSourceSpan>(&json)
-                .map_err(crate::json_error)?
+                .map_err(json_error)?
                 .into()
         }
         None => {
@@ -96,7 +96,7 @@ fn read_chunk(row: &Row<'_>) -> Result<Chunk, PortError> {
     let representations_json = row.get::<_, Option<String>>(6).map_err(to_port_error)?;
     let representations = if let Some(json) = representations_json {
         serde_json::from_str::<Vec<crate::payloads::provenance_payloads::StoredParsedRepresentation>>(&json)
-            .map_err(crate::json_error)?
+            .map_err(json_error)?
             .into_iter()
             .map(Into::into)
             .collect()

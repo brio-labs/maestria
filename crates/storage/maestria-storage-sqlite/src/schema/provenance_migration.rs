@@ -4,7 +4,7 @@ use rusqlite::Connection;
 use super::{CURRENT_SCHEMA_VERSION, SchemaState};
 use crate::{
     schema_validation::{table_exists, table_has_column, validate_columns},
-    to_port_error,
+    sqlite_store::to_port_error,
 };
 
 pub(super) fn ensure_provenance_v7_columns(connection: &Connection) -> Result<(), PortError> {

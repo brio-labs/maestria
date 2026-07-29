@@ -4,7 +4,7 @@ use maestria_ports::{
     EffectJournal, EffectJournalIntent, EffectJournalStatus, InMemoryEffectJournal,
 };
 
-use crate::supervise_recovery;
+use crate::supervision_recovery::supervise_recovery;
 
 #[test]
 fn supervise_recovery_pauses_in_flight_effects() -> Result<()> {

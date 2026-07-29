@@ -5,11 +5,8 @@ use maestria_domain::{
     TrustLabel, TrustZone,
 };
 
-use crate::engine::{
-    EnsureTraceOptions, applied_security_filters, ensure_trace, reconcile_status,
-    security_policy_fingerprint,
-};
-use crate::types::{RankedCandidate, RetrievalResult};
+use crate::engine::{EnsureTraceOptions, applied_security_filters, ensure_trace, reconcile_status};
+use crate::types::{RankedCandidate, RetrievalError, RetrievalResult};
 
 fn candidate_security_metadata(candidate: &EvidenceCandidate) -> SecurityMetadata {
     let mut metadata = SecurityMetadata::default();
@@ -133,8 +130,20 @@ impl<'a> SyncRetrievalEngine<'a> {
         self
     }
     pub fn search_sync(&self, plan: &SearchPlan) -> RetrievalResult<SearchOutcome> {
+        let expected_authorization = self
+            .security_policy
+            .authorization_context(&plan.scope)
+            .map_err(|error| {
+                RetrievalError::Internal(format!("retrieval authorization denied: {error:?}"))
+            })?
+            .policy_snapshot();
+        if plan.authorization.as_ref() != Some(&expected_authorization) {
+            return Err(RetrievalError::Internal(
+                "search plan authorization is not trusted for this runtime".to_string(),
+            ));
+        }
         if maestria_governance::contains_prompt_injection_risk(&plan.original_query) {
-            return Ok(self.quarantine_outcome(plan));
+            return self.quarantine_outcome(plan);
         }
         let (mut outcome, lane_sets) = self.pipeline.run_with_trace(plan)?;
         let policy_denied = !lane_sets.is_empty()
@@ -215,7 +224,15 @@ impl<'a> SyncRetrievalEngine<'a> {
         Ok(outcome)
     }
 
-    fn quarantine_outcome(&self, plan: &SearchPlan) -> SearchOutcome {
+    fn quarantine_outcome(&self, plan: &SearchPlan) -> RetrievalResult<SearchOutcome> {
+        let policy_fingerprint = match plan.authorization.as_ref() {
+            Some(authorization) => authorization.canonical_fingerprint(),
+            None => {
+                return Err(RetrievalError::Internal(
+                    "search plan authorization snapshot is missing".to_string(),
+                ));
+            }
+        };
         let trace = SearchTrace::from_plan(
             plan,
             Vec::new(),
@@ -225,8 +242,8 @@ impl<'a> SyncRetrievalEngine<'a> {
             Vec::new(),
             SearchStopReason::PolicyDenied,
         )
-        .with_policy_fingerprint(security_policy_fingerprint(&self.security_policy));
-        SearchOutcome {
+        .with_policy_fingerprint(policy_fingerprint);
+        Ok(SearchOutcome {
             trace: trace.deterministic_id(),
             trace_data: Some(Box::new(trace)),
             fingerprint: plan.fingerprint.clone(),
@@ -244,6 +261,6 @@ impl<'a> SyncRetrievalEngine<'a> {
                 candidate_coverage_keys: vec![],
             },
             conflicts: Vec::new(),
-        }
+        })
     }
 }

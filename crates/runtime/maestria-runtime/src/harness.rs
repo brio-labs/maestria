@@ -61,9 +61,10 @@ impl EffectExecutionContext {
 
         self.execute_and_process_harness(request, harness_request, entry.generation)
             .await
+            .map(|_| ())
     }
 
-    fn gate_harness_request(
+    pub(crate) fn gate_harness_request(
         &self,
         request: &QueryHarnessRequest,
     ) -> Result<(HarnessCommandClass, PathBuf), EffectFailure> {
@@ -159,114 +160,94 @@ impl EffectExecutionContext {
         Ok((class, working_directory))
     }
 
-    async fn execute_and_process_harness(
+    pub(crate) async fn execute_and_process_harness(
         &self,
         request: QueryHarnessRequest,
         harness_request: HarnessRequest,
         generation: u64,
-    ) -> Result<(), EffectFailure> {
-        match self.adapters.harness.execute(harness_request).await {
-            Ok(outcome) => {
-                // Claim the generation atomically before enqueueing feedback.
-                // A newer intent supersedes this claim and is rejected by the
-                // runtime boundary before the domain can observe stale output.
-                if let Err(error) = self
-                    .adapters
-                    .effect_journal
-                    .claim_feedback(request.run_id, generation)
-                {
-                    if error.is_not_found() {
-                        tracing::warn!(
-                            run_id = %request.run_id,
-                            %generation,
-                            %error,
-                            "harness feedback rejected as stale"
-                        );
-                        return Ok(());
-                    }
-                    tracing::error!(
-                        run_id = %request.run_id,
-                        %generation,
-                        %error,
-                        "harness feedback claim failed"
-                    );
-                    return Err(EffectFailure::Failed(format!(
-                        "harness feedback claim failed: {error}"
-                    )));
-                }
-
-                let mut output = String::from_utf8_lossy(&outcome.stdout).into_owned();
-                if !outcome.stderr.is_empty() {
-                    if !output.is_empty() {
-                        output.push('\n');
-                    }
-                    output.push_str(&String::from_utf8_lossy(&outcome.stderr));
-                }
-
-                let domain_input = DomainInput::HarnessRunCompleted(HarnessRunCompleted {
-                    run_id: request.run_id,
-                    generation,
-                    task_id: request.task_id,
-                    command: outcome.command,
-                    exit_code: outcome.exit_code,
-                    output,
-                });
-
-                if let Err(delivery_error) =
-                    Self::send_input(&self.input_tx, domain_input, "harness completion")
-                {
-                    tracing::error!(
-                        %delivery_error,
-                        "failed to deliver harness completion; pausing effect"
-                    );
-                    return match self.adapters.effect_journal.record_terminal(
+    ) -> Result<Option<maestria_ports::HarnessOutcome>, EffectFailure> {
+        let stored_outcome = self
+            .adapters
+            .effect_journal
+            .feedback_outcome(request.run_id, generation)
+            .map_err(|error| {
+                EffectFailure::Failed(format!("read stored harness feedback: {error}"))
+            })?;
+        let outcome = if let Some(outcome) = stored_outcome.clone() {
+            outcome
+        } else {
+            self.adapters
+                .harness
+                .execute(harness_request)
+                .await
+                .map_err(|error| {
+                    let _ = self.adapters.effect_journal.record_terminal(
                         request.run_id,
                         generation,
-                        maestria_ports::EffectJournalStatus::Paused,
-                    ) {
-                        Ok(()) => Err(EffectFailure::Degraded(format!(
-                            "harness completion delivery failed: {delivery_error}; effect paused"
-                        ))),
-                        Err(journal_error) => {
-                            tracing::error!(
-                                %journal_error,
-                                "failed to pause harness effect after completion delivery failure"
-                            );
-                            Err(EffectFailure::Failed(format!(
-                                "harness completion delivery failed: {delivery_error}; \
-                                 failed to pause harness effect: {journal_error}"
-                            )))
-                        }
-                    };
-                }
-
-                Ok(())
-            }
-            Err(error) => {
-                let terminal_result = self.adapters.effect_journal.record_terminal(
-                    request.run_id,
-                    generation,
-                    maestria_ports::EffectJournalStatus::Failed,
+                        maestria_ports::EffectJournalStatus::Failed,
+                    );
+                    EffectFailure::Failed(format!("harness execution failed: {error}"))
+                })?
+        };
+        if stored_outcome.is_some() {
+            // The outcome was atomically accepted by an earlier process.
+        } else if let Err(error) = self.adapters.effect_journal.claim_feedback_with_outcome(
+            request.run_id,
+            generation,
+            outcome.clone(),
+        ) {
+            if error.is_not_found() {
+                tracing::warn!(
+                    run_id = %request.run_id,
+                    %generation,
+                    %error,
+                    "harness feedback rejected as stale"
                 );
-                match terminal_result {
-                    Ok(()) => {}
-                    Err(journal_error) => {
-                        tracing::error!(
-                            %journal_error,
-                            "failed to record harness terminal failure"
-                        );
-                        return Err(EffectFailure::Failed(format!(
-                            "harness execution failed: {error}; \
-                             failed to record harness terminal failure: {journal_error}"
-                        )));
-                    }
-                }
-                tracing::error!(run_id = %request.run_id, %error, "harness execution failed");
-                Err(EffectFailure::Failed(format!(
-                    "harness execution failed: {error}"
-                )))
+                return Ok(None);
             }
+            return Err(EffectFailure::Failed(format!(
+                "harness feedback claim failed: {error}"
+            )));
         }
+        let mut output = String::from_utf8_lossy(&outcome.stdout).into_owned();
+        if !outcome.stderr.is_empty() {
+            if !output.is_empty() {
+                output.push('\n');
+            }
+            output.push_str(&String::from_utf8_lossy(&outcome.stderr));
+        }
+        let delivery = Self::send_input(
+            &self.input_tx,
+            DomainInput::HarnessRunCompleted(HarnessRunCompleted {
+                run_id: request.run_id,
+                generation,
+                task_id: request.task_id,
+                command: outcome.command.clone(),
+                exit_code: outcome.exit_code,
+                output,
+            }),
+            "harness completion",
+        );
+        if let Err(error) = delivery {
+            if stored_outcome.is_some() {
+                return Err(EffectFailure::Degraded(format!(
+                    "harness completion delivery failed: {error}; effect remains recoverable"
+                )));
+            }
+            return match self.adapters.effect_journal.record_terminal(
+                request.run_id,
+                generation,
+                maestria_ports::EffectJournalStatus::Paused,
+            ) {
+                Ok(()) => Err(EffectFailure::Degraded(format!(
+                    "harness completion delivery failed: {error}; effect paused"
+                ))),
+                Err(journal_error) => Err(EffectFailure::Failed(format!(
+                    "harness completion delivery failed: {error}; failed to pause harness effect: {journal_error}"
+                ))),
+            };
+        }
+        Ok(Some(outcome))
     }
 }
 
@@ -341,4 +322,17 @@ fn filename_matches(name: &str, pattern: &str) -> bool {
         }
     }
     matches[name.len()][pattern.len()]
+}
+
+pub(crate) fn truncate_output(bytes: &[u8]) -> String {
+    const LIMIT: usize = 4096;
+    let text = String::from_utf8_lossy(bytes);
+    if text.len() <= LIMIT {
+        return text.into_owned();
+    }
+    let mut end = LIMIT - 3;
+    while !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    format!("{}...", &text[..end])
 }

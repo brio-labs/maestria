@@ -251,6 +251,16 @@ impl crate::ApprovalRepository for InMemoryApprovalRepository {
             .cloned()
             .collect())
     }
+    fn find_all(&self) -> Result<Vec<crate::ApprovalRecord>, crate::PortError> {
+        let guard = self
+            .records
+            .lock()
+            .map_err(|_| crate::PortError::InternalContext {
+                context: "approval repository lock poisoned",
+                source: "approval repository mutex is poisoned".to_string(),
+            })?;
+        Ok(guard.values().cloned().collect())
+    }
 
     fn find_by_id(
         &self,
@@ -304,7 +314,7 @@ impl crate::ApprovalRepository for InMemoryApprovalRepository {
             })?;
         Ok(guard
             .values()
-            .filter(|r| r.task_id == task_id)
+            .filter(|r| r.task_id == Some(task_id))
             .cloned()
             .collect())
     }

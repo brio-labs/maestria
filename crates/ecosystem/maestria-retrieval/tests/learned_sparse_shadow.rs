@@ -258,6 +258,7 @@ fn plan() -> TestResult<SearchPlan> {
             minimum_sections: 1,
         },
         fingerprint: RetrievalModelFingerprint::new("fixture-search-v1".to_string())?,
+        authorization: Some(maestria_domain::RetrievalPolicySnapshot::global_default()),
         original_intent: None,
         route_decision: None,
     })

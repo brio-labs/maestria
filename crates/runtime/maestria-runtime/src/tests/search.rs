@@ -1,7 +1,7 @@
 use crate::test_support::*;
 use crate::tests::FailingEventLog;
 use maestria_domain::{DomainEvent, EvidenceId, LogicalTick, SearchExecutedInput};
-use maestria_ports::{EventFilter, InMemoryEventLog};
+use maestria_ports::{EventFilter, EventLog, InMemoryEventLog};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio_util::sync::CancellationToken;

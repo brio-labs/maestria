@@ -20,6 +20,7 @@ pub(super) async fn evaluate_batches(
     batches: &[crate::types::CandidateBatch],
     started: tokio::time::Instant,
     bytes_read: &mut u64,
+    authorization: &maestria_governance::RetrievalAuthorizationContext,
 ) -> RetrievalResult<(
     SearchOutcome,
     Vec<maestria_domain::SearchTraceLane>,
@@ -62,17 +63,18 @@ pub(super) async fn evaluate_batches(
     };
     let (ranked, rerank_trace) =
         apply_reranking(engine, plan, visual_enabled, started, ranked).await?;
+    let initial_diversity = crate::diversity::select_candidates(&ranked, plan);
     let expansion_enabled = plan
         .stages
         .contains(&maestria_domain::SearchStage::Filtering);
     let configured_expander = expansion_enabled.then(|| engine.expander.clone()).flatten();
-    let initial_diversity = crate::diversity::select_candidates(&ranked, plan);
     let (mut raw_outcome, final_diversity) = engine_pipeline::run_diversity_stage(
         plan,
         initial_diversity,
         &configured_expander,
         &engine.evaluator,
         bytes_read,
+        authorization,
     )
     .await?;
     raw_outcome.status = reconcile_status(&raw_outcome.status, &final_diversity.status);

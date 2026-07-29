@@ -12,7 +12,7 @@ use maestria_domain::{
     CorpusSnapshotId, EvidenceCandidate, EvidenceKind, IndexGenerationId, IndexGenerationRegistry,
     IndexStatus, RepresentationName, RetrievalReason, SearchLaneStatus, SourceSpan,
 };
-use maestria_governance::{RetrievalDecision, RetrievalSecurityPolicy, scan_secrets};
+use maestria_governance::{RetrievalDecision, scan_secrets};
 use maestria_ports::{
     ArtifactRepository, BlobStore, ChunkRepository, EmbeddingIdentity, EvidenceRepository,
     RetentionPolicy, VectorIndex, VectorSearchQuery, VisualEmbeddingProvider,
@@ -96,14 +96,12 @@ pub struct VisualPageRegionRetriever {
     expected_identity: EmbeddingIdentity,
     expected_corpus_snapshot: CorpusSnapshotId,
     verifier: SourceSnapshotVerifier,
-    policy: RetrievalSecurityPolicy,
     descriptor: RetrieverDescriptor,
 }
 
 impl VisualPageRegionRetriever {
     pub fn new(
         parts: VisualPageRegionRetrieverParts,
-        policy: RetrievalSecurityPolicy,
         capability: VisualGenerationCapability,
     ) -> Self {
         let expected_identity = capability.identity().clone();
@@ -117,7 +115,6 @@ impl VisualPageRegionRetriever {
             expected_identity: expected_identity.clone(),
             expected_corpus_snapshot,
             verifier: SourceSnapshotVerifier::new(parts.blobs),
-            policy,
             descriptor: RetrieverDescriptor {
                 id: "visual_page_regions".to_string(),
                 modality: "image".to_string(),
@@ -132,6 +129,7 @@ impl VisualPageRegionRetriever {
         hit: maestria_ports::VectorSearchHit,
         raw_rank: u32,
         identity: &EmbeddingIdentity,
+        authorization: &maestria_governance::RetrievalAuthorizationContext,
     ) -> Result<Option<EvidenceCandidate>, RetrievalError> {
         let Some(chunk) = self.chunks.get(hit.chunk_id).map_err(port_error)? else {
             return Ok(None);
@@ -153,8 +151,8 @@ impl VisualPageRegionRetriever {
             evidence.kind,
             EvidenceKind::PdfSpan { .. } | EvidenceKind::PdfRegion { .. }
         ) || artifact.index_status != IndexStatus::Indexed
-            || self.policy.evaluate(&artifact.security) != RetrievalDecision::Allowed
-            || self.policy.evaluate(&evidence.security) != RetrievalDecision::Allowed
+            || authorization.evaluate(&artifact.security) != RetrievalDecision::Allowed
+            || authorization.evaluate(&evidence.security) != RetrievalDecision::Allowed
             || !scan_secrets(&chunk.text).is_clean()
             || !scan_secrets(&evidence.excerpt).is_clean()
         {
@@ -182,10 +180,10 @@ impl VisualPageRegionRetriever {
         )
         .map(Some)
     }
-
     fn prefilter_hit(
         &self,
         chunk_id: maestria_domain::ChunkId,
+        authorization: &maestria_governance::RetrievalAuthorizationContext,
     ) -> Result<bool, maestria_ports::PortError> {
         let Some(chunk) = self.chunks.get(chunk_id)? else {
             return Ok(false);
@@ -200,7 +198,7 @@ impl VisualPageRegionRetriever {
             return Ok(false);
         };
         if artifact.index_status != IndexStatus::Indexed
-            || self.policy.evaluate(&artifact.security) != RetrievalDecision::Allowed
+            || authorization.evaluate(&artifact.security) != RetrievalDecision::Allowed
             || !scan_secrets(&chunk.text).is_clean()
         {
             return Ok(false);
@@ -212,7 +210,7 @@ impl VisualPageRegionRetriever {
         Ok(matches!(
             evidence.kind,
             EvidenceKind::PdfSpan { .. } | EvidenceKind::PdfRegion { .. }
-        ) && self.policy.evaluate(&evidence.security) == RetrievalDecision::Allowed
+        ) && authorization.evaluate(&evidence.security) == RetrievalDecision::Allowed
             && scan_secrets(&evidence.excerpt).is_clean())
     }
 
@@ -237,7 +235,9 @@ impl VisualPageRegionRetriever {
         let filter_error = Cell::new(None);
         let hits = self
             .index
-            .search_similar_filtered(vector, &|chunk_id| match self.prefilter_hit(chunk_id) {
+            .search_similar_filtered(vector, &|chunk_id| match self
+                .prefilter_hit(chunk_id, &request.authorization)
+            {
                 Ok(allowed) => allowed,
                 Err(error) => {
                     filter_error.set(Some(error));
@@ -252,7 +252,9 @@ impl VisualPageRegionRetriever {
         let mut bytes_read = 0_u64;
         for (index, hit) in hits.into_iter().enumerate() {
             let raw_rank = one_based_rank(index);
-            let Some(candidate) = self.candidate_from_hit(hit, raw_rank, identity)? else {
+            let Some(candidate) =
+                self.candidate_from_hit(hit, raw_rank, identity, &request.authorization)?
+            else {
                 continue;
             };
             bytes_read =

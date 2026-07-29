@@ -1,5 +1,5 @@
 use super::test_helpers::{adapter, shell_request};
-use super::*;
+use maestria_ports::HarnessAdapter;
 use std::path::PathBuf;
 use std::time::Duration;
 

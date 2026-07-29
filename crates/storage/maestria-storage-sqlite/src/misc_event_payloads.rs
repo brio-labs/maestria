@@ -45,6 +45,16 @@ impl StoredEventPayload {
                 plan: plan.clone(),
                 outcome: outcome.clone(),
             }),
+            DomainEvent::ModelAgentProposalRequested { request } => {
+                Some(Self::ModelAgentProposalRequested {
+                    request: request.clone(),
+                })
+            }
+            DomainEvent::ModelAgentProposalCompleted { result } => {
+                Some(Self::ModelAgentProposalCompleted {
+                    result: result.clone(),
+                })
+            }
             DomainEvent::IndexGenerationStarted {
                 id,
                 name,
@@ -124,6 +134,12 @@ impl StoredEventPayload {
                 plan,
                 outcome,
             }),
+            Self::ModelAgentProposalRequested { request } => {
+                Ok(DomainEvent::ModelAgentProposalRequested { request })
+            }
+            Self::ModelAgentProposalCompleted { result } => {
+                Ok(DomainEvent::ModelAgentProposalCompleted { result })
+            }
             Self::IndexGenerationStarted {
                 id,
                 name,
@@ -153,6 +169,8 @@ impl StoredEventPayload {
     pub(crate) fn try_kind_misc(&self) -> Option<&'static str> {
         match self {
             Self::SearchKnowledgeCompleted { .. } => Some("search_knowledge_completed"),
+            Self::ModelAgentProposalRequested { .. } => Some("model_agent_proposal_requested"),
+            Self::ModelAgentProposalCompleted { .. } => Some("model_agent_proposal_completed"),
             Self::RelationCreated { .. } => Some("relation_created"),
             Self::TickObserved { .. } => Some("tick_observed"),
             Self::SearchExecuted { .. } => Some("search_executed"),

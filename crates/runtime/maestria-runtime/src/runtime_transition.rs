@@ -1,0 +1,225 @@
+use crate::runtime::{MaestriaRuntime, RuntimeCommand, RuntimeSubmissionError};
+use maestria_domain::{DomainError, DomainInput, KernelState, MaestriaEffect};
+
+pub(crate) struct TransitionBarriers {
+    pub(crate) proposal_event_id: Option<maestria_domain::EventId>,
+    pub(crate) approval: Option<(maestria_domain::EventId, maestria_domain::ApprovalId, bool)>,
+    pub(crate) validation_report_id: Option<maestria_domain::ValidationReportId>,
+}
+
+impl MaestriaRuntime {
+    pub(crate) fn correlate_proposal(
+        input: DomainInput,
+        command: Option<&RuntimeCommand>,
+    ) -> DomainInput {
+        match input {
+            DomainInput::ModelAgentProposalRequested(mut proposal) => {
+                if let Some(command) = command {
+                    proposal.correlation_id = command.correlation_id;
+                }
+                DomainInput::ModelAgentProposalRequested(proposal)
+            }
+            other => other,
+        }
+    }
+
+    pub(crate) fn approval_continuation(
+        &self,
+        input: &DomainInput,
+    ) -> Option<maestria_domain::ModelAgentProposalRequest> {
+        let DomainInput::ApprovalResolved(decision) = input else {
+            return None;
+        };
+        self.adapters
+            .approval_repo
+            .find_by_id(decision.approval_id)
+            .ok()
+            .flatten()
+            .and_then(|record| crate::effect_execution::decode_pending_continuation(&record))
+    }
+
+    pub(crate) async fn boundary_error(&self, input: &DomainInput) -> Option<&'static str> {
+        match input {
+            DomainInput::ApprovalResolved(decision)
+                if !self.check_approval_boundary(decision).await =>
+            {
+                Some("approval decision failed boundary validation")
+            }
+            DomainInput::CompleteTask(complete_input)
+                if !self.check_completion_validation(complete_input).await =>
+            {
+                Some("task completion failed validation boundary")
+            }
+            DomainInput::HarnessRunCompleted(completion)
+                if !self.check_harness_feedback_boundary(completion) =>
+            {
+                Some("harness completion failed journal boundary validation")
+            }
+            _ => None,
+        }
+    }
+
+    pub(crate) fn harness_feedback(
+        input: &DomainInput,
+    ) -> Option<(maestria_domain::HarnessRunId, u64)> {
+        match input {
+            DomainInput::HarnessRunCompleted(completion) => {
+                Some((completion.run_id, completion.generation))
+            }
+            _ => None,
+        }
+    }
+
+    pub(crate) fn approval_barrier(
+        input: &DomainInput,
+        command: Option<&RuntimeCommand>,
+    ) -> Option<(maestria_domain::ApprovalId, bool)> {
+        match (input, command) {
+            (DomainInput::ApprovalResolved(decision), Some(_)) => {
+                Some((decision.approval_id, decision.approved))
+            }
+            _ => None,
+        }
+    }
+
+    pub(crate) async fn stage_input(
+        &self,
+        input: DomainInput,
+        has_approval_continuation: bool,
+    ) -> Result<(KernelState, maestria_domain::KernelOutput, bool), DomainError> {
+        let state = self.state.read().await;
+        let mut candidate = state.clone();
+        let should_resume_approval = matches!(
+            &input,
+            DomainInput::ApprovalResolved(decision)
+                if has_approval_continuation
+                    && !state.resolved_approvals.contains(&decision.approval_id)
+        );
+        drop(state);
+        let output = candidate.apply_input(input)?;
+        Ok((candidate, output, should_resume_approval))
+    }
+
+    pub(crate) fn transition_barriers(
+        events: &[maestria_domain::DomainEventEnvelope],
+        effects: &[MaestriaEffect],
+        approval_barrier: Option<(maestria_domain::ApprovalId, bool)>,
+    ) -> TransitionBarriers {
+        let proposal_event_id = events.iter().find_map(|event| {
+            matches!(
+                &event.event,
+                maestria_domain::DomainEvent::ModelAgentProposalRequested { .. }
+            )
+            .then_some(event.id)
+        });
+        let approval = approval_barrier.and_then(|(approval_id, approved)| {
+            events.iter().find_map(|event| {
+                matches!(
+                    &event.event,
+                    maestria_domain::DomainEvent::ApprovalRecorded {
+                        approval_id: event_approval_id,
+                        approved: event_approved,
+                        ..
+                    } if *event_approval_id == approval_id && *event_approved == approved
+                )
+                .then_some((event.id, approval_id, approved))
+            })
+        });
+        let validation_report_id = effects.iter().find_map(|effect| {
+            let MaestriaEffect::PersistEvent { envelope } = effect else {
+                return None;
+            };
+            let maestria_domain::DomainEvent::ValidationReportCreated { report_id, .. } =
+                &envelope.event
+            else {
+                return None;
+            };
+            Some(*report_id)
+        });
+        TransitionBarriers {
+            proposal_event_id,
+            approval,
+            validation_report_id,
+        }
+    }
+
+    pub(crate) async fn wait_transition_barriers(
+        &self,
+        barriers: &TransitionBarriers,
+        command_submitted: bool,
+        shutdown_token: &tokio_util::sync::CancellationToken,
+    ) -> bool {
+        if let Some((event_id, approval_id, approved)) = barriers.approval
+            && !self
+                .wait_for_approval_resolution(event_id, approval_id, approved, shutdown_token)
+                .await
+        {
+            return false;
+        }
+        if command_submitted
+            && let Some(event_id) = barriers.proposal_event_id
+            && !self
+                .wait_for_event_persistence(event_id, shutdown_token)
+                .await
+        {
+            return false;
+        }
+        true
+    }
+
+    pub(crate) async fn finish_validation_barrier(
+        &self,
+        report_id: Option<maestria_domain::ValidationReportId>,
+        shutdown_token: &tokio_util::sync::CancellationToken,
+    ) -> bool {
+        let Some(report_id) = report_id else {
+            return true;
+        };
+        if self
+            .wait_for_validation_report(report_id, shutdown_token)
+            .await
+        {
+            return true;
+        }
+        if !shutdown_token.is_cancelled() {
+            tracing::error!(
+                "fatal: timeout or error waiting for durable ValidationReportCreated; stopping runtime"
+            );
+            shutdown_token.cancel();
+        }
+        false
+    }
+
+    pub(crate) fn reply_domain_error(command: Option<RuntimeCommand>, error: DomainError) {
+        if let Some(command) = command {
+            let _ = command
+                .reply
+                .send(Err(RuntimeSubmissionError::DomainRejected {
+                    correlation_id: command.correlation_id,
+                    error,
+                }));
+        } else {
+            tracing::warn!(%error, "domain rejected input");
+        }
+    }
+
+    pub(crate) fn reply_admission_error(command: Option<RuntimeCommand>) {
+        if let Some(command) = command {
+            let _ = command
+                .reply
+                .send(Err(RuntimeSubmissionError::EffectAdmissionRejected {
+                    correlation_id: command.correlation_id,
+                }));
+        }
+    }
+
+    pub(crate) fn reply_persistence_error(command: Option<RuntimeCommand>) {
+        if let Some(command) = command {
+            let _ = command
+                .reply
+                .send(Err(RuntimeSubmissionError::PersistenceBarrierFailed {
+                    correlation_id: command.correlation_id,
+                }));
+        }
+    }
+}

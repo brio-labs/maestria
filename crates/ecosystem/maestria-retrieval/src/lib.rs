@@ -17,6 +17,7 @@ pub mod adapters;
 /// - `types`: module responsibility.
 /// - `visual_benchmark`: module responsibility.
 /// - `visual_reranker`: module responsibility.
+/// - `monotonic`: monotonic time abstraction.
 pub mod bounded_reranker;
 pub mod diversity;
 pub mod engine;
@@ -24,6 +25,7 @@ pub mod fusion;
 pub mod golden;
 pub mod learned_sparse_benchmark;
 pub mod learned_sparse_policy;
+mod monotonic;
 pub mod repository_benchmark;
 pub mod rewrite;
 mod sync;
@@ -32,22 +34,7 @@ pub mod traits;
 pub mod types;
 pub mod visual_benchmark;
 pub mod visual_reranker;
-
-/// Monotonic timestamp used for retrieval latency accounting.
-#[derive(Clone, Copy)]
-pub struct MonotonicInstant(tokio::time::Instant);
-
-impl MonotonicInstant {
-    /// Capture the current monotonic instant.
-    pub fn now() -> Self {
-        Self(tokio::time::Instant::now())
-    }
-
-    /// Return the elapsed duration since this instant.
-    pub fn elapsed(self) -> std::time::Duration {
-        self.0.elapsed()
-    }
-}
+pub use monotonic::MonotonicInstant;
 
 pub use engine::{
     LearnedSparseShadowCandidate, LearnedSparseShadowLane, LearnedSparseShadowLaneStatus,

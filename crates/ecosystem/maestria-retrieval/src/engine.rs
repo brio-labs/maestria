@@ -1,6 +1,5 @@
 use maestria_domain::{
-    CorpusSnapshotId, EvidenceCoverage, IndexGenerationId, RetrievalModelFingerprint,
-    SearchOutcome, SearchPlan, SearchStatus, SearchStopReason, SearchTrace,
+    CorpusSnapshotId, IndexGenerationId, RetrievalModelFingerprint, SearchOutcome, SearchPlan,
 };
 use maestria_ports::SearchQuery;
 use std::sync::Arc;
@@ -19,6 +18,8 @@ mod engine_capabilities;
 mod engine_evaluation;
 #[path = "engine_pipeline.rs"]
 mod engine_pipeline;
+#[path = "engine_policy.rs"]
+mod engine_policy;
 #[path = "learned_sparse_shadow.rs"]
 mod learned_sparse_shadow;
 pub use learned_sparse_shadow::{
@@ -77,34 +78,6 @@ pub struct RetrievalEngine {
 pub(super) use engine_capabilities::batch_is_eligible;
 
 impl RetrievalEngine {
-    fn validate_plan(&self, plan: &SearchPlan) -> RetrievalResult<()> {
-        let capabilities = self
-            .capabilities
-            .clone()
-            .with_snapshot(plan.corpus_snapshot);
-        match maestria_governance::SearchPlanValidator::validate(
-            plan,
-            &capabilities,
-            &self.security_policy,
-        ) {
-            Ok(()) => Ok(()),
-            Err(maestria_governance::SearchPlanValidationError::IntentMismatch {
-                declared: maestria_domain::SearchIntent::FactualLocal,
-                classified,
-            }) if classified != maestria_domain::SearchIntent::ExactLookup => {
-                let mut fallback_plan = plan.clone();
-                fallback_plan.original_query = "fallback local text retrieval".to_string();
-                maestria_governance::SearchPlanValidator::validate(
-                    &fallback_plan,
-                    &capabilities,
-                    &self.security_policy,
-                )
-                .map_err(RetrievalError::SearchPlan)
-            }
-            Err(error) => Err(RetrievalError::SearchPlan(error)),
-        }
-    }
-
     pub fn new(
         retrievers: Vec<Arc<dyn CandidateRetriever>>,
         evaluator: Arc<dyn RetrievalEvaluator>,
@@ -219,13 +192,23 @@ impl RetrievalEngine {
         batches: &[crate::types::CandidateBatch],
         started: tokio::time::Instant,
         bytes_read: &mut u64,
+        authorization: &maestria_governance::RetrievalAuthorizationContext,
     ) -> RetrievalResult<(
         SearchOutcome,
         Vec<maestria_domain::SearchTraceLane>,
         Option<maestria_domain::SearchTraceRerank>,
         maestria_domain::SearchTraceDiversity,
     )> {
-        engine_evaluation::evaluate_batches(self, plan, query, batches, started, bytes_read).await
+        engine_evaluation::evaluate_batches(
+            self,
+            plan,
+            query,
+            batches,
+            started,
+            bytes_read,
+            authorization,
+        )
+        .await
     }
 
     /// Execute the search plan and return the outcome.
@@ -234,10 +217,10 @@ impl RetrievalEngine {
     /// Dropping the future aborts the search. When `timeout_ms` is greater than zero, the search
     /// is also aborted if the latency budget is exceeded.
     pub async fn search(&self, plan: &SearchPlan) -> RetrievalResult<SearchOutcome> {
+        self.validate_plan(plan)?;
         if maestria_governance::contains_prompt_injection_risk(&plan.original_query) {
             return Ok(self.prompt_injection_outcome(plan));
         }
-        self.validate_plan(plan)?;
         let timeout_ms = plan.budgets.max_latency_ms() as u64;
         let started = tokio::time::Instant::now();
         let search = self.search_internal(plan, started);
@@ -250,96 +233,17 @@ impl RetrievalEngine {
         }
     }
 
-    pub(super) fn active_retrievers(&self, plan: &SearchPlan) -> Vec<Arc<dyn CandidateRetriever>> {
-        let repository_specialized = self
-            .repository_execution_policy
-            .allows_specialized(&plan.original_query);
-        let visual_enabled = self
-            .visual_execution_policy
-            .allows_visual(&plan.original_query);
-        let sparse_enabled = self
-            .learned_sparse_execution_policy
-            .allows_sparse(&plan.original_query);
-        self.retrievers
-            .iter()
-            .filter(|retriever| {
-                let descriptor = retriever.descriptor();
-                let descriptor_id = descriptor.id.to_ascii_lowercase();
-                let is_code = descriptor.modality.eq_ignore_ascii_case("code")
-                    || descriptor.modality.eq_ignore_ascii_case("rust")
-                    || descriptor_id.contains("code_intel");
-                crate::visual_benchmark::visual_lane_is_eligible(&descriptor, visual_enabled)
-                    && crate::learned_sparse_policy::sparse_lane_is_eligible(
-                        &descriptor,
-                        sparse_enabled,
-                    )
-                    && (repository_specialized || !is_code)
-            })
-            .cloned()
-            .collect()
-    }
-
-    fn learned_sparse_shadow_retrievers(
-        &self,
-        plan: &SearchPlan,
-    ) -> Vec<Arc<dyn CandidateRetriever>> {
-        if !self
-            .learned_sparse_execution_policy
-            .should_shadow(&plan.original_query)
-        {
-            return Vec::new();
-        }
-        self.retrievers
-            .iter()
-            .filter(|retriever| {
-                crate::learned_sparse_policy::is_sparse_descriptor(&retriever.descriptor())
-            })
-            .cloned()
-            .collect()
-    }
-
-    fn prompt_injection_outcome(&self, plan: &SearchPlan) -> SearchOutcome {
-        let retriever_ids = self
-            .retrievers
-            .iter()
-            .map(|retriever| retriever.descriptor().id.clone())
-            .collect();
-        let trace = SearchTrace::from_plan(
-            plan,
-            retriever_ids,
-            &[],
-            applied_security_filters(plan, &self.security_policy),
-            self.fusion.as_ref().map(|_| "configured".to_string()),
-            Vec::new(),
-            SearchStopReason::PolicyDenied,
-        )
-        .with_policy_fingerprint(security_policy_fingerprint(&self.security_policy));
-        SearchOutcome {
-            trace: trace.deterministic_id(),
-            trace_data: Some(Box::new(trace)),
-            fingerprint: plan.fingerprint.clone(),
-            index_generation: plan.index_generation,
-            status: SearchStatus::QuarantinedForReview,
-            evidence: Vec::new(),
-            coverage: EvidenceCoverage {
-                required_claims: vec![],
-                required_subquestions: vec![],
-                distinct_sources: 0,
-                distinct_documents: 0,
-                distinct_sections: 0,
-                candidate_coverage_keys: vec![],
-                percent_covered: 0,
-                gaps_identified: vec![],
-            },
-            conflicts: Vec::new(),
-        }
-    }
-
     async fn search_internal(
         &self,
         plan: &SearchPlan,
         started: tokio::time::Instant,
     ) -> RetrievalResult<SearchOutcome> {
+        let authorization = self
+            .security_policy
+            .authorization_context(&plan.scope)
+            .map_err(|error| {
+                RetrievalError::Internal(format!("retrieval authorization denied: {error:?}"))
+            })?;
         let metadata = maestria_domain::SecurityMetadata {
             prompt_injection_risk: maestria_governance::contains_prompt_injection_risk(
                 &plan.original_query,
@@ -355,6 +259,7 @@ impl RetrievalEngine {
         let shadow_task = learned_sparse_shadow::spawn_learned_sparse_shadow(
             self.learned_sparse_shadow_retrievers(plan),
             plan.clone(),
+            authorization.clone(),
             self.learned_sparse_shadow_store.clone(),
         );
         let active_result = async {
@@ -368,9 +273,17 @@ impl RetrievalEngine {
                 offset: 0,
             };
             let (batches, rewrites, web_requests_used, mut bytes_read) =
-                engine_pipeline::collect_initial_batches(&active_retrievers, plan).await?;
+                engine_pipeline::collect_initial_batches(&active_retrievers, plan, &authorization)
+                    .await?;
             let (outcome, lanes, rerank_trace, diversity_trace) = self
-                .evaluate_batches(plan, &query, &batches, started, &mut bytes_read)
+                .evaluate_batches(
+                    plan,
+                    &query,
+                    &batches,
+                    started,
+                    &mut bytes_read,
+                    &authorization,
+                )
                 .await?;
             let mut state = engine_adaptive::AdaptiveSearchState {
                 batches,
@@ -388,12 +301,15 @@ impl RetrievalEngine {
             let expansion_enabled = plan
                 .stages
                 .contains(&maestria_domain::SearchStage::Filtering);
+            let mut trace_policy = self.security_policy.clone();
+            trace_policy.required_scope_id = None;
+            trace_policy.instance_scope_ids = authorization.effective_scopes().cloned();
             let outcome = ensure_trace(
                 plan,
                 state.outcome,
                 state.lanes,
                 EnsureTraceOptions {
-                    security_policy: self.security_policy.clone(),
+                    security_policy: trace_policy,
                     fusion_enabled: self.fusion.is_some(),
                     expansion_enabled,
                     rerank_trace: state.rerank_trace,

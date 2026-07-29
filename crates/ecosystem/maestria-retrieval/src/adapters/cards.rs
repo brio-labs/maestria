@@ -64,11 +64,15 @@ impl CardRetriever {
         &self,
         query: SearchQuery,
     ) -> Result<Vec<maestria_ports::CardHit>, RetrievalError> {
-        let hits = self.filtered_hits(query)?;
+        let authorization = self
+            .policy
+            .authorization_context(&maestria_domain::CorpusScope::Global)
+            .map_err(|error| RetrievalError::Internal(format!("{error:?}")))?;
+        let hits = self.filtered_hits(query, &authorization)?;
         let mut allowed = Vec::with_capacity(hits.len());
         for (raw_rank, hit) in hits.into_iter().enumerate() {
             if self
-                .candidate_from_hit(&hit, one_based_rank(raw_rank))?
+                .candidate_from_hit(&hit, one_based_rank(raw_rank), &authorization)?
                 .is_some()
             {
                 allowed.push(hit);
@@ -80,13 +84,16 @@ impl CardRetriever {
     fn filtered_hits(
         &self,
         query: SearchQuery,
+        authorization: &maestria_governance::RetrievalAuthorizationContext,
     ) -> Result<Vec<maestria_ports::CardHit>, RetrievalError> {
         let filter_error = Cell::new(None);
         let hits = self
             .index
-            .search_cards_filtered(query, &|card_id, artifact_id| match self
-                .prefilter_hit(card_id, artifact_id)
-            {
+            .search_cards_filtered(query, &|card_id, artifact_id| match self.prefilter_hit(
+                card_id,
+                artifact_id,
+                authorization,
+            ) {
                 Ok(allowed) => allowed,
                 Err(error) => {
                     filter_error.set(Some(error));
@@ -104,6 +111,7 @@ impl CardRetriever {
         &self,
         card_id: maestria_domain::CardId,
         artifact_id: maestria_domain::ArtifactId,
+        authorization: &maestria_governance::RetrievalAuthorizationContext,
     ) -> Result<bool, maestria_ports::PortError> {
         let Some(artifact) = self.artifacts.get(artifact_id)? else {
             return Ok(false);
@@ -113,8 +121,8 @@ impl CardRetriever {
         };
         if card.artifact_id != artifact.id
             || artifact.index_status != IndexStatus::Indexed
-            || self.policy.evaluate(&artifact.security) != RetrievalDecision::Allowed
-            || self.policy.evaluate(&card.security) != RetrievalDecision::Allowed
+            || authorization.evaluate(&artifact.security) != RetrievalDecision::Allowed
+            || authorization.evaluate(&card.security) != RetrievalDecision::Allowed
             || !scan_secrets(&card.body).is_clean()
         {
             return Ok(false);
@@ -135,15 +143,15 @@ impl CardRetriever {
             return Ok(false);
         };
         Ok(
-            self.policy.evaluate(&evidence.security) == RetrievalDecision::Allowed
+            authorization.evaluate(&evidence.security) == RetrievalDecision::Allowed
                 && scan_secrets(&evidence.excerpt).is_clean(),
         )
     }
-
     fn candidate_from_hit(
         &self,
         hit: &maestria_ports::CardHit,
         raw_rank: u32,
+        authorization: &maestria_governance::RetrievalAuthorizationContext,
     ) -> Result<Option<EvidenceCandidate>, RetrievalError> {
         let Some(artifact) = self
             .artifacts
@@ -156,8 +164,8 @@ impl CardRetriever {
             return Ok(None);
         };
         if artifact.index_status != IndexStatus::Indexed
-            || self.policy.evaluate(&artifact.security) != RetrievalDecision::Allowed
-            || self.policy.evaluate(&card.security) != RetrievalDecision::Allowed
+            || authorization.evaluate(&artifact.security) != RetrievalDecision::Allowed
+            || authorization.evaluate(&card.security) != RetrievalDecision::Allowed
             || !scan_secrets(&card.body).is_clean()
         {
             return Ok(None);
@@ -180,7 +188,7 @@ impl CardRetriever {
         let Some(evidence) = self.evidence.get(evidence_id).map_err(port_error)? else {
             return Ok(None);
         };
-        if self.policy.evaluate(&evidence.security) != RetrievalDecision::Allowed
+        if authorization.evaluate(&evidence.security) != RetrievalDecision::Allowed
             || !scan_secrets(&evidence.excerpt).is_clean()
         {
             return Ok(None);
@@ -211,11 +219,14 @@ impl CandidateRetriever for CardRetriever {
                 self.descriptor.generation,
             ));
         }
-        let hits = self.filtered_hits(request.query.clone())?;
+        let authorization = request.authorization.clone();
+        let hits = self.filtered_hits(request.query.clone(), &authorization)?;
         let mut bytes_read = 0_u64;
         let mut candidates = Vec::with_capacity(hits.len());
         for (raw_rank, hit) in hits.into_iter().enumerate() {
-            let Some(candidate) = self.candidate_from_hit(&hit, one_based_rank(raw_rank))? else {
+            let Some(candidate) =
+                self.candidate_from_hit(&hit, one_based_rank(raw_rank), &authorization)?
+            else {
                 continue;
             };
             bytes_read = bytes_read.saturating_add(

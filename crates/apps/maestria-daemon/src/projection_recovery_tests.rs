@@ -1,14 +1,23 @@
-use super::*;
+use std::fs;
+
+use anyhow::Result;
+use maestria_governance::AutonomyProfile;
+use maestria_storage_sqlite::SqliteStore;
+use maestria_vector_sqlite::SqliteVectorIndex;
+
+use super::{reconcile_graph_projection, reconcile_projections, reconcile_vector_projection};
+use crate::instance_setup::prepare_instance;
+use crate::runtime_construction::build_runtime;
 use maestria_domain::{
-    ArtifactDetected, ArtifactVersionId, CardId, ChunkId, ContentHash, ContentRange,
-    CreateCardInput, EvidenceId, EvidenceKind, LogicalTick, ParseStatus, ParserResult,
-    RecordEvidenceInput, RegisterChunkInput, SourceSpan, StructureNode, StructureNodeId,
-    StructureNodeType,
+    ArtifactDetected, ArtifactId, ArtifactVersionId, CardId, ChunkId, ContentHash, ContentRange,
+    CreateCardInput, DomainInput, EvidenceId, EvidenceKind, KernelState, LogicalTick, ParseStatus,
+    ParserResult, RecordEvidenceInput, RegisterChunkInput, SourceSpan, StructureNode,
+    StructureNodeId, StructureNodeType,
 };
 use maestria_ports::{
     ArtifactRepository, CardRepository, ChunkRepository, EmbeddingProvider, EmbeddingRequest,
-    EmbeddingResponse, EvidenceRepository, GraphIndex, PortError, VectorEmbedding, VectorIndex,
-    VectorSearchQuery,
+    EmbeddingResponse, EventFilter, EvidenceRepository, GraphIndex, PortError, VectorEmbedding,
+    VectorIndex, VectorSearchQuery,
 };
 
 /// Fixture carrying entity IDs produced during domain-state setup.

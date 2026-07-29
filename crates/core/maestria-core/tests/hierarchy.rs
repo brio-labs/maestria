@@ -4,11 +4,11 @@ use std::sync::{
 };
 
 use maestria_domain::{
-    Artifact, ArtifactId, ArtifactVersionId, Chunk, ChunkId, ContentRange, CorpusSnapshotId,
-    Evidence, EvidenceCandidate, EvidenceId, EvidenceKind, EvidenceSpan, FreshnessStatus,
-    IndexGenerationId, IndexStatus, LogicalTick, Relation, RelationEndpoint, RelationId,
-    RelationKind, RetrievalModelFingerprint, RetrievalScoreSet, SearchOutcome, SearchStatus,
-    SourceLocation, SourceSpan, StructureNodeId, TrustLabel,
+    Artifact, ArtifactId, ArtifactVersionId, Chunk, ChunkId, ContentRange, CorpusScope,
+    CorpusSnapshotId, Evidence, EvidenceCandidate, EvidenceId, EvidenceKind, EvidenceSpan,
+    FreshnessStatus, IndexGenerationId, IndexStatus, LogicalTick, Relation, RelationEndpoint,
+    RelationId, RelationKind, RetrievalModelFingerprint, RetrievalScoreSet, SearchOutcome,
+    SearchStatus, SourceLocation, SourceSpan, StructureNodeId, TrustLabel,
 };
 use maestria_governance::RetrievalSecurityPolicy;
 use maestria_ports::{
@@ -300,19 +300,15 @@ fn with_engine(fixture: &Fixture, context: &SearchPlannerContext) -> RetrievalEn
             evidence: fixture.evidence.clone(),
             blobs: fixture.blobs.clone(),
         },
-        RetrievalSecurityPolicy::default(),
         context.primary_generation,
     ));
-    let expander = Arc::new(HierarchyGraphExpander::new(
-        HierarchyGraphExpanderParts {
-            graph: fixture.graph_index.clone(),
-            artifacts: fixture.artifacts.clone(),
-            chunks: fixture.chunks.clone(),
-            evidence: fixture.evidence.clone(),
-            blobs: fixture.blobs.clone(),
-        },
-        RetrievalSecurityPolicy::default(),
-    ));
+    let expander = Arc::new(HierarchyGraphExpander::new(HierarchyGraphExpanderParts {
+        graph: fixture.graph_index.clone(),
+        artifacts: fixture.artifacts.clone(),
+        chunks: fixture.chunks.clone(),
+        evidence: fixture.evidence.clone(),
+        blobs: fixture.blobs.clone(),
+    }));
     RetrievalEngine::new(
         vec![lexical],
         Arc::new(EvidenceOutcomeEvaluator::new(fixture.evidence.clone())),
@@ -428,16 +424,13 @@ fn high_degree_graph_caps_relation_and_evidence_lookups() -> Result<(), Box<dyn 
     }
 
     let counted_evidence = Arc::new(CountingEvidenceRepository::new(evidence.clone()));
-    let expander = HierarchyGraphExpander::new(
-        HierarchyGraphExpanderParts {
-            graph: graph.clone(),
-            artifacts,
-            chunks,
-            evidence: counted_evidence.clone(),
-            blobs,
-        },
-        RetrievalSecurityPolicy::default(),
-    );
+    let expander = HierarchyGraphExpander::new(HierarchyGraphExpanderParts {
+        graph: graph.clone(),
+        artifacts,
+        chunks,
+        evidence: counted_evidence.clone(),
+        blobs,
+    });
     let seed = ranked_seed(ROOT, root_evidence)?;
     let expanded = expander.expand(
         std::slice::from_ref(&seed),
@@ -447,6 +440,8 @@ fn high_degree_graph_caps_relation_and_evidence_lookups() -> Result<(), Box<dyn 
             selected_seeds: vec![seed.candidate.clone()],
             required_claims: Vec::new(),
             required_subquestions: Vec::new(),
+            authorization: RetrievalSecurityPolicy::default()
+                .authorization_context(&CorpusScope::Global)?,
         },
     )?;
 

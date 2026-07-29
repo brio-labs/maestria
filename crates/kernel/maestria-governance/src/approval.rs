@@ -1,7 +1,7 @@
 use maestria_domain::MaestriaEffect;
 
 use crate::autonomy::AutonomyProfile;
-use crate::risk::{ClassifyRisk, DefaultRiskClassifier, PolicyDecision, RiskClass};
+use crate::risk::{PolicyDecision, RiskClass};
 use crate::scope::ScopeGuard;
 
 /// A request submitted to the approval gate.
@@ -10,6 +10,9 @@ pub struct ApprovalRequest<'a> {
     pub effect: &'a MaestriaEffect,
     pub profile: AutonomyProfile,
     pub scope: &'a ScopeGuard,
+    /// Risk is classified once by the caller and carried through this typed
+    /// request into the exhaustive policy table.
+    pub risk: RiskClass,
 }
 
 /// Decision returned by an approval gate.
@@ -28,93 +31,154 @@ pub trait ApprovalGate {
 #[derive(Debug)]
 pub struct DefaultApprovalGate;
 
-impl DefaultApprovalGate {
-    fn requires_approval_for(&self, profile: AutonomyProfile, risk: RiskClass) -> bool {
-        matches!(
-            (profile, risk),
-            (AutonomyProfile::ReadOnly, RiskClass::Medium)
-                | (AutonomyProfile::ReadOnly, RiskClass::High)
-                | (AutonomyProfile::ReadOnly, RiskClass::Critical)
-                | (AutonomyProfile::Assisted, RiskClass::High)
-                | (AutonomyProfile::Assisted, RiskClass::Critical)
-                | (AutonomyProfile::ScopedAutonomy, RiskClass::High)
-                | (AutonomyProfile::StrictResearch, RiskClass::Critical)
-                | (AutonomyProfile::TrustedWorkspace, RiskClass::Critical)
-        )
-    }
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PolicyAction {
+    Allow,
+    RequireApproval,
+    Deny,
+}
 
-    fn denied(&self, profile: AutonomyProfile, risk: RiskClass) -> bool {
-        matches!(
-            (profile, risk),
-            (AutonomyProfile::ReadOnly, RiskClass::Critical)
-                | (AutonomyProfile::Assisted, RiskClass::Critical)
-                | (AutonomyProfile::ScopedAutonomy, RiskClass::Critical)
-                | (AutonomyProfile::StrictResearch, RiskClass::High)
-        )
+#[derive(Debug, Clone, Copy)]
+struct PolicyCell {
+    action: PolicyAction,
+    reason: &'static str,
+}
+
+const fn cell(action: PolicyAction, reason: &'static str) -> PolicyCell {
+    PolicyCell { action, reason }
+}
+
+// Keep this table exhaustive: every autonomy profile × risk class pair has a
+// single decision and reason. Risk classification happens before this lookup.
+const POLICY_TABLE: [[PolicyCell; 4]; 5] = [
+    [
+        cell(
+            PolicyAction::Allow,
+            "read-only profile allows low-risk actions",
+        ),
+        cell(
+            PolicyAction::RequireApproval,
+            "read-only profile requires approval for medium-risk actions",
+        ),
+        cell(
+            PolicyAction::RequireApproval,
+            "read-only profile requires approval for high-risk actions",
+        ),
+        cell(
+            PolicyAction::Deny,
+            "read-only profile denies critical-risk actions",
+        ),
+    ],
+    [
+        cell(
+            PolicyAction::Allow,
+            "assisted profile allows low-risk actions",
+        ),
+        cell(
+            PolicyAction::RequireApproval,
+            "assisted profile requires approval for medium-risk actions",
+        ),
+        cell(
+            PolicyAction::RequireApproval,
+            "assisted profile requires approval for high-risk actions",
+        ),
+        cell(
+            PolicyAction::Deny,
+            "assisted profile denies critical-risk actions",
+        ),
+    ],
+    [
+        cell(
+            PolicyAction::Allow,
+            "scoped-autonomy profile allows low-risk actions",
+        ),
+        cell(
+            PolicyAction::RequireApproval,
+            "scoped-autonomy profile requires approval for medium-risk actions",
+        ),
+        cell(
+            PolicyAction::RequireApproval,
+            "scoped-autonomy profile requires approval for high-risk actions",
+        ),
+        cell(
+            PolicyAction::Deny,
+            "scoped-autonomy profile denies critical-risk actions",
+        ),
+    ],
+    [
+        cell(
+            PolicyAction::Allow,
+            "strict-research profile allows low-risk actions",
+        ),
+        cell(
+            PolicyAction::Allow,
+            "strict-research profile allows medium-risk research actions",
+        ),
+        cell(
+            PolicyAction::RequireApproval,
+            "strict-research profile requires approval for high-risk actions",
+        ),
+        cell(
+            PolicyAction::Deny,
+            "strict-research profile denies critical-risk actions",
+        ),
+    ],
+    [
+        cell(
+            PolicyAction::Allow,
+            "trusted-workspace profile allows low-risk actions",
+        ),
+        cell(
+            PolicyAction::Allow,
+            "trusted-workspace profile allows medium-risk actions",
+        ),
+        cell(
+            PolicyAction::RequireApproval,
+            "trusted-workspace profile requires approval for high-risk actions",
+        ),
+        cell(
+            PolicyAction::RequireApproval,
+            "trusted-workspace profile requires approval for critical-risk actions",
+        ),
+    ],
+];
+
+fn profile_index(profile: AutonomyProfile) -> usize {
+    match profile {
+        AutonomyProfile::ReadOnly => 0,
+        AutonomyProfile::Assisted => 1,
+        AutonomyProfile::ScopedAutonomy => 2,
+        AutonomyProfile::StrictResearch => 3,
+        AutonomyProfile::TrustedWorkspace => 4,
     }
+}
+
+fn risk_index(risk: RiskClass) -> usize {
+    match risk {
+        RiskClass::Low => 0,
+        RiskClass::Medium => 1,
+        RiskClass::High => 2,
+        RiskClass::Critical => 3,
+    }
+}
+
+fn policy_cell(profile: AutonomyProfile, risk: RiskClass) -> PolicyCell {
+    POLICY_TABLE[profile_index(profile)][risk_index(risk)]
 }
 
 impl ApprovalGate for DefaultApprovalGate {
     fn decide(&self, request: &ApprovalRequest<'_>) -> ApprovalGateDecision {
-        let classifier = DefaultRiskClassifier;
-        let risk = classifier.classify(request.effect, request.scope);
-        let reason = match (request.profile, risk) {
-            (AutonomyProfile::ReadOnly, RiskClass::Low) => {
-                "read-only profile allows low-risk actions".to_string()
-            }
-            (AutonomyProfile::ReadOnly, _) => {
-                "read-only profile blocks non-read operations without explicit approval".to_string()
-            }
-            (AutonomyProfile::Assisted, RiskClass::Low) => {
-                "assisted profile allows low-risk actions".to_string()
-            }
-            (AutonomyProfile::Assisted, RiskClass::Medium) => {
-                "assisted profile requires approval for medium risk actions".to_string()
-            }
-            (AutonomyProfile::Assisted, RiskClass::High | RiskClass::Critical) => {
-                "assisted profile blocks high-risk actions without review".to_string()
-            }
-            (AutonomyProfile::ScopedAutonomy, RiskClass::Low) => {
-                "scoped-autonomy profile allows low-risk actions".to_string()
-            }
-            (AutonomyProfile::ScopedAutonomy, RiskClass::Medium) => {
-                "scoped-autonomy profile requires approval for medium risk".to_string()
-            }
-            (AutonomyProfile::ScopedAutonomy, RiskClass::High | RiskClass::Critical) => {
-                "scoped-autonomy profile blocks high-risk actions".to_string()
-            }
-            (AutonomyProfile::StrictResearch, RiskClass::Medium | RiskClass::Low) => {
-                "strict-research profile allows low/medium research actions".to_string()
-            }
-            (AutonomyProfile::StrictResearch, RiskClass::High) => {
-                "strict-research profile requires approval for high risk actions".to_string()
-            }
-            (AutonomyProfile::StrictResearch, RiskClass::Critical) => {
-                "strict-research profile blocks critical-risk actions".to_string()
-            }
-            (AutonomyProfile::TrustedWorkspace, RiskClass::High | RiskClass::Critical) => {
-                "trusted-workspace profile requires approval for high risk actions".to_string()
-            }
-            (AutonomyProfile::TrustedWorkspace, _) => {
-                "trusted-workspace profile allows non-critical actions".to_string()
-            }
+        let risk = request.risk;
+        let cell = policy_cell(request.profile, risk);
+        let decision = match cell.action {
+            PolicyAction::Allow => PolicyDecision::Allow,
+            PolicyAction::RequireApproval => PolicyDecision::RequireApproval {
+                reason: cell.reason.to_string(),
+            },
+            PolicyAction::Deny => PolicyDecision::Deny {
+                reason: cell.reason.to_string(),
+            },
         };
-
-        if self.denied(request.profile, risk) {
-            ApprovalGateDecision {
-                decision: PolicyDecision::Deny { reason },
-                risk,
-            }
-        } else if self.requires_approval_for(request.profile, risk) {
-            ApprovalGateDecision {
-                decision: PolicyDecision::RequireApproval { reason },
-                risk,
-            }
-        } else {
-            ApprovalGateDecision {
-                decision: PolicyDecision::Allow,
-                risk,
-            }
-        }
+        ApprovalGateDecision { decision, risk }
     }
 }

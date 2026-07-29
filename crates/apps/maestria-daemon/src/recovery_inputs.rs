@@ -22,3 +22,7 @@ pub fn recovery_inputs(state: &KernelState) -> RecoveryInputs {
         run_validations: pending_validations(state),
     }
 }
+
+#[cfg(test)]
+#[path = "recovery_input_tests/mod.rs"]
+mod tests;

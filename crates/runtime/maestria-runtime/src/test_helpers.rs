@@ -1,4 +1,4 @@
-use super::test_support::*;
+use crate::config::{Adapters, Governance};
 use maestria_governance::{DefaultApprovalGate, DefaultRiskClassifier, DefaultValidationGate};
 use maestria_ports::{
     InMemoryApprovalRepository, InMemoryArtifactRepository, InMemoryBlobStore,

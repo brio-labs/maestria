@@ -1,7 +1,8 @@
 use crate::SqliteStore;
 use maestria_domain::{ScopeId, TaskId};
 use maestria_ports::{
-    EffectJournal, EffectJournalIntent, EffectJournalStatus, HarnessRunId, PortError,
+    EffectJournal, EffectJournalIntent, EffectJournalStatus, HarnessOutcome, HarnessRunId,
+    PortError,
 };
 
 #[test]
@@ -46,6 +47,64 @@ fn journal_lifecycle_success() -> Result<(), Box<dyn std::error::Error>> {
     // 6. Scan in flight is empty
     let in_flight_empty = store.scan_in_flight()?;
     assert!(in_flight_empty.is_empty());
+
+    Ok(())
+}
+
+#[test]
+fn feedback_outcome_survives_completed_terminalization() -> Result<(), Box<dyn std::error::Error>> {
+    let store = SqliteStore::in_memory()?;
+    let run_id = HarnessRunId::new(7);
+    let entry = store.record_intent(EffectJournalIntent {
+        run_id,
+        task_id: None,
+        capability: "shell".to_string(),
+        command: "echo recovered".to_string(),
+        scope_id: ScopeId::new(1),
+        requested_generation: None,
+    })?;
+    let outcome = HarnessOutcome {
+        run_id,
+        command: "echo recovered".to_string(),
+        exit_code: 0,
+        stdout: b"recovered".to_vec(),
+        stderr: Vec::new(),
+        duration: std::time::Duration::from_millis(3),
+        artifacts_created: Vec::new(),
+        diff_summary: None,
+        validation_hints: Vec::new(),
+    };
+
+    store.claim_feedback_with_outcome(run_id, entry.generation, outcome.clone())?;
+    store.record_terminal(run_id, entry.generation, EffectJournalStatus::Completed)?;
+
+    assert_eq!(
+        store.feedback_outcome(run_id, entry.generation)?,
+        Some(outcome)
+    );
+    Ok(())
+}
+
+#[test]
+fn repeated_failed_terminalization_is_idempotent_but_conflicts_fail()
+-> Result<(), Box<dyn std::error::Error>> {
+    let store = SqliteStore::in_memory()?;
+    let run_id = HarnessRunId::new(8);
+    let entry = store.record_intent(EffectJournalIntent {
+        run_id,
+        task_id: None,
+        capability: "shell".to_string(),
+        command: "false".to_string(),
+        scope_id: ScopeId::new(1),
+        requested_generation: None,
+    })?;
+
+    store.record_terminal(run_id, entry.generation, EffectJournalStatus::Failed)?;
+    store.record_terminal(run_id, entry.generation, EffectJournalStatus::Failed)?;
+    assert!(matches!(
+        store.record_terminal(run_id, entry.generation, EffectJournalStatus::Completed),
+        Err(PortError::NotFound)
+    ));
     Ok(())
 }
 

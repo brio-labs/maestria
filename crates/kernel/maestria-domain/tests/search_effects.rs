@@ -2,6 +2,86 @@ use maestria_domain::*;
 
 // ── Search, knowledge, and web effects ────────────────────────────
 
+fn search_plan() -> Result<SearchPlan, DomainError> {
+    Ok(SearchPlan {
+        query_id: QueryId::new(1),
+        original_query: "find notes".to_string(),
+        intent: SearchIntent::ExactLookup,
+        scope: CorpusScope::Global,
+        corpus_snapshot: CorpusSnapshotId::new(1),
+        index_generation: IndexGenerationId::new(1),
+        freshness: FreshnessRequirement::Any,
+        modalities: ModalitySet::new(vec![Modality::Text]),
+        stages: vec![SearchStage::InitialRetrieval],
+        budgets: SearchBudget::new(100, 1_000).map_err(|_| {
+            DomainError::InternalInvariantViolation {
+                detail: "search budget fixture must be valid",
+            }
+        })?,
+        stop_conditions: StopConditions {
+            max_results: 5,
+            min_score_threshold: 0,
+        },
+        evidence_requirements: EvidenceRequirements {
+            require_primary_sources: false,
+            minimum_corroboration: 1,
+            required_claims: vec![],
+            required_subquestions: vec![],
+            minimum_sources: 0,
+            minimum_documents: 0,
+            minimum_sections: 0,
+        },
+        fingerprint: RetrievalModelFingerprint::new("test-model".to_string()).map_err(|_| {
+            DomainError::InternalInvariantViolation {
+                detail: "search fingerprint fixture must be valid",
+            }
+        })?,
+        authorization: Some(maestria_domain::RetrievalPolicySnapshot::global_default()),
+        original_intent: None,
+        route_decision: None,
+    })
+}
+
+fn no_evidence_outcome(plan: &SearchPlan) -> Result<SearchOutcome, DomainError> {
+    let policy_fingerprint = match plan.authorization.as_ref() {
+        Some(authorization) => authorization.canonical_fingerprint(),
+        None => {
+            return Err(DomainError::InternalInvariantViolation {
+                detail: "search fixture requires authorization",
+            });
+        }
+    };
+    let trace = SearchTrace::from_plan(
+        plan,
+        vec![],
+        &[],
+        vec![],
+        None,
+        vec![],
+        SearchStopReason::NoEvidence,
+    )
+    .with_policy_fingerprint(policy_fingerprint);
+    Ok(SearchOutcome {
+        trace: trace.deterministic_id(),
+        trace_data: Some(Box::new(trace)),
+        fingerprint: plan.fingerprint.clone(),
+        index_generation: plan.index_generation,
+        status: SearchStatus::NoEvidenceFound,
+        evidence: vec![],
+        coverage: EvidenceCoverage {
+            percent_covered: 0,
+            gaps_identified: vec![],
+            required_claims: vec![],
+            required_subquestions: vec![],
+            distinct_sources: 0,
+            distinct_documents: 0,
+            distinct_sections: 0,
+            candidate_coverage_keys: vec![],
+        },
+        conflicts: vec![],
+    })
+}
+
 #[test]
 fn search_executed_emits_audit_event_with_evidence_ids() -> Result<(), DomainError> {
     let mut state = KernelState::new();
@@ -97,31 +177,15 @@ fn search_executed_persist_effect_matches_event_envelope() -> Result<(), DomainE
 }
 
 #[test]
-fn search_knowledge_completed_emits_event() -> Result<(), DomainError> {
+fn search_knowledge_completed_emits_only_compatible_event() -> Result<(), DomainError> {
     let mut state = KernelState::new();
-
-    let outcome: maestria_domain::SearchOutcome = serde_json::from_str(
-        r#"{
-        "trace": 1,
-        "fingerprint": "fp1",
-        "index_generation": 1,
-        "status": "Answerable",
-        "evidence": [],
-        "coverage": {
-            "percent_covered": 100,
-            "gaps_identified": []
-        },
-        "conflicts": []
-    }"#,
-    )
-    .map_err(|_| DomainError::InternalInvariantViolation {
-        detail: "search outcome fixture must deserialize",
-    })?;
+    let plan = search_plan()?;
+    let outcome = no_evidence_outcome(&plan)?;
 
     let output = state.apply_input(DomainInput::SearchKnowledgeCompleted(
         maestria_domain::SearchKnowledgeCompleted {
             task_id: None,
-            plan: None,
+            plan: Box::new(plan),
             outcome: outcome.clone(),
         },
     ))?;
@@ -129,12 +193,17 @@ fn search_knowledge_completed_emits_event() -> Result<(), DomainError> {
     assert_eq!(output.events.len(), 1);
     let envelope = &output.events[0];
     match &envelope.event {
-        DomainEvent::SearchKnowledgeCompleted { outcome: out, .. } => {
-            assert_eq!(out.trace, outcome.trace);
+        DomainEvent::SearchKnowledgeCompleted {
+            plan: Some(recorded_plan),
+            outcome: recorded_outcome,
+            ..
+        } => {
+            assert_eq!(recorded_outcome.trace, outcome.trace);
+            assert_eq!(recorded_plan.fingerprint, outcome.fingerprint);
         }
         _ => {
             return Err(DomainError::InternalInvariantViolation {
-                detail: "expected SearchKnowledgeCompleted event",
+                detail: "expected traced SearchKnowledgeCompleted event",
             });
         }
     }
@@ -142,43 +211,33 @@ fn search_knowledge_completed_emits_event() -> Result<(), DomainError> {
 }
 
 #[test]
+fn search_knowledge_completed_rejects_missing_trace_atomically() -> Result<(), DomainError> {
+    let mut state = KernelState::new();
+    let plan = search_plan()?;
+    let mut outcome = no_evidence_outcome(&plan)?;
+    outcome.trace_data = None;
+
+    let result = state.apply_input(DomainInput::SearchKnowledgeCompleted(
+        maestria_domain::SearchKnowledgeCompleted {
+            task_id: None,
+            plan: Box::new(plan),
+            outcome,
+        },
+    ));
+
+    assert!(matches!(
+        result,
+        Err(DomainError::SearchIncompatible {
+            error: SearchCompatibilityError::TracePlanMismatch("trace data is missing")
+        })
+    ));
+    assert!(state.event_log.is_empty());
+    Ok(())
+}
+
+#[test]
 fn search_knowledge_request_emits_effect() -> Result<(), DomainError> {
-    let plan = SearchPlan {
-        query_id: QueryId::new(1),
-        original_query: "find notes".to_string(),
-        intent: SearchIntent::ExactLookup,
-        scope: CorpusScope::Global,
-        corpus_snapshot: CorpusSnapshotId::new(1),
-        index_generation: IndexGenerationId::new(1),
-        freshness: FreshnessRequirement::Any,
-        modalities: ModalitySet::new(vec![Modality::Text]),
-        stages: vec![SearchStage::InitialRetrieval],
-        budgets: SearchBudget::new(100, 1_000).map_err(|_| {
-            DomainError::InternalInvariantViolation {
-                detail: "search budget fixture must be valid",
-            }
-        })?,
-        stop_conditions: StopConditions {
-            max_results: 5,
-            min_score_threshold: 0,
-        },
-        evidence_requirements: EvidenceRequirements {
-            require_primary_sources: false,
-            minimum_corroboration: 1,
-            required_claims: vec![],
-            required_subquestions: vec![],
-            minimum_sources: 0,
-            minimum_documents: 0,
-            minimum_sections: 0,
-        },
-        fingerprint: RetrievalModelFingerprint::new("test-model".to_string()).map_err(|_| {
-            DomainError::InternalInvariantViolation {
-                detail: "search fingerprint fixture must be valid",
-            }
-        })?,
-        original_intent: None,
-        route_decision: None,
-    };
+    let plan = search_plan()?;
     let mut state = KernelState::new();
     let output = state.apply_input(DomainInput::SearchKnowledgeRequested(
         SearchKnowledgeRequested {
@@ -197,6 +256,29 @@ fn search_knowledge_request_emits_effect() -> Result<(), DomainError> {
         }
     }
     assert!(output.events.is_empty());
+    Ok(())
+}
+
+#[test]
+fn search_knowledge_request_rejects_invalid_plan() -> Result<(), DomainError> {
+    let mut state = KernelState::new();
+    let mut plan = search_plan()?;
+    plan.original_query = "   ".to_string();
+
+    let result = state.apply_input(DomainInput::SearchKnowledgeRequested(
+        SearchKnowledgeRequested {
+            task_id: None,
+            plan,
+        },
+    ));
+
+    assert!(matches!(
+        result,
+        Err(DomainError::SearchIncompatible {
+            error: SearchCompatibilityError::InvalidPlan("original_query must not be empty")
+        })
+    ));
+    assert!(state.event_log.is_empty());
     Ok(())
 }
 

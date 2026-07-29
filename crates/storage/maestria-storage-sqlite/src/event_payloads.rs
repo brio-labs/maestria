@@ -150,9 +150,16 @@ pub(crate) enum StoredEventPayload {
         command: String,
         exit_code: i32,
     },
+    ModelAgentProposalRequested {
+        request: maestria_domain::ModelAgentProposalRequest,
+    },
+    ModelAgentProposalCompleted {
+        result: maestria_domain::ModelAgentProposalResult,
+    },
     ApprovalRecorded {
         approval_id: u64,
-        task_id: u64,
+        #[serde(default)]
+        task_id: Option<u64>,
         approved: bool,
         from_status: Option<StoredTaskStatus>,
         to_status: Option<StoredTaskStatus>,

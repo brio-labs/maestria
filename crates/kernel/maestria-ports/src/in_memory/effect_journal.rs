@@ -1,5 +1,6 @@
 use std::sync::{Mutex, MutexGuard};
 
+use crate::HarnessOutcome;
 use maestria_domain::HarnessRunId;
 
 use crate::{
@@ -52,6 +53,7 @@ impl EffectJournal for InMemoryEffectJournal {
             scope_id: intent.scope_id,
             generation,
             status: EffectJournalStatus::Intent,
+            feedback: None,
         };
         entries.push(entry.clone());
         Ok(entry)
@@ -71,20 +73,29 @@ impl EffectJournal for InMemoryEffectJournal {
         Ok(())
     }
     fn claim_feedback(&self, run_id: HarnessRunId, generation: u64) -> Result<(), PortError> {
-        let mut entries = self.lock()?;
-        let entry = entries
-            .iter_mut()
-            .find(|entry| {
-                entry.run_id == run_id
-                    && entry.generation == generation
-                    && matches!(
-                        entry.status,
-                        EffectJournalStatus::Intent | EffectJournalStatus::Started
-                    )
-            })
-            .ok_or(PortError::NotFound)?;
-        entry.status = EffectJournalStatus::FeedbackAccepted;
-        Ok(())
+        self.claim_feedback_inner(run_id, generation, None)
+    }
+
+    fn claim_feedback_with_outcome(
+        &self,
+        run_id: HarnessRunId,
+        generation: u64,
+        outcome: HarnessOutcome,
+    ) -> Result<(), PortError> {
+        self.claim_feedback_inner(run_id, generation, Some(outcome))
+    }
+
+    fn feedback_outcome(
+        &self,
+        run_id: HarnessRunId,
+        generation: u64,
+    ) -> Result<Option<HarnessOutcome>, PortError> {
+        Ok(self
+            .lock()?
+            .iter()
+            .rev()
+            .find(|entry| entry.run_id == run_id && entry.generation == generation)
+            .and_then(|entry| entry.feedback.clone()))
     }
 
     fn record_terminal(
@@ -108,17 +119,19 @@ impl EffectJournal for InMemoryEffectJournal {
         let mut entries = self.lock()?;
         let entry = entries
             .iter_mut()
-            .find(|entry| {
-                entry.run_id == run_id
-                    && entry.generation == generation
-                    && matches!(
-                        entry.status,
-                        EffectJournalStatus::Intent
-                            | EffectJournalStatus::Started
-                            | EffectJournalStatus::FeedbackAccepted
-                    )
-            })
+            .find(|entry| entry.run_id == run_id && entry.generation == generation)
             .ok_or(PortError::NotFound)?;
+        if entry.status == status {
+            return Ok(());
+        }
+        if !matches!(
+            entry.status,
+            EffectJournalStatus::Intent
+                | EffectJournalStatus::Started
+                | EffectJournalStatus::FeedbackAccepted
+        ) {
+            return Err(PortError::NotFound);
+        }
         entry.status = status;
         Ok(())
     }
@@ -168,6 +181,31 @@ impl EffectJournal for InMemoryEffectJournal {
     }
 }
 
+impl InMemoryEffectJournal {
+    fn claim_feedback_inner(
+        &self,
+        run_id: HarnessRunId,
+        generation: u64,
+        feedback: Option<HarnessOutcome>,
+    ) -> Result<(), PortError> {
+        let mut entries = self.lock()?;
+        let entry = entries
+            .iter_mut()
+            .find(|entry| {
+                entry.run_id == run_id
+                    && entry.generation == generation
+                    && matches!(
+                        entry.status,
+                        EffectJournalStatus::Intent | EffectJournalStatus::Started
+                    )
+            })
+            .ok_or(PortError::NotFound)?;
+        entry.status = EffectJournalStatus::FeedbackAccepted;
+        entry.feedback = feedback;
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use maestria_domain::{HarnessRunId, ScopeId};
@@ -197,6 +235,16 @@ mod tests {
             entry.generation,
             EffectJournalStatus::Completed,
         )?;
+        journal.record_terminal(
+            entry.run_id,
+            entry.generation,
+            EffectJournalStatus::Completed,
+        )?;
+        assert!(
+            journal
+                .record_terminal(entry.run_id, entry.generation, EffectJournalStatus::Failed,)
+                .is_err_and(|error| error == PortError::NotFound)
+        );
         assert!(!journal.is_current(entry.run_id, entry.generation)?);
         Ok(())
     }
@@ -244,6 +292,34 @@ mod tests {
         let result =
             journal.record_terminal(entry.run_id, entry.generation, EffectJournalStatus::Started);
         assert!(result.is_err_and(|error| error.is_invalid_input()));
+        Ok(())
+    }
+    #[test]
+    fn accepted_feedback_retains_success_for_recovery() -> Result<(), PortError> {
+        let journal = InMemoryEffectJournal::default();
+        let entry = journal.record_intent(intent(3, None))?;
+        journal.record_started(entry.run_id, entry.generation)?;
+        let outcome = HarnessOutcome {
+            run_id: entry.run_id,
+            command: "true".to_string(),
+            exit_code: 0,
+            stdout: b"ok".to_vec(),
+            stderr: Vec::new(),
+            duration: std::time::Duration::from_millis(1),
+            artifacts_created: Vec::new(),
+            diff_summary: None,
+            validation_hints: Vec::new(),
+        };
+        journal.claim_feedback_with_outcome(entry.run_id, entry.generation, outcome.clone())?;
+        journal.record_terminal(
+            entry.run_id,
+            entry.generation,
+            EffectJournalStatus::Completed,
+        )?;
+        assert_eq!(
+            journal.feedback_outcome(entry.run_id, entry.generation)?,
+            Some(outcome)
+        );
         Ok(())
     }
 }

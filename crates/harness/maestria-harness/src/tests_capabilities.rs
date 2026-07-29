@@ -1,5 +1,5 @@
 use super::test_helpers::adapter;
-use super::*;
+use maestria_ports::{HarnessAdapter, HarnessCommandClass};
 
 #[tokio::test]
 async fn capabilities_report_shell_only() -> Result<(), Box<dyn std::error::Error>> {

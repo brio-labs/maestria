@@ -4,7 +4,7 @@ use maestria_domain::{ArtifactId, Card, CardId, ClaimId};
 use maestria_ports::{CardRepository, PortError};
 use rusqlite::{Connection, Row, Transaction, params};
 
-use crate::{i64_to_u64, to_port_error, u64_to_i64};
+use crate::sqlite_store::{i64_to_u64, json_error, to_port_error, u64_to_i64};
 
 impl CardRepository for crate::SqliteStore {
     fn get(&self, card_id: CardId) -> Result<Option<Card>, PortError> {
@@ -40,8 +40,8 @@ impl CardRepository for crate::SqliteStore {
                     card.title,
                     card.body,
                     u64_to_i64(card.node_id.value())?,
-                    serde_json::to_string(&crate::payloads::provenance_payloads::StoredSourceSpan::from(card.source_span)).map_err(crate::json_error)?,
-                    serde_json::to_string(&card.security).map_err(crate::json_error)?,
+                    serde_json::to_string(&crate::payloads::provenance_payloads::StoredSourceSpan::from(card.source_span)).map_err(json_error)?,
+                    serde_json::to_string(&card.security).map_err(json_error)?,
                 ],
             )
             .map_err(to_port_error)?;
@@ -90,7 +90,7 @@ fn read_card(row: &Row<'_>, connection: &Connection) -> Result<Card, PortError> 
     let source_span = match source_span_json {
         Some(json) => {
             serde_json::from_str::<crate::payloads::provenance_payloads::StoredSourceSpan>(&json)
-                .map_err(crate::json_error)?
+                .map_err(json_error)?
                 .into()
         }
         None => {
@@ -103,7 +103,7 @@ fn read_card(row: &Row<'_>, connection: &Connection) -> Result<Card, PortError> 
     };
 
     let security_json = row.get::<_, String>(6).map_err(to_port_error)?;
-    let security = serde_json::from_str(&security_json).map_err(crate::json_error)?;
+    let security = serde_json::from_str(&security_json).map_err(json_error)?;
 
     Ok(Card {
         id,

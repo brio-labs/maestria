@@ -1,5 +1,7 @@
 #[path = "search_runtime_construction.rs"]
 mod construction;
+#[path = "search_executor_port.rs"]
+mod port;
 #[path = "search_executor_projection.rs"]
 mod projection;
 #[path = "repository_code_loader.rs"]
@@ -15,12 +17,10 @@ pub(crate) use repository_code_loader::load_repository_code_index_with_exclusion
 mod tests;
 use std::{
     collections::{BTreeMap, BTreeSet},
-    future::Future,
-    pin::Pin,
     sync::Arc,
 };
 
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Result, anyhow};
 use maestria_blob_fs::FsBlobStore;
 use maestria_code_intel::RepositoryCodeIndex;
 use maestria_core::{InstanceLayout, InstanceManifest};
@@ -32,7 +32,7 @@ use maestria_domain::{
 use maestria_graph_sqlite::SqliteGraphIndex;
 use maestria_ports::{
     ArtifactRepository, BlobStore, CardRepository, ChunkRepository, EmbeddingProvider, EventFilter,
-    EventLog, EvidenceRepository, FullTextIndex, GraphIndex, SearchKnowledgeExecutor, VectorIndex,
+    EventLog, EvidenceRepository, FullTextIndex, GraphIndex, VectorIndex,
 };
 use maestria_retrieval::adapters::{
     CardRetriever, CardRetrieverParts, CodeIntelRetriever, CodeIntelRetrieverParts,
@@ -298,7 +298,6 @@ impl SearchRuntime {
                     evidence: self.evidence.clone(),
                     blobs: self.blobs.clone(),
                 },
-                self.retrieval_policy.clone(),
                 self.primary_generation,
             )),
             active_versions.clone(),
@@ -307,7 +306,6 @@ impl SearchRuntime {
         if let Some(index) = self.repository_code_index.clone() {
             retrievers.push(Arc::new(CodeIntelRetriever::new(
                 CodeIntelRetrieverParts { index },
-                self.retrieval_policy.clone(),
                 self.primary_generation,
             )));
         }
@@ -326,7 +324,6 @@ impl SearchRuntime {
                         blobs: self.blobs.clone(),
                         embedding_provider: provider,
                     },
-                    self.retrieval_policy.clone(),
                     generation,
                 )),
                 active_versions.clone(),
@@ -353,7 +350,6 @@ impl SearchRuntime {
                     evidence: self.evidence.clone(),
                     blobs: self.blobs.clone(),
                 },
-                self.retrieval_policy.clone(),
             )));
         }
         Ok(engine
@@ -406,27 +402,5 @@ impl SearchRuntime {
         tokio::task::spawn_blocking(move || runtime.execute_search_blocking(query, limit))
             .await
             .map_err(|error| anyhow!("search worker failed: {error}"))?
-    }
-}
-
-impl SearchKnowledgeExecutor for SearchRuntime {
-    fn search(
-        &self,
-        plan: SearchPlan,
-    ) -> Pin<Box<dyn Future<Output = Result<SearchOutcome, maestria_ports::PortError>> + Send + '_>>
-    {
-        let runtime = self.clone();
-        Box::pin(async move {
-            tokio::task::spawn_blocking(move || runtime.execute_plan_blocking(plan))
-                .await
-                .map_err(|error| maestria_ports::PortError::InternalContext {
-                    context: "search worker",
-                    source: error.to_string(),
-                })?
-                .map_err(|error| maestria_ports::PortError::InternalContext {
-                    context: "search plan execution",
-                    source: error.to_string(),
-                })
-        })
     }
 }

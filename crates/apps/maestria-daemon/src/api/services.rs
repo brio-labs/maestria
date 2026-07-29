@@ -7,16 +7,14 @@ use anyhow::{Context, Result, anyhow};
 use maestria_blob_fs::FsBlobStore;
 use maestria_core::{CorePorts, CoreServices, InstanceLayout, InstanceManifest, OpenEvidenceInput};
 use maestria_domain::{
-    ClaimId, DomainEvent, DomainInput, Evidence, EvidenceCandidate, EvidenceId, EvidenceKind,
-    EvidenceSpan, HarnessRunCompleted, HarnessRunId, KernelState, MemoryCandidateId,
-    RetrievalRawRank, RetrievalScoreKind, RetrievalScoreScale, ScopeId, SearchOutcome, Task,
-    TaskId,
+    ApprovalDecision, ApprovalId, DomainEvent, DomainInput, Evidence, EvidenceCandidate,
+    EvidenceId, EvidenceKind, EvidenceSpan, HarnessRunId, KernelState, RetrievalRawRank,
+    RetrievalScoreKind, RetrievalScoreScale, ScopeId, SearchOutcome, Task, TaskId,
 };
-use maestria_governance::{PrivacyExclusions, ValidationRequest};
+use maestria_governance::PrivacyExclusions;
 use maestria_parsers::ParserRegistry;
 use maestria_ports::{
-    ArtifactRepository, EffectJournalIntent, EffectJournalStatus, EvidenceRepository,
-    HarnessRequest, ModelAgentProposal,
+    ApprovalRepository, ArtifactRepository, EffectJournal, EvidenceRepository, ModelAgentProposal,
 };
 use maestria_search_tantivy::TantivyFullTextIndex;
 use maestria_storage_sqlite::SqliteStore;
@@ -24,10 +22,9 @@ use maestria_storage_sqlite::SqliteStore;
 use super::server::ApiContext;
 use super::{
     ClientOperation, ClientResponse, CoverageResponse, EvidenceResponse, EvidenceSourceResponse,
-    ModelAgentHarnessOutcome, ModelAgentMemoryCandidateSummary, ModelAgentProposalPayload,
-    ModelAgentProposalResponse, ModelAgentValidationSummary, SearchEvidenceResponse,
-    SearchRawRankResponse, SearchResponse, SearchScoreResponse, SearchScoreScaleResponse,
-    StatusResponse, TaskResponse, TaskSummary,
+    ModelAgentProposalPayload, ModelAgentProposalResponse, ModelAgentStatusResponse,
+    SearchEvidenceResponse, SearchRawRankResponse, SearchResponse, SearchScoreResponse,
+    SearchScoreScaleResponse, StatusResponse, TaskResponse, TaskSummary,
 };
 
 const MAX_SEARCH_LIMIT: usize = 100;
@@ -73,6 +70,19 @@ pub(crate) async fn dispatch(
         ClientOperation::ModelAgentPropose { proposal } => {
             handle_model_agent_propose(context, proposal).await
         }
+        ClientOperation::ModelAgentStatus { run_id } => {
+            let layout = context.layout.clone();
+            let response = run_database_retry("model-agent status", move || {
+                model_agent_status(&layout, run_id)
+            })
+            .await?;
+            Ok(ClientResponse::ModelAgentStatus(response))
+        }
+        ClientOperation::ModelAgentResolve {
+            run_id,
+            approval_id,
+            approved,
+        } => handle_model_agent_resolution(context, run_id, approval_id, approved).await,
     }
 }
 
@@ -136,433 +146,212 @@ fn validate_proposal_against_state(
 
     proposal
         .validate(cur_gen, &available_evidence)
-        .map_err(|error| anyhow!("proposal validation failed: {error}"))
-}
-
-/// Accumulated side-effects produced by executing a model-agent proposal.
-///
-/// Required effects either complete or return a typed [`ProposalEffectFailure`]. Warnings are
-/// reserved for non-fatal validation diagnostics.
-struct ProposalEffects {
-    trace_id: Option<u64>,
-    evidence_count: usize,
-    harness: Option<ModelAgentHarnessOutcome>,
-    validation: Option<ModelAgentValidationSummary>,
-    memory_candidate: Option<ModelAgentMemoryCandidateSummary>,
-    warnings: Vec<String>,
-}
-
-#[derive(Debug)]
-enum ProposalEffectFailure {
-    Search { message: String },
-    Harness { message: String },
-    CompletionDelivery { message: String },
-    CandidateDelivery { message: String },
-    Journal { message: String },
-}
-
-impl std::fmt::Display for ProposalEffectFailure {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Search { message } => write!(formatter, "search effect failed: {message}"),
-            Self::Harness { message } => write!(formatter, "harness effect failed: {message}"),
-            Self::CompletionDelivery { message } => {
-                write!(formatter, "harness completion delivery failed: {message}")
-            }
-            Self::CandidateDelivery { message } => {
-                write!(formatter, "memory candidate delivery failed: {message}")
-            }
-            Self::Journal { message } => write!(formatter, "effect journal failure: {message}"),
-        }
-    }
-}
-
-impl std::error::Error for ProposalEffectFailure {}
-
-/// Orchestrates the side-effects of a proposal: search, harness, validation, and memory promotion.
-///
-/// Ordering invariant: search runs first (if a query is present), then harness execution
-/// (if a command is present), then validation, and finally memory-candidate creation.
-///
-/// Required effect failures abort the workflow with a typed error. Harness failures terminalize
-/// the durable effect journal as `Failed`; failures delivering feedback or a memory candidate
-/// pause the harness generation so recovery can resume it.
-async fn execute_proposal_effects(
-    context: &ApiContext,
-    proposal: &ModelAgentProposal,
-    governed: &maestria_ports::GovernedAgentProposal,
-    state: &KernelState,
-) -> std::result::Result<ProposalEffects, ProposalEffectFailure> {
-    let mut trace_id = None;
-    let mut evidence_count = 0usize;
-    if !governed.search_query.trim().is_empty() {
-        let (_plan, outcome) = search_knowledge(context, governed).await.map_err(|error| {
-            ProposalEffectFailure::Search {
-                message: error.to_string(),
-            }
-        })?;
-        trace_id = Some(outcome.trace.value());
-        evidence_count = outcome.evidence.len();
-    }
-
-    let (harness, harness_generation) = if !governed.harness.command.trim().is_empty() {
-        let (outcome, generation) = execute_governed_harness(context, proposal, governed).await?;
-        let completion = HarnessRunCompleted {
-            run_id: governed.harness.run_id,
-            generation,
-            task_id: proposal.task_id,
-            command: governed.harness.command.clone(),
-            exit_code: outcome.exit_code,
-            output: String::from_utf8_lossy(&outcome.stdout).to_string(),
-        };
-        if let Err(error) = context
-            .input_tx
-            .send(DomainInput::HarnessRunCompleted(completion))
-            .await
-        {
-            let failure = ProposalEffectFailure::CompletionDelivery {
-                message: format!("channel closed ({error})"),
-            };
-            return Err(terminalize_harness_failure(
-                context,
-                governed.harness.run_id,
-                generation,
-                EffectJournalStatus::Paused,
-                failure,
-            ));
-        }
-        (
-            Some(ModelAgentHarnessOutcome {
-                exit_code: outcome.exit_code,
-                stdout: truncate_utf8(&outcome.stdout, 4096),
-                stderr: truncate_utf8(&outcome.stderr, 4096),
-                duration_ms: outcome.duration.as_millis() as u64,
-            }),
-            Some(generation),
-        )
-    } else {
-        (None, None)
-    };
-
-    let (validation, validation_warning) = evaluate_validation_gate(context, proposal, state);
-    let mut warnings = Vec::new();
-    if let Some(warning) = validation_warning {
-        warnings.push(warning);
-    }
-    let memory_candidate =
-        create_memory_candidate(context, governed, state, &harness, harness_generation).await?;
-
-    Ok(ProposalEffects {
-        trace_id,
-        evidence_count,
-        harness,
-        validation,
-        memory_candidate,
-        warnings,
-    })
-}
-
-fn evaluate_validation_gate(
-    context: &ApiContext,
-    proposal: &ModelAgentProposal,
-    state: &KernelState,
-) -> (Option<ModelAgentValidationSummary>, Option<String>) {
-    let Some(task_id) = proposal.task_id else {
-        return (None, None);
-    };
-    let Some(task) = state.tasks.get(&task_id) else {
-        return (
-            None,
-            Some("referenced task not found in kernel state".into()),
-        );
-    };
-    let request = ValidationRequest {
-        task: task.clone(),
-        validation_report: None,
-        proposed_status: maestria_domain::TaskStatus::CompletedVerified,
-    };
-    let summary = match context.governance.validation_gate.evaluate(&request) {
-        maestria_governance::ValidationDecision::AllowCompletion => {
-            Some(ModelAgentValidationSummary {
-                passed: true,
-                warnings: Vec::new(),
-            })
-        }
-        _ => Some(ModelAgentValidationSummary {
-            passed: false,
-            warnings: vec!["validation gate did not allow completion".into()],
-        }),
-    };
-    (summary, None)
-}
-
-async fn create_memory_candidate(
-    context: &ApiContext,
-    governed: &maestria_ports::GovernedAgentProposal,
-    state: &KernelState,
-    harness: &Option<ModelAgentHarnessOutcome>,
-    harness_generation: Option<u64>,
-) -> std::result::Result<Option<ModelAgentMemoryCandidateSummary>, ProposalEffectFailure> {
-    if harness.is_none() || governed.evidence_ids.is_empty() {
-        return Ok(None);
-    }
-    let candidate_id = MemoryCandidateId::new(
-        state
-            .memory_candidates
-            .keys()
-            .map(|id| id.value())
-            .fold(0, u64::max)
-            + 1,
-    );
-    let candidate = maestria_domain::MemoryCandidate {
-        id: candidate_id,
-        claim_id: ClaimId::new(1),
-        evidence_ids: governed.evidence_ids.iter().copied().collect(),
-        confidence_milli: 800,
-        security: maestria_domain::SecurityMetadata::default(),
-    };
-    let request = maestria_governance::MemoryPromotionRequest {
-        candidate: candidate.clone(),
-        user_approved: false,
-    };
-    let decision = context.governance.memory_promotion_gate.evaluate(&request);
-    let decision_str = match &decision {
-        maestria_governance::MemoryPromotionDecision::Promote => "promote",
-        maestria_governance::MemoryPromotionDecision::RequireEvidence { .. } => "require_evidence",
-        maestria_governance::MemoryPromotionDecision::RequireReview { .. } => "require_review",
-        maestria_governance::MemoryPromotionDecision::Deny { .. } => "deny",
-    };
-    match context
-        .input_tx
-        .send(DomainInput::CreateMemoryCandidate(
-            maestria_domain::CreateMemoryCandidateInput {
-                candidate_id,
-                claim_id: ClaimId::new(1),
-                evidence_ids: governed.evidence_ids.clone(),
-                confidence_milli: 800,
-                security: None,
-            },
-        ))
-        .await
-    {
-        Ok(()) => Ok(Some(ModelAgentMemoryCandidateSummary {
-            candidate_id: candidate_id.value(),
-            confidence_milli: 800,
-            decision: decision_str.to_string(),
-        })),
-        Err(error) => {
-            let failure = ProposalEffectFailure::CandidateDelivery {
-                message: format!("channel closed ({error})"),
-            };
-            match harness_generation {
-                Some(generation) => Err(terminalize_harness_failure(
-                    context,
-                    governed.harness.run_id,
-                    generation,
-                    EffectJournalStatus::Paused,
-                    failure,
-                )),
-                None => Err(failure),
-            }
-        }
-    }
+        .map_err(anyhow::Error::new)
 }
 
 async fn handle_model_agent_propose(
     context: &ApiContext,
     payload: ModelAgentProposalPayload,
 ) -> Result<ClientResponse> {
+    let task_validation = payload.task_validation;
+    let memory_candidate = payload.memory_candidate;
     let proposal = build_proposal(payload);
-    let state = crate::load_kernel_state(&context.layout)
+    let state = crate::instance_setup::load_kernel_state(&context.layout)
         .with_context(|| "load kernel state for proposal validation")?;
-    let governed = validate_proposal_against_state(&proposal, &state)?;
-    let effects = execute_proposal_effects(context, &proposal, &governed, &state).await?;
+    validate_proposal_against_state(&proposal, &state)?;
+    let Some(runtime) = context.runtime.clone() else {
+        return Err(anyhow!(
+            "model-agent proposal requires the canonical runtime command path"
+        ));
+    };
+    let result = runtime
+        .submit(DomainInput::ModelAgentProposalRequested(
+            maestria_domain::ModelAgentProposalRequest {
+                run_id: proposal.run_id,
+                task_id: proposal.task_id,
+                query: proposal.query,
+                limit: proposal.limit,
+                evidence_ids: proposal.evidence_ids.clone(),
+                capability: proposal.capability,
+                command: proposal.command,
+                working_directory: proposal.working_directory.display().to_string(),
+                timeout_secs: proposal.timeout.as_secs(),
+                expected_generation: proposal.expected_generation,
+                task_validation,
+                memory_candidate,
+                approval_id: None,
+                journal_generation: None,
+                correlation_id: 0,
+            },
+        ))
+        .await
+        .map_err(|error| anyhow!("model-agent proposal was not accepted: {error}"))?;
 
     Ok(ClientResponse::ModelAgentProposal(
         ModelAgentProposalResponse {
             run_id: proposal.run_id.value(),
-            trace_id: effects.trace_id,
+            correlation_id: result.correlation_id,
+            status: "accepted".to_string(),
+            approval_id: None,
+            trace_id: None,
             index_generation: current_generation(&state),
-            evidence_count: effects.evidence_count,
-            harness: effects.harness,
-            validation: effects.validation,
-            memory_candidate: effects.memory_candidate,
-            warnings: effects.warnings,
+            evidence_count: proposal.evidence_ids.len(),
+            harness: None,
+            validation: None,
+            memory_candidate: None,
+            warnings: vec![format!(
+                "runtime accepted proposal correlation {} with deferred query, validation, \
+                 memory, and harness outcomes; use model_agent_status",
+                result.correlation_id
+            )],
         },
     ))
 }
 
-async fn prepare_read_only_search_runtime(
-    context: &ApiContext,
-) -> Result<Arc<crate::SearchRuntime>> {
-    let layout = context.layout.clone();
-    let (state, manifest) = tokio::task::spawn_blocking(move || load_state_and_manifest(&layout))
-        .await
-        .map_err(|error| anyhow!("load search state task failed: {error}"))??;
-    let layout = context.layout.clone();
-    let runtime = tokio::task::spawn_blocking(move || {
-        crate::prepare_search_runtime_read_only(
-            &layout,
-            &state,
-            &manifest,
-            maestria_governance::RetrievalSecurityPolicy::default()
-                .require_read_allowed(true)
-                .allow_unscoped_items(true),
-        )
-    })
-    .await
-    .map_err(|error| anyhow!("prepare search runtime task failed: {error}"))??;
-    Ok(runtime)
+fn pending_proposal_identity(capability: &str) -> Option<(u64, u64)> {
+    let token = capability.strip_prefix("model_agent_pending:")?;
+    let value = serde_json::from_str::<serde_json::Value>(token).ok()?;
+    let run_id = value.get("proposal")?.get("run_id")?.as_u64()?;
+    let correlation_id = value.get("correlation_id")?.as_u64()?;
+    Some((run_id, correlation_id))
 }
 
-async fn search_knowledge(
+async fn handle_model_agent_resolution(
     context: &ApiContext,
-    governed: &maestria_ports::GovernedAgentProposal,
-) -> Result<(maestria_domain::SearchPlan, maestria_domain::SearchOutcome)> {
-    let runtime = prepare_read_only_search_runtime(context).await?;
-    runtime
-        .execute(governed.search_query.clone(), governed.search_limit)
-        .await
-}
-
-async fn execute_governed_harness(
-    context: &ApiContext,
-    proposal: &ModelAgentProposal,
-    governed: &maestria_ports::GovernedAgentProposal,
-) -> std::result::Result<(maestria_ports::HarnessOutcome, u64), ProposalEffectFailure> {
-    let harness = &context.adapters.harness;
-    let capabilities = harness
-        .capabilities()
-        .map_err(|error| ProposalEffectFailure::Harness {
-            message: format!("harness capabilities: {error}"),
-        })?;
-
-    if !capabilities
-        .command_classes
-        .contains(&governed.harness.class)
-    {
-        return Err(ProposalEffectFailure::Harness {
-            message: format!(
-                "harness adapter does not support capability {:?}",
-                governed.harness.class
-            ),
-        });
-    }
-
-    let command = governed.harness.command.trim();
-    if command.is_empty() {
-        return Err(ProposalEffectFailure::Harness {
-            message: "harness command must not be empty".to_string(),
-        });
-    }
-    let allowed_commands = ["echo", "pwd", "cat"];
-    let Some(first_word) = command.split_ascii_whitespace().next() else {
-        return Err(ProposalEffectFailure::Harness {
-            message: "harness command must contain a command name".to_string(),
-        });
-    };
-    if !allowed_commands.contains(&first_word) {
-        return Err(ProposalEffectFailure::Harness {
-            message: format!("command not in allowed set: {first_word}"),
-        });
-    }
-    let prohibited_chars = &[
-        '|', '&', ';', '$', '`', '(', ')', '{', '}', '<', '>', '\\', '!', '~', '*', '?',
-    ];
-    if command.contains(prohibited_chars) {
-        return Err(ProposalEffectFailure::Harness {
-            message: "command contains prohibited shell metacharacters".to_string(),
-        });
-    }
-
-    let scope = harness_scope(context, &governed.harness.working_directory).map_err(|error| {
-        ProposalEffectFailure::Harness {
-            message: error.to_string(),
-        }
-    })?;
-
-    let request = HarnessRequest {
-        run_id: governed.harness.run_id,
-        command: command.to_string(),
-        working_directory: governed.harness.working_directory.clone(),
-        duration_budget: governed.harness.duration_budget,
-        class: governed.harness.class.clone(),
-        readable_roots: scope.readable_roots().to_vec(),
-        blocked_paths: scope.blocked_paths().to_vec(),
-        blocked_patterns: scope.blocked_patterns().to_vec(),
-    };
-
-    let generation = record_harness_start(context, proposal, governed, command)?;
-    let outcome = match harness.execute(request).await {
-        Ok(outcome) => outcome,
-        Err(error) => {
-            let failure = ProposalEffectFailure::Harness {
-                message: format!("harness execution failed: {error}"),
-            };
-            return Err(terminalize_harness_failure(
-                context,
-                governed.harness.run_id,
-                generation,
-                EffectJournalStatus::Failed,
-                failure,
-            ));
-        }
-    };
-    if let Err(error) = context
-        .adapters
-        .effect_journal
-        .claim_feedback(governed.harness.run_id, generation)
-    {
-        let failure = ProposalEffectFailure::Harness {
-            message: format!("failed to claim harness feedback: {error}"),
-        };
-        return Err(terminalize_harness_failure(
-            context,
-            governed.harness.run_id,
-            generation,
-            EffectJournalStatus::Failed,
-            failure,
-        ));
-    }
-
-    Ok((outcome, generation))
-}
-
-fn harness_scope(
-    context: &ApiContext,
-    working_directory: &std::path::Path,
-) -> Result<maestria_governance::Scope> {
-    let manifest = InstanceManifest::decode(&fs::read_to_string(&context.layout.manifest_path)?)
-        .map_err(|error| anyhow!("parse instance manifest: {error}"))?;
-    let working_directory = working_directory.canonicalize().with_context(|| {
-        format!(
-            "canonicalize working directory {}",
-            working_directory.display()
-        )
-    })?;
-    let roots = manifest
-        .read_roots
-        .iter()
-        .map(|root| {
-            root.canonicalize()
-                .with_context(|| format!("canonicalize manifest read root {}", root.display()))
-        })
-        .collect::<Result<Vec<_>>>()?;
-    if roots.is_empty() {
-        return Err(anyhow!("no valid read roots in manifest"));
-    }
-    if !roots.iter().any(|root| working_directory.starts_with(root)) {
+    run_id: u64,
+    approval_id: u64,
+    approved: bool,
+) -> Result<ClientResponse> {
+    let store = SqliteStore::open(&context.layout.database_path)?;
+    let record = store
+        .find_by_id(ApprovalId::new(approval_id))?
+        .ok_or_else(|| anyhow!("model-agent approval {approval_id} does not exist"))?;
+    let (pending_run_id, correlation_id) = pending_proposal_identity(&record.capability)
+        .ok_or_else(|| anyhow!("approval {approval_id} is not a model-agent proposal"))?;
+    if pending_run_id != run_id {
         return Err(anyhow!(
-            "working directory {} is outside instance read roots",
-            working_directory.display()
+            "approval {approval_id} belongs to model-agent run {pending_run_id}, not {run_id}"
         ));
     }
-    Ok(
-        maestria_governance::Scope::new(roots, vec![], vec!["shell".into()], vec![], false)
-            .with_blocked_patterns(runtime_blocked_patterns(&manifest)),
-    )
+    let Some(runtime) = context.runtime.clone() else {
+        return Err(anyhow!(
+            "model-agent approval requires the canonical runtime command path"
+        ));
+    };
+    runtime
+        .submit(DomainInput::ApprovalResolved(ApprovalDecision {
+            approval_id: record.id,
+            task_id: record.task_id,
+            approved,
+            affects_task: false,
+        }))
+        .await
+        .map_err(|error| anyhow!("model-agent approval was not accepted: {error}"))?;
+    Ok(ClientResponse::ModelAgentStatus(ModelAgentStatusResponse {
+        run_id,
+        correlation_id: Some(correlation_id),
+        status: if approved {
+            "approval_recorded"
+        } else {
+            "denial_recorded"
+        }
+        .to_string(),
+        approval_id: Some(approval_id),
+        journal_generation: None,
+        trace_id: None,
+        evidence_count: 0,
+        harness: None,
+        validation: None,
+        memory_candidate: None,
+        error: None,
+    }))
 }
 
+fn model_agent_status(layout: &InstanceLayout, run_id: u64) -> Result<ModelAgentStatusResponse> {
+    let state = crate::instance_setup::load_kernel_state(layout)
+        .map_err(|error| anyhow!("load model-agent terminal result state: {error:#}"))?;
+    if let Some(result) = state
+        .model_agent_results
+        .get(&maestria_domain::HarnessRunId::new(run_id))
+    {
+        return Ok(ModelAgentStatusResponse {
+            run_id,
+            correlation_id: Some(result.correlation_id),
+            status: match result.status {
+                maestria_domain::ModelAgentTerminalStatus::Succeeded => "succeeded",
+                maestria_domain::ModelAgentTerminalStatus::Failed => "failed",
+            }
+            .to_string(),
+            approval_id: None,
+            journal_generation: None,
+            trace_id: result.search.as_ref().map(|search| search.trace_id),
+            evidence_count: result
+                .search
+                .as_ref()
+                .map_or(0, |search| search.evidence_count),
+            harness: result
+                .harness
+                .as_ref()
+                .map(|harness| super::ModelAgentHarnessOutcome {
+                    exit_code: harness.exit_code,
+                    stdout: harness.stdout.clone(),
+                    stderr: harness.stderr.clone(),
+                    duration_ms: harness.duration_ms,
+                }),
+            validation: result.validation.as_ref().map(|validation| {
+                super::ModelAgentValidationSummary {
+                    passed: validation.passed,
+                    warnings: validation.warnings.clone(),
+                }
+            }),
+            memory_candidate: result.memory_candidate.as_ref().map(|memory| {
+                super::ModelAgentMemoryCandidateSummary {
+                    candidate_id: memory.candidate_id.value(),
+                    confidence_milli: memory.confidence_milli,
+                    decision: memory.decision.as_str().to_string(),
+                }
+            }),
+            error: result.error.clone(),
+        });
+    }
+    let store = SqliteStore::open(&layout.database_path)?;
+    let mut approval_id = None;
+    let mut correlation_id = None;
+    for record in store.find_pending()? {
+        let Some((pending_run_id, pending_correlation_id)) =
+            pending_proposal_identity(&record.capability)
+        else {
+            continue;
+        };
+        if pending_run_id == run_id {
+            approval_id = Some(record.id.value());
+            correlation_id = Some(pending_correlation_id);
+            break;
+        }
+    }
+    let journal = store.scan_in_flight()?;
+    let entry = journal.iter().find(|entry| entry.run_id.value() == run_id);
+    let status = if approval_id.is_some() {
+        "pending_approval"
+    } else if entry.is_some() {
+        "running"
+    } else {
+        "submitted"
+    };
+    Ok(ModelAgentStatusResponse {
+        run_id,
+        correlation_id,
+        status: status.to_string(),
+        approval_id,
+        journal_generation: entry.map(|entry| entry.generation),
+        trace_id: None,
+        evidence_count: 0,
+        harness: None,
+        validation: None,
+        memory_candidate: None,
+        error: None,
+    })
+}
 fn runtime_blocked_patterns(manifest: &InstanceManifest) -> Vec<String> {
     let default_privacy = PrivacyExclusions::default();
     let mut blocked_patterns = manifest.excluded_patterns.clone();
@@ -574,67 +363,6 @@ fn runtime_blocked_patterns(manifest: &InstanceManifest) -> Vec<String> {
             .map(|extension| format!("*.{extension}")),
     );
     blocked_patterns
-}
-
-fn record_harness_start(
-    context: &ApiContext,
-    proposal: &ModelAgentProposal,
-    governed: &maestria_ports::GovernedAgentProposal,
-    command: &str,
-) -> std::result::Result<u64, ProposalEffectFailure> {
-    let entry = context
-        .adapters
-        .effect_journal
-        .record_intent(EffectJournalIntent {
-            run_id: governed.harness.run_id,
-            task_id: proposal.task_id,
-            capability: "shell".to_string(),
-            command: command.to_string(),
-            scope_id: maestria_domain::ScopeId::new(1),
-            requested_generation: None,
-        })
-        .map_err(|error| ProposalEffectFailure::Harness {
-            message: format!("failed to record harness intent: {error}"),
-        })?;
-    if let Err(error) = context
-        .adapters
-        .effect_journal
-        .record_started(governed.harness.run_id, entry.generation)
-    {
-        let failure = ProposalEffectFailure::Harness {
-            message: format!("failed to record harness started: {error}"),
-        };
-        return Err(terminalize_harness_failure(
-            context,
-            governed.harness.run_id,
-            entry.generation,
-            EffectJournalStatus::Failed,
-            failure,
-        ));
-    }
-    Ok(entry.generation)
-}
-
-fn terminalize_harness_failure(
-    context: &ApiContext,
-    run_id: HarnessRunId,
-    generation: u64,
-    status: EffectJournalStatus,
-    failure: ProposalEffectFailure,
-) -> ProposalEffectFailure {
-    match context
-        .adapters
-        .effect_journal
-        .record_terminal(run_id, generation, status)
-    {
-        Ok(()) => failure,
-        Err(error) => ProposalEffectFailure::Journal {
-            message: format!(
-                "{failure}; failed to record harness status {status:?} for run {run_id} generation \
-                 {generation}: {error}"
-            ),
-        },
-    }
 }
 
 fn status(layout: &InstanceLayout, socket_path: &std::path::Path) -> Result<StatusResponse> {
@@ -683,6 +411,28 @@ where
     Err(anyhow!("{operation_name} retries exhausted"))
 }
 
+async fn prepare_read_only_search_runtime(
+    context: &ApiContext,
+) -> Result<Arc<crate::SearchRuntime>> {
+    let layout = context.layout.clone();
+    let (state, manifest) = tokio::task::spawn_blocking(move || load_state_and_manifest(&layout))
+        .await
+        .map_err(|error| anyhow!("load search state task failed: {error}"))??;
+    let layout = context.layout.clone();
+    tokio::task::spawn_blocking(move || {
+        crate::prepare_search_runtime_read_only(
+            &layout,
+            &state,
+            &manifest,
+            maestria_governance::RetrievalSecurityPolicy::default()
+                .require_read_allowed(true)
+                .allow_unscoped_items(true),
+        )
+    })
+    .await
+    .map_err(|error| anyhow!("prepare search runtime task failed: {error}"))?
+}
+
 async fn search_with_retry(
     context: &ApiContext,
     query: String,
@@ -725,23 +475,20 @@ fn open_evidence(layout: &InstanceLayout, evidence_id: u64) -> Result<EvidenceRe
         .required_scope(ScopeId::new(1))
         .allow_unscoped_items(true);
     if let Some(evidence) = EvidenceRepository::get(&sqlite, evidence_id)? {
-        if !matches!(
-            retrieval_policy.evaluate(&evidence.security),
-            maestria_governance::RetrievalDecision::Allowed
-        ) {
+        if let maestria_governance::RetrievalDecision::Denied(reason) =
+            retrieval_policy.evaluate(&evidence.security)
+        {
             return Err(anyhow!(
-                "evidence is not available: not available under retrieval policy"
+                "evidence is not available under retrieval policy: {reason}"
             ));
         }
         validate_evidence_scope(&manifest, &evidence)?;
         if let Some(artifact) = ArtifactRepository::get(&sqlite, evidence.artifact_id)?
-            && !matches!(
-                retrieval_policy.evaluate(&artifact.security),
-                maestria_governance::RetrievalDecision::Allowed
-            )
+            && let maestria_governance::RetrievalDecision::Denied(reason) =
+                retrieval_policy.evaluate(&artifact.security)
         {
             return Err(anyhow!(
-                "artifact is not available: not available under retrieval policy"
+                "artifact is not available under retrieval policy: {reason}"
             ));
         }
     }
@@ -859,7 +606,7 @@ fn glob_matches(value: &str, pattern: &str) -> bool {
 }
 
 fn load_state(layout: &InstanceLayout) -> Result<KernelState> {
-    crate::load_kernel_state(layout)
+    crate::instance_setup::load_kernel_state(layout)
 }
 
 fn load_state_and_manifest(layout: &InstanceLayout) -> Result<(KernelState, InstanceManifest)> {
@@ -1076,29 +823,6 @@ fn task_summary(task: &Task) -> TaskSummary {
         evidence_ids: task.evidence_ids.iter().map(|id| id.value()).collect(),
         validation_report_id: task.validation_report_id.map(|id| id.value()),
     }
-}
-
-fn truncate_utf8(bytes: &[u8], max_len: usize) -> String {
-    let text = String::from_utf8_lossy(bytes);
-    if text.len() <= max_len {
-        return text.into_owned();
-    }
-    if max_len <= 3 {
-        return "...".chars().take(max_len).collect();
-    }
-    let prefix_limit = max_len - 3;
-    let prefix_end = text.char_indices().fold(0, |end, (index, character)| {
-        let candidate = index + character.len_utf8();
-        if candidate <= prefix_limit {
-            candidate
-        } else {
-            end
-        }
-    });
-    let mut truncated = String::with_capacity(prefix_end + 3);
-    truncated.push_str(&text[..prefix_end]);
-    truncated.push_str("...");
-    truncated
 }
 
 #[cfg(test)]

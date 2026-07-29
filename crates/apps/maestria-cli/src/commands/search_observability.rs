@@ -61,7 +61,7 @@ fn persist_search_trace(
     let output = state.apply_input(DomainInput::SearchKnowledgeCompleted(
         SearchKnowledgeCompleted {
             task_id,
-            plan: Some(Box::new(plan.clone())),
+            plan: Box::new(plan.clone()),
             outcome: outcome.clone(),
         },
     ))?;

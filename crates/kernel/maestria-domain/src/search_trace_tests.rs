@@ -1,7 +1,8 @@
 use super::*;
 use crate::{
     CorpusScope, EvidenceRequirements, FreshnessRequirement, ModalitySet,
-    RetrievalModelFingerprint, SearchBudget, SearchIntent, SearchPlan, StopConditions,
+    RetrievalModelFingerprint, RetrievalPolicySnapshot, SearchBudget, SearchIntent, SearchPlan,
+    StopConditions,
     ids::{CorpusSnapshotId, IndexGenerationId, QueryId},
 };
 
@@ -32,6 +33,7 @@ fn test_deterministic_id_with_diversity() -> Result<(), SearchCompatibilityError
             minimum_corroboration: 1,
         },
         fingerprint: RetrievalModelFingerprint::new("test".to_string())?,
+        authorization: Some(RetrievalPolicySnapshot::global_default()),
         original_intent: None,
         route_decision: None,
     };

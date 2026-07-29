@@ -1,7 +1,5 @@
 use crate::config::EffectExecutionContext;
-use maestria_domain::{
-    ArtifactId, BlobId, DomainEvent, DomainEventEnvelope, KernelState, PersistStateRequest,
-};
+use maestria_domain::{ArtifactId, BlobId, DomainEvent, DomainEventEnvelope, KernelState};
 use maestria_ports::{EventFilter, EventLog, PortError};
 use std::time::Duration;
 
@@ -202,24 +200,8 @@ impl EffectExecutionContext {
             _ => true,
         }
     }
-
-    /// Log a state-snapshot request. Full persistence of the kernel state
-    /// is deferred to a future durability layer.
-    pub(crate) async fn handle_persist_state(&self, request: PersistStateRequest) -> bool {
-        let state = self.state.read().await;
-        tracing::info!(
-            reason = %request.reason,
-            artifacts = state.artifacts.len(),
-            chunks = state.chunks.len(),
-            tasks = state.tasks.len(),
-            events = state.event_log.len(),
-            "state snapshot requested"
-        );
-        true
-    }
 }
 
-/// Polls the event log for a persisted ParserStarted envelope matching
 /// `artifact_id`, `blob_id`, _and_ `content_hash`. Returns `true` once
 /// the event is observable, or `false` on timeout / scan error.
 /// Uses deterministic backoff to avoid busy-waiting while the domain

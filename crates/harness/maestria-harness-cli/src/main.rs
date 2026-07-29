@@ -2,8 +2,8 @@ use anyhow::Result;
 use clap::Parser;
 use maestria_domain::{HarnessRunId, MaestriaEffect, QueryHarnessRequest, ScopeId};
 use maestria_governance::{
-    ApprovalGate, ApprovalRequest, AutonomyProfile, DefaultApprovalGate, PolicyDecision,
-    PrivacyExclusions, Scope, ScopeGuard,
+    ApprovalGate, ApprovalRequest, AutonomyProfile, ClassifyRisk, DefaultApprovalGate,
+    DefaultRiskClassifier, PolicyDecision, PrivacyExclusions, Scope, ScopeGuard,
 };
 use maestria_harness::LocalShellHarnessAdapter;
 use maestria_ports::{HarnessAdapter, HarnessCommandClass, HarnessRequest};
@@ -81,9 +81,11 @@ async fn main() -> Result<()> {
         approval_id: None,
         command: cli.command.clone(),
     });
+    let risk = DefaultRiskClassifier.classify(&effect, &guard);
     let decision = gate.decide(&ApprovalRequest {
         effect: &effect,
         profile,
+        risk,
         scope: &guard,
     });
     enforce_policy_decision(&decision.decision)?;

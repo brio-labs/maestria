@@ -24,9 +24,12 @@ pub fn run_list(instance_dir: PathBuf) -> Result<()> {
 
     println!("Pending approval requests:\n");
     for req in &pending {
+        let task = req
+            .task_id
+            .map_or_else(|| "-".to_string(), |task_id| task_id.to_string());
         println!(
             "  ID: {}  Task: {}  Kind: {}  Risk: {:?}  Status: {:?}",
-            req.id, req.task_id, req.effect_kind, req.risk_level, req.status
+            req.id, task, req.effect_kind, req.risk_level, req.status
         );
     }
     println!();
@@ -64,6 +67,7 @@ pub async fn run_resolve(instance_dir: PathBuf, id: u64, approved: bool) -> Resu
         approval_id,
         task_id: record.task_id,
         approved,
+        affects_task: true,
     };
 
     let runtime_handle = tokio::spawn(runtime.run(input_rx, shutdown_token.clone()));
@@ -112,7 +116,7 @@ pub async fn run_resolve(instance_dir: PathBuf, id: u64, approved: bool) -> Resu
 
     let action = if approved { "Approved" } else { "Denied" };
     println!(
-        "{action} approval request {id} for task {}.",
+        "{action} approval request {id} for task {:?}.",
         record.task_id
     );
     Ok(())

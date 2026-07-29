@@ -318,6 +318,18 @@ impl SearchOutcome {
                 ));
             }
             trace.validate_rewrites()?;
+            let expected_policy = plan
+                .authorization
+                .as_ref()
+                .ok_or(SearchCompatibilityError::TracePlanMismatch(
+                    "authorization snapshot is missing",
+                ))?
+                .canonical_fingerprint();
+            if trace.policy_fingerprint.as_deref() != Some(expected_policy.as_str()) {
+                return Err(SearchCompatibilityError::TracePlanMismatch(
+                    "authorization policy differs from trusted plan snapshot",
+                ));
+            }
             if !trace.matches_plan(plan) {
                 return Err(SearchCompatibilityError::TracePlanMismatch(
                     "plan configuration differs",

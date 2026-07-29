@@ -8,8 +8,8 @@ use maestria_governance::{AutonomyProfile, RetrievalSecurityPolicy};
 use maestria_graph_sqlite::SqliteGraphIndex;
 use maestria_parsers::ParserRegistry;
 use maestria_ports::{
-    ArtifactRepository, EmbeddingProvenance, EventFilter, EventLog, GraphIndex, VectorEmbedding,
-    VectorIndex, VectorSearchQuery,
+    ArtifactRepository, EffectJournal, EmbeddingProvenance, EventFilter, EventLog, GraphIndex,
+    VectorEmbedding, VectorIndex, VectorSearchQuery,
 };
 use maestria_search_tantivy::TantivyFullTextIndex;
 use maestria_storage_sqlite::SqliteStore;
@@ -447,6 +447,67 @@ async fn vertical_slice_run_instance_restart_rebuilds_projections()
     Ok(())
 }
 
+async fn wait_for_daemon_client(
+    layout: &InstanceLayout,
+) -> Result<maestria_daemon::DaemonClient, Box<dyn std::error::Error>> {
+    for _ in 0..80 {
+        if let Ok(client) = maestria_daemon::DaemonClient::from_instance(layout)
+            && client
+                .request(maestria_daemon::ClientOperation::Status)
+                .await
+                .is_ok()
+        {
+            return Ok(client);
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    Err("daemon API did not become ready".into())
+}
+
+async fn wait_for_model_agent_terminal(
+    client: &maestria_daemon::DaemonClient,
+    layout: &InstanceLayout,
+) -> Result<maestria_daemon::api::ModelAgentStatusResponse, Box<dyn std::error::Error>> {
+    let mut approved = false;
+    let mut last_status = "unobserved".to_string();
+    for _ in 0..400 {
+        let response = client
+            .request(maestria_daemon::ClientOperation::ModelAgentStatus { run_id: 77 })
+            .await?;
+        if let maestria_daemon::ClientResponse::ModelAgentStatus(status) = response {
+            last_status = status.status.clone();
+            if matches!(status.status.as_str(), "succeeded" | "failed") {
+                return Ok(status);
+            }
+            if !approved && let Some(approval_id) = status.approval_id {
+                let generation = status
+                    .journal_generation
+                    .ok_or("pending approval omitted journal generation")?;
+                let entries = SqliteStore::open(&layout.database_path)?.scan_in_flight()?;
+                assert!(
+                    entries.iter().any(|entry| {
+                        entry.run_id.value() == 77 && entry.generation == generation
+                    }),
+                    "pending approval journal entry missing: {entries:?}"
+                );
+                client
+                    .request(maestria_daemon::ClientOperation::ModelAgentResolve {
+                        run_id: 77,
+                        approval_id,
+                        approved: true,
+                    })
+                    .await?;
+                approved = true;
+            }
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    Err(format!(
+        "model-agent proposal did not reach a terminal state; last status: {last_status}; approved: {approved}"
+    )
+    .into())
+}
+
 #[tokio::test]
 async fn model_agent_proposal_round_trips_through_running_daemon()
 -> Result<(), Box<dyn std::error::Error>> {
@@ -460,22 +521,7 @@ async fn model_agent_proposal_round_trips_through_running_daemon()
         shutdown.clone(),
     ));
 
-    let client = {
-        let mut ready = None;
-        for _ in 0..80 {
-            if let Ok(client) = maestria_daemon::DaemonClient::from_instance(&layout)
-                && client
-                    .request(maestria_daemon::ClientOperation::Status)
-                    .await
-                    .is_ok()
-            {
-                ready = Some(client);
-                break;
-            }
-            tokio::time::sleep(Duration::from_millis(25)).await;
-        }
-        ready.ok_or("daemon API did not become ready")?
-    };
+    let client = wait_for_daemon_client(&layout).await?;
 
     let response = client
         .request(maestria_daemon::ClientOperation::ModelAgentPropose {
@@ -490,6 +536,8 @@ async fn model_agent_proposal_round_trips_through_running_daemon()
                 timeout_secs: 5,
                 expected_generation: 1,
                 evidence_ids: Vec::new(),
+                task_validation: false,
+                memory_candidate: false,
             },
         })
         .await?;
@@ -498,15 +546,33 @@ async fn model_agent_proposal_round_trips_through_running_daemon()
         maestria_daemon::ClientResponse::ModelAgentProposal(result) => {
             assert_eq!(result.run_id, 77);
             assert_eq!(result.evidence_count, 0);
-            assert_eq!(
-                result.harness.as_ref().map(|outcome| outcome.exit_code),
-                Some(0)
+            assert!(result.harness.is_none());
+            assert!(
+                result
+                    .warnings
+                    .iter()
+                    .any(|warning| warning.contains("runtime accepted proposal correlation"))
             );
             assert!(result.validation.is_none());
             assert!(result.memory_candidate.is_none());
         }
         other => return Err(format!("unexpected model-agent response: {other:?}").into()),
     }
+
+    let terminal = wait_for_model_agent_terminal(&client, &layout).await?;
+    assert_eq!(
+        terminal.status, "succeeded",
+        "terminal proposal failed: {:?}",
+        terminal.error
+    );
+    assert!(terminal.trace_id.is_some());
+    assert_eq!(terminal.evidence_count, 0);
+    let harness = terminal
+        .harness
+        .ok_or("terminal proposal omitted harness outcome")?;
+    assert_eq!(harness.exit_code, 0);
+    assert_eq!(harness.stdout.trim(), "model-agent-smoke");
+    assert!(terminal.error.is_none());
 
     shutdown.cancel();
     daemon.await??;

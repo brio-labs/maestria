@@ -8,7 +8,7 @@ use maestria_domain::{
     EvidenceCandidate, IndexStatus, Relation, RelationEndpoint, SearchOutcome, SearchStatus,
     SearchStopReason,
 };
-use maestria_governance::{RetrievalDecision, RetrievalSecurityPolicy, scan_secrets};
+use maestria_governance::{RetrievalDecision, scan_secrets};
 use maestria_ports::{
     ArtifactRepository, BlobStore, ChunkRepository, EvidenceRepository, GraphIndex,
 };
@@ -26,7 +26,6 @@ pub struct HierarchyGraphExpander {
     chunks: Arc<dyn ChunkRepository + Send + Sync>,
     evidence: Arc<dyn EvidenceRepository + Send + Sync>,
     verifier: SourceSnapshotVerifier,
-    policy: RetrievalSecurityPolicy,
 }
 
 pub struct HierarchyGraphExpanderParts {
@@ -38,14 +37,13 @@ pub struct HierarchyGraphExpanderParts {
 }
 
 impl HierarchyGraphExpander {
-    pub fn new(parts: HierarchyGraphExpanderParts, policy: RetrievalSecurityPolicy) -> Self {
+    pub fn new(parts: HierarchyGraphExpanderParts) -> Self {
         Self {
             graph: parts.graph,
             artifacts: parts.artifacts,
             chunks: parts.chunks,
             evidence: parts.evidence,
             verifier: SourceSnapshotVerifier::new(parts.blobs),
-            policy,
         }
     }
 
@@ -142,13 +140,23 @@ impl HierarchyGraphExpander {
             if state.expanded.len() >= policy.max_results || state.relation_visits_remaining == 0 {
                 break;
             }
-            state.relation_visits_remaining = state.relation_visits_remaining.saturating_sub(1);
-            let Some(related) =
-                self.related_artifact(endpoint, relation, depth, &mut state.visited_artifacts)?
+            let Some(related) = self.related_artifact(
+                endpoint,
+                relation,
+                depth,
+                policy,
+                &mut state.visited_artifacts,
+            )?
             else {
                 continue;
             };
-            self.append_artifact_candidates(&related, seed_rank, policy.max_results, state)?;
+            self.append_artifact_candidates(
+                &related,
+                seed_rank,
+                policy.max_results,
+                policy,
+                state,
+            )?;
             if related.depth < policy.max_depth {
                 state
                     .queue
@@ -166,16 +174,16 @@ impl HierarchyGraphExpander {
  * remains below its cap. Once this budget is exhausted, queued endpoints are
  * skipped explicitly and the caller retains the verified seed candidates.
  */
-
 impl HierarchyGraphExpander {
     fn related_artifact(
         &self,
         endpoint: RelationEndpoint,
         relation: Relation,
         depth: usize,
+        policy: &ExpansionPolicy,
         visited_artifacts: &mut BTreeSet<maestria_domain::ArtifactId>,
     ) -> Result<Option<RelatedArtifact>, RetrievalError> {
-        if self.policy.evaluate(&relation.security) != RetrievalDecision::Allowed {
+        if policy.authorization.evaluate(&relation.security) != RetrievalDecision::Allowed {
             return Ok(None);
         }
         let Some(relation_evidence_id) = relation.evidence_id else {
@@ -188,7 +196,7 @@ impl HierarchyGraphExpander {
         else {
             return Ok(None);
         };
-        if self.policy.evaluate(&relation_evidence.security) != RetrievalDecision::Allowed
+        if policy.authorization.evaluate(&relation_evidence.security) != RetrievalDecision::Allowed
             || !scan_secrets(&relation_evidence.excerpt).is_clean()
             || self.verifier.verify(&relation_evidence).is_err()
         {
@@ -209,7 +217,7 @@ impl HierarchyGraphExpander {
             return Ok(None);
         };
         if artifact.index_status != IndexStatus::Indexed
-            || self.policy.evaluate(&artifact.security) != RetrievalDecision::Allowed
+            || policy.authorization.evaluate(&artifact.security) != RetrievalDecision::Allowed
         {
             return Ok(None);
         }
@@ -220,12 +228,15 @@ impl HierarchyGraphExpander {
             depth: depth.saturating_add(1),
         }))
     }
+}
 
+impl HierarchyGraphExpander {
     fn append_artifact_candidates(
         &self,
         related: &RelatedArtifact,
         seed_rank: u32,
         max_results: usize,
+        policy: &ExpansionPolicy,
         state: &mut ExpansionState,
     ) -> Result<(), RetrievalError> {
         let mut chunks = self
@@ -248,7 +259,7 @@ impl HierarchyGraphExpander {
             let Some(evidence) = self.evidence.get(evidence_id).map_err(port_error)? else {
                 continue;
             };
-            if self.policy.evaluate(&evidence.security) != RetrievalDecision::Allowed
+            if policy.authorization.evaluate(&evidence.security) != RetrievalDecision::Allowed
                 || !scan_secrets(&evidence.excerpt).is_clean()
                 || self.verifier.verify(&evidence).is_err()
             {
@@ -363,6 +374,14 @@ impl RetrievalEvaluator for EvidenceOutcomeEvaluator {
                 )
                 .collect(),
         };
+        let policy_fingerprint = match experiment.plan.authorization.as_ref() {
+            Some(authorization) => authorization.canonical_fingerprint(),
+            None => {
+                return Err(RetrievalError::Internal(
+                    "search plan authorization snapshot is missing".to_string(),
+                ));
+            }
+        };
         let mut trace = maestria_domain::SearchTrace::from_plan(
             &experiment.plan,
             vec!["evidence".to_string()],
@@ -371,7 +390,8 @@ impl RetrievalEvaluator for EvidenceOutcomeEvaluator {
             None,
             Vec::new(),
             stop_reason.clone(),
-        );
+        )
+        .with_policy_fingerprint(policy_fingerprint);
         trace.diversity = Some(diversity);
         let outcome = SearchOutcome {
             trace: trace.deterministic_id(),

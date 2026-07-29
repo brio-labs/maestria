@@ -1,0 +1,406 @@
+use crate::config::EffectExecutionContext;
+use crate::effect_result::EffectFailure;
+use crate::harness::truncate_output;
+use maestria_domain::{
+    CreateMemoryCandidateInput, DomainInput, ModelAgentHarnessResult, ModelAgentMemoryDecision,
+    ModelAgentMemoryResult, ModelAgentProposalRequest, ModelAgentProposalResult,
+    ModelAgentSearchResult, ModelAgentTerminalStatus, ModelAgentValidationResult,
+    QueryHarnessProposalRequest, QueryHarnessRequest, SearchKnowledgeCompleted,
+};
+use maestria_governance::{
+    MemoryPromotionDecision, MemoryPromotionRequest, ValidationDecision, ValidationRequest,
+};
+use maestria_ports::{EffectJournalIntent, HarnessRequest};
+use std::collections::BTreeSet;
+use std::path::PathBuf;
+
+fn validate_proposal_search_generation(
+    expected_generation: u64,
+    actual_generation: maestria_domain::IndexGenerationId,
+) -> Result<(), EffectFailure> {
+    if actual_generation.value() != expected_generation {
+        return Err(EffectFailure::Failed(format!(
+            "proposal search generation mismatch: expected {expected_generation}, got {}",
+            actual_generation.value()
+        )));
+    }
+    Ok(())
+}
+
+impl EffectExecutionContext {
+    pub(crate) async fn handle_query_harness_proposal(
+        &self,
+        request: QueryHarnessProposalRequest,
+    ) -> Result<(), EffectFailure> {
+        let proposal = request.proposal;
+        match self.execute_model_agent_proposal(&proposal).await {
+            Ok(result) => self.persist_model_agent_result(result).await,
+            Err(error) => {
+                let result = ModelAgentProposalResult {
+                    run_id: proposal.run_id,
+                    correlation_id: proposal.correlation_id,
+                    status: ModelAgentTerminalStatus::Failed,
+                    search: None,
+                    harness: None,
+                    validation: None,
+                    memory_candidate: None,
+                    error: Some(error.to_string()),
+                };
+                self.persist_model_agent_result(result).await
+            }
+        }
+    }
+
+    pub(crate) async fn record_model_agent_denial(
+        &self,
+        proposal: &ModelAgentProposalRequest,
+        reason: String,
+    ) -> Result<(), EffectFailure> {
+        self.persist_model_agent_result(ModelAgentProposalResult {
+            run_id: proposal.run_id,
+            correlation_id: proposal.correlation_id,
+            status: ModelAgentTerminalStatus::Failed,
+            search: None,
+            harness: None,
+            validation: None,
+            memory_candidate: None,
+            error: Some(reason),
+        })
+        .await
+    }
+
+    async fn execute_model_agent_proposal(
+        &self,
+        proposal: &ModelAgentProposalRequest,
+    ) -> Result<ModelAgentProposalResult, EffectFailure> {
+        let search = self.execute_proposal_search(proposal).await?;
+        let harness = self.execute_proposal_harness(proposal).await?;
+        let validation = self.evaluate_proposal_validation(proposal).await;
+        let memory_candidate = self
+            .create_proposal_memory_candidate(proposal, harness.is_some())
+            .await?;
+        Ok(ModelAgentProposalResult {
+            run_id: proposal.run_id,
+            correlation_id: proposal.correlation_id,
+            status: ModelAgentTerminalStatus::Succeeded,
+            search,
+            harness,
+            validation,
+            memory_candidate,
+            error: None,
+        })
+    }
+
+    async fn execute_proposal_search(
+        &self,
+        proposal: &ModelAgentProposalRequest,
+    ) -> Result<Option<ModelAgentSearchResult>, EffectFailure> {
+        if proposal.query.trim().is_empty() {
+            return Ok(None);
+        }
+        let executor = self.adapters.search_executor.as_ref().ok_or_else(|| {
+            EffectFailure::Failed("model-agent proposal has no search executor".to_string())
+        })?;
+        let (plan, outcome) = executor
+            .plan_and_search(proposal.query.clone(), proposal.limit)
+            .await
+            .map_err(|error| EffectFailure::Failed(format!("proposal search failed: {error}")))?;
+        validate_proposal_search_generation(proposal.expected_generation, plan.index_generation)?;
+        let result = ModelAgentSearchResult {
+            trace_id: outcome.trace.value(),
+            evidence_count: outcome.evidence.len(),
+        };
+        self.input_tx
+            .send(DomainInput::SearchKnowledgeCompleted(
+                SearchKnowledgeCompleted {
+                    task_id: proposal.task_id,
+                    plan: Box::new(plan),
+                    outcome,
+                },
+            ))
+            .await
+            .map_err(|error| {
+                EffectFailure::Degraded(format!("deliver proposal search result: {error}"))
+            })?;
+        Ok(Some(result))
+    }
+
+    fn prepare_proposal_journal(
+        &self,
+        proposal: &ModelAgentProposalRequest,
+    ) -> Result<u64, EffectFailure> {
+        if let Some(generation) = proposal.journal_generation {
+            let has_stored_outcome = self
+                .adapters
+                .effect_journal
+                .feedback_outcome(proposal.run_id, generation)
+                .map_err(|error| {
+                    EffectFailure::Failed(format!("read proposal harness feedback: {error}"))
+                })?
+                .is_some();
+            if !has_stored_outcome {
+                let entry = self
+                    .adapters
+                    .effect_journal
+                    .scan_in_flight()
+                    .map_err(|error| {
+                        EffectFailure::Failed(format!("scan proposal harness intent: {error}"))
+                    })?
+                    .into_iter()
+                    .find(|entry| entry.run_id == proposal.run_id && entry.generation == generation)
+                    .ok_or_else(|| {
+                        EffectFailure::Failed("proposal harness intent is missing".to_string())
+                    })?;
+                match entry.status {
+                    maestria_ports::EffectJournalStatus::Started => {}
+                    maestria_ports::EffectJournalStatus::Intent
+                    | maestria_ports::EffectJournalStatus::Paused => {
+                        self.adapters
+                            .effect_journal
+                            .record_started(proposal.run_id, generation)
+                            .map_err(|error| {
+                                EffectFailure::Failed(format!(
+                                    "resume proposal harness intent: {error}"
+                                ))
+                            })?;
+                    }
+                    maestria_ports::EffectJournalStatus::FeedbackAccepted => {
+                        return Err(EffectFailure::Failed(
+                            "accepted harness feedback is missing its durable outcome".to_string(),
+                        ));
+                    }
+                    maestria_ports::EffectJournalStatus::Completed
+                    | maestria_ports::EffectJournalStatus::Failed
+                    | maestria_ports::EffectJournalStatus::Superseded => {
+                        return Err(EffectFailure::Failed(
+                            "proposal harness intent is already terminal".to_string(),
+                        ));
+                    }
+                }
+            }
+            return Ok(generation);
+        }
+        let entry = self
+            .adapters
+            .effect_journal
+            .record_intent(EffectJournalIntent {
+                run_id: proposal.run_id,
+                task_id: proposal.task_id,
+                capability: proposal.capability.clone(),
+                command: proposal.command.clone(),
+                scope_id: self.scope_id,
+                requested_generation: None,
+            })
+            .map_err(|error| {
+                EffectFailure::Failed(format!("record proposal harness intent: {error}"))
+            })?;
+        self.adapters
+            .effect_journal
+            .record_started(proposal.run_id, entry.generation)
+            .map_err(|error| {
+                EffectFailure::Failed(format!("record proposal harness start: {error}"))
+            })?;
+        Ok(entry.generation)
+    }
+
+    async fn execute_proposal_harness(
+        &self,
+        proposal: &ModelAgentProposalRequest,
+    ) -> Result<Option<ModelAgentHarnessResult>, EffectFailure> {
+        if proposal.command.trim().is_empty() {
+            return Ok(None);
+        }
+        let ordinary = QueryHarnessRequest {
+            run_id: proposal.run_id,
+            task_id: proposal.task_id,
+            generation: proposal.journal_generation,
+            capability: proposal.capability.clone(),
+            scope_id: self.scope_id,
+            approval_id: proposal.approval_id,
+            command: proposal.command.clone(),
+        };
+        let (class, default_working_directory) = self.gate_harness_request(&ordinary)?;
+        let scope_guard = maestria_governance::ScopeGuard::new(self.scope.clone());
+        let working_directory = if proposal.working_directory.trim().is_empty() {
+            default_working_directory
+        } else {
+            let requested = PathBuf::from(&proposal.working_directory);
+            scope_guard
+                .check_read_containment(&requested)
+                .map_err(|error| {
+                    EffectFailure::Denied(format!(
+                        "proposal working directory is outside readable scope: {error:?}"
+                    ))
+                })?;
+            requested
+        };
+        let generation = self.prepare_proposal_journal(proposal)?;
+        let outcome = self
+            .execute_and_process_harness(
+                QueryHarnessRequest {
+                    generation: Some(generation),
+                    ..ordinary
+                },
+                HarnessRequest {
+                    run_id: proposal.run_id,
+                    command: proposal.command.clone(),
+                    working_directory,
+                    duration_budget: std::time::Duration::from_secs(proposal.timeout_secs),
+                    class,
+                    readable_roots: scope_guard.scope().readable_roots().to_vec(),
+                    blocked_paths: scope_guard.scope().blocked_paths().to_vec(),
+                    blocked_patterns: scope_guard.scope().blocked_patterns().to_vec(),
+                },
+                generation,
+            )
+            .await?;
+        Ok(outcome.map(|outcome| ModelAgentHarnessResult {
+            exit_code: outcome.exit_code,
+            stdout: truncate_output(&outcome.stdout),
+            stderr: truncate_output(&outcome.stderr),
+            duration_ms: outcome.duration.as_millis().min(u128::from(u64::MAX)) as u64,
+        }))
+    }
+
+    async fn evaluate_proposal_validation(
+        &self,
+        proposal: &ModelAgentProposalRequest,
+    ) -> Option<ModelAgentValidationResult> {
+        if !proposal.task_validation {
+            return None;
+        }
+        let task = {
+            let state = self.state.read().await;
+            proposal
+                .task_id
+                .and_then(|task_id| state.tasks.get(&task_id).cloned())
+        };
+        let Some(task) = task else {
+            return Some(ModelAgentValidationResult {
+                passed: false,
+                warnings: vec!["proposal task is unavailable for validation".to_string()],
+            });
+        };
+        let request = ValidationRequest {
+            task,
+            validation_report: None,
+            proposed_status: maestria_domain::TaskStatus::CompletedVerified,
+        };
+        match self.governance.validation_gate.evaluate(&request) {
+            ValidationDecision::AllowCompletion => Some(ModelAgentValidationResult {
+                passed: true,
+                warnings: Vec::new(),
+            }),
+            decision => Some(ModelAgentValidationResult {
+                passed: false,
+                warnings: vec![format!("validation gate decision: {decision:?}")],
+            }),
+        }
+    }
+
+    async fn create_proposal_memory_candidate(
+        &self,
+        proposal: &ModelAgentProposalRequest,
+        harness_completed: bool,
+    ) -> Result<Option<ModelAgentMemoryResult>, EffectFailure> {
+        if !proposal.memory_candidate || !harness_completed || proposal.evidence_ids.is_empty() {
+            return Ok(None);
+        }
+        let claim_id = {
+            let state = self.state.read().await;
+            proposal
+                .evidence_ids
+                .iter()
+                .filter_map(|evidence_id| state.evidences.get(evidence_id))
+                .find_map(|evidence| evidence.claim_id)
+        };
+        let Some(claim_id) = claim_id else {
+            return Ok(None);
+        };
+        let candidate_id = self
+            .adapters
+            .id_allocator
+            .allocate_memory_candidate_id()
+            .map_err(|error| {
+                EffectFailure::Failed(format!("allocate proposal memory candidate: {error}"))
+            })?;
+        let security = maestria_domain::SecurityMetadata {
+            scope_id: Some(self.scope_id),
+            ..maestria_domain::SecurityMetadata::default()
+        };
+        let candidate = maestria_domain::MemoryCandidate {
+            id: candidate_id,
+            claim_id,
+            evidence_ids: proposal
+                .evidence_ids
+                .iter()
+                .copied()
+                .collect::<BTreeSet<_>>(),
+            confidence_milli: 800,
+            security: security.clone(),
+        };
+        let decision = self
+            .governance
+            .memory_promotion_gate
+            .evaluate(&MemoryPromotionRequest {
+                candidate,
+                user_approved: false,
+            });
+        let decision = match decision {
+            MemoryPromotionDecision::Promote => ModelAgentMemoryDecision::Promote,
+            MemoryPromotionDecision::RequireEvidence { .. } => {
+                ModelAgentMemoryDecision::RequireEvidence
+            }
+            MemoryPromotionDecision::RequireReview { .. } => {
+                ModelAgentMemoryDecision::RequireReview
+            }
+            MemoryPromotionDecision::Deny { .. } => ModelAgentMemoryDecision::Deny,
+        };
+        self.input_tx
+            .send(DomainInput::CreateMemoryCandidate(
+                CreateMemoryCandidateInput {
+                    candidate_id,
+                    claim_id,
+                    evidence_ids: proposal.evidence_ids.clone(),
+                    confidence_milli: 800,
+                    security: Some(security),
+                },
+            ))
+            .await
+            .map_err(|error| {
+                EffectFailure::Degraded(format!("deliver proposal memory candidate: {error}"))
+            })?;
+        Ok(Some(ModelAgentMemoryResult {
+            candidate_id,
+            confidence_milli: 800,
+            decision,
+        }))
+    }
+
+    async fn persist_model_agent_result(
+        &self,
+        result: ModelAgentProposalResult,
+    ) -> Result<(), EffectFailure> {
+        self.input_tx
+            .send(DomainInput::ModelAgentProposalCompleted(result))
+            .await
+            .map_err(|error| {
+                EffectFailure::Degraded(format!("persist model-agent terminal result: {error}"))
+            })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::validate_proposal_search_generation;
+    use crate::effect_result::EffectFailure;
+
+    #[test]
+    fn stale_deferred_proposal_search_generation_fails_terminally() {
+        let result =
+            validate_proposal_search_generation(11, maestria_domain::IndexGenerationId::new(12));
+        assert!(
+            matches!(result, Err(EffectFailure::Failed(message)) if message.contains("generation mismatch"))
+        );
+    }
+}

@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use maestria_domain::{EvidenceCandidate, IndexGenerationId, IndexStatus, SearchLaneStatus};
-use maestria_governance::{RetrievalDecision, RetrievalSecurityPolicy, scan_secrets};
+use maestria_governance::{RetrievalDecision, scan_secrets};
 use maestria_ports::{
     ArtifactRepository, BlobStore, ChunkRepository, EmbeddingInputKind, EmbeddingProvider,
     EmbeddingRequest, EvidenceRepository, VectorIndex, VectorSearchQuery,
@@ -35,16 +35,11 @@ pub struct DenseChunkRetriever {
     evidence: Arc<dyn EvidenceRepository + Send + Sync>,
     embedding_provider: Arc<dyn EmbeddingProvider + Send + Sync>,
     verifier: SourceSnapshotVerifier,
-    policy: RetrievalSecurityPolicy,
     descriptor: RetrieverDescriptor,
 }
 
 impl DenseChunkRetriever {
-    pub fn new(
-        parts: DenseChunkRetrieverParts,
-        policy: RetrievalSecurityPolicy,
-        generation: IndexGenerationId,
-    ) -> Self {
+    pub fn new(parts: DenseChunkRetrieverParts, generation: IndexGenerationId) -> Self {
         Self {
             index: parts.index,
             artifacts: parts.artifacts,
@@ -52,7 +47,6 @@ impl DenseChunkRetriever {
             evidence: parts.evidence,
             embedding_provider: parts.embedding_provider,
             verifier: SourceSnapshotVerifier::new(parts.blobs),
-            policy,
             descriptor: RetrieverDescriptor {
                 id: "dense_chunks".to_string(),
                 modality: "dense".to_string(),
@@ -79,7 +73,9 @@ impl DenseChunkRetriever {
         let filter_error = Cell::new(None);
         let hits = self
             .index
-            .search_similar_filtered(vector, &|chunk_id| match self.prefilter_hit(chunk_id) {
+            .search_similar_filtered(vector, &|chunk_id| match self
+                .prefilter_hit(chunk_id, &request.authorization)
+            {
                 Ok(allowed) => allowed,
                 Err(error) => {
                     filter_error.set(Some(error));
@@ -93,8 +89,12 @@ impl DenseChunkRetriever {
         let mut candidates = Vec::with_capacity(hits.len());
         let mut bytes_read = 0_u64;
         for (raw_rank, hit) in hits.into_iter().enumerate() {
-            let Some(candidate) =
-                self.candidate_from_hit(hit, one_based_rank(raw_rank), &identity)?
+            let Some(candidate) = self.candidate_from_hit(
+                hit,
+                one_based_rank(raw_rank),
+                &identity,
+                &request.authorization,
+            )?
             else {
                 continue;
             };
@@ -122,6 +122,7 @@ impl DenseChunkRetriever {
     fn prefilter_hit(
         &self,
         chunk_id: maestria_domain::ChunkId,
+        authorization: &maestria_governance::RetrievalAuthorizationContext,
     ) -> Result<bool, maestria_ports::PortError> {
         let Some(chunk) = self.chunks.get(chunk_id)? else {
             return Ok(false);
@@ -130,7 +131,7 @@ impl DenseChunkRetriever {
             return Ok(false);
         };
         if artifact.index_status != IndexStatus::Indexed
-            || self.policy.evaluate(&artifact.security) != RetrievalDecision::Allowed
+            || authorization.evaluate(&artifact.security) != RetrievalDecision::Allowed
             || !scan_secrets(&chunk.text).is_clean()
         {
             return Ok(false);
@@ -140,16 +141,16 @@ impl DenseChunkRetriever {
             return Ok(false);
         };
         Ok(
-            self.policy.evaluate(&evidence.security) == RetrievalDecision::Allowed
+            authorization.evaluate(&evidence.security) == RetrievalDecision::Allowed
                 && scan_secrets(&evidence.excerpt).is_clean(),
         )
     }
-
     fn candidate_from_hit(
         &self,
         hit: maestria_ports::VectorSearchHit,
         raw_rank: u32,
         identity: &maestria_ports::EmbeddingIdentity,
+        authorization: &maestria_governance::RetrievalAuthorizationContext,
     ) -> Result<Option<EvidenceCandidate>, RetrievalError> {
         let Some(chunk) = self.chunks.get(hit.chunk_id).map_err(port_error)? else {
             return Ok(None);
@@ -162,8 +163,8 @@ impl DenseChunkRetriever {
             return Ok(None);
         };
         if artifact.index_status != IndexStatus::Indexed
-            || self.policy.evaluate(&artifact.security) != RetrievalDecision::Allowed
-            || self.policy.evaluate(&evidence.security) != RetrievalDecision::Allowed
+            || authorization.evaluate(&artifact.security) != RetrievalDecision::Allowed
+            || authorization.evaluate(&evidence.security) != RetrievalDecision::Allowed
             || !scan_secrets(&chunk.text).is_clean()
             || !scan_secrets(&evidence.excerpt).is_clean()
         {
@@ -291,7 +292,6 @@ mod tests {
                 blobs: Arc::new(InMemoryBlobStore::new()),
                 embedding_provider: Arc::new(UnusedEmbeddingProvider),
             },
-            RetrievalSecurityPolicy::default(),
             generation,
         );
         let identity = maestria_ports::EmbeddingIdentity::legacy("dense-test", 1)?;
@@ -388,7 +388,6 @@ mod tests {
                 blobs: Arc::new(blobs),
                 embedding_provider: Arc::new(UnusedEmbeddingProvider),
             },
-            RetrievalSecurityPolicy::default(),
             generation,
         );
         let batch = retriever.retrieve_with_vector(

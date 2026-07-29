@@ -117,6 +117,80 @@ impl KernelState {
         Ok(Self::output_for_events(generated))
     }
 
+    pub(super) fn process_model_agent_proposal_requested(
+        &mut self,
+        input: crate::inputs::ModelAgentProposalRequest,
+    ) -> Result<KernelOutput, DomainError> {
+        if self.model_agent_requests.contains_key(&input.run_id)
+            || self.model_agent_results.contains_key(&input.run_id)
+        {
+            return Err(DomainError::DuplicateModelAgentProposalRunId {
+                run_id: input.run_id,
+            });
+        }
+        self.model_agent_requests
+            .insert(input.run_id, input.clone());
+        let event = self.emit_event(DomainEvent::ModelAgentProposalRequested {
+            request: input.clone(),
+        });
+        let mut output = Self::output_for_event(event);
+        output.effects.push(MaestriaEffect::QueryHarnessProposal(
+            input.into_harness_request(),
+        ));
+        Ok(output)
+    }
+    pub(super) fn process_model_agent_proposal_resumed(
+        &mut self,
+        input: crate::inputs::ModelAgentProposalRequest,
+    ) -> Result<KernelOutput, DomainError> {
+        if !self.model_agent_requests.contains_key(&input.run_id)
+            || self.model_agent_results.contains_key(&input.run_id)
+        {
+            return Err(DomainError::InternalInvariantViolation {
+                detail: "cannot resume missing or terminal model-agent proposal",
+            });
+        }
+        Ok(KernelOutput {
+            events: Vec::new(),
+            effects: vec![MaestriaEffect::QueryHarnessProposal(
+                input.into_harness_request(),
+            )],
+        })
+    }
+    pub(super) fn process_model_agent_proposal_completed(
+        &mut self,
+        result: crate::inputs::ModelAgentProposalResult,
+    ) -> Result<KernelOutput, DomainError> {
+        if self.model_agent_results.contains_key(&result.run_id) {
+            return Err(DomainError::DuplicateModelAgentProposalRunId {
+                run_id: result.run_id,
+            });
+        }
+        self.model_agent_requests.remove(&result.run_id);
+        self.model_agent_results
+            .insert(result.run_id, result.clone());
+        let event = self.emit_event(DomainEvent::ModelAgentProposalCompleted { result });
+        Ok(Self::output_for_event(event))
+    }
+
+    pub(super) fn process_harness_run_requested(
+        &mut self,
+        input: HarnessRunRequested,
+    ) -> Result<KernelOutput, DomainError> {
+        Ok(KernelOutput {
+            events: Vec::new(),
+            effects: vec![MaestriaEffect::QueryHarness(QueryHarnessRequest {
+                run_id: input.run_id,
+                task_id: input.task_id,
+                generation: input.generation,
+                capability: input.capability,
+                scope_id: input.scope_id,
+                approval_id: input.approval_id,
+                command: input.command,
+            })],
+        })
+    }
+
     pub(super) fn process_harness_run_completed(
         &mut self,
         input: HarnessRunCompleted,
@@ -223,6 +297,10 @@ impl KernelState {
         &mut self,
         input: crate::inputs::SearchKnowledgeRequested,
     ) -> Result<KernelOutput, DomainError> {
+        input
+            .plan
+            .validate_schema()
+            .map_err(|error| DomainError::SearchIncompatible { error })?;
         let mut output = KernelOutput::default();
         output
             .effects

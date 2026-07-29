@@ -109,7 +109,8 @@ pub(crate) enum LegacyStoredEventPayload {
     },
     ApprovalRecorded {
         approval_id: Option<u64>,
-        task_id: u64,
+        #[serde(default)]
+        task_id: Option<u64>,
         approved: bool,
         from_status: Option<StoredTaskStatus>,
         to_status: Option<StoredTaskStatus>,

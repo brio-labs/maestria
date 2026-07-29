@@ -4,7 +4,6 @@ use maestria_domain::{
     Artifact, ArtifactId, Chunk, ChunkId, Evidence, EvidenceId, EvidenceKind, IndexGenerationId,
     IndexStatus, SearchStatus, SourceSpan, StructureNodeId,
 };
-use maestria_governance::RetrievalSecurityPolicy;
 use maestria_ports::{
     ArtifactRepository, ChunkRepository, EvidenceRepository, FullTextIndex,
     InMemoryArtifactRepository, InMemoryBlobStore, InMemoryChunkRepository,
@@ -98,7 +97,6 @@ fn with_indexed_retrieval(
             evidence: evidence.clone(),
             blobs: blobs.clone(),
         },
-        RetrievalSecurityPolicy::default(),
         context.primary_generation,
     ));
     let engine = RetrievalEngine::new(

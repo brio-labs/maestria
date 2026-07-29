@@ -29,7 +29,7 @@ pub use graph::*;
 pub use harness::*;
 pub use lifecycle::*;
 pub use repositories::*;
-pub use search::SearchKnowledgeExecutor;
+pub use search::{SearchFuture, SearchKnowledgeExecutor};
 pub use web::*;
 
 pub use indexing::{

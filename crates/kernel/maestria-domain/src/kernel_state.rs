@@ -4,7 +4,7 @@ use crate::entities::{
 };
 use crate::events::DomainEventEnvelope;
 use crate::ids::{
-    ApprovalId, ArtifactId, ArtifactVersionId, CardId, ChunkId, ClaimId, EvidenceId,
+    ApprovalId, ArtifactId, ArtifactVersionId, CardId, ChunkId, ClaimId, EvidenceId, HarnessRunId,
     MemoryCandidateId, MemoryId, RelationId, StructureNodeId, TaskId, ValidationReportId,
 };
 use crate::inputs::ParserStarted;
@@ -30,6 +30,8 @@ pub struct KernelState {
     pub tasks: BTreeMap<TaskId, Task>,
     pub validation_reports: BTreeMap<ValidationReportId, ValidationReportRecord>,
     pub resolved_approvals: BTreeSet<ApprovalId>,
+    pub model_agent_requests: BTreeMap<HarnessRunId, crate::inputs::ModelAgentProposalRequest>,
+    pub model_agent_results: BTreeMap<HarnessRunId, crate::inputs::ModelAgentProposalResult>,
     pub pending_full_text: BTreeSet<ChunkId>,
     pub parsed_artifact_ids: BTreeSet<ArtifactId>,
     pub stale_sources: BTreeSet<String>,

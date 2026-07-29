@@ -7,9 +7,9 @@ use maestria_domain::{
 };
 use maestria_ports::{
     CardRepository, ChunkRepository, EffectJournal, EffectJournalEntry, EffectJournalIntent,
-    EffectJournalStatus, EventFilter, EventLog, InMemoryArtifactRepository, InMemoryCardRepository,
-    InMemoryChunkRepository, InMemoryEffectJournal, InMemoryEventLog, InMemoryEvidenceRepository,
-    PortError,
+    EffectJournalStatus, EventFilter, EventLog, EvidenceRepository, InMemoryArtifactRepository,
+    InMemoryCardRepository, InMemoryChunkRepository, InMemoryEffectJournal, InMemoryEventLog,
+    InMemoryEvidenceRepository, PortError,
 };
 use std::collections::BTreeSet;
 use std::sync::{

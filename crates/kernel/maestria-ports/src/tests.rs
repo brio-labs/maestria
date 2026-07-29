@@ -523,12 +523,6 @@ fn in_memory_parser_version_id_is_deterministic() -> Result<(), Box<dyn std::err
     Ok(())
 }
 
-#[tokio::test]
-async fn in_memory_harness_adapter_satisfies_contract() -> Result<(), Box<dyn std::error::Error>> {
-    assert_harness_adapter_round_trip(&InMemoryHarnessAdapter::new()).await?;
-    Ok(())
-}
-
 #[test]
 fn in_memory_graph_index_satisfies_contract() -> Result<(), Box<dyn std::error::Error>> {
     assert_graph_index_contract(&InMemoryGraphIndex::new())?;

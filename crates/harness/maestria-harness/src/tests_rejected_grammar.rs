@@ -1,5 +1,5 @@
 use super::test_helpers::{adapter, shell_request};
-use super::*;
+use maestria_ports::{HarnessAdapter, PortError};
 
 #[tokio::test]
 async fn rejects_unknown_program() -> Result<(), Box<dyn std::error::Error>> {

@@ -5,7 +5,7 @@ use maestria_domain::{
     EvidenceCandidate, IndexStatus, LearnedSparseContribution, LearnedSparseReason,
     RetrievalModelFingerprint, RetrievalReason, SearchLaneStatus,
 };
-use maestria_governance::{RetrievalDecision, RetrievalSecurityPolicy, scan_secrets};
+use maestria_governance::{RetrievalDecision, scan_secrets};
 use maestria_ports::{
     ArtifactRepository, BlobStore, ChunkRepository, EvidenceRepository, LearnedSparseIndex,
     LearnedSparseProvider, RetentionPolicy, SparseIdentity, SparseInputKind, SparseSearchHit,
@@ -36,7 +36,6 @@ pub struct LearnedSparseChunkRetriever {
     evidence: Arc<dyn EvidenceRepository + Send + Sync>,
     provider: Arc<dyn LearnedSparseProvider + Send + Sync>,
     verifier: SourceSnapshotVerifier,
-    policy: RetrievalSecurityPolicy,
     identity: SparseIdentity,
     fingerprint: RetrievalModelFingerprint,
     descriptor: RetrieverDescriptor,
@@ -45,7 +44,6 @@ pub struct LearnedSparseChunkRetriever {
 impl LearnedSparseChunkRetriever {
     pub fn new(
         parts: LearnedSparseChunkRetrieverParts,
-        policy: RetrievalSecurityPolicy,
         capability: LearnedSparseGenerationCapability,
     ) -> Result<Self, RetrievalError> {
         let identity = capability.identity().clone();
@@ -93,7 +91,6 @@ impl LearnedSparseChunkRetriever {
             evidence: parts.evidence,
             provider: parts.provider,
             verifier: SourceSnapshotVerifier::new(parts.blobs),
-            policy,
             identity,
             fingerprint,
             descriptor,
@@ -138,14 +135,19 @@ impl LearnedSparseChunkRetriever {
         Ok(())
     }
 
-    fn chunk_allowed(&self, chunk_id: maestria_domain::ChunkId) -> bool {
-        self.checked_records(chunk_id)
+    fn chunk_allowed(
+        &self,
+        chunk_id: maestria_domain::ChunkId,
+        authorization: &maestria_governance::RetrievalAuthorizationContext,
+    ) -> bool {
+        self.checked_records(chunk_id, authorization)
             .is_ok_and(|records| records.is_some())
     }
 
     fn checked_records(
         &self,
         chunk_id: maestria_domain::ChunkId,
+        authorization: &maestria_governance::RetrievalAuthorizationContext,
     ) -> Result<
         Option<(
             maestria_domain::Artifact,
@@ -161,7 +163,7 @@ impl LearnedSparseChunkRetriever {
             return Ok(None);
         };
         if artifact.index_status != IndexStatus::Indexed
-            || self.policy.evaluate(&artifact.security) != RetrievalDecision::Allowed
+            || authorization.evaluate(&artifact.security) != RetrievalDecision::Allowed
             || !scan_secrets(&chunk.text).is_clean()
         {
             return Ok(None);
@@ -170,7 +172,7 @@ impl LearnedSparseChunkRetriever {
         let Some(evidence) = self.evidence.get(evidence_id).map_err(port_error)? else {
             return Ok(None);
         };
-        if self.policy.evaluate(&evidence.security) != RetrievalDecision::Allowed
+        if authorization.evaluate(&evidence.security) != RetrievalDecision::Allowed
             || !scan_secrets(&evidence.excerpt).is_clean()
         {
             return Ok(None);
@@ -183,8 +185,11 @@ impl LearnedSparseChunkRetriever {
         &self,
         hit: SparseSearchHit,
         raw_rank: u32,
+        authorization: &maestria_governance::RetrievalAuthorizationContext,
     ) -> Result<Option<EvidenceCandidate>, RetrievalError> {
-        let Some((artifact, chunk, evidence)) = self.checked_records(hit.chunk_id)? else {
+        let Some((artifact, chunk, evidence)) =
+            self.checked_records(hit.chunk_id, authorization)?
+        else {
             return Ok(None);
         };
         let contributions = hit
@@ -250,13 +255,15 @@ impl CandidateRetriever for LearnedSparseChunkRetriever {
                     limit,
                     max_contributions: 16,
                 },
-                &|chunk_id| self.chunk_allowed(chunk_id),
+                &|chunk_id| self.chunk_allowed(chunk_id, &request.authorization),
             )
             .map_err(port_error)?;
         let mut candidates = Vec::with_capacity(hits.len());
         let mut bytes_read = 0_u64;
         for (raw_rank, hit) in hits.into_iter().enumerate() {
-            let Some(candidate) = self.candidate_from_hit(hit, one_based_rank(raw_rank))? else {
+            let Some(candidate) =
+                self.candidate_from_hit(hit, one_based_rank(raw_rank), &request.authorization)?
+            else {
                 continue;
             };
             let range = candidate.source_span.range();
