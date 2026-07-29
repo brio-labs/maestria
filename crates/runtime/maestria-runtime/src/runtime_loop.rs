@@ -1,6 +1,9 @@
 use crate::config::{Adapters, Governance, RuntimeConfig};
+use crate::proposal_recovery::journal_entry_matches_proposal;
 use crate::runtime::{DomainApplicationResult, MaestriaRuntime};
-use maestria_domain::{DomainError, DomainInput, KernelState};
+use maestria_domain::{
+    DomainError, DomainInput, KernelState, MaestriaEffect, ModelAgentProposalExecution,
+};
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Mutex, atomic::AtomicU64};
 use tokio::sync::{RwLock, mpsc};
@@ -28,6 +31,7 @@ impl MaestriaRuntime {
                 command_tx,
                 command_rx: Some(command_rx),
                 next_command_id,
+                journal_recovery_claims: Arc::new(Mutex::new(BTreeSet::new())),
                 feedback_acks: Arc::new(Mutex::new(BTreeMap::new())),
                 next_validation_report_id,
                 #[cfg(test)]
@@ -41,16 +45,18 @@ impl MaestriaRuntime {
         &self,
         shutdown_token: tokio_util::sync::CancellationToken,
         snapshot: KernelState,
+        effect_tx: mpsc::Sender<crate::effect_dispatch::EffectBatch>,
     ) {
         let adapters = Arc::clone(&self.adapters);
-        let input_tx = self.input_tx.clone();
+        let scope_id = self.config.scope_id;
         tokio::spawn(async move {
             let mut proposals = BTreeMap::new();
             let mut approval_owned_runs = BTreeSet::new();
             match adapters.effect_journal.scan_in_flight() {
                 Ok(entries) => {
                     for entry in entries {
-                        if entry.feedback.is_none()
+                        if entry.status != maestria_ports::EffectJournalStatus::FeedbackAccepted
+                            || entry.feedback.is_none()
                             || snapshot.model_agent_results.contains_key(&entry.run_id)
                         {
                             continue;
@@ -59,8 +65,16 @@ impl MaestriaRuntime {
                         else {
                             continue;
                         };
+                        if !matches!(&proposal.execution, ModelAgentProposalExecution::Fresh) {
+                            continue;
+                        }
+                        if !journal_entry_matches_proposal(&entry, proposal, scope_id) {
+                            continue;
+                        }
                         let mut resumed = proposal.clone();
-                        resumed.journal_generation = Some(entry.generation);
+                        resumed.execution = ModelAgentProposalExecution::JournalRecovery {
+                            journal_generation: entry.generation,
+                        };
                         proposals.insert(entry.run_id, resumed);
                     }
                 }
@@ -96,7 +110,8 @@ impl MaestriaRuntime {
                 }
             }
             for proposal in snapshot.model_agent_requests.values() {
-                if !snapshot.model_agent_results.contains_key(&proposal.run_id)
+                if matches!(&proposal.execution, ModelAgentProposalExecution::Fresh)
+                    && !snapshot.model_agent_results.contains_key(&proposal.run_id)
                     && !approval_owned_runs.contains(&proposal.run_id)
                     && !proposals.contains_key(&proposal.run_id)
                 {
@@ -106,9 +121,11 @@ impl MaestriaRuntime {
             for proposal in proposals.into_values() {
                 tokio::select! {
                     () = shutdown_token.cancelled() => break,
-                    result = input_tx.send(DomainInput::ModelAgentProposalResumed(proposal)) => {
+                    result = effect_tx.send(vec![MaestriaEffect::QueryHarnessProposal(
+                        proposal.into_harness_request(),
+                    )]) => {
                         if let Err(error) = result {
-                            tracing::warn!(%error, "model-agent recovery input channel closed");
+                            tracing::warn!(%error, "model-agent recovery effect channel closed");
                             break;
                         }
                     }
@@ -135,7 +152,11 @@ impl MaestriaRuntime {
         let effect_executor =
             self.spawn_effect_executor(effect_rx, effect_shutdown.clone(), shutdown_token.clone());
         let recovery_snapshot = self.state.read().await.clone();
-        self.spawn_model_agent_recovery(shutdown_token.clone(), recovery_snapshot);
+        self.spawn_model_agent_recovery(
+            shutdown_token.clone(),
+            recovery_snapshot,
+            effect_tx.clone(),
+        );
         let Some(command_rx) = self.command_rx.take() else {
             tracing::error!("runtime command receiver missing");
             return;
@@ -240,7 +261,10 @@ impl MaestriaRuntime {
         }
         if should_resume_approval
             && let Some(proposal) = approval_continuation
-            && proposal.approval_id.is_some()
+            && matches!(
+                proposal.execution,
+                ModelAgentProposalExecution::ApprovalContinuation { .. }
+            )
         {
             self.resume_model_agent_after_approval(proposal, shutdown_token.clone());
         }

@@ -3,7 +3,7 @@ use crate::effect_result::EffectFailure;
 use crate::test_support::*;
 use maestria_domain::{
     DomainInput, HarnessRunCompleted, HarnessRunId, KernelState, MaestriaEffect,
-    ModelAgentProposalRequest, ModelAgentTerminalStatus,
+    ModelAgentProposalExecution, ModelAgentProposalRequest, ModelAgentTerminalStatus,
 };
 use maestria_ports::{
     EffectJournal, EffectJournalEntry, EffectJournalIntent, EffectJournalStatus, HarnessAdapter,
@@ -531,35 +531,44 @@ async fn model_agent_recovery_consumes_stored_success_without_reexecution()
     adapters
         .effect_journal
         .claim_feedback_with_outcome(run_id, entry.generation, outcome)?;
+    let canonical = ModelAgentProposalRequest {
+        run_id,
+        task_id: None,
+        query: "recovery search must not run".to_string(),
+        limit: 1,
+        evidence_ids: Vec::new(),
+        capability: "shell".to_string(),
+        command: "echo recovered".to_string(),
+        working_directory: String::new(),
+        timeout_secs: 1,
+        expected_generation: 1,
+        task_validation: false,
+        memory_candidate: false,
+        execution: ModelAgentProposalExecution::Fresh,
+        correlation_id: 9,
+    };
+    let mut recovery = canonical.clone();
+    recovery.execution = ModelAgentProposalExecution::JournalRecovery {
+        journal_generation: entry.generation,
+    };
+    let mut state = KernelState::new();
+    state.model_agent_requests.insert(run_id, canonical);
     let (input_tx, mut input_rx) = mpsc::channel(8);
     let context = EffectExecutionContext::test_default(
         adapters.clone(),
         test_governance(),
-        Arc::new(RwLock::new(KernelState::new())),
+        Arc::new(RwLock::new(state)),
         input_tx,
     );
-    context
-        .handle_query_harness_proposal(maestria_domain::QueryHarnessProposalRequest {
-            proposal: ModelAgentProposalRequest {
-                run_id,
-                task_id: None,
-                query: String::new(),
-                limit: 1,
-                evidence_ids: Vec::new(),
-                capability: "shell".to_string(),
-                command: "echo recovered".to_string(),
-                working_directory: String::new(),
-                timeout_secs: 1,
-                expected_generation: 1,
-                task_validation: false,
-                memory_candidate: false,
-                approval_id: None,
-                journal_generation: Some(entry.generation),
-                correlation_id: 9,
-            },
-        })
-        .await
-        .map_err(|error| format!("recovery proposal failed: {error}"))?;
+    let result = context
+        .execute_effect(
+            MaestriaEffect::QueryHarnessProposal(maestria_domain::QueryHarnessProposalRequest {
+                proposal: recovery,
+            }),
+            None,
+        )
+        .await;
+    result.map_err(|error| format!("recovery proposal failed: {error}"))?;
     assert!(
         !called.load(Ordering::Relaxed),
         "recovery must not rerun harness"
@@ -578,11 +587,137 @@ async fn model_agent_recovery_consumes_stored_success_without_reexecution()
             if result.run_id == run_id
                 && result.status == ModelAgentTerminalStatus::Succeeded
     ));
+    let in_flight = adapters.effect_journal.scan_in_flight()?;
+    assert_eq!(in_flight.len(), 1);
+    assert_eq!(in_flight[0].generation, entry.generation);
+    assert_eq!(in_flight[0].status, EffectJournalStatus::FeedbackAccepted);
     adapters.effect_journal.record_terminal(
         run_id,
         entry.generation,
         EffectJournalStatus::Completed,
     )?;
     assert!(adapters.effect_journal.scan_in_flight()?.is_empty());
+    Ok(())
+}
+
+fn journal_recovery_proposal(run_id: HarnessRunId) -> ModelAgentProposalRequest {
+    ModelAgentProposalRequest {
+        run_id,
+        task_id: None,
+        query: "recovery search must not run".to_string(),
+        limit: 1,
+        evidence_ids: Vec::new(),
+        capability: "shell".to_string(),
+        command: "echo recovered".to_string(),
+        working_directory: String::new(),
+        timeout_secs: 1,
+        expected_generation: 1,
+        task_validation: false,
+        memory_candidate: false,
+        execution: ModelAgentProposalExecution::Fresh,
+        correlation_id: 10,
+    }
+}
+
+#[tokio::test]
+async fn journal_recovery_rejects_missing_or_invalid_durable_feedback()
+-> Result<(), Box<dyn std::error::Error>> {
+    for case in [
+        "missing",
+        "feedback_without_outcome",
+        "mismatched_record",
+        "mismatched_outcome",
+    ] {
+        let called = Arc::new(AtomicBool::new(false));
+        let adapters = test_adapters(Arc::new(SpyHarnessAdapter::new(called.clone())));
+        let run_id = HarnessRunId::new(710);
+        let generation = 2;
+        let canonical = journal_recovery_proposal(run_id);
+        if case != "missing" {
+            let entry = adapters.effect_journal.record_intent(EffectJournalIntent {
+                run_id,
+                task_id: None,
+                capability: "shell".to_string(),
+                command: if case == "mismatched_record" {
+                    "echo different".to_string()
+                } else {
+                    canonical.command.clone()
+                },
+                scope_id: maestria_domain::ScopeId::new(1),
+                requested_generation: Some(generation),
+            })?;
+            assert_eq!(entry.generation, generation);
+            if case == "feedback_without_outcome" {
+                adapters.effect_journal.record_started(run_id, generation)?;
+                adapters.effect_journal.claim_feedback(run_id, generation)?;
+            } else if case == "mismatched_outcome" {
+                adapters.effect_journal.record_started(run_id, generation)?;
+                adapters.effect_journal.claim_feedback_with_outcome(
+                    run_id,
+                    generation,
+                    HarnessOutcome {
+                        run_id: HarnessRunId::new(999),
+                        command: "echo other".to_string(),
+                        exit_code: 0,
+                        stdout: Vec::new(),
+                        stderr: Vec::new(),
+                        duration: std::time::Duration::from_millis(1),
+                        artifacts_created: Vec::new(),
+                        diff_summary: None,
+                        validation_hints: Vec::new(),
+                    },
+                )?;
+            }
+        }
+        let mut recovery = canonical.clone();
+        recovery.execution = ModelAgentProposalExecution::JournalRecovery {
+            journal_generation: generation,
+        };
+        let mut state = KernelState::new();
+        state.model_agent_requests.insert(run_id, canonical);
+        let (input_tx, mut input_rx) = mpsc::channel(8);
+        let context = EffectExecutionContext::test_default(
+            adapters.clone(),
+            test_governance(),
+            Arc::new(RwLock::new(state)),
+            input_tx,
+        );
+        let result = context
+            .execute_effect(
+                MaestriaEffect::QueryHarnessProposal(
+                    maestria_domain::QueryHarnessProposalRequest { proposal: recovery },
+                ),
+                None,
+            )
+            .await;
+        if case == "mismatched_outcome" {
+            assert!(
+                result.is_ok(),
+                "{case} recovery returned the wrong handler result: {result:?}"
+            );
+            assert!(matches!(
+                input_rx.try_recv(),
+                Ok(DomainInput::ModelAgentProposalCompleted(result))
+                    if result.status == ModelAgentTerminalStatus::Failed
+            ));
+            assert!(
+                input_rx.try_recv().is_err(),
+                "{case} recovery emitted provider completion"
+            );
+        } else {
+            assert!(
+                matches!(result, Err(EffectFailure::Denied(_))),
+                "{case} recovery unexpectedly admitted: {result:?}"
+            );
+            assert!(
+                input_rx.try_recv().is_err(),
+                "{case} recovery emitted a terminal result"
+            );
+        }
+        assert!(
+            !called.load(Ordering::Relaxed),
+            "{case} recovery invoked harness provider"
+        );
+    }
     Ok(())
 }

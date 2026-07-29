@@ -8,13 +8,15 @@ use maestria_blob_fs::FsBlobStore;
 use maestria_core::{CorePorts, CoreServices, InstanceLayout, InstanceManifest, OpenEvidenceInput};
 use maestria_domain::{
     ApprovalDecision, ApprovalId, DomainEvent, DomainInput, Evidence, EvidenceCandidate,
-    EvidenceId, EvidenceKind, EvidenceSpan, HarnessRunId, KernelState, RetrievalRawRank,
-    RetrievalScoreKind, RetrievalScoreScale, ScopeId, SearchOutcome, Task, TaskId,
+    EvidenceId, EvidenceKind, EvidenceSpan, HarnessRunId, KernelState, ModelAgentProposalExecution,
+    RetrievalRawRank, RetrievalScoreKind, RetrievalScoreScale, ScopeId, SearchOutcome, Task,
+    TaskId,
 };
 use maestria_governance::PrivacyExclusions;
 use maestria_parsers::ParserRegistry;
 use maestria_ports::{
-    ApprovalRepository, ArtifactRepository, EffectJournal, EvidenceRepository, ModelAgentProposal,
+    ApprovalRecord, ApprovalRepository, ArtifactRepository, EffectJournal, EvidenceRepository,
+    ModelAgentProposal,
 };
 use maestria_search_tantivy::TantivyFullTextIndex;
 use maestria_storage_sqlite::SqliteStore;
@@ -103,7 +105,6 @@ fn current_generation(state: &KernelState) -> u64 {
         }
     }
 }
-
 /// Converts the wire-format payload into a typed `ModelAgentProposal`.
 ///
 /// Performs simple value wrapping (IDs, durations, paths) without validation.
@@ -130,6 +131,51 @@ fn build_proposal(payload: ModelAgentProposalPayload) -> ModelAgentProposal {
         expected_generation: payload.expected_generation,
         evidence_ids,
     }
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct PendingHarnessContinuation {
+    proposal: maestria_domain::ModelAgentProposalRequest,
+    journal_generation: u64,
+    correlation_id: u64,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct PendingProposalIdentity {
+    run_id: u64,
+    correlation_id: u64,
+    journal_generation: u64,
+}
+
+fn decode_pending_continuation(record: &ApprovalRecord) -> Option<PendingHarnessContinuation> {
+    if record.effect_kind != "model_agent_harness" {
+        return None;
+    }
+    let token = record.capability.strip_prefix("model_agent_pending:")?;
+    let continuation = serde_json::from_str::<PendingHarnessContinuation>(token).ok()?;
+    match &continuation.proposal.execution {
+        ModelAgentProposalExecution::ApprovalContinuation {
+            approval_id,
+            journal_generation,
+        } if *approval_id == record.id
+            && *journal_generation == continuation.journal_generation =>
+        {
+            Some(continuation)
+        }
+        ModelAgentProposalExecution::Fresh
+        | ModelAgentProposalExecution::JournalRecovery { .. }
+        | ModelAgentProposalExecution::ApprovalContinuation { .. } => None,
+    }
+}
+
+fn pending_proposal_identity(record: &ApprovalRecord) -> Option<PendingProposalIdentity> {
+    let continuation = decode_pending_continuation(record)?;
+    let journal_generation = continuation.proposal.execution.journal_generation()?;
+    Some(PendingProposalIdentity {
+        run_id: continuation.proposal.run_id.value(),
+        correlation_id: continuation.correlation_id,
+        journal_generation,
+    })
 }
 
 /// Validates a proposal against the current kernel state and generation.
@@ -179,8 +225,7 @@ async fn handle_model_agent_propose(
                 expected_generation: proposal.expected_generation,
                 task_validation,
                 memory_candidate,
-                approval_id: None,
-                journal_generation: None,
+                execution: ModelAgentProposalExecution::Fresh,
                 correlation_id: 0,
             },
         ))
@@ -208,14 +253,6 @@ async fn handle_model_agent_propose(
     ))
 }
 
-fn pending_proposal_identity(capability: &str) -> Option<(u64, u64)> {
-    let token = capability.strip_prefix("model_agent_pending:")?;
-    let value = serde_json::from_str::<serde_json::Value>(token).ok()?;
-    let run_id = value.get("proposal")?.get("run_id")?.as_u64()?;
-    let correlation_id = value.get("correlation_id")?.as_u64()?;
-    Some((run_id, correlation_id))
-}
-
 async fn handle_model_agent_resolution(
     context: &ApiContext,
     run_id: u64,
@@ -226,8 +263,10 @@ async fn handle_model_agent_resolution(
     let record = store
         .find_by_id(ApprovalId::new(approval_id))?
         .ok_or_else(|| anyhow!("model-agent approval {approval_id} does not exist"))?;
-    let (pending_run_id, correlation_id) = pending_proposal_identity(&record.capability)
+    let identity = pending_proposal_identity(&record)
         .ok_or_else(|| anyhow!("approval {approval_id} is not a model-agent proposal"))?;
+    let pending_run_id = identity.run_id;
+    let correlation_id = identity.correlation_id;
     if pending_run_id != run_id {
         return Err(anyhow!(
             "approval {approval_id} belongs to model-agent run {pending_run_id}, not {run_id}"
@@ -317,20 +356,23 @@ fn model_agent_status(layout: &InstanceLayout, run_id: u64) -> Result<ModelAgent
     let store = SqliteStore::open(&layout.database_path)?;
     let mut approval_id = None;
     let mut correlation_id = None;
+    let mut pending_journal_generation = None;
     for record in store.find_pending()? {
-        let Some((pending_run_id, pending_correlation_id)) =
-            pending_proposal_identity(&record.capability)
-        else {
+        let Some(identity) = pending_proposal_identity(&record) else {
             continue;
         };
-        if pending_run_id == run_id {
+        if identity.run_id == run_id {
             approval_id = Some(record.id.value());
-            correlation_id = Some(pending_correlation_id);
+            correlation_id = Some(identity.correlation_id);
+            pending_journal_generation = Some(identity.journal_generation);
             break;
         }
     }
     let journal = store.scan_in_flight()?;
-    let entry = journal.iter().find(|entry| entry.run_id.value() == run_id);
+    let entry = journal.iter().find(|entry| {
+        entry.run_id.value() == run_id
+            && pending_journal_generation.is_none_or(|generation| entry.generation == generation)
+    });
     let status = if approval_id.is_some() {
         "pending_approval"
     } else if entry.is_some() {
@@ -343,7 +385,8 @@ fn model_agent_status(layout: &InstanceLayout, run_id: u64) -> Result<ModelAgent
         correlation_id,
         status: status.to_string(),
         approval_id,
-        journal_generation: entry.map(|entry| entry.generation),
+        journal_generation: pending_journal_generation
+            .or_else(|| entry.map(|entry| entry.generation)),
         trace_id: None,
         evidence_count: 0,
         harness: None,

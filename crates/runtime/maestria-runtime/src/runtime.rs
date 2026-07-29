@@ -1,4 +1,6 @@
-use crate::config::{Adapters, Governance, HarnessFeedbackAcks, RuntimeConfig};
+use crate::config::{
+    Adapters, Governance, HarnessFeedbackAcks, JournalRecoveryClaims, RuntimeConfig,
+};
 use maestria_domain::{DomainError, DomainEventEnvelope, DomainInput, KernelState};
 use std::sync::{Arc, atomic::AtomicU64};
 use tokio::sync::{RwLock, mpsc, oneshot};
@@ -18,6 +20,7 @@ pub struct MaestriaRuntime {
     pub(crate) command_tx: mpsc::Sender<RuntimeCommand>,
     pub(crate) command_rx: Option<mpsc::Receiver<RuntimeCommand>>,
     pub(crate) next_command_id: Arc<AtomicU64>,
+    pub(crate) journal_recovery_claims: JournalRecoveryClaims,
     pub(crate) next_validation_report_id: Arc<AtomicU64>,
     pub(crate) feedback_acks: HarnessFeedbackAcks,
     #[cfg(test)]

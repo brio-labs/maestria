@@ -16,6 +16,7 @@ mod ids;
 mod input;
 mod inputs;
 mod kernel_state;
+mod model_agent;
 /// Responsibility map:
 /// - `effects`: module responsibility.
 /// - `evidence_source`: immutable text and snapshot evidence boundaries.
@@ -27,6 +28,7 @@ mod kernel_state;
 /// - `ids`: module responsibility.
 /// - `input`: module responsibility.
 /// - `inputs`: module responsibility.
+/// - `model_agent`: model-agent proposal execution and result types.
 /// - `kernel_state`: module responsibility.
 /// - `ocr`: module responsibility.
 /// - `provenance`: module responsibility.
@@ -80,17 +82,19 @@ pub use crate::inputs::{
     ContradictMemoryInput, CreateCardInput, CreateClaimInput, CreateMemoryCandidateInput,
     CreateRelationInput, DeprecateMemoryInput, DomainInput, FetchWebRequested,
     FullTextIndexCompleted, HarnessRunCompleted, HarnessRunRequested, LinkEvidenceToClaimInput,
-    LinkEvidenceToTaskInput, ModelAgentHarnessResult, ModelAgentMemoryDecision,
-    ModelAgentMemoryResult, ModelAgentProposalRequest, ModelAgentProposalResult,
-    ModelAgentSearchResult, ModelAgentTerminalStatus, ModelAgentValidationResult, OcrCompleted,
-    OcrFailed, OcrRequested, OpenTaskInput, ParserResult, ParserStarted, PromoteMemoryInput,
-    ProposeMemoryCandidateInput, RecordEvidenceInput, RecordValidationReportInput,
-    RegisterArtifactInput, RegisterChunkInput, RequestTaskValidation, SearchExecutedInput,
-    SearchKnowledgeCompleted, SearchKnowledgeRequested, SearchResultSet, SourceRemoved,
-    StartFullTextIndex, StartIndexGenerationInput, SupersedeMemoryInput,
+    LinkEvidenceToTaskInput, OcrCompleted, OcrFailed, OcrRequested, OpenTaskInput, ParserResult,
+    ParserStarted, PromoteMemoryInput, ProposeMemoryCandidateInput, RecordEvidenceInput,
+    RecordValidationReportInput, RegisterArtifactInput, RegisterChunkInput, RequestTaskValidation,
+    SearchExecutedInput, SearchKnowledgeCompleted, SearchKnowledgeRequested, SearchResultSet,
+    SourceRemoved, StartFullTextIndex, StartIndexGenerationInput, SupersedeMemoryInput,
     TransitionIndexGenerationInput, UserIntent, ValidationCompleted,
 };
 pub use crate::kernel_state::KernelState;
+pub use crate::model_agent::{
+    ModelAgentHarnessResult, ModelAgentMemoryDecision, ModelAgentMemoryResult,
+    ModelAgentProposalExecution, ModelAgentProposalRequest, ModelAgentProposalResult,
+    ModelAgentSearchResult, ModelAgentTerminalStatus, ModelAgentValidationResult,
+};
 pub use crate::ocr::{
     OcrCompletion, OcrDisclosure, OcrIntent, OcrPageText, OcrProviderIdentity, OcrRequestId,
     OcrRetentionPolicy, OcrValidationError,

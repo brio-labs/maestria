@@ -1,136 +1,164 @@
 use crate::config::EffectExecutionContext;
-use crate::effect_execution::{
-    decode_pending_continuation, persist_pending_harness, record_denied_harness,
-    resume_harness_journal,
+use crate::effect_admission::{
+    ApprovalWait, ApprovedProposalClaim, EffectAdmission, RejectionCause, RejectionHandling,
 };
+use crate::effect_execution::{persist_pending_harness, record_denied_harness};
 use crate::effect_result::{EffectFailure, handler_result};
-use maestria_domain::MaestriaEffect;
-use maestria_governance::{ApprovalRequest, PolicyDecision, RiskClass, ScopeGuard};
-use maestria_ports::{ApprovalStatus, EffectJournalIntent, EffectJournalStatus};
+use crate::proposal_recovery::journal_entry_matches_proposal;
+use maestria_domain::{MaestriaEffect, ModelAgentProposalExecution};
+use maestria_governance::RiskClass;
+use maestria_ports::EffectJournalStatus;
+use std::collections::BTreeSet;
 use std::time::Duration;
 
 impl EffectExecutionContext {
-    fn classify_effect(&self, effect: &MaestriaEffect) -> (RiskClass, PolicyDecision) {
-        let scope = ScopeGuard::new(self.scope.clone());
-        let risk = self.governance.classifier.classify(effect, &scope);
-        let proposal_approval = match effect {
-            MaestriaEffect::QueryHarnessProposal(request) => {
-                request.proposal.approval_id.and_then(|approval_id| {
-                    self.adapters
-                        .approval_repo
-                        .find_by_id(approval_id)
-                        .ok()
-                        .flatten()
-                        .map(|record| {
-                            let identity_matches = decode_pending_continuation(&record).as_ref()
-                                == Some(&request.proposal);
-                            (record.status, identity_matches)
-                        })
-                })
-            }
-            _ => None,
-        };
-        let decision = match proposal_approval {
-            Some((ApprovalStatus::Approved, true)) => PolicyDecision::Allow,
-            Some((ApprovalStatus::Denied, true)) => PolicyDecision::Deny {
-                reason: "model-agent proposal approval denied".to_string(),
-            },
-            Some((_, false)) => PolicyDecision::Deny {
-                reason: "model-agent proposal does not match its stored approval".to_string(),
-            },
-            _ => {
-                self.governance
-                    .approval_gate
-                    .decide(&ApprovalRequest {
-                        effect,
-                        profile: self.profile,
-                        scope: &scope,
-                        risk,
-                    })
-                    .decision
-            }
-        };
-        (risk, decision)
+    fn claim_approved_proposal(&self, claim: ApprovedProposalClaim) -> Result<(), EffectFailure> {
+        match self
+            .adapters
+            .effect_journal
+            .record_started(claim.run_id, claim.generation)
+        {
+            Ok(()) => Ok(()),
+            Err(maestria_ports::PortError::NotFound) => Err(EffectFailure::Denied(
+                "approved proposal journal intent was already claimed or is unavailable"
+                    .to_string(),
+            )),
+            Err(error) => Err(EffectFailure::Failed(format!(
+                "claim approved proposal journal intent: {error}"
+            ))),
+        }
     }
 
-    async fn enforce_effect_policy(
+    fn claim_journal_recovery(
+        &self,
+        proposal: &maestria_domain::ModelAgentProposalRequest,
+        generation: u64,
+    ) -> Result<(), EffectFailure> {
+        let mut claims = self.journal_recovery_claims.lock().map_err(|_| {
+            EffectFailure::Failed("journal recovery claim lock poisoned".to_string())
+        })?;
+        let entries = self
+            .adapters
+            .effect_journal
+            .scan_in_flight()
+            .map_err(|error| {
+                EffectFailure::Failed(format!("scan journal recovery claims: {error}"))
+            })?;
+        let active_keys: BTreeSet<_> = entries
+            .iter()
+            .filter(|entry| {
+                entry.status == EffectJournalStatus::FeedbackAccepted && entry.feedback.is_some()
+            })
+            .map(|entry| (entry.run_id, entry.generation))
+            .collect();
+        let key = (proposal.run_id, generation);
+        let exact_active_entry = entries.iter().any(|entry| {
+            entry.generation == generation
+                && journal_entry_matches_proposal(entry, proposal, self.scope_id)
+                && entry.status == EffectJournalStatus::FeedbackAccepted
+                && entry.feedback.is_some()
+        });
+        if !exact_active_entry {
+            return Err(EffectFailure::Denied(
+                "model-agent journal recovery has no exact accepted feedback entry".to_string(),
+            ));
+        }
+        claims.retain(|claimed| active_keys.contains(claimed));
+        if !claims.insert(key) {
+            return Err(EffectFailure::Denied(
+                "model-agent journal recovery was already claimed".to_string(),
+            ));
+        }
+        Ok(())
+    }
+
+    async fn reject_effect(
+        &self,
+        risk: RiskClass,
+        cause: RejectionCause,
+        handling: RejectionHandling,
+    ) -> Result<(), EffectFailure> {
+        let reason = match cause {
+            RejectionCause::Reason(reason) => reason,
+            RejectionCause::ApprovalLookup(error) => {
+                tracing::error!(%error, "effect approval lookup failed during admission");
+                return Err(EffectFailure::ApprovalLookup(error));
+            }
+        };
+        tracing::warn!(?risk, reason = %reason, "effect rejected");
+        match handling {
+            RejectionHandling::ObserveOnly => {}
+            RejectionHandling::LegacyHarness(request) => {
+                record_denied_harness(self, &request)?;
+            }
+            RejectionHandling::ProposalResultOnly(proposal) => {
+                self.record_model_agent_denial(&proposal, reason.clone())
+                    .await?;
+            }
+            RejectionHandling::Proposal(proposal) => {
+                let ModelAgentProposalExecution::ApprovalContinuation {
+                    journal_generation, ..
+                } = &proposal.execution
+                else {
+                    return Err(EffectFailure::Failed(
+                        "stored proposal denial lacks an approval continuation".to_string(),
+                    ));
+                };
+                self.adapters
+                    .effect_journal
+                    .record_terminal(
+                        proposal.run_id,
+                        *journal_generation,
+                        maestria_ports::EffectJournalStatus::Failed,
+                    )
+                    .map_err(|error| {
+                        EffectFailure::Failed(format!("record denied proposal terminal: {error}"))
+                    })?;
+                self.record_model_agent_denial(&proposal, reason.clone())
+                    .await?;
+            }
+        }
+        Err(EffectFailure::Denied(reason))
+    }
+
+    async fn await_effect(
         &self,
         effect: &MaestriaEffect,
         risk: RiskClass,
-        decision: PolicyDecision,
+        reason: String,
+        wait: ApprovalWait,
     ) -> Result<(), EffectFailure> {
-        match decision {
-            PolicyDecision::Allow => Ok(()),
-            PolicyDecision::Deny { reason } => {
-                tracing::warn!(?risk, %reason, "effect denied");
-                match effect {
-                    MaestriaEffect::QueryHarness(request) => {
-                        record_denied_harness(self, request)?;
-                    }
-                    MaestriaEffect::QueryHarnessProposal(request) => {
-                        let generation =
-                            if let Some(generation) = request.proposal.journal_generation {
-                                generation
-                            } else {
-                                let entry = self
-                                    .adapters
-                                    .effect_journal
-                                    .record_intent(EffectJournalIntent {
-                                        run_id: request.proposal.run_id,
-                                        task_id: request.proposal.task_id,
-                                        capability: request.proposal.capability.clone(),
-                                        command: request.proposal.command.clone(),
-                                        scope_id: self.scope_id,
-                                        requested_generation: None,
-                                    })
-                                    .map_err(|error| {
-                                        EffectFailure::Failed(format!(
-                                            "record denied proposal intent: {error}"
-                                        ))
-                                    })?;
-                                entry.generation
-                            };
-                        self.adapters
-                            .effect_journal
-                            .record_terminal(
-                                request.proposal.run_id,
-                                generation,
-                                EffectJournalStatus::Failed,
-                            )
-                            .map_err(|error| {
-                                EffectFailure::Failed(format!(
-                                    "record denied proposal terminal: {error}"
-                                ))
-                            })?;
-                        self.record_model_agent_denial(&request.proposal, reason.clone())
-                            .await?;
-                    }
-                    _ => {}
-                }
-                Err(EffectFailure::Denied(reason))
+        tracing::info!(?risk, reason = %reason, ?wait, "effect requires approval");
+        match wait {
+            ApprovalWait::CreateProposalApproval => {
+                let MaestriaEffect::QueryHarnessProposal(request) = effect else {
+                    return Err(EffectFailure::Denied(
+                        "approval continuation is not a model-agent proposal".to_string(),
+                    ));
+                };
+                persist_pending_harness(self, request).await?;
+                Err(EffectFailure::RequiresApproval(reason))
             }
-            PolicyDecision::RequireApproval { reason } => {
-                tracing::info!(?risk, %reason, "effect requires approval");
-                if let MaestriaEffect::QueryHarnessProposal(request) = effect {
-                    if request.proposal.approval_id.is_none() {
-                        persist_pending_harness(self, request).await?;
-                    } else {
-                        resume_harness_journal(self, &request.proposal)?;
-                    }
-                } else if let MaestriaEffect::QueryHarness(request) = effect {
-                    // Legacy harness requests have no resumable proposal payload.
-                    record_denied_harness(self, request)?;
+            ApprovalWait::ExistingProposalApproval => {
+                if !matches!(effect, MaestriaEffect::QueryHarnessProposal(_)) {
+                    return Err(EffectFailure::Denied(
+                        "existing approval continuation is not a model-agent proposal".to_string(),
+                    ));
                 }
                 Err(EffectFailure::RequiresApproval(reason))
             }
         }
     }
+}
 
+impl EffectExecutionContext {
     async fn dispatch_effect(
         self,
         effect: MaestriaEffect,
+        risk: RiskClass,
         persistence_barrier_timeout: Option<Duration>,
     ) -> Result<(), EffectFailure> {
+        tracing::debug!(?risk, "dispatching admitted effect");
         match effect {
             MaestriaEffect::PersistEvent { envelope } => {
                 handler_result(self.handle_persist_event(*envelope).await, "persist event")
@@ -176,15 +204,34 @@ impl EffectExecutionContext {
         }
     }
 
-    /// Execute a single effect after governance classification.
     pub(crate) async fn execute_effect(
         self,
         effect: MaestriaEffect,
         persistence_barrier_timeout: Option<Duration>,
     ) -> Result<(), EffectFailure> {
-        let (risk, decision) = self.classify_effect(&effect);
-        self.enforce_effect_policy(&effect, risk, decision).await?;
-        self.dispatch_effect(effect, persistence_barrier_timeout)
-            .await
+        let admission = self.admit_effect(&effect);
+        match admission {
+            EffectAdmission::Execute { risk, claim } => {
+                if let MaestriaEffect::QueryHarnessProposal(request) = &effect
+                    && let ModelAgentProposalExecution::JournalRecovery { journal_generation } =
+                        request.proposal.execution
+                {
+                    self.claim_journal_recovery(&request.proposal, journal_generation)?;
+                }
+                if let Some(claim) = claim {
+                    self.claim_approved_proposal(claim)?;
+                }
+                self.dispatch_effect(effect, risk, persistence_barrier_timeout)
+                    .await
+            }
+            EffectAdmission::AwaitingApproval { risk, reason, wait } => {
+                self.await_effect(&effect, risk, reason, wait).await
+            }
+            EffectAdmission::Rejected {
+                risk,
+                cause,
+                handling,
+            } => self.reject_effect(risk, cause, handling).await,
+        }
     }
 }
