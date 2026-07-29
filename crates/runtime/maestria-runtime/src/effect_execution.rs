@@ -1,4 +1,5 @@
 use crate::config::EffectExecutionContext;
+use crate::effect_execution_dispatch::PreparedEffect;
 use crate::effect_result::EffectFailure;
 use maestria_domain::{
     CorpusScope, DiagnosticEvent, DomainInput, LogicalTick, MaestriaEffect,
@@ -192,6 +193,28 @@ impl EffectExecutionContext {
             Err(_) => {
                 tracing::error!("Watchdog: effect execution timed out after {:?}", watchdog);
                 Err(EffectFailure::Failed("effect watchdog timeout".to_string()))
+            }
+        }
+    }
+
+    pub(crate) async fn execute_prepared_with_watchdog(
+        self,
+        prepared: PreparedEffect,
+    ) -> Result<(), EffectFailure> {
+        let watchdog = self.default_effect_timeout + Duration::from_secs(5);
+        match tokio::time::timeout(
+            watchdog,
+            self.clone()
+                .execute_prepared(prepared, Some(self.default_effect_timeout)),
+        )
+        .await
+        {
+            Ok(result) => result,
+            Err(_) => {
+                tracing::error!("Watchdog: prepared effect timed out after {:?}", watchdog);
+                Err(EffectFailure::Failed(
+                    "prepared effect watchdog timeout".to_string(),
+                ))
             }
         }
     }

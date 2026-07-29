@@ -171,12 +171,26 @@ impl EffectExecutionContext {
             Ok(entry) => entry,
             Err(error) => return Self::rejected(risk, error),
         };
+        if entry.is_none() && record.status == ApprovalStatus::Denied {
+            return EffectAdmission::Rejected {
+                risk,
+                cause: RejectionCause::Reason("model-agent proposal approval denied".to_string()),
+                handling: RejectionHandling::ProposalResultOnly(Box::new(stored_proposal)),
+            };
+        }
         let Some(entry) = entry else {
             return Self::rejected(
                 risk,
                 "model-agent approval continuation journal entry is missing",
             );
         };
+        if record.status == ApprovalStatus::Denied && entry.status == EffectJournalStatus::Failed {
+            return EffectAdmission::Rejected {
+                risk,
+                cause: RejectionCause::Reason("model-agent proposal approval denied".to_string()),
+                handling: RejectionHandling::ProposalResultOnly(Box::new(stored_proposal)),
+            };
+        }
         if entry.status != EffectJournalStatus::Intent {
             return Self::rejected(
                 risk,

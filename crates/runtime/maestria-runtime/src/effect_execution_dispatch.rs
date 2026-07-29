@@ -5,11 +5,20 @@ use crate::effect_admission::{
 use crate::effect_execution::{persist_pending_harness, record_denied_harness};
 use crate::effect_result::{EffectFailure, handler_result};
 use crate::proposal_recovery::journal_entry_matches_proposal;
+use crate::proposal_workflow::model_agent_denial_result;
 use maestria_domain::{MaestriaEffect, ModelAgentProposalExecution};
 use maestria_governance::RiskClass;
 use maestria_ports::EffectJournalStatus;
 use std::collections::BTreeSet;
 use std::time::Duration;
+
+pub(crate) enum PreparedEffect {
+    Dispatch {
+        effect: Box<MaestriaEffect>,
+        risk: RiskClass,
+    },
+    TerminalResult(Box<maestria_domain::ModelAgentProposalResult>),
+}
 
 impl EffectExecutionContext {
     fn claim_approved_proposal(&self, claim: ApprovedProposalClaim) -> Result<(), EffectFailure> {
@@ -77,34 +86,41 @@ impl EffectExecutionContext {
         risk: RiskClass,
         cause: RejectionCause,
         handling: RejectionHandling,
-    ) -> Result<(), EffectFailure> {
+    ) -> EffectFailure {
         let reason = match cause {
             RejectionCause::Reason(reason) => reason,
             RejectionCause::ApprovalLookup(error) => {
                 tracing::error!(%error, "effect approval lookup failed during admission");
-                return Err(EffectFailure::ApprovalLookup(error));
+                return EffectFailure::ApprovalLookup(error);
             }
         };
         tracing::warn!(?risk, reason = %reason, "effect rejected");
         match handling {
             RejectionHandling::ObserveOnly => {}
             RejectionHandling::LegacyHarness(request) => {
-                record_denied_harness(self, &request)?;
+                if let Err(error) = record_denied_harness(self, &request) {
+                    return error;
+                }
             }
             RejectionHandling::ProposalResultOnly(proposal) => {
-                self.record_model_agent_denial(&proposal, reason.clone())
-                    .await?;
+                if let Err(error) = self
+                    .record_model_agent_denial(&proposal, reason.clone())
+                    .await
+                {
+                    return error;
+                }
             }
             RejectionHandling::Proposal(proposal) => {
                 let ModelAgentProposalExecution::ApprovalContinuation {
                     journal_generation, ..
                 } = &proposal.execution
                 else {
-                    return Err(EffectFailure::Failed(
+                    return EffectFailure::Failed(
                         "stored proposal denial lacks an approval continuation".to_string(),
-                    ));
+                    );
                 };
-                self.adapters
+                if let Err(error) = self
+                    .adapters
                     .effect_journal
                     .record_terminal(
                         proposal.run_id,
@@ -113,12 +129,19 @@ impl EffectExecutionContext {
                     )
                     .map_err(|error| {
                         EffectFailure::Failed(format!("record denied proposal terminal: {error}"))
-                    })?;
-                self.record_model_agent_denial(&proposal, reason.clone())
-                    .await?;
+                    })
+                {
+                    return error;
+                }
+                if let Err(error) = self
+                    .record_model_agent_denial(&proposal, reason.clone())
+                    .await
+                {
+                    return error;
+                }
             }
         }
-        Err(EffectFailure::Denied(reason))
+        EffectFailure::Denied(reason)
     }
 
     async fn await_effect(
@@ -127,25 +150,28 @@ impl EffectExecutionContext {
         risk: RiskClass,
         reason: String,
         wait: ApprovalWait,
-    ) -> Result<(), EffectFailure> {
+    ) -> EffectFailure {
         tracing::info!(?risk, reason = %reason, ?wait, "effect requires approval");
         match wait {
             ApprovalWait::CreateProposalApproval => {
                 let MaestriaEffect::QueryHarnessProposal(request) = effect else {
-                    return Err(EffectFailure::Denied(
+                    return EffectFailure::Denied(
                         "approval continuation is not a model-agent proposal".to_string(),
-                    ));
+                    );
                 };
-                persist_pending_harness(self, request).await?;
-                Err(EffectFailure::RequiresApproval(reason))
+                match persist_pending_harness(self, request).await {
+                    Ok(()) => EffectFailure::RequiresApproval(reason),
+                    Err(error) => error,
+                }
             }
             ApprovalWait::ExistingProposalApproval => {
-                if !matches!(effect, MaestriaEffect::QueryHarnessProposal(_)) {
-                    return Err(EffectFailure::Denied(
+                if matches!(effect, MaestriaEffect::QueryHarnessProposal(_)) {
+                    EffectFailure::RequiresApproval(reason)
+                } else {
+                    EffectFailure::Denied(
                         "existing approval continuation is not a model-agent proposal".to_string(),
-                    ));
+                    )
                 }
-                Err(EffectFailure::RequiresApproval(reason))
             }
         }
     }
@@ -204,11 +230,58 @@ impl EffectExecutionContext {
         }
     }
 
-    pub(crate) async fn execute_effect(
-        self,
+    fn prepare_terminal_rejection(
+        &self,
+        risk: RiskClass,
+        cause: RejectionCause,
+        handling: RejectionHandling,
+    ) -> Result<PreparedEffect, EffectFailure> {
+        let reason = match cause {
+            RejectionCause::Reason(reason) => reason,
+            RejectionCause::ApprovalLookup(error) => {
+                return Err(EffectFailure::ApprovalLookup(error));
+            }
+        };
+        tracing::warn!(?risk, reason = %reason, "effect rejected");
+        let proposal = match handling {
+            RejectionHandling::ProposalResultOnly(proposal) => proposal,
+            RejectionHandling::Proposal(proposal) => {
+                let ModelAgentProposalExecution::ApprovalContinuation {
+                    journal_generation, ..
+                } = &proposal.execution
+                else {
+                    return Err(EffectFailure::Failed(
+                        "stored proposal denial lacks an approval continuation".to_string(),
+                    ));
+                };
+                self.adapters
+                    .effect_journal
+                    .record_terminal(
+                        proposal.run_id,
+                        *journal_generation,
+                        maestria_ports::EffectJournalStatus::Failed,
+                    )
+                    .map_err(|error| {
+                        EffectFailure::Failed(format!("record denied proposal terminal: {error}"))
+                    })?;
+                proposal
+            }
+            _ => {
+                return Err(EffectFailure::Failed(
+                    "terminal rejection does not own a proposal result".to_string(),
+                ));
+            }
+        };
+        Ok(PreparedEffect::TerminalResult(Box::new(
+            model_agent_denial_result(&proposal, reason),
+        )))
+    }
+
+    async fn prepare_effect_inner(
+        &self,
         effect: MaestriaEffect,
-        persistence_barrier_timeout: Option<Duration>,
-    ) -> Result<(), EffectFailure> {
+        terminal_denial_is_success: bool,
+    ) -> Result<PreparedEffect, EffectFailure> {
         let admission = self.admit_effect(&effect);
         match admission {
             EffectAdmission::Execute { risk, claim } => {
@@ -221,17 +294,70 @@ impl EffectExecutionContext {
                 if let Some(claim) = claim {
                     self.claim_approved_proposal(claim)?;
                 }
-                self.dispatch_effect(effect, risk, persistence_barrier_timeout)
-                    .await
+                Ok(PreparedEffect::Dispatch {
+                    effect: Box::new(effect),
+                    risk,
+                })
             }
             EffectAdmission::AwaitingApproval { risk, reason, wait } => {
-                self.await_effect(&effect, risk, reason, wait).await
+                Err(self.await_effect(&effect, risk, reason, wait).await)
             }
             EffectAdmission::Rejected {
                 risk,
                 cause,
                 handling,
-            } => self.reject_effect(risk, cause, handling).await,
+            } => {
+                if terminal_denial_is_success
+                    && matches!(
+                        &handling,
+                        RejectionHandling::Proposal(_) | RejectionHandling::ProposalResultOnly(_)
+                    )
+                {
+                    self.prepare_terminal_rejection(risk, cause, handling)
+                } else {
+                    Err(self.reject_effect(risk, cause, handling).await)
+                }
+            }
         }
+    }
+
+    pub(crate) async fn prepare_effect(
+        &self,
+        effect: MaestriaEffect,
+    ) -> Result<PreparedEffect, EffectFailure> {
+        self.prepare_effect_inner(effect, false).await
+    }
+
+    pub(crate) async fn prepare_effect_before_reply(
+        &self,
+        effect: MaestriaEffect,
+    ) -> Result<PreparedEffect, EffectFailure> {
+        self.prepare_effect_inner(effect, true).await
+    }
+
+    pub(crate) async fn execute_prepared(
+        self,
+        prepared: PreparedEffect,
+        persistence_barrier_timeout: Option<Duration>,
+    ) -> Result<(), EffectFailure> {
+        match prepared {
+            PreparedEffect::Dispatch { effect, risk } => {
+                self.dispatch_effect(*effect, risk, persistence_barrier_timeout)
+                    .await
+            }
+            PreparedEffect::TerminalResult(result) => {
+                self.persist_model_agent_result(*result).await
+            }
+        }
+    }
+
+    pub(crate) async fn execute_effect(
+        self,
+        effect: MaestriaEffect,
+        persistence_barrier_timeout: Option<Duration>,
+    ) -> Result<(), EffectFailure> {
+        let prepared = self.prepare_effect(effect).await?;
+        self.execute_prepared(prepared, persistence_barrier_timeout)
+            .await
     }
 }

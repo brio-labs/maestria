@@ -23,6 +23,13 @@ impl MaestriaRuntime {
         }
     }
 
+    pub(crate) fn completed_run_id(input: &DomainInput) -> Option<maestria_domain::HarnessRunId> {
+        match input {
+            DomainInput::ModelAgentProposalCompleted(result) => Some(result.run_id),
+            _ => None,
+        }
+    }
+
     pub(crate) fn approval_continuation(
         &self,
         input: &DomainInput,
@@ -209,6 +216,17 @@ impl MaestriaRuntime {
                 .reply
                 .send(Err(RuntimeSubmissionError::EffectAdmissionRejected {
                     correlation_id: command.correlation_id,
+                }));
+        }
+    }
+
+    pub(crate) fn reply_preparation_error(command: Option<RuntimeCommand>, reason: String) {
+        if let Some(command) = command {
+            let _ = command
+                .reply
+                .send(Err(RuntimeSubmissionError::EffectPreparationRejected {
+                    correlation_id: command.correlation_id,
+                    reason,
                 }));
         }
     }

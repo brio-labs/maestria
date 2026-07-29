@@ -1,8 +1,15 @@
 use crate::config::EffectExecutionContext;
+use crate::effect_dispatch::EffectWork;
 use crate::effect_result::EffectFailure;
 use crate::harness::truncate_output;
-use maestria_domain::{DomainInput, ModelAgentHarnessResult, ModelAgentProposalRequest, ScopeId};
+use crate::runtime::MaestriaRuntime;
+use maestria_domain::{
+    DomainInput, KernelState, MaestriaEffect, ModelAgentHarnessResult, ModelAgentProposalExecution,
+    ModelAgentProposalRequest, ScopeId,
+};
 use maestria_ports::EffectJournalEntry;
+use std::collections::{BTreeMap, BTreeSet};
+use tokio::sync::mpsc;
 
 pub(crate) fn journal_entry_matches_proposal(
     entry: &EffectJournalEntry,
@@ -14,6 +21,101 @@ pub(crate) fn journal_entry_matches_proposal(
         && entry.capability == proposal.capability
         && entry.command == proposal.command
         && entry.scope_id == scope_id
+}
+
+impl MaestriaRuntime {
+    pub(crate) fn plan_model_agent_recovery(
+        &self,
+        snapshot: &KernelState,
+    ) -> Vec<ModelAgentProposalRequest> {
+        let mut proposals = BTreeMap::new();
+        let mut approval_owned_runs = BTreeSet::new();
+        match self.adapters.effect_journal.scan_in_flight() {
+            Ok(entries) => {
+                for entry in entries {
+                    if entry.status != maestria_ports::EffectJournalStatus::FeedbackAccepted
+                        || entry.feedback.is_none()
+                        || snapshot.model_agent_results.contains_key(&entry.run_id)
+                    {
+                        continue;
+                    }
+                    let Some(proposal) = snapshot.model_agent_requests.get(&entry.run_id) else {
+                        continue;
+                    };
+                    if !matches!(&proposal.execution, ModelAgentProposalExecution::Fresh)
+                        || !journal_entry_matches_proposal(&entry, proposal, self.config.scope_id)
+                    {
+                        continue;
+                    }
+                    let mut resumed = proposal.clone();
+                    resumed.execution = ModelAgentProposalExecution::JournalRecovery {
+                        journal_generation: entry.generation,
+                    };
+                    proposals.insert(entry.run_id, resumed);
+                }
+            }
+            Err(error) => {
+                tracing::error!(%error, "failed to scan effect journal for model-agent recovery");
+            }
+        }
+        match self.adapters.approval_repo.find_all() {
+            Ok(records) => {
+                for record in records {
+                    let Some(proposal) =
+                        crate::effect_execution::decode_pending_continuation(&record)
+                    else {
+                        continue;
+                    };
+                    if !snapshot.model_agent_requests.contains_key(&proposal.run_id) {
+                        continue;
+                    }
+                    approval_owned_runs.insert(proposal.run_id);
+                    if !matches!(
+                        record.status,
+                        maestria_ports::ApprovalStatus::Approved
+                            | maestria_ports::ApprovalStatus::Denied
+                    ) || snapshot.model_agent_results.contains_key(&proposal.run_id)
+                    {
+                        continue;
+                    }
+                    proposals.entry(proposal.run_id).or_insert(proposal);
+                }
+            }
+            Err(error) => {
+                tracing::error!(%error, "failed to scan approvals for model-agent recovery");
+            }
+        }
+        for proposal in snapshot.model_agent_requests.values() {
+            if matches!(&proposal.execution, ModelAgentProposalExecution::Fresh)
+                && !snapshot.model_agent_results.contains_key(&proposal.run_id)
+                && !approval_owned_runs.contains(&proposal.run_id)
+                && !proposals.contains_key(&proposal.run_id)
+            {
+                proposals.insert(proposal.run_id, proposal.clone());
+            }
+        }
+        proposals.into_values().collect()
+    }
+
+    pub(crate) async fn queue_model_agent_recovery(
+        proposals: Vec<ModelAgentProposalRequest>,
+        shutdown_token: &tokio_util::sync::CancellationToken,
+        effect_tx: &mpsc::Sender<crate::effect_dispatch::EffectBatch>,
+    ) {
+        for proposal in proposals {
+            tokio::select! {
+                () = shutdown_token.cancelled() => break,
+                result = effect_tx.send(vec![EffectWork::Pending(
+                    MaestriaEffect::QueryHarnessProposal(proposal.into_harness_request()),
+                )]) => {
+                    if let Err(error) = result {
+                        tracing::warn!(%error, "model-agent recovery effect channel closed");
+                        break;
+                    }
+                }
+            }
+        }
+    }
 }
 
 impl EffectExecutionContext {

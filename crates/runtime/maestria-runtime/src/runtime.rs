@@ -1,14 +1,27 @@
 use crate::config::{
     Adapters, Governance, HarnessFeedbackAcks, JournalRecoveryClaims, RuntimeConfig,
 };
-use maestria_domain::{DomainError, DomainEventEnvelope, DomainInput, KernelState};
-use std::sync::{Arc, atomic::AtomicU64};
+use maestria_domain::{DomainError, DomainEventEnvelope, DomainInput, HarnessRunId, KernelState};
+use std::collections::BTreeMap;
+use std::sync::{Arc, Mutex, atomic::AtomicU64};
 use tokio::sync::{RwLock, mpsc, oneshot};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum EffectPreparation {
+    Deferred,
+    BeforeReply,
+}
 
 pub(crate) struct RuntimeCommand {
     pub(crate) correlation_id: u64,
     pub(crate) input: DomainInput,
+    pub(crate) effect_preparation: EffectPreparation,
     pub(crate) reply: oneshot::Sender<Result<DomainApplicationResult, RuntimeSubmissionError>>,
+}
+
+pub(crate) struct PendingApplication {
+    pub(crate) command: RuntimeCommand,
+    pub(crate) outcome: DomainApplicationResult,
 }
 
 pub struct MaestriaRuntime {
@@ -23,6 +36,7 @@ pub struct MaestriaRuntime {
     pub(crate) journal_recovery_claims: JournalRecoveryClaims,
     pub(crate) next_validation_report_id: Arc<AtomicU64>,
     pub(crate) feedback_acks: HarnessFeedbackAcks,
+    pub(crate) pending_applications: Mutex<BTreeMap<HarnessRunId, PendingApplication>>,
     #[cfg(test)]
     pub(crate) test_pre_failed_effect_task: bool,
 }
@@ -47,6 +61,10 @@ pub enum RuntimeSubmissionError {
     EffectAdmissionRejected {
         correlation_id: u64,
     },
+    EffectPreparationRejected {
+        correlation_id: u64,
+        reason: String,
+    },
     PersistenceBarrierFailed {
         correlation_id: u64,
     },
@@ -60,6 +78,9 @@ impl std::fmt::Display for RuntimeSubmissionError {
             Self::DomainRejected { error, .. } => write!(f, "domain rejected input: {error}"),
             Self::EffectAdmissionRejected { .. } => {
                 f.write_str("runtime rejected the emitted effect batch")
+            }
+            Self::EffectPreparationRejected { reason, .. } => {
+                write!(f, "runtime rejected effect before reply: {reason}")
             }
             Self::PersistenceBarrierFailed { .. } => {
                 f.write_str("runtime could not confirm durable proposal persistence")
@@ -75,6 +96,17 @@ pub struct RuntimeHandle {
     pub(crate) input_tx: mpsc::Sender<DomainInput>,
     pub(crate) command_tx: mpsc::Sender<RuntimeCommand>,
     pub(crate) next_command_id: Arc<AtomicU64>,
+    pub(crate) id_allocator: Arc<dyn maestria_ports::IdAllocator + Send + Sync>,
+}
+
+/// Reserved capacity for one correlated runtime submission.
+///
+/// Reserving is cancellation-safe: the caller retains its input until this value is returned.
+/// [`RuntimeSubmissionPermit::submit`] accepts the input synchronously on its first poll before
+/// awaiting the correlated result.
+pub struct RuntimeSubmissionPermit {
+    pub(crate) permit: mpsc::OwnedPermit<RuntimeCommand>,
+    pub(crate) correlation_id: u64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

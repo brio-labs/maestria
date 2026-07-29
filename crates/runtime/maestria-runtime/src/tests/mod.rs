@@ -30,6 +30,7 @@ mod resume;
 mod search;
 mod search_validation;
 mod shell_policy;
+mod submission;
 mod supervision;
 
 /// EventLog implementation that always fails, useful for testing

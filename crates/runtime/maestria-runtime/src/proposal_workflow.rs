@@ -27,6 +27,22 @@ fn validate_proposal_search_generation(
     Ok(())
 }
 
+pub(crate) fn model_agent_denial_result(
+    proposal: &ModelAgentProposalRequest,
+    reason: String,
+) -> ModelAgentProposalResult {
+    ModelAgentProposalResult {
+        run_id: proposal.run_id,
+        correlation_id: proposal.correlation_id,
+        status: ModelAgentTerminalStatus::Failed,
+        search: None,
+        harness: None,
+        validation: None,
+        memory_candidate: None,
+        error: Some(reason),
+    }
+}
+
 impl EffectExecutionContext {
     pub(crate) async fn handle_query_harness_proposal(
         &self,
@@ -56,17 +72,8 @@ impl EffectExecutionContext {
         proposal: &ModelAgentProposalRequest,
         reason: String,
     ) -> Result<(), EffectFailure> {
-        self.persist_model_agent_result(ModelAgentProposalResult {
-            run_id: proposal.run_id,
-            correlation_id: proposal.correlation_id,
-            status: ModelAgentTerminalStatus::Failed,
-            search: None,
-            harness: None,
-            validation: None,
-            memory_candidate: None,
-            error: Some(reason),
-        })
-        .await
+        self.persist_model_agent_result(model_agent_denial_result(proposal, reason))
+            .await
     }
 
     async fn execute_model_agent_proposal(
@@ -361,7 +368,7 @@ impl EffectExecutionContext {
         }))
     }
 
-    async fn persist_model_agent_result(
+    pub(crate) async fn persist_model_agent_result(
         &self,
         result: ModelAgentProposalResult,
     ) -> Result<(), EffectFailure> {

@@ -198,7 +198,7 @@ fn build_adapters(
     })
 }
 
-pub fn build_runtime(
+pub(crate) fn build_runtime(
     layout: &InstanceLayout,
     state: KernelState,
     profile: AutonomyProfile,
@@ -212,7 +212,7 @@ pub fn build_runtime(
 }
 
 /// Build a runtime with a verified repository benchmark promotion policy.
-pub fn build_runtime_with_repository_policy(
+pub(crate) fn build_runtime_with_repository_policy(
     layout: &InstanceLayout,
     mut state: KernelState,
     profile: AutonomyProfile,

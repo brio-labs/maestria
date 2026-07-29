@@ -1,8 +1,9 @@
+use anyhow::Error as AnyhowError;
 use maestria_blob_fs::FsBlobStore;
 use maestria_core::{CorePorts, CoreServices, InstanceLayout, InstanceService, OpenEvidenceInput};
 use maestria_domain::{
-    ArtifactDetected, ArtifactId, CardId, ChunkId, DomainInput, EvidenceId, IndexStatus,
-    KernelState, Relation, RelationEndpoint, RelationId, RelationKind, content_hash,
+    ArtifactDetected, ArtifactId, CardId, ChunkId, DomainInput, EvidenceId, IndexStatus, Relation,
+    RelationEndpoint, RelationId, RelationKind, content_hash,
 };
 use maestria_governance::{AutonomyProfile, RetrievalSecurityPolicy};
 use maestria_graph_sqlite::SqliteGraphIndex;
@@ -78,16 +79,14 @@ async fn wait_for_indexed(
 
 struct TestEnv {
     layout: InstanceLayout,
-    input_tx: tokio::sync::mpsc::Sender<DomainInput>,
-    shutdown_token: CancellationToken,
-    runtime_handle: tokio::task::JoinHandle<()>,
+    session: Option<maestria_daemon::MutationSession>,
     artifact_id: ArtifactId,
     hash: String,
     bytes: Vec<u8>,
     source_path: String,
 }
 
-fn prepare_test_env(tmp: &TempDir) -> Result<TestEnv, Box<dyn std::error::Error>> {
+async fn prepare_test_env(tmp: &TempDir) -> Result<TestEnv, Box<dyn std::error::Error>> {
     let root = tmp.path();
     let notes = root.join("notes");
     fs::create_dir_all(&notes)?;
@@ -102,29 +101,32 @@ fn prepare_test_env(tmp: &TempDir) -> Result<TestEnv, Box<dyn std::error::Error>
     let bytes = fs::read(&test_path)?;
     let hash = content_hash(&bytes);
 
-    // Build runtime with StrictResearch profile to allow indexing
-    let (runtime, input_tx, input_rx, shutdown_token) = maestria_daemon::build_runtime(
-        &layout,
-        KernelState::new(),
-        AutonomyProfile::StrictResearch,
-    )?;
-
-    let shutdown = shutdown_token.clone();
-    let runtime_handle = tokio::spawn(async move {
-        runtime.run(input_rx, shutdown).await;
-    });
+    // Start a correlated mutation session with startup recovery applied.
+    let session =
+        maestria_daemon::MutationSession::start(layout.clone(), AutonomyProfile::StrictResearch)
+            .await?;
 
     let artifact_id = ArtifactId::new(1);
     Ok(TestEnv {
         layout,
-        input_tx,
-        shutdown_token,
-        runtime_handle,
+        session: Some(session),
         artifact_id,
         hash,
         bytes,
         source_path,
     })
+}
+
+async fn finish_session<T>(
+    session: Option<maestria_daemon::MutationSession>,
+    operation: Result<T, Box<dyn std::error::Error>>,
+) -> Result<T, Box<dyn std::error::Error>> {
+    let session =
+        session.ok_or_else(|| std::io::Error::other("mutation session already finished"))?;
+    session
+        .finish(operation.map_err(|error| AnyhowError::msg(error.to_string())))
+        .await
+        .map_err(|error| std::io::Error::other(error.to_string()).into())
 }
 
 struct IndexResult {
@@ -134,16 +136,16 @@ struct IndexResult {
 }
 
 async fn index_and_verify_artifact(
-    input_tx: &tokio::sync::mpsc::Sender<DomainInput>,
+    session: &maestria_daemon::MutationSession,
     db_path: &Path,
     artifact_id: ArtifactId,
     hash: &str,
     bytes: &[u8],
     source_path: &str,
 ) -> Result<IndexResult, Box<dyn std::error::Error>> {
-    // === INDEX via DomainInput ===
-    input_tx
-        .send(DomainInput::ArtifactDetected(ArtifactDetected {
+    // === INDEX via correlated DomainInput submission ===
+    session
+        .submit(DomainInput::ArtifactDetected(ArtifactDetected {
             artifact_id,
             title: "graph-rag.md".to_string(),
             source_path: source_path.to_string(),
@@ -195,7 +197,7 @@ async fn index_and_verify_artifact(
 }
 
 async fn attempt_idempotent_reindex(
-    input_tx: &tokio::sync::mpsc::Sender<DomainInput>,
+    session: &maestria_daemon::MutationSession,
     db_path: &Path,
     artifact_id: ArtifactId,
     hash: &str,
@@ -204,8 +206,8 @@ async fn attempt_idempotent_reindex(
     expected_event_count: usize,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // === IDEMPOTENT RE-INDEX ===
-    input_tx
-        .send(DomainInput::ArtifactDetected(ArtifactDetected {
+    session
+        .submit(DomainInput::ArtifactDetected(ArtifactDetected {
             artifact_id,
             title: "graph-rag.md".to_string(),
             source_path: source_path.to_string(),
@@ -299,36 +301,42 @@ async fn search_and_open_evidence_after_restart(
 #[tokio::test]
 async fn vertical_slice_init_index_search_evidence() -> Result<(), Box<dyn std::error::Error>> {
     let tmp = TempDir::new()?;
-    let env = prepare_test_env(&tmp)?;
+    let mut env = prepare_test_env(&tmp).await?;
 
-    let IndexResult {
-        evidence_id,
-        first_chunk_id,
-        event_count,
-    } = index_and_verify_artifact(
-        &env.input_tx,
-        &env.layout.database_path,
-        env.artifact_id,
-        &env.hash,
-        &env.bytes,
-        &env.source_path,
-    )
-    .await?;
+    let operation = async {
+        let session = env
+            .session
+            .as_ref()
+            .ok_or_else(|| std::io::Error::other("mutation session missing"))?;
+        let IndexResult {
+            evidence_id,
+            first_chunk_id,
+            event_count,
+        } = index_and_verify_artifact(
+            session,
+            &env.layout.database_path,
+            env.artifact_id,
+            &env.hash,
+            &env.bytes,
+            &env.source_path,
+        )
+        .await?;
 
-    attempt_idempotent_reindex(
-        &env.input_tx,
-        &env.layout.database_path,
-        env.artifact_id,
-        &env.hash,
-        &env.bytes,
-        &env.source_path,
-        event_count,
-    )
-    .await?;
+        attempt_idempotent_reindex(
+            session,
+            &env.layout.database_path,
+            env.artifact_id,
+            &env.hash,
+            &env.bytes,
+            &env.source_path,
+            event_count,
+        )
+        .await?;
+        Ok::<_, Box<dyn std::error::Error>>((evidence_id, first_chunk_id))
+    }
+    .await;
 
-    // === STOP RUNTIME ===
-    env.shutdown_token.cancel();
-    env.runtime_handle.await?;
+    let (evidence_id, first_chunk_id) = finish_session(env.session.take(), operation).await?;
 
     search_and_open_evidence_after_restart(
         &env.layout,
@@ -406,23 +414,30 @@ fn verify_projections_rebuilt(
 async fn vertical_slice_run_instance_restart_rebuilds_projections()
 -> Result<(), Box<dyn std::error::Error>> {
     let tmp = TempDir::new()?;
-    let env = prepare_test_env(&tmp)?;
-    let IndexResult {
-        evidence_id,
-        first_chunk_id,
-        ..
-    } = index_and_verify_artifact(
-        &env.input_tx,
-        &env.layout.database_path,
-        env.artifact_id,
-        &env.hash,
-        &env.bytes,
-        &env.source_path,
-    )
-    .await?;
+    let mut env = prepare_test_env(&tmp).await?;
+    let operation = async {
+        let session = env
+            .session
+            .as_ref()
+            .ok_or_else(|| std::io::Error::other("mutation session missing"))?;
+        let IndexResult {
+            evidence_id,
+            first_chunk_id,
+            ..
+        } = index_and_verify_artifact(
+            session,
+            &env.layout.database_path,
+            env.artifact_id,
+            &env.hash,
+            &env.bytes,
+            &env.source_path,
+        )
+        .await?;
+        Ok::<_, Box<dyn std::error::Error>>((evidence_id, first_chunk_id))
+    }
+    .await;
 
-    env.shutdown_token.cancel();
-    env.runtime_handle.await?;
+    let (evidence_id, first_chunk_id) = finish_session(env.session.take(), operation).await?;
 
     let stale_relation_id = seed_stale_projections(&env.layout, env.artifact_id)?;
 
