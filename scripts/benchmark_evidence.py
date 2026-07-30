@@ -146,7 +146,9 @@ def errors_for_manifest(path: Path) -> list[str]:
     return errors
 
 
-def errors_for_report(path: Path, kind: str) -> list[str]:
+def errors_for_report(
+    path: Path, kind: str, manifest_entry: dict[str, Any] | None = None
+) -> list[str]:
     try:
         report = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as error:
@@ -180,19 +182,50 @@ def errors_for_report(path: Path, kind: str) -> list[str]:
         for key in ("corpus_id", "repository_revision", "index_generation", "model_fingerprint"):
             if not str(report.get(key, "")).strip():
                 errors.append(f"{path}: missing {key}")
+        if manifest_entry is not None:
+            corpus = manifest_entry.get("corpus", {})
+            fingerprints = manifest_entry.get("fingerprints", {})
+            for key, expected in (
+                ("corpus_id", corpus.get("id")),
+                ("index_generation", fingerprints.get("index_generation")),
+                ("model_fingerprint", fingerprints.get("model_fingerprint")),
+            ):
+                if report.get(key) != expected:
+                    errors.append(f"{path}: {key} is not bound to its manifest")
         observations = report.get("observations")
         if not isinstance(observations, list) or not observations:
             errors.append(f"{path}: observations must be non-empty")
         else:
             for index, observation in enumerate(observations):
+                prefix = f"{path}: observations[{index}]"
                 if not isinstance(observation, dict):
-                    errors.append(f"{path}: observations[{index}] must be an object")
+                    errors.append(f"{prefix} must be an object")
                     continue
                 for key in ("case_id", "route", "latency_ms", "outcome_correct"):
                     if key not in observation:
-                        errors.append(f"{path}: observations[{index}] missing {key}")
-                if "measurement_status" not in observation:
-                    errors.append(f"{path}: observations[{index}] missing measurement_status")
+                        errors.append(f"{prefix} missing {key}")
+                if observation.get("route") not in {"PhaseC", "CodeSpecialized"}:
+                    errors.append(f"{prefix}.route is invalid")
+                for key in (
+                    "latency_ms",
+                    "exact_span_hits",
+                    "evidence_chain_length",
+                    "memory_bytes",
+                    "disk_bytes",
+                    "energy_milliwatt_seconds",
+                ):
+                    if not isinstance(observation.get(key), int) or observation[key] < 0:
+                        errors.append(f"{prefix}.{key} must be a non-negative integer")
+                if not isinstance(observation.get("outcome_correct"), bool):
+                    errors.append(f"{prefix}.outcome_correct must be boolean")
+                status = observation.get("measurement_status")
+                if not (
+                    status == "Measured"
+                    or isinstance(status, dict)
+                    and isinstance(status.get("Unavailable"), dict)
+                    and str(status["Unavailable"].get("reason", "")).strip()
+                ):
+                    errors.append(f"{prefix}.measurement_status is invalid")
     elif kind == "visual":
         if report.get("provider_status") != "unavailable":
             errors.append(f"{path}: visual report must state provider_status=unavailable")
@@ -227,7 +260,9 @@ def validate(manifest: Path, report_root: Path | None) -> int:
                 if not path.is_file():
                     errors.append(f"missing benchmark report: {path}")
                 else:
-                    errors.extend(errors_for_report(path, str(report["kind"])))
+                    errors.extend(
+                        errors_for_report(path, str(report["kind"]), entry)
+                    )
     if errors:
         for error in errors:
             print(f"ERROR: {error}")
