@@ -1,6 +1,6 @@
 use crate::execution::{Meter, validate_limit};
 use crate::lexical_helpers::build_parsed_query;
-use crate::search_helpers::collect_bounded;
+use crate::search_helpers::{BoundedCollection, collect_bounded};
 use crate::tantivy_index::{TantivyFullTextIndex, card_key, chunk_key, to_port_error};
 use maestria_domain::SearchExecutionCompletion;
 use maestria_ports::{
@@ -146,12 +146,7 @@ impl TantivyFullTextIndex {
                 )),
             ]));
         }
-        let remaining = query
-            .execution_budget
-            .max_candidates()
-            .min(query.execution_budget.max_work_units())
-            .saturating_sub(meter.usage.candidates);
-        let candidate_limit = maestria_domain::saturating_usize(remaining);
+        let candidate_limit = remaining_candidate_limit(query.execution_budget, &meter);
         if candidate_limit == 0 {
             return Ok(meter.done(
                 Vec::new(),
@@ -160,19 +155,23 @@ impl TantivyFullTextIndex {
                 ),
             ));
         }
-        let (top_docs, truncated) = collect_bounded(
-            &searcher,
-            &parsed_query,
-            0,
-            candidate_limit,
-            candidate_limit,
-        )?;
+        let collection =
+            collect_lexical_candidates(&searcher, &parsed_query, candidate_limit, &mut meter)?;
+        if let Some(resource) = collection.stopped {
+            return Ok(meter.done(Vec::new(), SearchExecutionCompletion::Exhausted(resource)));
+        }
         let needle = match query.mode {
             MatchMode::Contains => trimmed.to_lowercase(),
             MatchMode::Exact => trimmed.to_string(),
         };
-        let (scored, score_stop) =
-            self.score_lexical_chunks(&searcher, top_docs, truncated, &query, &needle, &mut meter)?;
+        let (scored, score_stop) = self.score_lexical_chunks(
+            &searcher,
+            collection.docs,
+            collection.truncated,
+            &query,
+            &needle,
+            &mut meter,
+        )?;
         Ok(self.finish_chunk_search(scored, &query, meter, authorization_stop.or(score_stop)))
     }
     pub(crate) fn do_search_cards_lexical(
@@ -260,12 +259,7 @@ impl TantivyFullTextIndex {
                 )),
             ]));
         }
-        let remaining = query
-            .execution_budget
-            .max_candidates()
-            .min(query.execution_budget.max_work_units())
-            .saturating_sub(meter.usage.candidates);
-        let candidate_limit = maestria_domain::saturating_usize(remaining);
+        let candidate_limit = remaining_candidate_limit(query.execution_budget, &meter);
         if candidate_limit == 0 {
             return Ok(meter.done(
                 Vec::new(),
@@ -274,20 +268,42 @@ impl TantivyFullTextIndex {
                 ),
             ));
         }
-        let (top_docs, truncated) = collect_bounded(
-            &searcher,
-            &parsed_query,
-            0,
-            candidate_limit,
-            candidate_limit,
-        )?;
+        let collection =
+            collect_lexical_candidates(&searcher, &parsed_query, candidate_limit, &mut meter)?;
+        if let Some(resource) = collection.stopped {
+            return Ok(meter.done(Vec::new(), SearchExecutionCompletion::Exhausted(resource)));
+        }
         let needle = if query.mode == MatchMode::Contains {
             trimmed.to_lowercase()
         } else {
             trimmed.to_string()
         };
-        let (scored, score_stop) =
-            self.score_lexical_cards(&searcher, top_docs, truncated, &query, &needle, &mut meter)?;
+        let (scored, score_stop) = self.score_lexical_cards(
+            &searcher,
+            collection.docs,
+            collection.truncated,
+            &query,
+            &needle,
+            &mut meter,
+        )?;
         Ok(self.finish_card_search(scored, &query, meter, authorization_stop.or(score_stop)))
     }
+}
+fn collect_lexical_candidates(
+    searcher: &tantivy::Searcher,
+    query: &dyn tantivy::query::Query,
+    candidate_limit: usize,
+    meter: &mut Meter,
+) -> Result<BoundedCollection, PortError> {
+    collect_bounded(searcher, query, 0, candidate_limit, candidate_limit, meter)
+}
+fn remaining_candidate_limit(
+    budget: maestria_domain::SearchExecutionBudget,
+    meter: &Meter,
+) -> usize {
+    maestria_domain::saturating_usize(
+        budget
+            .max_candidates()
+            .saturating_sub(meter.usage.candidates),
+    )
 }

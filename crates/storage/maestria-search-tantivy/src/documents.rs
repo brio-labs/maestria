@@ -8,6 +8,7 @@ use crate::tantivy_index::{
     FIELD_ARTIFACT_ID, FIELD_CARD_ARTIFACT_ID, FIELD_CARD_ID, FIELD_CHUNK_ID, TantivyFullTextIndex,
     card_key, chunk_key, to_port_error,
 };
+pub(crate) const INDEXED_IDENTITY_BYTES: u64 = 2 * std::mem::size_of::<u64>() as u64;
 
 impl TantivyFullTextIndex {
     pub(crate) fn chunk_document(&self, chunk: &IndexedChunk) -> TantivyDocument {

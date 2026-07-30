@@ -77,20 +77,23 @@ impl TantivyFullTextIndex {
                     context: "invalid search query",
                     source: error.to_string(),
                 })?;
-        let (top_docs, truncated) = collect_bounded(
+        let collection = collect_bounded(
             &searcher,
             &parsed_query,
             query.offset,
             query.limit,
-            budget_usize(
-                query
-                    .execution_budget
-                    .max_candidates()
-                    .min(query.execution_budget.max_work_units()),
-            ),
+            budget_usize(query.execution_budget.max_candidates()),
+            &mut meter,
         )?;
-        let (scored, stopped) =
-            self.score_card_documents(&searcher, top_docs, truncated, &mut meter)?;
+        if let Some(resource) = collection.stopped {
+            return Ok(meter.done(Vec::new(), SearchExecutionCompletion::Exhausted(resource)));
+        }
+        let (scored, stopped) = self.score_card_documents(
+            &searcher,
+            collection.docs,
+            collection.truncated,
+            &mut meter,
+        )?;
         let selected = scored
             .into_iter()
             .skip(query.offset)
@@ -162,17 +165,24 @@ impl TantivyFullTextIndex {
         let remaining = query
             .execution_budget
             .max_candidates()
-            .min(query.execution_budget.max_work_units())
             .saturating_sub(meter.usage.candidates);
-        let (top_docs, truncated) = collect_bounded(
+        let collection = collect_bounded(
             &searcher,
             &scoped_query,
             query.offset,
             query.limit,
             budget_usize(remaining),
+            &mut meter,
         )?;
-        let (scored, score_stop) =
-            self.score_card_documents(&searcher, top_docs, truncated, &mut meter)?;
+        if let Some(resource) = collection.stopped {
+            return Ok(meter.done(Vec::new(), SearchExecutionCompletion::Exhausted(resource)));
+        }
+        let (scored, score_stop) = self.score_card_documents(
+            &searcher,
+            collection.docs,
+            collection.truncated,
+            &mut meter,
+        )?;
         let stopped = authorization_stop.or(score_stop);
         let selected = scored
             .into_iter()
@@ -247,21 +257,24 @@ impl TantivyFullTextIndex {
         if limit == 0 {
             return Ok((Vec::new(), Some(SearchExecutionResource::Candidates)));
         }
-        let (addresses, truncated) = collect_bounded(searcher, &AllQuery, 0, limit, limit)?;
+        let collection = collect_bounded(searcher, &AllQuery, 0, limit, limit, meter)?;
+        if let Some(resource) = collection.stopped {
+            return Ok((Vec::new(), Some(resource)));
+        }
         let mut allowed = std::collections::BTreeSet::new();
         let mut stopped = None;
-        for (_, address) in addresses {
+        for (_, address) in collection.docs {
             if let Some(resource) = meter.candidate() {
                 stopped = Some(resource);
                 break;
             }
             let (artifact_id, card_id) = self.read_card_identity_at(searcher, address)?;
-            if !filter(card_id, artifact_id)? {
-                continue;
-            }
-            if let Some(resource) = meter.bytes(1) {
+            if let Some(resource) = meter.bytes(crate::documents::INDEXED_IDENTITY_BYTES) {
                 stopped = Some(resource);
                 break;
+            }
+            if !filter(card_id, artifact_id)? {
+                continue;
             }
             if let Some(resource) = meter.work(1) {
                 stopped = Some(resource);
@@ -269,7 +282,7 @@ impl TantivyFullTextIndex {
             }
             allowed.insert(card_key(artifact_id, card_id));
         }
-        if stopped.is_none() && truncated {
+        if stopped.is_none() && collection.truncated {
             stopped = Some(SearchExecutionResource::Candidates);
         }
         Ok((allowed.into_iter().collect(), stopped))
