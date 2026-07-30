@@ -133,11 +133,23 @@ reinterpreting stored evidence.
 
 ## Evaluation
 
-The frozen contract corpus is:
+The compatibility corpus remains:
 
 ```text
 tests/contracts/learned_sparse_benchmark_v1.json
 ```
+
+The complete schema-v2 contract fixture is:
+
+```text
+tests/contracts/learned_sparse_benchmark_v2.json
+```
+
+Schema v2 requires explicit query judgments, a development/final split, source and judgment
+hashes, corpus snapshot, index generation, namespace, route budgets, environment, and data
+fidelity. Every quality, latency, memory, disk, lifecycle, privacy, security, and energy value
+is a typed `Measured`, `Unavailable { reason }`, or `NotApplicable { reason }` measurement.
+Missing telemetry is never interpreted as zero.
 
 The comparison requires observations for:
 
@@ -146,9 +158,11 @@ The comparison requires observations for:
 3. sparse-only ablation;
 4. sparse fused with the existing ranking pipeline.
 
-Promotion requires a material quality improvement against **both** lexical and hybrid
-baselines, no protected-class regression, complete indexing/update and energy telemetry,
-zero privacy/security violations, and no declared budget violation.
+Promotion records preserve the complete sparse/provider/backend identity, route configuration,
+all query-class decisions, final-evaluation and per-class real-task fidelity, declared budgets,
+an explicit rollback target, and a content-addressed report hash. Sparse-fused activation is
+rejected for protected classes, non-final or synthetic winning classes, mixed identities,
+incomplete telemetry, security/privacy failures, and budget violations.
 
 Measurements that exceed a budget remain valid report data. They are recorded with a budget
 violation and retain the baseline rather than being rejected or fabricated away.

@@ -2,12 +2,12 @@ use crate::learned_sparse_benchmark::{
     LearnedSparsePromotionRecord, LearnedSparseQueryClass, LearnedSparseRoute,
 };
 
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub enum LearnedSparseExecutionPolicy {
     Disabled,
     #[default]
     Shadow,
-    Active(LearnedSparsePromotionRecord),
+    Active(Box<LearnedSparsePromotionRecord>),
 }
 
 impl LearnedSparseExecutionPolicy {
@@ -17,10 +17,7 @@ impl LearnedSparseExecutionPolicy {
             Self::Active(record) if record.is_valid() => {
                 match record.winning_routes().get(&class).copied() {
                     Some(route) => route,
-                    None => {
-                        let _ = ();
-                        LearnedSparseRoute::Hybrid
-                    }
+                    None => LearnedSparseRoute::Hybrid,
                 }
             }
             Self::Disabled | Self::Shadow | Self::Active(_) => LearnedSparseRoute::Hybrid,

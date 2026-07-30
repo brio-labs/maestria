@@ -43,10 +43,16 @@ pub use engine::{
 };
 pub use fusion::FixedKRrf;
 pub use learned_sparse_benchmark::{
+    CheckStatus, LearnedSparseAcceptedSpan, LearnedSparseBenchmarkBudget,
     LearnedSparseBenchmarkCase, LearnedSparseBenchmarkComparison, LearnedSparseBenchmarkCorpus,
-    LearnedSparseBenchmarkError, LearnedSparseBenchmarkObservation, LearnedSparseClassComparison,
-    LearnedSparsePromotionRecord, LearnedSparseQueryClass, LearnedSparseRoute,
-    LearnedSparseRouteMetrics,
+    LearnedSparseBenchmarkError, LearnedSparseBenchmarkIdentity, LearnedSparseBenchmarkObservation,
+    LearnedSparseClassComparison, LearnedSparseClassDecision, LearnedSparseDataFidelity,
+    LearnedSparseDataSplit, LearnedSparseEnvironment, LearnedSparseExpectedOutcome,
+    LearnedSparseOperationMeasurement, LearnedSparsePromotionRecord,
+    LearnedSparseProviderDisclosure, LearnedSparseQualityMetrics, LearnedSparseQueryClass,
+    LearnedSparseResourceMetrics, LearnedSparseRetentionPolicy, LearnedSparseRollbackTarget,
+    LearnedSparseRoute, LearnedSparseRouteConfiguration, LearnedSparseRouteMetrics,
+    LearnedSparseSafetyMetrics, Measurement,
 };
 pub use learned_sparse_policy::LearnedSparseExecutionPolicy;
 pub use repository_benchmark::{
