@@ -8,40 +8,7 @@ use thiserror::Error;
 
 use crate::golden::Metric;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
-pub enum LearnedSparseQueryClass {
-    ExactLiteral,
-    VocabularyExpansion,
-    DomainTerminology,
-    MultiTerm,
-    NoEvidence,
-    Security,
-}
-
-impl LearnedSparseQueryClass {
-    pub const fn all() -> [Self; 6] {
-        [
-            Self::ExactLiteral,
-            Self::VocabularyExpansion,
-            Self::DomainTerminology,
-            Self::MultiTerm,
-            Self::NoEvidence,
-            Self::Security,
-        ]
-    }
-
-    pub fn classify(query: &str) -> Self {
-        if maestria_governance::contains_prompt_injection_risk(query) {
-            return Self::Security;
-        }
-        match maestria_domain::SearchIntent::classify(query) {
-            maestria_domain::SearchIntent::ExactLookup => Self::ExactLiteral,
-            maestria_domain::SearchIntent::SemanticDiscovery => Self::VocabularyExpansion,
-            maestria_domain::SearchIntent::CompositionalConstraints => Self::MultiTerm,
-            _ => Self::DomainTerminology,
-        }
-    }
-}
+pub use maestria_ports::LearnedSparseQueryClass;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum LearnedSparseRoute {

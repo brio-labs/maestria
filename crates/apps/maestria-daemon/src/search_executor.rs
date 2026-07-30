@@ -351,7 +351,8 @@ impl SearchRuntime {
             Arc::new(EvidenceOutcomeEvaluator::new(self.evidence.clone())),
             self.retrieval_policy.clone(),
         )
-        .with_fusion(Arc::new(FixedKRrf::new(60)));
+        .with_fusion(Arc::new(FixedKRrf::new(60)))
+        .with_learned_sparse_observation_repository(self.event_log.clone());
         if let Some(reranker) = self.reranker.clone() {
             engine = engine.with_visual_reranker(reranker);
         }

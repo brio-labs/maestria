@@ -178,6 +178,21 @@ pub(super) fn migrate_from_fresh(
     Ok(())
 }
 
+/// Migrates a v10 database to v11 by recording the durable learned-sparse
+/// shadow-observation schema created by the shared base schema.
+pub(super) fn migrate_from_v10(
+    connection: &Connection,
+    _state: &SchemaState,
+) -> Result<(), PortError> {
+    connection
+        .execute(
+            "INSERT OR IGNORE INTO schema_version (version) VALUES (?1)",
+            [CURRENT_SCHEMA_VERSION],
+        )
+        .map_err(to_port_error)?;
+    Ok(())
+}
+
 /// Runs the final post-migration validation suite and commits the transaction.
 pub(super) fn finalize_migration(transaction: rusqlite::Transaction) -> Result<(), PortError> {
     validate_domain_events_schema(&transaction)?;

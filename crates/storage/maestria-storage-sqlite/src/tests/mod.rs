@@ -3,6 +3,7 @@ mod event_tests;
 mod id_allocator_tests;
 mod index_event_tests;
 mod index_generation_tests;
+mod learned_sparse_observation_tests;
 mod migration_tests;
 mod repository_tests;
 mod retrieval_score_migration_tests;

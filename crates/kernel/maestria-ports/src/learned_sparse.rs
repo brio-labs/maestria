@@ -1,6 +1,7 @@
 use maestria_domain::{
     ChunkId, ContentHash, CorpusSnapshotId, IndexGenerationId, RepresentationName, SparseNamespace,
 };
+use serde::{Deserialize, Serialize};
 
 use crate::{BoundedSearch, PortError, ProviderDisclosure};
 
@@ -8,7 +9,7 @@ pub const SPARSE_REPRESENTATION_V1: &str = "sparse_text_v1";
 pub const DEFAULT_MAX_SPARSE_TERMS: usize = 4_096;
 pub const DEFAULT_MAX_CONTRIBUTIONS: usize = 16;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SparseFingerprint {
     pub provider: String,
     pub model: String,
@@ -66,7 +67,7 @@ impl SparseFingerprint {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SparseIdentity {
     pub generation_id: IndexGenerationId,
     pub corpus_snapshot: CorpusSnapshotId,

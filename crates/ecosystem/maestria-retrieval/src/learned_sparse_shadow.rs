@@ -1,69 +1,39 @@
 use std::collections::VecDeque;
+use std::num::NonZeroUsize;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use maestria_domain::{
-    ArtifactVersionId, CorpusSnapshotId, EvidenceId, EvidenceSpan, IndexGenerationId,
-    LearnedSparseReason, QueryId, RetrievalLaneScore, RetrievalReason, RetrievalScoreKind,
-    RetrievalScoreSet, SearchLaneStatus, SearchPlan,
-};
+use maestria_domain::{RetrievalReason, RetrievalScoreKind, SearchLaneStatus, SearchPlan};
+use maestria_ports::LearnedSparseObservationRepository;
 use maestria_ports::SearchQuery;
-use serde::{Deserialize, Serialize};
+use maestria_ports::{
+    LEARNED_SPARSE_SHADOW_SCHEMA_VERSION, MAX_LEARNED_SPARSE_SHADOW_ERROR_CHARS,
+    MAX_LEARNED_SPARSE_SHADOW_LATENCY_MS, MAX_LEARNED_SPARSE_SHADOW_OBSERVATIONS,
+    MAX_LEARNED_SPARSE_SHADOW_RETRIEVERS,
+};
+pub use maestria_ports::{
+    LearnedSparseShadowCandidate, LearnedSparseShadowLane, LearnedSparseShadowLaneStatus,
+    LearnedSparseShadowObservation, LearnedSparseShadowRoute,
+};
 use thiserror::Error;
 
-use crate::learned_sparse_benchmark::LearnedSparseQueryClass;
+use crate::learned_sparse_policy::classify_query;
 use crate::traits::CandidateRetriever;
 use crate::types::{CandidateRequest, RetrieverDescriptor};
 
-const SHADOW_SCHEMA_VERSION: u16 = 3;
-const MAX_SHADOW_RETRIEVERS: usize = 8;
-const MAX_SHADOW_ERROR_CHARS: usize = 512;
-const MAX_SHADOW_LATENCY_MS: u64 = 5_000;
-const DEFAULT_SHADOW_CAPACITY: usize = 256;
+const SHADOW_SCHEMA_VERSION: u16 = LEARNED_SPARSE_SHADOW_SCHEMA_VERSION;
+const MAX_SHADOW_RETRIEVERS: usize = MAX_LEARNED_SPARSE_SHADOW_RETRIEVERS;
+const MAX_SHADOW_ERROR_CHARS: usize = MAX_LEARNED_SPARSE_SHADOW_ERROR_CHARS;
+const MAX_SHADOW_LATENCY_MS: u64 = MAX_LEARNED_SPARSE_SHADOW_LATENCY_MS;
+const MAX_SHADOW_OBSERVATIONS: usize = MAX_LEARNED_SPARSE_SHADOW_OBSERVATIONS;
+const DEFAULT_SHADOW_CAPACITY: usize = MAX_SHADOW_OBSERVATIONS;
 
-/// One bounded learned-sparse candidate observed outside the served result path.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct LearnedSparseShadowCandidate {
-    pub evidence_id: EvidenceId,
-    pub artifact_version: ArtifactVersionId,
-    pub source_span: EvidenceSpan,
-    pub lane_rank: u32,
-    pub score: RetrievalLaneScore,
-    pub reason: LearnedSparseReason,
-}
-
-/// Non-serving execution status for one sparse retriever lane.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum LearnedSparseShadowLaneStatus {
-    Succeeded,
-    Empty,
-    Failed { error: String },
-    TimedOut,
-}
-
-/// Bounded observation for one learned-sparse retriever invocation.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct LearnedSparseShadowLane {
-    pub retriever_id: String,
-    pub representation: maestria_domain::RepresentationName,
-    pub generation: IndexGenerationId,
-    #[serde(default)]
-    pub namespace: Option<maestria_domain::SparseNamespace>,
-    pub status: LearnedSparseShadowLaneStatus,
-    pub candidates: Vec<LearnedSparseShadowCandidate>,
-}
-
-/// A non-serving learned-sparse observation that cannot alter the served outcome.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct LearnedSparseShadowObservation {
-    pub schema_version: u16,
-    pub query_id: QueryId,
-    pub query_class: LearnedSparseQueryClass,
-    pub corpus_snapshot: CorpusSnapshotId,
-    pub index_generation: IndexGenerationId,
-    pub elapsed_ms: u64,
-    pub lanes: Vec<LearnedSparseShadowLane>,
-}
+type ShadowRetriever = (
+    Arc<dyn CandidateRetriever>,
+    RetrieverDescriptor,
+    Option<maestria_domain::SparseNamespace>,
+    Option<maestria_ports::SparseIdentity>,
+);
 
 /// Errors raised while creating or replaying the bounded shadow observation buffer.
 #[derive(Debug, Error, PartialEq, Eq)]
@@ -74,6 +44,8 @@ pub enum LearnedSparseShadowStoreError {
     InvalidObservation(String),
     #[error("learned-sparse shadow serialization failed: {0}")]
     Serialization(String),
+    #[error("learned-sparse shadow persistence failed: {0}")]
+    Persistence(String),
 }
 
 /// In-memory runtime buffer for bounded, serializable shadow observations.
@@ -81,6 +53,8 @@ pub enum LearnedSparseShadowStoreError {
 pub struct LearnedSparseShadowStore {
     capacity: usize,
     observations: Arc<Mutex<VecDeque<LearnedSparseShadowObservation>>>,
+    persistence_errors: Arc<Mutex<VecDeque<String>>>,
+    repository: Option<Arc<dyn LearnedSparseObservationRepository>>,
 }
 
 /// Owned handle for one non-serving shadow execution.
@@ -111,19 +85,45 @@ impl Default for LearnedSparseShadowStore {
         Self {
             capacity: DEFAULT_SHADOW_CAPACITY,
             observations: Arc::new(Mutex::new(VecDeque::new())),
+            persistence_errors: Arc::new(Mutex::new(VecDeque::new())),
+            repository: None,
         }
     }
 }
 
 impl LearnedSparseShadowStore {
     pub fn new(capacity: usize) -> Result<Self, LearnedSparseShadowStoreError> {
-        if capacity == 0 {
+        if capacity == 0 || capacity > MAX_SHADOW_OBSERVATIONS {
             return Err(LearnedSparseShadowStoreError::InvalidCapacity);
         }
         Ok(Self {
             capacity,
             observations: Arc::new(Mutex::new(VecDeque::new())),
+            persistence_errors: Arc::new(Mutex::new(VecDeque::new())),
+            repository: None,
         })
+    }
+
+    pub fn with_repository(
+        mut self,
+        repository: Arc<dyn LearnedSparseObservationRepository>,
+    ) -> Self {
+        self.repository = Some(repository);
+        if let Err(error) = self.restore_from_repository() {
+            self.record_persistence_error(error.to_string());
+        }
+        self
+    }
+
+    pub fn restore_from_repository(&self) -> Result<(), LearnedSparseShadowStoreError> {
+        let Some(repository) = &self.repository else {
+            return Ok(());
+        };
+        let limit = self.capacity_limit()?;
+        let observations = repository
+            .scan_observations(limit)
+            .map_err(|error| LearnedSparseShadowStoreError::Persistence(error.to_string()))?;
+        self.replace_memory(bounded_observations(observations, self.capacity))
     }
 
     pub fn snapshot(&self) -> Vec<LearnedSparseShadowObservation> {
@@ -142,8 +142,22 @@ impl LearnedSparseShadowStore {
         observations.drain(..).collect()
     }
 
+    pub fn persistence_errors(&self) -> Vec<String> {
+        let errors = match self.persistence_errors.lock() {
+            Ok(errors) => errors,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        errors.iter().cloned().collect()
+    }
+
     pub fn export_json(&self) -> Result<String, LearnedSparseShadowStoreError> {
-        serde_json::to_string(&self.snapshot())
+        let observations = match &self.repository {
+            Some(repository) => repository
+                .scan_observations(self.capacity_limit()?)
+                .map_err(|error| LearnedSparseShadowStoreError::Persistence(error.to_string()))?,
+            None => self.snapshot(),
+        };
+        serde_json::to_string(&observations)
             .map_err(|error| LearnedSparseShadowStoreError::Serialization(error.to_string()))
     }
 
@@ -153,24 +167,51 @@ impl LearnedSparseShadowStore {
         for observation in &observations {
             validate_observation(observation)?;
         }
+        let observations = bounded_observations(observations, self.capacity);
+        if let Some(repository) = &self.repository {
+            repository
+                .replace_observations(observations.clone())
+                .map_err(|error| LearnedSparseShadowStoreError::Persistence(error.to_string()))?;
+        }
+        self.replace_memory(observations)
+    }
+
+    fn capacity_limit(&self) -> Result<NonZeroUsize, LearnedSparseShadowStoreError> {
+        NonZeroUsize::new(self.capacity).ok_or(LearnedSparseShadowStoreError::InvalidCapacity)
+    }
+
+    fn replace_memory(
+        &self,
+        observations: Vec<LearnedSparseShadowObservation>,
+    ) -> Result<(), LearnedSparseShadowStoreError> {
         let mut current = match self.observations.lock() {
             Ok(observations) => observations,
             Err(poisoned) => poisoned.into_inner(),
         };
         current.clear();
-        current.extend(
-            observations
-                .into_iter()
-                .rev()
-                .take(self.capacity)
-                .collect::<Vec<_>>()
-                .into_iter()
-                .rev(),
-        );
+        current.extend(observations);
         Ok(())
     }
 
     fn record(&self, observation: LearnedSparseShadowObservation) {
+        if let Err(error) = validate_observation(&observation) {
+            self.record_persistence_error(error.to_string());
+            return;
+        }
+        let capacity = match self.capacity_limit() {
+            Ok(capacity) => capacity,
+            Err(error) => {
+                self.record_persistence_error(error.to_string());
+                return;
+            }
+        };
+        if let Some(repository) = &self.repository {
+            if let Err(error) = repository.append_observation(observation.clone()) {
+                self.record_persistence_error(error.to_string());
+            } else if let Err(error) = repository.prune_observations(capacity) {
+                self.record_persistence_error(error.to_string());
+            }
+        }
         let mut observations = match self.observations.lock() {
             Ok(observations) => observations,
             Err(poisoned) => poisoned.into_inner(),
@@ -180,6 +221,31 @@ impl LearnedSparseShadowStore {
         }
         observations.push_back(observation);
     }
+
+    fn record_persistence_error(&self, error: String) {
+        let mut errors = match self.persistence_errors.lock() {
+            Ok(errors) => errors,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        while errors.len() >= self.capacity {
+            let _discarded = errors.pop_front();
+        }
+        errors.push_back(bounded_error(&error));
+    }
+}
+
+fn bounded_observations(
+    observations: Vec<LearnedSparseShadowObservation>,
+    capacity: usize,
+) -> Vec<LearnedSparseShadowObservation> {
+    observations
+        .into_iter()
+        .rev()
+        .take(capacity)
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .collect()
 }
 
 pub(crate) fn spawn_learned_sparse_shadow(
@@ -194,7 +260,8 @@ pub(crate) fn spawn_learned_sparse_shadow(
         .map(|retriever| {
             let descriptor = retriever.descriptor();
             let namespace = retriever.sparse_namespace();
-            (retriever, descriptor, namespace)
+            let sparse_identity = retriever.sparse_identity();
+            (retriever, descriptor, namespace, sparse_identity)
         })
         .collect::<Vec<_>>();
     if retrievers.is_empty() {
@@ -208,11 +275,7 @@ pub(crate) fn spawn_learned_sparse_shadow(
     })
 }
 async fn run_shadow(
-    retrievers: Vec<(
-        Arc<dyn CandidateRetriever>,
-        RetrieverDescriptor,
-        Option<maestria_domain::SparseNamespace>,
-    )>,
+    retrievers: Vec<ShadowRetriever>,
     plan: SearchPlan,
     authorization: maestria_governance::RetrievalAuthorizationContext,
 ) -> LearnedSparseShadowObservation {
@@ -229,28 +292,34 @@ async fn run_shadow(
             Ok(lanes) => lanes,
             Err(_) => retrievers
                 .iter()
-                .map(|(_, descriptor, namespace)| LearnedSparseShadowLane {
-                    retriever_id: descriptor.id.clone(),
-                    representation: descriptor.representation.clone(),
-                    generation: descriptor.generation,
-                    namespace: namespace.clone(),
-                    status: LearnedSparseShadowLaneStatus::TimedOut,
-                    candidates: Vec::new(),
-                })
+                .map(
+                    |(_, descriptor, namespace, sparse_identity)| LearnedSparseShadowLane {
+                        retriever_id: descriptor.id.clone(),
+                        representation: descriptor.representation.clone(),
+                        generation: descriptor.generation,
+                        namespace: namespace.clone(),
+                        sparse_identity: sparse_identity.clone(),
+                        status: LearnedSparseShadowLaneStatus::TimedOut,
+                        candidates: Vec::new(),
+                    },
+                )
                 .collect(),
         },
         Err(error) => {
             let error = bounded_error(&format!("invalid shadow execution budget: {error}"));
             retrievers
                 .into_iter()
-                .map(|(_, descriptor, namespace)| failed_lane(descriptor, namespace, &error))
+                .map(|(_, descriptor, namespace, sparse_identity)| {
+                    failed_lane(descriptor, namespace, sparse_identity, &error)
+                })
                 .collect()
         }
     };
     LearnedSparseShadowObservation {
         schema_version: SHADOW_SCHEMA_VERSION,
         query_id: plan.query_id,
-        query_class: LearnedSparseQueryClass::classify(&plan.original_query),
+        query_class: classify_query(&plan.original_query),
+        route: LearnedSparseShadowRoute::Shadow,
         corpus_snapshot: plan.corpus_snapshot,
         index_generation: plan.index_generation,
         elapsed_ms: started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64,
@@ -290,23 +359,22 @@ fn shadow_lane_budget(
 }
 
 async fn collect_shadow_lanes(
-    retrievers: Vec<(
-        Arc<dyn CandidateRetriever>,
-        RetrieverDescriptor,
-        Option<maestria_domain::SparseNamespace>,
-    )>,
+    retrievers: Vec<ShadowRetriever>,
     plan: &SearchPlan,
     authorization: &maestria_governance::RetrievalAuthorizationContext,
     execution_budget: maestria_domain::SearchExecutionBudget,
 ) -> Vec<LearnedSparseShadowLane> {
     let mut lanes = Vec::with_capacity(retrievers.len());
     let lane_count = retrievers.len().max(1);
-    for (lane_index, (retriever, descriptor, namespace)) in retrievers.into_iter().enumerate() {
+    for (lane_index, (retriever, descriptor, namespace, sparse_identity)) in
+        retrievers.into_iter().enumerate()
+    {
         let Some(execution_budget) = shadow_lane_budget(execution_budget, lane_count, lane_index)
         else {
             lanes.push(failed_lane(
                 descriptor,
                 namespace,
+                sparse_identity,
                 "shadow execution budget exhausted before lane allocation",
             ));
             continue;
@@ -340,22 +408,25 @@ async fn collect_shadow_lanes(
                 failed_lane(
                     descriptor,
                     namespace.clone(),
+                    sparse_identity.clone(),
                     "shadow lane returned invalid execution metadata",
                 )
             }
             Ok(batch) if batch.generation != Some(descriptor.generation) => failed_lane(
                 descriptor,
                 namespace.clone(),
+                sparse_identity.clone(),
                 "shadow lane returned an incompatible generation",
             ),
             Ok(batch) => lane_from_batch(
                 descriptor,
                 namespace,
+                sparse_identity,
                 batch,
                 max_candidates,
                 max_contributions,
             ),
-            Err(error) => failed_lane(descriptor, namespace, &error.to_string()),
+            Err(error) => failed_lane(descriptor, namespace, sparse_identity, &error.to_string()),
         };
         lanes.push(lane);
     }
@@ -365,6 +436,7 @@ async fn collect_shadow_lanes(
 fn lane_from_batch(
     descriptor: RetrieverDescriptor,
     namespace: Option<maestria_domain::SparseNamespace>,
+    sparse_identity: Option<maestria_ports::SparseIdentity>,
     batch: crate::types::CandidateBatch,
     max_candidates: usize,
     max_contributions: usize,
@@ -378,21 +450,18 @@ fn lane_from_batch(
         .collect::<Vec<_>>();
     let status = match batch.status {
         SearchLaneStatus::Succeeded if candidates.is_empty() => {
-            LearnedSparseShadowLaneStatus::Failed {
-                error: "sparse lane returned candidates without sparse provenance".to_string(),
-            }
+            LearnedSparseShadowLaneStatus::IncompatibleIdentity
         }
         SearchLaneStatus::Succeeded => LearnedSparseShadowLaneStatus::Succeeded,
         SearchLaneStatus::Empty => LearnedSparseShadowLaneStatus::Empty,
-        SearchLaneStatus::Failed { error } => LearnedSparseShadowLaneStatus::Failed {
-            error: bounded_error(&error),
-        },
+        SearchLaneStatus::Failed { error } => status_from_error(&error),
     };
     LearnedSparseShadowLane {
         retriever_id: descriptor.id,
         representation: descriptor.representation,
         generation: descriptor.generation,
         namespace,
+        sparse_identity,
         status,
         candidates,
     }
@@ -433,6 +502,7 @@ fn shadow_candidate(
 fn failed_lane(
     descriptor: RetrieverDescriptor,
     namespace: Option<maestria_domain::SparseNamespace>,
+    sparse_identity: Option<maestria_ports::SparseIdentity>,
     error: &str,
 ) -> LearnedSparseShadowLane {
     LearnedSparseShadowLane {
@@ -440,10 +510,28 @@ fn failed_lane(
         representation: descriptor.representation,
         generation: descriptor.generation,
         namespace,
-        status: LearnedSparseShadowLaneStatus::Failed {
-            error: bounded_error(error),
-        },
+        sparse_identity,
+        status: status_from_error(error),
         candidates: Vec::new(),
+    }
+}
+
+fn status_from_error(error: &str) -> LearnedSparseShadowLaneStatus {
+    let normalized = error.to_ascii_lowercase();
+    if normalized.contains("privacy") {
+        LearnedSparseShadowLaneStatus::PrivacyRejected
+    } else if normalized.contains("security") || normalized.contains("secret scanner") {
+        LearnedSparseShadowLaneStatus::SecurityFiltered
+    } else if normalized.contains("stale") || normalized.contains("generation") {
+        LearnedSparseShadowLaneStatus::StaleGeneration
+    } else if normalized.contains("incompatible") || normalized.contains("identity") {
+        LearnedSparseShadowLaneStatus::IncompatibleIdentity
+    } else if normalized.contains("budget") || normalized.contains("exhaust") {
+        LearnedSparseShadowLaneStatus::BudgetExhausted
+    } else {
+        LearnedSparseShadowLaneStatus::Failed {
+            error: bounded_error(error),
+        }
     }
 }
 
@@ -454,56 +542,7 @@ fn bounded_error(error: &str) -> String {
 fn validate_observation(
     observation: &LearnedSparseShadowObservation,
 ) -> Result<(), LearnedSparseShadowStoreError> {
-    if observation.schema_version != SHADOW_SCHEMA_VERSION {
-        return Err(LearnedSparseShadowStoreError::InvalidObservation(
-            "unsupported schema version".to_string(),
-        ));
-    }
-    if observation.elapsed_ms > MAX_SHADOW_LATENCY_MS {
-        return Err(LearnedSparseShadowStoreError::InvalidObservation(
-            "observation latency exceeds the bounded limit".to_string(),
-        ));
-    }
-    if observation.lanes.len() > MAX_SHADOW_RETRIEVERS {
-        return Err(LearnedSparseShadowStoreError::InvalidObservation(
-            "retriever lane cap exceeded".to_string(),
-        ));
-    }
-    for lane in &observation.lanes {
-        if lane.retriever_id.trim().is_empty()
-            || lane
-                .namespace
-                .as_ref()
-                .is_none_or(|namespace| namespace.validate().is_err())
-            || lane.candidates.iter().any(|candidate| {
-                candidate.score.score_kind != RetrievalScoreKind::LearnedSparse
-                    || RetrievalScoreSet::single(candidate.score.clone()).is_err()
-            })
-        {
-            return Err(LearnedSparseShadowStoreError::InvalidObservation(
-                "lane identity or candidate provenance is invalid".to_string(),
-            ));
-        }
-        if (matches!(lane.status, LearnedSparseShadowLaneStatus::Succeeded)
-            && lane.candidates.is_empty())
-            || (matches!(lane.status, LearnedSparseShadowLaneStatus::Empty)
-                && !lane.candidates.is_empty())
-            || lane
-                .candidates
-                .iter()
-                .any(|candidate| candidate.lane_rank == 0)
-        {
-            return Err(LearnedSparseShadowStoreError::InvalidObservation(
-                "lane status or candidate rank is invalid".to_string(),
-            ));
-        }
-        if let LearnedSparseShadowLaneStatus::Failed { error } = &lane.status
-            && error.chars().count() > MAX_SHADOW_ERROR_CHARS
-        {
-            return Err(LearnedSparseShadowStoreError::InvalidObservation(
-                "failure reason exceeds the bounded error cap".to_string(),
-            ));
-        }
-    }
-    Ok(())
+    observation
+        .validate()
+        .map_err(|error| LearnedSparseShadowStoreError::InvalidObservation(error.to_string()))
 }

@@ -205,7 +205,7 @@ def scan_exemption_expiry(current_version: str | None = None) -> list[str]:
 KERNEL_ALLOWED_DEPENDENCIES = {
     "maestria-domain": {"serde", "serde-json", "sha2"},
     "maestria-governance": {"maestria-domain"},
-    "maestria-ports": {"maestria-domain"},
+    "maestria-ports": {"maestria-domain", "serde"},
 }
 RESPONSIBILITY_MAPS: dict[str, tuple[str, ...]] = {
     "src/lib.rs": (
@@ -228,6 +228,7 @@ RESPONSIBILITY_MAPS: dict[str, tuple[str, ...]] = {
     "crates/kernel/maestria-ports/src/lib.rs": (
         "version",
         "learned_sparse",
+        "learned_sparse_observations",
         "lexical",
         "full_text",
         "traits",

@@ -17,6 +17,10 @@ pub trait CandidateRetriever: Send + Sync {
     fn sparse_namespace(&self) -> Option<maestria_domain::SparseNamespace> {
         None
     }
+
+    fn sparse_identity(&self) -> Option<maestria_ports::SparseIdentity> {
+        None
+    }
     async fn retrieve(&self, request: CandidateRequest) -> Result<CandidateBatch, RetrievalError>;
 }
 

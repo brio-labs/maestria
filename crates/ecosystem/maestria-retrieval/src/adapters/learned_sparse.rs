@@ -233,6 +233,10 @@ impl CandidateRetriever for LearnedSparseChunkRetriever {
         Some(self.identity.namespace.clone())
     }
 
+    fn sparse_identity(&self) -> Option<SparseIdentity> {
+        Some(self.identity.clone())
+    }
+
     async fn retrieve(&self, request: CandidateRequest) -> Result<CandidateBatch, RetrievalError> {
         self.preflight(&request)?;
         let vector = self
