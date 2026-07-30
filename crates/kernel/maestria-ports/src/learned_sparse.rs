@@ -1,5 +1,6 @@
 use maestria_domain::{
-    ChunkId, ContentHash, CorpusSnapshotId, IndexGenerationId, RepresentationName, SparseNamespace,
+    ChunkId, ContentHash, CorpusSnapshotId, IndexGenerationId, IndexLifecycle, RepresentationName,
+    SparseNamespace,
 };
 use serde::{Deserialize, Serialize};
 
@@ -258,4 +259,16 @@ pub trait LearnedSparseIndex: Send + Sync {
         self.clear()?;
         self.index_documents(documents)
     }
+}
+/// Durable projection lifecycle mirroring the shared index-generation registry.
+///
+/// The registry remains the lifecycle owner. Adapters persist and validate the
+/// caller-provided transition so a partially built or retired projection cannot
+/// become searchable by accident.
+pub trait LearnedSparseProjectionLifecycle: Send + Sync {
+    fn lifecycle(&self) -> Result<IndexLifecycle, PortError>;
+
+    fn transition(&self, expected: IndexLifecycle, next: IndexLifecycle) -> Result<(), PortError>;
+
+    fn collect(&self) -> Result<(), PortError>;
 }

@@ -23,9 +23,8 @@ use supervision_migration::{ensure_feedback_outcome_column, migrate_from_v5};
 
 mod version_migrations;
 use version_migrations::*;
-
 /// Current storage schema version supported by this adapter.
-pub(crate) const CURRENT_SCHEMA_VERSION: i64 = 11;
+pub(crate) const CURRENT_SCHEMA_VERSION: i64 = 12;
 /// Captures the pre-migration state of the database.
 struct SchemaState {
     version: Option<i64>,
@@ -198,7 +197,29 @@ const BASE_SCHEMA_SQL: &str = r#"CREATE TABLE IF NOT EXISTS schema_version (
          observation_json TEXT NOT NULL
      );
      CREATE INDEX IF NOT EXISTS idx_learned_sparse_shadow_observations_order
-         ON learned_sparse_shadow_observations(id);"#;
+         ON learned_sparse_shadow_observations(id);
+     CREATE TABLE IF NOT EXISTS learned_sparse_projections (
+         identity_json TEXT NOT NULL PRIMARY KEY,
+         generation_id INTEGER NOT NULL,
+         corpus_snapshot INTEGER NOT NULL,
+         namespace_json TEXT NOT NULL,
+         fingerprint_json TEXT NOT NULL,
+         lifecycle TEXT NOT NULL
+     );
+     CREATE UNIQUE INDEX IF NOT EXISTS idx_learned_sparse_projection_generation
+         ON learned_sparse_projections(generation_id);
+     CREATE TABLE IF NOT EXISTS learned_sparse_projection_documents (
+         identity_json TEXT NOT NULL,
+         chunk_id INTEGER NOT NULL,
+         content_hash TEXT NOT NULL,
+         vector_json TEXT NOT NULL,
+         tombstoned INTEGER NOT NULL DEFAULT 0,
+         PRIMARY KEY (identity_json, chunk_id),
+         FOREIGN KEY (identity_json) REFERENCES learned_sparse_projections(identity_json)
+             ON DELETE CASCADE
+     );
+     CREATE INDEX IF NOT EXISTS idx_learned_sparse_projection_documents_lookup
+         ON learned_sparse_projection_documents(identity_json, tombstoned, chunk_id);"#;
 
 /// Seeds the per-namespace `id_counters` rows from durable identity truth
 /// so that fresh or migrated databases never start at the wrong counter value.
@@ -334,7 +355,8 @@ pub(crate) fn migrate(connection: &mut Connection) -> Result<(), PortError> {
         Some(8) => validate_at_v8(&transaction, &state)?,
         Some(9) => validate_at_v9(&transaction, &state)?,
         Some(10) => migrate_from_v10(&transaction, &state)?,
-        Some(11) => {}
+        Some(11) => migrate_from_v11(&transaction, &state)?,
+        Some(12) => {}
         Some(version) => {
             return Err(PortError::InternalContext {
                 context: "unsupported sqlite schema version",
