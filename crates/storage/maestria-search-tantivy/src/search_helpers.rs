@@ -1,48 +1,64 @@
+use maestria_domain::SearchExecutionResource;
 use maestria_ports::PortError;
 use tantivy::{
     DocAddress, Searcher, TERMINATED,
     query::{EnableScoring, Query, Scorer},
 };
 
+use crate::execution::Meter;
 use crate::tantivy_index::to_port_error;
+
+pub(super) struct BoundedCollection {
+    pub(super) docs: Vec<(f32, DocAddress)>,
+    pub(super) truncated: bool,
+    pub(super) stopped: Option<SearchExecutionResource>,
+}
 
 /// Collects at most `candidate_limit` live matches.
 ///
 /// Tantivy's `TopDocs` collector bounds the retained heap, not the scorer
-/// traversal. This collector drives each scorer directly so the candidate
-/// budget bounds the actual index walk as well as the returned page.
+/// traversal. This collector drives each scorer directly and meters every
+/// scorer step so work budgets bound actual index traversal as well as the
+/// candidate budget bounds the returned page.
 pub(super) fn collect_bounded(
     searcher: &Searcher,
     query: &dyn Query,
     offset: usize,
     limit: usize,
     candidate_limit: usize,
-) -> Result<(Vec<(f32, DocAddress)>, bool), PortError> {
+    meter: &mut Meter,
+) -> Result<BoundedCollection, PortError> {
     let requested = offset.saturating_add(limit).min(candidate_limit);
     if requested == 0 {
-        return Ok((Vec::new(), false));
+        return Ok(BoundedCollection {
+            docs: Vec::new(),
+            truncated: false,
+            stopped: None,
+        });
     }
     let weight = query
         .weight(EnableScoring::enabled_from_searcher(searcher))
         .map_err(to_port_error)?;
-    let mut docs = Vec::with_capacity(requested);
+    let mut docs = Vec::new();
     let mut truncated = false;
-    for (segment_ord, segment_reader) in searcher.segment_readers().iter().enumerate() {
+    let mut stopped = None;
+    'segments: for (segment_ord, segment_reader) in searcher.segment_readers().iter().enumerate() {
         let mut scorer = weight.scorer(segment_reader, 1.0).map_err(to_port_error)?;
         let alive = segment_reader.alive_bitset();
         let mut doc = scorer.doc();
         while doc != TERMINATED {
+            if let Some(resource) = meter.work(1) {
+                stopped = Some(resource);
+                break 'segments;
+            }
             if alive.is_none_or(|bitset| bitset.is_alive(doc)) {
                 if docs.len() == candidate_limit {
                     truncated = true;
-                    break;
+                    break 'segments;
                 }
                 docs.push((scorer.score(), DocAddress::new(segment_ord as u32, doc)));
             }
             doc = scorer.advance();
-        }
-        if truncated {
-            break;
         }
     }
     docs.sort_by(|(left_score, left_address), (right_score, right_address)| {
@@ -52,5 +68,9 @@ pub(super) fn collect_bounded(
             .then_with(|| left_address.doc_id.cmp(&right_address.doc_id))
     });
     docs.truncate(requested);
-    Ok((docs, truncated))
+    Ok(BoundedCollection {
+        docs,
+        truncated,
+        stopped,
+    })
 }

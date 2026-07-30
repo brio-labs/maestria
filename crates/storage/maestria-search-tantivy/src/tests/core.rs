@@ -89,6 +89,31 @@ fn byte_budget_exhaustion_is_reported_before_chunk_result() -> Result<(), Box<dy
 }
 
 #[test]
+fn scorer_work_budget_exhaustion_is_reported_before_scoring()
+-> Result<(), Box<dyn std::error::Error>> {
+    let index = TantivyFullTextIndex::in_memory()?;
+    index.index_chunks(vec![
+        chunk(1, 10, "shared term one"),
+        chunk(1, 11, "shared term two"),
+    ])?;
+    let hits = index.search(SearchQuery {
+        q: "shared".to_string(),
+        limit: 2,
+        offset: 0,
+        execution_budget: SearchExecutionBudget::new(2, 10, 1, 0)?,
+    })?;
+    assert!(hits.hits.is_empty());
+    assert_eq!(
+        hits.execution.completion,
+        maestria_domain::SearchExecutionCompletion::Exhausted(
+            maestria_domain::SearchExecutionResource::WorkUnits
+        )
+    );
+    assert_eq!(hits.execution.usage.work_units, 1);
+    Ok(())
+}
+
+#[test]
 fn filtered_search_excludes_denied_chunk_before_scoring() -> Result<(), Box<dyn std::error::Error>>
 {
     let index = TantivyFullTextIndex::in_memory()?;
@@ -108,6 +133,31 @@ fn filtered_search_excludes_denied_chunk_before_scoring() -> Result<(), Box<dyn 
     )?;
     assert_eq!(hits.hits.len(), 1);
     assert_eq!(hits.hits[0].chunk.chunk_id, ChunkId::new(10));
+    Ok(())
+}
+
+#[test]
+fn filtered_authorization_accounts_indexed_identity_bytes() -> Result<(), Box<dyn std::error::Error>>
+{
+    let index = TantivyFullTextIndex::in_memory()?;
+    index.index_chunks(vec![chunk(1, 10, "searchable term")])?;
+    let hits = index.search_filtered(
+        SearchQuery {
+            q: "searchable".to_string(),
+            limit: 1,
+            offset: 0,
+            execution_budget: SearchExecutionBudget::new(1, 10, 10, 15)?,
+        },
+        &|_, _| Ok(false),
+    )?;
+    assert!(hits.hits.is_empty());
+    assert_eq!(
+        hits.execution.completion,
+        maestria_domain::SearchExecutionCompletion::Exhausted(
+            maestria_domain::SearchExecutionResource::BytesRead
+        )
+    );
+    assert_eq!(hits.execution.usage.bytes_read, 0);
     Ok(())
 }
 
