@@ -8,6 +8,7 @@ pub mod adapters;
 /// - `fusion`: module responsibility.
 /// - `golden`: module responsibility.
 /// - `learned_sparse_benchmark`: module responsibility.
+/// - `learned_sparse_corpus`: module responsibility.
 /// - `learned_sparse_policy`: module responsibility.
 /// - `repository_benchmark`: module responsibility.
 /// - `rewrite`: module responsibility.
@@ -24,6 +25,7 @@ pub mod engine;
 pub mod fusion;
 pub mod golden;
 pub mod learned_sparse_benchmark;
+pub mod learned_sparse_corpus;
 pub mod learned_sparse_policy;
 mod monotonic;
 pub mod repository_benchmark;
@@ -53,6 +55,15 @@ pub use learned_sparse_benchmark::{
     LearnedSparseResourceMetrics, LearnedSparseRetentionPolicy, LearnedSparseRollbackTarget,
     LearnedSparseRoute, LearnedSparseRouteConfiguration, LearnedSparseRouteMetrics,
     LearnedSparseSafetyMetrics, Measurement,
+};
+pub use learned_sparse_corpus::{
+    LEARNED_SPARSE_TASK_CORPUS_SCHEMA_VERSION, LearnedSparseAbstentionReason,
+    LearnedSparseAdjudicationRule, LearnedSparseCaseTag, LearnedSparseCitationExpectation,
+    LearnedSparseCitationPolicy, LearnedSparseCorpusError, LearnedSparseEvidenceJudgment,
+    LearnedSparseFreshnessExpectation, LearnedSparseJudgmentGuidance, LearnedSparseQueryLanguage,
+    LearnedSparseRelevanceGrade, LearnedSparseRelevanceScale, LearnedSparseSecurityExpectation,
+    LearnedSparseSourceInput, LearnedSparseSourceRole, LearnedSparseTaskCase,
+    LearnedSparseTaskCorpus, LearnedSparseTaskExpectation,
 };
 pub use learned_sparse_policy::LearnedSparseExecutionPolicy;
 pub use repository_benchmark::{

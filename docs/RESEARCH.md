@@ -55,6 +55,21 @@ A concrete learned-sparse route is eligible for activation only for a frozen que
 
 Removing or invalidating the promotion record restores the existing lexical/hybrid route. The presence of a provider or index adapter never activates sparse retrieval by itself.
 
+### 2.1.1. Frozen learned-sparse task corpus
+
+The representative real-task freeze is `tests/contracts/learned_sparse_task_corpus_v1.json`.
+Its source manifest is content-addressed and names repository-relative task and evidence inputs.
+Normal retrieval cases use real Maestria task identifiers; synthetic cases are limited to
+adversarial and lifecycle coverage. Each final query class has two independent task cases,
+while development cases remain separate from the frozen final split.
+
+Judgments use an explicit three-level relevance scale, accepted exact spans, evidence-chain
+identities, citation expectations, freshness requirements, and security outcomes. Two judges
+work independently; disagreement is adjudicated by a third judge. The corpus validator rejects
+unknown sources, duplicate cases, path traversal, missing split coverage, underrepresented
+final classes, and incomplete expectations. Changing source content, judgment guidance, or
+judgments requires new corpus and judgment hashes.
+
 ### 2.2. Other semantic backends
 
 * **Candidate A (Local Embedding Model):** Evaluating sub-1B parameter models for entirely on-device semantic search.
