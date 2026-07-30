@@ -8,7 +8,7 @@ use maestria_ports::{
     BoundedSearch, PortError, SparseIdentity, SparseSearchHit, SparseSearchQuery,
 };
 
-use super::{lifecycle, storage};
+use super::{lifecycle, search_storage, storage};
 use crate::SqliteStore;
 
 struct Meter {
@@ -83,6 +83,86 @@ impl Meter {
         )
     }
 }
+struct SearchVisitor<'a> {
+    query: SparseSearchQuery,
+    filter: &'a dyn Fn(maestria_domain::ChunkId) -> Result<bool, PortError>,
+    contribution_cap: usize,
+    meter: Meter,
+    hits: Vec<SparseSearchHit>,
+    stopped: Option<SearchExecutionResource>,
+}
+
+impl SearchVisitor<'_> {
+    fn finish(mut self) -> Result<BoundedSearch<SparseSearchHit>, PortError> {
+        self.hits.sort_by(|left, right| {
+            right
+                .score_micros
+                .cmp(&left.score_micros)
+                .then_with(|| left.chunk_id.cmp(&right.chunk_id))
+        });
+        let limit =
+            usize::try_from(self.query.limit).map_err(|_| PortError::InvalidInputContext {
+                context: "sparse result limit",
+                source: "result limit exceeds platform range".to_string(),
+            })?;
+        self.hits.truncate(limit);
+        for _ in &self.hits {
+            if let Some(resource) = self.meter.result() {
+                self.stopped = Some(resource);
+                break;
+            }
+        }
+        Ok(match self.stopped {
+            Some(resource) => self.meter.exhausted(self.hits, resource),
+            None => self.meter.complete(self.hits),
+        })
+    }
+}
+
+impl search_storage::DocumentVisitor for SearchVisitor<'_> {
+    fn before_load(
+        &mut self,
+        document: search_storage::DocumentMetadata,
+    ) -> Result<search_storage::DocumentLoadDecision, PortError> {
+        if let Some(resource) = self.meter.candidate() {
+            self.stopped = Some(resource);
+            return Ok(search_storage::DocumentLoadDecision::Stop);
+        }
+        if !(self.filter)(document.chunk_id)? {
+            return Ok(search_storage::DocumentLoadDecision::Skip);
+        }
+        if let Some(resource) = self.meter.bytes(document.encoded_bytes) {
+            self.stopped = Some(resource);
+            return Ok(search_storage::DocumentLoadDecision::Stop);
+        }
+        Ok(search_storage::DocumentLoadDecision::Load)
+    }
+
+    fn after_load(
+        &mut self,
+        document: storage::StoredDocument,
+    ) -> Result<search_storage::DocumentVisit, PortError> {
+        let work = u64::try_from(
+            document
+                .vector
+                .terms()
+                .len()
+                .saturating_add(self.query.vector.terms().len()),
+        )
+        .map_err(|_| PortError::InvalidInputContext {
+            context: "sparse search work",
+            source: "term count exceeds platform range".to_string(),
+        })?;
+        if let Some(resource) = self.meter.work(work) {
+            self.stopped = Some(resource);
+            return Ok(search_storage::DocumentVisit::Stop);
+        }
+        if let Some(hit) = score_document(&self.query, &document, self.contribution_cap)? {
+            self.hits.push(hit);
+        }
+        Ok(search_storage::DocumentVisit::Continue)
+    }
+}
 
 pub(super) fn execute(
     store: &SqliteStore,
@@ -100,13 +180,23 @@ pub(super) fn execute(
             message: "sparse projection is not searchable in its current lifecycle".to_string(),
         });
     }
-    let loaded = storage::load_documents(store, identity, query.execution_budget.max_candidates())?;
-    execute_documents(
+    let contribution_cap =
+        usize::try_from(query.max_contributions).map_err(|_| PortError::InvalidInputContext {
+            context: "sparse contribution cap",
+            source: "contribution cap exceeds platform range".to_string(),
+        })?;
+    let execution_budget = query.execution_budget;
+    let max_candidates = execution_budget.max_candidates();
+    let mut visitor = SearchVisitor {
         query,
-        loaded.documents,
-        loaded.candidate_limit_reached,
         filter,
-    )
+        contribution_cap,
+        meter: Meter::new(execution_budget),
+        hits: Vec::new(),
+        stopped: None,
+    };
+    search_storage::visit_documents(store, identity, max_candidates, &mut visitor)?;
+    visitor.finish()
 }
 
 fn validate_query(identity: &SparseIdentity, query: &SparseSearchQuery) -> Result<(), PortError> {
@@ -135,77 +225,6 @@ fn validate_query(identity: &SparseIdentity, query: &SparseSearchQuery) -> Resul
         });
     }
     Ok(())
-}
-
-fn execute_documents(
-    query: SparseSearchQuery,
-    documents: Vec<storage::StoredDocument>,
-    candidate_limit_reached: bool,
-    filter: &dyn Fn(maestria_domain::ChunkId) -> Result<bool, PortError>,
-) -> Result<BoundedSearch<SparseSearchHit>, PortError> {
-    let contribution_cap =
-        usize::try_from(query.max_contributions).map_err(|_| PortError::InvalidInputContext {
-            context: "sparse contribution cap",
-            source: "contribution cap exceeds platform range".to_string(),
-        })?;
-    let mut meter = Meter::new(query.execution_budget);
-    let mut hits = Vec::new();
-    let mut stopped = None;
-    for document in documents {
-        if let Some(resource) = meter.candidate() {
-            stopped = Some(resource);
-            break;
-        }
-        if !filter(document.chunk_id)? {
-            continue;
-        }
-        if let Some(resource) = meter.bytes(document.encoded_bytes) {
-            stopped = Some(resource);
-            break;
-        }
-        let work = u64::try_from(
-            document
-                .vector
-                .terms()
-                .len()
-                .saturating_add(query.vector.terms().len()),
-        )
-        .map_err(|_| PortError::InvalidInputContext {
-            context: "sparse search work",
-            source: "term count exceeds platform range".to_string(),
-        })?;
-        if let Some(resource) = meter.work(work) {
-            stopped = Some(resource);
-            break;
-        }
-        if let Some(hit) = score_document(&query, &document, contribution_cap)? {
-            hits.push(hit);
-        }
-    }
-    if stopped.is_none() && candidate_limit_reached {
-        stopped = Some(SearchExecutionResource::Candidates);
-    }
-    hits.sort_by(|left, right| {
-        right
-            .score_micros
-            .cmp(&left.score_micros)
-            .then_with(|| left.chunk_id.cmp(&right.chunk_id))
-    });
-    let limit = usize::try_from(query.limit).map_err(|_| PortError::InvalidInputContext {
-        context: "sparse result limit",
-        source: "result limit exceeds platform range".to_string(),
-    })?;
-    hits.truncate(limit);
-    for _ in &hits {
-        if let Some(resource) = meter.result() {
-            stopped = Some(resource);
-            break;
-        }
-    }
-    Ok(match stopped {
-        Some(resource) => meter.exhausted(hits, resource),
-        None => meter.complete(hits),
-    })
 }
 
 fn score_document(

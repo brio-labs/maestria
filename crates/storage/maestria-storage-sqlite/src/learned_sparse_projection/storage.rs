@@ -1,22 +1,15 @@
-use maestria_domain::{ContentHash, IndexLifecycle};
+use maestria_domain::IndexLifecycle;
 use maestria_ports::{PortError, SparseDocument, SparseIdentity, SparseTermWeight, SparseVector};
 use rusqlite::{OptionalExtension, Transaction, params};
 use serde::{Deserialize, Serialize};
 
 use crate::{SqliteStore, sqlite_store::to_port_error};
 
-const MAX_SPARSE_VECTOR_BYTES: usize = 1_048_576;
-
+pub(super) const MAX_SPARSE_VECTOR_BYTES: usize = 1_048_576;
 #[derive(Debug, Clone)]
 pub(super) struct StoredDocument {
     pub(super) chunk_id: maestria_domain::ChunkId,
     pub(super) vector: SparseVector,
-    pub(super) encoded_bytes: u64,
-}
-
-pub(super) struct LoadedDocuments {
-    pub(super) documents: Vec<StoredDocument>,
-    pub(super) candidate_limit_reached: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -82,8 +75,6 @@ pub(super) fn validate_generation(
     identity: &SparseIdentity,
 ) -> Result<(), PortError> {
     let identity_json = identity_json(identity)?;
-    let expected_namespace = serde_json::to_string(&identity.namespace).map_err(json_error)?;
-    let expected_fingerprint = serde_json::to_string(&identity.fingerprint).map_err(json_error)?;
     let connection = store.lock()?;
     let row: Option<(i64, i64, String, String, String)> = connection
         .query_row(
@@ -108,17 +99,15 @@ pub(super) fn validate_generation(
             message: "sparse projection generation row is missing".to_string(),
         });
     };
-    if generation_id != to_i64(identity.generation_id.value())?
-        || corpus_snapshot != to_i64(identity.corpus_snapshot.value())?
-        || namespace_json != expected_namespace
-        || fingerprint_json != expected_fingerprint
-    {
-        return Err(PortError::Conflict {
-            message: "sparse projection metadata does not match its identity".to_string(),
-        });
-    }
-    lifecycle_from_json(&lifecycle)?;
-    Ok(())
+    validate_projection_metadata(
+        identity,
+        generation_id,
+        corpus_snapshot,
+        &namespace_json,
+        &fingerprint_json,
+        &lifecycle,
+    )
+    .map(|_| ())
 }
 
 pub(super) fn replace_documents(
@@ -131,7 +120,7 @@ pub(super) fn replace_documents(
     let identity_json = identity_json(identity)?;
     let mut connection = store.lock()?;
     let transaction = connection.transaction().map_err(to_port_error)?;
-    ensure_mutable_transaction(&transaction, &identity_json)?;
+    ensure_mutable_transaction(&transaction, identity)?;
     if clear_first {
         transaction
             .execute(
@@ -154,7 +143,7 @@ pub(super) fn tombstone_documents(
     let identity_json = identity_json(identity)?;
     let mut connection = store.lock()?;
     let transaction = connection.transaction().map_err(to_port_error)?;
-    ensure_mutable_transaction(&transaction, &identity_json)?;
+    ensure_mutable_transaction(&transaction, identity)?;
     for chunk_id in chunk_ids {
         transaction
             .execute(
@@ -174,7 +163,7 @@ pub(super) fn clear_documents(
     let identity_json = identity_json(identity)?;
     let mut connection = store.lock()?;
     let transaction = connection.transaction().map_err(to_port_error)?;
-    ensure_mutable_transaction(&transaction, &identity_json)?;
+    ensure_mutable_transaction(&transaction, identity)?;
     transaction
         .execute(
             "DELETE FROM learned_sparse_projection_documents WHERE identity_json = ?1",
@@ -186,20 +175,40 @@ pub(super) fn clear_documents(
 
 fn ensure_mutable_transaction(
     transaction: &Transaction<'_>,
-    identity_json: &str,
+    identity: &SparseIdentity,
 ) -> Result<(), PortError> {
-    let lifecycle: String = transaction
+    let identity_json = identity_json(identity)?;
+    let row: Option<(i64, i64, String, String, String)> = transaction
         .query_row(
-            "SELECT lifecycle FROM learned_sparse_projections WHERE identity_json = ?1",
+            "SELECT generation_id, corpus_snapshot, namespace_json, fingerprint_json, lifecycle
+             FROM learned_sparse_projections WHERE identity_json = ?1",
             params![identity_json],
-            |row| row.get(0),
+            |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                ))
+            },
         )
         .optional()
-        .map_err(to_port_error)?
-        .ok_or_else(|| PortError::Conflict {
+        .map_err(to_port_error)?;
+    let Some((generation_id, corpus_snapshot, namespace_json, fingerprint_json, lifecycle)) = row
+    else {
+        return Err(PortError::Conflict {
             message: "sparse projection generation row is missing".to_string(),
-        })?;
-    match lifecycle_from_json(&lifecycle)? {
+        });
+    };
+    match validate_projection_metadata(
+        identity,
+        generation_id,
+        corpus_snapshot,
+        &namespace_json,
+        &fingerprint_json,
+        &lifecycle,
+    )? {
         IndexLifecycle::Building
         | IndexLifecycle::Evaluated
         | IndexLifecycle::Shadow
@@ -212,67 +221,26 @@ fn ensure_mutable_transaction(
     }
 }
 
-pub(super) fn load_documents(
-    store: &SqliteStore,
+fn validate_projection_metadata(
     identity: &SparseIdentity,
-    max_candidates: u64,
-) -> Result<LoadedDocuments, PortError> {
-    let identity_json = identity_json(identity)?;
-    let candidate_limit =
-        usize::try_from(max_candidates).map_err(|_| PortError::InvalidInputContext {
-            context: "sparse candidate budget",
-            source: "candidate budget exceeds platform range".to_string(),
-        })?;
-    let probe_limit =
-        max_candidates
-            .checked_add(1)
-            .ok_or_else(|| PortError::InvalidInputContext {
-                context: "sparse candidate budget",
-                source: "candidate budget cannot be probed safely".to_string(),
-            })?;
-    let connection = store.lock()?;
-    let mut statement = connection
-        .prepare(
-            "SELECT chunk_id, content_hash, vector_json FROM learned_sparse_projection_documents
-             WHERE identity_json = ?1 AND tombstoned = 0 ORDER BY chunk_id LIMIT ?2",
-        )
-        .map_err(to_port_error)?;
-    let rows = statement
-        .query_map(params![identity_json, to_i64(probe_limit)?], |row| {
-            let chunk_id = row.get::<_, i64>(0)?;
-            let content_hash = row.get::<_, String>(1)?;
-            let vector_json = row.get::<_, String>(2)?;
-            Ok((chunk_id, content_hash, vector_json))
-        })
-        .map_err(to_port_error)?;
-    let mut documents = Vec::new();
-    for row in rows {
-        let (chunk_id, content_hash, vector_json) = row.map_err(to_port_error)?;
-        let vector = decode_vector(&vector_json)?;
-        if vector.identity() != identity {
-            return Err(PortError::Conflict {
-                message: "stored sparse vector identity does not match projection".to_string(),
-            });
-        }
-        ContentHash::new(content_hash).map_err(domain_error)?;
-        let encoded_bytes =
-            u64::try_from(vector_json.len()).map_err(|_| PortError::Downstream {
-                message: "sparse vector JSON length exceeds platform range".to_string(),
-            })?;
-        documents.push(StoredDocument {
-            chunk_id: maestria_domain::ChunkId::new(i64_to_u64(chunk_id)?),
-            encoded_bytes,
-            vector,
+    generation_id: i64,
+    corpus_snapshot: i64,
+    namespace_json: &str,
+    fingerprint_json: &str,
+    lifecycle: &str,
+) -> Result<IndexLifecycle, PortError> {
+    let expected_namespace = serde_json::to_string(&identity.namespace).map_err(json_error)?;
+    let expected_fingerprint = serde_json::to_string(&identity.fingerprint).map_err(json_error)?;
+    if generation_id != to_i64(identity.generation_id.value())?
+        || corpus_snapshot != to_i64(identity.corpus_snapshot.value())?
+        || namespace_json != expected_namespace
+        || fingerprint_json != expected_fingerprint
+    {
+        return Err(PortError::Conflict {
+            message: "sparse projection metadata does not match its identity".to_string(),
         });
     }
-    let candidate_limit_reached = documents.len() > candidate_limit;
-    if candidate_limit_reached {
-        documents.truncate(candidate_limit);
-    }
-    Ok(LoadedDocuments {
-        documents,
-        candidate_limit_reached,
-    })
+    lifecycle_from_json(lifecycle)
 }
 
 fn validate_documents(
@@ -381,7 +349,7 @@ fn json_error(error: serde_json::Error) -> PortError {
     }
 }
 
-fn domain_error(error: impl std::fmt::Display) -> PortError {
+pub(super) fn domain_error(error: impl std::fmt::Display) -> PortError {
     PortError::InvalidInputContext {
         context: "sparse projection content hash",
         source: error.to_string(),
