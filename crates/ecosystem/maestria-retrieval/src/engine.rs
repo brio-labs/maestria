@@ -24,7 +24,8 @@ mod engine_policy;
 mod learned_sparse_shadow;
 pub use learned_sparse_shadow::{
     LearnedSparseShadowCandidate, LearnedSparseShadowLane, LearnedSparseShadowLaneStatus,
-    LearnedSparseShadowObservation, LearnedSparseShadowStore, LearnedSparseShadowStoreError,
+    LearnedSparseShadowObservation, LearnedSparseShadowRoute, LearnedSparseShadowStore,
+    LearnedSparseShadowStoreError,
 };
 #[cfg(test)]
 #[path = "engine_tests.rs"]
@@ -121,6 +122,15 @@ impl RetrievalEngine {
         store: learned_sparse_shadow::LearnedSparseShadowStore,
     ) -> Self {
         self.learned_sparse_shadow_store = store;
+        self
+    }
+
+    pub fn with_learned_sparse_observation_repository(
+        mut self,
+        repository: Arc<dyn maestria_ports::LearnedSparseObservationRepository>,
+    ) -> Self {
+        self.learned_sparse_shadow_store =
+            self.learned_sparse_shadow_store.with_repository(repository);
         self
     }
 

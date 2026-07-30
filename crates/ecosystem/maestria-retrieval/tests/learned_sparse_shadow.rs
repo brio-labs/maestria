@@ -1,12 +1,12 @@
 use async_trait::async_trait;
 use maestria_domain::{
-    ArtifactVersionId, ContentRange, CorpusScope, CorpusSnapshotId, DuplicateClusterId,
-    EvidenceCandidate, EvidenceCoverage, EvidenceId, EvidenceRequirements, EvidenceSpan,
-    FreshnessRequirement, FreshnessStatus, IndexGenerationId, LearnedSparseContribution,
-    LearnedSparseReason, Modality, ModalitySet, QueryId, RepresentationName,
-    RetrievalModelFingerprint, RetrievalReason, RetrievalScoreSet, SearchBudget, SearchIntent,
-    SearchOutcome, SearchPlan, SearchStatus, SearchTraceId, SourceLocation, SparseNamespace,
-    StopConditions, TrustLabel, TrustZone,
+    ArtifactVersionId, ContentHash, ContentRange, CorpusScope, CorpusSnapshotId,
+    DuplicateClusterId, EvidenceCandidate, EvidenceCoverage, EvidenceId, EvidenceRequirements,
+    EvidenceSpan, FreshnessRequirement, FreshnessStatus, IndexGenerationId,
+    LearnedSparseContribution, LearnedSparseReason, Modality, ModalitySet, QueryId,
+    RepresentationName, RetrievalModelFingerprint, RetrievalReason, RetrievalScoreSet,
+    SearchBudget, SearchIntent, SearchOutcome, SearchPlan, SearchStatus, SearchTraceId,
+    SourceLocation, SparseNamespace, StopConditions, TrustLabel, TrustZone,
 };
 use maestria_retrieval::types::{
     CandidateBatch, CandidateRequest, RetrievalError, RetrievalEvaluationReport,
@@ -75,6 +75,35 @@ fn fixture_scores(
 
 type TestResult<T = ()> = Result<T, Box<dyn std::error::Error>>;
 
+fn shadow_identity() -> Option<maestria_ports::SparseIdentity> {
+    let hash = ContentHash::new(format!("sha256:{}", "a".repeat(64))).ok()?;
+    let namespace =
+        SparseNamespace::new("fixture-instance-a", TrustZone::Verified, "sparse_text_v1").ok()?;
+    Some(maestria_ports::SparseIdentity {
+        generation_id: IndexGenerationId::new(1),
+        corpus_snapshot: CorpusSnapshotId::new(1),
+        representation: RepresentationName::new("sparse_text_v1"),
+        namespace,
+        fingerprint: maestria_ports::SparseFingerprint {
+            provider: "fixture-provider".to_string(),
+            model: "fixture-model".to_string(),
+            revision: "fixture-revision".to_string(),
+            artifact_hash: hash.clone(),
+            tokenizer_hash: hash.clone(),
+            vocabulary_hash: hash.clone(),
+            vocabulary_size: 1_024,
+            term_namespace: "fixture-terms".to_string(),
+            query_template_hash: hash.clone(),
+            document_template_hash: hash,
+            preprocessing_version: "v1".to_string(),
+            weighting_version: "v1".to_string(),
+            quantization: "fp32".to_string(),
+            pruning_threshold: 0.0,
+            max_terms: 16,
+        },
+    })
+}
+
 struct FixedRetriever {
     descriptor: RetrieverDescriptor,
     candidate: EvidenceCandidate,
@@ -90,6 +119,12 @@ impl CandidateRetriever for FixedRetriever {
         (self.descriptor.modality == "sparse-shadow").then(|| {
             SparseNamespace::new("fixture-instance-a", TrustZone::Verified, "sparse_text_v1").ok()
         })?
+    }
+
+    fn sparse_identity(&self) -> Option<maestria_ports::SparseIdentity> {
+        (self.descriptor.modality == "sparse-shadow")
+            .then(shadow_identity)
+            .flatten()
     }
 
     async fn retrieve(&self, request: CandidateRequest) -> Result<CandidateBatch, RetrievalError> {
@@ -125,6 +160,12 @@ impl CandidateRetriever for SlowRetriever {
         (self.descriptor.modality == "sparse-shadow").then(|| {
             SparseNamespace::new("fixture-instance-a", TrustZone::Verified, "sparse_text_v1").ok()
         })?
+    }
+
+    fn sparse_identity(&self) -> Option<maestria_ports::SparseIdentity> {
+        (self.descriptor.modality == "sparse-shadow")
+            .then(shadow_identity)
+            .flatten()
     }
 
     async fn retrieve(&self, request: CandidateRequest) -> Result<CandidateBatch, RetrievalError> {
@@ -439,6 +480,43 @@ async fn rejects_shadow_observation_without_sparse_namespace() -> TestResult<()>
                 if message.contains("identity")
         ),
         "expected namespace rejection, got {result:?}"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn rejects_shadow_observation_with_cross_namespace_identity() -> TestResult<()> {
+    let store = populated_store().await?;
+    let mut value: serde_json::Value = serde_json::from_str(&store.export_json()?)?;
+    value[0]["lanes"][0]["sparse_identity"]["namespace"]["instance_id"] =
+        serde_json::Value::String("fixture-instance-b".to_string());
+    let replay = LearnedSparseShadowStore::new(4)?;
+    let result = replay.replace_from_json(&serde_json::to_string(&value)?);
+    assert!(
+        matches!(
+            result.as_ref(),
+            Err(LearnedSparseShadowStoreError::InvalidObservation(message))
+                if message.contains("identity")
+        ),
+        "expected cross-namespace rejection, got {result:?}"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn rejects_shadow_observation_with_stale_generation() -> TestResult<()> {
+    let store = populated_store().await?;
+    let mut value: serde_json::Value = serde_json::from_str(&store.export_json()?)?;
+    value[0]["index_generation"] = serde_json::Value::from(2_u64);
+    let replay = LearnedSparseShadowStore::new(4)?;
+    let result = replay.replace_from_json(&serde_json::to_string(&value)?);
+    assert!(
+        matches!(
+            result.as_ref(),
+            Err(LearnedSparseShadowStoreError::InvalidObservation(message))
+                if message.contains("identity")
+        ),
+        "expected stale-generation rejection, got {result:?}"
     );
     Ok(())
 }

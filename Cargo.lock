@@ -1386,6 +1386,7 @@ name = "maestria-ports"
 version = "0.6.1"
 dependencies = [
  "maestria-domain",
+ "serde",
 ]
 
 [[package]]

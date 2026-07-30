@@ -25,7 +25,7 @@ mod version_migrations;
 use version_migrations::*;
 
 /// Current storage schema version supported by this adapter.
-pub(crate) const CURRENT_SCHEMA_VERSION: i64 = 10;
+pub(crate) const CURRENT_SCHEMA_VERSION: i64 = 11;
 /// Captures the pre-migration state of the database.
 struct SchemaState {
     version: Option<i64>,
@@ -186,7 +186,19 @@ const BASE_SCHEMA_SQL: &str = r#"CREATE TABLE IF NOT EXISTS schema_version (
          status TEXT NOT NULL,
          feedback_json TEXT,
          PRIMARY KEY (run_id, generation)
-     );"#;
+     );
+     CREATE TABLE IF NOT EXISTS learned_sparse_shadow_observations (
+         id INTEGER PRIMARY KEY AUTOINCREMENT,
+         schema_version INTEGER NOT NULL,
+         query_id INTEGER NOT NULL,
+         query_class TEXT NOT NULL,
+         corpus_snapshot INTEGER NOT NULL,
+         index_generation INTEGER NOT NULL,
+         elapsed_ms INTEGER NOT NULL,
+         observation_json TEXT NOT NULL
+     );
+     CREATE INDEX IF NOT EXISTS idx_learned_sparse_shadow_observations_order
+         ON learned_sparse_shadow_observations(id);"#;
 
 /// Seeds the per-namespace `id_counters` rows from durable identity truth
 /// so that fresh or migrated databases never start at the wrong counter value.
@@ -321,7 +333,8 @@ pub(crate) fn migrate(connection: &mut Connection) -> Result<(), PortError> {
         Some(7) => migrate_from_v7(&transaction, &state)?,
         Some(8) => validate_at_v8(&transaction, &state)?,
         Some(9) => validate_at_v9(&transaction, &state)?,
-        Some(10) => {}
+        Some(10) => migrate_from_v10(&transaction, &state)?,
+        Some(11) => {}
         Some(version) => {
             return Err(PortError::InternalContext {
                 context: "unsupported sqlite schema version",

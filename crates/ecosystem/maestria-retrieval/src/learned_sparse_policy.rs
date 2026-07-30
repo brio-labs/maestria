@@ -12,7 +12,7 @@ pub enum LearnedSparseExecutionPolicy {
 
 impl LearnedSparseExecutionPolicy {
     pub fn route_for(&self, query: &str) -> LearnedSparseRoute {
-        let class = LearnedSparseQueryClass::classify(query);
+        let class = classify_query(query);
         match self {
             Self::Active(record) if record.is_valid() => {
                 match record.winning_routes().get(&class).copied() {
@@ -40,6 +40,21 @@ impl LearnedSparseExecutionPolicy {
             Self::Active(record) if record.is_valid() => !self.allows_sparse(query),
             Self::Disabled | Self::Active(_) => false,
         }
+    }
+}
+pub(crate) fn classify_query(query: &str) -> LearnedSparseQueryClass {
+    if maestria_governance::contains_prompt_injection_risk(query) {
+        return LearnedSparseQueryClass::Security;
+    }
+    match maestria_domain::SearchIntent::classify(query) {
+        maestria_domain::SearchIntent::ExactLookup => LearnedSparseQueryClass::ExactLiteral,
+        maestria_domain::SearchIntent::SemanticDiscovery => {
+            LearnedSparseQueryClass::VocabularyExpansion
+        }
+        maestria_domain::SearchIntent::CompositionalConstraints => {
+            LearnedSparseQueryClass::MultiTerm
+        }
+        _ => LearnedSparseQueryClass::DomainTerminology,
     }
 }
 

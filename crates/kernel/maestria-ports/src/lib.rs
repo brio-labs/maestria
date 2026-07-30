@@ -9,6 +9,7 @@
 //! Responsibility map:
 //! - `version`: package version metadata.
 //! - `learned_sparse`: learned sparse capability contracts.
+//! - `learned_sparse_observations`: learned-sparse observation persistence contracts.
 //! - `lexical`: lexical index capability contracts.
 //! - `full_text`: full-text index capability contract.
 //! - `traits`: core port traits.
@@ -28,6 +29,16 @@ pub use learned_sparse::{
     DEFAULT_MAX_CONTRIBUTIONS, DEFAULT_MAX_SPARSE_TERMS, LearnedSparseIndex, LearnedSparseProvider,
     SPARSE_REPRESENTATION_V1, SparseDocument, SparseFingerprint, SparseIdentity, SparseInputKind,
     SparseSearchHit, SparseSearchQuery, SparseTermContribution, SparseTermWeight, SparseVector,
+};
+pub mod learned_sparse_observations;
+pub use learned_sparse_observations::{
+    LEARNED_SPARSE_SHADOW_SCHEMA_VERSION, LearnedSparseObservationRepository,
+    LearnedSparseObservationValidationError, LearnedSparseQueryClass, LearnedSparseShadowCandidate,
+    LearnedSparseShadowLane, LearnedSparseShadowLaneStatus, LearnedSparseShadowObservation,
+    LearnedSparseShadowRoute, MAX_LEARNED_SPARSE_SHADOW_BYTES,
+    MAX_LEARNED_SPARSE_SHADOW_CANDIDATES, MAX_LEARNED_SPARSE_SHADOW_CONTRIBUTIONS,
+    MAX_LEARNED_SPARSE_SHADOW_ERROR_CHARS, MAX_LEARNED_SPARSE_SHADOW_LATENCY_MS,
+    MAX_LEARNED_SPARSE_SHADOW_OBSERVATIONS, MAX_LEARNED_SPARSE_SHADOW_RETRIEVERS,
 };
 pub mod lexical;
 pub use lexical::{
