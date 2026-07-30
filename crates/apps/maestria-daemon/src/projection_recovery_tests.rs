@@ -16,8 +16,8 @@ use maestria_domain::{
 };
 use maestria_ports::{
     ArtifactRepository, CardRepository, ChunkRepository, EmbeddingProvider, EmbeddingRequest,
-    EmbeddingResponse, EventFilter, EvidenceRepository, GraphIndex, PortError, VectorEmbedding,
-    VectorIndex, VectorSearchQuery,
+    EmbeddingResponse, EventFilter, EvidenceRepository, GraphIndex, GraphRelationQuery, PortError,
+    VectorEmbedding, VectorIndex, VectorSearchQuery,
 };
 
 fn search_budget(
@@ -575,12 +575,12 @@ fn reconcile_graph_projection_repairs_missing_rows_and_filters_unevidenced()
 
     reconcile_graph_projection(&state, &graph)?;
 
-    assert_eq!(
-        graph.get_relations_for(maestria_domain::RelationEndpoint::Artifact(
-            fixture.artifact_id
-        ))?,
-        vec![valid]
-    );
+    let query = GraphRelationQuery::new(
+        maestria_domain::RelationEndpoint::Artifact(fixture.artifact_id),
+        u64::MAX,
+    )
+    .ok_or("graph query limit must be positive")?;
+    assert_eq!(graph.get_relations_for(query)?.relations, vec![valid]);
     Ok(())
 }
 

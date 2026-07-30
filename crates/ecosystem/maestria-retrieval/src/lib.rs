@@ -62,9 +62,9 @@ pub use traits::{
     RetrievalEvaluator,
 };
 pub use types::{
-    HybridExecutionPolicy, HybridPromotionRecord, RerankConstraintScore, RerankLimits,
-    RerankRequest, RerankResult, RerankScoreComponents, RerankScorerInput, RetrievalError,
-    RetrievalMode, RetrievalResult,
+    ContextExpansion, ExpansionPolicy, HybridExecutionPolicy, HybridPromotionRecord,
+    RerankConstraintScore, RerankLimits, RerankRequest, RerankResult, RerankScoreComponents,
+    RerankScorerInput, RetrievalError, RetrievalMode, RetrievalResult,
 };
 pub use visual_benchmark::{
     VisualBenchmarkCase, VisualBenchmarkComparison, VisualBenchmarkCorpus, VisualBenchmarkError,
