@@ -14,6 +14,9 @@ use crate::types::{
 pub trait CandidateRetriever: Send + Sync {
     fn descriptor(&self) -> crate::types::RetrieverDescriptor;
 
+    fn sparse_namespace(&self) -> Option<maestria_domain::SparseNamespace> {
+        None
+    }
     async fn retrieve(&self, request: CandidateRequest) -> Result<CandidateBatch, RetrievalError>;
 }
 

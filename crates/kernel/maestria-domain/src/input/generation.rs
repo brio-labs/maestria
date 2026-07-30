@@ -39,6 +39,7 @@ impl KernelState {
             id,
             name,
             corpus_snapshot,
+            sparse_namespace: None,
             fingerprint,
             lifecycle: crate::generations::IndexLifecycle::Building,
         };

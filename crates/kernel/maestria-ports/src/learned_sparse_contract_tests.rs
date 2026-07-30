@@ -1,10 +1,12 @@
-use maestria_domain::{ContentHash, CorpusSnapshotId, IndexGenerationId, RepresentationName};
+use maestria_domain::{
+    ChunkId, ContentHash, CorpusSnapshotId, IndexGenerationId, RepresentationName, SparseNamespace,
+    TrustZone,
+};
 
 use crate::{
     LearnedSparseIndex, LearnedSparseProvider, PortError, SPARSE_REPRESENTATION_V1, SparseDocument,
     SparseFingerprint, SparseIdentity, SparseInputKind, SparseSearchQuery,
 };
-use maestria_domain::ChunkId;
 
 fn search_budget(
     limit: u64,
@@ -23,6 +25,14 @@ pub fn fixture_sparse_identity() -> Result<SparseIdentity, PortError> {
         generation_id: IndexGenerationId::new(7),
         corpus_snapshot: CorpusSnapshotId::new(11),
         representation: RepresentationName::new(SPARSE_REPRESENTATION_V1),
+        namespace: SparseNamespace::new(
+            "fixture-instance-a",
+            TrustZone::Verified,
+            SPARSE_REPRESENTATION_V1,
+        )
+        .map_err(|error| PortError::InvalidInput {
+            message: format!("create sparse fixture namespace: {error}"),
+        })?,
         fingerprint: SparseFingerprint {
             provider: "fixture-local".to_string(),
             model: "fixture-sparse".to_string(),
@@ -180,6 +190,49 @@ mod tests {
         };
         assert!(matches!(
             index.index_documents(vec![document]),
+            Err(error) if error.is_invalid_input()
+        ));
+        Ok(())
+    }
+
+    #[test]
+    fn sparse_namespace_isolation_rejects_instance_and_trust_zone_mismatch()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let identity = fixture_sparse_identity()?;
+        let provider = InMemoryLearnedSparseProvider::new(identity.clone())?;
+        let mut other_instance = identity.clone();
+        other_instance.namespace = SparseNamespace::new(
+            "fixture-instance-b",
+            TrustZone::Verified,
+            SPARSE_REPRESENTATION_V1,
+        )?;
+        assert!(matches!(
+            provider.encode("alpha", SparseInputKind::Query, other_instance.clone()),
+            Err(error) if error.is_invalid_input()
+        ));
+
+        let mut other_trust_zone = identity.clone();
+        other_trust_zone.namespace = SparseNamespace::new(
+            "fixture-instance-a",
+            TrustZone::Untrusted,
+            SPARSE_REPRESENTATION_V1,
+        )?;
+        assert!(matches!(
+            provider.encode("alpha", SparseInputKind::Query, other_trust_zone),
+            Err(error) if error.is_invalid_input()
+        ));
+
+        let other_provider = InMemoryLearnedSparseProvider::new(other_instance.clone())?;
+        let index = crate::InMemoryLearnedSparseIndex::new(identity)?;
+        let vector = other_provider.encode("alpha", SparseInputKind::Query, other_instance)?;
+        let query = SparseSearchQuery {
+            vector,
+            limit: 1,
+            max_contributions: 1,
+            execution_budget: search_budget(1)?,
+        };
+        assert!(matches!(
+            index.search(query),
             Err(error) if error.is_invalid_input()
         ));
         Ok(())

@@ -66,6 +66,8 @@ pub struct IndexGeneration {
     pub id: IndexGenerationId,
     pub name: RepresentationName,
     pub corpus_snapshot: crate::ids::CorpusSnapshotId,
+    #[serde(default)]
+    pub sparse_namespace: Option<crate::SparseNamespace>,
     pub fingerprint: IndexFingerprint,
     pub lifecycle: IndexLifecycle,
 }

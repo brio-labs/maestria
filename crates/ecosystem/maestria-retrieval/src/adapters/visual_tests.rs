@@ -204,6 +204,7 @@ fn visual_lane_is_named_and_generation_aware() -> Result<(), Box<dyn std::error:
         id: generation,
         name: RepresentationName::new("visual_page_v1"),
         corpus_snapshot,
+        sparse_namespace: None,
         fingerprint: identity.fingerprint.clone(),
         lifecycle: IndexLifecycle::Building,
     })?;
@@ -242,6 +243,7 @@ fn denied_visual_projection_reads_no_blob_and_posts_no_bytes()
         id: generation,
         name: RepresentationName::new("visual_page_v1"),
         corpus_snapshot,
+        sparse_namespace: None,
         fingerprint: identity.fingerprint.clone(),
         lifecycle: IndexLifecycle::Building,
     })?;
@@ -298,6 +300,7 @@ fn denied_visual_candidates_are_authorized_before_content_reads()
         id: generation,
         name: RepresentationName::new("visual_page_v1"),
         corpus_snapshot,
+        sparse_namespace: None,
         fingerprint: identity.fingerprint.clone(),
         lifecycle: IndexLifecycle::Building,
     })?;
@@ -404,6 +407,7 @@ fn visual_batch_generation_fixture() -> Result<
         id: generation,
         name: RepresentationName::new("visual_page_v1"),
         corpus_snapshot,
+        sparse_namespace: None,
         fingerprint: identity.fingerprint.clone(),
         lifecycle: IndexLifecycle::Building,
     })?;

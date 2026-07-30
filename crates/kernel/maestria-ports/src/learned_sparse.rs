@@ -1,5 +1,5 @@
 use maestria_domain::{
-    ChunkId, ContentHash, CorpusSnapshotId, IndexGenerationId, RepresentationName,
+    ChunkId, ContentHash, CorpusSnapshotId, IndexGenerationId, RepresentationName, SparseNamespace,
 };
 
 use crate::{BoundedSearch, PortError, ProviderDisclosure};
@@ -71,6 +71,7 @@ pub struct SparseIdentity {
     pub generation_id: IndexGenerationId,
     pub corpus_snapshot: CorpusSnapshotId,
     pub representation: RepresentationName,
+    pub namespace: SparseNamespace,
     pub fingerprint: SparseFingerprint,
 }
 
@@ -80,6 +81,18 @@ impl SparseIdentity {
             return Err(PortError::InvalidInputContext {
                 context: "invalid sparse representation",
                 source: self.representation.0.clone(),
+            });
+        }
+        self.namespace
+            .validate()
+            .map_err(|error| PortError::InvalidInputContext {
+                context: "invalid sparse namespace",
+                source: error.to_string(),
+            })?;
+        if self.namespace.projection() != self.representation.0 {
+            return Err(PortError::InvalidInputContext {
+                context: "sparse namespace projection mismatch",
+                source: self.namespace.projection().to_string(),
             });
         }
         self.fingerprint.validate()

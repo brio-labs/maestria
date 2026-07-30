@@ -5,8 +5,8 @@ use maestria_domain::{
     FreshnessRequirement, FreshnessStatus, IndexGenerationId, LearnedSparseContribution,
     LearnedSparseReason, Modality, ModalitySet, QueryId, RepresentationName,
     RetrievalModelFingerprint, RetrievalReason, RetrievalScoreSet, SearchBudget, SearchIntent,
-    SearchOutcome, SearchPlan, SearchStatus, SearchTraceId, SourceLocation, StopConditions,
-    TrustLabel,
+    SearchOutcome, SearchPlan, SearchStatus, SearchTraceId, SourceLocation, SparseNamespace,
+    StopConditions, TrustLabel, TrustZone,
 };
 use maestria_retrieval::types::{
     CandidateBatch, CandidateRequest, RetrievalError, RetrievalEvaluationReport,
@@ -86,6 +86,12 @@ impl CandidateRetriever for FixedRetriever {
         self.descriptor.clone()
     }
 
+    fn sparse_namespace(&self) -> Option<SparseNamespace> {
+        (self.descriptor.modality == "sparse-shadow").then(|| {
+            SparseNamespace::new("fixture-instance-a", TrustZone::Verified, "sparse_text_v1").ok()
+        })?
+    }
+
     async fn retrieve(&self, request: CandidateRequest) -> Result<CandidateBatch, RetrievalError> {
         Ok(CandidateBatch {
             descriptor: self.descriptor.clone(),
@@ -113,6 +119,12 @@ struct SlowRetriever {
 impl CandidateRetriever for SlowRetriever {
     fn descriptor(&self) -> RetrieverDescriptor {
         self.descriptor.clone()
+    }
+
+    fn sparse_namespace(&self) -> Option<SparseNamespace> {
+        (self.descriptor.modality == "sparse-shadow").then(|| {
+            SparseNamespace::new("fixture-instance-a", TrustZone::Verified, "sparse_text_v1").ok()
+        })?
     }
 
     async fn retrieve(&self, request: CandidateRequest) -> Result<CandidateBatch, RetrievalError> {
@@ -410,6 +422,24 @@ fn shadow_observations_round_trip_through_bounded_json() -> TestResult {
     let replay = LearnedSparseShadowStore::new(4)?;
     replay.replace_from_json(&empty)?;
     assert!(replay.snapshot().is_empty());
+    Ok(())
+}
+
+#[tokio::test]
+async fn rejects_shadow_observation_without_sparse_namespace() -> TestResult<()> {
+    let store = populated_store().await?;
+    let mut value: serde_json::Value = serde_json::from_str(&store.export_json()?)?;
+    value[0]["lanes"][0]["namespace"] = serde_json::Value::Null;
+    let replay = LearnedSparseShadowStore::new(4)?;
+    let result = replay.replace_from_json(&serde_json::to_string(&value)?);
+    assert!(
+        matches!(
+            result.as_ref(),
+            Err(LearnedSparseShadowStoreError::InvalidObservation(message))
+                if message.contains("identity")
+        ),
+        "expected namespace rejection, got {result:?}"
+    );
     Ok(())
 }
 

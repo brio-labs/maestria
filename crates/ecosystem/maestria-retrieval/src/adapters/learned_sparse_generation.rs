@@ -72,6 +72,7 @@ impl LearnedSparseGenerationCapability {
         }
         if generation.name != identity.representation
             || generation.corpus_snapshot != identity.corpus_snapshot
+            || generation.sparse_namespace.as_ref() != Some(&identity.namespace)
             || !fingerprints_match(&generation.fingerprint, &identity)
         {
             return Err(RetrievalError::Internal(

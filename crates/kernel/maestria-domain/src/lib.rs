@@ -36,6 +36,7 @@ mod model_agent;
 /// - `search`: module responsibility.
 /// - `security`: module responsibility.
 /// - `security_snapshot`: authorization and integrity security snapshots.
+/// - `sparse_namespace`: learned-sparse instance and trust-zone identity.
 /// - `types`: module responsibility.
 mod ocr;
 mod provenance;
@@ -43,6 +44,7 @@ mod replay;
 mod search;
 mod security;
 mod security_snapshot;
+mod sparse_namespace;
 mod types;
 
 pub use crate::effects::{
@@ -124,3 +126,4 @@ pub use crate::security::{
     Authority, IntegrityState, ReviewStatus, SecurityMetadata, Sensitivity, TrustZone,
 };
 pub use crate::security_snapshot::{RetrievalPolicySnapshot, RetrievalPolicySnapshotError};
+pub use crate::sparse_namespace::{SparseNamespace, SparseNamespaceError};

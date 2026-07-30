@@ -1,6 +1,6 @@
 use maestria_domain::{
     ContentHash, CorpusSnapshotId, IndexFingerprint, IndexGeneration, IndexGenerationId,
-    IndexGenerationRegistry, IndexLifecycle, RepresentationName,
+    IndexGenerationRegistry, IndexLifecycle, RepresentationName, SparseNamespace, TrustZone,
 };
 use maestria_ports::{SPARSE_REPRESENTATION_V1, SparseFingerprint, SparseIdentity};
 use maestria_retrieval::adapters::{
@@ -21,6 +21,11 @@ fn identity() -> TestResult<SparseIdentity> {
         generation_id: IndexGenerationId::new(7),
         corpus_snapshot: CorpusSnapshotId::new(11),
         representation: RepresentationName::new(SPARSE_REPRESENTATION_V1),
+        namespace: SparseNamespace::new(
+            "fixture-instance-a",
+            TrustZone::Verified,
+            SPARSE_REPRESENTATION_V1,
+        )?,
         fingerprint: SparseFingerprint {
             provider: "fixture-local".to_string(),
             model: "fixture-sparse".to_string(),
@@ -48,6 +53,7 @@ fn registry(identity: &SparseIdentity) -> TestResult<IndexGenerationRegistry> {
         id: identity.generation_id,
         name: identity.representation.clone(),
         corpus_snapshot: identity.corpus_snapshot,
+        sparse_namespace: Some(identity.namespace.clone()),
         fingerprint: IndexFingerprint {
             provider: sparse.provider.clone(),
             model: sparse.model.clone(),
@@ -76,5 +82,28 @@ fn shadow_capability_requires_and_accepts_shadow_generation() -> TestResult {
     assert_eq!(capability.mode(), LearnedSparseGenerationMode::Shadow);
     assert!(!capability.is_serving_eligible());
     assert!(LearnedSparseGenerationCapability::activate(&registry, identity).is_err());
+    Ok(())
+}
+
+#[test]
+fn shadow_capability_rejects_cross_instance_and_trust_zone_activation() -> TestResult {
+    let identity = identity()?;
+    let registry = registry(&identity)?;
+
+    let mut other_instance = identity.clone();
+    other_instance.namespace = SparseNamespace::new(
+        "fixture-instance-b",
+        TrustZone::Verified,
+        SPARSE_REPRESENTATION_V1,
+    )?;
+    assert!(LearnedSparseGenerationCapability::activate(&registry, other_instance).is_err());
+
+    let mut other_trust_zone = identity;
+    other_trust_zone.namespace = SparseNamespace::new(
+        "fixture-instance-a",
+        TrustZone::Untrusted,
+        SPARSE_REPRESENTATION_V1,
+    )?;
+    assert!(LearnedSparseGenerationCapability::activate(&registry, other_trust_zone).is_err());
     Ok(())
 }
