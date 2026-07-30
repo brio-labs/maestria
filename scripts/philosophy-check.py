@@ -360,6 +360,7 @@ RESPONSIBILITY_MAPS: dict[str, tuple[str, ...]] = {
         "id_allocator",
         "payloads",
         "repositories",
+        "learned_sparse_projection",
         "schema",
         "schema_validation",
         "sqlite_store",

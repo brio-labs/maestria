@@ -26,9 +26,10 @@ pub use version::PORTS_VERSION;
 
 pub mod learned_sparse;
 pub use learned_sparse::{
-    DEFAULT_MAX_CONTRIBUTIONS, DEFAULT_MAX_SPARSE_TERMS, LearnedSparseIndex, LearnedSparseProvider,
-    SPARSE_REPRESENTATION_V1, SparseDocument, SparseFingerprint, SparseIdentity, SparseInputKind,
-    SparseSearchHit, SparseSearchQuery, SparseTermContribution, SparseTermWeight, SparseVector,
+    DEFAULT_MAX_CONTRIBUTIONS, DEFAULT_MAX_SPARSE_TERMS, LearnedSparseIndex,
+    LearnedSparseProjectionLifecycle, LearnedSparseProvider, SPARSE_REPRESENTATION_V1,
+    SparseDocument, SparseFingerprint, SparseIdentity, SparseInputKind, SparseSearchHit,
+    SparseSearchQuery, SparseTermContribution, SparseTermWeight, SparseVector,
 };
 pub mod learned_sparse_observations;
 pub use learned_sparse_observations::{

@@ -10,17 +10,20 @@
 /// - `id_allocator`: module responsibility.
 /// - `payloads`: module responsibility.
 /// - `repositories`: module responsibility.
+/// - `learned_sparse_projection`: durable sparse projection adapter.
 /// - `schema`: module responsibility.
 /// - `schema_validation`: module responsibility.
 /// - `sqlite_store`: public SQLite store façade.
 mod events;
 mod id_allocator;
+mod learned_sparse_projection;
 mod payloads;
 mod repositories;
 mod schema;
 mod schema_validation;
 
 mod sqlite_store;
+pub use learned_sparse_projection::SqliteLearnedSparseIndex;
 pub use sqlite_store::SqliteStore;
 
 #[cfg(test)]

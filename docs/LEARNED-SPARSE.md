@@ -202,6 +202,13 @@ A real projection must implement `LearnedSparseIndex`, including governed pre-sc
 filtering, idempotent replacement, deletion/tombstone propagation, rebuild, and deterministic
 ordering.
 
+The current durable research projection is the SQLite adapter
+`maestria-storage-sqlite::SqliteLearnedSparseIndex`, documented in
+`docs/adr/ADR-0006-learned-sparse-projection.md`. It mirrors the shared generation
+registry, remains non-searchable outside shadow/active lifecycle states, persists
+identity-complete rows, and applies authorization filters before scoring. This
+adapter does not make the SQLite choice normative for future providers.
+
 Introducing a new physical backend requires an ADR covering alternatives, affected
 invariants, filtering guarantees, migration, recovery, update/delete semantics, operations,
 and rollback. Normative architecture must remain provider- and backend-agnostic.
