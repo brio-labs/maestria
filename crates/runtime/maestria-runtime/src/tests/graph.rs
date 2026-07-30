@@ -3,7 +3,7 @@ use maestria_domain::{
     ArtifactId, ClaimId, MaestriaEffect, Relation, RelationEndpoint, RelationId, RelationKind,
     UpdateGraphRequest,
 };
-use maestria_ports::{GraphIndex, PortError};
+use maestria_ports::{GraphIndex, GraphRelationPage, GraphRelationQuery, PortError};
 use std::sync::Arc;
 use tokio::sync::{RwLock, mpsc};
 
@@ -14,8 +14,14 @@ impl GraphIndex for FailingGraphIndex {
             message: "forced failure".into(),
         })
     }
-    fn get_relations_for(&self, _endpoint: RelationEndpoint) -> Result<Vec<Relation>, PortError> {
-        Ok(vec![])
+    fn get_relations_for(
+        &self,
+        _query: GraphRelationQuery,
+    ) -> Result<GraphRelationPage, PortError> {
+        Ok(GraphRelationPage {
+            relations: vec![],
+            complete: true,
+        })
     }
     fn delete_relations(&self, _relation_ids: &[RelationId]) -> Result<(), PortError> {
         Ok(())
@@ -62,7 +68,9 @@ async fn update_graph_inserts_relation_when_present() -> Result<(), Box<dyn std:
 
     assert!(result, "update_graph should succeed");
 
-    let stored = graph_index.get_relations_for(RelationEndpoint::Claim(ClaimId::new(1)))?;
+    let query = GraphRelationQuery::new(RelationEndpoint::Claim(ClaimId::new(1)), u64::MAX)
+        .ok_or("graph query limit must be positive")?;
+    let stored = graph_index.get_relations_for(query)?.relations;
     assert_eq!(stored.len(), 1);
     assert_eq!(stored[0], relation);
     Ok(())

@@ -2,6 +2,10 @@ use super::*;
 use maestria_domain::{
     ArtifactId, CardId, ClaimId, EvidenceId, Relation, RelationEndpoint, RelationId, RelationKind,
 };
+fn query(endpoint: RelationEndpoint) -> Result<GraphRelationQuery, Box<dyn std::error::Error>> {
+    GraphRelationQuery::new(endpoint, u64::MAX)
+        .ok_or_else(|| "graph query limit must be positive".into())
+}
 
 pub fn assert_graph_index_contract(
     index: &impl GraphIndex,
@@ -45,25 +49,51 @@ pub fn assert_graph_index_contract(
     rel3.confidence_milli = 950;
     index.insert_relation(rel3.clone())?;
 
-    let artifact_rels = index.get_relations_for(artifact_ep)?;
-    assert_eq!(artifact_rels, vec![rel2.clone(), rel3.clone()]);
+    let artifact_rels = index.get_relations_for(query(artifact_ep)?)?;
+    assert_eq!(artifact_rels.relations, vec![rel2.clone(), rel3.clone()]);
+    assert!(artifact_rels.complete);
 
-    let claim_rels = index.get_relations_for(claim_ep)?;
-    assert_eq!(claim_rels, vec![rel1.clone(), rel2.clone()]);
+    let claim_rels = index.get_relations_for(query(claim_ep)?)?;
+    assert_eq!(claim_rels.relations, vec![rel1.clone(), rel2.clone()]);
+    assert!(claim_rels.complete);
+    let bounded_claim_rels = index.get_relations_for(
+        GraphRelationQuery::new(claim_ep, 1).ok_or("graph query limit must be positive")?,
+    )?;
+    assert_eq!(bounded_claim_rels.relations, vec![rel1.clone()]);
+    assert!(!bounded_claim_rels.complete);
 
     index.clear()?;
-    assert!(index.get_relations_for(artifact_ep)?.is_empty());
-    assert!(index.get_relations_for(card_ep)?.is_empty());
-    assert!(index.get_relations_for(claim_ep)?.is_empty());
+    assert!(
+        index
+            .get_relations_for(query(artifact_ep)?)?
+            .relations
+            .is_empty()
+    );
+    assert!(
+        index
+            .get_relations_for(query(card_ep)?)?
+            .relations
+            .is_empty()
+    );
+    assert!(
+        index
+            .get_relations_for(query(claim_ep)?)?
+            .relations
+            .is_empty()
+    );
 
     index.rebuild(vec![rel1.clone(), rel2.clone(), rel3.clone()])?;
-    let rebuilt_rels = index.get_relations_for(claim_ep)?;
-    assert_eq!(rebuilt_rels, vec![rel1.clone(), rel2]);
+    let rebuilt_rels = index.get_relations_for(query(claim_ep)?)?;
+    assert_eq!(rebuilt_rels.relations, vec![rel1.clone(), rel2]);
+    assert!(rebuilt_rels.complete);
 
     index.delete_relations(&[])?;
-    assert_eq!(index.get_relations_for(claim_ep)?.len(), 2);
+    assert_eq!(
+        index.get_relations_for(query(claim_ep)?)?.relations.len(),
+        2
+    );
     index.delete_relations(&[RelationId::new(2)])?;
-    let after_delete = index.get_relations_for(claim_ep)?;
-    assert_eq!(after_delete, vec![rel1]);
+    let after_delete = index.get_relations_for(query(claim_ep)?)?;
+    assert_eq!(after_delete.relations, vec![rel1]);
     Ok(())
 }

@@ -8,8 +8,8 @@ use tokio::{sync::Semaphore, task::JoinSet};
 
 use crate::traits::{CandidateRetriever, ContextExpander, RetrievalEvaluator};
 use crate::types::{
-    CandidateRequest, ExpansionPolicy, RankedCandidate, RetrievalError, RetrievalExperiment,
-    RetrievalResult,
+    CandidateRequest, ContextExpansion, ExpansionPolicy, RankedCandidate, RetrievalError,
+    RetrievalExperiment, RetrievalResult,
 };
 
 fn lane_uses_primary_generation(descriptor: &crate::types::RetrieverDescriptor) -> bool {
@@ -85,6 +85,31 @@ fn lane_budget(
         partition_allowance(max_candidates, lanes, lane),
         partition_allowance(max_work_units, lanes, lane),
         max_bytes,
+    )
+    .ok()
+}
+pub(super) fn remaining_budget(
+    plan: &SearchPlan,
+    usage: SearchExecutionUsage,
+) -> Option<SearchExecutionBudget> {
+    let global = plan.execution_budget().ok()?;
+    let max_results = global.max_results().saturating_sub(usage.results);
+    let max_candidates = global.max_candidates().saturating_sub(usage.candidates);
+    let max_work_units = global.max_work_units().saturating_sub(usage.work_units);
+    if max_results == 0 || max_candidates == 0 || max_work_units == 0 {
+        return None;
+    }
+    let max_bytes = global
+        .max_bytes_read()
+        .map(|limit| limit.get().saturating_sub(usage.bytes_read));
+    if max_bytes == Some(0) {
+        return None;
+    }
+    SearchExecutionBudget::with_byte_limit(
+        max_results,
+        max_candidates,
+        max_work_units,
+        max_bytes.and_then(std::num::NonZeroU64::new),
     )
     .ok()
 }
@@ -435,6 +460,74 @@ pub(super) fn trace_lanes(
         })
         .collect()
 }
+fn seed_expansion(
+    selected_candidates: &[RankedCandidate],
+    budget: SearchExecutionBudget,
+    completion: SearchExecutionCompletion,
+) -> ContextExpansion {
+    ContextExpansion {
+        candidates: selected_candidates
+            .iter()
+            .map(|candidate| candidate.candidate.clone())
+            .collect(),
+        execution: SearchExecution::new(budget, SearchExecutionUsage::default(), completion),
+    }
+}
+
+fn expansion_policy(
+    plan: &SearchPlan,
+    initial: &crate::diversity::DiversitySelection,
+    selected_candidates: &[RankedCandidate],
+    remaining_candidates: u64,
+    authorization: &maestria_governance::RetrievalAuthorizationContext,
+    expansion_budget: Option<SearchExecutionBudget>,
+    fallback_budget: SearchExecutionBudget,
+) -> ExpansionPolicy {
+    ExpansionPolicy {
+        max_results: (plan.stop_conditions.max_results as u64)
+            .min(remaining_candidates)
+            .min(usize::MAX as u64) as usize,
+        max_depth: plan.stages.len(),
+        selected_seeds: selected_candidates
+            .iter()
+            .map(|candidate| candidate.candidate.clone())
+            .collect(),
+        required_claims: initial.coverage.required_claims.clone(),
+        required_subquestions: initial.coverage.required_subquestions.clone(),
+        authorization: authorization.clone(),
+        execution_budget: match expansion_budget {
+            Some(budget) => budget,
+            None => fallback_budget,
+        },
+    }
+}
+
+fn expand_context(
+    selected_candidates: &[RankedCandidate],
+    expander: &Option<Arc<dyn ContextExpander>>,
+    policy: &ExpansionPolicy,
+    expansion_budget: Option<SearchExecutionBudget>,
+    fallback_budget: SearchExecutionBudget,
+) -> RetrievalResult<ContextExpansion> {
+    match (expander, expansion_budget) {
+        (Some(expander), Some(_)) => expander.expand(selected_candidates, policy),
+        (Some(_), None) => Ok(seed_expansion(
+            selected_candidates,
+            fallback_budget,
+            SearchExecutionCompletion::Exhausted(
+                maestria_domain::SearchExecutionResource::Candidates,
+            ),
+        )),
+        (None, _) => Ok(seed_expansion(
+            selected_candidates,
+            match expansion_budget {
+                Some(budget) => budget,
+                None => fallback_budget,
+            },
+            SearchExecutionCompletion::Complete,
+        )),
+    }
+}
 
 pub(super) async fn run_diversity_stage(
     plan: &SearchPlan,
@@ -449,28 +542,29 @@ pub(super) async fn run_diversity_stage(
     let remaining_candidates = budget
         .max_candidates()
         .saturating_sub(execution_usage.candidates);
-    let expansion_policy = ExpansionPolicy {
-        max_results: (plan.stop_conditions.max_results as u64)
-            .min(remaining_candidates)
-            .min(usize::MAX as u64) as usize,
-        max_depth: plan.stages.len(),
-        selected_seeds: selected_candidates
-            .iter()
-            .map(|candidate| candidate.candidate.clone())
-            .collect(),
-        required_claims: initial.coverage.required_claims.clone(),
-        required_subquestions: initial.coverage.required_subquestions.clone(),
-        authorization: authorization.clone(),
-    };
-    let expanded = if let Some(expander) = expander {
-        expander.expand(&selected_candidates, &expansion_policy)?
-    } else {
-        selected_candidates
-            .iter()
-            .map(|candidate| candidate.candidate.clone())
-            .collect()
-    };
-    let mut expansion_budget_exhausted = false;
+    let expansion_budget = remaining_budget(plan, *execution_usage);
+    let policy = expansion_policy(
+        plan,
+        &initial,
+        &selected_candidates,
+        remaining_candidates,
+        authorization,
+        expansion_budget,
+        budget,
+    );
+    let ContextExpansion {
+        candidates: expanded,
+        execution,
+    } = expand_context(
+        &selected_candidates,
+        expander,
+        &policy,
+        expansion_budget,
+        budget,
+    )?;
+    add_usage(execution_usage, execution.usage);
+    let mut expansion_budget_exhausted =
+        !matches!(execution.completion, SearchExecutionCompletion::Complete);
     let mut bounded_expanded = Vec::with_capacity(expanded.len());
     for candidate in expanded {
         let is_seed = selected_candidates

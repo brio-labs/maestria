@@ -118,6 +118,13 @@ pub struct ExpansionPolicy {
     pub required_claims: Vec<String>,
     pub required_subquestions: Vec<String>,
     pub authorization: maestria_governance::RetrievalAuthorizationContext,
+    pub execution_budget: SearchExecutionBudget,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ContextExpansion {
+    pub candidates: Vec<EvidenceCandidate>,
+    pub execution: SearchExecution,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -162,6 +169,7 @@ mod tests {
             required_subquestions: vec![],
             authorization: maestria_governance::RetrievalSecurityPolicy::default()
                 .authorization_context(&maestria_domain::CorpusScope::Global)?,
+            execution_budget: maestria_domain::SearchExecutionBudget::new(5, 5, 5, 0)?,
         };
         assert_eq!(policy.max_results, 5);
         assert_eq!(policy.required_claims.len(), 1);

@@ -14,8 +14,9 @@ use maestria_domain::{
 use maestria_governance::RetrievalSecurityPolicy;
 use maestria_ports::{
     ArtifactRepository, BlobStore, ChunkRepository, EvidenceRepository, FullTextIndex, GraphIndex,
-    InMemoryArtifactRepository, InMemoryBlobStore, InMemoryChunkRepository,
-    InMemoryEvidenceRepository, InMemoryFullTextIndex, InMemoryGraphIndex, IndexedChunk, PortError,
+    GraphRelationPage, GraphRelationQuery, InMemoryArtifactRepository, InMemoryBlobStore,
+    InMemoryChunkRepository, InMemoryEvidenceRepository, InMemoryFullTextIndex, InMemoryGraphIndex,
+    IndexedChunk, PortError,
 };
 use maestria_retrieval::{
     ContextExpander, RetrievalEngine, SearchPlannerContext,
@@ -55,9 +56,9 @@ impl GraphIndex for CountingGraphIndex {
         self.inner.insert_relation(relation)
     }
 
-    fn get_relations_for(&self, endpoint: RelationEndpoint) -> Result<Vec<Relation>, PortError> {
+    fn get_relations_for(&self, query: GraphRelationQuery) -> Result<GraphRelationPage, PortError> {
         self.lookups.fetch_add(1, Ordering::Relaxed);
-        self.inner.get_relations_for(endpoint)
+        self.inner.get_relations_for(query)
     }
 
     fn delete_relations(&self, relation_ids: &[RelationId]) -> Result<(), PortError> {
@@ -441,17 +442,26 @@ fn high_degree_graph_caps_relation_and_evidence_lookups() -> Result<(), Box<dyn 
             required_subquestions: Vec::new(),
             authorization: RetrievalSecurityPolicy::default()
                 .authorization_context(&CorpusScope::Global)?,
+            execution_budget: maestria_domain::SearchExecutionBudget::new(2, 128, 128, 0)?,
         },
     )?;
 
     assert_eq!(
         expanded
+            .candidates
             .iter()
             .map(|candidate| candidate.evidence_id)
             .collect::<Vec<_>>(),
         vec![root_evidence, child_evidence]
     );
-    assert_eq!(expanded.len(), 2);
+    assert_eq!(expanded.candidates.len(), 2);
+    assert!(matches!(
+        expanded.execution.completion,
+        maestria_domain::SearchExecutionCompletion::Exhausted(
+            maestria_domain::SearchExecutionResource::WorkUnits
+        )
+    ));
+    assert_eq!(expanded.execution.usage.work_units, 1);
     assert_eq!(graph.lookup_count(), 1);
     assert_eq!(counted_evidence.get_count(), 2);
     Ok(())

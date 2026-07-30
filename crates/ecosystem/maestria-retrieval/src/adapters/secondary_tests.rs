@@ -228,10 +228,11 @@ fn denied_relation_owner_causes_zero_blob_reads_and_zero_expansion()
             required_claims: Vec::new(),
             required_subquestions: Vec::new(),
             authorization,
+            execution_budget: maestria_domain::SearchExecutionBudget::new(3, 3, 3, 0)?,
         },
     )?;
 
-    assert_eq!(expanded.len(), 1);
+    assert_eq!(expanded.candidates.len(), 1);
     assert_eq!(fixture.blob_gets.load(Ordering::Relaxed), 0);
     Ok(())
 }
@@ -263,10 +264,11 @@ fn graph_expansion_rejects_secret_bearing_chunks() -> Result<(), Box<dyn std::er
             required_claims: Vec::new(),
             required_subquestions: Vec::new(),
             authorization,
+            execution_budget: maestria_domain::SearchExecutionBudget::new(3, 3, 3, 0)?,
         },
     )?;
 
-    assert_eq!(expanded.len(), 1);
+    assert_eq!(expanded.candidates.len(), 1);
     assert_eq!(fixture.blob_gets.load(Ordering::Relaxed), 2);
     Ok(())
 }

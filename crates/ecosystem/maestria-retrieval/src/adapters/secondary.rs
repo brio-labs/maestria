@@ -4,17 +4,21 @@ use std::{
 };
 
 use async_trait::async_trait;
-use maestria_domain::{EvidenceCandidate, IndexStatus, Relation, RelationEndpoint};
+use maestria_domain::{
+    EvidenceCandidate, IndexStatus, Relation, RelationEndpoint, SearchExecution,
+    SearchExecutionCompletion, SearchExecutionResource, SearchExecutionUsage,
+};
 use maestria_governance::{RetrievalDecision, scan_secrets};
 use maestria_ports::{
     ArtifactRepository, BlobStore, ChunkRepository, EvidenceRepository, GraphIndex,
+    GraphRelationQuery,
 };
 
 use super::SourceSnapshotVerifier;
 use super::common::{candidate_from_records, one_based_rank, port_error};
 use super::score_provenance::graph_score;
 use crate::traits::ContextExpander;
-use crate::types::{ExpansionPolicy, RankedCandidate, RetrievalError};
+use crate::types::{ContextExpansion, ExpansionPolicy, RankedCandidate, RetrievalError};
 #[cfg(test)]
 #[path = "secondary_tests.rs"]
 mod tests;
@@ -47,15 +51,6 @@ impl HierarchyGraphExpander {
             verifier: SourceSnapshotVerifier::new(parts.blobs),
         }
     }
-
-    pub fn related_artifact_relations(
-        &self,
-        artifact_id: maestria_domain::ArtifactId,
-    ) -> Result<Vec<Relation>, RetrievalError> {
-        self.graph
-            .get_relations_for(RelationEndpoint::Artifact(artifact_id))
-            .map_err(port_error)
-    }
 }
 
 #[async_trait]
@@ -64,7 +59,7 @@ impl ContextExpander for HierarchyGraphExpander {
         &self,
         candidates: &[RankedCandidate],
         policy: &ExpansionPolicy,
-    ) -> Result<Vec<EvidenceCandidate>, RetrievalError> {
+    ) -> Result<ContextExpansion, RetrievalError> {
         let expanded = candidates
             .iter()
             .map(|candidate| candidate.candidate.clone())
@@ -85,7 +80,9 @@ impl ContextExpander for HierarchyGraphExpander {
                 )
             })
             .collect::<VecDeque<_>>();
-        let relation_budget = policy.max_results.saturating_sub(expanded.len());
+        let relation_budget = policy.max_results.saturating_sub(expanded.len()).min(
+            maestria_domain::saturating_usize(policy.execution_budget.max_work_units()),
+        );
         let mut state = ExpansionState {
             expanded,
             seen_evidence,
@@ -93,6 +90,8 @@ impl ContextExpander for HierarchyGraphExpander {
             visited_artifacts: BTreeSet::new(),
             next_graph_rank: 1,
             relation_visits_remaining: relation_budget,
+            execution_usage: SearchExecutionUsage::default(),
+            completion: SearchExecutionCompletion::Complete,
         };
         while let Some((endpoint, seed_rank, depth)) = state.queue.pop_front() {
             if depth >= policy.max_depth
@@ -103,7 +102,14 @@ impl ContextExpander for HierarchyGraphExpander {
             }
             self.expand_endpoint(endpoint, seed_rank, depth, policy, &mut state)?;
         }
-        Ok(state.expanded)
+        Ok(ContextExpansion {
+            candidates: state.expanded,
+            execution: SearchExecution::new(
+                policy.execution_budget,
+                state.execution_usage,
+                state.completion,
+            ),
+        })
     }
 }
 
@@ -114,6 +120,8 @@ struct ExpansionState {
     visited_artifacts: BTreeSet<maestria_domain::ArtifactId>,
     next_graph_rank: u32,
     relation_visits_remaining: usize,
+    execution_usage: SearchExecutionUsage,
+    completion: SearchExecutionCompletion,
 }
 
 struct RelatedArtifact {
@@ -135,13 +143,31 @@ impl HierarchyGraphExpander {
         if state.expanded.len() >= policy.max_results || state.relation_visits_remaining == 0 {
             return Ok(());
         }
-        let mut relations = self.graph.get_relations_for(endpoint).map_err(port_error)?;
-        relations.sort_by_key(|relation| relation.id);
-        for relation in relations {
+        let remaining_work = policy
+            .execution_budget
+            .max_work_units()
+            .saturating_sub(state.execution_usage.work_units);
+        let relation_limit = state
+            .relation_visits_remaining
+            .min(maestria_domain::saturating_usize(remaining_work));
+        let Some(query) =
+            GraphRelationQuery::new(endpoint, maestria_domain::saturating_u64(relation_limit))
+        else {
+            state.completion =
+                SearchExecutionCompletion::Exhausted(SearchExecutionResource::WorkUnits);
+            return Ok(());
+        };
+        let page = self.graph.get_relations_for(query).map_err(port_error)?;
+        if !page.complete {
+            state.completion =
+                SearchExecutionCompletion::Exhausted(SearchExecutionResource::WorkUnits);
+        }
+        for relation in page.relations {
             if state.expanded.len() >= policy.max_results || state.relation_visits_remaining == 0 {
                 break;
             }
             state.relation_visits_remaining = state.relation_visits_remaining.saturating_sub(1);
+            state.execution_usage.work_units = state.execution_usage.work_units.saturating_add(1);
             let Some(related) = self.related_artifact(
                 endpoint,
                 relation,
@@ -164,6 +190,10 @@ impl HierarchyGraphExpander {
                     .queue
                     .push_back((related.endpoint, seed_rank, related.depth));
             }
+        }
+        if state.execution_usage.work_units >= policy.execution_budget.max_work_units() {
+            state.completion =
+                SearchExecutionCompletion::Exhausted(SearchExecutionResource::WorkUnits);
         }
         Ok(())
     }

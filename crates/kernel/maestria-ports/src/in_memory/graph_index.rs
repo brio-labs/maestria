@@ -3,8 +3,8 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use crate::{GraphIndex, PortError};
-use maestria_domain::{Relation, RelationEndpoint, RelationId};
+use crate::{GraphIndex, GraphRelationPage, GraphRelationQuery, PortError};
+use maestria_domain::{Relation, RelationId};
 
 #[derive(Clone, Default)]
 pub struct InMemoryGraphIndex {
@@ -30,7 +30,7 @@ impl GraphIndex for InMemoryGraphIndex {
         Ok(())
     }
 
-    fn get_relations_for(&self, endpoint: RelationEndpoint) -> Result<Vec<Relation>, PortError> {
+    fn get_relations_for(&self, query: GraphRelationQuery) -> Result<GraphRelationPage, PortError> {
         let guard = self
             .relations
             .lock()
@@ -38,11 +38,23 @@ impl GraphIndex for InMemoryGraphIndex {
                 context: "graph index lock poisoned",
                 source: "graph relation mutex is poisoned".to_string(),
             })?;
-        Ok(guard
+        let max_relations = maestria_domain::saturating_usize(query.max_relations());
+        let mut relations = guard
             .values()
-            .filter(|r| r.source == endpoint || r.target == endpoint)
+            .filter(|relation| {
+                relation.source == query.endpoint() || relation.target == query.endpoint()
+            })
+            .take(max_relations.saturating_add(1))
             .cloned()
-            .collect())
+            .collect::<Vec<_>>();
+        let complete = relations.len() <= max_relations;
+        if !complete {
+            relations.truncate(max_relations);
+        }
+        Ok(GraphRelationPage {
+            relations,
+            complete,
+        })
     }
 
     fn delete_relations(&self, relation_ids: &[RelationId]) -> Result<(), PortError> {

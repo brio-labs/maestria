@@ -7,6 +7,11 @@ use maestria_domain::{
     StructureNodeType, ValidationReportId,
 };
 use std::path::PathBuf;
+fn graph_query(endpoint: RelationEndpoint) -> Result<GraphRelationQuery, PortError> {
+    GraphRelationQuery::new(endpoint, u64::MAX).ok_or_else(|| PortError::Internal {
+        message: "graph query limit must be positive".to_string(),
+    })
+}
 
 fn structure_node(id: u64, parent_id: Option<u64>, sibling_id: Option<u64>) -> StructureNode {
     StructureNode {
@@ -543,10 +548,18 @@ fn in_memory_graph_index_clear_removes_all_relations() -> Result<(), Box<dyn std
         security: maestria_domain::SecurityMetadata::default(),
     };
     index.insert_relation(rel.clone())?;
-    assert_eq!(index.get_relations_for(ep)?.len(), 1);
+    assert_eq!(
+        index.get_relations_for(graph_query(ep)?)?.relations.len(),
+        1
+    );
 
     index.clear()?;
-    assert!(index.get_relations_for(ep)?.is_empty());
+    assert!(
+        index
+            .get_relations_for(graph_query(ep)?)?
+            .relations
+            .is_empty()
+    );
     Ok(())
 }
 
@@ -567,7 +580,10 @@ fn in_memory_graph_index_delete_relations_ignores_empty_list()
     index.insert_relation(rel.clone())?;
 
     index.delete_relations(&[])?;
-    assert_eq!(index.get_relations_for(ep)?.len(), 1);
+    assert_eq!(
+        index.get_relations_for(graph_query(ep)?)?.relations.len(),
+        1
+    );
     Ok(())
 }
 
@@ -596,12 +612,15 @@ fn in_memory_graph_index_rebuild_preserves_new_relations() -> Result<(), Box<dyn
     };
 
     index.insert_relation(rel1.clone())?;
-    assert_eq!(index.get_relations_for(ep)?.len(), 1);
+    assert_eq!(
+        index.get_relations_for(graph_query(ep)?)?.relations.len(),
+        1
+    );
 
     index.rebuild(vec![rel2.clone()])?;
 
-    let current = index.get_relations_for(ep)?;
-    assert_eq!(current.len(), 1);
-    assert_eq!(current[0], rel2);
+    let current = index.get_relations_for(graph_query(ep)?)?;
+    assert_eq!(current.relations.len(), 1);
+    assert_eq!(current.relations[0], rel2);
     Ok(())
 }

@@ -1,7 +1,7 @@
 use std::path::Path;
 use std::sync::{Mutex, MutexGuard};
 
-use maestria_domain::{Relation, RelationEndpoint, RelationId};
+use maestria_domain::{Relation, RelationId};
 use maestria_ports::{GraphIndex, PortError};
 use rusqlite::{Connection, params};
 
@@ -131,8 +131,13 @@ impl GraphIndex for SqliteGraphIndex {
         rebuild_relations(&mut connection, relations)
     }
 
-    fn get_relations_for(&self, endpoint: RelationEndpoint) -> Result<Vec<Relation>, PortError> {
-        let (endpoint_type, endpoint_id) = relation_endpoint_to_parts(endpoint);
+    fn get_relations_for(
+        &self,
+        query: maestria_ports::GraphRelationQuery,
+    ) -> Result<maestria_ports::GraphRelationPage, PortError> {
+        let (endpoint_type, endpoint_id) = relation_endpoint_to_parts(query.endpoint());
+        let max_relations = query.max_relations();
+        let fetch_limit = max_relations.saturating_add(1).min(i64::MAX as u64) as i64;
         let connection = self.lock_connection()?;
         let mut statement = connection
             .prepare(
@@ -147,18 +152,26 @@ impl GraphIndex for SqliteGraphIndex {
                         security_json
                  FROM relations
                  WHERE (source_type = ?1 AND source_id = ?2)
-                    OR (target_type = ?1 AND target_id = ?2)",
+                    OR (target_type = ?1 AND target_id = ?2)
+                 ORDER BY CAST(id AS INTEGER)
+                 LIMIT ?3",
             )
             .map_err(to_port_error)?;
         let mut rows = statement
-            .query(params![endpoint_type, endpoint_id])
+            .query(params![endpoint_type, endpoint_id, fetch_limit])
             .map_err(to_port_error)?;
         let mut relations = Vec::new();
         while let Some(row) = rows.next().map_err(to_port_error)? {
             relations.push(read_relation(row)?);
         }
-        relations.sort_by_key(|r| r.id);
-        Ok(relations)
+        let complete = relations.len() <= maestria_domain::saturating_usize(max_relations);
+        if !complete {
+            relations.truncate(maestria_domain::saturating_usize(max_relations));
+        }
+        Ok(maestria_ports::GraphRelationPage {
+            relations,
+            complete,
+        })
     }
 
     fn delete_relations(&self, relation_ids: &[RelationId]) -> Result<(), PortError> {

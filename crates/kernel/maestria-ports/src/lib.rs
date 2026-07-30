@@ -45,12 +45,12 @@ pub use traits::{
     EffectJournalEntry, EffectJournalIntent, EffectJournalStatus, EmbeddingIdentity,
     EmbeddingInputKind, EmbeddingProvenance, EmbeddingProvider, EmbeddingRequest,
     EmbeddingResponse, EventFilter, EventLog, EvidenceRepository, FileHandle, FileMetadata,
-    GovernedAgentProposal, GraphIndex, HarnessAdapter, HarnessCapabilities, HarnessCommandClass,
-    HarnessOutcome, HarnessRequest, HarnessRunId, IdAllocator, IndexedCard, IndexedChunk,
-    ModelAgentProposal, ModelAgentProposalError, PortError, ProviderDisclosure, ProviderEndpoint,
-    ProviderTransport, RetentionPolicy, SearchFuture, SearchHit, SearchKnowledgeExecutor,
-    SearchQuery, VectorEmbedding, VectorIndex, VectorSearchHit, VectorSearchQuery, WebFetchOptions,
-    WebFetcher, WebSnapshotData,
+    GovernedAgentProposal, GraphIndex, GraphRelationPage, GraphRelationQuery, HarnessAdapter,
+    HarnessCapabilities, HarnessCommandClass, HarnessOutcome, HarnessRequest, HarnessRunId,
+    IdAllocator, IndexedCard, IndexedChunk, ModelAgentProposal, ModelAgentProposalError, PortError,
+    ProviderDisclosure, ProviderEndpoint, ProviderTransport, RetentionPolicy, SearchFuture,
+    SearchHit, SearchKnowledgeExecutor, SearchQuery, VectorEmbedding, VectorIndex, VectorSearchHit,
+    VectorSearchQuery, WebFetchOptions, WebFetcher, WebSnapshotData,
 };
 mod visual;
 pub use visual::{VisualEmbeddingProvider, VisualEmbeddingRequest, VisualSource};

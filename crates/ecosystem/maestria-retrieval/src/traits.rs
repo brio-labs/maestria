@@ -2,9 +2,9 @@ use async_trait::async_trait;
 use maestria_ports::SearchQuery;
 
 use crate::types::{
-    CandidateBatch, CandidateRequest, ExpansionPolicy, FusedCandidate, RankedCandidate,
-    RerankRequest, RerankResult, RerankScoreComponents, RerankScorerInput, RetrievalError,
-    RetrievalEvaluationReport, RetrievalExperiment,
+    CandidateBatch, CandidateRequest, ContextExpansion, ExpansionPolicy, FusedCandidate,
+    RankedCandidate, RerankRequest, RerankResult, RerankScoreComponents, RerankScorerInput,
+    RetrievalError, RetrievalEvaluationReport, RetrievalExperiment,
 };
 
 /// A retriever is a security boundary: implementations must apply the
@@ -46,7 +46,7 @@ pub trait ContextExpander: Send + Sync {
         &self,
         candidates: &[RankedCandidate],
         policy: &ExpansionPolicy,
-    ) -> Result<Vec<maestria_domain::EvidenceCandidate>, RetrievalError>;
+    ) -> Result<ContextExpansion, RetrievalError>;
 }
 
 #[async_trait]

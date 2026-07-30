@@ -10,7 +10,7 @@ use maestria_graph_sqlite::SqliteGraphIndex;
 use maestria_parsers::ParserRegistry;
 use maestria_ports::{
     ArtifactRepository, EffectJournal, EmbeddingProvenance, EventFilter, EventLog, GraphIndex,
-    VectorEmbedding, VectorIndex, VectorSearchQuery,
+    GraphRelationQuery, VectorEmbedding, VectorIndex, VectorSearchQuery,
 };
 use maestria_search_tantivy::TantivyFullTextIndex;
 use maestria_storage_sqlite::SqliteStore;
@@ -395,7 +395,9 @@ fn verify_projections_rebuilt(
     stale_relation_id: RelationId,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let graph = SqliteGraphIndex::open(layout.graph_index_dir.join("projection.db"))?;
-    let relations = graph.get_relations_for(RelationEndpoint::Artifact(artifact_id))?;
+    let query = GraphRelationQuery::new(RelationEndpoint::Artifact(artifact_id), u64::MAX)
+        .ok_or("graph query limit must be positive")?;
+    let relations = graph.get_relations_for(query)?.relations;
     assert!(
         relations
             .iter()
