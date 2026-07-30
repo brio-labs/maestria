@@ -1,11 +1,13 @@
-use std::collections::BTreeMap;
+#[path = "learned_sparse_benchmark_gate.rs"]
+mod gate;
+pub(super) use gate::winning_sparse_route;
 
-use crate::golden::Metric;
-
+use super::measurements::{CheckStatus, LearnedSparseOperationMeasurement, Measurement};
 use super::{
     LearnedSparseBenchmarkCase, LearnedSparseBenchmarkError, LearnedSparseBenchmarkObservation,
-    LearnedSparseQueryClass, LearnedSparseRoute, LearnedSparseRouteMetrics,
+    LearnedSparseResourceMetrics, LearnedSparseRoute, LearnedSparseRouteMetrics,
 };
+use crate::golden::Metric;
 
 fn select_observations<'a>(
     cases: &[&'a LearnedSparseBenchmarkCase],
@@ -25,46 +27,155 @@ fn select_observations<'a>(
                     route,
                 })
         })
-        .collect::<Result<Vec<_>, _>>()
+        .collect()
 }
 
-fn mean_metric(values: Vec<u32>, count: u64) -> Metric {
-    let value = values
-        .into_iter()
-        .map(u64::from)
-        .fold(0_u64, u64::saturating_add)
-        / count;
-    match Metric::new(value.min(u64::from(u32::MAX)) as u32) {
-        Some(metric) => metric,
-        None => {
-            let _ = ();
-            Metric::ZERO
-        }
+pub(super) fn aggregate_metric(values: Vec<&Measurement<Metric>>) -> Measurement<Metric> {
+    if values.iter().all(|value| value.is_measured()) {
+        let sum = values
+            .iter()
+            .filter_map(|value| value.measured_value())
+            .map(|value| u64::from(value.value()))
+            .fold(0_u64, u64::saturating_add);
+        let mean = sum / values.len().max(1) as u64;
+        return Metric::new(mean.min(u64::from(u32::MAX)) as u32).map_or_else(
+            || Measurement::unavailable("metric mean is out of range"),
+            Measurement::measured,
+        );
     }
+    state_from_measurements(&values)
 }
 
-fn compute_p95_latency(latencies: &mut [u64]) -> u64 {
-    latencies.sort_unstable();
-    let p95_index = (latencies.len() * 95).div_ceil(100).saturating_sub(1);
-    match latencies.get(p95_index).copied() {
-        Some(value) => value,
-        None => {
-            let _ = ();
-            0
-        }
+pub(super) fn aggregate_u32(values: Vec<&Measurement<u32>>) -> Measurement<u32> {
+    if values.iter().all(|value| value.is_measured()) {
+        return Measurement::measured(
+            values
+                .iter()
+                .filter_map(|value| value.measured_value())
+                .copied()
+                .fold(0_u32, u32::saturating_add),
+        );
     }
+    state_from_measurements(&values)
+}
+fn aggregate_u64(values: Vec<&Measurement<u64>>) -> Measurement<u64> {
+    if values.iter().all(|value| value.is_measured()) {
+        return Measurement::measured(
+            values
+                .iter()
+                .filter_map(|value| value.measured_value())
+                .copied()
+                .fold(0_u64, u64::saturating_add)
+                / values.len().max(1) as u64,
+        );
+    }
+    state_from_measurements(&values)
 }
 
-fn peak_value<T>(observations: &[&LearnedSparseBenchmarkObservation], mut extractor: T) -> u64
+pub(super) fn aggregate_percentile(
+    values: Vec<&Measurement<u64>>,
+    percentile: usize,
+) -> Measurement<u64> {
+    if values.iter().all(|value| value.is_measured()) {
+        let mut measured = values
+            .iter()
+            .filter_map(|value| value.measured_value())
+            .copied()
+            .collect::<Vec<_>>();
+        measured.sort_unstable();
+        let index = ((measured.len() * percentile).div_ceil(100)).saturating_sub(1);
+        return measured.get(index).copied().map_or_else(
+            || Measurement::unavailable("percentile has no samples"),
+            Measurement::measured,
+        );
+    }
+    state_from_measurements(&values)
+}
+
+pub(super) fn aggregate_max(values: Vec<&Measurement<u64>>) -> Measurement<u64> {
+    if values.iter().all(|value| value.is_measured()) {
+        return values
+            .iter()
+            .filter_map(|value| value.measured_value())
+            .copied()
+            .max()
+            .map_or_else(
+                || Measurement::unavailable("no measured values"),
+                Measurement::measured,
+            );
+    }
+    state_from_measurements(&values)
+}
+
+pub(super) fn aggregate_sum(values: Vec<&Measurement<u64>>) -> Measurement<u64> {
+    if values.iter().all(|value| value.is_measured()) {
+        return Measurement::measured(
+            values
+                .iter()
+                .filter_map(|value| value.measured_value())
+                .copied()
+                .fold(0_u64, u64::saturating_add),
+        );
+    }
+    state_from_measurements(&values)
+}
+
+fn state_from_measurements<T>(values: &[&Measurement<T>]) -> Measurement<T>
 where
-    T: FnMut(&&LearnedSparseBenchmarkObservation) -> u64,
+    T: Clone,
 {
-    match observations.iter().map(&mut extractor).max() {
-        Some(value) => value,
-        None => {
-            let _ = ();
-            0
+    if values
+        .iter()
+        .all(|value| matches!(value, Measurement::NotApplicable { .. }))
+    {
+        return Measurement::not_applicable("all observations marked not applicable");
+    }
+    Measurement::unavailable("one or more observations lack this measurement")
+}
+
+pub(super) fn aggregate_check(values: Vec<&Measurement<CheckStatus>>) -> Measurement<CheckStatus> {
+    if values.iter().all(|value| value.is_measured()) {
+        if values
+            .iter()
+            .any(|value| matches!(value.measured_value(), Some(CheckStatus::Failed)))
+        {
+            Measurement::measured(CheckStatus::Failed)
+        } else if values
+            .iter()
+            .all(|value| matches!(value.measured_value(), Some(CheckStatus::NotDetected)))
+        {
+            Measurement::measured(CheckStatus::NotDetected)
+        } else {
+            Measurement::measured(CheckStatus::Passed)
         }
+    } else {
+        state_from_measurements(&values)
+    }
+}
+
+pub(super) fn aggregate_operation(
+    observations: &[&LearnedSparseBenchmarkObservation],
+    selector: impl Fn(&LearnedSparseResourceMetrics) -> &LearnedSparseOperationMeasurement,
+) -> LearnedSparseOperationMeasurement {
+    let selected = observations
+        .iter()
+        .map(|observation| selector(&observation.resources));
+    let selected = selected.collect::<Vec<_>>();
+    LearnedSparseOperationMeasurement {
+        elapsed_ms: aggregate_sum(selected.iter().map(|value| &value.elapsed_ms).collect()),
+        throughput_items_per_second: aggregate_u64(
+            selected
+                .iter()
+                .map(|value| &value.throughput_items_per_second)
+                .collect(),
+        ),
+        cost_micros: aggregate_sum(selected.iter().map(|value| &value.cost_micros).collect()),
+        energy_millijoules: aggregate_sum(
+            selected
+                .iter()
+                .map(|value| &value.energy_millijoules)
+                .collect(),
+        ),
     }
 }
 
@@ -74,123 +185,82 @@ pub(super) fn aggregate(
     observations: &[LearnedSparseBenchmarkObservation],
 ) -> Result<LearnedSparseRouteMetrics, LearnedSparseBenchmarkError> {
     let selected = select_observations(cases, route, observations)?;
-    let count = selected.len().max(1) as u64;
-    let mut latencies: Vec<u64> = selected.iter().map(|o| o.latency_ms).collect();
-    let p95_latency_ms = compute_p95_latency(&mut latencies);
-
+    let quality = super::quality_resources::aggregate_quality(&selected);
+    let resources = super::quality_resources::aggregate_resources(&selected);
+    let safety = super::safety::aggregate_safety(&selected);
+    let budget_violations = selected
+        .iter()
+        .zip(cases.iter())
+        .filter(|(observation, case)| exceeds_budget(observation, case))
+        .count()
+        .min(u32::MAX as usize) as u32;
     Ok(LearnedSparseRouteMetrics {
-        recall_at_20: mean_metric(
-            selected.iter().map(|o| o.recall_at_20.value()).collect(),
-            count,
-        ),
-        ndcg_at_10: mean_metric(
-            selected.iter().map(|o| o.ndcg_at_10.value()).collect(),
-            count,
-        ),
-        mrr_at_10: mean_metric(
-            selected.iter().map(|o| o.mrr_at_10.value()).collect(),
-            count,
-        ),
-        exact_span_recall: mean_metric(
-            selected
-                .iter()
-                .map(|o| o.exact_span_recall.value())
-                .collect(),
-            count,
-        ),
-        p95_latency_ms,
-        peak_memory_bytes: peak_value(&selected, |o| o.memory_bytes),
-        peak_disk_bytes: peak_value(&selected, |o| o.disk_bytes),
-        total_ingest_update_ms: selected
-            .iter()
-            .map(|o| o.ingest_update_ms)
-            .collect::<Option<Vec<_>>>()
-            .map(|values| values.into_iter().fold(0_u64, u64::saturating_add)),
-        total_energy_millijoules: selected
-            .iter()
-            .map(|o| o.energy_millijoules)
-            .collect::<Option<Vec<_>>>()
-            .map(|values| values.into_iter().fold(0_u64, u64::saturating_add)),
-        privacy_violations: selected
-            .iter()
-            .map(|o| o.privacy_violations)
-            .fold(0_u32, u32::saturating_add),
-        security_violations: selected
-            .iter()
-            .map(|o| o.security_violations)
-            .fold(0_u32, u32::saturating_add),
-        budget_violations: selected
-            .iter()
-            .zip(cases.iter())
-            .filter(|(observation, case)| exceeds_budget(observation, case))
-            .count()
-            .min(u32::MAX as usize) as u32,
+        quality,
+        resources,
+        safety,
+        budget_violations,
     })
 }
 
-pub(super) fn winning_sparse_route(
-    class: LearnedSparseQueryClass,
-    routes: &BTreeMap<LearnedSparseRoute, LearnedSparseRouteMetrics>,
-) -> Option<LearnedSparseRoute> {
-    if matches!(
-        class,
-        LearnedSparseQueryClass::ExactLiteral
-            | LearnedSparseQueryClass::NoEvidence
-            | LearnedSparseQueryClass::Security
-    ) {
-        return None;
+pub(super) fn aggregate_provider(
+    observations: &[&LearnedSparseBenchmarkObservation],
+) -> Measurement<super::measurements::LearnedSparseProviderDisclosure> {
+    let providers = observations
+        .iter()
+        .map(|observation| &observation.safety.provider)
+        .collect::<Vec<_>>();
+    if providers.iter().all(|provider| provider.is_measured()) {
+        let first = providers
+            .first()
+            .and_then(|provider| provider.measured_value());
+        if providers
+            .iter()
+            .all(|provider| provider.measured_value() == first)
+        {
+            return first.cloned().map_or_else(
+                || Measurement::unavailable("provider disclosure is empty"),
+                Measurement::measured,
+            );
+        }
+        return Measurement::unavailable("provider disclosure differs across observations");
     }
-    let lexical = routes.get(&LearnedSparseRoute::Lexical)?;
-    let hybrid = routes.get(&LearnedSparseRoute::Hybrid)?;
-    let candidate = routes.get(&LearnedSparseRoute::SparseFused)?;
-    (telemetry_complete(candidate)
-        && wins_against(candidate, lexical)
-        && wins_against(candidate, hybrid))
-    .then_some(LearnedSparseRoute::SparseFused)
-}
-
-fn telemetry_complete(metrics: &LearnedSparseRouteMetrics) -> bool {
-    metrics.total_ingest_update_ms.is_some()
-        && metrics.total_energy_millijoules.is_some()
-        && metrics.privacy_violations == 0
-        && metrics.security_violations == 0
-        && metrics.budget_violations == 0
+    state_from_measurements(&providers)
 }
 
 fn exceeds_budget(
     observation: &LearnedSparseBenchmarkObservation,
     case: &&LearnedSparseBenchmarkCase,
 ) -> bool {
-    observation.latency_ms > case.latency_budget_ms
-        || observation.memory_bytes > case.memory_budget_bytes
-        || observation.disk_bytes > case.disk_budget_bytes
-        || observation
-            .ingest_update_ms
-            .is_some_and(|value| value > case.ingest_update_budget_ms)
-        || observation
-            .energy_millijoules
-            .is_some_and(|value| value > case.energy_budget_millijoules)
-}
-
-fn wins_against(
-    candidate: &LearnedSparseRouteMetrics,
-    baseline: &LearnedSparseRouteMetrics,
-) -> bool {
-    let qualities = [
-        (candidate.recall_at_20, baseline.recall_at_20),
-        (candidate.ndcg_at_10, baseline.ndcg_at_10),
-        (candidate.mrr_at_10, baseline.mrr_at_10),
-        (candidate.exact_span_recall, baseline.exact_span_recall),
-    ];
-    let no_quality_regression = qualities
-        .iter()
-        .all(|(candidate, baseline)| candidate >= baseline);
-    let material_improvement = qualities.iter().any(|(candidate, baseline)| {
-        candidate.value().saturating_sub(baseline.value()) >= Metric::MATERIAL_QUALITY_DELTA.value()
-    });
-    no_quality_regression
-        && material_improvement
-        && candidate.p95_latency_ms <= baseline.p95_latency_ms.saturating_mul(2)
-        && candidate.peak_memory_bytes <= baseline.peak_memory_bytes.saturating_mul(2)
-        && candidate.peak_disk_bytes <= baseline.peak_disk_bytes.saturating_mul(2)
+    let exceeds = |measurement: &Measurement<u64>, budget: u64| {
+        measurement
+            .measured_value()
+            .is_some_and(|value| *value > budget)
+    };
+    let operation_exceeds = |operation: &LearnedSparseOperationMeasurement| {
+        exceeds(&operation.elapsed_ms, case.ingest_update_budget_ms)
+            || exceeds(
+                &operation.cost_micros,
+                case.ingest_update_budget_ms.saturating_mul(1_000),
+            )
+    };
+    exceeds(
+        &observation.resources.p95_latency_ms,
+        case.latency_budget_ms,
+    ) || exceeds(
+        &observation.resources.peak_ram_bytes,
+        case.memory_budget_bytes,
+    ) || exceeds(
+        &observation.resources.index_disk_bytes,
+        case.disk_budget_bytes,
+    ) || [
+        &observation.resources.initial_indexing,
+        &observation.resources.incremental_update,
+        &observation.resources.deletion,
+        &observation.resources.rebuild,
+        &observation.resources.activation,
+        &observation.resources.rollback,
+    ]
+    .iter()
+    .any(|operation| operation_exceeds(operation))
+        || exceeds(&observation.safety.energy, case.energy_budget_millijoules)
 }

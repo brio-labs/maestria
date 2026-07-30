@@ -1,14 +1,40 @@
+#[path = "learned_sparse_benchmark_comparison.rs"]
+mod comparison;
+#[path = "learned_sparse_benchmark_contract.rs"]
+mod contract;
+#[path = "learned_sparse_benchmark_errors.rs"]
+mod errors;
+#[path = "learned_sparse_benchmark_measurements.rs"]
+mod measurements;
 #[path = "learned_sparse_benchmark_metrics.rs"]
 mod metrics;
-
+#[path = "learned_sparse_benchmark_quality_resources.rs"]
+mod quality_resources;
+#[path = "learned_sparse_benchmark_safety.rs"]
+mod safety;
+pub use errors::LearnedSparseBenchmarkError;
 use std::collections::{BTreeMap, BTreeSet};
 
+use maestria_domain::{ContentHash, CorpusSnapshotId, IndexGenerationId};
 use serde::{Deserialize, Serialize};
-use thiserror::Error;
 
-use crate::golden::Metric;
-
+pub use comparison::{
+    LearnedSparseBenchmarkComparison, LearnedSparseClassComparison, LearnedSparseClassDecision,
+    LearnedSparsePromotionRecord, LearnedSparseRollbackTarget, LearnedSparseRouteMetrics,
+};
+pub use contract::{
+    LearnedSparseAcceptedSpan, LearnedSparseBenchmarkBudget, LearnedSparseBenchmarkIdentity,
+    LearnedSparseDataFidelity, LearnedSparseDataSplit, LearnedSparseEnvironment,
+    LearnedSparseExpectedOutcome, LearnedSparseQualityMetrics, LearnedSparseResourceMetrics,
+    LearnedSparseRouteConfiguration, LearnedSparseSafetyMetrics,
+};
 pub use maestria_ports::LearnedSparseQueryClass;
+pub use measurements::{
+    CheckStatus, LearnedSparseOperationMeasurement, LearnedSparseProviderDisclosure,
+    LearnedSparseRetentionPolicy, MAX_MEASUREMENT_REASON_CHARS, Measurement,
+};
+
+pub const LEARNED_SPARSE_BENCHMARK_SCHEMA_VERSION: u32 = 2;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum LearnedSparseRoute {
@@ -16,6 +42,16 @@ pub enum LearnedSparseRoute {
     Hybrid,
     SparseOnly,
     SparseFused,
+}
+impl LearnedSparseRoute {
+    pub const fn all() -> [Self; 4] {
+        [
+            Self::Lexical,
+            Self::Hybrid,
+            Self::SparseOnly,
+            Self::SparseFused,
+        ]
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -28,6 +64,25 @@ pub struct LearnedSparseBenchmarkCase {
     pub disk_budget_bytes: u64,
     pub ingest_update_budget_ms: u64,
     pub energy_budget_millijoules: u64,
+    #[serde(default)]
+    pub split: LearnedSparseDataSplit,
+    #[serde(default)]
+    pub fidelity: LearnedSparseDataFidelity,
+    #[serde(default)]
+    pub expected: Option<LearnedSparseExpectedOutcome>,
+}
+
+impl LearnedSparseBenchmarkCase {
+    fn budget(&self) -> LearnedSparseBenchmarkBudget {
+        LearnedSparseBenchmarkBudget {
+            latency_ms: self.latency_budget_ms,
+            memory_bytes: self.memory_budget_bytes,
+            disk_bytes: self.disk_budget_bytes,
+            indexing_cost_micros: self.ingest_update_budget_ms.saturating_mul(1_000),
+            incremental_update_cost_micros: self.ingest_update_budget_ms.saturating_mul(1_000),
+            energy_millijoules: self.energy_budget_millijoules,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -39,6 +94,20 @@ pub struct LearnedSparseBenchmarkCorpus {
     pub source_input_hash: String,
     pub evaluation_date: String,
     pub cases: Vec<LearnedSparseBenchmarkCase>,
+    #[serde(default)]
+    pub judgment_set_hash: Option<ContentHash>,
+    #[serde(default)]
+    pub environment: LearnedSparseEnvironment,
+    #[serde(default)]
+    pub data_fidelity: LearnedSparseDataFidelity,
+    #[serde(default)]
+    pub corpus_snapshot: Option<CorpusSnapshotId>,
+    #[serde(default)]
+    pub index_generation: Option<IndexGenerationId>,
+    #[serde(default)]
+    pub namespace: Option<maestria_domain::SparseNamespace>,
+    #[serde(default)]
+    pub route_configurations: BTreeMap<LearnedSparseRoute, LearnedSparseRouteConfiguration>,
 }
 
 impl LearnedSparseBenchmarkCorpus {
@@ -50,8 +119,13 @@ impl LearnedSparseBenchmarkCorpus {
     }
 
     pub fn validate(&self) -> Result<(), LearnedSparseBenchmarkError> {
-        if self.schema_version == 0
-            || self.corpus_id.trim().is_empty()
+        if self.schema_version == 0 || self.schema_version > LEARNED_SPARSE_BENCHMARK_SCHEMA_VERSION
+        {
+            return Err(LearnedSparseBenchmarkError::InvalidCorpus(
+                "unsupported learned-sparse benchmark schema version".to_string(),
+            ));
+        }
+        if self.corpus_id.trim().is_empty()
             || self.corpus_revision.trim().is_empty()
             || self.judgment_set_id.trim().is_empty()
             || self.source_input_hash.trim().is_empty()
@@ -61,10 +135,13 @@ impl LearnedSparseBenchmarkCorpus {
                 "sparse corpus identity must be complete".to_string(),
             ));
         }
+        if self.schema_version >= LEARNED_SPARSE_BENCHMARK_SCHEMA_VERSION {
+            self.validate_complete_metadata()?;
+        }
         let mut ids = BTreeSet::new();
         let mut classes = BTreeSet::new();
         for case in &self.cases {
-            validate_case(case)?;
+            validate_case(case, self.schema_version)?;
             if !ids.insert(case.case_id.clone()) {
                 return Err(LearnedSparseBenchmarkError::DuplicateCase(
                     case.case_id.clone(),
@@ -80,275 +157,127 @@ impl LearnedSparseBenchmarkCorpus {
         Ok(())
     }
 
+    fn validate_complete_metadata(&self) -> Result<(), LearnedSparseBenchmarkError> {
+        if self.judgment_set_hash.is_none()
+            || self.corpus_snapshot.is_none()
+            || self.index_generation.is_none()
+            || self.namespace.is_none()
+        {
+            return Err(LearnedSparseBenchmarkError::InvalidCorpus(
+                "schema v2 requires judgment, corpus, generation, and namespace identities"
+                    .to_string(),
+            ));
+        }
+        ContentHash::new(self.source_input_hash.clone()).map_err(|error| {
+            LearnedSparseBenchmarkError::InvalidCorpus(format!(
+                "source_input_hash must be a SHA-256 content hash: {error}"
+            ))
+        })?;
+        self.environment.validate()?;
+        self.namespace
+            .as_ref()
+            .ok_or_else(|| LearnedSparseBenchmarkError::InvalidCorpus("namespace missing".into()))?
+            .validate()
+            .map_err(|error| LearnedSparseBenchmarkError::InvalidCorpus(error.to_string()))?;
+        for route in LearnedSparseRoute::all() {
+            self.route_configurations
+                .get(&route)
+                .ok_or_else(|| {
+                    LearnedSparseBenchmarkError::InvalidCorpus(format!(
+                        "route {route:?} configuration missing"
+                    ))
+                })?
+                .validate()?;
+        }
+        Ok(())
+    }
+
     fn case(&self, case_id: &str) -> Option<&LearnedSparseBenchmarkCase> {
         self.cases.iter().find(|case| case.case_id == case_id)
     }
 }
 
-fn validate_case(case: &LearnedSparseBenchmarkCase) -> Result<(), LearnedSparseBenchmarkError> {
+fn validate_case(
+    case: &LearnedSparseBenchmarkCase,
+    schema_version: u32,
+) -> Result<(), LearnedSparseBenchmarkError> {
     if case.case_id.trim().is_empty() || case.query.trim().is_empty() {
         return Err(LearnedSparseBenchmarkError::InvalidCorpus(
             "sparse case identity and query must be non-empty".to_string(),
         ));
     }
-    if case.latency_budget_ms == 0
-        || case.memory_budget_bytes == 0
-        || case.disk_budget_bytes == 0
-        || case.ingest_update_budget_ms == 0
-        || case.energy_budget_millijoules == 0
-    {
-        return Err(LearnedSparseBenchmarkError::InvalidCorpus(format!(
-            "sparse case {} must declare positive budgets",
-            case.case_id
-        )));
+    case.budget().validate(&case.case_id)?;
+    if schema_version >= LEARNED_SPARSE_BENCHMARK_SCHEMA_VERSION {
+        case.expected
+            .as_ref()
+            .ok_or_else(|| {
+                LearnedSparseBenchmarkError::InvalidCorpus(
+                    "schema v2 requires explicit case judgments".to_string(),
+                )
+            })?
+            .validate()?;
     }
     Ok(())
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct LearnedSparseBenchmarkObservation {
+    pub schema_version: u32,
     pub corpus_id: String,
     pub corpus_revision: String,
     pub judgment_set_id: String,
+    pub evaluation_date: String,
     pub case_id: String,
     pub route: LearnedSparseRoute,
-    pub model_fingerprint: String,
-    pub index_generation: String,
-    pub recall_at_20: Metric,
-    pub ndcg_at_10: Metric,
-    pub mrr_at_10: Metric,
-    pub exact_span_recall: Metric,
-    pub latency_ms: u64,
-    pub memory_bytes: u64,
-    pub disk_bytes: u64,
-    pub ingest_update_ms: Option<u64>,
-    pub energy_millijoules: Option<u64>,
-    pub privacy_violations: u32,
-    pub security_violations: u32,
+    pub identity: LearnedSparseBenchmarkIdentity,
+    pub route_configuration: LearnedSparseRouteConfiguration,
+    pub quality: LearnedSparseQualityMetrics,
+    pub resources: LearnedSparseResourceMetrics,
+    pub safety: LearnedSparseSafetyMetrics,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct LearnedSparseRouteMetrics {
-    pub recall_at_20: Metric,
-    pub ndcg_at_10: Metric,
-    pub mrr_at_10: Metric,
-    pub exact_span_recall: Metric,
-    pub p95_latency_ms: u64,
-    pub peak_memory_bytes: u64,
-    pub peak_disk_bytes: u64,
-    pub total_ingest_update_ms: Option<u64>,
-    pub total_energy_millijoules: Option<u64>,
-    pub privacy_violations: u32,
-    pub security_violations: u32,
-    pub budget_violations: u32,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct LearnedSparseClassComparison {
-    pub class: LearnedSparseQueryClass,
-    pub routes: BTreeMap<LearnedSparseRoute, LearnedSparseRouteMetrics>,
-    pub winning_route: Option<LearnedSparseRoute>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct LearnedSparseBenchmarkComparison {
-    corpus_id: String,
-    corpus_revision: String,
-    judgment_set_id: String,
-    classes: BTreeMap<LearnedSparseQueryClass, LearnedSparseClassComparison>,
-}
-
-impl LearnedSparseBenchmarkComparison {
-    pub fn evaluate(
-        corpus: &LearnedSparseBenchmarkCorpus,
-        observations: &[LearnedSparseBenchmarkObservation],
-    ) -> Result<Self, LearnedSparseBenchmarkError> {
-        corpus.validate()?;
-        validate_observations(corpus, observations)?;
-        let mut classes = BTreeMap::new();
-        for class in LearnedSparseQueryClass::all() {
-            let cases = corpus
-                .cases
-                .iter()
-                .filter(|case| case.class == class)
-                .collect::<Vec<_>>();
-            let mut routes = BTreeMap::new();
-            for route in all_routes() {
-                routes.insert(route, metrics::aggregate(&cases, route, observations)?);
-            }
-            let winning_route = metrics::winning_sparse_route(class, &routes);
-            classes.insert(
-                class,
-                LearnedSparseClassComparison {
-                    class,
-                    routes,
-                    winning_route,
-                },
-            );
-        }
-        Ok(Self {
-            corpus_id: corpus.corpus_id.clone(),
-            corpus_revision: corpus.corpus_revision.clone(),
-            judgment_set_id: corpus.judgment_set_id.clone(),
-            classes,
-        })
-    }
-
-    pub fn promotion(
+impl LearnedSparseBenchmarkObservation {
+    fn validate(
         &self,
-        evaluation_id: String,
-        evaluation_date: String,
-        model_fingerprint: String,
-    ) -> Result<LearnedSparsePromotionRecord, LearnedSparseBenchmarkError> {
-        if evaluation_id.trim().is_empty()
-            || evaluation_date.trim().is_empty()
-            || model_fingerprint.trim().is_empty()
+        corpus: &LearnedSparseBenchmarkCorpus,
+    ) -> Result<(), LearnedSparseBenchmarkError> {
+        if self.schema_version != LEARNED_SPARSE_BENCHMARK_SCHEMA_VERSION
+            || self.corpus_id != corpus.corpus_id
+            || self.corpus_revision != corpus.corpus_revision
+            || self.judgment_set_id != corpus.judgment_set_id
+            || self.evaluation_date != corpus.evaluation_date
+            || self.evaluation_date.trim().is_empty()
         {
-            return Err(LearnedSparseBenchmarkError::InvalidPromotion(
-                "sparse promotion identity must be complete".to_string(),
-            ));
-        }
-        Ok(LearnedSparsePromotionRecord {
-            evaluation_id,
-            evaluation_date,
-            corpus_id: self.corpus_id.clone(),
-            corpus_revision: self.corpus_revision.clone(),
-            judgment_set_id: self.judgment_set_id.clone(),
-            model_fingerprint,
-            winning_routes: self
-                .classes
-                .values()
-                .filter_map(|comparison| {
-                    comparison
-                        .winning_route
-                        .map(|route| (comparison.class, route))
-                })
-                .collect(),
-        })
-    }
-
-    pub fn classes(&self) -> &BTreeMap<LearnedSparseQueryClass, LearnedSparseClassComparison> {
-        &self.classes
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct LearnedSparsePromotionRecord {
-    evaluation_id: String,
-    evaluation_date: String,
-    corpus_id: String,
-    corpus_revision: String,
-    judgment_set_id: String,
-    model_fingerprint: String,
-    winning_routes: BTreeMap<LearnedSparseQueryClass, LearnedSparseRoute>,
-}
-
-impl LearnedSparsePromotionRecord {
-    pub(crate) fn is_valid(&self) -> bool {
-        !self.evaluation_id.trim().is_empty()
-            && !self.evaluation_date.trim().is_empty()
-            && !self.corpus_id.trim().is_empty()
-            && !self.corpus_revision.trim().is_empty()
-            && !self.judgment_set_id.trim().is_empty()
-            && !self.model_fingerprint.trim().is_empty()
-    }
-
-    pub fn winning_routes(&self) -> &BTreeMap<LearnedSparseQueryClass, LearnedSparseRoute> {
-        &self.winning_routes
-    }
-}
-
-fn all_routes() -> [LearnedSparseRoute; 4] {
-    [
-        LearnedSparseRoute::Lexical,
-        LearnedSparseRoute::Hybrid,
-        LearnedSparseRoute::SparseOnly,
-        LearnedSparseRoute::SparseFused,
-    ]
-}
-
-fn validate_observations(
-    corpus: &LearnedSparseBenchmarkCorpus,
-    observations: &[LearnedSparseBenchmarkObservation],
-) -> Result<(), LearnedSparseBenchmarkError> {
-    let mut seen = BTreeSet::new();
-    for observation in observations {
-        validate_observation(corpus, observation)?;
-        if !seen.insert((observation.case_id.clone(), observation.route)) {
-            return Err(LearnedSparseBenchmarkError::DuplicateObservation {
-                case_id: observation.case_id.clone(),
-                route: observation.route,
+            return Err(LearnedSparseBenchmarkError::InvalidObservation {
+                case_id: self.case_id.clone(),
+                route: self.route,
             });
         }
-    }
-    for case in &corpus.cases {
-        for route in all_routes() {
-            if !seen.contains(&(case.case_id.clone(), route)) {
-                return Err(LearnedSparseBenchmarkError::MissingObservation {
-                    case_id: case.case_id.clone(),
-                    route,
-                });
-            }
+        let case = corpus
+            .case(&self.case_id)
+            .ok_or_else(|| LearnedSparseBenchmarkError::UnknownCase(self.case_id.clone()))?;
+        self.identity.validate()?;
+        if Some(self.identity.corpus_snapshot) != corpus.corpus_snapshot
+            || Some(self.identity.index_generation) != corpus.index_generation
+            || Some(self.identity.namespace.clone()) != corpus.namespace
+        {
+            return Err(LearnedSparseBenchmarkError::InvalidIdentity(
+                "observation identity does not match corpus identity".to_string(),
+            ));
         }
+        self.route_configuration.validate()?;
+        if self.route_configuration.route != self.route
+            || corpus.route_configurations.get(&self.route) != Some(&self.route_configuration)
+        {
+            return Err(LearnedSparseBenchmarkError::InvalidObservation {
+                case_id: self.case_id.clone(),
+                route: self.route,
+            });
+        }
+        self.quality.validate()?;
+        self.resources.validate()?;
+        self.safety.validate()?;
+        let _ = case;
+        Ok(())
     }
-    Ok(())
-}
-
-fn validate_observation(
-    corpus: &LearnedSparseBenchmarkCorpus,
-    observation: &LearnedSparseBenchmarkObservation,
-) -> Result<(), LearnedSparseBenchmarkError> {
-    if observation.corpus_id != corpus.corpus_id
-        || observation.corpus_revision != corpus.corpus_revision
-        || observation.judgment_set_id != corpus.judgment_set_id
-    {
-        return Err(LearnedSparseBenchmarkError::InvalidCorpus(
-            "sparse observation identity does not match corpus".to_string(),
-        ));
-    }
-    if corpus.case(&observation.case_id).is_none() {
-        return Err(LearnedSparseBenchmarkError::UnknownCase(
-            observation.case_id.clone(),
-        ));
-    }
-    if observation.model_fingerprint.trim().is_empty()
-        || observation.index_generation.trim().is_empty()
-    {
-        return Err(LearnedSparseBenchmarkError::InvalidObservation {
-            case_id: observation.case_id.clone(),
-            route: observation.route,
-        });
-    }
-    Ok(())
-}
-
-#[derive(Debug, Error, PartialEq, Eq)]
-pub enum LearnedSparseBenchmarkError {
-    #[error("invalid learned-sparse benchmark JSON: {0}")]
-    InvalidJson(String),
-    #[error("invalid learned-sparse benchmark corpus: {0}")]
-    InvalidCorpus(String),
-    #[error("learned-sparse benchmark is missing class {0:?}")]
-    MissingClass(LearnedSparseQueryClass),
-    #[error("learned-sparse benchmark contains duplicate case {0}")]
-    DuplicateCase(String),
-    #[error("learned-sparse benchmark references unknown case {0}")]
-    UnknownCase(String),
-    #[error("invalid observation for case {case_id} on route {route:?}")]
-    InvalidObservation {
-        case_id: String,
-        route: LearnedSparseRoute,
-    },
-    #[error("duplicate observation for case {case_id} on route {route:?}")]
-    DuplicateObservation {
-        case_id: String,
-        route: LearnedSparseRoute,
-    },
-    #[error("missing observation for case {case_id} on route {route:?}")]
-    MissingObservation {
-        case_id: String,
-        route: LearnedSparseRoute,
-    },
-    #[error("invalid learned-sparse promotion: {0}")]
-    InvalidPromotion(String),
 }
