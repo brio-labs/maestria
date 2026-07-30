@@ -135,6 +135,51 @@ fn search_reports_candidate_budget_exhaustion_without_loading_the_corpus()
 }
 
 #[test]
+fn search_stops_before_vector_materialization_when_byte_budget_is_exhausted()
+-> Result<(), Box<dyn std::error::Error>> {
+    let store = Arc::new(SqliteStore::in_memory()?);
+    let sparse_identity = identity(26, "instance-byte-budget")?;
+    let projection = SqliteLearnedSparseIndex::new(Arc::clone(&store), sparse_identity.clone())?;
+    projection.index_documents(vec![document(&sparse_identity, 1, hash('1')?, 1.0)?])?;
+    projection.transition(IndexLifecycle::Building, IndexLifecycle::Evaluated)?;
+    projection.transition(IndexLifecycle::Evaluated, IndexLifecycle::Shadow)?;
+    let mut bounded = query(&sparse_identity)?;
+    bounded.execution_budget = SearchExecutionBudget::new(4, 32, 128, 1)?;
+    let result = projection.search(bounded)?;
+    assert!(result.hits.is_empty());
+    assert_eq!(
+        result.execution.completion,
+        maestria_domain::SearchExecutionCompletion::Exhausted(
+            maestria_domain::SearchExecutionResource::BytesRead
+        )
+    );
+    assert_eq!(result.execution.usage.bytes_read, 0);
+    Ok(())
+}
+
+#[test]
+fn oversized_persisted_sparse_vectors_fail_before_decoding()
+-> Result<(), Box<dyn std::error::Error>> {
+    let store = Arc::new(SqliteStore::in_memory()?);
+    let sparse_identity = identity(28, "instance-oversized")?;
+    let projection = SqliteLearnedSparseIndex::new(Arc::clone(&store), sparse_identity.clone())?;
+    projection.index_documents(vec![document(&sparse_identity, 1, hash('1')?, 1.0)?])?;
+    projection.transition(IndexLifecycle::Building, IndexLifecycle::Evaluated)?;
+    projection.transition(IndexLifecycle::Evaluated, IndexLifecycle::Shadow)?;
+    let identity_json = serde_json::to_string(&sparse_identity)?;
+    let oversized = "x".repeat(1_048_577);
+    let connection = store.lock()?;
+    connection.execute(
+        "UPDATE learned_sparse_projection_documents
+         SET vector_json = ?1 WHERE identity_json = ?2 AND chunk_id = 1",
+        rusqlite::params![oversized, identity_json],
+    )?;
+    drop(connection);
+    assert!(projection.search(query(&sparse_identity)?).is_err());
+    Ok(())
+}
+
+#[test]
 fn corrupted_projection_metadata_fails_closed_before_lifecycle_use()
 -> Result<(), Box<dyn std::error::Error>> {
     let store = Arc::new(SqliteStore::in_memory()?);
@@ -154,6 +199,11 @@ fn corrupted_projection_metadata_fails_closed_before_lifecycle_use()
     assert!(
         projection
             .transition(IndexLifecycle::Building, IndexLifecycle::Evaluated)
+            .is_err()
+    );
+    assert!(
+        projection
+            .index_documents(vec![document(&sparse_identity, 2, hash('9')?, 1.0,)?])
             .is_err()
     );
     Ok(())

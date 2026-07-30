@@ -10,6 +10,7 @@ use crate::SqliteStore;
 
 mod lifecycle;
 mod search;
+mod search_storage;
 mod storage;
 
 /// Restartable SQLite-backed sparse projection bound to one complete identity.
