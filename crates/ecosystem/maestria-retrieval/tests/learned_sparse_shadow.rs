@@ -93,7 +93,11 @@ impl CandidateRetriever for FixedRetriever {
             candidates: vec![self.candidate.clone()],
             status: maestria_domain::SearchLaneStatus::Succeeded,
             generation: Some(self.descriptor.generation),
-            bytes_read: 1,
+            execution: maestria_domain::SearchExecution::new(
+                request.execution_budget,
+                maestria_domain::SearchExecutionUsage::new(1, 1, 1, 1),
+                maestria_domain::SearchExecutionCompletion::Complete,
+            ),
         })
     }
 }
@@ -121,7 +125,11 @@ impl CandidateRetriever for SlowRetriever {
             candidates: vec![self.candidate.clone()],
             status: maestria_domain::SearchLaneStatus::Succeeded,
             generation: Some(self.descriptor.generation),
-            bytes_read: 1,
+            execution: maestria_domain::SearchExecution::new(
+                request.execution_budget,
+                maestria_domain::SearchExecutionUsage::new(1, 1, 1, 1),
+                maestria_domain::SearchExecutionCompletion::Complete,
+            ),
         })
     }
 }

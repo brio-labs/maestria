@@ -5,8 +5,6 @@ use maestria_ports::{
 };
 use tantivy::query::{BooleanQuery, QueryParser, RegexQuery};
 
-pub(super) const MAX_LEXICAL_CANDIDATES: usize = 10_000;
-
 fn regex_escape(value: &str) -> String {
     value
         .chars()

@@ -1,6 +1,9 @@
 use std::sync::{Arc, Mutex};
 
-use crate::{PortError, VectorEmbedding, VectorIndex, VectorSearchHit, VectorSearchQuery};
+use super::execution::{Meter, validate_limit_u32};
+use crate::{
+    BoundedSearch, PortError, VectorEmbedding, VectorIndex, VectorSearchHit, VectorSearchQuery,
+};
 use maestria_domain::ChunkId;
 
 #[derive(Clone, Default)]
@@ -12,6 +15,80 @@ impl InMemoryVectorIndex {
     pub fn new() -> Self {
         Self::default()
     }
+}
+
+fn collect_vector_hits(
+    embeddings: &[VectorEmbedding],
+    query: &VectorSearchQuery,
+    q_norm: f64,
+    filter: &dyn Fn(ChunkId) -> Result<bool, PortError>,
+    meter: &mut Meter,
+) -> Result<
+    (
+        Vec<VectorSearchHit>,
+        Option<maestria_domain::SearchExecutionResource>,
+    ),
+    PortError,
+> {
+    let mut hits = Vec::new();
+    let mut stopped = None;
+    for emb in embeddings {
+        if let Some(resource) = meter.candidate() {
+            stopped = Some(resource);
+            break;
+        }
+        if query
+            .provider_id
+            .as_deref()
+            .is_some_and(|provider| emb.provenance.provider_id != provider)
+            || query
+                .model
+                .as_deref()
+                .is_some_and(|model| emb.provenance.model != model)
+            || query
+                .model_version
+                .as_deref()
+                .is_some_and(|version| emb.provenance.model_version != version)
+            || query
+                .identity
+                .as_ref()
+                .is_some_and(|identity| emb.provenance.identity != *identity)
+            || emb.vector.len() != query.vector.len()
+        {
+            continue;
+        }
+        if !filter(emb.chunk_id)? {
+            continue;
+        }
+        let bytes = super::execution::saturating_u64(emb.vector.len()).saturating_mul(4);
+        if let Some(resource) = meter.bytes(bytes) {
+            stopped = Some(resource);
+            break;
+        }
+        let work = super::execution::saturating_u64(emb.vector.len()).saturating_add(1);
+        if let Some(resource) = meter.work(work) {
+            stopped = Some(resource);
+            break;
+        }
+        let mut dot = 0.0_f64;
+        let mut emb_norm_sq = 0.0_f64;
+        for (a, b) in emb.vector.iter().zip(&query.vector) {
+            let a64 = *a as f64;
+            let b64 = *b as f64;
+            dot += a64 * b64;
+            emb_norm_sq += a64 * a64;
+        }
+        let score = if emb_norm_sq == 0.0 {
+            0.0
+        } else {
+            (dot / (emb_norm_sq.sqrt() * q_norm)) as f32
+        };
+        hits.push(VectorSearchHit {
+            chunk_id: emb.chunk_id,
+            score: if score.is_finite() { score } else { 0.0 },
+        });
+    }
+    Ok((hits, stopped))
 }
 
 impl VectorIndex for InMemoryVectorIndex {
@@ -44,12 +121,28 @@ impl VectorIndex for InMemoryVectorIndex {
         }
         Ok(())
     }
+    fn search_similar(
+        &self,
+        query: VectorSearchQuery,
+    ) -> Result<BoundedSearch<VectorSearchHit>, PortError> {
+        self.search_similar_filtered(query, &|_| Ok(true))
+    }
 
-    fn search_similar(&self, query: VectorSearchQuery) -> Result<Vec<VectorSearchHit>, PortError> {
+    fn search_similar_filtered(
+        &self,
+        query: VectorSearchQuery,
+        filter: &dyn Fn(ChunkId) -> Result<bool, PortError>,
+    ) -> Result<BoundedSearch<VectorSearchHit>, PortError> {
         validate_vector_values(&query.vector, "query vector")?;
         validate_query_identity(&query)?;
+        validate_limit_u32(
+            query.limit,
+            query.execution_budget,
+            "vector search result limit",
+        )?;
+        let mut meter = Meter::new(query.execution_budget);
         if query.limit == 0 {
-            return Ok(Vec::new());
+            return Ok(meter.complete(Vec::new()));
         }
 
         let guard = self
@@ -59,153 +152,33 @@ impl VectorIndex for InMemoryVectorIndex {
                 context: "vector index lock poisoned",
                 source: "index mutex is poisoned".to_string(),
             })?;
-        let mut hits = Vec::new();
-
         let q_norm_sq: f64 = query.vector.iter().map(|&v| (v as f64) * (v as f64)).sum();
         if q_norm_sq == 0.0 {
-            return Ok(Vec::new());
+            return Ok(meter.complete(Vec::new()));
         }
         let q_norm = q_norm_sq.sqrt();
-
-        for emb in guard.iter() {
-            if query
-                .provider_id
-                .as_deref()
-                .is_some_and(|provider| emb.provenance.provider_id != provider)
-                || query
-                    .model
-                    .as_deref()
-                    .is_some_and(|model| emb.provenance.model != model)
-                || query
-                    .model_version
-                    .as_deref()
-                    .is_some_and(|version| emb.provenance.model_version != version)
-                || query
-                    .identity
-                    .as_ref()
-                    .is_some_and(|identity| emb.provenance.identity != *identity)
-                || emb.vector.len() != query.vector.len()
-            {
-                continue;
-            }
-
-            let mut dot: f64 = 0.0;
-            let mut emb_norm_sq: f64 = 0.0;
-            for (a, b) in emb.vector.iter().zip(&query.vector) {
-                let a64 = *a as f64;
-                let b64 = *b as f64;
-                dot += a64 * b64;
-                emb_norm_sq += a64 * a64;
-            }
-
-            let score = if emb_norm_sq == 0.0 {
-                0.0
-            } else {
-                (dot / (emb_norm_sq.sqrt() * q_norm)) as f32
-            };
-
-            let score = if score.is_finite() { score } else { 0.0 };
-
-            hits.push(VectorSearchHit {
-                chunk_id: emb.chunk_id,
-                score,
-            });
-        }
+        let (mut hits, mut stopped) =
+            collect_vector_hits(guard.as_slice(), &query, q_norm, filter, &mut meter)?;
         hits.sort_by(|left, right| {
             right
                 .score
                 .total_cmp(&left.score)
                 .then_with(|| left.chunk_id.value().cmp(&right.chunk_id.value()))
         });
-        hits.truncate(query.limit as usize);
-        Ok(hits)
-    }
-
-    fn search_similar_filtered(
-        &self,
-        query: VectorSearchQuery,
-        filter: &dyn Fn(ChunkId) -> bool,
-    ) -> Result<Vec<VectorSearchHit>, PortError> {
-        validate_vector_values(&query.vector, "query vector")?;
-        validate_query_identity(&query)?;
-        if query.limit == 0 {
-            return Ok(Vec::new());
+        let selected = hits
+            .into_iter()
+            .take(super::execution::saturating_usize(u64::from(query.limit)))
+            .collect::<Vec<_>>();
+        for _ in 0..selected.len() {
+            if let Some(resource) = meter.result() {
+                stopped = Some(resource);
+                break;
+            }
         }
-
-        let guard = self
-            .embeddings
-            .lock()
-            .map_err(|_| PortError::InternalContext {
-                context: "vector index lock poisoned",
-                source: "index mutex is poisoned".to_string(),
-            })?;
-        let mut hits = Vec::new();
-
-        let q_norm_sq: f64 = query.vector.iter().map(|&v| (v as f64) * (v as f64)).sum();
-        if q_norm_sq == 0.0 {
-            return Ok(Vec::new());
+        if let Some(resource) = stopped {
+            return Ok(meter.exhausted(selected, resource));
         }
-        let q_norm = q_norm_sq.sqrt();
-
-        for emb in guard.iter() {
-            if let Some(model) = &query.model
-                && &emb.provenance.model != model
-            {
-                continue;
-            }
-            if let Some(version) = &query.model_version
-                && &emb.provenance.model_version != version
-            {
-                continue;
-            }
-            if let Some(provider) = &query.provider_id
-                && &emb.provenance.provider_id != provider
-            {
-                continue;
-            }
-            if let Some(identity) = &query.identity
-                && emb.provenance.identity != *identity
-            {
-                continue;
-            }
-
-            if emb.vector.len() != query.vector.len() {
-                continue;
-            }
-            if !filter(emb.chunk_id) {
-                continue;
-            }
-
-            let v_norm_sq: f64 = emb.vector.iter().map(|&v| (v as f64) * (v as f64)).sum();
-            if v_norm_sq == 0.0 {
-                continue;
-            }
-            let v_norm = v_norm_sq.sqrt();
-
-            let dot: f64 = query
-                .vector
-                .iter()
-                .zip(emb.vector.iter())
-                .map(|(&q, &v)| (q as f64) * (v as f64))
-                .sum();
-            let cosine = (dot / (q_norm * v_norm)) as f32;
-
-            hits.push(VectorSearchHit {
-                chunk_id: emb.chunk_id,
-                score: cosine,
-            });
-        }
-
-        hits.sort_by(|left, right| {
-            let order = match right.score.partial_cmp(&left.score) {
-                Some(order) => order,
-                None => std::cmp::Ordering::Equal,
-            };
-            order.then_with(|| left.chunk_id.cmp(&right.chunk_id))
-        });
-
-        hits.truncate(query.limit as usize);
-        Ok(hits)
+        Ok(meter.complete(selected))
     }
 
     fn delete_chunks(&self, chunk_ids: &[ChunkId]) -> Result<(), PortError> {

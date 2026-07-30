@@ -17,8 +17,6 @@ use crate::types::{CandidateRequest, RetrieverDescriptor};
 
 const SHADOW_SCHEMA_VERSION: u16 = 2;
 const MAX_SHADOW_RETRIEVERS: usize = 8;
-const MAX_SHADOW_CANDIDATES_PER_LANE: usize = 20;
-const MAX_SHADOW_CONTRIBUTIONS: usize = 16;
 const MAX_SHADOW_ERROR_CHARS: usize = 512;
 const MAX_SHADOW_LATENCY_MS: u64 = 5_000;
 const DEFAULT_SHADOW_CAPACITY: usize = 256;
@@ -218,23 +216,32 @@ async fn run_shadow(
         .iter()
         .map(|(_, descriptor)| descriptor.clone())
         .collect::<Vec<_>>();
-    let lanes = match tokio::time::timeout(
-        Duration::from_millis(timeout_ms),
-        collect_shadow_lanes(retrievers, &plan, &authorization),
-    )
-    .await
-    {
-        Ok(lanes) => lanes,
-        Err(_) => descriptors
-            .into_iter()
-            .map(|descriptor| LearnedSparseShadowLane {
-                retriever_id: descriptor.id,
-                representation: descriptor.representation,
-                generation: descriptor.generation,
-                status: LearnedSparseShadowLaneStatus::TimedOut,
-                candidates: Vec::new(),
-            })
-            .collect(),
+    let lanes = match plan.execution_budget() {
+        Ok(execution_budget) => match tokio::time::timeout(
+            Duration::from_millis(timeout_ms),
+            collect_shadow_lanes(retrievers, &plan, &authorization, execution_budget),
+        )
+        .await
+        {
+            Ok(lanes) => lanes,
+            Err(_) => descriptors
+                .into_iter()
+                .map(|descriptor| LearnedSparseShadowLane {
+                    retriever_id: descriptor.id,
+                    representation: descriptor.representation,
+                    generation: descriptor.generation,
+                    status: LearnedSparseShadowLaneStatus::TimedOut,
+                    candidates: Vec::new(),
+                })
+                .collect(),
+        },
+        Err(error) => {
+            let error = bounded_error(&format!("invalid shadow execution budget: {error}"));
+            descriptors
+                .into_iter()
+                .map(|descriptor| failed_lane(descriptor, &error))
+                .collect()
+        }
     };
     LearnedSparseShadowObservation {
         schema_version: SHADOW_SCHEMA_VERSION,
@@ -246,32 +253,91 @@ async fn run_shadow(
         lanes,
     }
 }
+fn partition_allowance(total: u64, lanes: usize, lane: usize) -> u64 {
+    let lanes = lanes.max(1) as u64;
+    let base = total / lanes;
+    base + if (lane as u64) < (total % lanes) {
+        1
+    } else {
+        0
+    }
+}
+
+fn shadow_lane_budget(
+    global: maestria_domain::SearchExecutionBudget,
+    lanes: usize,
+    lane: usize,
+) -> Option<maestria_domain::SearchExecutionBudget> {
+    let max_bytes = match global.max_bytes_read() {
+        Some(limit) => Some(std::num::NonZeroU64::new(partition_allowance(
+            limit.get(),
+            lanes,
+            lane,
+        ))?),
+        None => None,
+    };
+    maestria_domain::SearchExecutionBudget::with_byte_limit(
+        partition_allowance(global.max_results(), lanes, lane),
+        partition_allowance(global.max_candidates(), lanes, lane),
+        partition_allowance(global.max_work_units(), lanes, lane),
+        max_bytes,
+    )
+    .ok()
+}
+
 async fn collect_shadow_lanes(
     retrievers: Vec<(Arc<dyn CandidateRetriever>, RetrieverDescriptor)>,
     plan: &SearchPlan,
     authorization: &maestria_governance::RetrievalAuthorizationContext,
+    execution_budget: maestria_domain::SearchExecutionBudget,
 ) -> Vec<LearnedSparseShadowLane> {
     let mut lanes = Vec::with_capacity(retrievers.len());
-    for (retriever, descriptor) in retrievers {
+    let lane_count = retrievers.len().max(1);
+    for (lane_index, (retriever, descriptor)) in retrievers.into_iter().enumerate() {
+        let Some(execution_budget) = shadow_lane_budget(execution_budget, lane_count, lane_index)
+        else {
+            lanes.push(failed_lane(
+                descriptor,
+                "shadow execution budget exhausted before lane allocation",
+            ));
+            continue;
+        };
+        let query_limit = maestria_domain::saturating_usize(execution_budget.max_results());
+        let max_candidates = maestria_domain::saturating_usize(execution_budget.max_candidates());
+        let max_contributions =
+            maestria_domain::saturating_usize(execution_budget.max_work_units());
         let request = CandidateRequest {
             plan: plan.clone(),
             query: SearchQuery {
                 q: plan.original_query.clone(),
-                limit: plan
-                    .stop_conditions
-                    .max_results
-                    .min(MAX_SHADOW_CANDIDATES_PER_LANE as u32) as usize,
+                limit: query_limit,
                 offset: 0,
+                execution_budget,
             },
+            execution_budget,
             expected_generation: descriptor.generation,
             authorization: authorization.clone(),
         };
         let lane = match retriever.retrieve(request).await {
+            Ok(batch)
+                if batch.execution.budget != execution_budget
+                    || batch.execution.usage.results > execution_budget.max_results()
+                    || batch.execution.usage.candidates > execution_budget.max_candidates()
+                    || batch.execution.usage.work_units > execution_budget.max_work_units()
+                    || execution_budget
+                        .max_bytes_read()
+                        .is_some_and(|limit| batch.execution.usage.bytes_read > limit.get()) =>
+            {
+                failed_lane(
+                    descriptor,
+                    "shadow lane returned invalid execution metadata",
+                )
+            }
             Ok(batch) if batch.generation != Some(descriptor.generation) => failed_lane(
                 descriptor,
                 "shadow lane returned an incompatible generation",
             ),
-            Ok(batch) => lane_from_batch(descriptor, batch),
+            Ok(batch) => lane_from_batch(descriptor, batch, max_candidates, max_contributions),
             Err(error) => failed_lane(descriptor, &error.to_string()),
         };
         lanes.push(lane);
@@ -282,13 +348,15 @@ async fn collect_shadow_lanes(
 fn lane_from_batch(
     descriptor: RetrieverDescriptor,
     batch: crate::types::CandidateBatch,
+    max_candidates: usize,
+    max_contributions: usize,
 ) -> LearnedSparseShadowLane {
     let candidates = batch
         .candidates
         .iter()
-        .take(MAX_SHADOW_CANDIDATES_PER_LANE)
+        .take(max_candidates)
         .enumerate()
-        .filter_map(|(rank, candidate)| shadow_candidate(candidate, rank))
+        .filter_map(|(rank, candidate)| shadow_candidate(candidate, rank, max_contributions))
         .collect::<Vec<_>>();
     let status = match batch.status {
         SearchLaneStatus::Succeeded if candidates.is_empty() => {
@@ -314,6 +382,7 @@ fn lane_from_batch(
 fn shadow_candidate(
     candidate: &maestria_domain::EvidenceCandidate,
     rank: usize,
+    max_contributions: usize,
 ) -> Option<LearnedSparseShadowCandidate> {
     let score = candidate
         .scores
@@ -324,7 +393,7 @@ fn shadow_candidate(
             return None;
         };
         let mut reason = reason.as_ref().clone();
-        reason.contributions.truncate(MAX_SHADOW_CONTRIBUTIONS);
+        reason.contributions.truncate(max_contributions);
         Some(LearnedSparseShadowCandidate {
             evidence_id: candidate.evidence_id,
             artifact_version: candidate.artifact_version,
@@ -378,25 +447,23 @@ fn validate_observation(
     }
     for lane in &observation.lanes {
         if lane.retriever_id.trim().is_empty()
-            || lane.candidates.len() > MAX_SHADOW_CANDIDATES_PER_LANE
             || lane.candidates.iter().any(|candidate| {
-                candidate.reason.contributions.len() > MAX_SHADOW_CONTRIBUTIONS
-                    || candidate.score.score_kind != RetrievalScoreKind::LearnedSparse
+                candidate.score.score_kind != RetrievalScoreKind::LearnedSparse
                     || RetrievalScoreSet::single(candidate.score.clone()).is_err()
             })
         {
             return Err(LearnedSparseShadowStoreError::InvalidObservation(
-                "lane identity or bounded candidate provenance is invalid".to_string(),
+                "lane identity or candidate provenance is invalid".to_string(),
             ));
         }
         if (matches!(lane.status, LearnedSparseShadowLaneStatus::Succeeded)
             && lane.candidates.is_empty())
             || (matches!(lane.status, LearnedSparseShadowLaneStatus::Empty)
                 && !lane.candidates.is_empty())
-            || lane.candidates.iter().any(|candidate| {
-                candidate.lane_rank == 0
-                    || candidate.lane_rank > MAX_SHADOW_CANDIDATES_PER_LANE as u32
-            })
+            || lane
+                .candidates
+                .iter()
+                .any(|candidate| candidate.lane_rank == 0)
         {
             return Err(LearnedSparseShadowStoreError::InvalidObservation(
                 "lane status or candidate rank is invalid".to_string(),

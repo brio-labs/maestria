@@ -1,4 +1,3 @@
-use std::cell::Cell;
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -64,40 +63,23 @@ impl CandidateRetriever for LexicalChunkRetriever {
                 self.descriptor.generation,
             ));
         }
-        let filter_error = Cell::new(None);
-        let hits = self
+        let mut query = request.query.clone();
+        query.execution_budget = request.execution_budget;
+        let bounded = self
             .index
-            .search_filtered(request.query.clone(), &|chunk_id, artifact_id| match self
-                .prefilter_hit(chunk_id, artifact_id, &request.authorization)
-            {
-                Ok(allowed) => allowed,
-                Err(error) => {
-                    filter_error.set(Some(error));
-                    false
-                }
+            .search_filtered(query, &|chunk_id, artifact_id| {
+                self.prefilter_hit(chunk_id, artifact_id, &request.authorization)
             })
             .map_err(port_error)?;
-        if let Some(error) = filter_error.take() {
-            return Err(port_error(error));
-        }
+        let hits = bounded.hits;
         let mut candidates = Vec::with_capacity(hits.len());
-        let mut bytes_read = 0_u64;
         for (raw_rank, hit) in hits.into_iter().enumerate() {
             let raw_rank = one_based_rank(raw_rank);
             let Some(candidate) = self.candidate_from_hit(hit, raw_rank, &request.authorization)?
             else {
                 continue;
             };
-            let span_len = candidate
-                .source_span
-                .range()
-                .end
-                .saturating_sub(candidate.source_span.range().start);
-            bytes_read = bytes_read.saturating_add(span_len as u64);
             candidates.push(candidate);
-            if candidates.len() >= request.query.limit {
-                break;
-            }
         }
         let status = if candidates.is_empty() {
             SearchLaneStatus::Empty
@@ -111,7 +93,7 @@ impl CandidateRetriever for LexicalChunkRetriever {
             candidates,
             status,
             generation: Some(self.descriptor.generation),
-            bytes_read,
+            execution: bounded.execution,
         })
     }
 }

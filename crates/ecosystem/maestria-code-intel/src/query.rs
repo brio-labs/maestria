@@ -2,7 +2,6 @@
 
 use crate::{CodeQuery, QueryResult, QuerySummary, SymbolRecord};
 use regex::Regex;
-pub(crate) const MAX_QUERY_LIMIT: usize = 1_000;
 
 /// Apply a bounded query over extracted symbols.
 pub(crate) fn execute_query<E, F>(
@@ -14,7 +13,6 @@ pub(crate) fn execute_query<E, F>(
 where
     F: FnMut(&SymbolRecord) -> Result<bool, E>,
 {
-    let limit = limit.min(MAX_QUERY_LIMIT);
     let matcher = match &query {
         CodeQuery::All => QueryMatcher::All,
         CodeQuery::Symbol { pattern } => QueryMatcher::Contains {
@@ -34,6 +32,7 @@ where
                         matched: 0,
                         returned: 0,
                         truncated: false,
+                        scanned: 0,
                         limit,
                         regex_error: Some(error.to_string()),
                     },
@@ -44,22 +43,28 @@ where
     };
 
     let mut matched = 0;
+    let mut scanned = 0;
+    let mut scan_exhausted = false;
     let mut selected: Vec<&SymbolRecord> = Vec::with_capacity(limit);
-    for symbol in symbols.iter().filter(|symbol| matcher.matches(symbol)) {
+    for symbol in symbols {
+        if scanned >= limit {
+            scan_exhausted = true;
+            break;
+        }
+        scanned = scanned.saturating_add(1);
+        if !matcher.matches(symbol) {
+            continue;
+        }
         if !authorize(symbol)? {
             continue;
         }
         matched += 1;
-        if limit == 0 {
-            continue;
-        }
         selected.push(symbol);
         selected.sort_by(|left, right| symbol_order(left, right));
         if selected.len() > limit {
             selected.pop();
         }
     }
-
     let records: Vec<SymbolRecord> = selected.into_iter().cloned().collect();
 
     Ok(QueryResult {
@@ -67,7 +72,8 @@ where
             query,
             matched,
             returned: records.len(),
-            truncated: records.len() < matched,
+            truncated: scan_exhausted || records.len() < matched,
+            scanned,
             limit,
             regex_error: None,
         },

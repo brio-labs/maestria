@@ -1,10 +1,11 @@
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 
+use super::execution::{Meter, validate_limit_u32};
 use crate::{
-    LearnedSparseIndex, LearnedSparseProvider, PortError, ProviderDisclosure, RetentionPolicy,
-    SparseDocument, SparseIdentity, SparseInputKind, SparseSearchHit, SparseSearchQuery,
-    SparseTermContribution, SparseTermWeight, SparseVector,
+    BoundedSearch, LearnedSparseIndex, LearnedSparseProvider, PortError, ProviderDisclosure,
+    RetentionPolicy, SparseDocument, SparseIdentity, SparseInputKind, SparseSearchHit,
+    SparseSearchQuery, SparseTermContribution, SparseTermWeight, SparseVector,
 };
 use maestria_domain::ChunkId;
 
@@ -111,27 +112,32 @@ impl InMemoryLearnedSparseIndex {
             documents: Arc::new(Mutex::new(Vec::new())),
         })
     }
-
     fn search_with_filter(
         &self,
         query: SparseSearchQuery,
-        filter: &dyn Fn(ChunkId) -> bool,
-    ) -> Result<Vec<SparseSearchHit>, PortError> {
+        filter: &dyn Fn(ChunkId) -> Result<bool, PortError>,
+    ) -> Result<BoundedSearch<SparseSearchHit>, PortError> {
         if query.vector.identity() != &self.identity {
             return Err(PortError::InvalidInputContext {
                 context: "sparse query identity mismatch",
                 source: "query identity differs from index".to_string(),
             });
         }
-        if query.limit == 0 {
-            return Ok(Vec::new());
-        }
+        validate_limit_u32(
+            query.limit,
+            query.execution_budget,
+            "sparse search result limit",
+        )?;
         let contribution_cap = usize::try_from(query.max_contributions).map_err(|_| {
             PortError::InvalidInputContext {
                 context: "sparse contribution cap exceeds platform range",
                 source: "max_contributions does not fit this platform".to_string(),
             }
         })?;
+        let mut meter = Meter::new(query.execution_budget);
+        if query.limit == 0 {
+            return Ok(meter.complete(Vec::new()));
+        }
         let guard = self
             .documents
             .lock()
@@ -139,58 +145,115 @@ impl InMemoryLearnedSparseIndex {
                 context: "learned sparse index lock poisoned",
                 source: "index mutex is poisoned".to_string(),
             })?;
-        let mut hits = Vec::new();
-        for document in guard.iter() {
-            if !filter(document.chunk_id) {
-                continue;
-            }
-            let contributions = dot_contributions(document.vector.terms(), query.vector.terms());
-            if contributions.is_empty() {
-                continue;
-            }
-            let score = contributions
-                .iter()
-                .map(|(_, value)| *value)
-                .fold(0.0_f64, |total, value| total + value);
-            if !score.is_finite() || score <= 0.0 {
-                continue;
-            }
-            let mut trace = contributions
-                .into_iter()
-                .map(|(term_id, value)| SparseTermContribution {
-                    term_id,
-                    contribution_micros: fixed_micros(value),
-                })
-                .collect::<Vec<_>>();
-            trace.sort_by(|left, right| {
-                right
-                    .contribution_micros
-                    .cmp(&left.contribution_micros)
-                    .then_with(|| left.term_id.cmp(&right.term_id))
-            });
-            trace.truncate(contribution_cap);
-            hits.push(SparseSearchHit {
-                chunk_id: document.chunk_id,
-                score_micros: fixed_micros(score),
-                contributions: trace,
-            });
-        }
+        let (mut hits, mut stopped) = collect_sparse_hits(
+            guard.as_slice(),
+            &query,
+            filter,
+            contribution_cap,
+            &mut meter,
+        )?;
         hits.sort_by(|left, right| {
             right
                 .score_micros
                 .cmp(&left.score_micros)
                 .then_with(|| left.chunk_id.cmp(&right.chunk_id))
         });
-        let limit = match usize::try_from(query.limit) {
-            Ok(value) => value,
-            Err(e) => {
-                let _ = e;
-                usize::MAX
+        let selected = hits
+            .into_iter()
+            .take(super::execution::saturating_usize(u64::from(query.limit)))
+            .collect::<Vec<_>>();
+        for _ in 0..selected.len() {
+            if let Some(resource) = meter.result() {
+                stopped = Some(resource);
+                break;
             }
-        };
-        hits.truncate(limit);
-        Ok(hits)
+        }
+        if let Some(resource) = stopped {
+            Ok(meter.exhausted(selected, resource))
+        } else {
+            Ok(meter.complete(selected))
+        }
     }
+}
+
+fn collect_sparse_hits(
+    documents: &[SparseDocument],
+    query: &SparseSearchQuery,
+    filter: &dyn Fn(ChunkId) -> Result<bool, PortError>,
+    contribution_cap: usize,
+    meter: &mut Meter,
+) -> Result<
+    (
+        Vec<SparseSearchHit>,
+        Option<maestria_domain::SearchExecutionResource>,
+    ),
+    PortError,
+> {
+    let mut hits = Vec::new();
+    let mut stopped = None;
+    for document in documents {
+        if let Some(resource) = meter.candidate() {
+            stopped = Some(resource);
+            break;
+        }
+        if !filter(document.chunk_id)? {
+            continue;
+        }
+        let bytes = super::execution::saturating_u64(
+            document
+                .vector
+                .terms()
+                .len()
+                .saturating_add(query.vector.terms().len())
+                .saturating_mul(std::mem::size_of::<SparseTermWeight>()),
+        );
+        if let Some(resource) = meter.bytes(bytes) {
+            stopped = Some(resource);
+            break;
+        }
+        let work = super::execution::saturating_u64(
+            document
+                .vector
+                .terms()
+                .len()
+                .saturating_add(query.vector.terms().len()),
+        );
+        if let Some(resource) = meter.work(work) {
+            stopped = Some(resource);
+            break;
+        }
+        let contributions = dot_contributions(document.vector.terms(), query.vector.terms());
+        if contributions.is_empty() {
+            continue;
+        }
+        let score = contributions
+            .iter()
+            .map(|(_, value)| *value)
+            .fold(0.0_f64, |total, value| total + value);
+        if !score.is_finite() || score <= 0.0 {
+            continue;
+        }
+        let mut trace = contributions
+            .into_iter()
+            .map(|(term_id, value)| SparseTermContribution {
+                term_id,
+                contribution_micros: fixed_micros(value),
+            })
+            .collect::<Vec<_>>();
+        trace.sort_by(|left, right| {
+            right
+                .contribution_micros
+                .cmp(&left.contribution_micros)
+                .then_with(|| left.term_id.cmp(&right.term_id))
+        });
+        trace.truncate(contribution_cap);
+        hits.push(SparseSearchHit {
+            chunk_id: document.chunk_id,
+            score_micros: fixed_micros(score),
+            contributions: trace,
+        });
+    }
+    Ok((hits, stopped))
 }
 
 impl LearnedSparseIndex for InMemoryLearnedSparseIndex {
@@ -229,15 +292,18 @@ impl LearnedSparseIndex for InMemoryLearnedSparseIndex {
         Ok(())
     }
 
-    fn search(&self, query: SparseSearchQuery) -> Result<Vec<SparseSearchHit>, PortError> {
-        self.search_with_filter(query, &|_| true)
+    fn search(
+        &self,
+        query: SparseSearchQuery,
+    ) -> Result<BoundedSearch<SparseSearchHit>, PortError> {
+        self.search_with_filter(query, &|_| Ok(true))
     }
 
     fn search_filtered(
         &self,
         query: SparseSearchQuery,
-        filter: &dyn Fn(ChunkId) -> bool,
-    ) -> Result<Vec<SparseSearchHit>, PortError> {
+        filter: &dyn Fn(ChunkId) -> Result<bool, PortError>,
+    ) -> Result<BoundedSearch<SparseSearchHit>, PortError> {
         self.search_with_filter(query, filter)
     }
 

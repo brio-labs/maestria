@@ -38,7 +38,7 @@
           "docs/PHILOSOPHY.md",
           "crates/ecosystem/maestria-retrieval/tests/fixtures/golden-v3.json"
         ],
-        "source_hash": "1491b2a3f677b4e053da1d21c66df9afab1b17b8e6accba32fad1852707eced6"
+        "source_hash": "580ce9714e9ce03c7e229866226bc807d5bc86e2492ca6e4f4aaa6719f91fb6d"
       },
       "fingerprints": {
         "corpus_snapshot": "maestria-document-snapshot-v1",
@@ -60,8 +60,8 @@
           "reason": "platform counters are reported only when available"
         },
         "security": {
-          "status": "pass",
-          "violations": 0
+          "status": "warning",
+          "reason": "security counters are unavailable for this deterministic fixture"
         }
       },
       "degradations": [
@@ -95,7 +95,7 @@
           "docs/PHILOSOPHY.md",
           "crates/ecosystem/maestria-retrieval/tests/fixtures/golden-v3.json"
         ],
-        "source_hash": "1491b2a3f677b4e053da1d21c66df9afab1b17b8e6accba32fad1852707eced6"
+        "source_hash": "580ce9714e9ce03c7e229866226bc807d5bc86e2492ca6e4f4aaa6719f91fb6d"
       },
       "fingerprints": {
         "corpus_snapshot": "maestria-document-snapshot-v1",
@@ -117,8 +117,8 @@
           "reason": "memory, disk, and energy counters are explicit when unavailable"
         },
         "security": {
-          "status": "pass",
-          "violations": 0
+          "status": "warning",
+          "reason": "security counters are unavailable for the staged hybrid fixture"
         }
       },
       "degradations": [
@@ -150,7 +150,7 @@
           "crates/ecosystem/maestria-retrieval/tests/fixtures/rust-repository-benchmark-v1.json",
           "crates/ecosystem/maestria-retrieval/src/repository_benchmark_runner.rs"
         ],
-        "source_hash": "dc28820538e89742b3a56900832842dfc02a93fd119e594c397224303492c548"
+        "source_hash": "1c3db2f8b35d6b1e39c6aebca1740ff72f23cec9fc9bdba39b1df02b8589bf30"
       },
       "fingerprints": {
         "corpus_snapshot": "rust-repository-frozen-v1",
@@ -172,8 +172,8 @@
           "reason": "code-intel adapter reports platform counters as unavailable"
         },
         "security": {
-          "status": "pass",
-          "violations": 0
+          "status": "warning",
+          "reason": "code-intel adapter does not measure serving-boundary security counters"
         }
       },
       "degradations": [
@@ -233,8 +233,8 @@
           "reason": "visual provider counters are unavailable"
         },
         "security": {
-          "status": "pass",
-          "violations": 0
+          "status": "warning",
+          "reason": "visual provider is unavailable; security counters are not measured"
         }
       },
       "degradations": [

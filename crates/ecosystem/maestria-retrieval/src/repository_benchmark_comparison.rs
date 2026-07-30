@@ -22,6 +22,8 @@ pub struct RepositoryRouteMetrics {
     pub privacy_violations: u32,
     pub security_violations: u32,
     pub energy_milliwatt_seconds: u64,
+    /// Whether all resource and security counters were measured.
+    pub measurements_available: bool,
     pub citation_alignment: Metric,
 }
 

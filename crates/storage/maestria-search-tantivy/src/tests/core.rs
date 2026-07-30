@@ -1,7 +1,13 @@
 use crate::TantivyFullTextIndex;
-use maestria_domain::{ArtifactId, ChunkId};
+use maestria_domain::{ArtifactId, ChunkId, SearchExecutionBudget};
 use maestria_ports::{FullTextIndex, IndexedChunk, SearchQuery};
 use tempfile::TempDir;
+
+fn search_budget(
+    limit: u64,
+) -> Result<maestria_domain::SearchExecutionBudget, maestria_domain::SearchCompatibilityError> {
+    SearchExecutionBudget::new(limit, 10_000, 100_000, 0)
+}
 
 fn chunk(artifact_id: u64, chunk_id: u64, text: &str) -> IndexedChunk {
     IndexedChunk {
@@ -24,13 +30,14 @@ fn index_search_returns_source_openable_chunk_metadata() -> Result<(), Box<dyn s
         q: "alpha".to_string(),
         limit: 10,
         offset: 0,
+        execution_budget: search_budget(10)?,
     })?;
 
-    assert_eq!(hits.len(), 1);
-    assert_eq!(hits[0].chunk.artifact_id, ArtifactId::new(7));
-    assert_eq!(hits[0].chunk.chunk_id, ChunkId::new(70));
-    assert_eq!(hits[0].chunk.text, "alpha source chunk");
-    assert!(hits[0].score > 0);
+    assert_eq!(hits.hits.len(), 1);
+    assert_eq!(hits.hits[0].chunk.artifact_id, ArtifactId::new(7));
+    assert_eq!(hits.hits[0].chunk.chunk_id, ChunkId::new(70));
+    assert_eq!(hits.hits[0].chunk.text, "alpha source chunk");
+    assert!(hits.hits[0].score > 0);
     Ok(())
 }
 
@@ -48,9 +55,36 @@ fn limit_is_honored() -> Result<(), Box<dyn std::error::Error>> {
         q: "shared".to_string(),
         limit: 2,
         offset: 0,
+        execution_budget: search_budget(2)?,
     })?;
 
-    assert_eq!(hits.len(), 2);
+    assert_eq!(hits.hits.len(), 2);
+    assert_eq!(hits.execution.budget.max_results(), 2);
+    Ok(())
+}
+
+#[test]
+fn byte_budget_exhaustion_is_reported_before_chunk_result() -> Result<(), Box<dyn std::error::Error>>
+{
+    let index = TantivyFullTextIndex::in_memory()?;
+    index.index_chunks(vec![chunk(9, 90, "a payload larger than one byte")])?;
+    let budget = SearchExecutionBudget::new(1, 10, 10, 1)?;
+
+    let hits = index.search(SearchQuery {
+        q: "payload".to_string(),
+        limit: 1,
+        offset: 0,
+        execution_budget: budget,
+    })?;
+
+    assert!(hits.hits.is_empty());
+    assert_eq!(
+        hits.execution.completion,
+        maestria_domain::SearchExecutionCompletion::Exhausted(
+            maestria_domain::SearchExecutionResource::BytesRead
+        )
+    );
+    assert_eq!(hits.execution.usage.bytes_read, 0);
     Ok(())
 }
 
@@ -68,11 +102,12 @@ fn filtered_search_excludes_denied_chunk_before_scoring() -> Result<(), Box<dyn 
             q: "shared".to_string(),
             limit: 10,
             offset: 0,
+            execution_budget: search_budget(10)?,
         },
-        &|chunk_id, _| chunk_id == ChunkId::new(10),
+        &|chunk_id, _| Ok(chunk_id == ChunkId::new(10)),
     )?;
-    assert_eq!(hits.len(), 1);
-    assert_eq!(hits[0].chunk.chunk_id, ChunkId::new(10));
+    assert_eq!(hits.hits.len(), 1);
+    assert_eq!(hits.hits[0].chunk.chunk_id, ChunkId::new(10));
     Ok(())
 }
 
@@ -84,6 +119,7 @@ fn empty_query_is_invalid() -> Result<(), Box<dyn std::error::Error>> {
         q: "  \t  ".to_string(),
         limit: 10,
         offset: 0,
+        execution_budget: search_budget(10)?,
     });
 
     assert!(result.is_err_and(|error| error.is_invalid_input()));
@@ -102,12 +138,13 @@ fn reindexing_same_chunk_replaces_without_duplicate_hits() -> Result<(), Box<dyn
         q: "searchable".to_string(),
         limit: 10,
         offset: 0,
+        execution_budget: search_budget(10)?,
     })?;
 
-    assert_eq!(hits.len(), 1);
-    assert_eq!(hits[0].chunk.artifact_id, ArtifactId::new(2));
-    assert_eq!(hits[0].chunk.chunk_id, ChunkId::new(20));
-    assert_eq!(hits[0].chunk.text, "updated searchable text");
+    assert_eq!(hits.hits.len(), 1);
+    assert_eq!(hits.hits[0].chunk.artifact_id, ArtifactId::new(2));
+    assert_eq!(hits.hits[0].chunk.chunk_id, ChunkId::new(20));
+    assert_eq!(hits.hits[0].chunk.text, "updated searchable text");
     Ok(())
 }
 
@@ -121,9 +158,10 @@ fn no_results_for_missing_term() -> Result<(), Box<dyn std::error::Error>> {
         q: "absent".to_string(),
         limit: 10,
         offset: 0,
+        execution_budget: search_budget(10)?,
     })?;
 
-    assert!(hits.is_empty());
+    assert!(hits.hits.is_empty());
     Ok(())
 }
 
@@ -139,10 +177,11 @@ fn directory_backed_index_can_be_reopened() -> Result<(), Box<dyn std::error::Er
         q: "durable".to_string(),
         limit: 10,
         offset: 0,
+        execution_budget: search_budget(10)?,
     })?;
 
-    assert_eq!(hits.len(), 1);
-    assert_eq!(hits[0].chunk.artifact_id, ArtifactId::new(4));
-    assert_eq!(hits[0].chunk.chunk_id, ChunkId::new(40));
+    assert_eq!(hits.hits.len(), 1);
+    assert_eq!(hits.hits[0].chunk.artifact_id, ArtifactId::new(4));
+    assert_eq!(hits.hits[0].chunk.chunk_id, ChunkId::new(40));
     Ok(())
 }

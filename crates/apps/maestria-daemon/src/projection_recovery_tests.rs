@@ -20,6 +20,12 @@ use maestria_ports::{
     VectorIndex, VectorSearchQuery,
 };
 
+fn search_budget(
+    limit: u64,
+) -> Result<maestria_domain::SearchExecutionBudget, maestria_domain::SearchCompatibilityError> {
+    maestria_domain::SearchExecutionBudget::new(limit, 10_000, 100_000, 0)
+}
+
 /// Fixture carrying entity IDs produced during domain-state setup.
 struct RecoveryTestFixture {
     artifact_id: ArtifactId,
@@ -616,47 +622,44 @@ fn reconcile_vector_projection_repairs_missing_and_stale_rows()
     let first_hits = index.search_similar(VectorSearchQuery {
         vector: vec![1.0, 0.0],
         limit: 1,
+        execution_budget: search_budget(1)?,
         provider_id: Some("recovery-provider".to_string()),
         model: Some("recovery-model".to_string()),
         model_version: Some("recovery-v1".to_string()),
         identity: None,
     })?;
     assert_eq!(
-        first_hits
-            .iter()
-            .map(|hit| hit.chunk_id)
-            .collect::<Vec<_>>(),
-        vec![fixture.chunk_id_a],
+        first_hits.hits.first().map(|hit| hit.chunk_id),
+        Some(fixture.chunk_id_a),
         "recovery must replace stale provenance and preserve chunk identity"
     );
 
     let second_hits = index.search_similar(VectorSearchQuery {
         vector: vec![0.0, 1.0],
         limit: 1,
+        execution_budget: search_budget(1)?,
         provider_id: Some("recovery-provider".to_string()),
         model: Some("recovery-model".to_string()),
         model_version: Some("recovery-v1".to_string()),
         identity: None,
     })?;
     assert_eq!(
-        second_hits
-            .iter()
-            .map(|hit| hit.chunk_id)
-            .collect::<Vec<_>>(),
-        vec![fixture.chunk_id_b],
+        second_hits.hits.first().map(|hit| hit.chunk_id),
+        Some(fixture.chunk_id_b),
         "recovery must rebuild chunks missing from the projection"
     );
 
     let stale_hits = index.search_similar(VectorSearchQuery {
         vector: vec![0.0, 1.0],
         limit: 10,
+        execution_budget: search_budget(10)?,
         provider_id: Some("stale-provider".to_string()),
         model: Some("stale-model".to_string()),
         model_version: Some("stale-v1".to_string()),
         identity: None,
     })?;
     assert!(
-        stale_hits.is_empty(),
+        stale_hits.hits.is_empty(),
         "rebuild must remove stale vector provenance"
     );
 
@@ -665,17 +668,15 @@ fn reconcile_vector_projection_repairs_missing_and_stale_rows()
     let restarted_hits = restarted.search_similar(VectorSearchQuery {
         vector: vec![1.0, 0.0],
         limit: 1,
+        execution_budget: search_budget(1)?,
         provider_id: Some("recovery-provider".to_string()),
         model: Some("recovery-model".to_string()),
         model_version: Some("recovery-v1".to_string()),
         identity: None,
     })?;
     assert_eq!(
-        restarted_hits
-            .iter()
-            .map(|hit| hit.chunk_id)
-            .collect::<Vec<_>>(),
-        vec![fixture.chunk_id_a],
+        restarted_hits.hits.first().map(|hit| hit.chunk_id),
+        Some(fixture.chunk_id_a),
         "vector retrieval must remain stable after reopening the projection"
     );
     drop(restarted);

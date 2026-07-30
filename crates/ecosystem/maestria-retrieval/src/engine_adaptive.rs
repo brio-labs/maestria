@@ -13,7 +13,7 @@ pub(super) struct AdaptiveSearchState {
     pub(super) batches: Vec<CandidateBatch>,
     pub(super) rewrites: crate::rewrite::QueryRewriteSession,
     pub(super) web_requests_used: u32,
-    pub(super) bytes_read: u64,
+    pub(super) execution_usage: maestria_domain::SearchExecutionUsage,
     pub(super) outcome: SearchOutcome,
     pub(super) lanes: Vec<SearchTraceLane>,
     pub(super) rerank_trace: Option<SearchTraceRerank>,
@@ -34,12 +34,15 @@ pub(super) async fn iterate_until_stop(
     let max_iterations = (plan.budgets.max_stages() as usize).saturating_sub(plan.stages.len());
     let mut previous_evidence = evidence_ids(&state.outcome);
     loop {
+        if let Some(stop_reason) = terminal_stop_reason(&state.outcome.status) {
+            return Ok(Some(stop_reason));
+        }
+        if lane_budget_exhausted(&state.batches) {
+            return Ok(Some(SearchStopReason::BudgetExhausted));
+        }
         let missing_slots = missing_required_slots(plan, &state.outcome);
         if missing_slots.is_empty() {
             return Ok(None);
-        }
-        if let Some(stop_reason) = terminal_stop_reason(&state.outcome.status) {
-            return Ok(Some(stop_reason));
         }
         if iteration_count >= max_iterations
             || state.rewrites.records().len() >= plan.budgets.max_queries() as usize
@@ -125,7 +128,7 @@ async fn retrieve_missing_slot(
             &query_text,
             &authorization,
             &mut state.web_requests_used,
-            &mut state.bytes_read,
+            &mut state.execution_usage,
         )
         .await?,
     );
@@ -140,11 +143,27 @@ async fn retrieve_missing_slot(
             query,
             &state.batches,
             started,
-            &mut state.bytes_read,
+            &mut state.execution_usage,
             &authorization,
         )
         .await?;
     Ok(true)
+}
+
+fn lane_budget_exhausted(batches: &[CandidateBatch]) -> bool {
+    batches.iter().any(|batch| {
+        !matches!(
+            batch.status,
+            maestria_domain::SearchLaneStatus::Failed { .. }
+        ) && matches!(
+            batch.execution.completion,
+            maestria_domain::SearchExecutionCompletion::Exhausted(
+                maestria_domain::SearchExecutionResource::Candidates
+                    | maestria_domain::SearchExecutionResource::WorkUnits
+                    | maestria_domain::SearchExecutionResource::BytesRead
+            )
+        )
+    })
 }
 
 fn terminal_stop_reason(status: &SearchStatus) -> Option<SearchStopReason> {

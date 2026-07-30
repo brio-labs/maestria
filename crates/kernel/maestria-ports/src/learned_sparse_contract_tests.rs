@@ -6,6 +6,12 @@ use crate::{
 };
 use maestria_domain::ChunkId;
 
+fn search_budget(
+    limit: u64,
+) -> Result<maestria_domain::SearchExecutionBudget, maestria_domain::SearchCompatibilityError> {
+    maestria_domain::SearchExecutionBudget::new(limit, 10_000, 100_000, 0)
+}
+
 pub fn fixture_sparse_identity() -> Result<SparseIdentity, PortError> {
     let hash = |digit: char| {
         maestria_domain::ContentHash::new(format!("sha256:{}", digit.to_string().repeat(64)))
@@ -107,30 +113,37 @@ pub fn assert_learned_sparse_index_contract(
         vector: query_vector,
         limit: 10,
         max_contributions: 8,
+        execution_budget: search_budget(10)?,
     };
     let hits = index.search(query.clone())?;
-    assert_eq!(hits.len(), 2);
-    assert_eq!(hits[0].chunk_id, ChunkId::new(1));
-    assert_eq!(hits[1].chunk_id, ChunkId::new(2));
-    assert!(hits.iter().all(|hit| hit.score_micros > 0));
-    assert!(hits.iter().all(|hit| !hit.contributions.is_empty()));
+    assert_eq!(hits.hits.len(), 2);
+    assert_eq!(hits.hits[0].chunk_id, ChunkId::new(1));
+    assert_eq!(hits.hits[1].chunk_id, ChunkId::new(2));
+    assert_eq!(hits.execution.budget.max_results(), 10);
+    assert_eq!(
+        hits.execution.completion,
+        maestria_domain::SearchExecutionCompletion::Complete
+    );
+    assert!(hits.hits.iter().all(|hit| hit.score_micros > 0));
+    assert!(hits.hits.iter().all(|hit| !hit.contributions.is_empty()));
 
-    let filtered = index.search_filtered(query.clone(), &|chunk_id| chunk_id == ChunkId::new(2))?;
-    assert_eq!(filtered.len(), 1);
-    assert_eq!(filtered[0].chunk_id, ChunkId::new(2));
+    let filtered =
+        index.search_filtered(query.clone(), &|chunk_id| Ok(chunk_id == ChunkId::new(2)))?;
+    assert_eq!(filtered.hits.len(), 1);
+    assert_eq!(filtered.hits[0].chunk_id, ChunkId::new(2));
 
     index.index_documents(vec![document(2, "gamma delta")?])?;
     let replaced = index.search(query.clone())?;
-    assert_eq!(replaced.len(), 1);
-    assert_eq!(replaced[0].chunk_id, ChunkId::new(1));
+    assert_eq!(replaced.hits.len(), 1);
+    assert_eq!(replaced.hits[0].chunk_id, ChunkId::new(1));
 
     index.delete_chunks(&[ChunkId::new(1)])?;
-    assert!(index.search(query.clone())?.is_empty());
+    assert!(index.search(query.clone())?.hits.is_empty());
 
     index.rebuild(vec![document(5, "alpha epsilon")?])?;
     let rebuilt = index.search(query)?;
-    assert_eq!(rebuilt.len(), 1);
-    assert_eq!(rebuilt[0].chunk_id, ChunkId::new(5));
+    assert_eq!(rebuilt.hits.len(), 1);
+    assert_eq!(rebuilt.hits[0].chunk_id, ChunkId::new(5));
     Ok(())
 }
 

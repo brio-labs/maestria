@@ -16,6 +16,7 @@ impl SearchTrace {
             &self.lanes,
             self.identity_version >= 3,
             self.identity_version >= 6,
+            self.identity_version >= 7,
         );
         if let Some(rerank) = &self.rerank {
             mix_trace_rerank(&mut hash, rerank);
@@ -103,6 +104,11 @@ fn mix_trace_budgets(hash: &mut u64, trace: &SearchTrace) {
             hash,
             &u64::from(trace.budgets.max_concurrency()).to_le_bytes(),
         );
+        mix_hash(
+            hash,
+            &u64::from(trace.budgets.max_candidates()).to_le_bytes(),
+        );
+        mix_hash(hash, &trace.budgets.max_work_units().to_le_bytes());
     }
 }
 
@@ -174,6 +180,7 @@ fn mix_trace_lanes(
     lanes: &[SearchTraceLane],
     include_query: bool,
     complete_score_provenance: bool,
+    include_execution: bool,
 ) {
     for lane in lanes {
         mix_hash(hash, lane.retriever_id.as_bytes());
@@ -184,6 +191,9 @@ fn mix_trace_lanes(
             mix_debug(hash, &lane.generation);
         }
         mix_debug(hash, &lane.status);
+        if include_execution {
+            mix_debug(hash, &lane.execution);
+        }
         for candidate in &lane.candidates {
             mix_hash(hash, &candidate.evidence_id.value().to_le_bytes());
             mix_hash(hash, &candidate.artifact_version.value().to_le_bytes());

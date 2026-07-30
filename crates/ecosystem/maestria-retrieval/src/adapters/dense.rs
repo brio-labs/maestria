@@ -1,4 +1,3 @@
-use std::cell::Cell;
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -11,10 +10,7 @@ use maestria_ports::{
 
 use super::SourceSnapshotVerifier;
 use super::chunk_access::load_authorized_chunk;
-use super::common::{
-    bounded_candidate_bytes, candidate_from_records, generation_mismatch, one_based_rank,
-    port_error,
-};
+use super::common::{candidate_from_records, generation_mismatch, one_based_rank, port_error};
 use super::prescore_cache::PrescoreCache;
 use super::score_provenance::dense_score;
 use crate::traits::CandidateRetriever;
@@ -72,6 +68,8 @@ impl DenseChunkRetriever {
         request: CandidateRequest,
         vector: VectorSearchQuery,
     ) -> Result<CandidateBatch, RetrievalError> {
+        let mut vector = vector;
+        vector.execution_budget = request.execution_budget;
         if request.expected_generation != self.descriptor.generation {
             return Err(generation_mismatch(
                 request.expected_generation,
@@ -81,27 +79,15 @@ impl DenseChunkRetriever {
         let identity = vector.identity.clone().ok_or_else(|| {
             RetrievalError::Internal("dense vector query identity unavailable".to_string())
         })?;
-        let filter_error = Cell::new(None);
         let authorized = PrescoreCache::new(request.query.limit);
-        let hits = self
+        let bounded = self
             .index
-            .search_similar_filtered(vector, &|chunk_id| match self.prefilter_hit(
-                chunk_id,
-                &request.authorization,
-                &authorized,
-            ) {
-                Ok(allowed) => allowed,
-                Err(error) => {
-                    filter_error.set(Some(error));
-                    false
-                }
+            .search_similar_filtered(vector, &|chunk_id| {
+                self.prefilter_hit(chunk_id, &request.authorization, &authorized)
             })
             .map_err(port_error)?;
-        if let Some(error) = filter_error.take() {
-            return Err(port_error(error));
-        }
+        let hits = bounded.hits;
         let mut candidates = Vec::with_capacity(hits.len());
-        let mut bytes_read = 0_u64;
         for (raw_rank, hit) in hits.into_iter().enumerate() {
             let Some(candidate) = self.candidate_from_hit(
                 hit,
@@ -113,11 +99,7 @@ impl DenseChunkRetriever {
             else {
                 continue;
             };
-            bytes_read = bytes_read.saturating_add(bounded_candidate_bytes(&candidate));
             candidates.push(candidate);
-            if candidates.len() >= request.query.limit {
-                break;
-            }
         }
         let status = if candidates.is_empty() {
             SearchLaneStatus::Empty
@@ -130,7 +112,7 @@ impl DenseChunkRetriever {
             candidates,
             status,
             generation: Some(self.descriptor.generation),
-            bytes_read,
+            execution: bounded.execution,
         })
     }
 
@@ -254,13 +236,12 @@ impl CandidateRetriever for DenseChunkRetriever {
                 identity,
             })
             .map_err(port_error)?;
-        let limit = match u32::try_from(request.query.limit) {
-            Ok(value) => value,
-            Err(e) => {
-                let _ = e;
-                u32::MAX
-            }
-        };
+        let limit = u32::try_from(request.query.limit).map_err(|_| {
+            RetrievalError::Internal(
+                "dense result limit exceeds vector query representation".into(),
+            )
+        })?;
+        let execution_budget = request.execution_budget;
         self.retrieve_with_vector(
             request,
             VectorSearchQuery {
@@ -269,6 +250,7 @@ impl CandidateRetriever for DenseChunkRetriever {
                 provider_id: Some(response.provider_id),
                 model: Some(response.model),
                 model_version: Some(response.model_version),
+                execution_budget,
                 identity: Some(response.identity),
             },
         )

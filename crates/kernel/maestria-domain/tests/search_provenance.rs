@@ -253,7 +253,9 @@ fn trace_captures_plan_and_rejects_incompatible_replay() -> Result<(), Box<dyn s
 }
 #[test]
 fn trace_lane_changes_alter_deterministic_identity() -> Result<(), Box<dyn std::error::Error>> {
-    use maestria_domain::{SearchLaneStatus, SearchTraceLane, SearchTraceLaneCandidate};
+    use maestria_domain::{
+        SearchExecution, SearchLaneStatus, SearchTraceLane, SearchTraceLaneCandidate,
+    };
     let plan = plan()?;
     let mut trace = SearchTrace::from_plan(
         &plan,
@@ -271,6 +273,7 @@ fn trace_lane_changes_alter_deterministic_identity() -> Result<(), Box<dyn std::
         query: "test query".to_owned(),
         generation: None,
         status: SearchLaneStatus::Succeeded,
+        execution: SearchExecution::default(),
         candidates: vec![SearchTraceLaneCandidate {
             evidence_id: EvidenceId::new(42),
             artifact_version: ArtifactVersionId::new(10),
@@ -291,7 +294,6 @@ fn trace_lane_changes_alter_deterministic_identity() -> Result<(), Box<dyn std::
     }]);
     let id_with_succeeded_lane = trace.deterministic_id();
     assert_ne!(id_without_lanes, id_with_succeeded_lane);
-
     trace = trace.with_lanes(vec![SearchTraceLane {
         retriever_id: "lexical".to_owned(),
         query: "test query".to_owned(),
@@ -299,6 +301,7 @@ fn trace_lane_changes_alter_deterministic_identity() -> Result<(), Box<dyn std::
         status: SearchLaneStatus::Failed {
             error: "timeout".to_owned(),
         },
+        execution: SearchExecution::default(),
         candidates: vec![],
     }]);
     let id_with_failed_lane = trace.deterministic_id();
@@ -333,7 +336,7 @@ fn trace_identity_versions_do_not_alias() -> Result<(), Box<dyn std::error::Erro
 #[test]
 fn trace_lanes_serialize_and_deserialize_without_fallback() -> Result<(), Box<dyn std::error::Error>>
 {
-    use maestria_domain::{SearchLaneStatus, SearchTraceLane};
+    use maestria_domain::{SearchExecution, SearchLaneStatus, SearchTraceLane};
     let plan = plan()?;
     let trace = SearchTrace::from_plan(
         &plan,
@@ -351,6 +354,7 @@ fn trace_lanes_serialize_and_deserialize_without_fallback() -> Result<(), Box<dy
         status: SearchLaneStatus::Failed {
             error: "unreachable".to_owned(),
         },
+        execution: SearchExecution::default(),
         candidates: vec![],
     }]);
 

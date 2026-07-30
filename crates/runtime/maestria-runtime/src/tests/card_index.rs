@@ -1,7 +1,7 @@
 use crate::test_support::*;
 use maestria_domain::{
-    Artifact, ArtifactId, Card, CardId, Chunk, ChunkId, KernelState, MaestriaEffect, SourceSpan,
-    StructureNodeId,
+    Artifact, ArtifactId, Card, CardId, Chunk, ChunkId, KernelState, MaestriaEffect,
+    SearchExecutionBudget, SourceSpan, StructureNodeId,
 };
 use maestria_ports::{
     EmbeddingProvider, EmbeddingRequest, EmbeddingResponse, FullTextIndex, InMemoryFullTextIndex,
@@ -112,19 +112,21 @@ async fn index_full_text_effect_indexes_cards_before_chunks()
         q: "indexed card".into(),
         limit: 10,
         offset: 0,
+        execution_budget: SearchExecutionBudget::new(10, 10, 10, 0)?,
     })?;
-    assert_eq!(card_hits.len(), 1, "one card should match");
-    assert_eq!(card_hits[0].card.artifact_id, artifact_id);
-    assert_eq!(card_hits[0].card.card_id, card_id);
-    assert_eq!(card_hits[0].card.title, "indexed card title");
+    assert_eq!(card_hits.hits.len(), 1, "one card should match");
+    assert_eq!(card_hits.hits[0].card.artifact_id, artifact_id);
+    assert_eq!(card_hits.hits[0].card.card_id, card_id);
+    assert_eq!(card_hits.hits[0].card.title, "indexed card title");
 
     // Chunks should also be indexed.
     let chunk_hits = search_index.search(SearchQuery {
         q: "chunk text".into(),
         limit: 10,
         offset: 0,
+        execution_budget: SearchExecutionBudget::new(10, 10, 10, 0)?,
     })?;
-    assert_eq!(chunk_hits.len(), 1, "one chunk should match");
+    assert_eq!(chunk_hits.hits.len(), 1, "one chunk should match");
     Ok(())
 }
 
@@ -184,9 +186,10 @@ async fn index_full_text_effect_no_cards_when_state_has_none()
         q: "anything".into(),
         limit: 10,
         offset: 0,
+        execution_budget: SearchExecutionBudget::new(10, 10, 10, 0)?,
     })?;
     assert!(
-        card_hits.is_empty(),
+        card_hits.hits.is_empty(),
         "no cards should be indexed when state lacks cards"
     );
 
@@ -195,8 +198,9 @@ async fn index_full_text_effect_no_cards_when_state_has_none()
         q: "chunk without cards".into(),
         limit: 10,
         offset: 0,
+        execution_budget: SearchExecutionBudget::new(10, 10, 10, 0)?,
     })?;
-    assert_eq!(chunk_hits.len(), 1, "chunk should still be indexed");
+    assert_eq!(chunk_hits.hits.len(), 1, "chunk should still be indexed");
     Ok(())
 }
 
@@ -287,9 +291,14 @@ async fn index_full_text_effect_reindexing_is_idempotent() -> Result<(), Box<dyn
         q: "reindexed".into(),
         limit: 10,
         offset: 0,
+        execution_budget: SearchExecutionBudget::new(10, 10, 10, 0)?,
     })?;
-    assert_eq!(card_hits.len(), 1, "reindexing must not duplicate cards");
-    assert_eq!(card_hits[0].card.card_id, card_id);
+    assert_eq!(
+        card_hits.hits.len(),
+        1,
+        "reindexing must not duplicate cards"
+    );
+    assert_eq!(card_hits.hits[0].card.card_id, card_id);
     Ok(())
 }
 
@@ -341,7 +350,9 @@ async fn index_full_text_rejects_secret_bearing_chunk() -> Result<(), Box<dyn st
                 q: "do-not-index".into(),
                 limit: 10,
                 offset: 0,
+                execution_budget: SearchExecutionBudget::new(10, 10, 10, 0)?,
             })?
+            .hits
             .is_empty()
     );
     Ok(())

@@ -1,4 +1,4 @@
-use std::{cell::Cell, sync::Arc};
+use std::sync::Arc;
 
 use async_trait::async_trait;
 use maestria_domain::{
@@ -245,42 +245,59 @@ impl CandidateRetriever for LearnedSparseChunkRetriever {
                 "sparse provider returned an incompatible query identity".into(),
             ));
         }
-        let limit = match u32::try_from(request.query.limit) {
-            Ok(value) => value,
-            Err(e) => {
-                let _ = e;
-                u32::MAX
-            }
-        };
-        let filter_error = Cell::new(None);
+        let limit = u32::try_from(request.query.limit).map_err(|_| {
+            RetrievalError::Internal("sparse result limit exceeds query representation".into())
+        })?;
         let prescore_cache = PrescoreCache::new(request.query.limit);
-        let hits = self
+        let bounded = self
             .index
             .search_filtered(
                 SparseSearchQuery {
                     vector,
                     limit,
-                    max_contributions: 16,
+                    max_contributions: maestria_domain::saturating_u32(
+                        maestria_domain::saturating_usize(
+                            request.execution_budget.max_work_units(),
+                        ),
+                    ),
+                    execution_budget: request.execution_budget,
                 },
-                &|chunk_id| match self.checked_records(chunk_id, &request.authorization) {
-                    Ok(Some(records)) => {
-                        prescore_cache.insert(chunk_id, records);
-                        true
-                    }
-                    Ok(None) => false,
-                    Err(error) => {
-                        filter_error.set(Some(error));
-                        false
-                    }
+                &|chunk_id| {
+                    self.checked_records(chunk_id, &request.authorization)
+                        .map(|records| {
+                            if let Some(records) = records {
+                                prescore_cache.insert(chunk_id, records);
+                                true
+                            } else {
+                                false
+                            }
+                        })
+                        .map_err(|error| match error {
+                            RetrievalError::Internal(message) => {
+                                maestria_ports::PortError::InternalContext {
+                                    context: "sparse authorization filter",
+                                    source: message,
+                                }
+                            }
+                            other => maestria_ports::PortError::InternalContext {
+                                context: "sparse authorization filter",
+                                source: other.to_string(),
+                            },
+                        })
                 },
             )
             .map_err(port_error)?;
-        if let Some(error) = filter_error.take() {
-            return Err(error);
-        }
-        let mut candidates = Vec::with_capacity(hits.len());
-        let mut bytes_read = 0_u64;
-        for (raw_rank, hit) in hits.into_iter().enumerate() {
+        let hits = bounded.hits;
+        let mut candidates = Vec::with_capacity(hits.len().min(maestria_domain::saturating_usize(
+            request.execution_budget.max_results(),
+        )));
+        for (raw_rank, hit) in hits
+            .into_iter()
+            .take(maestria_domain::saturating_usize(
+                request.execution_budget.max_results(),
+            ))
+            .enumerate()
+        {
             let Some(candidate) = self.candidate_from_hit(
                 hit,
                 one_based_rank(raw_rank),
@@ -290,12 +307,7 @@ impl CandidateRetriever for LearnedSparseChunkRetriever {
             else {
                 continue;
             };
-            let range = candidate.source_span.range();
-            bytes_read = bytes_read.saturating_add(range.end.saturating_sub(range.start) as u64);
             candidates.push(candidate);
-            if candidates.len() >= request.query.limit {
-                break;
-            }
         }
         let status = if candidates.is_empty() {
             SearchLaneStatus::Empty
@@ -308,7 +320,7 @@ impl CandidateRetriever for LearnedSparseChunkRetriever {
             candidates,
             status,
             generation: Some(self.descriptor.generation),
-            bytes_read,
+            execution: bounded.execution,
         })
     }
 }

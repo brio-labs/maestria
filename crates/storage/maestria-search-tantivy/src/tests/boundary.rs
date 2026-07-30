@@ -1,6 +1,12 @@
 use crate::TantivyFullTextIndex;
-use maestria_domain::{ArtifactId, ChunkId};
+use maestria_domain::{ArtifactId, ChunkId, SearchExecutionBudget};
 use maestria_ports::{FullTextIndex, SearchQuery};
+
+fn search_budget(
+    limit: u64,
+) -> Result<maestria_domain::SearchExecutionBudget, maestria_domain::SearchCompatibilityError> {
+    SearchExecutionBudget::new(limit, 10_000, 100_000, 0)
+}
 
 fn chunk(artifact_id: u64, chunk_id: u64, text: &str) -> maestria_ports::IndexedChunk {
     maestria_ports::IndexedChunk {
@@ -20,9 +26,10 @@ fn very_large_query_still_parses() -> Result<(), Box<dyn std::error::Error>> {
         q: long_term,
         limit: 10,
         offset: 0,
+        execution_budget: search_budget(10)?,
     })?;
     assert!(
-        hits.is_empty(),
+        hits.hits.is_empty(),
         "expected no hits for non-existent long term"
     );
     Ok(())
@@ -40,6 +47,7 @@ fn special_character_injection_query_is_handled() -> Result<(), Box<dyn std::err
             q: query.to_string(),
             limit: 10,
             offset: 0,
+            execution_budget: search_budget(10)?,
         });
         // Reaching this line means no panic occurred, which is the boundary contract.
     }
@@ -55,8 +63,9 @@ fn unicode_boundary_query_works() -> Result<(), Box<dyn std::error::Error>> {
         q: "世界".to_string(),
         limit: 10,
         offset: 0,
+        execution_budget: search_budget(10)?,
     })?;
-    assert_eq!(hits.len(), 1);
-    assert_eq!(hits[0].chunk.chunk_id, ChunkId::new(10));
+    assert_eq!(hits.hits.len(), 1);
+    assert_eq!(hits.hits[0].chunk.chunk_id, ChunkId::new(10));
     Ok(())
 }

@@ -141,6 +141,7 @@ impl HierarchyGraphExpander {
             if state.expanded.len() >= policy.max_results || state.relation_visits_remaining == 0 {
                 break;
             }
+            state.relation_visits_remaining = state.relation_visits_remaining.saturating_sub(1);
             let Some(related) = self.related_artifact(
                 endpoint,
                 relation,

@@ -1,7 +1,8 @@
 use std::sync::{Arc, Mutex};
 
+use super::execution::{Meter, validate_limit};
 use crate::lexical::{CardField, ChunkField, LexicalCardHit, LexicalChunkHit, LexicalQuery};
-use crate::{CardHit, IndexedCard, IndexedChunk, PortError, SearchHit, SearchQuery};
+use crate::{BoundedSearch, CardHit, IndexedCard, IndexedChunk, PortError, SearchHit, SearchQuery};
 
 #[derive(Clone, Default)]
 pub struct InMemoryFullTextIndex {
@@ -54,47 +55,24 @@ impl crate::FullTextIndex for InMemoryFullTextIndex {
         guard.extend(chunks);
         Ok(())
     }
-
-    fn search(&self, query: SearchQuery) -> Result<Vec<SearchHit>, PortError> {
-        let trimmed = query.q.trim();
-        if trimmed.is_empty() {
+    fn search(&self, query: SearchQuery) -> Result<BoundedSearch<SearchHit>, PortError> {
+        if query.q.trim().is_empty() {
             return Err(PortError::InvalidInputContext {
                 context: "empty chunk search query",
                 source: "query must contain non-whitespace text".to_string(),
             });
         }
-        let guard = self.chunks.lock().map_err(|_| PortError::InternalContext {
-            context: "full-text chunk index lock poisoned",
-            source: "chunk index mutex is poisoned".to_string(),
-        })?;
-        let needle = trimmed.to_lowercase();
-        let mut hits = guard
-            .iter()
-            .filter(|chunk| chunk.text.to_lowercase().contains(&needle))
-            .map(|chunk| SearchHit {
-                chunk: chunk.clone(),
-                score: (chunk.text.len().min(u32::MAX as usize)) as u32,
-            })
-            .collect::<Vec<_>>();
-
-        hits.sort_by(|a, b| {
-            b.score
-                .cmp(&a.score)
-                .then_with(|| a.chunk.artifact_id.cmp(&b.chunk.artifact_id))
-                .then_with(|| a.chunk.chunk_id.cmp(&b.chunk.chunk_id))
-        });
-        Ok(hits
-            .into_iter()
-            .skip(query.offset)
-            .take(query.limit)
-            .collect())
+        self.search_filtered(query, &|_, _| Ok(true))
     }
 
     fn search_filtered(
         &self,
         query: SearchQuery,
-        filter: &dyn Fn(maestria_domain::ChunkId, maestria_domain::ArtifactId) -> bool,
-    ) -> Result<Vec<SearchHit>, PortError> {
+        filter: &dyn Fn(
+            maestria_domain::ChunkId,
+            maestria_domain::ArtifactId,
+        ) -> Result<bool, PortError>,
+    ) -> Result<BoundedSearch<SearchHit>, PortError> {
         let trimmed = query.q.trim();
         if trimmed.is_empty() {
             return Err(PortError::InvalidInputContext {
@@ -102,32 +80,77 @@ impl crate::FullTextIndex for InMemoryFullTextIndex {
                 source: "query must contain non-whitespace text".to_string(),
             });
         }
+        validate_limit(
+            query.limit,
+            query.execution_budget,
+            "chunk search result limit",
+        )?;
+        let mut meter = Meter::new(query.execution_budget);
+        if query.limit == 0 {
+            return Ok(meter.complete(Vec::new()));
+        }
         let guard = self.chunks.lock().map_err(|_| PortError::InternalContext {
             context: "full-text chunk index lock poisoned",
             source: "chunk index mutex is poisoned".to_string(),
         })?;
         let needle = trimmed.to_lowercase();
-        let mut hits = guard
-            .iter()
-            .filter(|chunk| chunk.text.to_lowercase().contains(&needle))
-            .filter(|chunk| filter(chunk.chunk_id, chunk.artifact_id))
-            .map(|chunk| SearchHit {
+        let mut hits = Vec::new();
+        let mut stopped = None;
+        for chunk in guard.iter() {
+            if let Some(resource) = meter.candidate() {
+                stopped = Some(resource);
+                break;
+            }
+            if !filter(chunk.chunk_id, chunk.artifact_id)? {
+                continue;
+            }
+            let bytes =
+                u64::try_from(chunk.text.len()).map_err(|error| PortError::InternalContext {
+                    context: "full-text chunk byte accounting",
+                    source: error.to_string(),
+                })?;
+            if let Some(resource) = meter.bytes(bytes) {
+                stopped = Some(resource);
+                break;
+            }
+            if let Some(resource) = meter.work(1) {
+                stopped = Some(resource);
+                break;
+            }
+            if !chunk.text.to_lowercase().contains(&needle) {
+                continue;
+            }
+            hits.push(SearchHit {
                 chunk: chunk.clone(),
                 score: (chunk.text.len().min(u32::MAX as usize)) as u32,
-            })
-            .collect::<Vec<_>>();
-
+            });
+        }
         hits.sort_by(|a, b| {
             b.score
                 .cmp(&a.score)
                 .then_with(|| a.chunk.artifact_id.cmp(&b.chunk.artifact_id))
                 .then_with(|| a.chunk.chunk_id.cmp(&b.chunk.chunk_id))
         });
-        Ok(hits
+        let result_exhausted = hits.len() > query.limit;
+        let selected = hits
             .into_iter()
             .skip(query.offset)
             .take(query.limit)
-            .collect())
+            .collect::<Vec<_>>();
+        if result_exhausted {
+            stopped = Some(maestria_domain::SearchExecutionResource::Results);
+        }
+        for _ in 0..selected.len() {
+            if let Some(resource) = meter.result() {
+                stopped = Some(resource);
+                break;
+            }
+        }
+        if let Some(resource) = stopped {
+            Ok(meter.exhausted(selected, resource))
+        } else {
+            Ok(meter.complete(selected))
+        }
     }
 
     fn index_cards(&self, cards: Vec<IndexedCard>) -> Result<(), PortError> {
@@ -160,52 +183,24 @@ impl crate::FullTextIndex for InMemoryFullTextIndex {
         Ok(())
     }
 
-    fn search_cards(&self, query: SearchQuery) -> Result<Vec<CardHit>, PortError> {
-        let trimmed = query.q.trim();
-        if trimmed.is_empty() {
+    fn search_cards(&self, query: SearchQuery) -> Result<BoundedSearch<CardHit>, PortError> {
+        if query.q.trim().is_empty() {
             return Err(PortError::InvalidInputContext {
                 context: "empty card search query",
                 source: "query must contain non-whitespace text".to_string(),
             });
         }
-        let guard = self.cards.lock().map_err(|_| PortError::InternalContext {
-            context: "full-text card index lock poisoned",
-            source: "card index mutex is poisoned".to_string(),
-        })?;
-        let needle = trimmed.to_lowercase();
-        let mut hits: Vec<CardHit> = guard
-            .iter()
-            .filter(|card| {
-                card.title.to_lowercase().contains(&needle)
-                    || card.body.to_lowercase().contains(&needle)
-            })
-            .map(|card| {
-                let score = ((card.title.len() + card.body.len()).min(u32::MAX as usize)) as u32;
-                CardHit {
-                    card: card.clone(),
-                    score,
-                }
-            })
-            .collect();
-
-        hits.sort_by(|a, b| {
-            b.score
-                .cmp(&a.score)
-                .then_with(|| a.card.artifact_id.cmp(&b.card.artifact_id))
-                .then_with(|| a.card.card_id.cmp(&b.card.card_id))
-        });
-        Ok(hits
-            .into_iter()
-            .skip(query.offset)
-            .take(query.limit)
-            .collect())
+        self.search_cards_filtered(query, &|_, _| Ok(true))
     }
 
     fn search_cards_filtered(
         &self,
         query: SearchQuery,
-        filter: &dyn Fn(maestria_domain::CardId, maestria_domain::ArtifactId) -> bool,
-    ) -> Result<Vec<CardHit>, PortError> {
+        filter: &dyn Fn(
+            maestria_domain::CardId,
+            maestria_domain::ArtifactId,
+        ) -> Result<bool, PortError>,
+    ) -> Result<BoundedSearch<CardHit>, PortError> {
         let trimmed = query.q.trim();
         if trimmed.is_empty() {
             return Err(PortError::InvalidInputContext {
@@ -213,38 +208,81 @@ impl crate::FullTextIndex for InMemoryFullTextIndex {
                 source: "query must contain non-whitespace text".to_string(),
             });
         }
+        validate_limit(
+            query.limit,
+            query.execution_budget,
+            "card search result limit",
+        )?;
+        let mut meter = Meter::new(query.execution_budget);
+        if query.limit == 0 {
+            return Ok(meter.complete(Vec::new()));
+        }
         let guard = self.cards.lock().map_err(|_| PortError::InternalContext {
             context: "full-text card index lock poisoned",
             source: "card index mutex is poisoned".to_string(),
         })?;
         let needle = trimmed.to_lowercase();
-        let mut hits: Vec<CardHit> = guard
-            .iter()
-            .filter(|card| {
-                card.title.to_lowercase().contains(&needle)
-                    || card.body.to_lowercase().contains(&needle)
-            })
-            .filter(|card| filter(card.card_id, card.artifact_id))
-            .map(|card| {
-                let score = ((card.title.len() + card.body.len()).min(u32::MAX as usize)) as u32;
-                CardHit {
-                    card: card.clone(),
-                    score,
-                }
-            })
-            .collect();
-
+        let mut hits = Vec::new();
+        let mut stopped = None;
+        for card in guard.iter() {
+            if let Some(resource) = meter.candidate() {
+                stopped = Some(resource);
+                break;
+            }
+            if !filter(card.card_id, card.artifact_id)? {
+                continue;
+            }
+            let bytes = u64::try_from(card.title.len().saturating_add(card.body.len())).map_err(
+                |error| PortError::InternalContext {
+                    context: "full-text card byte accounting",
+                    source: error.to_string(),
+                },
+            )?;
+            if let Some(resource) = meter.bytes(bytes) {
+                stopped = Some(resource);
+                break;
+            }
+            if let Some(resource) = meter.work(1) {
+                stopped = Some(resource);
+                break;
+            }
+            if !(card.title.to_lowercase().contains(&needle)
+                || card.body.to_lowercase().contains(&needle))
+            {
+                continue;
+            }
+            let score = ((card.title.len() + card.body.len()).min(u32::MAX as usize)) as u32;
+            hits.push(CardHit {
+                card: card.clone(),
+                score,
+            });
+        }
         hits.sort_by(|a, b| {
             b.score
                 .cmp(&a.score)
                 .then_with(|| a.card.artifact_id.cmp(&b.card.artifact_id))
                 .then_with(|| a.card.card_id.cmp(&b.card.card_id))
         });
-        Ok(hits
+        let result_exhausted = hits.len() > query.limit;
+        let selected = hits
             .into_iter()
             .skip(query.offset)
             .take(query.limit)
-            .collect())
+            .collect::<Vec<_>>();
+        if result_exhausted {
+            stopped = Some(maestria_domain::SearchExecutionResource::Results);
+        }
+        for _ in 0..selected.len() {
+            if let Some(resource) = meter.result() {
+                stopped = Some(resource);
+                break;
+            }
+        }
+        if let Some(resource) = stopped {
+            Ok(meter.exhausted(selected, resource))
+        } else {
+            Ok(meter.complete(selected))
+        }
     }
     fn index_lexical_chunks(
         &self,
@@ -260,30 +298,36 @@ impl crate::FullTextIndex for InMemoryFullTextIndex {
     fn search_lexical(
         &self,
         query: LexicalQuery<ChunkField>,
-    ) -> Result<Vec<LexicalChunkHit>, PortError> {
+    ) -> Result<BoundedSearch<LexicalChunkHit>, PortError> {
         super::lexical::search_lexical(&self.lexical_chunks, query)
     }
 
     fn search_cards_lexical(
         &self,
         query: LexicalQuery<CardField>,
-    ) -> Result<Vec<LexicalCardHit>, PortError> {
+    ) -> Result<BoundedSearch<LexicalCardHit>, PortError> {
         super::lexical::search_cards_lexical(&self.lexical_cards, query)
     }
 
     fn search_lexical_filtered(
         &self,
         query: LexicalQuery<ChunkField>,
-        filter: &dyn Fn(maestria_domain::ChunkId, maestria_domain::ArtifactId) -> bool,
-    ) -> Result<Vec<LexicalChunkHit>, PortError> {
+        filter: &dyn Fn(
+            maestria_domain::ChunkId,
+            maestria_domain::ArtifactId,
+        ) -> Result<bool, PortError>,
+    ) -> Result<BoundedSearch<LexicalChunkHit>, PortError> {
         super::lexical::search_lexical_filtered(&self.lexical_chunks, query, filter)
     }
 
     fn search_cards_lexical_filtered(
         &self,
         query: LexicalQuery<CardField>,
-        filter: &dyn Fn(maestria_domain::CardId, maestria_domain::ArtifactId) -> bool,
-    ) -> Result<Vec<LexicalCardHit>, PortError> {
+        filter: &dyn Fn(
+            maestria_domain::CardId,
+            maestria_domain::ArtifactId,
+        ) -> Result<bool, PortError>,
+    ) -> Result<BoundedSearch<LexicalCardHit>, PortError> {
         super::lexical::search_cards_lexical_filtered(&self.lexical_cards, query, filter)
     }
 }

@@ -2,7 +2,7 @@ use maestria_domain::{
     ChunkId, ContentHash, CorpusSnapshotId, IndexGenerationId, RepresentationName,
 };
 
-use crate::{PortError, ProviderDisclosure};
+use crate::{BoundedSearch, PortError, ProviderDisclosure};
 
 pub const SPARSE_REPRESENTATION_V1: &str = "sparse_text_v1";
 pub const DEFAULT_MAX_SPARSE_TERMS: usize = 4_096;
@@ -184,6 +184,7 @@ pub struct SparseSearchQuery {
     pub vector: SparseVector,
     pub limit: u32,
     pub max_contributions: u32,
+    pub execution_budget: maestria_domain::SearchExecutionBudget,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -215,19 +216,19 @@ pub trait LearnedSparseProvider: Send + Sync {
         identity: SparseIdentity,
     ) -> Result<SparseVector, PortError>;
 }
-
 pub trait LearnedSparseIndex: Send + Sync {
     fn identity(&self) -> Option<SparseIdentity>;
 
     fn index_documents(&self, documents: Vec<SparseDocument>) -> Result<(), PortError>;
 
-    fn search(&self, query: SparseSearchQuery) -> Result<Vec<SparseSearchHit>, PortError>;
+    fn search(&self, query: SparseSearchQuery)
+    -> Result<BoundedSearch<SparseSearchHit>, PortError>;
 
     fn search_filtered(
         &self,
         query: SparseSearchQuery,
-        filter: &dyn Fn(ChunkId) -> bool,
-    ) -> Result<Vec<SparseSearchHit>, PortError> {
+        filter: &dyn Fn(ChunkId) -> Result<bool, PortError>,
+    ) -> Result<BoundedSearch<SparseSearchHit>, PortError> {
         let _ = (query, filter);
         Err(PortError::InternalContext {
             context: "sparse filtered search is unsupported",

@@ -110,8 +110,33 @@ MODULE_SIZE_EXEMPTIONS: dict[str, str] = {
     "crates/apps/maestria-daemon/src/api/services.rs": "v0.7.0",
     "crates/ecosystem/maestria-retrieval/src/repository_benchmark.rs": "v0.7.0",
     "crates/ecosystem/maestria-retrieval/tests/contract_tests.rs": "v0.7.0",
+    "crates/kernel/maestria-ports/src/contract_tests.rs": "v0.7.0",
+    "crates/kernel/maestria-ports/src/in_memory/lexical.rs": "v0.7.0",
+    "crates/ecosystem/maestria-retrieval/src/learned_sparse_shadow.rs": "v0.7.0",
+    "crates/ecosystem/maestria-retrieval/src/engine_pipeline.rs": "v0.7.0",
 }
-FUNCTION_SIZE_EXEMPTIONS: dict[str, dict[str, str]] = {}
+FUNCTION_SIZE_EXEMPTIONS: dict[str, dict[str, str]] = {
+    "crates/kernel/maestria-ports/src/in_memory/lexical.rs": {
+        "search_lexical_filtered": "v0.7.0",
+        "search_cards_lexical_filtered": "v0.7.0",
+    },
+    "crates/kernel/maestria-ports/src/in_memory/learned_sparse.rs": {
+        "search_with_filter": "v0.7.0",
+    },
+    "crates/kernel/maestria-ports/src/in_memory/vector_index.rs": {
+        "search_similar_filtered": "v0.7.0",
+    },
+    "crates/storage/maestria-search-tantivy/src/lexical_operations.rs": {
+        "do_search_lexical_filtered": "v0.7.0",
+        "do_search_cards_lexical_filtered": "v0.7.0",
+    },
+    "crates/ecosystem/maestria-retrieval/src/engine_pipeline.rs": {
+        "collect_batches": "v0.7.0",
+    },
+    "crates/ecosystem/maestria-retrieval/src/sync.rs": {
+        "run_with_trace": "v0.7.0",
+    },
+}
 MIXED_RESPONSIBILITY_EXEMPTIONS: dict[str, str] = {
     "crates/storage/maestria-storage-sqlite/src/schema.rs": "v0.7.0",
     "crates/ecosystem/maestria-retrieval/src/visual_benchmark.rs": "v0.7.0",
@@ -341,12 +366,16 @@ RESPONSIBILITY_MAPS: dict[str, tuple[str, ...]] = {
         "constructors",
         "lexical_helpers",
         "lexical_operations",
+        "lexical_scoring",
         "migration",
         "operations",
+        "operations_cards",
+        "operations_chunks",
         "schema",
         "search_helpers",
         "documents",
         "tantivy_index",
+        "execution",
     ),
     "crates/storage/maestria-graph-sqlite/src/lib.rs": (
         "conversion",

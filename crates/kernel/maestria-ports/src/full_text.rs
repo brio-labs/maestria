@@ -2,14 +2,14 @@ use crate::lexical::{
     CardField, ChunkField, IndexedLexicalCard, IndexedLexicalChunk, LexicalCardHit,
     LexicalChunkHit, LexicalQuery,
 };
-use crate::{CardHit, IndexedCard, IndexedChunk, PortError, SearchHit, SearchQuery};
+use crate::{BoundedSearch, CardHit, IndexedCard, IndexedChunk, PortError, SearchHit, SearchQuery};
 use maestria_domain::{ArtifactId, CardId};
 
 pub trait FullTextIndex: Send + Sync {
     fn index_chunks(&self, chunks: Vec<IndexedChunk>) -> Result<(), PortError>;
-    fn search(&self, query: SearchQuery) -> Result<Vec<SearchHit>, PortError>;
+    fn search(&self, query: SearchQuery) -> Result<BoundedSearch<SearchHit>, PortError>;
     fn index_cards(&self, cards: Vec<IndexedCard>) -> Result<(), PortError>;
-    fn search_cards(&self, query: SearchQuery) -> Result<Vec<CardHit>, PortError>;
+    fn search_cards(&self, query: SearchQuery) -> Result<BoundedSearch<CardHit>, PortError>;
 
     /// Execute a search, applying a pre-score filter to candidates.
     /// If an adapter cannot perform pre-filtering natively, it MUST return an error
@@ -17,8 +17,8 @@ pub trait FullTextIndex: Send + Sync {
     fn search_filtered(
         &self,
         query: SearchQuery,
-        filter: &dyn Fn(maestria_domain::ChunkId, ArtifactId) -> bool,
-    ) -> Result<Vec<SearchHit>, PortError> {
+        filter: &dyn Fn(maestria_domain::ChunkId, ArtifactId) -> Result<bool, PortError>,
+    ) -> Result<BoundedSearch<SearchHit>, PortError> {
         let _ = (query, filter);
         Err(PortError::InternalContext {
             context: "filtered chunk search is unsupported",
@@ -30,8 +30,8 @@ pub trait FullTextIndex: Send + Sync {
     fn search_cards_filtered(
         &self,
         query: SearchQuery,
-        filter: &dyn Fn(CardId, ArtifactId) -> bool,
-    ) -> Result<Vec<CardHit>, PortError> {
+        filter: &dyn Fn(CardId, ArtifactId) -> Result<bool, PortError>,
+    ) -> Result<BoundedSearch<CardHit>, PortError> {
         let _ = (query, filter);
         Err(PortError::InternalContext {
             context: "filtered card search is unsupported",
@@ -77,7 +77,7 @@ pub trait FullTextIndex: Send + Sync {
     fn search_lexical(
         &self,
         query: LexicalQuery<ChunkField>,
-    ) -> Result<Vec<LexicalChunkHit>, PortError> {
+    ) -> Result<BoundedSearch<LexicalChunkHit>, PortError> {
         let _ = query;
         Err(PortError::InternalContext {
             context: "lexical chunk search is unsupported",
@@ -89,7 +89,7 @@ pub trait FullTextIndex: Send + Sync {
     fn search_cards_lexical(
         &self,
         query: LexicalQuery<CardField>,
-    ) -> Result<Vec<LexicalCardHit>, PortError> {
+    ) -> Result<BoundedSearch<LexicalCardHit>, PortError> {
         let _ = query;
         Err(PortError::InternalContext {
             context: "lexical card search is unsupported",
@@ -102,8 +102,8 @@ pub trait FullTextIndex: Send + Sync {
     fn search_lexical_filtered(
         &self,
         query: LexicalQuery<ChunkField>,
-        filter: &dyn Fn(maestria_domain::ChunkId, ArtifactId) -> bool,
-    ) -> Result<Vec<LexicalChunkHit>, PortError> {
+        filter: &dyn Fn(maestria_domain::ChunkId, ArtifactId) -> Result<bool, PortError>,
+    ) -> Result<BoundedSearch<LexicalChunkHit>, PortError> {
         let _ = (query, filter);
         Err(PortError::InternalContext {
             context: "filtered lexical chunk search is unsupported",
@@ -116,8 +116,8 @@ pub trait FullTextIndex: Send + Sync {
     fn search_cards_lexical_filtered(
         &self,
         query: LexicalQuery<CardField>,
-        filter: &dyn Fn(CardId, ArtifactId) -> bool,
-    ) -> Result<Vec<LexicalCardHit>, PortError> {
+        filter: &dyn Fn(CardId, ArtifactId) -> Result<bool, PortError>,
+    ) -> Result<BoundedSearch<LexicalCardHit>, PortError> {
         let _ = (query, filter);
         Err(PortError::InternalContext {
             context: "filtered lexical card search is unsupported",

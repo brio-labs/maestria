@@ -39,15 +39,16 @@ Supported operation tags are:
 - `evidence` with `evidence_id`
 - `task` with an optional `task_id`
 - `model_agent_propose` with a bounded `proposal` payload
-
+- `model_agent_status` with `run_id`
+- `model_agent_resolve` with `run_id`, `approval_id`, and `approved`
 The server reads at most 64 KiB per request line and applies a five-second
 timeout while reading a request. It also permits at most 32 concurrent
 connections.
 
 The response is one typed JSON envelope. Successful responses contain a
-`response` object tagged with `status`, `search`, `evidence`, `task`, or
-`model_agent_proposal`. Failed requests contain an `error` string and never
-mutate domain state.
+`response` object tagged with `status`, `search`, `evidence`, `task`,
+`model_agent_proposal`, or `model_agent_status`. Failed requests contain an
+`error` string and never mutate domain state.
 
 ## Scope and provenance
 
@@ -121,6 +122,16 @@ Validates and orchestrates a bounded model agent workflow:
    governance `MemoryPromotionGate` and sends a `CreateMemoryCandidate` domain
    input to the runtime.
 
+
+### `ModelAgentStatus` and `ModelAgentResolve`
+
+`model_agent_status` reads the durable proposal, approval, harness, validation,
+and memory-candidate projections for a `run_id`. It is read-only.
+
+`model_agent_resolve` records an operator decision for the supplied
+`approval_id` and resumes the durable model-agent continuation when approved.
+The operation requires the authenticated daemon token and does not bypass
+scope, effect-journal, validation, or stale-generation checks.
 ### Security Limitations
 
 - **Per-instance token authentication:** The endpoint reuses the existing

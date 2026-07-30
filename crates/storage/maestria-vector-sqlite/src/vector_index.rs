@@ -1,8 +1,13 @@
 use std::path::Path;
 use std::sync::{Mutex, MutexGuard};
 
-use maestria_domain::ChunkId;
-use maestria_ports::{PortError, VectorEmbedding, VectorIndex, VectorSearchHit, VectorSearchQuery};
+use maestria_domain::{
+    ChunkId, SearchExecution, SearchExecutionBudget, SearchExecutionCompletion,
+    SearchExecutionResource, SearchExecutionUsage,
+};
+use maestria_ports::{
+    BoundedSearch, PortError, VectorEmbedding, VectorIndex, VectorSearchHit, VectorSearchQuery,
+};
 use rusqlite::{Connection, params};
 
 use crate::encoding::{
@@ -11,6 +16,63 @@ use crate::encoding::{
 };
 use crate::operations::{delete_stale_chunks, upsert_embeddings};
 use crate::schema::{migrate, sqlite_vec_available};
+
+struct Meter {
+    budget: SearchExecutionBudget,
+    usage: SearchExecutionUsage,
+}
+
+impl Meter {
+    fn new(budget: SearchExecutionBudget) -> Self {
+        Self {
+            budget,
+            usage: SearchExecutionUsage::default(),
+        }
+    }
+    fn candidate(&mut self) -> Option<SearchExecutionResource> {
+        if self.usage.candidates >= self.budget.max_candidates() {
+            return Some(SearchExecutionResource::Candidates);
+        }
+        self.usage.candidates = self.usage.candidates.saturating_add(1);
+        None
+    }
+    fn bytes(&mut self, bytes: u64) -> Option<SearchExecutionResource> {
+        let Some(limit) = self.budget.max_bytes_read() else {
+            self.usage.bytes_read = self.usage.bytes_read.saturating_add(bytes);
+            return None;
+        };
+        if bytes > limit.get().saturating_sub(self.usage.bytes_read) {
+            return Some(SearchExecutionResource::BytesRead);
+        }
+        self.usage.bytes_read = self.usage.bytes_read.saturating_add(bytes);
+        None
+    }
+    fn work(&mut self, work: u64) -> Option<SearchExecutionResource> {
+        if work
+            > self
+                .budget
+                .max_work_units()
+                .saturating_sub(self.usage.work_units)
+        {
+            return Some(SearchExecutionResource::WorkUnits);
+        }
+        self.usage.work_units = self.usage.work_units.saturating_add(work);
+        None
+    }
+    fn result(&mut self) -> Option<SearchExecutionResource> {
+        if self.usage.results >= self.budget.max_results() {
+            return Some(SearchExecutionResource::Results);
+        }
+        self.usage.results = self.usage.results.saturating_add(1);
+        None
+    }
+    fn done<T>(self, hits: Vec<T>, completion: SearchExecutionCompletion) -> BoundedSearch<T> {
+        BoundedSearch::new(
+            hits,
+            SearchExecution::new(self.budget, self.usage, completion),
+        )
+    }
+}
 
 /// SQLite-backed implementation of the vector-search projection.
 pub struct SqliteVectorIndex {
@@ -76,162 +138,19 @@ impl VectorIndex for SqliteVectorIndex {
         transaction.commit().map_err(to_port_error)
     }
 
-    fn search_similar(&self, query: VectorSearchQuery) -> Result<Vec<VectorSearchHit>, PortError> {
-        validate_vector(&query.vector, "query vector")?;
-        if let Some(identity) = &query.identity
-            && identity.fingerprint.dimensions as usize != query.vector.len()
-        {
-            return Err(PortError::InvalidInputContext {
-                context: "query vector dimension mismatch",
-                source: "vector and identity fingerprint dimensions differ".to_string(),
-            });
-        }
-        if query.limit == 0 {
-            return Ok(Vec::new());
-        }
-
-        let q_norm_sq: f64 = query.vector.iter().map(|&v| (v as f64) * (v as f64)).sum();
-        if q_norm_sq == 0.0 {
-            return Ok(Vec::new());
-        }
-
-        let (gen_id, rep, fingerprint) = if let Some(identity) = &query.identity {
-            (
-                Some(identity.generation_id.value().to_string()),
-                Some(identity.representation.0.clone()),
-                Some(crate::encoding::serialize_fingerprint(
-                    &identity.fingerprint,
-                )),
-            )
-        } else {
-            (None, None, None)
-        };
-
-        let query_dimension = query.vector.len();
-        let connection = self.lock_connection()?;
-        let mut statement = connection
-            .prepare(
-                "SELECT chunk_id, embedding
-                 FROM vector_embeddings
-                 WHERE dimension = ?1
-                   AND (?2 IS NULL OR provider_id = ?2)
-                   AND (?3 IS NULL OR model = ?3)
-                   AND (?4 IS NULL OR model_version = ?4)
-                   AND (?5 IS NULL OR generation_id = ?5)
-                   AND (?6 IS NULL OR representation = ?6)
-                   AND (?7 IS NULL OR fingerprint = ?7)",
-            )
-            .map_err(to_port_error)?;
-        let mut rows = statement
-            .query(params![
-                usize_to_i64(query_dimension)?,
-                query.provider_id.as_deref(),
-                query.model.as_deref(),
-                query.model_version.as_deref(),
-                gen_id.as_deref(),
-                rep.as_deref(),
-                fingerprint.as_deref(),
-            ])
-            .map_err(to_port_error)?;
-
-        let mut hits = Vec::new();
-        while let Some(row) = rows.next().map_err(to_port_error)? {
-            let chunk_id = i64_to_u64(row.get::<_, i64>(0).map_err(to_port_error)?)?;
-            let bytes = row.get::<_, Vec<u8>>(1).map_err(to_port_error)?;
-            let vector = decode_vector(&bytes)?;
-            let score = cosine_similarity(&query.vector, &vector)?;
-            hits.push(VectorSearchHit {
-                chunk_id: ChunkId::new(chunk_id),
-                score,
-            });
-        }
-
-        hits.sort_by(|left, right| {
-            right
-                .score
-                .total_cmp(&left.score)
-                .then_with(|| left.chunk_id.value().cmp(&right.chunk_id.value()))
-        });
-        hits.truncate(query.limit as usize);
-        Ok(hits)
+    fn search_similar(
+        &self,
+        query: VectorSearchQuery,
+    ) -> Result<BoundedSearch<VectorSearchHit>, PortError> {
+        search_impl(self, query, &|_| Ok(true))
     }
+
     fn search_similar_filtered(
         &self,
         query: VectorSearchQuery,
-        filter: &dyn Fn(ChunkId) -> bool,
-    ) -> Result<Vec<VectorSearchHit>, PortError> {
-        validate_vector(&query.vector, "query vector")?;
-        if let Some(identity) = &query.identity
-            && identity.fingerprint.dimensions as usize != query.vector.len()
-        {
-            return Err(PortError::InvalidInputContext {
-                context: "query vector dimension mismatch",
-                source: "vector and identity fingerprint dimensions differ".to_string(),
-            });
-        }
-        if query.limit == 0 {
-            return Ok(Vec::new());
-        }
-        let q_norm_sq: f64 = query.vector.iter().map(|&v| (v as f64) * (v as f64)).sum();
-        if q_norm_sq == 0.0 {
-            return Ok(Vec::new());
-        }
-        let (gen_id, rep, fingerprint) = if let Some(identity) = &query.identity {
-            (
-                Some(identity.generation_id.value().to_string()),
-                Some(identity.representation.0.clone()),
-                Some(crate::encoding::serialize_fingerprint(
-                    &identity.fingerprint,
-                )),
-            )
-        } else {
-            (None, None, None)
-        };
-        let connection = self.lock_connection()?;
-        let mut statement = connection
-            .prepare(
-                "SELECT chunk_id, embedding
-                 FROM vector_embeddings
-                 WHERE dimension = ?1
-                   AND (?2 IS NULL OR provider_id = ?2)
-                   AND (?3 IS NULL OR model = ?3)
-                   AND (?4 IS NULL OR model_version = ?4)
-                   AND (?5 IS NULL OR generation_id = ?5)
-                   AND (?6 IS NULL OR representation = ?6)
-                   AND (?7 IS NULL OR fingerprint = ?7)",
-            )
-            .map_err(to_port_error)?;
-        let mut rows = statement
-            .query(params![
-                usize_to_i64(query.vector.len())?,
-                query.provider_id.as_deref(),
-                query.model.as_deref(),
-                query.model_version.as_deref(),
-                gen_id.as_deref(),
-                rep.as_deref(),
-                fingerprint.as_deref(),
-            ])
-            .map_err(to_port_error)?;
-        let mut hits = Vec::new();
-        while let Some(row) = rows.next().map_err(to_port_error)? {
-            let chunk_id = ChunkId::new(i64_to_u64(row.get::<_, i64>(0).map_err(to_port_error)?)?);
-            if !filter(chunk_id) {
-                continue;
-            }
-            let vector = decode_vector(&row.get::<_, Vec<u8>>(1).map_err(to_port_error)?)?;
-            hits.push(VectorSearchHit {
-                chunk_id,
-                score: cosine_similarity(&query.vector, &vector)?,
-            });
-        }
-        hits.sort_by(|left, right| {
-            right
-                .score
-                .total_cmp(&left.score)
-                .then_with(|| left.chunk_id.value().cmp(&right.chunk_id.value()))
-        });
-        hits.truncate(query.limit as usize);
-        Ok(hits)
+        filter: &dyn Fn(ChunkId) -> Result<bool, PortError>,
+    ) -> Result<BoundedSearch<VectorSearchHit>, PortError> {
+        search_impl(self, query, filter)
     }
 
     fn delete_chunks(&self, chunk_ids: &[ChunkId]) -> Result<(), PortError> {
@@ -278,4 +197,134 @@ impl VectorIndex for SqliteVectorIndex {
         delete_stale_chunks(&transaction, &expected_chunks)?;
         transaction.commit().map_err(to_port_error)
     }
+}
+
+fn collect_hits(
+    rows: &mut rusqlite::Rows<'_>,
+    query_vector: &[f32],
+    filter: &dyn Fn(ChunkId) -> Result<bool, PortError>,
+    meter: &mut Meter,
+) -> Result<(Vec<VectorSearchHit>, Option<SearchExecutionResource>), PortError> {
+    let mut hits = Vec::new();
+    let mut stopped = None;
+    while let Some(row) = rows.next().map_err(to_port_error)? {
+        if let Some(resource) = meter.candidate() {
+            stopped = Some(resource);
+            break;
+        }
+        let chunk_id = ChunkId::new(i64_to_u64(row.get::<_, i64>(0).map_err(to_port_error)?)?);
+        if !filter(chunk_id)? {
+            continue;
+        }
+        let work = maestria_domain::saturating_u64(query_vector.len()).saturating_add(1);
+        if let Some(resource) = meter.work(work) {
+            stopped = Some(resource);
+            break;
+        }
+        let bytes_read = i64_to_u64(row.get::<_, i64>(1).map_err(to_port_error)?)?;
+        if let Some(resource) = meter.bytes(bytes_read) {
+            stopped = Some(resource);
+            break;
+        }
+        let bytes = row.get::<_, Vec<u8>>(2).map_err(to_port_error)?;
+        let vector = decode_vector(&bytes)?;
+        let score = cosine_similarity(query_vector, &vector)?;
+        hits.push(VectorSearchHit { chunk_id, score });
+    }
+    Ok((hits, stopped))
+}
+
+fn search_impl(
+    index: &SqliteVectorIndex,
+    query: VectorSearchQuery,
+    filter: &dyn Fn(ChunkId) -> Result<bool, PortError>,
+) -> Result<BoundedSearch<VectorSearchHit>, PortError> {
+    validate_vector(&query.vector, "query vector")?;
+    if let Some(identity) = &query.identity
+        && identity.fingerprint.dimensions as usize != query.vector.len()
+    {
+        return Err(PortError::InvalidInputContext {
+            context: "query vector dimension mismatch",
+            source: "vector and identity fingerprint dimensions differ".to_string(),
+        });
+    }
+    if u64::from(query.limit) != query.execution_budget.max_results() {
+        return Err(PortError::InvalidInputContext {
+            context: "vector search result limit",
+            source: "query limit and execution budget max_results must agree".to_string(),
+        });
+    }
+    let mut meter = Meter::new(query.execution_budget);
+    if query.limit == 0 {
+        return Ok(meter.done(Vec::new(), SearchExecutionCompletion::Complete));
+    }
+    let q_norm_sq: f64 = query.vector.iter().map(|&v| (v as f64) * (v as f64)).sum();
+    if q_norm_sq == 0.0 {
+        return Ok(meter.done(Vec::new(), SearchExecutionCompletion::Complete));
+    }
+    let (gen_id, rep, fingerprint) = if let Some(identity) = &query.identity {
+        (
+            Some(identity.generation_id.value().to_string()),
+            Some(identity.representation.0.clone()),
+            Some(crate::encoding::serialize_fingerprint(
+                &identity.fingerprint,
+            )),
+        )
+    } else {
+        (None, None, None)
+    };
+    let connection = index.lock_connection()?;
+    let mut statement = connection
+        .prepare(
+            "SELECT chunk_id, length(embedding), embedding
+                 FROM vector_embeddings
+                 WHERE dimension = ?1
+                   AND (?2 IS NULL OR provider_id = ?2)
+                   AND (?3 IS NULL OR model = ?3)
+                   AND (?4 IS NULL OR model_version = ?4)
+                   AND (?5 IS NULL OR generation_id = ?5)
+                   AND (?6 IS NULL OR representation = ?6)
+                   AND (?7 IS NULL OR fingerprint = ?7)
+                 ORDER BY chunk_id",
+        )
+        .map_err(to_port_error)?;
+    let mut rows = statement
+        .query(params![
+            usize_to_i64(query.vector.len())?,
+            query.provider_id.as_deref(),
+            query.model.as_deref(),
+            query.model_version.as_deref(),
+            gen_id.as_deref(),
+            rep.as_deref(),
+            fingerprint.as_deref(),
+        ])
+        .map_err(to_port_error)?;
+    let (mut hits, mut stopped) = collect_hits(&mut rows, &query.vector, filter, &mut meter)?;
+    hits.sort_by(|left, right| {
+        right
+            .score
+            .total_cmp(&left.score)
+            .then_with(|| left.chunk_id.value().cmp(&right.chunk_id.value()))
+    });
+    let selected_limit =
+        usize::try_from(query.limit).map_err(|_| PortError::InvalidInputContext {
+            context: "vector search result limit",
+            source: "result limit does not fit platform range".to_string(),
+        })?;
+    let result_exhausted = hits.len() > selected_limit;
+    let selected = hits.into_iter().take(selected_limit).collect::<Vec<_>>();
+    if result_exhausted {
+        stopped = Some(SearchExecutionResource::Results);
+    }
+    for _ in 0..selected.len() {
+        if let Some(resource) = meter.result() {
+            stopped = Some(resource);
+            break;
+        }
+    }
+    let completion = stopped.map_or(
+        SearchExecutionCompletion::Complete,
+        SearchExecutionCompletion::Exhausted,
+    );
+    Ok(meter.done(selected, completion))
 }

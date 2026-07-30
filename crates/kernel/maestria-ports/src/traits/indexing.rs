@@ -1,6 +1,18 @@
 use std::path::PathBuf;
 
-use maestria_domain::{ArtifactId, CardId, ChunkId};
+use maestria_domain::{ArtifactId, CardId, ChunkId, SearchExecution, SearchExecutionBudget};
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct BoundedSearch<T> {
+    pub hits: Vec<T>,
+    pub execution: SearchExecution,
+}
+
+impl<T> BoundedSearch<T> {
+    pub const fn new(hits: Vec<T>, execution: SearchExecution) -> Self {
+        Self { hits, execution }
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IndexedChunk {
@@ -16,13 +28,13 @@ pub struct IndexedCard {
     pub title: String,
     pub body: String,
 }
-
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct SearchQuery {
     pub q: String,
     pub limit: usize,
     /// Number of matching documents to skip before applying `limit`.
     pub offset: usize,
+    pub execution_budget: SearchExecutionBudget,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

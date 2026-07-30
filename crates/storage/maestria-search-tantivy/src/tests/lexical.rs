@@ -1,6 +1,12 @@
 use crate::TantivyFullTextIndex;
-use maestria_domain::{ArtifactId, ChunkId};
+use maestria_domain::{ArtifactId, ChunkId, SearchExecutionBudget};
 use maestria_ports::FullTextIndex;
+
+fn search_budget(
+    limit: u64,
+) -> Result<maestria_domain::SearchExecutionBudget, maestria_domain::SearchCompatibilityError> {
+    SearchExecutionBudget::new(limit, 10_000, 100_000, 0)
+}
 
 fn lexical_chunk(
     artifact_id: u64,
@@ -68,9 +74,10 @@ fn lexical_index_search_returns_chunk_metadata_contains_match()
                 boost: 4.0,
             },
         ],
+        execution_budget: search_budget(10)?,
     })?;
 
-    assert_eq!(hits.len(), 2); // Both chunks match (chunk 1 text, chunk 2 path/filename/symbol)
+    assert_eq!(hits.hits.len(), 2); // Both chunks match (chunk 1 text, chunk 2 path/filename/symbol)
     // Rank 1 will be chunk 1 (shorter text gives higher score in manual scoring) or chunk 2 (more matched fields? manual scoring only scores one field)
     // But the important part is both are present.
     Ok(())
@@ -98,10 +105,11 @@ fn lexical_contains_matches_inside_symbol_tokens() -> Result<(), Box<dyn std::er
             field: ChunkField::Symbol,
             boost: 1.0,
         }],
+        execution_budget: search_budget(10)?,
     })?;
 
-    assert_eq!(hits.len(), 1);
-    assert_eq!(hits[0].chunk.symbol.as_deref(), Some("Searcher"));
+    assert_eq!(hits.hits.len(), 1);
+    assert_eq!(hits.hits[0].chunk.symbol.as_deref(), Some("Searcher"));
     Ok(())
 }
 
@@ -138,12 +146,13 @@ fn lexical_index_search_exact_match() -> Result<(), Box<dyn std::error::Error>> 
             field: ChunkField::Filename,
             boost: 3.0,
         }],
+        execution_budget: search_budget(10)?,
     })?;
 
-    assert_eq!(hits.len(), 1);
-    assert_eq!(hits[0].chunk.artifact_id.value(), 1);
+    assert_eq!(hits.hits.len(), 1);
+    assert_eq!(hits.hits[0].chunk.artifact_id.value(), 1);
     assert_eq!(
-        hits[0].metadata.reason,
+        hits.hits[0].metadata.reason,
         HitReason::ExactMatch {
             field: "filename".to_string()
         }
@@ -171,10 +180,11 @@ fn lexical_index_search_exact_whole_field_text() -> Result<(), Box<dyn std::erro
             field: ChunkField::Text,
             boost: 1.0,
         }],
+        execution_budget: search_budget(10)?,
     })?;
 
-    assert_eq!(hits.len(), 1);
-    assert_eq!(hits[0].chunk.artifact_id.value(), 2);
+    assert_eq!(hits.hits.len(), 1);
+    assert_eq!(hits.hits[0].chunk.artifact_id.value(), 2);
     Ok(())
 }
 
@@ -201,12 +211,13 @@ fn lexical_index_search_metadata_contains() -> Result<(), Box<dyn std::error::Er
             field: ChunkField::Path,
             boost: 1.0,
         }],
+        execution_budget: search_budget(10)?,
     })?;
 
-    assert_eq!(hits.len(), 1);
-    assert_eq!(hits[0].chunk.artifact_id.value(), 1);
+    assert_eq!(hits.hits.len(), 1);
+    assert_eq!(hits.hits[0].chunk.artifact_id.value(), 1);
     assert_eq!(
-        hits[0].metadata.reason,
+        hits.hits[0].metadata.reason,
         HitReason::FieldMatch {
             field: "path".to_string()
         }
@@ -232,11 +243,13 @@ fn lexical_search_honors_offset_and_rank() -> Result<(), Box<dyn std::error::Err
             field: ChunkField::Text,
             boost: 1.0,
         }],
+        execution_budget: search_budget(1)?,
     })?;
 
-    assert_eq!(hits.len(), 1);
-    assert_eq!(hits[0].chunk.chunk_id, ChunkId::new(11));
-    assert_eq!(hits[0].metadata.raw_rank, 2);
+    assert_eq!(hits.hits.len(), 1);
+    assert_eq!(hits.hits[0].chunk.chunk_id, ChunkId::new(11));
+    assert_eq!(hits.execution.budget.max_results(), 1);
+    assert_eq!(hits.hits[0].metadata.raw_rank, 2);
     Ok(())
 }
 
@@ -273,12 +286,13 @@ fn lexical_index_search_exact_id_match() -> Result<(), Box<dyn std::error::Error
             field: ChunkField::Id,
             boost: 3.0,
         }],
+        execution_budget: search_budget(10)?,
     })?;
 
-    assert_eq!(hits.len(), 1);
-    assert_eq!(hits[0].chunk.artifact_id.value(), 2);
+    assert_eq!(hits.hits.len(), 1);
+    assert_eq!(hits.hits[0].chunk.artifact_id.value(), 2);
     assert_eq!(
-        hits[0].metadata.reason,
+        hits.hits[0].metadata.reason,
         HitReason::ExactMatch {
             field: "id".to_string()
         }

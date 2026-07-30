@@ -108,13 +108,16 @@ fn candidate_request(
 ) -> Result<CandidateRequest, Box<dyn std::error::Error>> {
     let plan = plan()?;
     let authorization = RetrievalSecurityPolicy::default().authorization_context(&plan.scope)?;
+    let execution_budget = plan.execution_budget()?;
     Ok(CandidateRequest {
         plan,
         query: SearchQuery {
             q: query.to_string(),
             limit,
             offset: 0,
+            execution_budget,
         },
+        execution_budget,
         expected_generation,
         authorization,
     })

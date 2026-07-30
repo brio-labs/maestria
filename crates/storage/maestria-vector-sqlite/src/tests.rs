@@ -1,4 +1,4 @@
-use maestria_domain::ChunkId;
+use maestria_domain::{ChunkId, SearchExecutionBudget};
 use maestria_ports::{
     EmbeddingIdentity, EmbeddingProvenance, PortError, ProviderDisclosure, RetentionPolicy,
     VectorEmbedding, VectorIndex, VectorSearchQuery, contract_tests::assert_vector_index_contract,
@@ -8,6 +8,16 @@ use rusqlite::Connection;
 use crate::encoding::to_port_error;
 use crate::schema::{SCHEMA_VERSION, migrate, sqlite_vec_available};
 use crate::vector_index::SqliteVectorIndex;
+
+fn search_budget(limit: u64) -> Result<SearchExecutionBudget, PortError> {
+    SearchExecutionBudget::new(limit, 10_000, 100_000, 0).map_err(|error| {
+        PortError::InternalContext {
+            context: "construct test search execution budget",
+            source: error.to_string(),
+        }
+    })
+}
+
 #[test]
 fn rejects_empty_vector_on_index() -> Result<(), PortError> {
     let index = SqliteVectorIndex::in_memory()?;
@@ -109,9 +119,10 @@ fn search_returns_empty_for_zero_norm_vector() -> Result<(), PortError> {
         provider_id: None,
         model: None,
         model_version: None,
+        execution_budget: search_budget(10)?,
     })?;
     assert!(
-        hits.is_empty(),
+        hits.hits.is_empty(),
         "expected no hits for zero-norm query vector"
     );
     Ok(())
@@ -340,14 +351,15 @@ fn prevents_nan_scores_from_overflow() -> Result<(), PortError> {
         provider_id: None,
         model: None,
         model_version: None,
+        execution_budget: search_budget(1)?,
     })?;
 
-    assert_eq!(hits.len(), 1);
+    assert_eq!(hits.hits.len(), 1);
     assert!(
-        hits[0].score.is_finite(),
+        hits.hits[0].score.is_finite(),
         "Score should be finite despite huge values"
     );
-    assert_eq!(hits[0].score, 1.0); // Exact match is 1.0
+    assert_eq!(hits.hits[0].score, 1.0); // Exact match is 1.0
     Ok(())
 }
 
@@ -391,8 +403,9 @@ fn reopen_persistence_and_mismatch_rejection() -> Result<(), PortError> {
         provider_id: None,
         model: None,
         model_version: None,
+        execution_budget: search_budget(1)?,
     })?;
-    assert_eq!(hits.len(), 1);
+    assert_eq!(hits.hits.len(), 1);
 
     // Mismatch rejection
     let mut bad_ident = prov.identity.clone();
@@ -405,6 +418,7 @@ fn reopen_persistence_and_mismatch_rejection() -> Result<(), PortError> {
         provider_id: None,
         model: None,
         model_version: None,
+        execution_budget: search_budget(1)?,
     });
 
     assert!(
@@ -469,10 +483,11 @@ fn rebuild_replaces_and_deletes_stale_rows() -> Result<(), PortError> {
             provider_id: None,
             model: None,
             model_version: None,
+            execution_budget: search_budget(10)?,
         },
-        &|id| id.value() == 1,
+        &|id| Ok(id.value() == 1),
     )?;
-    assert!(hits_1.is_empty(), "chunk 1 should be deleted");
+    assert!(hits_1.hits.is_empty(), "chunk 1 should be deleted");
 
     // Check that chunk 2 is updated (should match 0.5, 0.5 exactly)
     let hits_2 = index.search_similar_filtered(
@@ -483,11 +498,12 @@ fn rebuild_replaces_and_deletes_stale_rows() -> Result<(), PortError> {
             provider_id: None,
             model: None,
             model_version: None,
+            execution_budget: search_budget(10)?,
         },
-        &|id| id.value() == 2,
+        &|id| Ok(id.value() == 2),
     )?;
-    assert_eq!(hits_2.len(), 1);
-    assert_eq!(hits_2[0].score, 1.0);
+    assert_eq!(hits_2.hits.len(), 1);
+    assert_eq!(hits_2.hits[0].score, 1.0);
 
     // Check that chunk 3 is inserted
     let hits_3 = index.search_similar_filtered(
@@ -498,10 +514,11 @@ fn rebuild_replaces_and_deletes_stale_rows() -> Result<(), PortError> {
             provider_id: None,
             model: None,
             model_version: None,
+            execution_budget: search_budget(10)?,
         },
-        &|id| id.value() == 3,
+        &|id| Ok(id.value() == 3),
     )?;
-    assert_eq!(hits_3.len(), 1);
+    assert_eq!(hits_3.hits.len(), 1);
 
     Ok(())
 }
