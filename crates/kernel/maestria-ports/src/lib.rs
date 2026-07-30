@@ -41,16 +41,16 @@ pub use full_text::FullTextIndex;
 mod traits;
 pub use traits::{
     ApprovalRecord, ApprovalRepository, ApprovalRiskLevel, ApprovalStatus, ArtifactRepository,
-    BlobStore, CardHit, CardRepository, ChunkRepository, EffectJournal, EffectJournalEntry,
-    EffectJournalIntent, EffectJournalStatus, EmbeddingIdentity, EmbeddingInputKind,
-    EmbeddingProvenance, EmbeddingProvider, EmbeddingRequest, EmbeddingResponse, EventFilter,
-    EventLog, EvidenceRepository, FileHandle, FileMetadata, GovernedAgentProposal, GraphIndex,
-    HarnessAdapter, HarnessCapabilities, HarnessCommandClass, HarnessOutcome, HarnessRequest,
-    HarnessRunId, IdAllocator, IndexedCard, IndexedChunk, ModelAgentProposal,
-    ModelAgentProposalError, PortError, ProviderDisclosure, ProviderEndpoint, ProviderTransport,
-    RetentionPolicy, SearchFuture, SearchHit, SearchKnowledgeExecutor, SearchQuery,
-    VectorEmbedding, VectorIndex, VectorSearchHit, VectorSearchQuery, WebFetchOptions, WebFetcher,
-    WebSnapshotData,
+    BlobStore, BoundedSearch, CardHit, CardRepository, ChunkRepository, EffectJournal,
+    EffectJournalEntry, EffectJournalIntent, EffectJournalStatus, EmbeddingIdentity,
+    EmbeddingInputKind, EmbeddingProvenance, EmbeddingProvider, EmbeddingRequest,
+    EmbeddingResponse, EventFilter, EventLog, EvidenceRepository, FileHandle, FileMetadata,
+    GovernedAgentProposal, GraphIndex, HarnessAdapter, HarnessCapabilities, HarnessCommandClass,
+    HarnessOutcome, HarnessRequest, HarnessRunId, IdAllocator, IndexedCard, IndexedChunk,
+    ModelAgentProposal, ModelAgentProposalError, PortError, ProviderDisclosure, ProviderEndpoint,
+    ProviderTransport, RetentionPolicy, SearchFuture, SearchHit, SearchKnowledgeExecutor,
+    SearchQuery, VectorEmbedding, VectorIndex, VectorSearchHit, VectorSearchQuery, WebFetchOptions,
+    WebFetcher, WebSnapshotData,
 };
 mod visual;
 pub use visual::{VisualEmbeddingProvider, VisualEmbeddingRequest, VisualSource};

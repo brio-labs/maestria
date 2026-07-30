@@ -193,6 +193,8 @@ pub struct SearchTraceLane {
     pub generation: Option<crate::ids::IndexGenerationId>,
     pub status: SearchLaneStatus,
     pub candidates: Vec<SearchTraceLaneCandidate>,
+    #[serde(default)]
+    pub execution: crate::SearchExecution,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -326,7 +328,7 @@ impl SearchTrace {
             stages: plan.stages.clone(),
             evidence_requirements: plan.evidence_requirements.clone(),
             fingerprint: plan.fingerprint.clone(),
-            identity_version: 6,
+            identity_version: 7,
             retrievers,
             policy_fingerprint: None,
             budgets: plan.budgets.clone(),
@@ -375,12 +377,12 @@ impl SearchTrace {
         }
     }
     pub fn with_degradation(mut self, degradation: impl Into<String>) -> Self {
-        self.identity_version = self.identity_version.max(6);
+        self.identity_version = self.identity_version.max(7);
         self.degradation = Some(degradation.into());
         self
     }
     pub fn with_unavailable_capability(mut self, capability: impl Into<String>) -> Self {
-        self.identity_version = self.identity_version.max(6);
+        self.identity_version = self.identity_version.max(7);
         self.unavailable_capability = Some(capability.into());
         self
     }
@@ -394,7 +396,7 @@ impl SearchTrace {
                 candidate.canonicalize_score_provenance()?;
             }
         }
-        self.identity_version = 6;
+        self.identity_version = 7;
         Ok(())
     }
 }

@@ -96,7 +96,7 @@ fn query_symbol_path_and_regex_filters() -> Result<(), Box<dyn Error>> {
 }
 
 #[test]
-fn query_authorizes_before_limit_selection() -> Result<(), Box<dyn Error>> {
+fn query_bounds_authorization_scan() -> Result<(), Box<dyn Error>> {
     let tmp = make_workspace()?;
     let index = build_index(tmp.path(), "g1")?;
     let mut callbacks = 0;
@@ -105,10 +105,11 @@ fn query_authorizes_before_limit_selection() -> Result<(), Box<dyn Error>> {
         Ok::<bool, Box<dyn Error>>(callbacks > 1)
     })?;
 
-    assert_eq!(callbacks, index.summary.symbol_count);
-    assert_eq!(result.summary.matched, index.summary.symbol_count - 1);
-    assert_eq!(result.summary.returned, 1);
-    assert_eq!(result.records.len(), 1);
+    assert_eq!(callbacks, 1);
+    assert_eq!(result.summary.matched, 0);
+    assert_eq!(result.summary.returned, 0);
+    assert!(result.summary.truncated);
+    assert_eq!(result.summary.scanned, 1);
     Ok(())
 }
 

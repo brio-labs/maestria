@@ -1,11 +1,12 @@
 use std::sync::{Arc, Mutex};
 
+use super::execution::{Meter, validate_limit};
+use crate::BoundedSearch;
 use crate::PortError;
 use crate::lexical::{
     CardField, ChunkField, HitReason, IndexedLexicalCard, IndexedLexicalChunk, LexicalCardHit,
     LexicalChunkHit, LexicalHitMetadata, LexicalQuery, MatchMode, RetrieverIdentity,
 };
-const MAX_LEXICAL_CANDIDATES: usize = 10_000;
 
 fn validate_and_prepare_query(
     q: &str,
@@ -147,19 +148,127 @@ pub(crate) fn index_lexical_cards(
     guard.extend(cards);
     Ok(())
 }
-
 pub(crate) fn search_lexical(
     lexical_chunks: &Arc<Mutex<Vec<IndexedLexicalChunk>>>,
     query: LexicalQuery<ChunkField>,
-) -> Result<Vec<LexicalChunkHit>, PortError> {
-    search_lexical_filtered(lexical_chunks, query, &|_, _| true)
+) -> Result<BoundedSearch<LexicalChunkHit>, PortError> {
+    search_lexical_filtered(lexical_chunks, query, &|_, _| Ok(true))
+}
+
+fn collect_chunk_lexical_hits(
+    chunks: &[IndexedLexicalChunk],
+    query: &LexicalQuery<ChunkField>,
+    needle: &str,
+    filter: &dyn Fn(
+        maestria_domain::ChunkId,
+        maestria_domain::ArtifactId,
+    ) -> Result<bool, PortError>,
+    meter: &mut Meter,
+) -> Result<
+    (
+        Vec<LexicalChunkHit>,
+        Option<maestria_domain::SearchExecutionResource>,
+    ),
+    PortError,
+> {
+    let mut hits = Vec::new();
+    let mut stopped = None;
+    for chunk in chunks {
+        if let Some(resource) = meter.candidate() {
+            stopped = Some(resource);
+            break;
+        }
+        if !filter(chunk.chunk_id, chunk.artifact_id)? {
+            continue;
+        }
+        let bytes = super::execution::saturating_u64(chunk.text.len())
+            .saturating_add(
+                chunk
+                    .path
+                    .as_ref()
+                    .map_or(0, |value| super::execution::saturating_u64(value.len())),
+            )
+            .saturating_add(
+                chunk
+                    .filename
+                    .as_ref()
+                    .map_or(0, |value| super::execution::saturating_u64(value.len())),
+            )
+            .saturating_add(
+                chunk
+                    .symbol
+                    .as_ref()
+                    .map_or(0, |value| super::execution::saturating_u64(value.len())),
+            );
+        if let Some(resource) = meter.bytes(bytes) {
+            stopped = Some(resource);
+            break;
+        }
+        let work =
+            u64::try_from(query.fields.len()).map_or(u64::MAX, |fields| fields.saturating_add(1));
+        if let Some(resource) = meter.work(work) {
+            stopped = Some(resource);
+            break;
+        }
+        let mut matched_field = None;
+        let mut raw_score = 0.0;
+        for field in &query.fields {
+            if let ChunkField::Id = field.field {
+                let key = format!("{}:{}", chunk.artifact_id.value(), chunk.chunk_id.value());
+                let matches = match query.mode {
+                    MatchMode::Contains => key.contains(needle),
+                    MatchMode::Exact => key == needle,
+                };
+                if matches {
+                    matched_field = Some("id".to_string());
+                    raw_score += field.boost;
+                }
+                continue;
+            }
+            let (value, len) = match field.field {
+                ChunkField::Text => (Some(&chunk.text), chunk.text.len()),
+                ChunkField::Path => (
+                    chunk.path.as_ref(),
+                    chunk.path.as_ref().map_or(0, String::len),
+                ),
+                ChunkField::Filename => (
+                    chunk.filename.as_ref(),
+                    chunk.filename.as_ref().map_or(0, String::len),
+                ),
+                ChunkField::Symbol => (
+                    chunk.symbol.as_ref(),
+                    chunk.symbol.as_ref().map_or(0, String::len),
+                ),
+                ChunkField::Id => (None, 0),
+            };
+            process_field_match(
+                value,
+                len,
+                field,
+                query.mode,
+                needle,
+                &mut matched_field,
+                &mut raw_score,
+            );
+        }
+        if let Some(metadata) = build_metadata(matched_field, query.mode, raw_score) {
+            hits.push(LexicalChunkHit {
+                chunk: chunk.clone(),
+                metadata,
+            });
+        }
+    }
+    Ok((hits, stopped))
 }
 
 pub(crate) fn search_lexical_filtered(
     lexical_chunks: &Arc<Mutex<Vec<IndexedLexicalChunk>>>,
     query: LexicalQuery<ChunkField>,
-    filter: &dyn Fn(maestria_domain::ChunkId, maestria_domain::ArtifactId) -> bool,
-) -> Result<Vec<LexicalChunkHit>, PortError> {
+    filter: &dyn Fn(
+        maestria_domain::ChunkId,
+        maestria_domain::ArtifactId,
+    ) -> Result<bool, PortError>,
+) -> Result<BoundedSearch<LexicalChunkHit>, PortError> {
     let needle = validate_and_prepare_query(
         &query.q,
         query.mode,
@@ -171,73 +280,24 @@ pub(crate) fn search_lexical_filtered(
             source: "at least one field is required".to_string(),
         });
     }
+    validate_limit(
+        query.limit,
+        query.execution_budget,
+        "lexical chunk result limit",
+    )?;
+    let mut meter = Meter::new(query.execution_budget);
+    if query.limit == 0 {
+        return Ok(meter.complete(Vec::new()));
+    }
     let guard = lexical_chunks
         .lock()
         .map_err(|_| PortError::InternalContext {
             context: "lexical index lock poisoned",
             source: "index mutex is poisoned".to_string(),
         })?;
-
-    let hits = guard
-        .iter()
-        .filter_map(|chunk| {
-            if !filter(chunk.chunk_id, chunk.artifact_id) {
-                return None;
-            }
-            let mut matched_field = None;
-            let mut raw_score = 0.0;
-
-            for f in &query.fields {
-                if let ChunkField::Id = f.field {
-                    let key = format!("{}:{}", chunk.artifact_id.value(), chunk.chunk_id.value());
-                    let matches = match query.mode {
-                        MatchMode::Contains => key.contains(&needle),
-                        MatchMode::Exact => key == needle,
-                    };
-                    if matches {
-                        matched_field = Some("id".to_string());
-                        raw_score += f.boost;
-                    }
-                    continue;
-                }
-
-                let (val, len) = match f.field {
-                    ChunkField::Text => (Some(&chunk.text), chunk.text.len()),
-                    ChunkField::Path => (
-                        chunk.path.as_ref(),
-                        chunk.path.as_ref().map_or(0, String::len),
-                    ),
-                    ChunkField::Filename => (
-                        chunk.filename.as_ref(),
-                        chunk.filename.as_ref().map_or(0, String::len),
-                    ),
-                    ChunkField::Symbol => (
-                        chunk.symbol.as_ref(),
-                        chunk.symbol.as_ref().map_or(0, String::len),
-                    ),
-                    ChunkField::Id => (None, 0),
-                };
-
-                process_field_match(
-                    val,
-                    len,
-                    f,
-                    query.mode,
-                    &needle,
-                    &mut matched_field,
-                    &mut raw_score,
-                );
-            }
-
-            build_metadata(matched_field, query.mode, raw_score).map(|metadata| LexicalChunkHit {
-                chunk: chunk.clone(),
-                metadata,
-            })
-        })
-        .take(MAX_LEXICAL_CANDIDATES)
-        .collect::<Vec<_>>();
-
-    Ok(page_and_rank_hits(
+    let (hits, mut stopped) =
+        collect_chunk_lexical_hits(guard.as_slice(), &query, &needle, filter, &mut meter)?;
+    let selected = page_and_rank_hits(
         hits,
         query.offset,
         query.limit,
@@ -245,21 +305,140 @@ pub(crate) fn search_lexical_filtered(
         |h| h.chunk.artifact_id,
         |h| h.chunk.chunk_id,
         |h, rank| h.metadata.raw_rank = rank,
-    ))
+    );
+    for _ in 0..selected.len() {
+        if let Some(resource) = meter.result() {
+            stopped = Some(resource);
+            break;
+        }
+    }
+    if let Some(resource) = stopped {
+        Ok(meter.exhausted(selected, resource))
+    } else {
+        Ok(meter.complete(selected))
+    }
+}
+
+fn collect_card_lexical_hits(
+    cards: &[IndexedLexicalCard],
+    query: &LexicalQuery<CardField>,
+    needle: &str,
+    filter: &dyn Fn(
+        maestria_domain::CardId,
+        maestria_domain::ArtifactId,
+    ) -> Result<bool, PortError>,
+    meter: &mut Meter,
+) -> Result<
+    (
+        Vec<LexicalCardHit>,
+        Option<maestria_domain::SearchExecutionResource>,
+    ),
+    PortError,
+> {
+    let mut hits = Vec::new();
+    let mut stopped = None;
+    for card in cards {
+        if let Some(resource) = meter.candidate() {
+            stopped = Some(resource);
+            break;
+        }
+        if !filter(card.card_id, card.artifact_id)? {
+            continue;
+        }
+        let bytes =
+            super::execution::saturating_u64(card.title.len().saturating_add(card.body.len()))
+                .saturating_add(
+                    card.path
+                        .as_ref()
+                        .map_or(0, |value| super::execution::saturating_u64(value.len())),
+                )
+                .saturating_add(
+                    card.filename
+                        .as_ref()
+                        .map_or(0, |value| super::execution::saturating_u64(value.len())),
+                )
+                .saturating_add(
+                    card.symbol
+                        .as_ref()
+                        .map_or(0, |value| super::execution::saturating_u64(value.len())),
+                );
+        if let Some(resource) = meter.bytes(bytes) {
+            stopped = Some(resource);
+            break;
+        }
+        let work =
+            u64::try_from(query.fields.len()).map_or(u64::MAX, |fields| fields.saturating_add(1));
+        if let Some(resource) = meter.work(work) {
+            stopped = Some(resource);
+            break;
+        }
+        let mut matched_field = None;
+        let mut raw_score = 0.0;
+        for field in &query.fields {
+            if let CardField::Id = field.field {
+                let key = format!("card:{}:{}", card.artifact_id.value(), card.card_id.value());
+                let matches = match query.mode {
+                    MatchMode::Contains => key.contains(needle),
+                    MatchMode::Exact => key == needle,
+                };
+                if matches {
+                    matched_field = Some("id".to_string());
+                    raw_score += field.boost;
+                }
+                continue;
+            }
+            let (value, len) = match field.field {
+                CardField::Title => (Some(&card.title), card.title.len()),
+                CardField::Body => (Some(&card.body), card.body.len()),
+                CardField::Path => (
+                    card.path.as_ref(),
+                    card.path.as_ref().map_or(0, String::len),
+                ),
+                CardField::Filename => (
+                    card.filename.as_ref(),
+                    card.filename.as_ref().map_or(0, String::len),
+                ),
+                CardField::Symbol => (
+                    card.symbol.as_ref(),
+                    card.symbol.as_ref().map_or(0, String::len),
+                ),
+                CardField::Id => (None, 0),
+            };
+            process_field_match(
+                value,
+                len,
+                field,
+                query.mode,
+                needle,
+                &mut matched_field,
+                &mut raw_score,
+            );
+        }
+        if let Some(metadata) = build_metadata(matched_field, query.mode, raw_score) {
+            hits.push(LexicalCardHit {
+                card: card.clone(),
+                metadata,
+            });
+        }
+    }
+    Ok((hits, stopped))
 }
 
 pub(crate) fn search_cards_lexical(
     lexical_cards: &Arc<Mutex<Vec<IndexedLexicalCard>>>,
     query: LexicalQuery<CardField>,
-) -> Result<Vec<LexicalCardHit>, PortError> {
-    search_cards_lexical_filtered(lexical_cards, query, &|_, _| true)
+) -> Result<BoundedSearch<LexicalCardHit>, PortError> {
+    search_cards_lexical_filtered(lexical_cards, query, &|_, _| Ok(true))
 }
 
 pub(crate) fn search_cards_lexical_filtered(
     lexical_cards: &Arc<Mutex<Vec<IndexedLexicalCard>>>,
     query: LexicalQuery<CardField>,
-    filter: &dyn Fn(maestria_domain::CardId, maestria_domain::ArtifactId) -> bool,
-) -> Result<Vec<LexicalCardHit>, PortError> {
+    filter: &dyn Fn(
+        maestria_domain::CardId,
+        maestria_domain::ArtifactId,
+    ) -> Result<bool, PortError>,
+) -> Result<BoundedSearch<LexicalCardHit>, PortError> {
     let needle = validate_and_prepare_query(
         &query.q,
         query.mode,
@@ -271,74 +450,24 @@ pub(crate) fn search_cards_lexical_filtered(
             source: "at least one field is required".to_string(),
         });
     }
+    validate_limit(
+        query.limit,
+        query.execution_budget,
+        "lexical card result limit",
+    )?;
+    let mut meter = Meter::new(query.execution_budget);
+    if query.limit == 0 {
+        return Ok(meter.complete(Vec::new()));
+    }
     let guard = lexical_cards
         .lock()
         .map_err(|_| PortError::InternalContext {
             context: "lexical index lock poisoned",
             source: "index mutex is poisoned".to_string(),
         })?;
-
-    let hits = guard
-        .iter()
-        .filter_map(|card| {
-            if !filter(card.card_id, card.artifact_id) {
-                return None;
-            }
-            let mut matched_field = None;
-            let mut raw_score = 0.0;
-
-            for f in &query.fields {
-                if let CardField::Id = f.field {
-                    let key = format!("card:{}:{}", card.artifact_id.value(), card.card_id.value());
-                    let matches = match query.mode {
-                        MatchMode::Contains => key.contains(&needle),
-                        MatchMode::Exact => key == needle,
-                    };
-                    if matches {
-                        matched_field = Some("id".to_string());
-                        raw_score += f.boost;
-                    }
-                    continue;
-                }
-
-                let (val, len) = match f.field {
-                    CardField::Title => (Some(&card.title), card.title.len()),
-                    CardField::Body => (Some(&card.body), card.body.len()),
-                    CardField::Path => (
-                        card.path.as_ref(),
-                        card.path.as_ref().map_or(0, String::len),
-                    ),
-                    CardField::Filename => (
-                        card.filename.as_ref(),
-                        card.filename.as_ref().map_or(0, String::len),
-                    ),
-                    CardField::Symbol => (
-                        card.symbol.as_ref(),
-                        card.symbol.as_ref().map_or(0, String::len),
-                    ),
-                    CardField::Id => (None, 0),
-                };
-
-                process_field_match(
-                    val,
-                    len,
-                    f,
-                    query.mode,
-                    &needle,
-                    &mut matched_field,
-                    &mut raw_score,
-                );
-            }
-
-            build_metadata(matched_field, query.mode, raw_score).map(|metadata| LexicalCardHit {
-                card: card.clone(),
-                metadata,
-            })
-        })
-        .take(MAX_LEXICAL_CANDIDATES)
-        .collect::<Vec<_>>();
-
-    Ok(page_and_rank_hits(
+    let (hits, mut stopped) =
+        collect_card_lexical_hits(guard.as_slice(), &query, &needle, filter, &mut meter)?;
+    let selected = page_and_rank_hits(
         hits,
         query.offset,
         query.limit,
@@ -346,7 +475,18 @@ pub(crate) fn search_cards_lexical_filtered(
         |h| h.card.artifact_id,
         |h| h.card.card_id,
         |h, rank| h.metadata.raw_rank = rank,
-    ))
+    );
+    for _ in 0..selected.len() {
+        if let Some(resource) = meter.result() {
+            stopped = Some(resource);
+            break;
+        }
+    }
+    if let Some(resource) = stopped {
+        Ok(meter.exhausted(selected, resource))
+    } else {
+        Ok(meter.complete(selected))
+    }
 }
 
 #[cfg(test)]

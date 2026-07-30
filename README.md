@@ -132,12 +132,14 @@ maestria start -i .maestria-dev
 client boundary is newline-delimited JSON on
 `<instance>/system/daemon.sock`; the token is stored in
 `<instance>/system/daemon.token`.
-The supported operations are `status`,
-`search`, `evidence`, `task`, and `model_agent_propose`. Requests without the
-matching token are rejected, and read-only operations cannot mutate domain
-state. `model_agent_propose` is a bounded, policy-gated proposal workflow: it
-may search and request harness execution, but governance, validation, and
-approval still control every side effect. See
+The supported operations are `status`, `search`, `evidence`, `task`,
+`model_agent_propose`, `model_agent_status`, and `model_agent_resolve`.
+Requests without the matching token are rejected, and read-only operations
+cannot mutate domain state. `model_agent_propose` is a bounded, policy-gated
+proposal workflow: it may search and request harness execution, while
+`model_agent_status` reads its durable state and `model_agent_resolve` records
+the operator decision. Governance, validation, and approval still control
+every side effect. See
 [`docs/DAEMON-API.md`](./docs/DAEMON-API.md) for the request and response
 envelopes and transport limits.
 

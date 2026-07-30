@@ -103,11 +103,6 @@ pub(super) fn candidate_from_records(
     })
 }
 
-pub(super) fn bounded_candidate_bytes(candidate: &EvidenceCandidate) -> u64 {
-    let range = candidate.source_span.range();
-    range.end.saturating_sub(range.start) as u64
-}
-
 fn evidence_location(
     evidence: &Evidence,
     source_span: &SourceSpan,

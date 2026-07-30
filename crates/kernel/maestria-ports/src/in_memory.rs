@@ -1,6 +1,7 @@
 mod blob_store;
 mod effect_journal;
 mod event_log;
+mod execution;
 mod full_text;
 mod graph_index;
 mod harness;

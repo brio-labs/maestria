@@ -19,7 +19,7 @@ pub(super) async fn evaluate_batches(
     query: &SearchQuery,
     batches: &[crate::types::CandidateBatch],
     started: tokio::time::Instant,
-    bytes_read: &mut u64,
+    execution_usage: &mut maestria_domain::SearchExecutionUsage,
     authorization: &maestria_governance::RetrievalAuthorizationContext,
 ) -> RetrievalResult<(
     SearchOutcome,
@@ -73,7 +73,7 @@ pub(super) async fn evaluate_batches(
         initial_diversity,
         &configured_expander,
         &engine.evaluator,
-        bytes_read,
+        execution_usage,
         authorization,
     )
     .await?;

@@ -7,20 +7,28 @@
 
 /// Responsibility map:
 /// - `constructors`: module responsibility.
-/// - `lexical_helpers`: module responsibility.
+/// - `lexical_scoring`: module responsibility.
+/// - `lexical_helpers`: lexical query construction and scoring helpers.
 /// - `lexical_operations`: module responsibility.
 /// - `migration`: module responsibility.
 /// - `operations`: module responsibility.
+/// - `execution`: bounded search execution metering.
+/// - `operations_cards`: card indexing and bounded search operations.
+/// - `operations_chunks`: chunk indexing and bounded search operations.
 /// - `schema`: module responsibility.
 /// - `search_helpers`: module responsibility.
 /// - `documents`: Tantivy document conversion.
 /// - `tantivy_index`: public Tantivy index façade.
 mod constructors;
 mod documents;
+mod execution;
 mod lexical_helpers;
 mod lexical_operations;
+mod lexical_scoring;
 mod migration;
 mod operations;
+mod operations_cards;
+mod operations_chunks;
 mod schema;
 mod search_helpers;
 

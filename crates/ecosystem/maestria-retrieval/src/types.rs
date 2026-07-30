@@ -1,6 +1,6 @@
 use maestria_domain::{
-    EvidenceCandidate, IndexGenerationId, RepresentationName, SearchLaneStatus, SearchOutcome,
-    SearchPlan,
+    EvidenceCandidate, IndexGenerationId, RepresentationName, SearchExecution,
+    SearchExecutionBudget, SearchLaneStatus, SearchOutcome, SearchPlan,
 };
 use maestria_ports::SearchQuery;
 use thiserror::Error;
@@ -17,6 +17,7 @@ pub struct RetrieverDescriptor {
 pub struct CandidateRequest {
     pub plan: SearchPlan,
     pub query: SearchQuery,
+    pub execution_budget: SearchExecutionBudget,
     pub expected_generation: IndexGenerationId,
     pub authorization: maestria_governance::RetrievalAuthorizationContext,
 }
@@ -28,7 +29,7 @@ pub struct CandidateBatch {
     pub candidates: Vec<EvidenceCandidate>,
     pub status: SearchLaneStatus,
     pub generation: Option<IndexGenerationId>,
-    pub bytes_read: u64,
+    pub execution: SearchExecution,
 }
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FusedCandidate {

@@ -191,7 +191,7 @@ impl RetrievalEngine {
         query: &SearchQuery,
         batches: &[crate::types::CandidateBatch],
         started: tokio::time::Instant,
-        bytes_read: &mut u64,
+        execution_usage: &mut maestria_domain::SearchExecutionUsage,
         authorization: &maestria_governance::RetrievalAuthorizationContext,
     ) -> RetrievalResult<(
         SearchOutcome,
@@ -205,7 +205,7 @@ impl RetrievalEngine {
             query,
             batches,
             started,
-            bytes_read,
+            execution_usage,
             authorization,
         )
         .await
@@ -271,8 +271,9 @@ impl RetrievalEngine {
                 q: plan.original_query.clone(),
                 limit: plan.stop_conditions.max_results as usize,
                 offset: 0,
+                execution_budget: plan.execution_budget()?,
             };
-            let (batches, rewrites, web_requests_used, mut bytes_read) =
+            let (batches, rewrites, web_requests_used, mut execution_usage) =
                 engine_pipeline::collect_initial_batches(&active_retrievers, plan, &authorization)
                     .await?;
             let (outcome, lanes, rerank_trace, diversity_trace) = self
@@ -281,7 +282,7 @@ impl RetrievalEngine {
                     &query,
                     &batches,
                     started,
-                    &mut bytes_read,
+                    &mut execution_usage,
                     &authorization,
                 )
                 .await?;
@@ -289,7 +290,7 @@ impl RetrievalEngine {
                 batches,
                 rewrites,
                 web_requests_used,
-                bytes_read,
+                execution_usage,
                 outcome,
                 lanes,
                 rerank_trace,

@@ -56,10 +56,9 @@ where
 
 /// Executes frozen repository cases against a real persisted code index.
 ///
-/// This adapter measures the real index query and freshness APIs directly. It
-/// does not synthesize quality tuples; memory and energy remain zero-valued
-/// because this adapter does not have platform counters, and are visible to
-/// promotion policy rather than inferred.
+/// This adapter measures query and freshness behavior directly. Platform
+/// resource and security counters remain explicitly unavailable; the
+/// comparison layer must not promote a route using those fields.
 pub struct RepositoryCodeIndexExecutor<'a> {
     index: &'a RepositoryCodeIndex,
     corpus_id: String,
@@ -113,17 +112,27 @@ impl RepositoryBenchmarkExecutor for RepositoryCodeIndexExecutor<'_> {
                 Ok(RepositoryFreshness::Current { .. }) | Err(_) => (0, false, false, true),
             },
             RepositoryExpectedOutcome::Evidence { .. } => {
+                let pattern = Self::pattern(&case);
                 let query = match route {
                     RepositoryRoute::PhaseC => CodeQuery::All,
                     RepositoryRoute::CodeSpecialized => CodeQuery::Symbol {
-                        pattern: Self::pattern(&case),
+                        pattern: pattern.clone(),
                     },
                 };
                 let result = match self.index.query(query, 32, benchmark_record_authorization) {
                     Ok(result) => result,
                     Err(error) => match error {},
                 };
-                (result.records.len(), false, false, false)
+                (
+                    result
+                        .records
+                        .iter()
+                        .filter(|record| record.qualified_name == pattern)
+                        .count(),
+                    false,
+                    false,
+                    false,
+                )
             }
         };
         let outcome_correct = match case.expected {
@@ -133,7 +142,8 @@ impl RepositoryBenchmarkExecutor for RepositoryCodeIndexExecutor<'_> {
             RepositoryExpectedOutcome::Stale => stale_index,
             RepositoryExpectedOutcome::Abstain => abstained,
         };
-        let evidence_chain_length = exact_span_hits;
+        let evidence_chain_length = 0;
+        let evidence_chain_measured = false;
         Ok(RepositoryBenchmarkObservation {
             corpus_id: self.corpus_id.clone(),
             repository_revision: self.repository_revision.clone(),
@@ -145,6 +155,7 @@ impl RepositoryBenchmarkExecutor for RepositoryCodeIndexExecutor<'_> {
             route,
             exact_span_hits,
             evidence_chain_length,
+            evidence_chain_measured,
             latency_ms: started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64,
             freshness_error,
             abstained,

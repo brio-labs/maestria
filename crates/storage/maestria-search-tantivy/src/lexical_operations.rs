@@ -1,15 +1,14 @@
-use crate::lexical_helpers::{
-    MAX_LEXICAL_CANDIDATES, build_parsed_query, page_card_hits, page_chunk_hits, score_card,
-    score_chunk,
-};
+use crate::execution::{Meter, validate_limit};
+use crate::lexical_helpers::build_parsed_query;
+use crate::search_helpers::collect_bounded;
 use crate::tantivy_index::{TantivyFullTextIndex, card_key, chunk_key, to_port_error};
+use maestria_domain::SearchExecutionCompletion;
 use maestria_ports::{
-    CardField, ChunkField, IndexedLexicalCard, IndexedLexicalChunk, LexicalCardHit,
+    BoundedSearch, CardField, ChunkField, IndexedLexicalCard, IndexedLexicalChunk, LexicalCardHit,
     LexicalChunkHit, LexicalQuery, MatchMode, PortError,
 };
 use tantivy::{
-    TantivyDocument, Term,
-    collector::TopDocs,
+    Term,
     query::{BooleanQuery, TermSetQuery},
 };
 
@@ -71,15 +70,20 @@ impl TantivyFullTextIndex {
     pub(crate) fn do_search_lexical(
         &self,
         query: LexicalQuery<ChunkField>,
-    ) -> Result<Vec<LexicalChunkHit>, PortError> {
+    ) -> Result<BoundedSearch<LexicalChunkHit>, PortError> {
         self.do_search_lexical_filtered(query, None)
     }
 
     pub(crate) fn do_search_lexical_filtered(
         &self,
         query: LexicalQuery<ChunkField>,
-        filter: Option<&dyn Fn(maestria_domain::ChunkId, maestria_domain::ArtifactId) -> bool>,
-    ) -> Result<Vec<LexicalChunkHit>, PortError> {
+        filter: Option<
+            &dyn Fn(
+                maestria_domain::ChunkId,
+                maestria_domain::ArtifactId,
+            ) -> Result<bool, PortError>,
+        >,
+    ) -> Result<BoundedSearch<LexicalChunkHit>, PortError> {
         let trimmed = query.q.trim();
         if trimmed.is_empty() {
             return Err(PortError::InvalidInputContext {
@@ -87,37 +91,49 @@ impl TantivyFullTextIndex {
                 source: "query must contain non-whitespace text".to_string(),
             });
         }
-        if query.limit == 0 {
-            return Ok(Vec::new());
-        }
         if query.fields.is_empty() {
             return Err(PortError::InvalidInputContext {
                 context: "lexical chunk search fields are empty",
                 source: "at least one field is required".to_string(),
             });
         }
-        let mut fields = Vec::new();
-
-        for selector in &query.fields {
-            let field = match selector.field {
-                ChunkField::Text => self.fields.text,
-                ChunkField::Path => self.fields.path,
-                ChunkField::Filename => self.fields.filename,
-                ChunkField::Symbol => self.fields.symbol,
-                ChunkField::Id => self.fields.key,
-            };
-            fields.push((field, selector.boost, selector.field));
+        validate_limit(
+            query.limit,
+            query.execution_budget,
+            "lexical chunk result limit",
+        )?;
+        let mut meter = Meter::new(query.execution_budget);
+        if query.limit == 0 {
+            return Ok(meter.done(Vec::new(), SearchExecutionCompletion::Complete));
         }
-
+        let fields = query
+            .fields
+            .iter()
+            .map(|selector| {
+                let field = match selector.field {
+                    ChunkField::Text => self.fields.text,
+                    ChunkField::Path => self.fields.path,
+                    ChunkField::Filename => self.fields.filename,
+                    ChunkField::Symbol => self.fields.symbol,
+                    ChunkField::Id => self.fields.key,
+                };
+                (field, selector.boost, selector.field)
+            })
+            .collect::<Vec<_>>();
         let searcher = self.reader.searcher();
-        let allowed = if let Some(f) = filter {
-            let keys = self.allowed_chunk_keys(&searcher, f)?;
+        let (allowed, authorization_stop) = if let Some(f) = filter {
+            let (keys, stop) = self.allowed_chunk_keys(&searcher, f, &mut meter)?;
             if keys.is_empty() {
-                return Ok(Vec::new());
+                if let Some(resource) = stop {
+                    return Ok(
+                        meter.done(Vec::new(), SearchExecutionCompletion::Exhausted(resource))
+                    );
+                }
+                return Ok(meter.done(Vec::new(), SearchExecutionCompletion::Complete));
             }
-            Some(keys)
+            (Some(keys), stop)
         } else {
-            None
+            (None, None)
         };
         let mut parsed_query =
             build_parsed_query(&self.index, &fields, trimmed, query.mode, "lexical query")?;
@@ -130,54 +146,52 @@ impl TantivyFullTextIndex {
                 )),
             ]));
         }
-        let candidate_limit = MAX_LEXICAL_CANDIDATES;
-        let top_docs = searcher
-            .search(
-                &parsed_query,
-                &TopDocs::with_limit(candidate_limit).order_by_score(),
-            )
-            .map_err(to_port_error)?;
-        let mut scored = Vec::new();
-
+        let remaining = query
+            .execution_budget
+            .max_candidates()
+            .min(query.execution_budget.max_work_units())
+            .saturating_sub(meter.usage.candidates);
+        let candidate_limit = maestria_domain::saturating_usize(remaining);
+        if candidate_limit == 0 {
+            return Ok(meter.done(
+                Vec::new(),
+                SearchExecutionCompletion::Exhausted(
+                    maestria_domain::SearchExecutionResource::Candidates,
+                ),
+            ));
+        }
+        let (top_docs, truncated) = collect_bounded(
+            &searcher,
+            &parsed_query,
+            0,
+            candidate_limit,
+            candidate_limit,
+        )?;
         let needle = match query.mode {
             MatchMode::Contains => trimmed.to_lowercase(),
             MatchMode::Exact => trimmed.to_string(),
         };
-
-        for (_, address) in top_docs {
-            let document = searcher
-                .doc::<TantivyDocument>(address)
-                .map_err(to_port_error)?;
-            if document.get_first(self.fields.chunk_id).is_none() {
-                continue;
-            }
-            let chunk = self.read_lexical_chunk(&document)?;
-
-            if let Some((raw_score, reason)) = score_chunk(&chunk, &query, &needle) {
-                scored.push((
-                    raw_score,
-                    chunk.artifact_id.value(),
-                    chunk.chunk_id.value(),
-                    chunk,
-                    reason,
-                ));
-            }
-        }
-        Ok(page_chunk_hits(scored, &query))
+        let (scored, score_stop) =
+            self.score_lexical_chunks(&searcher, top_docs, truncated, &query, &needle, &mut meter)?;
+        Ok(self.finish_chunk_search(scored, &query, meter, authorization_stop.or(score_stop)))
     }
-
     pub(crate) fn do_search_cards_lexical(
         &self,
         query: LexicalQuery<CardField>,
-    ) -> Result<Vec<LexicalCardHit>, PortError> {
+    ) -> Result<BoundedSearch<LexicalCardHit>, PortError> {
         self.do_search_cards_lexical_filtered(query, None)
     }
 
     pub(crate) fn do_search_cards_lexical_filtered(
         &self,
         query: LexicalQuery<CardField>,
-        filter: Option<&dyn Fn(maestria_domain::CardId, maestria_domain::ArtifactId) -> bool>,
-    ) -> Result<Vec<LexicalCardHit>, PortError> {
+        filter: Option<
+            &dyn Fn(
+                maestria_domain::CardId,
+                maestria_domain::ArtifactId,
+            ) -> Result<bool, PortError>,
+        >,
+    ) -> Result<BoundedSearch<LexicalCardHit>, PortError> {
         let trimmed = query.q.trim();
         if trimmed.is_empty() {
             return Err(PortError::InvalidInputContext {
@@ -185,14 +199,26 @@ impl TantivyFullTextIndex {
                 source: "query must contain non-whitespace text".to_string(),
             });
         }
-        if query.limit == 0 {
-            return Ok(Vec::new());
+        if query.fields.is_empty() {
+            return Err(PortError::InvalidInputContext {
+                context: "lexical card search fields are empty",
+                source: "at least one field is required".to_string(),
+            });
         }
-        let fields: Vec<_> = query
+        validate_limit(
+            query.limit,
+            query.execution_budget,
+            "lexical card result limit",
+        )?;
+        let mut meter = Meter::new(query.execution_budget);
+        if query.limit == 0 {
+            return Ok(meter.done(Vec::new(), SearchExecutionCompletion::Complete));
+        }
+        let fields = query
             .fields
             .iter()
-            .map(|s| {
-                let field = match s.field {
+            .map(|selector| {
+                let field = match selector.field {
                     CardField::Title => self.fields.card_title,
                     CardField::Body => self.fields.card_body,
                     CardField::Path => self.fields.card_path,
@@ -200,27 +226,24 @@ impl TantivyFullTextIndex {
                     CardField::Symbol => self.fields.card_symbol,
                     CardField::Id => self.fields.card_key,
                 };
-                (field, s.boost, s.field)
+                (field, selector.boost, selector.field)
             })
-            .collect();
-
+            .collect::<Vec<_>>();
         let searcher = self.reader.searcher();
-        let allowed = match filter {
-            Some(f) => {
-                let keys = self.allowed_card_keys(&searcher, f)?;
-                if keys.is_empty() {
-                    return Ok(Vec::new());
+        let (allowed, authorization_stop) = if let Some(f) = filter {
+            let (keys, stop) = self.allowed_card_keys(&searcher, f, &mut meter)?;
+            if keys.is_empty() {
+                if let Some(resource) = stop {
+                    return Ok(
+                        meter.done(Vec::new(), SearchExecutionCompletion::Exhausted(resource))
+                    );
                 }
-                Some(keys)
+                return Ok(meter.done(Vec::new(), SearchExecutionCompletion::Complete));
             }
-            None => None,
+            (Some(keys), stop)
+        } else {
+            (None, None)
         };
-        if query.fields.is_empty() {
-            return Err(PortError::InvalidInputContext {
-                context: "lexical card search fields are empty",
-                source: "at least one field is required".to_string(),
-            });
-        }
         let mut parsed_query = build_parsed_query(
             &self.index,
             &fields,
@@ -237,41 +260,34 @@ impl TantivyFullTextIndex {
                 )),
             ]));
         }
-        let candidate_limit = MAX_LEXICAL_CANDIDATES;
-        let top_docs = searcher
-            .search(
-                &parsed_query,
-                &TopDocs::with_limit(candidate_limit).order_by_score(),
-            )
-            .map_err(to_port_error)?;
-        let mut scored = Vec::new();
-
+        let remaining = query
+            .execution_budget
+            .max_candidates()
+            .min(query.execution_budget.max_work_units())
+            .saturating_sub(meter.usage.candidates);
+        let candidate_limit = maestria_domain::saturating_usize(remaining);
+        if candidate_limit == 0 {
+            return Ok(meter.done(
+                Vec::new(),
+                SearchExecutionCompletion::Exhausted(
+                    maestria_domain::SearchExecutionResource::Candidates,
+                ),
+            ));
+        }
+        let (top_docs, truncated) = collect_bounded(
+            &searcher,
+            &parsed_query,
+            0,
+            candidate_limit,
+            candidate_limit,
+        )?;
         let needle = if query.mode == MatchMode::Contains {
             trimmed.to_lowercase()
         } else {
             trimmed.to_string()
         };
-
-        for (_, address) in top_docs {
-            let document = searcher
-                .doc::<TantivyDocument>(address)
-                .map_err(to_port_error)?;
-            if document.get_first(self.fields.card_id).is_none() {
-                continue;
-            }
-            let card = self.read_lexical_card(&document)?;
-
-            if let Some((raw_score, reason)) = score_card(&card, &query, &needle) {
-                scored.push((
-                    raw_score,
-                    card.artifact_id.value(),
-                    card.card_id.value(),
-                    card,
-                    reason,
-                ));
-            }
-        }
-
-        Ok(page_card_hits(scored, &query))
+        let (scored, score_stop) =
+            self.score_lexical_cards(&searcher, top_docs, truncated, &query, &needle, &mut meter)?;
+        Ok(self.finish_card_search(scored, &query, meter, authorization_stop.or(score_stop)))
     }
 }

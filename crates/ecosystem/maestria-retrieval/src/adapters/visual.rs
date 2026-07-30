@@ -1,4 +1,3 @@
-use std::cell::Cell;
 use std::sync::Arc;
 
 use super::SourceSnapshotVerifier;
@@ -11,7 +10,8 @@ use crate::types::{CandidateBatch, CandidateRequest, RetrievalError, RetrieverDe
 use async_trait::async_trait;
 use maestria_domain::{
     CorpusSnapshotId, EvidenceCandidate, IndexGenerationId, IndexGenerationRegistry,
-    RepresentationName, RetrievalReason, SearchLaneStatus,
+    RepresentationName, RetrievalReason, SearchExecution, SearchExecutionCompletion,
+    SearchLaneStatus,
 };
 use maestria_governance::scan_secrets;
 use maestria_ports::{
@@ -197,6 +197,8 @@ impl VisualPageRegionRetriever {
         request: CandidateRequest,
         identity: &EmbeddingIdentity,
     ) -> Result<CandidateBatch, RetrievalError> {
+        let mut vector = vector;
+        vector.execution_budget = request.execution_budget;
         if request.plan.corpus_snapshot != self.expected_corpus_snapshot {
             return Err(RetrievalError::Internal(format!(
                 "visual corpus snapshot mismatch: expected {}, found {}",
@@ -209,27 +211,19 @@ impl VisualPageRegionRetriever {
                 self.descriptor.generation,
             ));
         }
-        let filter_error = Cell::new(None);
         let cache = PrescoreCache::new(request.query.limit);
-        let hits = self
+        let bounded = self
             .index
-            .search_similar_filtered(vector, &|chunk_id| match self.prefilter_hit(
-                chunk_id,
-                &request.authorization,
-                &cache,
-            ) {
-                Ok(allowed) => allowed,
-                Err(error) => {
-                    filter_error.set(Some(error));
-                    false
-                }
+            .search_similar_filtered(vector, &|chunk_id| {
+                self.prefilter_hit(chunk_id, &request.authorization, &cache)
+                    .map_err(|error| maestria_ports::PortError::InternalContext {
+                        context: "visual authorization filter",
+                        source: error.to_string(),
+                    })
             })
             .map_err(port_error)?;
-        if let Some(error) = filter_error.take() {
-            return Err(error);
-        }
-        let mut candidates = Vec::with_capacity(request.query.limit.min(hits.len()));
-        let mut bytes_read = 0_u64;
+        let hits = bounded.hits;
+        let mut candidates = Vec::with_capacity(hits.len());
         for (index, hit) in hits.into_iter().enumerate() {
             let raw_rank = one_based_rank(index);
             let Some(candidate) =
@@ -237,12 +231,7 @@ impl VisualPageRegionRetriever {
             else {
                 continue;
             };
-            bytes_read =
-                bytes_read.saturating_add(super::common::bounded_candidate_bytes(&candidate));
             candidates.push(candidate);
-            if candidates.len() >= request.query.limit {
-                break;
-            }
         }
         let status = if candidates.is_empty() {
             SearchLaneStatus::Empty
@@ -255,7 +244,7 @@ impl VisualPageRegionRetriever {
             candidates,
             status,
             generation: Some(self.descriptor.generation),
-            bytes_read,
+            execution: bounded.execution,
         })
     }
 }
@@ -285,7 +274,11 @@ impl CandidateRetriever for VisualPageRegionRetriever {
                 candidates: Vec::new(),
                 status: SearchLaneStatus::Empty,
                 generation: Some(self.descriptor.generation),
-                bytes_read: 0,
+                execution: SearchExecution::new(
+                    request.execution_budget,
+                    Default::default(),
+                    SearchExecutionCompletion::Complete,
+                ),
             });
         }
         if request.plan.corpus_snapshot != self.expected_corpus_snapshot {
@@ -323,20 +316,20 @@ impl CandidateRetriever for VisualPageRegionRetriever {
                 "visual provider response disclosure changed during query".to_string(),
             ));
         }
+        let execution_budget = request.execution_budget;
         self.retrieve_with_vector(
             VectorSearchQuery {
                 vector: response.vector,
-                limit: match u32::try_from(request.query.limit) {
-                    Ok(value) => value,
-                    Err(e) => {
-                        let _ = e;
-                        u32::MAX
-                    }
-                },
+                limit: u32::try_from(request.query.limit).map_err(|_| {
+                    RetrievalError::Internal(
+                        "visual result limit exceeds vector query representation".into(),
+                    )
+                })?,
                 provider_id: Some(response.provider_id),
                 model: Some(response.model),
                 model_version: Some(response.model_version),
                 identity: Some(response.identity),
+                execution_budget,
             },
             request,
             &identity,

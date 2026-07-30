@@ -348,6 +348,7 @@ fn denied_visual_candidates_are_authorized_before_content_reads()
             provider_id: None,
             model: None,
             model_version: None,
+            execution_budget: maestria_domain::SearchExecutionBudget::new(5, 300, 10, 0)?,
         },
         mismatched_request,
         &identity,
@@ -368,6 +369,7 @@ fn denied_visual_candidates_are_authorized_before_content_reads()
             provider_id: None,
             model: None,
             model_version: None,
+            execution_budget: maestria_domain::SearchExecutionBudget::new(5, 300, 10, 0)?,
         },
         request,
         &identity,
@@ -500,12 +502,13 @@ fn visual_batch_reports_bounded_bytes() -> Result<(), Box<dyn std::error::Error>
             model: Some("visual-test".to_string()),
             model_version: Some("1".to_string()),
             identity: Some(identity.clone()),
+            execution_budget: maestria_domain::SearchExecutionBudget::new(5, 300, 10, 0)?,
         },
         request,
         &identity,
     )?;
     assert_eq!(batch.candidates.len(), 1);
-    assert_eq!(batch.bytes_read, 1);
+    assert_eq!(batch.execution.usage.bytes_read, 4);
     assert_eq!(chunks.full_reads(), 1);
     assert_eq!(evidence.reads(), 1);
     Ok(())
@@ -702,6 +705,7 @@ fn assert_visual_evidence_denied_before_score(
             model: None,
             model_version: None,
             identity: Some(identity.clone()),
+            execution_budget: maestria_domain::SearchExecutionBudget::new(5, 300, 10, 0)?,
         },
         request,
         &identity,

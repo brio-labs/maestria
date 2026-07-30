@@ -25,6 +25,12 @@ struct TempDir(PathBuf);
 
 static NEXT_TEMP_DIR: AtomicU64 = AtomicU64::new(0);
 
+fn search_budget(
+    limit: u64,
+) -> Result<maestria_domain::SearchExecutionBudget, maestria_domain::SearchCompatibilityError> {
+    maestria_domain::SearchExecutionBudget::new(limit, 10_000, 100_000, 0)
+}
+
 impl TempDir {
     fn new() -> Result<Self, Box<dyn std::error::Error>> {
         let suffix = NEXT_TEMP_DIR.fetch_add(1, Ordering::Relaxed);
@@ -401,10 +407,11 @@ fn verify_projections_rebuilt(
     let hits = vector.search_similar(VectorSearchQuery {
         vector: vec![1.0, 0.0],
         limit: 10,
+        execution_budget: search_budget(10)?,
         ..Default::default()
     })?;
     assert!(
-        hits.is_empty(),
+        hits.hits.is_empty(),
         "disabled embeddings should clear stale vectors"
     );
     Ok(())

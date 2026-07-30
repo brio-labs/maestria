@@ -1,6 +1,7 @@
 use maestria_domain::{
-    ContentRange, CorpusScope, EvidenceCandidate, EvidenceId, ScopeId, SearchBudget, SearchPlan,
-    SearchStatus, SearchStopReason, SearchTraceFilter, TrustLabel, TrustZone,
+    ContentRange, CorpusScope, EvidenceCandidate, EvidenceId, ScopeId, SearchBudget,
+    SearchBudgetLimits, SearchExecutionBudget, SearchPlan, SearchStatus, SearchStopReason,
+    SearchTraceFilter, TrustLabel, TrustZone,
 };
 use maestria_retrieval::traits::RankFusion;
 use maestria_retrieval::types::{CandidateBatch, RetrieverDescriptor};
@@ -8,7 +9,10 @@ use maestria_retrieval::{FixedKRrf, RetrievalError, RetrievalResult, SyncRetriev
 
 use crate::common::{candidate_fixture, dummy_outcome, dummy_plan, fixture_scores};
 
-fn one_candidate(_: &maestria_domain::SearchPlan) -> RetrievalResult<Vec<EvidenceCandidate>> {
+fn one_candidate(
+    _: &maestria_domain::SearchPlan,
+    _: SearchExecutionBudget,
+) -> RetrievalResult<Vec<EvidenceCandidate>> {
     Ok(vec![candidate_fixture()?])
 }
 
@@ -18,7 +22,9 @@ fn one_candidate(_: &maestria_domain::SearchPlan) -> RetrievalResult<Vec<Evidenc
 fn test_sync_engine_orchestration() -> RetrievalResult<()> {
     let plan = dummy_plan()?;
     let outcome = dummy_outcome()?;
-    let retriever = |_: &SearchPlan| -> RetrievalResult<Vec<EvidenceCandidate>> { Ok(vec![]) };
+    let retriever = |_: &SearchPlan,
+                     _: SearchExecutionBudget|
+     -> RetrievalResult<Vec<EvidenceCandidate>> { Ok(vec![]) };
     let evaluator = move |_: Vec<EvidenceCandidate>, _: &_| Ok(outcome.clone());
     let engine = SyncRetrievalEngine::new(
         vec![retriever],
@@ -38,7 +44,7 @@ fn sync_engine_filters_policy_denied_closure_candidates() -> RetrievalResult<()>
     let policy =
         maestria_governance::RetrievalSecurityPolicy::new().require_trust_zone(TrustZone::Verified);
     plan.authorization = Some(policy.policy_snapshot());
-    let retriever = move |_: &SearchPlan| Ok(vec![denied.clone()]);
+    let retriever = move |_: &SearchPlan, _: SearchExecutionBudget| Ok(vec![denied.clone()]);
     let evaluator = |candidates: Vec<EvidenceCandidate>, plan: &SearchPlan| {
         assert!(
             candidates.is_empty(),
@@ -72,7 +78,9 @@ fn sync_engine_filters_policy_denied_closure_candidates() -> RetrievalResult<()>
 #[test]
 fn sync_engine_quarantines_prompt_injection() -> RetrievalResult<()> {
     let outcome = dummy_outcome()?;
-    let retriever = |_: &SearchPlan| -> RetrievalResult<Vec<EvidenceCandidate>> { Ok(vec![]) };
+    let retriever = |_: &SearchPlan,
+                     _: SearchExecutionBudget|
+     -> RetrievalResult<Vec<EvidenceCandidate>> { Ok(vec![]) };
     let evaluator = move |_: Vec<EvidenceCandidate>, _: &_| Ok(outcome.clone());
     let engine = SyncRetrievalEngine::new(
         vec![retriever],
@@ -141,11 +149,12 @@ fn sync_engine_quarantines_prompt_injection() -> RetrievalResult<()> {
 
 #[test]
 fn sync_engine_rejects_untrusted_authorization_before_quarantine() -> RetrievalResult<()> {
-    let retriever = |_: &SearchPlan| -> RetrievalResult<Vec<EvidenceCandidate>> {
-        Err(RetrievalError::Internal(
-            "untrusted plan reached retrieval".to_string(),
-        ))
-    };
+    let retriever =
+        |_: &SearchPlan, _: SearchExecutionBudget| -> RetrievalResult<Vec<EvidenceCandidate>> {
+            Err(RetrievalError::Internal(
+                "untrusted plan reached retrieval".to_string(),
+            ))
+        };
     let evaluator = |_: Vec<EvidenceCandidate>, _: &_| {
         Err(RetrievalError::Internal(
             "untrusted plan reached evaluation".to_string(),
@@ -187,9 +196,19 @@ fn sync_engine_rejects_untrusted_authorization_before_quarantine() -> RetrievalR
 fn sync_trace_preserves_rewritten_lane_queries() -> RetrievalResult<()> {
     let mut plan = dummy_plan()?;
     plan.original_query = "test PR".to_string();
-    plan.budgets = SearchBudget::with_limits(1000, 1_000, 4, 1, 0)?;
-    let retriever = |_: &SearchPlan| Ok(Vec::<EvidenceCandidate>::new());
-    let query_retriever = |_: &_, query: &str| {
+    plan.budgets = SearchBudget::with_execution_limits(SearchBudgetLimits {
+        max_tokens: 1000,
+        max_latency_ms: 1_000,
+        max_queries: 4,
+        max_stages: 1,
+        max_web_requests: 0,
+        max_bytes_read: 0,
+        max_concurrency: 1,
+        max_candidates: 2,
+        max_work_units: 2,
+    })?;
+    let retriever = |_: &SearchPlan, _: SearchExecutionBudget| Ok(Vec::<EvidenceCandidate>::new());
+    let query_retriever = |_: &_, query: &str, _: SearchExecutionBudget| {
         let mut candidate = candidate_fixture()?;
         candidate.coverage_keys = vec![query.to_string()];
         Ok(vec![candidate])
@@ -229,10 +248,11 @@ fn sync_trace_preserves_rewritten_lane_queries() -> RetrievalResult<()> {
 fn test_timeout_cancellation() -> RetrievalResult<()> {
     let mut plan = dummy_plan()?;
     plan.budgets = SearchBudget::new(1000, 1)?;
-    let retriever = |_: &SearchPlan| -> RetrievalResult<Vec<EvidenceCandidate>> {
-        std::thread::sleep(std::time::Duration::from_millis(10));
-        Ok(vec![])
-    };
+    let retriever =
+        |_: &SearchPlan, _: SearchExecutionBudget| -> RetrievalResult<Vec<EvidenceCandidate>> {
+            std::thread::sleep(std::time::Duration::from_millis(10));
+            Ok(vec![])
+        };
     let evaluator = move |_: Vec<EvidenceCandidate>, _: &_| dummy_outcome();
     let engine = SyncRetrievalEngine::new(
         vec![retriever],
@@ -247,12 +267,13 @@ fn test_timeout_cancellation() -> RetrievalResult<()> {
 #[test]
 fn test_fingerprint_compatibility_pass() -> RetrievalResult<()> {
     let plan = dummy_plan()?;
-    let retriever = |p: &SearchPlan| -> RetrievalResult<Vec<EvidenceCandidate>> {
-        if p.fingerprint.as_str() != "dummy-model" {
-            return Err(RetrievalError::Internal("fingerprint mismatch".into()));
-        }
-        Ok(vec![])
-    };
+    let retriever =
+        |p: &SearchPlan, _: SearchExecutionBudget| -> RetrievalResult<Vec<EvidenceCandidate>> {
+            if p.fingerprint.as_str() != "dummy-model" {
+                return Err(RetrievalError::Internal("fingerprint mismatch".into()));
+            }
+            Ok(vec![])
+        };
     let evaluator = move |_: Vec<EvidenceCandidate>, p: &SearchPlan| {
         let mut out = dummy_outcome()?;
         out.fingerprint = p.fingerprint.clone();
@@ -278,12 +299,13 @@ fn test_scope_acl_filtering() -> RetrievalResult<()> {
             .map_err(|error| RetrievalError::Internal(format!("{error:?}")))?
             .policy_snapshot(),
     );
-    let retriever = |p: &SearchPlan| -> RetrievalResult<Vec<EvidenceCandidate>> {
-        match p.scope {
-            CorpusScope::Restricted(_) => Ok(vec![]),
-            _ => Err(RetrievalError::Internal("unexpected scope".into())),
-        }
-    };
+    let retriever =
+        |p: &SearchPlan, _: SearchExecutionBudget| -> RetrievalResult<Vec<EvidenceCandidate>> {
+            match p.scope {
+                CorpusScope::Restricted(_) => Ok(vec![]),
+                _ => Err(RetrievalError::Internal("unexpected scope".into())),
+            }
+        };
     let evaluator = move |_: Vec<EvidenceCandidate>, _: &_| dummy_outcome();
     let engine = SyncRetrievalEngine::new(vec![retriever], evaluator, policy);
     assert!(engine.search_sync(&plan).is_ok());
@@ -296,7 +318,7 @@ fn test_provenance_scores_reasons_and_determinism() -> RetrievalResult<()> {
 
     let plan = dummy_plan()?;
     let candidate = candidate_fixture()?;
-    let retriever = move |_: &SearchPlan| Ok(vec![candidate.clone()]);
+    let retriever = move |_: &SearchPlan, _: SearchExecutionBudget| Ok(vec![candidate.clone()]);
     let evaluator = move |candidates: Vec<EvidenceCandidate>, plan: &SearchPlan| {
         let mut outcome = dummy_outcome()?;
         outcome.evidence = candidates;
@@ -337,7 +359,7 @@ fn test_provenance_scores_reasons_and_determinism() -> RetrievalResult<()> {
 #[test]
 fn test_missing_artifacts_return_no_evidence() -> RetrievalResult<()> {
     let plan = dummy_plan()?;
-    let retriever = |_: &SearchPlan| Ok(Vec::<EvidenceCandidate>::new());
+    let retriever = |_: &SearchPlan, _: SearchExecutionBudget| Ok(Vec::<EvidenceCandidate>::new());
     let evaluator = move |candidates: Vec<EvidenceCandidate>, plan: &SearchPlan| {
         let mut outcome = dummy_outcome()?;
         outcome.evidence = candidates;
@@ -386,10 +408,12 @@ fn test_fixed_k_rrf_overlap_non_summing() -> RetrievalResult<()> {
     use maestria_domain::{DuplicateClusterId, SearchLaneStatus};
 
     let plan = dummy_plan()?;
+    let execution_budget = maestria_domain::SearchExecutionBudget::new(10, 10, 10, 0)?;
     let query = maestria_ports::SearchQuery {
         q: plan.original_query.clone(),
         limit: 10,
         offset: 0,
+        execution_budget,
     };
 
     let mut c1 = candidate_fixture()?;
@@ -417,8 +441,8 @@ fn test_fixed_k_rrf_overlap_non_summing() -> RetrievalResult<()> {
         query: query.q.clone(),
         candidates: vec![c1.clone(), c2.clone()],
         status: SearchLaneStatus::Succeeded,
-        generation: Some(maestria_domain::IndexGenerationId::new(1)),
-        bytes_read: 0,
+        generation: None,
+        execution: Default::default(),
     };
 
     let batch2 = CandidateBatch {
@@ -431,8 +455,8 @@ fn test_fixed_k_rrf_overlap_non_summing() -> RetrievalResult<()> {
         query: query.q.clone(),
         candidates: vec![c3.clone()],
         status: SearchLaneStatus::Succeeded,
-        generation: Some(maestria_domain::IndexGenerationId::new(1)),
-        bytes_read: 0,
+        generation: None,
+        execution: Default::default(),
     };
 
     let rrf = FixedKRrf::new(60);
@@ -460,10 +484,12 @@ fn test_fixed_k_rrf_overlap_non_summing() -> RetrievalResult<()> {
 fn test_fixed_k_rrf_deterministic_tie_ordering() -> RetrievalResult<()> {
     use maestria_domain::SearchLaneStatus;
 
+    let execution_budget = maestria_domain::SearchExecutionBudget::new(10, 10, 10, 0)?;
     let query = maestria_ports::SearchQuery {
         q: "".into(),
         limit: 10,
         offset: 0,
+        execution_budget,
     };
 
     let mut c1 = candidate_fixture()?;
@@ -484,8 +510,8 @@ fn test_fixed_k_rrf_deterministic_tie_ordering() -> RetrievalResult<()> {
         query: query.q.clone(),
         candidates: vec![c1.clone()],
         status: SearchLaneStatus::Succeeded,
-        generation: Some(maestria_domain::IndexGenerationId::new(1)),
-        bytes_read: 0,
+        generation: None,
+        execution: Default::default(),
     };
     let batch2 = CandidateBatch {
         descriptor: RetrieverDescriptor {
@@ -497,8 +523,8 @@ fn test_fixed_k_rrf_deterministic_tie_ordering() -> RetrievalResult<()> {
         candidates: vec![c2.clone()],
         query: query.q.clone(),
         status: SearchLaneStatus::Succeeded,
-        generation: Some(maestria_domain::IndexGenerationId::new(1)),
-        bytes_read: 0,
+        generation: None,
+        execution: Default::default(),
     };
 
     let rrf = FixedKRrf::new(60);
@@ -514,10 +540,12 @@ fn test_fixed_k_rrf_deterministic_tie_ordering() -> RetrievalResult<()> {
 fn test_empty_and_failed_lanes_skip_without_error() -> RetrievalResult<()> {
     use maestria_domain::SearchLaneStatus;
 
+    let execution_budget = maestria_domain::SearchExecutionBudget::new(10, 10, 10, 0)?;
     let query = maestria_ports::SearchQuery {
         q: "".into(),
         limit: 10,
         offset: 0,
+        execution_budget,
     };
 
     let mut c1 = candidate_fixture()?;
@@ -536,8 +564,8 @@ fn test_empty_and_failed_lanes_skip_without_error() -> RetrievalResult<()> {
         status: SearchLaneStatus::Failed {
             error: "timeout".into(),
         },
-        generation: Some(maestria_domain::IndexGenerationId::new(1)),
-        bytes_read: 0,
+        generation: None,
+        execution: Default::default(),
     };
 
     let batch_empty = CandidateBatch {
@@ -550,8 +578,8 @@ fn test_empty_and_failed_lanes_skip_without_error() -> RetrievalResult<()> {
         query: query.q.clone(),
         candidates: vec![],
         status: SearchLaneStatus::Empty,
-        generation: Some(maestria_domain::IndexGenerationId::new(1)),
-        bytes_read: 0,
+        generation: None,
+        execution: Default::default(),
     };
 
     let batch_succ = CandidateBatch {
@@ -564,8 +592,8 @@ fn test_empty_and_failed_lanes_skip_without_error() -> RetrievalResult<()> {
         query: query.q.clone(),
         candidates: vec![c1.clone()],
         status: SearchLaneStatus::Succeeded,
-        generation: Some(maestria_domain::IndexGenerationId::new(1)),
-        bytes_read: 0,
+        generation: None,
+        execution: Default::default(),
     };
 
     let rrf = FixedKRrf::new(60);

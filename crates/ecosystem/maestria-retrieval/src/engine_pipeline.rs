@@ -1,4 +1,7 @@
-use maestria_domain::{EvidenceCandidate, SearchOutcome, SearchPlan, SearchStatus};
+use maestria_domain::{
+    EvidenceCandidate, SearchExecution, SearchExecutionBudget, SearchExecutionCompletion,
+    SearchExecutionUsage, SearchOutcome, SearchPlan, SearchStatus,
+};
 use maestria_ports::SearchQuery;
 use std::sync::Arc;
 use tokio::{sync::Semaphore, task::JoinSet};
@@ -23,18 +26,89 @@ fn lane_generation_is_current(
     !lane_uses_primary_generation(descriptor) || descriptor.generation == plan.index_generation
 }
 
+fn execution_with_budget(
+    budget: SearchExecutionBudget,
+    completion: SearchExecutionCompletion,
+) -> SearchExecution {
+    SearchExecution::new(budget, SearchExecutionUsage::default(), completion)
+}
+
+fn add_usage(total: &mut SearchExecutionUsage, usage: SearchExecutionUsage) {
+    total.results = total.results.saturating_add(usage.results);
+    total.candidates = total.candidates.saturating_add(usage.candidates);
+    total.work_units = total.work_units.saturating_add(usage.work_units);
+    total.bytes_read = total.bytes_read.saturating_add(usage.bytes_read);
+}
+
+fn usage_within_budget(usage: SearchExecutionUsage, budget: SearchExecutionBudget) -> bool {
+    usage.results <= budget.max_results()
+        && usage.candidates <= budget.max_candidates()
+        && usage.work_units <= budget.max_work_units()
+        && budget
+            .max_bytes_read()
+            .is_none_or(|limit| usage.bytes_read <= limit.get())
+}
+
+fn partition_allowance(total: u64, lanes: usize, lane: usize) -> u64 {
+    let lanes = lanes.max(1) as u64;
+    let base = total / lanes;
+    let remainder = total % lanes;
+    base + if (lane as u64) < remainder { 1 } else { 0 }
+}
+
+fn lane_budget(
+    plan: &SearchPlan,
+    remaining: SearchExecutionUsage,
+    lanes: usize,
+    lane: usize,
+) -> Option<SearchExecutionBudget> {
+    let global = plan.execution_budget().ok()?;
+    let max_results = global.max_results().saturating_sub(remaining.results);
+    let max_candidates = global.max_candidates().saturating_sub(remaining.candidates);
+    let max_work_units = global.max_work_units().saturating_sub(remaining.work_units);
+    if max_results == 0 || max_candidates == 0 || max_work_units == 0 {
+        return None;
+    }
+    let remaining_bytes = global
+        .max_bytes_read()
+        .map(|limit| limit.get().saturating_sub(remaining.bytes_read));
+    if remaining_bytes == Some(0) {
+        return None;
+    }
+    let partitioned_bytes = remaining_bytes.map(|limit| partition_allowance(limit, lanes, lane));
+    if partitioned_bytes == Some(0) {
+        return None;
+    }
+    let max_bytes = partitioned_bytes.and_then(std::num::NonZeroU64::new);
+    SearchExecutionBudget::with_byte_limit(
+        partition_allowance(max_results, lanes, lane),
+        partition_allowance(max_candidates, lanes, lane),
+        partition_allowance(max_work_units, lanes, lane),
+        max_bytes,
+    )
+    .ok()
+}
+
 fn normalize_batch(
     mut batch: crate::types::CandidateBatch,
     descriptor: crate::types::RetrieverDescriptor,
     query: &SearchQuery,
     plan: &SearchPlan,
-    bytes_read: &mut u64,
+    allocation: SearchExecutionBudget,
+    usage: &mut SearchExecutionUsage,
 ) -> crate::types::CandidateBatch {
     let expected_generation = descriptor.generation;
     let batch_descriptor_generation = batch.descriptor.generation;
     let generation_matches = lane_generation_is_current(&descriptor, plan)
         && batch.descriptor == descriptor
         && batch.generation == Some(expected_generation);
+    let candidate_count = maestria_domain::saturating_u64(batch.candidates.len());
+    let candidate_usage_matches = candidate_count <= batch.execution.usage.results
+        && candidate_count <= batch.execution.usage.candidates
+        && candidate_count <= batch.execution.usage.work_units;
+    let metadata_matches = batch.execution.budget == allocation
+        && usage_within_budget(batch.execution.usage, allocation)
+        && candidate_usage_matches;
     if !generation_matches {
         batch.candidates.clear();
         batch.status = maestria_domain::SearchLaneStatus::Failed {
@@ -50,21 +124,18 @@ fn normalize_batch(
                 ),
             ),
         };
+    } else if !metadata_matches {
+        batch.candidates.clear();
+        batch.status = maestria_domain::SearchLaneStatus::Failed {
+            error: format!(
+                "invalid execution metadata for {} lane",
+                descriptor.modality
+            ),
+        };
     } else {
-        let max_bytes = plan.budgets.max_bytes_read();
-        let remaining_bytes = max_bytes.saturating_sub(*bytes_read);
-        if max_bytes > 0 && batch.bytes_read > remaining_bytes {
-            batch.candidates.clear();
-            batch.status = maestria_domain::SearchLaneStatus::Failed {
-                error: format!("byte budget exhausted for {} lane", descriptor.modality),
-            };
-        } else {
-            *bytes_read = (*bytes_read).saturating_add(batch.bytes_read);
-        }
+        add_usage(usage, batch.execution.usage);
     }
-    batch
-        .candidates
-        .truncate(plan.stop_conditions.max_results as usize);
+    batch.candidates.truncate(allocation.max_results() as usize);
     batch.descriptor = descriptor;
     batch.query = query.q.clone();
     if !matches!(
@@ -80,63 +151,83 @@ fn normalize_batch(
     batch
 }
 
-pub(super) async fn collect_batches(
+type CompletedLane = Option<(
+    crate::types::RetrieverDescriptor,
+    SearchExecutionBudget,
+    crate::types::CandidateBatch,
+)>;
+type RetrieverTask = (
+    usize,
+    crate::types::RetrieverDescriptor,
+    SearchExecutionBudget,
+    RetrievalResult<crate::types::CandidateBatch>,
+);
+
+async fn dispatch_eligible_lanes(
     retrievers: &[Arc<dyn CandidateRetriever>],
     plan: &SearchPlan,
     query: &SearchQuery,
     authorization: &maestria_governance::RetrievalAuthorizationContext,
     web_requests_used: &mut u32,
-    bytes_read: &mut u64,
-) -> RetrievalResult<Vec<crate::types::CandidateBatch>> {
+    execution_usage: SearchExecutionUsage,
+) -> RetrievalResult<(Vec<CompletedLane>, JoinSet<RetrieverTask>, usize)> {
+    let eligible = retrievers
+        .iter()
+        .enumerate()
+        .filter_map(|(index, retriever)| {
+            let descriptor = retriever.descriptor();
+            let web_blocked = descriptor.modality.eq_ignore_ascii_case("web")
+                && *web_requests_used >= plan.budgets.max_web_requests();
+            (lane_generation_is_current(&descriptor, plan) && !web_blocked)
+                .then_some((index, descriptor))
+        })
+        .collect::<Vec<_>>();
+    let lane_count = eligible.len();
     let mut completed = std::iter::repeat_with(|| None)
         .take(retrievers.len())
-        .collect::<Vec<
-            Option<(
-                crate::types::RetrieverDescriptor,
-                RetrievalResult<crate::types::CandidateBatch>,
-            )>,
-        >>();
+        .collect::<Vec<CompletedLane>>();
     let mut tasks = JoinSet::new();
-    let concurrency = match usize::try_from(plan.budgets.max_concurrency()) {
-        Ok(value) => value,
-        Err(e) => {
-            let _ = e;
-            1
-        }
-    }
-    .max(1);
+    let concurrency =
+        maestria_domain::saturating_usize(u64::from(plan.budgets.max_concurrency())).max(1);
     let semaphore = Arc::new(Semaphore::new(concurrency));
-    for (index, retriever) in retrievers.iter().enumerate() {
-        let descriptor = retriever.descriptor();
+    for (lane, (index, descriptor)) in eligible.into_iter().enumerate() {
+        let Some(allocation) = lane_budget(plan, execution_usage, lane_count, lane) else {
+            let exhausted_budget = plan.execution_budget()?;
+            completed[index] = Some((
+                descriptor.clone(),
+                exhausted_budget,
+                crate::types::CandidateBatch {
+                    descriptor: descriptor.clone(),
+                    query: query.q.clone(),
+                    candidates: Vec::new(),
+                    status: maestria_domain::SearchLaneStatus::Failed {
+                        error: "execution budget exhausted before lane dispatch".to_string(),
+                    },
+                    generation: Some(descriptor.generation),
+                    execution: execution_with_budget(
+                        exhausted_budget,
+                        SearchExecutionCompletion::Exhausted(
+                            maestria_domain::SearchExecutionResource::Candidates,
+                        ),
+                    ),
+                },
+            ));
+            continue;
+        };
         let generation = descriptor.generation;
-        if !lane_generation_is_current(&descriptor, plan) {
-            completed[index] = Some((
-                descriptor,
-                Err(RetrievalError::Internal(format!(
-                    "stale retriever generation: expected primary {}, got {}",
-                    plan.index_generation, generation
-                ))),
-            ));
-            continue;
-        }
-        if descriptor.modality.eq_ignore_ascii_case("web")
-            && *web_requests_used >= plan.budgets.max_web_requests()
-        {
-            completed[index] = Some((
-                descriptor,
-                Err(RetrievalError::Internal(
-                    "web request budget exhausted".to_string(),
-                )),
-            ));
-            continue;
-        }
         if descriptor.modality.eq_ignore_ascii_case("web") {
             *web_requests_used = web_requests_used.saturating_add(1);
         }
-        let retriever = Arc::clone(retriever);
+        let retriever = Arc::clone(&retrievers[index]);
+        let mut request_query = query.clone();
+        request_query.execution_budget = allocation;
+        request_query.limit = request_query
+            .limit
+            .min(maestria_domain::saturating_usize(allocation.max_results()));
         let request = CandidateRequest {
             plan: plan.clone(),
-            query: query.clone(),
+            query: request_query,
+            execution_budget: allocation,
             expected_generation: generation,
             authorization: authorization.clone(),
         };
@@ -150,39 +241,99 @@ pub(super) async fn collect_batches(
                 }
                 Err(error) => Err(RetrievalError::Internal(error.to_string())),
             };
-            (index, descriptor, result)
+            (index, descriptor, allocation, result)
         });
     }
+    Ok((completed, tasks, lane_count))
+}
 
-    while let Some(result) = tasks.join_next().await {
-        let (index, descriptor, result) = result
-            .map_err(|error| RetrievalError::Internal(format!("retriever task failed: {error}")))?;
-        completed[index] = Some((descriptor, result));
+pub(super) async fn collect_batches(
+    retrievers: &[Arc<dyn CandidateRetriever>],
+    plan: &SearchPlan,
+    query: &SearchQuery,
+    authorization: &maestria_governance::RetrievalAuthorizationContext,
+    web_requests_used: &mut u32,
+    execution_usage: &mut SearchExecutionUsage,
+) -> RetrievalResult<Vec<crate::types::CandidateBatch>> {
+    let (mut completed, mut tasks, lane_count) = dispatch_eligible_lanes(
+        retrievers,
+        plan,
+        query,
+        authorization,
+        web_requests_used,
+        *execution_usage,
+    )
+    .await?;
+    for (index, retriever) in retrievers.iter().enumerate() {
+        if completed[index].is_some() {
+            continue;
+        }
+        let descriptor = retriever.descriptor();
+        if lane_generation_is_current(&descriptor, plan)
+            && !(descriptor.modality.eq_ignore_ascii_case("web")
+                && *web_requests_used >= plan.budgets.max_web_requests())
+        {
+            continue;
+        }
+        let allocation = lane_budget(plan, *execution_usage, lane_count.max(1), 0)
+            .or_else(|| plan.execution_budget().ok())
+            .ok_or_else(|| RetrievalError::Internal("invalid execution budget".to_string()))?;
+        let error = if !lane_generation_is_current(&descriptor, plan) {
+            format!(
+                "stale retriever generation: expected primary {}, got {}",
+                plan.index_generation, descriptor.generation
+            )
+        } else {
+            "web request budget exhausted".to_string()
+        };
+        completed[index] = Some((
+            descriptor.clone(),
+            allocation,
+            crate::types::CandidateBatch {
+                descriptor,
+                query: query.q.clone(),
+                candidates: Vec::new(),
+                status: maestria_domain::SearchLaneStatus::Failed { error },
+                generation: Some(retriever.descriptor().generation),
+                execution: execution_with_budget(allocation, SearchExecutionCompletion::Complete),
+            },
+        ));
     }
-
-    completed
-        .into_iter()
-        .map(|entry| {
-            let (descriptor, result) = entry.ok_or_else(|| {
-                RetrievalError::Internal("retriever task produced no result".to_string())
-            })?;
-            let generation = descriptor.generation;
-            match result {
-                Ok(batch) => Ok(normalize_batch(batch, descriptor, query, plan, bytes_read)),
-                Err(RetrievalError::Cancelled) => Err(RetrievalError::Cancelled),
-                Err(error) => Ok(crate::types::CandidateBatch {
-                    descriptor,
-                    query: query.q.clone(),
-                    candidates: Vec::new(),
-                    status: maestria_domain::SearchLaneStatus::Failed {
-                        error: error.to_string(),
-                    },
-                    generation: Some(generation),
-                    bytes_read: 0,
-                }),
-            }
-        })
-        .collect()
+    while let Some(result) = tasks.join_next().await {
+        let (index, descriptor, allocation, result) = result
+            .map_err(|error| RetrievalError::Internal(format!("retriever task failed: {error}")))?;
+        let batch = match result {
+            Ok(batch) => normalize_batch(
+                batch,
+                descriptor.clone(),
+                query,
+                plan,
+                allocation,
+                execution_usage,
+            ),
+            Err(error) => crate::types::CandidateBatch {
+                descriptor: descriptor.clone(),
+                query: query.q.clone(),
+                candidates: Vec::new(),
+                status: maestria_domain::SearchLaneStatus::Failed {
+                    error: error.to_string(),
+                },
+                generation: Some(descriptor.generation),
+                execution: execution_with_budget(allocation, SearchExecutionCompletion::Complete),
+            },
+        };
+        completed[index] = Some((descriptor, allocation, batch));
+    }
+    let mut batches = Vec::with_capacity(completed.len());
+    for (descriptor, allocation, batch) in completed.into_iter().flatten() {
+        let batch = if batch.execution.budget == allocation {
+            batch
+        } else {
+            normalize_batch(batch, descriptor, query, plan, allocation, execution_usage)
+        };
+        batches.push(batch);
+    }
+    Ok(batches)
 }
 pub(super) async fn collect_initial_batches(
     retrievers: &[Arc<dyn CandidateRetriever>],
@@ -192,7 +343,7 @@ pub(super) async fn collect_initial_batches(
     Vec<crate::types::CandidateBatch>,
     crate::rewrite::QueryRewriteSession,
     u32,
-    u64,
+    SearchExecutionUsage,
 )> {
     let session = super::rewrite_session(plan);
     if session
@@ -206,12 +357,13 @@ pub(super) async fn collect_initial_batches(
     }
     let mut batches = Vec::new();
     let mut web_requests_used = 0_u32;
-    let mut bytes_read = 0_u64;
+    let mut execution_usage = SearchExecutionUsage::default();
     for rewrite in session.records() {
         let rewrite_query = SearchQuery {
             q: rewrite.query.clone(),
             limit: plan.stop_conditions.max_results as usize,
             offset: 0,
+            execution_budget: plan.execution_budget()?,
         };
         batches.extend(
             collect_batches(
@@ -220,12 +372,12 @@ pub(super) async fn collect_initial_batches(
                 &rewrite_query,
                 authorization,
                 &mut web_requests_used,
-                &mut bytes_read,
+                &mut execution_usage,
             )
             .await?,
         );
     }
-    Ok((batches, session, web_requests_used, bytes_read))
+    Ok((batches, session, web_requests_used, execution_usage))
 }
 
 pub(super) async fn collect_missing_slot_batches(
@@ -234,12 +386,13 @@ pub(super) async fn collect_missing_slot_batches(
     query: &str,
     authorization: &maestria_governance::RetrievalAuthorizationContext,
     web_requests_used: &mut u32,
-    bytes_read: &mut u64,
+    execution_usage: &mut SearchExecutionUsage,
 ) -> RetrievalResult<Vec<crate::types::CandidateBatch>> {
     let query = SearchQuery {
         q: query.to_string(),
         limit: plan.stop_conditions.max_results as usize,
         offset: 0,
+        execution_budget: plan.execution_budget()?,
     };
     collect_batches(
         retrievers,
@@ -247,7 +400,7 @@ pub(super) async fn collect_missing_slot_batches(
         &query,
         authorization,
         web_requests_used,
-        bytes_read,
+        execution_usage,
     )
     .await
 }
@@ -262,6 +415,7 @@ pub(super) fn trace_lanes(
             query: batch.query.clone(),
             generation: Some(batch.descriptor.generation),
             status: batch.status.clone(),
+            execution: batch.execution,
             candidates: batch
                 .candidates
                 .iter()
@@ -287,12 +441,18 @@ pub(super) async fn run_diversity_stage(
     initial: crate::diversity::DiversitySelection,
     expander: &Option<Arc<dyn ContextExpander>>,
     evaluator: &Arc<dyn RetrievalEvaluator>,
-    bytes_read: &mut u64,
+    execution_usage: &mut SearchExecutionUsage,
     authorization: &maestria_governance::RetrievalAuthorizationContext,
 ) -> RetrievalResult<(SearchOutcome, crate::diversity::DiversitySelection)> {
     let selected_candidates = initial.candidates.clone();
+    let budget = plan.execution_budget()?;
+    let remaining_candidates = budget
+        .max_candidates()
+        .saturating_sub(execution_usage.candidates);
     let expansion_policy = ExpansionPolicy {
-        max_results: plan.stop_conditions.max_results as usize,
+        max_results: (plan.stop_conditions.max_results as u64)
+            .min(remaining_candidates)
+            .min(usize::MAX as u64) as usize,
         max_depth: plan.stages.len(),
         selected_seeds: selected_candidates
             .iter()
@@ -319,12 +479,15 @@ pub(super) async fn run_diversity_stage(
         if !is_seed {
             let range = candidate.source_span.range();
             let candidate_bytes = range.end.saturating_sub(range.start) as u64;
-            let max_bytes = plan.budgets.max_bytes_read();
-            if max_bytes > 0 && candidate_bytes > max_bytes.saturating_sub(*bytes_read) {
+            let mut candidate_usage = *execution_usage;
+            candidate_usage.candidates = candidate_usage.candidates.saturating_add(1);
+            candidate_usage.work_units = candidate_usage.work_units.saturating_add(1);
+            candidate_usage.bytes_read = candidate_usage.bytes_read.saturating_add(candidate_bytes);
+            if !usage_within_budget(candidate_usage, budget) {
                 expansion_budget_exhausted = true;
                 continue;
             }
-            *bytes_read = (*bytes_read).saturating_add(candidate_bytes);
+            *execution_usage = candidate_usage;
         }
         bounded_expanded.push(candidate);
     }
@@ -349,8 +512,18 @@ pub(super) async fn run_diversity_stage(
             candidates,
         })
         .await?;
-    ensure_exact_lineage_from_evidence(&report.outcome.evidence, &final_diversity.candidates)?;
-    Ok((report.outcome, final_diversity))
+    let mut outcome = report.outcome;
+    if expansion_budget_exhausted
+        && matches!(
+            outcome.status,
+            maestria_domain::SearchStatus::Answerable
+                | maestria_domain::SearchStatus::AnswerableWithWarnings
+        )
+    {
+        outcome.status = maestria_domain::SearchStatus::EvidenceIncomplete;
+    }
+    ensure_exact_lineage_from_evidence(&outcome.evidence, &final_diversity.candidates)?;
+    Ok((outcome, final_diversity))
 }
 
 fn ensure_exact_lineage(

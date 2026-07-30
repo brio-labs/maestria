@@ -1,4 +1,3 @@
-use std::cell::Cell;
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -67,42 +66,21 @@ impl CardRetriever {
             .policy
             .authorization_context(&maestria_domain::CorpusScope::Global)
             .map_err(|error| RetrievalError::Internal(format!("{error:?}")))?;
-        let hits = self.filtered_hits(query, &authorization)?;
-        let mut allowed = Vec::with_capacity(hits.len());
-        for (raw_rank, hit) in hits.into_iter().enumerate() {
-            if self
-                .candidate_from_hit(&hit, one_based_rank(raw_rank), &authorization)?
-                .is_some()
-            {
-                allowed.push(hit);
-            }
-        }
-        Ok(allowed)
+        let bounded = self.filtered_hits(query, &authorization)?;
+        Ok(bounded.hits)
     }
 
     fn filtered_hits(
         &self,
         query: SearchQuery,
         authorization: &maestria_governance::RetrievalAuthorizationContext,
-    ) -> Result<Vec<maestria_ports::CardHit>, RetrievalError> {
-        let filter_error = Cell::new(None);
+    ) -> Result<maestria_ports::BoundedSearch<maestria_ports::CardHit>, RetrievalError> {
         let hits = self
             .index
-            .search_cards_filtered(query, &|card_id, artifact_id| match self.prefilter_hit(
-                card_id,
-                artifact_id,
-                authorization,
-            ) {
-                Ok(allowed) => allowed,
-                Err(error) => {
-                    filter_error.set(Some(error));
-                    false
-                }
+            .search_cards_filtered(query, &|card_id, artifact_id| {
+                self.prefilter_hit(card_id, artifact_id, authorization)
             })
             .map_err(port_error)?;
-        if let Some(error) = filter_error.take() {
-            return Err(port_error(error));
-        }
         Ok(hits)
     }
 
@@ -219,22 +197,17 @@ impl CandidateRetriever for CardRetriever {
             ));
         }
         let authorization = request.authorization.clone();
-        let hits = self.filtered_hits(request.query.clone(), &authorization)?;
-        let mut bytes_read = 0_u64;
-        let mut candidates = Vec::with_capacity(hits.len());
-        for (raw_rank, hit) in hits.into_iter().enumerate() {
+        let mut query = request.query.clone();
+        query.execution_budget = request.execution_budget;
+        let bounded = self.filtered_hits(query, &authorization)?;
+        let mut candidates = Vec::with_capacity(bounded.hits.len());
+        for (raw_rank, hit) in bounded.hits.into_iter().enumerate() {
             let Some(candidate) =
                 self.candidate_from_hit(&hit, one_based_rank(raw_rank), &authorization)?
             else {
                 continue;
             };
-            bytes_read = bytes_read.saturating_add(
-                (candidate.source_span.range().end - candidate.source_span.range().start) as u64,
-            );
             candidates.push(candidate);
-            if candidates.len() >= request.query.limit {
-                break;
-            }
         }
         Ok(CandidateBatch {
             descriptor: self.descriptor.clone(),
@@ -246,7 +219,7 @@ impl CandidateRetriever for CardRetriever {
             },
             generation: Some(self.descriptor.generation),
             candidates,
-            bytes_read,
+            execution: bounded.execution,
         })
     }
 }

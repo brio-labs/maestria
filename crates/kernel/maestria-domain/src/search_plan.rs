@@ -2,7 +2,7 @@ use std::collections::BTreeSet;
 
 use serde::{Deserialize, Serialize};
 
-use super::{SearchCompatibilityError, SearchIntent};
+use super::{SearchBudget, SearchCompatibilityError, SearchIntent};
 use crate::ids::{CorpusSnapshotId, IndexGenerationId, QueryId, ScopeId};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -70,154 +70,6 @@ pub enum SearchStage {
     Reranking,
     Filtering,
     Synthesis,
-}
-
-fn default_one() -> u32 {
-    1
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(try_from = "SearchBudgetDto")]
-pub struct SearchBudget {
-    max_tokens: u32,
-    max_latency_ms: u32,
-    max_queries: u32,
-    max_stages: u32,
-    max_web_requests: u32,
-    max_bytes_read: u64,
-    max_concurrency: u32,
-}
-
-#[derive(Deserialize)]
-struct SearchBudgetDto {
-    max_tokens: u32,
-    max_latency_ms: u32,
-    #[serde(default = "default_one")]
-    max_queries: u32,
-    #[serde(default = "default_one")]
-    max_stages: u32,
-    #[serde(default)]
-    max_web_requests: u32,
-    #[serde(default)]
-    max_bytes_read: u64,
-    #[serde(default = "default_concurrency")]
-    max_concurrency: u32,
-}
-fn default_concurrency() -> u32 {
-    1
-}
-
-impl TryFrom<SearchBudgetDto> for SearchBudget {
-    type Error = SearchCompatibilityError;
-
-    fn try_from(dto: SearchBudgetDto) -> Result<Self, Self::Error> {
-        Self::with_resource_limits(
-            dto.max_tokens,
-            dto.max_latency_ms,
-            dto.max_queries,
-            dto.max_stages,
-            dto.max_web_requests,
-            dto.max_bytes_read,
-            dto.max_concurrency,
-        )
-    }
-}
-
-impl SearchBudget {
-    pub fn new(max_tokens: u32, max_latency_ms: u32) -> Result<Self, SearchCompatibilityError> {
-        Self::with_limits(max_tokens, max_latency_ms, 1, 1, 0)
-    }
-
-    pub fn with_limits(
-        max_tokens: u32,
-        max_latency_ms: u32,
-        max_queries: u32,
-        max_stages: u32,
-        max_web_requests: u32,
-    ) -> Result<Self, SearchCompatibilityError> {
-        Self::with_resource_limits(
-            max_tokens,
-            max_latency_ms,
-            max_queries,
-            max_stages,
-            max_web_requests,
-            0,
-            1,
-        )
-    }
-
-    pub fn with_resource_limits(
-        max_tokens: u32,
-        max_latency_ms: u32,
-        max_queries: u32,
-        max_stages: u32,
-        max_web_requests: u32,
-        max_bytes_read: u64,
-        max_concurrency: u32,
-    ) -> Result<Self, SearchCompatibilityError> {
-        if max_tokens == 0 {
-            return Err(SearchCompatibilityError::InvalidBudget(
-                "max_tokens must be greater than 0",
-            ));
-        }
-        if max_latency_ms == 0 {
-            return Err(SearchCompatibilityError::InvalidBudget(
-                "max_latency_ms must be greater than 0",
-            ));
-        }
-        if max_queries == 0 {
-            return Err(SearchCompatibilityError::InvalidBudget(
-                "max_queries must be greater than 0",
-            ));
-        }
-        if max_stages == 0 {
-            return Err(SearchCompatibilityError::InvalidBudget(
-                "max_stages must be greater than 0",
-            ));
-        }
-        if max_concurrency == 0 {
-            return Err(SearchCompatibilityError::InvalidBudget(
-                "max_concurrency must be greater than 0",
-            ));
-        }
-        Ok(Self {
-            max_tokens,
-            max_latency_ms,
-            max_queries,
-            max_stages,
-            max_web_requests,
-            max_bytes_read,
-            max_concurrency,
-        })
-    }
-
-    pub fn max_tokens(&self) -> u32 {
-        self.max_tokens
-    }
-
-    pub fn max_latency_ms(&self) -> u32 {
-        self.max_latency_ms
-    }
-
-    pub fn max_queries(&self) -> u32 {
-        self.max_queries
-    }
-
-    pub fn max_stages(&self) -> u32 {
-        self.max_stages
-    }
-
-    pub fn max_web_requests(&self) -> u32 {
-        self.max_web_requests
-    }
-
-    pub fn max_bytes_read(&self) -> u64 {
-        self.max_bytes_read
-    }
-
-    pub fn max_concurrency(&self) -> u32 {
-        self.max_concurrency
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -378,5 +230,11 @@ impl SearchPlan {
             ));
         }
         Ok(())
+    }
+    pub fn execution_budget(
+        &self,
+    ) -> Result<super::SearchExecutionBudget, SearchCompatibilityError> {
+        self.budgets
+            .execution_budget(self.stop_conditions.max_results)
     }
 }

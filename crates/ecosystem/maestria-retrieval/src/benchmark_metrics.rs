@@ -1,6 +1,7 @@
 use super::{
-    RepositoryBenchmarkCase, RepositoryBenchmarkError, RepositoryBenchmarkObservation,
-    RepositoryExpectedOutcome, RepositoryQueryClass, RepositoryRoute, RepositoryRouteMetrics,
+    MeasurementStatus, RepositoryBenchmarkCase, RepositoryBenchmarkError,
+    RepositoryBenchmarkObservation, RepositoryExpectedOutcome, RepositoryQueryClass,
+    RepositoryRoute, RepositoryRouteMetrics,
 };
 use crate::golden::Metric;
 
@@ -10,6 +11,10 @@ pub(super) fn metrics_for(
     cases: &[&RepositoryBenchmarkCase],
     observations: &[RepositoryBenchmarkObservation],
 ) -> Result<RepositoryRouteMetrics, RepositoryBenchmarkError> {
+    let measurements_available = observations
+        .iter()
+        .filter(|observation| observation.route == route)
+        .all(|observation| matches!(observation.measurement_status, MeasurementStatus::Measured));
     let mut exact_hits = 0usize;
     let mut exact_expected = 0usize;
     let mut chain_hits = 0usize;
@@ -75,6 +80,7 @@ pub(super) fn metrics_for(
         privacy_violations,
         security_violations,
         energy_milliwatt_seconds,
+        measurements_available,
         citation_alignment: Metric::from_ratio(citation_total as usize, citation_count),
     })
 }
@@ -84,6 +90,9 @@ pub(super) fn wins(
     phase_c: &RepositoryRouteMetrics,
     specialized: &RepositoryRouteMetrics,
 ) -> bool {
+    if !phase_c.measurements_available || !specialized.measurements_available {
+        return false;
+    }
     let quality_gain = specialized.exact_span_recall.value()
         >= phase_c
             .exact_span_recall

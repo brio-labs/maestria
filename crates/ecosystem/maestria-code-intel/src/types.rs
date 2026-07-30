@@ -231,6 +231,9 @@ pub struct QuerySummary {
     pub matched: usize,
     pub returned: usize,
     pub truncated: bool,
+    /// Number of indexed symbols examined before the bounded scan stopped.
+    #[serde(default)]
+    pub scanned: usize,
     pub limit: usize,
     pub regex_error: Option<String>,
 }

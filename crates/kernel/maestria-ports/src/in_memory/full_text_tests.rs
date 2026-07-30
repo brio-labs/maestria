@@ -2,6 +2,12 @@ use crate::FullTextIndex;
 use crate::in_memory::InMemoryFullTextIndex;
 use maestria_domain::{ArtifactId, ChunkId};
 
+fn search_budget(
+    limit: u64,
+) -> Result<maestria_domain::SearchExecutionBudget, maestria_domain::SearchCompatibilityError> {
+    maestria_domain::SearchExecutionBudget::new(limit, 10_000, 100_000, 0)
+}
+
 #[test]
 fn reindex_chunk_replaces_old_record() -> Result<(), Box<dyn std::error::Error>> {
     let index = InMemoryFullTextIndex::new();
@@ -24,9 +30,10 @@ fn reindex_chunk_replaces_old_record() -> Result<(), Box<dyn std::error::Error>>
         q: "original".to_string(),
         limit: 10,
         offset: 0,
+        execution_budget: search_budget(10)?,
     })?;
     assert!(
-        hits.is_empty(),
+        hits.hits.is_empty(),
         "old text must not be searchable after replacement"
     );
 
@@ -34,9 +41,11 @@ fn reindex_chunk_replaces_old_record() -> Result<(), Box<dyn std::error::Error>>
         q: "updated".to_string(),
         limit: 10,
         offset: 0,
+        execution_budget: search_budget(10)?,
     })?;
-    assert_eq!(updated_hits.len(), 1);
-    assert_eq!(updated_hits[0].chunk.text, "updated text");
+    assert_eq!(updated_hits.hits.len(), 1);
+    assert_eq!(updated_hits.execution.budget.max_results(), 10);
+    assert_eq!(updated_hits.hits[0].chunk.text, "updated text");
     Ok(())
 }
 
@@ -68,17 +77,19 @@ fn reindex_chunk_preserves_other_chunks() -> Result<(), Box<dyn std::error::Erro
         q: "alpha".to_string(),
         limit: 10,
         offset: 0,
+        execution_budget: search_budget(10)?,
     })?;
-    assert_eq!(all_hits.len(), 1);
-    assert_eq!(all_hits[0].chunk.chunk_id, ChunkId::new(10));
+    assert_eq!(all_hits.hits.len(), 1);
+    assert_eq!(all_hits.hits[0].chunk.chunk_id, ChunkId::new(10));
 
     let beta_hits = index.search(crate::SearchQuery {
         q: "beta".to_string(),
         limit: 10,
         offset: 0,
+        execution_budget: search_budget(10)?,
     })?;
-    assert_eq!(beta_hits.len(), 1);
-    assert_eq!(beta_hits[0].chunk.chunk_id, ChunkId::new(11));
+    assert_eq!(beta_hits.hits.len(), 1);
+    assert_eq!(beta_hits.hits[0].chunk.chunk_id, ChunkId::new(11));
     Ok(())
 }
 
@@ -91,6 +102,7 @@ fn blank_chunk_search_query_returns_typed_error() -> Result<(), Box<dyn std::err
             q: blank.to_string(),
             limit: 10,
             offset: 0,
+            execution_budget: search_budget(10)?,
         }) {
             Ok(_) => return Err("blank chunk query unexpectedly succeeded".into()),
             Err(error) => error,
@@ -120,6 +132,7 @@ fn blank_card_search_query_returns_typed_error() -> Result<(), Box<dyn std::erro
             q: blank.to_string(),
             limit: 10,
             offset: 0,
+            execution_budget: search_budget(10)?,
         }) {
             Ok(_) => return Err("blank card query unexpectedly succeeded".into()),
             Err(error) => error,
@@ -150,8 +163,9 @@ fn blank_filtered_chunk_search_query_returns_typed_error() -> Result<(), Box<dyn
             q: "   ".to_string(),
             limit: 10,
             offset: 0,
+            execution_budget: search_budget(10)?,
         },
-        &|_, _| true,
+        &|_, _| Ok(true),
     ) {
         Ok(_) => return Err("blank filtered chunk query unexpectedly succeeded".into()),
         Err(error) => error,
@@ -176,8 +190,9 @@ fn blank_filtered_card_search_query_returns_typed_error() -> Result<(), Box<dyn 
             q: "   ".to_string(),
             limit: 10,
             offset: 0,
+            execution_budget: search_budget(10)?,
         },
-        &|_, _| true,
+        &|_, _| Ok(true),
     ) {
         Ok(_) => return Err("blank filtered card query unexpectedly succeeded".into()),
         Err(error) => error,
@@ -189,5 +204,68 @@ fn blank_filtered_card_search_query_returns_typed_error() -> Result<(), Box<dyn 
         "expected 'empty filtered card search query' in error, got: {}",
         msg
     );
+    Ok(())
+}
+
+#[test]
+fn chunk_search_reports_candidate_exhaustion_without_partial_completion()
+-> Result<(), Box<dyn std::error::Error>> {
+    let index = InMemoryFullTextIndex::new();
+    index.index_chunks(vec![
+        crate::IndexedChunk {
+            artifact_id: ArtifactId::new(1),
+            chunk_id: ChunkId::new(1),
+            text: "needle one".to_string(),
+        },
+        crate::IndexedChunk {
+            artifact_id: ArtifactId::new(1),
+            chunk_id: ChunkId::new(2),
+            text: "needle two".to_string(),
+        },
+    ])?;
+    let budget = maestria_domain::SearchExecutionBudget::new(10, 1, 100, 0)?;
+    let result = index.search(crate::SearchQuery {
+        q: "needle".to_string(),
+        limit: 10,
+        offset: 0,
+        execution_budget: budget,
+    })?;
+    assert_eq!(result.hits.len(), 1);
+    assert_eq!(
+        result.execution.completion,
+        maestria_domain::SearchExecutionCompletion::Exhausted(
+            maestria_domain::SearchExecutionResource::Candidates
+        )
+    );
+    assert_eq!(result.execution.usage.candidates, 1);
+    Ok(())
+}
+
+#[test]
+fn filtered_search_propagates_authorization_errors() -> Result<(), Box<dyn std::error::Error>> {
+    let index = InMemoryFullTextIndex::new();
+    index.index_chunks(vec![crate::IndexedChunk {
+        artifact_id: ArtifactId::new(1),
+        chunk_id: ChunkId::new(1),
+        text: "needle".to_string(),
+    }])?;
+    let error = match index.search_filtered(
+        crate::SearchQuery {
+            q: "needle".to_string(),
+            limit: 10,
+            offset: 0,
+            execution_budget: search_budget(10)?,
+        },
+        &|_, _| {
+            Err(crate::PortError::InternalContext {
+                context: "authorization filter",
+                source: "policy unavailable".to_string(),
+            })
+        },
+    ) {
+        Ok(_) => return Err("authorization failure was swallowed".into()),
+        Err(error) => error,
+    };
+    assert!(error.to_string().contains("policy unavailable"));
     Ok(())
 }

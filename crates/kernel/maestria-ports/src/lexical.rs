@@ -1,4 +1,4 @@
-use maestria_domain::{ArtifactId, CardId, ChunkId};
+use maestria_domain::{ArtifactId, CardId, ChunkId, SearchExecutionBudget};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IndexedLexicalChunk {
@@ -59,6 +59,7 @@ pub struct LexicalQuery<F> {
     pub offset: usize,
     pub mode: MatchMode,
     pub fields: Vec<FieldSelector<F>>,
+    pub execution_budget: SearchExecutionBudget,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

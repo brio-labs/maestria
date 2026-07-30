@@ -7,6 +7,11 @@ use maestria_domain::{
     DomainEventEnvelope, EventId, Evidence, EvidenceId, EvidenceKind, LineRange, LogicalTick,
     SequenceNumber, SnapshotRef, ValidationReportId,
 };
+fn search_budget(
+    limit: u64,
+) -> Result<maestria_domain::SearchExecutionBudget, maestria_domain::SearchCompatibilityError> {
+    maestria_domain::SearchExecutionBudget::new(limit, 10_000, 100_000, 0)
+}
 
 pub fn sample_artifact(id: u64) -> Artifact {
     Artifact {
@@ -407,16 +412,23 @@ fn verify_chunk_round_trip(index: &impl FullTextIndex) -> Result<(), Box<dyn std
         q: "hello".to_string(),
         limit: 10,
         offset: 0,
+        execution_budget: search_budget(10)?,
     })?;
 
-    assert_eq!(hits.len(), 2);
-    let hit_ids: Vec<ChunkId> = hits.iter().map(|hit| hit.chunk.chunk_id).collect();
+    assert_eq!(hits.hits.len(), 2);
+    let hit_ids: Vec<ChunkId> = hits.hits.iter().map(|hit| hit.chunk.chunk_id).collect();
+    assert_eq!(hits.execution.budget.max_results(), 10);
+    assert_eq!(
+        hits.execution.completion,
+        maestria_domain::SearchExecutionCompletion::Complete
+    );
     assert!(hit_ids.contains(&ChunkId::new(10)));
     assert!(hit_ids.contains(&ChunkId::new(11)));
     let repeated = index.search(SearchQuery {
         q: "hello".to_string(),
         limit: 10,
         offset: 0,
+        execution_budget: search_budget(10)?,
     })?;
     assert_eq!(hits, repeated);
     Ok(())
@@ -449,16 +461,18 @@ fn verify_card_round_trip(index: &impl FullTextIndex) -> Result<(), Box<dyn std:
         q: "card".to_string(),
         limit: 10,
         offset: 0,
+        execution_budget: search_budget(10)?,
     })?;
 
-    assert_eq!(card_hits.len(), 2);
-    let card_ids: Vec<CardId> = card_hits.iter().map(|hit| hit.card.card_id).collect();
+    assert_eq!(card_hits.hits.len(), 2);
+    let card_ids: Vec<CardId> = card_hits.hits.iter().map(|hit| hit.card.card_id).collect();
     assert!(card_ids.contains(&CardId::new(100)));
     assert!(card_ids.contains(&CardId::new(101)));
     let repeated = index.search_cards(SearchQuery {
         q: "card".to_string(),
         limit: 10,
         offset: 0,
+        execution_budget: search_budget(10)?,
     })?;
     assert_eq!(card_hits, repeated);
     Ok(())
@@ -478,18 +492,20 @@ fn verify_card_replacement(index: &impl FullTextIndex) -> Result<(), Box<dyn std
         q: "second".to_string(),
         limit: 10,
         offset: 0,
+        execution_budget: search_budget(10)?,
     })?;
-    assert_eq!(beta_hits.len(), 1);
-    assert_eq!(beta_hits[0].card.card_id, CardId::new(101));
+    assert_eq!(beta_hits.hits.len(), 1);
+    assert_eq!(beta_hits.hits[0].card.card_id, CardId::new(101));
 
     let updated_hits = index.search_cards(SearchQuery {
         q: "revised".to_string(),
         limit: 10,
         offset: 0,
+        execution_budget: search_budget(10)?,
     })?;
-    assert_eq!(updated_hits.len(), 1);
-    assert_eq!(updated_hits[0].card.card_id, CardId::new(100));
-    assert_eq!(updated_hits[0].card.title, "Alpha Updated");
+    assert_eq!(updated_hits.hits.len(), 1);
+    assert_eq!(updated_hits.hits[0].card.card_id, CardId::new(100));
+    assert_eq!(updated_hits.hits[0].card.title, "Alpha Updated");
     Ok(())
 }
 
@@ -520,10 +536,11 @@ fn verify_tie_ordering(index: &impl FullTextIndex) -> Result<(), Box<dyn std::er
         q: "dup".to_string(),
         limit: 10,
         offset: 0,
+        execution_budget: search_budget(10)?,
     })?;
 
     // All three should match; order must be by ascending card_id for ties
-    let tie_ids: Vec<CardId> = tie_hits.iter().map(|h| h.card.card_id).collect();
+    let tie_ids: Vec<CardId> = tie_hits.hits.iter().map(|h| h.card.card_id).collect();
     assert_eq!(
         tie_ids,
         vec![CardId::new(301), CardId::new(302), CardId::new(303)]
@@ -537,8 +554,9 @@ fn verify_empty_query(index: &impl FullTextIndex) -> Result<(), Box<dyn std::err
         q: "zzz_no_match".to_string(),
         limit: 10,
         offset: 0,
+        execution_budget: search_budget(10)?,
     })?;
-    assert!(empty.is_empty());
+    assert!(empty.hits.is_empty());
     Ok(())
 }
 
@@ -574,12 +592,15 @@ pub fn assert_vector_index_contract(
     let equal_score_hits = index.search_similar(VectorSearchQuery {
         vector: vec![1.0, 0.0],
         limit: 4,
+        execution_budget: search_budget(4)?,
         ..Default::default()
     })?;
-    assert_eq!(equal_score_hits[0].chunk_id, ChunkId::new(1));
-    assert_eq!(equal_score_hits[1].chunk_id, ChunkId::new(2));
+    assert_eq!(equal_score_hits.execution.budget.max_results(), 4);
+    assert_eq!(equal_score_hits.hits[0].chunk_id, ChunkId::new(1));
+    assert_eq!(equal_score_hits.hits[1].chunk_id, ChunkId::new(2));
     assert!(
         !equal_score_hits
+            .hits
             .iter()
             .any(|hit| hit.chunk_id == ChunkId::new(4))
     );
@@ -588,10 +609,11 @@ pub fn assert_vector_index_contract(
     let zero_query_hits = index.search_similar(VectorSearchQuery {
         vector: vec![0.0, 0.0],
         limit: 10,
+        execution_budget: search_budget(10)?,
         ..Default::default()
     })?;
     assert!(
-        zero_query_hits.is_empty(),
+        zero_query_hits.hits.is_empty(),
         "all-zero query must return no hits"
     );
 
@@ -600,9 +622,11 @@ pub fn assert_vector_index_contract(
     let replacement_hits = index.search_similar(VectorSearchQuery {
         vector: vec![1.0, 0.0],
         limit: 10,
+        execution_budget: search_budget(10)?,
         ..Default::default()
     })?;
     let replaced = replacement_hits
+        .hits
         .iter()
         .filter(|hit| hit.chunk_id == ChunkId::new(7))
         .collect::<Vec<_>>();
@@ -618,13 +642,14 @@ fn verify_vector_identity_filter(
     let mismatched_identity_hits = index.search_similar(VectorSearchQuery {
         vector: vec![1.0, 0.0],
         limit: 4,
+        execution_budget: search_budget(4)?,
         provider_id: Some("other-provider".into()),
         model: Some("other-model".into()),
         model_version: Some("other-version".into()),
         identity: None,
     })?;
     assert!(
-        mismatched_identity_hits.is_empty(),
+        mismatched_identity_hits.hits.is_empty(),
         "provider/model/version identity must filter incompatible rows"
     );
     Ok(())
@@ -645,6 +670,7 @@ fn verify_vector_validation(
         index.search_similar(VectorSearchQuery {
             vector: vec![f32::NAN],
             limit: 1,
+            execution_budget: search_budget(1)?,
             provider_id: None,
             model: None,
             model_version: None,
@@ -655,7 +681,8 @@ fn verify_vector_validation(
     assert!(matches!(
         index.search_similar(VectorSearchQuery {
             vector: vec![f32::NAN],
-            limit: 0,
+            limit: 1,
+            execution_budget: search_budget(1)?,
             provider_id: None,
             model: None,
             model_version: None,
@@ -678,10 +705,11 @@ fn verify_vector_lifecycle(
     let hits_after_clear = index.search_similar(VectorSearchQuery {
         vector: vec![1.0, 0.0],
         limit: 10,
+        execution_budget: search_budget(10)?,
         ..Default::default()
     })?;
     assert!(
-        hits_after_clear.is_empty(),
+        hits_after_clear.hits.is_empty(),
         "index must be empty after clear"
     );
     index.clear()?;
@@ -692,27 +720,29 @@ fn verify_vector_lifecycle(
     let hits_after_rebuild = index.search_similar(VectorSearchQuery {
         vector: vec![1.0, 0.0],
         limit: 10,
+        execution_budget: search_budget(10)?,
         ..Default::default()
     })?;
     assert_eq!(
-        hits_after_rebuild.len(),
+        hits_after_rebuild.hits.len(),
         2,
         "must have exactly two hits after rebuild"
     );
-    assert_eq!(hits_after_rebuild[0].chunk_id, ChunkId::new(11));
+    assert_eq!(hits_after_rebuild.hits[0].chunk_id, ChunkId::new(11));
     index.delete_chunks(&[ChunkId::new(10)])?;
     let hits_after_delete = index.search_similar(VectorSearchQuery {
         vector: vec![0.0, 1.0],
         limit: 10,
+        execution_budget: search_budget(10)?,
         ..Default::default()
     })?;
     assert_eq!(
-        hits_after_delete.len(),
+        hits_after_delete.hits.len(),
         1,
         "must have one hit remaining after delete"
     );
     assert_eq!(
-        hits_after_delete[0].chunk_id,
+        hits_after_delete.hits[0].chunk_id,
         ChunkId::new(11),
         "only chunk 11 should remain"
     );
@@ -720,14 +750,18 @@ fn verify_vector_lifecycle(
     let hits_after_idempotent_delete = index.search_similar(VectorSearchQuery {
         vector: vec![1.0, 0.0],
         limit: 10,
+        execution_budget: search_budget(10)?,
         ..Default::default()
     })?;
     assert_eq!(
-        hits_after_idempotent_delete.len(),
+        hits_after_idempotent_delete.hits.len(),
         1,
         "must still have one hit remaining"
     );
-    assert_eq!(hits_after_idempotent_delete[0].chunk_id, ChunkId::new(11));
+    assert_eq!(
+        hits_after_idempotent_delete.hits[0].chunk_id,
+        ChunkId::new(11)
+    );
     Ok(())
 }
 pub fn assert_parser_round_trip(

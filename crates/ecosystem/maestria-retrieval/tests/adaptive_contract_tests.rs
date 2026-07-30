@@ -161,7 +161,16 @@ impl CandidateRetriever for AdaptiveLane {
             candidates,
             status: maestria_domain::SearchLaneStatus::Succeeded,
             generation: Some(generation),
-            bytes_read: 0,
+            execution: maestria_domain::SearchExecution::new(
+                request.execution_budget,
+                maestria_domain::SearchExecutionUsage::new(
+                    if returns_candidate { 1 } else { 0 },
+                    if returns_candidate { 1 } else { 0 },
+                    if returns_candidate { 1 } else { 0 },
+                    0,
+                ),
+                maestria_domain::SearchExecutionCompletion::Complete,
+            ),
         })
     }
 }

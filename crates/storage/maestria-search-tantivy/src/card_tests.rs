@@ -1,6 +1,12 @@
 use crate::TantivyFullTextIndex;
-use maestria_domain::{ArtifactId, CardId, ChunkId};
+use maestria_domain::{ArtifactId, CardId, ChunkId, SearchExecutionBudget};
 use maestria_ports::{FullTextIndex, IndexedCard, IndexedChunk, SearchQuery};
+
+fn search_budget(
+    limit: u64,
+) -> Result<maestria_domain::SearchExecutionBudget, maestria_domain::SearchCompatibilityError> {
+    SearchExecutionBudget::new(limit, 10_000, 100_000, 0)
+}
 
 fn card(artifact_id: u64, card_id: u64, title: &str, body: &str) -> IndexedCard {
     IndexedCard {
@@ -29,14 +35,18 @@ fn card_search_returns_indexed_card_metadata() -> Result<(), Box<dyn std::error:
         q: "alpha".to_string(),
         limit: 10,
         offset: 0,
+        execution_budget: search_budget(10)?,
     })?;
 
-    assert_eq!(hits.len(), 1);
-    assert_eq!(hits[0].card.artifact_id, ArtifactId::new(7));
-    assert_eq!(hits[0].card.card_id, CardId::new(70));
-    assert_eq!(hits[0].card.title, "Alpha Summary");
-    assert_eq!(hits[0].card.body, "This card discusses alpha concepts.");
-    assert!(hits[0].score > 0);
+    assert_eq!(hits.hits.len(), 1);
+    assert_eq!(hits.hits[0].card.artifact_id, ArtifactId::new(7));
+    assert_eq!(hits.hits[0].card.card_id, CardId::new(70));
+    assert_eq!(hits.hits[0].card.title, "Alpha Summary");
+    assert_eq!(
+        hits.hits[0].card.body,
+        "This card discusses alpha concepts."
+    );
+    assert!(hits.hits[0].score > 0);
     Ok(())
 }
 
@@ -54,9 +64,11 @@ fn card_search_limit_is_honored() -> Result<(), Box<dyn std::error::Error>> {
         q: "shared".to_string(),
         limit: 2,
         offset: 0,
+        execution_budget: search_budget(2)?,
     })?;
 
-    assert_eq!(hits.len(), 2);
+    assert_eq!(hits.hits.len(), 2);
+    assert_eq!(hits.execution.budget.max_results(), 2);
     Ok(())
 }
 
@@ -68,6 +80,7 @@ fn card_empty_query_is_invalid() -> Result<(), Box<dyn std::error::Error>> {
         q: "  \t  ".to_string(),
         limit: 10,
         offset: 0,
+        execution_budget: search_budget(10)?,
     });
 
     assert!(result.is_err_and(|error| error.is_invalid_input()));
@@ -75,18 +88,20 @@ fn card_empty_query_is_invalid() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 #[test]
-fn card_zero_limit_returns_empty() -> Result<(), Box<dyn std::error::Error>> {
+fn card_limit_offset_beyond_results_returns_empty() -> Result<(), Box<dyn std::error::Error>> {
     let index = TantivyFullTextIndex::in_memory()?;
 
     index.index_cards(vec![card(3, 30, "Present", "words only")])?;
 
     let hits = index.search_cards(SearchQuery {
         q: "present".to_string(),
-        limit: 0,
-        offset: 0,
+        limit: 1,
+        offset: 1,
+        execution_budget: search_budget(1)?,
     })?;
 
-    assert!(hits.is_empty());
+    assert!(hits.hits.is_empty());
+    assert_eq!(hits.execution.budget.max_results(), 1);
     Ok(())
 }
 
@@ -111,13 +126,14 @@ fn card_reindexing_replaces_without_duplicates() -> Result<(), Box<dyn std::erro
         q: "searchable".to_string(),
         limit: 10,
         offset: 0,
+        execution_budget: search_budget(10)?,
     })?;
 
-    assert_eq!(hits.len(), 1);
-    assert_eq!(hits[0].card.artifact_id, ArtifactId::new(2));
-    assert_eq!(hits[0].card.card_id, CardId::new(20));
-    assert_eq!(hits[0].card.title, "Updated Title");
-    assert_eq!(hits[0].card.body, "updated searchable body");
+    assert_eq!(hits.hits.len(), 1);
+    assert_eq!(hits.hits[0].card.artifact_id, ArtifactId::new(2));
+    assert_eq!(hits.hits[0].card.card_id, CardId::new(20));
+    assert_eq!(hits.hits[0].card.title, "Updated Title");
+    assert_eq!(hits.hits[0].card.body, "updated searchable body");
     Ok(())
 }
 
@@ -131,9 +147,10 @@ fn card_no_results_for_missing_term() -> Result<(), Box<dyn std::error::Error>> 
         q: "absent".to_string(),
         limit: 10,
         offset: 0,
+        execution_budget: search_budget(10)?,
     })?;
 
-    assert!(hits.is_empty());
+    assert!(hits.hits.is_empty());
     Ok(())
 }
 
@@ -154,11 +171,12 @@ fn card_directory_backed_index_can_be_reopened() -> Result<(), Box<dyn std::erro
         q: "durable".to_string(),
         limit: 10,
         offset: 0,
+        execution_budget: search_budget(10)?,
     })?;
 
-    assert_eq!(hits.len(), 1);
-    assert_eq!(hits[0].card.artifact_id, ArtifactId::new(4));
-    assert_eq!(hits[0].card.card_id, CardId::new(40));
+    assert_eq!(hits.hits.len(), 1);
+    assert_eq!(hits.hits[0].card.artifact_id, ArtifactId::new(4));
+    assert_eq!(hits.hits[0].card.card_id, CardId::new(40));
     Ok(())
 }
 
@@ -177,16 +195,18 @@ fn card_and_chunk_searches_are_isolated() -> Result<(), Box<dyn std::error::Erro
         q: "unique".to_string(),
         limit: 10,
         offset: 0,
+        execution_budget: search_budget(10)?,
     })?;
-    assert_eq!(card_hits.len(), 1);
-    assert_eq!(card_hits[0].card.card_id, CardId::new(50));
+    assert_eq!(card_hits.hits.len(), 1);
+    assert_eq!(card_hits.hits[0].card.card_id, CardId::new(50));
 
     let chunk_hits = index.search(SearchQuery {
         q: "unique".to_string(),
         limit: 10,
         offset: 0,
+        execution_budget: search_budget(10)?,
     })?;
-    assert_eq!(chunk_hits.len(), 1);
-    assert_eq!(chunk_hits[0].chunk.chunk_id, ChunkId::new(50));
+    assert_eq!(chunk_hits.hits.len(), 1);
+    assert_eq!(chunk_hits.hits[0].chunk.chunk_id, ChunkId::new(50));
     Ok(())
 }

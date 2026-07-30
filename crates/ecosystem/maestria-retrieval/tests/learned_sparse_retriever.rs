@@ -3,8 +3,8 @@ use maestria_domain::{
     EvidenceKind, EvidenceRequirements, FreshnessRequirement, IndexFingerprint, IndexGeneration,
     IndexGenerationId, IndexGenerationRegistry, IndexLifecycle, IndexStatus, LineRange,
     LogicalTick, Modality, ModalitySet, QueryId, RepresentationName, RetrievalModelFingerprint,
-    RetrievalReason, SearchBudget, SearchIntent, SearchPlan, SearchStage, SnapshotRef, SourceSpan,
-    StopConditions, StructureNodeId,
+    RetrievalReason, SearchBudget, SearchExecutionBudget, SearchIntent, SearchPlan, SearchStage,
+    SnapshotRef, SourceSpan, StopConditions, StructureNodeId,
 };
 use maestria_governance::RetrievalSecurityPolicy;
 use maestria_ports::{
@@ -168,17 +168,38 @@ impl LearnedSparseIndex for OverproducingSparseIndex {
 
     fn search(
         &self,
-        query: SparseSearchQuery,
-    ) -> Result<Vec<maestria_ports::SparseSearchHit>, PortError> {
+        mut query: SparseSearchQuery,
+    ) -> Result<maestria_ports::BoundedSearch<maestria_ports::SparseSearchHit>, PortError> {
+        query.limit = u32::MAX;
+        query.execution_budget = SearchExecutionBudget::new(
+            u64::from(u32::MAX),
+            u64::from(u32::MAX),
+            u64::from(u32::MAX),
+            0,
+        )
+        .map_err(|error| PortError::InvalidInputContext {
+            context: "overproducing sparse test budget",
+            source: error.to_string(),
+        })?;
         self.inner.search(query)
     }
 
     fn search_filtered(
         &self,
         mut query: SparseSearchQuery,
-        filter: &dyn Fn(ChunkId) -> bool,
-    ) -> Result<Vec<maestria_ports::SparseSearchHit>, PortError> {
+        filter: &dyn Fn(ChunkId) -> Result<bool, PortError>,
+    ) -> Result<maestria_ports::BoundedSearch<maestria_ports::SparseSearchHit>, PortError> {
         query.limit = u32::MAX;
+        query.execution_budget = SearchExecutionBudget::new(
+            u64::from(u32::MAX),
+            u64::from(u32::MAX),
+            u64::from(u32::MAX),
+            0,
+        )
+        .map_err(|error| PortError::InvalidInputContext {
+            context: "overproducing sparse test budget",
+            source: error.to_string(),
+        })?;
         self.inner.search_filtered(query, filter)
     }
 
@@ -323,13 +344,17 @@ fn request_with_limit(
 ) -> Result<CandidateRequest, Box<dyn std::error::Error>> {
     let plan = fixture_plan(identity, query)?;
     let authorization = RetrievalSecurityPolicy::default().authorization_context(&plan.scope)?;
+    let execution_budget =
+        maestria_domain::SearchExecutionBudget::new(limit as u64, limit as u64, limit as u64, 0)?;
     Ok(CandidateRequest {
         plan,
         query: SearchQuery {
             q: query.to_string(),
             limit,
             offset: 0,
+            execution_budget,
         },
+        execution_budget,
         expected_generation: identity.generation_id,
         authorization,
     })

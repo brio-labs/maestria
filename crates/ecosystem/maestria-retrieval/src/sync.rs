@@ -1,4 +1,7 @@
-use maestria_domain::{SearchLaneStatus, SearchPlan};
+use maestria_domain::{
+    SearchExecution, SearchExecutionBudget, SearchExecutionCompletion, SearchExecutionResource,
+    SearchExecutionUsage, SearchLaneStatus, SearchPlan,
+};
 
 use crate::engine::rewrite_session;
 use crate::types::{RetrievalError, RetrievalResult};
@@ -17,14 +20,80 @@ fn default_capabilities() -> maestria_governance::SearchCapabilities {
         .with_security_filters()
 }
 
-type PipelineRetriever<'a, C> = Box<dyn Fn(&SearchPlan) -> RetrievalResult<Vec<C>> + 'a>;
-type PipelineQueryRetriever<'a, C> = Box<dyn Fn(&SearchPlan, &str) -> RetrievalResult<Vec<C>> + 'a>;
+fn execution_candidate_limit(budget: SearchExecutionBudget) -> usize {
+    maestria_domain::saturating_usize(budget.max_results())
+        .min(maestria_domain::saturating_usize(budget.max_candidates()))
+        .min(maestria_domain::saturating_usize(budget.max_work_units()))
+}
+
+fn partition_budget(
+    global: SearchExecutionBudget,
+    lanes: usize,
+    lane: usize,
+) -> Option<SearchExecutionBudget> {
+    let lanes = lanes.max(1) as u64;
+    let partition = |total: u64| total / lanes + u64::from((lane as u64) < total % lanes);
+    let max_results = partition(global.max_results());
+    let max_candidates = partition(global.max_candidates());
+    let max_work_units = partition(global.max_work_units());
+    if max_results == 0 || max_candidates == 0 || max_work_units == 0 {
+        return None;
+    }
+    let max_bytes_read = global
+        .max_bytes_read()
+        .map(|limit| partition(limit.get()))
+        .and_then(std::num::NonZeroU64::new);
+    SearchExecutionBudget::with_byte_limit(
+        max_results,
+        max_candidates,
+        max_work_units,
+        max_bytes_read,
+    )
+    .ok()
+}
+
+fn lane_execution(
+    budget: SearchExecutionBudget,
+    candidate_count: usize,
+    truncated: bool,
+) -> SearchExecution {
+    let count = maestria_domain::saturating_u64(candidate_count);
+    let usage = SearchExecutionUsage::new(count, count, count, 0);
+    let completion = if truncated {
+        let result_limit = budget.max_results();
+        let candidate_limit = budget.max_candidates();
+        let work_limit = budget.max_work_units();
+        if result_limit <= candidate_limit && result_limit <= work_limit {
+            SearchExecutionCompletion::Exhausted(SearchExecutionResource::Results)
+        } else if candidate_limit <= work_limit {
+            SearchExecutionCompletion::Exhausted(SearchExecutionResource::Candidates)
+        } else {
+            SearchExecutionCompletion::Exhausted(SearchExecutionResource::WorkUnits)
+        }
+    } else {
+        SearchExecutionCompletion::Complete
+    };
+    SearchExecution::new(budget, usage, completion)
+}
+
+fn exhausted_lane_execution(budget: SearchExecutionBudget) -> SearchExecution {
+    SearchExecution::new(
+        budget,
+        SearchExecutionUsage::default(),
+        SearchExecutionCompletion::Exhausted(SearchExecutionResource::Candidates),
+    )
+}
+
+type PipelineRetriever<'a, C> =
+    Box<dyn Fn(&SearchPlan, SearchExecutionBudget) -> RetrievalResult<Vec<C>> + 'a>;
+type PipelineQueryRetriever<'a, C> =
+    Box<dyn Fn(&SearchPlan, &str, SearchExecutionBudget) -> RetrievalResult<Vec<C>> + 'a>;
 type PipelineFusion<'a, C> = Box<dyn Fn(Vec<Vec<C>>) -> RetrievalResult<Vec<C>> + 'a>;
 type PipelineStage<'a, C> = Box<dyn Fn(Vec<C>, &SearchPlan) -> RetrievalResult<Vec<C>> + 'a>;
+type SyncLaneSets<C> = Vec<(String, Vec<C>, SearchLaneStatus, SearchExecution)>;
 type PipelineCandidateFilter<'a, C> =
     Box<dyn Fn(Vec<C>, &SearchPlan) -> RetrievalResult<(Vec<C>, SearchLaneStatus)> + 'a>;
 type PipelineEvaluator<'a, C, O> = Box<dyn Fn(Vec<C>, &SearchPlan) -> RetrievalResult<O> + 'a>;
-type SyncLaneSets<C> = Vec<(String, Vec<C>, SearchLaneStatus)>;
 
 pub struct SyncPipeline<'a, C, O> {
     retrievers: Vec<PipelineRetriever<'a, C>>,
@@ -38,11 +107,10 @@ pub struct SyncPipeline<'a, C, O> {
     capabilities: maestria_governance::SearchCapabilities,
     security_policy: maestria_governance::RetrievalSecurityPolicy,
 }
-
 impl<'a, C, O> SyncPipeline<'a, C, O> {
     pub fn new<R, V>(retrievers: Vec<R>, evaluator: V) -> Self
     where
-        R: Fn(&SearchPlan) -> RetrievalResult<Vec<C>> + 'a,
+        R: Fn(&SearchPlan, SearchExecutionBudget) -> RetrievalResult<Vec<C>> + 'a,
         V: Fn(Vec<C>, &SearchPlan) -> RetrievalResult<O> + 'a,
     {
         Self {
@@ -84,7 +152,7 @@ impl<'a, C, O> SyncPipeline<'a, C, O> {
     }
     pub fn with_query_retriever<F>(mut self, retriever: F) -> Self
     where
-        F: Fn(&SearchPlan, &str) -> RetrievalResult<Vec<C>> + 'a,
+        F: Fn(&SearchPlan, &str, SearchExecutionBudget) -> RetrievalResult<Vec<C>> + 'a,
     {
         self.query_retrievers.push(Box::new(retriever));
         self
@@ -160,13 +228,83 @@ impl<'a, C, O> SyncPipeline<'a, C, O> {
         Ok((candidates, status))
     }
 
+    fn collect_lane_sets(
+        &self,
+        plan: &SearchPlan,
+        execution_budget: SearchExecutionBudget,
+        rewrite_queries: &[String],
+        lane_count: usize,
+        check_timeout: &dyn Fn() -> RetrievalResult<()>,
+    ) -> RetrievalResult<(Vec<Vec<C>>, SyncLaneSets<C>)>
+    where
+        C: Clone,
+    {
+        let mut sets = Vec::with_capacity(lane_count);
+        let mut lane_sets = Vec::with_capacity(lane_count);
+        let mut lane_index = 0_usize;
+        for retriever in &self.retrievers {
+            let Some(lane_budget) = partition_budget(execution_budget, lane_count, lane_index)
+            else {
+                lane_sets.push((
+                    plan.original_query.clone(),
+                    Vec::new(),
+                    SearchLaneStatus::Failed {
+                        error: "lane budget exhausted before dispatch".to_string(),
+                    },
+                    exhausted_lane_execution(execution_budget),
+                ));
+                sets.push(Vec::new());
+                lane_index = lane_index.saturating_add(1);
+                continue;
+            };
+            let candidate_limit = execution_candidate_limit(lane_budget);
+            let mut set = retriever(plan, lane_budget)?;
+            let truncated = set.len() > candidate_limit;
+            set.truncate(candidate_limit);
+            let execution = lane_execution(lane_budget, set.len(), truncated);
+            let (set, status) = self.apply_candidate_filter(set, plan)?;
+            lane_sets.push((plan.original_query.clone(), set.clone(), status, execution));
+            sets.push(set);
+            lane_index = lane_index.saturating_add(1);
+            check_timeout()?;
+        }
+        for query in rewrite_queries {
+            for retriever in &self.query_retrievers {
+                let Some(lane_budget) = partition_budget(execution_budget, lane_count, lane_index)
+                else {
+                    lane_sets.push((
+                        query.clone(),
+                        Vec::new(),
+                        SearchLaneStatus::Failed {
+                            error: "lane budget exhausted before dispatch".to_string(),
+                        },
+                        exhausted_lane_execution(execution_budget),
+                    ));
+                    sets.push(Vec::new());
+                    lane_index = lane_index.saturating_add(1);
+                    continue;
+                };
+                let candidate_limit = execution_candidate_limit(lane_budget);
+                let mut set = retriever(plan, query, lane_budget)?;
+                let truncated = set.len() > candidate_limit;
+                set.truncate(candidate_limit);
+                let execution = lane_execution(lane_budget, set.len(), truncated);
+                let (set, status) = self.apply_candidate_filter(set, plan)?;
+                lane_sets.push((query.clone(), set.clone(), status, execution));
+                sets.push(set);
+                lane_index = lane_index.saturating_add(1);
+                check_timeout()?;
+            }
+        }
+        Ok((sets, lane_sets))
+    }
+
     pub fn run(&self, plan: &SearchPlan) -> RetrievalResult<O>
     where
         C: Clone,
     {
         self.run_with_trace(plan).map(|(output, _)| output)
     }
-
     pub(crate) fn run_with_trace(&self, plan: &SearchPlan) -> RetrievalResult<(O, SyncLaneSets<C>)>
     where
         C: Clone,
@@ -177,6 +315,10 @@ impl<'a, C, O> SyncPipeline<'a, C, O> {
             &self.security_policy,
         )
         .map_err(RetrievalError::SearchPlan)?;
+        let execution_budget = plan
+            .execution_budget()
+            .map_err(RetrievalError::Compatibility)?;
+        let candidate_limit = execution_candidate_limit(execution_budget);
         let start = crate::MonotonicInstant::now();
         let timeout_ms = plan.budgets.max_latency_ms() as u64;
         let check_timeout = || -> RetrievalResult<()> {
@@ -190,38 +332,38 @@ impl<'a, C, O> SyncPipeline<'a, C, O> {
         if self.retrievers.is_empty() {
             return Err(RetrievalError::Internal("No retrievers configured".into()));
         }
-        let mut sets = Vec::with_capacity(self.retrievers.len());
-        let mut lane_sets = Vec::with_capacity(self.retrievers.len());
-        for retriever in &self.retrievers {
-            let mut set = retriever(plan)?;
-            set.truncate(plan.stop_conditions.max_results as usize);
-            let (set, status) = self.apply_candidate_filter(set, plan)?;
-            lane_sets.push((plan.original_query.clone(), set.clone(), status));
-            sets.push(set);
-            check_timeout()?;
-        }
-        if !self.query_retrievers.is_empty() {
-            let session = rewrite_session(plan);
-            for rewrite in session.records().iter().filter(|record| {
-                record.origin == crate::rewrite::RewriteOrigin::Deterministic
-                    && record.stage == crate::rewrite::StageRole::InitialRetrieval
-            }) {
-                for retriever in &self.query_retrievers {
-                    let mut set = retriever(plan, &rewrite.query)?;
-                    set.truncate(plan.stop_conditions.max_results as usize);
-                    let (set, status) = self.apply_candidate_filter(set, plan)?;
-                    lane_sets.push((rewrite.query.clone(), set.clone(), status));
-                    sets.push(set);
-                    check_timeout()?;
-                }
-            }
-        }
+        let rewrite_queries = if self.query_retrievers.is_empty() {
+            Vec::new()
+        } else {
+            rewrite_session(plan)
+                .records()
+                .iter()
+                .filter(|record| {
+                    record.origin == crate::rewrite::RewriteOrigin::Deterministic
+                        && record.stage == crate::rewrite::StageRole::InitialRetrieval
+                })
+                .map(|record| record.query.clone())
+                .collect::<Vec<_>>()
+        };
+        let lane_count = self.retrievers.len().saturating_add(
+            self.query_retrievers
+                .len()
+                .saturating_mul(rewrite_queries.len()),
+        );
+        let (sets, lane_sets) = self.collect_lane_sets(
+            plan,
+            execution_budget,
+            &rewrite_queries,
+            lane_count,
+            &check_timeout,
+        )?;
         let mut candidates = if let Some(fusion) = &self.fusion {
-            let fused = fusion(sets)?;
+            let mut fused = fusion(sets)?;
+            fused.truncate(candidate_limit);
             check_timeout()?;
             fused
         } else {
-            sets.into_iter().flatten().collect()
+            sets.into_iter().flatten().take(candidate_limit).collect()
         };
         if plan
             .stages
@@ -229,6 +371,7 @@ impl<'a, C, O> SyncPipeline<'a, C, O> {
             && let Some(reranker) = &self.reranker
         {
             candidates = reranker(candidates, plan)?;
+            candidates.truncate(candidate_limit);
             check_timeout()?;
         }
         if plan
@@ -237,14 +380,16 @@ impl<'a, C, O> SyncPipeline<'a, C, O> {
         {
             if let Some(pre_expander) = &self.pre_expander {
                 candidates = pre_expander(candidates, plan)?;
+                candidates.truncate(candidate_limit);
                 check_timeout()?;
             }
             if let Some(expander) = &self.expander {
                 candidates = expander(candidates, plan)?;
+                candidates.truncate(candidate_limit);
                 check_timeout()?;
             }
         }
-        candidates.truncate(plan.stop_conditions.max_results as usize);
+        candidates.truncate(candidate_limit);
         let output = (self.evaluator)(candidates, plan)?;
         check_timeout()?;
         Ok((output, lane_sets))

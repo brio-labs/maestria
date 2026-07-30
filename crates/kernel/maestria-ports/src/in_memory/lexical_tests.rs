@@ -4,6 +4,12 @@ use crate::in_memory::InMemoryFullTextIndex;
 use crate::lexical::{CardField, ChunkField, FieldSelector, HitReason, LexicalQuery, MatchMode};
 use maestria_domain::{ArtifactId, CardId, ChunkId};
 
+fn search_budget(
+    limit: u64,
+) -> Result<maestria_domain::SearchExecutionBudget, maestria_domain::SearchCompatibilityError> {
+    maestria_domain::SearchExecutionBudget::new(limit, 10_000, 100_000, 0)
+}
+
 #[test]
 fn test_search_lexical_exact_and_boosts() -> Result<(), Box<dyn std::error::Error>> {
     let index = InMemoryFullTextIndex::new();
@@ -36,12 +42,14 @@ fn test_search_lexical_exact_and_boosts() -> Result<(), Box<dyn std::error::Erro
             field: ChunkField::Text,
             boost: 1.0,
         }],
+        execution_budget: search_budget(10)?,
     };
     let hits = index.search_lexical(exact_query)?;
-    assert_eq!(hits.len(), 1);
-    assert_eq!(hits[0].chunk.chunk_id, ChunkId::new(11));
+    assert_eq!(hits.hits.len(), 1);
+    assert_eq!(hits.execution.budget.max_results(), 10);
+    assert_eq!(hits.hits[0].chunk.chunk_id, ChunkId::new(11));
     assert_eq!(
-        hits[0].metadata.reason,
+        hits.hits[0].metadata.reason,
         HitReason::ExactMatch {
             field: "text".into()
         }
@@ -56,20 +64,21 @@ fn test_search_lexical_exact_and_boosts() -> Result<(), Box<dyn std::error::Erro
             field: ChunkField::Text,
             boost: 2.5,
         }],
+        execution_budget: search_budget(10)?,
     };
     let hits2 = index.search_lexical(contains_query)?;
-    assert_eq!(hits2.len(), 2);
-    assert_eq!(hits2[0].chunk.chunk_id, ChunkId::new(10));
-    assert_eq!(hits2[1].chunk.chunk_id, ChunkId::new(11));
-    assert_eq!(hits2[0].metadata.raw_score, 40.0);
+    assert_eq!(hits2.hits.len(), 2);
+    assert_eq!(hits2.hits[0].chunk.chunk_id, ChunkId::new(10));
+    assert_eq!(hits2.hits[1].chunk.chunk_id, ChunkId::new(11));
+    assert_eq!(hits2.hits[0].metadata.raw_score, 40.0);
     assert_eq!(
-        hits2[0].metadata.reason,
+        hits2.hits[0].metadata.reason,
         HitReason::FieldMatch {
             field: "text".into()
         }
     );
-    assert_eq!(hits2[0].metadata.raw_rank, 1);
-    assert_eq!(hits2[1].metadata.raw_rank, 2);
+    assert_eq!(hits2.hits[0].metadata.raw_rank, 1);
+    assert_eq!(hits2.hits[1].metadata.raw_rank, 2);
     Ok(())
 }
 
@@ -113,21 +122,22 @@ fn test_search_cards_lexical_fields_and_boosts() -> Result<(), Box<dyn std::erro
                 boost: 1.0,
             },
         ],
+        execution_budget: search_budget(10)?,
     };
     let hits = index.search_cards_lexical(query)?;
-    assert_eq!(hits.len(), 2);
-    assert_eq!(hits[0].card.card_id, CardId::new(20));
-    assert_eq!(hits[0].metadata.raw_score, 40.0);
+    assert_eq!(hits.hits.len(), 2);
+    assert_eq!(hits.hits[0].card.card_id, CardId::new(20));
+    assert_eq!(hits.hits[0].metadata.raw_score, 40.0);
     assert_eq!(
-        hits[0].metadata.reason,
+        hits.hits[0].metadata.reason,
         HitReason::ExactMatch {
             field: "title".into()
         }
     );
-    assert_eq!(hits[1].card.card_id, CardId::new(21));
-    assert_eq!(hits[1].metadata.raw_score, 4.0);
+    assert_eq!(hits.hits[1].card.card_id, CardId::new(21));
+    assert_eq!(hits.hits[1].metadata.raw_score, 4.0);
     assert_eq!(
-        hits[1].metadata.reason,
+        hits.hits[1].metadata.reason,
         HitReason::ExactMatch {
             field: "body".into()
         }
@@ -166,10 +176,12 @@ fn test_search_lexical_filtered_acl() -> Result<(), Box<dyn std::error::Error>> 
             field: ChunkField::Text,
             boost: 1.0,
         }],
+        execution_budget: search_budget(10)?,
     };
-    let hits = index.search_lexical_filtered(query, &|chunk_id, _| chunk_id == ChunkId::new(11))?;
-    assert_eq!(hits.len(), 1);
-    assert_eq!(hits[0].chunk.chunk_id, ChunkId::new(11));
+    let hits =
+        index.search_lexical_filtered(query, &|chunk_id, _| Ok(chunk_id == ChunkId::new(11)))?;
+    assert_eq!(hits.hits.len(), 1);
+    assert_eq!(hits.hits[0].chunk.chunk_id, ChunkId::new(11));
     Ok(())
 }
 
@@ -206,11 +218,12 @@ fn test_search_cards_lexical_filtered_acl() -> Result<(), Box<dyn std::error::Er
             field: CardField::Body,
             boost: 1.0,
         }],
+        execution_budget: search_budget(10)?,
     };
     let hits =
-        index.search_cards_lexical_filtered(query, &|card_id, _| card_id == CardId::new(21))?;
-    assert_eq!(hits.len(), 1);
-    assert_eq!(hits[0].card.card_id, CardId::new(21));
+        index.search_cards_lexical_filtered(query, &|card_id, _| Ok(card_id == CardId::new(21)))?;
+    assert_eq!(hits.hits.len(), 1);
+    assert_eq!(hits.hits[0].card.card_id, CardId::new(21));
     Ok(())
 }
 
@@ -226,6 +239,7 @@ fn rejects_invalid_lexical_queries() -> Result<(), Box<dyn std::error::Error>> {
             field: ChunkField::Text,
             boost: 1.0,
         }],
+        execution_budget: search_budget(10)?,
     };
     assert!(
         index
@@ -239,6 +253,7 @@ fn rejects_invalid_lexical_queries() -> Result<(), Box<dyn std::error::Error>> {
         offset: 0,
         mode: MatchMode::Contains,
         fields: Vec::new(),
+        execution_budget: search_budget(10)?,
     };
     assert!(
         index

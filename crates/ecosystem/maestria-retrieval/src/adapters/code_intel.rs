@@ -2,11 +2,13 @@ use std::{collections::BTreeMap, sync::Arc};
 
 use async_trait::async_trait;
 use maestria_code_intel::{
-    CodeQuery, REPOSITORY_CODE_PARSER_GENERATION, RepositoryCodeIndex, RepositoryFreshness,
+    CodeQuery, QueryResult, REPOSITORY_CODE_PARSER_GENERATION, RepositoryCodeIndex,
+    RepositoryFreshness,
 };
 use maestria_domain::{
     ContentRange, EvidenceCandidate, EvidenceKind, EvidenceSpan, FreshnessStatus,
-    IndexGenerationId, RetrievalReason, SearchLaneStatus, SourceLocation,
+    IndexGenerationId, RetrievalReason, SearchExecution, SearchExecutionCompletion,
+    SearchExecutionResource, SearchExecutionUsage, SearchLaneStatus, SourceLocation,
 };
 use maestria_governance::scan_secrets;
 
@@ -135,6 +137,87 @@ impl CodeIntelRetriever {
             ],
         })
     }
+    fn materialize_candidates(
+        &self,
+        request: &CandidateRequest,
+        query_result: QueryResult,
+        authorized_bindings: Vec<AuthorizedCodeBinding>,
+        freshness: FreshnessStatus,
+    ) -> Result<
+        (
+            Vec<EvidenceCandidate>,
+            SearchExecutionUsage,
+            SearchExecutionCompletion,
+        ),
+        RetrievalError,
+    > {
+        let mut bindings = authorized_bindings;
+        let mut bytes_read = 0_u64;
+        let mut candidates = Vec::with_capacity(query_result.records.len());
+        let mut completion = if query_result.summary.truncated {
+            SearchExecutionCompletion::Exhausted(SearchExecutionResource::Candidates)
+        } else {
+            SearchExecutionCompletion::Complete
+        };
+        for (rank, symbol) in query_result
+            .records
+            .into_iter()
+            .skip(request.query.offset)
+            .take(request.query.limit)
+            .enumerate()
+        {
+            let candidate_count = maestria_domain::saturating_u64(candidates.len());
+            if candidate_count >= request.execution_budget.max_results() {
+                completion = SearchExecutionCompletion::Exhausted(SearchExecutionResource::Results);
+                break;
+            }
+            if candidate_count >= request.execution_budget.max_candidates() {
+                completion =
+                    SearchExecutionCompletion::Exhausted(SearchExecutionResource::Candidates);
+                break;
+            }
+            if candidate_count >= request.execution_budget.max_work_units() {
+                completion =
+                    SearchExecutionCompletion::Exhausted(SearchExecutionResource::WorkUnits);
+                break;
+            }
+            let Some(position) = bindings
+                .iter()
+                .position(|binding| binding.symbol.record_id == symbol.record_id)
+            else {
+                return Err(RetrievalError::Internal(format!(
+                    "authorized repository code binding is missing for {}",
+                    symbol.record_id
+                )));
+            };
+            let binding = bindings.remove(position);
+            let span_bytes = maestria_domain::saturating_u64(
+                binding
+                    .symbol
+                    .provenance
+                    .source_range
+                    .end_line
+                    .saturating_sub(binding.symbol.provenance.source_range.start_line),
+            );
+            if let Some(limit) = request.execution_budget.max_bytes_read()
+                && span_bytes > limit.get().saturating_sub(bytes_read)
+            {
+                completion =
+                    SearchExecutionCompletion::Exhausted(SearchExecutionResource::BytesRead);
+                break;
+            }
+            let candidate = self.candidate_from_binding(binding, freshness.clone(), rank)?;
+            bytes_read = bytes_read.saturating_add(span_bytes);
+            candidates.push(candidate);
+        }
+        let usage = SearchExecutionUsage::new(
+            maestria_domain::saturating_u64(candidates.len()),
+            maestria_domain::saturating_u64(query_result.summary.scanned),
+            maestria_domain::saturating_u64(query_result.summary.scanned),
+            bytes_read,
+        );
+        Ok((candidates, usage, completion))
+    }
 
     fn freshness(&self) -> Result<FreshnessStatus, RetrievalError> {
         if self
@@ -209,12 +292,16 @@ impl CandidateRetriever for CodeIntelRetriever {
         }
         if !matches!(request.plan.scope, maestria_domain::CorpusScope::Global) {
             return Ok(CandidateBatch {
-                descriptor: self.descriptor.clone(),
                 query: request.query.q,
+                descriptor: self.descriptor.clone(),
                 candidates: Vec::new(),
                 status: SearchLaneStatus::Empty,
                 generation: Some(self.descriptor.generation),
-                bytes_read: 0,
+                execution: SearchExecution::new(
+                    request.execution_budget,
+                    Default::default(),
+                    SearchExecutionCompletion::Complete,
+                ),
             });
         }
         let security = self.security.clone();
@@ -224,66 +311,41 @@ impl CandidateRetriever for CodeIntelRetriever {
             ));
         }
         let freshness = self.freshness()?;
-        let request_limit = request.query.limit.saturating_add(request.query.offset);
         let query = CodeQuery::Symbol {
             pattern: symbol_pattern(&request.query.q),
         };
-        let selection_limit = request_limit.min(1_000);
+        let scan_limit = maestria_domain::saturating_usize(
+            request
+                .execution_budget
+                .max_candidates()
+                .min(request.execution_budget.max_work_units()),
+        );
         let mut authorized_bindings = Vec::new();
-        let hits = self.index.query(
+        let query_result = self.index.query(
             query,
-            request_limit,
+            scan_limit,
             |symbol| -> Result<bool, RetrievalError> {
                 let Some(binding) = security.resolve(symbol, &request.authorization)? else {
                     return Ok(false);
                 };
-                retain_authorized_binding(&mut authorized_bindings, binding, selection_limit);
+                retain_authorized_binding(&mut authorized_bindings, binding, scan_limit);
                 Ok(true)
             },
         )?;
-        let hits = hits
-            .records
-            .into_iter()
-            .skip(request.query.offset)
-            .take(request.query.limit)
-            .collect::<Vec<_>>();
-
-        let mut bytes_read = 0_u64;
-        let mut candidates = Vec::with_capacity(hits.len());
-        for (rank, symbol) in hits.into_iter().enumerate() {
-            let Some(position) = authorized_bindings
-                .iter()
-                .position(|binding| binding.symbol.record_id == symbol.record_id)
-            else {
-                return Err(RetrievalError::Internal(format!(
-                    "authorized repository code binding is missing for {}",
-                    symbol.record_id
-                )));
-            };
-            let binding = authorized_bindings.remove(position);
-            let candidate = self.candidate_from_binding(binding, freshness.clone(), rank)?;
-            bytes_read = bytes_read.saturating_add(
-                candidate
-                    .source_span
-                    .range()
-                    .end
-                    .saturating_sub(candidate.source_span.range().start) as u64,
-            );
-            candidates.push(candidate);
-        }
+        let (candidates, usage, completion) =
+            self.materialize_candidates(&request, query_result, authorized_bindings, freshness)?;
         let status = if candidates.is_empty() {
             SearchLaneStatus::Empty
         } else {
             SearchLaneStatus::Succeeded
         };
-
         Ok(CandidateBatch {
             descriptor: self.descriptor.clone(),
             query: request.query.q,
             candidates,
             status,
             generation: Some(self.descriptor.generation),
-            bytes_read,
+            execution: SearchExecution::new(request.execution_budget, usage, completion),
         })
     }
 }

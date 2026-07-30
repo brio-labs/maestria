@@ -1,4 +1,6 @@
-use maestria_domain::{IndexFingerprint, IndexGenerationId, RepresentationName};
+use maestria_domain::{
+    IndexFingerprint, IndexGenerationId, RepresentationName, SearchExecutionBudget,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EmbeddingIdentity {
@@ -75,6 +77,7 @@ pub struct VectorSearchQuery {
     pub model: Option<String>,
     pub model_version: Option<String>,
     pub identity: Option<EmbeddingIdentity>,
+    pub execution_budget: SearchExecutionBudget,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -109,20 +112,19 @@ pub trait EmbeddingProvider: Send + Sync {
         None
     }
 }
-
 pub trait VectorIndex: Send + Sync {
     fn index_embeddings(&self, embeddings: Vec<VectorEmbedding>) -> Result<(), crate::PortError>;
     fn search_similar(
         &self,
         query: VectorSearchQuery,
-    ) -> Result<Vec<VectorSearchHit>, crate::PortError>;
+    ) -> Result<crate::BoundedSearch<VectorSearchHit>, crate::PortError>;
 
     /// Execute a vector search, applying a pre-score filter.
     fn search_similar_filtered(
         &self,
         query: VectorSearchQuery,
-        filter: &dyn Fn(maestria_domain::ChunkId) -> bool,
-    ) -> Result<Vec<VectorSearchHit>, crate::PortError> {
+        filter: &dyn Fn(maestria_domain::ChunkId) -> Result<bool, crate::PortError>,
+    ) -> Result<crate::BoundedSearch<VectorSearchHit>, crate::PortError> {
         let _ = (query, filter);
         Err(crate::PortError::InternalContext {
             context: "filtered vector search is unsupported",

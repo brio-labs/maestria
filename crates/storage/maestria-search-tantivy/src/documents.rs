@@ -2,9 +2,12 @@ use maestria_domain::{ArtifactId, CardId, ChunkId};
 use maestria_ports::{
     IndexedCard, IndexedChunk, IndexedLexicalCard, IndexedLexicalChunk, PortError,
 };
-use tantivy::{TantivyDocument, doc, schema::Value};
+use tantivy::{DocAddress, Searcher, TantivyDocument, columnar::ColumnValues, doc, schema::Value};
 
-use crate::tantivy_index::{TantivyFullTextIndex, card_key, chunk_key};
+use crate::tantivy_index::{
+    FIELD_ARTIFACT_ID, FIELD_CARD_ARTIFACT_ID, FIELD_CARD_ID, FIELD_CHUNK_ID, TantivyFullTextIndex,
+    card_key, chunk_key, to_port_error,
+};
 
 impl TantivyFullTextIndex {
     pub(crate) fn chunk_document(&self, chunk: &IndexedChunk) -> TantivyDocument {
@@ -33,6 +36,27 @@ impl TantivyFullTextIndex {
             doc.add_text(self.fields.symbol, symbol);
         }
         doc
+    }
+
+    pub(crate) fn read_chunk_identity_at(
+        &self,
+        searcher: &Searcher,
+        address: DocAddress,
+    ) -> Result<(ArtifactId, ChunkId), PortError> {
+        let segment = searcher.segment_reader(address.segment_ord);
+        let artifact_id = segment
+            .fast_fields()
+            .u64(FIELD_ARTIFACT_ID)
+            .map_err(to_port_error)?
+            .first_or_default_col(0)
+            .get_val(address.doc_id);
+        let chunk_id = segment
+            .fast_fields()
+            .u64(FIELD_CHUNK_ID)
+            .map_err(to_port_error)?
+            .first_or_default_col(0)
+            .get_val(address.doc_id);
+        Ok((ArtifactId::new(artifact_id), ChunkId::new(chunk_id)))
     }
 
     pub(crate) fn read_chunk(&self, document: &TantivyDocument) -> Result<IndexedChunk, PortError> {
@@ -103,6 +127,26 @@ impl TantivyFullTextIndex {
             self.fields.card_title => card.title.clone(),
             self.fields.card_body => card.body.clone(),
         )
+    }
+    pub(crate) fn read_card_identity_at(
+        &self,
+        searcher: &Searcher,
+        address: DocAddress,
+    ) -> Result<(ArtifactId, CardId), PortError> {
+        let segment = searcher.segment_reader(address.segment_ord);
+        let artifact_id = segment
+            .fast_fields()
+            .u64(FIELD_CARD_ARTIFACT_ID)
+            .map_err(to_port_error)?
+            .first_or_default_col(0)
+            .get_val(address.doc_id);
+        let card_id = segment
+            .fast_fields()
+            .u64(FIELD_CARD_ID)
+            .map_err(to_port_error)?
+            .first_or_default_col(0)
+            .get_val(address.doc_id);
+        Ok((ArtifactId::new(artifact_id), CardId::new(card_id)))
     }
 
     pub(crate) fn lexical_card_document(&self, card: &IndexedLexicalCard) -> TantivyDocument {

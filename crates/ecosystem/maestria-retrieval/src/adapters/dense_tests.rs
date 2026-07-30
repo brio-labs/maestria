@@ -71,6 +71,7 @@ fn denied_dense_candidates_are_filtered_before_scoring() -> Result<(), Box<dyn s
             provider_id: None,
             model: None,
             model_version: None,
+            execution_budget: maestria_domain::SearchExecutionBudget::new(5, 300, 10, 0)?,
         },
     )?;
     assert_eq!(index.filter_calls(), 1);
@@ -173,10 +174,11 @@ fn dense_batch_reports_bounded_bytes() -> Result<(), Box<dyn std::error::Error>>
             model: Some("dense-test".to_string()),
             model_version: Some("1".to_string()),
             identity: Some(identity),
+            execution_budget: maestria_domain::SearchExecutionBudget::new(5, 300, 10, 0)?,
         },
     )?;
     assert_eq!(batch.candidates.len(), 1);
-    assert_eq!(batch.bytes_read, 1);
+    assert_eq!(batch.execution.usage.bytes_read, 4);
     assert_eq!(chunks.owner_gets(), 1);
     assert_eq!(chunks.full_gets(), 1);
     assert_eq!(evidence.gets(), 1);

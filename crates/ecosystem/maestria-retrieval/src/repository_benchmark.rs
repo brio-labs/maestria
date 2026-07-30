@@ -259,6 +259,8 @@ pub struct RepositoryBenchmarkObservation {
     pub route: RepositoryRoute,
     pub exact_span_hits: usize,
     pub evidence_chain_length: usize,
+    #[serde(default)]
+    pub evidence_chain_measured: bool,
     pub latency_ms: u64,
     pub freshness_error: bool,
     pub abstained: bool,

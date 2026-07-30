@@ -20,6 +20,18 @@ use std::sync::{
 
 use crate::common::{candidate_fixture, dummy_plan};
 
+fn execution(
+    request: &maestria_retrieval::types::CandidateRequest,
+    results: u64,
+    bytes_read: u64,
+) -> maestria_domain::SearchExecution {
+    maestria_domain::SearchExecution::new(
+        request.execution_budget,
+        maestria_domain::SearchExecutionUsage::new(results, results, results, bytes_read),
+        maestria_domain::SearchExecutionCompletion::Complete,
+    )
+}
+
 struct AsyncLane {
     id: &'static str,
     fail: bool,
@@ -39,18 +51,19 @@ impl CandidateRetriever for AsyncLane {
 
     async fn retrieve(
         &self,
-        _request: maestria_retrieval::types::CandidateRequest,
+        request: maestria_retrieval::types::CandidateRequest,
     ) -> Result<maestria_retrieval::types::CandidateBatch, maestria_retrieval::RetrievalError> {
         if self.fail {
             return Err(RetrievalError::Internal("dense unavailable".to_string()));
         }
+        let candidate_count = if self.candidate.is_some() { 1 } else { 0 };
         Ok(maestria_retrieval::types::CandidateBatch {
             descriptor: self.descriptor(),
             query: "test query".to_string(),
             candidates: self.candidate.clone().into_iter().collect(),
             status: maestria_domain::SearchLaneStatus::Succeeded,
             generation: Some(IndexGenerationId::new(1)),
-            bytes_read: 0,
+            execution: execution(&request, candidate_count, 0),
         })
     }
 }
@@ -76,11 +89,11 @@ impl CandidateRetriever for StaleCodeLane {
     ) -> Result<maestria_retrieval::types::CandidateBatch, RetrievalError> {
         Ok(maestria_retrieval::types::CandidateBatch {
             descriptor: self.descriptor(),
-            query: request.query.q,
+            query: request.query.q.clone(),
             candidates: vec![self.candidate.clone()],
             status: maestria_domain::SearchLaneStatus::Succeeded,
             generation: Some(IndexGenerationId::new(1)),
-            bytes_read: 1,
+            execution: execution(&request, 1, 1),
         })
     }
 }
@@ -106,6 +119,7 @@ fn promoted_exact_symbol_policy() -> Result<RepositoryExecutionPolicy, Box<dyn s
                 route,
                 exact_span_hits: usize::from(exact_symbol_win),
                 evidence_chain_length: usize::from(exact_symbol_win),
+                evidence_chain_measured: true,
                 latency_ms: 1,
                 freshness_error: false,
                 abstained: expected_abstention,
@@ -116,7 +130,7 @@ fn promoted_exact_symbol_policy() -> Result<RepositoryExecutionPolicy, Box<dyn s
                 security_violation: false,
                 energy_milliwatt_seconds: 0,
                 citation_alignment: Metric::ZERO,
-                measurement_status: MeasurementStatus::default(),
+                measurement_status: MeasurementStatus::Measured,
             });
         }
     }
@@ -143,7 +157,7 @@ impl CandidateRetriever for CountingWebLane {
 
     async fn retrieve(
         &self,
-        _request: maestria_retrieval::types::CandidateRequest,
+        request: maestria_retrieval::types::CandidateRequest,
     ) -> Result<maestria_retrieval::types::CandidateBatch, RetrievalError> {
         self.calls.fetch_add(1, Ordering::SeqCst);
         Ok(maestria_retrieval::types::CandidateBatch {
@@ -152,7 +166,7 @@ impl CandidateRetriever for CountingWebLane {
             query: String::new(),
             status: maestria_domain::SearchLaneStatus::Empty,
             generation: Some(IndexGenerationId::new(1)),
-            bytes_read: 0,
+            execution: execution(&request, 0, 0),
         })
     }
 }
@@ -212,11 +226,11 @@ impl CandidateRetriever for SpecializedGenerationLane {
         self.calls.fetch_add(1, Ordering::SeqCst);
         Ok(maestria_retrieval::types::CandidateBatch {
             descriptor,
-            query: request.query.q,
+            query: request.query.q.clone(),
             candidates: vec![self.candidate.clone()],
             status: maestria_domain::SearchLaneStatus::Succeeded,
             generation: Some(IndexGenerationId::new(2)),
-            bytes_read: 0,
+            execution: execution(&request, 1, 1),
         })
     }
 }
@@ -239,7 +253,7 @@ impl CandidateRetriever for ByteOverrunLane {
 
     async fn retrieve(
         &self,
-        _request: maestria_retrieval::types::CandidateRequest,
+        request: maestria_retrieval::types::CandidateRequest,
     ) -> Result<maestria_retrieval::types::CandidateBatch, RetrievalError> {
         Ok(maestria_retrieval::types::CandidateBatch {
             descriptor: self.descriptor(),
@@ -247,7 +261,7 @@ impl CandidateRetriever for ByteOverrunLane {
             candidates: vec![self.candidate.clone()],
             status: maestria_domain::SearchLaneStatus::Succeeded,
             generation: Some(IndexGenerationId::new(1)),
-            bytes_read: self.bytes_read,
+            execution: execution(&request, 1, self.bytes_read),
         })
     }
 }
@@ -548,7 +562,7 @@ async fn local_lane_byte_overrun_is_rejected_before_scoring() -> RetrievalResult
     assert!(matches!(
         &lane.status,
         maestria_domain::SearchLaneStatus::Failed { error }
-            if error.contains("byte budget exhausted for text lane")
+            if error.contains("invalid execution metadata for text lane")
     ));
     assert_eq!(
         trace.stop_reason,

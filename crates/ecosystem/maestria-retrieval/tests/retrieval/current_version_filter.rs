@@ -32,7 +32,11 @@ impl CandidateRetriever for FixedRetriever {
             candidates: vec![self.candidate.clone()],
             status: SearchLaneStatus::Succeeded,
             generation: Some(maestria_domain::IndexGenerationId::new(1)),
-            bytes_read: 0,
+            execution: maestria_domain::SearchExecution::new(
+                request.execution_budget,
+                maestria_domain::SearchExecutionUsage::new(1, 1, 1, 0),
+                maestria_domain::SearchExecutionCompletion::Complete,
+            ),
         })
     }
 }
@@ -42,13 +46,17 @@ fn request() -> RetrievalResult<CandidateRequest> {
     let authorization = maestria_governance::RetrievalSecurityPolicy::default()
         .authorization_context(&plan.scope)
         .map_err(|error| RetrievalError::Internal(format!("{error:?}")))?;
+    let execution_budget = maestria_domain::SearchExecutionBudget::new(10, 10, 10, 0)
+        .map_err(|error| RetrievalError::Internal(format!("{error:?}")))?;
     Ok(CandidateRequest {
         plan,
         query: maestria_ports::SearchQuery {
             q: "notes".to_string(),
             limit: 10,
             offset: 0,
+            execution_budget,
         },
+        execution_budget,
         expected_generation: maestria_domain::IndexGenerationId::new(1),
         authorization,
     })

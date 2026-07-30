@@ -36,5 +36,6 @@ pub use search::{SearchFuture, SearchKnowledgeExecutor};
 pub use web::*;
 
 pub use indexing::{
-    CardHit, FileHandle, FileMetadata, IndexedCard, IndexedChunk, SearchHit, SearchQuery,
+    BoundedSearch, CardHit, FileHandle, FileMetadata, IndexedCard, IndexedChunk, SearchHit,
+    SearchQuery,
 };

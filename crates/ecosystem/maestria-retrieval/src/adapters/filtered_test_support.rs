@@ -7,12 +7,12 @@ use std::sync::{
 use maestria_domain::{
     Artifact, ArtifactId, Chunk, ChunkId, CorpusScope, EvidenceRequirements, FreshnessRequirement,
     IndexGenerationId, IndexStatus, Modality, ModalitySet, QueryId, RetrievalModelFingerprint,
-    SearchBudget, SearchCompatibilityError, SearchIntent, SearchPlan, SearchStage, SourceSpan,
-    StopConditions,
+    SearchBudget, SearchCompatibilityError, SearchExecution, SearchExecutionCompletion,
+    SearchIntent, SearchPlan, SearchStage, SourceSpan, StopConditions,
 };
 use maestria_ports::FullTextIndex;
 use maestria_ports::{
-    CardHit, ChunkRepository, EvidenceRepository, InMemoryChunkRepository,
+    BoundedSearch, CardHit, ChunkRepository, EvidenceRepository, InMemoryChunkRepository,
     InMemoryEvidenceRepository, IndexedCard, IndexedChunk, PortError, SearchHit, SearchQuery,
     VectorEmbedding, VectorIndex, VectorSearchHit, VectorSearchQuery,
 };
@@ -66,7 +66,7 @@ impl FullTextIndex for FilteredFullTextSpy {
         Ok(())
     }
 
-    fn search(&self, _query: SearchQuery) -> Result<Vec<SearchHit>, PortError> {
+    fn search(&self, _query: SearchQuery) -> Result<BoundedSearch<SearchHit>, PortError> {
         Err(PortError::InternalContext {
             context: "test unfiltered chunk search",
             source: "governed adapter bypassed filtered search".to_string(),
@@ -77,7 +77,7 @@ impl FullTextIndex for FilteredFullTextSpy {
         Ok(())
     }
 
-    fn search_cards(&self, _query: SearchQuery) -> Result<Vec<CardHit>, PortError> {
+    fn search_cards(&self, _query: SearchQuery) -> Result<BoundedSearch<CardHit>, PortError> {
         Err(PortError::InternalContext {
             context: "test unfiltered card search",
             source: "governed adapter bypassed filtered search".to_string(),
@@ -86,26 +86,40 @@ impl FullTextIndex for FilteredFullTextSpy {
 
     fn search_filtered(
         &self,
-        _query: SearchQuery,
-        filter: &dyn Fn(ChunkId, ArtifactId) -> bool,
-    ) -> Result<Vec<SearchHit>, PortError> {
+        query: SearchQuery,
+        filter: &dyn Fn(ChunkId, ArtifactId) -> Result<bool, PortError>,
+    ) -> Result<BoundedSearch<SearchHit>, PortError> {
         self.chunk_filter_calls.fetch_add(1, Ordering::SeqCst);
-        if filter(self.chunk_id, self.artifact_id) {
+        if filter(self.chunk_id, self.artifact_id)? {
             self.chunk_score_calls.fetch_add(1, Ordering::SeqCst);
         }
-        Ok(Vec::new())
+        Ok(BoundedSearch::new(
+            Vec::new(),
+            SearchExecution::new(
+                query.execution_budget,
+                Default::default(),
+                SearchExecutionCompletion::Complete,
+            ),
+        ))
     }
 
     fn search_cards_filtered(
         &self,
-        _query: SearchQuery,
-        filter: &dyn Fn(maestria_domain::CardId, ArtifactId) -> bool,
-    ) -> Result<Vec<CardHit>, PortError> {
+        query: SearchQuery,
+        filter: &dyn Fn(maestria_domain::CardId, ArtifactId) -> Result<bool, PortError>,
+    ) -> Result<BoundedSearch<CardHit>, PortError> {
         self.card_filter_calls.fetch_add(1, Ordering::SeqCst);
-        if filter(self.card_id, self.artifact_id) {
+        if filter(self.card_id, self.artifact_id)? {
             self.card_score_calls.fetch_add(1, Ordering::SeqCst);
         }
-        Ok(Vec::new())
+        Ok(BoundedSearch::new(
+            Vec::new(),
+            SearchExecution::new(
+                query.execution_budget,
+                Default::default(),
+                SearchExecutionCompletion::Complete,
+            ),
+        ))
     }
 }
 
@@ -138,7 +152,10 @@ impl VectorIndex for FilteredVectorSpy {
         Ok(())
     }
 
-    fn search_similar(&self, _query: VectorSearchQuery) -> Result<Vec<VectorSearchHit>, PortError> {
+    fn search_similar(
+        &self,
+        _query: VectorSearchQuery,
+    ) -> Result<BoundedSearch<VectorSearchHit>, PortError> {
         Err(PortError::InternalContext {
             context: "test unfiltered vector search",
             source: "governed adapter bypassed filtered search".to_string(),
@@ -147,14 +164,21 @@ impl VectorIndex for FilteredVectorSpy {
 
     fn search_similar_filtered(
         &self,
-        _query: VectorSearchQuery,
-        filter: &dyn Fn(ChunkId) -> bool,
-    ) -> Result<Vec<VectorSearchHit>, PortError> {
+        query: VectorSearchQuery,
+        filter: &dyn Fn(ChunkId) -> Result<bool, PortError>,
+    ) -> Result<BoundedSearch<VectorSearchHit>, PortError> {
         self.filter_calls.fetch_add(1, Ordering::SeqCst);
-        if filter(self.chunk_id) {
+        if filter(self.chunk_id)? {
             self.score_calls.fetch_add(1, Ordering::SeqCst);
         }
-        Ok(Vec::new())
+        Ok(BoundedSearch::new(
+            Vec::new(),
+            SearchExecution::new(
+                query.execution_budget,
+                Default::default(),
+                SearchExecutionCompletion::Complete,
+            ),
+        ))
     }
 
     fn delete_chunks(&self, _chunk_ids: &[ChunkId]) -> Result<(), PortError> {
@@ -329,7 +353,9 @@ pub fn request(
             q: "needle".to_string(),
             limit: 5,
             offset: 0,
+            execution_budget: maestria_domain::SearchExecutionBudget::new(5, 300, 10, 0)?,
         },
+        execution_budget: maestria_domain::SearchExecutionBudget::new(5, 300, 10, 0)?,
         expected_generation: generation,
         authorization,
     })

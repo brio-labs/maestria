@@ -1,13 +1,12 @@
 use crate::SyncPipeline;
 use maestria_domain::{
-    EvidenceCandidate, EvidenceCoverage, SearchLaneStatus, SearchOutcome, SearchPlan, SearchStatus,
-    SearchStopReason, SearchTrace, SearchTraceLane, SearchTraceLaneCandidate, SecurityMetadata,
-    TrustLabel, TrustZone,
+    EvidenceCandidate, EvidenceCoverage, SearchExecution, SearchExecutionBudget, SearchLaneStatus,
+    SearchOutcome, SearchPlan, SearchStatus, SearchStopReason, SearchTrace, SearchTraceLane,
+    SearchTraceLaneCandidate, SecurityMetadata, TrustLabel, TrustZone,
 };
 
 use crate::engine::{EnsureTraceOptions, applied_security_filters, ensure_trace, reconcile_status};
 use crate::types::{RankedCandidate, RetrievalError, RetrievalResult};
-
 fn candidate_security_metadata(candidate: &EvidenceCandidate) -> SecurityMetadata {
     let mut metadata = SecurityMetadata::default();
     match candidate.trust {
@@ -72,7 +71,7 @@ impl<'a> SyncRetrievalEngine<'a> {
         security_policy: maestria_governance::RetrievalSecurityPolicy,
     ) -> Self
     where
-        R: Fn(&SearchPlan) -> RetrievalResult<Vec<EvidenceCandidate>> + 'a,
+        R: Fn(&SearchPlan, SearchExecutionBudget) -> RetrievalResult<Vec<EvidenceCandidate>> + 'a,
         V: Fn(Vec<EvidenceCandidate>, &SearchPlan) -> RetrievalResult<SearchOutcome> + 'a,
     {
         let candidate_policy = security_policy.clone();
@@ -100,7 +99,8 @@ impl<'a> SyncRetrievalEngine<'a> {
     }
     pub fn with_query_retriever<F>(mut self, retriever: F) -> Self
     where
-        F: Fn(&SearchPlan, &str) -> RetrievalResult<Vec<EvidenceCandidate>> + 'a,
+        F: Fn(&SearchPlan, &str, SearchExecutionBudget) -> RetrievalResult<Vec<EvidenceCandidate>>
+            + 'a,
     {
         self.pipeline = self.pipeline.with_query_retriever(retriever);
         self
@@ -129,25 +129,25 @@ impl<'a> SyncRetrievalEngine<'a> {
         self.pipeline = self.pipeline.with_expander(expander);
         self
     }
-    pub fn search_sync(&self, plan: &SearchPlan) -> RetrievalResult<SearchOutcome> {
-        let expected_authorization = self
-            .security_policy
-            .authorization_context(&plan.scope)
-            .map_err(|error| {
-                RetrievalError::Internal(format!("retrieval authorization denied: {error:?}"))
-            })?
-            .policy_snapshot();
-        if plan.authorization.as_ref() != Some(&expected_authorization) {
-            return Err(RetrievalError::Internal(
-                "search plan authorization is not trusted for this runtime".to_string(),
-            ));
-        }
-        if maestria_governance::contains_prompt_injection_risk(&plan.original_query) {
-            return self.quarantine_outcome(plan);
-        }
-        let (mut outcome, lane_sets) = self.pipeline.run_with_trace(plan)?;
+    fn finalize_sync_outcome(
+        &self,
+        plan: &SearchPlan,
+        mut outcome: SearchOutcome,
+        lane_sets: Vec<(
+            String,
+            Vec<EvidenceCandidate>,
+            SearchLaneStatus,
+            SearchExecution,
+        )>,
+    ) -> RetrievalResult<SearchOutcome> {
+        let budget_exhausted = lane_sets.iter().any(|(_, _, _, execution)| {
+            matches!(
+                execution.completion,
+                maestria_domain::SearchExecutionCompletion::Exhausted(_)
+            )
+        });
         let policy_denied = !lane_sets.is_empty()
-            && lane_sets.iter().all(|(_, candidates, status)| {
+            && lane_sets.iter().all(|(_, candidates, status, _execution)| {
                 candidates.is_empty()
                     && matches!(
                         status,
@@ -173,13 +173,22 @@ impl<'a> SyncRetrievalEngine<'a> {
             .collect();
         outcome.coverage = diversity.coverage;
         outcome.status = reconcile_status(&outcome.status, &diversity.status);
+        if budget_exhausted
+            && matches!(
+                outcome.status,
+                SearchStatus::Answerable | SearchStatus::AnswerableWithWarnings
+            )
+        {
+            outcome.status = SearchStatus::EvidenceIncomplete;
+        }
         let lanes = lane_sets
             .into_iter()
-            .map(|(query, candidates, status)| SearchTraceLane {
+            .map(|(query, candidates, status, execution)| SearchTraceLane {
                 retriever_id: "sync_pipeline".to_string(),
                 generation: Some(plan.index_generation),
                 query,
                 status,
+                execution,
                 candidates: candidates
                     .into_iter()
                     .enumerate()
@@ -217,11 +226,31 @@ impl<'a> SyncRetrievalEngine<'a> {
                 rerank_trace: None,
                 diversity_trace: Some(diversity.trace),
                 rewrites,
-                explicit_stop_reason: None,
+                explicit_stop_reason: budget_exhausted.then_some(SearchStopReason::BudgetExhausted),
             },
         );
         outcome.verify_compatibility(plan)?;
         Ok(outcome)
+    }
+
+    pub fn search_sync(&self, plan: &SearchPlan) -> RetrievalResult<SearchOutcome> {
+        let expected_authorization = self
+            .security_policy
+            .authorization_context(&plan.scope)
+            .map_err(|error| {
+                RetrievalError::Internal(format!("retrieval authorization denied: {error:?}"))
+            })?
+            .policy_snapshot();
+        if plan.authorization.as_ref() != Some(&expected_authorization) {
+            return Err(RetrievalError::Internal(
+                "search plan authorization is not trusted for this runtime".to_string(),
+            ));
+        }
+        if maestria_governance::contains_prompt_injection_risk(&plan.original_query) {
+            return self.quarantine_outcome(plan);
+        }
+        let (outcome, lane_sets) = self.pipeline.run_with_trace(plan)?;
+        self.finalize_sync_outcome(plan, outcome, lane_sets)
     }
 
     fn quarantine_outcome(&self, plan: &SearchPlan) -> RetrievalResult<SearchOutcome> {

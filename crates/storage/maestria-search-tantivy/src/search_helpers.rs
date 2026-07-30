@@ -1,57 +1,56 @@
 use maestria_ports::PortError;
-use tantivy::{DocAddress, Searcher, collector::TopDocs, query::Query};
+use tantivy::{
+    DocAddress, Searcher, TERMINATED,
+    query::{EnableScoring, Query, Scorer},
+};
 
 use crate::tantivy_index::to_port_error;
 
-pub(super) fn collect_tie_complete(
+/// Collects at most `candidate_limit` live matches.
+///
+/// Tantivy's `TopDocs` collector bounds the retained heap, not the scorer
+/// traversal. This collector drives each scorer directly so the candidate
+/// budget bounds the actual index walk as well as the returned page.
+pub(super) fn collect_bounded(
     searcher: &Searcher,
     query: &dyn Query,
     offset: usize,
     limit: usize,
-) -> Result<Vec<(f32, DocAddress)>, PortError> {
-    let total_docs = searcher.num_docs() as usize;
-    let safe_limit = limit.min(total_docs).max(1);
-    let requested = offset.saturating_add(limit).min(total_docs);
+    candidate_limit: usize,
+) -> Result<(Vec<(f32, DocAddress)>, bool), PortError> {
+    let requested = offset.saturating_add(limit).min(candidate_limit);
     if requested == 0 {
-        return Ok(Vec::new());
+        return Ok((Vec::new(), false));
     }
-    let mut documents = searcher
-        .search(query, &TopDocs::with_limit(requested).order_by_score())
+    let weight = query
+        .weight(EnableScoring::enabled_from_searcher(searcher))
         .map_err(to_port_error)?;
-    if documents.len() < requested {
-        return Ok(documents);
-    }
-    let boundary = documents.last().map(|(score, _)| *score);
-    let Some(boundary) = boundary else {
-        return Ok(documents);
-    };
-    let mut next_offset = requested;
-    loop {
-        let page = searcher
-            .search(
-                query,
-                &TopDocs::with_limit(safe_limit)
-                    .and_offset(next_offset)
-                    .order_by_score(),
-            )
-            .map_err(to_port_error)?;
-        if page.is_empty() {
-            break;
-        }
-        let mut found_boundary = false;
-        let mut found_lower = false;
-        for (score, address) in page {
-            if score == boundary {
-                documents.push((score, address));
-                found_boundary = true;
-            } else if score < boundary {
-                found_lower = true;
+    let mut docs = Vec::with_capacity(requested);
+    let mut truncated = false;
+    for (segment_ord, segment_reader) in searcher.segment_readers().iter().enumerate() {
+        let mut scorer = weight.scorer(segment_reader, 1.0).map_err(to_port_error)?;
+        let alive = segment_reader.alive_bitset();
+        let mut doc = scorer.doc();
+        while doc != TERMINATED {
+            if alive.is_none_or(|bitset| bitset.is_alive(doc)) {
+                if docs.len() == candidate_limit {
+                    truncated = true;
+                    break;
+                }
+                docs.push((scorer.score(), DocAddress::new(segment_ord as u32, doc)));
             }
+            doc = scorer.advance();
         }
-        if found_lower || !found_boundary {
+        if truncated {
             break;
         }
-        next_offset = next_offset.saturating_add(safe_limit);
     }
-    Ok(documents)
+    docs.sort_by(|(left_score, left_address), (right_score, right_address)| {
+        right_score
+            .total_cmp(left_score)
+            .then_with(|| left_address.segment_ord.cmp(&right_address.segment_ord))
+            .then_with(|| left_address.doc_id.cmp(&right_address.doc_id))
+    });
+    docs.truncate(requested);
+    Ok((docs, truncated))
 }
