@@ -145,6 +145,26 @@ The complete schema-v2 contract fixture is:
 tests/contracts/learned_sparse_benchmark_v2.json
 ```
 
+The real-task freeze is maintained separately from the schema contract fixture:
+
+```text
+tests/contracts/learned_sparse_task_corpus_v1.json
+```
+
+Its source manifest records repository-relative paths and content hashes. Real Maestria task
+cases are primary for normal retrieval, terminology, path, symbol, freshness, and abstention
+workloads; synthetic cases are restricted to adversarial and lifecycle failure scenarios. Every
+final query class has at least two independent task IDs so no single case can determine
+promotion. Final and development cases remain separate, and each case records source inputs,
+graded relevance judgments, accepted spans, evidence chains, citation expectations, freshness,
+security expectations, and budgets.
+
+Judges use the three-level `NotRelevant`/`Relevant`/`HighlyRelevant` scale independently before
+adjudication. Accepted spans must support the cited claim; an evidence chain must reference
+known source inputs; abstention is correct only for no-evidence, unsupported, stale, privacy,
+provider, or security outcomes. Disagreements are resolved by a third judge, and the frozen
+judgment-set hash changes whenever guidance, source inputs, or judgments change.
+
 Schema v2 requires explicit query judgments, a development/final split, source and judgment
 hashes, corpus snapshot, index generation, namespace, route budgets, environment, and data
 fidelity. Every quality, latency, memory, disk, lifecycle, privacy, security, and energy value
