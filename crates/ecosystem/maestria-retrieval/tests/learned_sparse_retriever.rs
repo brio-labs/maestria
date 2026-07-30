@@ -4,7 +4,7 @@ use maestria_domain::{
     IndexGenerationId, IndexGenerationRegistry, IndexLifecycle, IndexStatus, LineRange,
     LogicalTick, Modality, ModalitySet, QueryId, RepresentationName, RetrievalModelFingerprint,
     RetrievalReason, SearchBudget, SearchExecutionBudget, SearchIntent, SearchPlan, SearchStage,
-    SnapshotRef, SourceSpan, StopConditions, StructureNodeId,
+    SnapshotRef, SourceSpan, SparseNamespace, StopConditions, StructureNodeId, TrustZone,
 };
 use maestria_governance::RetrievalSecurityPolicy;
 use maestria_ports::{
@@ -232,6 +232,11 @@ fn fixture_identity() -> Result<SparseIdentity, Box<dyn std::error::Error>> {
         generation_id: IndexGenerationId::new(7),
         corpus_snapshot: CorpusSnapshotId::new(11),
         representation: RepresentationName::new(SPARSE_REPRESENTATION_V1),
+        namespace: SparseNamespace::new(
+            "fixture-instance-a",
+            TrustZone::Verified,
+            SPARSE_REPRESENTATION_V1,
+        )?,
         fingerprint: SparseFingerprint {
             provider: "fixture-local".to_string(),
             model: "fixture-sparse".to_string(),
@@ -262,6 +267,7 @@ fn fixture_registry(
         id: identity.generation_id,
         name: identity.representation.clone(),
         corpus_snapshot: identity.corpus_snapshot,
+        sparse_namespace: Some(identity.namespace.clone()),
         fingerprint: IndexFingerprint {
             provider: sparse.provider.clone(),
             model: sparse.model.clone(),

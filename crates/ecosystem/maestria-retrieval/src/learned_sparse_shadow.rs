@@ -15,7 +15,7 @@ use crate::learned_sparse_benchmark::LearnedSparseQueryClass;
 use crate::traits::CandidateRetriever;
 use crate::types::{CandidateRequest, RetrieverDescriptor};
 
-const SHADOW_SCHEMA_VERSION: u16 = 2;
+const SHADOW_SCHEMA_VERSION: u16 = 3;
 const MAX_SHADOW_RETRIEVERS: usize = 8;
 const MAX_SHADOW_ERROR_CHARS: usize = 512;
 const MAX_SHADOW_LATENCY_MS: u64 = 5_000;
@@ -47,6 +47,8 @@ pub struct LearnedSparseShadowLane {
     pub retriever_id: String,
     pub representation: maestria_domain::RepresentationName,
     pub generation: IndexGenerationId,
+    #[serde(default)]
+    pub namespace: Option<maestria_domain::SparseNamespace>,
     pub status: LearnedSparseShadowLaneStatus,
     pub candidates: Vec<LearnedSparseShadowCandidate>,
 }
@@ -191,7 +193,8 @@ pub(crate) fn spawn_learned_sparse_shadow(
         .take(MAX_SHADOW_RETRIEVERS)
         .map(|retriever| {
             let descriptor = retriever.descriptor();
-            (retriever, descriptor)
+            let namespace = retriever.sparse_namespace();
+            (retriever, descriptor, namespace)
         })
         .collect::<Vec<_>>();
     if retrievers.is_empty() {
@@ -204,32 +207,33 @@ pub(crate) fn spawn_learned_sparse_shadow(
         })),
     })
 }
-
 async fn run_shadow(
-    retrievers: Vec<(Arc<dyn CandidateRetriever>, RetrieverDescriptor)>,
+    retrievers: Vec<(
+        Arc<dyn CandidateRetriever>,
+        RetrieverDescriptor,
+        Option<maestria_domain::SparseNamespace>,
+    )>,
     plan: SearchPlan,
     authorization: maestria_governance::RetrievalAuthorizationContext,
 ) -> LearnedSparseShadowObservation {
     let started = tokio::time::Instant::now();
     let timeout_ms = u64::from(plan.budgets.max_latency_ms()).clamp(1, MAX_SHADOW_LATENCY_MS);
-    let descriptors = retrievers
-        .iter()
-        .map(|(_, descriptor)| descriptor.clone())
-        .collect::<Vec<_>>();
+    let shadow_retrievers = retrievers.clone();
     let lanes = match plan.execution_budget() {
         Ok(execution_budget) => match tokio::time::timeout(
             Duration::from_millis(timeout_ms),
-            collect_shadow_lanes(retrievers, &plan, &authorization, execution_budget),
+            collect_shadow_lanes(shadow_retrievers, &plan, &authorization, execution_budget),
         )
         .await
         {
             Ok(lanes) => lanes,
-            Err(_) => descriptors
-                .into_iter()
-                .map(|descriptor| LearnedSparseShadowLane {
-                    retriever_id: descriptor.id,
-                    representation: descriptor.representation,
+            Err(_) => retrievers
+                .iter()
+                .map(|(_, descriptor, namespace)| LearnedSparseShadowLane {
+                    retriever_id: descriptor.id.clone(),
+                    representation: descriptor.representation.clone(),
                     generation: descriptor.generation,
+                    namespace: namespace.clone(),
                     status: LearnedSparseShadowLaneStatus::TimedOut,
                     candidates: Vec::new(),
                 })
@@ -237,9 +241,9 @@ async fn run_shadow(
         },
         Err(error) => {
             let error = bounded_error(&format!("invalid shadow execution budget: {error}"));
-            descriptors
+            retrievers
                 .into_iter()
-                .map(|descriptor| failed_lane(descriptor, &error))
+                .map(|(_, descriptor, namespace)| failed_lane(descriptor, namespace, &error))
                 .collect()
         }
     };
@@ -286,18 +290,23 @@ fn shadow_lane_budget(
 }
 
 async fn collect_shadow_lanes(
-    retrievers: Vec<(Arc<dyn CandidateRetriever>, RetrieverDescriptor)>,
+    retrievers: Vec<(
+        Arc<dyn CandidateRetriever>,
+        RetrieverDescriptor,
+        Option<maestria_domain::SparseNamespace>,
+    )>,
     plan: &SearchPlan,
     authorization: &maestria_governance::RetrievalAuthorizationContext,
     execution_budget: maestria_domain::SearchExecutionBudget,
 ) -> Vec<LearnedSparseShadowLane> {
     let mut lanes = Vec::with_capacity(retrievers.len());
     let lane_count = retrievers.len().max(1);
-    for (lane_index, (retriever, descriptor)) in retrievers.into_iter().enumerate() {
+    for (lane_index, (retriever, descriptor, namespace)) in retrievers.into_iter().enumerate() {
         let Some(execution_budget) = shadow_lane_budget(execution_budget, lane_count, lane_index)
         else {
             lanes.push(failed_lane(
                 descriptor,
+                namespace,
                 "shadow execution budget exhausted before lane allocation",
             ));
             continue;
@@ -321,24 +330,32 @@ async fn collect_shadow_lanes(
         let lane = match retriever.retrieve(request).await {
             Ok(batch)
                 if batch.execution.budget != execution_budget
-                    || batch.execution.usage.results > execution_budget.max_results()
-                    || batch.execution.usage.candidates > execution_budget.max_candidates()
-                    || batch.execution.usage.work_units > execution_budget.max_work_units()
-                    || execution_budget
-                        .max_bytes_read()
-                        .is_some_and(|limit| batch.execution.usage.bytes_read > limit.get()) =>
+                    || batch.execution.usage.results
+                        < maestria_domain::saturating_u64(batch.candidates.len())
+                    || batch.execution.usage.candidates
+                        < maestria_domain::saturating_u64(batch.candidates.len())
+                    || batch.execution.usage.work_units
+                        < maestria_domain::saturating_u64(batch.candidates.len()) =>
             {
                 failed_lane(
                     descriptor,
+                    namespace.clone(),
                     "shadow lane returned invalid execution metadata",
                 )
             }
             Ok(batch) if batch.generation != Some(descriptor.generation) => failed_lane(
                 descriptor,
+                namespace.clone(),
                 "shadow lane returned an incompatible generation",
             ),
-            Ok(batch) => lane_from_batch(descriptor, batch, max_candidates, max_contributions),
-            Err(error) => failed_lane(descriptor, &error.to_string()),
+            Ok(batch) => lane_from_batch(
+                descriptor,
+                namespace,
+                batch,
+                max_candidates,
+                max_contributions,
+            ),
+            Err(error) => failed_lane(descriptor, namespace, &error.to_string()),
         };
         lanes.push(lane);
     }
@@ -347,6 +364,7 @@ async fn collect_shadow_lanes(
 
 fn lane_from_batch(
     descriptor: RetrieverDescriptor,
+    namespace: Option<maestria_domain::SparseNamespace>,
     batch: crate::types::CandidateBatch,
     max_candidates: usize,
     max_contributions: usize,
@@ -374,6 +392,7 @@ fn lane_from_batch(
         retriever_id: descriptor.id,
         representation: descriptor.representation,
         generation: descriptor.generation,
+        namespace,
         status,
         candidates,
     }
@@ -411,11 +430,16 @@ fn shadow_candidate(
     })
 }
 
-fn failed_lane(descriptor: RetrieverDescriptor, error: &str) -> LearnedSparseShadowLane {
+fn failed_lane(
+    descriptor: RetrieverDescriptor,
+    namespace: Option<maestria_domain::SparseNamespace>,
+    error: &str,
+) -> LearnedSparseShadowLane {
     LearnedSparseShadowLane {
         retriever_id: descriptor.id,
         representation: descriptor.representation,
         generation: descriptor.generation,
+        namespace,
         status: LearnedSparseShadowLaneStatus::Failed {
             error: bounded_error(error),
         },
@@ -447,6 +471,10 @@ fn validate_observation(
     }
     for lane in &observation.lanes {
         if lane.retriever_id.trim().is_empty()
+            || lane
+                .namespace
+                .as_ref()
+                .is_none_or(|namespace| namespace.validate().is_err())
             || lane.candidates.iter().any(|candidate| {
                 candidate.score.score_kind != RetrievalScoreKind::LearnedSparse
                     || RetrievalScoreSet::single(candidate.score.clone()).is_err()

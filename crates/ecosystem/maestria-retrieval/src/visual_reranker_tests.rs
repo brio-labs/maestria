@@ -134,6 +134,7 @@ fn capability()
         id: generation,
         name: maestria_domain::RepresentationName::new("visual_page_v1"),
         corpus_snapshot: snapshot,
+        sparse_namespace: None,
         fingerprint: identity.fingerprint.clone(),
         lifecycle: IndexLifecycle::Building,
     })?;

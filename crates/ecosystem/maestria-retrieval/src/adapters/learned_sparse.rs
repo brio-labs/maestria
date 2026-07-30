@@ -229,6 +229,9 @@ impl CandidateRetriever for LearnedSparseChunkRetriever {
     fn descriptor(&self) -> RetrieverDescriptor {
         self.descriptor.clone()
     }
+    fn sparse_namespace(&self) -> Option<maestria_domain::SparseNamespace> {
+        Some(self.identity.namespace.clone())
+    }
 
     async fn retrieve(&self, request: CandidateRequest) -> Result<CandidateBatch, RetrievalError> {
         self.preflight(&request)?;
