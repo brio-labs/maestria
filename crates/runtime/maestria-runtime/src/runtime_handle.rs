@@ -42,6 +42,12 @@ impl RuntimeHandle {
 
     /// Submit an application-bound domain command and await correlated domain
     /// acceptance plus complete effect-batch admission.
+    ///
+    /// # Cancellation
+    /// Cancellation while reserving capacity leaves the input unsubmitted. Once
+    /// reservation succeeds, the command is sent before this future awaits the
+    /// correlated result; cancelling afterward leaves the runtime processing the
+    /// command while its reply is discarded.
     pub async fn submit(
         &self,
         input: DomainInput,
@@ -62,6 +68,12 @@ impl RuntimeHandle {
 }
 
 impl RuntimeSubmissionPermit {
+    /// Submit using previously reserved capacity.
+    ///
+    /// # Cancellation
+    /// The command is sent synchronously before this future awaits the
+    /// correlated result. Cancellation after polling reaches that send leaves
+    /// the runtime processing the command while its reply is discarded.
     pub async fn submit(
         self,
         input: DomainInput,

@@ -29,6 +29,7 @@ impl MaestriaRuntime {
         governance: Governance,
     ) -> (Self, mpsc::Receiver<DomainInput>) {
         config.max_concurrent_effects = config.max_concurrent_effects.max(1);
+        config.input_buffer_size = config.input_buffer_size.max(1);
         let (input_tx, input_rx) = mpsc::channel(config.input_buffer_size);
         let (command_tx, command_rx) = mpsc::channel(config.input_buffer_size);
         let next_command_id = Arc::new(AtomicU64::new(1));
