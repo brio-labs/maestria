@@ -1,5 +1,4 @@
 use std::fs;
-use std::sync::Arc;
 
 use anyhow::{Context, Result, anyhow};
 use maestria_blob_fs::FsBlobStore;
@@ -40,31 +39,6 @@ pub(super) fn task(layout: &InstanceLayout, task_id: Option<u64>) -> Result<Task
         return Err(anyhow!("task not found"));
     }
     Ok(TaskResponse { tasks })
-}
-
-pub(super) async fn run_database_retry<T, F>(operation_name: &str, operation: F) -> Result<T>
-where
-    T: Send + 'static,
-    F: Fn() -> Result<T> + Send + Sync + 'static,
-{
-    let operation = Arc::new(operation);
-    for attempt in 0..super::DATABASE_RETRY_ATTEMPTS {
-        let op = Arc::clone(&operation);
-        let result = tokio::task::spawn_blocking(move || op())
-            .await
-            .map_err(|error| anyhow!("{operation_name} task failed: {error}"))?;
-        match result {
-            Ok(response) => return Ok(response),
-            Err(error)
-                if super::is_database_locked(&error)
-                    && attempt + 1 < super::DATABASE_RETRY_ATTEMPTS =>
-            {
-                tokio::time::sleep(super::DATABASE_RETRY_DELAY).await;
-            }
-            Err(error) => return Err(error),
-        }
-    }
-    Err(anyhow!("{operation_name} retries exhausted"))
 }
 
 pub(super) fn open_evidence(layout: &InstanceLayout, evidence_id: u64) -> Result<EvidenceResponse> {
@@ -217,15 +191,6 @@ fn glob_matches(value: &str, pattern: &str) -> bool {
         pattern_index += 1;
     }
     pattern_index == pattern.len()
-}
-
-pub(super) fn load_state_and_manifest(
-    layout: &InstanceLayout,
-) -> Result<(KernelState, InstanceManifest)> {
-    let state = load_state(layout)?;
-    let manifest = InstanceManifest::decode(&fs::read_to_string(&layout.manifest_path)?)
-        .map_err(|error| anyhow!("parse instance manifest: {error}"))?;
-    Ok((state, manifest))
 }
 
 fn load_state(layout: &InstanceLayout) -> Result<KernelState> {

@@ -17,14 +17,14 @@ pub(super) async fn search_with_retry(
     query: String,
     limit: usize,
 ) -> Result<SearchResponse> {
-    for attempt in 0..super::DATABASE_RETRY_ATTEMPTS {
+    for attempt in 0..super::support::DATABASE_RETRY_ATTEMPTS {
         match search(context, query.clone(), limit).await {
             Ok(response) => return Ok(response),
             Err(error)
-                if super::is_database_locked(&error)
-                    && attempt + 1 < super::DATABASE_RETRY_ATTEMPTS =>
+                if super::support::is_database_locked(&error)
+                    && attempt + 1 < super::support::DATABASE_RETRY_ATTEMPTS =>
             {
-                tokio::time::sleep(super::DATABASE_RETRY_DELAY).await;
+                tokio::time::sleep(super::support::DATABASE_RETRY_DELAY).await;
             }
             Err(error) => return Err(error),
         }
@@ -47,7 +47,7 @@ async fn prepare_read_only_search_runtime(
 ) -> Result<Arc<crate::SearchRuntime>> {
     let layout = context.layout.clone();
     let (state, manifest) =
-        tokio::task::spawn_blocking(move || super::read_services::load_state_and_manifest(&layout))
+        tokio::task::spawn_blocking(move || super::support::load_state_and_manifest(&layout))
             .await
             .map_err(|error| anyhow!("load search state task failed: {error}"))??;
     let layout = context.layout.clone();
