@@ -372,6 +372,38 @@ fn incomplete_telemetry_cannot_promote_sparse() -> Result<(), Box<dyn std::error
 }
 
 #[test]
+fn failed_quality_status_cannot_promote_sparse_for_class() -> Result<(), Box<dyn std::error::Error>>
+{
+    let corpus = corpus()?;
+    let mut observations = observations(&corpus)?;
+    for observation in &mut observations {
+        if matches!(observation.route, LearnedSparseRoute::SparseFused)
+            && observation.case_id == "case-1"
+        {
+            observation.quality.unsupported_claim_status =
+                Measurement::measured(CheckStatus::Failed);
+        }
+    }
+    let report = LearnedSparseBenchmarkComparison::evaluate(&corpus, &observations)?;
+    let promotion = report.promotion(
+        "evaluation-1".to_string(),
+        "2026-07-20".to_string(),
+        maestria_retrieval::LearnedSparseRollbackTarget {
+            route: LearnedSparseRoute::Hybrid,
+            index_generation: IndexGenerationId::new(6),
+        },
+        ContentHash::new(format!("sha256:{}", "a".repeat(64)))?,
+    )?;
+    let routes = promotion.winning_routes();
+    assert!(!routes.contains_key(&LearnedSparseQueryClass::VocabularyExpansion));
+    assert_eq!(
+        routes.get(&LearnedSparseQueryClass::DomainTerminology),
+        Some(&LearnedSparseRoute::SparseFused)
+    );
+    Ok(())
+}
+
+#[test]
 fn ineligible_hybrid_baseline_cannot_authorize_sparse_promotion()
 -> Result<(), Box<dyn std::error::Error>> {
     let corpus = corpus()?;
