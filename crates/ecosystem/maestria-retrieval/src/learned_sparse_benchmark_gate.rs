@@ -114,11 +114,7 @@ fn wins_against(
     candidate: &LearnedSparseRouteMetrics,
     baseline: &LearnedSparseRouteMetrics,
 ) -> bool {
-    if !measured_quality(&candidate.quality)
-        || !measured_quality(&baseline.quality)
-        || !measured_resources(&candidate.resources)
-        || !measured_resources(&baseline.resources)
-    {
+    if !telemetry_complete(candidate) || !telemetry_complete(baseline) {
         return false;
     }
     let candidate_quality = quality_values(&candidate.quality);
