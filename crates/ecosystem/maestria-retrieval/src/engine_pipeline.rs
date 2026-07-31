@@ -1,16 +1,22 @@
 use maestria_domain::{
-    EvidenceCandidate, SearchExecution, SearchExecutionBudget, SearchExecutionCompletion,
-    SearchExecutionUsage, SearchOutcome, SearchPlan, SearchStatus,
+    SearchExecutionBudget, SearchExecutionCompletion, SearchExecutionUsage, SearchPlan,
 };
 use maestria_ports::SearchQuery;
 use std::sync::Arc;
 use tokio::{sync::Semaphore, task::JoinSet};
 
-use crate::traits::{CandidateRetriever, ContextExpander, RetrievalEvaluator};
-use crate::types::{
-    CandidateRequest, ContextExpansion, ExpansionPolicy, RankedCandidate, RetrievalError,
-    RetrievalExperiment, RetrievalResult,
+use crate::traits::CandidateRetriever;
+use crate::types::{CandidateRequest, RetrievalError, RetrievalResult};
+
+#[path = "engine_budget.rs"]
+mod engine_budget;
+pub(super) use engine_budget::{
+    add_usage, execution_with_budget, lane_budget, remaining_budget, usage_within_budget,
 };
+
+#[path = "engine_diversity.rs"]
+mod engine_diversity;
+pub(crate) use engine_diversity::{reconcile_status, run_diversity_stage};
 
 fn lane_uses_primary_generation(descriptor: &crate::types::RetrieverDescriptor) -> bool {
     !descriptor.modality.eq_ignore_ascii_case("dense")
@@ -24,94 +30,6 @@ fn lane_generation_is_current(
     plan: &SearchPlan,
 ) -> bool {
     !lane_uses_primary_generation(descriptor) || descriptor.generation == plan.index_generation
-}
-
-fn execution_with_budget(
-    budget: SearchExecutionBudget,
-    completion: SearchExecutionCompletion,
-) -> SearchExecution {
-    SearchExecution::new(budget, SearchExecutionUsage::default(), completion)
-}
-
-fn add_usage(total: &mut SearchExecutionUsage, usage: SearchExecutionUsage) {
-    total.results = total.results.saturating_add(usage.results);
-    total.candidates = total.candidates.saturating_add(usage.candidates);
-    total.work_units = total.work_units.saturating_add(usage.work_units);
-    total.bytes_read = total.bytes_read.saturating_add(usage.bytes_read);
-}
-
-fn usage_within_budget(usage: SearchExecutionUsage, budget: SearchExecutionBudget) -> bool {
-    usage.results <= budget.max_results()
-        && usage.candidates <= budget.max_candidates()
-        && usage.work_units <= budget.max_work_units()
-        && budget
-            .max_bytes_read()
-            .is_none_or(|limit| usage.bytes_read <= limit.get())
-}
-
-fn partition_allowance(total: u64, lanes: usize, lane: usize) -> u64 {
-    let lanes = lanes.max(1) as u64;
-    let base = total / lanes;
-    let remainder = total % lanes;
-    base + if (lane as u64) < remainder { 1 } else { 0 }
-}
-
-fn lane_budget(
-    plan: &SearchPlan,
-    remaining: SearchExecutionUsage,
-    lanes: usize,
-    lane: usize,
-) -> Option<SearchExecutionBudget> {
-    let global = plan.execution_budget().ok()?;
-    let max_results = global.max_results().saturating_sub(remaining.results);
-    let max_candidates = global.max_candidates().saturating_sub(remaining.candidates);
-    let max_work_units = global.max_work_units().saturating_sub(remaining.work_units);
-    if max_results == 0 || max_candidates == 0 || max_work_units == 0 {
-        return None;
-    }
-    let remaining_bytes = global
-        .max_bytes_read()
-        .map(|limit| limit.get().saturating_sub(remaining.bytes_read));
-    if remaining_bytes == Some(0) {
-        return None;
-    }
-    let partitioned_bytes = remaining_bytes.map(|limit| partition_allowance(limit, lanes, lane));
-    if partitioned_bytes == Some(0) {
-        return None;
-    }
-    let max_bytes = partitioned_bytes.and_then(std::num::NonZeroU64::new);
-    SearchExecutionBudget::with_byte_limit(
-        partition_allowance(max_results, lanes, lane),
-        partition_allowance(max_candidates, lanes, lane),
-        partition_allowance(max_work_units, lanes, lane),
-        max_bytes,
-    )
-    .ok()
-}
-pub(super) fn remaining_budget(
-    plan: &SearchPlan,
-    usage: SearchExecutionUsage,
-) -> Option<SearchExecutionBudget> {
-    let global = plan.execution_budget().ok()?;
-    let max_results = global.max_results().saturating_sub(usage.results);
-    let max_candidates = global.max_candidates().saturating_sub(usage.candidates);
-    let max_work_units = global.max_work_units().saturating_sub(usage.work_units);
-    if max_results == 0 || max_candidates == 0 || max_work_units == 0 {
-        return None;
-    }
-    let max_bytes = global
-        .max_bytes_read()
-        .map(|limit| limit.get().saturating_sub(usage.bytes_read));
-    if max_bytes == Some(0) {
-        return None;
-    }
-    SearchExecutionBudget::with_byte_limit(
-        max_results,
-        max_candidates,
-        max_work_units,
-        max_bytes.and_then(std::num::NonZeroU64::new),
-    )
-    .ok()
 }
 
 fn normalize_batch(
@@ -459,211 +377,4 @@ pub(super) fn trace_lanes(
                 .collect(),
         })
         .collect()
-}
-fn seed_expansion(
-    selected_candidates: &[RankedCandidate],
-    budget: SearchExecutionBudget,
-    completion: SearchExecutionCompletion,
-) -> ContextExpansion {
-    ContextExpansion {
-        candidates: selected_candidates
-            .iter()
-            .map(|candidate| candidate.candidate.clone())
-            .collect(),
-        execution: SearchExecution::new(budget, SearchExecutionUsage::default(), completion),
-    }
-}
-
-fn expansion_policy(
-    plan: &SearchPlan,
-    initial: &crate::diversity::DiversitySelection,
-    selected_candidates: &[RankedCandidate],
-    remaining_candidates: u64,
-    authorization: &maestria_governance::RetrievalAuthorizationContext,
-    expansion_budget: Option<SearchExecutionBudget>,
-    fallback_budget: SearchExecutionBudget,
-) -> ExpansionPolicy {
-    ExpansionPolicy {
-        max_results: (plan.stop_conditions.max_results as u64)
-            .min(remaining_candidates)
-            .min(usize::MAX as u64) as usize,
-        max_depth: plan.stages.len(),
-        selected_seeds: selected_candidates
-            .iter()
-            .map(|candidate| candidate.candidate.clone())
-            .collect(),
-        required_claims: initial.coverage.required_claims.clone(),
-        required_subquestions: initial.coverage.required_subquestions.clone(),
-        authorization: authorization.clone(),
-        execution_budget: match expansion_budget {
-            Some(budget) => budget,
-            None => fallback_budget,
-        },
-    }
-}
-
-fn expand_context(
-    selected_candidates: &[RankedCandidate],
-    expander: &Option<Arc<dyn ContextExpander>>,
-    policy: &ExpansionPolicy,
-    expansion_budget: Option<SearchExecutionBudget>,
-    fallback_budget: SearchExecutionBudget,
-) -> RetrievalResult<ContextExpansion> {
-    match (expander, expansion_budget) {
-        (Some(expander), Some(_)) => expander.expand(selected_candidates, policy),
-        (Some(_), None) => Ok(seed_expansion(
-            selected_candidates,
-            fallback_budget,
-            SearchExecutionCompletion::Exhausted(
-                maestria_domain::SearchExecutionResource::Candidates,
-            ),
-        )),
-        (None, _) => Ok(seed_expansion(
-            selected_candidates,
-            match expansion_budget {
-                Some(budget) => budget,
-                None => fallback_budget,
-            },
-            SearchExecutionCompletion::Complete,
-        )),
-    }
-}
-
-pub(super) async fn run_diversity_stage(
-    plan: &SearchPlan,
-    initial: crate::diversity::DiversitySelection,
-    expander: &Option<Arc<dyn ContextExpander>>,
-    evaluator: &Arc<dyn RetrievalEvaluator>,
-    execution_usage: &mut SearchExecutionUsage,
-    authorization: &maestria_governance::RetrievalAuthorizationContext,
-) -> RetrievalResult<(SearchOutcome, crate::diversity::DiversitySelection)> {
-    let selected_candidates = initial.candidates.clone();
-    let budget = plan.execution_budget()?;
-    let remaining_candidates = budget
-        .max_candidates()
-        .saturating_sub(execution_usage.candidates);
-    let expansion_budget = remaining_budget(plan, *execution_usage);
-    let policy = expansion_policy(
-        plan,
-        &initial,
-        &selected_candidates,
-        remaining_candidates,
-        authorization,
-        expansion_budget,
-        budget,
-    );
-    let ContextExpansion {
-        candidates: expanded,
-        execution,
-    } = expand_context(
-        &selected_candidates,
-        expander,
-        &policy,
-        expansion_budget,
-        budget,
-    )?;
-    add_usage(execution_usage, execution.usage);
-    let mut expansion_budget_exhausted =
-        !matches!(execution.completion, SearchExecutionCompletion::Complete);
-    let mut bounded_expanded = Vec::with_capacity(expanded.len());
-    for candidate in expanded {
-        let is_seed = selected_candidates
-            .iter()
-            .any(|seed| seed.candidate.evidence_id == candidate.evidence_id);
-        if !is_seed {
-            let range = candidate.source_span.range();
-            let candidate_bytes = range.end.saturating_sub(range.start) as u64;
-            let mut candidate_usage = *execution_usage;
-            candidate_usage.candidates = candidate_usage.candidates.saturating_add(1);
-            candidate_usage.work_units = candidate_usage.work_units.saturating_add(1);
-            candidate_usage.bytes_read = candidate_usage.bytes_read.saturating_add(candidate_bytes);
-            if !usage_within_budget(candidate_usage, budget) {
-                expansion_budget_exhausted = true;
-                continue;
-            }
-            *execution_usage = candidate_usage;
-        }
-        bounded_expanded.push(candidate);
-    }
-    let expanded_ranked = bounded_expanded
-        .into_iter()
-        .enumerate()
-        .map(|(rank, candidate)| RankedCandidate { candidate, rank })
-        .collect::<Vec<_>>();
-    let mut final_diversity = crate::diversity::select_candidates(&expanded_ranked, plan);
-    if expansion_budget_exhausted {
-        final_diversity.trace.stop_reason = maestria_domain::SearchStopReason::BudgetExhausted;
-    }
-    ensure_exact_lineage(&final_diversity.candidates, &selected_candidates)?;
-    let candidates = final_diversity
-        .candidates
-        .iter()
-        .map(|candidate| candidate.candidate.clone())
-        .collect();
-    let report = evaluator
-        .evaluate(RetrievalExperiment {
-            plan: plan.clone(),
-            candidates,
-        })
-        .await?;
-    let mut outcome = report.outcome;
-    if expansion_budget_exhausted
-        && matches!(
-            outcome.status,
-            maestria_domain::SearchStatus::Answerable
-                | maestria_domain::SearchStatus::AnswerableWithWarnings
-        )
-    {
-        outcome.status = maestria_domain::SearchStatus::EvidenceIncomplete;
-    }
-    ensure_exact_lineage_from_evidence(&outcome.evidence, &final_diversity.candidates)?;
-    Ok((outcome, final_diversity))
-}
-
-fn ensure_exact_lineage(
-    candidates: &[RankedCandidate],
-    seeds: &[RankedCandidate],
-) -> RetrievalResult<()> {
-    let evidence = candidates
-        .iter()
-        .map(|candidate| candidate.candidate.clone())
-        .collect::<Vec<_>>();
-    ensure_exact_lineage_from_evidence(&evidence, seeds)
-}
-
-fn ensure_exact_lineage_from_evidence(
-    evidence: &[EvidenceCandidate],
-    seeds: &[RankedCandidate],
-) -> RetrievalResult<()> {
-    if evidence.len() < seeds.len()
-        || seeds.iter().any(|seed| {
-            !evidence
-                .iter()
-                .any(|candidate| candidate == &seed.candidate)
-        })
-    {
-        return Err(RetrievalError::Internal(
-            "evidence stage changed selected candidate lineage".to_string(),
-        ));
-    }
-    Ok(())
-}
-
-pub fn reconcile_status(
-    evaluator_status: &SearchStatus,
-    selector_status: &SearchStatus,
-) -> SearchStatus {
-    match evaluator_status {
-        SearchStatus::SourcesConflict
-        | SearchStatus::DeniedByPolicy
-        | SearchStatus::QuarantinedForReview
-        | SearchStatus::Abstained => evaluator_status.clone(),
-        _ => match selector_status {
-            SearchStatus::NoEvidenceFound
-            | SearchStatus::AnswerableWithWarnings
-            | SearchStatus::EvidenceIncomplete
-            | SearchStatus::StaleEvidenceOnly => selector_status.clone(),
-            _ => evaluator_status.clone(),
-        },
-    }
 }
