@@ -242,6 +242,10 @@ fn exceeds_budget(
                 &operation.cost_micros,
                 case.ingest_update_budget_ms.saturating_mul(1_000),
             )
+            || exceeds(
+                &operation.energy_millijoules,
+                case.energy_budget_millijoules,
+            )
     };
     exceeds(
         &observation.resources.p95_latency_ms,

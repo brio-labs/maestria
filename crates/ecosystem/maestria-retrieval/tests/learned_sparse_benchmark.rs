@@ -416,3 +416,24 @@ fn over_budget_measurements_are_retained_but_not_promoted() -> Result<(), Box<dy
     );
     Ok(())
 }
+
+#[test]
+fn lifecycle_energy_over_budget_is_retained_but_not_promoted()
+-> Result<(), Box<dyn std::error::Error>> {
+    let corpus = corpus()?;
+    let mut observations = observations(&corpus)?;
+    for observation in &mut observations {
+        if matches!(observation.route, LearnedSparseRoute::SparseFused) {
+            observation.resources.activation.energy_millijoules = Measurement::measured(2_000);
+        }
+    }
+    let comparison = LearnedSparseBenchmarkComparison::evaluate(&corpus, &observations)?;
+    assert!(
+        comparison
+            .classes()
+            .values()
+            .filter_map(|class| class.routes.get(&LearnedSparseRoute::SparseFused))
+            .all(|metrics| metrics.budget_violations == 1)
+    );
+    Ok(())
+}
