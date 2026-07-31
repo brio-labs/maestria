@@ -60,8 +60,21 @@ fn measured_quality(quality: &LearnedSparseQualityMetrics) -> bool {
     ]
     .iter()
     .all(|metric| metric.is_measured())
-        && quality.unsupported_claim_status.is_measured()
-        && quality.conflict_detection_status.is_measured()
+        && quality_checks_pass(quality)
+}
+
+fn quality_checks_pass(quality: &LearnedSparseQualityMetrics) -> bool {
+    [
+        &quality.unsupported_claim_status,
+        &quality.conflict_detection_status,
+    ]
+    .iter()
+    .all(|status| {
+        matches!(
+            status.measured_value(),
+            Some(CheckStatus::Passed | CheckStatus::NotDetected)
+        )
+    })
 }
 
 fn measured_resources(resources: &LearnedSparseResourceMetrics) -> bool {
