@@ -106,7 +106,6 @@ MAX_PRODUCTION_LOGICAL_LINES = 400
 MAX_MODULE_PHYSICAL_LINES = 900
 MAX_FUNCTION_LOGICAL_LINES = 100
 MODULE_SIZE_EXEMPTIONS: dict[str, str] = {
-    "crates/apps/maestria-daemon/src/watcher.rs": "v0.7.0",
     "crates/ecosystem/maestria-retrieval/src/repository_benchmark.rs": "v0.7.0",
     "crates/ecosystem/maestria-retrieval/tests/contract_tests.rs": "v0.7.0",
     "crates/kernel/maestria-ports/src/contract_tests.rs": "v0.7.0",
