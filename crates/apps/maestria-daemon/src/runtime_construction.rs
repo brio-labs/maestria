@@ -35,7 +35,7 @@ struct StorageAdapters {
 
 struct IndexAdapters {
     search_index: Arc<dyn FullTextIndex + Send + Sync>,
-    vector_index: Arc<dyn VectorIndex + Send + Sync>,
+    vector_index: Option<Arc<dyn VectorIndex + Send + Sync>>,
     graph_index: Arc<SqliteGraphIndex>,
 }
 
@@ -63,6 +63,7 @@ fn build_storage_adapters(layout: &InstanceLayout) -> Result<StorageAdapters> {
 fn build_index_adapters(
     layout: &InstanceLayout,
     read_only_search_index: bool,
+    has_embedding_provider: bool,
 ) -> Result<IndexAdapters> {
     let search_index: Arc<dyn FullTextIndex + Send + Sync> = if read_only_search_index {
         Arc::new(
@@ -85,10 +86,15 @@ fn build_index_adapters(
             })?,
         )
     };
-    let vector_index: Arc<dyn VectorIndex + Send + Sync> = Arc::new(
-        SqliteVectorIndex::open(layout.vector_index_dir.join("projection.db"))
-            .with_context(|| format!("open vector index {}", layout.vector_index_dir.display()))?,
-    );
+    let vector_index: Option<Arc<dyn VectorIndex + Send + Sync>> = if has_embedding_provider {
+        Some(Arc::new(
+            SqliteVectorIndex::open(layout.vector_index_dir.join("projection.db")).with_context(
+                || format!("open vector index {}", layout.vector_index_dir.display()),
+            )?,
+        ))
+    } else {
+        None
+    };
     let graph_index = Arc::new(
         SqliteGraphIndex::open(layout.graph_index_dir.join("projection.db"))
             .with_context(|| format!("open graph index {}", layout.graph_index_dir.display()))?,
@@ -140,7 +146,7 @@ fn build_search_executor(
                 evidence: storage.sqlite_store.clone(),
                 search_index: indexes.search_index.clone(),
                 blobs: storage.blob_store.clone(),
-                vector_index: Some(indexes.vector_index.clone()),
+                vector_index: indexes.vector_index.clone(),
                 graph_index: Some(indexes.graph_index.clone()),
                 event_log: storage.sqlite_store.clone(),
                 primary_generation: lexical.id,
@@ -166,7 +172,8 @@ fn build_adapters(
     read_only_search_index: bool,
 ) -> Result<Adapters> {
     let storage = build_storage_adapters(layout)?;
-    let indexes = build_index_adapters(layout, read_only_search_index)?;
+    let indexes =
+        build_index_adapters(layout, read_only_search_index, embedding_provider.is_some())?;
     let ecosystem = build_ecosystem_adapters(layout, manifest)?;
     let search_executor = build_search_executor(
         state,

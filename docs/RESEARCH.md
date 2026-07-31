@@ -84,6 +84,89 @@ judgments requires new corpus and judgment hashes.
 * **Candidate D (Cross-Encoder):** Evaluating small, distilled cross-encoders for the final reranking step.
   * *Hypothesis:* A bounded reranker can improve final evidence ordering, but only where its latency and privacy costs fit the plan budget.
 
+## 4. Pinned local sidecar profiles (dated candidates, 2026-07-31)
+
+The profiles below are dated implementation candidates for the optional OCR
+and visual capabilities. They are not normative: revisions, artifact hashes,
+and endpoints change with evaluation. The README keeps only the agnostic
+capability boundary; re-pinning a profile updates this section.
+
+### 4.1. OCR profile: RapidOCR sidecar (CPU, ONNX Runtime)
+
+```bash
+uv venv .venv-rapidocr
+uv pip install --python .venv-rapidocr/bin/python \
+  -r scripts/requirements-rapidocr.txt
+.venv-rapidocr/bin/python scripts/rapidocr_server.py \
+  --host 127.0.0.1 --port 10000
+```
+
+Manifest keys:
+
+```text
+ocr_enabled=true
+ocr_endpoint=http://127.0.0.1:10000/v1/chat/completions
+ocr_provider=rapidai
+ocr_revision=rapidocr-onnxruntime-1.4.4
+ocr_artifact_hash=sha256:971d7d5f223a7a808662229df1ef69893809d8457d834e6373d3854bc1782cbf
+ocr_preprocessing_version=pdf-pdftoppm-v1
+ocr_model=rapidocr-onnxruntime-1.4.4
+```
+
+The adapter renders only pages requiring OCR with the local `pdftoppm` binary
+and sends image bytes to the sidecar over the loopback OpenAI-compatible
+contract. CPU-capable ONNX Runtime inference; Maestria never downloads or
+executes model code.
+
+### 4.2. Visual profile: SigLIP ONNX (CPU) with optional Qwen3-VL-Embedding
+
+```bash
+uv venv .venv-visual
+uv pip install --python .venv-visual/bin/python \
+  -r scripts/requirements-visual.txt
+```
+
+Download the pinned SigLIP artifacts from `Xenova/siglip-base-patch16-224` at
+revision `4649052661e53c7000355844105f8a1792088239`, then start the sidecar
+with the quantized ONNX artifacts:
+
+```bash
+.venv-visual/bin/python scripts/siglip_visual_server.py \
+  --host 127.0.0.1 --port 10001 \
+  --model siglip-base-patch16-224-int8 \
+  --vision-model .maestria/models/siglip/onnx/vision_model_int8.onnx \
+  --text-model .maestria/models/siglip/onnx/text_model_int8.onnx \
+  --tokenizer .maestria/models/siglip/tokenizer.json
+```
+
+Compute the artifact fingerprint before enabling the profile:
+
+```bash
+python3 scripts/visual_model_fingerprint.py \
+  --profile siglip_cpu \
+  --model-dir .maestria/models/siglip
+```
+
+Manifest keys (set `visual_artifact_hash` to the fingerprint output):
+
+```text
+visual_enabled=true
+visual_endpoint=http://127.0.0.1:10001/v1/embeddings
+visual_provider=siglip-onnx
+visual_revision=4649052661e53c7000355844105f8a1792088239
+visual_artifact_hash=sha256:<fingerprint-output>
+visual_preprocessing_version=siglip-224-rgb-v1
+visual_model=siglip-base-patch16-224
+visual_dimensions=768
+visual_remote_provider=false
+visual_retention_policy=no_retention
+```
+
+Both sidecars accept loopback traffic only, perform CPU inference, and retain
+no inputs. Visual activation additionally requires a matching fingerprinted
+`visual_page_v1` generation and a passing benchmark; otherwise the app keeps
+the text/layout route.
+
 ## 3. Promotion Criteria
 
 A candidate is promoted from this research document to an active architectural component only when:

@@ -60,6 +60,21 @@ impl InstanceLifecycle {
     /// If the future is dropped before completion, the instance write lock is released and the
     /// runtime is not started. Any partially constructed state is dropped.
     pub async fn start(layout: InstanceLayout, profile: AutonomyProfile) -> Result<Self> {
+        Self::start_with_vector_reconcile(layout, profile, true).await
+    }
+
+    /// Start the lifecycle, optionally skipping the vector-projection rebuild.
+    ///
+    /// Search surfaces skip the rebuild because the search runtime serves from
+    /// whatever vector rows already exist and degrades explicitly when the
+    /// embedding provider is unavailable; rebuilding would re-embed the whole
+    /// corpus on every search command. Store-open and consistency failures for
+    /// the other projections remain fatal either way.
+    pub(crate) async fn start_with_vector_reconcile(
+        layout: InstanceLayout,
+        profile: AutonomyProfile,
+        rebuild_vector_projection: bool,
+    ) -> Result<Self> {
         let lock = acquire_instance_write_lock(&layout).await?;
         let mut state =
             load_kernel_state(&layout).with_context(|| "load persisted kernel state")?;
@@ -82,8 +97,10 @@ impl InstanceLifecycle {
         reconcile_approval_repo(&state, &store).with_context(|| "reconcile approval repository")?;
         reconcile_pending_approvals(&state, &store, &store)
             .with_context(|| "reconcile pending approvals")?;
-        reconcile_vector_projection_for_layout(&layout, &state)
-            .with_context(|| "reconcile vector projection")?;
+        if rebuild_vector_projection {
+            reconcile_vector_projection_for_layout(&layout, &state)
+                .with_context(|| "reconcile vector projection")?;
+        }
 
         let diagnostics = supervise_recovery(&state, &store)?;
         validate_recovery_scope(&layout, &diagnostics.inputs)

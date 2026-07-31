@@ -38,6 +38,15 @@ impl MemoryService {
         input: PromoteMemoryInput,
         gate: &dyn MemoryPromotionGate,
     ) -> PromoteMemoryOutput {
+        // Promoted memories must point back to evidence: an evidence-less
+        // candidate cannot become an active memory regardless of gate policy.
+        if !input.candidate.has_evidence() {
+            return PromoteMemoryOutput::RequiresEvidence {
+                reason:
+                    "candidate carries no evidence; promoted memories must point back to evidence"
+                        .to_string(),
+            };
+        }
         let request = MemoryPromotionRequest {
             candidate: input.candidate.clone(),
             user_approved: input.user_approved,

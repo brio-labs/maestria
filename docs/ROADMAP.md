@@ -62,7 +62,7 @@ and marks each capability surface with its current status.
 | Capability | Phase | Status | Shipped In |
 |---|---|---|---|
 | Local file indexing | 1 | Stable | v0.1-v0.5 |
-| Lexical (Tantivy) search | 1 | Stable | v0.5 |
+| Lexical (BM25) search | 1 | Stable | v0.5 |
 | Evidence opening | 1 | Stable | v0.5 |
 | Daemon projection | 1 | Stable | v0.6 |
 | Task lifecycle & validation | 1 | Stable | v0.6 |

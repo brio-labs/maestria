@@ -43,6 +43,17 @@ pub struct HarnessOutcome {
 
 pub trait HarnessAdapter: Send + Sync {
     fn capabilities(&self) -> Result<HarnessCapabilities, crate::PortError>;
+
+    /// Execute one governed harness request and return its outcome.
+    ///
+    /// # Cancellation
+    /// Dropping the returned future cancels the operation at any await point.
+    /// Implementations must not leak child processes or handles after
+    /// cancellation: a cancelled execution reaps its child before the future
+    /// is dropped. The request's `duration_budget` bounds wall-clock
+    /// execution; exceeding it aborts the run and returns a timeout error.
+    /// The outcome is atomic: either the full outcome is returned or an error
+    /// describes the failure.
     fn execute(
         &self,
         request: HarnessRequest,

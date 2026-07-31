@@ -1,4 +1,4 @@
-use crate::ids::{ApprovalId, EvidenceId, HarnessRunId, MemoryCandidateId, TaskId};
+use crate::ids::{ApprovalId, EvidenceId, HarnessRunId, MemoryCandidateId, SearchTraceId, TaskId};
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum ModelAgentProposalExecution {
@@ -62,7 +62,7 @@ impl ModelAgentProposalRequest {
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct ModelAgentSearchResult {
-    pub trace_id: u64,
+    pub trace_id: SearchTraceId,
     pub evidence_count: usize,
 }
 

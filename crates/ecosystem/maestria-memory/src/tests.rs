@@ -104,6 +104,25 @@ fn promote_requires_evidence_when_gate_requires_evidence() {
 }
 
 #[test]
+fn promote_refuses_evidence_less_candidate_even_when_gate_allows() {
+    let input = PromoteMemoryInput {
+        memory_id: MemoryId::new(40),
+        candidate: candidate(10, 20, &[]),
+        user_approved: true,
+    };
+    let gate = FixedGate {
+        decision: MemoryPromotionDecision::Promote,
+    };
+
+    let output = MemoryService::promote(input, &gate);
+
+    assert!(matches!(
+        output,
+        PromoteMemoryOutput::RequiresEvidence { reason } if reason.contains("evidence")
+    ));
+}
+
+#[test]
 fn promote_requires_review_without_user_approval() {
     let input = PromoteMemoryInput {
         memory_id: MemoryId::new(40),
