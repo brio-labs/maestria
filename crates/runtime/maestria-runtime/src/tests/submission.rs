@@ -32,6 +32,20 @@ async fn cancelled_reservation_does_not_consume_command_capacity()
     Ok(())
 }
 
+#[test]
+fn zero_input_buffer_size_is_normalized_before_channel_construction() {
+    let (runtime, _input_rx) = MaestriaRuntime::new(
+        RuntimeConfig {
+            input_buffer_size: 0,
+            ..RuntimeConfig::default()
+        },
+        KernelState::new(),
+        crate::test_helpers::test_adapters(),
+        crate::test_helpers::test_governance(),
+    );
+    assert_eq!(runtime.config.input_buffer_size, 1);
+}
+
 #[tokio::test]
 async fn reserved_submission_is_accepted_before_waiting_for_result()
 -> Result<(), Box<dyn std::error::Error>> {

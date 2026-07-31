@@ -1,23 +1,17 @@
 use crate::config::EffectExecutionContext;
+use crate::effect_result::EffectFailure;
 use maestria_domain::{
     DomainInput, OcrCompleted, OcrCompletion, OcrEffect, OcrFailed, OcrPageText, content_hash,
 };
 use maestria_ports::{FileHandle, OcrRequest, OcrResponse};
 
 impl EffectExecutionContext {
-    pub(crate) async fn handle_ocr(&self, effect: OcrEffect) -> bool {
+    pub(crate) async fn handle_ocr(&self, effect: OcrEffect) -> Result<(), EffectFailure> {
         let intent = effect.intent;
         let Some(provider) = &self.adapters.ocr_provider else {
-            let _ = Self::send_input(
-                &self.input_tx,
-                DomainInput::OcrFailed(OcrFailed {
-                    artifact_id: intent.artifact_id(),
-                    request_id: intent.request_id().clone(),
-                    reason: "OCR provider is not configured".to_string(),
-                }),
-                "OCR provider unavailable",
-            );
-            return false;
+            return self
+                .ocr_failed(&intent, "OCR provider is not configured")
+                .await;
         };
         if !Self::provider_contract_matches(&intent, provider.as_ref()) {
             return self
@@ -98,7 +92,7 @@ impl EffectExecutionContext {
             }),
             "OCR completion",
         )
-        .is_ok()
+        .map_err(|error| EffectFailure::Failed(format!("send OCR completion: {error}")))
     }
 
     fn provider_contract_matches(
@@ -155,8 +149,12 @@ impl EffectExecutionContext {
             )))
     }
 
-    async fn ocr_failed(&self, intent: &maestria_domain::OcrIntent, reason: &str) -> bool {
-        let _ = Self::send_input(
+    async fn ocr_failed(
+        &self,
+        intent: &maestria_domain::OcrIntent,
+        reason: &str,
+    ) -> Result<(), EffectFailure> {
+        if let Err(error) = Self::send_input(
             &self.input_tx,
             DomainInput::OcrFailed(OcrFailed {
                 artifact_id: intent.artifact_id(),
@@ -164,7 +162,9 @@ impl EffectExecutionContext {
                 reason: reason.to_string(),
             }),
             "OCR failure",
-        );
-        false
+        ) {
+            return Err(EffectFailure::Failed(format!("send OCR failure: {error}")));
+        }
+        Err(EffectFailure::Failed(reason.to_string()))
     }
 }

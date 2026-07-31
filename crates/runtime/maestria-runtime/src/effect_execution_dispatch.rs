@@ -194,9 +194,7 @@ impl EffectExecutionContext {
                     .await,
                 "parse artifact",
             ),
-            MaestriaEffect::Ocr(effect) => {
-                handler_result(self.handle_ocr(effect).await, "OCR execution")
-            }
+            MaestriaEffect::Ocr(effect) => self.handle_ocr(effect).await,
             MaestriaEffect::IndexFullText(request) => handler_result(
                 self.handle_index_full_text(request).await,
                 "index full text",
