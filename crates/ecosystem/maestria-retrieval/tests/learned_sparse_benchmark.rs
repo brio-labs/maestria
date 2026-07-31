@@ -372,6 +372,30 @@ fn incomplete_telemetry_cannot_promote_sparse() -> Result<(), Box<dyn std::error
 }
 
 #[test]
+fn ineligible_hybrid_baseline_cannot_authorize_sparse_promotion()
+-> Result<(), Box<dyn std::error::Error>> {
+    let corpus = corpus()?;
+    let mut observations = observations(&corpus)?;
+    for observation in &mut observations {
+        if matches!(observation.route, LearnedSparseRoute::Hybrid) {
+            observation.safety.acl_leakage = Measurement::measured(1);
+        }
+    }
+    let report = LearnedSparseBenchmarkComparison::evaluate(&corpus, &observations)?;
+    let promotion = report.promotion(
+        "evaluation-1".to_string(),
+        "2026-07-20".to_string(),
+        maestria_retrieval::LearnedSparseRollbackTarget {
+            route: LearnedSparseRoute::Hybrid,
+            index_generation: IndexGenerationId::new(6),
+        },
+        ContentHash::new(format!("sha256:{}", "a".repeat(64)))?,
+    )?;
+    assert!(promotion.winning_routes().is_empty());
+    Ok(())
+}
+
+#[test]
 fn over_budget_measurements_are_retained_but_not_promoted() -> Result<(), Box<dyn std::error::Error>>
 {
     let corpus = corpus()?;
