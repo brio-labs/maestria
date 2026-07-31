@@ -110,7 +110,6 @@ MODULE_SIZE_EXEMPTIONS: dict[str, str] = {
     "crates/ecosystem/maestria-retrieval/tests/contract_tests.rs": "v0.7.0",
     "crates/kernel/maestria-ports/src/contract_tests.rs": "v0.7.0",
     "crates/kernel/maestria-ports/src/in_memory/lexical.rs": "v0.7.0",
-    "crates/ecosystem/maestria-retrieval/src/learned_sparse_shadow.rs": "v0.7.0",
 }
 FUNCTION_SIZE_EXEMPTIONS: dict[str, dict[str, str]] = {
     "crates/kernel/maestria-ports/src/in_memory/lexical.rs": {
