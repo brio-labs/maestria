@@ -121,20 +121,12 @@ impl InstanceLifecycle {
         })
     }
 
-    pub fn layout(&self) -> &InstanceLayout {
-        &self.layout
-    }
-
     pub fn state(&self) -> &KernelState {
         &self.state
     }
 
     pub fn paused_effect_count(&self) -> usize {
         self.paused_effects
-    }
-
-    pub fn input_sender(&self) -> mpsc::Sender<DomainInput> {
-        self.input_tx.clone()
     }
 
     pub fn runtime_handle(&self) -> maestria_runtime::RuntimeHandle {
@@ -212,26 +204,6 @@ impl InstanceLifecycle {
             .await
             .with_context(|| "runtime loop join failed")?;
         Ok(())
-    }
-
-    /// Run until `SIGINT`, then shut down cleanly.
-    ///
-    /// # Cancellation
-    /// If the future is dropped before the signal arrives, recovery may be partially queued and
-    /// the watcher may have started, but shutdown is not performed.
-    pub async fn run_until_ctrl_c(mut self) -> Result<()> {
-        let result = async {
-            self.queue_recovery().await?;
-            self.start_watcher();
-            tokio::signal::ctrl_c()
-                .await
-                .with_context(|| "wait for shutdown signal")
-        }
-        .await;
-        info!(root = %self.layout.root.display(), "shutdown requested");
-        let shutdown_result = self.shutdown().await;
-        result?;
-        shutdown_result
     }
 
     /// Run until the external `shutdown` token is triggered, or until the runtime stops itself.
