@@ -145,7 +145,7 @@ impl LearnedSparseShadowStore {
         Ok(())
     }
 
-    pub(crate) fn record(&self, observation: LearnedSparseShadowObservation) {
+    pub(super) fn record(&self, observation: LearnedSparseShadowObservation) {
         if let Err(error) = validate_observation(&observation) {
             self.record_persistence_error(error.to_string());
             return;
@@ -182,9 +182,7 @@ impl LearnedSparseShadowStore {
         while errors.len() >= self.capacity {
             let _discarded = errors.pop_front();
         }
-        errors.push_back(super::learned_sparse_shadow_execution::bounded_error(
-            &error,
-        ));
+        errors.push_back(bounded_error(&error));
     }
 }
 
@@ -208,4 +206,8 @@ fn validate_observation(
     observation
         .validate()
         .map_err(|error| LearnedSparseShadowStoreError::InvalidObservation(error.to_string()))
+}
+
+pub(super) fn bounded_error(error: &str) -> String {
+    error.chars().take(super::MAX_SHADOW_ERROR_CHARS).collect()
 }

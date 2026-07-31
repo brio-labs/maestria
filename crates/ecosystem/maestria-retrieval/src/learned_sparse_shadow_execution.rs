@@ -8,7 +8,7 @@ use crate::learned_sparse_policy::classify_query;
 use crate::traits::CandidateRetriever;
 use crate::types::{CandidateRequest, RetrieverDescriptor};
 
-use super::learned_sparse_shadow_store::LearnedSparseShadowStore;
+use super::learned_sparse_shadow_store::{LearnedSparseShadowStore, bounded_error};
 use super::{
     LearnedSparseShadowCandidate, LearnedSparseShadowLane, LearnedSparseShadowLaneStatus,
     LearnedSparseShadowObservation, LearnedSparseShadowRoute, MAX_SHADOW_LATENCY_MS,
@@ -332,8 +332,4 @@ fn status_from_error(error: &str) -> LearnedSparseShadowLaneStatus {
             error: bounded_error(error),
         }
     }
-}
-
-pub(crate) fn bounded_error(error: &str) -> String {
-    error.chars().take(super::MAX_SHADOW_ERROR_CHARS).collect()
 }
