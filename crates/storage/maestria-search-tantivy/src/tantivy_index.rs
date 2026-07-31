@@ -105,8 +105,17 @@ impl TantivyFullTextIndex {
             }
             fs::rename(path, &backup_path).map_err(to_io_port_error)?;
             if let Err(error) = fs::rename(&temp_path, path) {
-                let _ = fs::rename(&backup_path, path);
-                return Err(to_io_port_error(error));
+                return Err(
+                    match fs::rename(&backup_path, path).map_err(to_io_port_error) {
+                        Err(rollback_error) => PortError::InternalContext {
+                            context: "card rebuild migration failed and rollback of the original index also failed",
+                            source: format!(
+                                "migration rename: {error}; rollback rename: {rollback_error}"
+                            ),
+                        },
+                        Ok(()) => to_io_port_error(error),
+                    },
+                );
             }
             let migrated = Index::open_in_dir(path).map_err(to_port_error)?;
             let projection = Self::from_index(migrated, true, Some(marker), false);

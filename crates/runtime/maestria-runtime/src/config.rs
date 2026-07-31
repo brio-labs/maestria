@@ -53,7 +53,7 @@ pub struct Adapters {
     pub evidence_repo: Arc<dyn EvidenceRepository + Send + Sync>,
     pub embedding_provider: Option<Arc<dyn EmbeddingProvider + Send + Sync>>,
     pub search_executor: Option<Arc<dyn SearchKnowledgeExecutor + Send + Sync>>,
-    pub vector_index: Arc<dyn VectorIndex + Send + Sync>,
+    pub vector_index: Option<Arc<dyn VectorIndex + Send + Sync>>,
     pub graph_index: Arc<dyn GraphIndex + Send + Sync>,
     pub web_fetcher: Arc<dyn WebFetcher + Send + Sync>,
     pub id_allocator: Arc<dyn IdAllocator + Send + Sync>,

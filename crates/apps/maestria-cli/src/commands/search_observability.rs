@@ -3,13 +3,12 @@ use super::search_render::trace_from_outcome;
 use super::search_render::{render_trace, trace};
 use crate::{commands::search, helpers};
 
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Result, anyhow};
 use maestria_domain::{
-    DomainEvent, DomainInput, EvidencePackReproducibilityRecord, SearchKnowledgeCompleted,
-    SearchOutcome, SearchPlan, SearchTraceId,
+    DomainEvent, EvidencePackReproducibilityRecord, SearchOutcome, SearchPlan, SearchTraceId,
 };
 use maestria_storage_sqlite::SqliteStore;
-use std::{path::PathBuf, time::Duration};
+use std::path::PathBuf;
 
 pub(super) struct DurableTrace {
     pub(super) id: SearchTraceId,
@@ -24,48 +23,9 @@ pub async fn run_search_explain(
     limit: usize,
 ) -> Result<()> {
     let layout = helpers::validated_instance(instance_dir)?;
-    let write_lock = maestria_daemon::try_acquire_instance_write_lock(&layout)?;
-    let mut state = helpers::load_kernel_state_with_retry(
-        &layout,
-        Duration::from_secs(2),
-        "load kernel state for search explain",
-    )?;
-    let task_id = search::validate_task_id(&state, task_id)?;
-    let manifest = helpers::load_manifest(&layout)?;
-    if write_lock.is_some() {
-        maestria_daemon::reconcile_retrieval_generations(&layout, &mut state, &manifest)
-            .context("reconcile retrieval generations before explain")?;
-    }
-    let (runtime, plan, outcome) = search::execute_search(
-        &layout,
-        &state,
-        &manifest,
-        query,
-        limit,
-        write_lock.is_some(),
-    )
-    .await?;
-    if write_lock.is_some() {
-        persist_search_trace(&runtime, &mut state, task_id, &plan, &outcome)?;
-    }
+    let (plan, outcome, _state) =
+        search::run_search_command(&layout, task_id, query, limit).await?;
     render_trace(&plan, &outcome)
-}
-
-fn persist_search_trace(
-    runtime: &maestria_daemon::SearchRuntime,
-    state: &mut maestria_domain::KernelState,
-    task_id: Option<maestria_domain::TaskId>,
-    plan: &SearchPlan,
-    outcome: &SearchOutcome,
-) -> Result<()> {
-    let output = state.apply_input(DomainInput::SearchKnowledgeCompleted(
-        SearchKnowledgeCompleted {
-            task_id,
-            plan: Box::new(plan.clone()),
-            outcome: outcome.clone(),
-        },
-    ))?;
-    runtime.append_events(output.events)
 }
 
 pub fn run_search_trace(instance_dir: PathBuf, trace_id: u64) -> Result<()> {

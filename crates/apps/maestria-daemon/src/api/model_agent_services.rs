@@ -145,7 +145,7 @@ pub(super) fn status(layout: &InstanceLayout, run_id: u64) -> Result<ModelAgentS
             .to_string(),
             approval_id: None,
             journal_generation: None,
-            trace_id: result.search.as_ref().map(|search| search.trace_id),
+            trace_id: result.search.as_ref().map(|search| search.trace_id.value()),
             evidence_count: result
                 .search
                 .as_ref()

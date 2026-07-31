@@ -98,7 +98,13 @@ impl EffectExecutionContext {
         chunk_id: ChunkId,
         embedding: VectorEmbedding,
     ) -> Result<(), EffectFailure> {
-        let vector_index = Arc::clone(&self.adapters.vector_index);
+        let Some(vector_index) = &self.adapters.vector_index else {
+            return Err(EffectFailure::Failed(
+                "vector projection is unavailable: embedding capability is not configured"
+                    .to_string(),
+            ));
+        };
+        let vector_index = Arc::clone(vector_index);
         match tokio::task::spawn_blocking(move || vector_index.index_embeddings(vec![embedding]))
             .await
         {
@@ -171,7 +177,14 @@ impl EffectExecutionContext {
     }
 
     async fn invalidate_vector_projection(&self, chunk_id: ChunkId) -> bool {
-        let vector_index = Arc::clone(&self.adapters.vector_index);
+        let Some(vector_index) = &self.adapters.vector_index else {
+            tracing::warn!(
+                chunk_id = %chunk_id,
+                "vector projection is unavailable; cannot invalidate stale rows"
+            );
+            return false;
+        };
+        let vector_index = Arc::clone(vector_index);
         let result =
             tokio::task::spawn_blocking(move || vector_index.delete_chunks(&[chunk_id])).await;
         match result {

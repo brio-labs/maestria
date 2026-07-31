@@ -22,7 +22,32 @@ impl MutationSession {
     /// Cancellation before this future returns releases the instance lock and requests runtime
     /// shutdown. Recovery already accepted by the runtime may still reach durable state.
     pub async fn start(layout: InstanceLayout, profile: AutonomyProfile) -> Result<Self> {
-        let mut lifecycle = InstanceLifecycle::start(layout, profile).await?;
+        Self::start_with_vector_reconcile(layout, profile, true).await
+    }
+
+    /// Start a search session: lifecycle startup without the vector-projection rebuild.
+    ///
+    /// Search serves from existing vector rows and degrades explicitly when dense
+    /// retrieval is unavailable; rebuilding would re-embed the corpus on every
+    /// search command and require a live embedding provider.
+    pub async fn start_for_search(
+        layout: InstanceLayout,
+        profile: AutonomyProfile,
+    ) -> Result<Self> {
+        Self::start_with_vector_reconcile(layout, profile, false).await
+    }
+
+    async fn start_with_vector_reconcile(
+        layout: InstanceLayout,
+        profile: AutonomyProfile,
+        rebuild_vector_projection: bool,
+    ) -> Result<Self> {
+        let mut lifecycle = InstanceLifecycle::start_with_vector_reconcile(
+            layout,
+            profile,
+            rebuild_vector_projection,
+        )
+        .await?;
         match lifecycle.queue_recovery().await {
             Ok(recovery) => Ok(Self {
                 lifecycle,

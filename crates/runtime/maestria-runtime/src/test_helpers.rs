@@ -28,7 +28,7 @@ pub fn test_adapters() -> Adapters {
         embedding_provider: None,
         ocr_provider: None,
         search_executor: None,
-        vector_index: Arc::new(InMemoryVectorIndex::new()),
+        vector_index: Some(Arc::new(InMemoryVectorIndex::new())),
         graph_index: Arc::new(InMemoryGraphIndex::new()),
         web_fetcher: Arc::new(InMemoryWebFetcher::new()),
         id_allocator: Arc::new(InMemoryIdAllocator::new()),

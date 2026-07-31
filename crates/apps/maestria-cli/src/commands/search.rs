@@ -1,10 +1,9 @@
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Result, anyhow};
 use maestria_core::{InstanceLayout, InstanceManifest};
 use maestria_domain::{
     DomainInput, EvidenceCandidate, SearchKnowledgeCompleted, SearchOutcome, SearchPlan, TaskId,
 };
 use std::{path::PathBuf, time::Duration};
-use tokio::time::sleep;
 
 use crate::helpers;
 
@@ -37,55 +36,81 @@ pub async fn run(
     limit: usize,
 ) -> Result<()> {
     let layout = helpers::validated_instance(instance_dir)?;
-    let write_mode = acquire_search_write_mode(&layout)?;
-    let mut state = helpers::load_kernel_state_with_retry(
-        &layout,
-        Duration::from_secs(2),
-        "load kernel state for search",
-    )?;
-    let task_id = validate_task_id(&state, task_id)?;
-    let manifest = helpers::load_manifest(&layout)?;
-    if write_mode.allows_persistence() {
-        maestria_daemon::reconcile_retrieval_generations(&layout, &mut state, &manifest)
-            .context("reconcile retrieval generations before search")?;
-    }
-    let (runtime, plan, outcome) = execute_search(
-        &layout,
-        &state,
-        &manifest,
-        query,
-        limit,
-        write_mode.allows_persistence(),
-    )
-    .await?;
-    if write_mode.allows_persistence() {
-        persist_search_knowledge_with_retry(&runtime, &mut state, task_id, &plan, &outcome).await?;
-    }
+    let (_plan, outcome, state) = run_search_command(&layout, task_id, query, limit).await?;
     print_search_outcome(&state, &outcome);
     Ok(())
 }
 
-async fn persist_search_knowledge_with_retry(
-    runtime: &maestria_daemon::SearchRuntime,
-    state: &mut maestria_domain::KernelState,
-    task_id: Option<TaskId>,
-    plan: &SearchPlan,
-    outcome: &SearchOutcome,
-) -> Result<()> {
-    let result = tokio::time::timeout(Duration::from_secs(2), async {
-        loop {
-            match persist_search_knowledge(runtime, state, task_id, plan, outcome) {
-                Ok(()) => return Ok(()),
-                Err(error) if helpers::is_db_locked(&error) => {
-                    sleep(Duration::from_millis(25)).await;
-                }
-                Err(error) => return Err(error),
-            }
-        }
-    })
+/// Execute one governed search, persisting search knowledge through the runtime when the
+/// instance write lock is available.
+///
+/// When another process holds the instance lock the search runs read-only and nothing is
+/// persisted. When the lock is available, the command runs inside a `MutationSession`: the
+/// session owns lock acquisition, reconciliation, and queued-recovery application, and the
+/// completed search is submitted as a domain command so the runtime owns event persistence.
+pub(crate) async fn run_search_command(
+    layout: &InstanceLayout,
+    task_id: Option<u64>,
+    query: String,
+    limit: usize,
+) -> Result<(SearchPlan, SearchOutcome, maestria_domain::KernelState)> {
+    if acquire_search_write_mode(layout)?.allows_persistence() {
+        run_durable_search(layout, task_id, query, limit).await
+    } else {
+        run_read_only_search(layout, task_id, query, limit).await
+    }
+}
+
+async fn run_durable_search(
+    layout: &InstanceLayout,
+    task_id: Option<u64>,
+    query: String,
+    limit: usize,
+) -> Result<(SearchPlan, SearchOutcome, maestria_domain::KernelState)> {
+    let session = maestria_daemon::MutationSession::start_for_search(
+        layout.clone(),
+        maestria_governance::AutonomyProfile::TrustedWorkspace,
+    )
+    .await?;
+    let state = session.state().clone();
+    let task_id = validate_task_id(&state, task_id)?;
+    let manifest = helpers::load_manifest(layout)?;
+
+    let result = async {
+        let (plan, outcome) = execute_search(layout, &state, &manifest, query, limit).await?;
+        session
+            .submit(DomainInput::SearchKnowledgeCompleted(
+                SearchKnowledgeCompleted {
+                    task_id,
+                    plan: Box::new(plan.clone()),
+                    outcome: outcome.clone(),
+                },
+            ))
+            .await
+            .map_err(|error| anyhow!("submit search knowledge: {error}"))?;
+        Ok::<_, anyhow::Error>((plan, outcome))
+    }
     .await;
 
-    result.map_err(|_| anyhow!("timed out while recording search result"))?
+    let (plan, outcome) = session.finish(result).await?;
+    Ok((plan, outcome, state))
+}
+
+async fn run_read_only_search(
+    layout: &InstanceLayout,
+    task_id: Option<u64>,
+    query: String,
+    limit: usize,
+) -> Result<(SearchPlan, SearchOutcome, maestria_domain::KernelState)> {
+    let state = helpers::load_kernel_state_with_retry(
+        layout,
+        Duration::from_secs(2),
+        "load kernel state for search",
+    )?;
+    let _task_id = validate_task_id(&state, task_id)?;
+    let manifest = helpers::load_manifest(layout)?;
+    let (plan, outcome) = execute_search(layout, &state, &manifest, query, limit).await?;
+    Ok((plan, outcome, state))
 }
 
 pub(crate) async fn execute_search(
@@ -94,20 +119,12 @@ pub(crate) async fn execute_search(
     manifest: &InstanceManifest,
     query: String,
     limit: usize,
-    allow_projection_writes: bool,
-) -> Result<(
-    std::sync::Arc<maestria_daemon::SearchRuntime>,
-    SearchPlan,
-    SearchOutcome,
-)> {
+) -> Result<(SearchPlan, SearchOutcome)> {
     let policy = maestria_governance::RetrievalSecurityPolicy::default()
         .require_read_allowed(true)
         .allow_unscoped_items(true);
-    let runtime = if allow_projection_writes {
-        maestria_daemon::prepare_search_runtime(layout, state, manifest, policy)?
-    } else {
-        maestria_daemon::prepare_search_runtime_read_only(layout, state, manifest, policy)?
-    };
+    let runtime =
+        maestria_daemon::prepare_search_runtime_read_only(layout, state, manifest, policy)?;
     let (plan, outcome) = runtime.execute(query, limit).await?;
     let trace = outcome
         .trace_data
@@ -125,7 +142,7 @@ pub(crate) async fn execute_search(
             outcome.trace
         ));
     }
-    Ok((runtime, plan, outcome))
+    Ok((plan, outcome))
 }
 
 pub(crate) fn validate_task_id(
@@ -140,23 +157,6 @@ pub(crate) fn validate_task_id(
         anyhow::bail!("task {task_id} was not found");
     }
     Ok(Some(task_id))
-}
-
-fn persist_search_knowledge(
-    runtime: &maestria_daemon::SearchRuntime,
-    state: &mut maestria_domain::KernelState,
-    task_id: Option<TaskId>,
-    plan: &SearchPlan,
-    outcome: &SearchOutcome,
-) -> Result<()> {
-    let output = state.apply_input(DomainInput::SearchKnowledgeCompleted(
-        SearchKnowledgeCompleted {
-            task_id,
-            plan: Box::new(plan.clone()),
-            outcome: outcome.clone(),
-        },
-    ))?;
-    runtime.append_events(output.events)
 }
 
 pub(super) fn print_search_outcome(state: &maestria_domain::KernelState, outcome: &SearchOutcome) {

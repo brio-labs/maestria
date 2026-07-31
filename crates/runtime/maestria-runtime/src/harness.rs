@@ -181,12 +181,17 @@ impl EffectExecutionContext {
                 .execute(harness_request)
                 .await
                 .map_err(|error| {
-                    let _ = self.adapters.effect_journal.record_terminal(
+                    let terminal = self.adapters.effect_journal.record_terminal(
                         request.run_id,
                         generation,
                         maestria_ports::EffectJournalStatus::Failed,
                     );
-                    EffectFailure::Failed(format!("harness execution failed: {error}"))
+                    match terminal {
+                        Ok(()) => EffectFailure::Failed(format!("harness execution failed: {error}")),
+                        Err(journal_error) => EffectFailure::Failed(format!(
+                            "harness execution failed: {error}; additionally failed to record terminal journal state: {journal_error}"
+                        )),
+                    }
                 })?
         };
         if stored_outcome.is_some() {

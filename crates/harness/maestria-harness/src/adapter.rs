@@ -22,6 +22,9 @@ impl HarnessAdapter for LocalShellHarnessAdapter {
         })
     }
 
+    /// # Cancellation
+    /// See [`HarnessAdapter::execute`]: the spawned child is reaped when the
+    /// returned future is dropped, and `duration_budget` aborts the run.
     fn execute(
         &self,
         request: HarnessRequest,

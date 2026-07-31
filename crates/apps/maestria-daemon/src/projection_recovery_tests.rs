@@ -689,12 +689,31 @@ fn build_runtime_fails_on_corrupt_vector_projection() -> Result<(), Box<dyn std:
     let root = std::env::temp_dir().join(format!("maestria-corrupt-vector-{}", std::process::id()));
     let _ = fs::remove_dir_all(&root);
     let layout = prepare_instance(root.clone())?;
+    // Configure the dense capability so the corrupt projection is a configured
+    // store: a disabled embedding profile must not open the vector projection
+    // (mirroring the search runtime's provider-gated boundary).
+    let mut manifest = maestria_core::InstanceManifest::default_for_root(layout.root.clone());
+    manifest.embeddings = Some(maestria_core::EmbeddingConfig {
+        enabled: true,
+        endpoint: "http://127.0.0.1:9/v1/embeddings".to_string(),
+        model: "fixture-embedding".to_string(),
+        dimensions: 8,
+        provider: "fixture-onnx".to_string(),
+        revision: "fixture-v1".to_string(),
+        artifact_hash: format!("sha256:{}", "0".repeat(64)),
+        preprocessing_version: "fixture-v1".to_string(),
+        remote_provider: false,
+        retention_policy: maestria_ports::RetentionPolicy::NoRetention,
+    });
+    fs::write(&layout.manifest_path, manifest.encode())?;
+    let mut state = crate::instance_setup::load_kernel_state(&layout)?;
+    crate::vector_startup::reconcile_retrieval_generations(&layout, &mut state, &manifest)?;
     fs::write(
         layout.vector_index_dir.join("projection.db"),
         b"not a sqlite database",
     )?;
 
-    let result = build_runtime(&layout, KernelState::new(), AutonomyProfile::ReadOnly);
+    let result = build_runtime(&layout, state, AutonomyProfile::ReadOnly);
     let Some(error) = result.err() else {
         let _ = fs::remove_dir_all(&root);
         return Err("corrupt vector projection must fail runtime startup"
