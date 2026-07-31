@@ -26,7 +26,7 @@ use crate::providers::build_ocr_provider;
 use crate::search_executor::{
     SearchRuntime, SearchRuntimeParts, load_repository_code_index_with_exclusions,
 };
-use crate::vector_startup::{build_embedding_provider, reconcile_retrieval_generations};
+use crate::vector_startup::build_embedding_provider;
 
 struct StorageAdapters {
     blob_store: Arc<FsBlobStore>,
@@ -214,7 +214,7 @@ pub(crate) fn build_runtime(
 /// Build a runtime with a verified repository benchmark promotion policy.
 pub(crate) fn build_runtime_with_repository_policy(
     layout: &InstanceLayout,
-    mut state: KernelState,
+    state: KernelState,
     profile: AutonomyProfile,
     repository_execution_policy: RepositoryExecutionPolicy,
 ) -> Result<(
@@ -227,8 +227,6 @@ pub(crate) fn build_runtime_with_repository_policy(
         .with_context(|| format!("read instance manifest {}", layout.manifest_path.display()))?;
     let manifest = InstanceService::parse_manifest(&manifest_contents)
         .map_err(|error| anyhow!("parse instance manifest: {error}"))?;
-    reconcile_retrieval_generations(layout, &mut state, &manifest)
-        .context("reconcile retrieval generations before runtime construction")?;
     let embedding_model = manifest
         .embeddings
         .as_ref()

@@ -40,7 +40,8 @@ pub use api::{ApiServer, ClientOperation, ClientRequest, ClientResponse, DaemonC
 pub use approval_recovery::{reconcile_approval_repo, reconcile_pending_approvals};
 pub use full_text_recovery::pending_start_full_text;
 pub use instance_setup::{load_kernel_state, prepare_instance, validate_recovery_scope};
-pub use lifecycle::{InstanceLifecycle, RecoveryQueue};
+pub(crate) use lifecycle::InstanceLifecycle;
+pub use lifecycle::RecoveryQueue;
 pub use lifecycle_entry::{run_instance, run_instance_with_shutdown};
 pub use lock::{
     InstanceWriteLock, acquire as acquire_instance_write_lock,

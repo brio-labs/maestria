@@ -70,7 +70,7 @@ async fn internal_runtime_fatal_shutdown_does_not_require_external_signal()
     let layout = prepare_instance(temp_dir.path().to_path_buf())?;
     let lifecycle = InstanceLifecycle::start(layout.clone(), AutonomyProfile::ReadOnly).await?;
     let external_shutdown = CancellationToken::new();
-    let input_tx = lifecycle.input_sender();
+    let input_tx = lifecycle.runtime_handle().feedback_sender();
     let source_bytes = b"# injected fatal effect\nAKIA1234567890123456".to_vec();
     input_tx
         .send(DomainInput::ArtifactDetected(ArtifactDetected {

@@ -39,6 +39,11 @@ impl MutationSession {
         self.lifecycle.state()
     }
 
+    /// Number of in-flight harness effects paused during startup recovery.
+    pub fn paused_effect_count(&self) -> usize {
+        self.lifecycle.paused_effect_count()
+    }
+
     /// Recovery work admitted before this session became ready.
     pub fn recovery(&self) -> &RecoveryQueue {
         &self.recovery

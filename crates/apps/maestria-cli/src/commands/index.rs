@@ -9,7 +9,6 @@ use std::{
     path::{Path, PathBuf},
     time::Duration,
 };
-use tokio::sync::mpsc;
 use tokio::time::{sleep, timeout};
 
 use crate::helpers;
@@ -24,7 +23,7 @@ struct ProcessContext<'a> {
     privacy: &'a PrivacyExclusions,
     manifest: &'a InstanceManifest,
     preexisting_state: &'a KernelState,
-    input_tx: &'a mpsc::Sender<DomainInput>,
+    session: &'a maestria_daemon::MutationSession,
     layout: &'a InstanceLayout,
     index_timeout: Duration,
 }
@@ -32,9 +31,9 @@ struct ProcessContext<'a> {
 /// Process a single file through read, scope check, duplicate detection,
 /// runtime submission, and wait-for-indexing.
 ///
-/// Returns an error for scope violations, I/O failures, channel send errors,
-/// indexing errors, or timeouts.  The caller is responsible for shutting down
-/// the runtime on error.
+/// Returns an error for scope violations, I/O failures, runtime submission errors,
+/// indexing errors, or timeouts. The caller is responsible for finishing the
+/// mutation session on error.
 async fn process_file(file: &Path, ctx: &ProcessContext<'_>) -> Result<()> {
     let file = file
         .canonicalize()
@@ -67,8 +66,8 @@ async fn process_file(file: &Path, ctx: &ProcessContext<'_>) -> Result<()> {
         None => "unknown".to_string(),
     };
 
-    ctx.input_tx
-        .send(DomainInput::ArtifactDetected(ArtifactDetected {
+    ctx.session
+        .submit(DomainInput::ArtifactDetected(ArtifactDetected {
             artifact_id,
             title,
             source_path: file.display().to_string(),
@@ -212,29 +211,28 @@ pub async fn run(instance_dir: PathBuf, path: PathBuf, recursive: bool) -> Resul
         ));
     }
 
-    let mut lifecycle = maestria_daemon::InstanceLifecycle::start(
+    let session = maestria_daemon::MutationSession::start(
         layout.clone(),
         maestria_governance::AutonomyProfile::TrustedWorkspace,
     )
     .await?;
-    if lifecycle.paused_effect_count() > 0 {
+    if session.paused_effect_count() > 0 {
         println!(
             "paused {} in-flight harness effects",
-            lifecycle.paused_effect_count()
+            session.paused_effect_count()
         );
     }
-    let preexisting_state = lifecycle.state().clone();
-    let input_tx = lifecycle.input_sender();
+    let preexisting_state = session.state().clone();
 
     let result = async {
-        let recovery = lifecycle.queue_recovery().await?;
+        let recovery = session.recovery().clone();
         let index_timeout = Duration::from_secs(30);
         let ctx = ProcessContext {
             scope: &scope,
             privacy: &privacy,
             manifest: &manifest,
             preexisting_state: &preexisting_state,
-            input_tx: &input_tx,
+            session: &session,
             layout: &layout,
             index_timeout,
         };
@@ -258,7 +256,5 @@ pub async fn run(instance_dir: PathBuf, path: PathBuf, recursive: bool) -> Resul
     }
     .await;
 
-    let shutdown_result = lifecycle.shutdown().await;
-    result?;
-    shutdown_result
+    session.finish(result).await
 }

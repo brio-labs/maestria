@@ -3,7 +3,7 @@
 /// Responsibility map:
 /// - `protocol`: module responsibility.
 /// - `server`: module responsibility.
-/// - `services`: module responsibility.
+/// - `services`: dispatch and routing façade over responsibility-specific service siblings.
 /// - `token`: module responsibility.
 mod protocol;
 mod server;
