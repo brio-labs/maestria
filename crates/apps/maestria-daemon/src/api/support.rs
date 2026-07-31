@@ -1,3 +1,8 @@
+//! Shared API-boundary mechanics, kept independent of operation-specific services.
+//!
+//! Retry policy and persisted state loading are used by multiple handlers. Keeping them here
+//! prevents search, model-agent, and read services from depending on one another's internals.
+
 use std::sync::Arc;
 use std::time::Duration;
 
