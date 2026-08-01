@@ -10,8 +10,9 @@ use crate::types::{CandidateRequest, RetrievalError, RetrievalResult};
 
 #[path = "engine_budget.rs"]
 mod engine_budget;
+pub(crate) use engine_budget::lane_budget;
 pub(super) use engine_budget::{
-    add_usage, execution_with_budget, lane_budget, remaining_budget, usage_within_budget,
+    add_usage, execution_with_budget, remaining_budget, usage_within_budget,
 };
 
 #[path = "engine_diversity.rs"]

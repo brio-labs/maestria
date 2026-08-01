@@ -31,6 +31,7 @@ mod tests;
 
 #[path = "planner.rs"]
 mod planner;
+pub(crate) use engine_pipeline::lane_budget;
 pub(super) use engine_pipeline::reconcile_status;
 pub use planner::SearchPlannerContext;
 pub(crate) use planner::rewrite_session;
