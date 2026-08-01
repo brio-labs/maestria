@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Iterator
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -518,11 +519,83 @@ def should_skip(path: Path) -> bool:
     )
 
 
+def _iter_scannable(root: Path) -> Iterator[Path]:
+    """Walk *root*, pruning SKIP_DIRS at walk time.
+
+    Filtering with `should_skip` per candidate called `Path.resolve()` for
+    every entry (including the 190k+ entries under `target/` and `.git`),
+    which dominated the checker runtime; pruning by directory name avoids
+    descending into them at all.
+    """
+    pending = [root]
+    while pending:
+        current = pending.pop()
+        try:
+            entries = sorted(current.iterdir(), key=lambda entry: entry.name)
+        except OSError:
+            continue
+        for entry in entries:
+            if entry.name in SKIP_DIRS:
+                continue
+            if entry.is_dir():
+                pending.append(entry)
+            elif entry.is_file() and entry.name not in SKIP_FILES:
+                yield entry
+
+
 def read_text(path: Path) -> str | None:
     try:
         return path.read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError):
         return None
+
+
+_SCRUB_CACHE: dict[tuple[Path, int, int], str] = {}
+_SCRUB_PRODUCTION_CACHE: dict[tuple[Path, int, int], str] = {}
+
+
+def _scrubbed_source(path: Path) -> str:
+    """Return syntax-scrubbed source, cached per (path, mtime, size).
+
+    Several scans lex every Rust file independently; the scrubber is a
+    character-by-character Python pass, so sharing one scrubbed copy per
+    file avoids re-lexing the same content for each rule.
+    """
+    try:
+        stat = path.stat()
+    except OSError:
+        return ""
+    key = (path, stat.st_mtime_ns, stat.st_size)
+    cached = _SCRUB_CACHE.get(key)
+    if cached is not None:
+        return cached
+    content = read_text(path)
+    if content is None:
+        return ""
+    scrubbed = _rust_syntax(content)
+    if len(_SCRUB_CACHE) < 4096:
+        _SCRUB_CACHE[key] = scrubbed
+    return scrubbed
+
+
+def _scrubbed_production(path: Path) -> str:
+    """Like [`_scrubbed_source`], but truncated at `#[cfg(test)]` so test
+    modules inside production files do not count toward production budgets."""
+    try:
+        stat = path.stat()
+    except OSError:
+        return ""
+    key = (path, stat.st_mtime_ns, stat.st_size)
+    cached = _SCRUB_PRODUCTION_CACHE.get(key)
+    if cached is not None:
+        return cached
+    content = read_text(path)
+    if content is None:
+        return ""
+    scrubbed = _rust_syntax(production_rust(content))
+    if len(_SCRUB_PRODUCTION_CACHE) < 4096:
+        _SCRUB_PRODUCTION_CACHE[key] = scrubbed
+    return scrubbed
 
 
 def scan_documentation_contract() -> list[str]:
@@ -826,7 +899,7 @@ def scan_type_invariant_modeling() -> list[str]:
             if content is None:
                 continue
             relative_path = source.relative_to(ROOT)
-            production = _rust_syntax(production_rust(content))
+            production = _scrubbed_production(source)
             public_functions = set(_PUBLIC_FUNCTION_PATTERN.findall(production))
 
             for struct_name, fields in _named_struct_fields(production):
@@ -931,8 +1004,8 @@ def scan_type_invariant_modeling() -> list[str]:
 
 def scan_markers() -> list[str]:
     violations = []
-    for candidate in ROOT.rglob("*"):
-        if candidate.is_dir() or should_skip(candidate):
+    for candidate in _iter_scannable(ROOT):
+        if candidate == THIS_SCRIPT:
             continue
         if candidate.suffix.lower() not in SCAN_EXTS:
             continue
@@ -1111,6 +1184,40 @@ def _manifest_dependencies(
     return dependencies
 
 
+_KERNEL_IMPORT_PATTERN = re.compile(r"\buse\s+maestria_([a-z0-9_]+)")
+
+
+def scan_kernel_imports() -> list[str]:
+    """Enforce Rules 15/21 at source level: kernel `use` paths may only
+    reference the crate itself or its declared kernel dependencies.
+
+    Manifest checks (R10) catch dependency declarations; this catches
+    cross-crate `use` paths directly, so an adapter import cannot sneak in
+    through a renamed or inherited dependency.
+    """
+    violations = []
+    for kernel_root in KERNEL_ROOTS:
+        crate_name = _normalize_dependency_name(kernel_root.name)
+        allowed_imports = {
+            _normalize_dependency_name(name)
+            for name in KERNEL_ALLOWED_DEPENDENCIES.get(kernel_root.name, set())
+            if _normalize_dependency_name(name).startswith("maestria-")
+        }
+        for source in (kernel_root / "src").rglob("*.rs"):
+            rel = source.relative_to(ROOT)
+            production = _scrubbed_source(source)
+            if not production:
+                continue
+            for raw in _KERNEL_IMPORT_PATTERN.findall(production):
+                imported = _normalize_dependency_name(f"maestria_{raw}")
+                if imported == crate_name or imported in allowed_imports:
+                    continue
+                violations.append(
+                    f"{rel} imports forbidden kernel dependency maestria_{raw}"
+                )
+    return violations
+
+
 def scan_kernel_manifests() -> list[str]:
     violations = []
     workspace_content = read_text(ROOT / "Cargo.toml")
@@ -1192,7 +1299,7 @@ def scan_kernel_sources() -> list[str]:
             for token in FORBIDDEN_DOMAIN_FAILURES:
                 if token in content:
                     violations.append(f"{rel} contains forbidden failure token {token}")
-            production = _rust_syntax(production_rust(content))
+            production = _scrubbed_production(source)
             for pattern, description in FORBIDDEN_KERNEL_PATTERNS:
                 if re.search(pattern, production):
                     violations.append(f"{rel} contains forbidden {description}")
@@ -1293,12 +1400,37 @@ def scan_domain_sources() -> list[str]:
     return violations
 
 
+_UNNAMED_JSON_PATTERN = re.compile(r"\bserde_json::(?:Value|json!)")
+
+
+def scan_domain_untyped_json() -> list[str]:
+    """Rule 31: no untyped `serde_json::Value` holes in domain sources when
+    the shape is known. DTO conversion at adapter boundaries is typed; a
+    `serde_json::Value` or `json!` literal in the kernel is a hole."""
+    violations = []
+    for source in DOMAIN_SRC.rglob("*.rs"):
+        production = _scrubbed_source(source)
+        if not production:
+            continue
+        if _UNNAMED_JSON_PATTERN.search(production):
+            violations.append(
+                f"{source.relative_to(ROOT)} uses untyped serde_json::Value in domain source"
+            )
+    return violations
+
+
 def logical_line_count(content: str) -> int:
-    return sum(
-        1
-        for line in content.splitlines()
-        if line.strip() and not line.lstrip().startswith("//")
-    )
+    """Count source lines that carry code.
+
+    The syntax scrubber blanks comments and string/char literals, so block
+    comments and multi-line strings do not inflate the budget and a code
+    line with a trailing comment still counts exactly once.
+    """
+    return _logical_line_count_scrubbed(_rust_syntax(content))
+
+
+def _logical_line_count_scrubbed(scrubbed: str) -> int:
+    return sum(1 for line in scrubbed.splitlines() if line.strip())
 
 
 def scan_module_sizes() -> list[str]:
@@ -1313,7 +1445,7 @@ def scan_module_sizes() -> list[str]:
             continue
         if rel in MODULE_SIZE_EXEMPTIONS or rel in ADR_MODULE_EXEMPTIONS:
             continue
-        logical_lines = logical_line_count(content)
+        logical_lines = _logical_line_count_scrubbed(_scrubbed_source(source))
         physical_lines = len(content.splitlines())
         if logical_lines > MAX_PRODUCTION_LOGICAL_LINES and not is_test_source(
             rel_path
@@ -1688,10 +1820,10 @@ def scan_function_sizes() -> list[str]:
         content = read_text(source)
         if content is None:
             continue
-        production = production_rust(content)
         exemptions = FUNCTION_SIZE_EXEMPTIONS.get(rel, {})
-        for name, body in _find_function_bodies(production):
-            lines = logical_line_count(body)
+        scrubbed = _scrubbed_production(source)
+        for name, body in _find_function_bodies(scrubbed):
+            lines = _logical_line_count_scrubbed(body)
             if lines > MAX_FUNCTION_LOGICAL_LINES and name not in exemptions:
                 violations.append(
                     f"{rel} function `{name}` has {lines} logical lines "
@@ -1728,7 +1860,7 @@ def scan_mixed_responsibilities() -> list[str]:
             continue
         production = production_rust(content)
         mods = mod_pattern.findall(production)
-        logical = logical_line_count(production)
+        logical = _logical_line_count_scrubbed(_scrubbed_production(source))
         if len(mods) >= 3 and logical > 300:
             violations.append(
                 f"{rel} has {len(mods)} child modules and {logical} logical lines — "
@@ -1744,6 +1876,7 @@ def main() -> int:
         f"{path} contains forbidden task marker" for path in marker_violations
     )
     violations.extend(scan_kernel_manifests())
+    violations.extend(scan_kernel_imports())
     violations.extend(scan_kernel_sources())
     violations.extend(scan_type_invariant_modeling())
     violations.extend(scan_documentation_contract())
@@ -1757,10 +1890,21 @@ def main() -> int:
     violations.extend(scan_expect_clippy())
     violations.extend(scan_unbounded_channels())
     violations.extend(scan_rust_forbidden_methods())
+    violations.extend(scan_domain_untyped_json())
     violations.extend(scan_facade_boundaries())
     violations.extend(scan_cohesion())
     violations.extend(scan_function_sizes())
     violations.extend(scan_mixed_responsibilities())
+
+    # Collapse exact duplicates across scans (e.g. domain sources are kernel
+    # sources too) while preserving the first occurrence's ordering.
+    seen = set()
+    unique_violations = []
+    for violation in violations:
+        if violation not in seen:
+            seen.add(violation)
+            unique_violations.append(violation)
+    violations = unique_violations
 
     if violations:
         print("philosophy-check failed:")
