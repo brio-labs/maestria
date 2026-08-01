@@ -66,10 +66,12 @@ fn root_node(
         parent_id: None,
         sibling_id: None,
         node_type: StructureNodeType::Document,
-        source_range: ContentRange {
-            start: 1,
-            end: max_page as usize,
-        },
+        source_range: ContentRange::new(1, max_page as usize).map_err(|error| {
+            PortError::InvalidInputContext {
+                context: "allocate PDF root node content range",
+                source: error.to_string(),
+            }
+        })?,
         page: None,
         section_path: vec![],
         parser_generation: PARSER_GENERATION.to_string(),
@@ -98,10 +100,12 @@ fn page_node(
         parent_id: Some(root_id),
         sibling_id: None,
         node_type: StructureNodeType::Section,
-        source_range: ContentRange {
-            start: page.page as usize,
-            end: page.page as usize,
-        },
+        source_range: ContentRange::new(page.page as usize, page.page as usize).map_err(
+            |error| PortError::InvalidInputContext {
+                context: "allocate PDF page node content range",
+                source: error.to_string(),
+            },
+        )?,
         page: Some(page.page),
         section_path: vec![format!("Page {}", page.page)],
         parser_generation: PARSER_GENERATION.to_string(),
@@ -127,10 +131,12 @@ fn append_text_chunks(
             parent_id: Some(page_node_id),
             sibling_id: None,
             node_type,
-            source_range: ContentRange {
-                start: page.page as usize,
-                end: page.page as usize,
-            },
+            source_range: ContentRange::new(page.page as usize, page.page as usize).map_err(
+                |error| PortError::InvalidInputContext {
+                    context: "allocate PDF text chunk node content range",
+                    source: error.to_string(),
+                },
+            )?,
             page: Some(page.page),
             section_path: vec![format!("Page {}", page.page)],
             parser_generation: PARSER_GENERATION.to_string(),
@@ -177,10 +183,12 @@ fn append_region_chunks(
             parent_id: Some(page_node_id),
             sibling_id: None,
             node_type: region.node_type.clone(),
-            source_range: ContentRange {
-                start: page.page as usize,
-                end: page.page as usize,
-            },
+            source_range: ContentRange::new(page.page as usize, page.page as usize).map_err(
+                |error| PortError::InvalidInputContext {
+                    context: "allocate PDF region chunk node content range",
+                    source: error.to_string(),
+                },
+            )?,
             page: Some(page.page),
             section_path: vec![format!("Page {}", page.page)],
             parser_generation: PARSER_GENERATION.to_string(),
@@ -259,7 +267,7 @@ pub(crate) fn parsed_card_for(
     parsed_chunks: &[ParsedChunk],
     root_id: StructureNodeId,
 ) -> Result<ParsedCard, PortError> {
-    let mut card = crate::chunking::summary_card_for(artifact_id, path, parsed_chunks);
+    let mut card = crate::chunking::summary_card_for(artifact_id, path, parsed_chunks)?;
     let card_source_span = match parsed_chunks.first() {
         Some(chunk) => chunk.source_span.clone(),
         None => {
@@ -270,7 +278,7 @@ pub(crate) fn parsed_card_for(
         }
     };
     card.node_id = root_id;
-    card.source_span = crate::chunking::domain_source_span(&card_source_span);
+    card.source_span = crate::chunking::domain_source_span(&card_source_span)?;
     Ok(ParsedCard {
         card,
         node_id: root_id,

@@ -41,10 +41,7 @@ fn denied_dense_candidates_are_filtered_before_scoring() -> Result<(), Box<dyn s
     chunk_store.put(chunk(
         chunk_id,
         artifact_id,
-        maestria_domain::SourceSpan::TextSpan {
-            start_line: 1,
-            end_line: 1,
-        },
+        maestria_domain::SourceSpan::text_span(1, 1)?,
     ))?;
     let chunks = Arc::new(CountingChunkRepository::new(chunk_store));
     let evidence = Arc::new(CountingEvidenceRepository::new(Arc::new(
@@ -110,10 +107,7 @@ fn dense_batch_reports_bounded_bytes() -> Result<(), Box<dyn std::error::Error>>
         id: chunk_id,
         artifact_id,
         node_id: maestria_domain::StructureNodeId::new(1),
-        source_span: maestria_domain::SourceSpan::TextSpan {
-            start_line: 1,
-            end_line: 2,
-        },
+        source_span: maestria_domain::SourceSpan::text_span(1, 2)?,
         representations: Vec::new(),
         order: 0,
         text: "alpha".to_string(),

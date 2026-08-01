@@ -75,12 +75,8 @@ fn trace_for(
                 artifact_version: ArtifactVersionId::new(101),
                 source_span: EvidenceSpan::new(
                     Some(StructureNodeId::new(1)),
-                    SourceLocation::File {
-                        path: "source.md".to_string(),
-                        start_line: 1,
-                        end_line: 1,
-                    },
-                    ContentRange { start: 1, end: 1 },
+                    SourceLocation::file("source.md".to_string(), 1, 1)?,
+                    ContentRange::new(1, 1)?,
                 )?,
                 scores: fixture_scores()?,
                 trust: TrustLabel::Verified,
@@ -132,10 +128,7 @@ fn file_hit(snapshot: Option<BlobId>) -> Result<SourceGroundedSearchHit, Box<dyn
             id: chunk_id,
             artifact_id,
             node_id: StructureNodeId::new(1),
-            source_span: SourceSpan::TextSpan {
-                start_line: 1,
-                end_line: 1,
-            },
+            source_span: SourceSpan::text_span(1, 1)?,
             representations: Vec::new(),
             order: 0,
             text: "evidence".to_string(),
@@ -330,12 +323,8 @@ fn freeze_rejects_mismatched_candidate_provenance() -> Result<(), Box<dyn Error>
     let mut trace = trace_for(&plan, &[evidence_id])?;
     trace.raw_candidates[0].source_span = EvidenceSpan::new(
         Some(StructureNodeId::new(1)),
-        SourceLocation::File {
-            path: "source.md".to_string(),
-            start_line: 2,
-            end_line: 2,
-        },
-        ContentRange { start: 1, end: 1 },
+        SourceLocation::file("source.md".to_string(), 2, 2)?,
+        ContentRange::new(1, 1)?,
     )?;
     let mut pack = EvidencePack::from_plan(
         "evidence query".to_string(),

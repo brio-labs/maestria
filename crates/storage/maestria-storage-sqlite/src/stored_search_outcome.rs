@@ -169,15 +169,8 @@ mod tests {
             artifact_version: maestria_domain::ArtifactVersionId::new(42),
             source_span: EvidenceSpan::new(
                 Some(StructureNodeId::new(3)),
-                SourceLocation::File {
-                    path: "/repo/src/lib.rs".to_string(),
-                    start_line: 10,
-                    end_line: 20,
-                },
-                ContentRange {
-                    start: 100,
-                    end: 250,
-                },
+                SourceLocation::file("/repo/src/lib.rs".to_string(), 10, 20)?,
+                ContentRange::new(100, 250)?,
             )?,
             scores: RetrievalScoreSet::new(vec![lane])?,
             trust: TrustLabel::Verified,

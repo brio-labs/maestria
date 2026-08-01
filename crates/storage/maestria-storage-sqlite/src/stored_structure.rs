@@ -1,9 +1,9 @@
 use maestria_domain::{ContentRange, StructureNode, StructureNodeId, StructureNodeType};
 use serde::{Deserialize, Serialize};
 
-/// Wire mirror of `maestria_domain::ContentRange`. The domain struct is a
-/// plain `{ start, end }` pair with no validated constructor, so decode is
-/// infallible and reconstructs the struct directly.
+/// Wire mirror of `maestria_domain::ContentRange`. The domain struct owns
+/// its `start <= end` invariant, so decode validates through the fallible
+/// constructor instead of reconstructing the struct directly.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct StoredContentRange {
@@ -14,15 +14,17 @@ pub(crate) struct StoredContentRange {
 impl StoredContentRange {
     pub(crate) fn from_domain(range: ContentRange) -> Self {
         Self {
-            start: range.start,
-            end: range.end,
+            start: range.start(),
+            end: range.end(),
         }
     }
 
     pub(crate) fn try_into_domain(self) -> Result<ContentRange, maestria_ports::PortError> {
-        Ok(ContentRange {
-            start: self.start,
-            end: self.end,
+        ContentRange::new(self.start, self.end).map_err(|error| {
+            maestria_ports::PortError::InvalidInputContext {
+                context: "decode stored content range",
+                source: error.to_string(),
+            }
         })
     }
 }
@@ -135,24 +137,24 @@ impl StoredStructureNode {
 mod tests {
     use super::*;
 
-    fn node() -> StructureNode {
-        StructureNode {
+    fn node() -> Result<StructureNode, Box<dyn std::error::Error>> {
+        Ok(StructureNode {
             id: StructureNodeId::new(42),
             parent_id: Some(StructureNodeId::new(7)),
             sibling_id: None,
             node_type: StructureNodeType::Section,
-            source_range: ContentRange { start: 10, end: 20 },
+            source_range: ContentRange::new(10, 20)?,
             page: Some(3),
             section_path: vec!["intro".to_string(), "background".to_string()],
             parser_generation: "parser-v1".to_string(),
             schema_generation: "schema-v1".to_string(),
             language: Some("en".to_string()),
-        }
+        })
     }
 
     #[test]
     fn structure_node_round_trip() -> Result<(), Box<dyn std::error::Error>> {
-        let original = node();
+        let original = node()?;
         let stored = StoredStructureNode::from_domain(&original);
         let json = serde_json::to_string(&stored)?;
         let decoded = serde_json::from_str::<StoredStructureNode>(&json)?;
@@ -163,7 +165,7 @@ mod tests {
 
     #[test]
     fn content_range_round_trip() -> Result<(), Box<dyn std::error::Error>> {
-        let original = ContentRange { start: 3, end: 9 };
+        let original = ContentRange::new(3, 9)?;
         let stored = StoredContentRange::from_domain(original);
         let restored = stored.try_into_domain()?;
         assert_eq!(restored, original);
@@ -209,7 +211,7 @@ mod tests {
     #[test]
     fn unknown_node_field_is_rejected_during_deserialization()
     -> Result<(), Box<dyn std::error::Error>> {
-        let mut value = serde_json::to_value(StoredStructureNode::from_domain(&node()))?;
+        let mut value = serde_json::to_value(StoredStructureNode::from_domain(&node()?))?;
         value
             .as_object_mut()
             .ok_or_else(|| "expected JSON object".to_string())?

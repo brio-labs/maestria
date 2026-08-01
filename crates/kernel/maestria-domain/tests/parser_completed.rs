@@ -26,12 +26,9 @@ fn parser_completed_duplicate_is_idempotent() -> Result<(), Box<dyn std::error::
         artifact_version_id: ArtifactVersionId::new(1),
         content_hash: fixtures::test_content_hash()?,
         tree_root_id: Some(StructureNodeId::new(10)),
-        tree_nodes: vec![fixtures::tree_root_node(StructureNodeId::new(10))],
+        tree_nodes: vec![fixtures::tree_root_node(StructureNodeId::new(10))?],
         chunks: vec![RegisterChunkInput {
-            source_span: maestria_domain::SourceSpan::TextSpan {
-                start_line: 1,
-                end_line: 1,
-            },
+            source_span: maestria_domain::SourceSpan::text_span(1, 1)?,
             representations: vec![],
             chunk_id: ChunkId::new(10),
             artifact_id: ArtifactId::new(1),
@@ -41,10 +38,7 @@ fn parser_completed_duplicate_is_idempotent() -> Result<(), Box<dyn std::error::
         }],
         cards: vec![CreateCardInput {
             node_id: StructureNodeId::new(10),
-            source_span: maestria_domain::SourceSpan::TextSpan {
-                start_line: 1,
-                end_line: 1,
-            },
+            source_span: maestria_domain::SourceSpan::text_span(1, 1)?,
             card_id: CardId::new(20),
             artifact_id: ArtifactId::new(1),
             title: "Summary".to_string(),
@@ -108,12 +102,9 @@ fn parser_completed_rejects_mismatched_chunk() -> Result<(), Box<dyn std::error:
         artifact_version_id: ArtifactVersionId::new(1),
         content_hash: fixtures::test_content_hash()?,
         tree_root_id: Some(StructureNodeId::new(10)),
-        tree_nodes: vec![fixtures::tree_root_node(StructureNodeId::new(10))],
+        tree_nodes: vec![fixtures::tree_root_node(StructureNodeId::new(10))?],
         chunks: vec![RegisterChunkInput {
-            source_span: maestria_domain::SourceSpan::TextSpan {
-                start_line: 1,
-                end_line: 1,
-            },
+            source_span: maestria_domain::SourceSpan::text_span(1, 1)?,
             representations: vec![],
             chunk_id: ChunkId::new(10),
             artifact_id: ArtifactId::new(1),
@@ -132,12 +123,9 @@ fn parser_completed_rejects_mismatched_chunk() -> Result<(), Box<dyn std::error:
             artifact_version_id: ArtifactVersionId::new(1),
             content_hash: fixtures::test_content_hash()?,
             tree_root_id: Some(StructureNodeId::new(10)),
-            tree_nodes: vec![fixtures::tree_root_node(StructureNodeId::new(10))],
+            tree_nodes: vec![fixtures::tree_root_node(StructureNodeId::new(10))?],
             chunks: vec![RegisterChunkInput {
-                source_span: maestria_domain::SourceSpan::TextSpan {
-                    start_line: 1,
-                    end_line: 1,
-                },
+                source_span: maestria_domain::SourceSpan::text_span(1, 1)?,
                 representations: vec![],
                 chunk_id: ChunkId::new(10),
                 artifact_id: ArtifactId::new(1),
@@ -169,13 +157,13 @@ fn parser_completed_rejects_mismatched_card() -> Result<(), Box<dyn std::error::
         content_hash: fixtures::test_content_hash()?,
         tree_root_id: Some(StructureNodeId::new(0)),
         tree_nodes: vec![
-            fixtures::tree_root_node(StructureNodeId::new(0)),
+            fixtures::tree_root_node(StructureNodeId::new(0))?,
             maestria_domain::StructureNode {
                 id: StructureNodeId::new(1),
                 parent_id: Some(StructureNodeId::new(0)),
                 sibling_id: None,
                 node_type: maestria_domain::StructureNodeType::Paragraph,
-                source_range: maestria_domain::ContentRange { start: 0, end: 0 },
+                source_range: maestria_domain::ContentRange::new(0, 0)?,
                 page: None,
                 section_path: vec![],
                 parser_generation: "test".to_string(),
@@ -186,10 +174,7 @@ fn parser_completed_rejects_mismatched_card() -> Result<(), Box<dyn std::error::
         chunks: Vec::new(),
         cards: vec![CreateCardInput {
             node_id: maestria_domain::StructureNodeId::new(1),
-            source_span: maestria_domain::SourceSpan::TextSpan {
-                start_line: 1,
-                end_line: 1,
-            },
+            source_span: maestria_domain::SourceSpan::text_span(1, 1)?,
             card_id: CardId::new(20),
             artifact_id: ArtifactId::new(1),
             title: "Summary".to_string(),
@@ -207,13 +192,13 @@ fn parser_completed_rejects_mismatched_card() -> Result<(), Box<dyn std::error::
             content_hash: fixtures::test_content_hash()?,
             tree_root_id: Some(StructureNodeId::new(0)),
             tree_nodes: vec![
-                fixtures::tree_root_node(StructureNodeId::new(0)),
+                fixtures::tree_root_node(StructureNodeId::new(0))?,
                 maestria_domain::StructureNode {
                     id: StructureNodeId::new(1),
                     parent_id: Some(StructureNodeId::new(0)),
                     sibling_id: None,
                     node_type: maestria_domain::StructureNodeType::Paragraph,
-                    source_range: maestria_domain::ContentRange { start: 0, end: 0 },
+                    source_range: maestria_domain::ContentRange::new(0, 0)?,
                     page: None,
                     section_path: vec![],
                     parser_generation: "test".to_string(),
@@ -224,10 +209,7 @@ fn parser_completed_rejects_mismatched_card() -> Result<(), Box<dyn std::error::
             chunks: Vec::new(),
             cards: vec![CreateCardInput {
                 node_id: maestria_domain::StructureNodeId::new(1),
-                source_span: maestria_domain::SourceSpan::TextSpan {
-                    start_line: 1,
-                    end_line: 1,
-                },
+                source_span: maestria_domain::SourceSpan::text_span(1, 1)?,
                 card_id: CardId::new(20),
                 artifact_id: ArtifactId::new(1),
                 title: "Summary".to_string(),
@@ -259,7 +241,7 @@ fn parser_completed_first_zero_output_emits_artifact_parsed()
         artifact_version_id: ArtifactVersionId::new(1),
         content_hash: fixtures::test_content_hash()?,
         tree_root_id: Some(StructureNodeId::new(0)),
-        tree_nodes: vec![fixtures::tree_root_node(StructureNodeId::new(0))],
+        tree_nodes: vec![fixtures::tree_root_node(StructureNodeId::new(0))?],
         chunks: Vec::new(),
         cards: Vec::new(),
     }))?;
@@ -292,7 +274,7 @@ fn parser_completed_duplicate_zero_output_suppresses_artifact_parsed()
         artifact_version_id: ArtifactVersionId::new(1),
         content_hash: fixtures::test_content_hash()?,
         tree_root_id: Some(StructureNodeId::new(0)),
-        tree_nodes: vec![fixtures::tree_root_node(StructureNodeId::new(0))],
+        tree_nodes: vec![fixtures::tree_root_node(StructureNodeId::new(0))?],
         chunks: Vec::new(),
         cards: Vec::new(),
     };
@@ -341,7 +323,7 @@ fn parsed_tree_replaces_needs_ocr_tree_for_same_version() -> Result<(), Box<dyn 
         artifact_version_id: version_id,
         content_hash: content_hash.clone(),
         tree_root_id: Some(root_id),
-        tree_nodes: vec![fixtures::tree_root_node(root_id)],
+        tree_nodes: vec![fixtures::tree_root_node(root_id)?],
         chunks: Vec::new(),
         cards: Vec::new(),
     }))?;
@@ -351,7 +333,7 @@ fn parsed_tree_replaces_needs_ocr_tree_for_same_version() -> Result<(), Box<dyn 
         parent_id: Some(root_id),
         sibling_id: None,
         node_type: StructureNodeType::Paragraph,
-        source_range: ContentRange { start: 0, end: 4 },
+        source_range: ContentRange::new(0, 4)?,
         page: Some(1),
         section_path: Vec::new(),
         parser_generation: "test".to_string(),
@@ -364,15 +346,12 @@ fn parsed_tree_replaces_needs_ocr_tree_for_same_version() -> Result<(), Box<dyn 
         artifact_version_id: version_id,
         content_hash,
         tree_root_id: Some(root_id),
-        tree_nodes: vec![fixtures::tree_root_node(root_id), text_node],
+        tree_nodes: vec![fixtures::tree_root_node(root_id)?, text_node],
         chunks: vec![RegisterChunkInput {
             chunk_id: ChunkId::new(311),
             artifact_id,
             node_id: text_id,
-            source_span: SourceSpan::TextSpan {
-                start_line: 1,
-                end_line: 1,
-            },
+            source_span: SourceSpan::text_span(1, 1)?,
             representations: Vec::new(),
             order: 0,
             text: "ocr text".to_string(),

@@ -62,7 +62,7 @@ pub(crate) fn extract_impl(
     symbols: &mut Vec<SymbolRecord>,
     relation_candidates: &mut Vec<RelationCandidate>,
 ) -> Result<(), crate::CodeIntelError> {
-    let (impl_record, trait_name) = build_impl_record(item, module_stack, context);
+    let (impl_record, trait_name) = build_impl_record(item, module_stack, context)?;
     if let Some(trait_name) = trait_name {
         relation_candidates.push(RelationCandidate::Implements {
             source_record_id: impl_record.record_id.clone(),
@@ -93,9 +93,9 @@ fn build_impl_record(
     item: &ItemImpl,
     module_stack: &[String],
     context: &FileContext,
-) -> (SymbolRecord, Option<String>) {
+) -> Result<(SymbolRecord, Option<String>), crate::CodeIntelError> {
     let impl_type = resolve_type_name(&item.self_ty);
-    let impl_range = source_range(item);
+    let impl_range = source_range(item)?;
     let impl_name = qualify(module_stack, &impl_type);
     let trait_name = item.trait_.as_ref().map(|(_, path, _)| {
         path.segments
@@ -127,7 +127,7 @@ fn build_impl_record(
         markers: context.file_markers.clone(),
         provenance: provenance(context, impl_range),
     };
-    (impl_record, trait_name)
+    Ok((impl_record, trait_name))
 }
 
 fn extract_impl_method(
@@ -146,6 +146,9 @@ fn extract_impl_method(
     let mut probe = FunctionProbe::new(context, &method_qualified);
     probe.visit_signature(&method.sig);
     probe.visit_block(&method.block);
+    if let Some(error) = probe.take_error() {
+        return Err(error);
+    }
     let mut markers = declaration_markers(&method.attrs, &context.file_markers);
     markers.axum_routes = dedupe_strings(
         markers
@@ -155,7 +158,7 @@ fn extract_impl_method(
             .collect(),
     );
     markers.sqlx_queries = dedupe_strings(probe.sqlx_queries);
-    let method_range = source_range(method);
+    let method_range = source_range(method)?;
     let record = SymbolRecord {
         record_id: record_id(
             &method_qualified,
@@ -199,13 +202,13 @@ pub(crate) fn extract_imports(
     item: &ItemUse,
     module_stack: &[String],
     context: &FileContext,
-) -> (Vec<SymbolRecord>, Vec<RelationCandidate>) {
+) -> Result<(Vec<SymbolRecord>, Vec<RelationCandidate>), crate::CodeIntelError> {
     let mut symbols = Vec::new();
     let mut relation_candidates = Vec::new();
     let mut names = Vec::new();
     flatten_use_tree(&item.tree, &mut Vec::new(), &mut names);
     let markers = declaration_markers(&item.attrs, &context.file_markers);
-    let range = source_range(item);
+    let range = source_range(item)?;
 
     for name in names {
         let local_name = import_local_name(&name);
@@ -237,7 +240,7 @@ pub(crate) fn extract_imports(
             });
         }
     }
-    (symbols, relation_candidates)
+    Ok((symbols, relation_candidates))
 }
 fn import_local_name(raw_name: &str) -> String {
     if let Some((_, alias)) = raw_name.split_once(" as ") {

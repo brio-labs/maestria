@@ -46,12 +46,9 @@ fn resume_after_crash_replays_and_completes() -> Result<(), Box<dyn std::error::
         artifact_version_id: ArtifactVersionId::new(1),
         content_hash,
         tree_root_id: Some(StructureNodeId::new(10)),
-        tree_nodes: vec![fixtures::tree_root_node(StructureNodeId::new(10))],
+        tree_nodes: vec![fixtures::tree_root_node(StructureNodeId::new(10))?],
         chunks: vec![RegisterChunkInput {
-            source_span: maestria_domain::SourceSpan::TextSpan {
-                start_line: 1,
-                end_line: 1,
-            },
+            source_span: maestria_domain::SourceSpan::text_span(1, 1)?,
             representations: vec![],
             chunk_id: ChunkId::new(10),
             artifact_id: ArtifactId::new(1),
@@ -102,12 +99,9 @@ fn parser_completed_cleanup_idempotent_on_resume_retry() -> Result<(), Box<dyn s
         artifact_version_id: ArtifactVersionId::new(1),
         content_hash,
         tree_root_id: Some(StructureNodeId::new(10)),
-        tree_nodes: vec![fixtures::tree_root_node(StructureNodeId::new(10))],
+        tree_nodes: vec![fixtures::tree_root_node(StructureNodeId::new(10))?],
         chunks: vec![RegisterChunkInput {
-            source_span: maestria_domain::SourceSpan::TextSpan {
-                start_line: 1,
-                end_line: 1,
-            },
+            source_span: maestria_domain::SourceSpan::text_span(1, 1)?,
             representations: vec![],
             chunk_id: ChunkId::new(10),
             artifact_id: ArtifactId::new(1),
@@ -163,10 +157,7 @@ fn crash_before_evidence_pending_parsers_survives_for_resume()
     }))?;
 
     let chunk_input = RegisterChunkInput {
-        source_span: maestria_domain::SourceSpan::TextSpan {
-            start_line: 1,
-            end_line: 1,
-        },
+        source_span: maestria_domain::SourceSpan::text_span(1, 1)?,
         representations: vec![],
         chunk_id: ChunkId::new(10),
         artifact_id: ArtifactId::new(1),
@@ -176,10 +167,7 @@ fn crash_before_evidence_pending_parsers_survives_for_resume()
     };
     let card_input = CreateCardInput {
         node_id: maestria_domain::StructureNodeId::new(10),
-        source_span: maestria_domain::SourceSpan::TextSpan {
-            start_line: 1,
-            end_line: 1,
-        },
+        source_span: maestria_domain::SourceSpan::text_span(1, 1)?,
         card_id: CardId::new(20),
         artifact_id: ArtifactId::new(1),
         title: "Summary".to_string(),
@@ -193,7 +181,7 @@ fn crash_before_evidence_pending_parsers_survives_for_resume()
         artifact_version_id: ArtifactVersionId::new(1),
         content_hash: content_hash.clone(),
         tree_root_id: Some(StructureNodeId::new(10)),
-        tree_nodes: vec![fixtures::tree_root_node(StructureNodeId::new(10))],
+        tree_nodes: vec![fixtures::tree_root_node(StructureNodeId::new(10))?],
         chunks: vec![chunk_input.clone()],
         cards: vec![card_input.clone()],
     }))?;
@@ -211,7 +199,7 @@ fn crash_before_evidence_pending_parsers_survives_for_resume()
         artifact_version_id: ArtifactVersionId::new(1),
         content_hash: content_hash.clone(),
         tree_root_id: Some(StructureNodeId::new(10)),
-        tree_nodes: vec![fixtures::tree_root_node(StructureNodeId::new(10))],
+        tree_nodes: vec![fixtures::tree_root_node(StructureNodeId::new(10))?],
         chunks: vec![chunk_input],
         cards: vec![card_input],
     }))?;
@@ -292,7 +280,7 @@ fn ingest_artifact_full(
         artifact_version_id: ArtifactVersionId::new(setup.art_id.value()),
         content_hash: setup.content_hash,
         tree_root_id: Some(StructureNodeId::new(10)),
-        tree_nodes: vec![fixtures::tree_root_node(StructureNodeId::new(10))],
+        tree_nodes: vec![fixtures::tree_root_node(StructureNodeId::new(10))?],
         chunks: setup.chunks,
         cards: Vec::new(),
     }))?;
@@ -414,10 +402,7 @@ fn missing_evidence_keeps_artifact_pending_after_full_text_done()
             blob_id: BlobId::new(42),
             chunks: vec![
                 RegisterChunkInput {
-                    source_span: maestria_domain::SourceSpan::TextSpan {
-                        start_line: 1,
-                        end_line: 1,
-                    },
+                    source_span: maestria_domain::SourceSpan::text_span(1, 1)?,
                     representations: vec![],
                     chunk_id: ChunkId::new(10),
                     artifact_id: art_id,
@@ -426,10 +411,7 @@ fn missing_evidence_keeps_artifact_pending_after_full_text_done()
                     text: "a".to_string(),
                 },
                 RegisterChunkInput {
-                    source_span: maestria_domain::SourceSpan::TextSpan {
-                        start_line: 1,
-                        end_line: 1,
-                    },
+                    source_span: maestria_domain::SourceSpan::text_span(1, 1)?,
                     representations: vec![],
                     chunk_id: ChunkId::new(11),
                     artifact_id: art_id,

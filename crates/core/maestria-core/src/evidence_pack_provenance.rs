@@ -1,6 +1,4 @@
-use maestria_domain::{
-    ArtifactVersionId, ContentRange, EvidenceId, EvidenceKind, EvidenceSpan, SourceLocation,
-};
+use maestria_domain::{ArtifactVersionId, EvidenceId, EvidenceKind, EvidenceSpan, SourceLocation};
 
 use crate::types::SourceGroundedSearchHit;
 
@@ -85,8 +83,8 @@ fn file_span_matches(
         return false;
     };
     path == candidate_path
-        && range.start() == source_span.range().start
-        && range.end() == source_span.range().end
+        && range.start() == source_span.range().start()
+        && range.end() == source_span.range().end()
         && matches!(
             hit.chunk.source_span,
             maestria_domain::SourceSpan::TextSpan {
@@ -167,6 +165,7 @@ fn symbol_matches(source_span: &EvidenceSpan, path: &str, qualified_name: &str) 
             qualified_name: candidate_name,
         } if candidate_path == path
             && candidate_name == qualified_name
-            && source_span.range() == ContentRange { start: 0, end: 1 }
+            && source_span.range().start() == 0
+            && source_span.range().end() == 1
     )
 }

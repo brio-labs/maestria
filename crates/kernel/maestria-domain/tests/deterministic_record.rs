@@ -35,12 +35,9 @@ fn valid_deterministic_duplicate_still_rejected() -> Result<(), Box<dyn std::err
         artifact_version_id: ArtifactVersionId::new(art_id.value()),
         content_hash: fixtures::test_content_hash()?,
         tree_root_id: Some(StructureNodeId::new(10)),
-        tree_nodes: vec![fixtures::tree_root_node(StructureNodeId::new(10))],
+        tree_nodes: vec![fixtures::tree_root_node(StructureNodeId::new(10))?],
         chunks: vec![RegisterChunkInput {
-            source_span: maestria_domain::SourceSpan::TextSpan {
-                start_line: 1,
-                end_line: 1,
-            },
+            source_span: maestria_domain::SourceSpan::text_span(1, 1)?,
             representations: vec![],
             chunk_id: ChunkId::new(10),
             artifact_id: art_id,
@@ -118,12 +115,9 @@ fn deterministic_cross_owner_rejected() -> Result<(), Box<dyn std::error::Error>
         artifact_version_id: ArtifactVersionId::new(art_a.value()),
         content_hash: fixtures::test_content_hash()?,
         tree_root_id: Some(StructureNodeId::new(10)),
-        tree_nodes: vec![fixtures::tree_root_node(StructureNodeId::new(10))],
+        tree_nodes: vec![fixtures::tree_root_node(StructureNodeId::new(10))?],
         chunks: vec![RegisterChunkInput {
-            source_span: maestria_domain::SourceSpan::TextSpan {
-                start_line: 1,
-                end_line: 1,
-            },
+            source_span: maestria_domain::SourceSpan::text_span(1, 1)?,
             representations: vec![],
             chunk_id: ChunkId::new(10),
             artifact_id: art_a,
@@ -192,12 +186,9 @@ fn malformed_deterministic_non_filespan_is_rejected_at_record()
         artifact_version_id: ArtifactVersionId::new(art_id.value()),
         content_hash: fixtures::test_content_hash()?,
         tree_root_id: Some(StructureNodeId::new(10)),
-        tree_nodes: vec![fixtures::tree_root_node(StructureNodeId::new(10))],
+        tree_nodes: vec![fixtures::tree_root_node(StructureNodeId::new(10))?],
         chunks: vec![RegisterChunkInput {
-            source_span: maestria_domain::SourceSpan::TextSpan {
-                start_line: 1,
-                end_line: 1,
-            },
+            source_span: maestria_domain::SourceSpan::text_span(1, 1)?,
             representations: vec![],
             chunk_id: ChunkId::new(10),
             artifact_id: art_id,
@@ -334,10 +325,7 @@ fn live_chunk_registration_rejects_preexisting_malformed_deterministic_evidence(
             chunk_id: ChunkId::new(10),
             artifact_id,
             node_id: StructureNodeId::new(10),
-            source_span: SourceSpan::TextSpan {
-                start_line: 1,
-                end_line: 1,
-            },
+            source_span: SourceSpan::text_span(1, 1)?,
             representations: vec![],
             order: 0,
             text: "hello".to_string(),

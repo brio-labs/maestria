@@ -54,10 +54,12 @@ impl Parser for InMemoryParser {
             parent_id: None,
             sibling_id: None,
             node_type: StructureNodeType::Document,
-            source_range: ContentRange {
-                start: 0,
-                end: text.len(),
-            },
+            source_range: ContentRange::new(0, text.len()).map_err(|error| {
+                PortError::InvalidInputContext {
+                    context: "allocate in-memory root node content range",
+                    source: error.to_string(),
+                }
+            })?,
             page: None,
             section_path: vec![],
             parser_generation: "in-memory".to_string(),

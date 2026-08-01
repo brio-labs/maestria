@@ -14,7 +14,7 @@ fn sample_parser_result() -> Result<ParserResult, Box<dyn std::error::Error>> {
             parent_id: None,
             sibling_id: None,
             node_type: StructureNodeType::Document,
-            source_range: ContentRange { start: 0, end: 0 },
+            source_range: ContentRange::new(0, 0)?,
             page: None,
             section_path: vec![],
             parser_generation: "test".to_string(),
@@ -23,10 +23,7 @@ fn sample_parser_result() -> Result<ParserResult, Box<dyn std::error::Error>> {
         }],
         chunks: vec![
             RegisterChunkInput {
-                source_span: maestria_domain::SourceSpan::TextSpan {
-                    start_line: 1,
-                    end_line: 1,
-                },
+                source_span: maestria_domain::SourceSpan::text_span(1, 1)?,
                 representations: vec![],
                 chunk_id: ChunkId::new(10),
                 artifact_id: ArtifactId::new(1),
@@ -35,10 +32,7 @@ fn sample_parser_result() -> Result<ParserResult, Box<dyn std::error::Error>> {
                 text: "first chunk".to_string(),
             },
             RegisterChunkInput {
-                source_span: maestria_domain::SourceSpan::TextSpan {
-                    start_line: 1,
-                    end_line: 1,
-                },
+                source_span: maestria_domain::SourceSpan::text_span(1, 1)?,
                 representations: vec![],
                 chunk_id: ChunkId::new(11),
                 artifact_id: ArtifactId::new(1),
@@ -71,10 +65,7 @@ fn sample_inputs() -> Result<Vec<DomainInput>, Box<dyn std::error::Error>> {
         }),
         DomainInput::CreateCard(CreateCardInput {
             node_id: maestria_domain::StructureNodeId::new(1),
-            source_span: maestria_domain::SourceSpan::TextSpan {
-                start_line: 1,
-                end_line: 1,
-            },
+            source_span: maestria_domain::SourceSpan::text_span(1, 1)?,
             card_id: CardId::new(30),
             artifact_id: ArtifactId::new(1),
             title: "Summary".to_string(),

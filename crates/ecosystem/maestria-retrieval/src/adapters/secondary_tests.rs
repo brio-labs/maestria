@@ -133,10 +133,7 @@ fn denied_relation_records(
         id: ChunkId::new(2),
         artifact_id: artifacts.neighbor_id,
         node_id: StructureNodeId::new(2),
-        source_span: SourceSpan::TextSpan {
-            start_line: 1,
-            end_line: 1,
-        },
+        source_span: SourceSpan::text_span(1, 1)?,
         representations: Vec::new(),
         order: 1,
         text: chunk_text.to_string(),
@@ -185,10 +182,7 @@ fn denied_relation_expander_and_seed(
     };
     let seed = candidate_from_records(
         artifacts.owner_id,
-        &SourceSpan::TextSpan {
-            start_line: 1,
-            end_line: 1,
-        },
+        &SourceSpan::text_span(1, 1)?,
         &seed_evidence,
         StructureNodeId::new(1),
         maestria_domain::RetrievalScoreSet::empty(),

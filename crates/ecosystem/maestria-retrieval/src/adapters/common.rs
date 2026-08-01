@@ -126,15 +126,9 @@ fn evidence_location(
                 }
             };
             Ok((
-                SourceLocation::File {
-                    path: path.clone(),
-                    start_line,
-                    end_line,
-                },
-                ContentRange {
-                    start: range.start(),
-                    end: range.end(),
-                },
+                SourceLocation::file(path.clone(), start_line, end_line)?,
+                ContentRange::new(range.start(), range.end())
+                    .map_err(|error| RetrievalError::Internal(error.to_string()))?,
             ))
         }
         EvidenceKind::PdfSpan {
@@ -142,11 +136,8 @@ fn evidence_location(
             page_end,
             ..
         } => Ok((
-            SourceLocation::Page {
-                page_start: *page_start,
-                page_end: *page_end,
-            },
-            ContentRange { start: 0, end: 1 },
+            SourceLocation::page(*page_start, *page_end)?,
+            ContentRange::new(0, 1).map_err(|error| RetrievalError::Internal(error.to_string()))?,
         )),
         EvidenceKind::PdfRegion {
             page,
@@ -156,28 +147,16 @@ fn evidence_location(
             height,
             ..
         } => Ok((
-            SourceLocation::Region {
-                page: *page,
-                x: *x,
-                y: *y,
-                width: *width,
-                height: *height,
-            },
-            ContentRange { start: 0, end: 1 },
+            SourceLocation::region(*page, *x, *y, *width, *height)?,
+            ContentRange::new(0, 1).map_err(|error| RetrievalError::Internal(error.to_string()))?,
         )),
         EvidenceKind::WebSnapshot { url, .. } => Ok((
-            SourceLocation::Symbol {
-                path: url.clone(),
-                qualified_name: "web_snapshot".to_string(),
-            },
-            ContentRange { start: 0, end: 1 },
+            SourceLocation::symbol(url.clone(), "web_snapshot".to_string())?,
+            ContentRange::new(0, 1).map_err(|error| RetrievalError::Internal(error.to_string()))?,
         )),
         _ => Ok((
-            SourceLocation::Symbol {
-                path: format!("evidence:{}", evidence.id),
-                qualified_name: "evidence".to_string(),
-            },
-            ContentRange { start: 0, end: 1 },
+            SourceLocation::symbol(format!("evidence:{}", evidence.id), "evidence".to_string())?,
+            ContentRange::new(0, 1).map_err(|error| RetrievalError::Internal(error.to_string()))?,
         )),
     }
 }
@@ -203,10 +182,7 @@ mod tests {
         evidence.artifact_id = maestria_domain::ArtifactId::new(2);
         let result = candidate_from_records(
             artifact_id,
-            &SourceSpan::TextSpan {
-                start_line: 1,
-                end_line: 1,
-            },
+            &SourceSpan::text_span(1, 1).map_err(|e| RetrievalError::Internal(e.to_string()))?,
             &evidence,
             StructureNodeId::new(1),
             RetrievalScoreSet::empty(),

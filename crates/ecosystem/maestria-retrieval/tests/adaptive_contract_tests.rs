@@ -70,12 +70,9 @@ fn candidate_fixture() -> RetrievalResult<EvidenceCandidate> {
         artifact_version: ArtifactVersionId::new(19),
         source_span: EvidenceSpan::new(
             Some(StructureNodeId::new(29)),
-            SourceLocation::File {
-                path: "notes/research.md".to_string(),
-                start_line: 4,
-                end_line: 8,
-            },
-            ContentRange { start: 32, end: 96 },
+            SourceLocation::file("notes/research.md".to_string(), 4, 8)?,
+            ContentRange::new(32, 96)
+                .map_err(|error| RetrievalError::Internal(error.to_string()))?,
         )?,
         scores: fixture_scores(91, 88)?,
         trust: TrustLabel::Verified,

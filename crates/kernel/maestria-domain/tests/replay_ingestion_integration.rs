@@ -19,13 +19,10 @@ fn parser_result_with_multiple_chunks() -> Result<ParserResult, Box<dyn std::err
         artifact_version_id: ArtifactVersionId::new(1),
         content_hash: fixtures::test_content_hash()?,
         tree_root_id: Some(StructureNodeId::new(10)),
-        tree_nodes: vec![fixtures::tree_root_node(StructureNodeId::new(10))],
+        tree_nodes: vec![fixtures::tree_root_node(StructureNodeId::new(10))?],
         chunks: vec![
             RegisterChunkInput {
-                source_span: maestria_domain::SourceSpan::TextSpan {
-                    start_line: 1,
-                    end_line: 1,
-                },
+                source_span: maestria_domain::SourceSpan::text_span(1, 1)?,
                 representations: vec![],
                 chunk_id: ChunkId::new(10),
                 artifact_id: ArtifactId::new(1),
@@ -34,10 +31,7 @@ fn parser_result_with_multiple_chunks() -> Result<ParserResult, Box<dyn std::err
                 text: "chunk a".to_string(),
             },
             RegisterChunkInput {
-                source_span: maestria_domain::SourceSpan::TextSpan {
-                    start_line: 1,
-                    end_line: 1,
-                },
+                source_span: maestria_domain::SourceSpan::text_span(1, 1)?,
                 representations: vec![],
                 chunk_id: ChunkId::new(11),
                 artifact_id: ArtifactId::new(1),
@@ -46,10 +40,7 @@ fn parser_result_with_multiple_chunks() -> Result<ParserResult, Box<dyn std::err
                 text: "chunk b".to_string(),
             },
             RegisterChunkInput {
-                source_span: maestria_domain::SourceSpan::TextSpan {
-                    start_line: 1,
-                    end_line: 1,
-                },
+                source_span: maestria_domain::SourceSpan::text_span(1, 1)?,
                 representations: vec![],
                 chunk_id: ChunkId::new(12),
                 artifact_id: ArtifactId::new(1),
@@ -61,10 +52,7 @@ fn parser_result_with_multiple_chunks() -> Result<ParserResult, Box<dyn std::err
         cards: vec![
             CreateCardInput {
                 node_id: StructureNodeId::new(10),
-                source_span: maestria_domain::SourceSpan::TextSpan {
-                    start_line: 1,
-                    end_line: 1,
-                },
+                source_span: maestria_domain::SourceSpan::text_span(1, 1)?,
                 card_id: CardId::new(20),
                 artifact_id: ArtifactId::new(1),
                 title: "Card 1".to_string(),
@@ -73,10 +61,7 @@ fn parser_result_with_multiple_chunks() -> Result<ParserResult, Box<dyn std::err
             },
             CreateCardInput {
                 node_id: StructureNodeId::new(10),
-                source_span: maestria_domain::SourceSpan::TextSpan {
-                    start_line: 1,
-                    end_line: 1,
-                },
+                source_span: maestria_domain::SourceSpan::text_span(1, 1)?,
                 card_id: CardId::new(21),
                 artifact_id: ArtifactId::new(1),
                 title: "Card 2".to_string(),
@@ -124,12 +109,9 @@ fn replay_ingestion_flow_state_parity() -> Result<(), Box<dyn std::error::Error>
         artifact_version_id: ArtifactVersionId::new(1),
         content_hash: fixtures::test_content_hash()?,
         tree_root_id: Some(StructureNodeId::new(10)),
-        tree_nodes: vec![fixtures::tree_root_node(StructureNodeId::new(10))],
+        tree_nodes: vec![fixtures::tree_root_node(StructureNodeId::new(10))?],
         chunks: vec![RegisterChunkInput {
-            source_span: maestria_domain::SourceSpan::TextSpan {
-                start_line: 1,
-                end_line: 1,
-            },
+            source_span: maestria_domain::SourceSpan::text_span(1, 1)?,
             representations: vec![],
             chunk_id: ChunkId::new(10),
             artifact_id: ArtifactId::new(1),
@@ -228,12 +210,9 @@ fn replay_ingestion_duplicate_chunk_rejected() -> Result<(), Box<dyn std::error:
         artifact_version_id: ArtifactVersionId::new(1),
         content_hash: fixtures::test_content_hash()?,
         tree_root_id: Some(StructureNodeId::new(10)),
-        tree_nodes: vec![fixtures::tree_root_node(StructureNodeId::new(10))],
+        tree_nodes: vec![fixtures::tree_root_node(StructureNodeId::new(10))?],
         chunks: vec![RegisterChunkInput {
-            source_span: maestria_domain::SourceSpan::TextSpan {
-                start_line: 1,
-                end_line: 1,
-            },
+            source_span: maestria_domain::SourceSpan::text_span(1, 1)?,
             representations: vec![],
             chunk_id: ChunkId::new(10),
             artifact_id: ArtifactId::new(1),
@@ -251,10 +230,7 @@ fn replay_ingestion_duplicate_chunk_rejected() -> Result<(), Box<dyn std::error:
         sequence: SequenceNumber::new(next_id),
         event: DomainEvent::ChunkRegistered {
             node_id: maestria_domain::StructureNodeId::new(1),
-            source_span: maestria_domain::SourceSpan::TextSpan {
-                start_line: 1,
-                end_line: 1,
-            },
+            source_span: maestria_domain::SourceSpan::text_span(1, 1)?,
             representations: vec![],
             chunk_id: ChunkId::new(10),
             artifact_id: ArtifactId::new(1),
@@ -309,10 +285,7 @@ fn replay_ingestion_orphan_chunk_rejected() -> Result<(), Box<dyn std::error::Er
         sequence: SequenceNumber::new(1),
         event: DomainEvent::ChunkRegistered {
             node_id: maestria_domain::StructureNodeId::new(1),
-            source_span: maestria_domain::SourceSpan::TextSpan {
-                start_line: 1,
-                end_line: 1,
-            },
+            source_span: maestria_domain::SourceSpan::text_span(1, 1)?,
             representations: vec![],
             chunk_id: ChunkId::new(1),
             artifact_id: ArtifactId::new(99),
@@ -360,10 +333,7 @@ fn replay_full_text_indexed_rejects_mismatched_chunk_artifact()
         sequence: SequenceNumber::new(3),
         event: DomainEvent::ChunkRegistered {
             node_id: maestria_domain::StructureNodeId::new(1),
-            source_span: maestria_domain::SourceSpan::TextSpan {
-                start_line: 1,
-                end_line: 1,
-            },
+            source_span: maestria_domain::SourceSpan::text_span(1, 1)?,
             representations: vec![],
             chunk_id: ChunkId::new(10),
             artifact_id: ArtifactId::new(1),
@@ -422,10 +392,7 @@ fn replay_artifact_indexed_rejects_pending_chunks() -> Result<(), Box<dyn std::e
         sequence: SequenceNumber::new(3),
         event: DomainEvent::ChunkRegistered {
             node_id: maestria_domain::StructureNodeId::new(1),
-            source_span: maestria_domain::SourceSpan::TextSpan {
-                start_line: 1,
-                end_line: 1,
-            },
+            source_span: maestria_domain::SourceSpan::text_span(1, 1)?,
             representations: vec![],
             chunk_id: ChunkId::new(10),
             artifact_id: ArtifactId::new(1),

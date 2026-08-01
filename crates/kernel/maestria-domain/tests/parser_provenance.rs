@@ -2,23 +2,23 @@ use std::error::Error;
 
 use maestria_domain::*;
 
-fn root() -> StructureNode {
-    StructureNode {
+fn root() -> Result<StructureNode, Box<dyn Error>> {
+    Ok(StructureNode {
         id: StructureNodeId::new(10),
         parent_id: None,
         sibling_id: None,
         node_type: StructureNodeType::Document,
-        source_range: ContentRange { start: 0, end: 5 },
+        source_range: ContentRange::new(0, 5)?,
         page: None,
         section_path: vec!["document".to_owned()],
         parser_generation: "parser-v1".to_owned(),
         schema_generation: "schema-v1".to_owned(),
         language: Some("markdown".to_owned()),
-    }
+    })
 }
 
 fn parsed_result(status: ParseStatus) -> Result<ParserResult, Box<dyn Error>> {
-    let node = root();
+    let node = root()?;
     Ok(ParserResult {
         artifact_id: ArtifactId::new(1),
         artifact_version_id: ArtifactVersionId::new(2),
@@ -34,10 +34,7 @@ fn parsed_result(status: ParseStatus) -> Result<ParserResult, Box<dyn Error>> {
                 chunk_id: ChunkId::new(11),
                 artifact_id: ArtifactId::new(1),
                 node_id: StructureNodeId::new(10),
-                source_span: SourceSpan::TextSpan {
-                    start_line: 2,
-                    end_line: 4,
-                },
+                source_span: SourceSpan::text_span(2, 4)?,
                 representations: vec![
                     ParsedRepresentation {
                         kind: RepresentationKind::Raw,
@@ -59,10 +56,7 @@ fn parsed_result(status: ParseStatus) -> Result<ParserResult, Box<dyn Error>> {
                 card_id: CardId::new(12),
                 artifact_id: ArtifactId::new(1),
                 node_id: StructureNodeId::new(10),
-                source_span: SourceSpan::TextSpan {
-                    start_line: 1,
-                    end_line: 4,
-                },
+                source_span: SourceSpan::text_span(1, 4)?,
                 title: "Document".to_owned(),
                 body: "A source-backed summary".to_owned(),
                 security: None,

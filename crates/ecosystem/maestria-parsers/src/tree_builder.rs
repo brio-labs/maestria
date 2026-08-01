@@ -18,12 +18,24 @@ pub(crate) fn build_tree_and_chunks(
     let mut chunks = Vec::with_capacity(chunks_with_spans.len());
     let mut nodes = Vec::with_capacity(chunks_with_spans.len() + 1);
     let root_node_id = StructureNodeId::new(artifact_id.value().wrapping_mul(ID_STRIDE));
+    let root_end = match chunks_with_spans.last() {
+        Some((_, source_span)) => match source_span {
+            SourceSpan::TextSpan { end_line, .. } => *end_line,
+            SourceSpan::PdfSpan { page } | SourceSpan::PdfRegion { page, .. } => *page,
+        },
+        None => 1,
+    };
     nodes.push(StructureNode {
         id: root_node_id,
         parent_id: None,
         sibling_id: None,
         node_type: StructureNodeType::Document,
-        source_range: ContentRange { start: 1, end: 1 },
+        source_range: ContentRange::new(1, root_end).map_err(|error| {
+            PortError::InvalidInputContext {
+                context: "allocate root node content range",
+                source: error.to_string(),
+            }
+        })?,
         page: None,
         section_path: vec![],
         parser_generation: parser_generation.clone(),
@@ -37,13 +49,17 @@ pub(crate) fn build_tree_and_chunks(
             SourceSpan::TextSpan {
                 start_line,
                 end_line,
-            } => ContentRange {
-                start: start_line,
-                end: end_line,
-            },
-            SourceSpan::PdfSpan { .. } | SourceSpan::PdfRegion { .. } => {
-                ContentRange { start: 1, end: 1 }
-            }
+            } => ContentRange::new(start_line, end_line).map_err(|error| {
+                PortError::InvalidInputContext {
+                    context: "allocate chunk node content range",
+                    source: error.to_string(),
+                }
+            })?,
+            SourceSpan::PdfSpan { .. } | SourceSpan::PdfRegion { .. } => ContentRange::new(1, 1)
+                .map_err(|error| PortError::InvalidInputContext {
+                    context: "allocate chunk node content range",
+                    source: error.to_string(),
+                })?,
         };
         let page = match source_span {
             SourceSpan::PdfSpan { page } | SourceSpan::PdfRegion { page, .. } => Some(page as u32),
@@ -85,16 +101,6 @@ pub(crate) fn build_tree_and_chunks(
         if index < nodes.len() - 1 {
             nodes[index].sibling_id = Some(nodes[index + 1].id);
         }
-    }
-    let root_end = match chunks.last() {
-        Some(chunk) => match &chunk.source_span {
-            SourceSpan::TextSpan { end_line, .. } => *end_line,
-            SourceSpan::PdfSpan { page } | SourceSpan::PdfRegion { page, .. } => *page,
-        },
-        None => 1,
-    };
-    if let Some(root) = nodes.first_mut() {
-        root.source_range.end = root_end;
     }
     let tree = DocumentTree::new(root_node_id, nodes)?;
     Ok((tree, chunks))

@@ -114,12 +114,8 @@ fn candidate() -> Result<EvidenceCandidate, Box<dyn std::error::Error>> {
         artifact_version: ArtifactVersionId::new(19),
         source_span: EvidenceSpan::new(
             Some(StructureNodeId::new(29)),
-            SourceLocation::File {
-                path: "notes/research.md".to_owned(),
-                start_line: 4,
-                end_line: 8,
-            },
-            ContentRange { start: 32, end: 96 },
+            SourceLocation::file("notes/research.md".to_owned(), 4, 8)?,
+            ContentRange::new(32, 96)?,
         )?,
         scores: fixture_scores(91, 88)?,
         trust: TrustLabel::Verified,
@@ -279,12 +275,8 @@ fn trace_lane_changes_alter_deterministic_identity() -> Result<(), Box<dyn std::
             artifact_version: ArtifactVersionId::new(10),
             source_span: EvidenceSpan::new(
                 None,
-                SourceLocation::File {
-                    path: "test".to_owned(),
-                    start_line: 1,
-                    end_line: 2,
-                },
-                maestria_domain::ContentRange { start: 0, end: 10 },
+                SourceLocation::file("test".to_owned(), 1, 2)?,
+                maestria_domain::ContentRange::new(0, 10)?,
             )?,
             lane_rank: 1,
             duplicate_cluster: None,

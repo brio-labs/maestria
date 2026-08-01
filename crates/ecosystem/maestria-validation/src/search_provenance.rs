@@ -15,7 +15,8 @@ fn symbol_span_matches(
             qualified_name: candidate_name,
         } if candidate_path == path
             && candidate_name == qualified_name
-            && source_span.range() == maestria_domain::ContentRange { start: 0, end: 1 }
+            && source_span.range().start() == 0
+            && source_span.range().end() == 1
     )
 }
 
@@ -34,8 +35,8 @@ fn span_matches_record(
         ) => {
             let candidate_range = candidate.source_span.range();
             path == evidence_path
-                && candidate_range.start == range.start()
-                && candidate_range.end == range.end()
+                && candidate_range.start() == range.start()
+                && candidate_range.end() == range.end()
         }
         (
             SourceLocation::Page {
@@ -50,8 +51,8 @@ fn span_matches_record(
         ) => {
             page_start == evidence_start
                 && page_end == evidence_end
-                && candidate.source_span.range()
-                    == maestria_domain::ContentRange { start: 0, end: 1 }
+                && candidate.source_span.range().start() == 0
+                && candidate.source_span.range().end() == 1
         }
         (
             SourceLocation::Region {
@@ -75,8 +76,8 @@ fn span_matches_record(
                 && y == evidence_y
                 && width == evidence_width
                 && height == evidence_height
-                && candidate.source_span.range()
-                    == maestria_domain::ContentRange { start: 0, end: 1 }
+                && candidate.source_span.range().start() == 0
+                && candidate.source_span.range().end() == 1
         }
         (SourceLocation::Symbol { .. }, EvidenceKind::WebSnapshot { url, .. }) => {
             symbol_span_matches(&candidate.source_span, url, "web_snapshot")

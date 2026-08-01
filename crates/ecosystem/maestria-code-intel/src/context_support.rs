@@ -164,10 +164,10 @@ pub(crate) fn relation_sort_key(
         relation.source_record_id.as_str(),
         relation.target_record_id.as_str(),
         relation.source_provenance.file_path.as_str(),
-        relation.source_provenance.source_range.start_line,
-        relation.source_provenance.source_range.end_line,
+        relation.source_provenance.source_range.start_line(),
+        relation.source_provenance.source_range.end_line(),
         relation.target_provenance.file_path.as_str(),
-        relation.target_provenance.source_range.start_line,
+        relation.target_provenance.source_range.start_line(),
         relation.confidence_milli,
     )
 }

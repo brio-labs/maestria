@@ -393,7 +393,11 @@ impl Parser for MismatchedHashParser {
                 parent_id: None,
                 sibling_id: None,
                 node_type: maestria_domain::StructureNodeType::Document,
-                source_range: maestria_domain::ContentRange { start: 0, end: 1 },
+                source_range: maestria_domain::ContentRange::new(0, 1).map_err(|e| {
+                    PortError::Internal {
+                        message: e.to_string(),
+                    }
+                })?,
                 page: None,
                 section_path: vec![],
                 parser_generation: "test".to_string(),

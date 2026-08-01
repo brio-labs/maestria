@@ -135,7 +135,7 @@ fn parser_completed_removes_pending_parser() -> Result<(), Box<dyn std::error::E
         artifact_version_id: ArtifactVersionId::new(1),
         content_hash: fixtures::test_content_hash()?,
         tree_root_id: Some(StructureNodeId::new(0)),
-        tree_nodes: vec![fixtures::tree_root_node(StructureNodeId::new(0))],
+        tree_nodes: vec![fixtures::tree_root_node(StructureNodeId::new(0))?],
         chunks: Vec::new(),
         cards: Vec::new(),
     }))?;

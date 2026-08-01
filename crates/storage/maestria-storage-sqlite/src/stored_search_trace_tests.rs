@@ -29,12 +29,8 @@ pub(crate) fn sample_fingerprint() -> Result<RetrievalModelFingerprint, Box<dyn 
 pub(crate) fn sample_span() -> Result<EvidenceSpan, Box<dyn std::error::Error>> {
     Ok(EvidenceSpan::new(
         Some(StructureNodeId::new(3)),
-        SourceLocation::File {
-            path: "docs/guide.md".to_owned(),
-            start_line: 1,
-            end_line: 12,
-        },
-        ContentRange { start: 0, end: 256 },
+        SourceLocation::file("docs/guide.md".to_owned(), 1, 12)?,
+        ContentRange::new(0, 256)?,
     )?)
 }
 

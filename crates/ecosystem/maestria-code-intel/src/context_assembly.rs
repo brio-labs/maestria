@@ -111,10 +111,10 @@ fn context_edge_sort_key(
         relation.source_record_id.as_str(),
         relation.target_record_id.as_str(),
         relation.source_provenance.file_path.as_str(),
-        relation.source_provenance.source_range.start_line,
-        relation.source_provenance.source_range.end_line,
+        relation.source_provenance.source_range.start_line(),
+        relation.source_provenance.source_range.end_line(),
         relation.target_provenance.file_path.as_str(),
-        relation.target_provenance.source_range.start_line,
+        relation.target_provenance.source_range.start_line(),
         edge.depth,
         relation.confidence_milli,
     )
@@ -123,14 +123,14 @@ fn context_edge_sort_key(
 fn node_sort_key(left: &crate::SymbolRecord, right: &crate::SymbolRecord) -> std::cmp::Ordering {
     (
         left.provenance.file_path.as_str(),
-        left.provenance.source_range.start_line,
-        left.provenance.source_range.end_line,
+        left.provenance.source_range.start_line(),
+        left.provenance.source_range.end_line(),
         left.qualified_name.as_str(),
     )
         .cmp(&(
             right.provenance.file_path.as_str(),
-            right.provenance.source_range.start_line,
-            right.provenance.source_range.end_line,
+            right.provenance.source_range.start_line(),
+            right.provenance.source_range.end_line(),
             right.qualified_name.as_str(),
         ))
 }

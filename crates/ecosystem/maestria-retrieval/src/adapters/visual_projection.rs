@@ -256,7 +256,7 @@ mod tests {
             id: maestria_domain::ChunkId::new(1),
             artifact_id,
             node_id: maestria_domain::StructureNodeId::new(1),
-            source_span: SourceSpan::PdfSpan { page: 1 },
+            source_span: SourceSpan::pdf_span(1)?,
             representations: Vec::new(),
             order: 0,
             text: "figure".to_string(),

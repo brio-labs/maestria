@@ -1,5 +1,6 @@
 use maestria_domain::{
     ParseStatus, ParsedRepresentation, RepresentationKind, SourceSpan as DomainSourceSpan,
+    SourceSpanError,
 };
 use maestria_ports::{RepresentationKind as PortRepresentationKind, SourceSpan};
 
@@ -24,29 +25,20 @@ pub(crate) fn domain_representation_kind(kind: PortRepresentationKind) -> Repres
     }
 }
 
-pub(crate) fn domain_source_span(span: &SourceSpan) -> DomainSourceSpan {
+pub(crate) fn domain_source_span(span: &SourceSpan) -> Result<DomainSourceSpan, SourceSpanError> {
     match span {
         SourceSpan::TextSpan {
             start_line,
             end_line,
-        } => DomainSourceSpan::TextSpan {
-            start_line: *start_line,
-            end_line: *end_line,
-        },
-        SourceSpan::PdfSpan { page } => DomainSourceSpan::PdfSpan { page: *page },
+        } => DomainSourceSpan::text_span(*start_line, *end_line),
+        SourceSpan::PdfSpan { page } => DomainSourceSpan::pdf_span(*page),
         SourceSpan::PdfRegion {
             page,
             x,
             y,
             width,
             height,
-        } => DomainSourceSpan::PdfRegion {
-            page: *page,
-            x: *x,
-            y: *y,
-            width: *width,
-            height: *height,
-        },
+        } => DomainSourceSpan::pdf_region(*page, *x, *y, *width, *height),
     }
 }
 

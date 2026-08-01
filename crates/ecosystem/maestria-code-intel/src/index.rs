@@ -157,8 +157,8 @@ fn validate_record_provenance(
         });
     }
     if provenance.file_path.is_empty()
-        || provenance.source_range.start_line == 0
-        || provenance.source_range.end_line < provenance.source_range.start_line
+        || provenance.source_range.start_line() == 0
+        || provenance.source_range.end_line() < provenance.source_range.start_line()
     {
         return Err(CodeIntelError::Integrity {
             context: format!("{record_kind} source range"),

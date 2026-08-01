@@ -26,7 +26,7 @@ struct ReplayArtifactSetup<'a> {
 fn replay_setup_artifact(
     state: &mut KernelState,
     setup: ReplayArtifactSetup<'_>,
-) -> Result<(), DomainError> {
+) -> Result<(), Box<dyn std::error::Error>> {
     let ReplayArtifactSetup {
         art_id,
         title,
@@ -66,10 +66,7 @@ fn replay_setup_artifact(
         4,
         DomainEvent::ChunkRegistered {
             node_id: maestria_domain::StructureNodeId::new(1),
-            source_span: maestria_domain::SourceSpan::TextSpan {
-                start_line: 1,
-                end_line: 1,
-            },
+            source_span: maestria_domain::SourceSpan::text_span(1, 1)?,
             representations: vec![],
             chunk_id,
             artifact_id: art_id,
@@ -125,10 +122,7 @@ fn replay_artifact_indexed_clears_pending_parsers() -> Result<(), Box<dyn std::e
         sequence: SequenceNumber::new(4),
         event: DomainEvent::ChunkRegistered {
             node_id: maestria_domain::StructureNodeId::new(1),
-            source_span: maestria_domain::SourceSpan::TextSpan {
-                start_line: 1,
-                end_line: 1,
-            },
+            source_span: maestria_domain::SourceSpan::text_span(1, 1)?,
             representations: vec![],
             chunk_id: ChunkId::new(10),
             artifact_id: ArtifactId::new(1),
@@ -244,10 +238,7 @@ fn replay_artifact_indexed_rejects_incomplete_evidence() -> Result<(), Box<dyn s
         sequence: SequenceNumber::new(4),
         event: DomainEvent::ChunkRegistered {
             node_id: maestria_domain::StructureNodeId::new(1),
-            source_span: maestria_domain::SourceSpan::TextSpan {
-                start_line: 1,
-                end_line: 1,
-            },
+            source_span: maestria_domain::SourceSpan::text_span(1, 1)?,
             representations: vec![],
             chunk_id: ChunkId::new(10),
             artifact_id: art_id,

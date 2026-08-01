@@ -44,10 +44,7 @@ fn seed_records(
         id: card_id,
         artifact_id,
         node_id: StructureNodeId::new(0),
-        source_span: SourceSpan::TextSpan {
-            start_line: 1,
-            end_line: 1,
-        },
+        source_span: SourceSpan::text_span(1, 1)?,
         title: "card-title summary".to_string(),
         body: "card body text".to_string(),
         claim_ids: Default::default(),
@@ -61,10 +58,7 @@ fn seed_records(
             id,
             artifact_id,
             node_id: StructureNodeId::new(0),
-            source_span: SourceSpan::TextSpan {
-                start_line: order + 1,
-                end_line: order + 1,
-            },
+            source_span: SourceSpan::text_span(order + 1, order + 1)?,
             representations: vec![],
             order: order as u32,
             text: text.to_string(),

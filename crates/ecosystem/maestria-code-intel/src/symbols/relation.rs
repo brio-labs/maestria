@@ -67,8 +67,8 @@ pub(crate) fn resolve_relations(
         list.sort_by_key(|record| {
             (
                 record.provenance.file_path.as_str(),
-                record.provenance.source_range.start_line,
-                record.provenance.source_range.end_line,
+                record.provenance.source_range.start_line(),
+                record.provenance.source_range.end_line(),
                 record.record_id.as_str(),
             )
         });
@@ -205,10 +205,10 @@ fn relation_key(
         record.source_record_id.as_str(),
         record.target_record_id.as_str(),
         record.source_provenance.file_path.as_str(),
-        record.source_provenance.source_range.start_line,
-        record.source_provenance.source_range.end_line,
+        record.source_provenance.source_range.start_line(),
+        record.source_provenance.source_range.end_line(),
         record.target_provenance.file_path.as_str(),
-        record.target_provenance.source_range.start_line,
+        record.target_provenance.source_range.start_line(),
         record.confidence_milli,
     )
 }

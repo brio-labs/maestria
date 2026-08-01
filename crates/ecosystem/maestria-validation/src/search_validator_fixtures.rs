@@ -131,12 +131,8 @@ pub fn candidate() -> Result<EvidenceCandidate, Box<dyn std::error::Error>> {
         artifact_version: ArtifactVersionId::new(12),
         source_span: EvidenceSpan::new(
             None,
-            SourceLocation::File {
-                path: "notes.md".to_string(),
-                start_line: 1,
-                end_line: 1,
-            },
-            ContentRange { start: 1, end: 1 },
+            SourceLocation::file("notes.md".to_string(), 1, 1)?,
+            ContentRange::new(1, 1)?,
         )?,
         scores: fixture_scores(900, 800)?,
         trust: TrustLabel::Unverified,

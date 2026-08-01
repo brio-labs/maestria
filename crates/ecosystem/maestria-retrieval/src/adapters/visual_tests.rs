@@ -316,11 +316,7 @@ fn denied_visual_candidates_are_authorized_before_content_reads()
     let artifacts = InMemoryArtifactRepository::new();
     artifacts.put(denied_artifact(artifact_id))?;
     let chunks = Arc::new(CountingChunkRepository::new());
-    chunks.put(chunk(
-        chunk_id,
-        artifact_id,
-        SourceSpan::PdfSpan { page: 1 },
-    ))?;
+    chunks.put(chunk(chunk_id, artifact_id, SourceSpan::pdf_span(1)?))?;
     let evidence = Arc::new(CountingEvidenceRepository::new());
     let blobs = Arc::new(CountingBlobStore {
         gets: AtomicUsize::new(0),
@@ -447,7 +443,7 @@ fn visual_batch_reports_bounded_bytes() -> Result<(), Box<dyn std::error::Error>
         id: chunk_id,
         artifact_id,
         node_id: maestria_domain::StructureNodeId::new(1),
-        source_span: SourceSpan::PdfSpan { page: 1 },
+        source_span: SourceSpan::pdf_span(1)?,
         representations: Vec::new(),
         order: 0,
         text: "figure".to_string(),
@@ -523,7 +519,7 @@ fn visual_pdf_prefilter_requires_exact_kind_and_ranges() -> Result<(), Box<dyn s
     let hash = maestria_domain::ContentHash::new("sha256:".to_owned() + &"0".repeat(64))?;
     let snapshot = maestria_domain::SnapshotRef::new(maestria_domain::BlobId::new(1), hash);
     assert!(visual_pdf_prerequisites(
-        &SourceSpan::PdfSpan { page: 2 },
+        &SourceSpan::pdf_span(2)?,
         &EvidenceKind::PdfSpan {
             snapshot: snapshot.clone(),
             page_start: 1,
@@ -531,7 +527,7 @@ fn visual_pdf_prefilter_requires_exact_kind_and_ranges() -> Result<(), Box<dyn s
         },
     ));
     assert!(!visual_pdf_prerequisites(
-        &SourceSpan::PdfSpan { page: 2 },
+        &SourceSpan::pdf_span(2)?,
         &EvidenceKind::PdfRegion {
             snapshot: snapshot.clone(),
             page: 2,
@@ -542,13 +538,7 @@ fn visual_pdf_prefilter_requires_exact_kind_and_ranges() -> Result<(), Box<dyn s
         },
     ));
     assert!(visual_pdf_prerequisites(
-        &SourceSpan::PdfRegion {
-            page: 2,
-            x: 1,
-            y: 2,
-            width: 3,
-            height: 4,
-        },
+        &SourceSpan::pdf_region(2, 1, 2, 3, 4)?,
         &EvidenceKind::PdfRegion {
             snapshot: snapshot.clone(),
             page: 2,
@@ -559,13 +549,7 @@ fn visual_pdf_prefilter_requires_exact_kind_and_ranges() -> Result<(), Box<dyn s
         },
     ));
     assert!(!visual_pdf_prerequisites(
-        &SourceSpan::PdfRegion {
-            page: 2,
-            x: 1,
-            y: 2,
-            width: 3,
-            height: 4,
-        },
+        &SourceSpan::pdf_region(2, 1, 2, 3, 4)?,
         &EvidenceKind::PdfRegion {
             snapshot,
             page: 2,
@@ -601,7 +585,7 @@ fn visual_evidence_owner_mismatch_is_typed_conflict() -> Result<(), Box<dyn std:
         id: chunk_id,
         artifact_id,
         node_id: maestria_domain::StructureNodeId::new(1),
-        source_span: SourceSpan::PdfSpan { page: 1 },
+        source_span: SourceSpan::pdf_span(1)?,
         representations: Vec::new(),
         order: 0,
         text: "figure".to_string(),
@@ -672,7 +656,7 @@ fn assert_visual_evidence_denied_before_score(
         id: chunk_id,
         artifact_id,
         node_id: maestria_domain::StructureNodeId::new(1),
-        source_span: SourceSpan::PdfSpan { page: 1 },
+        source_span: SourceSpan::pdf_span(1)?,
         representations: Vec::new(),
         order: 0,
         text: chunk_text.to_string(),

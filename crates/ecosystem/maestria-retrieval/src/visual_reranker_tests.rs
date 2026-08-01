@@ -202,14 +202,8 @@ fn candidate(
         artifact_version: ArtifactVersionId::new(1),
         source_span: EvidenceSpan::new(
             None,
-            SourceLocation::Region {
-                page,
-                x,
-                y: 2,
-                width: 10,
-                height: 10,
-            },
-            ContentRange { start: 0, end: 1 },
+            SourceLocation::region(page, x, 2, 10, 10)?,
+            ContentRange::new(0, 1)?,
         )?,
         scores: fixture_scores(1, 1)?,
         trust: TrustLabel::Verified,

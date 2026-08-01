@@ -52,10 +52,7 @@ fn brain_state_round_trips_and_lists_deterministically() -> Result<(), Box<dyn s
         order: 2,
         text: "late".to_string(),
         node_id: maestria_domain::StructureNodeId::new(0),
-        source_span: maestria_domain::SourceSpan::TextSpan {
-            start_line: 1,
-            end_line: 2,
-        },
+        source_span: maestria_domain::SourceSpan::text_span(1, 2)?,
         representations: vec![],
     };
     let early = Chunk {
@@ -64,10 +61,7 @@ fn brain_state_round_trips_and_lists_deterministically() -> Result<(), Box<dyn s
         order: 1,
         text: "early".to_string(),
         node_id: maestria_domain::StructureNodeId::new(0),
-        source_span: maestria_domain::SourceSpan::TextSpan {
-            start_line: 1,
-            end_line: 2,
-        },
+        source_span: maestria_domain::SourceSpan::text_span(1, 2)?,
         representations: vec![],
     };
     let card = Card {
@@ -76,10 +70,7 @@ fn brain_state_round_trips_and_lists_deterministically() -> Result<(), Box<dyn s
         title: "card".to_string(),
         body: "body".to_string(),
         node_id: maestria_domain::StructureNodeId::new(0),
-        source_span: maestria_domain::SourceSpan::TextSpan {
-            start_line: 1,
-            end_line: 2,
-        },
+        source_span: maestria_domain::SourceSpan::text_span(1, 2)?,
         claim_ids: [ClaimId::new(5), ClaimId::new(3)].into(),
         security: SecurityMetadata::default(),
     };
@@ -396,10 +387,7 @@ fn security_metadata_round_trips() -> Result<(), Box<dyn std::error::Error>> {
         id: CardId::new(2),
         artifact_id: a.id,
         node_id: maestria_domain::StructureNodeId::new(1),
-        source_span: maestria_domain::SourceSpan::TextSpan {
-            start_line: 1,
-            end_line: 2,
-        },
+        source_span: maestria_domain::SourceSpan::text_span(1, 2)?,
         title: "Test Card".to_string(),
         body: "Card body".to_string(),
         claim_ids: std::collections::BTreeSet::new(),
