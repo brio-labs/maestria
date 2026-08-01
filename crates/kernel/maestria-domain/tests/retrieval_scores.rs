@@ -56,27 +56,73 @@ fn current_score_schema_round_trips_canonically() -> Result<(), Box<dyn std::err
 }
 
 #[test]
-fn legacy_fixed_scores_migrate_once_without_zero_lanes() -> Result<(), Box<dyn std::error::Error>> {
-    let migrated: RetrievalScoreSet =
-        serde_json::from_str(r#"{"bm25":91,"semantic_similarity":0}"#)?;
-    assert_eq!(migrated.lanes.len(), 1);
-    let lexical = migrated
+fn current_score_schema_decodes_from_json() -> Result<(), Box<dyn std::error::Error>> {
+    let json = r#"{"schema_version":2,"lanes":[{"score_kind":"lexical_bm25","raw_score":80,"raw_rank":{"state":"ranked","rank":1},"scale":{"kind":"unbounded","name":"fixture_raw","higher_is_better":true},"representation":"lexical_text_v1","fingerprint":{"identity":"fixture:lexical_text_v1","components":{"fixture":"retrieval_scores"}}}]}"#;
+    let decoded: RetrievalScoreSet = serde_json::from_str(json)?;
+    assert_eq!(decoded.schema_version, 2);
+    assert_eq!(decoded.lanes.len(), 1);
+    let lexical = decoded
         .lane(&RetrievalScoreKind::LexicalBm25)
-        .ok_or("missing migrated lexical lane")?;
-    assert_eq!(lexical.raw_score, 91);
-    assert!(matches!(
-        lexical.raw_rank,
-        RetrievalRawRank::Unavailable { .. }
-    ));
-    let encoded = serde_json::to_string(&migrated)?;
+        .ok_or("missing decoded lexical lane")?;
+    assert_eq!(lexical.raw_score, 80);
+    let encoded = serde_json::to_string(&decoded)?;
     assert!(!encoded.contains("\"bm25\""));
     assert!(!encoded.contains("semantic_similarity"));
     Ok(())
 }
 
 #[test]
-fn legacy_sparse_reason_moves_score_into_the_canonical_lane()
--> Result<(), Box<dyn std::error::Error>> {
+fn legacy_flat_score_payload_is_rejected() -> Result<(), Box<dyn std::error::Error>> {
+    let legacy =
+        serde_json::from_str::<RetrievalScoreSet>(r#"{"bm25":91,"semantic_similarity":0}"#);
+    assert!(
+        legacy.is_err(),
+        "legacy flat score payload must fail strict decode"
+    );
+    Ok(())
+}
+
+#[test]
+fn learned_sparse_reason_round_trips_current_shape() -> Result<(), Box<dyn std::error::Error>> {
+    let candidate = EvidenceCandidate {
+        evidence_id: EvidenceId::new(1),
+        artifact_version: ArtifactVersionId::new(2),
+        source_span: EvidenceSpan::new(
+            None,
+            SourceLocation::File {
+                path: "fixture.md".to_string(),
+                start_line: 1,
+                end_line: 1,
+            },
+            ContentRange { start: 1, end: 1 },
+        )?,
+        scores: RetrievalScoreSet::single(lane(
+            RetrievalScoreKind::LearnedSparse,
+            40,
+            RetrievalRawRank::ranked(2),
+            "sparse_text_v1",
+        )?)?,
+        trust: TrustLabel::Verified,
+        freshness: FreshnessStatus::UpToDate,
+        duplicate_cluster: None,
+        reasons: vec![RetrievalReason::LearnedSparse(Box::new(
+            LearnedSparseReason::new(vec![LearnedSparseContribution {
+                term_id: 7,
+                contribution_micros: 12,
+            }]),
+        ))],
+        coverage_keys: Vec::new(),
+    };
+    let value = serde_json::to_value(&candidate)?;
+    let decoded: EvidenceCandidate = serde_json::from_value(value.clone())?;
+    assert_eq!(decoded, candidate);
+    let encoded = serde_json::to_value(&decoded)?;
+    assert!(!encoded["reasons"].to_string().contains("score_micros"));
+    Ok(())
+}
+
+#[test]
+fn legacy_sparse_reason_payload_is_rejected() -> Result<(), Box<dyn std::error::Error>> {
     let mut value = serde_json::to_value(EvidenceCandidate {
         evidence_id: EvidenceId::new(1),
         artifact_version: ArtifactVersionId::new(2),
@@ -101,22 +147,13 @@ fn legacy_sparse_reason_moves_score_into_the_canonical_lane()
         ))],
         coverage_keys: Vec::new(),
     })?;
-    value["scores"] = serde_json::from_str(r#"{"bm25":0,"semantic_similarity":0}"#)?;
     value["reasons"] = serde_json::from_str(
         r#"[{"LearnedSparse":{"score_micros":12,"representation":"sparse_text_v1","fingerprint":"fixture:sparse:v1","contributions":[{"term_id":7,"contribution_micros":12}]}}]"#,
     )?;
-    let migrated: EvidenceCandidate = serde_json::from_value(value)?;
-    let sparse = migrated
-        .scores
-        .lane(&RetrievalScoreKind::LearnedSparse)
-        .ok_or("missing migrated sparse lane")?;
-    assert_eq!(sparse.raw_score, 12);
-    assert!(matches!(
-        sparse.raw_rank,
-        RetrievalRawRank::Unavailable { .. }
-    ));
-    let encoded = serde_json::to_value(&migrated)?;
-    assert!(!encoded["reasons"].to_string().contains("score_micros"));
+    assert!(
+        serde_json::from_value::<EvidenceCandidate>(value).is_err(),
+        "legacy score-bearing reason payload must fail strict decode"
+    );
     Ok(())
 }
 

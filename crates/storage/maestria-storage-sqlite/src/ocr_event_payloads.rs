@@ -1,4 +1,5 @@
-use super::event_payloads::StoredEventPayload;
+use super::event_payloads::{FamilyDecodeError, StoredEventPayload};
+use super::stored_content::StoredContentHash;
 use maestria_domain::{
     DomainEvent, OcrCompletion, OcrDisclosure, OcrIntent, OcrPageText, OcrProviderIdentity,
     OcrRequestId, OcrRetentionPolicy,
@@ -12,7 +13,7 @@ impl StoredEventPayload {
                 request_id: intent.request_id().as_str().to_string(),
                 artifact_id: intent.artifact_id().value(),
                 source_blob: intent.source_blob().value(),
-                source_hash: intent.source_hash().clone(),
+                source_hash: StoredContentHash::from_domain(intent.source_hash()),
                 pages: intent.pages().to_vec(),
                 provider: intent.provider().provider().to_string(),
                 model: intent.provider().model().to_string(),
@@ -50,16 +51,16 @@ impl StoredEventPayload {
         }
     }
 
-    pub(crate) fn try_into_domain_ocr(self) -> Result<DomainEvent, Box<Self>> {
+    pub(crate) fn try_into_domain_ocr(self) -> Result<DomainEvent, FamilyDecodeError> {
         match self {
             payload @ Self::OcrRequested { .. } => Self::try_into_domain_ocr_requested(payload),
             payload @ Self::OcrCompleted { .. } => Self::try_into_domain_ocr_completed(payload),
             payload @ Self::OcrFailed { .. } => Self::try_into_domain_ocr_failed(payload),
-            other => Err(Box::new(other)),
+            other => Err(FamilyDecodeError::Foreign(Box::new(other))),
         }
     }
 
-    fn try_into_domain_ocr_requested(self) -> Result<DomainEvent, Box<Self>> {
+    fn try_into_domain_ocr_requested(self) -> Result<DomainEvent, FamilyDecodeError> {
         let Self::OcrRequested {
             request_id,
             artifact_id,
@@ -75,8 +76,11 @@ impl StoredEventPayload {
             retention,
         } = self
         else {
-            return Err(Box::new(self));
+            return Err(FamilyDecodeError::Foreign(Box::new(self)));
         };
+        let source_hash = source_hash
+            .try_into_domain()
+            .map_err(FamilyDecodeError::Invalid)?;
         let provider = match OcrProviderIdentity::new(
             provider,
             model,
@@ -85,39 +89,19 @@ impl StoredEventPayload {
             preprocessing_version,
         ) {
             Ok(value) => value,
-            Err(_) => {
-                return Err(Box::new(Self::OcrRequested {
-                    request_id,
-                    artifact_id,
-                    source_blob,
-                    source_hash,
-                    pages,
-                    provider: String::new(),
-                    model: String::new(),
-                    revision: String::new(),
-                    provider_artifact_hash: String::new(),
-                    preprocessing_version: String::new(),
-                    remote,
-                    retention,
+            Err(error) => {
+                return Err(FamilyDecodeError::Invalid(PortError::InvalidInputContext {
+                    context: "decode stored OCR provider identity",
+                    source: error.to_string(),
                 }));
             }
         };
         let retention = match Self::decode_ocr_retention(&retention) {
             Some(value) => value,
             None => {
-                return Err(Box::new(Self::OcrRequested {
-                    request_id,
-                    artifact_id,
-                    source_blob,
-                    source_hash,
-                    pages,
-                    provider: provider.provider().to_string(),
-                    model: provider.model().to_string(),
-                    revision: provider.revision().to_string(),
-                    provider_artifact_hash: provider.artifact_hash().to_string(),
-                    preprocessing_version: provider.preprocessing_version().to_string(),
-                    remote,
-                    retention,
+                return Err(FamilyDecodeError::Invalid(PortError::InvalidInputContext {
+                    context: "decode stored OCR retention policy",
+                    source: retention.clone(),
                 }));
             }
         };
@@ -129,41 +113,37 @@ impl StoredEventPayload {
             provider,
             OcrDisclosure::new(remote, retention),
         )
-        .map_err(|_| {
-            Box::new(Self::OcrFailed {
-                artifact_id,
-                request_id: request_id.clone(),
-                reason: "invalid OCR intent payload".to_string(),
+        .map_err(|error| {
+            FamilyDecodeError::Invalid(PortError::InvalidInputContext {
+                context: "decode stored OCR intent",
+                source: error.to_string(),
             })
         })?;
         if intent.request_id().as_str() != request_id {
-            return Err(Self::invalid_ocr_request_id(
-                request_id,
-                artifact_id,
-                source_blob,
-                remote,
-                &intent,
-            ));
+            return Err(FamilyDecodeError::Invalid(PortError::InvalidInputContext {
+                context: "decode stored OCR request",
+                source: "request id does not match the reconstructed intent".to_string(),
+            }));
         }
         Ok(DomainEvent::OcrRequested { intent })
     }
-    fn try_into_domain_ocr_completed(self) -> Result<DomainEvent, Box<Self>> {
+    fn try_into_domain_ocr_completed(self) -> Result<DomainEvent, FamilyDecodeError> {
         let Self::OcrCompleted {
             artifact_id,
             request_id,
             pages,
         } = self
         else {
-            return Err(Box::new(self));
+            return Err(FamilyDecodeError::Foreign(Box::new(self)));
         };
         let request_id = match OcrRequestId::parse(request_id.clone()) {
             Ok(value) => value,
             Err(_) => {
-                return Err(Box::new(Self::OcrCompleted {
+                return Err(FamilyDecodeError::Foreign(Box::new(Self::OcrCompleted {
                     artifact_id,
                     request_id,
                     pages,
-                }));
+                })));
             }
         };
         let decoded = pages
@@ -171,18 +151,18 @@ impl StoredEventPayload {
             .map(StoredOcrPage::into_domain)
             .collect::<Result<Vec<_>, _>>()
             .map_err(|_| {
-                Box::new(Self::OcrCompleted {
+                FamilyDecodeError::Foreign(Box::new(Self::OcrCompleted {
                     artifact_id,
                     request_id: request_id.as_str().to_string(),
                     pages: Vec::new(),
-                })
+                }))
             })?;
         let completion = OcrCompletion::from_parts(request_id, decoded).map_err(|_| {
-            Box::new(Self::OcrCompleted {
+            FamilyDecodeError::Foreign(Box::new(Self::OcrCompleted {
                 artifact_id,
                 request_id: String::new(),
                 pages: Vec::new(),
-            })
+            }))
         })?;
         Ok(DomainEvent::OcrCompleted {
             artifact_id: maestria_domain::ArtifactId::new(artifact_id),
@@ -190,21 +170,21 @@ impl StoredEventPayload {
         })
     }
 
-    fn try_into_domain_ocr_failed(self) -> Result<DomainEvent, Box<Self>> {
+    fn try_into_domain_ocr_failed(self) -> Result<DomainEvent, FamilyDecodeError> {
         let Self::OcrFailed {
             artifact_id,
             request_id,
             reason,
         } = self
         else {
-            return Err(Box::new(self));
+            return Err(FamilyDecodeError::Foreign(Box::new(self)));
         };
         let request_id = OcrRequestId::parse(request_id).map_err(|_| {
-            Box::new(Self::OcrFailed {
+            FamilyDecodeError::Foreign(Box::new(Self::OcrFailed {
                 artifact_id,
                 request_id: String::new(),
                 reason: reason.clone(),
-            })
+            }))
         })?;
         Ok(DomainEvent::OcrFailed {
             artifact_id: maestria_domain::ArtifactId::new(artifact_id),
@@ -219,32 +199,6 @@ impl StoredEventPayload {
             "provider_defined" => Some(OcrRetentionPolicy::ProviderDefined),
             _ => None,
         }
-    }
-
-    fn invalid_ocr_request_id(
-        request_id: String,
-        artifact_id: u64,
-        source_blob: u64,
-        remote: bool,
-        intent: &OcrIntent,
-    ) -> Box<Self> {
-        Box::new(Self::OcrRequested {
-            request_id,
-            artifact_id,
-            source_blob,
-            source_hash: intent.source_hash().clone(),
-            pages: intent.pages().to_vec(),
-            provider: intent.provider().provider().to_string(),
-            model: intent.provider().model().to_string(),
-            revision: intent.provider().revision().to_string(),
-            provider_artifact_hash: intent.provider().artifact_hash().to_string(),
-            preprocessing_version: intent.provider().preprocessing_version().to_string(),
-            remote,
-            retention: match intent.disclosure().retention() {
-                OcrRetentionPolicy::NoRetention => "no_retention".to_string(),
-                OcrRetentionPolicy::ProviderDefined => "provider_defined".to_string(),
-            },
-        })
     }
 
     pub(crate) fn try_kind_ocr(&self) -> Option<&'static str> {

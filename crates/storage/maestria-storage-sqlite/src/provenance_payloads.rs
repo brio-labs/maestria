@@ -171,7 +171,3 @@ impl From<StoredParsedRepresentation> for ParsedRepresentation {
         }
     }
 }
-
-pub(crate) fn default_status_parsed() -> StoredParseStatus {
-    StoredParseStatus::Parsed
-}

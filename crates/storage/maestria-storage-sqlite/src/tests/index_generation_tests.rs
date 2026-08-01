@@ -146,7 +146,7 @@ fn payload_rejects_missing_and_unknown_fields_for_generations() -> Result<(), Po
         connection
             .execute(
                 "INSERT INTO domain_events (id, sequence, event_kind, artifact_id, payload_json, payload_version)
-                     VALUES (1, 1, 'index_generation_started', NULL, ?1, 2)",
+                     VALUES (1, 1, 'index_generation_started', NULL, ?1, 4)",
                 params![
                     r#"{"event_kind":"index_generation_started","id":10,"name":"dense","corpus_snapshot":42}"# // missing fingerprint
                 ],
@@ -165,7 +165,7 @@ fn payload_rejects_missing_and_unknown_fields_for_generations() -> Result<(), Po
         connection
             .execute(
                 "INSERT INTO domain_events (id, sequence, event_kind, artifact_id, payload_json, payload_version)
-                     VALUES (1, 1, 'index_generation_transitioned', NULL, ?1, 2)",
+                     VALUES (1, 1, 'index_generation_transitioned', NULL, ?1, 4)",
                 params![
                     r#"{"event_kind":"index_generation_transitioned","id":10,"from":"Building","to":"Evaluated","replaced_active_id":null,"unexpected":true}"#
                 ],
@@ -184,7 +184,7 @@ fn payload_rejects_missing_and_unknown_fields_for_generations() -> Result<(), Po
         connection
             .execute(
                 "INSERT INTO domain_events (id, sequence, event_kind, artifact_id, payload_json, payload_version)
-                     VALUES (1, 1, 'index_generation_started', NULL, ?1, 2)",
+                     VALUES (1, 1, 'index_generation_started', NULL, ?1, 4)",
                 params![
                     r#"{"event_kind":"index_generation_started","id":10,"name":"dense","corpus_snapshot":42,"fingerprint":{"provider":"p","model":"m","revision":"r","artifact_hash":"sha256:0000000000000000000000000000000000000000000000000000000000000000","dimensions":1,"quantization":"f32","query_template_hash":"q","document_template_hash":"d","preprocessing_version":"v","unexpected":true}}"#
                 ],

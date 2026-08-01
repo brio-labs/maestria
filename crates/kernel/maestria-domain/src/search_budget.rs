@@ -2,20 +2,12 @@ use serde::{Deserialize, Serialize};
 
 use super::SearchCompatibilityError;
 
-fn default_one() -> u32 {
-    1
-}
-
 fn default_candidate_budget() -> u32 {
     10_000
 }
 
 fn default_work_budget() -> u64 {
     100_000
-}
-
-fn default_concurrency() -> u32 {
-    1
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -36,19 +28,12 @@ pub struct SearchBudget {
 struct SearchBudgetDto {
     max_tokens: u32,
     max_latency_ms: u32,
-    #[serde(default = "default_one")]
     max_queries: u32,
-    #[serde(default = "default_one")]
     max_stages: u32,
-    #[serde(default)]
     max_web_requests: u32,
-    #[serde(default)]
     max_bytes_read: u64,
-    #[serde(default = "default_concurrency")]
     max_concurrency: u32,
-    #[serde(default = "default_candidate_budget")]
     max_candidates: u32,
-    #[serde(default = "default_work_budget")]
     max_work_units: u64,
 }
 

@@ -128,10 +128,8 @@ impl EventLog for crate::SqliteStore {
             let mut statement = connection
                 .prepare(
                     "SELECT e.id, e.sequence, e.event_kind, e.artifact_id, e.payload_json,
-                            e.payload_version,
-                            m.approval_id
+                            e.payload_version
                      FROM domain_events e
-                     LEFT JOIN approval_event_mapping m ON m.event_id = e.id
                      WHERE e.artifact_id = ?1
                      ORDER BY e.sequence ASC",
                 )
@@ -146,10 +144,8 @@ impl EventLog for crate::SqliteStore {
             let mut statement = connection
                 .prepare(
                     "SELECT e.id, e.sequence, e.event_kind, e.artifact_id, e.payload_json,
-                            e.payload_version,
-                            m.approval_id
+                            e.payload_version
                      FROM domain_events e
-                     LEFT JOIN approval_event_mapping m ON m.event_id = e.id
                      ORDER BY e.sequence ASC",
                 )
                 .map_err(to_port_error)?;

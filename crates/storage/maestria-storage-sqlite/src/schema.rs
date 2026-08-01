@@ -1,69 +1,41 @@
 use maestria_ports::PortError;
 use rusqlite::Connection;
 
+use crate::schema_validation::{
+    table_exists, validate_domain_events_schema, validate_event_order,
+    validate_stored_event_payloads,
+};
 use crate::sqlite_store::to_port_error;
 
-mod approval_migration;
-mod evidence_snapshot_migration;
-mod evidence_snapshot_payload;
-mod provenance_migration;
-mod score_provenance_migration;
-mod security_migration;
-mod supervision_migration;
-
-use crate::schema_validation::*;
-use approval_migration::ensure_nullable_approval_task_id;
-#[cfg(test)]
-pub(crate) use approval_migration::migrate_approval_recorded_payloads;
-use evidence_snapshot_migration::migrate_evidence_snapshots_v10;
-use provenance_migration::{ensure_provenance_v7_columns, migrate_from_v6};
-use score_provenance_migration::{migrate_score_provenance_v9, validate_at_v9};
-use security_migration::{ensure_security_v8_columns, migrate_from_v7, validate_at_v8};
-use supervision_migration::{ensure_feedback_outcome_column, migrate_from_v5};
-
-mod version_migrations;
-use version_migrations::*;
 /// Current storage schema version supported by this adapter.
-pub(crate) const CURRENT_SCHEMA_VERSION: i64 = 12;
+///
+/// Version 13 is the first post-legacy shape: the `approval_event_mapping`
+/// table is gone from the base schema, so fresh databases are distinguishable
+/// from every legacy schema. Databases at any other version are rejected;
+/// there is no migration path.
+pub(crate) const CURRENT_SCHEMA_VERSION: i64 = 13;
+
 /// Captures the pre-migration state of the database.
 struct SchemaState {
     version: Option<i64>,
-    had_domain_events_table: bool,
-    had_payload_version_column: bool,
 }
 
-/// Probes the database for its current schema state before applying any DDL.
+/// Probes the database for its recorded schema version.
+///
+/// Only the `schema_version` table is inspected: a missing table (fresh
+/// database, or one whose migration never committed) reports `None`. No
+/// legacy table or column shapes are probed.
 fn detect_schema_state(connection: &Connection) -> Result<SchemaState, PortError> {
-    let had_schema_version_table = table_exists(connection, "schema_version")?;
-    let had_domain_events_table = table_exists(connection, "domain_events")?;
-    let had_payload_version_column = if had_domain_events_table {
-        table_has_column(connection, "domain_events", "payload_version")?
-    } else {
-        false
-    };
-    let version = if had_schema_version_table {
-        let maybe_version: Option<i64> = connection
+    let version = if table_exists(connection, "schema_version")? {
+        connection
             .query_row("SELECT MAX(version) FROM schema_version", [], |row| {
                 row.get::<_, Option<i64>>(0)
             })
-            .map_err(to_port_error)?;
-        match maybe_version {
-            Some(v) => Some(v),
-            None => {
-                return Err(PortError::InternalContext {
-                    context: "malformed sqlite schema_version table",
-                    source: "schema_version table is empty".to_string(),
-                });
-            }
-        }
+            .map_err(to_port_error)?
     } else {
         None
     };
-    Ok(SchemaState {
-        version,
-        had_domain_events_table,
-        had_payload_version_column,
-    })
+    Ok(SchemaState { version })
 }
 
 /// SQL that bootstraps every table for a fresh database (all `IF NOT EXISTS`).
@@ -169,10 +141,6 @@ const BASE_SCHEMA_SQL: &str = r#"CREATE TABLE IF NOT EXISTS schema_version (
          scope_id INTEGER NOT NULL DEFAULT 0,
          tick INTEGER NOT NULL,
          status TEXT NOT NULL DEFAULT 'pending'
-     );
-     CREATE TABLE IF NOT EXISTS approval_event_mapping (
-         event_id INTEGER NOT NULL PRIMARY KEY,
-         approval_id INTEGER NOT NULL UNIQUE
      );
      CREATE TABLE IF NOT EXISTS effect_journal (
          run_id INTEGER NOT NULL,
@@ -329,44 +297,40 @@ fn ensure_foreign_keys(connection: &Connection) -> Result<(), PortError> {
     Ok(())
 }
 
-/// Applies any necessary schema migrations so the database matches
-/// [`CURRENT_SCHEMA_VERSION`]. Idempotent — safe to call on a database that is
-/// already at the current version.
+/// Brings a database to [`CURRENT_SCHEMA_VERSION`].
+///
+/// Fresh databases (no recorded version) are created from
+/// [`BASE_SCHEMA_SQL`], seeded with id counters, validated, and stamped with
+/// the current version. Databases already at the current version are
+/// re-validated idempotently. Any other recorded version is rejected: legacy
+/// databases have no migration path.
 pub(crate) fn migrate(connection: &mut Connection) -> Result<(), PortError> {
     ensure_foreign_keys(connection)?;
     let transaction = connection.transaction().map_err(to_port_error)?;
     let state = detect_schema_state(&transaction)?;
-    create_base_schema(&transaction)?;
-    ensure_nullable_approval_task_id(&transaction)?;
-    ensure_feedback_outcome_column(&transaction)?;
-    seed_id_counters(&transaction)?;
-
-    ensure_provenance_v7_columns(&transaction)?;
-    ensure_security_v8_columns(&transaction)?;
-
-    match state.version {
-        Some(1) => migrate_from_v1(&transaction, &state)?,
-        Some(2) => migrate_from_v2(&transaction, &state)?,
-        Some(3) => migrate_from_v3(&transaction, &state)?,
-        Some(4) => migrate_from_v4(&transaction, &state)?,
-        Some(5) => migrate_from_v5(&transaction, &state)?,
-        Some(6) => migrate_from_v6(&transaction, &state)?,
-        Some(7) => migrate_from_v7(&transaction, &state)?,
-        Some(8) => validate_at_v8(&transaction, &state)?,
-        Some(9) => validate_at_v9(&transaction, &state)?,
-        Some(10) => migrate_from_v10(&transaction, &state)?,
-        Some(11) => migrate_from_v11(&transaction, &state)?,
-        Some(12) => {}
-        Some(version) => {
-            return Err(PortError::InternalContext {
-                context: "unsupported sqlite schema version",
-                source: format!("{version}; expected {CURRENT_SCHEMA_VERSION}"),
-            });
-        }
-        None => migrate_from_fresh(&transaction, &state)?,
+    if let Some(version) = state.version
+        && version != CURRENT_SCHEMA_VERSION
+    {
+        return Err(PortError::InternalContext {
+            context: "unsupported sqlite schema version",
+            source: format!("{version}; expected {CURRENT_SCHEMA_VERSION}"),
+        });
     }
 
-    migrate_score_provenance_v9(&transaction)?;
-    migrate_evidence_snapshots_v10(&transaction)?;
-    finalize_migration(transaction)
+    create_base_schema(&transaction)?;
+    seed_id_counters(&transaction)?;
+
+    validate_domain_events_schema(&transaction)?;
+    validate_event_order(&transaction)?;
+    validate_stored_event_payloads(&transaction)?;
+
+    if state.version.is_none() {
+        transaction
+            .execute(
+                "INSERT OR IGNORE INTO schema_version (version) VALUES (?1)",
+                [CURRENT_SCHEMA_VERSION],
+            )
+            .map_err(to_port_error)?;
+    }
+    transaction.commit().map_err(to_port_error)
 }

@@ -10,7 +10,6 @@
 /// - `id_allocator`: module responsibility.
 /// - `journal`: durable effect-journal port implementation.
 /// - `learned_sparse_io`: learned-sparse shadow observation JSON import/export.
-/// - `legacy`: legacy stored-payload upcasting and kind mapping.
 /// - `payloads`: module responsibility.
 /// - `projection_cleanup`: stale projection row removal.
 /// - `repositories`: module responsibility.
@@ -23,7 +22,6 @@ mod id_allocator;
 mod journal;
 mod learned_sparse_io;
 mod learned_sparse_projection;
-mod legacy;
 mod payloads;
 mod projection_cleanup;
 mod repositories;
