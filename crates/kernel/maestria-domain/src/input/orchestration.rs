@@ -264,17 +264,15 @@ impl KernelState {
         &mut self,
         input: crate::inputs::SearchKnowledgeCompleted,
     ) -> Result<DomainEventEnvelope, DomainError> {
-        input
-            .plan
-            .validate_schema()
-            .map_err(|error| DomainError::SearchIncompatible { error })?;
+        // The plan type enforces its schema invariants at construction and
+        // decode; this handler checks trace compatibility only.
         input
             .outcome
             .verify_compatibility(&input.plan)
             .map_err(|error| DomainError::SearchIncompatible { error })?;
         let expected_policy = input
             .plan
-            .authorization
+            .authorization()
             .as_ref()
             .ok_or(DomainError::SearchIncompatible {
                 error: SearchCompatibilityError::TracePlanMismatch(

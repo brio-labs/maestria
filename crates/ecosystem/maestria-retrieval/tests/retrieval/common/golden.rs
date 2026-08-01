@@ -14,22 +14,22 @@ use maestria_retrieval::golden::{
 use super::fixture_scores;
 
 pub fn plan() -> Result<SearchPlan, Box<dyn std::error::Error>> {
-    Ok(SearchPlan {
-        query_id: QueryId::new(7),
-        original_query: "alpha".to_owned(),
-        intent: SearchIntent::FactualLocal,
-        scope: CorpusScope::Global,
-        corpus_snapshot: CorpusSnapshotId::new(11),
-        index_generation: IndexGenerationId::new(13),
-        freshness: FreshnessRequirement::Any,
-        modalities: ModalitySet::new(vec![Modality::Text]),
-        stages: vec![SearchStage::InitialRetrieval],
-        budgets: SearchBudget::new(1000, 1000)?,
-        stop_conditions: StopConditions {
+    Ok(SearchPlan::builder()
+        .query_id(QueryId::new(7))
+        .original_query("alpha".to_owned())
+        .intent(SearchIntent::FactualLocal)
+        .scope(CorpusScope::Global)
+        .corpus_snapshot(CorpusSnapshotId::new(11))
+        .index_generation(IndexGenerationId::new(13))
+        .freshness(FreshnessRequirement::Any)
+        .modalities(ModalitySet::new(vec![Modality::Text]))
+        .stages(vec![SearchStage::InitialRetrieval])
+        .budgets(SearchBudget::new(1000, 1000)?)
+        .stop_conditions(StopConditions {
             max_results: 10,
             min_score_threshold: 0,
-        },
-        evidence_requirements: EvidenceRequirements {
+        })
+        .evidence_requirements(EvidenceRequirements {
             required_claims: vec![],
             required_subquestions: vec![],
             minimum_sources: 0,
@@ -37,12 +37,12 @@ pub fn plan() -> Result<SearchPlan, Box<dyn std::error::Error>> {
             minimum_sections: 0,
             require_primary_sources: false,
             minimum_corroboration: 1,
-        },
-        fingerprint: RetrievalModelFingerprint::new("trace:v1".to_owned())?,
-        authorization: Some(maestria_domain::RetrievalPolicySnapshot::global_default()),
-        original_intent: None,
-        route_decision: None,
-    })
+        })
+        .fingerprint(RetrievalModelFingerprint::new("trace:v1".to_owned())?)
+        .authorization(Some(
+            maestria_domain::RetrievalPolicySnapshot::global_default(),
+        ))
+        .build()?)
 }
 
 pub fn query_plan(
@@ -51,22 +51,23 @@ pub fn query_plan(
     intent: SearchIntent,
     stages: Vec<SearchStage>,
 ) -> Result<SearchPlan, Box<dyn std::error::Error>> {
-    Ok(SearchPlan {
-        query_id,
-        original_query: original_query.to_string(),
-        intent,
-        scope: CorpusScope::Global,
-        corpus_snapshot: CorpusSnapshotId::new(11),
-        index_generation: IndexGenerationId::new(13),
-        freshness: FreshnessRequirement::Any,
-        modalities: ModalitySet::new(vec![Modality::Text]),
-        stages,
-        budgets: SearchBudget::new(1000, 1000)?,
-        stop_conditions: StopConditions {
+    let max_stages = stages.len().max(1) as u32;
+    Ok(SearchPlan::builder()
+        .query_id(query_id)
+        .original_query(original_query.to_string())
+        .intent(intent)
+        .scope(CorpusScope::Global)
+        .corpus_snapshot(CorpusSnapshotId::new(11))
+        .index_generation(IndexGenerationId::new(13))
+        .freshness(FreshnessRequirement::Any)
+        .modalities(ModalitySet::new(vec![Modality::Text]))
+        .stages(stages)
+        .budgets(SearchBudget::with_limits(1000, 1000, 1, max_stages, 0)?)
+        .stop_conditions(StopConditions {
             max_results: 10,
             min_score_threshold: 0,
-        },
-        evidence_requirements: EvidenceRequirements {
+        })
+        .evidence_requirements(EvidenceRequirements {
             required_claims: vec![],
             required_subquestions: vec![],
             minimum_sources: 0,
@@ -74,12 +75,12 @@ pub fn query_plan(
             minimum_sections: 0,
             require_primary_sources: false,
             minimum_corroboration: 1,
-        },
-        fingerprint: RetrievalModelFingerprint::new("trace:v1".to_owned())?,
-        authorization: Some(maestria_domain::RetrievalPolicySnapshot::global_default()),
-        original_intent: None,
-        route_decision: None,
-    })
+        })
+        .fingerprint(RetrievalModelFingerprint::new("trace:v1".to_owned())?)
+        .authorization(Some(
+            maestria_domain::RetrievalPolicySnapshot::global_default(),
+        ))
+        .build()?)
 }
 
 pub fn candidate(id: u64, start: u32) -> Result<EvidenceCandidate, Box<dyn std::error::Error>> {
@@ -142,13 +143,13 @@ pub fn observation_with_profile_and_trace(
         expansions,
     );
     Ok(GoldenObservation {
-        query_id: plan.query_id,
+        query_id: plan.query_id(),
         profile,
         outcome: SearchOutcome {
             trace: trace.deterministic_id(),
             trace_data: Some(Box::new(trace)),
-            fingerprint: plan.fingerprint.clone(),
-            index_generation: plan.index_generation,
+            fingerprint: plan.fingerprint().clone(),
+            index_generation: plan.index_generation(),
             status,
             evidence,
             coverage: EvidenceCoverage {
@@ -191,7 +192,7 @@ pub fn fixture_trace(
         SearchStatus::EvidenceIncomplete
         | SearchStatus::StaleEvidenceOnly
         | SearchStatus::SourcesConflict => SearchStopReason::RequirementsUnmet,
-        _ if evidence.len() >= plan.stop_conditions.max_results as usize => {
+        _ if evidence.len() >= plan.stop_conditions().max_results as usize => {
             SearchStopReason::ResultsLimit
         }
         _ => SearchStopReason::EvidenceComplete,
@@ -213,14 +214,14 @@ pub fn corpus(
 ) -> Result<GoldenCorpus, Box<dyn std::error::Error>> {
     Ok(GoldenCorpus {
         schema_version: GoldenGate::CURRENT_SCHEMA_VERSION,
-        corpus_snapshot: plan.corpus_snapshot,
-        index_generation: plan.index_generation,
-        fingerprint: plan.fingerprint.clone(),
+        corpus_snapshot: plan.corpus_snapshot(),
+        index_generation: plan.index_generation(),
+        fingerprint: plan.fingerprint().clone(),
         queries: vec![GoldenQuery {
-            query_id: plan.query_id,
+            query_id: plan.query_id(),
             expected_plan: plan.clone(),
             expected_status: SearchStatus::Answerable,
-            original_query: plan.original_query.clone(),
+            original_query: plan.original_query().to_string(),
             judgments,
             expected_trace: None,
         }],
@@ -359,8 +360,8 @@ pub fn golden_query(
     judgments: Vec<GoldenJudgment>,
 ) -> GoldenQuery {
     GoldenQuery {
-        query_id: plan.query_id,
-        original_query: plan.original_query.clone(),
+        query_id: plan.query_id(),
+        original_query: plan.original_query().to_string(),
         expected_plan: plan.clone(),
         expected_status,
         judgments,
@@ -553,9 +554,9 @@ pub fn multi_query_fixture() -> Result<GoldenFixture, Box<dyn std::error::Error>
     Ok(GoldenFixture {
         corpus: GoldenCorpus {
             schema_version: GoldenGate::CURRENT_SCHEMA_VERSION,
-            corpus_snapshot: first_plan.expected_plan.corpus_snapshot,
-            index_generation: first_plan.expected_plan.index_generation,
-            fingerprint: first_plan.expected_plan.fingerprint.clone(),
+            corpus_snapshot: first_plan.expected_plan.corpus_snapshot(),
+            index_generation: first_plan.expected_plan.index_generation(),
+            fingerprint: first_plan.expected_plan.fingerprint().clone(),
             queries,
         },
         observations,

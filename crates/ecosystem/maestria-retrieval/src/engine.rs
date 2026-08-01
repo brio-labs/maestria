@@ -214,10 +214,10 @@ impl RetrievalEngine {
     /// is also aborted if the latency budget is exceeded.
     pub async fn search(&self, plan: &SearchPlan) -> RetrievalResult<SearchOutcome> {
         self.validate_plan(plan)?;
-        if maestria_governance::contains_prompt_injection_risk(&plan.original_query) {
+        if maestria_governance::contains_prompt_injection_risk(plan.original_query()) {
             return Ok(self.prompt_injection_outcome(plan));
         }
-        let timeout_ms = plan.budgets.max_latency_ms() as u64;
+        let timeout_ms = plan.budgets().max_latency_ms() as u64;
         let started = tokio::time::Instant::now();
         let search = self.search_internal(plan, started);
         if timeout_ms > 0 {
@@ -236,13 +236,13 @@ impl RetrievalEngine {
     ) -> RetrievalResult<SearchOutcome> {
         let authorization = self
             .security_policy
-            .authorization_context(&plan.scope)
+            .authorization_context(plan.scope())
             .map_err(|error| {
                 RetrievalError::Internal(format!("retrieval authorization denied: {error:?}"))
             })?;
         let metadata = maestria_domain::SecurityMetadata {
             prompt_injection_risk: maestria_governance::contains_prompt_injection_risk(
-                &plan.original_query,
+                plan.original_query(),
             ),
             ..maestria_domain::SecurityMetadata::default()
         };
@@ -264,8 +264,8 @@ impl RetrievalEngine {
                 return Err(RetrievalError::Internal("No retrievers configured".into()));
             }
             let query = SearchQuery {
-                q: plan.original_query.clone(),
-                limit: plan.stop_conditions.max_results as usize,
+                q: plan.original_query().to_string(),
+                limit: plan.stop_conditions().max_results as usize,
                 offset: 0,
                 execution_budget: plan.execution_budget()?,
             };
@@ -296,7 +296,7 @@ impl RetrievalEngine {
                 engine_adaptive::iterate_until_stop(self, plan, &query, &mut state, started)
                     .await?;
             let expansion_enabled = plan
-                .stages
+                .stages()
                 .contains(&maestria_domain::SearchStage::Filtering);
             let mut trace_policy = self.security_policy.clone();
             trace_policy.required_scope_id = None;

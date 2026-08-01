@@ -80,22 +80,22 @@ pub fn candidate_fixture() -> RetrievalResult<EvidenceCandidate> {
 }
 
 pub fn dummy_plan() -> RetrievalResult<SearchPlan> {
-    Ok(SearchPlan {
-        query_id: QueryId::new(1),
-        original_query: "test query".to_string(),
-        intent: SearchIntent::FactualLocal,
-        scope: CorpusScope::Global,
-        corpus_snapshot: CorpusSnapshotId::new(1),
-        index_generation: IndexGenerationId::new(1),
-        freshness: FreshnessRequirement::Any,
-        modalities: ModalitySet::new(vec![Modality::Text]),
-        stages: vec![SearchStage::InitialRetrieval],
-        budgets: SearchBudget::new(1000, 100)?,
-        stop_conditions: StopConditions {
+    Ok(SearchPlan::builder()
+        .query_id(QueryId::new(1))
+        .original_query("test query".to_string())
+        .intent(SearchIntent::FactualLocal)
+        .scope(CorpusScope::Global)
+        .corpus_snapshot(CorpusSnapshotId::new(1))
+        .index_generation(IndexGenerationId::new(1))
+        .freshness(FreshnessRequirement::Any)
+        .modalities(ModalitySet::new(vec![Modality::Text]))
+        .stages(vec![SearchStage::InitialRetrieval])
+        .budgets(SearchBudget::new(1000, 100)?)
+        .stop_conditions(StopConditions {
             max_results: 10,
             min_score_threshold: 50,
-        },
-        evidence_requirements: EvidenceRequirements {
+        })
+        .evidence_requirements(EvidenceRequirements {
             required_claims: vec![],
             required_subquestions: vec![],
             minimum_sources: 0,
@@ -103,12 +103,12 @@ pub fn dummy_plan() -> RetrievalResult<SearchPlan> {
             minimum_sections: 0,
             require_primary_sources: false,
             minimum_corroboration: 1,
-        },
-        fingerprint: RetrievalModelFingerprint::new("dummy-model".into())?,
-        authorization: Some(maestria_domain::RetrievalPolicySnapshot::global_default()),
-        original_intent: None,
-        route_decision: None,
-    })
+        })
+        .fingerprint(RetrievalModelFingerprint::new("dummy-model".into())?)
+        .authorization(Some(
+            maestria_domain::RetrievalPolicySnapshot::global_default(),
+        ))
+        .build()?)
 }
 
 pub fn dummy_outcome() -> RetrievalResult<SearchOutcome> {

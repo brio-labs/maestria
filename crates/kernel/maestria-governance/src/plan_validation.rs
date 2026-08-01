@@ -3,14 +3,13 @@ use std::fmt;
 
 use maestria_domain::{
     CorpusScope, CorpusSnapshotId, FreshnessRequirement, IndexGenerationId, Modality, ScopeId,
-    SearchCompatibilityError, SearchIntent, SearchPlan, SearchStage,
+    SearchIntent, SearchPlan, SearchStage,
 };
 
 use crate::RetrievalSecurityPolicy;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SearchPlanValidationError {
-    Schema(SearchCompatibilityError),
     IntentMismatch {
         declared: SearchIntent,
         classified: SearchIntent,
@@ -38,7 +37,6 @@ pub enum SearchPlanValidationError {
 impl fmt::Display for SearchPlanValidationError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Schema(error) => write!(f, "search plan schema rejected: {error}"),
             Self::IntentMismatch {
                 declared,
                 classified,
@@ -253,49 +251,49 @@ impl SearchPlanValidator {
         capabilities: &SearchCapabilities,
         policy: &RetrievalSecurityPolicy,
     ) -> Result<(), SearchPlanValidationError> {
-        plan.validate_schema()
-            .map_err(SearchPlanValidationError::Schema)?;
-        let classified = SearchIntent::classify(&plan.original_query);
-        if classified != plan.intent {
+        // Plan schema invariants are enforced at construction and decode, so
+        // this validator only checks capability and policy conformance.
+        let classified = SearchIntent::classify(plan.original_query());
+        if classified != plan.intent() {
             return Err(SearchPlanValidationError::IntentMismatch {
-                declared: plan.intent,
+                declared: plan.intent(),
                 classified,
             });
         }
-        if !capabilities.intents.contains(&plan.intent) {
-            return Err(SearchPlanValidationError::UnsupportedIntent(plan.intent));
+        if !capabilities.intents.contains(&plan.intent()) {
+            return Err(SearchPlanValidationError::UnsupportedIntent(plan.intent()));
         }
         if let Some(stage) = plan
-            .stages
+            .stages()
             .iter()
             .find(|stage| !capabilities.stages.contains(stage))
         {
             return Err(SearchPlanValidationError::UnsupportedStage(*stage));
         }
         if let Some(modality) = plan
-            .modalities
+            .modalities()
             .values()
             .iter()
             .find(|modality| !capabilities.modalities.contains(modality))
         {
             return Err(SearchPlanValidationError::UnsupportedModality(*modality));
         }
-        if !capabilities.snapshots.contains(&plan.corpus_snapshot) {
+        if !capabilities.snapshots.contains(&plan.corpus_snapshot()) {
             return Err(SearchPlanValidationError::SnapshotUnavailable(
-                plan.corpus_snapshot,
+                plan.corpus_snapshot(),
             ));
         }
-        if !capabilities.generations.contains(&plan.index_generation) {
+        if !capabilities.generations.contains(&plan.index_generation()) {
             return Err(SearchPlanValidationError::GenerationUnavailable(
-                plan.index_generation,
+                plan.index_generation(),
             ));
         }
         Self::validate_scope(plan, capabilities, policy)?;
         Self::validate_freshness(plan, capabilities)?;
         Self::validate_budgets(plan, capabilities)?;
         Self::validate_security(capabilities, policy)?;
-        if (plan.intent == SearchIntent::CurrentWeb
-            || plan.modalities.values().contains(&Modality::Web))
+        if (plan.intent() == SearchIntent::CurrentWeb
+            || plan.modalities().values().contains(&Modality::Web))
             && !capabilities.web_enabled
         {
             return Err(SearchPlanValidationError::WebCapabilityMissing);
@@ -308,7 +306,7 @@ impl SearchPlanValidator {
         capabilities: &SearchCapabilities,
         policy: &RetrievalSecurityPolicy,
     ) -> Result<(), SearchPlanValidationError> {
-        match &plan.scope {
+        match &plan.scope() {
             CorpusScope::Global
                 if policy.required_scope_id.is_some()
                     || !matches!(capabilities.scope, ScopeMode::Global) =>
@@ -343,11 +341,11 @@ impl SearchPlanValidator {
         plan: &SearchPlan,
         capabilities: &SearchCapabilities,
     ) -> Result<(), SearchPlanValidationError> {
-        match plan.freshness {
+        match plan.freshness() {
             FreshnessRequirement::Any => Ok(()),
             FreshnessRequirement::Realtime if capabilities.supports_realtime => Ok(()),
             FreshnessRequirement::MaximumAgeDays(days)
-                if capabilities.max_age_days.is_some_and(|max| days <= max) =>
+                if capabilities.max_age_days.is_some_and(|max| *days <= max) =>
             {
                 Ok(())
             }
@@ -362,37 +360,37 @@ impl SearchPlanValidator {
         let budgets = [
             (
                 "token",
-                u64::from(plan.budgets.max_tokens()),
+                u64::from(plan.budgets().max_tokens()),
                 u64::from(capabilities.max_tokens),
             ),
             (
                 "latency_ms",
-                u64::from(plan.budgets.max_latency_ms()),
+                u64::from(plan.budgets().max_latency_ms()),
                 u64::from(capabilities.max_latency_ms),
             ),
             (
                 "query",
-                u64::from(plan.budgets.max_queries()),
+                u64::from(plan.budgets().max_queries()),
                 u64::from(capabilities.max_queries),
             ),
             (
                 "stage",
-                u64::from(plan.budgets.max_stages()),
+                u64::from(plan.budgets().max_stages()),
                 u64::from(capabilities.max_stages),
             ),
             (
                 "web_request",
-                u64::from(plan.budgets.max_web_requests()),
+                u64::from(plan.budgets().max_web_requests()),
                 u64::from(capabilities.max_web_requests),
             ),
             (
                 "bytes_read",
-                plan.budgets.max_bytes_read(),
+                plan.budgets().max_bytes_read(),
                 capabilities.max_bytes_read,
             ),
             (
                 "concurrency",
-                u64::from(plan.budgets.max_concurrency()),
+                u64::from(plan.budgets().max_concurrency()),
                 u64::from(capabilities.max_concurrency),
             ),
         ];

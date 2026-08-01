@@ -55,11 +55,11 @@ impl GoldenGate {
                 || trace.corpus_snapshot != corpus.corpus_snapshot
                 || trace.index_generation != corpus.index_generation
                 || trace.fingerprint != corpus.fingerprint
-                || query.expected_plan.query_id != query.query_id
-                || query.expected_plan.original_query != query.original_query
-                || query.expected_plan.corpus_snapshot != corpus.corpus_snapshot
-                || query.expected_plan.index_generation != corpus.index_generation
-                || query.expected_plan.fingerprint != corpus.fingerprint
+                || query.expected_plan.query_id() != query.query_id
+                || query.expected_plan.original_query() != query.original_query
+                || query.expected_plan.corpus_snapshot() != corpus.corpus_snapshot
+                || query.expected_plan.index_generation() != corpus.index_generation
+                || *query.expected_plan.fingerprint() != corpus.fingerprint
                 || !trace.matches_plan(&query.expected_plan)
                 || query
                     .expected_trace

@@ -7,21 +7,21 @@ mod search_trace_identity;
 
 impl SearchTrace {
     pub fn matches_plan(&self, plan: &SearchPlan) -> bool {
-        self.query_id == plan.query_id
-            && self.original_query == plan.original_query
-            && self.intent == plan.intent
-            && self.original_intent == plan.original_intent
-            && self.route_decision == plan.route_decision
-            && self.scope == plan.scope
-            && self.corpus_snapshot == plan.corpus_snapshot
-            && self.index_generation == plan.index_generation
-            && self.freshness == plan.freshness
-            && self.modalities == plan.modalities
-            && self.stages == plan.stages
-            && self.budgets == plan.budgets
-            && self.stop_conditions == plan.stop_conditions
-            && self.evidence_requirements == plan.evidence_requirements
-            && self.fingerprint == plan.fingerprint
+        self.query_id == plan.query_id()
+            && self.original_query == plan.original_query()
+            && self.intent == plan.intent()
+            && self.original_intent == plan.original_intent()
+            && self.route_decision.as_deref() == plan.route_decision()
+            && self.scope == *plan.scope()
+            && self.corpus_snapshot == plan.corpus_snapshot()
+            && self.index_generation == plan.index_generation()
+            && self.freshness == *plan.freshness()
+            && self.modalities == *plan.modalities()
+            && self.stages == plan.stages()
+            && self.budgets == *plan.budgets()
+            && self.stop_conditions == *plan.stop_conditions()
+            && self.evidence_requirements == *plan.evidence_requirements()
+            && self.fingerprint == *plan.fingerprint()
     }
 
     pub fn with_gaps_and_conflicts(
@@ -294,19 +294,19 @@ impl SearchTrace {
 
 impl SearchOutcome {
     pub fn verify_compatibility(&self, plan: &SearchPlan) -> Result<(), SearchCompatibilityError> {
-        if self.fingerprint != plan.fingerprint {
+        if self.fingerprint != *plan.fingerprint() {
             return Err(SearchCompatibilityError::ModelFingerprintMismatch {
-                expected: plan.fingerprint.clone(),
+                expected: plan.fingerprint().clone(),
                 found: self.fingerprint.clone(),
             });
         }
-        if self.index_generation != plan.index_generation {
+        if self.index_generation != plan.index_generation() {
             return Err(SearchCompatibilityError::IndexGenerationMismatch {
-                expected: plan.index_generation,
+                expected: plan.index_generation(),
                 found: self.index_generation,
             });
         }
-        if self.evidence.len() > plan.stop_conditions.max_results as usize {
+        if self.evidence.len() > plan.stop_conditions().max_results as usize {
             return Err(SearchCompatibilityError::TracePlanMismatch(
                 "evidence exceeds plan max_results",
             ));
@@ -319,7 +319,7 @@ impl SearchOutcome {
             }
             trace.validate_rewrites()?;
             let expected_policy = plan
-                .authorization
+                .authorization()
                 .as_ref()
                 .ok_or(SearchCompatibilityError::TracePlanMismatch(
                     "authorization snapshot is missing",

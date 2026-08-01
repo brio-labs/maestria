@@ -14,9 +14,9 @@ pub(super) fn trace(durable: &super::search_observability::DurableTrace) -> Resu
 pub(super) fn render_trace(plan: &SearchPlan, outcome: &SearchOutcome) -> Result<()> {
     let trace = trace_from_outcome(outcome)?;
     println!("trace_id={}", outcome.trace);
-    println!("plan_query_id={}", plan.query_id);
-    println!("query={}", plan.original_query);
-    println!("intent={:?}", plan.intent);
+    println!("plan_query_id={}", plan.query_id());
+    println!("query={}", plan.original_query());
+    println!("intent={:?}", plan.intent());
     if let Some(original_intent) = &trace.original_intent {
         println!("original_intent={:?}", original_intent);
     }
@@ -26,16 +26,16 @@ pub(super) fn render_trace(plan: &SearchPlan, outcome: &SearchOutcome) -> Result
     if let Some(unavailable_capability) = &trace.unavailable_capability {
         println!("unavailable_capability={}", unavailable_capability);
     }
-    println!("scope={:?}", plan.scope);
-    println!("snapshot={}", plan.corpus_snapshot);
-    println!("index_generation={}", plan.index_generation);
-    println!("retrieval_fingerprint={}", plan.fingerprint.as_str());
-    println!("freshness={:?}", plan.freshness);
-    println!("modalities={:?}", plan.modalities);
-    println!("stages={:?}", plan.stages);
-    println!("budgets={:?}", plan.budgets);
-    println!("stop_conditions={:?}", plan.stop_conditions);
-    println!("evidence_requirements={:?}", plan.evidence_requirements);
+    println!("scope={:?}", plan.scope());
+    println!("snapshot={}", plan.corpus_snapshot());
+    println!("index_generation={}", plan.index_generation());
+    println!("retrieval_fingerprint={}", plan.fingerprint().as_str());
+    println!("freshness={:?}", plan.freshness());
+    println!("modalities={:?}", plan.modalities());
+    println!("stages={:?}", plan.stages());
+    println!("budgets={:?}", plan.budgets());
+    println!("stop_conditions={:?}", plan.stop_conditions());
+    println!("evidence_requirements={:?}", plan.evidence_requirements());
     println!("rewrites={:?}", trace.rewrites);
     println!(
         "retrievers_run={:?}",

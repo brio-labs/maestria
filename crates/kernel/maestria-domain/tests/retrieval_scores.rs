@@ -239,22 +239,22 @@ fn complete_fingerprint_and_rank_change_the_trace_identity()
         SearchStage, SearchStopReason, SearchTrace, StopConditions,
     };
 
-    let plan = SearchPlan {
-        query_id: QueryId::new(1),
-        original_query: "trace provenance".to_string(),
-        intent: SearchIntent::FactualLocal,
-        scope: CorpusScope::Global,
-        corpus_snapshot: CorpusSnapshotId::new(2),
-        index_generation: IndexGenerationId::new(3),
-        freshness: FreshnessRequirement::Any,
-        modalities: ModalitySet::new(vec![Modality::Text]),
-        stages: vec![SearchStage::InitialRetrieval],
-        budgets: SearchBudget::new(64, 1_000)?,
-        stop_conditions: StopConditions {
+    let plan = SearchPlan::builder()
+        .query_id(QueryId::new(1))
+        .original_query("trace provenance".to_string())
+        .intent(SearchIntent::FactualLocal)
+        .scope(CorpusScope::Global)
+        .corpus_snapshot(CorpusSnapshotId::new(2))
+        .index_generation(IndexGenerationId::new(3))
+        .freshness(FreshnessRequirement::Any)
+        .modalities(ModalitySet::new(vec![Modality::Text]))
+        .stages(vec![SearchStage::InitialRetrieval])
+        .budgets(SearchBudget::new(64, 1_000)?)
+        .stop_conditions(StopConditions {
             max_results: 5,
             min_score_threshold: 0,
-        },
-        evidence_requirements: EvidenceRequirements {
+        })
+        .evidence_requirements(EvidenceRequirements {
             required_claims: Vec::new(),
             required_subquestions: Vec::new(),
             minimum_sources: 0,
@@ -262,12 +262,14 @@ fn complete_fingerprint_and_rank_change_the_trace_identity()
             minimum_sections: 0,
             require_primary_sources: false,
             minimum_corroboration: 1,
-        },
-        fingerprint: RetrievalModelFingerprint::new("trace-model-v1".to_string())?,
-        authorization: Some(maestria_domain::RetrievalPolicySnapshot::global_default()),
-        original_intent: None,
-        route_decision: None,
-    };
+        })
+        .fingerprint(RetrievalModelFingerprint::new(
+            "trace-model-v1".to_string(),
+        )?)
+        .authorization(Some(
+            maestria_domain::RetrievalPolicySnapshot::global_default(),
+        ))
+        .build()?;
     let mut candidate = EvidenceCandidate {
         evidence_id: EvidenceId::new(1),
         artifact_version: ArtifactVersionId::new(2),

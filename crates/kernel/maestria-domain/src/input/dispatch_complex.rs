@@ -326,10 +326,8 @@ impl KernelState {
         &mut self,
         input: crate::inputs::SearchKnowledgeRequested,
     ) -> Result<KernelOutput, DomainError> {
-        input
-            .plan
-            .validate_schema()
-            .map_err(|error| DomainError::SearchIncompatible { error })?;
+        // The plan type enforces its schema invariants at construction and
+        // decode, so boundary inputs carry validated plans only.
         let mut output = KernelOutput::default();
         output
             .effects

@@ -33,35 +33,37 @@ fn fixture_scores() -> Result<RetrievalScoreSet, Box<dyn Error>> {
 }
 
 fn plan(required_claims: Vec<String>) -> Result<SearchPlan, Box<dyn Error>> {
-    Ok(SearchPlan {
-        query_id: QueryId::new(7),
-        original_query: "evidence query".to_string(),
-        intent: SearchIntent::FactualLocal,
-        scope: CorpusScope::Global,
-        corpus_snapshot: CorpusSnapshotId::new(11),
-        index_generation: IndexGenerationId::new(13),
-        freshness: FreshnessRequirement::Any,
-        modalities: ModalitySet::new(vec![Modality::Text]),
-        stages: vec![SearchStage::InitialRetrieval],
-        budgets: SearchBudget::with_limits(100, 1_000, 2, 1, 0)?,
-        stop_conditions: StopConditions {
+    Ok(SearchPlan::builder()
+        .query_id(QueryId::new(7))
+        .original_query("evidence query".to_string())
+        .intent(SearchIntent::FactualLocal)
+        .scope(CorpusScope::Global)
+        .corpus_snapshot(CorpusSnapshotId::new(11))
+        .index_generation(IndexGenerationId::new(13))
+        .freshness(FreshnessRequirement::Any)
+        .modalities(ModalitySet::new(vec![Modality::Text]))
+        .stages(vec![SearchStage::InitialRetrieval])
+        .budgets(SearchBudget::with_limits(100, 1_000, 2, 1, 0)?)
+        .stop_conditions(StopConditions {
             max_results: 5,
             min_score_threshold: 0,
-        },
-        evidence_requirements: EvidenceRequirements {
+        })
+        .evidence_requirements(EvidenceRequirements {
             require_primary_sources: false,
-            minimum_corroboration: 0,
+            minimum_corroboration: 1,
             required_claims,
             required_subquestions: Vec::new(),
             minimum_sources: 0,
             minimum_documents: 0,
             minimum_sections: 0,
-        },
-        fingerprint: RetrievalModelFingerprint::new("test-fingerprint".to_string())?,
-        authorization: Some(maestria_domain::RetrievalPolicySnapshot::global_default()),
-        original_intent: None,
-        route_decision: None,
-    })
+        })
+        .fingerprint(RetrievalModelFingerprint::new(
+            "test-fingerprint".to_string(),
+        )?)
+        .authorization(Some(
+            maestria_domain::RetrievalPolicySnapshot::global_default(),
+        ))
+        .build()?)
 }
 fn trace_for(
     plan: &SearchPlan,
@@ -253,8 +255,10 @@ fn explicit_claim_coverage_can_be_recorded_without_guessing() -> Result<(), Box<
 fn primary_source_verification_is_a_lifecycle_transition() -> Result<(), Box<dyn Error>> {
     let hit = file_hit(Some(BlobId::new(23)))?;
     let evidence_id = hit.evidence.id;
-    let mut primary_plan = plan(Vec::new())?;
-    primary_plan.evidence_requirements.require_primary_sources = true;
+    let primary_plan = plan(Vec::new())?;
+    let mut requirements = primary_plan.evidence_requirements().clone();
+    requirements.require_primary_sources = true;
+    let primary_plan = primary_plan.with_evidence_requirements(requirements)?;
     let mut pack = EvidencePack::from_plan(
         "evidence query".to_string(),
         Vec::new(),

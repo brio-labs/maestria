@@ -2,7 +2,7 @@ use std::collections::BTreeSet;
 
 use serde::{Deserialize, Serialize};
 
-use super::{SearchBudget, SearchCompatibilityError, SearchIntent};
+use super::{SearchBudget, SearchCompatibilityError, SearchIntent, search_plan_dto::SearchPlanDto};
 use crate::ids::{CorpusSnapshotId, IndexGenerationId, QueryId, ScopeId};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -89,25 +89,28 @@ pub struct EvidenceRequirements {
     pub minimum_sections: usize,
 }
 
+/// Validated search plan: construction, mutation, and decode all enforce the
+/// schema invariants in [`SearchPlan::validate_schema`].
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(try_from = "SearchPlanDto")]
 pub struct SearchPlan {
-    pub query_id: QueryId,
-    pub original_query: String,
-    pub intent: SearchIntent,
-    pub scope: CorpusScope,
-    pub corpus_snapshot: CorpusSnapshotId,
-    pub index_generation: IndexGenerationId,
-    pub freshness: FreshnessRequirement,
-    pub modalities: ModalitySet,
-    pub stages: Vec<SearchStage>,
-    pub budgets: SearchBudget,
-    pub stop_conditions: StopConditions,
-    pub evidence_requirements: EvidenceRequirements,
-    pub fingerprint: super::RetrievalModelFingerprint,
+    query_id: QueryId,
+    original_query: String,
+    intent: SearchIntent,
+    scope: CorpusScope,
+    corpus_snapshot: CorpusSnapshotId,
+    index_generation: IndexGenerationId,
+    freshness: FreshnessRequirement,
+    modalities: ModalitySet,
+    stages: Vec<SearchStage>,
+    budgets: SearchBudget,
+    stop_conditions: StopConditions,
+    evidence_requirements: EvidenceRequirements,
+    fingerprint: super::RetrievalModelFingerprint,
     /// Trusted request-bound authorization captured when the plan was created.
-    pub authorization: Option<crate::RetrievalPolicySnapshot>,
-    pub original_intent: Option<SearchIntent>,
-    pub route_decision: Option<String>,
+    authorization: Option<crate::RetrievalPolicySnapshot>,
+    original_intent: Option<SearchIntent>,
+    route_decision: Option<String>,
 }
 
 fn validate_web_budget(plan: &SearchPlan) -> Result<(), SearchCompatibilityError> {
@@ -128,6 +131,175 @@ fn validate_web_budget(plan: &SearchPlan) -> Result<(), SearchCompatibilityError
 }
 
 impl SearchPlan {
+    pub fn builder() -> SearchPlanBuilder {
+        SearchPlanBuilder::default()
+    }
+
+    pub const fn query_id(&self) -> QueryId {
+        self.query_id
+    }
+
+    pub fn original_query(&self) -> &str {
+        &self.original_query
+    }
+
+    pub const fn intent(&self) -> SearchIntent {
+        self.intent
+    }
+
+    pub fn scope(&self) -> &CorpusScope {
+        &self.scope
+    }
+
+    pub const fn corpus_snapshot(&self) -> CorpusSnapshotId {
+        self.corpus_snapshot
+    }
+
+    pub const fn index_generation(&self) -> IndexGenerationId {
+        self.index_generation
+    }
+
+    pub fn freshness(&self) -> &FreshnessRequirement {
+        &self.freshness
+    }
+
+    pub fn modalities(&self) -> &ModalitySet {
+        &self.modalities
+    }
+
+    pub fn stages(&self) -> &[SearchStage] {
+        &self.stages
+    }
+
+    pub fn budgets(&self) -> &SearchBudget {
+        &self.budgets
+    }
+
+    pub fn stop_conditions(&self) -> &StopConditions {
+        &self.stop_conditions
+    }
+
+    pub fn evidence_requirements(&self) -> &EvidenceRequirements {
+        &self.evidence_requirements
+    }
+
+    pub fn fingerprint(&self) -> &super::RetrievalModelFingerprint {
+        &self.fingerprint
+    }
+
+    pub fn authorization(&self) -> &Option<crate::RetrievalPolicySnapshot> {
+        &self.authorization
+    }
+
+    pub fn original_intent(&self) -> Option<SearchIntent> {
+        self.original_intent
+    }
+
+    pub fn route_decision(&self) -> Option<&str> {
+        self.route_decision.as_deref()
+    }
+
+    /// Returns a copy of this plan with a replaced original query.
+    pub fn with_original_query(
+        mut self,
+        original_query: String,
+    ) -> Result<Self, SearchCompatibilityError> {
+        self.original_query = original_query;
+        self.validate_schema()?;
+        Ok(self)
+    }
+
+    /// Returns a copy of this plan with a replaced intent.
+    pub fn with_intent(mut self, intent: SearchIntent) -> Result<Self, SearchCompatibilityError> {
+        self.intent = intent;
+        self.validate_schema()?;
+        Ok(self)
+    }
+
+    /// Returns a copy of this plan with a replaced scope.
+    pub fn with_scope(mut self, scope: CorpusScope) -> Result<Self, SearchCompatibilityError> {
+        self.scope = scope;
+        self.validate_schema()?;
+        Ok(self)
+    }
+
+    /// Returns a copy of this plan with a replaced corpus snapshot.
+    pub fn with_corpus_snapshot(
+        mut self,
+        corpus_snapshot: CorpusSnapshotId,
+    ) -> Result<Self, SearchCompatibilityError> {
+        self.corpus_snapshot = corpus_snapshot;
+        self.validate_schema()?;
+        Ok(self)
+    }
+
+    /// Returns a copy of this plan with a replaced freshness requirement.
+    pub fn with_freshness(
+        mut self,
+        freshness: FreshnessRequirement,
+    ) -> Result<Self, SearchCompatibilityError> {
+        self.freshness = freshness;
+        self.validate_schema()?;
+        Ok(self)
+    }
+
+    /// Returns a copy of this plan with replaced modalities.
+    pub fn with_modalities(
+        mut self,
+        modalities: ModalitySet,
+    ) -> Result<Self, SearchCompatibilityError> {
+        self.modalities = modalities;
+        self.validate_schema()?;
+        Ok(self)
+    }
+
+    /// Returns a copy of this plan with replaced stages.
+    pub fn with_stages(
+        mut self,
+        stages: Vec<SearchStage>,
+    ) -> Result<Self, SearchCompatibilityError> {
+        self.stages = stages;
+        self.validate_schema()?;
+        Ok(self)
+    }
+
+    /// Returns a copy of this plan with replaced evidence requirements.
+    pub fn with_evidence_requirements(
+        mut self,
+        evidence_requirements: EvidenceRequirements,
+    ) -> Result<Self, SearchCompatibilityError> {
+        self.evidence_requirements = evidence_requirements;
+        self.validate_schema()?;
+        Ok(self)
+    }
+
+    /// Returns a copy of this plan with replaced stop conditions.
+    pub fn with_stop_conditions(
+        mut self,
+        stop_conditions: StopConditions,
+    ) -> Result<Self, SearchCompatibilityError> {
+        self.stop_conditions = stop_conditions;
+        self.validate_schema()?;
+        Ok(self)
+    }
+
+    /// Returns a copy of this plan with replaced budgets.
+    pub fn with_budgets(mut self, budgets: SearchBudget) -> Result<Self, SearchCompatibilityError> {
+        self.budgets = budgets;
+        self.validate_schema()?;
+        Ok(self)
+    }
+
+    /// Returns a copy of this plan with a replaced authorization snapshot.
+    pub fn with_authorization(
+        mut self,
+        authorization: Option<crate::RetrievalPolicySnapshot>,
+    ) -> Result<Self, SearchCompatibilityError> {
+        self.authorization = authorization;
+        self.validate_schema()?;
+        Ok(self)
+    }
+
     /// Validates schema invariants before policy or runtime evaluation.
     pub fn validate_schema(&self) -> Result<(), SearchCompatibilityError> {
         if self.authorization.is_none() {
@@ -231,3 +403,7 @@ impl SearchPlan {
             .execution_budget(self.stop_conditions.max_results)
     }
 }
+
+#[path = "search_plan_builder.rs"]
+mod search_plan_builder;
+pub use search_plan_builder::SearchPlanBuilder;

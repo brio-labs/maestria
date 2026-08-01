@@ -308,22 +308,22 @@ pub fn chunk(id: ChunkId, artifact_id: ArtifactId, source_span: SourceSpan) -> C
 }
 
 pub fn plan(intent: SearchIntent) -> Result<SearchPlan, SearchCompatibilityError> {
-    Ok(SearchPlan {
-        query_id: QueryId::new(1),
-        original_query: "needle".to_string(),
-        intent,
-        scope: CorpusScope::Global,
-        corpus_snapshot: maestria_domain::CorpusSnapshotId::new(1),
-        index_generation: IndexGenerationId::new(1),
-        freshness: FreshnessRequirement::Any,
-        modalities: ModalitySet::new(vec![Modality::Text]),
-        stages: vec![SearchStage::InitialRetrieval],
-        budgets: SearchBudget::with_limits(100, 300, 10, 1, 0)?,
-        stop_conditions: StopConditions {
+    SearchPlan::builder()
+        .query_id(QueryId::new(1))
+        .original_query("needle".to_string())
+        .intent(intent)
+        .scope(CorpusScope::Global)
+        .corpus_snapshot(maestria_domain::CorpusSnapshotId::new(1))
+        .index_generation(IndexGenerationId::new(1))
+        .freshness(FreshnessRequirement::Any)
+        .modalities(ModalitySet::new(vec![Modality::Text]))
+        .stages(vec![SearchStage::InitialRetrieval])
+        .budgets(SearchBudget::with_limits(100, 300, 10, 1, 0)?)
+        .stop_conditions(StopConditions {
             max_results: 10,
             min_score_threshold: 0,
-        },
-        evidence_requirements: EvidenceRequirements {
+        })
+        .evidence_requirements(EvidenceRequirements {
             required_claims: Vec::new(),
             required_subquestions: Vec::new(),
             minimum_sources: 0,
@@ -331,12 +331,12 @@ pub fn plan(intent: SearchIntent) -> Result<SearchPlan, SearchCompatibilityError
             minimum_sections: 0,
             require_primary_sources: false,
             minimum_corroboration: 1,
-        },
-        fingerprint: RetrievalModelFingerprint::new("maestria:test".to_string())?,
-        authorization: Some(maestria_domain::RetrievalPolicySnapshot::global_default()),
-        original_intent: None,
-        route_decision: None,
-    })
+        })
+        .fingerprint(RetrievalModelFingerprint::new("maestria:test".to_string())?)
+        .authorization(Some(
+            maestria_domain::RetrievalPolicySnapshot::global_default(),
+        ))
+        .build()
 }
 
 pub fn request(
@@ -345,7 +345,7 @@ pub fn request(
 ) -> Result<crate::types::CandidateRequest, SearchCompatibilityError> {
     let plan = plan(intent)?;
     let authorization = maestria_governance::RetrievalSecurityPolicy::default()
-        .authorization_context(&plan.scope)
+        .authorization_context(plan.scope())
         .map_err(|_| SearchCompatibilityError::InvalidPlan("authorization context"))?;
     Ok(crate::types::CandidateRequest {
         plan,

@@ -184,7 +184,7 @@ impl<'a> SyncRetrievalEngine<'a> {
             .into_iter()
             .map(|(query, candidates, status, execution)| SearchTraceLane {
                 retriever_id: "sync_pipeline".to_string(),
-                generation: Some(plan.index_generation),
+                generation: Some(plan.index_generation()),
                 query,
                 status,
                 execution,
@@ -207,10 +207,10 @@ impl<'a> SyncRetrievalEngine<'a> {
             crate::engine::rewrite_session(plan).trace_records()
         } else {
             crate::rewrite::QueryRewriteSession::with_limits(
-                &plan.original_query,
-                plan.budgets.max_tokens() as usize,
-                plan.budgets.max_latency_ms(),
-                plan.budgets.max_queries(),
+                plan.original_query(),
+                plan.budgets().max_tokens() as usize,
+                plan.budgets().max_latency_ms(),
+                plan.budgets().max_queries(),
             )
             .trace_records()
         };
@@ -235,17 +235,17 @@ impl<'a> SyncRetrievalEngine<'a> {
     pub fn search_sync(&self, plan: &SearchPlan) -> RetrievalResult<SearchOutcome> {
         let expected_authorization = self
             .security_policy
-            .authorization_context(&plan.scope)
+            .authorization_context(plan.scope())
             .map_err(|error| {
                 RetrievalError::Internal(format!("retrieval authorization denied: {error:?}"))
             })?
             .policy_snapshot();
-        if plan.authorization.as_ref() != Some(&expected_authorization) {
+        if plan.authorization().as_ref() != Some(&expected_authorization) {
             return Err(RetrievalError::Internal(
                 "search plan authorization is not trusted for this runtime".to_string(),
             ));
         }
-        if maestria_governance::contains_prompt_injection_risk(&plan.original_query) {
+        if maestria_governance::contains_prompt_injection_risk(plan.original_query()) {
             return self.quarantine_outcome(plan);
         }
         let (outcome, lane_sets) = self.pipeline.run_with_trace(plan)?;
@@ -253,7 +253,7 @@ impl<'a> SyncRetrievalEngine<'a> {
     }
 
     fn quarantine_outcome(&self, plan: &SearchPlan) -> RetrievalResult<SearchOutcome> {
-        let policy_fingerprint = match plan.authorization.as_ref() {
+        let policy_fingerprint = match plan.authorization().as_ref() {
             Some(authorization) => authorization.canonical_fingerprint(),
             None => {
                 return Err(RetrievalError::Internal(
@@ -274,8 +274,8 @@ impl<'a> SyncRetrievalEngine<'a> {
         Ok(SearchOutcome {
             trace: trace.deterministic_id(),
             trace_data: Some(Box::new(trace)),
-            fingerprint: plan.fingerprint.clone(),
-            index_generation: plan.index_generation,
+            fingerprint: plan.fingerprint().clone(),
+            index_generation: plan.index_generation(),
             status: SearchStatus::QuarantinedForReview,
             evidence: Vec::new(),
             coverage: EvidenceCoverage {

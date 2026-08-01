@@ -114,7 +114,7 @@ impl EffectExecutionContext {
             .plan_and_search(proposal.query.clone(), proposal.limit)
             .await
             .map_err(|error| EffectFailure::Failed(format!("proposal search failed: {error}")))?;
-        validate_proposal_search_generation(proposal.expected_generation, plan.index_generation)?;
+        validate_proposal_search_generation(proposal.expected_generation, plan.index_generation())?;
         let result = ModelAgentSearchResult {
             trace_id: outcome.trace,
             evidence_count: outcome.evidence.len(),

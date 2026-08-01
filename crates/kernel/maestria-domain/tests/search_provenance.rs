@@ -60,22 +60,22 @@ fn fixture_scores(
 }
 
 fn plan() -> Result<SearchPlan, Box<dyn std::error::Error>> {
-    Ok(SearchPlan {
-        query_id: QueryId::new(7),
-        original_query: "What changed?".to_owned(),
-        intent: SearchIntent::FactualLocal,
-        scope: CorpusScope::Global,
-        corpus_snapshot: CorpusSnapshotId::new(11),
-        index_generation: IndexGenerationId::new(13),
-        freshness: FreshnessRequirement::MaximumAgeDays(30),
-        modalities: ModalitySet::new(vec![Modality::Code, Modality::Text, Modality::Text]),
-        stages: vec![SearchStage::InitialRetrieval, SearchStage::Reranking],
-        budgets: SearchBudget::new(2_000, 5_000)?,
-        stop_conditions: StopConditions {
+    Ok(SearchPlan::builder()
+        .query_id(QueryId::new(7))
+        .original_query("What changed?".to_owned())
+        .intent(SearchIntent::FactualLocal)
+        .scope(CorpusScope::Global)
+        .corpus_snapshot(CorpusSnapshotId::new(11))
+        .index_generation(IndexGenerationId::new(13))
+        .freshness(FreshnessRequirement::MaximumAgeDays(30))
+        .modalities(ModalitySet::new(vec![Modality::Code, Modality::Text]))
+        .stages(vec![SearchStage::InitialRetrieval, SearchStage::Reranking])
+        .budgets(SearchBudget::with_limits(2_000, 5_000, 1, 2, 0)?)
+        .stop_conditions(StopConditions {
             max_results: 10,
             min_score_threshold: 70,
-        },
-        evidence_requirements: EvidenceRequirements {
+        })
+        .evidence_requirements(EvidenceRequirements {
             required_claims: vec![],
             required_subquestions: vec![],
             minimum_sources: 0,
@@ -83,17 +83,17 @@ fn plan() -> Result<SearchPlan, Box<dyn std::error::Error>> {
             minimum_sections: 0,
             require_primary_sources: true,
             minimum_corroboration: 2,
-        },
-        fingerprint: RetrievalModelFingerprint::new("model:v1".to_owned())?,
-        authorization: Some(maestria_domain::RetrievalPolicySnapshot::global_default()),
-        original_intent: None,
-        route_decision: None,
-    })
+        })
+        .fingerprint(RetrievalModelFingerprint::new("model:v1".to_owned())?)
+        .authorization(Some(
+            maestria_domain::RetrievalPolicySnapshot::global_default(),
+        ))
+        .build()?)
 }
 
 fn policy_fingerprint(plan: &SearchPlan) -> Result<String, Box<dyn std::error::Error>> {
     Ok(plan
-        .authorization
+        .authorization()
         .as_ref()
         .ok_or("fixture authorization is missing")?
         .canonical_fingerprint())
@@ -202,7 +202,7 @@ fn compatibility_rejects_model_and_index_mismatches() -> Result<(), Box<dyn std:
         Err(SearchCompatibilityError::ModelFingerprintMismatch { .. })
     ));
 
-    outcome.fingerprint = plan.fingerprint.clone();
+    outcome.fingerprint = plan.fingerprint().clone();
     outcome.index_generation = IndexGenerationId::new(47);
     assert!(matches!(
         outcome.verify_compatibility(&plan),
@@ -233,8 +233,9 @@ fn trace_captures_plan_and_rejects_incompatible_replay() -> Result<(), Box<dyn s
     outcome.trace_data = Some(Box::new(trace));
 
     assert_eq!(outcome.verify_compatibility(&plan), Ok(()));
-    let mut incompatible = plan.clone();
-    incompatible.original_query = "different query".to_owned();
+    let incompatible = plan
+        .clone()
+        .with_original_query("different query".to_owned())?;
     assert!(matches!(
         outcome.verify_compatibility(&incompatible),
         Err(SearchCompatibilityError::TracePlanMismatch(_))
@@ -437,8 +438,10 @@ fn compatibility_rejects_missing_policy_fingerprint() -> Result<(), Box<dyn std:
 #[test]
 fn results_limit_accepts_exact_boundary_but_rejects_over_limit_outcome()
 -> Result<(), Box<dyn std::error::Error>> {
-    let mut plan = plan()?;
-    plan.stop_conditions.max_results = 1;
+    let plan = plan()?.with_stop_conditions(StopConditions {
+        max_results: 1,
+        min_score_threshold: 0,
+    })?;
 
     let first = candidate()?;
     let mut second = candidate()?;
@@ -471,8 +474,8 @@ fn results_limit_accepts_exact_boundary_but_rejects_over_limit_outcome()
     let boundary = SearchOutcome {
         trace: boundary_trace_id,
         trace_data: Some(Box::new(boundary_trace)),
-        fingerprint: plan.fingerprint.clone(),
-        index_generation: plan.index_generation,
+        fingerprint: plan.fingerprint().clone(),
+        index_generation: plan.index_generation(),
         status: SearchStatus::Answerable,
         evidence: boundary_evidence,
         coverage: coverage.clone(),
@@ -494,8 +497,8 @@ fn results_limit_accepts_exact_boundary_but_rejects_over_limit_outcome()
     let over_limit = SearchOutcome {
         trace: over_limit_trace.deterministic_id(),
         trace_data: Some(Box::new(over_limit_trace)),
-        fingerprint: plan.fingerprint.clone(),
-        index_generation: plan.index_generation,
+        fingerprint: plan.fingerprint().clone(),
+        index_generation: plan.index_generation(),
         status: SearchStatus::Answerable,
         evidence: over_limit_evidence,
         coverage,

@@ -31,7 +31,7 @@ fn lane_generation_is_current(
     descriptor: &crate::types::RetrieverDescriptor,
     plan: &SearchPlan,
 ) -> bool {
-    !lane_uses_primary_generation(descriptor) || descriptor.generation == plan.index_generation
+    !lane_uses_primary_generation(descriptor) || descriptor.generation == plan.index_generation()
 }
 
 fn normalize_batch(
@@ -60,7 +60,7 @@ fn normalize_batch(
             error: format!(
                 "stale lane generation: expected lane {}, plan primary {}, retriever {}, batch descriptor {}, batch {}",
                 expected_generation,
-                plan.index_generation,
+                plan.index_generation(),
                 descriptor.generation,
                 batch_descriptor_generation,
                 batch.generation.map_or_else(
@@ -122,7 +122,7 @@ async fn dispatch_eligible_lanes(
         .filter_map(|(index, retriever)| {
             let descriptor = retriever.descriptor();
             let web_blocked = descriptor.modality.eq_ignore_ascii_case("web")
-                && *web_requests_used >= plan.budgets.max_web_requests();
+                && *web_requests_used >= plan.budgets().max_web_requests();
             (lane_generation_is_current(&descriptor, plan) && !web_blocked)
                 .then_some((index, descriptor))
         })
@@ -133,7 +133,7 @@ async fn dispatch_eligible_lanes(
         .collect::<Vec<CompletedLane>>();
     let mut tasks = JoinSet::new();
     let concurrency =
-        maestria_domain::saturating_usize(u64::from(plan.budgets.max_concurrency())).max(1);
+        maestria_domain::saturating_usize(u64::from(plan.budgets().max_concurrency())).max(1);
     let semaphore = Arc::new(Semaphore::new(concurrency));
     for (lane, (index, descriptor)) in eligible.into_iter().enumerate() {
         let Some(allocation) = lane_budget(plan, execution_usage, lane_count, lane) else {
@@ -216,7 +216,7 @@ pub(super) async fn collect_batches(
         let descriptor = retriever.descriptor();
         if lane_generation_is_current(&descriptor, plan)
             && !(descriptor.modality.eq_ignore_ascii_case("web")
-                && *web_requests_used >= plan.budgets.max_web_requests())
+                && *web_requests_used >= plan.budgets().max_web_requests())
         {
             continue;
         }
@@ -226,7 +226,8 @@ pub(super) async fn collect_batches(
         let error = if !lane_generation_is_current(&descriptor, plan) {
             format!(
                 "stale retriever generation: expected primary {}, got {}",
-                plan.index_generation, descriptor.generation
+                plan.index_generation(),
+                descriptor.generation
             )
         } else {
             "web request budget exhausted".to_string()
@@ -306,7 +307,7 @@ pub(super) async fn collect_initial_batches(
     for rewrite in session.records() {
         let rewrite_query = SearchQuery {
             q: rewrite.query.clone(),
-            limit: plan.stop_conditions.max_results as usize,
+            limit: plan.stop_conditions().max_results as usize,
             offset: 0,
             execution_budget: plan.execution_budget()?,
         };
@@ -335,7 +336,7 @@ pub(super) async fn collect_missing_slot_batches(
 ) -> RetrievalResult<Vec<crate::types::CandidateBatch>> {
     let query = SearchQuery {
         q: query.to_string(),
-        limit: plan.stop_conditions.max_results as usize,
+        limit: plan.stop_conditions().max_results as usize,
         offset: 0,
         execution_budget: plan.execution_budget()?,
     };

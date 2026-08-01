@@ -338,7 +338,9 @@ fn denied_visual_candidates_are_authorized_before_content_reads()
     );
     let mut mismatched_request =
         request(maestria_domain::SearchIntent::VisualDocument, generation)?;
-    mismatched_request.plan.corpus_snapshot = CorpusSnapshotId::new(8);
+    mismatched_request.plan = mismatched_request
+        .plan
+        .with_corpus_snapshot(CorpusSnapshotId::new(8))?;
     let mismatch = retriever.retrieve_with_vector(
         VectorSearchQuery {
             vector: vec![1.0],
@@ -359,7 +361,7 @@ fn denied_visual_candidates_are_authorized_before_content_reads()
     ));
     assert_eq!(index.filter_calls(), 0);
     let mut request = request(maestria_domain::SearchIntent::VisualDocument, generation)?;
-    request.plan.corpus_snapshot = corpus_snapshot;
+    request.plan = request.plan.with_corpus_snapshot(corpus_snapshot)?;
     let batch = retriever.retrieve_with_vector(
         VectorSearchQuery {
             vector: vec![1.0],
@@ -493,7 +495,7 @@ fn visual_batch_reports_bounded_bytes() -> Result<(), Box<dyn std::error::Error>
         capability,
     );
     let mut request = request(maestria_domain::SearchIntent::VisualDocument, generation)?;
-    request.plan.corpus_snapshot = corpus_snapshot;
+    request.plan = request.plan.with_corpus_snapshot(corpus_snapshot)?;
     let batch = retriever.retrieve_with_vector(
         VectorSearchQuery {
             vector: vec![1.0],
@@ -684,7 +686,7 @@ fn assert_visual_evidence_denied_before_score(
         capability,
     );
     let mut request = request(maestria_domain::SearchIntent::VisualDocument, generation)?;
-    request.plan.corpus_snapshot = corpus_snapshot;
+    request.plan = request.plan.with_corpus_snapshot(corpus_snapshot)?;
     let batch = retriever.retrieve_with_vector(
         VectorSearchQuery {
             vector: vec![1.0],

@@ -35,12 +35,12 @@ impl RetrievalEvaluator for EvidenceOutcomeEvaluator {
             gaps_identified: Vec::new(),
             required_claims: experiment
                 .plan
-                .evidence_requirements
+                .evidence_requirements()
                 .required_claims
                 .clone(),
             required_subquestions: experiment
                 .plan
-                .evidence_requirements
+                .evidence_requirements()
                 .required_subquestions
                 .clone(),
             distinct_sources: evidence.len(),
@@ -53,7 +53,7 @@ impl RetrievalEvaluator for EvidenceOutcomeEvaluator {
         };
         let stop_reason = if evidence.is_empty() {
             SearchStopReason::NoEvidence
-        } else if evidence.len() >= experiment.plan.stop_conditions.max_results as usize {
+        } else if evidence.len() >= experiment.plan.stop_conditions().max_results as usize {
             SearchStopReason::ResultsLimit
         } else {
             SearchStopReason::EvidenceComplete
@@ -81,7 +81,7 @@ impl RetrievalEvaluator for EvidenceOutcomeEvaluator {
                 )
                 .collect(),
         };
-        let policy_fingerprint = match experiment.plan.authorization.as_ref() {
+        let policy_fingerprint = match experiment.plan.authorization().as_ref() {
             Some(authorization) => authorization.canonical_fingerprint(),
             None => {
                 return Err(RetrievalError::Internal(
@@ -103,8 +103,8 @@ impl RetrievalEvaluator for EvidenceOutcomeEvaluator {
         let outcome = SearchOutcome {
             trace: trace.deterministic_id(),
             trace_data: Some(Box::new(trace)),
-            fingerprint: experiment.plan.fingerprint.clone(),
-            index_generation: experiment.plan.index_generation,
+            fingerprint: experiment.plan.fingerprint().clone(),
+            index_generation: experiment.plan.index_generation(),
             status,
             evidence,
             coverage,

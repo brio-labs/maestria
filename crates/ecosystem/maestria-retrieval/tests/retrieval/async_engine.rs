@@ -286,8 +286,8 @@ impl RetrievalEvaluator for AsyncEvaluator {
             outcome: SearchOutcome {
                 trace: SearchTraceId::new(0),
                 trace_data: None,
-                fingerprint: experiment.plan.fingerprint.clone(),
-                index_generation: experiment.plan.index_generation,
+                fingerprint: experiment.plan.fingerprint().clone(),
+                index_generation: experiment.plan.index_generation(),
                 status,
                 evidence,
                 coverage: EvidenceCoverage {
@@ -308,10 +308,12 @@ impl RetrievalEvaluator for AsyncEvaluator {
 
 #[tokio::test]
 async fn failed_lane_is_degraded_without_losing_successful_evidence() -> RetrievalResult<()> {
-    let mut plan = dummy_plan()?;
-    if let Some(authorization) = &mut plan.authorization {
+    let plan = dummy_plan()?;
+    let mut authorization = plan.authorization().clone();
+    if let Some(authorization) = authorization.as_mut() {
         authorization.allow_unscoped_items = true;
     }
+    let plan = plan.with_authorization(authorization)?;
     let engine = RetrievalEngine::new(
         vec![
             Arc::new(AsyncLane {
@@ -370,17 +372,19 @@ async fn failed_lane_is_degraded_without_losing_successful_evidence() -> Retriev
         trace
             .lanes
             .iter()
-            .all(|lane| lane.generation == Some(plan.index_generation))
+            .all(|lane| lane.generation == Some(plan.index_generation()))
     );
     Ok(())
 }
 
 #[tokio::test]
 async fn stale_code_only_evidence_is_not_served_and_retains_stale_trace() -> RetrievalResult<()> {
-    let mut plan = dummy_plan()?;
-    plan.original_query = "find function symbol compute".to_string();
-    plan.intent = SearchIntent::RepositoryCode;
-    plan.modalities = maestria_domain::ModalitySet::new(vec![maestria_domain::Modality::Code]);
+    let plan = dummy_plan()?
+        .with_original_query("find function symbol compute".to_string())?
+        .with_intent(SearchIntent::RepositoryCode)?
+        .with_modalities(maestria_domain::ModalitySet::new(vec![
+            maestria_domain::Modality::Code,
+        ]))?;
     let mut candidate = candidate_fixture()?;
     candidate.freshness = maestria_domain::FreshnessStatus::Stale;
     let engine = RetrievalEngine::new(
@@ -457,10 +461,12 @@ async fn stale_generation_lane_is_rejected_before_dispatch() -> RetrievalResult<
 #[tokio::test]
 async fn specialized_generation_is_served_while_primary_stale_lane_is_rejected()
 -> RetrievalResult<()> {
-    let mut plan = dummy_plan()?;
-    if let Some(authorization) = &mut plan.authorization {
+    let plan = dummy_plan()?;
+    let mut authorization = plan.authorization().clone();
+    if let Some(authorization) = authorization.as_mut() {
         authorization.allow_unscoped_items = true;
     }
+    let plan = plan.with_authorization(authorization)?;
     let specialized_calls = Arc::new(AtomicUsize::new(0));
     let stale_calls = Arc::new(AtomicUsize::new(0));
     let promotion =
@@ -530,9 +536,9 @@ async fn specialized_generation_is_served_while_primary_stale_lane_is_rejected()
 
 #[tokio::test]
 async fn local_lane_byte_overrun_is_rejected_before_scoring() -> RetrievalResult<()> {
-    let mut plan = dummy_plan()?;
-    plan.budgets =
-        maestria_domain::SearchBudget::with_resource_limits(1_000, 1_000, 1, 1, 0, 4, 1)?;
+    let plan = dummy_plan()?.with_budgets(maestria_domain::SearchBudget::with_resource_limits(
+        1_000, 1_000, 1, 1, 0, 4, 1,
+    )?)?;
     let engine = RetrievalEngine::new(
         vec![Arc::new(ByteOverrunLane {
             candidate: candidate_fixture()?,
@@ -573,12 +579,15 @@ async fn local_lane_byte_overrun_is_rejected_before_scoring() -> RetrievalResult
 
 #[tokio::test]
 async fn web_budget_applies_across_deterministic_rewrites() -> RetrievalResult<()> {
-    let mut plan = dummy_plan()?;
-    plan.original_query = "latest web PR".to_string();
-    plan.intent = SearchIntent::CurrentWeb;
-    plan.modalities = maestria_domain::ModalitySet::new(vec![maestria_domain::Modality::Web]);
-    plan.budgets =
-        maestria_domain::SearchBudget::with_resource_limits(1000, 1000, 8, 3, 1, 16_384, 1)?;
+    let plan = dummy_plan()?
+        .with_budgets(maestria_domain::SearchBudget::with_resource_limits(
+            1000, 1000, 8, 3, 1, 16_384, 1,
+        )?)?
+        .with_original_query("latest web PR".to_string())?
+        .with_intent(SearchIntent::CurrentWeb)?
+        .with_modalities(maestria_domain::ModalitySet::new(vec![
+            maestria_domain::Modality::Web,
+        ]))?;
     let calls = Arc::new(AtomicUsize::new(0));
     let engine = RetrievalEngine::new(
         vec![Arc::new(CountingWebLane {

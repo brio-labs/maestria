@@ -44,7 +44,7 @@ impl CandidateRetriever for FixedRetriever {
 fn request() -> RetrievalResult<CandidateRequest> {
     let plan = common::dummy_plan()?;
     let authorization = maestria_governance::RetrievalSecurityPolicy::default()
-        .authorization_context(&plan.scope)
+        .authorization_context(plan.scope())
         .map_err(|error| RetrievalError::Internal(format!("{error:?}")))?;
     let execution_budget = maestria_domain::SearchExecutionBudget::new(10, 10, 10, 0)
         .map_err(|error| RetrievalError::Internal(format!("{error:?}")))?;

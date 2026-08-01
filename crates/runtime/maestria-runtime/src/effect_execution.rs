@@ -102,9 +102,15 @@ impl EffectExecutionContext {
             return false;
         };
         let mut plan = request.plan;
-        match &mut plan.scope {
+        match plan.scope() {
             CorpusScope::Global => {
-                plan.scope = CorpusScope::Restricted(vec![self.scope_id]);
+                plan = match plan.with_scope(CorpusScope::Restricted(vec![self.scope_id])) {
+                    Ok(confined) => confined,
+                    Err(error) => {
+                        tracing::error!(%error, "search knowledge scope confinement rejected");
+                        return false;
+                    }
+                };
             }
             CorpusScope::Restricted(scopes) if scopes.as_slice() != [self.scope_id] => {
                 tracing::error!("search knowledge request exceeds runtime scope");

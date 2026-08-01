@@ -17,10 +17,10 @@ pub struct SearchPlannerContext {
 /// Build a rewrite session for the plan's query with the plan budgets.
 pub fn rewrite_session(plan: &SearchPlan) -> QueryRewriteSession {
     let mut session = QueryRewriteSession::with_limits(
-        &plan.original_query,
-        plan.budgets.max_tokens() as usize,
-        plan.budgets.max_latency_ms(),
-        plan.budgets.max_queries(),
+        plan.original_query(),
+        plan.budgets().max_tokens() as usize,
+        plan.budgets().max_latency_ms(),
+        plan.budgets().max_queries(),
     );
     session.expand_deterministic();
     session
@@ -46,6 +46,7 @@ fn build_plan(
     context: &SearchPlannerContext,
     options: PlanOptions,
     route: RouteParameters,
+    authorization: maestria_domain::RetrievalPolicySnapshot,
 ) -> RetrievalResult<SearchPlan> {
     let (web_requests, web_bytes, web_concurrency) = options.web_limits;
     let max_stages = options.max_stages;
@@ -68,34 +69,34 @@ fn build_plan(
     if expansion_enabled {
         stages.push(maestria_domain::SearchStage::Filtering);
     }
-    Ok(SearchPlan {
-        query_id: maestria_domain::QueryId::new(1),
-        original_query: original_query.to_string(),
-        intent: route.intent,
-        scope: maestria_domain::CorpusScope::Global,
-        corpus_snapshot: context.corpus_snapshot,
-        index_generation: context.primary_generation,
-        freshness: if route.intent == SearchIntent::CurrentWeb {
+    SearchPlan::builder()
+        .query_id(maestria_domain::QueryId::new(1))
+        .original_query(original_query.to_string())
+        .intent(route.intent)
+        .scope(maestria_domain::CorpusScope::Global)
+        .corpus_snapshot(context.corpus_snapshot)
+        .index_generation(context.primary_generation)
+        .freshness(if route.intent == SearchIntent::CurrentWeb {
             maestria_domain::FreshnessRequirement::Realtime
         } else {
             maestria_domain::FreshnessRequirement::Any
-        },
-        modalities: match route.intent {
+        })
+        .modalities(match route.intent {
             SearchIntent::VisualDocument => {
                 maestria_domain::ModalitySet::new(vec![Modality::Text, Modality::Image])
             }
             _ => maestria_domain::ModalitySet::new(vec![route.modality]),
-        },
-        stages,
-        budgets,
-        stop_conditions: maestria_domain::StopConditions {
+        })
+        .stages(stages)
+        .budgets(budgets)
+        .stop_conditions(maestria_domain::StopConditions {
             max_results: match u32::try_from(limit) {
                 Ok(value) => value.max(1),
                 Err(_) => u32::MAX,
             },
             min_score_threshold: 0,
-        },
-        evidence_requirements: maestria_domain::EvidenceRequirements {
+        })
+        .evidence_requirements(maestria_domain::EvidenceRequirements {
             require_primary_sources: false,
             minimum_corroboration: 1,
             required_claims: Vec::new(),
@@ -103,23 +104,34 @@ fn build_plan(
             minimum_sources: 0,
             minimum_documents: 0,
             minimum_sections: 0,
-        },
-        fingerprint: context.fingerprint.clone(),
-        authorization: None,
-        original_intent: route.original_intent,
-        route_decision: route.route_decision,
-    })
+        })
+        .fingerprint(context.fingerprint.clone())
+        .authorization(Some(authorization))
+        .original_intent(route.original_intent)
+        .route_decision(route.route_decision)
+        .build()
+        .map_err(RetrievalError::Compatibility)
 }
 impl RetrievalEngine {
+    fn authorization_snapshot(&self) -> RetrievalResult<maestria_domain::RetrievalPolicySnapshot> {
+        self.security_policy
+            .authorization_context(&maestria_domain::CorpusScope::Global)
+            .map(|context| context.policy_snapshot())
+            .map_err(|error| {
+                RetrievalError::Internal(format!("retrieval authorization denied: {error:?}"))
+            })
+    }
+
     pub fn plan(
         &self,
         query: impl Into<String>,
         limit: usize,
         context: &SearchPlannerContext,
     ) -> RetrievalResult<SearchPlan> {
+        let authorization = self.authorization_snapshot()?;
         let original_query = query.into();
         if maestria_governance::contains_prompt_injection_risk(&original_query) {
-            let mut plan = build_plan(
+            return build_plan(
                 &original_query,
                 limit,
                 context,
@@ -135,13 +147,18 @@ impl RetrievalEngine {
                     original_intent: None,
                     route_decision: None,
                 },
-            )?;
-            self.bind_authorization(&mut plan)?;
-            return Ok(plan);
+                authorization,
+            );
         }
         let (options, route, inferred_intent) = self.select_plan_options(&original_query);
-        let mut inferred_plan = build_plan(&original_query, limit, context, options, route)?;
-        self.bind_authorization(&mut inferred_plan)?;
+        let inferred_plan = build_plan(
+            &original_query,
+            limit,
+            context,
+            options,
+            route,
+            authorization,
+        )?;
         let capabilities = self
             .capabilities
             .clone()
@@ -162,16 +179,6 @@ impl RetrievalEngine {
                 inferred_intent,
             ),
         }
-    }
-    fn bind_authorization(&self, plan: &mut SearchPlan) -> RetrievalResult<()> {
-        let context = self
-            .security_policy
-            .authorization_context(&plan.scope)
-            .map_err(|error| {
-                RetrievalError::Internal(format!("retrieval authorization denied: {error:?}"))
-            })?;
-        plan.authorization = Some(context.policy_snapshot());
-        Ok(())
     }
 
     fn select_plan_options(
@@ -269,11 +276,12 @@ impl RetrievalEngine {
                 original_intent: Some(inferred_intent),
                 route_decision: Some(fallback_reason),
             },
+            self.authorization_snapshot()?,
         )?;
-        let mut fallback_plan = fallback_plan;
-        self.bind_authorization(&mut fallback_plan)?;
-        let mut validation_plan = fallback_plan.clone();
-        validation_plan.original_query = "fallback local text retrieval".to_string();
+        let validation_plan = fallback_plan
+            .clone()
+            .with_original_query("fallback local text retrieval".to_string())
+            .map_err(RetrievalError::Compatibility)?;
         maestria_governance::SearchPlanValidator::validate(
             &validation_plan,
             &capabilities,
@@ -313,8 +321,12 @@ mod tests {
                 original_intent: None,
                 route_decision: None,
             },
+            maestria_domain::RetrievalPolicySnapshot::global_default(),
         )?;
-        assert_eq!(plan.modalities.values(), &[Modality::Text, Modality::Image]);
+        assert_eq!(
+            plan.modalities().values(),
+            &[Modality::Text, Modality::Image]
+        );
         Ok(())
     }
     #[test]
@@ -340,10 +352,11 @@ mod tests {
                 original_intent: None,
                 route_decision: None,
             },
+            maestria_domain::RetrievalPolicySnapshot::global_default(),
         )?;
         assert_eq!(
-            plan.stages,
-            vec![
+            plan.stages(),
+            &[
                 maestria_domain::SearchStage::InitialRetrieval,
                 maestria_domain::SearchStage::Reranking,
             ]

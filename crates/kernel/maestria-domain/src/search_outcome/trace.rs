@@ -295,26 +295,26 @@ impl SearchTrace {
         stop_reason: SearchStopReason,
     ) -> Self {
         Self {
-            query_id: plan.query_id,
-            original_query: plan.original_query.clone(),
-            intent: plan.intent,
-            original_intent: plan.original_intent,
+            query_id: plan.query_id(),
+            original_query: plan.original_query().to_string(),
+            intent: plan.intent(),
+            original_intent: plan.original_intent(),
             unavailable_capability: None,
-            route_decision: plan.route_decision.clone(),
-            scope: plan.scope.clone(),
-            corpus_snapshot: plan.corpus_snapshot,
-            index_generation: plan.index_generation,
-            freshness: plan.freshness.clone(),
+            route_decision: plan.route_decision().map(str::to_string),
+            scope: plan.scope().clone(),
+            corpus_snapshot: plan.corpus_snapshot(),
+            index_generation: plan.index_generation(),
+            freshness: plan.freshness().clone(),
             degradation: None,
-            modalities: plan.modalities.clone(),
-            stages: plan.stages.clone(),
-            evidence_requirements: plan.evidence_requirements.clone(),
-            fingerprint: plan.fingerprint.clone(),
+            modalities: plan.modalities().clone(),
+            stages: plan.stages().to_vec(),
+            evidence_requirements: plan.evidence_requirements().clone(),
+            fingerprint: plan.fingerprint().clone(),
             identity_version: 7,
             retrievers,
             policy_fingerprint: None,
-            budgets: plan.budgets.clone(),
-            stop_conditions: plan.stop_conditions.clone(),
+            budgets: plan.budgets().clone(),
+            stop_conditions: plan.stop_conditions().clone(),
             raw_candidates: evidence
                 .iter()
                 .enumerate()
@@ -333,12 +333,12 @@ impl SearchTrace {
                 .collect(),
             fusion,
             rewrites: vec![SearchTraceRewrite {
-                query: plan.original_query.clone(),
+                query: plan.original_query().to_string(),
                 origin: SearchRewriteOrigin::Original,
                 stage: SearchRewriteStage::InitialRetrieval,
                 accounting: SearchRewriteAccounting {
                     token_estimate: plan
-                        .original_query
+                        .original_query()
                         .split_whitespace()
                         .count()
                         .max(1)

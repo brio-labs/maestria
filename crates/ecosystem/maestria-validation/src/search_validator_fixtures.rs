@@ -94,22 +94,22 @@ impl SearchFixture {
 }
 
 pub fn plan() -> Result<SearchPlan, Box<dyn std::error::Error>> {
-    Ok(SearchPlan {
-        query_id: QueryId::new(7),
-        original_query: "evidence query".to_string(),
-        intent: SearchIntent::FactualLocal,
-        scope: CorpusScope::Global,
-        corpus_snapshot: maestria_domain::CorpusSnapshotId::new(8),
-        index_generation: IndexGenerationId::new(9),
-        freshness: FreshnessRequirement::Realtime,
-        modalities: ModalitySet::new(vec![Modality::Text]),
-        stages: vec![SearchStage::InitialRetrieval],
-        budgets: SearchBudget::with_limits(100, 100, 1, 1, 0)?,
-        stop_conditions: StopConditions {
+    Ok(SearchPlan::builder()
+        .query_id(QueryId::new(7))
+        .original_query("evidence query".to_string())
+        .intent(SearchIntent::FactualLocal)
+        .scope(CorpusScope::Global)
+        .corpus_snapshot(maestria_domain::CorpusSnapshotId::new(8))
+        .index_generation(IndexGenerationId::new(9))
+        .freshness(FreshnessRequirement::Realtime)
+        .modalities(ModalitySet::new(vec![Modality::Text]))
+        .stages(vec![SearchStage::InitialRetrieval])
+        .budgets(SearchBudget::with_limits(100, 100, 1, 1, 0)?)
+        .stop_conditions(StopConditions {
             max_results: 5,
             min_score_threshold: 0,
-        },
-        evidence_requirements: EvidenceRequirements {
+        })
+        .evidence_requirements(EvidenceRequirements {
             require_primary_sources: false,
             minimum_corroboration: 1,
             required_claims: Vec::new(),
@@ -117,12 +117,14 @@ pub fn plan() -> Result<SearchPlan, Box<dyn std::error::Error>> {
             minimum_sources: 0,
             minimum_documents: 0,
             minimum_sections: 0,
-        },
-        fingerprint: RetrievalModelFingerprint::new("validation-fixture-v1".to_string())?,
-        authorization: Some(maestria_domain::RetrievalPolicySnapshot::global_default()),
-        original_intent: None,
-        route_decision: None,
-    })
+        })
+        .fingerprint(RetrievalModelFingerprint::new(
+            "validation-fixture-v1".to_string(),
+        )?)
+        .authorization(Some(
+            maestria_domain::RetrievalPolicySnapshot::global_default(),
+        ))
+        .build()?)
 }
 
 pub fn candidate() -> Result<EvidenceCandidate, Box<dyn std::error::Error>> {
@@ -188,8 +190,8 @@ pub fn fixture() -> Result<SearchFixture, Box<dyn std::error::Error>> {
     let outcome = SearchOutcome {
         trace: trace.deterministic_id(),
         trace_data: Some(Box::new(trace)),
-        fingerprint: plan.fingerprint.clone(),
-        index_generation: plan.index_generation,
+        fingerprint: plan.fingerprint().clone(),
+        index_generation: plan.index_generation(),
         status: SearchStatus::Answerable,
         evidence: vec![candidate],
         coverage: EvidenceCoverage {

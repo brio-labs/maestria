@@ -129,29 +129,29 @@ impl EvidencePackMetadata {
     pub fn from_plan(plan: &SearchPlan) -> Self {
         let mut seen_claims = std::collections::BTreeSet::new();
         let claims_required = plan
-            .evidence_requirements
+            .evidence_requirements()
             .required_claims
             .iter()
-            .chain(plan.evidence_requirements.required_subquestions.iter())
+            .chain(plan.evidence_requirements().required_subquestions.iter())
             .filter(|claim| seen_claims.insert(*claim))
             .cloned()
             .collect();
         Self {
-            query_id: plan.query_id,
+            query_id: plan.query_id(),
             search_trace: None,
-            corpus_snapshot: plan.corpus_snapshot,
-            index_generation: plan.index_generation,
-            fingerprint: plan.fingerprint.clone(),
+            corpus_snapshot: plan.corpus_snapshot(),
+            index_generation: plan.index_generation(),
+            fingerprint: plan.fingerprint().clone(),
             policy_fingerprint: None,
             claims_required,
-            requirements: plan.evidence_requirements.clone(),
+            requirements: plan.evidence_requirements().clone(),
             claim_coverage: Vec::new(),
             source_independence: Vec::new(),
             card_count: 0,
             distinct_sources: 0,
             distinct_documents: 0,
             distinct_sections: 0,
-            primary_sources_verified: !plan.evidence_requirements.require_primary_sources,
+            primary_sources_verified: !plan.evidence_requirements().require_primary_sources,
             freshness: Vec::new(),
             conflicts: Vec::new(),
             counterevidence: Vec::new(),

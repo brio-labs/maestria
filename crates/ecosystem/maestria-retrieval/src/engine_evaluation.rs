@@ -65,7 +65,7 @@ pub(super) async fn evaluate_batches(
         apply_reranking(engine, plan, visual_enabled, started, ranked).await?;
     let initial_diversity = crate::diversity::select_candidates(&ranked, plan);
     let expansion_enabled = plan
-        .stages
+        .stages()
         .contains(&maestria_domain::SearchStage::Filtering);
     let configured_expander = expansion_enabled.then(|| engine.expander.clone()).flatten();
     let (mut raw_outcome, final_diversity) = engine_pipeline::run_diversity_stage(
@@ -157,13 +157,13 @@ async fn apply_reranking(
     Option<maestria_domain::SearchTraceRerank>,
 )> {
     if plan
-        .stages
+        .stages()
         .contains(&maestria_domain::SearchStage::Reranking)
         && (!engine.visual_reranker || visual_enabled)
         && let Some(reranker) = &engine.reranker
     {
         let elapsed_ms = started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
-        let remaining_ms = u64::from(plan.budgets.max_latency_ms())
+        let remaining_ms = u64::from(plan.budgets().max_latency_ms())
             .saturating_sub(elapsed_ms)
             .min(u64::from(u32::MAX)) as u32;
         let rerank_res = reranker

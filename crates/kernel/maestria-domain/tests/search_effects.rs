@@ -3,26 +3,26 @@ use maestria_domain::*;
 // ── Search, knowledge, and web effects ────────────────────────────
 
 fn search_plan() -> Result<SearchPlan, DomainError> {
-    Ok(SearchPlan {
-        query_id: QueryId::new(1),
-        original_query: "find notes".to_string(),
-        intent: SearchIntent::ExactLookup,
-        scope: CorpusScope::Global,
-        corpus_snapshot: CorpusSnapshotId::new(1),
-        index_generation: IndexGenerationId::new(1),
-        freshness: FreshnessRequirement::Any,
-        modalities: ModalitySet::new(vec![Modality::Text]),
-        stages: vec![SearchStage::InitialRetrieval],
-        budgets: SearchBudget::new(100, 1_000).map_err(|_| {
+    SearchPlan::builder()
+        .query_id(QueryId::new(1))
+        .original_query("find notes".to_string())
+        .intent(SearchIntent::ExactLookup)
+        .scope(CorpusScope::Global)
+        .corpus_snapshot(CorpusSnapshotId::new(1))
+        .index_generation(IndexGenerationId::new(1))
+        .freshness(FreshnessRequirement::Any)
+        .modalities(ModalitySet::new(vec![Modality::Text]))
+        .stages(vec![SearchStage::InitialRetrieval])
+        .budgets(SearchBudget::new(100, 1_000).map_err(|_| {
             DomainError::InternalInvariantViolation {
                 detail: "search budget fixture must be valid",
             }
-        })?,
-        stop_conditions: StopConditions {
+        })?)
+        .stop_conditions(StopConditions {
             max_results: 5,
             min_score_threshold: 0,
-        },
-        evidence_requirements: EvidenceRequirements {
+        })
+        .evidence_requirements(EvidenceRequirements {
             require_primary_sources: false,
             minimum_corroboration: 1,
             required_claims: vec![],
@@ -30,20 +30,23 @@ fn search_plan() -> Result<SearchPlan, DomainError> {
             minimum_sources: 0,
             minimum_documents: 0,
             minimum_sections: 0,
-        },
-        fingerprint: RetrievalModelFingerprint::new("test-model".to_string()).map_err(|_| {
-            DomainError::InternalInvariantViolation {
-                detail: "search fingerprint fixture must be valid",
-            }
-        })?,
-        authorization: Some(maestria_domain::RetrievalPolicySnapshot::global_default()),
-        original_intent: None,
-        route_decision: None,
-    })
+        })
+        .fingerprint(
+            RetrievalModelFingerprint::new("test-model".to_string()).map_err(|_| {
+                DomainError::InternalInvariantViolation {
+                    detail: "search fingerprint fixture must be valid",
+                }
+            })?,
+        )
+        .authorization(Some(
+            maestria_domain::RetrievalPolicySnapshot::global_default(),
+        ))
+        .build()
+        .map_err(|error| DomainError::SearchIncompatible { error })
 }
 
 fn no_evidence_outcome(plan: &SearchPlan) -> Result<SearchOutcome, DomainError> {
-    let policy_fingerprint = match plan.authorization.as_ref() {
+    let policy_fingerprint = match plan.authorization().as_ref() {
         Some(authorization) => authorization.canonical_fingerprint(),
         None => {
             return Err(DomainError::InternalInvariantViolation {
@@ -64,8 +67,8 @@ fn no_evidence_outcome(plan: &SearchPlan) -> Result<SearchOutcome, DomainError> 
     Ok(SearchOutcome {
         trace: trace.deterministic_id(),
         trace_data: Some(Box::new(trace)),
-        fingerprint: plan.fingerprint.clone(),
-        index_generation: plan.index_generation,
+        fingerprint: plan.fingerprint().clone(),
+        index_generation: plan.index_generation(),
         status: SearchStatus::NoEvidenceFound,
         evidence: vec![],
         coverage: EvidenceCoverage {
@@ -199,7 +202,7 @@ fn search_knowledge_completed_emits_only_compatible_event() -> Result<(), Domain
             ..
         } => {
             assert_eq!(recorded_outcome.trace, outcome.trace);
-            assert_eq!(recorded_plan.fingerprint, outcome.fingerprint);
+            assert_eq!(recorded_plan.fingerprint(), &outcome.fingerprint);
         }
         _ => {
             return Err(DomainError::InternalInvariantViolation {
@@ -260,25 +263,14 @@ fn search_knowledge_request_emits_effect() -> Result<(), DomainError> {
 }
 
 #[test]
-fn search_knowledge_request_rejects_invalid_plan() -> Result<(), DomainError> {
-    let mut state = KernelState::new();
-    let mut plan = search_plan()?;
-    plan.original_query = "   ".to_string();
-
-    let result = state.apply_input(DomainInput::SearchKnowledgeRequested(
-        SearchKnowledgeRequested {
-            task_id: None,
-            plan,
-        },
-    ));
-
+fn search_plan_construction_rejects_whitespace_query() -> Result<(), DomainError> {
+    let plan = search_plan()?;
     assert!(matches!(
-        result,
-        Err(DomainError::SearchIncompatible {
-            error: SearchCompatibilityError::InvalidPlan("original_query must not be empty")
-        })
+        plan.with_original_query("   ".to_string()),
+        Err(SearchCompatibilityError::InvalidPlan(
+            "original_query must not be empty"
+        ))
     ));
-    assert!(state.event_log.is_empty());
     Ok(())
 }
 

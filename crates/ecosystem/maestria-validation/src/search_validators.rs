@@ -92,9 +92,6 @@ impl Validator for SearchPlanValidator {
             let Some(plan) = search.plan else {
                 return Err("search validation requires the persisted SearchPlan".to_string());
             };
-            if let Err(error) = plan.validate_schema() {
-                errors.push(format!("search plan schema is invalid: {error}"));
-            }
             if !trace.matches_plan(plan) {
                 errors.push("SearchTrace does not match the SearchPlan".to_string());
             }

@@ -1,6 +1,6 @@
 use maestria_domain::{
-    ClaimId, ConflictSet, ConflictSetId, EvidenceId, FreshnessStatus, SearchStatus,
-    ValidationReportId,
+    ClaimId, ConflictSet, ConflictSetId, EvidenceId, EvidenceRequirements, FreshnessStatus,
+    SearchCompatibilityError, SearchStatus, ValidationReportId,
 };
 
 use super::{
@@ -44,13 +44,19 @@ fn all_search_validators_execute_and_pass_for_a_reproducible_outcome()
 }
 
 #[test]
-fn search_plan_validator_fails_with_invalid_plan_schema() -> Result<(), Box<dyn std::error::Error>>
-{
-    let mut fixture = fixture()?;
-    fixture.plan.evidence_requirements.minimum_corroboration = 0;
-    let check = SearchPlanValidator.validate(&fixture.context());
-    assert!(!check.passed);
-    assert!(check.message.contains("minimum corroboration"));
+fn invalid_plan_schema_is_rejected_at_construction() -> Result<(), Box<dyn std::error::Error>> {
+    let plan = fixture()?.plan;
+    let requirements = plan.evidence_requirements().clone();
+    let invalid = plan.with_evidence_requirements(EvidenceRequirements {
+        minimum_corroboration: 0,
+        ..requirements
+    });
+    assert!(matches!(
+        invalid,
+        Err(SearchCompatibilityError::InvalidPlan(
+            "minimum corroboration must be greater than 0"
+        ))
+    ));
     Ok(())
 }
 

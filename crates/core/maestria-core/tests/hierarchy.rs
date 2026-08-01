@@ -9,7 +9,7 @@ use maestria_domain::{
     EvidenceSpan, FreshnessStatus, IndexGenerationId, IndexStatus, LineRange, LogicalTick,
     Relation, RelationEndpoint, RelationId, RelationKind, RetrievalModelFingerprint,
     RetrievalScoreSet, SearchOutcome, SearchStatus, SnapshotRef, SourceLocation, SourceSpan,
-    StructureNodeId, TrustLabel,
+    StopConditions, StructureNodeId, TrustLabel,
 };
 use maestria_governance::RetrievalSecurityPolicy;
 use maestria_ports::{
@@ -320,9 +320,15 @@ fn execute_search(
         .build()?;
     let mut plan = engine.plan(query.to_string(), limit, context)?;
     if query.starts_with('"') && query.ends_with('"') && limit > 1 {
-        plan.stop_conditions.max_results = 3;
+        let stop_conditions = plan.stop_conditions().clone();
+        plan = plan.with_stop_conditions(StopConditions {
+            max_results: 3,
+            ..stop_conditions
+        })?;
     }
-    plan.evidence_requirements.minimum_sources = 3;
+    let mut requirements = plan.evidence_requirements().clone();
+    requirements.minimum_sources = 3;
+    plan = plan.with_evidence_requirements(requirements)?;
     runtime.block_on(engine.search(&plan)).map_err(|error| {
         Box::<dyn std::error::Error>::from(std::io::Error::other(error.to_string()))
     })
