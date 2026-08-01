@@ -1,33 +1,15 @@
 use crate::{
+    error::{to_io_port_error, to_port_error},
     migration,
     migration::{legacy_chunks, schema_has_cards},
-    schema::{load_fields, schema, supports_filtered_queries},
+    schema::{IndexFields, load_fields, schema, supports_filtered_queries},
 };
-use maestria_domain::{ArtifactId, CardId, ChunkId};
 use maestria_governance::scan_secrets;
 use maestria_ports::{FullTextIndex, PortError};
 use std::{fs, path::Path, sync::Mutex};
-use tantivy::{
-    Index, IndexReader, IndexWriter, ReloadPolicy,
-    schema::{Field, Schema},
-};
+use tantivy::{Index, IndexReader, IndexWriter, ReloadPolicy};
 
 pub(super) const WRITER_MEMORY_BUDGET_BYTES: usize = 50_000_000;
-pub(super) const FIELD_KEY: &str = "chunk_key";
-pub(super) const FIELD_ARTIFACT_ID: &str = "artifact_id";
-pub(super) const FIELD_CHUNK_ID: &str = "chunk_id";
-pub(super) const FIELD_TEXT: &str = "text";
-pub(super) const FIELD_CARD_KEY: &str = "card_key";
-pub(super) const FIELD_CARD_ARTIFACT_ID: &str = "card_artifact_id";
-pub(super) const FIELD_CARD_ID: &str = "card_id";
-pub(super) const FIELD_CARD_TITLE: &str = "card_title";
-pub(super) const FIELD_CARD_BODY: &str = "card_body";
-pub(super) const FIELD_PATH: &str = "path";
-pub(super) const FIELD_FILENAME: &str = "filename";
-pub(super) const FIELD_SYMBOL: &str = "symbol";
-pub(super) const FIELD_CARD_PATH: &str = "card_path";
-pub(super) const FIELD_CARD_FILENAME: &str = "card_filename";
-pub(super) const FIELD_CARD_SYMBOL: &str = "card_symbol";
 
 /// Tantivy implementation of the [`FullTextIndex`] projection port.
 pub struct TantivyFullTextIndex {
@@ -37,24 +19,6 @@ pub struct TantivyFullTextIndex {
     pub(crate) fields: IndexFields,
     pub(crate) card_rebuild_required: Mutex<bool>,
     pub(crate) card_rebuild_marker: Option<std::path::PathBuf>,
-}
-
-pub(super) struct IndexFields {
-    pub(crate) key: Field,
-    pub(crate) artifact_id: Field,
-    pub(crate) chunk_id: Field,
-    pub(crate) text: Field,
-    pub(crate) card_key: Field,
-    pub(crate) card_artifact_id: Field,
-    pub(crate) card_id: Field,
-    pub(crate) card_title: Field,
-    pub(crate) card_body: Field,
-    pub(crate) path: Field,
-    pub(crate) filename: Field,
-    pub(crate) symbol: Field,
-    pub(crate) card_path: Field,
-    pub(crate) card_filename: Field,
-    pub(crate) card_symbol: Field,
 }
 
 impl TantivyFullTextIndex {
@@ -185,53 +149,5 @@ impl TantivyFullTextIndex {
                 })?;
         *required = false;
         Ok(())
-    }
-}
-
-pub(super) fn schema_field(schema: &Schema, name: &str) -> Result<Field, PortError> {
-    schema
-        .get_field(name)
-        .map_err(|_| PortError::InternalContext {
-            context: "missing Tantivy schema field",
-            source: name.to_string(),
-        })
-}
-
-pub(crate) fn chunk_key(artifact_id: ArtifactId, chunk_id: ChunkId) -> String {
-    format!("{}:{}", artifact_id.value(), chunk_id.value())
-}
-
-pub(crate) fn card_key(artifact_id: ArtifactId, card_id: CardId) -> String {
-    format!("card:{}:{}", artifact_id.value(), card_id.value())
-}
-pub(crate) fn descending_score(left: f32, right: f32) -> std::cmp::Ordering {
-    match right.partial_cmp(&left) {
-        Some(ordering) => ordering,
-        None => std::cmp::Ordering::Equal,
-    }
-}
-
-pub(crate) fn score_to_u32(score: f32) -> u32 {
-    if !score.is_finite() || score <= 0.0 {
-        return 0;
-    }
-
-    let scaled = score * 1_000.0;
-    if scaled >= u32::MAX as f32 {
-        u32::MAX
-    } else {
-        scaled.round() as u32
-    }
-}
-
-pub(crate) fn to_port_error(error: tantivy::TantivyError) -> PortError {
-    PortError::Downstream {
-        message: error.to_string(),
-    }
-}
-
-fn to_io_port_error(error: std::io::Error) -> PortError {
-    PortError::Downstream {
-        message: error.to_string(),
     }
 }

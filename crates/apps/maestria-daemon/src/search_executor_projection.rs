@@ -35,7 +35,7 @@ pub(crate) fn reconcile_active_versions(
     latest_by_path.into_values().collect()
 }
 
-pub(super) fn ensure_search_index(
+pub(crate) fn ensure_search_index(
     search_index: &TantivyFullTextIndex,
     state: &KernelState,
 ) -> Result<()> {

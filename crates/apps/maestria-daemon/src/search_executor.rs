@@ -3,7 +3,7 @@ mod construction;
 #[path = "search_executor_port.rs"]
 mod port;
 #[path = "search_executor_projection.rs"]
-mod projection;
+pub(crate) mod projection;
 #[path = "repository_code_loader.rs"]
 mod repository_code_loader;
 #[path = "search_visual_runtime.rs"]
@@ -20,14 +20,12 @@ mod tests;
 use std::{collections::BTreeSet, sync::Arc};
 
 use anyhow::{Result, anyhow};
-use maestria_blob_fs::FsBlobStore;
 use maestria_code_intel::RepositoryCodeIndex;
 use maestria_core::{InstanceLayout, InstanceManifest};
 use maestria_domain::{
     ArtifactVersionId, CorpusSnapshotId, DomainEventEnvelope, IndexGenerationId, KernelState,
-    RepresentationName, RetrievalModelFingerprint, SearchOutcome, SearchPlan,
+    RetrievalModelFingerprint, SearchOutcome, SearchPlan,
 };
-use maestria_graph_sqlite::SqliteGraphIndex;
 use maestria_ports::{
     ArtifactRepository, BlobStore, CardRepository, ChunkRepository, EmbeddingProvider, EventFilter,
     EventLog, EvidenceRepository, FullTextIndex, GraphIndex, VectorIndex,
@@ -44,9 +42,7 @@ use maestria_retrieval::{
     CandidateReranker, CandidateRetriever, FixedKRrf, HybridExecutionPolicy,
     RepositoryExecutionPolicy, RetrievalEngine, SearchPlannerContext, VisualExecutionPolicy,
 };
-use maestria_search_tantivy::TantivyFullTextIndex;
 use maestria_storage_sqlite::SqliteStore;
-use maestria_vector_sqlite::SqliteVectorIndex;
 
 pub(crate) struct SearchRuntimeParts {
     pub(crate) artifacts: Arc<dyn ArtifactRepository + Send + Sync>,

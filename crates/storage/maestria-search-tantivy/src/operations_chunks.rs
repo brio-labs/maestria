@@ -1,7 +1,10 @@
-use crate::execution::{Meter, validate_limit};
-use crate::search_helpers::collect_bounded;
-use crate::tantivy_index::{
-    TantivyFullTextIndex, chunk_key, descending_score, score_to_u32, to_port_error,
+use crate::{
+    error::to_port_error,
+    execution::{Meter, validate_limit},
+    keys::chunk_key,
+    scoring::{descending_score, score_to_u32},
+    search_helpers::collect_bounded,
+    tantivy_index::TantivyFullTextIndex,
 };
 use maestria_domain::{ArtifactId, ChunkId, SearchExecutionCompletion, SearchExecutionResource};
 use maestria_ports::{BoundedSearch, IndexedChunk, PortError, SearchHit, SearchQuery};

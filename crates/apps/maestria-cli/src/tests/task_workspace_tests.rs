@@ -1,49 +1,12 @@
 use maestria_core::InstanceLayout;
 use maestria_domain::TaskId;
 
+use crate::commands::task::{
+    TASK_WORKSPACE_SUBDIRECTORIES, create_task_workspace_directories, task_workspace_directory,
+};
 use crate::helpers;
 
 use super::collection_tests::TestDirectory;
-
-// Duplicated from commands/task.rs for test isolation.
-const TASK_WORKSPACE_SUBDIRECTORIES: [&str; 5] =
-    ["context", "evidence", "drafts", "validation", "artifacts"];
-
-fn task_workspace_directory(layout: &InstanceLayout, task_id: TaskId) -> std::path::PathBuf {
-    layout
-        .active_tasks_dir
-        .join(format!("task_{}", task_id.value()))
-}
-
-fn create_task_workspace_directories(
-    layout: &InstanceLayout,
-    task_id: TaskId,
-) -> anyhow::Result<()> {
-    use anyhow::Context;
-    use std::fs;
-
-    let task_directory = task_workspace_directory(layout, task_id);
-    fs::create_dir_all(&task_directory).with_context(|| {
-        format!(
-            "failed to create task workspace {} for task {}",
-            task_directory.display(),
-            task_id
-        )
-    })?;
-
-    for subdirectory in TASK_WORKSPACE_SUBDIRECTORIES {
-        let path = task_directory.join(subdirectory);
-        fs::create_dir_all(&path).with_context(|| {
-            format!(
-                "failed to create task {task_id} {} directory {}",
-                subdirectory,
-                path.display()
-            )
-        })?;
-    }
-
-    Ok(())
-}
 
 #[test]
 fn task_workspace_directory_is_deterministic_and_created() -> Result<(), Box<dyn std::error::Error>>

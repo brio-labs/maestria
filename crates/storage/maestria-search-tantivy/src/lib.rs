@@ -18,10 +18,15 @@
 /// - `schema`: module responsibility.
 /// - `search_helpers`: module responsibility.
 /// - `documents`: Tantivy document conversion.
+/// - `error`: Tantivy and I/O error conversion helpers.
+/// - `keys`: document key formatting helpers.
+/// - `scoring`: score ordering and quantization helpers.
 /// - `tantivy_index`: public Tantivy index façade.
 mod constructors;
 mod documents;
+mod error;
 mod execution;
+mod keys;
 mod lexical_helpers;
 mod lexical_operations;
 mod lexical_scoring;
@@ -30,6 +35,7 @@ mod operations;
 mod operations_cards;
 mod operations_chunks;
 mod schema;
+mod scoring;
 mod search_helpers;
 
 mod tantivy_index;

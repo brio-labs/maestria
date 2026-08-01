@@ -3,13 +3,13 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use maestria_domain::{
-    Evidence, EvidenceCandidate, EvidenceKind, RerankCandidateStatus, RetrievalModelFingerprint,
-    SearchTraceRerank, SearchTraceRerankCandidate, SourceLocation, verify_snapshot_bytes,
+    EvidenceCandidate, RerankCandidateStatus, RetrievalModelFingerprint, SearchTraceRerank,
+    SearchTraceRerankCandidate, SourceLocation,
 };
-use maestria_governance::{RetrievalDecision, RetrievalSecurityPolicy, scan_secrets};
+use maestria_governance::{RetrievalSecurityPolicy, scan_secrets};
 use maestria_ports::{
-    ArtifactRepository, BlobStore, EmbeddingIdentity, EmbeddingResponse, EvidenceRepository,
-    RetentionPolicy, VisualEmbeddingProvider, VisualEmbeddingRequest, VisualSource,
+    ArtifactRepository, BlobStore, EmbeddingIdentity, EvidenceRepository, RetentionPolicy,
+    VisualEmbeddingProvider,
 };
 
 use crate::adapters::VisualGenerationCapability;
@@ -18,9 +18,10 @@ use crate::types::{RerankLimits, RerankRequest, RerankResult, RetrievalError};
 #[path = "visual_reranker_order.rs"]
 mod visual_reranker_order;
 use visual_reranker_order::reorder_visual_candidates;
-
-const MAX_VISUAL_SOURCE_BYTES: usize = 8 * 1024 * 1024;
-const MAX_VISUAL_VECTOR_DIMENSIONS: usize = 4_096;
+#[path = "visual_scoring.rs"]
+mod visual_scoring;
+#[path = "visual_source.rs"]
+mod visual_source;
 
 /// Dependencies for the optional visual evidence reranker.
 pub struct VisualRerankerParts {
@@ -139,192 +140,7 @@ impl VisualReranker {
             SourceLocation::Page { .. } | SourceLocation::Region { .. }
         )
     }
-
-    fn visual_source(evidence: &Evidence) -> Option<VisualSource> {
-        match &evidence.kind {
-            EvidenceKind::PdfSpan {
-                snapshot,
-                page_start,
-                page_end,
-            } => Some(VisualSource::Page {
-                blob: snapshot.blob_id(),
-                page_start: *page_start,
-                page_end: *page_end,
-            }),
-            EvidenceKind::PdfRegion {
-                snapshot,
-                page,
-                x,
-                y,
-                width,
-                height,
-            } => Some(VisualSource::Region {
-                blob: snapshot.blob_id(),
-                page: *page,
-                x: *x,
-                y: *y,
-                width: *width,
-                height: *height,
-            }),
-            _ => None,
-        }
-    }
-
-    fn cosine(left: &[f32], right: &[f32]) -> Option<f32> {
-        if left.is_empty() || left.len() != right.len() {
-            return None;
-        }
-        let mut dot = 0.0_f32;
-        let mut left_norm = 0.0_f32;
-        let mut right_norm = 0.0_f32;
-        for (left_value, right_value) in left.iter().zip(right) {
-            if !left_value.is_finite() || !right_value.is_finite() {
-                return None;
-            }
-            dot += left_value * right_value;
-            left_norm += left_value * left_value;
-            right_norm += right_value * right_value;
-        }
-        let denominator = left_norm.sqrt() * right_norm.sqrt();
-        (denominator > 0.0 && denominator.is_finite())
-            .then_some((dot / denominator).clamp(-1.0, 1.0))
-    }
-
-    fn source_bytes(&self, evidence: &Evidence) -> Result<(VisualSource, Vec<u8>), RetrievalError> {
-        let Some(source) = Self::visual_source(evidence) else {
-            return Err(RetrievalError::Internal(
-                "visual reranker candidate has no PDF source".to_string(),
-            ));
-        };
-        let Some(artifact) = self
-            .parts
-            .artifacts
-            .get(evidence.artifact_id)
-            .map_err(|error| RetrievalError::Internal(error.to_string()))?
-        else {
-            return Err(RetrievalError::Internal(
-                "visual reranker artifact is missing".to_string(),
-            ));
-        };
-        if artifact.index_status != maestria_domain::IndexStatus::Indexed
-            || self.parts.policy.evaluate(&artifact.security) != RetrievalDecision::Allowed
-            || self.parts.policy.evaluate(&evidence.security) != RetrievalDecision::Allowed
-            || !scan_secrets(&evidence.excerpt).is_clean()
-        {
-            return Err(RetrievalError::Internal(
-                "visual reranker candidate failed security checks".to_string(),
-            ));
-        }
-        let snapshot = match &evidence.kind {
-            EvidenceKind::PdfSpan { snapshot, .. } | EvidenceKind::PdfRegion { snapshot, .. } => {
-                snapshot
-            }
-            _ => {
-                return Err(RetrievalError::Internal(
-                    "visual reranker candidate has no PDF snapshot".to_string(),
-                ));
-            }
-        };
-        if evidence.artifact_id != artifact.id {
-            return Err(RetrievalError::Internal(format!(
-                "visual reranker evidence {} belongs to artifact {}, expected {}",
-                evidence.id, evidence.artifact_id, artifact.id
-            )));
-        }
-        if artifact.content_hash.as_deref() != Some(snapshot.content_hash().as_str()) {
-            return Err(RetrievalError::Internal(format!(
-                "visual reranker evidence {} source snapshot hash does not match owning artifact: expected {:?}, got {}",
-                evidence.id,
-                artifact.content_hash,
-                snapshot.content_hash().as_str()
-            )));
-        }
-        let bytes = self
-            .parts
-            .blobs
-            .get(snapshot.blob_id())
-            .map_err(|error| RetrievalError::Internal(error.to_string()))?;
-        verify_snapshot_bytes(snapshot, &bytes).map_err(|error| {
-            RetrievalError::Internal(format!(
-                "visual reranker evidence {} source snapshot verification failed: {}",
-                evidence.id, error
-            ))
-        })?;
-        if bytes.len() > MAX_VISUAL_SOURCE_BYTES
-            || !scan_secrets(&String::from_utf8_lossy(&bytes)).is_clean()
-        {
-            return Err(RetrievalError::Internal(
-                "visual reranker source failed privacy checks".to_string(),
-            ));
-        }
-        Ok((source, bytes))
-    }
 }
-impl VisualReranker {
-    async fn query_vector(
-        &self,
-        query: &str,
-        remaining: Duration,
-    ) -> Result<EmbeddingResponse, String> {
-        let disclosure = self.parts.provider.disclosure();
-        let response = tokio::time::timeout(remaining, async {
-            self.parts
-                .provider
-                .embed_query(query, self.identity().clone())
-        })
-        .await
-        .map_err(|_| RetrievalError::Timeout.to_string())?
-        .map_err(|error| RetrievalError::Internal(error.to_string()).to_string())?;
-        if response.identity != *self.identity()
-            || response.disclosure != disclosure
-            || response.vector.len() > MAX_VISUAL_VECTOR_DIMENSIONS
-        {
-            return Err("visual query response failed identity/privacy checks".to_string());
-        }
-        Ok(response)
-    }
-
-    async fn score_candidate(
-        &self,
-        candidate: &crate::types::RankedCandidate,
-        query_vector: &[f32],
-        started: tokio::time::Instant,
-        deadline: Duration,
-    ) -> Result<u32, String> {
-        let evidence = self
-            .parts
-            .evidence
-            .get(candidate.candidate.evidence_id)
-            .map_err(|error| RetrievalError::Internal(error.to_string()).to_string())?
-            .ok_or_else(|| "visual reranker evidence is missing".to_string())?;
-        let (source, bytes) = self
-            .source_bytes(&evidence)
-            .map_err(|error| error.to_string())?;
-        let remaining = deadline
-            .checked_sub(started.elapsed())
-            .ok_or_else(|| "visual reranker latency budget exhausted".to_string())?;
-        let response = tokio::time::timeout(remaining, async {
-            self.parts.provider.embed_source(VisualEmbeddingRequest {
-                source,
-                bytes,
-                identity: self.identity().clone(),
-            })
-        })
-        .await
-        .map_err(|_| RetrievalError::Timeout.to_string())?
-        .map_err(|error| RetrievalError::Internal(error.to_string()).to_string())?;
-        if response.identity != *self.identity()
-            || response.disclosure != self.parts.provider.disclosure()
-            || response.vector.len() > MAX_VISUAL_VECTOR_DIMENSIONS
-        {
-            return Err("visual source response failed identity/privacy checks".to_string());
-        }
-        let similarity = Self::cosine(query_vector, &response.vector)
-            .ok_or_else(|| "visual reranker returned incompatible vectors".to_string())?;
-        Ok((((similarity + 1.0) * 0.5) * 1_000_000.0).round() as u32)
-    }
-}
-
 #[async_trait]
 impl CandidateReranker for VisualReranker {
     async fn rerank(&self, request: RerankRequest) -> Result<RerankResult, RetrievalError> {

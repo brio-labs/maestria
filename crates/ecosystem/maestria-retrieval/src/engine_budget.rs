@@ -36,7 +36,8 @@ fn partition_allowance(total: u64, lanes: usize, lane: usize) -> u64 {
     base + if (lane as u64) < remainder { 1 } else { 0 }
 }
 
-pub(crate) fn lane_budget(
+/// Allocates the execution budget for one retrieval lane.
+pub fn lane_budget(
     plan: &SearchPlan,
     remaining: SearchExecutionUsage,
     lanes: usize,

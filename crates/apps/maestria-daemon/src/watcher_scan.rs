@@ -102,7 +102,7 @@ pub(super) fn scan_manifest(manifest: &InstanceManifest) -> Result<Vec<Observati
                 continue;
             }
 
-            if !is_supported_file(&path) {
+            if !crate::ingestion_policy::is_supported_source_file(&path) {
                 continue;
             }
 
@@ -117,14 +117,4 @@ pub(super) fn scan_manifest(manifest: &InstanceManifest) -> Result<Vec<Observati
     }
     observations.sort_by(|left, right| left.path.cmp(&right.path));
     Ok(observations)
-}
-
-fn is_supported_file(path: &Path) -> bool {
-    matches!(
-        path.extension()
-            .and_then(|extension| extension.to_str())
-            .map(str::to_ascii_lowercase)
-            .as_deref(),
-        Some("md" | "markdown" | "txt" | "rs" | "toml" | "json" | "yaml" | "yml" | "pdf")
-    )
 }

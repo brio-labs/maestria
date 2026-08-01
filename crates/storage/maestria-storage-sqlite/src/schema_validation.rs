@@ -210,8 +210,8 @@ pub(crate) fn validate_stored_event_payloads(connection: &Connection) -> Result<
                 context: "decode mapped legacy approval id",
                 source: "approval id is negative".to_string(),
             })?;
-        let value = crate::events::upcast_legacy_approval_id(&payload_json, mapped_approval_id)?;
-        let payload = crate::events::decode_stored_payload(value, payload_version)?;
+        let value = crate::legacy::upcast_legacy_approval_id(&payload_json, mapped_approval_id)?;
+        let payload = crate::legacy::decode_stored_payload(value, payload_version)?;
         let payload_kind = payload.kind()?;
         if stored_kind != payload_kind {
             return Err(PortError::InternalContext {

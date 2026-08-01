@@ -1,12 +1,12 @@
 use anyhow::{Context, Result};
 use maestria_core::InstanceLayout;
 use maestria_core::InstanceManifest;
+use maestria_daemon::db_retry::{is_database_busy, run_database_retry};
+use maestria_daemon::ingestion_policy::{is_privacy_excluded_path, is_supported_source_file};
 use maestria_domain::KernelState;
-use maestria_governance::PrivacyExclusions;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
-use std::thread;
 use std::time::Duration;
 use tokio::time::{sleep, timeout};
 
@@ -44,38 +44,35 @@ pub(crate) fn load_kernel_state_with_retry(
 }
 
 /// Retry a synchronous database operation while the instance is transiently
-/// locked, within `timeout_budget`. This is the single sync carrier of the
-/// CLI's database-busy retry policy (see [`wait_for_kernel_state`] for the
-/// async carrier).
+/// locked, delegating the retry cadence to the shared daemon policy
+/// (`maestria_daemon::db_retry`).
+///
+/// `timeout_budget` is retained for call-site compatibility; the shared
+/// daemon constants (`RETRY_ATTEMPTS` / `RETRY_DELAY`) drive the loop. A
+/// busy error that outlives the retry budget is reported as a timeout with
+/// the last underlying error, matching the historical CLI wording.
 pub(crate) fn retry_db_busy<T>(
-    timeout_budget: Duration,
-    context: &'static str,
-    mut attempt: impl FnMut() -> Result<T>,
+    _timeout_budget: Duration,
+    context: &str,
+    operation: impl Fn() -> Result<T>,
 ) -> Result<T> {
-    let attempts = timeout_budget.as_millis().div_ceil(25).max(1);
-    for attempt_number in 0..attempts {
-        match attempt() {
-            Ok(output) => return Ok(output),
-            Err(error) if is_db_locked(&error) && attempt_number + 1 < attempts => {
-                thread::sleep(Duration::from_millis(25));
-            }
-            Err(error) if is_db_locked(&error) => {
-                return Err(anyhow::anyhow!("timed out while {context}: {error}"));
-            }
-            Err(error) => return Err(error),
+    match run_database_retry(operation) {
+        Ok(output) => Ok(output),
+        Err(error) if is_database_busy(&error) => {
+            Err(anyhow::anyhow!("timed out while {context}: {error}"))
         }
+        Err(error) => Err(error),
     }
-    Err(anyhow::anyhow!("timed out while {context}"))
 }
 
 /// Poll persisted kernel state until `predicate` holds, within `timeout_budget`.
 ///
 /// This is the single CLI policy for waiting on durable kernel state: command
 /// modules pass a predicate instead of restating the poll-and-retry loop.
-/// Transient database-lock errors are retried with the same 25 ms cadence as
-/// [`load_kernel_state_with_retry`], and the last such error is preserved in
-/// the timeout message. The returned state is the one that satisfied the
-/// predicate.
+/// Transient database-lock errors are detected with the shared daemon matcher
+/// ([`is_db_locked`]) and retried at the CLI polling cadence; the last such
+/// error is preserved in the timeout message. The returned state is the one
+/// that satisfied the predicate.
 pub(crate) async fn wait_for_kernel_state(
     layout: &InstanceLayout,
     timeout_budget: Duration,
@@ -195,14 +192,7 @@ pub(crate) fn collect_index_files(path: &Path, recursive: bool) -> Result<Vec<Pa
 }
 
 pub(crate) fn is_excluded_index_path(path: &Path) -> bool {
-    let default_exclusions = PrivacyExclusions::default();
-    path.components().any(|component| {
-        let name = component.as_os_str().to_string_lossy();
-        matches!(
-            name.as_ref(),
-            ".ssh" | ".gnupg" | "node_modules" | "target" | "dist" | "build"
-        ) || name.starts_with(".env.")
-    }) || default_exclusions.is_excluded(path)
+    is_privacy_excluded_path(path)
 }
 
 fn is_symlink(path: &Path) -> Result<bool> {
@@ -218,16 +208,7 @@ fn is_symlink(path: &Path) -> Result<bool> {
 }
 
 pub(crate) fn is_supported_index_path(path: &Path) -> bool {
-    if path.file_name().and_then(|name| name.to_str()) == Some("Cargo.toml") {
-        return true;
-    }
-    matches!(
-        path.extension()
-            .and_then(|extension| extension.to_str())
-            .map(str::to_ascii_lowercase)
-            .as_deref(),
-        Some("md" | "markdown" | "txt" | "text" | "rs" | "pdf")
-    )
+    is_supported_source_file(path)
 }
 
 pub(crate) fn source_label(evidence: &maestria_domain::Evidence) -> String {
@@ -303,8 +284,5 @@ pub(crate) fn source_label(evidence: &maestria_domain::Evidence) -> String {
 }
 
 pub(crate) fn is_db_locked(error: &anyhow::Error) -> bool {
-    let message = format!("{error:#}").to_lowercase();
-    message.contains("database is locked")
-        || message.contains("database is busy")
-        || message.contains("locked")
+    is_database_busy(error)
 }

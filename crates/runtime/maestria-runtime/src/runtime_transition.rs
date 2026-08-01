@@ -53,7 +53,7 @@ impl MaestriaRuntime {
         let Some(record) = record else {
             return Ok(None);
         };
-        crate::effect_execution::decode_pending_continuation(&record)
+        crate::proposal_persistence::decode_pending_continuation(&record)
     }
 
     pub(crate) async fn boundary_error(&self, input: &DomainInput) -> Option<&'static str> {

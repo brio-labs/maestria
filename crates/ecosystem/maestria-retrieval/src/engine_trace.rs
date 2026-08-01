@@ -5,14 +5,14 @@ use maestria_domain::{
 
 /// Serializes the engine-owned retrieval security policy into the provenance format
 /// consumed by the retrieval security validator.
-pub(crate) fn security_policy_fingerprint(
+pub fn security_policy_fingerprint(
     policy: &maestria_governance::RetrievalSecurityPolicy,
 ) -> String {
     policy.canonical_fingerprint()
 }
 
 /// Lists every security filter enabled for a governed search trace.
-pub(crate) fn applied_security_filters(
+pub fn applied_security_filters(
     plan: &SearchPlan,
     policy: &maestria_governance::RetrievalSecurityPolicy,
 ) -> Vec<SearchTraceFilter> {
@@ -38,7 +38,8 @@ pub(crate) fn applied_security_filters(
     filters
 }
 
-pub(crate) struct EnsureTraceOptions {
+/// Options controlling governed search-trace construction.
+pub struct EnsureTraceOptions {
     pub(crate) security_policy: maestria_governance::RetrievalSecurityPolicy,
     pub(crate) fusion_enabled: bool,
     pub(crate) expansion_enabled: bool,
@@ -215,7 +216,8 @@ fn assemble_trace(
     )
 }
 
-pub(crate) fn ensure_trace(
+/// Rebuilds the outcome trace so it matches the governed search context.
+pub fn ensure_trace(
     plan: &SearchPlan,
     mut outcome: SearchOutcome,
     lanes: Vec<maestria_domain::SearchTraceLane>,

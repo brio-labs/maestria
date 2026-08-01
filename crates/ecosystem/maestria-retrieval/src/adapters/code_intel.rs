@@ -12,11 +12,9 @@ use maestria_domain::{
 };
 use maestria_governance::scan_secrets;
 
-use crate::adapters::code_intel_security::{
-    AuthorizedCodeBinding, CodeIntelSecurityResolver, trust_label,
-};
 use crate::adapters::common::{generation_mismatch, one_based_rank};
 use crate::adapters::score_provenance::specialized_score;
+use crate::adapters::{AuthorizedCodeBinding, CodeIntelSecurityResolver, trust_label};
 use crate::traits::CandidateRetriever;
 use crate::types::{CandidateBatch, CandidateRequest, RetrievalError, RetrieverDescriptor};
 #[cfg(test)]

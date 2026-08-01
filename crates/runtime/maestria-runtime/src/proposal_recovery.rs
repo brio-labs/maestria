@@ -70,8 +70,8 @@ impl MaestriaRuntime {
             EffectFailure::Failed(format!("scan approvals for model-agent recovery: {error}"))
         })?;
         for record in records {
-            let proposal =
-                crate::effect_execution::decode_pending_continuation(&record).map_err(|error| {
+            let proposal = crate::proposal_persistence::decode_pending_continuation(&record)
+                .map_err(|error| {
                     EffectFailure::Failed(format!(
                         "decode approval {} for model-agent recovery: {error}",
                         record.id

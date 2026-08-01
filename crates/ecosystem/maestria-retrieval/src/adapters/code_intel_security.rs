@@ -48,7 +48,7 @@ enum CanonicalCodeSource {
 }
 
 /// Proof that a symbol is bound to current, policy-authorized artifact evidence.
-pub(super) struct AuthorizedCodeBinding {
+pub struct AuthorizedCodeBinding {
     pub(super) symbol: SymbolRecord,
     pub(super) artifact_version: ArtifactVersionId,
     pub(super) evidence: Evidence,
@@ -333,7 +333,8 @@ fn evidence_binds_symbol(
         && range.end() >= symbol.provenance.source_range.end_line
 }
 
-pub(super) fn trust_label(security: &SecurityMetadata) -> TrustLabel {
+/// Maps a symbol's security metadata to the evidence trust label.
+pub fn trust_label(security: &SecurityMetadata) -> TrustLabel {
     match security.trust_zone {
         TrustZone::System | TrustZone::Verified => TrustLabel::Verified,
         TrustZone::Untrusted | TrustZone::Quarantined => TrustLabel::Unverified,

@@ -1,4 +1,4 @@
-use super::{recovery_artifact_ids, validation_task_ids};
+use crate::recovery_staging::{recovery_artifact_ids, validation_task_ids};
 use crate::{InstanceLifecycle, RecoveryInputs, prepare_instance};
 use maestria_domain::{
     ArtifactDetected, ArtifactId, DomainInput, ParserStarted, RequestTaskValidation,

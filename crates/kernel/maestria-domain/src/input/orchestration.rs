@@ -178,75 +178,67 @@ impl KernelState {
             } => (approval_id, task_id, approved),
         };
 
-        let task = self
+        let from_status = if approved {
+            self.transition_to_active(task_id)?
+        } else {
+            self.transition_to_blocked(task_id)?
+        };
+        let to_status = self
             .tasks
             .get(&task_id)
-            .ok_or(DomainError::MissingTask { id: task_id })?;
-
-        let from_status = task.status;
-
-        if approved {
-            match from_status {
-                TaskStatus::Draft => {
-                    // Two-step domain transition: Draft→Open→Active,
-                    // but emit a single authoritative event.
-                    self.handle_change_task_status(task_id, TaskStatus::Open)?;
-                    self.handle_change_task_status(task_id, TaskStatus::Active)?;
-                    emitted.push(self.emit_event(DomainEvent::ApprovalRecorded {
-                        approval_id,
-                        outcome: ApprovalOutcome::TaskTransition {
-                            task_id,
-                            approved: true,
-                            from_status: TaskStatus::Draft,
-                            to_status: TaskStatus::Active,
-                        },
-                    }));
-                }
-                TaskStatus::Open | TaskStatus::Blocked => {
-                    let to_status = TaskStatus::Active;
-                    self.handle_change_task_status(task_id, to_status)?;
-                    emitted.push(self.emit_event(DomainEvent::ApprovalRecorded {
-                        approval_id,
-                        outcome: ApprovalOutcome::TaskTransition {
-                            task_id,
-                            approved: true,
-                            from_status,
-                            to_status,
-                        },
-                    }));
-                }
-                _ => {
-                    emitted.push(self.emit_event(DomainEvent::ApprovalRecorded {
-                        approval_id,
-                        outcome: ApprovalOutcome::TaskTransition {
-                            task_id,
-                            approved: true,
-                            from_status,
-                            to_status: from_status,
-                        },
-                    }));
-                }
-            }
-        } else {
-            let to_status = if from_status.can_transition_to(TaskStatus::Blocked) {
-                self.handle_change_task_status(task_id, TaskStatus::Blocked)?;
-                TaskStatus::Blocked
-            } else {
-                from_status
-            };
-            emitted.push(self.emit_event(DomainEvent::ApprovalRecorded {
-                approval_id,
-                outcome: ApprovalOutcome::TaskTransition {
-                    task_id,
-                    approved: false,
-                    from_status,
-                    to_status,
-                },
-            }));
-        }
+            .ok_or(DomainError::MissingTask { id: task_id })?
+            .status;
+        emitted.push(self.emit_event(DomainEvent::ApprovalRecorded {
+            approval_id,
+            outcome: ApprovalOutcome::TaskTransition {
+                task_id,
+                approved,
+                from_status,
+                to_status,
+            },
+        }));
 
         self.resolved_approvals.insert(approval_id);
         Ok(emitted)
+    }
+
+    /// Transition a resolved-approved task to `Active`, returning the status it
+    /// started from. Draft tasks move through the two-step Draft→Open→Active
+    /// path; Open/Blocked tasks transition directly; other statuses are left
+    /// untouched (the transition is reported as from==to by the caller).
+    fn transition_to_active(&mut self, task_id: TaskId) -> Result<TaskStatus, DomainError> {
+        let from_status = self
+            .tasks
+            .get(&task_id)
+            .ok_or(DomainError::MissingTask { id: task_id })?
+            .status;
+        match from_status {
+            TaskStatus::Draft => {
+                // Two-step domain transition: Draft→Open→Active,
+                // but emit a single authoritative event.
+                self.handle_change_task_status(task_id, TaskStatus::Open)?;
+                self.handle_change_task_status(task_id, TaskStatus::Active)?;
+            }
+            TaskStatus::Open | TaskStatus::Blocked => {
+                self.handle_change_task_status(task_id, TaskStatus::Active)?;
+            }
+            _ => {}
+        }
+        Ok(from_status)
+    }
+
+    /// Transition a resolved-denied task to `Blocked` when its current status
+    /// allows it, returning the status it started from.
+    fn transition_to_blocked(&mut self, task_id: TaskId) -> Result<TaskStatus, DomainError> {
+        let from_status = self
+            .tasks
+            .get(&task_id)
+            .ok_or(DomainError::MissingTask { id: task_id })?
+            .status;
+        if from_status.can_transition_to(TaskStatus::Blocked) {
+            self.handle_change_task_status(task_id, TaskStatus::Blocked)?;
+        }
+        Ok(from_status)
     }
 
     // ── SearchExecuted (audit) ────────────────────────────────────

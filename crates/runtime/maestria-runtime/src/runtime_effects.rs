@@ -61,6 +61,35 @@ impl MaestriaRuntime {
         }
     }
 
+    /// Assign the next validation-report id to a pending `RunValidation`
+    /// work item before admission.
+    fn assign_validation_report_id(
+        work: &mut EffectWork,
+        next_validation_report_id: &std::sync::atomic::AtomicU64,
+    ) {
+        if let EffectWork::Pending(MaestriaEffect::RunValidation(request)) = work {
+            request.validation_report_id =
+                ValidationReportId::new(next_validation_report_id.fetch_add(1, Ordering::Relaxed));
+        }
+    }
+
+    /// Run a pending `PersistEvent` inline within the executor, bypassing
+    /// semaphore admission. Returns `Ok(None)` when the event was persisted,
+    /// `Ok(Some(work))` when the item is not a pending persist event and
+    /// should be admitted normally, and `Err` when persistence failed (the
+    /// caller must stop the executor).
+    async fn run_persist_event(
+        context: EffectExecutionContext,
+        work: EffectWork,
+    ) -> Result<Option<EffectWork>, EffectFailure> {
+        match work {
+            EffectWork::Pending(effect @ MaestriaEffect::PersistEvent { .. }) => {
+                context.execute_with_retries(effect).await.map(|()| None)
+            }
+            other => Ok(Some(other)),
+        }
+    }
+
     fn supervise_effect_join(
         result: Result<(), tokio::task::JoinError>,
         effect_shutdown: &tokio_util::sync::CancellationToken,
@@ -183,17 +212,12 @@ impl MaestriaRuntime {
                     if effect_shutdown.is_cancelled() {
                         break;
                     }
-                    if let EffectWork::Pending(MaestriaEffect::RunValidation(request)) = &mut work {
-                        request.validation_report_id = ValidationReportId::new(
-                            next_validation_report_id.fetch_add(1, Ordering::Relaxed),
-                        );
-                    }
-                    let context = execution_context.clone();
-                    if let EffectWork::Pending(MaestriaEffect::PersistEvent { .. }) = &work {
-                        let EffectWork::Pending(effect) = work else {
-                            continue;
-                        };
-                        if let Err(error) = context.execute_with_retries(effect).await {
+                    Self::assign_validation_report_id(&mut work, &next_validation_report_id);
+                    let work = match Self::run_persist_event(execution_context.clone(), work).await
+                    {
+                        Ok(None) => continue,
+                        Ok(Some(work)) => work,
+                        Err(error) => {
                             tracing::error!(
                                 %error,
                                 "persist event failed; stopping effect executor"
@@ -202,8 +226,8 @@ impl MaestriaRuntime {
                             runtime_shutdown.cancel();
                             break 'executor;
                         }
-                        continue;
-                    }
+                    };
+                    let context = execution_context.clone();
                     let permit = tokio::select! {
                         biased;
                         () = effect_shutdown.cancelled() => break,

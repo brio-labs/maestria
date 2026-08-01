@@ -1,9 +1,7 @@
 use crate::config::EffectExecutionContext;
 use crate::effect_result::EffectFailure;
-use crate::shell_policy::{cat_path_args, is_shell_grammar_allowed, resolve_working_directory};
-use maestria_domain::{DomainInput, HarnessRunCompleted, QueryHarnessRequest};
-use maestria_ports::{HarnessCommandClass, HarnessRequest};
-use std::path::{Path, PathBuf};
+use maestria_domain::{DomainInput, HarnessRunCompleted, HarnessRunId, QueryHarnessRequest};
+use maestria_ports::{EffectJournalStatus, HarnessOutcome, HarnessRequest, PortError};
 
 impl EffectExecutionContext {
     /// Execute a harness command on behalf of a task.
@@ -64,108 +62,31 @@ impl EffectExecutionContext {
             .map(|_| ())
     }
 
-    pub(crate) fn gate_harness_request(
-        &self,
-        request: &QueryHarnessRequest,
-    ) -> Result<(HarnessCommandClass, PathBuf), EffectFailure> {
-        let class = match request.capability.as_str() {
-            "browser" => HarnessCommandClass::Browser,
-            "fetch" | "web" => HarnessCommandClass::Fetch,
-            "shell" => HarnessCommandClass::Shell,
-            other => {
-                tracing::error!(capability = other, "Unknown harness capability requested");
-                return Err(EffectFailure::Denied(format!(
-                    "unsupported harness capability: {other}"
-                )));
-            }
-        };
-
-        // ── scope capability gate ────────────────────────────────
-        let scope_guard = maestria_governance::ScopeGuard::new(self.scope.clone());
-        let scope = scope_guard.scope();
-        if !scope.harness_allowed(&request.capability) {
-            tracing::warn!(capability = %request.capability, "Scope does not allow this harness; not spawning");
-            return Err(EffectFailure::Denied(format!(
-                "harness capability `{}` is not allowed by scope",
-                request.capability
-            )));
-        }
-        if !scope.command_allowed(&request.command) {
-            tracing::warn!(command = %request.command, "command blocked by scope; not spawning");
-            return Err(EffectFailure::Denied(format!(
-                "command `{}` is blocked by scope",
-                request.command
-            )));
-        }
-        if !is_shell_grammar_allowed(&request.command) {
-            tracing::warn!(
-                command = %request.command,
-                "command violates shell grammar restrictions; not spawning"
-            );
-            return Err(EffectFailure::Denied(format!(
-                "command `{}` violates shell grammar restrictions",
-                request.command
-            )));
-        }
-
-        // ── harness working directory ─────────────────────────────
-        let working_directory = match resolve_working_directory(scope) {
-            Ok(path) => path,
-            Err(error) => {
-                tracing::error!(%error, "unable to resolve harness working directory");
-                return Err(EffectFailure::Failed(format!(
-                    "unable to resolve harness working directory: {error}"
-                )));
-            }
-        };
-
-        // ── cat path policy ────────────────────────────────────────
-        if class == HarnessCommandClass::Shell && request.command.trim().starts_with("cat") {
-            for arg in cat_path_args(&request.command) {
-                let path = resolve_cat_path(arg, &working_directory);
-                if let Err(containment_err) = scope_guard.check_read_containment(&path) {
-                    tracing::warn!(
-                        path = %path.display(),
-                        ?containment_err,
-                        "cat path outside readable roots; not spawning"
-                    );
-                    return Err(EffectFailure::Denied(format!(
-                        "cat path `{}` is outside readable scope ({containment_err:?})",
-                        path.display()
-                    )));
-                }
-                if path_is_blocked(&path, &working_directory, scope.blocked_paths()) {
-                    tracing::warn!(
-                        path = %path.display(),
-                        "cat path blocked by scope; not spawning"
-                    );
-                    return Err(EffectFailure::Denied(format!(
-                        "cat path `{}` is blocked by scope",
-                        path.display()
-                    )));
-                }
-                if path_matches_blocked_pattern(&path, scope.blocked_patterns()) {
-                    tracing::warn!(
-                        path = %path.display(),
-                        "cat path matches a blocked scope pattern; not spawning"
-                    );
-                    return Err(EffectFailure::Denied(format!(
-                        "cat path `{}` matches a blocked scope pattern",
-                        path.display()
-                    )));
-                }
-            }
-        }
-
-        Ok((class, working_directory))
-    }
-
     pub(crate) async fn execute_and_process_harness(
         &self,
         request: QueryHarnessRequest,
         harness_request: HarnessRequest,
         generation: u64,
-    ) -> Result<Option<maestria_ports::HarnessOutcome>, EffectFailure> {
+    ) -> Result<Option<HarnessOutcome>, EffectFailure> {
+        let (outcome, was_stored) = self
+            .execute_harness_provider(&request, harness_request, generation)
+            .await?;
+        if !self.claim_harness_feedback(&request, generation, &outcome, was_stored)? {
+            return Ok(None);
+        }
+        self.deliver_harness_completion(&request, &outcome, generation, was_stored)?;
+        Ok(Some(outcome))
+    }
+
+    /// Read the durably accepted outcome for a harness run, or execute the
+    /// harness provider when none exists yet. Returns the outcome together
+    /// with whether it came from the journal.
+    async fn execute_harness_provider(
+        &self,
+        request: &QueryHarnessRequest,
+        harness_request: HarnessRequest,
+        generation: u64,
+    ) -> Result<(HarnessOutcome, bool), EffectFailure> {
         let stored_outcome = self
             .adapters
             .effect_journal
@@ -181,10 +102,10 @@ impl EffectExecutionContext {
                 .execute(harness_request)
                 .await
                 .map_err(|error| {
-                    let terminal = self.adapters.effect_journal.record_terminal(
+                    let terminal = self.record_harness_terminal(
                         request.run_id,
                         generation,
-                        maestria_ports::EffectJournalStatus::Failed,
+                        EffectJournalStatus::Failed,
                     );
                     match terminal {
                         Ok(()) => EffectFailure::Failed(format!("harness execution failed: {error}")),
@@ -194,26 +115,54 @@ impl EffectExecutionContext {
                     }
                 })?
         };
-        if stored_outcome.is_some() {
+        Ok((outcome, stored_outcome.is_some()))
+    }
+
+    /// Claim the fresh harness outcome in the journal. Returns `Ok(true)`
+    /// when the outcome was accepted (or was already stored by an earlier
+    /// process), and `Ok(false)` when the claim was rejected as stale — the
+    /// caller must stop processing the run without delivering feedback.
+    fn claim_harness_feedback(
+        &self,
+        request: &QueryHarnessRequest,
+        generation: u64,
+        outcome: &HarnessOutcome,
+        was_stored: bool,
+    ) -> Result<bool, EffectFailure> {
+        if was_stored {
             // The outcome was atomically accepted by an earlier process.
-        } else if let Err(error) = self.adapters.effect_journal.claim_feedback_with_outcome(
+            return Ok(true);
+        }
+        match self.adapters.effect_journal.claim_feedback_with_outcome(
             request.run_id,
             generation,
             outcome.clone(),
         ) {
-            if error.is_not_found() {
+            Ok(()) => Ok(true),
+            Err(error) if error.is_not_found() => {
                 tracing::warn!(
                     run_id = %request.run_id,
                     %generation,
                     %error,
                     "harness feedback rejected as stale"
                 );
-                return Ok(None);
+                Ok(false)
             }
-            return Err(EffectFailure::Failed(format!(
+            Err(error) => Err(EffectFailure::Failed(format!(
                 "harness feedback claim failed: {error}"
-            )));
+            ))),
         }
+    }
+
+    /// Deliver the harness completion input to the domain loop, pausing or
+    /// degrading the effect when delivery fails.
+    fn deliver_harness_completion(
+        &self,
+        request: &QueryHarnessRequest,
+        outcome: &HarnessOutcome,
+        generation: u64,
+        was_stored: bool,
+    ) -> Result<(), EffectFailure> {
         let mut output = String::from_utf8_lossy(&outcome.stdout).into_owned();
         if !outcome.stderr.is_empty() {
             if !output.is_empty() {
@@ -234,15 +183,15 @@ impl EffectExecutionContext {
             "harness completion",
         );
         if let Err(error) = delivery {
-            if stored_outcome.is_some() {
+            if was_stored {
                 return Err(EffectFailure::Degraded(format!(
                     "harness completion delivery failed: {error}; effect remains recoverable"
                 )));
             }
-            return match self.adapters.effect_journal.record_terminal(
+            return match self.record_harness_terminal(
                 request.run_id,
                 generation,
-                maestria_ports::EffectJournalStatus::Paused,
+                EffectJournalStatus::Paused,
             ) {
                 Ok(()) => Err(EffectFailure::Degraded(format!(
                     "harness completion delivery failed: {error}; effect paused"
@@ -252,81 +201,20 @@ impl EffectExecutionContext {
                 ))),
             };
         }
-        Ok(Some(outcome))
+        Ok(())
     }
-}
 
-fn resolve_cat_path(raw_path: &str, working_directory: &Path) -> PathBuf {
-    let path = Path::new(raw_path);
-    if path.is_absolute() {
-        path.to_path_buf()
-    } else {
-        working_directory.join(path)
+    /// Record a terminal journal state for a harness run.
+    fn record_harness_terminal(
+        &self,
+        run_id: HarnessRunId,
+        generation: u64,
+        status: EffectJournalStatus,
+    ) -> Result<(), PortError> {
+        self.adapters
+            .effect_journal
+            .record_terminal(run_id, generation, status)
     }
-}
-
-fn normalize_path(path: &Path) -> PathBuf {
-    let mut normalized = PathBuf::new();
-    for component in path.components() {
-        match component {
-            std::path::Component::CurDir => {}
-            std::path::Component::ParentDir => {
-                normalized.pop();
-            }
-            other => normalized.push(other.as_os_str()),
-        }
-    }
-    normalized
-}
-
-fn path_is_blocked(path: &Path, working_directory: &Path, blocked_paths: &[PathBuf]) -> bool {
-    let normalized = normalize_path(path);
-    blocked_paths.iter().any(|blocked| {
-        let blocked = if blocked.is_absolute() {
-            blocked.clone()
-        } else {
-            working_directory.join(blocked)
-        };
-        normalized.starts_with(normalize_path(&blocked))
-    })
-}
-
-fn path_matches_blocked_pattern(path: &Path, patterns: &[String]) -> bool {
-    path.components().any(|component| {
-        let name = component.as_os_str().to_string_lossy();
-        patterns
-            .iter()
-            .any(|pattern| filename_matches(&name, pattern))
-    })
-}
-
-fn filename_matches(name: &str, pattern: &str) -> bool {
-    if !pattern.contains('*') && !pattern.contains('?') {
-        return name == pattern;
-    }
-    let name: Vec<char> = name.chars().collect();
-    let pattern: Vec<char> = pattern.chars().collect();
-    let mut matches = vec![vec![false; pattern.len() + 1]; name.len() + 1];
-    matches[0][0] = true;
-    for pattern_index in 1..=pattern.len() {
-        if pattern[pattern_index - 1] == '*' {
-            matches[0][pattern_index] = matches[0][pattern_index - 1];
-        }
-    }
-    for name_index in 1..=name.len() {
-        for pattern_index in 1..=pattern.len() {
-            matches[name_index][pattern_index] = match pattern[pattern_index - 1] {
-                '*' => {
-                    matches[name_index - 1][pattern_index] || matches[name_index][pattern_index - 1]
-                }
-                '?' => matches[name_index - 1][pattern_index - 1],
-                character => {
-                    character == name[name_index - 1] && matches[name_index - 1][pattern_index - 1]
-                }
-            };
-        }
-    }
-    matches[name.len()][pattern.len()]
 }
 
 pub(crate) fn truncate_output(bytes: &[u8]) -> String {

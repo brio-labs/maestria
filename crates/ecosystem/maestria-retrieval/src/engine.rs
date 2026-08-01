@@ -31,14 +31,18 @@ mod tests;
 
 #[path = "planner.rs"]
 mod planner;
-pub(crate) use engine_pipeline::lane_budget;
-pub(super) use engine_pipeline::reconcile_status;
+/// Allocates the execution budget for one retrieval lane.
+pub use engine_pipeline::lane_budget;
+/// Reconciles an evaluator status with the diversity selector status.
+pub use engine_pipeline::reconcile_status;
 pub use planner::SearchPlannerContext;
-pub(crate) use planner::rewrite_session;
+/// Builds a rewrite session for the plan's query with the plan budgets.
+pub use planner::rewrite_session;
 
 #[path = "engine_trace.rs"]
 mod engine_trace;
-pub(super) use engine_trace::{
+/// Governed search-trace construction helpers re-exported by the engine façade.
+pub use engine_trace::{
     EnsureTraceOptions, applied_security_filters, ensure_trace, security_policy_fingerprint,
 };
 

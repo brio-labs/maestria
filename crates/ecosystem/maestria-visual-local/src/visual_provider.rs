@@ -3,10 +3,10 @@ use maestria_domain::RepresentationName;
 use maestria_ports::{
     EmbeddingIdentity, EmbeddingResponse, PortError, ProviderDisclosure, ProviderEndpoint,
     ProviderTransport, RetentionPolicy, VisualEmbeddingProvider, VisualEmbeddingRequest,
-    VisualSource,
 };
-use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+
+use crate::dto::{VisualApiResponse, VisualEmbeddingPayload, VisualInput, source_payload};
 
 const VISUAL_ENDPOINT_PATH: &str = "/v1/embeddings";
 
@@ -246,87 +246,6 @@ impl ProviderTransport for UreqTransport {
                 context: "read visual response",
                 source: error.to_string(),
             })
-    }
-}
-
-#[derive(Debug, Serialize)]
-struct VisualEmbeddingPayload {
-    model: String,
-    input: VisualInput,
-    #[serde(skip)]
-    identity: EmbeddingIdentity,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(untagged)]
-enum VisualInput {
-    Text(String),
-    Source {
-        source: VisualSourcePayload,
-        bytes: String,
-    },
-}
-
-#[derive(Debug, Serialize)]
-struct VisualSourcePayload {
-    kind: &'static str,
-    blob: String,
-    page_start: Option<u32>,
-    page_end: Option<u32>,
-    page: Option<u32>,
-    x: Option<u32>,
-    y: Option<u32>,
-    width: Option<u32>,
-    height: Option<u32>,
-}
-
-#[derive(Debug, Deserialize)]
-struct VisualApiResponse {
-    data: Vec<VisualData>,
-    #[serde(default)]
-    model: String,
-}
-
-#[derive(Debug, Deserialize)]
-struct VisualData {
-    embedding: Vec<f32>,
-}
-
-fn source_payload(source: &VisualSource) -> VisualSourcePayload {
-    match source {
-        VisualSource::Page {
-            blob,
-            page_start,
-            page_end,
-        } => VisualSourcePayload {
-            kind: "page",
-            blob: blob.to_string(),
-            page_start: Some(*page_start),
-            page_end: Some(*page_end),
-            page: None,
-            x: None,
-            y: None,
-            width: None,
-            height: None,
-        },
-        VisualSource::Region {
-            blob,
-            page,
-            x,
-            y,
-            width,
-            height,
-        } => VisualSourcePayload {
-            kind: "region",
-            blob: blob.to_string(),
-            page_start: None,
-            page_end: None,
-            page: Some(*page),
-            x: Some(*x),
-            y: Some(*y),
-            width: Some(*width),
-            height: Some(*height),
-        },
     }
 }
 

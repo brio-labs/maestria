@@ -8,7 +8,7 @@ use crate::helpers;
 
 pub fn run_list(instance_dir: PathBuf) -> Result<()> {
     let layout = helpers::validated_instance(instance_dir)?;
-    let store = SqliteStore::open(&layout.database_path)
+    let store = SqliteStore::open_read_only(&layout.database_path)
         .with_context(|| format!("open sqlite store {}", layout.database_path.display()))?;
 
     let pending = store
@@ -44,7 +44,7 @@ pub async fn run_resolve(instance_dir: PathBuf, id: u64, approved: bool) -> Resu
     .context("start mutation session")?;
 
     let operation = async {
-        let store = SqliteStore::open(&layout.database_path)
+        let store = SqliteStore::open_read_only(&layout.database_path)
             .with_context(|| format!("open sqlite store {}", layout.database_path.display()))?;
         let approval_id = maestria_domain::ApprovalId::new(id);
         let record = store

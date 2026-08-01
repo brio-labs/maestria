@@ -8,12 +8,14 @@ mod completion;
 /// - `effect_execution_dispatch`: governance dispatch and effect routing.
 /// - `effect_result`: effect failure and result handling.
 /// - `harness`: harness execution effects.
+/// - `harness_gate`: harness capability, scope, and path gating policy.
 /// - `indexing`: full-text indexing effects.
 /// - `ocr`: module responsibility.
 /// - `parser_mapping`: parser status mappings.
 /// - `parsing`: artifact parsing effects.
 /// - `parsing_records`: parser record construction.
 /// - `persistence`: event and entity persistence effects.
+/// - `proposal_persistence`: approval continuation codec and pending-harness persistence.
 /// - `proposal_recovery`: durable journal recovery boundary for model-agent harness outcomes.
 /// - `proposal_workflow`: governed model-agent terminal workflow and results.
 /// - `shell_policy`: shell grammar and scope policy.
@@ -36,6 +38,7 @@ mod effect_execution;
 mod effect_execution_dispatch;
 mod effect_result;
 mod harness;
+mod harness_gate;
 mod indexing;
 mod ocr;
 mod parser_mapping;
@@ -43,6 +46,7 @@ mod parsing;
 mod parsing_records;
 mod parsing_terminal;
 mod persistence;
+mod proposal_persistence;
 mod proposal_recovery;
 mod proposal_workflow;
 mod runtime;
@@ -57,7 +61,7 @@ mod vector_indexing;
 mod web_evidence;
 
 pub use config::{Adapters, Governance, RuntimeConfig};
-pub use effect_execution::decode_pending_continuation;
+pub use proposal_persistence::decode_pending_continuation;
 pub use runtime::{
     DomainApplicationResult, FeedbackError, MaestriaRuntime, RuntimeHandle, RuntimeSubmissionError,
     RuntimeSubmissionPermit,

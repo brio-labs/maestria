@@ -2,8 +2,8 @@ use crate::config::EffectExecutionContext;
 use crate::effect_admission::{
     ApprovalWait, ApprovedProposalClaim, EffectAdmission, RejectionCause, RejectionHandling,
 };
-use crate::effect_execution::{persist_pending_harness, record_denied_harness};
 use crate::effect_result::{EffectFailure, handler_result};
+use crate::proposal_persistence::{persist_pending_harness, record_denied_harness};
 use crate::proposal_recovery::journal_entry_matches_proposal;
 use crate::proposal_workflow::model_agent_denial_result;
 use maestria_domain::{MaestriaEffect, ModelAgentProposalExecution};

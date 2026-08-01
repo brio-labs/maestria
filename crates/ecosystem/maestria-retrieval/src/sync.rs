@@ -81,6 +81,18 @@ pub struct SyncPipeline<'a, C, O> {
     capabilities: maestria_governance::SearchCapabilities,
     security_policy: maestria_governance::RetrievalSecurityPolicy,
 }
+/// Context shared by every lane dispatched in one pipeline run.
+struct LaneDispatchContext<'a, C> {
+    plan: &'a SearchPlan,
+    execution_budget: SearchExecutionBudget,
+    lane_count: usize,
+    lane_index: &'a mut usize,
+    lane_query: &'a str,
+    sets: &'a mut Vec<Vec<C>>,
+    lane_sets: &'a mut SyncLaneSets<C>,
+    check_timeout: &'a dyn Fn() -> RetrievalResult<()>,
+}
+
 impl<'a, C, O> SyncPipeline<'a, C, O> {
     pub fn new<R, V>(retrievers: Vec<R>, evaluator: V) -> Self
     where
@@ -202,6 +214,56 @@ impl<'a, C, O> SyncPipeline<'a, C, O> {
         Ok((candidates, status))
     }
 
+    /// Dispatches one lane: allocates its budget, runs the retriever, truncates
+    /// to the lane limit, applies the candidate filter, and records the lane set.
+    fn dispatch_lane(
+        &self,
+        context: LaneDispatchContext<'_, C>,
+        run: impl FnOnce(SearchExecutionBudget) -> RetrievalResult<Vec<C>>,
+    ) -> RetrievalResult<()>
+    where
+        C: Clone,
+    {
+        let LaneDispatchContext {
+            plan,
+            execution_budget,
+            lane_count,
+            lane_index,
+            lane_query,
+            sets,
+            lane_sets,
+            check_timeout,
+        } = context;
+        let Some(budget) = lane_budget(
+            plan,
+            SearchExecutionUsage::default(),
+            lane_count,
+            *lane_index,
+        ) else {
+            lane_sets.push((
+                lane_query.to_string(),
+                Vec::new(),
+                SearchLaneStatus::Failed {
+                    error: "lane budget exhausted before dispatch".to_string(),
+                },
+                exhausted_lane_execution(execution_budget),
+            ));
+            sets.push(Vec::new());
+            *lane_index = lane_index.saturating_add(1);
+            return Ok(());
+        };
+        let candidate_limit = execution_candidate_limit(budget);
+        let mut set = run(budget)?;
+        let truncated = set.len() > candidate_limit;
+        set.truncate(candidate_limit);
+        let execution = lane_execution(budget, set.len(), truncated);
+        let (set, status) = self.apply_candidate_filter(set, plan)?;
+        lane_sets.push((lane_query.to_string(), set.clone(), status, execution));
+        sets.push(set);
+        *lane_index = lane_index.saturating_add(1);
+        check_timeout()
+    }
+
     fn collect_lane_sets(
         &self,
         plan: &SearchPlan,
@@ -217,65 +279,35 @@ impl<'a, C, O> SyncPipeline<'a, C, O> {
         let mut lane_sets = Vec::with_capacity(lane_count);
         let mut lane_index = 0_usize;
         for retriever in &self.retrievers {
-            let Some(lane_budget) = lane_budget(
-                plan,
-                SearchExecutionUsage::default(),
-                lane_count,
-                lane_index,
-            ) else {
-                lane_sets.push((
-                    plan.original_query.clone(),
-                    Vec::new(),
-                    SearchLaneStatus::Failed {
-                        error: "lane budget exhausted before dispatch".to_string(),
-                    },
-                    exhausted_lane_execution(execution_budget),
-                ));
-                sets.push(Vec::new());
-                lane_index = lane_index.saturating_add(1);
-                continue;
-            };
-            let candidate_limit = execution_candidate_limit(lane_budget);
-            let mut set = retriever(plan, lane_budget)?;
-            let truncated = set.len() > candidate_limit;
-            set.truncate(candidate_limit);
-            let execution = lane_execution(lane_budget, set.len(), truncated);
-            let (set, status) = self.apply_candidate_filter(set, plan)?;
-            lane_sets.push((plan.original_query.clone(), set.clone(), status, execution));
-            sets.push(set);
-            lane_index = lane_index.saturating_add(1);
-            check_timeout()?;
+            self.dispatch_lane(
+                LaneDispatchContext {
+                    plan,
+                    execution_budget,
+                    lane_count,
+                    lane_index: &mut lane_index,
+                    lane_query: &plan.original_query,
+                    sets: &mut sets,
+                    lane_sets: &mut lane_sets,
+                    check_timeout,
+                },
+                |budget| retriever(plan, budget),
+            )?;
         }
         for query in rewrite_queries {
             for retriever in &self.query_retrievers {
-                let Some(lane_budget) = lane_budget(
-                    plan,
-                    SearchExecutionUsage::default(),
-                    lane_count,
-                    lane_index,
-                ) else {
-                    lane_sets.push((
-                        query.clone(),
-                        Vec::new(),
-                        SearchLaneStatus::Failed {
-                            error: "lane budget exhausted before dispatch".to_string(),
-                        },
-                        exhausted_lane_execution(execution_budget),
-                    ));
-                    sets.push(Vec::new());
-                    lane_index = lane_index.saturating_add(1);
-                    continue;
-                };
-                let candidate_limit = execution_candidate_limit(lane_budget);
-                let mut set = retriever(plan, query, lane_budget)?;
-                let truncated = set.len() > candidate_limit;
-                set.truncate(candidate_limit);
-                let execution = lane_execution(lane_budget, set.len(), truncated);
-                let (set, status) = self.apply_candidate_filter(set, plan)?;
-                lane_sets.push((query.clone(), set.clone(), status, execution));
-                sets.push(set);
-                lane_index = lane_index.saturating_add(1);
-                check_timeout()?;
+                self.dispatch_lane(
+                    LaneDispatchContext {
+                        plan,
+                        execution_budget,
+                        lane_count,
+                        lane_index: &mut lane_index,
+                        lane_query: query,
+                        sets: &mut sets,
+                        lane_sets: &mut lane_sets,
+                        check_timeout,
+                    },
+                    |budget| retriever(plan, query, budget),
+                )?;
             }
         }
         Ok((sets, lane_sets))

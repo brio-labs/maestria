@@ -5,8 +5,8 @@ use tantivy::{
     query::{EnableScoring, Query, Scorer},
 };
 
+use crate::error::to_port_error;
 use crate::execution::Meter;
-use crate::tantivy_index::to_port_error;
 
 pub(super) struct BoundedCollection {
     pub(super) docs: Vec<(f32, DocAddress)>,

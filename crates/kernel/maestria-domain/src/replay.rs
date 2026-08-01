@@ -1,6 +1,7 @@
 use crate::types::*;
 
 mod ocr;
+mod replay_entities;
 
 impl KernelState {
     pub fn apply_event(&mut self, envelope: DomainEventEnvelope) -> Result<(), DomainError> {
@@ -53,18 +54,20 @@ impl KernelState {
             | DomainEvent::TickObserved { .. } => {
                 self.replay_orchestration_events(&envelope.event)?;
             }
-            DomainEvent::CardCreated { .. }
-            | DomainEvent::ClaimCreated { .. }
+            DomainEvent::CardCreated { .. } => self.replay_card_events(&envelope.event)?,
+            DomainEvent::ClaimCreated { .. }
             | DomainEvent::ClaimValidationUpdated { .. }
-            | DomainEvent::ClaimEvidenceLinked { .. }
-            | DomainEvent::EvidenceRecorded { .. }
-            | DomainEvent::TaskOpened { .. }
+            | DomainEvent::ClaimEvidenceLinked { .. } => {
+                self.replay_claim_events(&envelope.event)?
+            }
+            DomainEvent::EvidenceRecorded { .. } => self.replay_evidence_events(&envelope.event)?,
+            DomainEvent::TaskOpened { .. }
             | DomainEvent::TaskStatusChanged { .. }
             | DomainEvent::TaskCompletionRecorded { .. }
-            | DomainEvent::TaskEvidenceLinked { .. }
-            | DomainEvent::RelationCreated { .. }
-            | DomainEvent::ValidationReportCreated { .. } => {
-                self.replay_entity_events(&envelope.event)?;
+            | DomainEvent::TaskEvidenceLinked { .. } => self.replay_task_events(&envelope.event)?,
+            DomainEvent::RelationCreated { .. } => self.replay_relation_events(&envelope.event)?,
+            DomainEvent::ValidationReportCreated { .. } => {
+                self.replay_validation_events(&envelope.event)?;
             }
             DomainEvent::SourceBecameStale { source_path, .. } => {
                 self.stale_sources.insert(source_path.clone());
@@ -268,103 +271,6 @@ impl KernelState {
             }
             _ => Err(DomainError::InternalInvariantViolation {
                 detail: "replay_orchestration_events: unexpected event variant",
-            }),
-        }
-    }
-
-    fn replay_entity_events(&mut self, event: &DomainEvent) -> Result<(), DomainError> {
-        match event {
-            DomainEvent::CardCreated {
-                card_id,
-                artifact_id,
-                node_id,
-                source_span,
-                title,
-                body,
-                security,
-            } => self.apply_card_created(crate::input::ApplyCardCreatedArgs {
-                card_id: *card_id,
-                artifact_id: *artifact_id,
-                node_id: *node_id,
-                source_span: *source_span,
-                title,
-                body,
-                security,
-            }),
-            DomainEvent::ClaimCreated {
-                claim_id,
-                artifact_id,
-                text,
-                evidence_ids,
-                security,
-            } => self.apply_claim_created(*claim_id, *artifact_id, text, evidence_ids, security),
-            DomainEvent::ClaimValidationUpdated { claim_id, status } => {
-                self.apply_claim_validation_updated(*claim_id, status)
-            }
-            DomainEvent::ClaimEvidenceLinked {
-                claim_id,
-                evidence_id,
-            } => self.apply_claim_evidence_linked(*claim_id, *evidence_id),
-            DomainEvent::EvidenceRecorded {
-                evidence_id,
-                artifact_id,
-                claim_id,
-                kind,
-                excerpt,
-                observed_at,
-                security,
-            } => self.apply_evidence_recorded(crate::input::ApplyEvidenceRecordedArgs {
-                evidence_id: *evidence_id,
-                artifact_id: *artifact_id,
-                claim_id: *claim_id,
-                kind,
-                excerpt,
-                observed_at: *observed_at,
-                security,
-            }),
-            DomainEvent::TaskOpened {
-                task_id,
-                title,
-                priority,
-                artifact_id,
-            } => self.apply_task_opened(*task_id, title, *priority, *artifact_id),
-            DomainEvent::TaskStatusChanged { task_id, from, to } => {
-                self.apply_task_status_changed(*task_id, *from, *to)
-            }
-            DomainEvent::TaskCompletionRecorded {
-                task_id,
-                status,
-                validation_report_id,
-            } => self.apply_task_completion_recorded(*task_id, *status, *validation_report_id),
-            DomainEvent::TaskEvidenceLinked {
-                task_id,
-                evidence_id,
-            } => self.apply_task_evidence_linked(*task_id, *evidence_id),
-            DomainEvent::RelationCreated {
-                relation_id,
-                source,
-                kind,
-                target,
-                evidence_id,
-                confidence_milli,
-                security,
-            } => self.apply_relation_created(crate::input::ApplyRelationCreatedArgs {
-                relation_id: *relation_id,
-                source: *source,
-                kind: *kind,
-                target: *target,
-                evidence_id: *evidence_id,
-                confidence_milli: *confidence_milli,
-                security,
-            }),
-            DomainEvent::ValidationReportCreated {
-                report_id,
-                task_id,
-                passed,
-                warnings,
-            } => self.apply_validation_report_created(*report_id, *task_id, *passed, warnings),
-            _ => Err(DomainError::InternalInvariantViolation {
-                detail: "replay_entity_events: unexpected event variant",
             }),
         }
     }

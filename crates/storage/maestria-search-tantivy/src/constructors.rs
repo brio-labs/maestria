@@ -1,6 +1,7 @@
 use crate::{
+    error::to_port_error,
     schema::{self, schema},
-    tantivy_index::{TantivyFullTextIndex, to_port_error},
+    tantivy_index::TantivyFullTextIndex,
 };
 use maestria_domain::{ContentHash, IndexFingerprint, content_hash};
 use maestria_ports::PortError;
