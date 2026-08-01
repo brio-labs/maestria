@@ -295,6 +295,9 @@ RESPONSIBILITY_MAPS: dict[str, tuple[str, ...]] = {
         "types",
         "version",
     ),
+    "crates/apps/maestria-cli/src/lib.rs": (
+        "test_support",
+    ),
     "crates/apps/maestria-daemon/src/lib.rs": (
         "api",
         "lock",

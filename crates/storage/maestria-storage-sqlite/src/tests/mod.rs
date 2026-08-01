@@ -1,3 +1,4 @@
+mod approval_payload_tests;
 mod contract_tests;
 mod event_tests;
 mod id_allocator_tests;

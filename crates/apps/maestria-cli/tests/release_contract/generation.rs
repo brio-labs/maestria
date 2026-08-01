@@ -9,7 +9,7 @@ use std::{
     time::Duration,
 };
 
-use super::common::{TempDir, assert_index_ok, assert_init_ok, assert_ok, write_file};
+use maestria_cli::test_support::{TempDir, assert_index_ok, assert_init_ok, assert_ok, write_file};
 
 struct LocalEmbeddingServer {
     endpoint: String,

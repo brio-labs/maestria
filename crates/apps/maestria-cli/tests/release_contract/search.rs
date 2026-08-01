@@ -1,4 +1,6 @@
-use super::common::{TempDir, assert_index_ok, assert_init_ok, assert_ok, run, write_file};
+use maestria_cli::test_support::{
+    TempDir, assert_index_ok, assert_init_ok, assert_ok, run, write_file,
+};
 
 fn parse_key_values(line: &str) -> std::collections::BTreeMap<&str, &str> {
     line.split_whitespace()

@@ -1,5 +1,3 @@
-mod common;
-
 use std::{
     fs,
     path::PathBuf,
@@ -8,7 +6,7 @@ use std::{
     time::Duration,
 };
 
-use common::*;
+use maestria_cli::test_support::*;
 use maestria_core::InstanceLayout;
 use maestria_daemon::ClientRequest;
 use maestria_daemon::{ClientOperation, ClientResponse, DaemonClient};

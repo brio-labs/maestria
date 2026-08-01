@@ -1,5 +1,3 @@
-mod common;
-
 use std::{
     fs,
     process::{self, Command, Stdio},
@@ -7,7 +5,7 @@ use std::{
     time::Duration,
 };
 
-use common::*;
+use maestria_cli::test_support::*;
 
 struct DaemonHandle {
     child: process::Child,
@@ -23,7 +21,7 @@ impl Drop for DaemonHandle {
 #[test]
 fn daemon_instance_serves_search_status_and_open_evidence_while_running()
 -> Result<(), Box<dyn std::error::Error>> {
-    let temp = common::TempDir::new("maestria-cli-daemon-query")?;
+    let temp = TempDir::new("maestria-cli-daemon-query")?;
     let instance_root = temp.path().join("instance");
     let notes_dir = instance_root.join("notes");
     fs::create_dir_all(&notes_dir)?;

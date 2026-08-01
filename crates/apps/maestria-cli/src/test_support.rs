@@ -68,7 +68,11 @@ pub fn write_file(
     name: &str,
     contents: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    fs::write(parent.join(name), contents)?;
+    let path = parent.join(name);
+    if let Some(dir) = path.parent() {
+        fs::create_dir_all(dir)?;
+    }
+    fs::write(&path, contents)?;
     Ok(())
 }
 pub fn assert_ok(args: &[&str]) -> Result<String, Box<dyn std::error::Error>> {
@@ -113,4 +117,99 @@ pub fn assert_index_ok(instance_path: &str, file: &str) -> Result<(), Box<dyn st
         "index stdout missing 'indexed': {stdout}"
     );
     Ok(())
+}
+
+/// Assert a command fails with a non-zero exit code, writes nothing to
+/// stdout, and return its stderr.
+pub fn assert_err(args: &[&str]) -> Result<String, Box<dyn std::error::Error>> {
+    let (code, stdout, stderr) = run(args)?;
+    assert_ne!(
+        code, 0,
+        "command unexpectedly succeeded: {args:?}\nstdout: {stdout}"
+    );
+    assert!(
+        stdout.trim().is_empty(),
+        "failed command wrote unexpected stdout: {stdout}"
+    );
+    Ok(stderr)
+}
+
+/// Parse whitespace-separated `key=value` tokens from a CLI output line.
+pub fn parse_kv(line: &str) -> Vec<(&str, &str)> {
+    line.split_whitespace()
+        .filter_map(|token| token.split_once('='))
+        .collect()
+}
+
+/// Look up one `key=value` token in a CLI output line.
+pub fn parse_kv_value<'a>(line: &'a str, key: &str) -> Option<&'a str> {
+    parse_kv(line)
+        .into_iter()
+        .find_map(|(candidate_key, value)| (candidate_key == key).then_some(value))
+}
+
+/// Run `search` and return the `(artifact, evidence)` ids from the first
+/// evidence line of its output.
+pub fn assert_search_finds(
+    instance_path: &str,
+    query: &str,
+) -> Result<(String, String), Box<dyn std::error::Error>> {
+    let stdout = assert_ok(&["search", "-i", instance_path, query])?;
+    let evidence_output_line = stdout
+        .lines()
+        .find(|line| line.contains("evidence="))
+        .ok_or("search output missing evidence line")?;
+    let kv = parse_kv(evidence_output_line);
+    let artifact_id = kv
+        .iter()
+        .find(|(key, _)| *key == "artifact")
+        .map(|(_, value)| *value)
+        .ok_or("search output missing artifact=<id>")?;
+    let evidence_id = kv
+        .iter()
+        .find(|(key, _)| *key == "evidence")
+        .map(|(_, value)| *value)
+        .ok_or("search output missing evidence=<id>")?;
+    assert!(
+        evidence_id.parse::<u64>().is_ok(),
+        "evidence id not a u64: {evidence_id}"
+    );
+    Ok((artifact_id.to_string(), evidence_id.to_string()))
+}
+
+/// Run `task start` and return the extracted numeric task id.
+pub fn assert_task_start(
+    instance_path: &str,
+    title: &str,
+) -> Result<String, Box<dyn std::error::Error>> {
+    let args: Vec<&str> = vec!["task", "start", "-i", instance_path, title];
+    let stdout = assert_ok_lines(&args, 1)?;
+    let line = stdout.trim();
+    let task_prefix = "task=";
+    let task_start = line
+        .find(task_prefix)
+        .ok_or("task start output missing task=")?;
+    let after_task = &line[task_start + task_prefix.len()..];
+    let task_id: String = after_task
+        .chars()
+        .take_while(|c| c.is_ascii_digit())
+        .collect();
+    assert!(
+        !task_id.is_empty(),
+        "could not extract task id from: {line}"
+    );
+    Ok(task_id)
+}
+
+/// Run `status` and return the persisted event count; missing counts are
+/// reported as a test failure rather than silently treated as zero.
+pub fn status_event_count(instance_path: &str) -> Result<usize, Box<dyn std::error::Error>> {
+    let (code, stdout, stderr) = run(&["status", "-i", instance_path])?;
+    assert_eq!(code, 0, "status failed: {stderr}");
+    let event_count = stdout
+        .lines()
+        .find_map(|line| line.strip_prefix("events "))
+        .and_then(|value| value.parse().ok())
+        .ok_or("status output missing event count")?;
+    Ok(event_count)
 }
