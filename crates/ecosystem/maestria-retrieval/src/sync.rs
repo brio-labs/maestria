@@ -3,7 +3,7 @@ use maestria_domain::{
     SearchExecutionUsage, SearchLaneStatus, SearchPlan,
 };
 
-use crate::engine::rewrite_session;
+use crate::engine::{lane_budget, rewrite_session};
 use crate::types::{RetrievalError, RetrievalResult};
 
 fn default_capabilities() -> maestria_governance::SearchCapabilities {
@@ -24,32 +24,6 @@ fn execution_candidate_limit(budget: SearchExecutionBudget) -> usize {
     maestria_domain::saturating_usize(budget.max_results())
         .min(maestria_domain::saturating_usize(budget.max_candidates()))
         .min(maestria_domain::saturating_usize(budget.max_work_units()))
-}
-
-fn partition_budget(
-    global: SearchExecutionBudget,
-    lanes: usize,
-    lane: usize,
-) -> Option<SearchExecutionBudget> {
-    let lanes = lanes.max(1) as u64;
-    let partition = |total: u64| total / lanes + u64::from((lane as u64) < total % lanes);
-    let max_results = partition(global.max_results());
-    let max_candidates = partition(global.max_candidates());
-    let max_work_units = partition(global.max_work_units());
-    if max_results == 0 || max_candidates == 0 || max_work_units == 0 {
-        return None;
-    }
-    let max_bytes_read = global
-        .max_bytes_read()
-        .map(|limit| partition(limit.get()))
-        .and_then(std::num::NonZeroU64::new);
-    SearchExecutionBudget::with_byte_limit(
-        max_results,
-        max_candidates,
-        max_work_units,
-        max_bytes_read,
-    )
-    .ok()
 }
 
 fn lane_execution(
@@ -243,8 +217,12 @@ impl<'a, C, O> SyncPipeline<'a, C, O> {
         let mut lane_sets = Vec::with_capacity(lane_count);
         let mut lane_index = 0_usize;
         for retriever in &self.retrievers {
-            let Some(lane_budget) = partition_budget(execution_budget, lane_count, lane_index)
-            else {
+            let Some(lane_budget) = lane_budget(
+                plan,
+                SearchExecutionUsage::default(),
+                lane_count,
+                lane_index,
+            ) else {
                 lane_sets.push((
                     plan.original_query.clone(),
                     Vec::new(),
@@ -270,8 +248,12 @@ impl<'a, C, O> SyncPipeline<'a, C, O> {
         }
         for query in rewrite_queries {
             for retriever in &self.query_retrievers {
-                let Some(lane_budget) = partition_budget(execution_budget, lane_count, lane_index)
-                else {
+                let Some(lane_budget) = lane_budget(
+                    plan,
+                    SearchExecutionUsage::default(),
+                    lane_count,
+                    lane_index,
+                ) else {
                     lane_sets.push((
                         query.clone(),
                         Vec::new(),
