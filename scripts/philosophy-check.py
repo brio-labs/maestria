@@ -652,8 +652,89 @@ def scan_documentation_contract() -> list[str]:
     return violations
 
 
+def _balanced_end(text: str, opening: int, left: str, right: str) -> int:
+    """End (exclusive) of the balanced `left`/`right` group starting at
+    *opening* (which points at `left`)."""
+    depth = 0
+    for idx in range(opening, len(text)):
+        if text[idx] == left:
+            depth += 1
+        elif text[idx] == right:
+            depth -= 1
+            if depth == 0:
+                return idx + 1
+    return len(text)
+
+
+def _gated_item_end(text: str, attr_start: int) -> int:
+    """End (exclusive) of the item gated by the attribute at *attr_start*.
+
+    Consumes the attribute, any immediately following attributes, then the
+    item body: a balanced `{...}` group or a declaration ending at a
+    top-level `;`. The scan runs on syntax-scrubbed text so braces inside
+    strings or comments cannot confuse item boundaries.
+    """
+    n = len(text)
+    index = attr_start
+    while index < n:
+        if text[index] == "#" and index + 1 < n and text[index + 1] == "[":
+            index = _balanced_end(text, index + 1, "[", "]")
+            continue
+        break
+    while index < n and text[index] in " \t\r\n":
+        index += 1
+    depths = {"{": 0, "(": 0, "[": 0}
+    closing = {"}": "{", ")": "(", "]": "["}
+    for idx in range(index, n):
+        token = text[idx]
+        if token in depths:
+            depths[token] += 1
+        elif token in closing and depths[closing[token]] > 0:
+            depths[closing[token]] -= 1
+            if token == "}" and not any(depths.values()):
+                return idx + 1
+        elif token == ";" and not any(depths.values()):
+            return idx + 1
+    return n
+
+
+def _cfg_test_item_extents(text: str) -> list[tuple[int, int]]:
+    """Extents of every `#[cfg(test)]`-gated item in *text*.
+
+    Offsets are located in syntax-scrubbed text so occurrences inside
+    comments or string literals never trigger removal; the scrubber blanks
+    those regions while preserving byte positions.
+    """
+    scrubbed = _rust_syntax(text)
+    extents: list[tuple[int, int]] = []
+    search_from = 0
+    while True:
+        start = scrubbed.find("#[cfg(test)]", search_from)
+        if start == -1:
+            return extents
+        end = _gated_item_end(scrubbed, start)
+        extents.append((start, end))
+        search_from = end
+
+
 def production_rust(text: str) -> str:
-    return text.split("#[cfg(test)]", 1)[0]
+    """Production portion of a Rust file: the source with every
+    `#[cfg(test)]`-gated item removed.
+
+    Test-only imports at the top of a file, test modules, and gated helper
+    functions are excluded while production code after them is preserved;
+    the literal appearing inside a comment or string never truncates.
+    """
+    extents = _cfg_test_item_extents(text)
+    if not extents:
+        return text
+    kept: list[str] = []
+    cursor = 0
+    for start, end in extents:
+        kept.append(text[cursor:start])
+        cursor = end
+    kept.append(text[cursor:])
+    return "".join(kept)
 
 
 _NAMED_STRUCT_PATTERN = re.compile(

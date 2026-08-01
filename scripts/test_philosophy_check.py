@@ -914,6 +914,96 @@ dev_alias = { package = "unknown-package", version = "1" }
         self.assertNotIn("// normal comment", result)
         self.assertIn("pub fn foo", result)
 
+    def test_production_rust_keeps_code_after_top_test_import(self) -> None:
+        body = (
+            "#[cfg(test)]\n"
+            "use std::path::PathBuf;\n"
+            "use std::collections::HashMap;\n"
+            "\n"
+            "pub fn f() -> u32 { 1 }\n"
+            "\n"
+            "#[cfg(test)]\n"
+            "mod tests {\n"
+            "    fn t() {}\n"
+            "}\n"
+        )
+        result = PHILOSOPHY_CHECK.production_rust(body)
+        self.assertIn("pub fn f", result)
+        self.assertIn("use std::collections::HashMap", result)
+        self.assertNotIn("use std::path::PathBuf", result)
+        self.assertNotIn("mod tests", result)
+
+    def test_production_rust_ignores_literal_in_strings_and_comments(self) -> None:
+        body = (
+            'pub fn f() -> &\'static str { "#[cfg(test)]" }\n'
+            "// docs mention #[cfg(test)] here\n"
+            "pub fn g() {}\n"
+            "\n"
+            "#[cfg(test)]\n"
+            "mod tests {}\n"
+        )
+        result = PHILOSOPHY_CHECK.production_rust(body)
+        self.assertIn('"#[cfg(test)]"', result)
+        self.assertIn("// docs mention #[cfg(test)] here", result)
+        self.assertIn("pub fn g", result)
+        self.assertNotIn("mod tests", result)
+
+    def test_production_rust_ignores_literal_in_raw_string(self) -> None:
+        body = 'pub fn f() -> &str { r#"#[cfg(test)]"# }\n\n#[cfg(test)]\nmod tests {}\n'
+        result = PHILOSOPHY_CHECK.production_rust(body)
+        self.assertIn('r#"#[cfg(test)]"#', result)
+        self.assertNotIn("mod tests", result)
+
+    def test_production_rust_strips_gated_function_with_attribute_chain(self) -> None:
+        body = (
+            "pub fn a() {}\n"
+            "\n"
+            "#[cfg(test)]\n"
+            "#[derive(Debug)]\n"
+            "fn helper() -> u32 { 42 }\n"
+            "\n"
+            "pub fn b() {}\n"
+        )
+        result = PHILOSOPHY_CHECK.production_rust(body)
+        self.assertIn("pub fn a", result)
+        self.assertIn("pub fn b", result)
+        self.assertNotIn("helper", result)
+
+    def test_production_rust_strips_gated_module_declaration(self) -> None:
+        body = "pub fn e() {}\n\n#[cfg(test)]\nmod tests;\n"
+        result = PHILOSOPHY_CHECK.production_rust(body)
+        self.assertIn("pub fn e", result)
+        self.assertNotIn("mod tests", result)
+
+    def test_production_rust_strips_gated_blocks_with_braces_in_strings(self) -> None:
+        body = (
+            "pub fn d() { let s = \"}\"; }\n"
+            "\n"
+            "#[cfg(test)]\n"
+            "mod tests {\n"
+            "    fn t() { let x = \"{\"; assert_eq!(x, \"{\"); }\n"
+            "}\n"
+        )
+        result = PHILOSOPHY_CHECK.production_rust(body)
+        self.assertIn("pub fn d", result)
+        self.assertNotIn("mod tests", result)
+
+    def test_production_rust_strips_doc_commented_gated_item(self) -> None:
+        body = (
+            "#[cfg(test)]\n"
+            "/// helper docs\n"
+            "fn helper() {}\n"
+            "\n"
+            "pub fn f() {}\n"
+        )
+        result = PHILOSOPHY_CHECK.production_rust(body)
+        self.assertIn("pub fn f", result)
+        self.assertNotIn("helper", result)
+
+    def test_production_rust_without_cfg_test_is_unchanged(self) -> None:
+        body = "pub fn f() {}\n// plain comment\n"
+        self.assertEqual(PHILOSOPHY_CHECK.production_rust(body), body)
+
     def test_scan_rust_lint_bypasses_reports_expect_attribute(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

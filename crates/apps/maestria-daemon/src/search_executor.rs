@@ -6,6 +6,8 @@ mod port;
 mod projection;
 #[path = "repository_code_loader.rs"]
 mod repository_code_loader;
+#[path = "search_visual_runtime.rs"]
+mod visual_runtime;
 pub use construction::{
     prepare_search_runtime, prepare_search_runtime_read_only,
     prepare_search_runtime_read_only_with_repository_policy,
@@ -15,19 +17,15 @@ pub(crate) use repository_code_loader::load_repository_code_index_with_exclusion
 #[cfg(test)]
 #[path = "search_executor_tests.rs"]
 mod tests;
-use std::{
-    collections::{BTreeMap, BTreeSet},
-    sync::Arc,
-};
+use std::{collections::BTreeSet, sync::Arc};
 
 use anyhow::{Result, anyhow};
 use maestria_blob_fs::FsBlobStore;
 use maestria_code_intel::RepositoryCodeIndex;
 use maestria_core::{InstanceLayout, InstanceManifest};
 use maestria_domain::{
-    ArtifactVersionId, CorpusSnapshotId, DomainEvent, DomainEventEnvelope, IndexGenerationId,
-    IndexGenerationRegistry, KernelState, RepresentationName, RetrievalModelFingerprint,
-    SearchOutcome, SearchPlan,
+    ArtifactVersionId, CorpusSnapshotId, DomainEventEnvelope, IndexGenerationId, KernelState,
+    RepresentationName, RetrievalModelFingerprint, SearchOutcome, SearchPlan,
 };
 use maestria_graph_sqlite::SqliteGraphIndex;
 use maestria_ports::{
@@ -40,12 +38,11 @@ use maestria_retrieval::adapters::{
     DenseChunkRetriever, DenseChunkRetrieverParts, EvidenceOutcomeEvaluator,
     HierarchyGraphExpander, HierarchyGraphExpanderParts, LexicalChunkRetriever,
     LexicalChunkRetrieverParts, VisualGenerationCapability, VisualPageRegionRetriever,
-    VisualPageRegionRetrieverParts, VisualProjectionRebuildParts, rebuild_visual_projection,
+    VisualPageRegionRetrieverParts,
 };
 use maestria_retrieval::{
     CandidateReranker, CandidateRetriever, FixedKRrf, HybridExecutionPolicy,
-    RepositoryExecutionPolicy, RerankLimits, RetrievalEngine, SearchPlannerContext,
-    VisualExecutionPolicy, VisualReranker, VisualRerankerParts,
+    RepositoryExecutionPolicy, RetrievalEngine, SearchPlannerContext, VisualExecutionPolicy,
 };
 use maestria_search_tantivy::TantivyFullTextIndex;
 use maestria_storage_sqlite::SqliteStore;
@@ -99,30 +96,7 @@ pub struct SearchRuntime {
     pub(crate) fingerprint: RetrievalModelFingerprint,
 }
 
-pub(crate) fn reconcile_active_versions(
-    events: &[DomainEventEnvelope],
-) -> BTreeSet<ArtifactVersionId> {
-    let mut latest_by_path = BTreeMap::new();
-    for envelope in events {
-        match &envelope.event {
-            DomainEvent::ParserStarted {
-                artifact_id,
-                source_path,
-                ..
-            } => {
-                latest_by_path.insert(
-                    source_path.clone(),
-                    ArtifactVersionId::new(artifact_id.value()),
-                );
-            }
-            DomainEvent::SourceBecameStale { source_path, .. } => {
-                latest_by_path.remove(source_path);
-            }
-            _ => {}
-        }
-    }
-    latest_by_path.into_values().collect()
-}
+pub(crate) use projection::reconcile_active_versions;
 
 impl SearchRuntime {
     pub(crate) fn from_parts(
@@ -159,102 +133,6 @@ impl SearchRuntime {
         })
     }
 
-    /// Enables the optional visual page/region lane for this runtime.
-    ///
-    /// The provider, visual index, and active registry generation are supplied
-    /// separately so text and visual representations cannot share rows.
-    pub fn with_visual_embedding_provider(
-        self: Arc<Self>,
-        provider: Arc<dyn maestria_ports::VisualEmbeddingProvider + Send + Sync>,
-        visual_index: Arc<dyn VectorIndex + Send + Sync>,
-        registry: &IndexGenerationRegistry,
-    ) -> Result<Arc<Self>> {
-        let mut runtime = (*self).clone();
-        runtime.configure_visual_embedding_provider(provider, visual_index, registry)?;
-        Ok(Arc::new(runtime))
-    }
-
-    fn configure_visual_embedding_provider(
-        &mut self,
-        provider: Arc<dyn maestria_ports::VisualEmbeddingProvider + Send + Sync>,
-        visual_index: Arc<dyn VectorIndex + Send + Sync>,
-        registry: &IndexGenerationRegistry,
-    ) -> Result<()> {
-        let identity = provider
-            .identity()
-            .ok_or_else(|| anyhow!("visual provider identity is unavailable"))?;
-        let disclosure = provider.disclosure();
-        if disclosure.remote || disclosure.retention != maestria_ports::RetentionPolicy::NoRetention
-        {
-            return Err(anyhow!(
-                "visual provider must be local and no-retention before activation"
-            ));
-        }
-        let capability =
-            VisualGenerationCapability::activate(registry, identity, self.corpus_snapshot)
-                .map_err(|error| anyhow!("activate visual generation: {error}"))?;
-        let artifact_ids = self
-            .current_artifact_versions()?
-            .into_iter()
-            .map(|version| maestria_domain::ArtifactId::new(version.value()))
-            .collect::<Vec<_>>();
-        rebuild_visual_projection(
-            VisualProjectionRebuildParts {
-                index: visual_index.as_ref(),
-                artifacts: self.artifacts.as_ref(),
-                chunks: self.chunks.as_ref(),
-                evidence: self.evidence.as_ref(),
-                blobs: self.blobs.as_ref(),
-                policy: &self.retrieval_policy,
-                provider: provider.as_ref(),
-            },
-            &artifact_ids,
-            &capability,
-        )
-        .map_err(|error| anyhow!("rebuild visual projection: {error}"))?;
-        self.visual_vector_index = Some(visual_index);
-        self.visual_embedding_provider = Some(provider);
-        self.visual_generation = Some(capability);
-        Ok(())
-    }
-
-    /// Installs the optional visual reranker using the active visual capability.
-    pub fn with_visual_reranker(self: Arc<Self>, limits: RerankLimits) -> Result<Arc<Self>> {
-        let provider = self
-            .visual_embedding_provider
-            .clone()
-            .ok_or_else(|| anyhow!("visual embedding provider is not configured"))?;
-        let capability = self
-            .visual_generation
-            .clone()
-            .ok_or_else(|| anyhow!("visual generation is not configured"))?;
-        let reranker = VisualReranker::new(
-            VisualRerankerParts {
-                artifacts: self.artifacts.clone(),
-                evidence: self.evidence.clone(),
-                blobs: self.blobs.clone(),
-                provider,
-                capability,
-                policy: self.retrieval_policy.clone(),
-            },
-            limits,
-        )
-        .map_err(|error| anyhow!("create visual reranker: {error}"))?;
-        let mut runtime = (*self).clone();
-        runtime.reranker = Some(Arc::new(reranker));
-        Ok(Arc::new(runtime))
-    }
-
-    /// Installs benchmark evidence governing visual lane activation.
-    pub fn with_visual_execution_policy(
-        self: Arc<Self>,
-        policy: VisualExecutionPolicy,
-    ) -> Arc<Self> {
-        let mut runtime = (*self).clone();
-        runtime.visual_execution_policy = policy;
-        Arc::new(runtime)
-    }
-
     pub fn append_events(
         &self,
         events: impl IntoIterator<Item = DomainEventEnvelope>,
@@ -271,7 +149,7 @@ impl SearchRuntime {
             .map_err(|error| anyhow!("scan domain history for retrieval: {error}"))
     }
 
-    fn current_artifact_versions(&self) -> Result<BTreeSet<ArtifactVersionId>> {
+    pub(crate) fn current_artifact_versions(&self) -> Result<BTreeSet<ArtifactVersionId>> {
         let events = self.domain_events()?;
         Ok(reconcile_active_versions(&events))
     }

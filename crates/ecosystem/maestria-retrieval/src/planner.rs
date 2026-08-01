@@ -1,6 +1,30 @@
-use super::{RetrievalEngine, SearchPlannerContext};
+use super::RetrievalEngine;
+use crate::rewrite::QueryRewriteSession;
 use crate::types::{RetrievalError, RetrievalResult};
-use maestria_domain::{Modality, SearchIntent, SearchPlan};
+use maestria_domain::{
+    CorpusSnapshotId, IndexGenerationId, Modality, RetrievalModelFingerprint, SearchIntent,
+    SearchPlan,
+};
+
+/// Runtime inputs used to build a deterministic search plan.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SearchPlannerContext {
+    pub corpus_snapshot: CorpusSnapshotId,
+    pub primary_generation: IndexGenerationId,
+    pub fingerprint: RetrievalModelFingerprint,
+}
+
+/// Build a rewrite session for the plan's query with the plan budgets.
+pub(crate) fn rewrite_session(plan: &SearchPlan) -> QueryRewriteSession {
+    let mut session = QueryRewriteSession::with_limits(
+        &plan.original_query,
+        plan.budgets.max_tokens() as usize,
+        plan.budgets.max_latency_ms(),
+        plan.budgets.max_queries(),
+    );
+    session.expand_deterministic();
+    session
+}
 
 struct PlanOptions {
     max_stages: u32,
