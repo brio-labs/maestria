@@ -200,8 +200,8 @@ impl RetrievalEvaluator for PassthroughEvaluator {
             outcome: SearchOutcome {
                 trace: SearchTraceId::new(1),
                 trace_data: None,
-                fingerprint: experiment.plan.fingerprint.clone(),
-                index_generation: experiment.plan.index_generation,
+                fingerprint: experiment.plan.fingerprint().clone(),
+                index_generation: experiment.plan.index_generation(),
                 status: SearchStatus::Answerable,
                 evidence: experiment.candidates,
                 coverage: EvidenceCoverage {
@@ -290,22 +290,24 @@ fn sparse_candidate() -> TestResult<EvidenceCandidate> {
 }
 
 fn plan() -> TestResult<SearchPlan> {
-    Ok(SearchPlan {
-        query_id: QueryId::new(1),
-        original_query: "discover related concepts".to_string(),
-        intent: SearchIntent::SemanticDiscovery,
-        scope: CorpusScope::Global,
-        corpus_snapshot: CorpusSnapshotId::new(1),
-        index_generation: IndexGenerationId::new(1),
-        freshness: FreshnessRequirement::Any,
-        modalities: ModalitySet::new(vec![Modality::Text]),
-        stages: vec![maestria_domain::SearchStage::InitialRetrieval],
-        budgets: SearchBudget::with_resource_limits(64, 1_000, 1, 2, 0, 1_024, 1)?,
-        stop_conditions: StopConditions {
+    Ok(SearchPlan::builder()
+        .query_id(QueryId::new(1))
+        .original_query("discover related concepts".to_string())
+        .intent(SearchIntent::SemanticDiscovery)
+        .scope(CorpusScope::Global)
+        .corpus_snapshot(CorpusSnapshotId::new(1))
+        .index_generation(IndexGenerationId::new(1))
+        .freshness(FreshnessRequirement::Any)
+        .modalities(ModalitySet::new(vec![Modality::Text]))
+        .stages(vec![maestria_domain::SearchStage::InitialRetrieval])
+        .budgets(SearchBudget::with_resource_limits(
+            64, 1_000, 1, 2, 0, 1_024, 1,
+        )?)
+        .stop_conditions(StopConditions {
             max_results: 5,
             min_score_threshold: 0,
-        },
-        evidence_requirements: EvidenceRequirements {
+        })
+        .evidence_requirements(EvidenceRequirements {
             require_primary_sources: false,
             minimum_corroboration: 1,
             required_claims: Vec::new(),
@@ -313,12 +315,14 @@ fn plan() -> TestResult<SearchPlan> {
             minimum_sources: 1,
             minimum_documents: 1,
             minimum_sections: 1,
-        },
-        fingerprint: RetrievalModelFingerprint::new("fixture-search-v1".to_string())?,
-        authorization: Some(maestria_domain::RetrievalPolicySnapshot::global_default()),
-        original_intent: None,
-        route_decision: None,
-    })
+        })
+        .fingerprint(RetrievalModelFingerprint::new(
+            "fixture-search-v1".to_string(),
+        )?)
+        .authorization(Some(
+            maestria_domain::RetrievalPolicySnapshot::global_default(),
+        ))
+        .build()?)
 }
 
 fn engine(

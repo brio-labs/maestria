@@ -65,22 +65,22 @@ fn symbol(record_id: &str) -> Result<SymbolRecord, Box<dyn std::error::Error>> {
 }
 
 fn plan() -> Result<SearchPlan, SearchCompatibilityError> {
-    let mut plan = SearchPlan {
-        query_id: QueryId::new(1),
-        original_query: "compute".to_string(),
-        intent: SearchIntent::FactualLocal,
-        scope: CorpusScope::Global,
-        corpus_snapshot: maestria_domain::CorpusSnapshotId::new(1),
-        index_generation: IndexGenerationId::new(1),
-        freshness: FreshnessRequirement::Any,
-        modalities: ModalitySet::new(vec![Modality::Code]),
-        stages: vec![SearchStage::InitialRetrieval],
-        budgets: SearchBudget::new(100, 300)?,
-        stop_conditions: StopConditions {
+    SearchPlan::builder()
+        .query_id(QueryId::new(1))
+        .original_query("compute".to_string())
+        .intent(SearchIntent::FactualLocal)
+        .scope(CorpusScope::Global)
+        .corpus_snapshot(maestria_domain::CorpusSnapshotId::new(1))
+        .index_generation(IndexGenerationId::new(1))
+        .freshness(FreshnessRequirement::Any)
+        .modalities(ModalitySet::new(vec![Modality::Code]))
+        .stages(vec![SearchStage::InitialRetrieval])
+        .budgets(SearchBudget::with_limits(100, 300, 10, 1, 0)?)
+        .stop_conditions(StopConditions {
             max_results: 10,
             min_score_threshold: 0,
-        },
-        evidence_requirements: EvidenceRequirements {
+        })
+        .evidence_requirements(EvidenceRequirements {
             required_claims: Vec::new(),
             required_subquestions: Vec::new(),
             minimum_sources: 0,
@@ -88,14 +88,12 @@ fn plan() -> Result<SearchPlan, SearchCompatibilityError> {
             minimum_sections: 0,
             require_primary_sources: false,
             minimum_corroboration: 1,
-        },
-        fingerprint: RetrievalModelFingerprint::new("maestria:test".into())?,
-        authorization: Some(maestria_domain::RetrievalPolicySnapshot::global_default()),
-        original_intent: None,
-        route_decision: None,
-    };
-    plan.budgets = SearchBudget::with_limits(100, 300, 10, 1, 0)?;
-    Ok(plan)
+        })
+        .fingerprint(RetrievalModelFingerprint::new("maestria:test".into())?)
+        .authorization(Some(
+            maestria_domain::RetrievalPolicySnapshot::global_default(),
+        ))
+        .build()
 }
 
 fn candidate_request(
@@ -104,7 +102,7 @@ fn candidate_request(
     limit: usize,
 ) -> Result<CandidateRequest, Box<dyn std::error::Error>> {
     let plan = plan()?;
-    let authorization = RetrievalSecurityPolicy::default().authorization_context(&plan.scope)?;
+    let authorization = RetrievalSecurityPolicy::default().authorization_context(plan.scope())?;
     let execution_budget = plan.execution_budget()?;
     Ok(CandidateRequest {
         plan,

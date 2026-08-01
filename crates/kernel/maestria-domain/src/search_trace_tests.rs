@@ -1,29 +1,29 @@
 use super::*;
 use crate::{
-    CorpusScope, EvidenceRequirements, FreshnessRequirement, ModalitySet,
+    CorpusScope, EvidenceRequirements, FreshnessRequirement, Modality, ModalitySet,
     RetrievalModelFingerprint, RetrievalPolicySnapshot, SearchBudget, SearchIntent, SearchPlan,
-    StopConditions,
+    SearchStage, StopConditions,
     ids::{CorpusSnapshotId, IndexGenerationId, QueryId},
 };
 
 #[test]
 fn test_deterministic_id_with_diversity() -> Result<(), SearchCompatibilityError> {
-    let plan = SearchPlan {
-        query_id: QueryId::new(1),
-        original_query: "test".to_string(),
-        intent: SearchIntent::ExactLookup,
-        scope: CorpusScope::Global,
-        corpus_snapshot: CorpusSnapshotId::new(1),
-        index_generation: IndexGenerationId::new(1),
-        freshness: FreshnessRequirement::Any,
-        modalities: ModalitySet::new(vec![]),
-        stages: vec![],
-        budgets: SearchBudget::new(1000, 1000)?,
-        stop_conditions: StopConditions {
+    let plan = SearchPlan::builder()
+        .query_id(QueryId::new(1))
+        .original_query("test".to_string())
+        .intent(SearchIntent::ExactLookup)
+        .scope(CorpusScope::Global)
+        .corpus_snapshot(CorpusSnapshotId::new(1))
+        .index_generation(IndexGenerationId::new(1))
+        .freshness(FreshnessRequirement::Any)
+        .modalities(ModalitySet::new(vec![Modality::Text]))
+        .stages(vec![SearchStage::InitialRetrieval])
+        .budgets(SearchBudget::new(1000, 1000)?)
+        .stop_conditions(StopConditions {
             max_results: 10,
             min_score_threshold: 0,
-        },
-        evidence_requirements: EvidenceRequirements {
+        })
+        .evidence_requirements(EvidenceRequirements {
             required_claims: vec![],
             required_subquestions: vec![],
             minimum_sources: 0,
@@ -31,12 +31,10 @@ fn test_deterministic_id_with_diversity() -> Result<(), SearchCompatibilityError
             minimum_sections: 0,
             require_primary_sources: false,
             minimum_corroboration: 1,
-        },
-        fingerprint: RetrievalModelFingerprint::new("test".to_string())?,
-        authorization: Some(RetrievalPolicySnapshot::global_default()),
-        original_intent: None,
-        route_decision: None,
-    };
+        })
+        .fingerprint(RetrievalModelFingerprint::new("test".to_string())?)
+        .authorization(Some(RetrievalPolicySnapshot::global_default()))
+        .build()?;
 
     let mut trace = SearchTrace::from_plan(
         &plan,

@@ -194,10 +194,10 @@ fn finish_candidates(
 #[async_trait]
 impl CandidateReranker for BoundedReranker {
     async fn rerank(&self, request: RerankRequest) -> Result<RerankResult, RetrievalError> {
-        if !self.scorer.compatible_with(&request.plan.fingerprint) {
+        if !self.scorer.compatible_with(request.plan.fingerprint()) {
             return Err(RetrievalError::Compatibility(
                 maestria_domain::SearchCompatibilityError::ModelFingerprintMismatch {
-                    expected: request.plan.fingerprint,
+                    expected: request.plan.fingerprint().clone(),
                     found: self.scorer.fingerprint(),
                 },
             ));

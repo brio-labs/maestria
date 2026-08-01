@@ -78,7 +78,7 @@ async fn run_shadow(
     authorization: maestria_governance::RetrievalAuthorizationContext,
 ) -> LearnedSparseShadowObservation {
     let started = tokio::time::Instant::now();
-    let timeout_ms = u64::from(plan.budgets.max_latency_ms()).clamp(1, MAX_SHADOW_LATENCY_MS);
+    let timeout_ms = u64::from(plan.budgets().max_latency_ms()).clamp(1, MAX_SHADOW_LATENCY_MS);
     let shadow_retrievers = retrievers.clone();
     let lanes = match plan.execution_budget() {
         Ok(execution_budget) => match tokio::time::timeout(
@@ -115,11 +115,11 @@ async fn run_shadow(
     };
     LearnedSparseShadowObservation {
         schema_version: SHADOW_SCHEMA_VERSION,
-        query_id: plan.query_id,
-        query_class: classify_query(&plan.original_query),
+        query_id: plan.query_id(),
+        query_class: classify_query(plan.original_query()),
         route: LearnedSparseShadowRoute::Shadow,
-        corpus_snapshot: plan.corpus_snapshot,
-        index_generation: plan.index_generation,
+        corpus_snapshot: plan.corpus_snapshot(),
+        index_generation: plan.index_generation(),
         elapsed_ms: started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64,
         lanes,
     }
@@ -185,7 +185,7 @@ async fn collect_shadow_lanes(
         let request = CandidateRequest {
             plan: plan.clone(),
             query: SearchQuery {
-                q: plan.original_query.clone(),
+                q: plan.original_query().to_string(),
                 limit: query_limit,
                 offset: 0,
                 execution_budget,

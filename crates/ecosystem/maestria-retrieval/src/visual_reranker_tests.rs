@@ -146,22 +146,22 @@ fn capability()
 }
 
 fn plan() -> Result<SearchPlan, Box<dyn std::error::Error>> {
-    Ok(SearchPlan {
-        query_id: QueryId::new(1),
-        original_query: "show the figure".to_string(),
-        intent: SearchIntent::VisualDocument,
-        scope: CorpusScope::Global,
-        corpus_snapshot: CorpusSnapshotId::new(7),
-        index_generation: IndexGenerationId::new(42),
-        freshness: FreshnessRequirement::Any,
-        modalities: ModalitySet::new(vec![Modality::Text, Modality::Image]),
-        stages: vec![SearchStage::InitialRetrieval, SearchStage::Reranking],
-        budgets: SearchBudget::with_resource_limits(100, 100, 1, 2, 0, 0, 1)?,
-        stop_conditions: StopConditions {
+    Ok(SearchPlan::builder()
+        .query_id(QueryId::new(1))
+        .original_query("show the figure".to_string())
+        .intent(SearchIntent::VisualDocument)
+        .scope(CorpusScope::Global)
+        .corpus_snapshot(CorpusSnapshotId::new(7))
+        .index_generation(IndexGenerationId::new(42))
+        .freshness(FreshnessRequirement::Any)
+        .modalities(ModalitySet::new(vec![Modality::Text, Modality::Image]))
+        .stages(vec![SearchStage::InitialRetrieval, SearchStage::Reranking])
+        .budgets(SearchBudget::with_resource_limits(100, 100, 1, 2, 0, 0, 1)?)
+        .stop_conditions(StopConditions {
             max_results: 2,
             min_score_threshold: 0,
-        },
-        evidence_requirements: EvidenceRequirements {
+        })
+        .evidence_requirements(EvidenceRequirements {
             require_primary_sources: false,
             minimum_corroboration: 1,
             required_claims: Vec::new(),
@@ -169,12 +169,12 @@ fn plan() -> Result<SearchPlan, Box<dyn std::error::Error>> {
             minimum_sources: 0,
             minimum_documents: 0,
             minimum_sections: 0,
-        },
-        fingerprint: RetrievalModelFingerprint::new("test:visual".to_string())?,
-        authorization: Some(maestria_domain::RetrievalPolicySnapshot::global_default()),
-        original_intent: None,
-        route_decision: None,
-    })
+        })
+        .fingerprint(RetrievalModelFingerprint::new("test:visual".to_string())?)
+        .authorization(Some(
+            maestria_domain::RetrievalPolicySnapshot::global_default(),
+        ))
+        .build()?)
 }
 
 fn artifact(id: ArtifactId) -> Artifact {
@@ -334,8 +334,7 @@ async fn visual_reranker_returns_traced_fallback_for_secret_queries()
             output_cap: 1,
         },
     )?;
-    let mut secret_plan = plan()?;
-    secret_plan.original_query = "password=not-for-search".to_string();
+    let secret_plan = plan()?.with_original_query("password=not-for-search".to_string())?;
     let evidence_id = EvidenceId::new(103);
     let result = reranker
         .rerank(RerankRequest {

@@ -136,7 +136,7 @@ async fn execute_search_with(
     outcome.verify_compatibility(&plan).map_err(|error| {
         anyhow!(
             "search produced an invalid trace for query `{}`: {error}",
-            plan.original_query
+            plan.original_query()
         )
     })?;
     if trace.deterministic_id() != outcome.trace || !trace.matches_plan(&plan) {

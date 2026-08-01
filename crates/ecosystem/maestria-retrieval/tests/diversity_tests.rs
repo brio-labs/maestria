@@ -63,27 +63,27 @@ fn plan(
     requirements: EvidenceRequirements,
     max_results: u32,
 ) -> Result<SearchPlan, Box<dyn std::error::Error>> {
-    Ok(SearchPlan {
-        query_id: QueryId::new(1),
-        original_query: "query".to_string(),
-        intent: SearchIntent::FactualLocal,
-        scope: CorpusScope::Global,
-        corpus_snapshot: CorpusSnapshotId::new(1),
-        index_generation: IndexGenerationId::new(1),
-        freshness: FreshnessRequirement::Any,
-        modalities: ModalitySet::new(vec![Modality::Text]),
-        stages: vec![SearchStage::InitialRetrieval],
-        budgets: SearchBudget::new(100, 1_000)?,
-        stop_conditions: StopConditions {
+    Ok(SearchPlan::builder()
+        .query_id(QueryId::new(1))
+        .original_query("query".to_string())
+        .intent(SearchIntent::FactualLocal)
+        .scope(CorpusScope::Global)
+        .corpus_snapshot(CorpusSnapshotId::new(1))
+        .index_generation(IndexGenerationId::new(1))
+        .freshness(FreshnessRequirement::Any)
+        .modalities(ModalitySet::new(vec![Modality::Text]))
+        .stages(vec![SearchStage::InitialRetrieval])
+        .budgets(SearchBudget::new(100, 1_000)?)
+        .stop_conditions(StopConditions {
             max_results,
             min_score_threshold: 0,
-        },
-        evidence_requirements: requirements,
-        fingerprint: RetrievalModelFingerprint::new("fixture-model".to_string())?,
-        authorization: Some(maestria_domain::RetrievalPolicySnapshot::global_default()),
-        original_intent: None,
-        route_decision: None,
-    })
+        })
+        .evidence_requirements(requirements)
+        .fingerprint(RetrievalModelFingerprint::new("fixture-model".to_string())?)
+        .authorization(Some(
+            maestria_domain::RetrievalPolicySnapshot::global_default(),
+        ))
+        .build()?)
 }
 
 fn requirements() -> EvidenceRequirements {

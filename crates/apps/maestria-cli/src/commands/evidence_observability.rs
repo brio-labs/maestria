@@ -46,7 +46,7 @@ pub fn run_evidence_coverage(instance_dir: PathBuf, task_id: u64) -> Result<()> 
         outcome
             .verify_compatibility(plan)
             .map_err(|error| anyhow!("task {task_id} has a non-reproducible search: {error}"))?;
-        println!("search_query={}", plan.original_query);
+        println!("search_query={}", plan.original_query());
         println!("search_trace={}", outcome.trace);
         println!("search_status={:?}", outcome.status);
         println!("coverage_percent={}%", outcome.coverage.percent_covered);

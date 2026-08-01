@@ -157,12 +157,12 @@ fn golden_fixture_gates_a_real_core_search_trace() -> Result<(), Box<dyn std::er
         let fixture = GoldenFixture {
             corpus: GoldenCorpus {
                 schema_version: GoldenGate::CURRENT_SCHEMA_VERSION,
-                corpus_snapshot: plan.corpus_snapshot,
-                index_generation: plan.index_generation,
-                fingerprint: plan.fingerprint.clone(),
+                corpus_snapshot: plan.corpus_snapshot(),
+                index_generation: plan.index_generation(),
+                fingerprint: plan.fingerprint().clone(),
                 queries: vec![GoldenQuery {
-                    query_id: plan.query_id,
-                    original_query: plan.original_query.clone(),
+                    query_id: plan.query_id(),
+                    original_query: plan.original_query().to_string(),
                     expected_plan: plan,
                     expected_status: SearchStatus::Answerable,
                     judgments: vec![GoldenJudgment {

@@ -149,13 +149,13 @@ impl CandidateReranker for VisualReranker {
             candidates,
             max_latency_ms,
         } = request;
-        if plan.intent != maestria_domain::SearchIntent::VisualDocument {
+        if plan.intent() != maestria_domain::SearchIntent::VisualDocument {
             return Ok(self.result_with_trace(
                 candidates.clone(),
                 self.trace_for_all(&candidates, RerankCandidateStatus::SkippedNotApplicable),
             ));
         }
-        if let Err(reason) = self.preflight(&plan.original_query) {
+        if let Err(reason) = self.preflight(plan.original_query()) {
             return Ok(self.fallback(candidates, reason));
         }
         let visual_positions = candidates
@@ -178,7 +178,7 @@ impl CandidateReranker for VisualReranker {
 
         let started = tokio::time::Instant::now();
         let deadline = Duration::from_millis(u64::from(max_latency_ms));
-        let query_response = match self.query_vector(&plan.original_query, deadline).await {
+        let query_response = match self.query_vector(plan.original_query(), deadline).await {
             Ok(response) => response,
             Err(reason) => return Ok(self.fallback(candidates, reason)),
         };

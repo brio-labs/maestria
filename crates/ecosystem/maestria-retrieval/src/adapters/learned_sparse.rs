@@ -105,7 +105,7 @@ impl LearnedSparseChunkRetriever {
                 self.descriptor.generation,
             ));
         }
-        if request.plan.corpus_snapshot != self.identity.corpus_snapshot {
+        if request.plan.corpus_snapshot() != self.identity.corpus_snapshot {
             return Err(RetrievalError::Internal(
                 "sparse query corpus snapshot does not match its identity".into(),
             ));

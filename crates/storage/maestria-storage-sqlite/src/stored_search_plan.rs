@@ -249,73 +249,73 @@ pub(crate) struct StoredSearchPlan {
 impl StoredSearchPlan {
     pub(crate) fn from_domain(value: &SearchPlan) -> Self {
         Self {
-            query_id: value.query_id.value(),
-            original_query: value.original_query.clone(),
-            intent: StoredSearchIntent::from_domain(&value.intent),
-            scope: StoredCorpusScope::from_domain(&value.scope),
-            corpus_snapshot: value.corpus_snapshot.value(),
-            index_generation: value.index_generation.value(),
-            freshness: StoredFreshnessRequirement::from_domain(&value.freshness),
-            modalities: StoredModalitySet::from_domain(&value.modalities),
+            query_id: value.query_id().value(),
+            original_query: value.original_query().to_string(),
+            intent: StoredSearchIntent::from_domain(&value.intent()),
+            scope: StoredCorpusScope::from_domain(value.scope()),
+            corpus_snapshot: value.corpus_snapshot().value(),
+            index_generation: value.index_generation().value(),
+            freshness: StoredFreshnessRequirement::from_domain(value.freshness()),
+            modalities: StoredModalitySet::from_domain(value.modalities()),
             stages: value
-                .stages
+                .stages()
                 .iter()
                 .map(StoredSearchStage::from_domain)
                 .collect(),
-            budgets: StoredSearchBudget::from_domain(&value.budgets),
-            stop_conditions: StoredStopConditions::from_domain(&value.stop_conditions),
+            budgets: StoredSearchBudget::from_domain(value.budgets()),
+            stop_conditions: StoredStopConditions::from_domain(value.stop_conditions()),
             evidence_requirements: StoredEvidenceRequirements::from_domain(
-                &value.evidence_requirements,
+                value.evidence_requirements(),
             ),
-            fingerprint: StoredRetrievalModelFingerprint::from_domain(&value.fingerprint),
+            fingerprint: StoredRetrievalModelFingerprint::from_domain(value.fingerprint()),
             authorization: value
-                .authorization
+                .authorization()
                 .as_ref()
                 .map(StoredRetrievalPolicySnapshot::from_domain),
             original_intent: value
-                .original_intent
+                .original_intent()
                 .as_ref()
                 .map(StoredSearchIntent::from_domain),
-            route_decision: value.route_decision.clone(),
+            route_decision: value.route_decision().map(str::to_string),
         }
     }
 
     pub(crate) fn try_into_domain(self) -> Result<SearchPlan, PortError> {
-        let plan = SearchPlan {
-            query_id: QueryId::new(self.query_id),
-            original_query: self.original_query,
-            intent: self.intent.try_into_domain()?,
-            scope: self.scope.try_into_domain()?,
-            corpus_snapshot: maestria_domain::CorpusSnapshotId::new(self.corpus_snapshot),
-            index_generation: IndexGenerationId::new(self.index_generation),
-            freshness: self.freshness.try_into_domain()?,
-
-            modalities: self.modalities.try_into_domain()?,
-            stages: self
-                .stages
-                .into_iter()
-                .map(StoredSearchStage::try_into_domain)
-                .collect::<Result<Vec<_>, _>>()?,
-            budgets: self.budgets.try_into_domain()?,
-            stop_conditions: self.stop_conditions.try_into_domain()?,
-            evidence_requirements: self.evidence_requirements.try_into_domain()?,
-            fingerprint: self.fingerprint.try_into_domain()?,
-            authorization: self
-                .authorization
-                .map(StoredRetrievalPolicySnapshot::try_into_domain)
-                .transpose()?,
-            original_intent: self
-                .original_intent
-                .map(StoredSearchIntent::try_into_domain)
-                .transpose()?,
-            route_decision: self.route_decision,
-        };
-        plan.validate_schema()
+        SearchPlan::builder()
+            .query_id(QueryId::new(self.query_id))
+            .original_query(self.original_query)
+            .intent(self.intent.try_into_domain()?)
+            .scope(self.scope.try_into_domain()?)
+            .corpus_snapshot(maestria_domain::CorpusSnapshotId::new(self.corpus_snapshot))
+            .index_generation(IndexGenerationId::new(self.index_generation))
+            .freshness(self.freshness.try_into_domain()?)
+            .modalities(self.modalities.try_into_domain()?)
+            .stages(
+                self.stages
+                    .into_iter()
+                    .map(StoredSearchStage::try_into_domain)
+                    .collect::<Result<Vec<_>, _>>()?,
+            )
+            .budgets(self.budgets.try_into_domain()?)
+            .stop_conditions(self.stop_conditions.try_into_domain()?)
+            .evidence_requirements(self.evidence_requirements.try_into_domain()?)
+            .fingerprint(self.fingerprint.try_into_domain()?)
+            .authorization(
+                self.authorization
+                    .map(StoredRetrievalPolicySnapshot::try_into_domain)
+                    .transpose()?,
+            )
+            .original_intent(
+                self.original_intent
+                    .map(StoredSearchIntent::try_into_domain)
+                    .transpose()?,
+            )
+            .route_decision(self.route_decision)
+            .build()
             .map_err(|error| PortError::InvalidInputContext {
                 context: "decode stored search plan",
                 source: error.to_string(),
-            })?;
-        Ok(plan)
+            })
     }
 }
 
@@ -332,27 +332,27 @@ mod tests {
     use super::*;
 
     fn sample_plan() -> Result<SearchPlan, Box<dyn std::error::Error>> {
-        Ok(SearchPlan {
-            query_id: QueryId::new(1),
-            original_query: "rust memory model".to_string(),
-            intent: SearchIntent::FactualLocal,
-            scope: CorpusScope::Restricted(vec![ScopeId::new(7)]),
-            corpus_snapshot: maestria_domain::CorpusSnapshotId::new(2),
-            index_generation: IndexGenerationId::new(3),
-            freshness: FreshnessRequirement::Realtime,
-            modalities: ModalitySet::new(vec![Modality::Text, Modality::Code]),
-            stages: vec![
+        Ok(SearchPlan::builder()
+            .query_id(QueryId::new(1))
+            .original_query("rust memory model".to_string())
+            .intent(SearchIntent::FactualLocal)
+            .scope(CorpusScope::Restricted(vec![ScopeId::new(7)]))
+            .corpus_snapshot(maestria_domain::CorpusSnapshotId::new(2))
+            .index_generation(IndexGenerationId::new(3))
+            .freshness(FreshnessRequirement::Realtime)
+            .modalities(ModalitySet::new(vec![Modality::Text, Modality::Code]))
+            .stages(vec![
                 SearchStage::InitialRetrieval,
                 SearchStage::Reranking,
                 SearchStage::Filtering,
                 SearchStage::Synthesis,
-            ],
-            budgets: SearchBudget::with_limits(10_000, 5_000, 8, 4, 4)?,
-            stop_conditions: StopConditions {
+            ])
+            .budgets(SearchBudget::with_limits(10_000, 5_000, 8, 4, 4)?)
+            .stop_conditions(StopConditions {
                 max_results: 10,
                 min_score_threshold: 600,
-            },
-            evidence_requirements: EvidenceRequirements {
+            })
+            .evidence_requirements(EvidenceRequirements {
                 require_primary_sources: true,
                 minimum_corroboration: 1,
                 required_claims: Vec::new(),
@@ -360,19 +360,19 @@ mod tests {
                 minimum_sources: 1,
                 minimum_documents: 0,
                 minimum_sections: 0,
-            },
-            fingerprint: RetrievalModelFingerprint::new("model-v1".to_string())?,
-            authorization: Some(RetrievalPolicySnapshot {
+            })
+            .fingerprint(RetrievalModelFingerprint::new("model-v1".to_string())?)
+            .authorization(Some(RetrievalPolicySnapshot {
                 require_trust_zone: Some(TrustZone::Verified),
                 max_sensitivity: Some(Sensitivity::Confidential),
                 require_read_allowed: true,
                 required_scope_id: Some(ScopeId::new(7)),
                 effective_scopes: Some(vec![ScopeId::new(7)]),
                 allow_unscoped_items: false,
-            }),
-            original_intent: Some(SearchIntent::SemanticDiscovery),
-            route_decision: Some("fallback".to_string()),
-        })
+            }))
+            .original_intent(Some(SearchIntent::SemanticDiscovery))
+            .route_decision(Some("fallback".to_string()))
+            .build()?)
     }
 
     #[test]

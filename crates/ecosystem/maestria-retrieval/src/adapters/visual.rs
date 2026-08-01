@@ -199,10 +199,11 @@ impl VisualPageRegionRetriever {
     ) -> Result<CandidateBatch, RetrievalError> {
         let mut vector = vector;
         vector.execution_budget = request.execution_budget;
-        if request.plan.corpus_snapshot != self.expected_corpus_snapshot {
+        if request.plan.corpus_snapshot() != self.expected_corpus_snapshot {
             return Err(RetrievalError::Internal(format!(
                 "visual corpus snapshot mismatch: expected {}, found {}",
-                self.expected_corpus_snapshot, request.plan.corpus_snapshot
+                self.expected_corpus_snapshot,
+                request.plan.corpus_snapshot()
             )));
         }
         if request.expected_generation != self.descriptor.generation {
@@ -267,7 +268,7 @@ impl CandidateRetriever for VisualPageRegionRetriever {
     }
 
     async fn retrieve(&self, request: CandidateRequest) -> Result<CandidateBatch, RetrievalError> {
-        if request.plan.intent != maestria_domain::SearchIntent::VisualDocument {
+        if request.plan.intent() != maestria_domain::SearchIntent::VisualDocument {
             return Ok(CandidateBatch {
                 descriptor: self.descriptor.clone(),
                 query: request.query.q,
@@ -281,10 +282,11 @@ impl CandidateRetriever for VisualPageRegionRetriever {
                 ),
             });
         }
-        if request.plan.corpus_snapshot != self.expected_corpus_snapshot {
+        if request.plan.corpus_snapshot() != self.expected_corpus_snapshot {
             return Err(RetrievalError::Internal(format!(
                 "visual corpus snapshot mismatch: expected {}, found {}",
-                self.expected_corpus_snapshot, request.plan.corpus_snapshot
+                self.expected_corpus_snapshot,
+                request.plan.corpus_snapshot()
             )));
         }
         if !scan_secrets(&request.query.q).is_clean() {

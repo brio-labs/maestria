@@ -50,16 +50,16 @@ pub fn run_search_compare(
     println!("experiment_b_trace={}", right.id);
     println!(
         "query_equal={}",
-        left.plan.original_query == right.plan.original_query
+        left.plan.original_query() == right.plan.original_query()
     );
-    println!("intent_a={:?}", left.plan.intent);
-    println!("intent_b={:?}", right.plan.intent);
-    println!("snapshot_a={}", left.plan.corpus_snapshot);
-    println!("snapshot_b={}", right.plan.corpus_snapshot);
-    println!("generation_a={}", left.plan.index_generation);
-    println!("generation_b={}", right.plan.index_generation);
-    println!("fingerprint_a={}", left.plan.fingerprint.as_str());
-    println!("fingerprint_b={}", right.plan.fingerprint.as_str());
+    println!("intent_a={:?}", left.plan.intent());
+    println!("intent_b={:?}", right.plan.intent());
+    println!("snapshot_a={}", left.plan.corpus_snapshot());
+    println!("snapshot_b={}", right.plan.corpus_snapshot());
+    println!("generation_a={}", left.plan.index_generation());
+    println!("generation_b={}", right.plan.index_generation());
+    println!("fingerprint_a={}", left.plan.fingerprint().as_str());
+    println!("fingerprint_b={}", right.plan.fingerprint().as_str());
     println!("status_a={:?}", left.outcome.status);
     println!("status_b={:?}", right.outcome.status);
     println!("coverage_a={}%", left.outcome.coverage.percent_covered);

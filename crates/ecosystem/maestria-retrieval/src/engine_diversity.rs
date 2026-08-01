@@ -34,10 +34,10 @@ fn expansion_policy(
     fallback_budget: SearchExecutionBudget,
 ) -> ExpansionPolicy {
     ExpansionPolicy {
-        max_results: (plan.stop_conditions.max_results as u64)
+        max_results: (plan.stop_conditions().max_results as u64)
             .min(remaining_candidates)
             .min(usize::MAX as u64) as usize,
-        max_depth: plan.stages.len(),
+        max_depth: plan.stages().len(),
         selected_seeds: selected_candidates
             .iter()
             .map(|candidate| candidate.candidate.clone())

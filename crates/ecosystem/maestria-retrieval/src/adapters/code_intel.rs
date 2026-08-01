@@ -290,7 +290,7 @@ impl CandidateRetriever for CodeIntelRetriever {
                 self.descriptor.generation,
             ));
         }
-        if !matches!(request.plan.scope, maestria_domain::CorpusScope::Global) {
+        if !matches!(*request.plan.scope(), maestria_domain::CorpusScope::Global) {
             return Ok(CandidateBatch {
                 query: request.query.q,
                 descriptor: self.descriptor.clone(),

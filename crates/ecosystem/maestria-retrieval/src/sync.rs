@@ -285,7 +285,7 @@ impl<'a, C, O> SyncPipeline<'a, C, O> {
                     execution_budget,
                     lane_count,
                     lane_index: &mut lane_index,
-                    lane_query: &plan.original_query,
+                    lane_query: plan.original_query(),
                     sets: &mut sets,
                     lane_sets: &mut lane_sets,
                     check_timeout,
@@ -334,7 +334,7 @@ impl<'a, C, O> SyncPipeline<'a, C, O> {
             .map_err(RetrievalError::Compatibility)?;
         let candidate_limit = execution_candidate_limit(execution_budget);
         let start = crate::MonotonicInstant::now();
-        let timeout_ms = plan.budgets.max_latency_ms() as u64;
+        let timeout_ms = plan.budgets().max_latency_ms() as u64;
         let check_timeout = || -> RetrievalResult<()> {
             let elapsed = start.elapsed();
             if timeout_ms > 0 && elapsed.as_millis() as u64 > timeout_ms {
@@ -380,7 +380,7 @@ impl<'a, C, O> SyncPipeline<'a, C, O> {
             sets.into_iter().flatten().take(candidate_limit).collect()
         };
         if plan
-            .stages
+            .stages()
             .contains(&maestria_domain::SearchStage::Reranking)
             && let Some(reranker) = &self.reranker
         {
@@ -389,7 +389,7 @@ impl<'a, C, O> SyncPipeline<'a, C, O> {
             check_timeout()?;
         }
         if plan
-            .stages
+            .stages()
             .contains(&maestria_domain::SearchStage::Filtering)
         {
             if let Some(pre_expander) = &self.pre_expander {

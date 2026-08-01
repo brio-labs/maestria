@@ -236,9 +236,10 @@ fn active_mode_serves_dense_fusion() -> Result<(), Box<dyn std::error::Error>> {
 fn knowledge_search_trace_contains_deterministic_rewrites() -> Result<(), Box<dyn std::error::Error>>
 {
     let (engine, context) = build_search_engine(HybridExecutionPolicy::Shadow, false)?;
-    let mut invalid_plan = engine.plan("find PR test", 5, &context)?;
-    invalid_plan.original_query.clear();
-    assert!(execute_search(&engine, &invalid_plan).is_err());
+    let invalid_plan = engine
+        .plan("find PR test", 5, &context)?
+        .with_original_query(String::new());
+    assert!(invalid_plan.is_err());
 
     let plan = engine.plan("find PR test".to_string(), 5, &context)?;
     let outcome = execute_search(&engine, &plan)?;

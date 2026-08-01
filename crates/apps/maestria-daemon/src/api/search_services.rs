@@ -42,8 +42,8 @@ async fn search(context: &ApiContext, query: String, limit: usize) -> Result<Sea
         }
     };
     Ok(search_response(
-        plan.original_query,
-        plan.query_id.value(),
+        plan.original_query().to_string(),
+        plan.query_id().value(),
         outcome,
     ))
 }

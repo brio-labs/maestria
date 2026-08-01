@@ -7,6 +7,8 @@ mod search_plan;
 pub use search_plan::*;
 #[path = "search_budget.rs"]
 mod search_budget;
+#[path = "search_plan_dto.rs"]
+mod search_plan_dto;
 pub use search_budget::*;
 #[path = "search_intent.rs"]
 mod search_intent;

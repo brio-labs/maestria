@@ -20,7 +20,7 @@ pub fn applied_security_filters(
         SearchTraceFilter::Quarantine,
         SearchTraceFilter::PromptInjection,
     ];
-    if matches!(plan.scope, CorpusScope::Restricted(_)) || policy.required_scope_id.is_some() {
+    if matches!(plan.scope(), CorpusScope::Restricted(_)) || policy.required_scope_id.is_some() {
         filters.push(SearchTraceFilter::Scope);
     }
     if policy.require_read_allowed {
@@ -32,7 +32,7 @@ pub fn applied_security_filters(
     if policy.max_sensitivity.is_some() {
         filters.push(SearchTraceFilter::Sensitivity);
     }
-    if !matches!(plan.freshness, FreshnessRequirement::Any) {
+    if !matches!(plan.freshness(), FreshnessRequirement::Any) {
         filters.push(SearchTraceFilter::Freshness);
     }
     filters
@@ -76,7 +76,7 @@ struct ExpectedTraceState {
 /// 1. Explicit override in `options.explicit_stop_reason`.
 /// 2. Terminal outcome status (`DeniedByPolicy`, `Abstained`, `NoEvidenceFound`, etc.).
 /// 3. Diversity trace stop reason when present.
-/// 4. Evidence count against `plan.stop_conditions.max_results`.
+/// 4. Evidence count against `plan.stop_conditions().max_results`.
 ///
 /// Fusion and expansions are toggled by `options`. Degradation fields are set
 /// when the visual provider is unreachable or the visual lane failed.
@@ -86,7 +86,7 @@ fn compute_expected_trace_state(
     lanes: &[maestria_domain::SearchTraceLane],
     options: &EnsureTraceOptions,
 ) -> ExpectedTraceState {
-    let expected_policy_fingerprint = match plan.authorization.as_ref() {
+    let expected_policy_fingerprint = match plan.authorization().as_ref() {
         Some(authorization) => authorization.canonical_fingerprint(),
         None => security_policy_fingerprint(&options.security_policy),
     };
@@ -104,7 +104,7 @@ fn compute_expected_trace_state(
             | SearchStatus::StaleEvidenceOnly => SearchStopReason::RequirementsUnmet,
             _ => options.diversity_trace.as_ref().map_or_else(
                 || {
-                    if outcome.evidence.len() >= plan.stop_conditions.max_results as usize {
+                    if outcome.evidence.len() >= plan.stop_conditions().max_results as usize {
                         SearchStopReason::ResultsLimit
                     } else {
                         SearchStopReason::EvidenceComplete
@@ -123,8 +123,8 @@ fn compute_expected_trace_state(
         })
         .into_iter()
         .collect::<Vec<_>>();
-    let visual_plan_fallback = plan.intent == maestria_domain::SearchIntent::FactualLocal
-        && maestria_domain::SearchIntent::classify(&plan.original_query)
+    let visual_plan_fallback = plan.intent() == maestria_domain::SearchIntent::FactualLocal
+        && maestria_domain::SearchIntent::classify(plan.original_query())
             == maestria_domain::SearchIntent::VisualDocument;
     let visual_lane_failed = lanes.iter().any(|lane| {
         lane.retriever_id == "visual_page_regions"

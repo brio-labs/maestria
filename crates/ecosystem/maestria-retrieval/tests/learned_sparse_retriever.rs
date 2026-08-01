@@ -305,22 +305,30 @@ fn fixture_plan(
     identity: &SparseIdentity,
     query: &str,
 ) -> Result<SearchPlan, Box<dyn std::error::Error>> {
-    Ok(SearchPlan {
-        query_id: QueryId::new(1),
-        original_query: query.to_string(),
-        intent: SearchIntent::SemanticDiscovery,
-        scope: CorpusScope::Global,
-        corpus_snapshot: identity.corpus_snapshot,
-        index_generation: identity.generation_id,
-        freshness: FreshnessRequirement::Any,
-        modalities: ModalitySet::new(vec![Modality::Text]),
-        stages: vec![SearchStage::InitialRetrieval],
-        budgets: SearchBudget::with_resource_limits(64, 1_000, 1, 1, 0, 1_024 * 1_024, 1)?,
-        stop_conditions: StopConditions {
+    Ok(SearchPlan::builder()
+        .query_id(QueryId::new(1))
+        .original_query(query.to_string())
+        .intent(SearchIntent::SemanticDiscovery)
+        .scope(CorpusScope::Global)
+        .corpus_snapshot(identity.corpus_snapshot)
+        .index_generation(identity.generation_id)
+        .freshness(FreshnessRequirement::Any)
+        .modalities(ModalitySet::new(vec![Modality::Text]))
+        .stages(vec![SearchStage::InitialRetrieval])
+        .budgets(SearchBudget::with_resource_limits(
+            64,
+            1_000,
+            1,
+            1,
+            0,
+            1_024 * 1_024,
+            1,
+        )?)
+        .stop_conditions(StopConditions {
             max_results: 5,
             min_score_threshold: 0,
-        },
-        evidence_requirements: EvidenceRequirements {
+        })
+        .evidence_requirements(EvidenceRequirements {
             require_primary_sources: false,
             minimum_corroboration: 1,
             required_claims: Vec::new(),
@@ -328,12 +336,14 @@ fn fixture_plan(
             minimum_sources: 1,
             minimum_documents: 1,
             minimum_sections: 1,
-        },
-        fingerprint: RetrievalModelFingerprint::new("fixture-search-v1".to_string())?,
-        authorization: Some(maestria_domain::RetrievalPolicySnapshot::global_default()),
-        original_intent: None,
-        route_decision: None,
-    })
+        })
+        .fingerprint(RetrievalModelFingerprint::new(
+            "fixture-search-v1".to_string(),
+        )?)
+        .authorization(Some(
+            maestria_domain::RetrievalPolicySnapshot::global_default(),
+        ))
+        .build()?)
 }
 
 fn request(
@@ -349,7 +359,7 @@ fn request_with_limit(
     limit: usize,
 ) -> Result<CandidateRequest, Box<dyn std::error::Error>> {
     let plan = fixture_plan(identity, query)?;
-    let authorization = RetrievalSecurityPolicy::default().authorization_context(&plan.scope)?;
+    let authorization = RetrievalSecurityPolicy::default().authorization_context(plan.scope())?;
     let execution_budget =
         maestria_domain::SearchExecutionBudget::new(limit as u64, limit as u64, limit as u64, 0)?;
     Ok(CandidateRequest {

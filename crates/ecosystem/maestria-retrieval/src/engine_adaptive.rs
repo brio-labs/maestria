@@ -31,7 +31,7 @@ pub(super) async fn iterate_until_stop(
 
     let mut attempted_slots = BTreeSet::new();
     let mut iteration_count = 0_usize;
-    let max_iterations = (plan.budgets.max_stages() as usize).saturating_sub(plan.stages.len());
+    let max_iterations = (plan.budgets().max_stages() as usize).saturating_sub(plan.stages().len());
     let mut previous_evidence = evidence_ids(&state.outcome);
     loop {
         if let Some(stop_reason) = terminal_stop_reason(&state.outcome.status) {
@@ -45,8 +45,8 @@ pub(super) async fn iterate_until_stop(
             return Ok(None);
         }
         if iteration_count >= max_iterations
-            || state.rewrites.records().len() >= plan.budgets.max_queries() as usize
-            || started.elapsed().as_millis() >= u128::from(plan.budgets.max_latency_ms())
+            || state.rewrites.records().len() >= plan.budgets().max_queries() as usize
+            || started.elapsed().as_millis() >= u128::from(plan.budgets().max_latency_ms())
         {
             return Ok(Some(SearchStopReason::BudgetExhausted));
         }
@@ -117,7 +117,7 @@ async fn retrieve_missing_slot(
     let active_retrievers = engine.active_retrievers(plan);
     let authorization = engine
         .security_policy
-        .authorization_context(&plan.scope)
+        .authorization_context(plan.scope())
         .map_err(|error| {
             RetrievalError::Internal(format!("retrieval authorization denied: {error:?}"))
         })?;
@@ -181,10 +181,10 @@ fn missing_required_slots(plan: &SearchPlan, outcome: &SearchOutcome) -> Vec<Str
     use std::collections::BTreeSet;
 
     let required = plan
-        .evidence_requirements
+        .evidence_requirements()
         .required_claims
         .iter()
-        .chain(plan.evidence_requirements.required_subquestions.iter())
+        .chain(plan.evidence_requirements().required_subquestions.iter())
         .cloned()
         .collect::<BTreeSet<_>>();
     outcome

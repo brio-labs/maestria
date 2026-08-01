@@ -35,8 +35,8 @@ struct SelectionSummary<'a> {
 /// Duplicate clusters are hard exclusions. Source, document, section, and coverage
 /// requirements are satisfied greedily before low-marginal-gain stopping is allowed.
 pub fn select_candidates(ranked: &[RankedCandidate], plan: &SearchPlan) -> DiversitySelection {
-    let requirements = &plan.evidence_requirements;
-    let max_results = plan.stop_conditions.max_results as usize;
+    let requirements = plan.evidence_requirements();
+    let max_results = plan.stop_conditions().max_results as usize;
     let required_keys = required_keys(requirements);
     let mut selected = Vec::new();
     let mut trace_candidates = Vec::new();
