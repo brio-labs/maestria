@@ -41,7 +41,6 @@ fn security_validator_blocks_poisoning_prompt_injection_secret_acl_and_quarantin
         evidence.security.read_allowed = false;
     }
     fn quarantine(evidence: &mut maestria_domain::Evidence) {
-        evidence.security.quarantined = true;
         evidence.security.trust_zone = TrustZone::Quarantined;
     }
 

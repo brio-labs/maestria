@@ -97,6 +97,21 @@ pub struct RuntimeHandle {
     pub(crate) command_tx: mpsc::Sender<RuntimeCommand>,
     pub(crate) next_command_id: Arc<AtomicU64>,
     pub(crate) id_allocator: Arc<dyn maestria_ports::IdAllocator + Send + Sync>,
+    pub(crate) search_executor:
+        Option<Arc<dyn maestria_ports::SearchKnowledgeExecutor + Send + Sync>>,
+}
+
+impl RuntimeHandle {
+    /// The runtime-owned knowledge-search executor, when one was configured.
+    ///
+    /// Application entry points that run a governed search reuse this executor
+    /// instead of assembling a second search runtime beside the live one
+    /// (R28: lifecycle orchestration has one owner).
+    pub fn search_executor(
+        &self,
+    ) -> Option<Arc<dyn maestria_ports::SearchKnowledgeExecutor + Send + Sync>> {
+        self.search_executor.clone()
+    }
 }
 
 /// Reserved capacity for one correlated runtime submission.

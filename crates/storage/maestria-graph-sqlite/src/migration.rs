@@ -48,7 +48,7 @@ pub(crate) fn migrate(connection: &mut Connection) -> Result<(), PortError> {
 fn migrate_v1_to_v2(conn: &Connection) -> Result<(), PortError> {
     validate_relations_columns(conn, 8)?;
     conn.execute(
-        "ALTER TABLE relations ADD COLUMN security_json TEXT NOT NULL DEFAULT '{\"trust_zone\":\"Untrusted\",\"authority\":\"External\",\"integrity\":\"Unverified\",\"sensitivity\":\"Internal\",\"review_status\":\"Unreviewed\",\"quarantined\":false,\"prompt_injection_risk\":false,\"poisoning_flags\":[],\"read_allowed\":true,\"write_allowed\":false,\"scope_id\":null}'",
+        "ALTER TABLE relations ADD COLUMN security_json TEXT NOT NULL DEFAULT '{\"trust_zone\":\"Untrusted\",\"authority\":\"External\",\"integrity\":\"Unverified\",\"sensitivity\":\"Internal\",\"review_status\":\"Unreviewed\",\"prompt_injection_risk\":false,\"poisoning_flags\":[],\"read_allowed\":true,\"write_allowed\":false,\"scope_id\":null}'",
         [],
     )
     .map_err(to_port_error)?;
@@ -71,7 +71,7 @@ fn create_initial_schema(conn: &Connection) -> Result<(), PortError> {
              target_id TEXT NOT NULL,
              evidence_id TEXT,
              confidence_milli INTEGER NOT NULL,
-             security_json TEXT NOT NULL DEFAULT '{"trust_zone":"Untrusted","authority":"External","integrity":"Unverified","sensitivity":"Internal","review_status":"Unreviewed","quarantined":false,"prompt_injection_risk":false,"poisoning_flags":[],"read_allowed":true,"write_allowed":false,"scope_id":null}'
+             security_json TEXT NOT NULL DEFAULT '{"trust_zone":"Untrusted","authority":"External","integrity":"Unverified","sensitivity":"Internal","review_status":"Unreviewed","prompt_injection_risk":false,"poisoning_flags":[],"read_allowed":true,"write_allowed":false,"scope_id":null}'
          );
          CREATE INDEX idx_relations_source
              ON relations(source_type, source_id);

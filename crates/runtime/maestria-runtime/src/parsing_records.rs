@@ -57,7 +57,6 @@ fn security_for_text(text: &str) -> SecurityMetadata {
         } else {
             TrustZone::Untrusted
         },
-        quarantined: prompt_injection_risk,
         prompt_injection_risk,
         ..SecurityMetadata::default()
     }

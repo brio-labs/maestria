@@ -107,9 +107,6 @@ MAX_PRODUCTION_LOGICAL_LINES = 400
 MAX_MODULE_PHYSICAL_LINES = 900
 MAX_FUNCTION_LOGICAL_LINES = 100
 MODULE_SIZE_EXEMPTIONS: dict[str, str] = {
-    # Shared port contract suite (923 physical lines; kept as one deterministic
-    # fixture family, split into per-trait contract files as suites grow).
-    "crates/kernel/maestria-ports/src/contract_tests.rs": "v0.7.0",
     # In-memory lexical index module (480 logical lines; functions already
     # within budgets; split after lexical lane consolidation).
     "crates/kernel/maestria-ports/src/in_memory/lexical.rs": "v0.7.0",

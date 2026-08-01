@@ -6,7 +6,7 @@ use rusqlite::params;
 use super::registered;
 
 /// Serialized form of `SecurityMetadata::default()` for current-shape rows.
-const DEFAULT_SECURITY: &str = r#"{"trust_zone":"untrusted","authority":"external","integrity":"unverified","sensitivity":"internal","review_status":"unreviewed","quarantined":false,"prompt_injection_risk":false,"poisoning_flags":[],"read_allowed":true,"write_allowed":false,"scope_id":null}"#;
+const DEFAULT_SECURITY: &str = r#"{"trust_zone":"untrusted","authority":"external","integrity":"unverified","sensitivity":"internal","review_status":"unreviewed","prompt_injection_risk":false,"poisoning_flags":[],"read_allowed":true,"write_allowed":false,"scope_id":null}"#;
 
 #[test]
 fn event_append_scan_order_and_filter() -> Result<(), Box<dyn std::error::Error>> {
@@ -615,7 +615,7 @@ fn model_agent_proposal_request_payload_round_trips_with_event_kind() -> Result<
 fn malformed_evidence_snapshot_reports_validation_cause() -> Result<(), Box<dyn std::error::Error>>
 {
     let payload = serde_json::from_str::<crate::payloads::StoredEventPayload>(
-        r#"{"event_kind":"evidence_recorded","evidence_id":40,"artifact_id":7,"claim_id":null,"evidence_kind":{"kind":"file_span","path":"notes.md","start":1,"end":1,"snapshot":{"blob_id":1,"content_hash":"not-a-sha256"}},"excerpt":"excerpt","observed_at":1,"security":{"trust_zone":"untrusted","authority":"external","integrity":"unverified","sensitivity":"internal","review_status":"unreviewed","quarantined":false,"prompt_injection_risk":false,"poisoning_flags":[],"read_allowed":true,"write_allowed":false,"scope_id":null}}"#,
+        r#"{"event_kind":"evidence_recorded","evidence_id":40,"artifact_id":7,"claim_id":null,"evidence_kind":{"kind":"file_span","path":"notes.md","start":1,"end":1,"snapshot":{"blob_id":1,"content_hash":"not-a-sha256"}},"excerpt":"excerpt","observed_at":1,"security":{"trust_zone":"untrusted","authority":"external","integrity":"unverified","sensitivity":"internal","review_status":"unreviewed","prompt_injection_risk":false,"poisoning_flags":[],"read_allowed":true,"write_allowed":false,"scope_id":null}}"#,
     )?;
 
     let error = match payload.into_domain() {
@@ -636,7 +636,7 @@ fn malformed_evidence_snapshot_reports_validation_cause() -> Result<(), Box<dyn 
 fn malformed_evidence_line_range_reports_validation_cause() -> Result<(), Box<dyn std::error::Error>>
 {
     let payload = serde_json::from_str::<crate::payloads::StoredEventPayload>(&format!(
-        r#"{{"event_kind":"evidence_recorded","evidence_id":40,"artifact_id":7,"claim_id":null,"evidence_kind":{{"kind":"file_span","path":"notes.md","start":0,"end":1,"snapshot":{{"blob_id":1,"content_hash":"sha256:{}"}}}},"excerpt":"excerpt","observed_at":1,"security":{{"trust_zone":"untrusted","authority":"external","integrity":"unverified","sensitivity":"internal","review_status":"unreviewed","quarantined":false,"prompt_injection_risk":false,"poisoning_flags":[],"read_allowed":true,"write_allowed":false,"scope_id":null}}}}"#,
+        r#"{{"event_kind":"evidence_recorded","evidence_id":40,"artifact_id":7,"claim_id":null,"evidence_kind":{{"kind":"file_span","path":"notes.md","start":0,"end":1,"snapshot":{{"blob_id":1,"content_hash":"sha256:{}"}}}},"excerpt":"excerpt","observed_at":1,"security":{{"trust_zone":"untrusted","authority":"external","integrity":"unverified","sensitivity":"internal","review_status":"unreviewed","prompt_injection_risk":false,"poisoning_flags":[],"read_allowed":true,"write_allowed":false,"scope_id":null}}}}"#,
         "a".repeat(64)
     ))?;
 
