@@ -43,11 +43,10 @@ fn reconciliation_repairs_stale_repo_after_crash() -> Result<(), Box<dyn std::er
     let task_id = TaskId::new(1);
     state.tasks.insert(task_id, make_task(1));
     let approval_id = ApprovalId::new(42);
-    state.apply_input(DomainInput::ApprovalResolved(ApprovalDecision {
+    state.apply_input(DomainInput::ApprovalResolved(ApprovalDecision::Resolve {
         approval_id,
-        task_id: Some(task_id),
+        task_id,
         approved: true,
-        affects_task: true,
     }))?;
 
     let pending = store.find_pending()?;
@@ -70,11 +69,10 @@ fn reconciliation_handles_denied_approval() -> Result<(), Box<dyn std::error::Er
     let mut task = make_task(1);
     task.status = TaskStatus::Blocked;
     state.tasks.insert(task_id, task);
-    state.apply_input(DomainInput::ApprovalResolved(ApprovalDecision {
+    state.apply_input(DomainInput::ApprovalResolved(ApprovalDecision::Resolve {
         approval_id: ApprovalId::new(7),
-        task_id: Some(task_id),
+        task_id,
         approved: false,
-        affects_task: true,
     }))?;
 
     reconcile_approval_repo(&state, &store)?;
@@ -93,11 +91,10 @@ fn reconciliation_idempotent_across_restarts() -> Result<(), Box<dyn std::error:
     let mut state = KernelState::new();
     let task_id = TaskId::new(1);
     state.tasks.insert(task_id, make_task(1));
-    state.apply_input(DomainInput::ApprovalResolved(ApprovalDecision {
+    state.apply_input(DomainInput::ApprovalResolved(ApprovalDecision::Resolve {
         approval_id: ApprovalId::new(1),
-        task_id: Some(task_id),
+        task_id,
         approved: true,
-        affects_task: true,
     }))?;
 
     reconcile_approval_repo(&state, &store)?;
@@ -121,11 +118,10 @@ fn reconciliation_errors_on_missing_record() -> Result<(), Box<dyn std::error::E
     let mut state = KernelState::new();
     let task_id = TaskId::new(1);
     state.tasks.insert(task_id, make_task(1));
-    state.apply_input(DomainInput::ApprovalResolved(ApprovalDecision {
+    state.apply_input(DomainInput::ApprovalResolved(ApprovalDecision::Resolve {
         approval_id: ApprovalId::new(99),
-        task_id: Some(task_id),
+        task_id,
         approved: true,
-        affects_task: true,
     }))?;
 
     let result = reconcile_approval_repo(&state, &store);

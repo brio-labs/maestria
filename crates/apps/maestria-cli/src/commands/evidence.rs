@@ -5,7 +5,7 @@ use maestria_domain::{ChunkId, EvidenceId};
 use maestria_parsers::ParserRegistry;
 use maestria_search_tantivy::TantivyFullTextIndex;
 use maestria_storage_sqlite::SqliteStore;
-use std::{path::PathBuf, thread, time::Duration};
+use std::{path::PathBuf, time::Duration};
 
 use crate::helpers;
 
@@ -29,7 +29,7 @@ pub fn run(instance_dir: PathBuf, evidence_id: Option<u64>, chunk_id: Option<u64
     });
 
     let output = if let Some(id) = evidence_id {
-        retry_open_with_timeout(Duration::from_secs(2), || {
+        helpers::retry_db_busy(Duration::from_secs(2), "opening evidence by id", || {
             core.open_evidence(OpenEvidenceInput {
                 evidence_id: EvidenceId::new(id),
             })
@@ -37,7 +37,7 @@ pub fn run(instance_dir: PathBuf, evidence_id: Option<u64>, chunk_id: Option<u64
         })
         .context("open evidence by id")?
     } else if let Some(id) = chunk_id {
-        retry_open_with_timeout(Duration::from_secs(2), || {
+        helpers::retry_db_busy(Duration::from_secs(2), "opening chunk evidence", || {
             core.open_chunk_evidence(OpenChunkEvidenceInput {
                 chunk_id: ChunkId::new(id),
             })
@@ -59,28 +59,4 @@ pub fn run(instance_dir: PathBuf, evidence_id: Option<u64>, chunk_id: Option<u64
     );
     println!("excerpt={}", output.evidence.excerpt);
     Ok(())
-}
-
-fn retry_open_with_timeout<T>(
-    timeout_budget: Duration,
-    mut attempt: impl FnMut() -> Result<T>,
-) -> Result<T> {
-    let attempts = timeout_budget.as_millis().div_ceil(25).max(1);
-    for attempt_number in 0..attempts {
-        match attempt() {
-            Ok(output) => return Ok(output),
-            Err(error) if helpers::is_db_locked(&error) && attempt_number + 1 < attempts => {
-                thread::sleep(Duration::from_millis(25));
-            }
-            Err(error) if helpers::is_db_locked(&error) => {
-                return Err(anyhow!(
-                    "timed out while opening evidence due database lock: {error}"
-                ));
-            }
-            Err(error) => return Err(error),
-        }
-    }
-    Err(anyhow!(
-        "timed out while opening evidence due database lock"
-    ))
 }

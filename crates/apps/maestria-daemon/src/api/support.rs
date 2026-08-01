@@ -3,6 +3,7 @@
 //! Retry policy and persisted state loading are used by multiple handlers. Keeping them here
 //! prevents search, model-agent, and read services from depending on one another's internals.
 
+use std::future::Future;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -25,6 +26,29 @@ where
             .await
             .map_err(|error| anyhow!("{operation_name} task failed: {error}"))?;
         match result {
+            Ok(response) => return Ok(response),
+            Err(error) if is_database_locked(&error) && attempt + 1 < DATABASE_RETRY_ATTEMPTS => {
+                tokio::time::sleep(DATABASE_RETRY_DELAY).await;
+            }
+            Err(error) => return Err(error),
+        }
+    }
+    Err(anyhow!("{operation_name} retries exhausted"))
+}
+
+/// Async twin of [`run_database_retry`] for handlers whose operation itself
+/// awaits; both share the same attempt/delay policy constants.
+pub(super) async fn run_database_retry_async<T, F, Fut>(
+    operation_name: &str,
+    mut operation: F,
+) -> Result<T>
+where
+    T: Send + 'static,
+    F: FnMut() -> Fut,
+    Fut: Future<Output = Result<T>>,
+{
+    for attempt in 0..DATABASE_RETRY_ATTEMPTS {
+        match operation().await {
             Ok(response) => return Ok(response),
             Err(error) if is_database_locked(&error) && attempt + 1 < DATABASE_RETRY_ATTEMPTS => {
                 tokio::time::sleep(DATABASE_RETRY_DELAY).await;

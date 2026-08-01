@@ -57,6 +57,7 @@ mod vector_indexing;
 mod web_evidence;
 
 pub use config::{Adapters, Governance, RuntimeConfig};
+pub use effect_execution::decode_pending_continuation;
 pub use runtime::{
     DomainApplicationResult, FeedbackError, MaestriaRuntime, RuntimeHandle, RuntimeSubmissionError,
     RuntimeSubmissionPermit,

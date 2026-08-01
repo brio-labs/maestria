@@ -36,22 +36,16 @@ suppressing the check output entirely.
 
 ### Exempted Modules
 
+The table below mirrors the exemption dictionaries in `scripts/philosophy-check.py`
+(`MODULE_SIZE_EXEMPTIONS`, `FUNCTION_SIZE_EXEMPTIONS`, `MIXED_RESPONSIBILITY_EXEMPTIONS`,
+`ADR_MODULE_EXEMPTIONS`) as of v0.6. Exemptions that no longer match a live
+module are pruned from both places; every live exemption has an entry here.
+
 | Path | Owner | Rationale | Expiry |
 |------|-------|-----------|--------|
-| `crates/apps/maestria-daemon/src/lib.rs` | Runtime team | Instance lifecycle, recovery, and runtime construction are tightly coupled lifecycle operations that share adapter wiring state. Splitting into sub-modules risks cyclic construction. Planned as v0.7 decomposition work. | `v0.7.0` |
-| `crates/runtime/maestria-runtime/src/lib.rs` | Runtime team | Core runtime struct with 15 sub-modules; the remaining impl bodies serve as the central effect-dispatch entry point. Full decomposition gated on async-effect boundary solidification. | `v0.8.0` |
-| `crates/storage/maestria-storage-sqlite/src/lib.rs` | Storage team | Single-adapter crate implementing `EffectJournal` + `EventLog` + repository traits. Helper functions are private to the adapter and do not leak into the public API surface; extracting them would add module-file overhead without reducing conceptual surface. | `v0.7.0` |
-| `crates/storage/maestria-search-tantivy/src/lib.rs` | Storage team | Single-adapter crate wrapping Tantivy. Helper modules (`constructors`, `lexical_helpers`, `search_helpers`) exist but the main lib.rs exposes the `TantivyFullTextIndex` struct with impl methods that delegate to those helpers. Acceptable adapter-façade pattern per Rule 19 exception for single-impl adapters. | `v0.7.0` |
-| `crates/storage/maestria-graph-sqlite/src/lib.rs` | Storage team | Single-adapter crate with 2 helper modules. The lib.rs exposes `SqliteGraphIndex` struct and its impl; extraction into a sub-module façade would add indirection without benefit. | `v0.7.0` |
-| `crates/storage/maestria-vector-sqlite/src/lib.rs` | Storage team | Single-adapter crate with 2 helper modules. Same rationale as graph-sqlite. | `v0.7.0` |
-| `crates/harness/maestria-harness/src/lib.rs` | Harness team | Single-adapter crate implementing `HarnessAdapter`. Helper modules (`command`, `process`, `tokenize`) are extracted; the remaining lib.rs implementation belongs to the adapter struct itself. | `v0.7.0` |
-| `crates/core/maestria-core/src/lib.rs` | Core team | Core orchestration crate with 9 sub-modules. Remaining impl bodies are service-composition functions that aggregate across modules; decomposition gated on service-layer extraction. | `v0.8.0` |
-| `crates/kernel/maestria-governance/src/lib.rs` | Governance team | Governance crate with 9 sub-modules. The remaining `pub const GOVERNANCE_VERSION` is a metadata constant and should not count as an implementation body. Check exemption filters constants. | `v0.7.0` |
-| `crates/ecosystem/maestria-retrieval/tests/contract_tests.rs` | Retrieval team | Contract fixture intentionally keeps cross-route invariants together so every route comparison shares one deterministic harness; splitting would obscure the acceptance contract. | `v0.7.0` |
-| `crates/ecosystem/maestria-retrieval/src/repository_benchmark.rs` | Retrieval team | Repository benchmark case, observation, and report types form one published evidence schema; split after the benchmark report format is versioned. | `v0.7.0` |
-| `crates/ecosystem/maestria-retrieval/src/lib.rs` | Retrieval team | Public retrieval façade retains compatibility re-exports while route modules migrate; expiry tracks the next route API cutover. | `v0.7.0` |
-| `crates/ecosystem/maestria-code-intel/src/lib.rs` | Code-intelligence team | Parser/index adapters share a stable public façade and small helper modules; split after provider provenance is promoted. | `v0.7.0` |
-| `crates/ecosystem/maestria-parsers/src/lib.rs` | Ingestion team | Parser registry and format adapters share registration invariants; split after parser capability negotiation is stable. | `v0.7.0` |
+| `crates/kernel/maestria-ports/src/contract_tests.rs` | Kernel team | Shared port contract suite (923 physical lines) keeps every port trait's behavioral conformance in one deterministic fixture family so adapters can run the same suite; split into per-trait contract files (e.g. `graph_contract_tests.rs`, `learned_sparse_contract_tests.rs`, `ocr_contract_tests.rs`) as suites grow. | `v0.7.0` |
+| `crates/kernel/maestria-ports/src/in_memory/lexical.rs` | Kernel team | In-memory lexical index module is 480 logical lines (over the 400 module budget); its functions are already within the per-function budget and the module owns one responsibility (in-memory lexical search), so it is exempt pending lexical lane consolidation. | `v0.7.0` |
+| `crates/ecosystem/maestria-retrieval/src/visual_benchmark.rs` | Retrieval team | Visual benchmark evidence schema and route evaluation share one versioned benchmark format; the mixed-responsibility signal is accepted while the benchmark format is being stabilized. | `v0.7.0` |
 
 ## Consequences
 

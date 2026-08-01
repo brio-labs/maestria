@@ -27,26 +27,37 @@ fn pending_capability(token: &PendingHarnessContinuation) -> Result<String, Effe
         .map_err(|error| EffectFailure::Failed(format!("encode pending proposal: {error}")))
 }
 
-pub(crate) fn decode_pending_continuation(
+/// Decode a stored approval continuation token.
+///
+/// Returns `Ok(None)` when the record does not carry a pending model-agent
+/// continuation (absence is a valid outcome). Returns `Err` when the record
+/// claims to carry one but the token is corrupt, so callers can preserve the
+/// failure instead of silently treating corrupted data as absence.
+pub fn decode_pending_continuation(
     record: &ApprovalRecord,
-) -> Option<maestria_domain::ModelAgentProposalRequest> {
-    let token = record
-        .capability
-        .strip_prefix("model_agent_pending:")
-        .and_then(|json| serde_json::from_str::<PendingHarnessContinuation>(json).ok())?;
+) -> Result<Option<maestria_domain::ModelAgentProposalRequest>, String> {
+    let Some(json) = record.capability.strip_prefix("model_agent_pending:") else {
+        return Ok(None);
+    };
+    let token: PendingHarnessContinuation = serde_json::from_str(json).map_err(|error| {
+        format!(
+            "decode pending model-agent continuation for approval {}: {error}",
+            record.id
+        )
+    })?;
     let maestria_domain::ModelAgentProposalExecution::ApprovalContinuation {
         approval_id: _,
         journal_generation,
     } = token.proposal.execution
     else {
-        return None;
+        return Ok(None);
     };
     if token.journal_generation != journal_generation
         || token.correlation_id != token.proposal.correlation_id
     {
-        return None;
+        return Ok(None);
     }
-    Some(token.proposal)
+    Ok(Some(token.proposal))
 }
 
 pub(crate) async fn persist_pending_harness(

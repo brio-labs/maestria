@@ -306,8 +306,8 @@ fn validating_transition_emits_run_validation_effect() -> Result<(), DomainError
         }
     };
 
-    assert_eq!(req.task_id, Some(task_id));
-    assert_eq!(req.claim_id, None);
+    assert_eq!(req.task_id(), Some(task_id));
+    assert_eq!(req.claim_id(), None);
     assert_eq!(req.validation_report_id, ValidationReportId::new(0));
     Ok(())
 }

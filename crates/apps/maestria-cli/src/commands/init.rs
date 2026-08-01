@@ -14,13 +14,11 @@ pub fn run(instance_dir: PathBuf, read_roots: Vec<PathBuf>) -> Result<()> {
             })
             .collect::<Result<Vec<_>>>()?
     };
-    let plan = maestria_core::InstanceService::init_instance_with_roots(instance_dir, read_roots)?;
-    for directory in &plan.directories {
-        std::fs::create_dir_all(directory)?;
-    }
-    std::fs::write(&plan.manifest_path, plan.manifest_contents.as_bytes())?;
-    println!("initialized {}", plan.layout.root.display());
-    println!("manifest {}", plan.manifest_path.display());
+    // Instance creation is startup policy owned by the daemon; the CLI entry
+    // reuses it instead of copying directory/manifest handling.
+    let layout = maestria_daemon::prepare_instance_with_roots(instance_dir, read_roots)?;
+    println!("initialized {}", layout.root.display());
+    println!("manifest {}", layout.manifest_path.display());
     Ok(())
 }
 

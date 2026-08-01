@@ -262,12 +262,50 @@ pub struct RequestTaskValidation {
     pub task_id: TaskId,
 }
 
+/// A resolved approval decision at the domain boundary.
+///
+/// The decision either records an acknowledgement that affects no task or
+/// approves/denies a resolution that transitions the referenced task. Only
+/// the resolution form requires and transitions a task; the acknowledgement
+/// form may still carry the task for audit purposes (model-agent approvals),
+/// so the pair is an enum instead of correlated flags.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ApprovalDecision {
-    pub approval_id: ApprovalId,
-    pub task_id: Option<TaskId>,
-    pub approved: bool,
-    pub affects_task: bool,
+pub enum ApprovalDecision {
+    /// Record the decision without transitioning any task.
+    Acknowledge {
+        approval_id: ApprovalId,
+        task_id: Option<TaskId>,
+        approved: bool,
+    },
+    /// Approve or deny the resolution, transitioning the referenced task.
+    Resolve {
+        approval_id: ApprovalId,
+        task_id: TaskId,
+        approved: bool,
+    },
+}
+
+impl ApprovalDecision {
+    pub fn approval_id(&self) -> ApprovalId {
+        match self {
+            Self::Acknowledge { approval_id, .. } | Self::Resolve { approval_id, .. } => {
+                *approval_id
+            }
+        }
+    }
+
+    pub fn task_id(&self) -> Option<TaskId> {
+        match self {
+            Self::Acknowledge { task_id, .. } => *task_id,
+            Self::Resolve { task_id, .. } => Some(*task_id),
+        }
+    }
+
+    pub fn approved(&self) -> bool {
+        match self {
+            Self::Acknowledge { approved, .. } | Self::Resolve { approved, .. } => *approved,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

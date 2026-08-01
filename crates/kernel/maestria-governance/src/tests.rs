@@ -289,8 +289,7 @@ fn approval_policy_exhaustively_covers_all_profile_risk_cells() {
         });
     let medium =
         maestria_domain::MaestriaEffect::RunValidation(maestria_domain::RunValidationRequest {
-            task_id: None,
-            claim_id: None,
+            target: maestria_domain::ValidationTarget::Task(maestria_domain::TaskId::new(1)),
             validation_report_id: maestria_domain::ValidationReportId::new(1),
         });
     let high = maestria_domain::MaestriaEffect::FetchWeb(maestria_domain::FetchWebRequest {

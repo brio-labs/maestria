@@ -9,11 +9,11 @@ use std::collections::BTreeMap;
 
 impl EffectExecutionContext {
     /// Run validation pass over claims and evidence in the current kernel state.
-    /// Optionally scoped to a single claim when `request.claim_id` is Some.
+    /// Optionally scoped to a single claim when the request targets a claim.
     /// Produces both a per-claim completion signal and a durable report input.
     pub(crate) async fn handle_run_validation(&self, request: RunValidationRequest) -> bool {
         let report = self.build_validation_report(&request).await;
-        if let Some(claim_id) = request.claim_id {
+        if let Some(claim_id) = request.claim_id() {
             if Self::send_input(
                 &self.input_tx,
                 DomainInput::ValidationCompleted(ValidationCompleted {
@@ -27,13 +27,16 @@ impl EffectExecutionContext {
                 return false;
             }
         } else {
-            tracing::debug!(task_id = ?request.task_id, "validation effect has no claim to validate");
+            tracing::debug!(
+                task_id = ?request.task_id(),
+                "validation effect has no claim to validate"
+            );
         }
         if Self::send_input(
             &self.input_tx,
             DomainInput::RecordValidationReport(RecordValidationReportInput {
                 report_id: report.id,
-                task_id: request.task_id,
+                task_id: request.task_id(),
                 passed: report.passed,
                 warnings: report.warnings,
             }),
@@ -60,9 +63,9 @@ pub(crate) fn build_validation_report_from_state(
     request: &RunValidationRequest,
 ) -> maestria_validation::ValidationReport {
     let task = request
-        .task_id
+        .task_id()
         .and_then(|task_id| state.tasks.get(&task_id));
-    let harness_exit_code = request.task_id.and_then(|task_id| {
+    let harness_exit_code = request.task_id().and_then(|task_id| {
         state
             .event_log
             .iter()
@@ -76,7 +79,7 @@ pub(crate) fn build_validation_report_from_state(
                 _ => None,
             })
     });
-    let claims = selected_claims(state, request.claim_id);
+    let claims = selected_claims(state, request.claim_id());
     let evidences = state
         .evidences
         .iter()
@@ -96,7 +99,7 @@ pub(crate) fn build_validation_report_from_state(
                 task_id,
                 plan,
                 outcome,
-            } if *task_id == request.task_id => Some((plan.clone(), outcome.clone())),
+            } if *task_id == request.task_id() => Some((plan.clone(), outcome.clone())),
             _ => None,
         });
     let search = search_result
@@ -126,7 +129,7 @@ pub(crate) fn build_validation_report_from_state(
         Box::new(maestria_validation::MemoryValidator),
         Box::new(maestria_validation::HarnessRunValidator),
     ];
-    if request.task_id.is_some() {
+    if request.task_id().is_some() {
         validators.push(Box::new(maestria_validation::TaskStateValidator));
     }
     if search.is_some() {
@@ -141,7 +144,7 @@ pub(crate) fn build_validation_report_from_state(
     }
     ValidationRunner::with_validators(validators).run(
         request.validation_report_id,
-        request.task_id,
+        request.task_id(),
         &ValidationContext {
             task,
             artifacts: &artifacts,

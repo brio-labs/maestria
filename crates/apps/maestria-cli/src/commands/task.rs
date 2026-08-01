@@ -5,8 +5,7 @@ use maestria_domain::{
     TaskId,
 };
 use maestria_governance::AutonomyProfile;
-use std::{fs, path::PathBuf, sync::Arc, time::Duration};
-use tokio::time::{sleep, timeout};
+use std::{fs, path::PathBuf, time::Duration};
 
 pub use super::task_validation::{run_complete, run_request_validation};
 use crate::cli_types::CliTaskPriority;
@@ -198,45 +197,13 @@ async fn wait_for_task_in_state(
     task_id: TaskId,
     timeout_budget: Duration,
 ) -> Result<KernelState> {
-    use std::sync::Mutex;
-
-    let last_error = Arc::new(Mutex::new(None::<String>));
-    let last_error_for_wait = last_error.clone();
-    timeout(timeout_budget, async move {
-        loop {
-            match maestria_daemon::load_kernel_state(layout)
-                .with_context(|| "load kernel state while waiting for task persistence")
-            {
-                Ok(state) => {
-                    if state.tasks.contains_key(&task_id) {
-                        return Ok(state);
-                    }
-                    sleep(Duration::from_millis(25)).await;
-                }
-                Err(error) if helpers::is_db_locked(&error) => {
-                    if let Ok(mut slot) = last_error_for_wait.lock() {
-                        *slot = Some(error.to_string());
-                    }
-                    sleep(Duration::from_millis(25)).await;
-                }
-                Err(error) => {
-                    if let Ok(mut slot) = last_error_for_wait.lock() {
-                        *slot = Some(error.to_string());
-                    }
-                    return Err(error);
-                }
-            }
-        }
-    })
+    helpers::wait_for_kernel_state(
+        layout,
+        timeout_budget,
+        format!("waiting for task {task_id} persistence"),
+        |state| state.tasks.contains_key(&task_id),
+    )
     .await
-    .map_err(|_| {
-        let detail = last_error
-            .lock()
-            .ok()
-            .and_then(|error| error.clone())
-            .map_or_else(String::new, |error| format!(" {error}"));
-        anyhow!("timed out while waiting for task {task_id} persistence{detail}")
-    })?
 }
 
 async fn wait_for_task_evidence_link(
@@ -245,43 +212,16 @@ async fn wait_for_task_evidence_link(
     evidence_id: EvidenceId,
     timeout_budget: Duration,
 ) -> Result<KernelState> {
-    let last_error = Arc::new(std::sync::Mutex::new(None::<String>));
-    let last_error_for_wait = last_error.clone();
-    timeout(timeout_budget, async move {
-        loop {
-            match maestria_daemon::load_kernel_state(layout)
-                .with_context(|| "load kernel state while waiting for evidence link persistence")
-            {
-                Ok(state) => {
-                    if let Some(task) = state.tasks.get(&task_id)
-                        && task.evidence_ids.contains(&evidence_id)
-                    {
-                        return Ok(state);
-                    }
-                    sleep(Duration::from_millis(25)).await;
-                }
-                Err(error) if helpers::is_db_locked(&error) => {
-                    if let Ok(mut slot) = last_error_for_wait.lock() {
-                        *slot = Some(error.to_string());
-                    }
-                    sleep(Duration::from_millis(25)).await;
-                }
-                Err(error) => {
-                    if let Ok(mut slot) = last_error_for_wait.lock() {
-                        *slot = Some(error.to_string());
-                    }
-                    return Err(error);
-                }
-            }
-        }
-    })
+    helpers::wait_for_kernel_state(
+        layout,
+        timeout_budget,
+        format!("waiting for evidence link persistence for task {task_id}"),
+        |state| {
+            state
+                .tasks
+                .get(&task_id)
+                .is_some_and(|task| task.evidence_ids.contains(&evidence_id))
+        },
+    )
     .await
-    .map_err(|_| {
-        let detail = last_error
-            .lock()
-            .ok()
-            .and_then(|error| error.clone())
-            .map_or_else(String::new, |error| format!(" {error}"));
-        anyhow!("timed out while waiting for evidence {evidence_id} link to task {task_id}{detail}")
-    })?
 }

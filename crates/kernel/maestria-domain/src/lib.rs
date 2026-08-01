@@ -51,7 +51,7 @@ pub use crate::effects::{
     DiagnosticEvent, FetchWebRequest, IndexFullTextRequest, IndexVectorRequest, KernelOutput,
     MaestriaEffect, OcrEffect, ParseArtifactRequest, QueryHarnessProposalRequest,
     QueryHarnessRequest, RequestApprovalRequest, RunValidationRequest, SearchKnowledgeRequest,
-    UpdateGraphRequest,
+    UpdateGraphRequest, ValidationTarget,
 };
 pub use crate::entities::{
     Artifact, Card, Chunk, Claim, ClaimStatus, ContentRange, Evidence, IndexStatus, Memory,

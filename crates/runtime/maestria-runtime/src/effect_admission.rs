@@ -146,11 +146,14 @@ impl EffectExecutionContext {
                 };
             }
         };
-        let Some(stored_proposal) = decode_pending_continuation(&record) else {
-            return Self::rejected(
-                risk,
-                "model-agent proposal approval continuation is malformed",
-            );
+        let stored_proposal = match decode_pending_continuation(&record) {
+            Ok(Some(proposal)) => proposal,
+            Ok(None) | Err(_) => {
+                return Self::rejected(
+                    risk,
+                    "model-agent proposal approval continuation is malformed",
+                );
+            }
         };
         let identity_matches = record.id == approval_id
             && record.effect_kind == "model_agent_harness"

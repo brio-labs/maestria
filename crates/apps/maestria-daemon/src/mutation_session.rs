@@ -37,6 +37,33 @@ impl MutationSession {
         Self::start_with_vector_reconcile(layout, profile, false).await
     }
 
+    /// Try to start a search session without waiting for the instance write
+    /// lock, returning `Ok(None)` when another process holds it.
+    ///
+    /// Callers (CLI search) use the returned session for a durable search or
+    /// degrade to a read-only search; the lock decision is owned here, not
+    /// re-composed by application entry points.
+    pub async fn try_start_for_search(
+        layout: InstanceLayout,
+        profile: AutonomyProfile,
+    ) -> Result<Option<Self>> {
+        let Some(mut lifecycle) =
+            InstanceLifecycle::try_start_with_vector_reconcile(layout, profile, false).await?
+        else {
+            return Ok(None);
+        };
+        match lifecycle.queue_recovery().await {
+            Ok(recovery) => Ok(Some(Self {
+                lifecycle,
+                recovery,
+            })),
+            Err(error) => {
+                let shutdown = lifecycle.shutdown().await;
+                Err(combine_failures(error, shutdown))
+            }
+        }
+    }
+
     async fn start_with_vector_reconcile(
         layout: InstanceLayout,
         profile: AutonomyProfile,

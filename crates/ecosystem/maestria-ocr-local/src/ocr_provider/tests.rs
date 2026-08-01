@@ -68,11 +68,37 @@ fn rejects_non_loopback_endpoints() {
 struct ErrorTransport {
     error: PortError,
 }
-
 impl OcrTransport for ErrorTransport {
     fn post(&self, _endpoint: &str, _body: Vec<u8>) -> Result<Vec<u8>, PortError> {
         Err(self.error.clone())
     }
+}
+
+fn fixture_provider() -> Result<LocalHttpOcrProvider, PortError> {
+    LocalHttpOcrProvider::with_parts(
+        "http://127.0.0.1:10000/v1/chat/completions",
+        "Unlimited-OCR",
+        identity(),
+        Arc::new(FixtureRasterizer),
+        Arc::new(FixtureTransport {
+            requests: Mutex::new(Vec::new()),
+        }),
+    )
+}
+
+#[test]
+fn satisfies_shared_ocr_provider_contract() -> Result<(), Box<dyn std::error::Error>> {
+    let provider = fixture_provider()?;
+    maestria_ports::ocr_contract_tests::assert_ocr_provider_contract(
+        &provider,
+        OcrRequest {
+            file: FileHandle {
+                path: PathBuf::from("scan.pdf"),
+                bytes: b"pdf".to_vec(),
+            },
+            pages: vec![1, 2],
+        },
+    )
 }
 
 #[test]
