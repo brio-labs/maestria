@@ -11,18 +11,18 @@ fn proposal(run_id: u64) -> ModelAgentProposalRequest {
         command: "echo answer".to_string(),
         working_directory: "/tmp".to_string(),
         timeout_secs: 30,
-        expected_generation: 11,
+        expected_generation: IndexGenerationId::new(11),
         task_validation: false,
         memory_candidate: false,
         execution: ModelAgentProposalExecution::Fresh,
-        correlation_id: 42,
+        correlation_id: CorrelationId::new(42),
     }
 }
 
 fn result(run_id: u64) -> ModelAgentProposalResult {
     ModelAgentProposalResult::Succeeded {
         run_id: HarnessRunId::new(run_id),
-        correlation_id: 42,
+        correlation_id: CorrelationId::new(42),
         search: None,
         harness: None,
         validation: None,
@@ -88,7 +88,7 @@ fn requested_requires_fresh_execution_and_resume_binds_to_canonical_request()
     let request = proposal(4);
     let mut non_fresh = request.clone();
     non_fresh.execution = ModelAgentProposalExecution::JournalRecovery {
-        journal_generation: 1,
+        journal_generation: JournalGeneration::new(1),
     };
     assert!(matches!(
         state.apply_input(DomainInput::ModelAgentProposalRequested(non_fresh)),
@@ -104,7 +104,7 @@ fn requested_requires_fresh_execution_and_resume_binds_to_canonical_request()
     ));
     let mut resumed = request.clone();
     resumed.execution = ModelAgentProposalExecution::JournalRecovery {
-        journal_generation: 3,
+        journal_generation: JournalGeneration::new(3),
     };
     let output = state.apply_input(DomainInput::ModelAgentProposalResumed(resumed))?;
     assert!(matches!(
@@ -112,14 +112,14 @@ fn requested_requires_fresh_execution_and_resume_binds_to_canonical_request()
         [MaestriaEffect::QueryHarnessProposal(request)]
             if request.proposal.execution
                 == ModelAgentProposalExecution::JournalRecovery {
-                    journal_generation: 3
+                    journal_generation: JournalGeneration::new(3)
                 }
     ));
 
     let mut mismatched = request;
     mismatched.command = "echo tampered".to_string();
     mismatched.execution = ModelAgentProposalExecution::JournalRecovery {
-        journal_generation: 3,
+        journal_generation: JournalGeneration::new(3),
     };
     assert!(matches!(
         state.apply_input(DomainInput::ModelAgentProposalResumed(mismatched)),
@@ -133,7 +133,7 @@ fn requested_requires_fresh_execution_and_resume_binds_to_canonical_request()
 fn proposal_replay_rejects_non_fresh_canonical_request() {
     let mut request = proposal(5);
     request.execution = ModelAgentProposalExecution::JournalRecovery {
-        journal_generation: 1,
+        journal_generation: JournalGeneration::new(1),
     };
     let mut state = KernelState::new();
     let result = state.apply_event(DomainEventEnvelope {
@@ -181,11 +181,11 @@ fn proposal_execution_variants_keep_recovery_coordinates_typed() {
     let executions = [
         ModelAgentProposalExecution::Fresh,
         ModelAgentProposalExecution::JournalRecovery {
-            journal_generation: 11,
+            journal_generation: JournalGeneration::new(11),
         },
         ModelAgentProposalExecution::ApprovalContinuation {
             approval_id: ApprovalId::new(2),
-            journal_generation: 12,
+            journal_generation: JournalGeneration::new(12),
         },
     ];
 
@@ -193,14 +193,14 @@ fn proposal_execution_variants_keep_recovery_coordinates_typed() {
         match execution {
             ModelAgentProposalExecution::Fresh => {}
             ModelAgentProposalExecution::JournalRecovery { journal_generation } => {
-                assert_eq!(journal_generation, 11);
+                assert_eq!(journal_generation, JournalGeneration::new(11));
             }
             ModelAgentProposalExecution::ApprovalContinuation {
                 approval_id,
                 journal_generation,
             } => {
                 assert_eq!(approval_id, ApprovalId::new(2));
-                assert_eq!(journal_generation, 12);
+                assert_eq!(journal_generation, JournalGeneration::new(12));
             }
         }
     }
@@ -211,11 +211,11 @@ fn proposal_execution_variants_serde_round_trip() -> Result<(), Box<dyn std::err
     let executions = [
         ModelAgentProposalExecution::Fresh,
         ModelAgentProposalExecution::JournalRecovery {
-            journal_generation: 11,
+            journal_generation: JournalGeneration::new(11),
         },
         ModelAgentProposalExecution::ApprovalContinuation {
             approval_id: ApprovalId::new(2),
-            journal_generation: 12,
+            journal_generation: JournalGeneration::new(12),
         },
     ];
 

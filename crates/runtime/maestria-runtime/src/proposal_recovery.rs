@@ -62,7 +62,7 @@ impl MaestriaRuntime {
             }
             let mut resumed = proposal.clone();
             resumed.execution = ModelAgentProposalExecution::JournalRecovery {
-                journal_generation: entry.generation,
+                journal_generation: maestria_domain::JournalGeneration::new(entry.generation),
             };
             proposals.insert(entry.run_id, resumed);
         }
@@ -130,7 +130,7 @@ impl EffectExecutionContext {
     pub(crate) async fn execute_recovered_harness(
         &self,
         proposal: &ModelAgentProposalRequest,
-        generation: u64,
+        generation: maestria_domain::JournalGeneration,
     ) -> Result<Option<ModelAgentHarnessResult>, EffectFailure> {
         let entry = self
             .adapters
@@ -141,7 +141,7 @@ impl EffectExecutionContext {
             })?
             .into_iter()
             .find(|entry| {
-                entry.generation == generation
+                entry.generation == generation.value()
                     && journal_entry_matches_proposal(entry, proposal, self.scope_id)
             })
             .ok_or_else(|| {
@@ -173,7 +173,7 @@ impl EffectExecutionContext {
             &self.input_tx,
             DomainInput::HarnessRunCompleted(maestria_domain::HarnessRunCompleted {
                 run_id: proposal.run_id,
-                generation,
+                generation: generation.value(),
                 task_id: proposal.task_id,
                 command: outcome.command.clone(),
                 exit_code: outcome.exit_code,

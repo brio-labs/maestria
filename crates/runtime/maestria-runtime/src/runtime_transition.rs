@@ -15,7 +15,8 @@ impl MaestriaRuntime {
         match input {
             DomainInput::ModelAgentProposalRequested(mut proposal) => {
                 if let Some(command) = command {
-                    proposal.correlation_id = command.correlation_id;
+                    proposal.correlation_id =
+                        maestria_domain::CorrelationId::new(command.correlation_id);
                 }
                 DomainInput::ModelAgentProposalRequested(proposal)
             }

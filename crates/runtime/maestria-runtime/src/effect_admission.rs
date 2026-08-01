@@ -53,7 +53,7 @@ impl EffectExecutionContext {
     fn exact_journal_entry(
         &self,
         proposal: &maestria_domain::ModelAgentProposalRequest,
-        generation: u64,
+        generation: maestria_domain::JournalGeneration,
     ) -> Result<Option<EffectJournalEntry>, String> {
         let entries = self
             .adapters
@@ -61,7 +61,7 @@ impl EffectExecutionContext {
             .scan_in_flight()
             .map_err(|error| format!("unable to scan proposal journal: {error}"))?;
         Ok(entries.into_iter().find(|entry| {
-            entry.generation == generation
+            entry.generation == generation.value()
                 && journal_entry_matches_proposal(entry, proposal, self.scope_id)
         }))
     }
@@ -102,7 +102,7 @@ impl EffectExecutionContext {
         &self,
         risk: RiskClass,
         proposal: &maestria_domain::ModelAgentProposalRequest,
-        generation: u64,
+        generation: maestria_domain::JournalGeneration,
     ) -> EffectAdmission {
         let entry = match self.exact_journal_entry(proposal, generation) {
             Ok(entry) => entry,
@@ -131,7 +131,7 @@ impl EffectExecutionContext {
         risk: RiskClass,
         proposal: &maestria_domain::ModelAgentProposalRequest,
         approval_id: maestria_domain::ApprovalId,
-        generation: u64,
+        generation: maestria_domain::JournalGeneration,
     ) -> EffectAdmission {
         let record = match self.adapters.approval_repo.find_by_id(approval_id) {
             Ok(Some(record)) => record,
@@ -205,7 +205,7 @@ impl EffectExecutionContext {
                 risk,
                 claim: Some(ApprovedProposalClaim {
                     run_id: proposal.run_id,
-                    generation,
+                    generation: generation.value(),
                 }),
             },
             ApprovalStatus::Pending => EffectAdmission::AwaitingApproval {

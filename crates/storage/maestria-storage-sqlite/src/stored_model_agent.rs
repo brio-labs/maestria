@@ -8,8 +8,8 @@
 //! keep importing from `crate::payloads::stored_model_agent`.
 
 use maestria_domain::{
-    ApprovalId, EvidenceId, HarnessRunId, ModelAgentProposalExecution, ModelAgentProposalRequest,
-    ModelAgentProposalResult, TaskId,
+    ApprovalId, CorrelationId, EvidenceId, HarnessRunId, IndexGenerationId, JournalGeneration,
+    ModelAgentProposalExecution, ModelAgentProposalRequest, ModelAgentProposalResult, TaskId,
 };
 use serde::{Deserialize, Serialize};
 
@@ -38,7 +38,7 @@ impl StoredModelAgentProposalExecution {
             ModelAgentProposalExecution::Fresh => Self::Fresh,
             ModelAgentProposalExecution::JournalRecovery { journal_generation } => {
                 Self::JournalRecovery {
-                    journal_generation: *journal_generation,
+                    journal_generation: journal_generation.value(),
                 }
             }
             ModelAgentProposalExecution::ApprovalContinuation {
@@ -46,7 +46,7 @@ impl StoredModelAgentProposalExecution {
                 journal_generation,
             } => Self::ApprovalContinuation {
                 approval_id: approval_id.value(),
-                journal_generation: *journal_generation,
+                journal_generation: journal_generation.value(),
             },
         }
     }
@@ -57,14 +57,16 @@ impl StoredModelAgentProposalExecution {
         Ok(match self {
             Self::Fresh => ModelAgentProposalExecution::Fresh,
             Self::JournalRecovery { journal_generation } => {
-                ModelAgentProposalExecution::JournalRecovery { journal_generation }
+                ModelAgentProposalExecution::JournalRecovery {
+                    journal_generation: JournalGeneration::new(journal_generation),
+                }
             }
             Self::ApprovalContinuation {
                 approval_id,
                 journal_generation,
             } => ModelAgentProposalExecution::ApprovalContinuation {
                 approval_id: ApprovalId::new(approval_id),
-                journal_generation,
+                journal_generation: JournalGeneration::new(journal_generation),
             },
         })
     }
@@ -102,11 +104,11 @@ impl StoredModelAgentProposalRequest {
             command: request.command.clone(),
             working_directory: request.working_directory.clone(),
             timeout_secs: request.timeout_secs,
-            expected_generation: request.expected_generation,
+            expected_generation: request.expected_generation.value(),
             task_validation: request.task_validation,
             memory_candidate: request.memory_candidate,
             execution: StoredModelAgentProposalExecution::from_domain(&request.execution),
-            correlation_id: request.correlation_id,
+            correlation_id: request.correlation_id.value(),
         }
     }
 
@@ -123,11 +125,11 @@ impl StoredModelAgentProposalRequest {
             command: self.command,
             working_directory: self.working_directory,
             timeout_secs: self.timeout_secs,
-            expected_generation: self.expected_generation,
+            expected_generation: IndexGenerationId::new(self.expected_generation),
             task_validation: self.task_validation,
             memory_candidate: self.memory_candidate,
             execution: self.execution.try_into_domain()?,
-            correlation_id: self.correlation_id,
+            correlation_id: CorrelationId::new(self.correlation_id),
         })
     }
 }
@@ -162,8 +164,8 @@ impl StoredModelAgentProposalResult {
                 validation,
                 memory_candidate,
             } => Self::Succeeded {
+                correlation_id: correlation_id.value(),
                 run_id: run_id.value(),
-                correlation_id: *correlation_id,
                 search: search
                     .as_ref()
                     .map(StoredModelAgentSearchResult::from_domain),
@@ -183,7 +185,7 @@ impl StoredModelAgentProposalResult {
                 error,
             } => Self::Failed {
                 run_id: run_id.value(),
-                correlation_id: *correlation_id,
+                correlation_id: correlation_id.value(),
                 error: error.clone(),
             },
         }
@@ -202,7 +204,7 @@ impl StoredModelAgentProposalResult {
                 memory_candidate,
             } => ModelAgentProposalResult::Succeeded {
                 run_id: HarnessRunId::new(run_id),
-                correlation_id,
+                correlation_id: CorrelationId::new(correlation_id),
                 search: search
                     .map(StoredModelAgentSearchResult::try_into_domain)
                     .transpose()?,
@@ -222,7 +224,7 @@ impl StoredModelAgentProposalResult {
                 error,
             } => ModelAgentProposalResult::Failed {
                 run_id: HarnessRunId::new(run_id),
-                correlation_id,
+                correlation_id: CorrelationId::new(correlation_id),
                 error,
             },
         })
@@ -248,21 +250,21 @@ mod tests {
             command: "echo river".to_string(),
             working_directory: "/tmp".to_string(),
             timeout_secs: 30,
-            expected_generation: 7,
+            expected_generation: IndexGenerationId::new(7),
             task_validation: true,
             memory_candidate: false,
             execution: ModelAgentProposalExecution::ApprovalContinuation {
                 approval_id: ApprovalId::new(9),
-                journal_generation: 11,
+                journal_generation: JournalGeneration::new(11),
             },
-            correlation_id: 13,
+            correlation_id: CorrelationId::new(13),
         }
     }
 
     fn succeeded_result() -> ModelAgentProposalResult {
         ModelAgentProposalResult::Succeeded {
             run_id: HarnessRunId::new(1),
-            correlation_id: 13,
+            correlation_id: CorrelationId::new(13),
             search: Some(ModelAgentSearchResult {
                 trace_id: SearchTraceId::new(5),
                 evidence_count: 3,
@@ -311,7 +313,7 @@ mod tests {
     fn failed_result_round_trip() -> Result<(), Box<dyn std::error::Error>> {
         let original = ModelAgentProposalResult::Failed {
             run_id: HarnessRunId::new(2),
-            correlation_id: 14,
+            correlation_id: CorrelationId::new(14),
             error: "harness crashed".to_string(),
         };
         let stored = StoredModelAgentProposalResult::from_domain(&original);

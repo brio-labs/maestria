@@ -41,7 +41,7 @@ impl EffectExecutionContext {
     fn claim_journal_recovery(
         &self,
         proposal: &maestria_domain::ModelAgentProposalRequest,
-        generation: u64,
+        generation: maestria_domain::JournalGeneration,
     ) -> Result<(), EffectFailure> {
         let mut claims = self.journal_recovery_claims.lock().map_err(|_| {
             EffectFailure::Failed("journal recovery claim lock poisoned".to_string())
@@ -60,9 +60,9 @@ impl EffectExecutionContext {
             })
             .map(|entry| (entry.run_id, entry.generation))
             .collect();
-        let key = (proposal.run_id, generation);
+        let key = (proposal.run_id, generation.value());
         let exact_active_entry = entries.iter().any(|entry| {
-            entry.generation == generation
+            entry.generation == generation.value()
                 && journal_entry_matches_proposal(entry, proposal, self.scope_id)
                 && entry.status == EffectJournalStatus::FeedbackAccepted
                 && entry.feedback.is_some()
@@ -124,7 +124,7 @@ impl EffectExecutionContext {
                     .effect_journal
                     .record_terminal(
                         proposal.run_id,
-                        *journal_generation,
+                        journal_generation.value(),
                         maestria_ports::EffectJournalStatus::Failed,
                     )
                     .map_err(|error| {
@@ -256,7 +256,7 @@ impl EffectExecutionContext {
                     .effect_journal
                     .record_terminal(
                         proposal.run_id,
-                        *journal_generation,
+                        journal_generation.value(),
                         maestria_ports::EffectJournalStatus::Failed,
                     )
                     .map_err(|error| {

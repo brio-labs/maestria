@@ -30,7 +30,7 @@ async fn approval_repository_errors_are_rejected_typed_and_fail_closed()
 -> Result<(), Box<dyn std::error::Error>> {
     let request = proposal(ModelAgentProposalExecution::ApprovalContinuation {
         approval_id: ApprovalId::new(10),
-        journal_generation: 2,
+        journal_generation: maestria_domain::JournalGeneration::new(2),
     });
     let calls = Arc::new(AtomicUsize::new(0));
     let (context, journal, mut receiver) =
@@ -91,7 +91,7 @@ async fn missing_and_malformed_stored_proposals_are_observe_only()
     for (label, malformed_capability) in cases {
         let request = proposal(ModelAgentProposalExecution::ApprovalContinuation {
             approval_id: ApprovalId::new(21),
-            journal_generation: 2,
+            journal_generation: maestria_domain::JournalGeneration::new(2),
         });
         let calls = Arc::new(AtomicUsize::new(0));
         let repository = InMemoryApprovalRepository::new();
@@ -127,7 +127,7 @@ async fn stored_identity_mismatch_is_observe_only_without_coordinates_mutation()
 -> Result<(), Box<dyn std::error::Error>> {
     let request = proposal(ModelAgentProposalExecution::ApprovalContinuation {
         approval_id: ApprovalId::new(22),
-        journal_generation: 2,
+        journal_generation: maestria_domain::JournalGeneration::new(2),
     });
     let mut record = approval_record(&request, ApprovalStatus::Approved)?;
     record.scope_id = ScopeId::new(99);
@@ -153,7 +153,7 @@ fn approved_proposal_claim_requires_exact_journal_intent() -> Result<(), Box<dyn
 {
     let request = proposal(ModelAgentProposalExecution::ApprovalContinuation {
         approval_id: ApprovalId::new(23),
-        journal_generation: 2,
+        journal_generation: maestria_domain::JournalGeneration::new(2),
     });
     let calls = Arc::new(AtomicUsize::new(0));
     let (context, journal, _) = seed_exact_approval(&request, ApprovalStatus::Approved, calls)?;
@@ -182,7 +182,7 @@ fn approved_proposals_reject_missing_mismatched_and_non_intent_journal_entries()
 -> Result<(), Box<dyn std::error::Error>> {
     let request = proposal(ModelAgentProposalExecution::ApprovalContinuation {
         approval_id: ApprovalId::new(24),
-        journal_generation: 2,
+        journal_generation: maestria_domain::JournalGeneration::new(2),
     });
     let metadata_cases = [
         (
@@ -267,7 +267,7 @@ async fn approved_claim_happens_before_proposal_search_and_provider_dispatch()
 -> Result<(), Box<dyn std::error::Error>> {
     let request = proposal(ModelAgentProposalExecution::ApprovalContinuation {
         approval_id: ApprovalId::new(25),
-        journal_generation: 2,
+        journal_generation: maestria_domain::JournalGeneration::new(2),
     });
     let calls = Arc::new(AtomicUsize::new(0));
     let (context, journal, mut receiver) =
@@ -295,7 +295,7 @@ async fn concurrent_approved_replays_allow_only_one_provider_call()
 -> Result<(), Box<dyn std::error::Error>> {
     let mut request = proposal(ModelAgentProposalExecution::ApprovalContinuation {
         approval_id: ApprovalId::new(26),
-        journal_generation: 2,
+        journal_generation: maestria_domain::JournalGeneration::new(2),
     });
     request.query.clear();
     request.working_directory.clear();
@@ -322,7 +322,7 @@ async fn exact_denied_stored_proposal_terminalizes_decoded_proposal()
 -> Result<(), Box<dyn std::error::Error>> {
     let request = proposal(ModelAgentProposalExecution::ApprovalContinuation {
         approval_id: ApprovalId::new(27),
-        journal_generation: 2,
+        journal_generation: maestria_domain::JournalGeneration::new(2),
     });
     let calls = Arc::new(AtomicUsize::new(0));
     let (context, journal, mut receiver) =
@@ -521,7 +521,7 @@ async fn persist_event_failure_cancels_effect_and_runtime_executors()
 async fn journal_recovery_canonical_mismatch_is_rejected_without_effects()
 -> Result<(), Box<dyn std::error::Error>> {
     let mut request = proposal(ModelAgentProposalExecution::JournalRecovery {
-        journal_generation: 1,
+        journal_generation: maestria_domain::JournalGeneration::new(1),
     });
     let calls = Arc::new(AtomicUsize::new(0));
     let (context, journal, mut receiver) = recovery_context(&request, calls.clone())?;
@@ -549,7 +549,7 @@ async fn journal_recovery_canonical_mismatch_is_rejected_without_effects()
 async fn journal_recovery_claim_is_shared_atomic_and_prunes_stale_entries()
 -> Result<(), Box<dyn std::error::Error>> {
     let request = proposal(ModelAgentProposalExecution::JournalRecovery {
-        journal_generation: 2,
+        journal_generation: maestria_domain::JournalGeneration::new(2),
     });
     let calls = Arc::new(AtomicUsize::new(0));
     let (context, journal, mut receiver) = recovery_context(&request, calls.clone())?;

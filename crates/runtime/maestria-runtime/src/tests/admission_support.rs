@@ -89,19 +89,19 @@ pub(super) fn proposal(execution: ModelAgentProposalExecution) -> ModelAgentProp
         command: "echo approved".to_string(),
         working_directory: "/workspace".to_string(),
         timeout_secs: 10,
-        expected_generation: 1,
+        expected_generation: maestria_domain::IndexGenerationId::new(1),
         task_validation: false,
         memory_candidate: false,
         execution,
-        correlation_id: 99,
+        correlation_id: maestria_domain::CorrelationId::new(99),
     }
 }
 
 #[derive(serde::Serialize)]
 struct ApprovalContinuationFixture<'a> {
     proposal: &'a ModelAgentProposalRequest,
-    journal_generation: u64,
-    correlation_id: u64,
+    journal_generation: maestria_domain::JournalGeneration,
+    correlation_id: maestria_domain::CorrelationId,
 }
 
 pub(super) fn approval_record(
@@ -121,6 +121,7 @@ pub(super) fn approval_record(
         journal_generation,
         correlation_id: request.correlation_id,
     };
+
     Ok(ApprovalRecord {
         id: approval_id,
         task_id: request.task_id,
@@ -284,7 +285,10 @@ pub(super) fn seed_exact_approval(
         &request.capability,
         &request.command,
         ScopeId::new(1),
-        request.execution.journal_generation(),
+        request
+            .execution
+            .journal_generation()
+            .map(|generation| generation.value()),
     )?;
     Ok((context, journal, receiver))
 }
@@ -313,12 +317,12 @@ pub(super) fn recovery_context(
         capability: request.capability.clone(),
         command: request.command.clone(),
         scope_id: ScopeId::new(1),
-        requested_generation: Some(generation),
+        requested_generation: Some(generation.value()),
     })?;
-    journal.record_started(request.run_id, generation)?;
+    journal.record_started(request.run_id, generation.value())?;
     journal.claim_feedback_with_outcome(
         request.run_id,
-        generation,
+        generation.value(),
         maestria_ports::HarnessOutcome {
             run_id: request.run_id,
             command: request.command.clone(),

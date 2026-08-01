@@ -1,14 +1,17 @@
-use crate::ids::{ApprovalId, EvidenceId, HarnessRunId, MemoryCandidateId, SearchTraceId, TaskId};
+use crate::ids::{
+    ApprovalId, CorrelationId, EvidenceId, HarnessRunId, IndexGenerationId, JournalGeneration,
+    MemoryCandidateId, SearchTraceId, TaskId,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum ModelAgentProposalExecution {
     Fresh,
     JournalRecovery {
-        journal_generation: u64,
+        journal_generation: JournalGeneration,
     },
     ApprovalContinuation {
         approval_id: ApprovalId,
-        journal_generation: u64,
+        journal_generation: JournalGeneration,
     },
 }
 
@@ -20,7 +23,7 @@ impl ModelAgentProposalExecution {
         }
     }
 
-    pub fn journal_generation(&self) -> Option<u64> {
+    pub fn journal_generation(&self) -> Option<JournalGeneration> {
         match self {
             Self::Fresh => None,
             Self::JournalRecovery { journal_generation }
@@ -47,11 +50,11 @@ pub struct ModelAgentProposalRequest {
     pub command: String,
     pub working_directory: String,
     pub timeout_secs: u64,
-    pub expected_generation: u64,
+    pub expected_generation: IndexGenerationId,
     pub task_validation: bool,
     pub memory_candidate: bool,
     pub execution: ModelAgentProposalExecution,
-    pub correlation_id: u64,
+    pub correlation_id: CorrelationId,
 }
 
 impl ModelAgentProposalRequest {
@@ -119,7 +122,7 @@ pub struct ModelAgentMemoryResult {
 pub enum ModelAgentProposalResult {
     Succeeded {
         run_id: HarnessRunId,
-        correlation_id: u64,
+        correlation_id: CorrelationId,
         search: Option<ModelAgentSearchResult>,
         harness: Option<ModelAgentHarnessResult>,
         validation: Option<ModelAgentValidationResult>,
@@ -127,7 +130,7 @@ pub enum ModelAgentProposalResult {
     },
     Failed {
         run_id: HarnessRunId,
-        correlation_id: u64,
+        correlation_id: CorrelationId,
         error: String,
     },
 }
@@ -141,7 +144,7 @@ impl ModelAgentProposalResult {
     }
 
     #[must_use]
-    pub const fn correlation_id(&self) -> u64 {
+    pub const fn correlation_id(&self) -> CorrelationId {
         match self {
             Self::Succeeded { correlation_id, .. } | Self::Failed { correlation_id, .. } => {
                 *correlation_id

@@ -44,11 +44,13 @@ pub(super) async fn propose(
                 command: proposal.command,
                 working_directory: proposal.working_directory.display().to_string(),
                 timeout_secs: proposal.timeout.as_secs(),
-                expected_generation: proposal.expected_generation,
+                expected_generation: maestria_domain::IndexGenerationId::new(
+                    proposal.expected_generation,
+                ),
                 task_validation,
                 memory_candidate,
                 execution: ModelAgentProposalExecution::Fresh,
-                correlation_id: 0,
+                correlation_id: maestria_domain::CorrelationId::new(0),
             },
         ))
         .await
@@ -113,7 +115,7 @@ pub(super) async fn resolve(
         .map_err(|error| anyhow!("model-agent approval was not accepted: {error}"))?;
     Ok(ClientResponse::ModelAgentStatus(ModelAgentStatusResponse {
         run_id,
-        correlation_id: Some(correlation_id),
+        correlation_id: Some(correlation_id.value()),
         status: if approved {
             "approval_recorded"
         } else {
@@ -145,7 +147,7 @@ fn terminal_response(
             ..
         } => ModelAgentStatusResponse {
             run_id,
-            correlation_id: Some(result.correlation_id()),
+            correlation_id: Some(result.correlation_id().value()),
             status: "succeeded".to_string(),
             approval_id: None,
             journal_generation: None,
@@ -175,7 +177,7 @@ fn terminal_response(
         maestria_domain::ModelAgentProposalResult::Failed { error, .. } => {
             ModelAgentStatusResponse {
                 run_id,
-                correlation_id: Some(result.correlation_id()),
+                correlation_id: Some(result.correlation_id().value()),
                 status: "failed".to_string(),
                 approval_id: None,
                 journal_generation: None,
@@ -211,8 +213,8 @@ pub(super) fn status(layout: &InstanceLayout, run_id: u64) -> Result<ModelAgentS
         };
         if identity.run_id == run_id {
             approval_id = Some(record.id.value());
-            correlation_id = Some(identity.correlation_id);
-            pending_journal_generation = Some(identity.journal_generation);
+            correlation_id = Some(identity.correlation_id.value());
+            pending_journal_generation = Some(identity.journal_generation.value());
             break;
         }
     }
@@ -283,8 +285,8 @@ fn build_proposal(payload: ModelAgentProposalPayload) -> ModelAgentProposal {
 #[derive(Debug, Clone, Copy)]
 struct PendingProposalIdentity {
     run_id: u64,
-    correlation_id: u64,
-    journal_generation: u64,
+    correlation_id: maestria_domain::CorrelationId,
+    journal_generation: maestria_domain::JournalGeneration,
 }
 
 /// Decode the pending continuation identity of an approval record.
