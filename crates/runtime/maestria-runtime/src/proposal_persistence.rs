@@ -15,8 +15,8 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct PendingHarnessContinuation {
     proposal: ModelAgentProposalRequest,
-    journal_generation: u64,
-    correlation_id: u64,
+    journal_generation: maestria_domain::JournalGeneration,
+    correlation_id: maestria_domain::CorrelationId,
 }
 
 fn pending_capability(token: &PendingHarnessContinuation) -> Result<String, EffectFailure> {
@@ -77,9 +77,13 @@ pub(super) async fn persist_pending_harness(
         .id_allocator
         .allocate_approval_id()
         .map_err(|error| EffectFailure::Failed(format!("allocate harness approval id: {error}")))?;
-    let capability = build_approval_continuation(proposal, approval_id, entry.generation)?;
+    let capability = build_approval_continuation(
+        proposal,
+        approval_id,
+        maestria_domain::JournalGeneration::new(entry.generation),
+    )?;
     persist_approval_record(context, request, approval_id, capability).await?;
-    tracing::info!(approval_id = %approval_id, correlation_id = proposal.correlation_id, "harness proposal pending approval");
+    tracing::info!(approval_id = %approval_id, correlation_id = %proposal.correlation_id, "harness proposal pending approval");
     Ok(())
 }
 
@@ -106,7 +110,7 @@ fn record_harness_journal(
 fn build_approval_continuation(
     proposal: &ModelAgentProposalRequest,
     approval_id: ApprovalId,
-    journal_generation: u64,
+    journal_generation: maestria_domain::JournalGeneration,
 ) -> Result<String, EffectFailure> {
     let mut continuation = proposal.clone();
     continuation.execution = ModelAgentProposalExecution::ApprovalContinuation {

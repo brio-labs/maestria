@@ -15,12 +15,13 @@ use std::collections::BTreeSet;
 use std::path::PathBuf;
 
 fn validate_proposal_search_generation(
-    expected_generation: u64,
+    expected_generation: maestria_domain::IndexGenerationId,
     actual_generation: maestria_domain::IndexGenerationId,
 ) -> Result<(), EffectFailure> {
-    if actual_generation.value() != expected_generation {
+    if expected_generation != actual_generation {
         return Err(EffectFailure::Failed(format!(
-            "proposal search generation mismatch: expected {expected_generation}, got {}",
+            "proposal search generation mismatch: expected {}, got {}",
+            expected_generation.value(),
             actual_generation.value()
         )));
     }
@@ -179,7 +180,10 @@ impl EffectExecutionContext {
         let ordinary = QueryHarnessRequest {
             run_id: proposal.run_id,
             task_id: proposal.task_id,
-            generation: proposal.execution.journal_generation(),
+            generation: proposal
+                .execution
+                .journal_generation()
+                .map(|generation| generation.value()),
             capability: proposal.capability.clone(),
             scope_id: self.scope_id,
             approval_id: proposal.execution.approval_id(),
@@ -202,7 +206,9 @@ impl EffectExecutionContext {
         };
         let generation = match &proposal.execution {
             maestria_domain::ModelAgentProposalExecution::Fresh => {
-                self.prepare_fresh_proposal_journal(proposal)?
+                maestria_domain::JournalGeneration::new(
+                    self.prepare_fresh_proposal_journal(proposal)?,
+                )
             }
             maestria_domain::ModelAgentProposalExecution::ApprovalContinuation {
                 journal_generation,
@@ -217,7 +223,7 @@ impl EffectExecutionContext {
         let outcome = self
             .execute_and_process_harness(
                 QueryHarnessRequest {
-                    generation: Some(generation),
+                    generation: Some(generation.value()),
                     ..ordinary
                 },
                 HarnessRequest {
@@ -230,7 +236,7 @@ impl EffectExecutionContext {
                     blocked_paths: scope_guard.scope().blocked_paths().to_vec(),
                     blocked_patterns: scope_guard.scope().blocked_patterns().to_vec(),
                 },
-                generation,
+                generation.value(),
             )
             .await?;
         Ok(outcome.map(|outcome| ModelAgentHarnessResult {
@@ -376,8 +382,10 @@ mod tests {
 
     #[test]
     fn stale_deferred_proposal_search_generation_fails_terminally() {
-        let result =
-            validate_proposal_search_generation(11, maestria_domain::IndexGenerationId::new(12));
+        let result = validate_proposal_search_generation(
+            maestria_domain::IndexGenerationId::new(11),
+            maestria_domain::IndexGenerationId::new(12),
+        );
         assert!(
             matches!(result, Err(EffectFailure::Failed(message)) if message.contains("generation mismatch"))
         );

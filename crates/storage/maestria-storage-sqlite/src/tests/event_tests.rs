@@ -576,11 +576,11 @@ fn model_agent_proposal_request_payload_round_trips_with_event_kind() -> Result<
         command: String::new(),
         working_directory: String::new(),
         timeout_secs: 10,
-        expected_generation: 4,
+        expected_generation: IndexGenerationId::new(4),
         task_validation: false,
         memory_candidate: false,
         execution: ModelAgentProposalExecution::Fresh,
-        correlation_id: 12,
+        correlation_id: CorrelationId::new(12),
     };
     let envelope = DomainEventEnvelope {
         id: EventId::new(1),

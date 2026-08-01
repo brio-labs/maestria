@@ -419,7 +419,7 @@ async fn approval_ack_includes_inline_continuation_admission_before_shutdown()
     let proposal =
         super::admission_support::proposal(ModelAgentProposalExecution::ApprovalContinuation {
             approval_id,
-            journal_generation: generation,
+            journal_generation: maestria_domain::JournalGeneration::new(generation),
         });
     let approval_repo = InMemoryApprovalRepository::new();
     approval_repo.save(&super::admission_support::approval_record(
@@ -488,7 +488,7 @@ async fn approval_ack_propagates_inline_continuation_admission_failure()
     let proposal =
         super::admission_support::proposal(ModelAgentProposalExecution::ApprovalContinuation {
             approval_id,
-            journal_generation: 1,
+            journal_generation: maestria_domain::JournalGeneration::new(1),
         });
     let approval_repo = InMemoryApprovalRepository::new();
     approval_repo.save(&super::admission_support::approval_record(

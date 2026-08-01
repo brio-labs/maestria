@@ -541,15 +541,15 @@ async fn model_agent_recovery_consumes_stored_success_without_reexecution()
         command: "echo recovered".to_string(),
         working_directory: String::new(),
         timeout_secs: 1,
-        expected_generation: 1,
+        expected_generation: maestria_domain::IndexGenerationId::new(1),
         task_validation: false,
         memory_candidate: false,
         execution: ModelAgentProposalExecution::Fresh,
-        correlation_id: 9,
+        correlation_id: maestria_domain::CorrelationId::new(9),
     };
     let mut recovery = canonical.clone();
     recovery.execution = ModelAgentProposalExecution::JournalRecovery {
-        journal_generation: entry.generation,
+        journal_generation: maestria_domain::JournalGeneration::new(entry.generation),
     };
     let mut state = KernelState::new();
     state.model_agent_requests.insert(run_id, canonical);
@@ -610,11 +610,11 @@ fn journal_recovery_proposal(run_id: HarnessRunId) -> ModelAgentProposalRequest 
         command: "echo recovered".to_string(),
         working_directory: String::new(),
         timeout_secs: 1,
-        expected_generation: 1,
+        expected_generation: maestria_domain::IndexGenerationId::new(1),
         task_validation: false,
         memory_candidate: false,
         execution: ModelAgentProposalExecution::Fresh,
-        correlation_id: 10,
+        correlation_id: maestria_domain::CorrelationId::new(10),
     }
 }
 
@@ -670,7 +670,7 @@ async fn journal_recovery_rejects_missing_or_invalid_durable_feedback()
         }
         let mut recovery = canonical.clone();
         recovery.execution = ModelAgentProposalExecution::JournalRecovery {
-            journal_generation: generation,
+            journal_generation: maestria_domain::JournalGeneration::new(generation),
         };
         let mut state = KernelState::new();
         state.model_agent_requests.insert(run_id, canonical);

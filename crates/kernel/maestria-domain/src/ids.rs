@@ -62,3 +62,5 @@ id_type!(CorpusSnapshotId);
 id_type!(IndexGenerationId);
 id_type!(DuplicateClusterId);
 id_type!(ConflictSetId);
+id_type!(CorrelationId);
+id_type!(JournalGeneration);
