@@ -54,9 +54,10 @@ pub use crate::effects::{
     UpdateGraphRequest, ValidationTarget,
 };
 pub use crate::entities::{
-    Artifact, Card, Chunk, Claim, ClaimStatus, ContentRange, Evidence, IndexStatus, Memory,
-    MemoryCandidate, MemoryStatus, OutputStream, PendingArtifact, Relation, RelationEndpoint,
-    RelationKind, Task, TaskPriority, TaskStatus, TestStatus, ValidationReportRecord,
+    Artifact, Card, Chunk, Claim, ClaimStatus, ContentRange, ContentRangeError, Evidence,
+    IndexStatus, Memory, MemoryCandidate, MemoryStatus, OutputStream, PendingArtifact, Relation,
+    RelationEndpoint, RelationKind, Task, TaskPriority, TaskStatus, TestStatus,
+    ValidationReportRecord,
 };
 pub use crate::errors::DomainError;
 pub use crate::events::{ApprovalOutcome, DomainEvent, DomainEventEnvelope};
@@ -102,8 +103,9 @@ pub use crate::ocr::{
     OcrRetentionPolicy, OcrValidationError,
 };
 pub use crate::provenance::{
-    ParseStatus, ParsedRepresentation, RepresentationKind, SourceSpan, content_hash,
-    evidence_id_for, excerpt_for, line_range_for_chunk, web_artifact_id_for, web_evidence_id_for,
+    ParseStatus, ParsedRepresentation, RepresentationKind, SourceSpan, SourceSpanError,
+    content_hash, evidence_id_for, excerpt_for, line_range_for_chunk, web_artifact_id_for,
+    web_evidence_id_for,
 };
 pub use crate::replay::{replay_events, replay_inputs};
 pub use crate::search::{

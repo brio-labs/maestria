@@ -91,12 +91,12 @@ pub(crate) fn build_indexable_records(
             source_hash,
             observed_at,
         )?;
-        let registration = chunk_to_registration(chunk, order, artifact_id);
+        let registration = chunk_to_registration(chunk, order, artifact_id)?;
         evidence_inputs.push(evidence);
         chunks.push(registration);
     }
 
-    let cards = build_cards(&parsed.cards);
+    let cards = build_cards(artifact_id, &parsed.cards)?;
 
     Ok((evidence_inputs, chunks, cards))
 }
@@ -215,12 +215,14 @@ fn chunk_to_registration(
     chunk: &ParsedChunk,
     order: u32,
     artifact_id: ArtifactId,
-) -> RegisterChunkInput {
-    RegisterChunkInput {
+) -> Result<RegisterChunkInput, IndexableRecordsError> {
+    Ok(RegisterChunkInput {
         chunk_id: chunk.chunk_id,
         artifact_id,
         node_id: chunk.node_id,
-        source_span: domain_source_span(&chunk.source_span),
+        source_span: domain_source_span(&chunk.source_span).map_err(|error| {
+            IndexableRecordsError::new(artifact_id, order, "source_span", error.to_string())
+        })?,
         representations: chunk
             .representations
             .iter()
@@ -228,18 +230,23 @@ fn chunk_to_registration(
             .collect(),
         order,
         text: chunk.text.clone(),
-    }
+    })
 }
 
-fn build_cards(parsed_cards: &[ParsedCard]) -> Vec<maestria_domain::CreateCardInput> {
+fn build_cards(
+    artifact_id: ArtifactId,
+    parsed_cards: &[ParsedCard],
+) -> Result<Vec<maestria_domain::CreateCardInput>, IndexableRecordsError> {
     parsed_cards
         .iter()
         .map(|parsed_card| {
             let mut card = parsed_card.card.clone();
             card.node_id = parsed_card.node_id;
-            card.source_span = domain_source_span(&parsed_card.source_span);
+            card.source_span = domain_source_span(&parsed_card.source_span).map_err(|error| {
+                IndexableRecordsError::new(artifact_id, 0, "source_span", error.to_string())
+            })?;
             card.security = Some(security_for_text(&card.body));
-            card
+            Ok(card)
         })
         .collect()
 }

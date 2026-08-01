@@ -13,8 +13,8 @@ use maestria_ports::{
     InMemoryArtifactRepository, InMemoryBlobStore, InMemoryEvidenceRepository, SearchQuery,
 };
 
-fn archive() -> maestria_code_intel::RepositoryCodeIndex {
-    maestria_code_intel::RepositoryCodeIndex {
+fn archive() -> Result<maestria_code_intel::RepositoryCodeIndex, Box<dyn std::error::Error>> {
+    Ok(maestria_code_intel::RepositoryCodeIndex {
         summary: maestria_code_intel::CodeIndexSummary {
             repository_root: "/root/repo".to_string(),
             commit_sha: "abc123".to_string(),
@@ -29,13 +29,13 @@ fn archive() -> maestria_code_intel::RepositoryCodeIndex {
             relation_summary: maestria_code_intel::CodeRelationSummary::default(),
         },
         packages: Vec::new(),
-        symbols: vec![symbol("rec-1")],
+        symbols: vec![symbol("rec-1")?],
         relations: Vec::new(),
-    }
+    })
 }
 
-fn symbol(record_id: &str) -> SymbolRecord {
-    SymbolRecord {
+fn symbol(record_id: &str) -> Result<SymbolRecord, Box<dyn std::error::Error>> {
+    Ok(SymbolRecord {
         record_id: record_id.to_string(),
         package: "pkg".to_string(),
         target: "main".to_string(),
@@ -58,13 +58,10 @@ fn symbol(record_id: &str) -> SymbolRecord {
             content_hash: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
                 .to_string(),
             file_path: "src/lib.rs".to_string(),
-            source_range: maestria_code_intel::SourceRange {
-                start_line: 10,
-                end_line: 15,
-            },
+            source_range: maestria_code_intel::SourceRange::new(10, 15)?,
             parser_generation: "cargo-rust-code-v2".to_string(),
         },
-    }
+    })
 }
 
 fn plan() -> Result<SearchPlan, SearchCompatibilityError> {
@@ -136,7 +133,7 @@ fn retriever(
     )?;
     Ok(CodeIntelRetriever::new(
         CodeIntelRetrieverParts {
-            index: Arc::new(archive()),
+            index: Arc::new(archive()?),
             security,
         },
         generation,
@@ -148,7 +145,7 @@ fn authorized_binding() -> Result<AuthorizedCodeBinding, Box<dyn std::error::Err
         "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_string(),
     )?;
     Ok(AuthorizedCodeBinding {
-        symbol: symbol("rec-1"),
+        symbol: symbol("rec-1")?,
         artifact_version: ArtifactVersionId::new(73),
         evidence: Evidence {
             id: EvidenceId::new(79),
@@ -205,8 +202,8 @@ fn candidate_includes_expected_code_source_provenance() -> Result<(), Box<dyn st
             end_line: 15
         }
     );
-    assert_eq!(candidate.source_span.range().start, 10);
-    assert_eq!(candidate.source_span.range().end, 15);
+    assert_eq!(candidate.source_span.range().start(), 10);
+    assert_eq!(candidate.source_span.range().end(), 15);
     assert_eq!(candidate.freshness, FreshnessStatus::UpToDate);
     assert_eq!(
         candidate.coverage_keys,

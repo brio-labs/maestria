@@ -55,10 +55,7 @@ fn with_indexed_retrieval(
         id: chunk_id,
         artifact_id,
         node_id: StructureNodeId::new(0),
-        source_span: SourceSpan::TextSpan {
-            start_line: 1,
-            end_line: 1,
-        },
+        source_span: SourceSpan::text_span(1, 1)?,
         representations: vec![],
         order: 0,
         text: "alpha-token paragraph.".to_owned(),

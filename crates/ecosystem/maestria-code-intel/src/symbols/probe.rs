@@ -3,7 +3,7 @@ use crate::symbols::markers::{
     marker_from_call_expr, marker_from_macro_path, marker_from_method_call,
 };
 use crate::symbols::utils::{provenance, record_id, source_range_from_span};
-use crate::{SymbolKind, SymbolRecord, Visibility};
+use crate::{CodeIntelError, SymbolKind, SymbolRecord, Visibility};
 use proc_macro2::Span;
 use std::collections::BTreeSet;
 use syn::spanned::Spanned;
@@ -22,6 +22,7 @@ pub(super) struct FunctionProbe<'a> {
     pub(super) call_targets: Vec<(String, bool)>,
     binding_scopes: Vec<BTreeSet<String>>,
     unsafe_count: usize,
+    error: Option<CodeIntelError>,
 }
 
 impl<'a> FunctionProbe<'a> {
@@ -36,14 +37,19 @@ impl<'a> FunctionProbe<'a> {
             call_targets: Vec::new(),
             binding_scopes: vec![BTreeSet::new()],
             unsafe_count: 0,
+            error: None,
         }
     }
 
-    fn add_unsafe(&mut self, span: Span) {
+    pub(super) fn take_error(&mut self) -> Option<CodeIntelError> {
+        self.error.take()
+    }
+
+    fn add_unsafe(&mut self, span: Span) -> Result<(), CodeIntelError> {
         self.had_unsafe = true;
         self.unsafe_count += 1;
         let name = format!("{}_unsafe_{}", self.base_name, self.unsafe_count);
-        let range = source_range_from_span(span);
+        let range = source_range_from_span(span)?;
 
         self.unsafe_records.push(SymbolRecord {
             record_id: record_id(&name, SymbolKind::UnsafeBlock, &range, self.context),
@@ -63,6 +69,7 @@ impl<'a> FunctionProbe<'a> {
             markers: self.context.file_markers.clone(),
             provenance: provenance(self.context, range),
         });
+        Ok(())
     }
 
     fn push_binding_scope(&mut self) {
@@ -102,7 +109,9 @@ impl<'a> FunctionProbe<'a> {
 
 impl<'ast, 'a> Visit<'ast> for FunctionProbe<'a> {
     fn visit_expr_unsafe(&mut self, node: &'ast ExprUnsafe) {
-        self.add_unsafe(node.block.span());
+        if let Err(error) = self.add_unsafe(node.block.span()) {
+            self.error.get_or_insert(error);
+        }
         visit::visit_expr_unsafe(self, node);
     }
 

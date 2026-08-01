@@ -91,7 +91,7 @@ fn read_card(row: &Row<'_>, connection: &Connection) -> Result<Card, PortError> 
         Some(json) => {
             serde_json::from_str::<crate::payloads::provenance_payloads::StoredSourceSpan>(&json)
                 .map_err(json_error)?
-                .into()
+                .try_into()?
         }
         None => {
             let card_id = row.get::<_, i64>(0).map_err(to_port_error)?;

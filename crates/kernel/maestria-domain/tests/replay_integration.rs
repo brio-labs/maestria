@@ -29,10 +29,7 @@ fn test_replay_artifact_chunk_card_evidence() -> Result<(), Box<dyn std::error::
     }))?;
 
     state.apply_input(DomainInput::RegisterChunk(RegisterChunkInput {
-        source_span: maestria_domain::SourceSpan::TextSpan {
-            start_line: 1,
-            end_line: 1,
-        },
+        source_span: maestria_domain::SourceSpan::text_span(1, 1)?,
         representations: vec![],
         chunk_id,
         artifact_id: art_id,
@@ -43,10 +40,7 @@ fn test_replay_artifact_chunk_card_evidence() -> Result<(), Box<dyn std::error::
 
     state.apply_input(DomainInput::CreateCard(CreateCardInput {
         node_id: maestria_domain::StructureNodeId::new(1),
-        source_span: maestria_domain::SourceSpan::TextSpan {
-            start_line: 1,
-            end_line: 1,
-        },
+        source_span: maestria_domain::SourceSpan::text_span(1, 1)?,
         card_id,
         artifact_id: art_id,
         title: "card title".to_string(),
@@ -83,7 +77,7 @@ fn test_replay_artifact_chunk_card_evidence() -> Result<(), Box<dyn std::error::
 }
 
 #[test]
-fn test_replay_duplicate_rejection() -> Result<(), DomainError> {
+fn test_replay_duplicate_rejection() -> Result<(), Box<dyn std::error::Error>> {
     let art_id = ArtifactId::new(1);
     let mut state = KernelState::new();
 
@@ -107,10 +101,7 @@ fn test_replay_duplicate_rejection() -> Result<(), DomainError> {
         sequence: SequenceNumber::new(2),
         event: DomainEvent::ChunkRegistered {
             node_id: maestria_domain::StructureNodeId::new(1),
-            source_span: maestria_domain::SourceSpan::TextSpan {
-                start_line: 1,
-                end_line: 1,
-            },
+            source_span: maestria_domain::SourceSpan::text_span(1, 1)?,
             representations: vec![],
             chunk_id: ChunkId::new(1),
             artifact_id: art_id,
@@ -124,7 +115,7 @@ fn test_replay_duplicate_rejection() -> Result<(), DomainError> {
     ev_chunk.sequence = SequenceNumber::new(3);
     let err = match state.apply_event(ev_chunk) {
         Err(e) => e,
-        Ok(_) => return Err(DomainError::EmptyIntent),
+        Ok(_) => return Err(Box::new(DomainError::EmptyIntent)),
     };
     assert!(matches!(
         err,

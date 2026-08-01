@@ -119,12 +119,9 @@ fn parser_without_prior_detection_is_rejected() -> Result<(), Box<dyn std::error
             artifact_version_id: ArtifactVersionId::new(1),
             content_hash: fixtures::test_content_hash()?,
             tree_root_id: Some(StructureNodeId::new(10)),
-            tree_nodes: vec![fixtures::tree_root_node(StructureNodeId::new(10))],
+            tree_nodes: vec![fixtures::tree_root_node(StructureNodeId::new(10))?],
             chunks: vec![RegisterChunkInput {
-                source_span: maestria_domain::SourceSpan::TextSpan {
-                    start_line: 1,
-                    end_line: 1,
-                },
+                source_span: maestria_domain::SourceSpan::text_span(1, 1)?,
                 representations: vec![],
                 chunk_id: ChunkId::new(10),
                 artifact_id: ArtifactId::new(1),
@@ -158,7 +155,7 @@ fn changed_hash_commits_new_pending_index_at_parse() -> Result<(), Box<dyn std::
         artifact_version_id: ArtifactVersionId::new(1),
         content_hash: fixtures::test_content_hash()?,
         tree_root_id: Some(StructureNodeId::new(0)),
-        tree_nodes: vec![fixtures::tree_root_node(StructureNodeId::new(0))],
+        tree_nodes: vec![fixtures::tree_root_node(StructureNodeId::new(0))?],
         chunks: Vec::new(),
         cards: Vec::new(),
     }))?;
@@ -190,7 +187,7 @@ fn changed_hash_commits_new_pending_index_at_parse() -> Result<(), Box<dyn std::
         artifact_version_id: ArtifactVersionId::new(1),
         content_hash: fixtures::test_content_hash()?,
         tree_root_id: Some(StructureNodeId::new(0)),
-        tree_nodes: vec![fixtures::tree_root_node(StructureNodeId::new(0))],
+        tree_nodes: vec![fixtures::tree_root_node(StructureNodeId::new(0))?],
         chunks: Vec::new(),
         cards: Vec::new(),
     }))?;

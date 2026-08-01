@@ -84,12 +84,12 @@ where
 fn symbol_order(left: &SymbolRecord, right: &SymbolRecord) -> std::cmp::Ordering {
     (
         left.provenance.file_path.as_str(),
-        left.provenance.source_range.start_line,
+        left.provenance.source_range.start_line(),
         left.qualified_name.as_str(),
     )
         .cmp(&(
             right.provenance.file_path.as_str(),
-            right.provenance.source_range.start_line,
+            right.provenance.source_range.start_line(),
             right.qualified_name.as_str(),
         ))
 }

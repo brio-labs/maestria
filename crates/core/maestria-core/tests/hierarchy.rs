@@ -119,12 +119,8 @@ fn ranked_seed(
             artifact_version: ArtifactVersionId::new(artifact_id.value()),
             source_span: EvidenceSpan::new(
                 Some(StructureNodeId::new(0)),
-                SourceLocation::File {
-                    path: format!("hierarchy-{artifact_id}.md"),
-                    start_line: 1,
-                    end_line: 1,
-                },
-                ContentRange { start: 1, end: 1 },
+                SourceLocation::file(format!("hierarchy-{artifact_id}.md"), 1, 1)?,
+                ContentRange::new(1, 1)?,
             )?,
             scores: RetrievalScoreSet::empty(),
             trust: TrustLabel::Verified,
@@ -257,10 +253,7 @@ fn seed_artifact(
         id: chunk_id,
         artifact_id,
         node_id: StructureNodeId::new(0),
-        source_span: SourceSpan::TextSpan {
-            start_line: 1,
-            end_line: 1,
-        },
+        source_span: SourceSpan::text_span(1, 1)?,
         representations: vec![],
         order: 0,
         text: text.to_string(),

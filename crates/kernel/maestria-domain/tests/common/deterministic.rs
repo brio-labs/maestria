@@ -52,10 +52,7 @@ pub fn malformed_deterministic_evidence_events(
             sequence: SequenceNumber::new(5),
             event: DomainEvent::ChunkRegistered {
                 node_id: StructureNodeId::new(1),
-                source_span: SourceSpan::TextSpan {
-                    start_line: 1,
-                    end_line: 1,
-                },
+                source_span: SourceSpan::text_span(1, 1)?,
                 representations: vec![],
                 chunk_id,
                 artifact_id: art_id,
@@ -135,10 +132,7 @@ pub fn valid_duplicate_evidence_events()
             sequence: SequenceNumber::new(5),
             event: DomainEvent::ChunkRegistered {
                 node_id: StructureNodeId::new(1),
-                source_span: SourceSpan::TextSpan {
-                    start_line: 1,
-                    end_line: 1,
-                },
+                source_span: SourceSpan::text_span(1, 1)?,
                 representations: vec![],
                 chunk_id,
                 artifact_id: art_id,

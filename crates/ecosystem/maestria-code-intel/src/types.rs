@@ -5,11 +5,96 @@ use std::collections::BTreeMap;
 
 /// Byte/line provenance for every extracted record.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(try_from = "SourceRangeDto")]
 pub struct SourceRange {
-    /// First source line (1-indexed).
-    pub start_line: usize,
-    /// Last source line (1-indexed).
-    pub end_line: usize,
+    start_line: usize,
+    end_line: usize,
+}
+
+impl SourceRange {
+    /// Builds a one-based, inclusive source line range.
+    pub fn new(start_line: usize, end_line: usize) -> Result<Self, SourceRangeError> {
+        if start_line == 0 {
+            return Err(SourceRangeError::StartMustBePositive);
+        }
+        if start_line > end_line {
+            return Err(SourceRangeError::StartAfterEnd {
+                start_line,
+                end_line,
+            });
+        }
+        Ok(Self {
+            start_line,
+            end_line,
+        })
+    }
+
+    pub const fn start_line(&self) -> usize {
+        self.start_line
+    }
+
+    pub const fn end_line(&self) -> usize {
+        self.end_line
+    }
+}
+
+/// Failure while building a validated [`SourceRange`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SourceRangeError {
+    StartMustBePositive,
+    StartAfterEnd { start_line: usize, end_line: usize },
+}
+
+impl std::fmt::Display for SourceRangeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::StartMustBePositive => write!(f, "source range start line must be positive"),
+            Self::StartAfterEnd {
+                start_line,
+                end_line,
+            } => write!(
+                f,
+                "source range start line {start_line} must not exceed end line {end_line}"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for SourceRangeError {}
+
+#[derive(Deserialize)]
+struct SourceRangeDto {
+    start_line: usize,
+    end_line: usize,
+}
+
+impl TryFrom<SourceRangeDto> for SourceRange {
+    type Error = SourceRangeError;
+
+    fn try_from(dto: SourceRangeDto) -> Result<Self, Self::Error> {
+        Self::new(dto.start_line, dto.end_line)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn source_range_rejects_invalid_lines() {
+        assert_eq!(
+            SourceRange::new(0, 1),
+            Err(SourceRangeError::StartMustBePositive)
+        );
+        assert_eq!(
+            SourceRange::new(3, 2),
+            Err(SourceRangeError::StartAfterEnd {
+                start_line: 3,
+                end_line: 2
+            })
+        );
+        assert!(SourceRange::new(1, 1).is_ok());
+    }
 }
 
 /// Repository identity attached to every persisted record.

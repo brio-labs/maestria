@@ -65,3 +65,12 @@ impl fmt::Display for CodeIntelError {
 }
 
 impl std::error::Error for CodeIntelError {}
+
+impl From<crate::types::SourceRangeError> for CodeIntelError {
+    fn from(error: crate::types::SourceRangeError) -> Self {
+        Self::Integrity {
+            context: "source range invariant".to_string(),
+            details: error.to_string(),
+        }
+    }
+}

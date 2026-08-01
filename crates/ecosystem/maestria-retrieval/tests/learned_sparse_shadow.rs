@@ -233,12 +233,8 @@ fn descriptor(id: &str, modality: &str, representation: &str) -> RetrieverDescri
 fn source_span() -> TestResult<EvidenceSpan> {
     Ok(EvidenceSpan::new(
         None,
-        SourceLocation::File {
-            path: "fixture.md".to_string(),
-            start_line: 1,
-            end_line: 1,
-        },
-        ContentRange { start: 1, end: 1 },
+        SourceLocation::file("fixture.md".to_string(), 1, 1)?,
+        ContentRange::new(1, 1)?,
     )?)
 }
 

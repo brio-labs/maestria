@@ -97,12 +97,8 @@ pub fn candidate_with_freshness(
         artifact_version: ArtifactVersionId::new(100 + id),
         source_span: EvidenceSpan::new(
             None,
-            SourceLocation::File {
-                path: "notes.md".to_owned(),
-                start_line: start,
-                end_line: start,
-            },
-            ContentRange { start: 0, end: 5 },
+            SourceLocation::file("notes.md".to_owned(), start, start)?,
+            ContentRange::new(0, 5)?,
         )?,
         scores: fixture_scores(100_u32.saturating_sub(id as u32), 0)?,
         trust: TrustLabel::Verified,

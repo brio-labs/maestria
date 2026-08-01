@@ -215,10 +215,7 @@ fn metadata_provenance(
         worktree_identity: identity.worktree_identity.clone(),
         content_hash: content_hash(&bytes),
         file_path,
-        source_range: SourceRange {
-            start_line: 1,
-            end_line: 1,
-        },
+        source_range: SourceRange::new(1, 1)?,
         parser_generation: parser_generation.to_string(),
     })
 }

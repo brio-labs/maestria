@@ -16,6 +16,13 @@ use serde::{Deserialize, Serialize};
 
 use crate::payloads::stored_search_scores::{StoredRetrievalReason, StoredRetrievalScoreSet};
 
+fn span_decode_error(error: impl std::fmt::Display) -> PortError {
+    PortError::InvalidInputContext {
+        context: "decode stored evidence span",
+        source: error.to_string(),
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum StoredSourceLocation {
@@ -84,44 +91,28 @@ impl StoredSourceLocation {
     }
 
     pub(crate) fn try_into_domain(self) -> Result<SourceLocation, PortError> {
-        Ok(match self {
+        match self {
             Self::File {
                 path,
                 start_line,
                 end_line,
-            } => SourceLocation::File {
-                path,
-                start_line,
-                end_line,
-            },
+            } => SourceLocation::file(path, start_line, end_line).map_err(span_decode_error),
             Self::Page {
                 page_start,
                 page_end,
-            } => SourceLocation::Page {
-                page_start,
-                page_end,
-            },
+            } => SourceLocation::page(page_start, page_end).map_err(span_decode_error),
             Self::Region {
                 page,
                 x,
                 y,
                 width,
                 height,
-            } => SourceLocation::Region {
-                page,
-                x,
-                y,
-                width,
-                height,
-            },
+            } => SourceLocation::region(page, x, y, width, height).map_err(span_decode_error),
             Self::Symbol {
                 path,
                 qualified_name,
-            } => SourceLocation::Symbol {
-                path,
-                qualified_name,
-            },
-        })
+            } => SourceLocation::symbol(path, qualified_name).map_err(span_decode_error),
+        }
     }
 }
 
@@ -135,16 +126,13 @@ pub(crate) struct StoredContentRange {
 impl StoredContentRange {
     pub(crate) fn from_domain(value: &ContentRange) -> Self {
         Self {
-            start: value.start,
-            end: value.end,
+            start: value.start(),
+            end: value.end(),
         }
     }
 
-    pub(crate) fn try_into_domain(self) -> ContentRange {
-        ContentRange {
-            start: self.start,
-            end: self.end,
-        }
+    pub(crate) fn try_into_domain(self) -> Result<ContentRange, PortError> {
+        ContentRange::new(self.start, self.end).map_err(span_decode_error)
     }
 }
 
@@ -169,7 +157,7 @@ impl StoredEvidenceSpan {
         EvidenceSpan::new(
             self.node_id.map(StructureNodeId::new),
             self.location.try_into_domain()?,
-            self.range.try_into_domain(),
+            self.range.try_into_domain()?,
         )
         .map_err(|error| PortError::InvalidInputContext {
             context: "decode stored evidence span",
@@ -393,15 +381,8 @@ mod tests {
             artifact_version: maestria_domain::ArtifactVersionId::new(42),
             source_span: EvidenceSpan::new(
                 Some(StructureNodeId::new(3)),
-                SourceLocation::File {
-                    path: "/repo/src/lib.rs".to_string(),
-                    start_line: 10,
-                    end_line: 20,
-                },
-                ContentRange {
-                    start: 100,
-                    end: 250,
-                },
+                SourceLocation::file("/repo/src/lib.rs".to_string(), 10, 20)?,
+                ContentRange::new(100, 250)?,
             )?,
             scores: RetrievalScoreSet::new(vec![lane])?,
             trust: TrustLabel::Verified,

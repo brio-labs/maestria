@@ -114,12 +114,8 @@ fn candidate(
             artifact_version: ArtifactVersionId::new(artifact),
             source_span: EvidenceSpan::new(
                 Some(StructureNodeId::new(node)),
-                SourceLocation::File {
-                    path: path.to_string(),
-                    start_line: 1,
-                    end_line: 2,
-                },
-                ContentRange { start: 0, end: 10 },
+                SourceLocation::file(path.to_string(), 1, 2)?,
+                ContentRange::new(0, 10)?,
             )?,
             scores: fixture_scores(100 - id as u32, 90 - id as u32)?,
             trust: TrustLabel::Verified,

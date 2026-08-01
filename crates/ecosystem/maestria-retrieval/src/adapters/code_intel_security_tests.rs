@@ -78,21 +78,21 @@ fn authorized_security() -> SecurityMetadata {
     }
 }
 
-fn symbol(content_hash: &ContentHash) -> SymbolRecord {
-    SymbolRecord {
-        record_id: "record-compute".to_string(),
+fn symbol(content_hash: &ContentHash) -> Result<SymbolRecord, Box<dyn std::error::Error>> {
+    Ok(SymbolRecord {
+        record_id: "record-1".to_string(),
         package: "pkg".to_string(),
-        target: "lib".to_string(),
+        target: "target".to_string(),
         kind: SymbolKind::Function,
         name: "compute".to_string(),
-        qualified_name: "pkg::compute".to_string(),
+        qualified_name: "crate::compute".to_string(),
         visibility: Visibility::Public,
         is_public_api: true,
         is_async: false,
         is_unsafe: false,
         is_test: false,
         is_bench: false,
-        signature: Some("fn compute()".to_string()),
+        signature: None,
         imports: Vec::new(),
         markers: SymbolMarkers::default(),
         provenance: RecordProvenance {
@@ -101,13 +101,10 @@ fn symbol(content_hash: &ContentHash) -> SymbolRecord {
             worktree_identity: "worktree-1".to_string(),
             content_hash: content_hash.as_str().to_string(),
             file_path: FILE_PATH.to_string(),
-            source_range: SourceRange {
-                start_line: 1,
-                end_line: 3,
-            },
+            source_range: SourceRange::new(1, 3)?,
             parser_generation: PARSER_GENERATION.to_string(),
         },
-    }
+    })
 }
 
 fn canonical_events(
@@ -218,7 +215,7 @@ fn fixture(mode: FixtureMode) -> Result<Fixture, Box<dyn Error>> {
         artifacts,
         evidence,
         blobs,
-        symbol: symbol(&content_hash),
+        symbol: symbol(&content_hash)?,
         artifact,
         evidence_record,
         blob_id,

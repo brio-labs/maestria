@@ -85,7 +85,7 @@ impl StoredEventPayload {
                 representations,
                 order,
                 text,
-            )),
+            )?),
             Self::CardCreated {
                 card_id,
                 artifact_id,
@@ -98,7 +98,7 @@ impl StoredEventPayload {
                 card_id: maestria_domain::CardId::new(card_id),
                 artifact_id: ArtifactId::new(artifact_id),
                 node_id: StructureNodeId::new(node_id),
-                source_span: source_span.into(),
+                source_span: source_span.try_into().map_err(FamilyDecodeError::Invalid)?,
                 title,
                 body,
                 security: security
@@ -323,15 +323,15 @@ impl StoredEventPayload {
         representations: Vec<crate::payloads::StoredParsedRepresentation>,
         order: u32,
         text: String,
-    ) -> DomainEvent {
-        DomainEvent::ChunkRegistered {
+    ) -> Result<DomainEvent, FamilyDecodeError> {
+        Ok(DomainEvent::ChunkRegistered {
             chunk_id: ChunkId::new(chunk_id),
             artifact_id: ArtifactId::new(artifact_id),
             node_id: StructureNodeId::new(node_id),
-            source_span: source_span.into(),
+            source_span: source_span.try_into().map_err(FamilyDecodeError::Invalid)?,
             representations: representations.into_iter().map(Into::into).collect(),
             order,
             text,
-        }
+        })
     }
 }

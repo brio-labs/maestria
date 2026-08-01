@@ -86,30 +86,38 @@ impl From<SourceSpan> for StoredSourceSpan {
     }
 }
 
-impl From<StoredSourceSpan> for SourceSpan {
-    fn from(span: StoredSourceSpan) -> Self {
+impl TryFrom<StoredSourceSpan> for SourceSpan {
+    type Error = maestria_ports::PortError;
+
+    fn try_from(span: StoredSourceSpan) -> Result<Self, Self::Error> {
         match span {
             StoredSourceSpan::TextSpan {
                 start_line,
                 end_line,
-            } => Self::TextSpan {
-                start_line,
-                end_line,
-            },
-            StoredSourceSpan::PdfSpan { page } => Self::PdfSpan { page },
+            } => SourceSpan::text_span(start_line, end_line).map_err(|error| {
+                maestria_ports::PortError::InvalidInputContext {
+                    context: "decode stored source span",
+                    source: error.to_string(),
+                }
+            }),
+            StoredSourceSpan::PdfSpan { page } => SourceSpan::pdf_span(page).map_err(|error| {
+                maestria_ports::PortError::InvalidInputContext {
+                    context: "decode stored source span",
+                    source: error.to_string(),
+                }
+            }),
             StoredSourceSpan::PdfRegion {
                 page,
                 x,
                 y,
                 width,
                 height,
-            } => Self::PdfRegion {
-                page,
-                x,
-                y,
-                width,
-                height,
-            },
+            } => SourceSpan::pdf_region(page, x, y, width, height).map_err(|error| {
+                maestria_ports::PortError::InvalidInputContext {
+                    context: "decode stored source span",
+                    source: error.to_string(),
+                }
+            }),
         }
     }
 }

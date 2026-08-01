@@ -45,7 +45,7 @@ fn extract_item(
     symbols: &mut Vec<SymbolRecord>,
     relation_candidates: &mut Vec<RelationCandidate>,
 ) -> Result<(), CodeIntelError> {
-    if let Some(simple) = simple_item(item) {
+    if let Some(simple) = simple_item(item)? {
         let record = simple_record_for(
             simple.kind,
             simple.name,
@@ -69,7 +69,7 @@ fn extract_item(
             relation_candidates,
         ),
         Item::Trait(item_trait) => {
-            let (records, calls) = trait_methods::extract_trait(item_trait, module_stack, context);
+            let (records, calls) = trait_methods::extract_trait(item_trait, module_stack, context)?;
             for record in records {
                 maybe_emit_define_candidate(module_stack, &record, relation_candidates);
                 symbols.push(record);
@@ -86,7 +86,7 @@ fn extract_item(
             Ok(())
         }
         Item::Use(item_use) => {
-            let (records, calls) = compound::extract_imports(item_use, module_stack, context);
+            let (records, calls) = compound::extract_imports(item_use, module_stack, context)?;
             for record in records {
                 maybe_emit_define_candidate(module_stack, &record, relation_candidates);
                 symbols.push(record);
@@ -113,52 +113,52 @@ struct SimpleItem<'a> {
     range: SourceRange,
 }
 
-fn simple_item(item: &Item) -> Option<SimpleItem<'_>> {
-    match item {
+fn simple_item(item: &Item) -> Result<Option<SimpleItem<'_>>, CodeIntelError> {
+    Ok(match item {
         Item::Struct(item) => Some(SimpleItem {
             kind: SymbolKind::Struct,
             name: &item.ident,
             visibility: &item.vis,
             attrs: &item.attrs,
-            range: source_range(item),
+            range: source_range(item)?,
         }),
         Item::Enum(item) => Some(SimpleItem {
             kind: SymbolKind::Enum,
             name: &item.ident,
             visibility: &item.vis,
             attrs: &item.attrs,
-            range: source_range(item),
+            range: source_range(item)?,
         }),
         Item::Union(item) => Some(SimpleItem {
             kind: SymbolKind::Union,
             name: &item.ident,
             visibility: &item.vis,
             attrs: &item.attrs,
-            range: source_range(item),
+            range: source_range(item)?,
         }),
         Item::Type(item) => Some(SimpleItem {
             kind: SymbolKind::TypeAlias,
             name: &item.ident,
             visibility: &item.vis,
             attrs: &item.attrs,
-            range: source_range(item),
+            range: source_range(item)?,
         }),
         Item::Const(item) => Some(SimpleItem {
             kind: SymbolKind::Const,
             name: &item.ident,
             visibility: &item.vis,
             attrs: &item.attrs,
-            range: source_range(item),
+            range: source_range(item)?,
         }),
         Item::Static(item) => Some(SimpleItem {
             kind: SymbolKind::Static,
             name: &item.ident,
             visibility: &item.vis,
             attrs: &item.attrs,
-            range: source_range(item),
+            range: source_range(item)?,
         }),
         _ => None,
-    }
+    })
 }
 
 fn maybe_emit_define_candidate(
@@ -218,7 +218,7 @@ fn extract_module(
         &item.vis,
         &item.attrs,
         context,
-        source_range(item),
+        source_range(item)?,
     );
     maybe_emit_define_candidate(module_stack, &record, relation_candidates);
     symbols.push(record);
@@ -252,6 +252,9 @@ fn extract_function(
     probe.visit_signature(&function.sig);
     probe.visit_block(&function.block);
 
+    if let Some(error) = probe.take_error() {
+        return Err(error);
+    }
     let mut markers = declaration_markers(&function.attrs, &context.file_markers);
     markers.axum_routes = dedupe_strings(
         markers
@@ -261,7 +264,7 @@ fn extract_function(
             .collect(),
     );
     markers.sqlx_queries = dedupe_strings(probe.sqlx_queries);
-    let range = source_range(function);
+    let range = source_range(function)?;
     let record = SymbolRecord {
         record_id: record_id(&qualified, SymbolKind::Function, &range, context),
         package: context.package.to_string(),

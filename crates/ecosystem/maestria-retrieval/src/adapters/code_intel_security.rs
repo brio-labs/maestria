@@ -329,8 +329,8 @@ fn evidence_binds_symbol(
     };
     Path::new(path) == expected_path
         && snapshot.content_hash() == content_hash
-        && range.start() <= symbol.provenance.source_range.start_line
-        && range.end() >= symbol.provenance.source_range.end_line
+        && range.start() <= symbol.provenance.source_range.start_line()
+        && range.end() >= symbol.provenance.source_range.end_line()
 }
 
 /// Maps a symbol's security metadata to the evidence trust label.

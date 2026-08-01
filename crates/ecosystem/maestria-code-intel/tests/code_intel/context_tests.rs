@@ -1,24 +1,21 @@
 use maestria_code_intel::*;
 use std::error::Error;
 
-fn make_provenance(file_path: &str, start_line: usize) -> RecordProvenance {
-    RecordProvenance {
+fn make_provenance(file_path: &str, start_line: usize) -> Result<RecordProvenance, Box<dyn Error>> {
+    Ok(RecordProvenance {
         repository_root: "/work".to_string(),
         commit_sha: "0000000".to_string(),
         worktree_identity: "local".to_string(),
         content_hash: "sha256:0000000000000000000000000000000000000000000000000000000000000000"
             .to_string(),
         file_path: file_path.to_string(),
-        source_range: SourceRange {
-            start_line,
-            end_line: start_line,
-        },
+        source_range: SourceRange::new(start_line, start_line)?,
         parser_generation: "test".to_string(),
-    }
+    })
 }
 
-fn make_symbol(id: &str, file_path: &str, line: usize) -> SymbolRecord {
-    SymbolRecord {
+fn make_symbol(id: &str, file_path: &str, line: usize) -> Result<SymbolRecord, Box<dyn Error>> {
+    Ok(SymbolRecord {
         record_id: id.to_string(),
         package: "pkg".to_string(),
         target: "target".to_string(),
@@ -34,8 +31,8 @@ fn make_symbol(id: &str, file_path: &str, line: usize) -> SymbolRecord {
         signature: None,
         imports: Vec::new(),
         markers: SymbolMarkers::default(),
-        provenance: make_provenance(file_path, line),
-    }
+        provenance: make_provenance(file_path, line)?,
+    })
 }
 
 fn make_relation(
@@ -55,12 +52,12 @@ fn make_relation(
     }
 }
 
-fn context_fixture() -> RepositoryCodeIndex {
-    let seed_a = make_symbol("seed_a", "crate/lib.rs", 1);
-    let seed_b = make_symbol("seed_b", "crate/lib.rs", 2);
-    let mid = make_symbol("mid", "crate/lib.rs", 3);
-    let leaf = make_symbol("leaf", "crate/lib.rs", 4);
-    let extra = make_symbol("extra", "crate/lib.rs", 5);
+fn context_fixture() -> Result<RepositoryCodeIndex, Box<dyn Error>> {
+    let seed_a = make_symbol("seed_a", "crate/lib.rs", 1)?;
+    let seed_b = make_symbol("seed_b", "crate/lib.rs", 2)?;
+    let mid = make_symbol("mid", "crate/lib.rs", 3)?;
+    let leaf = make_symbol("leaf", "crate/lib.rs", 4)?;
+    let extra = make_symbol("extra", "crate/lib.rs", 5)?;
 
     let symbols = vec![
         seed_a.clone(),
@@ -79,7 +76,7 @@ fn context_fixture() -> RepositoryCodeIndex {
         make_relation(&mid, &leaf, CodeRelationKind::Calls),
     ];
 
-    RepositoryCodeIndex {
+    Ok(RepositoryCodeIndex {
         summary: CodeIndexSummary {
             repository_root: "/work".to_string(),
             commit_sha: "0000000".to_string(),
@@ -99,12 +96,12 @@ fn context_fixture() -> RepositoryCodeIndex {
         packages: Vec::new(),
         symbols,
         relations,
-    }
+    })
 }
 
 #[test]
 fn context_outgoing_traverses_outgoing_relations() -> Result<(), Box<dyn Error>> {
-    let index = context_fixture();
+    let index = context_fixture()?;
     let result = index.context(
         RepositoryContextQuery {
             query: CodeQuery::Symbol {
@@ -150,7 +147,7 @@ fn context_outgoing_traverses_outgoing_relations() -> Result<(), Box<dyn Error>>
 
 #[test]
 fn context_incoming_traverses_incoming_relations() -> Result<(), Box<dyn Error>> {
-    let index = context_fixture();
+    let index = context_fixture()?;
     let result = index.context(
         RepositoryContextQuery {
             query: CodeQuery::Symbol {
@@ -195,7 +192,7 @@ fn context_incoming_traverses_incoming_relations() -> Result<(), Box<dyn Error>>
 
 #[test]
 fn context_filters_relation_kinds() -> Result<(), Box<dyn Error>> {
-    let index = context_fixture();
+    let index = context_fixture()?;
     let result = index.context(
         RepositoryContextQuery {
             query: CodeQuery::Symbol {
@@ -247,7 +244,7 @@ fn context_filters_relation_kinds() -> Result<(), Box<dyn Error>> {
 
 #[test]
 fn context_rejects_relation_with_forged_endpoint_provenance() -> Result<(), Box<dyn Error>> {
-    let mut index = context_fixture();
+    let mut index = context_fixture()?;
     index.relations[0].source_provenance.file_path = "forged.rs".to_string();
 
     let result = index.context(
@@ -270,7 +267,7 @@ fn context_rejects_relation_with_forged_endpoint_provenance() -> Result<(), Box<
 
 #[test]
 fn context_respects_depth_and_node_caps() -> Result<(), Box<dyn Error>> {
-    let index = context_fixture();
+    let index = context_fixture()?;
 
     let depth_limited = index.context(
         RepositoryContextQuery {
@@ -324,7 +321,7 @@ fn context_respects_depth_and_node_caps() -> Result<(), Box<dyn Error>> {
 
 #[test]
 fn context_reports_deterministic_ordering() -> Result<(), Box<dyn Error>> {
-    let index = context_fixture();
+    let index = context_fixture()?;
     let first = index.context(
         RepositoryContextQuery {
             query: CodeQuery::Symbol {
@@ -398,7 +395,7 @@ fn context_reports_deterministic_ordering() -> Result<(), Box<dyn Error>> {
 
 #[test]
 fn context_preserves_seed_lineage_for_nodes_and_edges() -> Result<(), Box<dyn Error>> {
-    let index = context_fixture();
+    let index = context_fixture()?;
     let result = index.context(
         RepositoryContextQuery {
             query: CodeQuery::Symbol {
@@ -455,7 +452,7 @@ fn context_preserves_seed_lineage_for_nodes_and_edges() -> Result<(), Box<dyn Er
 
 #[test]
 fn context_authorizes_seed_and_expanded_endpoints_before_limits() -> Result<(), Box<dyn Error>> {
-    let index = context_fixture();
+    let index = context_fixture()?;
     let result = index.context(
         RepositoryContextQuery {
             query: CodeQuery::Symbol {
@@ -494,8 +491,8 @@ fn context_authorizes_seed_and_expanded_endpoints_before_limits() -> Result<(), 
 }
 
 #[test]
-fn context_propagates_expanded_endpoint_authorization_failure() {
-    let index = context_fixture();
+fn context_propagates_expanded_endpoint_authorization_failure() -> Result<(), Box<dyn Error>> {
+    let index = context_fixture()?;
     let result = index.context(
         RepositoryContextQuery {
             query: CodeQuery::Symbol {
@@ -515,4 +512,5 @@ fn context_propagates_expanded_endpoint_authorization_failure() {
         },
     );
     assert_eq!(result.err(), Some("endpoint authorization failed"));
+    Ok(())
 }

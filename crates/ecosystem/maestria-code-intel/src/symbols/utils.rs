@@ -1,5 +1,5 @@
 use crate::symbols::context::FileContext;
-use crate::{RecordProvenance, SourceRange, SymbolKind, SymbolRecord, Visibility};
+use crate::{CodeIntelError, RecordProvenance, SourceRange, SymbolKind, SymbolRecord, Visibility};
 use proc_macro2::Span;
 use syn::Type;
 use syn::spanned::Spanned;
@@ -102,8 +102,8 @@ pub(crate) fn record_id(
         context.relative_path,
         symbol_kind_id(&kind),
         name,
-        range.start_line,
-        range.end_line,
+        range.start_line(),
+        range.end_line(),
     )
 }
 
@@ -127,17 +127,17 @@ pub(crate) fn symbol_kind_id(kind: &SymbolKind) -> &'static str {
     }
 }
 
-pub(crate) fn source_range<T: Spanned>(value: &T) -> SourceRange {
+pub(crate) fn source_range<T: Spanned>(value: &T) -> Result<SourceRange, CodeIntelError> {
     source_range_from_span(value.span())
 }
 
-pub(crate) fn source_range_from_span(span: Span) -> SourceRange {
+pub(crate) fn source_range_from_span(span: Span) -> Result<SourceRange, CodeIntelError> {
     let start = span.start();
     let end = span.end();
-    SourceRange {
-        start_line: start.line,
-        end_line: end.line,
-    }
+    SourceRange::new(start.line, end.line).map_err(|error| CodeIntelError::Integrity {
+        context: "derive source range from token span".to_string(),
+        details: error.to_string(),
+    })
 }
 
 pub(crate) fn provenance(context: &FileContext, range: SourceRange) -> RecordProvenance {

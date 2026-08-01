@@ -57,10 +57,7 @@ fn seed_vector_artifact(
         id: chunk_id,
         artifact_id,
         node_id: StructureNodeId::new(0),
-        source_span: SourceSpan::TextSpan {
-            start_line: 1,
-            end_line: 1,
-        },
+        source_span: SourceSpan::text_span(1, 1)?,
         representations: vec![],
         order: 0,
         text: "semantic token".to_string(),

@@ -122,7 +122,7 @@ pub(crate) async fn run_diversity_stage(
             .any(|seed| seed.candidate.evidence_id == candidate.evidence_id);
         if !is_seed {
             let range = candidate.source_span.range();
-            let candidate_bytes = range.end.saturating_sub(range.start) as u64;
+            let candidate_bytes = range.end().saturating_sub(range.start()) as u64;
             let mut candidate_usage = *execution_usage;
             candidate_usage.candidates = candidate_usage.candidates.saturating_add(1);
             candidate_usage.work_units = candidate_usage.work_units.saturating_add(1);

@@ -58,9 +58,10 @@ impl CodeIntelRetriever {
     ) -> Result<EvidenceCandidate, RetrievalError> {
         let symbol = &binding.symbol;
         if symbol.provenance.file_path.is_empty()
-            || symbol.provenance.source_range.start_line == 0
-            || symbol.provenance.source_range.end_line < symbol.provenance.source_range.start_line
-            || symbol.provenance.source_range.end_line == 0
+            || symbol.provenance.source_range.start_line() == 0
+            || symbol.provenance.source_range.end_line()
+                < symbol.provenance.source_range.start_line()
+            || symbol.provenance.source_range.end_line() == 0
         {
             return Err(RetrievalError::Internal(
                 "invalid source range in repository code symbol provenance".to_string(),
@@ -73,15 +74,16 @@ impl CodeIntelRetriever {
         };
         let source_span = EvidenceSpan::new(
             None,
-            SourceLocation::File {
-                path: path.clone(),
-                start_line: symbol.provenance.source_range.start_line as u32,
-                end_line: symbol.provenance.source_range.end_line as u32,
-            },
-            ContentRange {
-                start: symbol.provenance.source_range.start_line,
-                end: symbol.provenance.source_range.end_line,
-            },
+            SourceLocation::file(
+                path.clone(),
+                symbol.provenance.source_range.start_line() as u32,
+                symbol.provenance.source_range.end_line() as u32,
+            )?,
+            ContentRange::new(
+                symbol.provenance.source_range.start_line(),
+                symbol.provenance.source_range.end_line(),
+            )
+            .map_err(|error| RetrievalError::Internal(error.to_string()))?,
         )
         .map_err(|error| RetrievalError::Internal(error.to_string()))?;
 
@@ -194,8 +196,8 @@ impl CodeIntelRetriever {
                     .symbol
                     .provenance
                     .source_range
-                    .end_line
-                    .saturating_sub(binding.symbol.provenance.source_range.start_line),
+                    .end_line()
+                    .saturating_sub(binding.symbol.provenance.source_range.start_line()),
             );
             if let Some(limit) = request.execution_budget.max_bytes_read()
                 && span_bytes > limit.get().saturating_sub(bytes_read)
@@ -263,12 +265,12 @@ fn retain_authorized_binding(
     bindings.sort_by(|left, right| {
         (
             left.symbol.provenance.file_path.as_str(),
-            left.symbol.provenance.source_range.start_line,
+            left.symbol.provenance.source_range.start_line(),
             left.symbol.qualified_name.as_str(),
         )
             .cmp(&(
                 right.symbol.provenance.file_path.as_str(),
-                right.symbol.provenance.source_range.start_line,
+                right.symbol.provenance.source_range.start_line(),
                 right.symbol.qualified_name.as_str(),
             ))
     });

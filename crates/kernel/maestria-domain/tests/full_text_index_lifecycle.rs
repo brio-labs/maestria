@@ -18,13 +18,10 @@ fn start_full_text_index_emits_for_pending_chunks() -> Result<(), Box<dyn std::e
         artifact_version_id: ArtifactVersionId::new(1),
         content_hash: fixtures::test_content_hash()?,
         tree_root_id: Some(StructureNodeId::new(10)),
-        tree_nodes: vec![fixtures::tree_root_node(StructureNodeId::new(10))],
+        tree_nodes: vec![fixtures::tree_root_node(StructureNodeId::new(10))?],
         chunks: vec![
             RegisterChunkInput {
-                source_span: maestria_domain::SourceSpan::TextSpan {
-                    start_line: 1,
-                    end_line: 1,
-                },
+                source_span: maestria_domain::SourceSpan::text_span(1, 1)?,
                 representations: vec![],
                 chunk_id: ChunkId::new(10),
                 artifact_id: ArtifactId::new(1),
@@ -33,10 +30,7 @@ fn start_full_text_index_emits_for_pending_chunks() -> Result<(), Box<dyn std::e
                 text: "chunk a".to_string(),
             },
             RegisterChunkInput {
-                source_span: maestria_domain::SourceSpan::TextSpan {
-                    start_line: 1,
-                    end_line: 1,
-                },
+                source_span: maestria_domain::SourceSpan::text_span(1, 1)?,
                 representations: vec![],
                 chunk_id: ChunkId::new(11),
                 artifact_id: ArtifactId::new(1),
@@ -84,13 +78,10 @@ fn start_full_text_index_only_pending_chunks_on_retry() -> Result<(), Box<dyn st
         artifact_version_id: ArtifactVersionId::new(1),
         content_hash: fixtures::test_content_hash()?,
         tree_root_id: Some(StructureNodeId::new(10)),
-        tree_nodes: vec![fixtures::tree_root_node(StructureNodeId::new(10))],
+        tree_nodes: vec![fixtures::tree_root_node(StructureNodeId::new(10))?],
         chunks: vec![
             RegisterChunkInput {
-                source_span: maestria_domain::SourceSpan::TextSpan {
-                    start_line: 1,
-                    end_line: 1,
-                },
+                source_span: maestria_domain::SourceSpan::text_span(1, 1)?,
                 representations: vec![],
                 chunk_id: ChunkId::new(10),
                 artifact_id: ArtifactId::new(1),
@@ -99,10 +90,7 @@ fn start_full_text_index_only_pending_chunks_on_retry() -> Result<(), Box<dyn st
                 text: "chunk a".to_string(),
             },
             RegisterChunkInput {
-                source_span: maestria_domain::SourceSpan::TextSpan {
-                    start_line: 1,
-                    end_line: 1,
-                },
+                source_span: maestria_domain::SourceSpan::text_span(1, 1)?,
                 representations: vec![],
                 chunk_id: ChunkId::new(11),
                 artifact_id: ArtifactId::new(1),
@@ -156,12 +144,9 @@ fn start_full_text_index_duplicate_is_idempotent() -> Result<(), Box<dyn std::er
         artifact_version_id: ArtifactVersionId::new(1),
         content_hash: fixtures::test_content_hash()?,
         tree_root_id: Some(StructureNodeId::new(10)),
-        tree_nodes: vec![fixtures::tree_root_node(StructureNodeId::new(10))],
+        tree_nodes: vec![fixtures::tree_root_node(StructureNodeId::new(10))?],
         chunks: vec![RegisterChunkInput {
-            source_span: maestria_domain::SourceSpan::TextSpan {
-                start_line: 1,
-                end_line: 1,
-            },
+            source_span: maestria_domain::SourceSpan::text_span(1, 1)?,
             representations: vec![],
             chunk_id: ChunkId::new(10),
             artifact_id: ArtifactId::new(1),

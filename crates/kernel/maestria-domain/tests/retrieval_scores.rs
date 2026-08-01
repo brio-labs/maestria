@@ -89,12 +89,8 @@ fn learned_sparse_reason_round_trips_current_shape() -> Result<(), Box<dyn std::
         artifact_version: ArtifactVersionId::new(2),
         source_span: EvidenceSpan::new(
             None,
-            SourceLocation::File {
-                path: "fixture.md".to_string(),
-                start_line: 1,
-                end_line: 1,
-            },
-            ContentRange { start: 1, end: 1 },
+            SourceLocation::file("fixture.md".to_string(), 1, 1)?,
+            ContentRange::new(1, 1)?,
         )?,
         scores: RetrievalScoreSet::single(lane(
             RetrievalScoreKind::LearnedSparse,
@@ -128,12 +124,8 @@ fn legacy_sparse_reason_payload_is_rejected() -> Result<(), Box<dyn std::error::
         artifact_version: ArtifactVersionId::new(2),
         source_span: EvidenceSpan::new(
             None,
-            SourceLocation::File {
-                path: "fixture.md".to_string(),
-                start_line: 1,
-                end_line: 1,
-            },
-            ContentRange { start: 1, end: 1 },
+            SourceLocation::file("fixture.md".to_string(), 1, 1)?,
+            ContentRange::new(1, 1)?,
         )?,
         scores: RetrievalScoreSet::empty(),
         trust: TrustLabel::Verified,
@@ -281,12 +273,8 @@ fn complete_fingerprint_and_rank_change_the_trace_identity()
         artifact_version: ArtifactVersionId::new(2),
         source_span: EvidenceSpan::new(
             None,
-            SourceLocation::File {
-                path: "fixture.md".to_string(),
-                start_line: 1,
-                end_line: 1,
-            },
-            ContentRange { start: 1, end: 1 },
+            SourceLocation::file("fixture.md".to_string(), 1, 1)?,
+            ContentRange::new(1, 1)?,
         )?,
         scores: RetrievalScoreSet::single(lane(
             RetrievalScoreKind::DenseSimilarity,

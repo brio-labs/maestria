@@ -406,7 +406,7 @@ fn fixture_with_security_index(
         &source,
         security.clone(),
     ))?;
-    chunk_store.put(fixture_chunk(artifact_id, chunk_id))?;
+    chunk_store.put(fixture_chunk(artifact_id, chunk_id)?)?;
     evidence_store.put(fixture_evidence(
         artifact_id,
         snapshot,
@@ -432,7 +432,7 @@ fn fixture_with_security_index(
             &source,
             security.clone(),
         ))?;
-        chunk_store.put(fixture_chunk(second_artifact_id, second_chunk_id))?;
+        chunk_store.put(fixture_chunk(second_artifact_id, second_chunk_id)?)?;
         evidence_store.put(fixture_evidence(
             second_artifact_id,
             second_snapshot,
@@ -508,19 +508,19 @@ fn fixture_artifact(
     }
 }
 
-fn fixture_chunk(artifact_id: ArtifactId, chunk_id: ChunkId) -> Chunk {
-    Chunk {
+fn fixture_chunk(
+    artifact_id: ArtifactId,
+    chunk_id: ChunkId,
+) -> Result<Chunk, Box<dyn std::error::Error>> {
+    Ok(Chunk {
         id: chunk_id,
         artifact_id,
         node_id: StructureNodeId::new(1),
-        source_span: SourceSpan::TextSpan {
-            start_line: 1,
-            end_line: 1,
-        },
+        source_span: SourceSpan::text_span(1, 1)?,
         representations: Vec::new(),
         order: 0,
         text: "semantic expansion evidence".to_string(),
-    }
+    })
 }
 
 fn fixture_evidence(
@@ -575,7 +575,7 @@ async fn sparse_metadata_full_owner_mismatch_is_conflict() -> Result<(), Box<dyn
     fixture
         .chunks
         .inner
-        .put(fixture_chunk(ArtifactId::new(2), ChunkId::new(10)))?;
+        .put(fixture_chunk(ArtifactId::new(2), ChunkId::new(10))?)?;
     fixture.chunks.set_reported_owner(fixture.artifact_id)?;
     let error = match fixture
         .retriever

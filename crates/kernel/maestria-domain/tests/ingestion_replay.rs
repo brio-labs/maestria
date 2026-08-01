@@ -51,13 +51,13 @@ fn ingestion_replay_full_flow_reconstructs_state() -> Result<(), Box<dyn std::er
             content_hash: fixtures::test_content_hash()?,
             tree_root_id: Some(StructureNodeId::new(10)),
             tree_nodes: vec![
-                fixtures::tree_root_node(StructureNodeId::new(10)),
+                fixtures::tree_root_node(StructureNodeId::new(10))?,
                 maestria_domain::StructureNode {
                     id: StructureNodeId::new(11),
                     parent_id: Some(StructureNodeId::new(10)),
                     sibling_id: None,
                     node_type: maestria_domain::StructureNodeType::Paragraph,
-                    source_range: ContentRange { start: 0, end: 0 },
+                    source_range: ContentRange::new(0, 0)?,
                     page: None,
                     section_path: vec![],
                     parser_generation: "test".to_string(),
@@ -67,10 +67,7 @@ fn ingestion_replay_full_flow_reconstructs_state() -> Result<(), Box<dyn std::er
             ],
             chunks: vec![
                 RegisterChunkInput {
-                    source_span: maestria_domain::SourceSpan::TextSpan {
-                        start_line: 1,
-                        end_line: 1,
-                    },
+                    source_span: maestria_domain::SourceSpan::text_span(1, 1)?,
                     representations: vec![],
                     chunk_id: ChunkId::new(10),
                     artifact_id: ArtifactId::new(1),
@@ -79,10 +76,7 @@ fn ingestion_replay_full_flow_reconstructs_state() -> Result<(), Box<dyn std::er
                     text: "chunk one".to_string(),
                 },
                 RegisterChunkInput {
-                    source_span: maestria_domain::SourceSpan::TextSpan {
-                        start_line: 1,
-                        end_line: 1,
-                    },
+                    source_span: maestria_domain::SourceSpan::text_span(1, 1)?,
                     representations: vec![],
                     chunk_id: ChunkId::new(11),
                     artifact_id: ArtifactId::new(1),
@@ -93,10 +87,7 @@ fn ingestion_replay_full_flow_reconstructs_state() -> Result<(), Box<dyn std::er
             ],
             cards: vec![CreateCardInput {
                 node_id: maestria_domain::StructureNodeId::new(10),
-                source_span: maestria_domain::SourceSpan::TextSpan {
-                    start_line: 1,
-                    end_line: 1,
-                },
+                source_span: maestria_domain::SourceSpan::text_span(1, 1)?,
                 card_id: CardId::new(20),
                 artifact_id: ArtifactId::new(1),
                 title: "Summary".to_string(),

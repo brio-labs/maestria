@@ -97,7 +97,7 @@ fn read_chunk(row: &Row<'_>) -> Result<Chunk, PortError> {
         Some(json) => {
             serde_json::from_str::<crate::payloads::provenance_payloads::StoredSourceSpan>(&json)
                 .map_err(json_error)?
-                .into()
+                .try_into()?
         }
         None => {
             let chunk_id = row.get::<_, i64>(0).map_err(to_port_error)?;

@@ -351,7 +351,7 @@ fn test_provenance_scores_reasons_and_determinism() -> RetrievalResult<()> {
     );
     assert_eq!(
         evidence.source_span.range(),
-        ContentRange { start: 32, end: 96 }
+        ContentRange::new(32, 96).map_err(|error| RetrievalError::Internal(error.to_string()))?
     );
     Ok(())
 }

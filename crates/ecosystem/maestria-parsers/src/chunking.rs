@@ -3,7 +3,8 @@
 use std::path::Path;
 
 use maestria_domain::{
-    ArtifactId, CardId, ChunkId, CreateCardInput, SourceSpan as DomainSourceSpan, StructureNodeId,
+    ArtifactId, CardId, ChunkId, CreateCardInput, SourceSpan as DomainSourceSpan, SourceSpanError,
+    StructureNodeId,
 };
 use maestria_ports::{
     FileHandle, FileMetadata, ParsedArtifact, ParsedCard, ParsedChunk, PortError, SourceSpan,
@@ -108,9 +109,9 @@ pub(crate) fn parsed_artifact(
             });
         }
     };
-    let mut card = summary_card_for(artifact_id, path, &chunks);
+    let mut card = summary_card_for(artifact_id, path, &chunks)?;
     card.node_id = tree.root_id;
-    card.source_span = domain_source_span(&card_source_span);
+    card.source_span = domain_source_span(&card_source_span)?;
     let parsed_card = ParsedCard {
         card,
         node_id: tree.root_id,
@@ -156,7 +157,7 @@ pub(crate) fn summary_card_for(
     artifact_id: ArtifactId,
     path: &Path,
     chunks: &[ParsedChunk],
-) -> CreateCardInput {
+) -> Result<CreateCardInput, PortError> {
     let first_line = chunks
         .first()
         .and_then(|chunk| chunk.text.lines().find(|line| !line.trim().is_empty()))
@@ -173,16 +174,13 @@ pub(crate) fn summary_card_for(
     let unit = if chunks.len() == 1 { "chunk" } else { "chunks" };
 
     let (node_id, source_span) = match chunks.first() {
-        Some(chunk) => (chunk.node_id, domain_source_span(&chunk.source_span)),
+        Some(chunk) => (chunk.node_id, domain_source_span(&chunk.source_span)?),
         None => (
             StructureNodeId::new(artifact_id.value()),
-            DomainSourceSpan::TextSpan {
-                start_line: 1,
-                end_line: 1,
-            },
+            DomainSourceSpan::text_span(1, 1).map_err(span_error)?,
         ),
     };
-    CreateCardInput {
+    Ok(CreateCardInput {
         card_id: card_id_for(artifact_id),
         artifact_id,
         node_id,
@@ -195,7 +193,7 @@ pub(crate) fn summary_card_for(
             path.display()
         ),
         security: None,
-    }
+    })
 }
 
 fn clean_summary_line(line: &str) -> String {
@@ -203,29 +201,27 @@ fn clean_summary_line(line: &str) -> String {
     trimmed.chars().take(96).collect()
 }
 
-pub(crate) fn domain_source_span(span: &SourceSpan) -> DomainSourceSpan {
+pub(crate) fn domain_source_span(span: &SourceSpan) -> Result<DomainSourceSpan, PortError> {
     match span {
         SourceSpan::TextSpan {
             start_line,
             end_line,
-        } => DomainSourceSpan::TextSpan {
-            start_line: *start_line,
-            end_line: *end_line,
-        },
-        SourceSpan::PdfSpan { page } => DomainSourceSpan::PdfSpan { page: *page },
+        } => DomainSourceSpan::text_span(*start_line, *end_line).map_err(span_error),
+        SourceSpan::PdfSpan { page } => DomainSourceSpan::pdf_span(*page).map_err(span_error),
         SourceSpan::PdfRegion {
             page,
             x,
             y,
             width,
             height,
-        } => DomainSourceSpan::PdfRegion {
-            page: *page,
-            x: *x,
-            y: *y,
-            width: *width,
-            height: *height,
-        },
+        } => DomainSourceSpan::pdf_region(*page, *x, *y, *width, *height).map_err(span_error),
+    }
+}
+
+fn span_error(error: SourceSpanError) -> PortError {
+    PortError::InvalidInputContext {
+        context: "convert chunk source span",
+        source: error.to_string(),
     }
 }
 

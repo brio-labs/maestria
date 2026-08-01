@@ -31,10 +31,7 @@ fn event_append_scan_order_and_filter() -> Result<(), Box<dyn std::error::Error>
             order: 0,
             text: "chunk".to_string(),
             node_id: maestria_domain::StructureNodeId::new(0),
-            source_span: maestria_domain::SourceSpan::TextSpan {
-                start_line: 1,
-                end_line: 2,
-            },
+            source_span: maestria_domain::SourceSpan::text_span(1, 2)?,
             representations: vec![],
         },
     };
@@ -492,7 +489,7 @@ fn document_tree_captured_event_round_trips() -> Result<(), Box<dyn std::error::
         parent_id: None,
         sibling_id: None,
         node_type: maestria_domain::StructureNodeType::Document,
-        source_range: ContentRange { start: 0, end: 100 },
+        source_range: ContentRange::new(0, 100)?,
         page: Some(1),
         section_path: vec!["Intro".to_string()],
         parser_generation: "v1".to_string(),
