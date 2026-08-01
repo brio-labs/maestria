@@ -1,9 +1,8 @@
 use anyhow::{Context, Result, anyhow};
 use maestria_core::{InstanceLayout, InstanceManifest};
-use maestria_domain::{ArtifactId, DomainEvent, DomainInput, KernelState, TaskId};
+use maestria_domain::{ArtifactId, DomainInput, KernelState, TaskId};
 use maestria_governance::AutonomyProfile;
 use maestria_graph_sqlite::SqliteGraphIndex;
-use maestria_ports::{EventFilter, EventLog};
 use maestria_storage_sqlite::SqliteStore;
 use std::collections::BTreeMap;
 use tokio::sync::mpsc;
@@ -19,6 +18,10 @@ use crate::lock::{
 use crate::parser_resume::verify_pending_blobs;
 use crate::projection_recovery::{reconcile_graph_projection, reconcile_projections};
 use crate::recovery_inputs::RecoveryInputs;
+use crate::recovery_staging::{
+    RecoveryQueueStage, queue_recovery_inputs, recovery_artifact_ids, source_artifact_ids,
+    validation_task_ids,
+};
 use crate::runtime_construction::build_runtime;
 use crate::supervision_recovery::supervise_recovery;
 use crate::vector_startup::{
@@ -303,94 +306,6 @@ enum RuntimeTermination {
     ExternalShutdown,
     InternalShutdown,
     TaskCompleted,
-}
-
-#[derive(Debug, Clone, Copy)]
-enum RecoveryQueueStage {
-    ResumeParser,
-    FullText,
-    Validation,
-}
-
-impl std::fmt::Display for RecoveryQueueStage {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let label = match self {
-            Self::ResumeParser => "resume parser",
-            Self::FullText => "restart full-text index",
-            Self::Validation => "task validation",
-        };
-        formatter.write_str(label)
-    }
-}
-
-async fn queue_recovery_inputs(
-    runtime: &maestria_runtime::RuntimeHandle,
-    inputs: &mut Vec<DomainInput>,
-    stage: RecoveryQueueStage,
-) -> Result<()> {
-    while !inputs.is_empty() {
-        let permit = runtime
-            .reserve_submission()
-            .await
-            .with_context(|| format!("failed to reserve {stage} recovery submission"))?;
-        let input = inputs.remove(0);
-        permit
-            .submit(input)
-            .await
-            .with_context(|| format!("failed to apply {stage} recovery input"))?;
-    }
-    Ok(())
-}
-
-fn source_artifact_ids(store: &SqliteStore) -> Result<BTreeMap<String, (ArtifactId, String)>> {
-    let mut identities = BTreeMap::new();
-    for envelope in store.scan(EventFilter { artifact_id: None })? {
-        if let DomainEvent::ParserStarted {
-            artifact_id,
-            source_path,
-            content_hash,
-            ..
-        } = envelope.event
-        {
-            let key = match std::path::Path::new(&source_path).canonicalize() {
-                Ok(path) => path.display().to_string(),
-                Err(_) => source_path,
-            };
-            identities.insert(key, (artifact_id, content_hash));
-        }
-    }
-    Ok(identities)
-}
-
-fn recovery_artifact_ids(recovery: &RecoveryInputs) -> Vec<ArtifactId> {
-    recovery
-        .resume_parsers
-        .iter()
-        .filter_map(|input| match input {
-            DomainInput::ResumeParser(record) => Some(record.artifact_id),
-            _ => None,
-        })
-        .chain(
-            recovery
-                .start_full_text
-                .iter()
-                .filter_map(|input| match input {
-                    DomainInput::StartFullTextIndex(request) => Some(request.artifact_id),
-                    _ => None,
-                }),
-        )
-        .collect()
-}
-
-fn validation_task_ids(recovery: &RecoveryInputs) -> Vec<TaskId> {
-    recovery
-        .run_validations
-        .iter()
-        .filter_map(|input| match input {
-            DomainInput::RequestTaskValidation(request) => Some(request.task_id),
-            _ => None,
-        })
-        .collect()
 }
 
 #[cfg(test)]

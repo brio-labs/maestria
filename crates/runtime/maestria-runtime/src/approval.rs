@@ -48,7 +48,7 @@ impl MaestriaRuntime {
             );
             return false;
         }
-        let proposal = match crate::effect_execution::decode_pending_continuation(&record) {
+        let proposal = match crate::proposal_persistence::decode_pending_continuation(&record) {
             Ok(Some(proposal)) => proposal,
             Ok(None) => {
                 tracing::info!(

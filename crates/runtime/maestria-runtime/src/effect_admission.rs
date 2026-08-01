@@ -1,5 +1,5 @@
 use crate::config::EffectExecutionContext;
-use crate::effect_execution::decode_pending_continuation;
+use crate::proposal_persistence::decode_pending_continuation;
 use crate::proposal_recovery::journal_entry_matches_proposal;
 use maestria_domain::{MaestriaEffect, ModelAgentProposalExecution};
 use maestria_governance::{ApprovalRequest, PolicyDecision, RiskClass, ScopeGuard};

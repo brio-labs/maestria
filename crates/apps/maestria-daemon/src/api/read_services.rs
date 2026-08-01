@@ -1,14 +1,9 @@
 use std::fs;
 
 use anyhow::{Context, Result, anyhow};
-use maestria_blob_fs::FsBlobStore;
-use maestria_core::{CorePorts, CoreServices, InstanceLayout, InstanceManifest, OpenEvidenceInput};
+use maestria_core::{InstanceLayout, InstanceManifest, OpenEvidenceInput};
 use maestria_domain::{Evidence, EvidenceKind, KernelState, ScopeId, Task};
-use maestria_governance::PrivacyExclusions;
-use maestria_parsers::ParserRegistry;
 use maestria_ports::{ArtifactRepository, EvidenceRepository};
-use maestria_search_tantivy::TantivyFullTextIndex;
-use maestria_storage_sqlite::SqliteStore;
 
 use super::super::protocol::{
     EvidenceResponse, EvidenceSourceResponse, StatusResponse, TaskResponse, TaskSummary,
@@ -44,7 +39,7 @@ pub(super) fn task(layout: &InstanceLayout, task_id: Option<u64>) -> Result<Task
 pub(super) fn open_evidence(layout: &InstanceLayout, evidence_id: u64) -> Result<EvidenceResponse> {
     let manifest = InstanceManifest::decode(&fs::read_to_string(&layout.manifest_path)?)
         .map_err(|error| anyhow!("parse instance manifest: {error}"))?;
-    let sqlite = SqliteStore::open(&layout.database_path)?;
+    let sqlite = crate::evidence_open::open_evidence_sqlite(layout)?;
     let evidence_id = maestria_domain::EvidenceId::new(evidence_id);
     let retrieval_policy = maestria_governance::RetrievalSecurityPolicy::default()
         .require_read_allowed(true)
@@ -68,22 +63,9 @@ pub(super) fn open_evidence(layout: &InstanceLayout, evidence_id: u64) -> Result
             ));
         }
     }
-    let blobs = FsBlobStore::open(&layout.blobs_dir)?;
-    let search_index = TantivyFullTextIndex::open_read_only(&layout.full_text_index_dir)?;
-    let parser = ParserRegistry::with_defaults();
-    let core = CoreServices::new(CorePorts {
-        artifacts: &sqlite,
-        chunks: &sqlite,
-        cards: &sqlite,
-        evidence: &sqlite,
-        events: &sqlite,
-        parser: &parser,
-        search_index: &search_index,
-        blobs: &blobs,
-        vector_index: None,
-        graph_index: None,
-    })
-    .with_retrieval_policy(retrieval_policy);
+    let stores = crate::evidence_open::complete_evidence_stores(layout, sqlite)?;
+    let core = crate::evidence_open::evidence_core_services(&stores)
+        .with_retrieval_policy(retrieval_policy);
     let output = core.open_evidence(OpenEvidenceInput { evidence_id })?;
     Ok(EvidenceResponse {
         evidence_id: output.evidence.id.value(),
@@ -129,16 +111,7 @@ fn source_scope_allowed(manifest: &InstanceManifest, path: &str) -> bool {
 }
 
 fn runtime_blocked_patterns(manifest: &InstanceManifest) -> Vec<String> {
-    let default_privacy = PrivacyExclusions::default();
-    let mut blocked_patterns = manifest.excluded_patterns.clone();
-    blocked_patterns.extend(default_privacy.sensitive_names().iter().cloned());
-    blocked_patterns.extend(
-        default_privacy
-            .sensitive_extensions()
-            .iter()
-            .map(|extension| format!("*.{extension}")),
-    );
-    blocked_patterns
+    crate::blocked_patterns::runtime_blocked_patterns(manifest)
 }
 
 fn lexical_normalize(path: &std::path::Path) -> std::path::PathBuf {

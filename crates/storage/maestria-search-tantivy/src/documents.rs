@@ -4,9 +4,11 @@ use maestria_ports::{
 };
 use tantivy::{DocAddress, Searcher, TantivyDocument, columnar::ColumnValues, doc, schema::Value};
 
-use crate::tantivy_index::{
-    FIELD_ARTIFACT_ID, FIELD_CARD_ARTIFACT_ID, FIELD_CARD_ID, FIELD_CHUNK_ID, TantivyFullTextIndex,
-    card_key, chunk_key, to_port_error,
+use crate::{
+    error::to_port_error,
+    keys::{card_key, chunk_key},
+    schema::{FIELD_ARTIFACT_ID, FIELD_CARD_ARTIFACT_ID, FIELD_CARD_ID, FIELD_CHUNK_ID},
+    tantivy_index::TantivyFullTextIndex,
 };
 pub(crate) const INDEXED_IDENTITY_BYTES: u64 = 2 * std::mem::size_of::<u64>() as u64;
 

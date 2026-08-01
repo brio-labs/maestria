@@ -333,7 +333,7 @@ fn test_manifest(root: PathBuf) -> InstanceManifest {
 }
 
 #[cfg(test)]
-#[path = "watcher_tests.rs"]
+#[path = "watcher_tests/mod.rs"]
 mod watcher_tests;
 
 #[cfg(test)]

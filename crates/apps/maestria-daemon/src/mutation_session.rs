@@ -47,21 +47,12 @@ impl MutationSession {
         layout: InstanceLayout,
         profile: AutonomyProfile,
     ) -> Result<Option<Self>> {
-        let Some(mut lifecycle) =
+        let Some(lifecycle) =
             InstanceLifecycle::try_start_with_vector_reconcile(layout, profile, false).await?
         else {
             return Ok(None);
         };
-        match lifecycle.queue_recovery().await {
-            Ok(recovery) => Ok(Some(Self {
-                lifecycle,
-                recovery,
-            })),
-            Err(error) => {
-                let shutdown = lifecycle.shutdown().await;
-                Err(combine_failures(error, shutdown))
-            }
-        }
+        Ok(Some(Self::adopt(lifecycle).await?))
     }
 
     async fn start_with_vector_reconcile(
@@ -69,12 +60,19 @@ impl MutationSession {
         profile: AutonomyProfile,
         rebuild_vector_projection: bool,
     ) -> Result<Self> {
-        let mut lifecycle = InstanceLifecycle::start_with_vector_reconcile(
+        let lifecycle = InstanceLifecycle::start_with_vector_reconcile(
             layout,
             profile,
             rebuild_vector_projection,
         )
         .await?;
+        Self::adopt(lifecycle).await
+    }
+
+    /// Adopt a started lifecycle by queueing startup recovery and returning the ready session.
+    ///
+    /// On queue failure the lifecycle is shut down and both failures are preserved.
+    async fn adopt(mut lifecycle: InstanceLifecycle) -> Result<Self> {
         match lifecycle.queue_recovery().await {
             Ok(recovery) => Ok(Self {
                 lifecycle,

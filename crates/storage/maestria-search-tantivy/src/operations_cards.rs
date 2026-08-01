@@ -1,7 +1,10 @@
-use crate::execution::{Meter, validate_limit};
-use crate::search_helpers::collect_bounded;
-use crate::tantivy_index::{
-    TantivyFullTextIndex, card_key, descending_score, score_to_u32, to_port_error,
+use crate::{
+    error::to_port_error,
+    execution::{Meter, validate_limit},
+    keys::card_key,
+    scoring::{descending_score, score_to_u32},
+    search_helpers::collect_bounded,
+    tantivy_index::TantivyFullTextIndex,
 };
 use maestria_domain::{ArtifactId, CardId, SearchExecutionCompletion, SearchExecutionResource};
 use maestria_ports::{BoundedSearch, CardHit, IndexedCard, PortError, SearchQuery};

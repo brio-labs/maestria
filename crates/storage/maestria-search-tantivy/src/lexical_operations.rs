@@ -1,7 +1,11 @@
 use crate::execution::{Meter, validate_limit};
 use crate::lexical_helpers::build_parsed_query;
-use crate::search_helpers::{BoundedCollection, collect_bounded};
-use crate::tantivy_index::{TantivyFullTextIndex, card_key, chunk_key, to_port_error};
+use crate::{
+    error::to_port_error,
+    keys::{card_key, chunk_key},
+    search_helpers::{BoundedCollection, collect_bounded},
+    tantivy_index::TantivyFullTextIndex,
+};
 use maestria_domain::SearchExecutionCompletion;
 use maestria_ports::{
     BoundedSearch, CardField, ChunkField, IndexedLexicalCard, IndexedLexicalChunk, LexicalCardHit,

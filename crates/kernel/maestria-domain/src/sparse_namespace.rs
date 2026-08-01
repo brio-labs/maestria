@@ -5,10 +5,28 @@ use crate::TrustZone;
 const MAX_NAMESPACE_COMPONENT_CHARS: usize = 128;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(try_from = "SparseNamespaceDto")]
 pub struct SparseNamespace {
     instance_id: String,
     trust_zone: TrustZone,
     projection: String,
+}
+
+/// Wire-format mirror of [`SparseNamespace`] used to validate components on
+/// decode. Field names and shapes match the serialized form exactly.
+#[derive(Deserialize)]
+struct SparseNamespaceDto {
+    instance_id: String,
+    trust_zone: TrustZone,
+    projection: String,
+}
+
+impl TryFrom<SparseNamespaceDto> for SparseNamespace {
+    type Error = SparseNamespaceError;
+
+    fn try_from(dto: SparseNamespaceDto) -> Result<Self, Self::Error> {
+        Self::new(dto.instance_id, dto.trust_zone, dto.projection)
+    }
 }
 
 impl SparseNamespace {

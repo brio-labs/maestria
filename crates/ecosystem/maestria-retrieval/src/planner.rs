@@ -15,7 +15,7 @@ pub struct SearchPlannerContext {
 }
 
 /// Build a rewrite session for the plan's query with the plan budgets.
-pub(crate) fn rewrite_session(plan: &SearchPlan) -> QueryRewriteSession {
+pub fn rewrite_session(plan: &SearchPlan) -> QueryRewriteSession {
     let mut session = QueryRewriteSession::with_limits(
         &plan.original_query,
         plan.budgets.max_tokens() as usize,

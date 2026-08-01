@@ -81,7 +81,7 @@ pub(super) async fn resolve(
     approval_id: u64,
     approved: bool,
 ) -> Result<ClientResponse> {
-    let store = SqliteStore::open(&context.layout.database_path)?;
+    let store = SqliteStore::open_read_only(&context.layout.database_path)?;
     let record = store
         .find_by_id(maestria_domain::ApprovalId::new(approval_id))?
         .ok_or_else(|| anyhow!("model-agent approval {approval_id} does not exist"))?;
@@ -199,7 +199,7 @@ pub(super) fn status(layout: &InstanceLayout, run_id: u64) -> Result<ModelAgentS
     {
         return Ok(terminal_response(run_id, result));
     }
-    let store = SqliteStore::open(&layout.database_path)?;
+    let store = SqliteStore::open_read_only(&layout.database_path)?;
     let mut approval_id = None;
     let mut correlation_id = None;
     let mut pending_journal_generation = None;

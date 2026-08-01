@@ -28,7 +28,11 @@ pub struct IndexedCard {
     pub title: String,
     pub body: String,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+/// A full-text query. No `Default` impl is provided on purpose: a default
+/// `limit` of `0` disagrees with `execution_budget.max_results` (`>= 1`),
+/// which every adapter rejects, so an unvalidated default would be a trap.
+/// Construct with an explicit `limit` and `execution_budget` that agree.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SearchQuery {
     pub q: String,
     pub limit: usize,

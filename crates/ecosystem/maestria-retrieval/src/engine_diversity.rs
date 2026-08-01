@@ -199,7 +199,8 @@ fn ensure_exact_lineage_from_evidence(
     Ok(())
 }
 
-pub(crate) fn reconcile_status(
+/// Reconciles an evaluator status with the diversity selector status.
+pub fn reconcile_status(
     evaluator_status: &SearchStatus,
     selector_status: &SearchStatus,
 ) -> SearchStatus {

@@ -1,6 +1,9 @@
 use crate::execution::Meter;
-use crate::lexical_helpers::{page_card_hits, page_chunk_hits, score_card, score_chunk};
-use crate::tantivy_index::{TantivyFullTextIndex, to_port_error};
+use crate::{
+    error::to_port_error,
+    lexical_helpers::{page_card_hits, page_chunk_hits, score_card, score_chunk},
+    tantivy_index::TantivyFullTextIndex,
+};
 use maestria_domain::{SearchExecutionCompletion, SearchExecutionResource};
 use maestria_ports::{
     BoundedSearch, CardField, ChunkField, HitReason, IndexedLexicalCard, IndexedLexicalChunk,

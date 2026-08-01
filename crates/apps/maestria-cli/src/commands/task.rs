@@ -10,7 +10,7 @@ use std::{fs, path::PathBuf, time::Duration};
 pub use super::task_validation::{run_complete, run_request_validation};
 use crate::cli_types::CliTaskPriority;
 use crate::helpers;
-const TASK_WORKSPACE_SUBDIRECTORIES: [&str; 5] =
+pub(crate) const TASK_WORKSPACE_SUBDIRECTORIES: [&str; 5] =
     ["context", "evidence", "drafts", "validation", "artifacts"];
 
 pub async fn run_start(
@@ -162,13 +162,16 @@ fn next_task_id(state: &maestria_domain::KernelState) -> TaskId {
         .map_or(TaskId::new(1), |(id, _)| TaskId::new(id.value() + 1))
 }
 
-fn task_workspace_directory(layout: &InstanceLayout, task_id: TaskId) -> PathBuf {
+pub(crate) fn task_workspace_directory(layout: &InstanceLayout, task_id: TaskId) -> PathBuf {
     layout
         .active_tasks_dir
         .join(format!("task_{}", task_id.value()))
 }
 
-fn create_task_workspace_directories(layout: &InstanceLayout, task_id: TaskId) -> Result<()> {
+pub(crate) fn create_task_workspace_directories(
+    layout: &InstanceLayout,
+    task_id: TaskId,
+) -> Result<()> {
     let task_directory = task_workspace_directory(layout, task_id);
     fs::create_dir_all(&task_directory).with_context(|| {
         format!(

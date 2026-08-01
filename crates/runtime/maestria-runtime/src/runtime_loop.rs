@@ -1,13 +1,14 @@
 use crate::config::{Adapters, Governance, RuntimeConfig};
 use crate::effect_dispatch::EffectWork;
-use crate::runtime::{DomainApplicationResult, EffectPreparation, MaestriaRuntime};
+use crate::runtime::{EffectPreparation, MaestriaRuntime};
 use crate::runtime_transition::TransitionBarriers;
-use maestria_domain::{DomainError, DomainEventEnvelope, DomainInput, KernelState, MaestriaEffect};
+use maestria_domain::{DomainEventEnvelope, DomainInput, KernelState, MaestriaEffect};
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Mutex, atomic::AtomicU64};
 use tokio::sync::{RwLock, mpsc};
 
 mod continuation;
+mod pipeline;
 
 pub(crate) struct ApplicationOutcome {
     pub(crate) events: Vec<DomainEventEnvelope>,
@@ -196,79 +197,54 @@ impl MaestriaRuntime {
     ) -> bool {
         let input = Self::correlate_proposal(input, command.as_ref());
         let completed_run_id = Self::completed_run_id(&input);
-        let approval_continuation = match self.approval_continuation(&input) {
+        let approval_continuation = match self.resolve_approval_continuation(&input, &mut command) {
             Ok(continuation) => continuation,
-            // Reject the input rather than discarding the failure and
-            // continuing without the pending proposal.
-            Err(reason) => {
-                Self::reply_preparation_error(command, reason);
-                return true;
-            }
+            Err(()) => return true,
         };
-        if let Some(detail) = self.boundary_error(&input).await {
-            Self::reply_domain_error(command, DomainError::InternalInvariantViolation { detail });
+        if self
+            .reject_out_of_boundary_input(&input, &mut command)
+            .await
+        {
             return true;
         }
         let harness_feedback = Self::harness_feedback(&input);
         let approval_barrier = Self::approval_barrier(&input, command.as_ref());
-        let (candidate, output, should_resume_approval) = match self
-            .stage_input(input, approval_continuation.is_some())
+        let Some((candidate, output, should_resume_approval)) = self
+            .stage_correlated_input(input, approval_continuation.is_some(), &mut command)
             .await
-        {
-            Ok(staged) => staged,
-            Err(error) => {
-                Self::reply_domain_error(command, error);
-                return true;
-            }
+        else {
+            return true;
         };
         let effects = output.effects;
         let prepare_before_reply = command
             .as_ref()
             .is_some_and(|command| command.effect_preparation == EffectPreparation::BeforeReply);
-        let (permit, prepared) = match self
-            .prepare_effect_batch(&effects, prepare_before_reply, effect_tx, shutdown_token)
+        let Some((permit, prepared)) = self
+            .admit_and_prepare_effects(
+                &effects,
+                prepare_before_reply,
+                effect_tx,
+                shutdown_token,
+                &mut command,
+            )
             .await
-        {
-            Ok(prepared) => prepared,
-            Err(EffectBatchPreparationError::Admission) => {
-                Self::reply_admission_error(command);
-                return !shutdown_token.is_cancelled();
-            }
-            Err(EffectBatchPreparationError::Preparation(error)) => {
-                tracing::warn!(%error, "effect rejected before correlated reply");
-                Self::reply_preparation_error(command, error);
-                return !shutdown_token.is_cancelled();
-            }
+        else {
+            return !shutdown_token.is_cancelled();
         };
         let mut outcome = ApplicationOutcome {
             effects_admitted: effects.len(),
             events: output.events.clone(),
         };
         let barriers = Self::transition_barriers(&outcome.events, &effects, approval_barrier);
-        {
-            let mut state = self.state.write().await;
-            *state = candidate;
-            self.register_harness_feedback(harness_feedback, &effects);
-        }
-        let effect_batch = match prepared {
-            Some(prepared) => prepared,
-            None => effects.into_iter().map(EffectWork::Pending).collect(),
-        };
-        if let Some(permit) = permit
-            && self.send_reserved_effects(permit, effect_batch).is_err()
-        {
-            Self::reply_admission_error(command);
-            shutdown_token.cancel();
-            return false;
-        }
+        self.commit_staged_input(candidate, harness_feedback, &effects)
+            .await;
         if !self
-            .wait_transition_barriers(&barriers, command.is_some(), shutdown_token)
+            .dispatch_admitted_effects(permit, prepared, effects, &mut command, shutdown_token)
             .await
         {
-            Self::reply_persistence_error(command);
-            return true;
+            return false;
         }
-        self.finalize_application(
+        self.await_persistence_and_finalize(
             StagedInput {
                 completed_run_id,
                 approval_continuation,
@@ -281,55 +257,5 @@ impl MaestriaRuntime {
             shutdown_token,
         )
         .await
-    }
-
-    /// Finalize a processed input: merge or defer the approval continuation,
-    /// complete deferred applications, reply, and await the validation barrier.
-    async fn finalize_application(
-        &self,
-        staged: StagedInput,
-        command: &mut Option<crate::runtime::RuntimeCommand>,
-        outcome: &mut ApplicationOutcome,
-        effect_tx: &mpsc::Sender<crate::effect_dispatch::EffectBatch>,
-        shutdown_token: &tokio_util::sync::CancellationToken,
-    ) -> bool {
-        let deferred_run_id = match self
-            .merge_inline_approval_continuation(
-                staged.approval_continuation,
-                staged.should_resume_approval,
-                command,
-                outcome,
-                effect_tx,
-                shutdown_token,
-            )
-            .await
-        {
-            Ok(run_id) => run_id,
-            Err(keep_running) => return keep_running,
-        };
-        if let Some(run_id) = staged.completed_run_id {
-            self.complete_pending_application(run_id, outcome);
-        }
-        if let Some(run_id) = deferred_run_id
-            && let Some(command) = command.take()
-        {
-            let outcome = std::mem::replace(
-                outcome,
-                ApplicationOutcome {
-                    events: Vec::new(),
-                    effects_admitted: 0,
-                },
-            );
-            return self.defer_application(run_id, command, outcome);
-        }
-        if let Some(command) = command.take() {
-            let _ = command.reply.send(Ok(DomainApplicationResult {
-                correlation_id: command.correlation_id,
-                events: std::mem::take(&mut outcome.events),
-                effects_admitted: outcome.effects_admitted,
-            }));
-        }
-        self.finish_validation_barrier(staged.barriers.validation_report_id, shutdown_token)
-            .await
     }
 }

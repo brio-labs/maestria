@@ -10,14 +10,15 @@ use crate::types::{CandidateRequest, RetrievalError, RetrievalResult};
 
 #[path = "engine_budget.rs"]
 mod engine_budget;
-pub(crate) use engine_budget::lane_budget;
+pub use engine_budget::lane_budget;
 pub(super) use engine_budget::{
     add_usage, execution_with_budget, remaining_budget, usage_within_budget,
 };
 
 #[path = "engine_diversity.rs"]
 mod engine_diversity;
-pub(crate) use engine_diversity::{reconcile_status, run_diversity_stage};
+pub use engine_diversity::reconcile_status;
+pub(crate) use engine_diversity::run_diversity_stage;
 
 fn lane_uses_primary_generation(descriptor: &crate::types::RetrieverDescriptor) -> bool {
     !descriptor.modality.eq_ignore_ascii_case("dense")

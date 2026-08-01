@@ -1,14 +1,53 @@
 use maestria_ports::PortError;
 use tantivy::schema::Schema;
 use tantivy::schema::{
-    FAST, INDEXED, IndexRecordOption, STORED, STRING, TextFieldIndexing, TextOptions,
+    FAST, Field, INDEXED, IndexRecordOption, STORED, STRING, TextFieldIndexing, TextOptions,
 };
 
-use crate::tantivy_index::{
-    FIELD_ARTIFACT_ID, FIELD_CARD_ARTIFACT_ID, FIELD_CARD_BODY, FIELD_CARD_FILENAME, FIELD_CARD_ID,
-    FIELD_CARD_KEY, FIELD_CARD_PATH, FIELD_CARD_SYMBOL, FIELD_CARD_TITLE, FIELD_CHUNK_ID,
-    FIELD_FILENAME, FIELD_KEY, FIELD_PATH, FIELD_SYMBOL, FIELD_TEXT, IndexFields, schema_field,
-};
+pub(super) const FIELD_KEY: &str = "chunk_key";
+pub(super) const FIELD_ARTIFACT_ID: &str = "artifact_id";
+pub(super) const FIELD_CHUNK_ID: &str = "chunk_id";
+pub(super) const FIELD_TEXT: &str = "text";
+pub(super) const FIELD_CARD_KEY: &str = "card_key";
+pub(super) const FIELD_CARD_ARTIFACT_ID: &str = "card_artifact_id";
+pub(super) const FIELD_CARD_ID: &str = "card_id";
+pub(super) const FIELD_CARD_TITLE: &str = "card_title";
+pub(super) const FIELD_CARD_BODY: &str = "card_body";
+pub(super) const FIELD_PATH: &str = "path";
+pub(super) const FIELD_FILENAME: &str = "filename";
+pub(super) const FIELD_SYMBOL: &str = "symbol";
+pub(super) const FIELD_CARD_PATH: &str = "card_path";
+pub(super) const FIELD_CARD_FILENAME: &str = "card_filename";
+pub(super) const FIELD_CARD_SYMBOL: &str = "card_symbol";
+
+/// Resolved Tantivy fields for the canonical index schema.
+pub(super) struct IndexFields {
+    pub(crate) key: Field,
+    pub(crate) artifact_id: Field,
+    pub(crate) chunk_id: Field,
+    pub(crate) text: Field,
+    pub(crate) card_key: Field,
+    pub(crate) card_artifact_id: Field,
+    pub(crate) card_id: Field,
+    pub(crate) card_title: Field,
+    pub(crate) card_body: Field,
+    pub(crate) path: Field,
+    pub(crate) filename: Field,
+    pub(crate) symbol: Field,
+    pub(crate) card_path: Field,
+    pub(crate) card_filename: Field,
+    pub(crate) card_symbol: Field,
+}
+
+/// Resolve a named field against a schema.
+pub(super) fn schema_field(schema: &Schema, name: &str) -> Result<Field, PortError> {
+    schema
+        .get_field(name)
+        .map_err(|_| PortError::InternalContext {
+            context: "missing Tantivy schema field",
+            source: name.to_string(),
+        })
+}
 
 pub(super) const CANONICAL_SCHEMA: &str = concat!(
     "chunk_key:string;artifact_id:u64;chunk_id:u64;text:text(default,freq_pos,stored);",

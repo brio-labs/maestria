@@ -1,32 +1,15 @@
 use anyhow::{Context, Result, anyhow};
-use maestria_blob_fs::FsBlobStore;
-use maestria_core::{CorePorts, CoreServices, OpenChunkEvidenceInput, OpenEvidenceInput};
+use maestria_core::{OpenChunkEvidenceInput, OpenEvidenceInput};
+use maestria_daemon::evidence_open::{evidence_core_services, open_evidence_stores};
 use maestria_domain::{ChunkId, EvidenceId};
-use maestria_parsers::ParserRegistry;
-use maestria_search_tantivy::TantivyFullTextIndex;
-use maestria_storage_sqlite::SqliteStore;
 use std::{path::PathBuf, time::Duration};
 
 use crate::helpers;
 
 pub fn run(instance_dir: PathBuf, evidence_id: Option<u64>, chunk_id: Option<u64>) -> Result<()> {
     let layout = helpers::validated_instance(instance_dir)?;
-    let sqlite_store = SqliteStore::open(&layout.database_path)?;
-    let blob_store = FsBlobStore::open(&layout.blobs_dir)?;
-    let search_index = TantivyFullTextIndex::open_read_only(&layout.full_text_index_dir)?;
-    let parser = ParserRegistry::with_defaults();
-    let core = CoreServices::new(CorePorts {
-        artifacts: &sqlite_store,
-        chunks: &sqlite_store,
-        cards: &sqlite_store,
-        evidence: &sqlite_store,
-        events: &sqlite_store,
-        parser: &parser,
-        search_index: &search_index,
-        blobs: &blob_store,
-        vector_index: None,
-        graph_index: None,
-    });
+    let stores = open_evidence_stores(&layout)?;
+    let core = evidence_core_services(&stores);
 
     let output = if let Some(id) = evidence_id {
         helpers::retry_db_busy(Duration::from_secs(2), "opening evidence by id", || {

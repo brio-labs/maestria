@@ -7,7 +7,9 @@
 /// - `vector_startup`: embedding generation activation and vector startup.
 /// - `full_text_recovery`: pending full-text recovery inputs.
 /// - `parser_resume`: pending parser blob verification.
+/// - `projection_open`: shared store and projection opening for runtime construction.
 /// - `recovery_inputs`: recovery input collection and ordering.
+/// - `recovery_staging`: startup recovery queue staging and event-log scanning.
 /// - `supervision_recovery`: supervised recovery diagnostics.
 /// - `validation_recovery`: validation report recovery checks.
 /// - `lifecycle`: instance runtime lifecycle and recovery queue.
@@ -17,18 +19,28 @@
 /// - `instance_setup`: instance initialization, replay, and recovery scope validation.
 /// - `providers`: OCR and visual provider construction and status.
 /// - `runtime_construction`: runtime adapter and governance assembly.
+/// - `blocked_patterns`: blocked-path composition for runtime construction.
+/// - `db_retry`: shared database-busy retry policy.
+/// - `evidence_open`: shared read-only evidence store assembly.
+/// - `ingestion_policy`: shared source-file and privacy exclusion policy.
 pub mod api;
 mod approval_recovery;
+pub mod blocked_patterns;
+pub mod db_retry;
+pub mod evidence_open;
 mod full_text_recovery;
+pub mod ingestion_policy;
 mod instance_setup;
 mod lifecycle;
 mod lifecycle_entry;
 mod lock;
 mod mutation_session;
 mod parser_resume;
+mod projection_open;
 mod projection_recovery;
 mod providers;
 mod recovery_inputs;
+mod recovery_staging;
 mod runtime_construction;
 mod search_executor;
 mod supervision_recovery;
