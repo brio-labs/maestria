@@ -1,7 +1,6 @@
 use crate::config::EffectExecutionContext;
-use maestria_domain::{ArtifactId, BlobId, DomainEvent, DomainEventEnvelope, KernelState};
-use maestria_ports::{EventFilter, EventLog, PortError};
-use std::time::Duration;
+use maestria_domain::{DomainEvent, DomainEventEnvelope, KernelState};
+use maestria_ports::{EventFilter, PortError};
 
 impl EffectExecutionContext {
     /// Persist a domain event to the event log, then cascade persistence
@@ -17,43 +16,6 @@ impl EffectExecutionContext {
             return false;
         }
         persisted
-    }
-    fn ack_harness_feedback(&self, event_id: maestria_domain::EventId) -> bool {
-        let feedback = match self.feedback_acks.lock() {
-            Ok(pending) => pending.get(&event_id).copied(),
-            Err(_) => {
-                tracing::error!("harness feedback acknowledgement lock poisoned");
-                return false;
-            }
-        };
-        let Some((run_id, generation)) = feedback else {
-            return true;
-        };
-        if let Err(error) = self.adapters.effect_journal.record_terminal(
-            run_id,
-            generation,
-            maestria_ports::EffectJournalStatus::Completed,
-        ) {
-            tracing::error!(
-                %error,
-                %run_id,
-                generation,
-                "failed to finalize persisted harness feedback"
-            );
-            return false;
-        }
-        match self.feedback_acks.lock() {
-            Ok(mut pending) => {
-                pending.remove(&event_id);
-                true
-            }
-            Err(_) => {
-                tracing::error!(
-                    "harness feedback acknowledgement lock poisoned after finalization"
-                );
-                false
-            }
-        }
     }
 
     /// Append the envelope to the event log. On conflict, scan to verify
@@ -201,75 +163,6 @@ impl EffectExecutionContext {
                 }
             },
             _ => true,
-        }
-    }
-}
-
-/// `artifact_id`, `blob_id`, _and_ `content_hash`. Returns `true` once
-/// the event is observable, or `false` on timeout / scan error.
-/// Uses deterministic backoff to avoid busy-waiting while the domain
-/// loop commits the event.
-pub(crate) async fn wait_for_parser_started_persistence(
-    event_log: &dyn EventLog,
-    artifact_id: ArtifactId,
-    blob_id: BlobId,
-    content_hash_val: &str,
-    barrier_timeout: Duration,
-) -> bool {
-    // Scan all events — EventFilter artifact_id filtering may not cover
-    // ParserStarted in every EventLog implementation.
-    let contains_started = |entries: &[DomainEventEnvelope]| -> bool {
-        entries.iter().any(|e| {
-            matches!(
-                &e.event,
-                DomainEvent::ParserStarted {
-                    artifact_id: id,
-                    blob_id: bid,
-                    content_hash: ch,
-                    ..
-                } if *id == artifact_id
-                    && *bid == blob_id
-                    && ch == content_hash_val
-            )
-        })
-    };
-
-    // Immediate check without sleeping.
-    match event_log.scan(EventFilter { artifact_id: None }) {
-        Ok(events) if contains_started(&events) => return true,
-        Err(error) => {
-            tracing::error!(%error, "failed to scan event log for ParserStarted barrier");
-            return false;
-        }
-        _ => {}
-    }
-    let check_loop = async {
-        let mut backoff_ms: u64 = 1;
-        loop {
-            tokio::time::sleep(Duration::from_millis(backoff_ms.min(500))).await;
-            backoff_ms = backoff_ms.saturating_mul(2);
-
-            match event_log.scan(EventFilter { artifact_id: None }) {
-                Ok(events) if contains_started(&events) => return true,
-                Err(error) => {
-                    tracing::error!(%error, "Failed to scan event log in persistence barrier");
-                    return false;
-                }
-                _ => {}
-            }
-        }
-    };
-
-    match tokio::time::timeout(barrier_timeout, check_loop).await {
-        Ok(success) => success,
-        Err(_) => {
-            tracing::warn!(
-                artifact_id = %artifact_id,
-                %blob_id,
-                timeout_ms = barrier_timeout.as_millis(),
-                "ParserStarted persistence barrier timed out; not parsing"
-            );
-            false
         }
     }
 }

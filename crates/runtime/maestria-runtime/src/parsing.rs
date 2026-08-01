@@ -1,11 +1,11 @@
 mod ocr;
 
 use crate::config::EffectExecutionContext;
-use crate::persistence::wait_for_parser_started_persistence;
 use maestria_domain::{
-    Artifact, ArtifactId, BlobId, DomainInput, ParseArtifactRequest, ParserStarted, content_hash,
+    Artifact, ArtifactId, BlobId, DomainEvent, DomainEventEnvelope, DomainInput,
+    ParseArtifactRequest, ParserStarted, content_hash,
 };
-use maestria_ports::FileMetadata;
+use maestria_ports::{EventFilter, EventLog, FileMetadata};
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -273,5 +273,75 @@ impl EffectExecutionContext {
             }
         }
         true
+    }
+}
+
+/// Wait until the `ParserStarted` event for `artifact_id` / `blob_id` /
+/// `content_hash` is observable in the event log. Returns `true` once the
+/// event is observable, or `false` on timeout / scan error.
+/// Uses deterministic backoff to avoid busy-waiting while the domain
+/// loop commits the event.
+async fn wait_for_parser_started_persistence(
+    event_log: &dyn EventLog,
+    artifact_id: ArtifactId,
+    blob_id: BlobId,
+    content_hash_val: &str,
+    barrier_timeout: Duration,
+) -> bool {
+    // Scan all events — EventFilter artifact_id filtering may not cover
+    // ParserStarted in every EventLog implementation.
+    let contains_started = |entries: &[DomainEventEnvelope]| -> bool {
+        entries.iter().any(|e| {
+            matches!(
+                &e.event,
+                DomainEvent::ParserStarted {
+                    artifact_id: id,
+                    blob_id: bid,
+                    content_hash: ch,
+                    ..
+                } if *id == artifact_id
+                    && *bid == blob_id
+                    && ch == content_hash_val
+            )
+        })
+    };
+
+    // Immediate check without sleeping.
+    match event_log.scan(EventFilter { artifact_id: None }) {
+        Ok(events) if contains_started(&events) => return true,
+        Err(error) => {
+            tracing::error!(%error, "failed to scan event log for ParserStarted barrier");
+            return false;
+        }
+        _ => {}
+    }
+    let check_loop = async {
+        let mut backoff_ms: u64 = 1;
+        loop {
+            tokio::time::sleep(Duration::from_millis(backoff_ms.min(500))).await;
+            backoff_ms = backoff_ms.saturating_mul(2);
+
+            match event_log.scan(EventFilter { artifact_id: None }) {
+                Ok(events) if contains_started(&events) => return true,
+                Err(error) => {
+                    tracing::error!(%error, "Failed to scan event log in persistence barrier");
+                    return false;
+                }
+                _ => {}
+            }
+        }
+    };
+
+    match tokio::time::timeout(barrier_timeout, check_loop).await {
+        Ok(success) => success,
+        Err(_) => {
+            tracing::warn!(
+                artifact_id = %artifact_id,
+                %blob_id,
+                timeout_ms = barrier_timeout.as_millis(),
+                "ParserStarted persistence barrier timed out; not parsing"
+            );
+            false
+        }
     }
 }

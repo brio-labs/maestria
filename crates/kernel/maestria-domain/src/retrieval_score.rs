@@ -5,6 +5,9 @@ use serde::{Deserialize, Deserializer, Serialize, de::Error as _};
 use super::{RetrievalModelFingerprint, SearchCompatibilityError};
 use crate::RepresentationName;
 
+#[path = "retrieval_score_wire.rs"]
+mod wire;
+
 /// Canonical retrieval score provenance schema.
 pub const RETRIEVAL_SCORE_SCHEMA_VERSION: u16 = 2;
 
@@ -327,34 +330,13 @@ impl RetrievalScoreSet {
     }
 }
 
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct CurrentScoreSetDto {
-    schema_version: u16,
-    lanes: Vec<RetrievalLaneScore>,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct LegacyScoreSetDto {
-    bm25: u32,
-    semantic_similarity: u32,
-}
-
-#[derive(Deserialize)]
-#[serde(untagged)]
-enum ScoreSetWire {
-    Current(CurrentScoreSetDto),
-    Legacy(LegacyScoreSetDto),
-}
-
 impl<'de> Deserialize<'de> for RetrievalScoreSet {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: Deserializer<'de>,
     {
-        match ScoreSetWire::deserialize(deserializer)? {
-            ScoreSetWire::Current(dto) => {
+        match wire::ScoreSetWire::deserialize(deserializer)? {
+            wire::ScoreSetWire::Current(dto) => {
                 if dto.schema_version != RETRIEVAL_SCORE_SCHEMA_VERSION {
                     return Err(D::Error::custom(format!(
                         "unsupported retrieval score schema version {}",
@@ -363,55 +345,9 @@ impl<'de> Deserialize<'de> for RetrievalScoreSet {
                 }
                 Self::new(dto.lanes).map_err(D::Error::custom)
             }
-            ScoreSetWire::Legacy(dto) => migrate_legacy_scores(dto).map_err(D::Error::custom),
+            wire::ScoreSetWire::Legacy(dto) => {
+                wire::migrate_legacy_scores(dto).map_err(D::Error::custom)
+            }
         }
     }
-}
-
-fn migrate_legacy_scores(
-    legacy: LegacyScoreSetDto,
-) -> Result<RetrievalScoreSet, SearchCompatibilityError> {
-    let unavailable =
-        || RetrievalRawRank::unavailable("legacy score payload did not retain the backend rank");
-    let mut lanes = Vec::new();
-    if legacy.bm25 != 0 {
-        let representation = RepresentationName::new("lexical_text_v1");
-        lanes.push(RetrievalLaneScore::new(
-            RetrievalScoreKind::LexicalBm25,
-            i64::from(legacy.bm25),
-            unavailable(),
-            RetrievalScoreScale::unbounded("legacy_bm25"),
-            representation.clone(),
-            RetrievalScoreFingerprint::new(
-                RetrievalModelFingerprint::new("legacy:lexical-bm25:v1".to_string())?,
-                BTreeMap::from([
-                    ("migration".to_string(), "score_schema_v1_to_v2".to_string()),
-                    ("representation".to_string(), representation.0),
-                ]),
-            ),
-        ));
-    }
-    if legacy.semantic_similarity != 0 {
-        let representation = RepresentationName::new("dense_text_v1");
-        lanes.push(RetrievalLaneScore::new(
-            RetrievalScoreKind::DenseSimilarity,
-            i64::from(legacy.semantic_similarity),
-            unavailable(),
-            RetrievalScoreScale::bounded_fixed_point(
-                "legacy_dense_similarity_micros",
-                1_000_000,
-                0,
-                1_000_000,
-            ),
-            representation.clone(),
-            RetrievalScoreFingerprint::new(
-                RetrievalModelFingerprint::new("legacy:dense-similarity:v1".to_string())?,
-                BTreeMap::from([
-                    ("migration".to_string(), "score_schema_v1_to_v2".to_string()),
-                    ("representation".to_string(), representation.0),
-                ]),
-            ),
-        ));
-    }
-    RetrievalScoreSet::new(lanes)
 }

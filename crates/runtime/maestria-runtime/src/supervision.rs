@@ -1,5 +1,7 @@
 use crate::MaestriaRuntime;
-use maestria_domain::{HarnessRunCompleted, HarnessRunId, MaestriaEffect};
+use crate::config::EffectExecutionContext;
+use maestria_domain::{EventId, HarnessRunCompleted, HarnessRunId, MaestriaEffect};
+use maestria_ports::EffectJournalStatus;
 
 impl MaestriaRuntime {
     pub(super) fn check_harness_feedback_boundary(&self, completion: &HarnessRunCompleted) -> bool {
@@ -47,6 +49,50 @@ impl MaestriaRuntime {
                 pending.insert(event_id, feedback);
             }
             Err(_) => tracing::error!("harness feedback acknowledgement lock poisoned"),
+        }
+    }
+}
+
+impl EffectExecutionContext {
+    /// Finalize harness feedback once the event that carries it is durably
+    /// persisted: the feedback record transitions to `Completed` in the
+    /// effect journal and the pending acknowledgement is removed.
+    /// Returns `false` on any finalization failure.
+    pub(crate) fn ack_harness_feedback(&self, event_id: EventId) -> bool {
+        let feedback = match self.feedback_acks.lock() {
+            Ok(pending) => pending.get(&event_id).copied(),
+            Err(_) => {
+                tracing::error!("harness feedback acknowledgement lock poisoned");
+                return false;
+            }
+        };
+        let Some((run_id, generation)) = feedback else {
+            return true;
+        };
+        if let Err(error) = self.adapters.effect_journal.record_terminal(
+            run_id,
+            generation,
+            EffectJournalStatus::Completed,
+        ) {
+            tracing::error!(
+                %error,
+                %run_id,
+                generation,
+                "failed to finalize persisted harness feedback"
+            );
+            return false;
+        }
+        match self.feedback_acks.lock() {
+            Ok(mut pending) => {
+                pending.remove(&event_id);
+                true
+            }
+            Err(_) => {
+                tracing::error!(
+                    "harness feedback acknowledgement lock poisoned after finalization"
+                );
+                false
+            }
         }
     }
 }
