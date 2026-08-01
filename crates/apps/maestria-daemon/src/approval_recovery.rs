@@ -18,10 +18,10 @@ pub fn reconcile_approval_repo(state: &KernelState, store: &SqliteStore) -> Resu
     for envelope in &state.event_log {
         if let DomainEvent::ApprovalRecorded {
             approval_id,
-            approved,
-            ..
+            outcome,
         } = &envelope.event
         {
+            let approved = outcome.approved();
             let existing = store
                 .find_by_id(*approval_id)
                 .map_err(|e| anyhow!("reconcile approval {approval_id}: {e}"))?;
@@ -31,7 +31,7 @@ pub fn reconcile_approval_repo(state: &KernelState, store: &SqliteStore) -> Resu
                      event log contains ApprovalRecorded but no matching durable request"
                 );
             }
-            if let Err(e) = store.resolve(*approval_id, *approved) {
+            if let Err(e) = store.resolve(*approval_id, approved) {
                 anyhow::bail!("reconcile: resolve approval {approval_id}: {e}");
             }
         }

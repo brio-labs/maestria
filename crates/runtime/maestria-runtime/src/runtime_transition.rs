@@ -25,7 +25,7 @@ impl MaestriaRuntime {
 
     pub(crate) fn completed_run_id(input: &DomainInput) -> Option<maestria_domain::HarnessRunId> {
         match input {
-            DomainInput::ModelAgentProposalCompleted(result) => Some(result.run_id),
+            DomainInput::ModelAgentProposalCompleted(result) => Some(result.run_id()),
             _ => None,
         }
     }
@@ -136,9 +136,8 @@ impl MaestriaRuntime {
                     &event.event,
                     maestria_domain::DomainEvent::ApprovalRecorded {
                         approval_id: event_approval_id,
-                        approved: event_approved,
-                        ..
-                    } if *event_approval_id == approval_id && *event_approved == approved
+                        outcome,
+                    } if *event_approval_id == approval_id && outcome.approved() == approved
                 )
                 .then_some((event.id, approval_id, approved))
             })

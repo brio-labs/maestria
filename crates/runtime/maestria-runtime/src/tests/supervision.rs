@@ -146,9 +146,8 @@ async fn approval_command_ack_waits_for_event_and_projection()
                     &event.event,
                     DomainEvent::ApprovalRecorded {
                         approval_id: id,
-                        approved: true,
-                        ..
-                    } if *id == approval_id
+                        outcome,
+                    } if *id == approval_id && outcome.approved()
                 )
             })
     );
@@ -476,7 +475,7 @@ async fn approval_ack_includes_inline_continuation_admission_before_shutdown()
         matches!(
             &event.event,
             maestria_domain::DomainEvent::ModelAgentProposalCompleted { result }
-                if result.run_id == proposal.run_id
+                if result.run_id() == proposal.run_id
         )
     }));
     Ok(())

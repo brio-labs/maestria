@@ -1,7 +1,7 @@
-use super::event_payloads::StoredEventPayload;
+use super::event_payloads::{StoredApprovalOutcome, StoredEventPayload};
 use super::evidence_payloads::{StoredTaskPriority, StoredTaskStatus};
 use maestria_domain::{
-    ApprovalId, ArtifactId, DomainEvent, EvidenceId, TaskId, ValidationReportId,
+    ApprovalId, ApprovalOutcome, ArtifactId, DomainEvent, EvidenceId, TaskId, ValidationReportId,
 };
 
 impl StoredEventPayload {
@@ -54,16 +54,10 @@ impl StoredEventPayload {
             }),
             DomainEvent::ApprovalRecorded {
                 approval_id,
-                task_id,
-                approved,
-                from_status,
-                to_status,
+                outcome,
             } => Some(Self::ApprovalRecorded {
                 approval_id: approval_id.value(),
-                task_id: task_id.map(|id| id.value()),
-                approved: *approved,
-                from_status: from_status.map(StoredTaskStatus::from_domain),
-                to_status: to_status.map(StoredTaskStatus::from_domain),
+                outcome: stored_approval_outcome(*outcome),
             }),
             DomainEvent::ValidationReportCreated {
                 report_id,
@@ -129,16 +123,10 @@ impl StoredEventPayload {
             }),
             Self::ApprovalRecorded {
                 approval_id,
-                task_id,
-                approved,
-                from_status,
-                to_status,
+                outcome,
             } => Ok(DomainEvent::ApprovalRecorded {
                 approval_id: ApprovalId::new(approval_id),
-                task_id: task_id.map(TaskId::new),
-                approved,
-                from_status: from_status.map(|s| s.into_domain()),
-                to_status: to_status.map(|s| s.into_domain()),
+                outcome: domain_approval_outcome(outcome),
             }),
             Self::ValidationReportCreated {
                 report_id,
@@ -177,5 +165,49 @@ impl StoredEventPayload {
             } => Some(*artifact_id),
             _ => None,
         }
+    }
+}
+
+fn stored_approval_outcome(outcome: ApprovalOutcome) -> StoredApprovalOutcome {
+    match outcome {
+        ApprovalOutcome::Acknowledged { task_id, approved } => {
+            StoredApprovalOutcome::Acknowledged {
+                task_id: task_id.map(|id| id.value()),
+                approved,
+            }
+        }
+        ApprovalOutcome::TaskTransition {
+            task_id,
+            approved,
+            from_status,
+            to_status,
+        } => StoredApprovalOutcome::TaskTransition {
+            task_id: task_id.value(),
+            approved,
+            from_status: StoredTaskStatus::from_domain(from_status),
+            to_status: StoredTaskStatus::from_domain(to_status),
+        },
+    }
+}
+
+fn domain_approval_outcome(outcome: StoredApprovalOutcome) -> ApprovalOutcome {
+    match outcome {
+        StoredApprovalOutcome::Acknowledged { task_id, approved } => {
+            ApprovalOutcome::Acknowledged {
+                task_id: task_id.map(TaskId::new),
+                approved,
+            }
+        }
+        StoredApprovalOutcome::TaskTransition {
+            task_id,
+            approved,
+            from_status,
+            to_status,
+        } => ApprovalOutcome::TaskTransition {
+            task_id: TaskId::new(task_id),
+            approved,
+            from_status: from_status.into_domain(),
+            to_status: to_status.into_domain(),
+        },
     }
 }

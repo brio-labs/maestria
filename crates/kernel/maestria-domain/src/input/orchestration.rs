@@ -166,10 +166,7 @@ impl KernelState {
             } => {
                 emitted.push(self.emit_event(DomainEvent::ApprovalRecorded {
                     approval_id,
-                    task_id,
-                    approved,
-                    from_status: None,
-                    to_status: None,
+                    outcome: ApprovalOutcome::Acknowledged { task_id, approved },
                 }));
                 self.resolved_approvals.insert(approval_id);
                 return Ok(emitted);
@@ -197,10 +194,12 @@ impl KernelState {
                     self.handle_change_task_status(task_id, TaskStatus::Active)?;
                     emitted.push(self.emit_event(DomainEvent::ApprovalRecorded {
                         approval_id,
-                        task_id: Some(task_id),
-                        approved: true,
-                        from_status: Some(TaskStatus::Draft),
-                        to_status: Some(TaskStatus::Active),
+                        outcome: ApprovalOutcome::TaskTransition {
+                            task_id,
+                            approved: true,
+                            from_status: TaskStatus::Draft,
+                            to_status: TaskStatus::Active,
+                        },
                     }));
                 }
                 TaskStatus::Open | TaskStatus::Blocked => {
@@ -208,19 +207,23 @@ impl KernelState {
                     self.handle_change_task_status(task_id, to_status)?;
                     emitted.push(self.emit_event(DomainEvent::ApprovalRecorded {
                         approval_id,
-                        task_id: Some(task_id),
-                        approved: true,
-                        from_status: Some(from_status),
-                        to_status: Some(to_status),
+                        outcome: ApprovalOutcome::TaskTransition {
+                            task_id,
+                            approved: true,
+                            from_status,
+                            to_status,
+                        },
                     }));
                 }
                 _ => {
                     emitted.push(self.emit_event(DomainEvent::ApprovalRecorded {
                         approval_id,
-                        task_id: Some(task_id),
-                        approved: true,
-                        from_status: Some(from_status),
-                        to_status: Some(from_status),
+                        outcome: ApprovalOutcome::TaskTransition {
+                            task_id,
+                            approved: true,
+                            from_status,
+                            to_status: from_status,
+                        },
                     }));
                 }
             }
@@ -233,10 +236,12 @@ impl KernelState {
             };
             emitted.push(self.emit_event(DomainEvent::ApprovalRecorded {
                 approval_id,
-                task_id: Some(task_id),
-                approved: false,
-                from_status: Some(from_status),
-                to_status: Some(to_status),
+                outcome: ApprovalOutcome::TaskTransition {
+                    task_id,
+                    approved: false,
+                    from_status,
+                    to_status,
+                },
             }));
         }
 
@@ -303,105 +308,6 @@ impl KernelState {
             outcome: input.outcome,
         }))
     }
-
-    // ── Replay apply ─────────────────────────────────────────────
-
-    pub(crate) fn apply_user_intent_observed(
-        &mut self,
-        task_id: TaskId,
-        title: &str,
-    ) -> Result<(), DomainError> {
-        if title.trim().is_empty() {
-            return Err(DomainError::EmptyIntent);
-        }
-        if !self.tasks.contains_key(&task_id) {
-            return Err(DomainError::MissingTask { id: task_id });
-        }
-        Ok(())
-    }
-
-    pub(crate) fn apply_search_completed(
-        &mut self,
-        artifact_id: ArtifactId,
-    ) -> Result<(), DomainError> {
-        if !self.artifacts.contains_key(&artifact_id) {
-            return Err(DomainError::MissingArtifact { id: artifact_id });
-        }
-        // SearchCompleted must never touch pending parser metadata.
-        Ok(())
-    }
-
-    pub(crate) fn apply_harness_run_completed(
-        &mut self,
-        task_id: Option<TaskId>,
-    ) -> Result<(), DomainError> {
-        match task_id {
-            Some(id) if !self.tasks.contains_key(&id) => Err(DomainError::MissingTask { id }),
-            _ => Ok(()),
-        }
-    }
-
-    pub(crate) fn apply_approval_recorded(
-        &mut self,
-        approval_id: ApprovalId,
-        task_id: Option<TaskId>,
-        from_status: Option<TaskStatus>,
-        to_status: Option<TaskStatus>,
-    ) -> Result<(), DomainError> {
-        if from_status.is_none() && to_status.is_none() {
-            self.resolved_approvals.insert(approval_id);
-            return Ok(());
-        }
-        let Some(task_id) = task_id else {
-            return Err(DomainError::InternalInvariantViolation {
-                detail: "taskless approval event cannot carry task status transition",
-            });
-        };
-        let Some(task) = self.tasks.get_mut(&task_id) else {
-            return Err(DomainError::MissingTask { id: task_id });
-        };
-        match (from_status, to_status) {
-            (None, None) => {}
-            (Some(from), Some(to)) => {
-                if task.status != from {
-                    return Err(DomainError::InternalInvariantViolation {
-                        detail: "approval replay: task status does not match from_status",
-                    });
-                }
-                if from != to {
-                    let valid = (from == TaskStatus::Draft && to == TaskStatus::Active)
-                        || from.can_transition_to(to);
-                    if !valid {
-                        return Err(DomainError::InternalInvariantViolation {
-                            detail: "approval replay: invalid status transition in ApprovalRecorded",
-                        });
-                    }
-                    task.status = to;
-                }
-            }
-            _ => {
-                return Err(DomainError::InternalInvariantViolation {
-                    detail: "approval replay: mixed Some/None from/to status fields",
-                });
-            }
-        }
-        self.resolved_approvals.insert(approval_id);
-        Ok(())
-    }
-
-    pub(crate) fn apply_tick_observed(&mut self) {}
-
-    pub(crate) fn apply_search_executed(&mut self, query: &str) -> Result<(), DomainError> {
-        if query.trim().is_empty() {
-            return Err(DomainError::EmptyIntent);
-        }
-        // SearchExecuted is a pure audit event — no state mutation on replay.
-        Ok(())
-    }
-
-    pub(crate) fn apply_search_knowledge_completed(&mut self) -> Result<(), DomainError> {
-        Ok(())
-    }
 }
 
 #[cfg(test)]
@@ -427,11 +333,58 @@ mod tests {
         assert!(matches!(
             output.events[0].event,
             DomainEvent::ApprovalRecorded {
-                task_id: Some(id),
-                from_status: None,
-                to_status: None,
+                outcome: ApprovalOutcome::Acknowledged {
+                    task_id: Some(id),
+                    approved: true,
+                },
                 ..
             } if id == task_id
+        ));
+        Ok(())
+    }
+
+    #[test]
+    fn approval_transition_replays_to_active() -> Result<(), DomainError> {
+        let task_id = TaskId::new(7);
+        let mut state = KernelState::new();
+        state.tasks.insert(
+            task_id,
+            Task::new(task_id, "task".into(), TaskPriority::High),
+        );
+        state.apply_approval_recorded(
+            ApprovalId::new(9),
+            ApprovalOutcome::TaskTransition {
+                task_id,
+                approved: true,
+                from_status: TaskStatus::Draft,
+                to_status: TaskStatus::Active,
+            },
+        )?;
+        assert_eq!(state.tasks[&task_id].status, TaskStatus::Active);
+        assert!(state.resolved_approvals.contains(&ApprovalId::new(9)));
+        Ok(())
+    }
+
+    #[test]
+    fn approval_replay_rejects_mismatched_from_status() -> Result<(), DomainError> {
+        let task_id = TaskId::new(7);
+        let mut state = KernelState::new();
+        state.tasks.insert(
+            task_id,
+            Task::new(task_id, "task".into(), TaskPriority::High),
+        );
+        let error = state.apply_approval_recorded(
+            ApprovalId::new(9),
+            ApprovalOutcome::TaskTransition {
+                task_id,
+                approved: true,
+                from_status: TaskStatus::Active,
+                to_status: TaskStatus::Blocked,
+            },
+        );
+        assert!(matches!(
+            error,
+            Err(DomainError::InternalInvariantViolation { .. })
         ));
         Ok(())
     }

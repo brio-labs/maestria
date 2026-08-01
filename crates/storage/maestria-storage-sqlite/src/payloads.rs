@@ -6,6 +6,9 @@ pub(crate) mod ocr_event_payloads;
 #[path = "legacy_payloads.rs"]
 pub(crate) mod legacy_payloads;
 
+#[path = "payload_v2.rs"]
+pub(crate) mod payload_v2;
+
 #[path = "relation_payloads.rs"]
 pub(crate) mod relation_payloads;
 

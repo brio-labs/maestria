@@ -107,20 +107,50 @@ pub struct ModelAgentMemoryResult {
     pub decision: ModelAgentMemoryDecision,
 }
 
+/// Terminal outcome of a model-agent proposal run.
+///
+/// `Succeeded` carries every completed stage (search, harness, validation,
+/// memory candidate) as independently optional data; `Failed` carries the
+/// terminal error and no stage results. The failure path is exclusive with
+/// stage results, so the correlated `status` + `error: Option<String>` pair is
+/// modeled as two variants instead of a flag plus coordinated fields.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub enum ModelAgentTerminalStatus {
-    Succeeded,
-    Failed,
+#[serde(rename_all = "snake_case")]
+pub enum ModelAgentProposalResult {
+    Succeeded {
+        run_id: HarnessRunId,
+        correlation_id: u64,
+        search: Option<ModelAgentSearchResult>,
+        harness: Option<ModelAgentHarnessResult>,
+        validation: Option<ModelAgentValidationResult>,
+        memory_candidate: Option<ModelAgentMemoryResult>,
+    },
+    Failed {
+        run_id: HarnessRunId,
+        correlation_id: u64,
+        error: String,
+    },
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct ModelAgentProposalResult {
-    pub run_id: HarnessRunId,
-    pub correlation_id: u64,
-    pub status: ModelAgentTerminalStatus,
-    pub search: Option<ModelAgentSearchResult>,
-    pub harness: Option<ModelAgentHarnessResult>,
-    pub validation: Option<ModelAgentValidationResult>,
-    pub memory_candidate: Option<ModelAgentMemoryResult>,
-    pub error: Option<String>,
+impl ModelAgentProposalResult {
+    #[must_use]
+    pub const fn run_id(&self) -> HarnessRunId {
+        match self {
+            Self::Succeeded { run_id, .. } | Self::Failed { run_id, .. } => *run_id,
+        }
+    }
+
+    #[must_use]
+    pub const fn correlation_id(&self) -> u64 {
+        match self {
+            Self::Succeeded { correlation_id, .. } | Self::Failed { correlation_id, .. } => {
+                *correlation_id
+            }
+        }
+    }
+
+    #[must_use]
+    pub const fn is_failed(&self) -> bool {
+        matches!(self, Self::Failed { .. })
+    }
 }

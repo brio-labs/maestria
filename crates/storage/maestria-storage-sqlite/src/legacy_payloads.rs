@@ -159,10 +159,12 @@ impl LegacyStoredEventPayload {
                 })?;
                 Ok(StoredEventPayload::ApprovalRecorded {
                     approval_id: id,
-                    task_id,
-                    approved,
-                    from_status,
-                    to_status,
+                    outcome: crate::payloads::payload_v2::upcast_approval_outcome(
+                        task_id,
+                        approved,
+                        from_status,
+                        to_status,
+                    )?,
                 })
             }
         }

@@ -4,6 +4,11 @@ use tokio_util::sync::CancellationToken;
 
 use crate::InstanceLifecycle;
 
+/// Runs an instance until the process receives SIGINT.
+///
+/// Cancellation: installs a SIGINT handler that cancels the internal shutdown
+/// token; the daemon then shuts down gracefully and the function returns the
+/// shutdown result. The signal task is aborted once shutdown completes.
 pub async fn run_instance(instance_dir: std::path::PathBuf) -> Result<()> {
     let shutdown = CancellationToken::new();
     let signal_shutdown = shutdown.clone();
@@ -17,6 +22,12 @@ pub async fn run_instance(instance_dir: std::path::PathBuf) -> Result<()> {
     result
 }
 
+/// Runs an instance until the provided shutdown token is cancelled.
+///
+/// Cancellation: cancelling `shutdown` triggers graceful teardown of the
+/// lifecycle (runtime loop) followed by the API server; both shutdown results
+/// are propagated (lifecycle errors win on double failure). Returns once the
+/// instance is fully stopped.
 pub async fn run_instance_with_shutdown(
     instance_dir: std::path::PathBuf,
     shutdown: CancellationToken,

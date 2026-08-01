@@ -4,8 +4,8 @@ use crate::harness::truncate_output;
 use maestria_domain::{
     CreateMemoryCandidateInput, DomainInput, ModelAgentHarnessResult, ModelAgentMemoryDecision,
     ModelAgentMemoryResult, ModelAgentProposalRequest, ModelAgentProposalResult,
-    ModelAgentSearchResult, ModelAgentTerminalStatus, ModelAgentValidationResult,
-    QueryHarnessProposalRequest, QueryHarnessRequest, SearchKnowledgeCompleted,
+    ModelAgentSearchResult, ModelAgentValidationResult, QueryHarnessProposalRequest,
+    QueryHarnessRequest, SearchKnowledgeCompleted,
 };
 use maestria_governance::{
     MemoryPromotionDecision, MemoryPromotionRequest, ValidationDecision, ValidationRequest,
@@ -31,15 +31,10 @@ pub(crate) fn model_agent_denial_result(
     proposal: &ModelAgentProposalRequest,
     reason: String,
 ) -> ModelAgentProposalResult {
-    ModelAgentProposalResult {
+    ModelAgentProposalResult::Failed {
         run_id: proposal.run_id,
         correlation_id: proposal.correlation_id,
-        status: ModelAgentTerminalStatus::Failed,
-        search: None,
-        harness: None,
-        validation: None,
-        memory_candidate: None,
-        error: Some(reason),
+        error: reason,
     }
 }
 
@@ -52,15 +47,10 @@ impl EffectExecutionContext {
         match self.execute_model_agent_proposal(&proposal).await {
             Ok(result) => self.persist_model_agent_result(result).await,
             Err(error) => {
-                let result = ModelAgentProposalResult {
+                let result = ModelAgentProposalResult::Failed {
                     run_id: proposal.run_id,
                     correlation_id: proposal.correlation_id,
-                    status: ModelAgentTerminalStatus::Failed,
-                    search: None,
-                    harness: None,
-                    validation: None,
-                    memory_candidate: None,
-                    error: Some(error.to_string()),
+                    error: error.to_string(),
                 };
                 self.persist_model_agent_result(result).await
             }
@@ -100,15 +90,13 @@ impl EffectExecutionContext {
         let memory_candidate = self
             .create_proposal_memory_candidate(proposal, harness.is_some())
             .await?;
-        Ok(ModelAgentProposalResult {
+        Ok(ModelAgentProposalResult::Succeeded {
             run_id: proposal.run_id,
             correlation_id: proposal.correlation_id,
-            status: ModelAgentTerminalStatus::Succeeded,
             search,
             harness,
             validation,
             memory_candidate,
-            error: None,
         })
     }
 

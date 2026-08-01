@@ -10,9 +10,8 @@ use crate::effect_result::EffectFailure;
 use crate::test_helpers;
 use maestria_domain::{
     ApprovalId, DomainEvent, DomainEventEnvelope, DomainInput, EventId, HarnessRunId, KernelState,
-    LogicalTick, MaestriaEffect, ModelAgentProposalExecution, ModelAgentTerminalStatus,
-    QueryHarnessProposalRequest, QueryHarnessRequest, RequestApprovalRequest, ScopeId,
-    SequenceNumber, TaskId,
+    LogicalTick, MaestriaEffect, ModelAgentProposalExecution, QueryHarnessProposalRequest,
+    QueryHarnessRequest, RequestApprovalRequest, ScopeId, SequenceNumber, TaskId,
 };
 use maestria_governance::{AutonomyProfile, PolicyDecision};
 use maestria_ports::{
@@ -286,8 +285,7 @@ async fn approved_claim_happens_before_proposal_search_and_provider_dispatch()
     assert_eq!(calls.load(Ordering::SeqCst), 0);
     assert!(matches!(
         receiver.try_recv(),
-        Ok(DomainInput::ModelAgentProposalCompleted(result))
-            if result.status == ModelAgentTerminalStatus::Failed
+        Ok(DomainInput::ModelAgentProposalCompleted(result)) if result.is_failed()
     ));
     Ok(())
 }
@@ -337,9 +335,9 @@ async fn exact_denied_stored_proposal_terminalizes_decoded_proposal()
     assert!(journal.scan_in_flight()?.is_empty());
     match receiver.try_recv() {
         Ok(DomainInput::ModelAgentProposalCompleted(result)) => {
-            assert_eq!(result.run_id, request.run_id);
-            assert_eq!(result.correlation_id, request.correlation_id);
-            assert_eq!(result.status, ModelAgentTerminalStatus::Failed);
+            assert_eq!(result.run_id(), request.run_id);
+            assert_eq!(result.correlation_id(), request.correlation_id);
+            assert!(result.is_failed());
         }
         other => {
             return Err(
@@ -358,8 +356,7 @@ async fn exact_denied_stored_proposal_terminalizes_decoded_proposal()
     assert!(matches!(
         receiver.try_recv(),
         Ok(DomainInput::ModelAgentProposalCompleted(result))
-            if result.run_id == request.run_id
-                && result.status == ModelAgentTerminalStatus::Failed
+            if result.run_id() == request.run_id && result.is_failed()
     ));
     Ok(())
 }
@@ -402,7 +399,7 @@ async fn fresh_policy_denial_and_legacy_harness_denial_keep_trusted_terminalizat
         EffectJournalStatus::Failed,
     )?;
     assert!(
-        matches!(receiver.try_recv(), Ok(DomainInput::ModelAgentProposalCompleted(result)) if result.status == ModelAgentTerminalStatus::Failed)
+        matches!(receiver.try_recv(), Ok(DomainInput::ModelAgentProposalCompleted(result)) if result.is_failed())
     );
 
     let legacy = MaestriaEffect::QueryHarness(QueryHarnessRequest {

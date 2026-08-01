@@ -338,9 +338,8 @@ impl MaestriaRuntime {
                                 &event.event,
                                 maestria_domain::DomainEvent::ApprovalRecorded {
                                     approval_id: id,
-                                    approved: event_approved,
-                                    ..
-                                } if *id == approval_id && *event_approved == approved
+                                    outcome,
+                                } if *id == approval_id && outcome.approved() == approved
                             )
                     }),
                     Err(error) => {
