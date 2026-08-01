@@ -91,8 +91,7 @@ impl KernelState {
             output
                 .effects
                 .push(MaestriaEffect::RunValidation(RunValidationRequest {
-                    task_id: None,
-                    claim_id: Some(claim_id),
+                    target: ValidationTarget::Claim(claim_id),
                     validation_report_id: ValidationReportId::new(0),
                 }));
         }
@@ -109,8 +108,7 @@ impl KernelState {
         output
             .effects
             .push(MaestriaEffect::RunValidation(RunValidationRequest {
-                task_id: None,
-                claim_id: Some(claim_id),
+                target: ValidationTarget::Claim(claim_id),
                 validation_report_id: ValidationReportId::new(0),
             }));
         Ok(output)
@@ -153,8 +151,7 @@ impl KernelState {
             output
                 .effects
                 .push(MaestriaEffect::RunValidation(RunValidationRequest {
-                    task_id: Some(input.task_id),
-                    claim_id: None,
+                    target: ValidationTarget::Task(input.task_id),
                     validation_report_id: ValidationReportId::new(0),
                 }));
         }
@@ -179,8 +176,7 @@ impl KernelState {
         output
             .effects
             .push(MaestriaEffect::RunValidation(RunValidationRequest {
-                task_id: None,
-                claim_id: Some(claim_id),
+                target: ValidationTarget::Claim(claim_id),
                 validation_report_id: ValidationReportId::new(0),
             }));
         Ok(output)
@@ -288,8 +284,7 @@ impl KernelState {
         output
             .effects
             .push(MaestriaEffect::RunValidation(RunValidationRequest {
-                task_id: Some(input.task_id),
-                claim_id: None,
+                target: ValidationTarget::Task(input.task_id),
                 validation_report_id: ValidationReportId::new(0),
             }));
         Ok(output)

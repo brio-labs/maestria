@@ -154,31 +154,31 @@ impl KernelState {
         input: ApprovalDecision,
     ) -> Result<Vec<DomainEventEnvelope>, DomainError> {
         // Idempotency: already-resolved approvals produce no new events.
-        if self.resolved_approvals.contains(&input.approval_id) {
+        if self.resolved_approvals.contains(&input.approval_id()) {
             return Ok(vec![]);
         }
         let mut emitted = vec![];
-        if !input.affects_task {
-            emitted.push(self.emit_event(DomainEvent::ApprovalRecorded {
-                approval_id: input.approval_id,
-                task_id: input.task_id,
-                approved: input.approved,
-                from_status: None,
-                to_status: None,
-            }));
-            self.resolved_approvals.insert(input.approval_id);
-            return Ok(emitted);
-        }
-        let Some(task_id) = input.task_id else {
-            emitted.push(self.emit_event(DomainEvent::ApprovalRecorded {
-                approval_id: input.approval_id,
-                task_id: None,
-                approved: input.approved,
-                from_status: None,
-                to_status: None,
-            }));
-            self.resolved_approvals.insert(input.approval_id);
-            return Ok(emitted);
+        let (approval_id, task_id, approved) = match input {
+            ApprovalDecision::Acknowledge {
+                approval_id,
+                task_id,
+                approved,
+            } => {
+                emitted.push(self.emit_event(DomainEvent::ApprovalRecorded {
+                    approval_id,
+                    task_id,
+                    approved,
+                    from_status: None,
+                    to_status: None,
+                }));
+                self.resolved_approvals.insert(approval_id);
+                return Ok(emitted);
+            }
+            ApprovalDecision::Resolve {
+                approval_id,
+                task_id,
+                approved,
+            } => (approval_id, task_id, approved),
         };
 
         let task = self
@@ -188,7 +188,7 @@ impl KernelState {
 
         let from_status = task.status;
 
-        if input.approved {
+        if approved {
             match from_status {
                 TaskStatus::Draft => {
                     // Two-step domain transition: Draft→Open→Active,
@@ -196,7 +196,7 @@ impl KernelState {
                     self.handle_change_task_status(task_id, TaskStatus::Open)?;
                     self.handle_change_task_status(task_id, TaskStatus::Active)?;
                     emitted.push(self.emit_event(DomainEvent::ApprovalRecorded {
-                        approval_id: input.approval_id,
+                        approval_id,
                         task_id: Some(task_id),
                         approved: true,
                         from_status: Some(TaskStatus::Draft),
@@ -207,7 +207,7 @@ impl KernelState {
                     let to_status = TaskStatus::Active;
                     self.handle_change_task_status(task_id, to_status)?;
                     emitted.push(self.emit_event(DomainEvent::ApprovalRecorded {
-                        approval_id: input.approval_id,
+                        approval_id,
                         task_id: Some(task_id),
                         approved: true,
                         from_status: Some(from_status),
@@ -216,7 +216,7 @@ impl KernelState {
                 }
                 _ => {
                     emitted.push(self.emit_event(DomainEvent::ApprovalRecorded {
-                        approval_id: input.approval_id,
+                        approval_id,
                         task_id: Some(task_id),
                         approved: true,
                         from_status: Some(from_status),
@@ -232,7 +232,7 @@ impl KernelState {
                 from_status
             };
             emitted.push(self.emit_event(DomainEvent::ApprovalRecorded {
-                approval_id: input.approval_id,
+                approval_id,
                 task_id: Some(task_id),
                 approved: false,
                 from_status: Some(from_status),
@@ -240,7 +240,7 @@ impl KernelState {
             }));
         }
 
-        self.resolved_approvals.insert(input.approval_id);
+        self.resolved_approvals.insert(approval_id);
         Ok(emitted)
     }
 
@@ -416,12 +416,13 @@ mod tests {
             task_id,
             Task::new(task_id, "task".into(), TaskPriority::High),
         );
-        let output = state.apply_input(DomainInput::ApprovalResolved(ApprovalDecision {
-            approval_id: ApprovalId::new(9),
-            task_id: Some(task_id),
-            approved: true,
-            affects_task: false,
-        }))?;
+        let output = state.apply_input(DomainInput::ApprovalResolved(
+            ApprovalDecision::Acknowledge {
+                approval_id: ApprovalId::new(9),
+                task_id: Some(task_id),
+                approved: true,
+            },
+        ))?;
         assert_eq!(state.tasks[&task_id].status, TaskStatus::Draft);
         assert!(matches!(
             output.events[0].event,

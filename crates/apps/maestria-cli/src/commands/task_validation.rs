@@ -1,4 +1,4 @@
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Result, anyhow};
 use maestria_domain::{
     ChangeTaskStatusInput, CompleteTaskInput, DomainEvent, DomainInput, KernelState,
     RequestTaskValidation, TaskId, TaskStatus, ValidationReportId,
@@ -6,7 +6,6 @@ use maestria_domain::{
 use maestria_governance::AutonomyProfile;
 use std::path::PathBuf;
 use std::time::Duration;
-use tokio::time::{sleep, timeout};
 
 use crate::helpers;
 
@@ -155,48 +154,44 @@ async fn wait_for_task_validation_report(
     start_event_index: usize,
     timeout_budget: Duration,
 ) -> Result<(KernelState, ValidationReportId, bool, Vec<String>)> {
-    timeout(timeout_budget, async {
-        loop {
-            match maestria_daemon::load_kernel_state(layout).with_context(|| {
-                format!("load kernel state while waiting for validation report for task {task_id}")
-            }) {
-                Ok(state) => {
-                    if let Some((report_id, passed)) =
-                        state.event_log.iter().skip(start_event_index).find_map(
-                            |event| match &event.event {
-                                DomainEvent::ValidationReportCreated {
-                                    report_id,
-                                    task_id: Some(event_task_id),
-                                    passed,
-                                    ..
-                                } if *event_task_id == task_id => Some((*report_id, *passed)),
-                                _ => None,
-                            },
-                        )
-                    {
-                        let warnings = state
-                            .validation_reports
-                            .get(&report_id)
-                            .ok_or_else(|| {
-                                anyhow!(
-                                    "validation report {report_id} missing after validation event"
-                                )
-                            })?
-                            .warnings
-                            .clone();
-                        return Ok((state, report_id, passed, warnings));
-                    }
-                    sleep(Duration::from_millis(25)).await;
-                }
-                Err(error) if helpers::is_db_locked(&error) => {
-                    sleep(Duration::from_millis(25)).await;
-                }
-                Err(error) => return Err(error),
-            }
-        }
-    })
-    .await
-    .map_err(|_| anyhow!("timed out while waiting for validation report for task {task_id}"))?
+    let state = helpers::wait_for_kernel_state(
+        layout,
+        timeout_budget,
+        format!("waiting for validation report for task {task_id}"),
+        |state| {
+            state.event_log.iter().skip(start_event_index).any(|event| {
+                matches!(
+                    &event.event,
+                    DomainEvent::ValidationReportCreated {
+                        task_id: Some(event_task_id),
+                        ..
+                    } if *event_task_id == task_id
+                )
+            })
+        },
+    )
+    .await?;
+    let (report_id, passed) = state
+        .event_log
+        .iter()
+        .skip(start_event_index)
+        .find_map(|event| match &event.event {
+            DomainEvent::ValidationReportCreated {
+                report_id,
+                task_id: Some(event_task_id),
+                passed,
+                ..
+            } if *event_task_id == task_id => Some((*report_id, *passed)),
+            _ => None,
+        })
+        .ok_or_else(|| anyhow!("validation report event vanished for task {task_id}"))?;
+    let warnings = state
+        .validation_reports
+        .get(&report_id)
+        .ok_or_else(|| anyhow!("validation report {report_id} missing after validation event"))?
+        .warnings
+        .clone();
+    Ok((state, report_id, passed, warnings))
 }
 
 async fn wait_for_task_statuses(
@@ -205,31 +200,16 @@ async fn wait_for_task_statuses(
     expected: &[TaskStatus],
     timeout_budget: Duration,
 ) -> Result<KernelState> {
-    timeout(timeout_budget, async {
-        loop {
-            match maestria_daemon::load_kernel_state(layout).with_context(|| {
-                format!("load kernel state while waiting for task {task_id} completion")
-            }) {
-                Ok(state) => {
-                    if let Some(task) = state.tasks.get(&task_id)
-                        && expected.contains(&task.status)
-                    {
-                        return Ok(state);
-                    }
-                    sleep(Duration::from_millis(25)).await;
-                }
-                Err(error) if helpers::is_db_locked(&error) => {
-                    sleep(Duration::from_millis(25)).await;
-                }
-                Err(error) => return Err(error),
-            }
-        }
-    })
+    helpers::wait_for_kernel_state(
+        layout,
+        timeout_budget,
+        format!("waiting for task {task_id} completion"),
+        |state| {
+            state
+                .tasks
+                .get(&task_id)
+                .is_some_and(|task| expected.contains(&task.status))
+        },
+    )
     .await
-    .map_err(|_| {
-        anyhow!(
-            "timed out waiting for task {task_id} to reach status in {:?}",
-            expected
-        )
-    })?
 }

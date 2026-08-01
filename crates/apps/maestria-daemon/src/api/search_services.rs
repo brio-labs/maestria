@@ -17,19 +17,10 @@ pub(super) async fn search_with_retry(
     query: String,
     limit: usize,
 ) -> Result<SearchResponse> {
-    for attempt in 0..super::support::DATABASE_RETRY_ATTEMPTS {
-        match search(context, query.clone(), limit).await {
-            Ok(response) => return Ok(response),
-            Err(error)
-                if super::support::is_database_locked(&error)
-                    && attempt + 1 < super::support::DATABASE_RETRY_ATTEMPTS =>
-            {
-                tokio::time::sleep(super::support::DATABASE_RETRY_DELAY).await;
-            }
-            Err(error) => return Err(error),
-        }
-    }
-    Err(anyhow!("search query retries exhausted"))
+    super::support::run_database_retry_async("search query", || {
+        search(context, query.clone(), limit)
+    })
+    .await
 }
 
 async fn search(context: &ApiContext, query: String, limit: usize) -> Result<SearchResponse> {

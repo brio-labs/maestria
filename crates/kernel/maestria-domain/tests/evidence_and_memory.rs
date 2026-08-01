@@ -62,8 +62,7 @@ fn evidence_kind_preserves_provenance_and_triggers_claim_validation()
                 envelope: Box::new(output.events[0].clone()),
             },
             MaestriaEffect::RunValidation(RunValidationRequest {
-                task_id: None,
-                claim_id: Some(ClaimId::new(20)),
+                target: ValidationTarget::Claim(ClaimId::new(20)),
                 validation_report_id: ValidationReportId::new(0),
             }),
         ]

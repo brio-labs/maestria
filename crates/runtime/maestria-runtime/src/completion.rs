@@ -1,5 +1,5 @@
 use crate::MaestriaRuntime;
-use maestria_domain::{CompleteTaskInput, RunValidationRequest, TaskStatus};
+use maestria_domain::{CompleteTaskInput, RunValidationRequest, TaskStatus, ValidationTarget};
 use maestria_governance::{ValidationDecision, ValidationRequest};
 
 impl MaestriaRuntime {
@@ -12,8 +12,7 @@ impl MaestriaRuntime {
         let recomputed_report = crate::validation::build_validation_report_from_state(
             &state,
             &RunValidationRequest {
-                task_id: Some(complete_input.task_id),
-                claim_id: None,
+                target: ValidationTarget::Task(complete_input.task_id),
                 validation_report_id: complete_input.validation_report_id,
             },
         );

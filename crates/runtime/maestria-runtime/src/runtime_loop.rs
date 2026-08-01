@@ -1,20 +1,25 @@
 use crate::config::{Adapters, Governance, RuntimeConfig};
 use crate::effect_dispatch::EffectWork;
-use crate::runtime::{
-    DomainApplicationResult, EffectPreparation, MaestriaRuntime, PendingApplication,
-    RuntimeCommand, RuntimeSubmissionError,
-};
-use maestria_domain::{
-    DomainError, DomainEventEnvelope, DomainInput, KernelState, MaestriaEffect,
-    ModelAgentProposalExecution, ModelAgentProposalRequest,
-};
+use crate::runtime::{DomainApplicationResult, EffectPreparation, MaestriaRuntime};
+use crate::runtime_transition::TransitionBarriers;
+use maestria_domain::{DomainError, DomainEventEnvelope, DomainInput, KernelState, MaestriaEffect};
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Mutex, atomic::AtomicU64};
-use tokio::sync::{RwLock, mpsc, oneshot};
+use tokio::sync::{RwLock, mpsc};
 
-struct ApplicationOutcome {
-    events: Vec<DomainEventEnvelope>,
-    effects_admitted: usize,
+mod continuation;
+
+pub(crate) struct ApplicationOutcome {
+    pub(crate) events: Vec<DomainEventEnvelope>,
+    pub(crate) effects_admitted: usize,
+}
+
+/// Per-input data produced before staging that finalization needs.
+struct StagedInput {
+    completed_run_id: Option<maestria_domain::HarnessRunId>,
+    approval_continuation: Option<maestria_domain::ModelAgentProposalRequest>,
+    should_resume_approval: bool,
+    barriers: TransitionBarriers,
 }
 enum EffectBatchPreparationError {
     Admission,
@@ -74,7 +79,20 @@ impl MaestriaRuntime {
         let effect_executor =
             self.spawn_effect_executor(effect_rx, effect_shutdown.clone(), shutdown_token.clone());
         let recovery_snapshot = self.state.read().await.clone();
-        let recovery = self.plan_model_agent_recovery(&recovery_snapshot);
+        let recovery = match self.plan_model_agent_recovery(&recovery_snapshot) {
+            Ok(recovery) => recovery,
+            Err(error) => {
+                // Recovery planning is authoritative for in-flight model-agent
+                // effects. Refuse to start instead of silently dropping them.
+                tracing::error!(
+                    %error,
+                    "model-agent recovery planning failed; runtime will not start"
+                );
+                effect_shutdown.cancel();
+                shutdown_token.cancel();
+                return;
+            }
+        };
         let Some(command_rx) = self.command_rx.take() else {
             tracing::error!("runtime command receiver missing");
             return;
@@ -119,146 +137,6 @@ impl MaestriaRuntime {
                 break;
             }
         }
-    }
-
-    async fn process_inline_approval_continuation(
-        &self,
-        proposal: maestria_domain::ModelAgentProposalRequest,
-        correlation_id: Option<u64>,
-        effect_tx: &mpsc::Sender<crate::effect_dispatch::EffectBatch>,
-        shutdown_token: &tokio_util::sync::CancellationToken,
-    ) -> (
-        bool,
-        Option<Result<DomainApplicationResult, RuntimeSubmissionError>>,
-    ) {
-        let input = DomainInput::ModelAgentProposalResumed(proposal);
-        let Some(correlation_id) = correlation_id else {
-            let keep_running =
-                Box::pin(self.process_input(input, None, effect_tx, shutdown_token)).await;
-            return (keep_running, None);
-        };
-        let (reply, result) = oneshot::channel();
-        let command = RuntimeCommand {
-            correlation_id,
-            input: input.clone(),
-            effect_preparation: EffectPreparation::BeforeReply,
-            reply,
-        };
-        let keep_running =
-            Box::pin(self.process_input(input, Some(command), effect_tx, shutdown_token)).await;
-        let result = match result.await {
-            Ok(result) => result,
-            Err(_) => Err(RuntimeSubmissionError::RuntimeShutdown),
-        };
-        (keep_running, Some(result))
-    }
-
-    async fn merge_inline_approval_continuation(
-        &self,
-        proposal: Option<ModelAgentProposalRequest>,
-        should_resume: bool,
-        command: &mut Option<RuntimeCommand>,
-        outcome: &mut ApplicationOutcome,
-        effect_tx: &mpsc::Sender<crate::effect_dispatch::EffectBatch>,
-        shutdown_token: &tokio_util::sync::CancellationToken,
-    ) -> Result<Option<maestria_domain::HarnessRunId>, bool> {
-        let Some(proposal) = proposal.filter(|proposal| {
-            should_resume
-                && matches!(
-                    proposal.execution,
-                    ModelAgentProposalExecution::ApprovalContinuation { .. }
-                )
-        }) else {
-            return Ok(None);
-        };
-        let run_id = proposal.run_id;
-        let correlation_id = command.as_ref().map(|command| command.correlation_id);
-        let (keep_running, continuation) = self
-            .process_inline_approval_continuation(
-                proposal,
-                correlation_id,
-                effect_tx,
-                shutdown_token,
-            )
-            .await;
-        if let Some(continuation) = continuation {
-            match continuation {
-                Ok(result) => {
-                    outcome.effects_admitted = outcome
-                        .effects_admitted
-                        .saturating_add(result.effects_admitted);
-                    outcome.events.extend(result.events);
-                }
-                Err(error) => {
-                    if let Some(command) = command.take() {
-                        let _ = command.reply.send(Err(error));
-                    }
-                    return Err(keep_running);
-                }
-            }
-        }
-        if keep_running {
-            return Ok(Some(run_id));
-        }
-        if let Some(command) = command.take() {
-            let _ = command
-                .reply
-                .send(Err(RuntimeSubmissionError::RuntimeShutdown));
-        }
-        Err(false)
-    }
-
-    fn defer_application(
-        &self,
-        run_id: maestria_domain::HarnessRunId,
-        command: RuntimeCommand,
-        outcome: ApplicationOutcome,
-    ) -> bool {
-        let application = PendingApplication {
-            outcome: DomainApplicationResult {
-                correlation_id: command.correlation_id,
-                events: outcome.events,
-                effects_admitted: outcome.effects_admitted,
-            },
-            command,
-        };
-        match self.pending_applications.lock() {
-            Ok(mut pending) => {
-                pending.insert(run_id, application);
-                true
-            }
-            Err(_) => {
-                tracing::error!("pending application lock poisoned");
-                let _ = application
-                    .command
-                    .reply
-                    .send(Err(RuntimeSubmissionError::RuntimeShutdown));
-                false
-            }
-        }
-    }
-
-    fn complete_pending_application(
-        &self,
-        run_id: maestria_domain::HarnessRunId,
-        outcome: &mut ApplicationOutcome,
-    ) {
-        let application = match self.pending_applications.lock() {
-            Ok(mut pending) => pending.remove(&run_id),
-            Err(_) => {
-                tracing::error!("pending application lock poisoned");
-                None
-            }
-        };
-        let Some(mut application) = application else {
-            return;
-        };
-        application.outcome.effects_admitted = application
-            .outcome
-            .effects_admitted
-            .saturating_add(outcome.effects_admitted);
-        application.outcome.events.append(&mut outcome.events);
-        let _ = application.command.reply.send(Ok(application.outcome));
     }
 
     async fn prepare_effect_work(
@@ -309,7 +187,7 @@ impl MaestriaRuntime {
         Ok((permit, prepared))
     }
 
-    async fn process_input(
+    pub(crate) async fn process_input(
         &self,
         input: DomainInput,
         mut command: Option<crate::runtime::RuntimeCommand>,
@@ -318,7 +196,15 @@ impl MaestriaRuntime {
     ) -> bool {
         let input = Self::correlate_proposal(input, command.as_ref());
         let completed_run_id = Self::completed_run_id(&input);
-        let approval_continuation = self.approval_continuation(&input);
+        let approval_continuation = match self.approval_continuation(&input) {
+            Ok(continuation) => continuation,
+            // Reject the input rather than discarding the failure and
+            // continuing without the pending proposal.
+            Err(reason) => {
+                Self::reply_preparation_error(command, reason);
+                return true;
+            }
+        };
         if let Some(detail) = self.boundary_error(&input).await {
             Self::reply_domain_error(command, DomainError::InternalInvariantViolation { detail });
             return true;
@@ -336,10 +222,9 @@ impl MaestriaRuntime {
             }
         };
         let effects = output.effects;
-        let prepare_before_reply = matches!(
-            command.as_ref().map(|command| command.effect_preparation),
-            Some(EffectPreparation::BeforeReply)
-        );
+        let prepare_before_reply = command
+            .as_ref()
+            .is_some_and(|command| command.effect_preparation == EffectPreparation::BeforeReply);
         let (permit, prepared) = match self
             .prepare_effect_batch(&effects, prepare_before_reply, effect_tx, shutdown_token)
             .await
@@ -383,12 +268,37 @@ impl MaestriaRuntime {
             Self::reply_persistence_error(command);
             return true;
         }
-        let deferred_run_id = match self
-            .merge_inline_approval_continuation(
+        self.finalize_application(
+            StagedInput {
+                completed_run_id,
                 approval_continuation,
                 should_resume_approval,
-                &mut command,
-                &mut outcome,
+                barriers,
+            },
+            &mut command,
+            &mut outcome,
+            effect_tx,
+            shutdown_token,
+        )
+        .await
+    }
+
+    /// Finalize a processed input: merge or defer the approval continuation,
+    /// complete deferred applications, reply, and await the validation barrier.
+    async fn finalize_application(
+        &self,
+        staged: StagedInput,
+        command: &mut Option<crate::runtime::RuntimeCommand>,
+        outcome: &mut ApplicationOutcome,
+        effect_tx: &mpsc::Sender<crate::effect_dispatch::EffectBatch>,
+        shutdown_token: &tokio_util::sync::CancellationToken,
+    ) -> bool {
+        let deferred_run_id = match self
+            .merge_inline_approval_continuation(
+                staged.approval_continuation,
+                staged.should_resume_approval,
+                command,
+                outcome,
                 effect_tx,
                 shutdown_token,
             )
@@ -397,22 +307,29 @@ impl MaestriaRuntime {
             Ok(run_id) => run_id,
             Err(keep_running) => return keep_running,
         };
-        if let Some(run_id) = completed_run_id {
-            self.complete_pending_application(run_id, &mut outcome);
+        if let Some(run_id) = staged.completed_run_id {
+            self.complete_pending_application(run_id, outcome);
         }
         if let Some(run_id) = deferred_run_id
             && let Some(command) = command.take()
         {
+            let outcome = std::mem::replace(
+                outcome,
+                ApplicationOutcome {
+                    events: Vec::new(),
+                    effects_admitted: 0,
+                },
+            );
             return self.defer_application(run_id, command, outcome);
         }
         if let Some(command) = command.take() {
             let _ = command.reply.send(Ok(DomainApplicationResult {
                 correlation_id: command.correlation_id,
-                events: outcome.events,
+                events: std::mem::take(&mut outcome.events),
                 effects_admitted: outcome.effects_admitted,
             }));
         }
-        self.finish_validation_barrier(barriers.validation_report_id, shutdown_token)
+        self.finish_validation_barrier(staged.barriers.validation_report_id, shutdown_token)
             .await
     }
 }

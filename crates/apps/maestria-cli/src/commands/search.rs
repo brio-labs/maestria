@@ -7,28 +7,6 @@ use std::{path::PathBuf, time::Duration};
 
 use crate::helpers;
 
-enum SearchWriteMode {
-    Durable {
-        _lock: maestria_daemon::InstanceWriteLock,
-    },
-    ReadOnly,
-}
-
-impl SearchWriteMode {
-    fn allows_persistence(&self) -> bool {
-        matches!(self, Self::Durable { .. })
-    }
-}
-
-fn acquire_search_write_mode(layout: &InstanceLayout) -> Result<SearchWriteMode> {
-    Ok(
-        match maestria_daemon::try_acquire_instance_write_lock(layout)? {
-            Some(lock) => SearchWriteMode::Durable { _lock: lock },
-            None => SearchWriteMode::ReadOnly,
-        },
-    )
-}
-
 pub async fn run(
     instance_dir: PathBuf,
     task_id: Option<u64>,
@@ -48,30 +26,32 @@ pub async fn run(
 /// persisted. When the lock is available, the command runs inside a `MutationSession`: the
 /// session owns lock acquisition, reconciliation, and queued-recovery application, and the
 /// completed search is submitted as a domain command so the runtime owns event persistence.
+/// The durable/read-only decision is owned by `MutationSession::try_start_for_search`, which
+/// acquires the instance lock exactly once.
 pub(crate) async fn run_search_command(
     layout: &InstanceLayout,
     task_id: Option<u64>,
     query: String,
     limit: usize,
 ) -> Result<(SearchPlan, SearchOutcome, maestria_domain::KernelState)> {
-    if acquire_search_write_mode(layout)?.allows_persistence() {
-        run_durable_search(layout, task_id, query, limit).await
-    } else {
-        run_read_only_search(layout, task_id, query, limit).await
+    match maestria_daemon::MutationSession::try_start_for_search(
+        layout.clone(),
+        maestria_governance::AutonomyProfile::TrustedWorkspace,
+    )
+    .await?
+    {
+        Some(session) => run_durable_search(session, layout, task_id, query, limit).await,
+        None => run_read_only_search(layout, task_id, query, limit).await,
     }
 }
 
 async fn run_durable_search(
+    session: maestria_daemon::MutationSession,
     layout: &InstanceLayout,
     task_id: Option<u64>,
     query: String,
     limit: usize,
 ) -> Result<(SearchPlan, SearchOutcome, maestria_domain::KernelState)> {
-    let session = maestria_daemon::MutationSession::start_for_search(
-        layout.clone(),
-        maestria_governance::AutonomyProfile::TrustedWorkspace,
-    )
-    .await?;
     let state = session.state().clone();
     let task_id = validate_task_id(&state, task_id)?;
     let manifest = helpers::load_manifest(layout)?;

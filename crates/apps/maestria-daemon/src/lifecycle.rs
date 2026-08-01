@@ -13,7 +13,9 @@ use tracing::info;
 
 use crate::approval_recovery::{reconcile_approval_repo, reconcile_pending_approvals};
 use crate::instance_setup::{load_kernel_state, validate_recovery_scope};
-use crate::lock::acquire as acquire_instance_write_lock;
+use crate::lock::{
+    acquire as acquire_instance_write_lock, try_acquire as try_acquire_instance_write_lock,
+};
 use crate::parser_resume::verify_pending_blobs;
 use crate::projection_recovery::{reconcile_graph_projection, reconcile_projections};
 use crate::recovery_inputs::RecoveryInputs;
@@ -63,6 +65,21 @@ impl InstanceLifecycle {
         Self::start_with_vector_reconcile(layout, profile, true).await
     }
 
+    /// Start the lifecycle, returning `Ok(None)` when another process holds
+    /// the instance write lock, so callers can degrade instead of blocking.
+    pub(crate) async fn try_start_with_vector_reconcile(
+        layout: InstanceLayout,
+        profile: AutonomyProfile,
+        rebuild_vector_projection: bool,
+    ) -> Result<Option<Self>> {
+        let Some(lock) = try_acquire_instance_write_lock(&layout)? else {
+            return Ok(None);
+        };
+        Self::start_with_held_lock(layout, profile, rebuild_vector_projection, lock)
+            .await
+            .map(Some)
+    }
+
     /// Start the lifecycle, optionally skipping the vector-projection rebuild.
     ///
     /// Search surfaces skip the rebuild because the search runtime serves from
@@ -76,6 +93,15 @@ impl InstanceLifecycle {
         rebuild_vector_projection: bool,
     ) -> Result<Self> {
         let lock = acquire_instance_write_lock(&layout).await?;
+        Self::start_with_held_lock(layout, profile, rebuild_vector_projection, lock).await
+    }
+
+    async fn start_with_held_lock(
+        layout: InstanceLayout,
+        profile: AutonomyProfile,
+        rebuild_vector_projection: bool,
+        lock: crate::lock::InstanceWriteLock,
+    ) -> Result<Self> {
         let mut state =
             load_kernel_state(&layout).with_context(|| "load persisted kernel state")?;
         let store = SqliteStore::open(&layout.database_path)

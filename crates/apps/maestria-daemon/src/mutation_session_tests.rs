@@ -60,6 +60,31 @@ async fn correlated_mutation_is_durable_before_graceful_finish()
 }
 
 #[tokio::test]
+async fn try_start_for_search_degrades_while_instance_lock_is_held()
+-> Result<(), Box<dyn std::error::Error>> {
+    let temp = TempDir::create()?;
+    let layout = prepare_instance(temp.path().to_path_buf())?;
+    let session = MutationSession::start(layout.clone(), AutonomyProfile::TrustedWorkspace).await?;
+
+    let degraded =
+        MutationSession::try_start_for_search(layout.clone(), AutonomyProfile::TrustedWorkspace)
+            .await?;
+    assert!(
+        degraded.is_none(),
+        "expected read-only degradation while the instance lock is held"
+    );
+
+    session.finish(Ok(())).await?;
+    let durable =
+        MutationSession::try_start_for_search(layout, AutonomyProfile::TrustedWorkspace).await?;
+    let Some(durable) = durable else {
+        return Err("expected a durable search session after the lock is released".into());
+    };
+    durable.finish(Ok(())).await?;
+    Ok(())
+}
+
+#[tokio::test]
 async fn typed_rejection_survives_finish_and_releases_instance_lock()
 -> Result<(), Box<dyn std::error::Error>> {
     let temp = TempDir::create()?;

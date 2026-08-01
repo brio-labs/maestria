@@ -57,6 +57,22 @@ pub fn prepare_instance(instance_dir: PathBuf) -> Result<InstanceLayout> {
     Ok(plan.layout)
 }
 
+/// Prepare an instance layout with explicit read roots (idempotent: an
+/// existing manifest is kept, matching [`prepare_instance`]).
+pub fn prepare_instance_with_roots(
+    instance_dir: PathBuf,
+    read_roots: Vec<PathBuf>,
+) -> Result<InstanceLayout> {
+    let plan = InstanceService::init_instance_with_roots(instance_dir, read_roots)?;
+    for directory in &plan.directories {
+        fs::create_dir_all(directory)?;
+    }
+    if !plan.manifest_path.exists() {
+        fs::write(&plan.manifest_path, plan.manifest_contents.as_bytes())?;
+    }
+    Ok(plan.layout)
+}
+
 pub fn load_kernel_state(layout: &InstanceLayout) -> Result<KernelState> {
     let sqlite_store = if layout.database_path.exists() {
         SqliteStore::open_read_only(&layout.database_path)

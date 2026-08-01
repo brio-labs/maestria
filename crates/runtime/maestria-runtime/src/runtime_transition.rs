@@ -33,16 +33,27 @@ impl MaestriaRuntime {
     pub(crate) fn approval_continuation(
         &self,
         input: &DomainInput,
-    ) -> Option<maestria_domain::ModelAgentProposalRequest> {
+    ) -> Result<Option<maestria_domain::ModelAgentProposalRequest>, String> {
         let DomainInput::ApprovalResolved(decision) = input else {
-            return None;
+            return Ok(None);
         };
-        self.adapters
+        let record = match self
+            .adapters
             .approval_repo
-            .find_by_id(decision.approval_id)
-            .ok()
-            .flatten()
-            .and_then(|record| crate::effect_execution::decode_pending_continuation(&record))
+            .find_by_id(decision.approval_id())
+        {
+            Ok(record) => record,
+            Err(error) => {
+                return Err(format!(
+                    "look up approval {} for continuation: {error}",
+                    decision.approval_id()
+                ));
+            }
+        };
+        let Some(record) = record else {
+            return Ok(None);
+        };
+        crate::effect_execution::decode_pending_continuation(&record)
     }
 
     pub(crate) async fn boundary_error(&self, input: &DomainInput) -> Option<&'static str> {
@@ -83,7 +94,7 @@ impl MaestriaRuntime {
     ) -> Option<(maestria_domain::ApprovalId, bool)> {
         match (input, command) {
             (DomainInput::ApprovalResolved(decision), Some(_)) => {
-                Some((decision.approval_id, decision.approved))
+                Some((decision.approval_id(), decision.approved()))
             }
             _ => None,
         }
@@ -100,7 +111,7 @@ impl MaestriaRuntime {
             &input,
             DomainInput::ApprovalResolved(decision)
                 if has_approval_continuation
-                    && !state.resolved_approvals.contains(&decision.approval_id)
+                    && !state.resolved_approvals.contains(&decision.approval_id())
         );
         drop(state);
         let output = candidate.apply_input(input)?;

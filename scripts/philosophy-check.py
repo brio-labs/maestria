@@ -106,41 +106,20 @@ MAX_PRODUCTION_LOGICAL_LINES = 400
 MAX_MODULE_PHYSICAL_LINES = 900
 MAX_FUNCTION_LOGICAL_LINES = 100
 MODULE_SIZE_EXEMPTIONS: dict[str, str] = {
-    "crates/ecosystem/maestria-retrieval/src/repository_benchmark.rs": "v0.7.0",
-    "crates/ecosystem/maestria-retrieval/tests/contract_tests.rs": "v0.7.0",
+    # Shared port contract suite (923 physical lines; kept as one deterministic
+    # fixture family, split into per-trait contract files as suites grow).
     "crates/kernel/maestria-ports/src/contract_tests.rs": "v0.7.0",
+    # In-memory lexical index module (480 logical lines; functions already
+    # within budgets; split after lexical lane consolidation).
     "crates/kernel/maestria-ports/src/in_memory/lexical.rs": "v0.7.0",
 }
-FUNCTION_SIZE_EXEMPTIONS: dict[str, dict[str, str]] = {
-    "crates/kernel/maestria-ports/src/in_memory/lexical.rs": {
-        "search_lexical_filtered": "v0.7.0",
-        "search_cards_lexical_filtered": "v0.7.0",
-    },
-    "crates/kernel/maestria-ports/src/in_memory/learned_sparse.rs": {
-        "search_with_filter": "v0.7.0",
-    },
-    "crates/kernel/maestria-ports/src/in_memory/vector_index.rs": {
-        "search_similar_filtered": "v0.7.0",
-    },
-    "crates/storage/maestria-search-tantivy/src/lexical_operations.rs": {
-        "do_search_lexical_filtered": "v0.7.0",
-        "do_search_cards_lexical_filtered": "v0.7.0",
-    },
-    "crates/ecosystem/maestria-retrieval/src/engine_pipeline.rs": {
-        "collect_batches": "v0.7.0",
-    },
-    "crates/ecosystem/maestria-retrieval/src/sync.rs": {
-        "run_with_trace": "v0.7.0",
-    },
-}
+FUNCTION_SIZE_EXEMPTIONS: dict[str, dict[str, str]] = {}
 MIXED_RESPONSIBILITY_EXEMPTIONS: dict[str, str] = {
-    "crates/storage/maestria-storage-sqlite/src/schema.rs": "v0.7.0",
+    # Visual benchmark evidence schema and route evaluation share one
+    # versioned benchmark format; split after the format is stable.
     "crates/ecosystem/maestria-retrieval/src/visual_benchmark.rs": "v0.7.0",
 }
-ADR_MODULE_EXEMPTIONS: dict[str, str] = {
-    "crates/apps/maestria-daemon/src/lib.rs": "v0.7.0",
-    "crates/runtime/maestria-runtime/src/lib.rs": "v0.8.0",
-}
+ADR_MODULE_EXEMPTIONS: dict[str, str] = {}
 
 VERSION_PATTERN = re.compile(r"^v?(\d+)\.(\d+)\.(\d+)(?:[-+][0-9A-Za-z.-]+)?$")
 
@@ -235,6 +214,7 @@ RESPONSIBILITY_MAPS: dict[str, tuple[str, ...]] = {
         "contract_tests",
         "graph_contract_tests",
         "learned_sparse_contract_tests",
+        "ocr_contract_tests",
     ),
     "crates/kernel/maestria-domain/src/lib.rs": (
         "effects",

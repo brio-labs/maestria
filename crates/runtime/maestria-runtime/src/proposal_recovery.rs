@@ -24,66 +24,74 @@ pub(crate) fn journal_entry_matches_proposal(
 }
 
 impl MaestriaRuntime {
+    /// Plan model-agent recovery from the durable effect journal and approval
+    /// repository.
+    ///
+    /// Returns an error instead of continuing with a partial recovery set: a
+    /// journal or approval scan failure would otherwise drop in-flight
+    /// model-agent effects while the runtime starts normally.
     pub(crate) fn plan_model_agent_recovery(
         &self,
         snapshot: &KernelState,
-    ) -> Vec<ModelAgentProposalRequest> {
+    ) -> Result<Vec<ModelAgentProposalRequest>, EffectFailure> {
         let mut proposals = BTreeMap::new();
         let mut approval_owned_runs = BTreeSet::new();
-        match self.adapters.effect_journal.scan_in_flight() {
-            Ok(entries) => {
-                for entry in entries {
-                    if entry.status != maestria_ports::EffectJournalStatus::FeedbackAccepted
-                        || entry.feedback.is_none()
-                        || snapshot.model_agent_results.contains_key(&entry.run_id)
-                    {
-                        continue;
-                    }
-                    let Some(proposal) = snapshot.model_agent_requests.get(&entry.run_id) else {
-                        continue;
-                    };
-                    if !matches!(&proposal.execution, ModelAgentProposalExecution::Fresh)
-                        || !journal_entry_matches_proposal(&entry, proposal, self.config.scope_id)
-                    {
-                        continue;
-                    }
-                    let mut resumed = proposal.clone();
-                    resumed.execution = ModelAgentProposalExecution::JournalRecovery {
-                        journal_generation: entry.generation,
-                    };
-                    proposals.insert(entry.run_id, resumed);
-                }
+        let entries = self
+            .adapters
+            .effect_journal
+            .scan_in_flight()
+            .map_err(|error| {
+                EffectFailure::Failed(format!(
+                    "scan effect journal for model-agent recovery: {error}"
+                ))
+            })?;
+        for entry in entries {
+            if entry.status != maestria_ports::EffectJournalStatus::FeedbackAccepted
+                || entry.feedback.is_none()
+                || snapshot.model_agent_results.contains_key(&entry.run_id)
+            {
+                continue;
             }
-            Err(error) => {
-                tracing::error!(%error, "failed to scan effect journal for model-agent recovery");
+            let Some(proposal) = snapshot.model_agent_requests.get(&entry.run_id) else {
+                continue;
+            };
+            if !matches!(&proposal.execution, ModelAgentProposalExecution::Fresh)
+                || !journal_entry_matches_proposal(&entry, proposal, self.config.scope_id)
+            {
+                continue;
             }
+            let mut resumed = proposal.clone();
+            resumed.execution = ModelAgentProposalExecution::JournalRecovery {
+                journal_generation: entry.generation,
+            };
+            proposals.insert(entry.run_id, resumed);
         }
-        match self.adapters.approval_repo.find_all() {
-            Ok(records) => {
-                for record in records {
-                    let Some(proposal) =
-                        crate::effect_execution::decode_pending_continuation(&record)
-                    else {
-                        continue;
-                    };
-                    if !snapshot.model_agent_requests.contains_key(&proposal.run_id) {
-                        continue;
-                    }
-                    approval_owned_runs.insert(proposal.run_id);
-                    if !matches!(
-                        record.status,
-                        maestria_ports::ApprovalStatus::Approved
-                            | maestria_ports::ApprovalStatus::Denied
-                    ) || snapshot.model_agent_results.contains_key(&proposal.run_id)
-                    {
-                        continue;
-                    }
-                    proposals.entry(proposal.run_id).or_insert(proposal);
-                }
+        let records = self.adapters.approval_repo.find_all().map_err(|error| {
+            EffectFailure::Failed(format!("scan approvals for model-agent recovery: {error}"))
+        })?;
+        for record in records {
+            let proposal =
+                crate::effect_execution::decode_pending_continuation(&record).map_err(|error| {
+                    EffectFailure::Failed(format!(
+                        "decode approval {} for model-agent recovery: {error}",
+                        record.id
+                    ))
+                })?;
+            let Some(proposal) = proposal else {
+                continue;
+            };
+            if !snapshot.model_agent_requests.contains_key(&proposal.run_id) {
+                continue;
             }
-            Err(error) => {
-                tracing::error!(%error, "failed to scan approvals for model-agent recovery");
+            approval_owned_runs.insert(proposal.run_id);
+            if !matches!(
+                record.status,
+                maestria_ports::ApprovalStatus::Approved | maestria_ports::ApprovalStatus::Denied
+            ) || snapshot.model_agent_results.contains_key(&proposal.run_id)
+            {
+                continue;
             }
+            proposals.entry(proposal.run_id).or_insert(proposal);
         }
         for proposal in snapshot.model_agent_requests.values() {
             if matches!(&proposal.execution, ModelAgentProposalExecution::Fresh)
@@ -94,7 +102,7 @@ impl MaestriaRuntime {
                 proposals.insert(proposal.run_id, proposal.clone());
             }
         }
-        proposals.into_values().collect()
+        Ok(proposals.into_values().collect())
     }
 
     pub(crate) async fn queue_model_agent_recovery(

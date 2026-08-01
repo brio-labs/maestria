@@ -9,7 +9,6 @@ use std::{
     path::{Path, PathBuf},
     time::Duration,
 };
-use tokio::time::{sleep, timeout};
 
 use crate::helpers;
 
@@ -78,114 +77,65 @@ async fn process_file(file: &Path, ctx: &ProcessContext<'_>) -> Result<()> {
         .context("failed to submit artifact to runtime")?;
 
     // Wait for the artifact to reach terminal persisted state.
-    let result = timeout(ctx.index_timeout, async {
-        loop {
-            match maestria_daemon::load_kernel_state(ctx.layout)
-                .with_context(|| "reload kernel state for indexing wait")
-            {
-                Ok(state) => {
-                    if let Some(artifact) = state.artifacts.get(&artifact_id)
-                        && artifact.index_status == IndexStatus::Indexed
-                    {
-                        println!("indexed artifact={} path={}", artifact.id, file.display());
-                        return Ok::<_, anyhow::Error>(());
-                    }
-                    sleep(Duration::from_millis(100)).await;
-                }
-                Err(error) if helpers::is_db_locked(&error) => {
-                    sleep(Duration::from_millis(25)).await;
-                }
-                Err(error) => return Err(error),
-            }
-        }
-    })
-    .await;
-
-    match result {
-        Ok(Ok(())) => Ok(()),
-        Ok(Err(error)) => Err(error),
-        Err(_elapsed) => Err(anyhow!(
-            "timeout waiting for artifact indexing: {}",
-            file.display()
-        )),
-    }
+    helpers::wait_for_kernel_state(
+        ctx.layout,
+        ctx.index_timeout,
+        format!("waiting for artifact indexing: {}", file.display()),
+        |state| {
+            state
+                .artifacts
+                .get(&artifact_id)
+                .is_some_and(|artifact| artifact.index_status == IndexStatus::Indexed)
+        },
+    )
+    .await?;
+    println!("indexed artifact={artifact_id} path={}", file.display());
+    Ok(())
 }
 
-/// Poll kernel state until every artifact in `recovery_artifact_ids` has
-/// reached `IndexStatus::Indexed`, or until `recovery_timeout` elapses.
+/// Wait until every artifact in `recovery_artifact_ids` has reached
+/// `IndexStatus::Indexed`, or until `recovery_timeout` elapses.
 async fn drain_recovery(
     layout: &InstanceLayout,
     recovery_artifact_ids: &[ArtifactId],
     recovery_timeout: Duration,
 ) -> Result<()> {
-    let result = timeout(recovery_timeout, async {
-        loop {
-            match maestria_daemon::load_kernel_state(layout)
-                .with_context(|| "reload kernel state for recovery drain")
-            {
-                Ok(state) => {
-                    if recovery_artifact_ids.iter().all(|id| {
-                        state
-                            .artifacts
-                            .get(id)
-                            .is_some_and(|a| a.index_status == IndexStatus::Indexed)
-                    }) {
-                        return Ok::<_, anyhow::Error>(());
-                    }
-                    sleep(Duration::from_millis(100)).await;
-                }
-                Err(error) if helpers::is_db_locked(&error) => {
-                    sleep(Duration::from_millis(25)).await;
-                }
-                Err(error) => return Err(error),
-            }
-        }
-    })
-    .await;
-
-    match result {
-        Ok(Ok(())) => Ok(()),
-        Ok(Err(error)) => Err(error),
-        Err(_elapsed) => Err(anyhow!("timeout waiting for recovery artifact indexing")),
-    }
+    helpers::wait_for_kernel_state(
+        layout,
+        recovery_timeout,
+        "waiting for recovery artifact indexing".to_string(),
+        |state| {
+            recovery_artifact_ids.iter().all(|id| {
+                state
+                    .artifacts
+                    .get(id)
+                    .is_some_and(|a| a.index_status == IndexStatus::Indexed)
+            })
+        },
+    )
+    .await?;
+    Ok(())
 }
 
-/// Poll kernel state until every recovered validation task has a durable
-/// validation report, or until `recovery_timeout` elapses.
+/// Wait until every recovered validation task has a durable validation
+/// report, or until `recovery_timeout` elapses.
 async fn drain_validation_recovery(
     layout: &InstanceLayout,
     validation_task_ids: &[TaskId],
     recovery_timeout: Duration,
 ) -> Result<()> {
-    let result = timeout(recovery_timeout, async {
-        loop {
-            match maestria_daemon::load_kernel_state(layout)
-                .with_context(|| "reload kernel state for validation recovery drain")
-            {
-                Ok(state) => {
-                    if validation_task_ids.iter().all(|task_id| {
-                        maestria_daemon::has_current_validation_report(&state, *task_id)
-                    }) {
-                        return Ok::<_, anyhow::Error>(());
-                    }
-                    sleep(Duration::from_millis(100)).await;
-                }
-                Err(error) if helpers::is_db_locked(&error) => {
-                    sleep(Duration::from_millis(25)).await;
-                }
-                Err(error) => return Err(error),
-            }
-        }
-    })
-    .await;
-
-    match result {
-        Ok(Ok(())) => Ok(()),
-        Ok(Err(error)) => Err(error),
-        Err(_elapsed) => Err(anyhow!(
-            "timeout waiting for recovered task validation reports"
-        )),
-    }
+    helpers::wait_for_kernel_state(
+        layout,
+        recovery_timeout,
+        "waiting for recovered task validation reports".to_string(),
+        |state| {
+            validation_task_ids
+                .iter()
+                .all(|task_id| maestria_daemon::has_current_validation_report(state, *task_id))
+        },
+    )
+    .await?;
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------

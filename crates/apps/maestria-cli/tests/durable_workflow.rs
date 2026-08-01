@@ -499,7 +499,7 @@ fn pdf_no_text_is_rejected() -> Result<(), Box<dyn std::error::Error>> {
         &workspace.path().join("scanned.pdf").to_string_lossy(),
     ])?;
     assert!(
-        err.contains("timeout") || err.contains("parser failed"),
+        err.contains("timed out") || err.contains("parser failed"),
         "expected timeout or parser failure for no-text PDF, got: {err}"
     );
     let stdout = assert_ok(&[

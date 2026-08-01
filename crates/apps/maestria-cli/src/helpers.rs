@@ -5,8 +5,10 @@ use maestria_domain::KernelState;
 use maestria_governance::PrivacyExclusions;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
+use tokio::time::{sleep, timeout};
 
 pub(crate) fn ensure_instance(instance_dir: PathBuf) -> Result<InstanceLayout> {
     maestria_daemon::prepare_instance(instance_dir)
@@ -36,11 +38,25 @@ pub(crate) fn load_kernel_state_with_retry(
     timeout_budget: Duration,
     context: &'static str,
 ) -> Result<KernelState> {
+    retry_db_busy(timeout_budget, context, || {
+        maestria_daemon::load_kernel_state(layout).with_context(|| context)
+    })
+}
+
+/// Retry a synchronous database operation while the instance is transiently
+/// locked, within `timeout_budget`. This is the single sync carrier of the
+/// CLI's database-busy retry policy (see [`wait_for_kernel_state`] for the
+/// async carrier).
+pub(crate) fn retry_db_busy<T>(
+    timeout_budget: Duration,
+    context: &'static str,
+    mut attempt: impl FnMut() -> Result<T>,
+) -> Result<T> {
     let attempts = timeout_budget.as_millis().div_ceil(25).max(1);
-    for attempt in 0..attempts {
-        match maestria_daemon::load_kernel_state(layout).with_context(|| context) {
-            Ok(state) => return Ok(state),
-            Err(error) if is_db_locked(&error) && attempt + 1 < attempts => {
+    for attempt_number in 0..attempts {
+        match attempt() {
+            Ok(output) => return Ok(output),
+            Err(error) if is_db_locked(&error) && attempt_number + 1 < attempts => {
                 thread::sleep(Duration::from_millis(25));
             }
             Err(error) if is_db_locked(&error) => {
@@ -50,6 +66,59 @@ pub(crate) fn load_kernel_state_with_retry(
         }
     }
     Err(anyhow::anyhow!("timed out while {context}"))
+}
+
+/// Poll persisted kernel state until `predicate` holds, within `timeout_budget`.
+///
+/// This is the single CLI policy for waiting on durable kernel state: command
+/// modules pass a predicate instead of restating the poll-and-retry loop.
+/// Transient database-lock errors are retried with the same 25 ms cadence as
+/// [`load_kernel_state_with_retry`], and the last such error is preserved in
+/// the timeout message. The returned state is the one that satisfied the
+/// predicate.
+pub(crate) async fn wait_for_kernel_state(
+    layout: &InstanceLayout,
+    timeout_budget: Duration,
+    wait_context: String,
+    predicate: impl Fn(&KernelState) -> bool,
+) -> Result<KernelState> {
+    let last_error = Arc::new(Mutex::new(None::<String>));
+    let last_error_for_wait = Arc::clone(&last_error);
+    let result = timeout(timeout_budget, async {
+        loop {
+            match maestria_daemon::load_kernel_state(layout)
+                .with_context(|| format!("load kernel state while {wait_context}"))
+            {
+                Ok(state) => {
+                    if predicate(&state) {
+                        return Ok::<_, anyhow::Error>(state);
+                    }
+                    sleep(Duration::from_millis(25)).await;
+                }
+                Err(error) if is_db_locked(&error) => {
+                    if let Ok(mut slot) = last_error_for_wait.lock() {
+                        *slot = Some(error.to_string());
+                    }
+                    sleep(Duration::from_millis(25)).await;
+                }
+                Err(error) => return Err(error),
+            }
+        }
+    })
+    .await;
+
+    match result {
+        Ok(Ok(state)) => Ok(state),
+        Ok(Err(error)) => Err(error),
+        Err(_elapsed) => {
+            let detail = last_error
+                .lock()
+                .ok()
+                .and_then(|error| error.clone())
+                .map_or_else(String::new, |error| format!(" {error}"));
+            Err(anyhow::anyhow!("timed out while {wait_context}{detail}"))
+        }
+    }
 }
 
 pub(crate) fn collect_index_files(path: &Path, recursive: bool) -> Result<Vec<PathBuf>> {

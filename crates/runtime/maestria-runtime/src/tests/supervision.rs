@@ -120,12 +120,13 @@ async fn approval_command_ack_waits_for_event_and_projection()
     let run = tokio::spawn(runtime.run(input_rx, shutdown.clone()));
     let submission = tokio::spawn(async move {
         handle
-            .submit(DomainInput::ApprovalResolved(ApprovalDecision {
-                approval_id,
-                task_id: None,
-                approved: true,
-                affects_task: false,
-            }))
+            .submit(DomainInput::ApprovalResolved(
+                ApprovalDecision::Acknowledge {
+                    approval_id,
+                    task_id: None,
+                    approved: true,
+                },
+            ))
             .await
     });
 
@@ -459,12 +460,13 @@ async fn approval_ack_includes_inline_continuation_admission_before_shutdown()
     let run = tokio::spawn(runtime.with_graceful_shutdown().run(input_rx, run_shutdown));
 
     let application = handle
-        .submit(DomainInput::ApprovalResolved(ApprovalDecision {
-            approval_id,
-            task_id: proposal.task_id,
-            approved: true,
-            affects_task: false,
-        }))
+        .submit(DomainInput::ApprovalResolved(
+            ApprovalDecision::Acknowledge {
+                approval_id,
+                task_id: proposal.task_id,
+                approved: true,
+            },
+        ))
         .await?;
     assert_eq!(application.effects_admitted, 3);
     shutdown.cancel();
@@ -517,12 +519,13 @@ async fn approval_ack_propagates_inline_continuation_admission_failure()
     let run = tokio::spawn(runtime.with_graceful_shutdown().run(input_rx, run_shutdown));
 
     let result = handle
-        .submit(DomainInput::ApprovalResolved(ApprovalDecision {
-            approval_id,
-            task_id: proposal.task_id,
-            approved: true,
-            affects_task: false,
-        }))
+        .submit(DomainInput::ApprovalResolved(
+            ApprovalDecision::Acknowledge {
+                approval_id,
+                task_id: proposal.task_id,
+                approved: true,
+            },
+        ))
         .await;
     match result {
         Err(crate::RuntimeSubmissionError::EffectPreparationRejected { reason, .. }) => {

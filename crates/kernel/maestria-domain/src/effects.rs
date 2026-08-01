@@ -73,11 +73,34 @@ impl QueryHarnessProposalRequest {
     }
 }
 
+/// The subject of a validation effect: a task or a single claim, never both
+/// and never neither.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ValidationTarget {
+    Task(TaskId),
+    Claim(ClaimId),
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RunValidationRequest {
-    pub task_id: Option<TaskId>,
-    pub claim_id: Option<ClaimId>,
+    pub target: ValidationTarget,
     pub validation_report_id: ValidationReportId,
+}
+
+impl RunValidationRequest {
+    pub fn task_id(&self) -> Option<TaskId> {
+        match self.target {
+            ValidationTarget::Task(task_id) => Some(task_id),
+            ValidationTarget::Claim(_) => None,
+        }
+    }
+
+    pub fn claim_id(&self) -> Option<ClaimId> {
+        match self.target {
+            ValidationTarget::Task(_) => None,
+            ValidationTarget::Claim(claim_id) => Some(claim_id),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

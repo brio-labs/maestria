@@ -86,6 +86,7 @@ pub(super) async fn resolve(
         .find_by_id(maestria_domain::ApprovalId::new(approval_id))?
         .ok_or_else(|| anyhow!("model-agent approval {approval_id} does not exist"))?;
     let identity = pending_proposal_identity(&record)
+        .map_err(|error| anyhow!("approval {approval_id}: {error}"))?
         .ok_or_else(|| anyhow!("approval {approval_id} is not a model-agent proposal"))?;
     let pending_run_id = identity.run_id;
     let correlation_id = identity.correlation_id;
@@ -99,13 +100,15 @@ pub(super) async fn resolve(
             "model-agent approval requires the canonical runtime command path"
         ));
     };
+    // Model-agent approvals record the outcome without transitioning a task;
+    // the task linkage is audit metadata on the acknowledgement.
+    let decision = ApprovalDecision::Acknowledge {
+        approval_id: record.id,
+        task_id: record.task_id,
+        approved,
+    };
     runtime
-        .submit(DomainInput::ApprovalResolved(ApprovalDecision {
-            approval_id: record.id,
-            task_id: record.task_id,
-            approved,
-            affects_task: false,
-        }))
+        .submit(DomainInput::ApprovalResolved(decision))
         .await
         .map_err(|error| anyhow!("model-agent approval was not accepted: {error}"))?;
     Ok(ClientResponse::ModelAgentStatus(ModelAgentStatusResponse {
@@ -181,7 +184,9 @@ pub(super) fn status(layout: &InstanceLayout, run_id: u64) -> Result<ModelAgentS
     let mut correlation_id = None;
     let mut pending_journal_generation = None;
     for record in store.find_pending()? {
-        let Some(identity) = pending_proposal_identity(&record) else {
+        let Some(identity) = pending_proposal_identity(&record)
+            .map_err(|error| anyhow!("read approval {}: {error}", record.id))?
+        else {
             continue;
         };
         if identity.run_id == run_id {
@@ -255,13 +260,6 @@ fn build_proposal(payload: ModelAgentProposalPayload) -> ModelAgentProposal {
     }
 }
 
-#[derive(Debug, serde::Deserialize)]
-struct PendingHarnessContinuation {
-    proposal: maestria_domain::ModelAgentProposalRequest,
-    journal_generation: u64,
-    correlation_id: u64,
-}
-
 #[derive(Debug, Clone, Copy)]
 struct PendingProposalIdentity {
     run_id: u64,
@@ -269,35 +267,25 @@ struct PendingProposalIdentity {
     journal_generation: u64,
 }
 
-fn decode_pending_continuation(record: &ApprovalRecord) -> Option<PendingHarnessContinuation> {
-    if record.effect_kind != "model_agent_harness" {
-        return None;
-    }
-    let token = record.capability.strip_prefix("model_agent_pending:")?;
-    let continuation = serde_json::from_str::<PendingHarnessContinuation>(token).ok()?;
-    match &continuation.proposal.execution {
-        ModelAgentProposalExecution::ApprovalContinuation {
-            approval_id,
-            journal_generation,
-        } if *approval_id == record.id
-            && *journal_generation == continuation.journal_generation =>
-        {
-            Some(continuation)
-        }
-        ModelAgentProposalExecution::Fresh
-        | ModelAgentProposalExecution::JournalRecovery { .. }
-        | ModelAgentProposalExecution::ApprovalContinuation { .. } => None,
-    }
-}
-
-fn pending_proposal_identity(record: &ApprovalRecord) -> Option<PendingProposalIdentity> {
-    let continuation = decode_pending_continuation(record)?;
-    let journal_generation = continuation.proposal.execution.journal_generation()?;
-    Some(PendingProposalIdentity {
-        run_id: continuation.proposal.run_id.value(),
-        correlation_id: continuation.correlation_id,
+/// Decode the pending continuation identity of an approval record.
+///
+/// Returns `Ok(None)` for records without a pending model-agent continuation
+/// and `Err` when a record claims one but its token is corrupt, so the status
+/// surface reports corruption instead of silently skipping the record.
+fn pending_proposal_identity(
+    record: &ApprovalRecord,
+) -> Result<Option<PendingProposalIdentity>, String> {
+    let Some(proposal) = maestria_runtime::decode_pending_continuation(record)? else {
+        return Ok(None);
+    };
+    let Some(journal_generation) = proposal.execution.journal_generation() else {
+        return Ok(None);
+    };
+    Ok(Some(PendingProposalIdentity {
+        run_id: proposal.run_id.value(),
+        correlation_id: proposal.correlation_id,
         journal_generation,
-    })
+    }))
 }
 
 fn validate_proposal_against_state(

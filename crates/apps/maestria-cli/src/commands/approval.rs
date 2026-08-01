@@ -61,11 +61,17 @@ pub async fn run_resolve(instance_dir: PathBuf, id: u64, approved: bool) -> Resu
             );
         }
 
-        let decision = maestria_domain::ApprovalDecision {
-            approval_id,
-            task_id: record.task_id,
-            approved,
-            affects_task: true,
+        let decision = match record.task_id {
+            Some(task_id) => maestria_domain::ApprovalDecision::Resolve {
+                approval_id,
+                task_id,
+                approved,
+            },
+            None => maestria_domain::ApprovalDecision::Acknowledge {
+                approval_id,
+                task_id: None,
+                approved,
+            },
         };
 
         session

@@ -63,8 +63,7 @@ async fn search_validation_failure_records_a_failed_report()
     );
     let result = MaestriaRuntime::test_execute_effect(
         maestria_domain::MaestriaEffect::RunValidation(maestria_domain::RunValidationRequest {
-            task_id: Some(task_id),
-            claim_id: None,
+            target: maestria_domain::ValidationTarget::Task(task_id),
             validation_report_id: report_id,
         }),
         ctx,
@@ -211,8 +210,7 @@ async fn associated_search_coverage_and_conflicts_block_verified_completion()
     let report = crate::validation::build_validation_report_from_state(
         &state,
         &maestria_domain::RunValidationRequest {
-            task_id: Some(task_id),
-            claim_id: None,
+            target: maestria_domain::ValidationTarget::Task(task_id),
             validation_report_id: ValidationReportId::new(22),
         },
     );

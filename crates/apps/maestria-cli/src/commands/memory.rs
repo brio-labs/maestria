@@ -7,7 +7,6 @@ use maestria_governance::{
 };
 use std::path::PathBuf;
 use std::time::Duration;
-use tokio::time::{sleep, timeout};
 
 use crate::helpers;
 
@@ -168,20 +167,13 @@ async fn wait_for_memory(
     memory_id: maestria_domain::MemoryId,
     timeout_budget: Duration,
 ) -> Result<maestria_domain::KernelState> {
-    timeout(timeout_budget, async {
-        loop {
-            match maestria_daemon::load_kernel_state(layout) {
-                Ok(state) if state.memories.contains_key(&memory_id) => return Ok(state),
-                Ok(_) => sleep(Duration::from_millis(25)).await,
-                Err(error) if helpers::is_db_locked(&error) => {
-                    sleep(Duration::from_millis(25)).await;
-                }
-                Err(error) => return Err(error),
-            }
-        }
-    })
+    helpers::wait_for_kernel_state(
+        layout,
+        timeout_budget,
+        format!("waiting for promoted memory {memory_id}"),
+        |state| state.memories.contains_key(&memory_id),
+    )
     .await
-    .map_err(|_| anyhow!("timed out waiting for promoted memory {memory_id}"))?
 }
 
 async fn wait_for_candidate(
@@ -189,20 +181,11 @@ async fn wait_for_candidate(
     candidate_id: maestria_domain::MemoryCandidateId,
     timeout_budget: Duration,
 ) -> Result<maestria_domain::KernelState> {
-    timeout(timeout_budget, async {
-        loop {
-            match maestria_daemon::load_kernel_state(layout) {
-                Ok(state) if state.memory_candidates.contains_key(&candidate_id) => {
-                    return Ok(state);
-                }
-                Ok(_) => sleep(Duration::from_millis(25)).await,
-                Err(error) if helpers::is_db_locked(&error) => {
-                    sleep(Duration::from_millis(25)).await;
-                }
-                Err(error) => return Err(error),
-            }
-        }
-    })
+    helpers::wait_for_kernel_state(
+        layout,
+        timeout_budget,
+        format!("waiting for candidate {candidate_id}"),
+        |state| state.memory_candidates.contains_key(&candidate_id),
+    )
     .await
-    .map_err(|_| anyhow!("timed out waiting for candidate {candidate_id}"))?
 }
