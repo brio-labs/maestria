@@ -1,6 +1,6 @@
 use super::*;
 use maestria_code_intel::REPOSITORY_CODE_INDEX_FILENAME;
-use maestria_domain::{ArtifactId, BlobId, EventId, SequenceNumber};
+use maestria_domain::{ArtifactId, BlobId, DomainEvent, EventId, SequenceNumber};
 use std::fs;
 use std::sync::atomic::{AtomicU64, Ordering};
 

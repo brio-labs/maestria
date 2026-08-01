@@ -1,6 +1,4 @@
-use maestria_domain::{
-    CorpusSnapshotId, IndexGenerationId, RetrievalModelFingerprint, SearchOutcome, SearchPlan,
-};
+use maestria_domain::{SearchOutcome, SearchPlan};
 use maestria_ports::SearchQuery;
 use std::sync::Arc;
 use std::time::Duration;
@@ -34,31 +32,14 @@ mod tests;
 #[path = "planner.rs"]
 mod planner;
 pub(super) use engine_pipeline::reconcile_status;
-
-pub(crate) fn rewrite_session(plan: &SearchPlan) -> crate::rewrite::QueryRewriteSession {
-    let mut session = crate::rewrite::QueryRewriteSession::with_limits(
-        &plan.original_query,
-        plan.budgets.max_tokens() as usize,
-        plan.budgets.max_latency_ms(),
-        plan.budgets.max_queries(),
-    );
-    session.expand_deterministic();
-    session
-}
+pub use planner::SearchPlannerContext;
+pub(crate) use planner::rewrite_session;
 
 #[path = "engine_trace.rs"]
 mod engine_trace;
 pub(super) use engine_trace::{
     EnsureTraceOptions, applied_security_filters, ensure_trace, security_policy_fingerprint,
 };
-
-/// Runtime inputs used to build a deterministic search plan.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SearchPlannerContext {
-    pub corpus_snapshot: CorpusSnapshotId,
-    pub primary_generation: IndexGenerationId,
-    pub fingerprint: RetrievalModelFingerprint,
-}
 
 pub struct RetrievalEngine {
     retrievers: Vec<Arc<dyn CandidateRetriever>>,
