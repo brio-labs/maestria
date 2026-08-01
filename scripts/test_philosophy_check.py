@@ -1206,6 +1206,141 @@ dev_alias = { package = "unknown-package", version = "1" }
 
             self.assertEqual(PHILOSOPHY_CHECK.scan_type_invariant_modeling(), [])
 
+    def test_kernel_import_scan_rejects_non_kernel_import(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.configure_root(root)
+            source = (
+                root / "crates" / "kernel" / "maestria-domain" / "src" / "lib.rs"
+            )
+            source.parent.mkdir(parents=True)
+            source.write_text(
+                "use maestria_storage_sqlite::SqliteStore;\n", encoding="utf-8"
+            )
+
+            self.assertEqual(
+                PHILOSOPHY_CHECK.scan_kernel_imports(),
+                [
+                    "crates/kernel/maestria-domain/src/lib.rs "
+                    "imports forbidden kernel dependency maestria_storage_sqlite"
+                ],
+            )
+
+    def test_kernel_import_scan_accepts_declared_kernel_dependencies(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.configure_root(root)
+            governance = (
+                root / "crates" / "kernel" / "maestria-governance" / "src" / "lib.rs"
+            )
+            governance.parent.mkdir(parents=True)
+            governance.write_text(
+                "use maestria_domain::KernelState;\n"
+                "use maestria_domain as domain;\n",
+                encoding="utf-8",
+            )
+
+            self.assertEqual(PHILOSOPHY_CHECK.scan_kernel_imports(), [])
+
+    def test_kernel_import_scan_ignores_comments_and_strings(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.configure_root(root)
+            source = (
+                root / "crates" / "kernel" / "maestria-domain" / "src" / "lib.rs"
+            )
+            source.parent.mkdir(parents=True)
+            source.write_text(
+                '// use maestria_tantivy::TantivyFullTextIndex;\n'
+                'const EXAMPLE: &str = "use maestria_tantivy::Index";\n',
+                encoding="utf-8",
+            )
+
+            self.assertEqual(PHILOSOPHY_CHECK.scan_kernel_imports(), [])
+
+    def test_domain_untyped_json_scan_rejects_value_hole(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.configure_root(root)
+            source = root / "crates" / "kernel" / "maestria-domain" / "src" / "lib.rs"
+            source.parent.mkdir(parents=True)
+            source.write_text(
+                'let value: serde_json::Value = serde_json::json!({"a": 1});\n',
+                encoding="utf-8",
+            )
+
+            self.assertEqual(
+                PHILOSOPHY_CHECK.scan_domain_untyped_json(),
+                [
+                    "crates/kernel/maestria-domain/src/lib.rs "
+                    "uses untyped serde_json::Value in domain source"
+                ],
+            )
+
+    def test_scan_markers_prunes_skipped_directories_at_walk_time(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.configure_root(root)
+            ignored = root / "target" / "debug" / "build" / "dep" / "index.rs"
+            ignored.parent.mkdir(parents=True)
+            ignored.write_text(
+                "// " + "TO" + "DO" + ": never scanned\n", encoding="utf-8"
+            )
+            scanned = root / "crates" / "kernel" / "maestria-domain" / "src" / "lib.rs"
+            scanned.parent.mkdir(parents=True)
+            scanned.write_text(
+                "// " + "TO" + "DO" + ": scanned\n", encoding="utf-8"
+            )
+
+            self.assertEqual(
+                PHILOSOPHY_CHECK.scan_markers(),
+                ["crates/kernel/maestria-domain/src/lib.rs"],
+            )
+
+    def test_logical_line_count_excludes_block_comments(self) -> None:
+        content = (
+            "fn f() {\n"
+            "    /*\n"
+            "    block comment\n"
+            "    spans three lines\n"
+            "    */\n"
+            "    let x = 1; // trailing\n"
+            "}\n"
+        )
+        self.assertEqual(PHILOSOPHY_CHECK.logical_line_count(content), 3)
+
+    def test_main_wires_all_scans_and_reports_each_violation_once(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.configure_root(root)
+            source = root / "crates" / "kernel" / "maestria-domain" / "src" / "lib.rs"
+            source.parent.mkdir(parents=True)
+            # Both kernel and domain scans flag the same forbidden token;
+            # main() reports the violation once.
+            source.write_text("std::fs::read(\"x\");\n", encoding="utf-8")
+
+            captured = []
+            original_print = print
+
+            def spy_print(*args, **kwargs):
+                captured.append(" ".join(str(arg) for arg in args))
+
+            PHILOSOPHY_CHECK.print = spy_print
+            try:
+                exit_code = PHILOSOPHY_CHECK.main()
+            finally:
+                PHILOSOPHY_CHECK.print = original_print
+
+            self.assertNotEqual(exit_code, 0)
+            output = "\n".join(captured)
+            self.assertEqual(
+                output.count("contains forbidden kernel token std::fs"),
+                1,
+            )
+            self.assertIn(
+                "crates/kernel/maestria-domain/src/lib.rs",
+                output,
+            )
 
 if __name__ == "__main__":
     unittest.main()
