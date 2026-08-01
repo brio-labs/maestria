@@ -194,7 +194,7 @@ async fn fetch_web_records_hashed_blob_and_security_boundary()
                 other => return Err(format!("unexpected evidence kind: {other:?}").into()),
             }
             assert!(input.security.as_ref().is_some_and(|security| {
-                security.quarantined && security.prompt_injection_risk
+                security.quarantined() && security.prompt_injection_risk
             }));
         }
         other => return Err(format!("unexpected second input: {other:?}").into()),

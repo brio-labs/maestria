@@ -86,6 +86,22 @@ impl fmt::Display for SearchPlanValidationError {
 
 impl std::error::Error for SearchPlanValidationError {}
 
+/// How a search capability scopes corpus access.
+///
+/// `Global` admits global-scope plans; `Restricted` admits exactly the listed
+/// scopes; `Unscoped` (the default) denies global plans and applies no scope
+/// filter to restricted plans. The former `global_scope` boolean plus
+/// `allowed_scopes` option admitted the contradictory
+/// `global_scope: true` + `allowed_scopes: Some(..)` combination and has been
+/// replaced (R56).
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub enum ScopeMode {
+    Global,
+    Restricted(BTreeSet<ScopeId>),
+    #[default]
+    Unscoped,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct SearchCapabilities {
     intents: BTreeSet<SearchIntent>,
@@ -93,8 +109,7 @@ pub struct SearchCapabilities {
     modalities: BTreeSet<Modality>,
     snapshots: BTreeSet<CorpusSnapshotId>,
     generations: BTreeSet<IndexGenerationId>,
-    allowed_scopes: Option<BTreeSet<ScopeId>>,
-    global_scope: bool,
+    scope: ScopeMode,
     max_scope_ids: u32,
     supports_realtime: bool,
     max_age_days: Option<u32>,
@@ -166,12 +181,12 @@ impl SearchCapabilities {
     }
 
     pub fn allow_global_scope(mut self) -> Self {
-        self.global_scope = true;
+        self.scope = ScopeMode::Global;
         self
     }
 
     pub fn with_allowed_scopes(mut self, scopes: impl IntoIterator<Item = ScopeId>) -> Self {
-        self.allowed_scopes = Some(scopes.into_iter().collect());
+        self.scope = ScopeMode::Restricted(scopes.into_iter().collect());
         self
     }
 
@@ -296,11 +311,7 @@ impl SearchPlanValidator {
         match &plan.scope {
             CorpusScope::Global
                 if policy.required_scope_id.is_some()
-                    || !capabilities.global_scope
-                    || capabilities
-                        .allowed_scopes
-                        .as_ref()
-                        .is_some_and(|scopes| !scopes.is_empty()) =>
+                    || !matches!(capabilities.scope, ScopeMode::Global) =>
             {
                 Err(SearchPlanValidationError::ScopeDenied)
             }
@@ -318,7 +329,7 @@ impl SearchPlanValidator {
                 {
                     return Err(SearchPlanValidationError::ScopeDenied);
                 }
-                if let Some(allowed) = &capabilities.allowed_scopes
+                if let ScopeMode::Restricted(allowed) = &capabilities.scope
                     && scopes.iter().any(|scope| !allowed.contains(scope))
                 {
                     return Err(SearchPlanValidationError::ScopeDenied);

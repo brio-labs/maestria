@@ -47,17 +47,23 @@ pub(crate) async fn run_search_command(
 
 async fn run_durable_search(
     session: maestria_daemon::MutationSession,
-    layout: &InstanceLayout,
+    _layout: &InstanceLayout,
     task_id: Option<u64>,
     query: String,
     limit: usize,
 ) -> Result<(SearchPlan, SearchOutcome, maestria_domain::KernelState)> {
     let state = session.state().clone();
     let task_id = validate_task_id(&state, task_id)?;
-    let manifest = helpers::load_manifest(layout)?;
 
     let result = async {
-        let (plan, outcome) = execute_search(layout, &state, &manifest, query, limit).await?;
+        // Reuse the session runtime's own search executor: the runtime already
+        // assembled the retrieval graph (stores, indexes, policies) when it
+        // started, so the durable path must not build a second one (R28).
+        let executor = session
+            .runtime_handle()
+            .search_executor()
+            .ok_or_else(|| anyhow!("runtime search executor is unavailable"))?;
+        let (plan, outcome) = execute_search_with(&*executor, query, limit).await?;
         session
             .submit(DomainInput::SearchKnowledgeCompleted(
                 SearchKnowledgeCompleted {
@@ -105,7 +111,24 @@ pub(crate) async fn execute_search(
         .allow_unscoped_items(true);
     let runtime =
         maestria_daemon::prepare_search_runtime_read_only(layout, state, manifest, policy)?;
-    let (plan, outcome) = runtime.execute(query, limit).await?;
+    execute_search_with(&*runtime, query, limit).await
+}
+
+/// Execute one governed search against an already-assembled executor and
+/// verify the produced trace before returning.
+///
+/// `executor` is either the runtime-owned executor (durable path) or a
+/// freshly assembled read-only search runtime (no runtime exists there, so
+/// assembly is the single owner of that path).
+async fn execute_search_with(
+    executor: &dyn maestria_ports::SearchKnowledgeExecutor,
+    query: String,
+    limit: usize,
+) -> Result<(SearchPlan, SearchOutcome)> {
+    let (plan, outcome) = executor
+        .plan_and_search(query, limit)
+        .await
+        .map_err(|error| anyhow!("search query execution: {error}"))?;
     let trace = outcome
         .trace_data
         .as_deref()

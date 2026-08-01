@@ -46,7 +46,6 @@ pub struct SecurityMetadata {
     pub integrity: IntegrityState,
     pub sensitivity: Sensitivity,
     pub review_status: ReviewStatus,
-    pub quarantined: bool,
     pub prompt_injection_risk: bool,
     pub poisoning_flags: Vec<String>,
     pub read_allowed: bool,
@@ -56,14 +55,13 @@ pub struct SecurityMetadata {
 
 impl Default for SecurityMetadata {
     fn default() -> Self {
-        // Safe legacy default that does not lose information but doesn't assume high trust
+        // Safe default that does not lose information but doesn't assume high trust
         Self {
             trust_zone: TrustZone::Untrusted,
             authority: Authority::External,
             integrity: IntegrityState::Unverified,
             sensitivity: Sensitivity::Internal,
             review_status: ReviewStatus::Unreviewed,
-            quarantined: false,
             prompt_injection_risk: false,
             poisoning_flags: Vec::new(),
             read_allowed: true,
@@ -141,15 +139,12 @@ impl SecurityMetadata {
             (None, None) => None,
         };
 
-        let quarantined =
-            self.quarantined || other.quarantined || trust_zone == TrustZone::Quarantined;
         Self {
             trust_zone,
             authority,
             integrity,
             sensitivity,
             review_status,
-            quarantined,
             prompt_injection_risk: self.prompt_injection_risk || other.prompt_injection_risk,
             poisoning_flags,
             read_allowed: self.read_allowed && other.read_allowed,
@@ -158,12 +153,21 @@ impl SecurityMetadata {
         }
     }
 
+    /// The source is quarantined: its trust zone is `Quarantined`.
+    ///
+    /// Quarantine is owned by the trust-zone discriminant; the former parallel
+    /// boolean flag admitted the invalid `Quarantined + quarantined: false`
+    /// combination and has been removed (R56).
+    pub fn quarantined(&self) -> bool {
+        self.trust_zone == TrustZone::Quarantined
+    }
+
     /// Denied/quarantined sources are not retrievable.
     pub fn retrieval_allowed(&self) -> bool {
         if !self.read_allowed {
             return false;
         }
-        if self.quarantined || self.trust_zone == TrustZone::Quarantined {
+        if self.quarantined() {
             return false;
         }
         if self.review_status == ReviewStatus::Rejected {
@@ -248,7 +252,7 @@ mod tests {
         assert_eq!(tainted.authority, Authority::External); // worst-case
         assert!(!tainted.read_allowed);
         assert!(!tainted.write_allowed);
-        assert!(tainted.quarantined);
+        assert!(tainted.quarantined());
     }
 
     #[test]
@@ -274,7 +278,7 @@ mod tests {
         sec.authority = Authority::User;
         assert!(sec.action_authorized());
 
-        sec.quarantined = true;
+        sec.trust_zone = TrustZone::Quarantined;
         assert!(!sec.retrieval_allowed());
         assert!(!sec.action_authorized());
         assert!(!sec.memory_promotion_allowed());

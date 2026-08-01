@@ -380,7 +380,6 @@ fn security_metadata_round_trips() -> Result<(), Box<dyn std::error::Error>> {
         integrity: maestria_domain::IntegrityState::Verified,
         sensitivity: maestria_domain::Sensitivity::Internal,
         review_status: maestria_domain::ReviewStatus::Approved,
-        quarantined: true,
         prompt_injection_risk: true,
         poisoning_flags: vec!["test".to_string()],
         read_allowed: true,
@@ -511,7 +510,7 @@ fn card_with_null_node_id_returns_typed_error() -> Result<(), Box<dyn std::error
         .execute(
             "INSERT INTO cards (id, artifact_id, title, body, node_id, source_span_json, security_json)
              VALUES (1, 1, 'title', 'body', NULL, '{\"kind\":\"text_span\",\"start_line\":1,\"end_line\":2}',
-                     '{\"trust_zone\":\"Untrusted\",\"authority\":\"External\",\"integrity\":\"Unverified\",\"sensitivity\":\"Internal\",\"review_status\":\"Unreviewed\",\"quarantined\":false,\"prompt_injection_risk\":false,\"poisoning_flags\":[],\"read_allowed\":true,\"write_allowed\":false,\"scope_id\":null}')",
+                     '{\"trust_zone\":\"Untrusted\",\"authority\":\"External\",\"integrity\":\"Unverified\",\"sensitivity\":\"Internal\",\"review_status\":\"Unreviewed\",\"prompt_injection_risk\":false,\"poisoning_flags\":[],\"read_allowed\":true,\"write_allowed\":false,\"scope_id\":null}')",
             [],
         )
         .map_err(to_port_error)?;

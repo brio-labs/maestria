@@ -49,7 +49,6 @@ fn seed_promotable_candidate(instance_path: &Path) -> Result<(), Box<dyn std::er
         integrity: IntegrityState::Verified,
         sensitivity: Sensitivity::Internal,
         review_status: ReviewStatus::Approved,
-        quarantined: false,
         prompt_injection_risk: false,
         poisoning_flags: Vec::new(),
         read_allowed: true,

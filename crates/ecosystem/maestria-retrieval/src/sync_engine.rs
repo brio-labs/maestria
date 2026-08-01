@@ -25,7 +25,6 @@ fn candidate_security_metadata(candidate: &EvidenceCandidate) -> SecurityMetadat
             metadata.integrity = maestria_domain::IntegrityState::Compromised;
             metadata.review_status = maestria_domain::ReviewStatus::Rejected;
             metadata.read_allowed = false;
-            metadata.quarantined = true;
         }
     }
     metadata

@@ -24,8 +24,23 @@ pub(super) async fn search_with_retry(
 }
 
 async fn search(context: &ApiContext, query: String, limit: usize) -> Result<SearchResponse> {
-    let runtime = prepare_read_only_search_runtime(context).await?;
-    let (plan, outcome) = runtime.execute(query, limit).await?;
+    // Reuse the daemon runtime's own search executor when the API server is
+    // running inside an instance lifecycle (R28: one owner of the retrieval
+    // graph). The standalone read-only assembly remains only for servers
+    // without a live runtime.
+    let (plan, outcome) = match context.runtime.as_ref().and_then(|h| h.search_executor()) {
+        Some(executor) => {
+            let (plan, outcome) = executor
+                .plan_and_search(query, limit)
+                .await
+                .map_err(|error| anyhow!("search query execution: {error}"))?;
+            (plan, outcome)
+        }
+        None => {
+            let runtime = prepare_read_only_search_runtime(context).await?;
+            runtime.execute(query, limit).await?
+        }
+    };
     Ok(search_response(
         plan.original_query,
         plan.query_id.value(),

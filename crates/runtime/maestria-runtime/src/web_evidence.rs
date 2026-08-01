@@ -91,7 +91,6 @@ impl EffectExecutionContext {
             integrity: IntegrityState::Verified,
             sensitivity: maestria_domain::Sensitivity::Internal,
             review_status: ReviewStatus::Unreviewed,
-            quarantined: false,
             prompt_injection_risk,
             poisoning_flags: Vec::new(),
             read_allowed: true,
@@ -109,7 +108,6 @@ impl EffectExecutionContext {
         if !security.poisoning_flags.is_empty() {
             security.trust_zone = TrustZone::Quarantined;
             security.review_status = ReviewStatus::Pending;
-            security.quarantined = true;
         }
         security
     }

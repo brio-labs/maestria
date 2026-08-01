@@ -45,9 +45,7 @@ impl RetrievalAuthorizationContext {
         if self.require_read_allowed && !metadata.read_allowed {
             return RetrievalDecision::Denied("Read not allowed by ACL".to_string());
         }
-        if !self.allow_quarantined
-            && (metadata.quarantined || metadata.trust_zone == TrustZone::Quarantined)
-        {
+        if !self.allow_quarantined && metadata.quarantined() {
             return RetrievalDecision::Denied("Item is quarantined or rejected".to_string());
         }
         if metadata.review_status == maestria_domain::ReviewStatus::Rejected
@@ -269,7 +267,6 @@ mod tests {
             integrity: IntegrityState::Verified,
             sensitivity: Sensitivity::Internal,
             review_status: ReviewStatus::Approved,
-            quarantined: false,
             prompt_injection_risk: false,
             poisoning_flags: vec![],
             read_allowed: true,

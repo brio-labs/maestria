@@ -110,6 +110,14 @@ impl MutationSession {
             .allocate_memory_proposal_ids()
     }
 
+    /// The runtime handle for this session's live runtime.
+    ///
+    /// Exposes the runtime-owned search executor so durable search reuses the
+    /// runtime's retrieval assembly instead of building a second one (R28).
+    pub fn runtime_handle(&self) -> maestria_runtime::RuntimeHandle {
+        self.lifecycle.runtime_handle()
+    }
+
     /// Submit one correlated domain command.
     ///
     /// Success confirms domain acceptance and complete effect-batch admission. Dropping the future

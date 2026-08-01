@@ -98,6 +98,7 @@ impl MaestriaRuntime {
             command_tx: self.command_tx.clone(),
             next_command_id: std::sync::Arc::clone(&self.next_command_id),
             id_allocator: std::sync::Arc::clone(&self.adapters.id_allocator),
+            search_executor: self.adapters.search_executor.clone(),
         }
     }
 

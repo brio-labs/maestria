@@ -70,7 +70,6 @@ fn authorized_security() -> SecurityMetadata {
         integrity: IntegrityState::Verified,
         sensitivity: Sensitivity::Public,
         review_status: ReviewStatus::Approved,
-        quarantined: false,
         prompt_injection_risk: false,
         poisoning_flags: Vec::new(),
         read_allowed: true,
@@ -421,7 +420,7 @@ fn maximum_sensitivity_policy_rejection_is_independent() -> Result<(), Box<dyn E
 fn quarantine_policy_rejection_is_independent() -> Result<(), Box<dyn Error>> {
     let fixture = fixture(FixtureMode::Complete)?;
     let mut artifact = fixture.artifact.clone();
-    artifact.security.quarantined = true;
+    artifact.security.trust_zone = TrustZone::Quarantined;
     fixture.artifacts.put(artifact)?;
     let authorization = default_authorization()?;
     assert!(
