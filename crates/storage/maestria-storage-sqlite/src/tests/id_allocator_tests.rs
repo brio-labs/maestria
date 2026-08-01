@@ -74,19 +74,19 @@ fn allocation_starts_at_max_event_plus_one_when_replaying() -> Result<(), Box<dy
                  event_kind TEXT NOT NULL,
                  artifact_id INTEGER,
                  payload_json TEXT NOT NULL,
-                 payload_version INTEGER NOT NULL DEFAULT 2
+                 payload_version INTEGER NOT NULL DEFAULT 4
              );
              CREATE TABLE IF NOT EXISTS id_counters (
                  namespace TEXT PRIMARY KEY,
                  next_id INTEGER NOT NULL DEFAULT 1
              );
-             INSERT INTO schema_version (version) VALUES (4);
+             INSERT INTO schema_version (version) VALUES (13);
              INSERT INTO domain_events (id, sequence, event_kind, artifact_id, payload_json, payload_version)
-             VALUES (1, 1, 'artifact_registered', 1, '{\"event_kind\":\"artifact_registered\",\"artifact_id\":1,\"title\":\"test\"}', 2);
+             VALUES (1, 1, 'artifact_registered', 1, '{\"event_kind\":\"artifact_registered\",\"artifact_id\":1,\"title\":\"test\",\"security\":{\"trust_zone\":\"untrusted\",\"authority\":\"external\",\"integrity\":\"unverified\",\"sensitivity\":\"internal\",\"review_status\":\"unreviewed\",\"quarantined\":false,\"prompt_injection_risk\":false,\"poisoning_flags\":[],\"read_allowed\":true,\"write_allowed\":false,\"scope_id\":null}}', 4);
              INSERT INTO domain_events (id, sequence, event_kind, artifact_id, payload_json, payload_version)
-             VALUES (2, 2, 'claim_created', 1, '{\"event_kind\":\"claim_created\",\"claim_id\":7,\"artifact_id\":1,\"text\":\"test\",\"evidence_ids\":[]}', 2);
+             VALUES (2, 2, 'claim_created', 1, '{\"event_kind\":\"claim_created\",\"claim_id\":7,\"artifact_id\":1,\"text\":\"test\",\"evidence_ids\":[],\"security\":{\"trust_zone\":\"untrusted\",\"authority\":\"external\",\"integrity\":\"unverified\",\"sensitivity\":\"internal\",\"review_status\":\"unreviewed\",\"quarantined\":false,\"prompt_injection_risk\":false,\"poisoning_flags\":[],\"read_allowed\":true,\"write_allowed\":false,\"scope_id\":null}}', 4);
              INSERT INTO domain_events (id, sequence, event_kind, artifact_id, payload_json, payload_version)
-             VALUES (3, 3, 'memory_candidate_created', NULL, '{\"event_kind\":\"memory_candidate_created\",\"candidate_id\":12,\"claim_id\":7,\"evidence_ids\":[],\"confidence_milli\":500}', 2);",
+             VALUES (3, 3, 'memory_candidate_created', NULL, '{\"event_kind\":\"memory_candidate_created\",\"candidate_id\":12,\"claim_id\":7,\"evidence_ids\":[],\"confidence_milli\":500,\"security\":{\"trust_zone\":\"untrusted\",\"authority\":\"external\",\"integrity\":\"unverified\",\"sensitivity\":\"internal\",\"review_status\":\"unreviewed\",\"quarantined\":false,\"prompt_injection_risk\":false,\"poisoning_flags\":[],\"read_allowed\":true,\"write_allowed\":false,\"scope_id\":null}}', 4);",
         )
         ?;
     }

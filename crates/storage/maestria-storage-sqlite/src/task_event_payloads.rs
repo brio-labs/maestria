@@ -1,4 +1,4 @@
-use super::event_payloads::{StoredApprovalOutcome, StoredEventPayload};
+use super::event_payloads::{FamilyDecodeError, StoredApprovalOutcome, StoredEventPayload};
 use super::evidence_payloads::{StoredTaskPriority, StoredTaskStatus};
 use maestria_domain::{
     ApprovalId, ApprovalOutcome, ArtifactId, DomainEvent, EvidenceId, TaskId, ValidationReportId,
@@ -74,7 +74,7 @@ impl StoredEventPayload {
         }
     }
 
-    pub(crate) fn try_into_domain_task(self) -> Result<DomainEvent, Box<Self>> {
+    pub(crate) fn try_into_domain_task(self) -> Result<DomainEvent, FamilyDecodeError> {
         match self {
             Self::TaskOpened {
                 task_id,
@@ -139,7 +139,7 @@ impl StoredEventPayload {
                 passed,
                 warnings,
             }),
-            other => Err(Box::new(other)),
+            other => Err(FamilyDecodeError::Foreign(Box::new(other))),
         }
     }
 

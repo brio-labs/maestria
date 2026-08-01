@@ -1,9 +1,8 @@
-use maestria_domain::{DomainEventEnvelope, EventId, SequenceNumber};
+use maestria_domain::{DomainEventEnvelope, EventId, SearchTraceId, SequenceNumber};
 use maestria_ports::PortError;
 use rusqlite::Row;
 
 use crate::{
-    legacy::{decode_stored_payload, leaked_kind, upcast_legacy_approval_id},
     payloads::StoredEventPayload,
     sqlite_store::{i64_to_u64, json_error, optional_i64_to_u64, to_port_error},
 };
@@ -16,7 +15,6 @@ pub(super) struct StoredEvent {
     pub(crate) artifact_id: Option<u64>,
     pub(crate) payload_json: String,
     pub(crate) payload_version: i64,
-    pub(crate) legacy_approval_id: Option<u64>,
 }
 
 impl StoredEvent {
@@ -28,8 +26,7 @@ impl StoredEvent {
             kind: payload.kind()?,
             artifact_id: payload.filter_artifact_id(),
             payload_json: serde_json::to_string(&payload).map_err(json_error)?,
-            payload_version: 3,
-            legacy_approval_id: None,
+            payload_version: crate::payloads::CURRENT_PAYLOAD_VERSION,
         })
     }
     pub(super) fn raw_search_trace(
@@ -38,20 +35,20 @@ impl StoredEvent {
         if self.kind != "search_knowledge_completed" {
             return Ok(None);
         }
-        let value = upcast_legacy_approval_id(&self.payload_json, self.legacy_approval_id)?;
-        let payload: StoredEventPayload = serde_json::from_value(value).map_err(json_error)?;
+        let payload: StoredEventPayload =
+            serde_json::from_str(&self.payload_json).map_err(json_error)?;
         let StoredEventPayload::SearchKnowledgeCompleted { outcome, .. } = payload else {
             return Err(PortError::InternalContext {
                 context: "stored search completion payload",
                 source: "event kind does not match payload variant".to_string(),
             });
         };
-        Ok(Some(outcome.trace))
+        Ok(Some(SearchTraceId::new(outcome.trace)))
     }
 
     pub(super) fn into_domain(self) -> Result<DomainEventEnvelope, PortError> {
-        let value = upcast_legacy_approval_id(&self.payload_json, self.legacy_approval_id)?;
-        let payload = decode_stored_payload(value, self.payload_version)?;
+        let payload: StoredEventPayload =
+            serde_json::from_str(&self.payload_json).map_err(json_error)?;
         let payload_kind = payload.kind()?;
         if payload_kind != self.kind {
             return Err(PortError::InternalContext {
@@ -90,14 +87,53 @@ pub(super) fn read_stored_event(row: &Row<'_>) -> Result<StoredEvent, PortError>
         artifact_id: optional_i64_to_u64(row.get::<_, Option<i64>>(3).map_err(to_port_error)?)?,
         payload_json: row.get::<_, String>(4).map_err(to_port_error)?,
         payload_version: row.get::<_, i64>(5).map_err(to_port_error)?,
-        legacy_approval_id: row
-            .get::<_, Option<i64>>(6)
-            .map_err(to_port_error)?
-            .map(u64::try_from)
-            .transpose()
-            .map_err(|_| PortError::InternalContext {
-                context: "decode mapped legacy approval id",
-                source: "approval id is negative".to_string(),
-            })?,
     })
+}
+
+pub(super) fn leaked_kind(kind: String) -> Result<&'static str, PortError> {
+    match kind.as_str() {
+        "artifact_registered" => Ok("artifact_registered"),
+        "chunk_registered" => Ok("chunk_registered"),
+        "card_created" => Ok("card_created"),
+        "claim_created" => Ok("claim_created"),
+        "evidence_recorded" => Ok("evidence_recorded"),
+        "task_opened" => Ok("task_opened"),
+        "task_status_changed" => Ok("task_status_changed"),
+        "task_completion_recorded" => Ok("task_completion_recorded"),
+        "task_evidence_linked" => Ok("task_evidence_linked"),
+        "claim_validation_updated" => Ok("claim_validation_updated"),
+        "claim_evidence_linked" => Ok("claim_evidence_linked"),
+        "relation_created" => Ok("relation_created"),
+        "memory_candidate_created" => Ok("memory_candidate_created"),
+        "memory_promoted" => Ok("memory_promoted"),
+        "memory_contradicted" => Ok("memory_contradicted"),
+        "memory_deprecated" => Ok("memory_deprecated"),
+        "memory_superseded" => Ok("memory_superseded"),
+        "validation_report_created" => Ok("validation_report_created"),
+        "user_intent_observed" => Ok("user_intent_observed"),
+        "artifact_parsed" => Ok("artifact_parsed"),
+        "search_completed" => Ok("search_completed"),
+        "harness_run_completed" => Ok("harness_run_completed"),
+        "approval_recorded" => Ok("approval_recorded"),
+        "tick_observed" => Ok("tick_observed"),
+        "search_executed" => Ok("search_executed"),
+        "search_knowledge_completed" => Ok("search_knowledge_completed"),
+        "model_agent_proposal_requested" => Ok("model_agent_proposal_requested"),
+        "model_agent_proposal_completed" => Ok("model_agent_proposal_completed"),
+        "pending_index" => Ok("pending_index"),
+        "full_text_indexed" => Ok("full_text_indexed"),
+        "artifact_indexed" => Ok("artifact_indexed"),
+        "parser_started" => Ok("parser_started"),
+        "ocr_requested" => Ok("ocr_requested"),
+        "ocr_completed" => Ok("ocr_completed"),
+        "ocr_failed" => Ok("ocr_failed"),
+        "document_tree_captured" => Ok("document_tree_captured"),
+        "index_generation_started" => Ok("index_generation_started"),
+        "index_generation_transitioned" => Ok("index_generation_transitioned"),
+        "source_became_stale" => Ok("source_became_stale"),
+        other => Err(PortError::InternalContext {
+            context: "unknown stored event kind",
+            source: other.to_string(),
+        }),
+    }
 }

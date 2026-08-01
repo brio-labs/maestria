@@ -25,7 +25,6 @@ pub enum SearchStatus {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SearchOutcome {
     pub trace: SearchTraceId,
-    #[serde(default)]
     pub trace_data: Option<Box<super::SearchTrace>>,
     pub fingerprint: RetrievalModelFingerprint,
     pub index_generation: IndexGenerationId,

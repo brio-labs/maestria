@@ -1,5 +1,12 @@
-use super::event_payloads::StoredEventPayload;
+use super::event_payloads::{FamilyDecodeError, StoredEventPayload};
 use super::relation_payloads::{StoredRelationEndpoint, StoredRelationKind};
+use super::stored_evidence_pack::StoredEvidencePackMetadataRecord;
+use super::stored_generations::{
+    StoredIndexFingerprint, StoredIndexLifecycle, StoredRepresentationName,
+};
+use super::stored_model_agent::{StoredModelAgentProposalRequest, StoredModelAgentProposalResult};
+use super::stored_search::{StoredSearchOutcome, StoredSearchPlan};
+use super::stored_security::StoredSecurityMetadata;
 use maestria_domain::{DomainEvent, EvidenceId, LogicalTick};
 
 impl StoredEventPayload {
@@ -20,9 +27,15 @@ impl StoredEventPayload {
                 target: StoredRelationEndpoint::from_domain(target),
                 evidence_id: evidence_id.map(|id| id.value()),
                 confidence_milli: *confidence_milli,
-                security: security.clone(),
+                security: StoredSecurityMetadata::from_domain(security),
             }),
             DomainEvent::TickObserved { at } => Some(Self::TickObserved { at: at.value() }),
+            other => Self::try_from_domain_misc_search(other),
+        }
+    }
+
+    fn try_from_domain_misc_search(event: &DomainEvent) -> Option<Self> {
+        match event {
             DomainEvent::SearchExecuted {
                 query,
                 limit,
@@ -33,7 +46,9 @@ impl StoredEventPayload {
                 query: query.clone(),
                 limit: *limit as u64,
                 evidence_ids: evidence_ids.iter().map(|id| id.value()).collect(),
-                pack_metadata: pack_metadata.clone(),
+                pack_metadata: pack_metadata
+                    .as_ref()
+                    .map(|record| Box::new(StoredEvidencePackMetadataRecord::from_domain(record))),
                 at: at.value(),
             }),
             DomainEvent::SearchKnowledgeCompleted {
@@ -42,17 +57,19 @@ impl StoredEventPayload {
                 outcome,
             } => Some(Self::SearchKnowledgeCompleted {
                 task_id: task_id.map(|id| id.value()),
-                plan: plan.clone(),
-                outcome: outcome.clone(),
+                plan: plan
+                    .as_ref()
+                    .map(|plan| Box::new(StoredSearchPlan::from_domain(plan))),
+                outcome: StoredSearchOutcome::from_domain(outcome),
             }),
             DomainEvent::ModelAgentProposalRequested { request } => {
                 Some(Self::ModelAgentProposalRequested {
-                    request: request.clone(),
+                    request: StoredModelAgentProposalRequest::from_domain(request),
                 })
             }
             DomainEvent::ModelAgentProposalCompleted { result } => {
                 Some(Self::ModelAgentProposalCompleted {
-                    result: result.clone(),
+                    result: StoredModelAgentProposalResult::from_domain(result),
                 })
             }
             DomainEvent::IndexGenerationStarted {
@@ -62,9 +79,9 @@ impl StoredEventPayload {
                 fingerprint,
             } => Some(Self::IndexGenerationStarted {
                 id: id.value(),
-                name: name.clone(),
+                name: StoredRepresentationName::from_domain(name),
                 corpus_snapshot: corpus_snapshot.value(),
-                fingerprint: fingerprint.clone(),
+                fingerprint: StoredIndexFingerprint::from_domain(fingerprint),
             }),
             DomainEvent::IndexGenerationTransitioned {
                 id,
@@ -73,15 +90,15 @@ impl StoredEventPayload {
                 replaced_active_id,
             } => Some(Self::IndexGenerationTransitioned {
                 id: id.value(),
-                from: *from,
-                to: *to,
+                from: StoredIndexLifecycle::from_domain(*from),
+                to: StoredIndexLifecycle::from_domain(*to),
                 replaced_active_id: replaced_active_id.map(|i| i.value()),
             }),
             _ => None,
         }
     }
 
-    pub(crate) fn try_into_domain_misc(self) -> Result<DomainEvent, Box<Self>> {
+    pub(crate) fn try_into_domain_misc(self) -> Result<DomainEvent, FamilyDecodeError> {
         match self {
             Self::RelationCreated {
                 relation_id,
@@ -98,11 +115,19 @@ impl StoredEventPayload {
                 target: target.into_domain(),
                 evidence_id: evidence_id.map(maestria_domain::EvidenceId::new),
                 confidence_milli,
-                security,
+                security: security
+                    .try_into_domain()
+                    .map_err(FamilyDecodeError::Invalid)?,
             }),
             Self::TickObserved { at } => Ok(DomainEvent::TickObserved {
                 at: LogicalTick::new(at),
             }),
+            other => Self::try_into_domain_misc_search(other),
+        }
+    }
+
+    fn try_into_domain_misc_search(self) -> Result<DomainEvent, FamilyDecodeError> {
+        match self {
             Self::SearchExecuted {
                 query,
                 limit,
@@ -114,16 +139,20 @@ impl StoredEventPayload {
                     query,
                     limit,
                     evidence_ids: evidence_ids.into_iter().map(EvidenceId::new).collect(),
-                    pack_metadata,
+                    pack_metadata: pack_metadata
+                        .map(|record| record.try_into_domain())
+                        .transpose()
+                        .map_err(FamilyDecodeError::Invalid)?
+                        .map(Box::new),
                     at: LogicalTick::new(at),
                 }),
-                Err(_) => Err(Box::new(Self::SearchExecuted {
+                Err(_) => Err(FamilyDecodeError::Foreign(Box::new(Self::SearchExecuted {
                     query,
                     limit,
                     evidence_ids,
                     pack_metadata,
                     at,
-                })),
+                }))),
             },
             Self::SearchKnowledgeCompleted {
                 task_id,
@@ -131,14 +160,28 @@ impl StoredEventPayload {
                 outcome,
             } => Ok(DomainEvent::SearchKnowledgeCompleted {
                 task_id: task_id.map(maestria_domain::TaskId::new),
-                plan,
-                outcome,
+                plan: plan
+                    .map(|plan| plan.try_into_domain())
+                    .transpose()
+                    .map_err(FamilyDecodeError::Invalid)?
+                    .map(Box::new),
+                outcome: outcome
+                    .try_into_domain()
+                    .map_err(FamilyDecodeError::Invalid)?,
             }),
             Self::ModelAgentProposalRequested { request } => {
-                Ok(DomainEvent::ModelAgentProposalRequested { request })
+                Ok(DomainEvent::ModelAgentProposalRequested {
+                    request: request
+                        .try_into_domain()
+                        .map_err(FamilyDecodeError::Invalid)?,
+                })
             }
             Self::ModelAgentProposalCompleted { result } => {
-                Ok(DomainEvent::ModelAgentProposalCompleted { result })
+                Ok(DomainEvent::ModelAgentProposalCompleted {
+                    result: result
+                        .try_into_domain()
+                        .map_err(FamilyDecodeError::Invalid)?,
+                })
             }
             Self::IndexGenerationStarted {
                 id,
@@ -147,9 +190,11 @@ impl StoredEventPayload {
                 fingerprint,
             } => Ok(DomainEvent::IndexGenerationStarted {
                 id: maestria_domain::IndexGenerationId::new(id),
-                name,
+                name: name.try_into_domain().map_err(FamilyDecodeError::Invalid)?,
                 corpus_snapshot: maestria_domain::CorpusSnapshotId::new(corpus_snapshot),
-                fingerprint,
+                fingerprint: fingerprint
+                    .try_into_domain()
+                    .map_err(FamilyDecodeError::Invalid)?,
             }),
             Self::IndexGenerationTransitioned {
                 id,
@@ -158,11 +203,11 @@ impl StoredEventPayload {
                 replaced_active_id,
             } => Ok(DomainEvent::IndexGenerationTransitioned {
                 id: maestria_domain::IndexGenerationId::new(id),
-                from,
-                to,
+                from: from.try_into_domain().map_err(FamilyDecodeError::Invalid)?,
+                to: to.try_into_domain().map_err(FamilyDecodeError::Invalid)?,
                 replaced_active_id: replaced_active_id.map(maestria_domain::IndexGenerationId::new),
             }),
-            other => Err(Box::new(other)),
+            other => Err(FamilyDecodeError::Foreign(Box::new(other))),
         }
     }
 

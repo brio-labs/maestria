@@ -33,7 +33,6 @@ pub struct SearchTraceCandidate {
     pub freshness: super::FreshnessStatus,
     pub duplicate_cluster: Option<DuplicateClusterId>,
     pub reasons: Vec<super::RetrievalReason>,
-    #[serde(default)]
     pub coverage_keys: Vec<String>,
 }
 
@@ -48,7 +47,6 @@ struct SearchTraceCandidateDto {
     freshness: super::FreshnessStatus,
     duplicate_cluster: Option<DuplicateClusterId>,
     reasons: Vec<super::RetrievalReason>,
-    #[serde(default)]
     coverage_keys: Vec<String>,
 }
 
@@ -75,7 +73,7 @@ impl TryFrom<SearchTraceCandidateDto> for SearchTraceCandidate {
 
 impl SearchTraceCandidate {
     fn canonicalize_score_provenance(&mut self) -> Result<(), SearchCompatibilityError> {
-        canonicalize_candidate_scores(&mut self.scores, &mut self.reasons)
+        canonicalize_candidate_scores(&mut self.scores)
     }
 }
 
@@ -114,7 +112,6 @@ pub struct SearchTraceRewrite {
     pub origin: SearchRewriteOrigin,
     pub stage: SearchRewriteStage,
     pub accounting: SearchRewriteAccounting,
-    #[serde(default)]
     pub missing_slot: Option<String>,
 }
 
@@ -173,7 +170,7 @@ impl TryFrom<SearchTraceLaneCandidateDto> for SearchTraceLaneCandidate {
 
 impl SearchTraceLaneCandidate {
     fn canonicalize_score_provenance(&mut self) -> Result<(), SearchCompatibilityError> {
-        canonicalize_candidate_scores(&mut self.scores, &mut self.reasons)
+        canonicalize_candidate_scores(&mut self.scores)
     }
 }
 
@@ -187,13 +184,10 @@ pub enum SearchLaneStatus {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SearchTraceLane {
     pub retriever_id: String,
-    #[serde(default)]
     pub query: String,
-    #[serde(default)]
     pub generation: Option<crate::ids::IndexGenerationId>,
     pub status: SearchLaneStatus,
     pub candidates: Vec<SearchTraceLaneCandidate>,
-    #[serde(default)]
     pub execution: crate::SearchExecution,
 }
 
@@ -218,7 +212,6 @@ pub struct SearchTraceRerankCandidate {
     pub status: RerankCandidateStatus,
     pub relevance_score: Option<u32>,
     pub constraint_score: Option<u32>,
-    #[serde(default)]
     pub constraint_scores: Vec<SearchTraceConstraintScore>,
 }
 
@@ -239,7 +232,6 @@ pub struct SearchTraceDiversityCandidate {
     pub selected_rank: Option<usize>,
     pub duplicate_cluster: Option<DuplicateClusterId>,
     pub marginal_coverage: u8,
-    #[serde(default)]
     pub coverage_keys: Vec<String>,
 }
 
@@ -250,7 +242,6 @@ pub struct SearchTraceDiversity {
     pub distinct_sections: usize,
     pub required_claims: Vec<String>,
     pub required_subquestions: Vec<String>,
-    #[serde(default)]
     pub covered_keys: Vec<String>,
     pub stop_reason: SearchStopReason,
     pub candidates: Vec<SearchTraceDiversityCandidate>,
@@ -261,11 +252,8 @@ pub struct SearchTrace {
     pub query_id: crate::ids::QueryId,
     pub original_query: String,
     pub intent: crate::search::SearchIntent,
-    #[serde(default)]
     pub original_intent: Option<crate::search::SearchIntent>,
-    #[serde(default)]
     pub unavailable_capability: Option<String>,
-    #[serde(default)]
     pub route_decision: Option<String>,
     pub scope: CorpusScope,
     pub corpus_snapshot: crate::ids::CorpusSnapshotId,
@@ -274,14 +262,12 @@ pub struct SearchTrace {
     pub modalities: ModalitySet,
     /// Explicit capability degradation, such as visual retrieval falling back
     /// to text/layout retrieval when no visual provider is available.
-    #[serde(default)]
     pub degradation: Option<String>,
     pub stages: Vec<SearchStage>,
     pub budgets: SearchBudget,
     pub stop_conditions: StopConditions,
     pub evidence_requirements: EvidenceRequirements,
     pub fingerprint: RetrievalModelFingerprint,
-    #[serde(default)]
     pub identity_version: u16,
     pub retrievers: Vec<String>,
     pub policy_fingerprint: Option<String>,
@@ -289,16 +275,12 @@ pub struct SearchTrace {
     pub fusion: Option<String>,
     pub filters: Vec<SearchTraceFilter>,
     pub expansions: Vec<SearchTraceExpansion>,
-    #[serde(default)]
     pub rewrites: Vec<SearchTraceRewrite>,
     pub missing_evidence: Vec<String>,
     pub conflicts: Vec<ConflictSetId>,
     pub stop_reason: SearchStopReason,
-    #[serde(default)]
     pub lanes: Vec<SearchTraceLane>,
-    #[serde(default)]
     pub rerank: Option<SearchTraceRerank>,
-    #[serde(default)]
     pub diversity: Option<SearchTraceDiversity>,
 }
 

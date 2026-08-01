@@ -349,7 +349,6 @@ RESPONSIBILITY_MAPS: dict[str, tuple[str, ...]] = {
         "journal",
         "learned_sparse_io",
         "learned_sparse_projection",
-        "legacy",
         "payloads",
         "projection_cleanup",
         "repositories",

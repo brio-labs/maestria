@@ -1,23 +1,8 @@
 use maestria_ports::PortError;
 use rusqlite::{Connection, OptionalExtension, params};
 
-use crate::sqlite_store::{i64_to_u64, to_port_error};
-
-pub(crate) const DOMAIN_EVENTS_V1_COLUMNS: [&str; 5] = [
-    "id",
-    "sequence",
-    "event_kind",
-    "artifact_id",
-    "payload_json",
-];
-pub(crate) const DOMAIN_EVENTS_V2_COLUMNS: [&str; 6] = [
-    "id",
-    "sequence",
-    "event_kind",
-    "artifact_id",
-    "payload_json",
-    "payload_version",
-];
+use crate::payloads::StoredEventPayload;
+use crate::sqlite_store::{i64_to_u64, json_error, to_port_error};
 
 pub(crate) fn table_exists(connection: &Connection, table: &str) -> Result<bool, PortError> {
     let exists: Option<i64> = connection
@@ -29,41 +14,6 @@ pub(crate) fn table_exists(connection: &Connection, table: &str) -> Result<bool,
         .optional()
         .map_err(to_port_error)?;
     Ok(exists.is_some())
-}
-
-pub(crate) fn table_has_column(
-    connection: &Connection,
-    table: &str,
-    column: &str,
-) -> Result<bool, PortError> {
-    let mut statement = connection
-        .prepare(&format!("PRAGMA table_info({table})"))
-        .map_err(to_port_error)?;
-    let mut rows = statement.query([]).map_err(to_port_error)?;
-    while let Some(row) = rows.next().map_err(to_port_error)? {
-        let name: String = row.get(1).map_err(to_port_error)?;
-        if name == column {
-            return Ok(true);
-        }
-    }
-
-    Ok(false)
-}
-
-pub(crate) fn validate_columns(
-    connection: &Connection,
-    required: &[&str],
-) -> Result<(), PortError> {
-    for column in required {
-        if !table_has_column(connection, "domain_events", column)? {
-            return Err(PortError::InternalContext {
-                context: "malformed domain_events table missing required column",
-                source: column.to_string(),
-            });
-        }
-    }
-
-    Ok(())
 }
 
 pub(crate) fn validate_domain_events_schema(connection: &Connection) -> Result<(), PortError> {
@@ -188,10 +138,8 @@ pub(crate) fn validate_event_order(connection: &Connection) -> Result<(), PortEr
 pub(crate) fn validate_stored_event_payloads(connection: &Connection) -> Result<(), PortError> {
     let mut statement = connection
         .prepare(
-            "SELECT e.event_kind, e.artifact_id, e.payload_json, e.payload_version,
-                    m.approval_id
+            "SELECT e.event_kind, e.artifact_id, e.payload_json
              FROM domain_events e
-             LEFT JOIN approval_event_mapping m ON m.event_id = e.id
              ORDER BY e.sequence ASC",
         )
         .map_err(to_port_error)?;
@@ -200,18 +148,8 @@ pub(crate) fn validate_stored_event_payloads(connection: &Connection) -> Result<
         let stored_kind: String = row.get(0).map_err(to_port_error)?;
         let stored_artifact_id: Option<i64> = row.get(1).map_err(to_port_error)?;
         let payload_json: String = row.get(2).map_err(to_port_error)?;
-        let payload_version: i64 = row.get(3).map_err(to_port_error)?;
-        let mapped_approval_id: Option<u64> = row
-            .get::<_, Option<i64>>(4)
-            .map_err(to_port_error)?
-            .map(u64::try_from)
-            .transpose()
-            .map_err(|_| PortError::InternalContext {
-                context: "decode mapped legacy approval id",
-                source: "approval id is negative".to_string(),
-            })?;
-        let value = crate::legacy::upcast_legacy_approval_id(&payload_json, mapped_approval_id)?;
-        let payload = crate::legacy::decode_stored_payload(value, payload_version)?;
+        let payload: StoredEventPayload =
+            serde_json::from_str(&payload_json).map_err(json_error)?;
         let payload_kind = payload.kind()?;
         if stored_kind != payload_kind {
             return Err(PortError::InternalContext {

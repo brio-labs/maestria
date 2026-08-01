@@ -5,9 +5,6 @@ use serde::{Deserialize, Deserializer, Serialize, de::Error as _};
 use super::{RetrievalModelFingerprint, SearchCompatibilityError};
 use crate::RepresentationName;
 
-#[path = "retrieval_score_wire.rs"]
-mod wire;
-
 /// Canonical retrieval score provenance schema.
 pub const RETRIEVAL_SCORE_SCHEMA_VERSION: u16 = 2;
 
@@ -330,24 +327,26 @@ impl RetrievalScoreSet {
     }
 }
 
+/// Current-schema wire shape: `schema_version` plus typed lanes.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ScoreSetDto {
+    schema_version: u16,
+    lanes: Vec<RetrievalLaneScore>,
+}
+
 impl<'de> Deserialize<'de> for RetrievalScoreSet {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: Deserializer<'de>,
     {
-        match wire::ScoreSetWire::deserialize(deserializer)? {
-            wire::ScoreSetWire::Current(dto) => {
-                if dto.schema_version != RETRIEVAL_SCORE_SCHEMA_VERSION {
-                    return Err(D::Error::custom(format!(
-                        "unsupported retrieval score schema version {}",
-                        dto.schema_version
-                    )));
-                }
-                Self::new(dto.lanes).map_err(D::Error::custom)
-            }
-            wire::ScoreSetWire::Legacy(dto) => {
-                wire::migrate_legacy_scores(dto).map_err(D::Error::custom)
-            }
+        let dto = ScoreSetDto::deserialize(deserializer)?;
+        if dto.schema_version != RETRIEVAL_SCORE_SCHEMA_VERSION {
+            return Err(D::Error::custom(format!(
+                "unsupported retrieval score schema version {}",
+                dto.schema_version
+            )));
         }
+        Self::new(dto.lanes).map_err(D::Error::custom)
     }
 }

@@ -5,6 +5,9 @@ use rusqlite::params;
 
 use super::registered;
 
+/// Serialized form of `SecurityMetadata::default()` for current-shape rows.
+const DEFAULT_SECURITY: &str = r#"{"trust_zone":"untrusted","authority":"external","integrity":"unverified","sensitivity":"internal","review_status":"unreviewed","quarantined":false,"prompt_injection_risk":false,"poisoning_flags":[],"read_allowed":true,"write_allowed":false,"scope_id":null}"#;
+
 #[test]
 fn event_append_scan_order_and_filter() -> Result<(), Box<dyn std::error::Error>> {
     let store = SqliteStore::in_memory()?;
@@ -175,15 +178,19 @@ fn append_rejects_swapped_existing_event_rows() -> Result<(), PortError> {
         connection
             .execute(
                 "INSERT INTO domain_events (id, sequence, event_kind, artifact_id, payload_json, payload_version)
-                     VALUES (1, 2, 'artifact_registered', 1, ?1, 2)",
-                params![r#"{"event_kind":"artifact_registered","artifact_id":1,"title":"first"}"#],
+                     VALUES (1, 2, 'artifact_registered', 1, ?1, 4)",
+                params![format!(
+                    r#"{{"event_kind":"artifact_registered","artifact_id":1,"title":"first","security":{DEFAULT_SECURITY}}}"#
+                )],
             )
             .map_err(to_port_error)?;
         connection
             .execute(
                 "INSERT INTO domain_events (id, sequence, event_kind, artifact_id, payload_json, payload_version)
-                     VALUES (2, 1, 'artifact_registered', 1, ?1, 2)",
-                params![r#"{"event_kind":"artifact_registered","artifact_id":1,"title":"second"}"#],
+                     VALUES (2, 1, 'artifact_registered', 1, ?1, 4)",
+                params![format!(
+                    r#"{{"event_kind":"artifact_registered","artifact_id":1,"title":"second","security":{DEFAULT_SECURITY}}}"#
+                )],
             )
             .map_err(to_port_error)?;
     }
@@ -195,7 +202,7 @@ fn append_rejects_swapped_existing_event_rows() -> Result<(), PortError> {
 }
 
 #[test]
-fn fresh_schema_writes_payload_version_three() -> Result<(), PortError> {
+fn fresh_schema_writes_payload_version_four() -> Result<(), PortError> {
     let store = SqliteStore::in_memory()?;
     store.append(registered(1, 1, 1))?;
     let connection = store.lock()?;
@@ -206,19 +213,19 @@ fn fresh_schema_writes_payload_version_three() -> Result<(), PortError> {
             |row| row.get(0),
         )
         .map_err(to_port_error)?;
-    assert_eq!(version, 3);
+    assert_eq!(version, 4);
     Ok(())
 }
 
 #[test]
-fn malformed_v2_payload_is_rejected_without_defaults() -> Result<(), PortError> {
+fn malformed_payload_is_rejected_without_defaults() -> Result<(), PortError> {
     let store = SqliteStore::in_memory()?;
     {
         let connection = store.lock()?;
         connection
             .execute(
                 "INSERT INTO domain_events (id, sequence, event_kind, artifact_id, payload_json, payload_version)
-                     VALUES (1, 1, 'chunk_registered', 1, ?1, 2)",
+                     VALUES (1, 1, 'chunk_registered', 1, ?1, 4)",
                 params![r#"{"event_kind":"chunk_registered","chunk_id":1,"artifact_id":1,"order":0}"#],
             )
             .map_err(to_port_error)?;
@@ -232,14 +239,14 @@ fn malformed_v2_payload_is_rejected_without_defaults() -> Result<(), PortError> 
 }
 
 #[test]
-fn strict_v2_payloads_reject_missing_and_unknown_fields() -> Result<(), PortError> {
+fn strict_payloads_reject_missing_and_unknown_fields() -> Result<(), PortError> {
     let missing_warnings = SqliteStore::in_memory()?;
     {
         let connection = missing_warnings.lock()?;
         connection
             .execute(
                 "INSERT INTO domain_events (id, sequence, event_kind, artifact_id, payload_json, payload_version)
-                     VALUES (1, 1, 'validation_report_created', NULL, ?1, 2)",
+                     VALUES (1, 1, 'validation_report_created', NULL, ?1, 4)",
                 params![
                     r#"{"event_kind":"validation_report_created","report_id":1,"task_id":null,"passed":true}"#
                 ],
@@ -258,10 +265,10 @@ fn strict_v2_payloads_reject_missing_and_unknown_fields() -> Result<(), PortErro
         connection
             .execute(
                 "INSERT INTO domain_events (id, sequence, event_kind, artifact_id, payload_json, payload_version)
-                     VALUES (1, 1, 'artifact_registered', 1, ?1, 2)",
-                params![
-                    r#"{"event_kind":"artifact_registered","artifact_id":1,"title":"artifact","unexpected":true}"#
-                ],
+                     VALUES (1, 1, 'artifact_registered', 1, ?1, 4)",
+                params![format!(
+                    r#"{{"event_kind":"artifact_registered","artifact_id":1,"title":"artifact","security":{DEFAULT_SECURITY},"unexpected":true}}"#
+                )],
             )
             .map_err(to_port_error)?;
     }
@@ -276,10 +283,10 @@ fn strict_v2_payloads_reject_missing_and_unknown_fields() -> Result<(), PortErro
         connection
             .execute(
                 "INSERT INTO domain_events (id, sequence, event_kind, artifact_id, payload_json, payload_version)
-                     VALUES (1, 1, 'relation_created', NULL, ?1, 2)",
-                params![
-                    r#"{"event_kind":"relation_created","relation_id":1,"source":{"kind":"artifact","artifact_id":1,"unexpected":true},"kind":"supports","target":{"kind":"artifact","artifact_id":2},"evidence_id":null,"confidence_milli":1000}"#
-                ],
+                     VALUES (1, 1, 'relation_created', NULL, ?1, 4)",
+                params![format!(
+                    r#"{{"event_kind":"relation_created","relation_id":1,"source":{{"kind":"artifact","artifact_id":1,"unexpected":true}},"kind":"supports","target":{{"kind":"artifact","artifact_id":2}},"evidence_id":null,"confidence_milli":1000,"security":{DEFAULT_SECURITY}}}"#
+                )],
             )
             .map_err(to_port_error)?;
     }
@@ -295,10 +302,10 @@ fn strict_v2_payloads_reject_missing_and_unknown_fields() -> Result<(), PortErro
         connection
             .execute(
                 "INSERT INTO domain_events (id, sequence, event_kind, artifact_id, payload_json, payload_version)
-                     VALUES (1, 1, 'artifact_registered', NULL, ?1, 2)",
-                params![
-                    r#"{"event_kind":"artifact_registered","artifact_id":1,"title":"artifact"}"#
-                ],
+                     VALUES (1, 1, 'artifact_registered', NULL, ?1, 4)",
+                params![format!(
+                    r#"{{"event_kind":"artifact_registered","artifact_id":1,"title":"artifact","security":{DEFAULT_SECURITY}}}"#
+                )],
             )
             .map_err(to_port_error)?;
     }
@@ -522,7 +529,7 @@ fn chunk_registered_missing_source_span_is_rejected() -> Result<(), PortError> {
         connection
             .execute(
                 "INSERT INTO domain_events (id, sequence, event_kind, artifact_id, payload_json, payload_version)
-                     VALUES (1, 1, 'chunk_registered', 1, ?1, 2)",
+                     VALUES (1, 1, 'chunk_registered', 1, ?1, 4)",
                 params![
                     r#"{"event_kind":"chunk_registered","chunk_id":1,"artifact_id":1,"order":0,"text":"t","node_id":0,"representations":[]}"#
                 ],
@@ -545,7 +552,7 @@ fn card_created_missing_source_span_is_rejected() -> Result<(), PortError> {
         connection
             .execute(
                 "INSERT INTO domain_events (id, sequence, event_kind, artifact_id, payload_json, payload_version)
-                     VALUES (1, 1, 'card_created', 1, ?1, 2)",
+                     VALUES (1, 1, 'card_created', 1, ?1, 4)",
                 params![
                     r#"{"event_kind":"card_created","card_id":1,"artifact_id":1,"title":"t","body":"b","node_id":0}"#
                 ],
@@ -608,7 +615,7 @@ fn model_agent_proposal_request_payload_round_trips_with_event_kind() -> Result<
 fn malformed_evidence_snapshot_reports_validation_cause() -> Result<(), Box<dyn std::error::Error>>
 {
     let payload = serde_json::from_str::<crate::payloads::StoredEventPayload>(
-        r#"{"event_kind":"evidence_recorded","evidence_id":40,"artifact_id":7,"claim_id":null,"evidence_kind":{"kind":"file_span","path":"notes.md","start":1,"end":1,"snapshot":{"blob_id":1,"content_hash":"not-a-sha256"}},"excerpt":"excerpt","observed_at":1}"#,
+        r#"{"event_kind":"evidence_recorded","evidence_id":40,"artifact_id":7,"claim_id":null,"evidence_kind":{"kind":"file_span","path":"notes.md","start":1,"end":1,"snapshot":{"blob_id":1,"content_hash":"not-a-sha256"}},"excerpt":"excerpt","observed_at":1,"security":{"trust_zone":"untrusted","authority":"external","integrity":"unverified","sensitivity":"internal","review_status":"unreviewed","quarantined":false,"prompt_injection_risk":false,"poisoning_flags":[],"read_allowed":true,"write_allowed":false,"scope_id":null}}"#,
     )?;
 
     let error = match payload.into_domain() {
@@ -629,7 +636,7 @@ fn malformed_evidence_snapshot_reports_validation_cause() -> Result<(), Box<dyn 
 fn malformed_evidence_line_range_reports_validation_cause() -> Result<(), Box<dyn std::error::Error>>
 {
     let payload = serde_json::from_str::<crate::payloads::StoredEventPayload>(&format!(
-        r#"{{"event_kind":"evidence_recorded","evidence_id":40,"artifact_id":7,"claim_id":null,"evidence_kind":{{"kind":"file_span","path":"notes.md","start":0,"end":1,"snapshot":{{"blob_id":1,"content_hash":"sha256:{}"}}}},"excerpt":"excerpt","observed_at":1}}"#,
+        r#"{{"event_kind":"evidence_recorded","evidence_id":40,"artifact_id":7,"claim_id":null,"evidence_kind":{{"kind":"file_span","path":"notes.md","start":0,"end":1,"snapshot":{{"blob_id":1,"content_hash":"sha256:{}"}}}},"excerpt":"excerpt","observed_at":1,"security":{{"trust_zone":"untrusted","authority":"external","integrity":"unverified","sensitivity":"internal","review_status":"unreviewed","quarantined":false,"prompt_injection_risk":false,"poisoning_flags":[],"read_allowed":true,"write_allowed":false,"scope_id":null}}}}"#,
         "a".repeat(64)
     ))?;
 

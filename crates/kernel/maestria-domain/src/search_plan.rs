@@ -82,15 +82,10 @@ pub struct StopConditions {
 pub struct EvidenceRequirements {
     pub require_primary_sources: bool,
     pub minimum_corroboration: u8,
-    #[serde(default)]
     pub required_claims: Vec<String>,
-    #[serde(default)]
     pub required_subquestions: Vec<String>,
-    #[serde(default)]
     pub minimum_sources: usize,
-    #[serde(default)]
     pub minimum_documents: usize,
-    #[serde(default)]
     pub minimum_sections: usize,
 }
 
@@ -110,8 +105,6 @@ pub struct SearchPlan {
     pub evidence_requirements: EvidenceRequirements,
     pub fingerprint: super::RetrievalModelFingerprint,
     /// Trusted request-bound authorization captured when the plan was created.
-    /// Missing snapshots represent legacy plans and are rejected on execution.
-    #[serde(default)]
     pub authorization: Option<crate::RetrievalPolicySnapshot>,
     pub original_intent: Option<SearchIntent>,
     pub route_decision: Option<String>,

@@ -1,4 +1,5 @@
-use super::event_payloads::StoredEventPayload;
+use super::event_payloads::{FamilyDecodeError, StoredEventPayload};
+use super::stored_security::StoredSecurityMetadata;
 use maestria_domain::DomainEvent;
 
 impl StoredEventPayload {
@@ -18,7 +19,7 @@ impl StoredEventPayload {
                     .map(|evidence_id| evidence_id.value())
                     .collect(),
                 confidence_milli: *confidence_milli,
-                security: security.clone(),
+                security: StoredSecurityMetadata::from_domain(security),
             }),
             DomainEvent::MemoryPromoted {
                 memory_id,
@@ -27,7 +28,7 @@ impl StoredEventPayload {
             } => Some(Self::MemoryPromoted {
                 memory_id: memory_id.value(),
                 candidate_id: candidate_id.value(),
-                security: security.clone(),
+                security: StoredSecurityMetadata::from_domain(security),
             }),
             DomainEvent::MemoryContradicted {
                 memory_id,
@@ -50,7 +51,7 @@ impl StoredEventPayload {
         }
     }
 
-    pub(crate) fn try_into_domain_memory(self) -> Result<DomainEvent, Box<Self>> {
+    pub(crate) fn try_into_domain_memory(self) -> Result<DomainEvent, FamilyDecodeError> {
         match self {
             Self::MemoryCandidateCreated {
                 candidate_id,
@@ -66,7 +67,9 @@ impl StoredEventPayload {
                     .map(maestria_domain::EvidenceId::new)
                     .collect(),
                 confidence_milli,
-                security,
+                security: security
+                    .try_into_domain()
+                    .map_err(FamilyDecodeError::Invalid)?,
             }),
             Self::MemoryPromoted {
                 memory_id,
@@ -75,7 +78,9 @@ impl StoredEventPayload {
             } => Ok(DomainEvent::MemoryPromoted {
                 memory_id: maestria_domain::MemoryId::new(memory_id),
                 candidate_id: maestria_domain::MemoryCandidateId::new(candidate_id),
-                security,
+                security: security
+                    .try_into_domain()
+                    .map_err(FamilyDecodeError::Invalid)?,
             }),
             Self::MemoryContradicted {
                 memory_id,
@@ -96,7 +101,7 @@ impl StoredEventPayload {
                 memory_id: maestria_domain::MemoryId::new(memory_id),
                 by_memory_id: maestria_domain::MemoryId::new(by_memory_id),
             }),
-            other => Err(Box::new(other)),
+            other => Err(FamilyDecodeError::Foreign(Box::new(other))),
         }
     }
 

@@ -1,5 +1,6 @@
-use super::event_payloads::StoredEventPayload;
+use super::event_payloads::{FamilyDecodeError, StoredEventPayload};
 use super::evidence_payloads::{StoredClaimStatus, StoredEvidenceKind};
+use super::stored_security::StoredSecurityMetadata;
 use maestria_domain::{ArtifactId, DomainEvent, EvidenceId, LogicalTick};
 
 impl StoredEventPayload {
@@ -16,7 +17,7 @@ impl StoredEventPayload {
                 artifact_id: artifact_id.value(),
                 text: text.clone(),
                 evidence_ids: evidence_ids.iter().map(|id| id.value()).collect(),
-                security: security.clone(),
+                security: StoredSecurityMetadata::from_domain(security),
             }),
             DomainEvent::ClaimValidationUpdated { claim_id, status } => {
                 Some(Self::ClaimValidationUpdated {
@@ -45,14 +46,14 @@ impl StoredEventPayload {
                 claim_id: claim_id.map(|id| id.value()),
                 evidence_kind: StoredEvidenceKind::from_domain(kind),
                 excerpt: excerpt.clone(),
-                security: security.clone(),
+                security: StoredSecurityMetadata::from_domain(security),
                 observed_at: observed_at.value(),
             }),
             _ => None,
         }
     }
 
-    pub(crate) fn try_into_domain_claim(self) -> Result<DomainEvent, Box<Self>> {
+    pub(crate) fn try_into_domain_claim(self) -> Result<DomainEvent, FamilyDecodeError> {
         match self {
             Self::ClaimCreated {
                 claim_id,
@@ -65,7 +66,9 @@ impl StoredEventPayload {
                 artifact_id: ArtifactId::new(artifact_id),
                 text,
                 evidence_ids: evidence_ids.into_iter().map(EvidenceId::new).collect(),
-                security,
+                security: security
+                    .try_into_domain()
+                    .map_err(FamilyDecodeError::Invalid)?,
             }),
             Self::ClaimValidationUpdated { claim_id, status } => {
                 Ok(DomainEvent::ClaimValidationUpdated {
@@ -80,7 +83,7 @@ impl StoredEventPayload {
                 claim_id: maestria_domain::ClaimId::new(claim_id),
                 evidence_id: EvidenceId::new(evidence_id),
             }),
-            other => Err(Box::new(other)),
+            other => Err(FamilyDecodeError::Foreign(Box::new(other))),
         }
     }
 
@@ -107,7 +110,7 @@ impl StoredEventPayload {
                     claim_id: claim_id.map(maestria_domain::ClaimId::new),
                     kind,
                     excerpt,
-                    security,
+                    security: security.try_into_domain()?,
                     observed_at: LogicalTick::new(observed_at),
                 })
             }

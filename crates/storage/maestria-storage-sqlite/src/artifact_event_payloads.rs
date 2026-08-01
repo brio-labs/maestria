@@ -1,4 +1,7 @@
-use super::event_payloads::StoredEventPayload;
+use super::event_payloads::{FamilyDecodeError, StoredEventPayload};
+use super::stored_content::StoredContentHash;
+use super::stored_security::StoredSecurityMetadata;
+use super::stored_structure::StoredStructureNode;
 use maestria_domain::{
     ArtifactId, ArtifactVersionId, BlobId, ChunkId, DomainEvent, StructureNodeId,
 };
@@ -13,7 +16,7 @@ impl StoredEventPayload {
             } => Some(Self::ArtifactRegistered {
                 artifact_id: artifact_id.value(),
                 title: title.clone(),
-                security: security.clone(),
+                security: StoredSecurityMetadata::from_domain(security),
             }),
             DomainEvent::ChunkRegistered {
                 chunk_id,
@@ -53,7 +56,7 @@ impl StoredEventPayload {
         }
     }
 
-    pub(crate) fn try_into_domain_artifact(self) -> Result<DomainEvent, Box<Self>> {
+    pub(crate) fn try_into_domain_artifact(self) -> Result<DomainEvent, FamilyDecodeError> {
         match self {
             Self::ArtifactRegistered {
                 artifact_id,
@@ -62,7 +65,9 @@ impl StoredEventPayload {
             } => Ok(DomainEvent::ArtifactRegistered {
                 artifact_id: ArtifactId::new(artifact_id),
                 title,
-                security,
+                security: security
+                    .try_into_domain()
+                    .map_err(FamilyDecodeError::Invalid)?,
             }),
             Self::ChunkRegistered {
                 chunk_id,
@@ -96,7 +101,9 @@ impl StoredEventPayload {
                 source_span: source_span.into(),
                 title,
                 body,
-                security,
+                security: security
+                    .try_into_domain()
+                    .map_err(FamilyDecodeError::Invalid)?,
             }),
             other => Self::try_into_domain_artifact_tail(other),
         }
@@ -125,9 +132,9 @@ impl StoredEventPayload {
             } => Some(Self::DocumentTreeCaptured {
                 artifact_id: artifact_id.value(),
                 artifact_version_id: artifact_version_id.value(),
-                content_hash: content_hash.clone(),
+                content_hash: StoredContentHash::from_domain(content_hash),
                 root_id: root_id.value(),
-                nodes: nodes.clone(),
+                nodes: nodes.iter().map(StoredStructureNode::from_domain).collect(),
             }),
             DomainEvent::ArtifactParsed {
                 artifact_id,
@@ -165,7 +172,7 @@ impl StoredEventPayload {
             _ => None,
         }
     }
-    fn try_into_domain_artifact_tail(self) -> Result<DomainEvent, Box<Self>> {
+    fn try_into_domain_artifact_tail(self) -> Result<DomainEvent, FamilyDecodeError> {
         match self {
             Self::ParserStarted {
                 artifact_id,
@@ -189,9 +196,15 @@ impl StoredEventPayload {
             } => Ok(DomainEvent::DocumentTreeCaptured {
                 artifact_id: ArtifactId::new(artifact_id),
                 artifact_version_id: ArtifactVersionId::new(artifact_version_id),
-                content_hash,
+                content_hash: content_hash
+                    .try_into_domain()
+                    .map_err(FamilyDecodeError::Invalid)?,
                 root_id: StructureNodeId::new(root_id),
-                nodes,
+                nodes: nodes
+                    .into_iter()
+                    .map(StoredStructureNode::try_into_domain)
+                    .collect::<Result<Vec<_>, _>>()
+                    .map_err(FamilyDecodeError::Invalid)?,
             }),
             Self::ArtifactParsed {
                 artifact_id,
@@ -226,7 +239,7 @@ impl StoredEventPayload {
             Self::ArtifactIndexed { artifact_id } => Ok(DomainEvent::ArtifactIndexed {
                 artifact_id: ArtifactId::new(artifact_id),
             }),
-            other => Err(Box::new(other)),
+            other => Err(FamilyDecodeError::Foreign(Box::new(other))),
         }
     }
 
@@ -296,9 +309,9 @@ impl StoredEventPayload {
             artifact_id: artifact_id.value(),
             node_id: node_id.value(),
             source_span: (*source_span).into(),
-            title: title.to_owned(),
-            body: body.to_owned(),
-            security: security.clone(),
+            title: title.to_string(),
+            body: body.to_string(),
+            security: StoredSecurityMetadata::from_domain(security),
         }
     }
 

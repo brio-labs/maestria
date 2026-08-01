@@ -7,17 +7,11 @@ use crate::search::SearchCompatibilityError;
 pub struct EvidenceCoverage {
     pub percent_covered: u8,
     pub gaps_identified: Vec<String>,
-    #[serde(default)]
     pub required_claims: Vec<String>,
-    #[serde(default)]
     pub required_subquestions: Vec<String>,
-    #[serde(default)]
     pub distinct_sources: usize,
-    #[serde(default)]
     pub distinct_documents: usize,
-    #[serde(default)]
     pub distinct_sections: usize,
-    #[serde(default)]
     pub candidate_coverage_keys: Vec<String>,
 }
 
@@ -25,17 +19,11 @@ pub struct EvidenceCoverage {
 struct EvidenceCoverageDto {
     percent_covered: u8,
     gaps_identified: Vec<String>,
-    #[serde(default)]
     required_claims: Vec<String>,
-    #[serde(default)]
     required_subquestions: Vec<String>,
-    #[serde(default)]
     distinct_sources: usize,
-    #[serde(default)]
     distinct_documents: usize,
-    #[serde(default)]
     distinct_sections: usize,
-    #[serde(default)]
     candidate_coverage_keys: Vec<String>,
 }
 

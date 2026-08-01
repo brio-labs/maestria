@@ -3,6 +3,15 @@ use super::evidence_payloads::{
 };
 use super::ocr_event_payloads::StoredOcrPage;
 use super::relation_payloads::{StoredRelationEndpoint, StoredRelationKind};
+use super::stored_content::StoredContentHash;
+use super::stored_evidence_pack::StoredEvidencePackMetadataRecord;
+use super::stored_generations::{
+    StoredIndexFingerprint, StoredIndexLifecycle, StoredRepresentationName,
+};
+use super::stored_model_agent::{StoredModelAgentProposalRequest, StoredModelAgentProposalResult};
+use super::stored_search::{StoredSearchOutcome, StoredSearchPlan};
+use super::stored_security::StoredSecurityMetadata;
+use super::stored_structure::StoredStructureNode;
 use maestria_domain::DomainEvent;
 use maestria_ports::PortError;
 use serde::{Deserialize, Serialize};
@@ -13,16 +22,13 @@ pub(crate) enum StoredEventPayload {
     ArtifactRegistered {
         artifact_id: u64,
         title: String,
-        #[serde(default)]
-        security: maestria_domain::SecurityMetadata,
+        security: StoredSecurityMetadata,
     },
     ChunkRegistered {
         chunk_id: u64,
         artifact_id: u64,
-        #[serde(default)]
         node_id: u64,
         source_span: crate::payloads::StoredSourceSpan,
-        #[serde(default)]
         representations: Vec<crate::payloads::StoredParsedRepresentation>,
         order: u32,
         text: String,
@@ -30,21 +36,18 @@ pub(crate) enum StoredEventPayload {
     CardCreated {
         card_id: u64,
         artifact_id: u64,
-        #[serde(default)]
         node_id: u64,
         source_span: crate::payloads::StoredSourceSpan,
         title: String,
         body: String,
-        #[serde(default)]
-        security: maestria_domain::SecurityMetadata,
+        security: StoredSecurityMetadata,
     },
     ClaimCreated {
         claim_id: u64,
         artifact_id: u64,
         text: String,
         evidence_ids: Vec<u64>,
-        #[serde(default)]
-        security: maestria_domain::SecurityMetadata,
+        security: StoredSecurityMetadata,
     },
     EvidenceRecorded {
         evidence_id: u64,
@@ -53,8 +56,7 @@ pub(crate) enum StoredEventPayload {
         evidence_kind: StoredEvidenceKind,
         excerpt: String,
         observed_at: u64,
-        #[serde(default)]
-        security: maestria_domain::SecurityMetadata,
+        security: StoredSecurityMetadata,
     },
     TaskOpened {
         task_id: u64,
@@ -91,22 +93,19 @@ pub(crate) enum StoredEventPayload {
         target: StoredRelationEndpoint,
         evidence_id: Option<u64>,
         confidence_milli: u16,
-        #[serde(default)]
-        security: maestria_domain::SecurityMetadata,
+        security: StoredSecurityMetadata,
     },
     MemoryCandidateCreated {
         candidate_id: u64,
         claim_id: u64,
         evidence_ids: Vec<u64>,
         confidence_milli: u16,
-        #[serde(default)]
-        security: maestria_domain::SecurityMetadata,
+        security: StoredSecurityMetadata,
     },
     MemoryPromoted {
         memory_id: u64,
         candidate_id: u64,
-        #[serde(default)]
-        security: maestria_domain::SecurityMetadata,
+        security: StoredSecurityMetadata,
     },
     MemoryContradicted {
         memory_id: u64,
@@ -131,16 +130,15 @@ pub(crate) enum StoredEventPayload {
     },
     ArtifactParsed {
         artifact_id: u64,
-        #[serde(default = "crate::payloads::default_status_parsed")]
         status: crate::payloads::StoredParseStatus,
         chunks_added: u32,
     },
     DocumentTreeCaptured {
         artifact_id: u64,
         artifact_version_id: u64,
-        content_hash: maestria_domain::ContentHash,
+        content_hash: StoredContentHash,
         root_id: u64,
-        nodes: Vec<maestria_domain::StructureNode>,
+        nodes: Vec<StoredStructureNode>,
     },
     SearchCompleted {
         artifact_id: u64,
@@ -152,10 +150,10 @@ pub(crate) enum StoredEventPayload {
         exit_code: i32,
     },
     ModelAgentProposalRequested {
-        request: maestria_domain::ModelAgentProposalRequest,
+        request: StoredModelAgentProposalRequest,
     },
     ModelAgentProposalCompleted {
-        result: maestria_domain::ModelAgentProposalResult,
+        result: StoredModelAgentProposalResult,
     },
     ApprovalRecorded {
         approval_id: u64,
@@ -168,16 +166,13 @@ pub(crate) enum StoredEventPayload {
         query: String,
         limit: u64,
         evidence_ids: Vec<u64>,
-        #[serde(default)]
-        pack_metadata: Option<Box<maestria_domain::EvidencePackMetadataRecord>>,
+        pack_metadata: Option<Box<StoredEvidencePackMetadataRecord>>,
         at: u64,
     },
     SearchKnowledgeCompleted {
-        #[serde(default)]
         task_id: Option<u64>,
-        #[serde(default)]
-        plan: Option<Box<maestria_domain::SearchPlan>>,
-        outcome: maestria_domain::SearchOutcome,
+        plan: Option<Box<StoredSearchPlan>>,
+        outcome: StoredSearchOutcome,
     },
     PendingIndex {
         artifact_id: u64,
@@ -201,7 +196,7 @@ pub(crate) enum StoredEventPayload {
         request_id: String,
         artifact_id: u64,
         source_blob: u64,
-        source_hash: maestria_domain::ContentHash,
+        source_hash: StoredContentHash,
         pages: Vec<u32>,
         provider: String,
         model: String,
@@ -223,14 +218,14 @@ pub(crate) enum StoredEventPayload {
     },
     IndexGenerationStarted {
         id: u64,
-        name: maestria_domain::RepresentationName,
+        name: StoredRepresentationName,
         corpus_snapshot: u64,
-        fingerprint: maestria_domain::IndexFingerprint,
+        fingerprint: StoredIndexFingerprint,
     },
     IndexGenerationTransitioned {
         id: u64,
-        from: maestria_domain::IndexLifecycle,
-        to: maestria_domain::IndexLifecycle,
+        from: StoredIndexLifecycle,
+        to: StoredIndexLifecycle,
         replaced_active_id: Option<u64>,
     },
     SourceBecameStale {
@@ -260,15 +255,18 @@ impl StoredEventPayload {
             return self.try_into_domain_evidence();
         }
         self.try_into_domain_stale()
-            .or_else(|s| (*s).try_into_domain_ocr())
-            .or_else(|s| (*s).try_into_domain_artifact())
-            .or_else(|s| (*s).try_into_domain_task())
-            .or_else(|s| (*s).try_into_domain_claim())
-            .or_else(|s| (*s).try_into_domain_memory())
-            .or_else(|s| (*s).try_into_domain_misc())
-            .map_err(|_| PortError::InternalContext {
-                context: "decode stored event payload",
-                source: "unknown StoredEventPayload variant".to_string(),
+            .or_else(|e| e.or_next(StoredEventPayload::try_into_domain_ocr))
+            .or_else(|e| e.or_next(StoredEventPayload::try_into_domain_artifact))
+            .or_else(|e| e.or_next(StoredEventPayload::try_into_domain_task))
+            .or_else(|e| e.or_next(StoredEventPayload::try_into_domain_claim))
+            .or_else(|e| e.or_next(StoredEventPayload::try_into_domain_memory))
+            .or_else(|e| e.or_next(StoredEventPayload::try_into_domain_misc))
+            .map_err(|error| match error {
+                FamilyDecodeError::Foreign(_) => PortError::InternalContext {
+                    context: "decode stored event payload",
+                    source: "unknown StoredEventPayload variant".to_string(),
+                },
+                FamilyDecodeError::Invalid(error) => error,
             })
     }
 
@@ -311,7 +309,7 @@ impl StoredEventPayload {
         }
     }
 
-    fn try_into_domain_stale(self) -> Result<DomainEvent, Box<Self>> {
+    fn try_into_domain_stale(self) -> Result<DomainEvent, FamilyDecodeError> {
         match self {
             Self::SourceBecameStale {
                 artifact_id,
@@ -322,7 +320,7 @@ impl StoredEventPayload {
                 source_path,
                 content_hash,
             }),
-            other => Err(Box::new(other)),
+            other => Err(FamilyDecodeError::Foreign(Box::new(other))),
         }
     }
 
@@ -341,6 +339,30 @@ impl StoredEventPayload {
     }
 }
 
+/// Decode failure from a stored-payload family converter.
+///
+/// `Foreign` means the variant does not belong to that family and the next
+/// family should try it; `Invalid` carries a real decode error that must
+/// surface instead of being treated as an unknown variant.
+#[derive(Debug)]
+pub(crate) enum FamilyDecodeError {
+    Foreign(Box<StoredEventPayload>),
+    Invalid(PortError),
+}
+
+impl FamilyDecodeError {
+    /// Hand the payload to the next family unless a real decode error occurred.
+    fn or_next(
+        self,
+        family: fn(StoredEventPayload) -> Result<DomainEvent, FamilyDecodeError>,
+    ) -> Result<DomainEvent, FamilyDecodeError> {
+        match self {
+            FamilyDecodeError::Foreign(payload) => family(*payload),
+            other => Err(other),
+        }
+    }
+}
+
 /// v3 stored encoding of `maestria_domain::ApprovalOutcome`.
 ///
 /// Statuses use `StoredTaskStatus` because the domain `TaskStatus` carries no
@@ -350,7 +372,6 @@ impl StoredEventPayload {
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub(crate) enum StoredApprovalOutcome {
     Acknowledged {
-        #[serde(default)]
         task_id: Option<u64>,
         approved: bool,
     },
