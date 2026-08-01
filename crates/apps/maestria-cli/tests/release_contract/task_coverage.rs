@@ -1,4 +1,4 @@
-use super::common::{TempDir, assert_index_ok, assert_init_ok, assert_ok, write_file};
+use maestria_cli::test_support::{TempDir, assert_index_ok, assert_init_ok, assert_ok, write_file};
 
 fn line_value<'a>(output: &'a str, prefix: &str) -> Option<&'a str> {
     output
@@ -114,7 +114,7 @@ fn missing_task_id_is_rejected_before_retrieval() -> Result<(), Box<dyn std::err
     let instance = TempDir::new("maestria-release-task-missing")?;
     let instance_path = instance.path().to_string_lossy().into_owned();
     assert_init_ok(&instance_path, &instance_path)?;
-    let (code, stdout, stderr) = super::common::run(&[
+    let (code, stdout, stderr) = maestria_cli::test_support::run(&[
         "search",
         "-i",
         &instance_path,

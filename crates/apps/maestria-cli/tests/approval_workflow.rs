@@ -1,5 +1,4 @@
-mod common;
-use common::*;
+use maestria_cli::test_support::*;
 
 fn extract_approval_id(list_output: &str) -> String {
     let mut result = String::new();

@@ -1,4 +1,3 @@
-mod common;
 #[path = "release_contract/generation.rs"]
 mod generation;
 #[path = "release_contract/search.rs"]

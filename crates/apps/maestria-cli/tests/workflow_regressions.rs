@@ -1,8 +1,6 @@
-mod common;
-
-use common::{
-    TempDir, assert_index_ok, assert_init_ok, assert_ok, assert_ok_lines, run, run_bounded,
-    write_file,
+use maestria_cli::test_support::{
+    TempDir, assert_err, assert_index_ok, assert_init_ok, assert_ok, assert_ok_lines,
+    parse_kv_value, run_bounded, status_event_count, write_file,
 };
 use maestria_core::InstanceLayout;
 use maestria_domain::{
@@ -14,32 +12,6 @@ use maestria_ports::EventLog;
 use maestria_storage_sqlite::SqliteStore;
 use std::path::Path;
 use std::time::Duration;
-
-fn parse_kv_value<'a>(line: &'a str, key: &str) -> Option<&'a str> {
-    line.split_whitespace()
-        .filter_map(|token| token.split_once('='))
-        .find_map(|(candidate, value)| (candidate == key).then_some(value))
-}
-
-fn assert_err(args: &[&str]) -> Result<String, Box<dyn std::error::Error>> {
-    let (code, stdout, stderr) = run(args)?;
-    assert_ne!(code, 0, "command unexpectedly succeeded: {args:?}");
-    assert!(
-        stdout.trim().is_empty(),
-        "failed command wrote unexpected stdout: {stdout}"
-    );
-    Ok(stderr)
-}
-fn status_event_count(instance_path: &str) -> Result<usize, Box<dyn std::error::Error>> {
-    let (code, stdout, stderr) = run(&["status", "-i", instance_path])?;
-    assert_eq!(code, 0, "status failed: {stderr}");
-    let event_count = stdout
-        .lines()
-        .find_map(|line| line.strip_prefix("events "))
-        .and_then(|value| value.parse().ok())
-        .ok_or("status output missing event count")?;
-    Ok(event_count)
-}
 
 fn search_evidence(instance_path: &str, query: &str) -> Result<String, Box<dyn std::error::Error>> {
     let stdout = assert_ok(&["search", "-i", instance_path, query])?;
