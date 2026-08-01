@@ -131,6 +131,65 @@ pub(super) async fn resolve(
     }))
 }
 
+/// Build the terminal status response for a completed proposal result.
+fn terminal_response(
+    run_id: u64,
+    result: &maestria_domain::ModelAgentProposalResult,
+) -> ModelAgentStatusResponse {
+    match result {
+        maestria_domain::ModelAgentProposalResult::Succeeded {
+            search,
+            harness,
+            validation,
+            memory_candidate,
+            ..
+        } => ModelAgentStatusResponse {
+            run_id,
+            correlation_id: Some(result.correlation_id()),
+            status: "succeeded".to_string(),
+            approval_id: None,
+            journal_generation: None,
+            trace_id: search.as_ref().map(|search| search.trace_id.value()),
+            evidence_count: search.as_ref().map_or(0, |search| search.evidence_count),
+            harness: harness.as_ref().map(|harness| ModelAgentHarnessOutcome {
+                exit_code: harness.exit_code,
+                stdout: harness.stdout.clone(),
+                stderr: harness.stderr.clone(),
+                duration_ms: harness.duration_ms,
+            }),
+            validation: validation
+                .as_ref()
+                .map(|validation| ModelAgentValidationSummary {
+                    passed: validation.passed,
+                    warnings: validation.warnings.clone(),
+                }),
+            memory_candidate: memory_candidate.as_ref().map(|memory| {
+                ModelAgentMemoryCandidateSummary {
+                    candidate_id: memory.candidate_id.value(),
+                    confidence_milli: memory.confidence_milli,
+                    decision: memory.decision.as_str().to_string(),
+                }
+            }),
+            error: None,
+        },
+        maestria_domain::ModelAgentProposalResult::Failed { error, .. } => {
+            ModelAgentStatusResponse {
+                run_id,
+                correlation_id: Some(result.correlation_id()),
+                status: "failed".to_string(),
+                approval_id: None,
+                journal_generation: None,
+                trace_id: None,
+                evidence_count: 0,
+                harness: None,
+                validation: None,
+                memory_candidate: None,
+                error: Some(error.clone()),
+            }
+        }
+    }
+}
+
 pub(super) fn status(layout: &InstanceLayout, run_id: u64) -> Result<ModelAgentStatusResponse> {
     let state = crate::instance_setup::load_kernel_state(layout)
         .map_err(|error| anyhow!("load model-agent terminal result state: {error:#}"))?;
@@ -138,46 +197,7 @@ pub(super) fn status(layout: &InstanceLayout, run_id: u64) -> Result<ModelAgentS
         .model_agent_results
         .get(&maestria_domain::HarnessRunId::new(run_id))
     {
-        return Ok(ModelAgentStatusResponse {
-            run_id,
-            correlation_id: Some(result.correlation_id),
-            status: match result.status {
-                maestria_domain::ModelAgentTerminalStatus::Succeeded => "succeeded",
-                maestria_domain::ModelAgentTerminalStatus::Failed => "failed",
-            }
-            .to_string(),
-            approval_id: None,
-            journal_generation: None,
-            trace_id: result.search.as_ref().map(|search| search.trace_id.value()),
-            evidence_count: result
-                .search
-                .as_ref()
-                .map_or(0, |search| search.evidence_count),
-            harness: result
-                .harness
-                .as_ref()
-                .map(|harness| ModelAgentHarnessOutcome {
-                    exit_code: harness.exit_code,
-                    stdout: harness.stdout.clone(),
-                    stderr: harness.stderr.clone(),
-                    duration_ms: harness.duration_ms,
-                }),
-            validation: result
-                .validation
-                .as_ref()
-                .map(|validation| ModelAgentValidationSummary {
-                    passed: validation.passed,
-                    warnings: validation.warnings.clone(),
-                }),
-            memory_candidate: result.memory_candidate.as_ref().map(|memory| {
-                ModelAgentMemoryCandidateSummary {
-                    candidate_id: memory.candidate_id.value(),
-                    confidence_milli: memory.confidence_milli,
-                    decision: memory.decision.as_str().to_string(),
-                }
-            }),
-            error: result.error.clone(),
-        });
+        return Ok(terminal_response(run_id, result));
     }
     let store = SqliteStore::open(&layout.database_path)?;
     let mut approval_id = None;

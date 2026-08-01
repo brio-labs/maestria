@@ -1,7 +1,7 @@
 use maestria_ports::PortError;
 use rusqlite::{Connection, OptionalExtension, params};
 
-use crate::sqlite_store::{i64_to_u64, json_error, to_port_error};
+use crate::sqlite_store::{i64_to_u64, to_port_error};
 
 pub(crate) const DOMAIN_EVENTS_V1_COLUMNS: [&str; 5] = [
     "id",
@@ -211,20 +211,7 @@ pub(crate) fn validate_stored_event_payloads(connection: &Connection) -> Result<
                 source: "approval id is negative".to_string(),
             })?;
         let value = crate::events::upcast_legacy_approval_id(&payload_json, mapped_approval_id)?;
-        let payload = match payload_version {
-            1 => {
-                let legacy: crate::payloads::LegacyStoredEventPayload =
-                    serde_json::from_value(value).map_err(json_error)?;
-                legacy.into_v2()?
-            }
-            2 => serde_json::from_value(value).map_err(json_error)?,
-            version => {
-                return Err(PortError::InternalContext {
-                    context: "unsupported event payload version",
-                    source: version.to_string(),
-                });
-            }
-        };
+        let payload = crate::events::decode_stored_payload(value, payload_version)?;
         let payload_kind = payload.kind()?;
         if stored_kind != payload_kind {
             return Err(PortError::InternalContext {

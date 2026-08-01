@@ -250,23 +250,18 @@ impl KernelState {
                 Ok(())
             }
             DomainEvent::ModelAgentProposalCompleted { result } => {
-                if self.model_agent_results.contains_key(&result.run_id) {
-                    return Err(DomainError::DuplicateModelAgentProposalRunId {
-                        run_id: result.run_id,
-                    });
+                let run_id = result.run_id();
+                if self.model_agent_results.contains_key(&run_id) {
+                    return Err(DomainError::DuplicateModelAgentProposalRunId { run_id });
                 }
-                self.model_agent_requests.remove(&result.run_id);
-                self.model_agent_results
-                    .insert(result.run_id, result.clone());
+                self.model_agent_requests.remove(&run_id);
+                self.model_agent_results.insert(run_id, result.clone());
                 Ok(())
             }
             DomainEvent::ApprovalRecorded {
                 approval_id,
-                task_id,
-                from_status,
-                to_status,
-                ..
-            } => self.apply_approval_recorded(*approval_id, *task_id, *from_status, *to_status),
+                outcome,
+            } => self.apply_approval_recorded(*approval_id, *outcome),
             DomainEvent::TickObserved { .. } => {
                 self.apply_tick_observed();
                 Ok(())

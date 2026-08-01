@@ -521,21 +521,26 @@ fn legacy_approval_mapping_skips_colliding_request_and_replays_deterministically
         Some(DomainEventEnvelope {
             event: DomainEvent::ApprovalRecorded {
                 approval_id,
-                task_id,
-                approved: true,
+                outcome: maestria_domain::ApprovalOutcome::TaskTransition {
+                    task_id,
+                    approved: true,
+                    from_status: maestria_domain::TaskStatus::Draft,
+                    to_status: maestria_domain::TaskStatus::Active,
+                },
                 ..
             },
             ..
-        }) if approval_id.value() == 2
-            && task_id.as_ref().is_some_and(|id| id.value() == 42)
+        }) if approval_id.value() == 2 && task_id.value() == 42
     ));
     assert!(matches!(
         events.get(1),
         Some(DomainEventEnvelope {
             event: DomainEvent::ApprovalRecorded {
                 approval_id,
-                task_id: None,
-                approved: false,
+                outcome: maestria_domain::ApprovalOutcome::Acknowledged {
+                    task_id: None,
+                    approved: false,
+                },
                 ..
             },
             ..

@@ -15,6 +15,7 @@ mod memory;
 mod memory_replay;
 mod ocr;
 mod orchestration;
+mod orchestration_replay;
 mod parser_recovery;
 mod relation;
 mod task;

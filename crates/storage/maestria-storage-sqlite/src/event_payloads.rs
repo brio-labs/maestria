@@ -159,11 +159,7 @@ pub(crate) enum StoredEventPayload {
     },
     ApprovalRecorded {
         approval_id: u64,
-        #[serde(default)]
-        task_id: Option<u64>,
-        approved: bool,
-        from_status: Option<StoredTaskStatus>,
-        to_status: Option<StoredTaskStatus>,
+        outcome: StoredApprovalOutcome,
     },
     TickObserved {
         at: u64,
@@ -343,4 +339,25 @@ impl StoredEventPayload {
             _ => None,
         }
     }
+}
+
+/// v3 stored encoding of `maestria_domain::ApprovalOutcome`.
+///
+/// Statuses use `StoredTaskStatus` because the domain `TaskStatus` carries no
+/// serde representation; the variant structure mirrors the domain outcome so
+/// replay cannot observe a coordinated-flags state.
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
+pub(crate) enum StoredApprovalOutcome {
+    Acknowledged {
+        #[serde(default)]
+        task_id: Option<u64>,
+        approved: bool,
+    },
+    TaskTransition {
+        task_id: u64,
+        approved: bool,
+        from_status: StoredTaskStatus,
+        to_status: StoredTaskStatus,
+    },
 }

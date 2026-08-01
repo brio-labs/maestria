@@ -20,15 +20,13 @@ fn proposal(run_id: u64) -> ModelAgentProposalRequest {
 }
 
 fn result(run_id: u64) -> ModelAgentProposalResult {
-    ModelAgentProposalResult {
+    ModelAgentProposalResult::Succeeded {
         run_id: HarnessRunId::new(run_id),
         correlation_id: 42,
-        status: ModelAgentTerminalStatus::Succeeded,
         search: None,
         harness: None,
         validation: None,
         memory_candidate: None,
-        error: None,
     }
 }
 

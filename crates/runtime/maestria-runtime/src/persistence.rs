@@ -184,9 +184,12 @@ impl EffectExecutionContext {
             }
             DomainEvent::ApprovalRecorded {
                 approval_id,
-                approved,
-                ..
-            } => match self.adapters.approval_repo.resolve(*approval_id, *approved) {
+                outcome,
+            } => match self
+                .adapters
+                .approval_repo
+                .resolve(*approval_id, outcome.approved())
+            {
                 Ok(Some(_)) => true,
                 Ok(None) => {
                     tracing::warn!(%approval_id, "approval resolution had no pending record");

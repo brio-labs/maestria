@@ -27,7 +27,7 @@ impl StoredEvent {
             kind: payload.kind()?,
             artifact_id: payload.filter_artifact_id(),
             payload_json: serde_json::to_string(&payload).map_err(json_error)?,
-            payload_version: 2,
+            payload_version: 3,
             legacy_approval_id: None,
         })
     }
@@ -50,20 +50,7 @@ impl StoredEvent {
 
     pub(super) fn into_domain(self) -> Result<DomainEventEnvelope, PortError> {
         let value = upcast_legacy_approval_id(&self.payload_json, self.legacy_approval_id)?;
-        let payload = match self.payload_version {
-            1 => {
-                let legacy: LegacyStoredEventPayload =
-                    serde_json::from_value(value).map_err(json_error)?;
-                legacy.into_v2()
-            }
-            2 => serde_json::from_value::<StoredEventPayload>(value).map_err(json_error),
-            other => {
-                return Err(PortError::InternalContext {
-                    context: "unsupported payload version",
-                    source: other.to_string(),
-                });
-            }
-        }?;
+        let payload = decode_stored_payload(value, self.payload_version)?;
         let payload_kind = payload.kind()?;
         if payload_kind != self.kind {
             return Err(PortError::InternalContext {
@@ -91,6 +78,44 @@ impl StoredEvent {
             sequence: SequenceNumber::new(self.sequence),
             event,
         })
+    }
+}
+
+/// Decode a stored event payload by its row encoding version.
+///
+/// Version 1 is the pre-`payload_version` encoding (upcast through
+/// `LegacyStoredEventPayload`), version 2 is the first versioned encoding,
+/// and version 3 reshapes the approval and model-agent proposal payloads.
+/// Domain-event rows are immutable: older encodings are upcast in memory
+/// rather than rewritten.
+pub(crate) fn decode_stored_payload(
+    value: serde_json::Value,
+    payload_version: i64,
+) -> Result<StoredEventPayload, PortError> {
+    match payload_version {
+        1 => {
+            let legacy: LegacyStoredEventPayload =
+                serde_json::from_value(value).map_err(json_error)?;
+            legacy.into_v2()
+        }
+        2 => match value.get("event_kind").and_then(serde_json::Value::as_str) {
+            Some("approval_recorded") => {
+                let v2: crate::payloads::payload_v2::StoredApprovalRecordedV2 =
+                    serde_json::from_value(value).map_err(json_error)?;
+                v2.into_v3()
+            }
+            Some("model_agent_proposal_completed") => {
+                let v2: crate::payloads::payload_v2::StoredModelAgentProposalCompletedV2 =
+                    serde_json::from_value(value).map_err(json_error)?;
+                v2.into_v3()
+            }
+            _ => serde_json::from_value::<StoredEventPayload>(value).map_err(json_error),
+        },
+        3 => serde_json::from_value::<StoredEventPayload>(value).map_err(json_error),
+        other => Err(PortError::InternalContext {
+            context: "unsupported payload version",
+            source: other.to_string(),
+        }),
     }
 }
 

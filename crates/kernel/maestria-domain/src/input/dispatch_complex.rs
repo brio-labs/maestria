@@ -192,14 +192,12 @@ impl KernelState {
         &mut self,
         result: crate::model_agent::ModelAgentProposalResult,
     ) -> Result<KernelOutput, DomainError> {
-        if self.model_agent_results.contains_key(&result.run_id) {
-            return Err(DomainError::DuplicateModelAgentProposalRunId {
-                run_id: result.run_id,
-            });
+        let run_id = result.run_id();
+        if self.model_agent_results.contains_key(&run_id) {
+            return Err(DomainError::DuplicateModelAgentProposalRunId { run_id });
         }
-        self.model_agent_requests.remove(&result.run_id);
-        self.model_agent_results
-            .insert(result.run_id, result.clone());
+        self.model_agent_requests.remove(&run_id);
+        self.model_agent_results.insert(run_id, result.clone());
         let event = self.emit_event(DomainEvent::ModelAgentProposalCompleted { result });
         Ok(Self::output_for_event(event))
     }

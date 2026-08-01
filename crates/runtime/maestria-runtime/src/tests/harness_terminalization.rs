@@ -3,7 +3,7 @@ use crate::effect_result::EffectFailure;
 use crate::test_support::*;
 use maestria_domain::{
     DomainInput, HarnessRunCompleted, HarnessRunId, KernelState, MaestriaEffect,
-    ModelAgentProposalExecution, ModelAgentProposalRequest, ModelAgentTerminalStatus,
+    ModelAgentProposalExecution, ModelAgentProposalRequest,
 };
 use maestria_ports::{
     EffectJournal, EffectJournalEntry, EffectJournalIntent, EffectJournalStatus, HarnessAdapter,
@@ -584,8 +584,7 @@ async fn model_agent_recovery_consumes_stored_success_without_reexecution()
     assert!(matches!(
         input_rx.recv().await,
         Some(DomainInput::ModelAgentProposalCompleted(result))
-            if result.run_id == run_id
-                && result.status == ModelAgentTerminalStatus::Succeeded
+            if result.run_id() == run_id && !result.is_failed()
     ));
     let in_flight = adapters.effect_journal.scan_in_flight()?;
     assert_eq!(in_flight.len(), 1);
@@ -697,8 +696,7 @@ async fn journal_recovery_rejects_missing_or_invalid_durable_feedback()
             );
             assert!(matches!(
                 input_rx.try_recv(),
-                Ok(DomainInput::ModelAgentProposalCompleted(result))
-                    if result.status == ModelAgentTerminalStatus::Failed
+                Ok(DomainInput::ModelAgentProposalCompleted(result)) if result.is_failed()
             ));
             assert!(
                 input_rx.try_recv().is_err(),

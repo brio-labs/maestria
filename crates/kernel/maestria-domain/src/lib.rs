@@ -59,7 +59,7 @@ pub use crate::entities::{
     RelationKind, Task, TaskPriority, TaskStatus, TestStatus, ValidationReportRecord,
 };
 pub use crate::errors::DomainError;
-pub use crate::events::{DomainEvent, DomainEventEnvelope};
+pub use crate::events::{ApprovalOutcome, DomainEvent, DomainEventEnvelope};
 pub use crate::evidence_pack::{
     ClaimCoverageStatusRecord, ClaimEvidenceCoverageRecord, EvidenceFreshnessRecord,
     EvidencePackCompressionRecord, EvidencePackMetadataRecord, EvidencePackReplayKeyRecord,
@@ -95,7 +95,7 @@ pub use crate::kernel_state::KernelState;
 pub use crate::model_agent::{
     ModelAgentHarnessResult, ModelAgentMemoryDecision, ModelAgentMemoryResult,
     ModelAgentProposalExecution, ModelAgentProposalRequest, ModelAgentProposalResult,
-    ModelAgentSearchResult, ModelAgentTerminalStatus, ModelAgentValidationResult,
+    ModelAgentSearchResult, ModelAgentValidationResult,
 };
 pub use crate::ocr::{
     OcrCompletion, OcrDisclosure, OcrIntent, OcrPageText, OcrProviderIdentity, OcrRequestId,
