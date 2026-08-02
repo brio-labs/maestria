@@ -292,7 +292,9 @@ async fn search_and_open_evidence_after_restart(
         layout,
         &state,
         &manifest,
-        RetrievalSecurityPolicy::default(),
+        RetrievalSecurityPolicy::default()
+            .require_read_allowed(true)
+            .allow_unscoped_items(true),
     )?;
     let (_, results) = runtime
         .execute("GraphRAG knowledge graphs".to_string(), 10)

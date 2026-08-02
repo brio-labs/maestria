@@ -85,6 +85,7 @@ fn with_indexed_retrieval(
         fingerprint: maestria_domain::RetrievalModelFingerprint::new(
             "golden-gate-fixture".to_owned(),
         )?,
+        scope: None,
     };
 
     let lexical = Arc::new(LexicalChunkRetriever::new(

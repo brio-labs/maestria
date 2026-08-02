@@ -12,6 +12,8 @@ pub struct SearchPlannerContext {
     pub corpus_snapshot: CorpusSnapshotId,
     pub primary_generation: IndexGenerationId,
     pub fingerprint: RetrievalModelFingerprint,
+    /// Scope the produced plan is confined to; `None` builds a global plan.
+    pub scope: Option<maestria_domain::ScopeId>,
 }
 
 /// Build a rewrite session for the plan's query with the plan budgets.
@@ -73,7 +75,13 @@ fn build_plan(
         .query_id(maestria_domain::QueryId::from_query_text(original_query))
         .original_query(original_query.to_string())
         .intent(route.intent)
-        .scope(maestria_domain::CorpusScope::Global)
+        .scope(
+            context
+                .scope
+                .map_or(maestria_domain::CorpusScope::Global, |scope| {
+                    maestria_domain::CorpusScope::Restricted(vec![scope])
+                }),
+        )
         .corpus_snapshot(context.corpus_snapshot)
         .index_generation(context.primary_generation)
         .freshness(if route.intent == SearchIntent::CurrentWeb {
@@ -113,9 +121,17 @@ fn build_plan(
         .map_err(RetrievalError::Compatibility)
 }
 impl RetrievalEngine {
-    fn authorization_snapshot(&self) -> RetrievalResult<maestria_domain::RetrievalPolicySnapshot> {
+    fn authorization_snapshot(
+        &self,
+        context: &SearchPlannerContext,
+    ) -> RetrievalResult<maestria_domain::RetrievalPolicySnapshot> {
+        let scope = context
+            .scope
+            .map_or(maestria_domain::CorpusScope::Global, |scope| {
+                maestria_domain::CorpusScope::Restricted(vec![scope])
+            });
         self.security_policy
-            .authorization_context(&maestria_domain::CorpusScope::Global)
+            .authorization_context(&scope)
             .map(|context| context.policy_snapshot())
             .map_err(|error| {
                 RetrievalError::Internal(format!("retrieval authorization denied: {error:?}"))
@@ -128,7 +144,7 @@ impl RetrievalEngine {
         limit: usize,
         context: &SearchPlannerContext,
     ) -> RetrievalResult<SearchPlan> {
-        let authorization = self.authorization_snapshot()?;
+        let authorization = self.authorization_snapshot(context)?;
         let original_query = query.into();
         if maestria_governance::contains_prompt_injection_risk(&original_query) {
             return build_plan(
@@ -276,7 +292,7 @@ impl RetrievalEngine {
                 original_intent: Some(inferred_intent),
                 route_decision: Some(fallback_reason),
             },
-            self.authorization_snapshot()?,
+            self.authorization_snapshot(context)?,
         )?;
         let validation_plan = fallback_plan
             .clone()
@@ -304,6 +320,7 @@ mod tests {
             corpus_snapshot: CorpusSnapshotId::new(3),
             primary_generation: IndexGenerationId::new(7),
             fingerprint: RetrievalModelFingerprint::new("test:visual".to_string())?,
+            scope: None,
         };
         let plan = build_plan(
             "show the table in the visual PDF",
@@ -335,6 +352,7 @@ mod tests {
             corpus_snapshot: CorpusSnapshotId::new(3),
             primary_generation: IndexGenerationId::new(7),
             fingerprint: RetrievalModelFingerprint::new("test:visual".to_string())?,
+            scope: None,
         };
         let plan = build_plan(
             "show the figure in the visual PDF",

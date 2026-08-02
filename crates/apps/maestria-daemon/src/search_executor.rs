@@ -59,6 +59,7 @@ pub(crate) struct SearchRuntimeParts {
     pub(crate) repository_code_index: Option<Arc<RepositoryCodeIndex>>,
     pub(crate) repository_execution_policy: RepositoryExecutionPolicy,
     pub(crate) corpus_snapshot: CorpusSnapshotId,
+    pub(crate) scope_id: maestria_domain::ScopeId,
 }
 
 /// One immutable set of repositories, generations, and indexes used for a search request.
@@ -89,6 +90,7 @@ pub struct SearchRuntime {
     pub(crate) repository_execution_policy: RepositoryExecutionPolicy,
     pub(crate) visual_execution_policy: VisualExecutionPolicy,
     pub(crate) corpus_snapshot: CorpusSnapshotId,
+    pub(crate) scope_id: maestria_domain::ScopeId,
     pub(crate) fingerprint: RetrievalModelFingerprint,
 }
 
@@ -125,6 +127,7 @@ impl SearchRuntime {
             repository_execution_policy: parts.repository_execution_policy,
             visual_execution_policy: VisualExecutionPolicy::Shadow,
             corpus_snapshot: parts.corpus_snapshot,
+            scope_id: parts.scope_id,
             fingerprint,
         })
     }
@@ -251,10 +254,16 @@ impl SearchRuntime {
             corpus_snapshot: self.corpus_snapshot,
             primary_generation: self.primary_generation,
             fingerprint: self.fingerprint.clone(),
+            scope: Some(self.scope_id),
         }
     }
 
     fn execute_plan_blocking(&self, plan: SearchPlan) -> Result<SearchOutcome> {
+        // R43: direct CLI/API searches enforce the same scope dimension as the
+        // runtime effect path; the shared transition rejects out-of-scope plans.
+        let plan = plan
+            .confine_to_scope(self.scope_id)
+            .map_err(|error| anyhow!(error.to_string()))?;
         let engine = self.retrieval_engine()?;
         tokio::runtime::Handle::current()
             .block_on(engine.search(&plan))
@@ -267,8 +276,13 @@ impl SearchRuntime {
         limit: usize,
     ) -> Result<(SearchPlan, SearchOutcome)> {
         let engine = self.retrieval_engine()?;
+        // The plan is built already confined to the instance scope; the typed
+        // transition is kept as a guard so scope enforcement cannot drift
+        // (R28/R43).
         let plan = engine
             .plan(query, limit, &self.planner_context())
+            .map_err(|error| anyhow!(error.to_string()))?
+            .confine_to_scope(self.scope_id)
             .map_err(|error| anyhow!(error.to_string()))?;
         let outcome = tokio::runtime::Handle::current()
             .block_on(engine.search(&plan))

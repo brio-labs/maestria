@@ -2,6 +2,11 @@ use std::fmt;
 
 pub const DOMAIN_VERSION: &str = env!("CARGO_PKG_VERSION");
 
+/// The single scope owned by a Maestria instance (R43). Instances are
+/// single-scope by construction: the runtime effect path, direct CLI/API
+/// search surfaces, and the evidence open path all confine to this scope.
+pub const DEFAULT_INSTANCE_SCOPE_ID: ScopeId = ScopeId::new(1);
+
 macro_rules! id_type {
     ($name:ident) => {
         #[derive(

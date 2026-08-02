@@ -131,6 +131,7 @@ fn planner_context() -> Result<SearchPlannerContext, Box<dyn std::error::Error>>
         corpus_snapshot: CorpusSnapshotId::new(1),
         primary_generation: IndexGenerationId::new(1),
         fingerprint: RetrievalModelFingerprint::new("maestria-core:hybrid-shadow-vector-fixture".to_string())?,
+        scope: None,
     })
 }
 

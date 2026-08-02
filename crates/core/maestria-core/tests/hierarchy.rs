@@ -344,6 +344,7 @@ fn hierarchy_expands_children_and_siblings_with_query_adaptive_depth()
         corpus_snapshot: CorpusSnapshotId::new(1),
         primary_generation: IndexGenerationId::new(1),
         fingerprint: RetrievalModelFingerprint::new("maestria-core-hierarchy".to_string())?,
+        scope: None,
     };
 
     let engine = with_engine(&fixture, &context);
