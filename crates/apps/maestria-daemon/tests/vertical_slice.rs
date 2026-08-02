@@ -376,7 +376,7 @@ fn seed_stale_projections(
         vector: vec![1.0, 0.0],
         provenance: EmbeddingProvenance {
             content_hash: "stale".into(),
-            identity: maestria_ports::EmbeddingIdentity::legacy("stale", 2)?,
+            identity: maestria_ports::contract_tests::fixture_embedding_identity("stale", 2)?,
             provider_id: "stale".into(),
             model: "stale".into(),
             model_version: "stale".into(),

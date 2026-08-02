@@ -261,7 +261,7 @@ mod tests {
             order: 0,
             text: "figure".to_string(),
         };
-        let identity = EmbeddingIdentity::legacy("visual", 1)?;
+        let identity = maestria_ports::contract_tests::fixture_embedding_identity("visual", 1)?;
         let artifact = maestria_domain::Artifact {
             id: artifact_id,
             title: "test".to_string(),

@@ -9,31 +9,6 @@ pub struct EmbeddingIdentity {
     pub representation: RepresentationName,
 }
 
-impl EmbeddingIdentity {
-    pub fn legacy(model: impl Into<String>, dimensions: usize) -> Result<Self, crate::PortError> {
-        let artifact_hash = maestria_domain::ContentHash::new(format!("sha256:{}", "0".repeat(64)))
-            .map_err(|error| crate::PortError::InternalContext {
-                context: "create legacy embedding fingerprint",
-                source: error.to_string(),
-            })?;
-        Ok(Self {
-            generation_id: IndexGenerationId::new(1),
-            fingerprint: IndexFingerprint {
-                provider: "legacy-local".to_string(),
-                model: model.into(),
-                revision: "legacy".to_string(),
-                artifact_hash,
-                dimensions: dimensions as u32,
-                quantization: "f32".to_string(),
-                query_template_hash: "legacy-query".to_string(),
-                document_template_hash: "legacy-document".to_string(),
-                preprocessing_version: "legacy".to_string(),
-            },
-            representation: RepresentationName::new("dense_text_v1"),
-        })
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EmbeddingInputKind {
     Document,

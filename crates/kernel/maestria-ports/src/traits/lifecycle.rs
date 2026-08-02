@@ -52,17 +52,12 @@ pub trait EffectJournal: Send + Sync {
     /// Atomically claims feedback for the current generation before enqueueing it.
     fn claim_feedback(&self, run_id: HarnessRunId, generation: u64) -> Result<(), PortError>;
     /// Atomically stores successful feedback and marks it accepted.
-    ///
-    /// The default preserves adapters implemented against the legacy port.
     fn claim_feedback_with_outcome(
         &self,
         run_id: HarnessRunId,
         generation: u64,
         outcome: HarnessOutcome,
-    ) -> Result<(), PortError> {
-        let _ = outcome;
-        self.claim_feedback(run_id, generation)
-    }
+    ) -> Result<(), PortError>;
     fn feedback_outcome(
         &self,
         _run_id: HarnessRunId,

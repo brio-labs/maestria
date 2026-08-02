@@ -6,7 +6,7 @@ use super::fixtures::*;
 pub fn assert_vector_index_contract(
     index: &impl VectorIndex,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let identity = EmbeddingIdentity::legacy("test-model", 2)?;
+    let identity = fixture_embedding_identity("test-model", 2)?;
     let prov = || EmbeddingProvenance {
         content_hash: "abcd123".into(),
         identity: identity.clone(),

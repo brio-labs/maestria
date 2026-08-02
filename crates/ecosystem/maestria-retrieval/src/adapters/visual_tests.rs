@@ -196,7 +196,7 @@ impl EvidenceRepository for CountingEvidenceRepository {
 fn visual_lane_is_named_and_generation_aware() -> Result<(), Box<dyn std::error::Error>> {
     let generation = IndexGenerationId::new(42);
     let corpus_snapshot = CorpusSnapshotId::new(7);
-    let mut identity = EmbeddingIdentity::legacy("visual", 2)?;
+    let mut identity = maestria_ports::contract_tests::fixture_embedding_identity("visual", 2)?;
     identity.generation_id = generation;
     identity.representation = RepresentationName::new("visual_page_v1");
     let mut registry = IndexGenerationRegistry::default();
@@ -235,7 +235,7 @@ fn denied_visual_projection_reads_no_blob_and_posts_no_bytes()
 -> Result<(), Box<dyn std::error::Error>> {
     let generation = IndexGenerationId::new(84);
     let corpus_snapshot = CorpusSnapshotId::new(9);
-    let mut identity = EmbeddingIdentity::legacy("visual", 1)?;
+    let mut identity = maestria_ports::contract_tests::fixture_embedding_identity("visual", 1)?;
     identity.generation_id = generation;
     identity.representation = RepresentationName::new("visual_page_v1");
     let mut registry = IndexGenerationRegistry::default();
@@ -292,7 +292,7 @@ fn denied_visual_candidates_are_authorized_before_content_reads()
 
     let generation = IndexGenerationId::new(42);
     let corpus_snapshot = CorpusSnapshotId::new(7);
-    let mut identity = EmbeddingIdentity::legacy("visual", 1)?;
+    let mut identity = maestria_ports::contract_tests::fixture_embedding_identity("visual", 1)?;
     identity.generation_id = generation;
     identity.representation = RepresentationName::new("visual_page_v1");
     let mut registry = IndexGenerationRegistry::default();
@@ -397,7 +397,7 @@ fn visual_batch_generation_fixture() -> Result<
 > {
     let generation = IndexGenerationId::new(42);
     let corpus_snapshot = CorpusSnapshotId::new(7);
-    let mut identity = EmbeddingIdentity::legacy("visual", 1)?;
+    let mut identity = maestria_ports::contract_tests::fixture_embedding_identity("visual", 1)?;
     identity.generation_id = generation;
     identity.representation = RepresentationName::new("visual_page_v1");
     let mut registry = IndexGenerationRegistry::default();

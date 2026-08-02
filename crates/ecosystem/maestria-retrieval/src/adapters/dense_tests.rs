@@ -58,7 +58,7 @@ fn denied_dense_candidates_are_filtered_before_scoring() -> Result<(), Box<dyn s
         },
         generation,
     );
-    let identity = maestria_ports::EmbeddingIdentity::legacy("dense-test", 1)?;
+    let identity = maestria_ports::contract_tests::fixture_embedding_identity("dense-test", 1)?;
     let batch = retriever.retrieve_with_vector(
         request(maestria_domain::SearchIntent::FactualLocal, generation)?,
         VectorSearchQuery {
@@ -131,7 +131,7 @@ fn dense_batch_reports_bounded_bytes() -> Result<(), Box<dyn std::error::Error>>
         security: Default::default(),
     })?;
     let evidence = Arc::new(CountingEvidenceRepository::new(evidence_store));
-    let identity = maestria_ports::EmbeddingIdentity::legacy("dense-test", 1)?;
+    let identity = maestria_ports::contract_tests::fixture_embedding_identity("dense-test", 1)?;
     let index = InMemoryVectorIndex::new();
     index.index_embeddings(vec![VectorEmbedding {
         chunk_id,

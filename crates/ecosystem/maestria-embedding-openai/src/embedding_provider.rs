@@ -19,18 +19,6 @@ pub struct LocalHttpEmbeddingProvider {
 }
 
 impl LocalHttpEmbeddingProvider {
-    pub fn new(endpoint: &str, model: &str, dimensions: Option<usize>) -> Result<Self, PortError> {
-        let identity = legacy_identity(model, dimensions)?;
-        Self::with_profile(
-            endpoint,
-            model,
-            dimensions,
-            identity,
-            "{{text}}".to_string(),
-            "{{text}}".to_string(),
-        )
-    }
-
     pub fn with_profile(
         endpoint: &str,
         model: &str,
@@ -62,6 +50,7 @@ impl LocalHttpEmbeddingProvider {
         endpoint: &str,
         model: &str,
         dimensions: Option<usize>,
+        identity: EmbeddingIdentity,
         transport: Arc<dyn ProviderTransport>,
     ) -> Result<Self, PortError> {
         let expected_endpoint = ProviderEndpoint::loopback_http(endpoint, EMBEDDING_ENDPOINT_PATH)?;
@@ -71,7 +60,6 @@ impl LocalHttpEmbeddingProvider {
                 source: "transport endpoint does not match provider endpoint".to_string(),
             });
         }
-        let identity = legacy_identity(model, dimensions)?;
         validate_profile(model, dimensions, &identity, "{{text}}", "{{text}}")?;
         Ok(Self {
             model: model.to_string(),
@@ -126,14 +114,6 @@ fn validate_profile(
         });
     }
     Ok(())
-}
-
-fn legacy_identity(model: &str, dimensions: Option<usize>) -> Result<EmbeddingIdentity, PortError> {
-    let dimensions = dimensions.ok_or_else(|| PortError::InvalidInputContext {
-        context: "embedding dimensions are missing",
-        source: "dimensions are required for generation-aware indexing".to_string(),
-    })?;
-    EmbeddingIdentity::legacy(model.to_string(), dimensions)
 }
 
 impl EmbeddingProvider for LocalHttpEmbeddingProvider {

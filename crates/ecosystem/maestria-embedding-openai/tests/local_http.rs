@@ -1,4 +1,5 @@
 use maestria_embedding_openai::LocalHttpEmbeddingProvider;
+use maestria_ports::contract_tests::fixture_embedding_identity;
 use maestria_ports::{EmbeddingInputKind, EmbeddingProvider, EmbeddingRequest, PortError};
 use std::{
     io::{Error, ErrorKind, Read, Write},
@@ -77,10 +78,13 @@ fn posts_to_local_http_endpoint() -> Result<(), PortError> {
             stream.flush()
         })
     });
-    let provider = LocalHttpEmbeddingProvider::new(
+    let provider = LocalHttpEmbeddingProvider::with_profile(
         &format!("http://127.0.0.1:{port}/v1/embeddings"),
         "local-model",
         Some(2),
+        fixture_embedding_identity("local-model", 2)?,
+        "{{text}}".to_string(),
+        "{{text}}".to_string(),
     )?;
     let result = provider.embed(EmbeddingRequest {
         text: "local text".to_string(),

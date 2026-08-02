@@ -1,4 +1,5 @@
 use super::*;
+use maestria_ports::contract_tests::fixture_embedding_identity;
 use std::sync::{
     Mutex,
     atomic::{AtomicUsize, Ordering},
@@ -94,7 +95,7 @@ fn applies_kind_template_and_preserves_disclosure() -> Result<(), PortError> {
             retention: RetentionPolicy::ProviderDefined,
         },
     )?);
-    let identity = EmbeddingIdentity::legacy("profiled-model", 2)?;
+    let identity = fixture_embedding_identity("profiled-model", 2)?;
     let mut provider = LocalHttpEmbeddingProvider::with_profile(
         ENDPOINT,
         "profiled-model",
@@ -142,7 +143,7 @@ fn denied_transport_disclosure_posts_zero_bytes() -> Result<(), PortError> {
             retention: RetentionPolicy::ProviderDefined,
         },
     )?);
-    let identity = EmbeddingIdentity::legacy("denied-model", 2)?;
+    let identity = fixture_embedding_identity("denied-model", 2)?;
     let mut provider = LocalHttpEmbeddingProvider::with_profile(
         ENDPOINT,
         "denied-model",
@@ -177,11 +178,12 @@ fn rejects_incompatible_request_identity() -> Result<(), PortError> {
         "http://127.0.0.1:8080/v1/embeddings",
         "model",
         Some(2),
+        fixture_embedding_identity("model", 2)?,
         Arc::new(FixtureTransport::new(Ok(
             br#"{"data":[{"embedding":[0.1,0.2]}]}"#.to_vec(),
         ))?),
     )?;
-    let identity = EmbeddingIdentity::legacy("different-model", 2)?;
+    let identity = fixture_embedding_identity("different-model", 2)?;
     let result = provider.embed(EmbeddingRequest {
         text: "hello".to_string(),
         model: "model".to_string(),
@@ -192,10 +194,17 @@ fn rejects_incompatible_request_identity() -> Result<(), PortError> {
     Ok(())
 }
 #[test]
-fn rejects_non_loopback_endpoint() {
-    let result =
-        LocalHttpEmbeddingProvider::new("https://example.com/v1/embeddings", "model", None);
+fn rejects_non_loopback_endpoint() -> Result<(), PortError> {
+    let result = LocalHttpEmbeddingProvider::with_profile(
+        "https://example.com/v1/embeddings",
+        "model",
+        Some(2),
+        fixture_embedding_identity("model", 2)?,
+        "{{text}}".to_string(),
+        "{{text}}".to_string(),
+    );
     assert!(result.is_err_and(|error| error.is_invalid_input()));
+    Ok(())
 }
 #[test]
 fn parses_and_validates_embedding_response() -> Result<(), PortError> {
@@ -204,6 +213,7 @@ fn parses_and_validates_embedding_response() -> Result<(), PortError> {
         "http://127.0.0.1:8080/v1/embeddings",
         "model",
         Some(2),
+        fixture_embedding_identity("model", 2)?,
         Arc::new(FixtureTransport::new(Ok(response.to_vec()))?),
     )?;
     let result = provider.embed(EmbeddingRequest {
@@ -222,6 +232,7 @@ fn rejects_empty_text() -> Result<(), PortError> {
         "http://127.0.0.1:8080/v1/embeddings",
         "model",
         Some(2),
+        fixture_embedding_identity("model", 2)?,
         Arc::new(FixtureTransport::new(Ok(
             br#"{"data":[{"embedding":[0.1,0.2]}]}"#.to_vec(),
         ))?),
@@ -244,6 +255,7 @@ fn rejects_mismatched_model_version() -> Result<(), PortError> {
         "http://127.0.0.1:8080/v1/embeddings",
         "model-a",
         Some(2),
+        fixture_embedding_identity("model-a", 2)?,
         Arc::new(FixtureTransport::new(Ok(
             br#"{"data":[{"embedding":[0.1,0.2]}]}"#.to_vec(),
         ))?),
@@ -266,6 +278,7 @@ fn propagates_transport_error() -> Result<(), PortError> {
         "http://127.0.0.1:8080/v1/embeddings",
         "model",
         Some(2),
+        fixture_embedding_identity("model", 2)?,
         Arc::new(FixtureTransport::new(Err(PortError::Downstream {
             message: "connection refused".to_string(),
         }))?),
@@ -288,6 +301,7 @@ fn rejects_malformed_json_response() -> Result<(), PortError> {
         "http://127.0.0.1:8080/v1/embeddings",
         "model",
         Some(2),
+        fixture_embedding_identity("model", 2)?,
         Arc::new(FixtureTransport::new(Ok(br#"not-json"#.to_vec()))?),
     )?;
     let result = provider.embed(EmbeddingRequest {
@@ -308,6 +322,7 @@ fn rejects_empty_embedding_array() -> Result<(), PortError> {
         "http://127.0.0.1:8080/v1/embeddings",
         "model",
         Some(2),
+        fixture_embedding_identity("model", 2)?,
         Arc::new(FixtureTransport::new(Ok(br#"{"data":[]}"#.to_vec()))?),
     )?;
     let result = provider.embed(EmbeddingRequest {
@@ -339,6 +354,7 @@ fn satisfies_shared_embedding_provider_contract() -> Result<(), Box<dyn std::err
         "http://127.0.0.1:8080/v1/embeddings",
         "model",
         Some(2),
+        fixture_embedding_identity("model", 2)?,
         Arc::new(FixtureTransport::new(Ok(
             br#"{"data":[{"embedding":[0.1,0.2]}],"model":"model-v1"}"#.to_vec(),
         ))?),

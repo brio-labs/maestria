@@ -163,7 +163,6 @@ impl SearchRuntime {
                     evidence: self.evidence.clone(),
                     blobs: self.blobs.clone(),
                 },
-                self.retrieval_policy.clone(),
                 self.primary_generation,
             )),
             active_versions.clone(),

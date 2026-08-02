@@ -10,12 +10,12 @@ use maestria_domain::{
     SearchBudget, SearchCompatibilityError, SearchExecution, SearchExecutionCompletion,
     SearchIntent, SearchPlan, SearchStage, SourceSpan, StopConditions,
 };
-use maestria_ports::FullTextIndex;
 use maestria_ports::{
     BoundedSearch, CardHit, ChunkRepository, EvidenceRepository, InMemoryChunkRepository,
     InMemoryEvidenceRepository, IndexedCard, IndexedChunk, PortError, SearchHit, SearchQuery,
     VectorEmbedding, VectorIndex, VectorSearchHit, VectorSearchQuery,
 };
+use maestria_ports::{FullTextIndex, IndexedLexicalCard, IndexedLexicalChunk};
 
 pub struct FilteredFullTextSpy {
     chunk_filter_calls: AtomicUsize,
@@ -74,6 +74,14 @@ impl FullTextIndex for FilteredFullTextSpy {
     }
 
     fn index_cards(&self, _cards: Vec<IndexedCard>) -> Result<(), PortError> {
+        Ok(())
+    }
+
+    fn index_lexical_chunks(&self, _chunks: Vec<IndexedLexicalChunk>) -> Result<(), PortError> {
+        Ok(())
+    }
+
+    fn index_lexical_cards(&self, _cards: Vec<IndexedLexicalCard>) -> Result<(), PortError> {
         Ok(())
     }
 

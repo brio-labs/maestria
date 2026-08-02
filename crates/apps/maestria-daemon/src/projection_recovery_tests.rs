@@ -181,7 +181,7 @@ impl EmbeddingProvider for RecoveryEmbeddingProvider {
     }
 
     fn identity(&self) -> Option<maestria_ports::EmbeddingIdentity> {
-        maestria_ports::EmbeddingIdentity::legacy("recovery-model", 2).ok()
+        maestria_ports::contract_tests::fixture_embedding_identity("recovery-model", 2).ok()
     }
 }
 
@@ -592,7 +592,7 @@ fn reconcile_vector_projection_repairs_missing_and_stale_rows()
         vector: vec![0.0, 1.0],
         provenance: maestria_ports::EmbeddingProvenance {
             content_hash: "stale".to_string(),
-            identity: maestria_ports::EmbeddingIdentity::legacy("stale-model", 2)?,
+            identity: maestria_ports::contract_tests::fixture_embedding_identity("stale-model", 2)?,
             provider_id: "stale-provider".to_string(),
             model: "stale-model".to_string(),
             model_version: "stale-v1".to_string(),

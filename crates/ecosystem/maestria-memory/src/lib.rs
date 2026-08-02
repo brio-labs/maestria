@@ -3,10 +3,10 @@
 //! Pure memory workflow orchestration for Maestria.
 //!
 //! Responsibility map:
-//! - `memory_service`: contradiction, duplicate, and review analysis workflows.
+//! - `memory_service`: review workflow analysis.
 
 mod memory_service;
-pub use memory_service::{ContradictionCheck, MemoryService};
+pub use memory_service::MemoryService;
 
 #[cfg(test)]
 mod tests;
