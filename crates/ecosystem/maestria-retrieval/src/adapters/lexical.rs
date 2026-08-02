@@ -74,7 +74,7 @@ impl CandidateRetriever for LexicalChunkRetriever {
         let hits = bounded.hits;
         let mut candidates = Vec::with_capacity(hits.len());
         for (raw_rank, hit) in hits.into_iter().enumerate() {
-            let raw_rank = one_based_rank(raw_rank);
+            let raw_rank = one_based_rank(raw_rank)?;
             let Some(candidate) = self.candidate_from_hit(hit, raw_rank, &request.authorization)?
             else {
                 continue;

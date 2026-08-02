@@ -226,7 +226,7 @@ impl VisualPageRegionRetriever {
         let hits = bounded.hits;
         let mut candidates = Vec::with_capacity(hits.len());
         for (index, hit) in hits.into_iter().enumerate() {
-            let raw_rank = one_based_rank(index);
+            let raw_rank = one_based_rank(index)?;
             let Some(candidate) =
                 self.candidate_from_hit(hit, raw_rank, identity, &request.authorization, &cache)?
             else {

@@ -76,8 +76,7 @@ impl PdfParser {
                 source: error.to_string(),
             }
         })?;
-        let artifact_version_id =
-            crate::chunking::artifact_version_id_for(context.artifact_id, &hash_string);
+        let artifact_version_id = crate::chunking::artifact_version_id_for(&content_hash)?;
         let status = if !needed.is_empty() || !has_text {
             ParseStatus::NeedsOcr
         } else {

@@ -8,7 +8,7 @@ use crate::{
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
-pub(crate) const MAX_CONTEXT_DEPTH: usize = 16;
+pub const MAX_CONTEXT_DEPTH: usize = 16;
 pub(crate) const MAX_CONTEXT_NODES: usize = 1_024;
 pub(crate) const MAX_CONTEXT_SEED_MATCHES: usize = 1_000;
 pub(crate) const DEFAULT_CONTEXT_DEPTH: usize = 2;

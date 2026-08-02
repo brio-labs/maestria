@@ -3,8 +3,8 @@
 use std::path::Path;
 
 use maestria_domain::{
-    ArtifactId, CardId, ChunkId, CreateCardInput, SourceSpan as DomainSourceSpan, SourceSpanError,
-    StructureNodeId,
+    ArtifactId, ArtifactVersionId, CardId, ChunkId, ContentHash, CreateCardInput,
+    SourceSpan as DomainSourceSpan, SourceSpanError, StructureNodeId,
 };
 use maestria_ports::{
     FileHandle, FileMetadata, ParsedArtifact, ParsedCard, ParsedChunk, PortError, SourceSpan,
@@ -118,13 +118,13 @@ pub(crate) fn parsed_artifact(
         source_span: card_source_span,
     };
     let hash_string = maestria_domain::content_hash(bytes);
-    let artifact_version_id = artifact_version_id_for(artifact_id, &hash_string);
     let content_hash = maestria_domain::ContentHash::new(hash_string).map_err(|e| {
         PortError::InvalidInputContext {
             context: "invalid content hash",
             source: format!("{e:?}"),
         }
     })?;
+    let artifact_version_id = artifact_version_id_for(&content_hash)?;
     Ok(ParsedArtifact {
         artifact_id,
         artifact_version_id,
@@ -136,21 +136,37 @@ pub(crate) fn parsed_artifact(
     })
 }
 
+/// Derives the content-addressed artifact version identity from a validated
+/// content hash.
+///
+/// The version id is the leading 64-bit window of the sha256 digest. The
+/// hash is already validated by [`ContentHash`] at the parser boundary, so a
+/// malformed digest is a typed error rather than a silent fallback to the
+/// artifact-id namespace (R24/R27).
 pub(crate) fn artifact_version_id_for(
-    artifact_id: ArtifactId,
-    content_hash: &str,
-) -> maestria_domain::ArtifactVersionId {
+    content_hash: &ContentHash,
+) -> Result<ArtifactVersionId, PortError> {
     let digest = content_hash
+        .as_str()
         .strip_prefix("sha256:")
-        .map_or("", |digest| digest);
-    let value = match digest
+        .ok_or_else(|| PortError::InvalidInputContext {
+            context: "derive artifact version identity",
+            source: "content hash lacks the sha256: prefix".to_string(),
+        })?;
+    let value = digest
         .get(..16)
         .and_then(|prefix| u64::from_str_radix(prefix, 16).ok())
-    {
-        Some(value) if value != 0 => value,
-        _ => artifact_id.value(),
-    };
-    maestria_domain::ArtifactVersionId::new(value)
+        .ok_or_else(|| PortError::InvalidInputContext {
+            context: "derive artifact version identity",
+            source: format!("content hash digest is not a 16-hex-digit prefix: {digest}"),
+        })?;
+    if value == 0 {
+        return Err(PortError::InvalidInputContext {
+            context: "derive artifact version identity",
+            source: "content hash digest prefix decodes to zero".to_string(),
+        });
+    }
+    Ok(ArtifactVersionId::new(value))
 }
 
 pub(crate) fn summary_card_for(

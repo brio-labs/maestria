@@ -91,7 +91,7 @@ impl DenseChunkRetriever {
         for (raw_rank, hit) in hits.into_iter().enumerate() {
             let Some(candidate) = self.candidate_from_hit(
                 hit,
-                one_based_rank(raw_rank),
+                one_based_rank(raw_rank)?,
                 &identity,
                 &request.authorization,
                 &authorized,

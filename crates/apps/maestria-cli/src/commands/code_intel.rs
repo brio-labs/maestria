@@ -1,8 +1,9 @@
 use anyhow::{Context, Result, bail};
 use maestria_blob_fs::FsBlobStore;
 use maestria_code_intel::{
-    CodeQuery, ContextDirection, REPOSITORY_CODE_INDEX_FILENAME, REPOSITORY_CODE_PARSER_GENERATION,
-    RepositoryCodeIndex, RepositoryContextQuery, RepositoryFreshness,
+    CodeQuery, ContextDirection, MAX_CONTEXT_DEPTH, REPOSITORY_CODE_INDEX_FILENAME,
+    REPOSITORY_CODE_PARSER_GENERATION, RepositoryCodeIndex, RepositoryContextQuery,
+    RepositoryFreshness,
 };
 use maestria_core::{InstanceLayout, InstanceManifest};
 use maestria_domain::CorpusScope;
@@ -98,6 +99,9 @@ pub(crate) fn run_context(
 ) -> Result<()> {
     if !(1..=MAX_QUERY_LIMIT).contains(&nodes) {
         bail!("context node limit must be between 1 and {MAX_QUERY_LIMIT}");
+    }
+    if !(1..=MAX_CONTEXT_DEPTH).contains(&depth) {
+        bail!("context depth must be between 1 and {MAX_CONTEXT_DEPTH}");
     }
     let layout = super::super::helpers::validated_instance(instance_dir)?;
     let manifest = super::super::helpers::load_manifest(&layout)?;
