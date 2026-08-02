@@ -1,0 +1,97 @@
+name: Agent Apply Issue 198
+
+on:
+  push:
+    branches: [feat/search-sparse-namespace-isolation]
+    paths:
+      - ".github/agent/issue-198.patch.gz.b64.*"
+      - ".github/workflows/agent-apply-198.yml"
+
+concurrency:
+  group: issue-198-apply
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: never
+  RUST_BACKTRACE: 1
+
+jobs:
+  apply-validate-publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.0
+        with:
+          ref: feat/search-sparse-namespace-isolation
+          fetch-depth: 0
+      - uses: ./.github/actions/setup-rust-build-dependencies
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly-2026-06-15
+          components: clippy, rustfmt, rustc-codegen-cranelift
+      - name: Reconstruct and apply namespace implementation
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat .github/agent/issue-198.patch.gz.b64.* | base64 --decode > /tmp/issue-198.patch.gz
+          echo "4f8d9a61e8da8b01c7149b06f5c787def3a9ff6f670c86697b5f78f790342a5d  /tmp/issue-198.patch.gz" | sha256sum --check --strict
+          gzip --decompress --stdout /tmp/issue-198.patch.gz > /tmp/issue-198.patch
+          echo "7dd3573d4ef630de1888354c19f82befcf89e0a5cf5d6e7ae6ffb2ff28a1c8cb  /tmp/issue-198.patch" | sha256sum --check --strict
+          git apply --index /tmp/issue-198.patch
+          git rm .github/agent/issue-198.patch.gz.b64.* .github/workflows/agent-apply-198.yml
+      - name: Validate namespace implementation
+        id: validate
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -o pipefail
+          {
+            cargo fmt --all
+            git diff --check
+            python3 scripts/philosophy-check.py
+            python3 scripts/benchmark_evidence.py --manifest tests/contracts/benchmark_evidence_v1.json
+            cargo check --workspace --all-targets --all-features --locked
+            cargo test -p maestria-domain namespaced_lifecycle_requires_matching_namespace_and_replays --locked
+            cargo test -p maestria-domain --test search_provenance namespaced_trace_lanes_use_identity_version_seven --locked
+            cargo test -p maestria-ports learned_sparse --locked
+            cargo test -p maestria-storage-sqlite namespaced_generation_transition_round_trips_and_legacy_defaults_unscoped --locked
+            cargo test -p maestria-retrieval returned_batch_from_foreign_namespace_fails_closed --locked
+            cargo test -p maestria-retrieval --test learned_sparse_generation --locked
+            cargo test -p maestria-retrieval --test learned_sparse_retriever --locked
+            cargo test -p maestria-retrieval --test learned_sparse_shadow --locked
+            cargo test -p maestria-retrieval --test learned_sparse_benchmark --locked
+            bash scripts/strict-clippy.sh
+          } 2>&1 | tee issue-198-validation.log
+      - name: Package applied source
+        if: always()
+        run: tar --exclude=.git --exclude=target -czf "$RUNNER_TEMP/issue-198-applied-source.tgz" .
+      - name: Upload validation diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: issue-198-validation-${{ github.sha }}
+          path: issue-198-validation.log
+          if-no-files-found: warn
+      - name: Upload applied source
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: issue-198-source-${{ github.sha }}
+          path: ${{ runner.temp }}/issue-198-applied-source.tgz
+          if-no-files-found: error
+      - name: Stop after validation errors
+        if: steps.validate.outcome == 'failure'
+        run: exit 1
+      - name: Publish validated implementation
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git commit -m "feat(search): enforce sparse namespace isolation"
+          git push origin HEAD:feat/search-sparse-namespace-isolation
