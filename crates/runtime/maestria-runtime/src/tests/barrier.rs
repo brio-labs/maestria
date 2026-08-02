@@ -133,3 +133,43 @@ async fn parse_artifact_barrier_timeout_without_persistence_returns_failure()
     );
     Ok(())
 }
+
+#[test]
+fn command_correlation_ids_are_seeded_from_persisted_state() {
+    // R27: the correlation-id namespace is persisted (model-agent proposals
+    // and results carry a CorrelationId), so the per-process counter must
+    // resume after the highest persisted id instead of restarting at 1.
+    let mut state = KernelState::new();
+    assert_eq!(MaestriaRuntime::seed_next_command_id(&state), 1);
+
+    state.model_agent_requests.insert(
+        maestria_domain::HarnessRunId::new(10),
+        maestria_domain::ModelAgentProposalRequest {
+            run_id: maestria_domain::HarnessRunId::new(10),
+            task_id: None,
+            query: "q".to_string(),
+            limit: 1,
+            evidence_ids: Vec::new(),
+            capability: "shell".to_string(),
+            command: "true".to_string(),
+            working_directory: "/tmp".to_string(),
+            timeout_secs: 1,
+            expected_generation: maestria_domain::IndexGenerationId::new(1),
+            task_validation: false,
+            memory_candidate: false,
+            execution: maestria_domain::ModelAgentProposalExecution::Fresh,
+            correlation_id: maestria_domain::CorrelationId::new(7),
+        },
+    );
+    assert_eq!(MaestriaRuntime::seed_next_command_id(&state), 8);
+
+    state.model_agent_results.insert(
+        maestria_domain::HarnessRunId::new(11),
+        maestria_domain::ModelAgentProposalResult::Failed {
+            run_id: maestria_domain::HarnessRunId::new(11),
+            correlation_id: maestria_domain::CorrelationId::new(41),
+            error: "boom".to_string(),
+        },
+    );
+    assert_eq!(MaestriaRuntime::seed_next_command_id(&state), 42);
+}

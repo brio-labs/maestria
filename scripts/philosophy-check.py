@@ -265,6 +265,7 @@ RESPONSIBILITY_MAPS: dict[str, tuple[str, ...]] = {
         "parsing",
         "parsing_records",
         "persistence",
+        "persistence_barrier",
         "proposal_recovery",
         "proposal_persistence",
         "proposal_workflow",

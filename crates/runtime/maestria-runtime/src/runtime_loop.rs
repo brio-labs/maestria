@@ -38,7 +38,7 @@ impl MaestriaRuntime {
         config.input_buffer_size = config.input_buffer_size.max(1);
         let (input_tx, input_rx) = mpsc::channel(config.input_buffer_size);
         let (command_tx, command_rx) = mpsc::channel(config.input_buffer_size);
-        let next_command_id = Arc::new(AtomicU64::new(1));
+        let next_command_id = Arc::new(AtomicU64::new(Self::seed_next_command_id(&state)));
         let next_validation_report_id =
             Arc::new(AtomicU64::new(Self::seed_next_validation_report_id(&state)));
         (
