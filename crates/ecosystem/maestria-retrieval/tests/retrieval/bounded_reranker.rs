@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use maestria_domain::RerankCandidateStatus;
+use maestria_domain::RerankPosition;
 use maestria_retrieval::bounded_reranker::BoundedReranker;
 use maestria_retrieval::traits::{CandidateReranker, RerankScorer};
 use maestria_retrieval::types::{
@@ -102,9 +102,8 @@ async fn test_bounded_reranker_limits_and_trace() -> RetrievalResult<()> {
         .ok_or(RetrievalError::Internal(
             "missing reranked candidate".into(),
         ))?;
-    assert_eq!(c3.status, RerankCandidateStatus::Reranked);
+    assert_eq!(c3.position, RerankPosition::Reranked(0));
     assert_eq!(c3.relevance_score, Some(30));
-    assert_eq!(c3.constraint_score, Some(15));
     assert_eq!(
         c3.constraint_scores,
         vec![maestria_domain::SearchTraceConstraintScore {
@@ -120,7 +119,7 @@ async fn test_bounded_reranker_limits_and_trace() -> RetrievalResult<()> {
         .ok_or(RetrievalError::Internal(
             "missing first candidate trace".into(),
         ))?;
-    assert_eq!(c1.status, RerankCandidateStatus::SkippedCap);
+    assert_eq!(c1.position, RerankPosition::SkippedCap);
 
     let c4 = trace
         .candidates
@@ -129,7 +128,7 @@ async fn test_bounded_reranker_limits_and_trace() -> RetrievalResult<()> {
         .ok_or(RetrievalError::Internal(
             "missing skipped candidate trace".into(),
         ))?;
-    assert_eq!(c4.status, RerankCandidateStatus::SkippedCap);
+    assert_eq!(c4.position, RerankPosition::SkippedCap);
     let c6 = trace
         .candidates
         .iter()
@@ -137,7 +136,7 @@ async fn test_bounded_reranker_limits_and_trace() -> RetrievalResult<()> {
         .ok_or(RetrievalError::Internal(
             "missing capped candidate trace".into(),
         ))?;
-    assert_eq!(c6.status, RerankCandidateStatus::SkippedCap);
+    assert_eq!(c6.position, RerankPosition::SkippedCap);
     Ok(())
 }
 
@@ -181,10 +180,7 @@ async fn test_bounded_reranker_fallback() -> RetrievalResult<()> {
         .ok_or(RetrievalError::Internal(
             "missing fallback candidate trace".into(),
         ))?;
-    assert!(matches!(
-        c999.status,
-        RerankCandidateStatus::ErrorFallback(_)
-    ));
+    assert!(matches!(c999.position, RerankPosition::ErrorFallback(_)));
     assert_eq!(c999.relevance_score, None);
     Ok(())
 }

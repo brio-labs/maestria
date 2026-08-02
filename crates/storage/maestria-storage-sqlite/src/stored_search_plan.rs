@@ -366,7 +366,6 @@ mod tests {
                 require_trust_zone: Some(TrustZone::Verified),
                 max_sensitivity: Some(Sensitivity::Confidential),
                 require_read_allowed: true,
-                required_scope_id: Some(ScopeId::new(7)),
                 effective_scopes: Some(vec![ScopeId::new(7)]),
                 allow_unscoped_items: false,
             }))

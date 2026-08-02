@@ -6,8 +6,6 @@ pub struct RetrievalPolicySnapshot {
     pub require_trust_zone: Option<TrustZone>,
     pub max_sensitivity: Option<Sensitivity>,
     pub require_read_allowed: bool,
-    /// Legacy singleton scope projection retained for consumers that only understand one scope.
-    pub required_scope_id: Option<ScopeId>,
     /// Complete effective scope set. `None` is global; `Some` is restricted.
     pub effective_scopes: Option<Vec<ScopeId>>,
     pub allow_unscoped_items: bool,
@@ -23,7 +21,6 @@ impl RetrievalPolicySnapshot {
             require_trust_zone: None,
             max_sensitivity: None,
             require_read_allowed: true,
-            required_scope_id: None,
             effective_scopes: None,
             allow_unscoped_items: false,
         }
@@ -33,12 +30,10 @@ impl RetrievalPolicySnapshot {
         let mut effective_scopes = scopes.into_iter().collect::<Vec<_>>();
         effective_scopes.sort();
         effective_scopes.dedup();
-        let required_scope_id = (effective_scopes.len() == 1).then(|| effective_scopes[0]);
         Self {
             require_trust_zone: None,
             max_sensitivity: None,
             require_read_allowed: true,
-            required_scope_id,
             effective_scopes: Some(effective_scopes),
             allow_unscoped_items: false,
         }
@@ -61,7 +56,7 @@ impl RetrievalPolicySnapshot {
             option_trust(self.require_trust_zone.as_ref()),
             option_sensitivity(self.max_sensitivity.as_ref()),
             self.require_read_allowed,
-            option_scopes(self.effective_scopes.as_deref(), self.required_scope_id),
+            option_scopes(self.effective_scopes.as_deref()),
             self.allow_unscoped_items,
         )
     }
@@ -92,7 +87,6 @@ impl RetrievalPolicySnapshot {
                 "trust" => trust = Some(parse_trust(raw)?),
                 "sensitivity" => sensitivity = Some(parse_sensitivity(raw)?),
                 "read_allowed" => read_allowed = Some(parse_bool(name, raw)?),
-                // `scope=Some(ScopeId(...))` is the legacy singleton encoding;
                 // `scope=Restricted(...)` carries the complete ordered set.
                 "scope" => scope = Some(parse_scopes(raw)?),
                 "unscoped" => unscoped = Some(parse_bool(name, raw)?),
@@ -104,14 +98,10 @@ impl RetrievalPolicySnapshot {
             }
         }
         let effective_scopes = scope.ok_or_else(|| missing("scope"))?;
-        let required_scope_id = effective_scopes
-            .as_ref()
-            .and_then(|scopes| (scopes.len() == 1).then_some(scopes[0]));
         Ok(Self {
             require_trust_zone: trust.ok_or_else(|| missing("trust"))?,
             max_sensitivity: sensitivity.ok_or_else(|| missing("sensitivity"))?,
             require_read_allowed: read_allowed.ok_or_else(|| missing("read_allowed"))?,
-            required_scope_id,
             effective_scopes,
             allow_unscoped_items: unscoped.ok_or_else(|| missing("unscoped"))?,
         })
@@ -172,18 +162,6 @@ fn parse_scopes(value: &str) -> Result<Option<Vec<ScopeId>>, RetrievalPolicySnap
     if value == "None" {
         return Ok(None);
     }
-    if let Some(number) = value
-        .strip_prefix("Some(ScopeId(")
-        .and_then(|value| value.strip_suffix("))"))
-    {
-        return number
-            .parse::<u64>()
-            .map(|value| Some(vec![ScopeId::new(value)]))
-            .map_err(|_| RetrievalPolicySnapshotError::InvalidValue {
-                field: "scope".to_string(),
-                value: value.to_string(),
-            });
-    }
     let values = value
         .strip_prefix("Restricted(")
         .and_then(|value| value.strip_suffix(')'))
@@ -215,13 +193,9 @@ fn parse_scopes(value: &str) -> Result<Option<Vec<ScopeId>>, RetrievalPolicySnap
     }
     Ok(Some(values))
 }
-fn option_scopes(value: Option<&[ScopeId]>, legacy: Option<ScopeId>) -> String {
+fn option_scopes(value: Option<&[ScopeId]>) -> String {
     match value {
-        None => legacy.map_or_else(
-            || "None".to_string(),
-            |scope| format!("Some(ScopeId({scope}))"),
-        ),
-        Some(scopes) if scopes.len() == 1 => format!("Some(ScopeId({}))", scopes[0]),
+        None => "None".to_string(),
         Some(scopes) => format!(
             "Restricted({})",
             scopes

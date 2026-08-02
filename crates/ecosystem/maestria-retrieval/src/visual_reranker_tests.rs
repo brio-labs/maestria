@@ -310,7 +310,8 @@ async fn visual_reranker_reorders_visual_slots_and_preserves_coordinates()
         }
     );
     assert!(result.trace.candidates.iter().any(|candidate| {
-        candidate.candidate_id == second_id && candidate.status == RerankCandidateStatus::Reranked
+        candidate.candidate_id == second_id
+            && matches!(candidate.position, RerankPosition::Reranked(_))
     }));
     Ok(())
 }
@@ -348,8 +349,8 @@ async fn visual_reranker_returns_traced_fallback_for_secret_queries()
         .await?;
     assert_eq!(result.candidates[0].candidate.evidence_id, evidence_id);
     assert!(matches!(
-        result.trace.candidates[0].status,
-        RerankCandidateStatus::ErrorFallback(_)
+        result.trace.candidates[0].position,
+        RerankPosition::ErrorFallback(_)
     ));
     Ok(())
 }

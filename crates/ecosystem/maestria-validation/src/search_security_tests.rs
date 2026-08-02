@@ -69,7 +69,7 @@ fn security_validator_enforces_typed_policy_values() -> Result<(), Box<dyn std::
     let mut fixture = fixture()?;
     if let Some(trace) = fixture.outcome.trace_data.as_mut() {
         trace.policy_fingerprint = Some(
-            "trust=Some(Verified);sensitivity=Some(Public);read_allowed=true;scope=Some(ScopeId(999));unscoped=false"
+            "trust=Some(Verified);sensitivity=Some(Public);read_allowed=true;scope=Restricted(ScopeId(999));unscoped=false"
                 .to_string(),
         );
         trace.filters = vec![

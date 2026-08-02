@@ -104,9 +104,6 @@ impl RetrievalAuthorizationContext {
             require_trust_zone: self.require_trust_zone.clone(),
             max_sensitivity: self.max_sensitivity.clone(),
             require_read_allowed: self.require_read_allowed,
-            required_scope_id: effective_scopes
-                .as_ref()
-                .and_then(|scopes| (scopes.len() == 1).then_some(scopes[0])),
             effective_scopes,
             allow_unscoped_items: self.allow_unscoped_items,
         }
@@ -235,9 +232,6 @@ impl RetrievalSecurityPolicy {
             require_trust_zone: self.require_trust_zone.clone(),
             max_sensitivity: self.max_sensitivity.clone(),
             require_read_allowed: self.require_read_allowed,
-            required_scope_id: effective_scopes
-                .as_ref()
-                .and_then(|scopes| (scopes.len() == 1).then_some(scopes[0])),
             effective_scopes,
             allow_unscoped_items: self.allow_unscoped_items,
         }

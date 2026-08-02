@@ -53,7 +53,6 @@
             "require_trust_zone": null,
             "max_sensitivity": null,
             "require_read_allowed": true,
-            "required_scope_id": null,
             "effective_scopes": null,
             "allow_unscoped_items": false
           },
@@ -239,7 +238,6 @@
             "require_trust_zone": null,
             "max_sensitivity": null,
             "require_read_allowed": true,
-            "required_scope_id": null,
             "effective_scopes": null,
             "allow_unscoped_items": false
           },
@@ -469,7 +467,6 @@
             "require_trust_zone": null,
             "max_sensitivity": null,
             "require_read_allowed": true,
-            "required_scope_id": null,
             "effective_scopes": null,
             "allow_unscoped_items": false
           },
@@ -660,7 +657,6 @@
             "require_trust_zone": null,
             "max_sensitivity": null,
             "require_read_allowed": true,
-            "required_scope_id": null,
             "effective_scopes": null,
             "allow_unscoped_items": false
           },
@@ -846,7 +842,6 @@
             "require_trust_zone": null,
             "max_sensitivity": null,
             "require_read_allowed": true,
-            "required_scope_id": null,
             "effective_scopes": null,
             "allow_unscoped_items": false
           },
@@ -979,7 +974,6 @@
             "require_trust_zone": null,
             "max_sensitivity": null,
             "require_read_allowed": true,
-            "required_scope_id": null,
             "effective_scopes": null,
             "allow_unscoped_items": false
           },
@@ -1112,7 +1106,6 @@
             "require_trust_zone": null,
             "max_sensitivity": null,
             "require_read_allowed": true,
-            "required_scope_id": null,
             "effective_scopes": null,
             "allow_unscoped_items": false
           },
@@ -1243,7 +1236,6 @@
             "require_trust_zone": null,
             "max_sensitivity": null,
             "require_read_allowed": true,
-            "required_scope_id": null,
             "effective_scopes": null,
             "allow_unscoped_items": false
           },

@@ -1,6 +1,6 @@
 use maestria_domain::{
-    RerankCandidateStatus, RetrievalModelFingerprint, SearchTraceConstraintScore,
-    SearchTraceRerank, SearchTraceRerankCandidate,
+    RerankPosition, RetrievalModelFingerprint, SearchTraceConstraintScore, SearchTraceRerank,
+    SearchTraceRerankCandidate,
 };
 
 use crate::types::{RankedCandidate, RerankLimits, RerankResult};
@@ -40,10 +40,8 @@ pub(super) fn reorder_visual_candidates(
             trace[slot] = SearchTraceRerankCandidate {
                 candidate_id: reranked[slot].candidate.evidence_id,
                 original_rank: candidates[source_position].rank,
-                new_rank: Some(slot),
-                status: RerankCandidateStatus::Reranked,
+                position: RerankPosition::Reranked(slot),
                 relevance_score: Some(*score),
-                constraint_score: Some(*score),
                 constraint_scores: vec![SearchTraceConstraintScore {
                     name: "visual_cosine".to_string(),
                     score: *score,
@@ -53,21 +51,14 @@ pub(super) fn reorder_visual_candidates(
             trace[slot] = SearchTraceRerankCandidate {
                 candidate_id: reranked[slot].candidate.evidence_id,
                 original_rank: candidates[source_position].rank,
-                new_rank: Some(slot),
-                status: RerankCandidateStatus::SkippedCap,
+                position: RerankPosition::SkippedCap,
                 relevance_score: None,
-                constraint_score: None,
                 constraint_scores: Vec::new(),
             };
         }
     }
     for (rank, candidate) in reranked.iter_mut().enumerate() {
         candidate.rank = rank;
-    }
-    for trace_candidate in &mut trace {
-        trace_candidate.new_rank = reranked
-            .iter()
-            .position(|candidate| candidate.candidate.evidence_id == trace_candidate.candidate_id);
     }
     trace.sort_by_key(|candidate| candidate.candidate_id);
     RerankResult {

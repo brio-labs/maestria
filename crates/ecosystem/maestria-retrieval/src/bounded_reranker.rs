@@ -5,8 +5,7 @@ use crate::types::{
 };
 use async_trait::async_trait;
 use maestria_domain::{
-    RerankCandidateStatus, SearchTraceConstraintScore, SearchTraceRerank,
-    SearchTraceRerankCandidate,
+    RerankPosition, SearchTraceConstraintScore, SearchTraceRerank, SearchTraceRerankCandidate,
 };
 use std::sync::Arc;
 use std::time::Duration;
@@ -106,10 +105,8 @@ fn skipped_trace(ranked: &RankedCandidate) -> SearchTraceRerankCandidate {
     SearchTraceRerankCandidate {
         candidate_id: ranked.candidate.evidence_id,
         original_rank: ranked.rank,
-        new_rank: None,
-        status: RerankCandidateStatus::SkippedCap,
+        position: RerankPosition::SkippedCap,
         relevance_score: None,
-        constraint_score: None,
         constraint_scores: Vec::new(),
     }
 }
@@ -135,32 +132,19 @@ fn finish_candidates(
     for mut item in scored {
         let original_rank = item.ranked.rank;
         let candidate_id = item.ranked.candidate.evidence_id;
-        let fallback = item.fallback_error.is_some();
-        let mut status = item.fallback_error.map_or(
-            RerankCandidateStatus::Reranked,
-            RerankCandidateStatus::ErrorFallback,
-        );
-        let new_rank = if final_candidates.len() < output_cap {
+        let position = if final_candidates.len() < output_cap {
             let rank = final_candidates.len();
             item.ranked.rank = rank;
             final_candidates.push(item.ranked);
-            Some(rank)
+            match item.fallback_error.clone() {
+                Some(reason) => RerankPosition::ErrorFallback(reason),
+                None => RerankPosition::Reranked(rank),
+            }
         } else {
-            None
+            RerankPosition::SkippedCap
         };
-        if new_rank.is_none() && !fallback {
-            status = RerankCandidateStatus::SkippedCap;
-        }
-        let reranked = matches!(&status, RerankCandidateStatus::Reranked);
-        let constraint_score = reranked.then(|| {
-            item.components
-                .constraints
-                .iter()
-                .fold(0u32, |total, constraint| {
-                    total.saturating_add(constraint.score)
-                })
-        });
-        let constraint_scores = if reranked {
+        let promoted = matches!(&position, RerankPosition::Reranked(_));
+        let constraint_scores = if promoted {
             item.components
                 .constraints
                 .iter()
@@ -175,10 +159,8 @@ fn finish_candidates(
         trace.push(SearchTraceRerankCandidate {
             candidate_id,
             original_rank,
-            new_rank,
-            status,
-            relevance_score: reranked.then_some(item.components.relevance),
-            constraint_score,
+            position,
+            relevance_score: promoted.then_some(item.components.relevance),
             constraint_scores,
         });
     }
@@ -186,9 +168,21 @@ fn finish_candidates(
         left.candidate_id
             .cmp(&right.candidate_id)
             .then(left.original_rank.cmp(&right.original_rank))
-            .then(left.new_rank.cmp(&right.new_rank))
+            .then(rank_key(&left.position).cmp(&rank_key(&right.position)))
     });
     (final_candidates, trace)
+}
+
+/// Stable sort key for a rerank position: promoted ranks sort by rank, all
+/// other positions share a neutral key so the candidate-id/original-rank
+/// ordering dominates.
+fn rank_key(position: &RerankPosition) -> usize {
+    match position {
+        RerankPosition::Reranked(rank) => *rank,
+        RerankPosition::SkippedCap
+        | RerankPosition::SkippedNotApplicable
+        | RerankPosition::ErrorFallback(_) => usize::MAX,
+    }
 }
 
 #[async_trait]
