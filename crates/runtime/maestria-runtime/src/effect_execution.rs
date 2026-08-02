@@ -3,7 +3,7 @@ use crate::effect_execution_dispatch::PreparedEffect;
 use crate::effect_result::EffectFailure;
 use crate::proposal_persistence::risk_class_to_approval_risk_level;
 use maestria_domain::{
-    CorpusScope, DiagnosticEvent, DomainInput, LogicalTick, MaestriaEffect, RequestApprovalRequest,
+    DiagnosticEvent, DomainInput, LogicalTick, MaestriaEffect, RequestApprovalRequest,
     SearchKnowledgeCompleted, SearchKnowledgeRequest, UpdateGraphRequest,
 };
 use maestria_governance::ScopeGuard;
@@ -102,22 +102,15 @@ impl EffectExecutionContext {
             return false;
         };
         let mut plan = request.plan;
-        match plan.scope() {
-            CorpusScope::Global => {
-                plan = match plan.with_scope(CorpusScope::Restricted(vec![self.scope_id])) {
-                    Ok(confined) => confined,
-                    Err(error) => {
-                        tracing::error!(%error, "search knowledge scope confinement rejected");
-                        return false;
-                    }
-                };
-            }
-            CorpusScope::Restricted(scopes) if scopes.as_slice() != [self.scope_id] => {
-                tracing::error!("search knowledge request exceeds runtime scope");
+        // One owner of search-scope confinement (R28/R43): the same typed
+        // transition used by direct CLI/API search surfaces.
+        plan = match plan.confine_to_scope(self.scope_id) {
+            Ok(confined) => confined,
+            Err(error) => {
+                tracing::error!(%error, "search knowledge scope confinement rejected");
                 return false;
             }
-            CorpusScope::Restricted(_) => {}
-        }
+        };
         match executor.search(plan.clone()).await {
             Ok(outcome) => {
                 if let Err(error) = outcome.verify_compatibility(&plan) {

@@ -146,6 +146,7 @@ fn prepare_search_runtime_with_options(
         repository_code_index,
         repository_execution_policy,
         corpus_snapshot,
+        scope_id: maestria_domain::DEFAULT_INSTANCE_SCOPE_ID,
     };
     Ok(Arc::new(SearchRuntime::from_parts(
         parts,

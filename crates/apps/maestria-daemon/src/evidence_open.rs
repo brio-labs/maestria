@@ -14,7 +14,7 @@ use std::fs;
 use anyhow::{Result, anyhow};
 use maestria_blob_fs::FsBlobStore;
 use maestria_core::{InstanceLayout, InstanceManifest, OpenChunkEvidenceInput, OpenEvidenceInput};
-use maestria_domain::{ChunkId, Evidence, EvidenceId, EvidenceKind, ScopeId};
+use maestria_domain::{ChunkId, Evidence, EvidenceId, EvidenceKind};
 use maestria_governance::RetrievalSecurityPolicy;
 use maestria_parsers::ParserRegistry;
 use maestria_ports::{ArtifactRepository, ChunkRepository, EvidenceRepository};
@@ -93,7 +93,7 @@ pub fn evidence_core_services(stores: &EvidenceStores) -> maestria_core::CoreSer
 fn evidence_retrieval_policy() -> RetrievalSecurityPolicy {
     RetrievalSecurityPolicy::default()
         .require_read_allowed(true)
-        .required_scope(ScopeId::new(1))
+        .required_scope(maestria_domain::DEFAULT_INSTANCE_SCOPE_ID)
         .allow_unscoped_items(true)
 }
 

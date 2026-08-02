@@ -112,6 +112,7 @@ fn build_search_executor(
                 repository_code_index: ecosystem.repository_code_index.clone(),
                 repository_execution_policy,
                 corpus_snapshot,
+                scope_id: maestria_domain::DEFAULT_INSTANCE_SCOPE_ID,
             },
             embedding_provider,
             maestria_governance::RetrievalSecurityPolicy::default()

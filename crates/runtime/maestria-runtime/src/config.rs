@@ -30,7 +30,7 @@ impl Default for RuntimeConfig {
         Self {
             profile: AutonomyProfile::TrustedWorkspace,
             scope: Scope::default(),
-            scope_id: ScopeId::new(1),
+            scope_id: maestria_domain::DEFAULT_INSTANCE_SCOPE_ID,
             input_buffer_size: 1024,
             max_concurrent_effects: 16,
             default_effect_timeout: Duration::from_secs(300),

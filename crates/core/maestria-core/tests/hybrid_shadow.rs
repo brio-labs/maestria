@@ -113,6 +113,7 @@ fn planner_context() -> Result<SearchPlannerContext, Box<dyn std::error::Error>>
         fingerprint: RetrievalModelFingerprint::new(
             "maestria-core:hybrid-shadow-fixture".to_string(),
         )?,
+        scope: None,
     })
 }
 

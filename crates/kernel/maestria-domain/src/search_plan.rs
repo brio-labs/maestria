@@ -223,6 +223,29 @@ impl SearchPlan {
         Ok(self)
     }
 
+    /// Confines the plan to one instance scope (R43).
+    ///
+    /// A global plan is replaced with the restricted scope; a plan already
+    /// restricted to exactly that scope is returned unchanged; a plan
+    /// restricted to any other scope is rejected. This is the single typed
+    /// transition used by every search surface so the runtime effect path and
+    /// direct CLI/API searches enforce the same scope dimension.
+    pub fn confine_to_scope(mut self, scope_id: ScopeId) -> Result<Self, SearchCompatibilityError> {
+        match &self.scope {
+            CorpusScope::Global => {
+                self.scope = CorpusScope::Restricted(vec![scope_id]);
+            }
+            CorpusScope::Restricted(scopes) if scopes.as_slice() == [scope_id] => {}
+            CorpusScope::Restricted(_scopes) => {
+                return Err(SearchCompatibilityError::InvalidPlan(
+                    "search plan is restricted to a scope outside the instance scope",
+                ));
+            }
+        }
+        self.validate_schema()?;
+        Ok(self)
+    }
+
     /// Returns a copy of this plan with a replaced corpus snapshot.
     pub fn with_corpus_snapshot(
         mut self,

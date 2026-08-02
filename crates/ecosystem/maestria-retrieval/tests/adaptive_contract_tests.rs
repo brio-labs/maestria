@@ -418,6 +418,7 @@ async fn planner_accepts_context_snapshot_with_installed_generation() -> Retriev
         corpus_snapshot: CorpusSnapshotId::new(7),
         primary_generation: IndexGenerationId::new(1),
         fingerprint: RetrievalModelFingerprint::new("contextual-model".to_string())?,
+        scope: None,
     };
     let engine = RetrievalEngine::new(
         vec![Arc::new(AdaptiveLane {
@@ -440,6 +441,7 @@ async fn planner_prefers_text_routing_when_web_or_visual_lanes_are_unavailable()
         corpus_snapshot: CorpusSnapshotId::new(1),
         primary_generation: IndexGenerationId::new(1),
         fingerprint: RetrievalModelFingerprint::new("planner-fallback".to_string())?,
+        scope: None,
     };
     let engine = RetrievalEngine::new(
         vec![Arc::new(AdaptiveLane {
@@ -466,6 +468,7 @@ async fn planner_quarantines_prompt_injection_before_capability_routing() -> Ret
         corpus_snapshot: CorpusSnapshotId::new(1),
         primary_generation: IndexGenerationId::new(1),
         fingerprint: RetrievalModelFingerprint::new("planner-injection".to_string())?,
+        scope: None,
     };
     let engine = RetrievalEngine::new(
         vec![Arc::new(AdaptiveLane {
