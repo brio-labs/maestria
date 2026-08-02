@@ -416,8 +416,6 @@ RESPONSIBILITY_MAPS: dict[str, tuple[str, ...]] = {
         "learned_sparse_policy",
         "repository_benchmark",
         "rewrite",
-        "sync",
-        "sync_engine",
         "traits",
         "types",
         "visual_benchmark",

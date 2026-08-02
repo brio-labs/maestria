@@ -200,12 +200,12 @@ pub(crate) fn to_port_error(error: rusqlite::Error) -> PortError {
 #[cfg(test)]
 mod tests {
     use super::serialize_fingerprint;
-    use maestria_ports::EmbeddingIdentity;
 
     #[test]
     fn fingerprint_serialization_is_collision_free_for_delimiters()
     -> Result<(), Box<dyn std::error::Error>> {
-        let base = EmbeddingIdentity::legacy("model", 2)?.fingerprint;
+        let base =
+            maestria_ports::contract_tests::fixture_embedding_identity("model", 2)?.fingerprint;
         let mut first = base.clone();
         first.provider = "a:b".to_string();
         first.model = "c".to_string();

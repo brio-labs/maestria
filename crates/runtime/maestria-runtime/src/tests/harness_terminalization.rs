@@ -391,6 +391,15 @@ impl EffectJournal for FailingClaimFeedbackJournal {
             message: "simulated claim_feedback failure".to_string(),
         })
     }
+    fn claim_feedback_with_outcome(
+        &self,
+        run_id: HarnessRunId,
+        generation: u64,
+        _outcome: HarnessOutcome,
+    ) -> Result<(), PortError> {
+        self.claim_feedback(run_id, generation)
+    }
+
     fn record_terminal(
         &self,
         run_id: HarnessRunId,
@@ -428,6 +437,15 @@ impl EffectJournal for FailingRecordTerminalJournal {
     fn claim_feedback(&self, run_id: HarnessRunId, generation: u64) -> Result<(), PortError> {
         self.inner.claim_feedback(run_id, generation)
     }
+    fn claim_feedback_with_outcome(
+        &self,
+        run_id: HarnessRunId,
+        generation: u64,
+        _outcome: HarnessOutcome,
+    ) -> Result<(), PortError> {
+        self.claim_feedback(run_id, generation)
+    }
+
     fn record_terminal(
         &self,
         _run_id: HarnessRunId,
@@ -471,6 +489,15 @@ impl EffectJournal for FailingPauseJournal {
     fn claim_feedback(&self, run_id: HarnessRunId, generation: u64) -> Result<(), PortError> {
         self.inner.claim_feedback(run_id, generation)
     }
+    fn claim_feedback_with_outcome(
+        &self,
+        run_id: HarnessRunId,
+        generation: u64,
+        _outcome: HarnessOutcome,
+    ) -> Result<(), PortError> {
+        self.claim_feedback(run_id, generation)
+    }
+
     fn record_terminal(
         &self,
         run_id: HarnessRunId,

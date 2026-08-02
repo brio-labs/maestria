@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use maestria_domain::{EvidenceCandidate, IndexGenerationId, IndexStatus, SearchLaneStatus};
-use maestria_governance::{RetrievalDecision, RetrievalSecurityPolicy, scan_secrets};
+use maestria_governance::{RetrievalDecision, scan_secrets};
 use maestria_ports::{
     ArtifactRepository, BlobStore, CardRepository, ChunkRepository, EvidenceRepository,
     FullTextIndex, SearchQuery,
@@ -22,7 +22,6 @@ pub struct CardRetriever {
     chunks: Arc<dyn ChunkRepository + Send + Sync>,
     evidence: Arc<dyn EvidenceRepository + Send + Sync>,
     verifier: SourceSnapshotVerifier,
-    policy: RetrievalSecurityPolicy,
     descriptor: RetrieverDescriptor,
 }
 
@@ -34,13 +33,8 @@ pub struct CardRetrieverParts {
     pub evidence: Arc<dyn EvidenceRepository + Send + Sync>,
     pub blobs: Arc<dyn BlobStore + Send + Sync>,
 }
-
 impl CardRetriever {
-    pub fn new(
-        parts: CardRetrieverParts,
-        policy: RetrievalSecurityPolicy,
-        generation: IndexGenerationId,
-    ) -> Self {
+    pub fn new(parts: CardRetrieverParts, generation: IndexGenerationId) -> Self {
         Self {
             index: parts.index,
             artifacts: parts.artifacts,
@@ -48,7 +42,6 @@ impl CardRetriever {
             chunks: parts.chunks,
             evidence: parts.evidence,
             verifier: SourceSnapshotVerifier::new(parts.blobs),
-            policy,
             descriptor: RetrieverDescriptor {
                 id: "cards".to_string(),
                 modality: "text".to_string(),
@@ -56,18 +49,6 @@ impl CardRetriever {
                 generation,
             },
         }
-    }
-
-    pub fn search(
-        &self,
-        query: SearchQuery,
-    ) -> Result<Vec<maestria_ports::CardHit>, RetrievalError> {
-        let authorization = self
-            .policy
-            .authorization_context(&maestria_domain::CorpusScope::Global)
-            .map_err(|error| RetrievalError::Internal(format!("{error:?}")))?;
-        let bounded = self.filtered_hits(query, &authorization)?;
-        Ok(bounded.hits)
     }
 
     fn filtered_hits(
@@ -256,7 +237,6 @@ mod tests {
                 evidence: Arc::new(InMemoryEvidenceRepository::new()),
                 blobs: Arc::new(InMemoryBlobStore::new()),
             },
-            RetrievalSecurityPolicy::default(),
             generation,
         );
 

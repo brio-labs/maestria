@@ -83,7 +83,7 @@ fn seed_vector_fixture() -> Result<VectorFixture, Box<dyn std::error::Error>> {
         vector: vec![0.0, 1.0],
         provenance: maestria_ports::EmbeddingProvenance {
             content_hash: "hash".to_string(),
-            identity: maestria_ports::EmbeddingIdentity::legacy("test-model", 2)?,
+            identity: maestria_ports::contract_tests::fixture_embedding_identity("test-model", 2)?,
             provider_id: "test-provider".to_string(),
             model: "test-model".to_string(),
             model_version: "test-v1".to_string(),
@@ -138,7 +138,7 @@ impl EmbeddingProvider for DenseFixtureEmbeddingProvider {
     }
 
     fn identity(&self) -> Option<EmbeddingIdentity> {
-        maestria_ports::EmbeddingIdentity::legacy("test-model", 2).ok()
+        maestria_ports::contract_tests::fixture_embedding_identity("test-model", 2).ok()
     }
 }
 

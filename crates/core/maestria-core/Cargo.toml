@@ -13,6 +13,7 @@ maestria-ports = { path = "../../kernel/maestria-ports" }
 url = "2"
 sha2 = "0.10"
 [dev-dependencies]
+maestria-ports = { path = "../../kernel/maestria-ports", features = ["contract-tests"] }
 maestria-retrieval = { path = "../../ecosystem/maestria-retrieval" }
 maestria-blob-fs = { path = "../../storage/maestria-blob-fs" }
 maestria-search-tantivy = { path = "../../storage/maestria-search-tantivy" }

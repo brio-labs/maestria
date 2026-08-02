@@ -126,7 +126,7 @@ fn capability()
 -> Result<(VisualGenerationCapability, EmbeddingIdentity), Box<dyn std::error::Error>> {
     let generation = IndexGenerationId::new(42);
     let snapshot = CorpusSnapshotId::new(7);
-    let mut identity = EmbeddingIdentity::legacy("visual", 2)?;
+    let mut identity = maestria_ports::contract_tests::fixture_embedding_identity("visual", 2)?;
     identity.generation_id = generation;
     identity.representation = maestria_domain::RepresentationName::new("visual_page_v1");
     let mut registry = IndexGenerationRegistry::default();

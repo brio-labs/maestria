@@ -2,10 +2,10 @@ pub mod golden;
 
 use maestria_domain::{
     ArtifactVersionId, ContentRange, CorpusScope, CorpusSnapshotId, EvidenceCandidate,
-    EvidenceCoverage, EvidenceRequirements, EvidenceSpan, FreshnessRequirement, FreshnessStatus,
-    IndexGenerationId, Modality, ModalitySet, QueryId, RetrievalModelFingerprint, RetrievalReason,
-    RetrievalScoreSet, SearchBudget, SearchIntent, SearchOutcome, SearchPlan, SearchStage,
-    SearchStatus, SearchTraceId, SourceLocation, StopConditions, StructureNodeId, TrustLabel,
+    EvidenceRequirements, EvidenceSpan, FreshnessRequirement, FreshnessStatus, IndexGenerationId,
+    Modality, ModalitySet, QueryId, RetrievalModelFingerprint, RetrievalReason, RetrievalScoreSet,
+    SearchBudget, SearchIntent, SearchPlan, SearchStage, SourceLocation, StopConditions,
+    StructureNodeId, TrustLabel,
 };
 use maestria_retrieval::{RetrievalError, RetrievalResult};
 
@@ -109,26 +109,4 @@ pub fn dummy_plan() -> RetrievalResult<SearchPlan> {
             maestria_domain::RetrievalPolicySnapshot::global_default(),
         ))
         .build()?)
-}
-
-pub fn dummy_outcome() -> RetrievalResult<SearchOutcome> {
-    Ok(SearchOutcome {
-        trace: SearchTraceId::new(1),
-        trace_data: None,
-        fingerprint: RetrievalModelFingerprint::new("dummy-model".into())?,
-        index_generation: IndexGenerationId::new(1),
-        status: SearchStatus::Answerable,
-        evidence: vec![],
-        coverage: EvidenceCoverage {
-            required_claims: vec![],
-            required_subquestions: vec![],
-            distinct_sources: 0,
-            distinct_documents: 0,
-            distinct_sections: 0,
-            candidate_coverage_keys: vec![],
-            percent_covered: 0,
-            gaps_identified: vec![],
-        },
-        conflicts: vec![],
-    })
 }

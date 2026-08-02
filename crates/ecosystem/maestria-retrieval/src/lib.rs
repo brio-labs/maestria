@@ -12,8 +12,6 @@ pub mod adapters;
 /// - `learned_sparse_policy`: module responsibility.
 /// - `repository_benchmark`: module responsibility.
 /// - `rewrite`: module responsibility.
-/// - `sync`: module responsibility.
-/// - `sync_engine`: module responsibility.
 /// - `traits`: module responsibility.
 /// - `types`: module responsibility.
 /// - `visual_benchmark`: module responsibility.
@@ -30,8 +28,6 @@ pub mod learned_sparse_policy;
 mod monotonic;
 pub mod repository_benchmark;
 pub mod rewrite;
-mod sync;
-mod sync_engine;
 pub mod traits;
 pub mod types;
 pub mod visual_benchmark;
@@ -72,8 +68,6 @@ pub use repository_benchmark::{
     RepositoryClassComparison, RepositoryExecutionPolicy, RepositoryExpectedOutcome,
     RepositoryPromotionRecord, RepositoryQueryClass, RepositoryRoute, RepositoryRouteMetrics,
 };
-pub use sync::SyncPipeline;
-pub use sync_engine::SyncRetrievalEngine;
 pub use traits::{
     CandidateReranker, CandidateRetriever, ContextExpander, RankFusion, RerankScorer,
     RetrievalEvaluator,
