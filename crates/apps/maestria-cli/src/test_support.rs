@@ -134,6 +134,28 @@ pub fn assert_err(args: &[&str]) -> Result<String, Box<dyn std::error::Error>> {
     Ok(stderr)
 }
 
+/// Like [`assert_err`], but with a caller-supplied wall-clock budget.
+///
+/// Commands whose own timeout budget is close to the default 30s harness cap
+/// (e.g. `index` waiting on a no-text PDF) must be run with a larger budget so
+/// the product's own timeout produces the expected error instead of being
+/// killed by the harness.
+pub fn assert_err_bounded(
+    args: &[&str],
+    timeout: Duration,
+) -> Result<String, Box<dyn std::error::Error>> {
+    let (code, stdout, stderr) = run_bounded(args, timeout)?;
+    assert_ne!(
+        code, 0,
+        "command unexpectedly succeeded: {args:?}\nstdout: {stdout}"
+    );
+    assert!(
+        stdout.trim().is_empty(),
+        "failed command wrote unexpected stdout: {stdout}"
+    );
+    Ok(stderr)
+}
+
 /// Parse whitespace-separated `key=value` tokens from a CLI output line.
 pub fn parse_kv(line: &str) -> Vec<(&str, &str)> {
     line.split_whitespace()
