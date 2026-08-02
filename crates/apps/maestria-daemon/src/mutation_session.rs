@@ -31,6 +31,11 @@ impl MutationSession {
     /// Search serves from existing vector rows and degrades explicitly when dense
     /// retrieval is unavailable; rebuilding would re-embed the corpus on every
     /// search command and require a live embedding provider.
+    ///
+    /// # Cancellation
+    /// Cancellation before this future returns releases the instance lock and requests runtime
+    /// shutdown, exactly like [`MutationSession::start`]. Recovery already accepted by the
+    /// runtime may still reach durable state.
     pub async fn start_for_search(
         layout: InstanceLayout,
         profile: AutonomyProfile,
@@ -44,6 +49,11 @@ impl MutationSession {
     /// Callers (CLI search) use the returned session for a durable search or
     /// degrade to a read-only search; the lock decision is owned here, not
     /// re-composed by application entry points.
+    ///
+    /// # Cancellation
+    /// Cancellation before this future returns releases the instance lock and requests runtime
+    /// shutdown, exactly like [`MutationSession::start`]. Recovery already accepted by the
+    /// runtime may still reach durable state.
     pub async fn try_start_for_search(
         layout: InstanceLayout,
         profile: AutonomyProfile,

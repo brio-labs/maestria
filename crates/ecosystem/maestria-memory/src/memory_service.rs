@@ -1,28 +1,15 @@
 use std::collections::BTreeMap;
 
-use maestria_domain::{
-    Claim, ClaimId, Memory, MemoryCandidate, MemoryCandidateId, MemoryId, MemoryStatus,
-};
-use maestria_governance::{MemoryPromotionDecision, MemoryPromotionGate, MemoryPromotionRequest};
+use maestria_domain::{Claim, ClaimId, Memory, MemoryCandidate, MemoryCandidateId, MemoryId};
 
-/// Pure orchestration of memory workflows.
+/// Pure read-only memory workflow analysis.
+///
+/// Memory state transitions (promotion, deprecation, contradiction,
+/// supersession) are owned by the domain and always emit append-only domain
+/// events (R40); this service only inspects state and must never mutate a
+/// `Memory` or construct one.
 #[derive(Debug, Default, Clone, Copy)]
 pub struct MemoryService;
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PromoteMemoryInput {
-    pub memory_id: MemoryId,
-    pub candidate: MemoryCandidate,
-    pub user_approved: bool,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum PromoteMemoryOutput {
-    Promoted(Memory),
-    RequiresEvidence { reason: String },
-    RequiresReview { reason: String },
-    Denied { reason: String },
-}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ContradictionCheck {
@@ -32,45 +19,6 @@ pub struct ContradictionCheck {
 }
 
 impl MemoryService {
-    /// Evaluates a candidate against the supplied governance gate and promotes it
-    /// to an active memory only when policy allows promotion.
-    pub fn promote(
-        input: PromoteMemoryInput,
-        gate: &dyn MemoryPromotionGate,
-    ) -> PromoteMemoryOutput {
-        // Promoted memories must point back to evidence: an evidence-less
-        // candidate cannot become an active memory regardless of gate policy.
-        if !input.candidate.has_evidence() {
-            return PromoteMemoryOutput::RequiresEvidence {
-                reason:
-                    "candidate carries no evidence; promoted memories must point back to evidence"
-                        .to_string(),
-            };
-        }
-        let request = MemoryPromotionRequest {
-            candidate: input.candidate.clone(),
-            user_approved: input.user_approved,
-        };
-
-        match gate.evaluate(&request) {
-            MemoryPromotionDecision::Promote => PromoteMemoryOutput::Promoted(Memory {
-                id: input.memory_id,
-                candidate_id: input.candidate.id,
-                claim_id: input.candidate.claim_id,
-                evidence_ids: input.candidate.evidence_ids,
-                status: MemoryStatus::Active,
-                security: input.candidate.security,
-            }),
-            MemoryPromotionDecision::RequireEvidence { reason } => {
-                PromoteMemoryOutput::RequiresEvidence { reason }
-            }
-            MemoryPromotionDecision::RequireReview { reason } => {
-                PromoteMemoryOutput::RequiresReview { reason }
-            }
-            MemoryPromotionDecision::Deny { reason } => PromoteMemoryOutput::Denied { reason },
-        }
-    }
-
     /// Detects active memories carrying the same claim as a new candidate.
     ///
     /// The domain models explicit contradiction relations elsewhere; at the memory
@@ -85,7 +33,8 @@ impl MemoryService {
         existing
             .iter()
             .filter(|(_, memory)| {
-                memory.status == MemoryStatus::Active && memory.claim_id == candidate.claim_id
+                memory.status == maestria_domain::MemoryStatus::Active
+                    && memory.claim_id == candidate.claim_id
             })
             .map(|(memory_id, _)| ContradictionCheck {
                 new_candidate_id: candidate.id,
@@ -123,24 +72,6 @@ impl MemoryService {
             })
             .copied()
             .collect()
-    }
-
-    /// Marks a memory as deprecated and returns the updated value.
-    pub fn deprecate(_memory_id: MemoryId, memory: &mut Memory) -> Memory {
-        memory.status = MemoryStatus::Deprecated;
-        memory.clone()
-    }
-
-    /// Marks a memory as contradicted and returns the updated value.
-    pub fn mark_contradicted(_memory_id: MemoryId, memory: &mut Memory) -> Memory {
-        memory.status = MemoryStatus::Contradicted;
-        memory.clone()
-    }
-
-    /// Marks a memory as superseded and returns the updated value.
-    pub fn supersede(_memory_id: MemoryId, memory: &mut Memory) -> Memory {
-        memory.status = MemoryStatus::Superseded;
-        memory.clone()
     }
 }
 

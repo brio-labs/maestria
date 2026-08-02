@@ -85,3 +85,18 @@ fn pdf_parser_satisfies_contract() -> Result<(), Box<dyn Error>> {
     )?;
     Ok(())
 }
+
+#[test]
+fn parser_registry_satisfies_contract() -> Result<(), Box<dyn Error>> {
+    assert_parser_round_trip(
+        &ParserRegistry::with_defaults(),
+        &FileHandle {
+            path: PathBuf::from("notes.md"),
+            bytes: b"alpha".to_vec(),
+        },
+        ParseContext {
+            artifact_id: ArtifactId::new(7),
+        },
+    )?;
+    Ok(())
+}
