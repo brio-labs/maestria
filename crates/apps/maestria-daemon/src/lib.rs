@@ -23,6 +23,7 @@
 /// - `db_retry`: shared database-busy retry policy.
 /// - `evidence_open`: shared read-only evidence store assembly.
 /// - `ingestion_policy`: shared source-file and privacy exclusion policy.
+/// - `source_identity`: canonical source-path identity keys for watcher and recovery.
 pub mod api;
 mod approval_recovery;
 pub mod blocked_patterns;
@@ -43,6 +44,7 @@ mod recovery_inputs;
 mod recovery_staging;
 mod runtime_construction;
 mod search_executor;
+mod source_identity;
 mod supervision_recovery;
 mod validation_recovery;
 mod vector_startup;

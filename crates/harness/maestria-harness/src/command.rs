@@ -71,16 +71,21 @@ pub(crate) fn canonicalize_existing_prefix(path: &Path) -> Option<PathBuf> {
     }
 }
 
-pub(crate) fn normalize_absolute_path(path: &Path) -> PathBuf {
+/// Resolve a caller-supplied path against the current working directory,
+/// failing with a typed error when the working directory is unavailable
+/// (R24): a blocked-path check must never silently compare a relative path
+/// against absolute policy paths.
+pub(crate) fn normalize_absolute_path(path: &Path) -> Result<PathBuf, PortError> {
     let absolute = if path.is_absolute() {
         path.to_path_buf()
     } else {
-        match std::env::current_dir() {
-            Ok(current) => current.join(path),
-            Err(_) => path.to_path_buf(),
-        }
+        let current = std::env::current_dir().map_err(|error| PortError::InternalContext {
+            context: "resolve relative path against working directory",
+            source: format!("{}: {error}", path.display()),
+        })?;
+        current.join(path)
     };
-    normalize_path(&absolute)
+    Ok(normalize_path(&absolute))
 }
 
 pub(crate) fn filename_matches(name: &str, pattern: &str) -> bool {
@@ -271,12 +276,15 @@ pub(crate) fn authorize_paths(request: &HarnessRequest) -> Result<AuthorizedPath
         .blocked_paths
         .iter()
         .map(|path| {
-            canonicalize_existing_prefix(path)
-                .or_else(|| Some(normalize_absolute_path(path)))
-                .ok_or_else(|| PortError::InvalidInputContext {
-                    context: "validate harness blocked path",
-                    source: path.display().to_string(),
-                })
+            // Canonicalize the existing prefix, falling back to a lexical
+            // normalize for paths that do not exist yet. A missing working
+            // directory is a typed error (R24): the exclusion check must
+            // never silently compare a relative path against absolute policy
+            // paths.
+            match canonicalize_existing_prefix(path) {
+                Some(resolved) => Ok(resolved),
+                None => normalize_absolute_path(path),
+            }
         })
         .collect::<Result<Vec<_>, _>>()?;
     if blocked_paths

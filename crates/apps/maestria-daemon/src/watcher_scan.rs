@@ -12,13 +12,6 @@ pub(super) struct Observation {
     pub(super) hash: String,
 }
 
-pub(super) fn source_key(path: &Path) -> String {
-    match path.canonicalize() {
-        Ok(path) => path.display().to_string(),
-        Err(_) => path.display().to_string(),
-    }
-}
-
 /// Scan manifest roots using `ignore::WalkBuilder` for gitignore/.ignore-aware
 /// traversal. The walker respects `.gitignore`, `.ignore`, and hidden-file
 /// conventions automatically.

@@ -65,10 +65,10 @@ pub(crate) fn source_artifact_ids(
             ..
         } = envelope.event
         {
-            let key = match std::path::Path::new(&source_path).canonicalize() {
-                Ok(path) => path.display().to_string(),
-                Err(_) => source_path,
-            };
+            // Same identity-key policy as the watcher (R28): canonical when
+            // the path exists, stored string verbatim otherwise (R24 modeled
+            // fallback for reconciliation of no-longer-present paths).
+            let key = crate::source_identity::stored_source_key(&source_path);
             identities.insert(key, (artifact_id, content_hash.as_str().to_owned()));
         }
     }
