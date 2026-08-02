@@ -17,7 +17,12 @@ pub(super) struct HttpResponse {
 mod metadata;
 
 pub(super) trait HttpTransport: Send + Sync + std::fmt::Debug {
-    fn get(&self, url: &str, max_bytes: usize) -> Result<HttpResponse, PortError>;
+    fn get(
+        &self,
+        url: &str,
+        max_bytes: usize,
+        max_latency_ms: u32,
+    ) -> Result<HttpResponse, PortError>;
 }
 fn blocked_ip(ip: IpAddr) -> bool {
     match ip {
@@ -126,14 +131,24 @@ struct UreqTransport {
 }
 
 impl HttpTransport for UreqTransport {
-    fn get(&self, url: &str, max_bytes: usize) -> Result<HttpResponse, PortError> {
+    fn get(
+        &self,
+        url: &str,
+        max_bytes: usize,
+        max_latency_ms: u32,
+    ) -> Result<HttpResponse, PortError> {
         if max_bytes == 0 || max_bytes > MAX_WEB_RESPONSE_BYTES {
             return Err(PortError::InvalidInputContext {
                 context: "max_bytes out of bounds",
                 source: max_bytes.to_string(),
             });
         }
-        let response = match self.agent.get(url).call() {
+        let response = match self
+            .agent
+            .get(url)
+            .timeout(Duration::from_millis(u64::from(max_latency_ms)))
+            .call()
+        {
             Ok(resp) => resp,
             Err(ureq::Error::Status(404, _)) => return Err(PortError::NotFound),
             Err(e) => return Err(downstream_error(e)),
@@ -241,7 +256,9 @@ impl WebFetcher for UreqWebFetcher {
                 source: "url is outside the allowed web domains".to_string(),
             });
         }
-        let response = self.transport.get(url_str, options.max_bytes)?;
+        let response = self
+            .transport
+            .get(url_str, options.max_bytes, options.max_latency_ms)?;
         if !options.allowed_content_types.is_empty()
             && !response
                 .content_type

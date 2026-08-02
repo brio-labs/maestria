@@ -1,6 +1,6 @@
 use crate::web_fetcher::{HttpResponse, HttpTransport, UreqWebFetcher, downstream_error};
 use maestria_domain::content_hash;
-use maestria_ports::{PortError, WebFetcher};
+use maestria_ports::{PortError, WebFetchOptions, WebFetcher};
 use std::collections::BTreeMap;
 
 #[derive(Debug)]
@@ -14,8 +14,44 @@ impl FixtureTransport {
     }
 }
 
+#[derive(Debug)]
+struct RecordingTransport {
+    latency_ms: std::sync::Mutex<Vec<u32>>,
+}
+
+impl RecordingTransport {
+    fn new() -> Self {
+        Self {
+            latency_ms: std::sync::Mutex::new(Vec::new()),
+        }
+    }
+}
+
+impl HttpTransport for RecordingTransport {
+    fn get(
+        &self,
+        _url: &str,
+        _max_bytes: usize,
+        max_latency_ms: u32,
+    ) -> Result<HttpResponse, PortError> {
+        self.latency_ms
+            .lock()
+            .map_err(|_| downstream_error("recording lock poisoned"))?
+            .push(max_latency_ms);
+        Ok(HttpResponse {
+            body: String::new(),
+            content_type: None,
+        })
+    }
+}
+
 impl HttpTransport for FixtureTransport {
-    fn get(&self, url: &str, max_bytes: usize) -> Result<HttpResponse, PortError> {
+    fn get(
+        &self,
+        url: &str,
+        max_bytes: usize,
+        _max_latency_ms: u32,
+    ) -> Result<HttpResponse, PortError> {
         let body = if let Some(res) = self.responses.get(url) {
             match res {
                 Ok(s) => s.clone(),
@@ -184,6 +220,26 @@ fn test_fetch_connection_refused() -> Result<(), Box<dyn std::error::Error>> {
         err,
         Err(PortError::Downstream { .. } | PortError::DownstreamContext { .. })
     ));
+    Ok(())
+}
+
+#[test]
+fn test_latency_budget_reaches_transport() -> Result<(), Box<dyn std::error::Error>> {
+    let transport = std::sync::Arc::new(RecordingTransport::new());
+    let fetcher = UreqWebFetcher::with_transport(transport.clone());
+    let options = WebFetchOptions {
+        max_bytes: 4096,
+        max_latency_ms: 777,
+        allowed_domains: Vec::new(),
+        allowed_content_types: Vec::new(),
+    };
+    fetcher.fetch_with_options("https://example.com/latency", &options)?;
+    let recorded = transport
+        .latency_ms
+        .lock()
+        .map_err(|_| "recording lock poisoned")?
+        .clone();
+    assert_eq!(recorded, vec![777]);
     Ok(())
 }
 

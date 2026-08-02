@@ -6,7 +6,9 @@ use maestria_code_intel::{
 };
 use maestria_core::{InstanceLayout, InstanceManifest};
 use maestria_domain::CorpusScope;
-use maestria_governance::{RetrievalAuthorizationContext, RetrievalSecurityPolicy};
+use maestria_governance::{
+    AutonomyProfile, RetrievalAuthorizationContext, RetrievalSecurityPolicy,
+};
 use maestria_ports::{EventFilter, EventLog};
 use maestria_retrieval::adapters::{CodeIntelSecurityResolver, CodeIntelSecurityResolverParts};
 use maestria_storage_sqlite::SqliteStore;
@@ -40,22 +42,33 @@ fn code_intel_authorization(layout: &InstanceLayout) -> Result<CodeIntelAuthoriz
     Ok(CodeIntelAuthorization { resolver, context })
 }
 
-pub(crate) fn run_index(instance_dir: PathBuf, repository: PathBuf) -> Result<()> {
+pub(crate) async fn run_index(instance_dir: PathBuf, repository: PathBuf) -> Result<()> {
     let layout = super::super::helpers::validated_instance(instance_dir)?;
     let manifest = super::super::helpers::load_manifest(&layout)?;
     let repository = allowed_repository_root(&repository, &manifest)?;
-    let index = RepositoryCodeIndex::build_with_exclusions(
-        &repository,
-        REPOSITORY_CODE_PARSER_GENERATION,
-        &manifest.excluded_patterns,
-    )
-    .map_err(|error| anyhow::anyhow!("build repository code index: {error}"))?;
-    let index_path = layout.system_dir.join(REPOSITORY_CODE_INDEX_FILENAME);
-    index
-        .save(&index_path)
-        .map_err(|error| anyhow::anyhow!("save repository code index: {error}"))?;
+    // Instance state is written under the instance write lock (R28/R32): the
+    // mutation session is the one owner of startup, recovery, and shutdown.
+    let session =
+        maestria_daemon::MutationSession::start(layout.clone(), AutonomyProfile::TrustedWorkspace)
+            .await
+            .context("start mutation session")?;
+    let result = async {
+        let index = RepositoryCodeIndex::build_with_exclusions(
+            &repository,
+            REPOSITORY_CODE_PARSER_GENERATION,
+            &manifest.excluded_patterns,
+        )
+        .map_err(|error| anyhow::anyhow!("build repository code index: {error}"))?;
+        let index_path = layout.system_dir.join(REPOSITORY_CODE_INDEX_FILENAME);
+        index
+            .save(&index_path)
+            .map_err(|error| anyhow::anyhow!("save repository code index: {error}"))?;
+        Ok::<_, anyhow::Error>((index_path, index.summary))
+    }
+    .await;
+    let (index_path, summary) = session.finish(result).await?;
     println!("repository_code_index={}", index_path.display());
-    println!("{}", serde_json::to_string_pretty(&index.summary)?);
+    println!("{}", serde_json::to_string_pretty(&summary)?);
     Ok(())
 }
 

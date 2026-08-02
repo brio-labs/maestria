@@ -192,6 +192,21 @@ fn assert_containing_scope_calls(index: &RepositoryCodeIndex) -> Result<(), Box<
                 && relation.target_record_id == helper
         }));
     }
+    let deeper_helper = symbol_id(&index.symbols, "nested::deeper::helper")?;
+    for source_name in ["nested::deeper::self_caller", "nested::deeper::bare_caller"] {
+        let source = symbol_id(&index.symbols, source_name)?;
+        assert!(index.relations.iter().any(|relation| {
+            relation.kind == CodeRelationKind::Calls
+                && relation.source_record_id == source
+                && relation.target_record_id == deeper_helper
+        }));
+    }
+    let deeper_super = symbol_id(&index.symbols, "nested::deeper::super_caller")?;
+    assert!(index.relations.iter().any(|relation| {
+        relation.kind == CodeRelationKind::Calls
+            && relation.source_record_id == deeper_super
+            && relation.target_record_id == helper
+    }));
     let target = symbol_id(&index.symbols, "target")?;
     let root_source = symbol_id(&index.symbols, "self_root_call")?;
     assert!(index.relations.iter().any(|relation| {

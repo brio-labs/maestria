@@ -4,6 +4,7 @@ use crate::ids::{
     RelationId, TaskId, ValidationReportId,
 };
 use crate::security::SecurityMetadata;
+use crate::task_status::TaskStatus;
 use std::collections::BTreeSet;
 
 #[derive(
@@ -305,7 +306,9 @@ pub enum RelationKind {
     RelatedTo,
 }
 
-pub(crate) const MIN_PROMOTION_CONFIDENCE_MILLI: u16 = 500;
+/// Minimum candidate confidence (milli) required for memory promotion,
+/// owned by the domain and reused by every promotion gate (R28).
+pub const MIN_PROMOTION_CONFIDENCE_MILLI: u16 = 500;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ValidationReportRecord {
@@ -352,45 +355,6 @@ pub enum TaskPriority {
     Low,
     Normal,
     High,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum TaskStatus {
-    Draft,
-    Open,
-    Active,
-    Validating,
-    Blocked,
-    CompletedVerified,
-    CompletedWithWarnings,
-    Failed,
-    Cancelled,
-}
-
-impl TaskStatus {
-    pub fn can_transition_to(self, next: Self) -> bool {
-        match self {
-            Self::Draft => matches!(next, Self::Open | Self::Cancelled),
-            Self::Open => matches!(next, Self::Active | Self::Cancelled),
-            Self::Active => matches!(
-                next,
-                Self::Validating | Self::Blocked | Self::Failed | Self::Cancelled
-            ),
-            Self::Validating => matches!(
-                next,
-                Self::CompletedVerified | Self::CompletedWithWarnings | Self::Failed | Self::Active
-            ),
-            Self::Blocked => matches!(next, Self::Active | Self::Failed | Self::Cancelled),
-            Self::CompletedVerified
-            | Self::CompletedWithWarnings
-            | Self::Failed
-            | Self::Cancelled => false,
-        }
-    }
-
-    pub fn is_completion(self) -> bool {
-        matches!(self, Self::CompletedVerified | Self::CompletedWithWarnings)
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

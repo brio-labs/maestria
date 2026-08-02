@@ -287,6 +287,7 @@ fn extract_function(
     compound::emit_call_candidates(
         record.record_id.clone(),
         qualified,
+        module_stack.join("::"),
         probe.call_targets,
         &mut calls,
     );

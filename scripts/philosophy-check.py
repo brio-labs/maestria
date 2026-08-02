@@ -234,6 +234,7 @@ RESPONSIBILITY_MAPS: dict[str, tuple[str, ...]] = {
         "security",
         "security_snapshot",
         "sparse_namespace",
+        "task_status",
         "types",
     ),
     "crates/kernel/maestria-governance/src/lib.rs": (

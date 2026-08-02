@@ -1,4 +1,4 @@
-use crate::entities::{ClaimStatus, RelationEndpoint, RelationKind, TaskPriority, TaskStatus};
+use crate::entities::{ClaimStatus, RelationEndpoint, RelationKind, TaskPriority};
 use crate::evidence_source::EvidenceKind;
 use crate::ids::StructureNodeId;
 use crate::ids::{
@@ -8,6 +8,7 @@ use crate::ids::{
 };
 use crate::search::{ContentHash, StructureNode};
 use crate::security::SecurityMetadata;
+use crate::task_status::TaskStatus;
 use std::collections::BTreeSet;
 
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -64,3 +64,44 @@ id_type!(DuplicateClusterId);
 id_type!(ConflictSetId);
 id_type!(CorrelationId);
 id_type!(JournalGeneration);
+
+impl QueryId {
+    /// Deterministic query identity derived from the query text, so plans,
+    /// traces, evidence packs, and shadow observations for the same query
+    /// share one identity while distinct queries never collapse to a single
+    /// id (R42: search traces identify the query). Same FNV-1a mixing used by
+    /// `SearchTrace::deterministic_id`.
+    pub fn from_query_text(query: &str) -> Self {
+        let mut hash = 0xcbf29ce484222325u64;
+        for byte in query.as_bytes() {
+            hash ^= u64::from(*byte);
+            hash = hash.wrapping_mul(0x100000001b3);
+        }
+        Self::new(hash)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn query_id_is_deterministic_per_query_text() {
+        assert_eq!(
+            QueryId::from_query_text("alpha token"),
+            QueryId::from_query_text("alpha token")
+        );
+    }
+
+    #[test]
+    fn distinct_queries_do_not_collapse_to_one_id() {
+        assert_ne!(
+            QueryId::from_query_text("alpha token"),
+            QueryId::from_query_text("beta token")
+        );
+        assert_ne!(
+            QueryId::from_query_text("alpha token"),
+            QueryId::from_query_text("alpha token?")
+        );
+    }
+}

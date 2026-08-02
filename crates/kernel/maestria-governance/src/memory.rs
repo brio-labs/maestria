@@ -1,4 +1,4 @@
-use maestria_domain::MemoryCandidate;
+use maestria_domain::{MIN_PROMOTION_CONFIDENCE_MILLI, MemoryCandidate};
 
 /// Request to evaluate a memory candidate for promotion.
 #[derive(Debug)]
@@ -38,7 +38,7 @@ impl MemoryPromotionGate for DefaultMemoryPromotionGate {
             };
         }
 
-        if request.candidate.confidence_milli < 500 {
+        if request.candidate.confidence_milli < MIN_PROMOTION_CONFIDENCE_MILLI {
             return MemoryPromotionDecision::RequireReview {
                 reason: "low confidence memory candidate".to_string(),
             };

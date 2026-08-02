@@ -171,6 +171,24 @@ pub mod nested {
     pub fn self_caller() -> i32 {
         self::helper()
     }
+
+    pub mod deeper {
+        pub fn helper() -> i32 {
+            2
+        }
+
+        pub fn self_caller() -> i32 {
+            self::helper()
+        }
+
+        pub fn super_caller() -> i32 {
+            super::helper()
+        }
+
+        pub fn bare_caller() -> i32 {
+            helper()
+        }
+    }
 }
 
 pub struct Widget {

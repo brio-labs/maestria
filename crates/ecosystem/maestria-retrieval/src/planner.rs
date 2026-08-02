@@ -70,7 +70,7 @@ fn build_plan(
         stages.push(maestria_domain::SearchStage::Filtering);
     }
     SearchPlan::builder()
-        .query_id(maestria_domain::QueryId::new(1))
+        .query_id(maestria_domain::QueryId::from_query_text(original_query))
         .original_query(original_query.to_string())
         .intent(route.intent)
         .scope(maestria_domain::CorpusScope::Global)

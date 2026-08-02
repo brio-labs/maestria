@@ -37,6 +37,7 @@ mod model_agent;
 /// - `security`: module responsibility.
 /// - `security_snapshot`: authorization and integrity security snapshots.
 /// - `sparse_namespace`: learned-sparse instance and trust-zone identity.
+/// - `task_status`: task status enum and transition policy.
 /// - `types`: module responsibility.
 mod ocr;
 mod provenance;
@@ -45,6 +46,7 @@ mod search;
 mod security;
 mod security_snapshot;
 mod sparse_namespace;
+mod task_status;
 mod types;
 
 pub use crate::effects::{
@@ -55,9 +57,9 @@ pub use crate::effects::{
 };
 pub use crate::entities::{
     Artifact, Card, Chunk, Claim, ClaimStatus, ContentRange, ContentRangeError, Evidence,
-    IndexStatus, Memory, MemoryCandidate, MemoryStatus, OutputStream, PendingArtifact, Relation,
-    RelationEndpoint, RelationKind, Task, TaskPriority, TaskStatus, TestStatus,
-    ValidationReportRecord,
+    IndexStatus, MIN_PROMOTION_CONFIDENCE_MILLI, Memory, MemoryCandidate, MemoryStatus,
+    OutputStream, PendingArtifact, Relation, RelationEndpoint, RelationKind, Task, TaskPriority,
+    TestStatus, ValidationReportRecord,
 };
 pub use crate::errors::DomainError;
 pub use crate::events::{ApprovalOutcome, DomainEvent, DomainEventEnvelope};
@@ -131,3 +133,4 @@ pub use crate::security::{
 };
 pub use crate::security_snapshot::{RetrievalPolicySnapshot, RetrievalPolicySnapshotError};
 pub use crate::sparse_namespace::{SparseNamespace, SparseNamespaceError};
+pub use crate::task_status::TaskStatus;

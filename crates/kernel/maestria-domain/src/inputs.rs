@@ -1,4 +1,4 @@
-use crate::entities::{RelationEndpoint, RelationKind, TaskPriority, TaskStatus};
+use crate::entities::{RelationEndpoint, RelationKind, TaskPriority};
 use crate::evidence_source::EvidenceKind;
 use crate::ids::{
     ApprovalId, ArtifactId, BlobId, CardId, ChunkId, ClaimId, EvidenceId, HarnessRunId,
@@ -6,6 +6,7 @@ use crate::ids::{
     ValidationReportId,
 };
 use crate::model_agent::{ModelAgentProposalRequest, ModelAgentProposalResult};
+use crate::task_status::TaskStatus;
 
 use crate::security::SecurityMetadata;
 #[derive(Debug, Clone, PartialEq, Eq)]

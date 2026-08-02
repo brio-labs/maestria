@@ -1,8 +1,8 @@
-use crate::entities::TaskStatus;
 use crate::ids::{
     ArtifactId, CardId, ChunkId, ClaimId, EvidenceId, HarnessRunId, IndexGenerationId,
     MemoryCandidateId, MemoryId, RelationId, TaskId, ValidationReportId,
 };
+use crate::task_status::TaskStatus;
 use std::fmt;
 
 #[derive(Debug, Clone, PartialEq, Eq)]

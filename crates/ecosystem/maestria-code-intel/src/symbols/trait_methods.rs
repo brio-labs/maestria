@@ -96,6 +96,7 @@ fn extract_methods(
             .map(|(target_path, self_receiver)| RelationCandidate::Calls {
                 source_record_id: source_record_id.clone(),
                 source_qualified: source_qualified.clone(),
+                module_scope: module_stack.join("::"),
                 target_path,
                 self_receiver,
             })
