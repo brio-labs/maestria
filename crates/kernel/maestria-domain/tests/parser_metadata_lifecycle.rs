@@ -2,6 +2,18 @@ use maestria_domain::*;
 #[path = "common/fixtures.rs"]
 mod fixtures;
 
+fn hash_aaa() -> Result<ContentHash, Box<dyn std::error::Error>> {
+    Ok(ContentHash::new(format!("sha256:{:064x}", 1))?)
+}
+
+fn hash_bbb() -> Result<ContentHash, Box<dyn std::error::Error>> {
+    Ok(ContentHash::new(format!("sha256:{:064x}", 2))?)
+}
+
+fn hash_abc() -> Result<ContentHash, Box<dyn std::error::Error>> {
+    Ok(ContentHash::new(format!("sha256:{:064x}", 3))?)
+}
+
 #[test]
 fn parser_started_identical_metadata_is_idempotent() -> Result<(), Box<dyn std::error::Error>> {
     let mut state = KernelState::new();
@@ -9,7 +21,7 @@ fn parser_started_identical_metadata_is_idempotent() -> Result<(), Box<dyn std::
         artifact_id: ArtifactId::new(1),
         title: "Notes".to_string(),
         source_path: "/tmp/notes.md".to_string(),
-        content_hash: "sha256:aaa".to_string(),
+        content_hash: hash_aaa()?,
         blob_id: BlobId::new(42),
     };
     let out1 = state.apply_input(DomainInput::ParserStarted(ps.clone()))?;
@@ -37,14 +49,14 @@ fn parser_started_differing_metadata_emits_replacement() -> Result<(), Box<dyn s
         artifact_id: ArtifactId::new(1),
         title: "Notes".to_string(),
         source_path: "/tmp/notes.md".to_string(),
-        content_hash: "sha256:aaa".to_string(),
+        content_hash: hash_aaa()?,
         blob_id: BlobId::new(42),
     }))?;
     let out = state.apply_input(DomainInput::ParserStarted(ParserStarted {
         artifact_id: ArtifactId::new(1),
         title: "Notes".to_string(),
         source_path: "/tmp/notes.md".to_string(),
-        content_hash: "sha256:bbb".to_string(),
+        content_hash: hash_bbb()?,
         blob_id: BlobId::new(99),
     }))?;
     assert!(
@@ -58,7 +70,7 @@ fn parser_started_differing_metadata_emits_replacement() -> Result<(), Box<dyn s
             .any(|e| matches!(e, MaestriaEffect::PersistEvent { .. }))
     );
     let stored = &state.pending_parsers[&ArtifactId::new(1)];
-    assert_eq!(stored.content_hash, "sha256:bbb");
+    assert_eq!(stored.content_hash, hash_bbb()?);
     assert_eq!(stored.blob_id, BlobId::new(99));
     Ok(())
 }
@@ -71,7 +83,7 @@ fn artifact_detected_with_active_pending_parser_is_noop() -> Result<(), Box<dyn 
         artifact_id: ArtifactId::new(1),
         title: "Notes".to_string(),
         source_path: "/tmp/notes.md".to_string(),
-        content_hash: "sha256:aaa".to_string(),
+        content_hash: hash_aaa()?,
         blob_id: BlobId::new(42),
     }))?;
     let out = state.apply_input(DomainInput::ArtifactDetected(ArtifactDetected {
@@ -79,7 +91,7 @@ fn artifact_detected_with_active_pending_parser_is_noop() -> Result<(), Box<dyn 
         title: "Notes".to_string(),
         source_path: "/tmp/notes.md".to_string(),
         source_bytes: vec![1, 2, 3],
-        content_hash: "sha256:aaa".to_string(),
+        content_hash: hash_aaa()?,
     }))?;
     assert!(out.effects.is_empty());
     Ok(())
@@ -93,7 +105,7 @@ fn artifact_detected_different_hash_with_pending_parser_proceeds()
         artifact_id: ArtifactId::new(1),
         title: "Notes".to_string(),
         source_path: "/tmp/notes.md".to_string(),
-        content_hash: "sha256:aaa".to_string(),
+        content_hash: hash_aaa()?,
         blob_id: BlobId::new(42),
     }))?;
     let out = state.apply_input(DomainInput::ArtifactDetected(ArtifactDetected {
@@ -101,7 +113,7 @@ fn artifact_detected_different_hash_with_pending_parser_proceeds()
         title: "Notes".to_string(),
         source_path: "/tmp/notes.md".to_string(),
         source_bytes: vec![4, 5, 6],
-        content_hash: "sha256:bbb".to_string(),
+        content_hash: hash_bbb()?,
     }))?;
     assert!(
         out.effects
@@ -119,7 +131,7 @@ fn parser_completed_does_not_emit_index_effects() -> Result<(), Box<dyn std::err
         title: "Doc".to_string(),
         source_path: String::new(),
         source_bytes: vec![1, 2, 3],
-        content_hash: "sha256:abc".to_string(),
+        content_hash: hash_abc()?,
     }))?;
     let output = state.apply_input(DomainInput::ParserCompleted(ParserResult {
         status: maestria_domain::ParseStatus::Parsed,

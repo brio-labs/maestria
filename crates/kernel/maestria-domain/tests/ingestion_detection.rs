@@ -6,17 +6,29 @@ mod fixtures;
 
 use assertions::require_error;
 
+fn hash_aaa() -> Result<ContentHash, Box<dyn std::error::Error>> {
+    Ok(ContentHash::new(format!("sha256:{:064x}", 1))?)
+}
+
+fn hash_bbb() -> Result<ContentHash, Box<dyn std::error::Error>> {
+    Ok(ContentHash::new(format!("sha256:{:064x}", 2))?)
+}
+
+fn hash_abc() -> Result<ContentHash, Box<dyn std::error::Error>> {
+    Ok(ContentHash::new(format!("sha256:{:064x}", 3))?)
+}
+
 // ── Detection and preflight behavior ──────────────────────────────
 
 #[test]
-fn preflight_artifact_detected_stores_pending_only() -> Result<(), DomainError> {
+fn preflight_artifact_detected_stores_pending_only() -> Result<(), Box<dyn std::error::Error>> {
     let mut state = KernelState::new();
     let output = state.apply_input(DomainInput::ArtifactDetected(ArtifactDetected {
         artifact_id: ArtifactId::new(1),
         title: "Notes".to_string(),
         source_path: String::new(),
         source_bytes: Vec::new(),
-        content_hash: "sha256:abc".to_string(),
+        content_hash: hash_abc()?,
     }))?;
 
     // ArtifactDetected stores metadata only in the in-memory pending map — no
@@ -28,7 +40,7 @@ fn preflight_artifact_detected_stores_pending_only() -> Result<(), DomainError> 
     assert!(state.pending_artifacts.contains_key(&ArtifactId::new(1)));
     let pending = &state.pending_artifacts[&ArtifactId::new(1)];
     assert_eq!(pending.title, "Notes");
-    assert_eq!(pending.content_hash, "sha256:abc");
+    assert_eq!(pending.content_hash, hash_abc()?);
 
     // No domain events emitted; only the ParseArtifact effect.
     assert_eq!(output.events.len(), 0, "no persisted events at detection");
@@ -41,7 +53,7 @@ fn preflight_artifact_detected_stores_pending_only() -> Result<(), DomainError> 
 }
 
 #[test]
-fn preflight_duplicate_is_noop_when_indexed() -> Result<(), DomainError> {
+fn preflight_duplicate_is_noop_when_indexed() -> Result<(), Box<dyn std::error::Error>> {
     let mut state = KernelState::new();
     // Set up artifact as fully indexed via replay events
     state.apply_event(DomainEventEnvelope {
@@ -58,7 +70,7 @@ fn preflight_duplicate_is_noop_when_indexed() -> Result<(), DomainError> {
         sequence: SequenceNumber::new(2),
         event: DomainEvent::PendingIndex {
             artifact_id: ArtifactId::new(1),
-            content_hash: "sha256:abc".to_string(),
+            content_hash: hash_abc()?,
         },
     })?;
     state.apply_event(DomainEventEnvelope {
@@ -75,7 +87,7 @@ fn preflight_duplicate_is_noop_when_indexed() -> Result<(), DomainError> {
         title: "Notes".to_string(),
         source_path: String::new(),
         source_bytes: Vec::new(),
-        content_hash: "sha256:abc".to_string(),
+        content_hash: hash_abc()?,
     }))?;
 
     assert_eq!(
@@ -92,14 +104,14 @@ fn preflight_duplicate_is_noop_when_indexed() -> Result<(), DomainError> {
 }
 
 #[test]
-fn detection_without_parser_leaves_pending_only() -> Result<(), DomainError> {
+fn detection_without_parser_leaves_pending_only() -> Result<(), Box<dyn std::error::Error>> {
     let mut state = KernelState::new();
     state.apply_input(DomainInput::ArtifactDetected(ArtifactDetected {
         artifact_id: ArtifactId::new(1),
         title: "Notes".to_string(),
         source_path: String::new(),
         source_bytes: Vec::new(),
-        content_hash: "sha256:abc".to_string(),
+        content_hash: hash_abc()?,
     }))?;
     // Detection is a pure preflight — artifact lives in pending_artifacts only.
     assert!(!state.artifacts.contains_key(&ArtifactId::new(1)));
@@ -147,7 +159,7 @@ fn changed_hash_commits_new_pending_index_at_parse() -> Result<(), Box<dyn std::
         title: "Notes".to_string(),
         source_path: String::new(),
         source_bytes: vec![1, 2, 3],
-        content_hash: "sha256:aaa".to_string(),
+        content_hash: hash_aaa()?,
     }))?;
     let output1 = state.apply_input(DomainInput::ParserCompleted(ParserResult {
         status: maestria_domain::ParseStatus::Parsed,
@@ -160,12 +172,13 @@ fn changed_hash_commits_new_pending_index_at_parse() -> Result<(), Box<dyn std::
         cards: Vec::new(),
     }))?;
     // First parse commits ArtifactRegistered + PendingIndex with hash aaa
+    let hash_aaa = hash_aaa()?;
     assert!(output1.events.iter().any(|e| matches!(&e.event,
-        DomainEvent::PendingIndex { content_hash, .. } if content_hash == "sha256:aaa"
+        DomainEvent::PendingIndex { content_hash, .. } if content_hash == &hash_aaa
     )));
     assert_eq!(
         state.artifacts[&ArtifactId::new(1)].content_hash,
-        Some("sha256:aaa".to_string())
+        Some(hash_aaa.clone())
     );
 
     // Mark as indexed so the second detection is not a no-op due to indexed-same-hash.
@@ -179,7 +192,7 @@ fn changed_hash_commits_new_pending_index_at_parse() -> Result<(), Box<dyn std::
         title: "Notes".to_string(),
         source_path: String::new(),
         source_bytes: vec![4, 5, 6],
-        content_hash: "sha256:bbb".to_string(),
+        content_hash: hash_bbb()?,
     }))?;
     let output2 = state.apply_input(DomainInput::ParserCompleted(ParserResult {
         status: maestria_domain::ParseStatus::Parsed,
@@ -192,8 +205,9 @@ fn changed_hash_commits_new_pending_index_at_parse() -> Result<(), Box<dyn std::
         cards: Vec::new(),
     }))?;
     // Second parse commits a new PendingIndex with hash bbb
+    let hash_bbb = hash_bbb()?;
     assert!(output2.events.iter().any(|e| matches!(&e.event,
-        DomainEvent::PendingIndex { content_hash, .. } if content_hash == "sha256:bbb"
+        DomainEvent::PendingIndex { content_hash, .. } if content_hash == &hash_bbb
     )));
     assert!(
         !output2
@@ -204,7 +218,7 @@ fn changed_hash_commits_new_pending_index_at_parse() -> Result<(), Box<dyn std::
     );
     assert_eq!(
         state.artifacts[&ArtifactId::new(1)].content_hash,
-        Some("sha256:bbb".to_string())
+        Some(hash_bbb.clone())
     );
     assert_eq!(
         state.artifacts[&ArtifactId::new(1)].index_status,
@@ -222,7 +236,7 @@ fn pending_detection_not_treated_as_unchanged() -> Result<(), Box<dyn std::error
         title: "Notes".to_string(),
         source_path: String::new(),
         source_bytes: vec![1, 2, 3],
-        content_hash: "sha256:abc".to_string(),
+        content_hash: hash_abc()?,
     }))?;
     assert_eq!(output1.events.len(), 0, "detection emits no events");
     assert!(state.pending_artifacts.contains_key(&ArtifactId::new(1)));
@@ -241,7 +255,7 @@ fn pending_detection_not_treated_as_unchanged() -> Result<(), Box<dyn std::error
         title: "Notes".to_string(),
         source_path: String::new(),
         source_bytes: vec![1, 2, 3],
-        content_hash: "sha256:abc".to_string(),
+        content_hash: hash_abc()?,
     }))?;
 
     assert_eq!(output2.events.len(), 0, "detection still emits no events");

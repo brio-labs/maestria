@@ -60,7 +60,7 @@ fn denied_relation_artifacts(
         claim_ids: Default::default(),
         evidence_ids: Default::default(),
         index_status: maestria_domain::IndexStatus::Indexed,
-        content_hash: Some(content_hash.to_string()),
+        content_hash: Some(ContentHash::new(content_hash.to_string())?),
         parse_status: None,
         security: maestria_domain::SecurityMetadata {
             read_allowed: owner_read_allowed,
@@ -75,7 +75,7 @@ fn denied_relation_artifacts(
         claim_ids: Default::default(),
         evidence_ids: Default::default(),
         index_status: maestria_domain::IndexStatus::Indexed,
-        content_hash: Some(content_hash.to_string()),
+        content_hash: Some(ContentHash::new(content_hash.to_string())?),
         parse_status: None,
         security: Default::default(),
     })?;

@@ -122,7 +122,7 @@ fn file_hit(snapshot: Option<BlobId>) -> Result<SourceGroundedSearchHit, Box<dyn
             claim_ids: Default::default(),
             evidence_ids: [evidence_id].into(),
             index_status: IndexStatus::Indexed,
-            content_hash: Some("hash".to_string()),
+            content_hash: Some(ContentHash::new("sha256:".to_owned() + &"0".repeat(64))?),
             parse_status: None,
             security: Default::default(),
         },

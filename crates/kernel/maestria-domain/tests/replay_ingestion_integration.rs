@@ -6,6 +6,18 @@ mod fixtures;
 
 use assertions::require_error;
 
+fn hash_aaa() -> Result<ContentHash, Box<dyn std::error::Error>> {
+    Ok(ContentHash::new(format!("sha256:{:064x}", 1))?)
+}
+
+fn hash_bbb() -> Result<ContentHash, Box<dyn std::error::Error>> {
+    Ok(ContentHash::new(format!("sha256:{:064x}", 2))?)
+}
+
+fn hash_abc() -> Result<ContentHash, Box<dyn std::error::Error>> {
+    Ok(ContentHash::new(format!("sha256:{:064x}", 3))?)
+}
+
 fn parser_result_with_multiple_chunks() -> Result<ParserResult, Box<dyn std::error::Error>> {
     Ok(ParserResult {
         status: maestria_domain::ParseStatus::Parsed,
@@ -95,7 +107,7 @@ fn replay_ingestion_flow_state_parity() -> Result<(), Box<dyn std::error::Error>
         title: "Doc".to_string(),
         source_path: String::new(),
         source_bytes: Vec::new(),
-        content_hash: "sha256:abc".to_string(),
+        content_hash: hash_abc()?,
     }))?;
     state.apply_input(DomainInput::ParserCompleted(ParserResult {
         status: maestria_domain::ParseStatus::Parsed,
@@ -143,7 +155,7 @@ fn replay_ingestion_flow_with_multiple_chunks() -> Result<(), Box<dyn std::error
         title: "Big Doc".to_string(),
         source_path: String::new(),
         source_bytes: Vec::new(),
-        content_hash: "sha256:abc".to_string(),
+        content_hash: hash_abc()?,
     }))?;
     state.apply_input(DomainInput::ParserCompleted(
         parser_result_with_multiple_chunks()?,
@@ -167,14 +179,14 @@ fn replay_ingestion_flow_with_multiple_chunks() -> Result<(), Box<dyn std::error
 }
 
 #[test]
-fn replay_ingestion_detection_only() -> Result<(), DomainError> {
+fn replay_ingestion_detection_only() -> Result<(), Box<dyn std::error::Error>> {
     let mut state = KernelState::new();
     state.apply_input(DomainInput::ArtifactDetected(ArtifactDetected {
         artifact_id: ArtifactId::new(1),
         title: "Pending".to_string(),
         source_path: String::new(),
         source_bytes: Vec::new(),
-        content_hash: "sha256:abc".to_string(),
+        content_hash: hash_abc()?,
     }))?;
     // Detection is a pure preflight — no persisted events, no artifact in
     // state.artifacts. The pending metadata is in-memory only.
@@ -196,7 +208,7 @@ fn replay_ingestion_duplicate_chunk_rejected() -> Result<(), Box<dyn std::error:
         title: "Doc".to_string(),
         source_path: String::new(),
         source_bytes: Vec::new(),
-        content_hash: "sha256:abc".to_string(),
+        content_hash: hash_abc()?,
     }))?;
     state.apply_input(DomainInput::ParserCompleted(ParserResult {
         status: maestria_domain::ParseStatus::Parsed,
@@ -378,7 +390,7 @@ fn replay_artifact_indexed_rejects_pending_chunks() -> Result<(), Box<dyn std::e
         sequence: SequenceNumber::new(2),
         event: DomainEvent::PendingIndex {
             artifact_id: ArtifactId::new(1),
-            content_hash: "sha256:abc".to_string(),
+            content_hash: hash_abc()?,
         },
     })?;
     state.apply_event(DomainEventEnvelope {
@@ -417,7 +429,7 @@ fn replay_artifact_indexed_rejects_pending_chunks() -> Result<(), Box<dyn std::e
 }
 
 #[test]
-fn replay_parser_started_reconstructs_pending_parsers() -> Result<(), DomainError> {
+fn replay_parser_started_reconstructs_pending_parsers() -> Result<(), Box<dyn std::error::Error>> {
     let mut state = KernelState::new();
     state.apply_event(DomainEventEnvelope {
         id: EventId::new(1),
@@ -426,7 +438,7 @@ fn replay_parser_started_reconstructs_pending_parsers() -> Result<(), DomainErro
             artifact_id: ArtifactId::new(1),
             title: "Notes".to_string(),
             source_path: "/tmp/notes.md".to_string(),
-            content_hash: "sha256:abc".to_string(),
+            content_hash: hash_abc()?,
             blob_id: BlobId::new(42),
         },
     })?;
@@ -436,12 +448,12 @@ fn replay_parser_started_reconstructs_pending_parsers() -> Result<(), DomainErro
     assert_eq!(pending.title, "Notes");
     assert_eq!(pending.blob_id, BlobId::new(42));
     assert_eq!(pending.source_path, "/tmp/notes.md");
-    assert_eq!(pending.content_hash, "sha256:abc");
+    assert_eq!(pending.content_hash, hash_abc()?);
     Ok(())
 }
 
 #[test]
-fn replay_parser_started_multiple_entries() -> Result<(), DomainError> {
+fn replay_parser_started_multiple_entries() -> Result<(), Box<dyn std::error::Error>> {
     let mut state = KernelState::new();
     state.apply_event(DomainEventEnvelope {
         id: EventId::new(1),
@@ -450,7 +462,7 @@ fn replay_parser_started_multiple_entries() -> Result<(), DomainError> {
             artifact_id: ArtifactId::new(1),
             title: "Doc A".to_string(),
             source_path: "/tmp/a.md".to_string(),
-            content_hash: "sha256:aaa".to_string(),
+            content_hash: hash_aaa()?,
             blob_id: BlobId::new(10),
         },
     })?;
@@ -461,7 +473,7 @@ fn replay_parser_started_multiple_entries() -> Result<(), DomainError> {
             artifact_id: ArtifactId::new(2),
             title: "Doc B".to_string(),
             source_path: "/tmp/b.md".to_string(),
-            content_hash: "sha256:bbb".to_string(),
+            content_hash: hash_bbb()?,
             blob_id: BlobId::new(20),
         },
     })?;
@@ -479,7 +491,7 @@ fn replay_parser_started_multiple_entries() -> Result<(), DomainError> {
 }
 
 #[test]
-fn replay_artifact_parsed_retains_pending_parsers() -> Result<(), DomainError> {
+fn replay_artifact_parsed_retains_pending_parsers() -> Result<(), Box<dyn std::error::Error>> {
     let mut state = KernelState::new();
     // Full reconstruction: ArtifactRegistered → ParserStarted → ArtifactParsed
     state.apply_event(DomainEventEnvelope {
@@ -498,7 +510,7 @@ fn replay_artifact_parsed_retains_pending_parsers() -> Result<(), DomainError> {
             artifact_id: ArtifactId::new(1),
             title: "Notes".to_string(),
             source_path: "/tmp/notes.md".to_string(),
-            content_hash: "sha256:abc".to_string(),
+            content_hash: hash_abc()?,
             blob_id: BlobId::new(42),
         },
     })?;
@@ -523,7 +535,8 @@ fn replay_artifact_parsed_retains_pending_parsers() -> Result<(), DomainError> {
 }
 
 #[test]
-fn replay_artifact_parsed_zero_chunks_retains_pending_parsers() -> Result<(), DomainError> {
+fn replay_artifact_parsed_zero_chunks_retains_pending_parsers()
+-> Result<(), Box<dyn std::error::Error>> {
     let mut state = KernelState::new();
     // Full reconstruction: ArtifactRegistered → ParserStarted → ArtifactParsed(chunks_added=0)
     state.apply_event(DomainEventEnvelope {
@@ -542,7 +555,7 @@ fn replay_artifact_parsed_zero_chunks_retains_pending_parsers() -> Result<(), Do
             artifact_id: ArtifactId::new(1),
             title: "Notes".to_string(),
             source_path: "/tmp/notes.md".to_string(),
-            content_hash: "sha256:abc".to_string(),
+            content_hash: hash_abc()?,
             blob_id: BlobId::new(42),
         },
     })?;
@@ -567,7 +580,7 @@ fn replay_artifact_parsed_zero_chunks_retains_pending_parsers() -> Result<(), Do
 }
 
 #[test]
-fn replay_search_completed_preserves_pending_parsers() -> Result<(), DomainError> {
+fn replay_search_completed_preserves_pending_parsers() -> Result<(), Box<dyn std::error::Error>> {
     let mut state = KernelState::new();
     // Set up: artifact exists and parser is in-flight.
     state.apply_event(DomainEventEnvelope {
@@ -586,7 +599,7 @@ fn replay_search_completed_preserves_pending_parsers() -> Result<(), DomainError
             artifact_id: ArtifactId::new(1),
             title: "Notes".to_string(),
             source_path: "/tmp/notes.md".to_string(),
-            content_hash: "sha256:abc".to_string(),
+            content_hash: hash_abc()?,
             blob_id: BlobId::new(42),
         },
     })?;
@@ -622,7 +635,7 @@ fn replay_parser_started_id_is_sequential() -> Result<(), Box<dyn std::error::Er
                 artifact_id: ArtifactId::new(1),
                 title: "Notes".to_string(),
                 source_path: String::new(),
-                content_hash: "sha256:abc".to_string(),
+                content_hash: hash_abc()?,
                 blob_id: BlobId::new(1),
             },
         }),
@@ -639,7 +652,7 @@ fn replay_parser_started_id_is_sequential() -> Result<(), Box<dyn std::error::Er
 }
 
 #[test]
-fn replay_parser_started_via_convenience() -> Result<(), DomainError> {
+fn replay_parser_started_via_convenience() -> Result<(), Box<dyn std::error::Error>> {
     // Replay from event list: ParserStarted entry survives into reconstructed state.
     let events = vec![DomainEventEnvelope {
         id: EventId::new(1),
@@ -648,7 +661,7 @@ fn replay_parser_started_via_convenience() -> Result<(), DomainError> {
             artifact_id: ArtifactId::new(1),
             title: "Doc".to_string(),
             source_path: "/tmp/doc.md".to_string(),
-            content_hash: "sha256:abc".to_string(),
+            content_hash: hash_abc()?,
             blob_id: BlobId::new(7),
         },
     }];

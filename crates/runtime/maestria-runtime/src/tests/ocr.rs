@@ -311,7 +311,7 @@ async fn durable_ocr_completion_restart_resumes_parse_without_provider_retransmi
             artifact_id: maestria_domain::ArtifactId::new(9),
             title: "recovered".into(),
             source_path: "recovered.rs".into(),
-            content_hash: maestria_domain::content_hash(bytes),
+            content_hash: ContentHash::new(maestria_domain::content_hash(bytes))?,
             blob_id: blob,
         },
     );

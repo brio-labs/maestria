@@ -141,7 +141,12 @@ fn suppresses_duplicate_clusters_and_preserves_rank_order() -> Result<(), Box<dy
     assert_eq!(selection.candidates[0].candidate.evidence_id.value(), 1);
     assert_eq!(selection.candidates[1].candidate.evidence_id.value(), 3);
     assert_eq!(selection.trace.candidates.len(), 3);
-    assert_eq!(selection.trace.candidates[1].selected_rank, None);
+    assert_eq!(
+        selection.trace.candidates[1].placement,
+        maestria_domain::DiversityPlacement::Skipped(
+            maestria_domain::DiversitySkipReason::DuplicateCluster
+        )
+    );
     Ok(())
 }
 

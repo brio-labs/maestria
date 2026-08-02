@@ -120,7 +120,7 @@ impl StoredEventPayload {
                 artifact_id: artifact_id.value(),
                 title: title.clone(),
                 source_path: source_path.clone(),
-                content_hash: content_hash.clone(),
+                content_hash: StoredContentHash::from_domain(content_hash),
                 blob_id: blob_id.value(),
             }),
             DomainEvent::DocumentTreeCaptured {
@@ -157,7 +157,7 @@ impl StoredEventPayload {
                 content_hash,
             } => Some(Self::PendingIndex {
                 artifact_id: artifact_id.value(),
-                content_hash: content_hash.clone(),
+                content_hash: StoredContentHash::from_domain(content_hash),
             }),
             DomainEvent::FullTextIndexed {
                 artifact_id,
@@ -184,7 +184,9 @@ impl StoredEventPayload {
                 artifact_id: ArtifactId::new(artifact_id),
                 title,
                 source_path,
-                content_hash,
+                content_hash: content_hash
+                    .try_into_domain()
+                    .map_err(FamilyDecodeError::Invalid)?,
                 blob_id: BlobId::new(blob_id),
             }),
             Self::DocumentTreeCaptured {
@@ -227,7 +229,9 @@ impl StoredEventPayload {
                 content_hash,
             } => Ok(DomainEvent::PendingIndex {
                 artifact_id: ArtifactId::new(artifact_id),
-                content_hash,
+                content_hash: content_hash
+                    .try_into_domain()
+                    .map_err(FamilyDecodeError::Invalid)?,
             }),
             Self::FullTextIndexed {
                 artifact_id,

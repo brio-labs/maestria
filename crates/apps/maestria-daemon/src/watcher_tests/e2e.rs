@@ -41,17 +41,20 @@ async fn scan_once_detects_creation_and_removal() -> Result<(), Box<dyn std::err
     };
     watcher.artifact_ids.insert(
         accepted.source_path.clone(),
-        (accepted.artifact_id, accepted.content_hash.clone()),
+        (
+            accepted.artifact_id,
+            accepted.content_hash.as_str().to_owned(),
+        ),
     );
-    watcher
-        .state
-        .files
-        .insert(accepted.source_path.clone(), accepted.content_hash.clone());
+    watcher.state.files.insert(
+        accepted.source_path.clone(),
+        accepted.content_hash.as_str().to_owned(),
+    );
     watcher.state.artifact_ids.insert(
         accepted.source_path.clone(),
         ArtifactIdEntry {
             artifact_id: accepted.artifact_id.value(),
-            content_hash: accepted.content_hash.clone(),
+            content_hash: accepted.content_hash.as_str().to_owned(),
         },
     );
     watcher.pending.remove(&accepted.source_path);
@@ -206,17 +209,20 @@ async fn state_persistence_survives_restart() -> Result<(), Box<dyn std::error::
     };
     watcher.artifact_ids.insert(
         accepted.source_path.clone(),
-        (accepted.artifact_id, accepted.content_hash.clone()),
+        (
+            accepted.artifact_id,
+            accepted.content_hash.as_str().to_owned(),
+        ),
     );
-    watcher
-        .state
-        .files
-        .insert(accepted.source_path.clone(), accepted.content_hash.clone());
+    watcher.state.files.insert(
+        accepted.source_path.clone(),
+        accepted.content_hash.as_str().to_owned(),
+    );
     watcher.state.artifact_ids.insert(
         accepted.source_path.clone(),
         ArtifactIdEntry {
             artifact_id: accepted.artifact_id.value(),
-            content_hash: accepted.content_hash.clone(),
+            content_hash: accepted.content_hash.as_str().to_owned(),
         },
     );
     watcher.pending.remove(&accepted.source_path);
@@ -225,8 +231,11 @@ async fn state_persistence_survives_restart() -> Result<(), Box<dyn std::error::
     // Simulate restart after runtime acceptance.
     let loaded_state = load_state(&layout);
     assert_eq!(
-        loaded_state.files.get(&accepted.source_path),
-        Some(&accepted.content_hash),
+        loaded_state
+            .files
+            .get(&accepted.source_path)
+            .map(|hash| hash.as_str()),
+        Some(accepted.content_hash.as_str()),
         "runtime-accepted source must remain tracked after restart"
     );
     assert_eq!(
@@ -349,17 +358,20 @@ async fn rename_emits_source_removed_for_old_path() -> Result<(), Box<dyn std::e
     };
     watcher.artifact_ids.insert(
         accepted.source_path.clone(),
-        (accepted.artifact_id, accepted.content_hash.clone()),
+        (
+            accepted.artifact_id,
+            accepted.content_hash.as_str().to_owned(),
+        ),
     );
-    watcher
-        .state
-        .files
-        .insert(accepted.source_path.clone(), accepted.content_hash.clone());
+    watcher.state.files.insert(
+        accepted.source_path.clone(),
+        accepted.content_hash.as_str().to_owned(),
+    );
     watcher.state.artifact_ids.insert(
         accepted.source_path.clone(),
         ArtifactIdEntry {
             artifact_id: accepted.artifact_id.value(),
-            content_hash: accepted.content_hash.clone(),
+            content_hash: accepted.content_hash.as_str().to_owned(),
         },
     );
     watcher.pending.remove(&accepted.source_path);

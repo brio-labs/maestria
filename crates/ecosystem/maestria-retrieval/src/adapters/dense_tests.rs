@@ -88,7 +88,7 @@ fn dense_batch_reports_bounded_bytes() -> Result<(), Box<dyn std::error::Error>>
     let source = b"alpha\nbeta\n";
     let blobs = InMemoryBlobStore::new();
     let snapshot = blobs.put(source.to_vec())?;
-    let content_hash = maestria_domain::content_hash(source);
+    let content_hash = maestria_domain::ContentHash::new(maestria_domain::content_hash(source))?;
     let artifacts = InMemoryArtifactRepository::new();
     artifacts.put(maestria_domain::Artifact {
         id: artifact_id,
@@ -121,10 +121,7 @@ fn dense_batch_reports_bounded_bytes() -> Result<(), Box<dyn std::error::Error>>
         kind: maestria_domain::EvidenceKind::FileSpan {
             path: "dense.md".to_string(),
             range: maestria_domain::LineRange::new(1, 2)?,
-            snapshot: maestria_domain::SnapshotRef::new(
-                snapshot,
-                maestria_domain::ContentHash::new(content_hash.clone())?,
-            ),
+            snapshot: maestria_domain::SnapshotRef::new(snapshot, content_hash.clone()),
         },
         excerpt: "alpha".to_string(),
         observed_at: maestria_domain::LogicalTick::new(1),

@@ -72,9 +72,10 @@ impl CodeIntelSecurityResolver {
                     content_hash,
                     ..
                 } => {
-                    let hash = ContentHash::new(content_hash.clone())
-                        .map_err(|error| RetrievalError::Internal(error.to_string()))?;
-                    active_sources.insert(PathBuf::from(source_path), (*artifact_id, hash));
+                    active_sources.insert(
+                        PathBuf::from(source_path),
+                        (*artifact_id, content_hash.clone()),
+                    );
                 }
                 DomainEvent::DocumentTreeCaptured {
                     artifact_id,
@@ -89,13 +90,11 @@ impl CodeIntelSecurityResolver {
                     source_path,
                     content_hash,
                 } => {
-                    let hash = ContentHash::new(content_hash.clone())
-                        .map_err(|error| RetrievalError::Internal(error.to_string()))?;
                     let path = Path::new(source_path);
                     if active_sources
                         .get(path)
                         .is_some_and(|(active_id, active_hash)| {
-                            active_id == artifact_id && active_hash == &hash
+                            active_id == artifact_id && active_hash == content_hash
                         })
                     {
                         active_sources.remove(path);
@@ -235,7 +234,7 @@ impl CodeIntelSecurityResolver {
             )));
         };
         if artifact.index_status != IndexStatus::Indexed
-            || artifact.content_hash.as_deref() != Some(content_hash.as_str())
+            || artifact.content_hash.as_ref() != Some(content_hash)
         {
             return Err(RetrievalError::Internal(format!(
                 "canonical repository artifact {} is stale or mismatched",

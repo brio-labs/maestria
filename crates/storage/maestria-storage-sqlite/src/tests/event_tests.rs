@@ -347,7 +347,7 @@ fn source_became_stale_round_trips_after_restart_and_rebuilds_stale_sources()
         event: DomainEvent::SourceBecameStale {
             artifact_id: ArtifactId::new(7),
             source_path: "notes/source.md".to_string(),
-            content_hash: "sha256:stale-content".to_string(),
+            content_hash: ContentHash::new("sha256:".to_owned() + &"c".repeat(64))?,
         },
     };
 

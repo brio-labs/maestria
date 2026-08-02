@@ -101,7 +101,15 @@ pub fn reconcile_vector_projection(
                         .and_then(|artifact| artifact.content_hash.clone())
                     {
                         Some(content_hash) => content_hash,
-                        None => maestria_domain::content_hash(chunk.text.as_bytes()),
+                        None => {
+                            let computed = maestria_domain::content_hash(chunk.text.as_bytes());
+                            maestria_domain::ContentHash::new(computed).map_err(|error| {
+                                anyhow::anyhow!(
+                                    "computed content hash for chunk {} is invalid: {error}",
+                                    chunk.id
+                                )
+                            })?
+                        }
                     };
                     let response = provider
                         .embed(EmbeddingRequest {
@@ -121,7 +129,7 @@ pub fn reconcile_vector_projection(
                         chunk_id: chunk.id,
                         vector: response.vector,
                         provenance: maestria_ports::EmbeddingProvenance {
-                            content_hash,
+                            content_hash: content_hash.as_str().to_owned(),
                             identity: response.identity,
                             provider_id: response.provider_id,
                             model: response.model,

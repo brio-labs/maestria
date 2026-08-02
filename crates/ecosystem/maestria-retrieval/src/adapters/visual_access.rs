@@ -107,5 +107,5 @@ fn visual_snapshot_matches_artifact(kind: &EvidenceKind, artifact: &Artifact) ->
         }
         _ => return false,
     };
-    artifact.content_hash.as_deref() == Some(snapshot.content_hash().as_str())
+    artifact.content_hash.as_ref() == Some(snapshot.content_hash())
 }

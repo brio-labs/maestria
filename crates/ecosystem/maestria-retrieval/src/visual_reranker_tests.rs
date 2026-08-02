@@ -177,8 +177,8 @@ fn plan() -> Result<SearchPlan, Box<dyn std::error::Error>> {
         .build()?)
 }
 
-fn artifact(id: ArtifactId) -> Artifact {
-    Artifact {
+fn artifact(id: ArtifactId) -> Result<Artifact, Box<dyn std::error::Error>> {
+    Ok(Artifact {
         id,
         title: "visual document".to_string(),
         chunk_ids: BTreeSet::new(),
@@ -186,10 +186,12 @@ fn artifact(id: ArtifactId) -> Artifact {
         claim_ids: BTreeSet::new(),
         evidence_ids: BTreeSet::new(),
         index_status: IndexStatus::Indexed,
-        content_hash: Some(maestria_domain::content_hash(&[1])),
+        content_hash: Some(maestria_domain::ContentHash::new(
+            maestria_domain::content_hash(&[1]),
+        )?),
         parse_status: None,
         security: SecurityMetadata::default(),
-    }
+    })
 }
 
 fn candidate(
@@ -219,7 +221,7 @@ async fn visual_reranker_reorders_visual_slots_and_preserves_coordinates()
 -> Result<(), Box<dyn std::error::Error>> {
     let (capability, identity) = capability()?;
     let artifact_repo = Arc::new(InMemoryArtifactRepository::new());
-    artifact_repo.put(artifact(ArtifactId::new(1)))?;
+    artifact_repo.put(artifact(ArtifactId::new(1))?)?;
     let evidence_repo = Arc::new(InMemoryEvidenceRepository::new());
     let blob_store = Arc::new(InMemoryBlobStore::new());
     let blob_one = blob_store.put(vec![1])?;

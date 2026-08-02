@@ -67,7 +67,7 @@ pub(crate) fn build_indexable_records(
     artifact_id: ArtifactId,
     blob_id: BlobId,
     source_path: &str,
-    source_hash: &str,
+    source_hash: &ContentHash,
 ) -> Result<IndexableRecords, IndexableRecordsError> {
     let mut evidence_inputs = Vec::new();
     let mut chunks = Vec::new();
@@ -107,7 +107,7 @@ fn chunk_to_evidence(
     artifact_id: ArtifactId,
     blob_id: BlobId,
     source_path: &str,
-    source_hash: &str,
+    source_hash: &ContentHash,
     observed_at: LogicalTick,
 ) -> Result<RecordEvidenceInput, IndexableRecordsError> {
     let evidence_id = evidence_id_for(artifact_id, order);
@@ -135,20 +135,11 @@ fn evidence_kind_from_span(
     span: &SourceSpan,
     chunk_order: u32,
     source_path: &str,
-    source_hash: &str,
+    source_hash: &ContentHash,
     blob_id: BlobId,
     artifact_id: ArtifactId,
 ) -> Result<EvidenceKind, IndexableRecordsError> {
-    let content_hash = || {
-        ContentHash::new(source_hash.to_owned()).map_err(|error| {
-            IndexableRecordsError::new(
-                artifact_id,
-                chunk_order,
-                "source_hash",
-                format!("invalid content hash: {error}"),
-            )
-        })
-    };
+    let content_hash = || source_hash.clone();
 
     match span {
         SourceSpan::TextSpan {
@@ -166,7 +157,7 @@ fn evidence_kind_from_span(
             Ok(EvidenceKind::FileSpan {
                 path: source_path.to_string(),
                 range,
-                snapshot: SnapshotRef::new(blob_id, content_hash()?),
+                snapshot: SnapshotRef::new(blob_id, content_hash()),
             })
         }
         SourceSpan::PdfSpan { page } => {
@@ -179,7 +170,7 @@ fn evidence_kind_from_span(
                 )
             })?;
             Ok(EvidenceKind::PdfSpan {
-                snapshot: SnapshotRef::new(blob_id, content_hash()?),
+                snapshot: SnapshotRef::new(blob_id, content_hash()),
                 page_start: page,
                 page_end: page,
             })
@@ -200,7 +191,7 @@ fn evidence_kind_from_span(
                 )
             })?;
             Ok(EvidenceKind::PdfRegion {
-                snapshot: SnapshotRef::new(blob_id, content_hash()?),
+                snapshot: SnapshotRef::new(blob_id, content_hash()),
                 page,
                 x: *x,
                 y: *y,

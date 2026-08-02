@@ -11,24 +11,32 @@ fn state_persistence_round_trip() -> Result<(), Box<dyn std::error::Error>> {
     fs::create_dir_all(&layout.system_dir)?;
 
     let mut state = WatchState::default();
-    state
-        .files
-        .insert("/tmp/a.md".to_string(), "hash1".to_string());
-    state
-        .removed
-        .insert("/tmp/b.md".to_string(), "hash2".to_string());
+    state.files.insert(
+        "/tmp/a.md".to_string(),
+        "sha256:".to_owned() + &"a".repeat(64),
+    );
+    state.removed.insert(
+        "/tmp/b.md".to_string(),
+        "sha256:".to_owned() + &"b".repeat(64),
+    );
     state.artifact_ids.insert(
         "/tmp/a.md".to_string(),
         ArtifactIdEntry {
             artifact_id: 42,
-            content_hash: "hash1".to_string(),
+            content_hash: "sha256:".to_owned() + &"a".repeat(64),
         },
     );
 
     persist_state(&layout, &state)?;
     let loaded = load_state(&layout);
-    assert_eq!(loaded.files.get("/tmp/a.md"), Some(&"hash1".to_string()));
-    assert_eq!(loaded.removed.get("/tmp/b.md"), Some(&"hash2".to_string()));
+    assert_eq!(
+        loaded.files.get("/tmp/a.md"),
+        Some("sha256:".to_owned() + &"a".repeat(64)).as_ref()
+    );
+    assert_eq!(
+        loaded.removed.get("/tmp/b.md"),
+        Some("sha256:".to_owned() + &"b".repeat(64)).as_ref()
+    );
     assert_eq!(
         loaded.artifact_ids.get("/tmp/a.md").map(|e| e.artifact_id),
         Some(42)

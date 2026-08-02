@@ -112,12 +112,12 @@ pub use crate::provenance::{
 };
 pub use crate::replay::{replay_events, replay_inputs};
 pub use crate::search::{
-    ArtifactVersion, ConflictSet, ContentHash, CorpusScope, EvidenceCandidate, EvidenceCoverage,
-    EvidenceRequirements, EvidenceSpan, FreshnessRequirement, FreshnessStatus,
-    LearnedSparseContribution, LearnedSparseReason, Modality, ModalitySet,
-    RETRIEVAL_SCORE_SCHEMA_VERSION, RerankPosition, RetrievalLaneScore, RetrievalModelFingerprint,
-    RetrievalRawRank, RetrievalReason, RetrievalScoreFingerprint, RetrievalScoreKind,
-    RetrievalScoreScale, RetrievalScoreSet, SearchBudget, SearchBudgetLimits,
+    ArtifactVersion, ConflictSet, ContentHash, CorpusScope, DiversityPlacement,
+    DiversitySkipReason, EvidenceCandidate, EvidenceCoverage, EvidenceRequirements, EvidenceSpan,
+    FreshnessRequirement, FreshnessStatus, LearnedSparseContribution, LearnedSparseReason,
+    Modality, ModalitySet, RETRIEVAL_SCORE_SCHEMA_VERSION, RerankPosition, RetrievalLaneScore,
+    RetrievalModelFingerprint, RetrievalRawRank, RetrievalReason, RetrievalScoreFingerprint,
+    RetrievalScoreKind, RetrievalScoreScale, RetrievalScoreSet, SearchBudget, SearchBudgetLimits,
     SearchCompatibilityError, SearchExecution, SearchExecutionBudget, SearchExecutionCompletion,
     SearchExecutionResource, SearchExecutionUsage, SearchIntent, SearchLaneStatus, SearchOutcome,
     SearchPlan, SearchPlanBuilder, SearchRewriteAccounting, SearchRewriteOrigin,

@@ -60,7 +60,7 @@ async fn parse_artifact_passes_exact_source_path_and_bytes()
         Ok(Some(DomainInput::ParserStarted(ps))) => {
             assert_eq!(ps.artifact_id, ArtifactId::new(42));
             assert_eq!(ps.source_path, "/repo/src/main.rs");
-            assert!(!ps.content_hash.is_empty());
+            assert!(!ps.content_hash.as_str().is_empty());
             assert!(ps.blob_id.value() > 0);
             ps.blob_id
         }

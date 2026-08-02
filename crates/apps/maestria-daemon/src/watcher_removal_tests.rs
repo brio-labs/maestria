@@ -1,4 +1,5 @@
 use super::*;
+use maestria_domain::ContentHash;
 
 #[tokio::test]
 async fn phase_detect_removals_emits_source_removed() -> Result<(), Box<dyn std::error::Error>> {
@@ -10,14 +11,17 @@ async fn phase_detect_removals_emits_source_removed() -> Result<(), Box<dyn std:
         artifact_ids: BTreeMap::new(),
         shutdown: CancellationToken::new(),
         state: WatchState {
-            files: [("/tmp/new.md".to_string(), "hash_new".to_string())]
-                .into_iter()
-                .collect(),
+            files: [(
+                "/tmp/new.md".to_string(),
+                "sha256:".to_owned() + &"1".repeat(64),
+            )]
+            .into_iter()
+            .collect(),
             artifact_ids: [(
                 "/tmp/old.md".to_string(),
                 ArtifactIdEntry {
                     artifact_id: 42,
-                    content_hash: "hash_old".to_string(),
+                    content_hash: "sha256:".to_owned() + &"0".repeat(64),
                 },
             )]
             .into_iter()
@@ -27,9 +31,12 @@ async fn phase_detect_removals_emits_source_removed() -> Result<(), Box<dyn std:
         pending: BTreeMap::new(),
         scan_permits: Arc::new(Semaphore::new(MAX_CONCURRENT_SCANS)),
     };
-    let previous_files = [("/tmp/old.md".to_string(), "hash_old".to_string())]
-        .into_iter()
-        .collect();
+    let previous_files = [(
+        "/tmp/old.md".to_string(),
+        "sha256:".to_owned() + &"0".repeat(64),
+    )]
+    .into_iter()
+    .collect();
     watcher.phase_detect_removals(previous_files).await?;
     assert!(
         watcher.state.removed.contains_key("/tmp/old.md"),
@@ -54,7 +61,7 @@ async fn phase_detect_removals_retries_after_channel_backpressure()
             title: "filler".to_string(),
             source_path: "/tmp/filler".to_string(),
             source_bytes: Vec::new(),
-            content_hash: "filler".to_string(),
+            content_hash: ContentHash::new("sha256:".to_owned() + &"f".repeat(64))?,
         }))
         .await
         .map_err(|_| "fill the input channel")?;
@@ -65,14 +72,17 @@ async fn phase_detect_removals_retries_after_channel_backpressure()
         input_tx,
         artifact_ids: BTreeMap::new(),
         state: WatchState {
-            files: [("/tmp/old.md".to_string(), "hash_old".to_string())]
-                .into_iter()
-                .collect(),
+            files: [(
+                "/tmp/old.md".to_string(),
+                "sha256:".to_owned() + &"0".repeat(64),
+            )]
+            .into_iter()
+            .collect(),
             artifact_ids: [(
                 "/tmp/old.md".to_string(),
                 ArtifactIdEntry {
                     artifact_id: 42,
-                    content_hash: "hash_old".to_string(),
+                    content_hash: "sha256:".to_owned() + &"0".repeat(64),
                 },
             )]
             .into_iter()
@@ -128,14 +138,17 @@ async fn phase_detect_removals_detects_rename() -> Result<(), Box<dyn std::error
         artifact_ids: BTreeMap::new(),
         shutdown: CancellationToken::new(),
         state: WatchState {
-            files: [("/tmp/renamed.md".to_string(), "hash1".to_string())]
-                .into_iter()
-                .collect(),
+            files: [(
+                "/tmp/renamed.md".to_string(),
+                "sha256:".to_owned() + &"a".repeat(64),
+            )]
+            .into_iter()
+            .collect(),
             artifact_ids: [(
                 "/tmp/old.md".to_string(),
                 ArtifactIdEntry {
                     artifact_id: 42,
-                    content_hash: "hash1".to_string(),
+                    content_hash: "sha256:".to_owned() + &"a".repeat(64),
                 },
             )]
             .into_iter()
@@ -145,9 +158,12 @@ async fn phase_detect_removals_detects_rename() -> Result<(), Box<dyn std::error
         pending: BTreeMap::new(),
         scan_permits: Arc::new(Semaphore::new(MAX_CONCURRENT_SCANS)),
     };
-    let previous_files = [("/tmp/old.md".to_string(), "hash1".to_string())]
-        .into_iter()
-        .collect();
+    let previous_files = [(
+        "/tmp/old.md".to_string(),
+        "sha256:".to_owned() + &"a".repeat(64),
+    )]
+    .into_iter()
+    .collect();
     watcher.phase_detect_removals(previous_files).await?;
     assert!(
         watcher.state.removed.contains_key("/tmp/old.md"),
@@ -173,22 +189,25 @@ async fn phase_detect_removals_cleans_up_stale_artifact_ids()
         artifact_ids: BTreeMap::new(),
         shutdown: CancellationToken::new(),
         state: WatchState {
-            files: [("/tmp/current.md".to_string(), "hash1".to_string())]
-                .into_iter()
-                .collect(),
+            files: [(
+                "/tmp/current.md".to_string(),
+                "sha256:".to_owned() + &"a".repeat(64),
+            )]
+            .into_iter()
+            .collect(),
             artifact_ids: [
                 (
                     "/tmp/current.md".to_string(),
                     ArtifactIdEntry {
                         artifact_id: 1,
-                        content_hash: "hash1".to_string(),
+                        content_hash: "sha256:".to_owned() + &"a".repeat(64),
                     },
                 ),
                 (
                     "/tmp/stale.md".to_string(),
                     ArtifactIdEntry {
                         artifact_id: 2,
-                        content_hash: "hash2".to_string(),
+                        content_hash: "sha256:".to_owned() + &"2".repeat(64),
                     },
                 ),
             ]
@@ -222,7 +241,7 @@ fn emit_source_removed_returns_true_on_success() -> Result<(), Box<dyn std::erro
                 "/tmp/old.md".to_string(),
                 ArtifactIdEntry {
                     artifact_id: 42,
-                    content_hash: "hash_old".to_string(),
+                    content_hash: "sha256:".to_owned() + &"0".repeat(64),
                 },
             )]
             .into_iter()
@@ -232,7 +251,7 @@ fn emit_source_removed_returns_true_on_success() -> Result<(), Box<dyn std::erro
         pending: BTreeMap::new(),
         scan_permits: Arc::new(Semaphore::new(MAX_CONCURRENT_SCANS)),
     };
-    assert!(watcher.emit_source_removed("/tmp/old.md", "hash_old")?);
+    assert!(watcher.emit_source_removed("/tmp/old.md", &("sha256:".to_owned() + &"0".repeat(64)))?);
     let msg = input_rx
         .try_recv()
         .map_err(|_| "should receive SourceRemoved")?;
@@ -251,7 +270,7 @@ fn emit_source_removed_returns_false_when_channel_full() -> Result<(), Box<dyn s
             title: "filler".to_string(),
             source_path: "/tmp/filler".to_string(),
             source_bytes: vec![],
-            content_hash: "filler".to_string(),
+            content_hash: ContentHash::new("sha256:".to_owned() + &"f".repeat(64))?,
         }))
         .map_err(|_| "fill the channel")?;
     let watcher = Watcher {
@@ -265,7 +284,7 @@ fn emit_source_removed_returns_false_when_channel_full() -> Result<(), Box<dyn s
                 "/tmp/old.md".to_string(),
                 ArtifactIdEntry {
                     artifact_id: 42,
-                    content_hash: "hash_old".to_string(),
+                    content_hash: "sha256:".to_owned() + &"0".repeat(64),
                 },
             )]
             .into_iter()
@@ -275,7 +294,9 @@ fn emit_source_removed_returns_false_when_channel_full() -> Result<(), Box<dyn s
         pending: BTreeMap::new(),
         scan_permits: Arc::new(Semaphore::new(MAX_CONCURRENT_SCANS)),
     };
-    assert!(!watcher.emit_source_removed("/tmp/old.md", "hash_old")?);
+    assert!(
+        !watcher.emit_source_removed("/tmp/old.md", &("sha256:".to_owned() + &"0".repeat(64)))?
+    );
     Ok(())
 }
 

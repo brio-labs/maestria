@@ -1,4 +1,5 @@
 use super::*;
+use maestria_domain::ContentHash;
 use std::path::PathBuf;
 use tokio::sync::mpsc;
 
@@ -18,7 +19,7 @@ async fn phase_detect_additions_emits_for_new_file() -> Result<(), Box<dyn std::
     let obs = Observation {
         path: PathBuf::from("/tmp/new.md"),
         bytes: b"content".to_vec(),
-        hash: "hash1".to_string(),
+        hash: "sha256:".to_owned() + &"a".repeat(64),
     };
     let current = watcher.phase_detect_additions(&[obs]).await?;
     assert!(current.contains_key("/tmp/new.md"));
@@ -31,7 +32,7 @@ async fn phase_detect_additions_emits_for_new_file() -> Result<(), Box<dyn std::
     assert_eq!(
         watcher.pending.get("/tmp/new.md"),
         Some(&PendingDelivery {
-            content_hash: "hash1".to_string(),
+            content_hash: "sha256:".to_owned() + &"a".repeat(64),
             status: PendingDeliveryStatus::Enqueued,
         })
     );
@@ -39,7 +40,7 @@ async fn phase_detect_additions_emits_for_new_file() -> Result<(), Box<dyn std::
         .phase_detect_additions(&[Observation {
             path: PathBuf::from("/tmp/new.md"),
             bytes: b"content".to_vec(),
-            hash: "hash1".to_string(),
+            hash: "sha256:".to_owned() + &"a".repeat(64),
         }])
         .await?;
     assert!(
@@ -58,9 +59,12 @@ async fn phase_detect_additions_skips_unchanged_file() -> Result<(), Box<dyn std
         artifact_ids: BTreeMap::new(),
         shutdown: CancellationToken::new(),
         state: WatchState {
-            files: [("/tmp/existing.md".to_string(), "hash1".to_string())]
-                .into_iter()
-                .collect(),
+            files: [(
+                "/tmp/existing.md".to_string(),
+                "sha256:".to_owned() + &"a".repeat(64),
+            )]
+            .into_iter()
+            .collect(),
             ..Default::default()
         },
         scan_permits: Arc::new(Semaphore::new(MAX_CONCURRENT_SCANS)),
@@ -69,10 +73,13 @@ async fn phase_detect_additions_skips_unchanged_file() -> Result<(), Box<dyn std
     let obs = Observation {
         path: PathBuf::from("/tmp/existing.md"),
         bytes: b"content".to_vec(),
-        hash: "hash1".to_string(),
+        hash: "sha256:".to_owned() + &"a".repeat(64),
     };
     let current = watcher.phase_detect_additions(&[obs]).await?;
-    assert_eq!(current.get("/tmp/existing.md"), Some(&"hash1".to_string()));
+    assert_eq!(
+        current.get("/tmp/existing.md"),
+        Some("sha256:".to_owned() + &"a".repeat(64)).as_ref()
+    );
     assert!(
         input_rx.try_recv().is_err(),
         "should not emit for unchanged file"
@@ -90,7 +97,10 @@ async fn phase_detect_additions_skips_matching_artifact_id_and_hash()
         input_tx,
         artifact_ids: [(
             "/tmp/existing.md".to_string(),
-            (maestria_domain::ArtifactId::new(1), "hash1".to_string()),
+            (
+                maestria_domain::ArtifactId::new(1),
+                "sha256:".to_owned() + &"a".repeat(64),
+            ),
         )]
         .into_iter()
         .collect(),
@@ -102,10 +112,13 @@ async fn phase_detect_additions_skips_matching_artifact_id_and_hash()
     let obs = Observation {
         path: PathBuf::from("/tmp/existing.md"),
         bytes: b"content".to_vec(),
-        hash: "hash1".to_string(),
+        hash: "sha256:".to_owned() + &"a".repeat(64),
     };
     let current = watcher.phase_detect_additions(&[obs]).await?;
-    assert_eq!(current.get("/tmp/existing.md"), Some(&"hash1".to_string()));
+    assert_eq!(
+        current.get("/tmp/existing.md"),
+        Some("sha256:".to_owned() + &"a".repeat(64)).as_ref()
+    );
     assert!(
         input_rx.try_recv().is_err(),
         "should not emit when artifact_id and hash match"
@@ -123,7 +136,7 @@ async fn phase_detect_additions_respects_backpressure() -> Result<(), Box<dyn st
             title: "filler".to_string(),
             source_path: "/tmp/filler".to_string(),
             source_bytes: vec![],
-            content_hash: "filler".to_string(),
+            content_hash: ContentHash::new("sha256:".to_owned() + &"f".repeat(64))?,
         }))
         .await?;
     let mut watcher = Watcher {
@@ -139,7 +152,7 @@ async fn phase_detect_additions_respects_backpressure() -> Result<(), Box<dyn st
     let obs = Observation {
         path: PathBuf::from("/tmp/backpressure.md"),
         bytes: b"content".to_vec(),
-        hash: "hash_bp".to_string(),
+        hash: "sha256:".to_owned() + &"3".repeat(64),
     };
     let current = watcher.phase_detect_additions(&[obs]).await?;
     assert!(
@@ -149,7 +162,7 @@ async fn phase_detect_additions_respects_backpressure() -> Result<(), Box<dyn st
     assert_eq!(
         watcher.pending.get("/tmp/backpressure.md"),
         Some(&PendingDelivery {
-            content_hash: "hash_bp".to_string(),
+            content_hash: "sha256:".to_owned() + &"3".repeat(64),
             status: PendingDeliveryStatus::Deferred,
         })
     );
@@ -177,7 +190,7 @@ async fn phase_detect_additions_reports_closed_input_channel()
     let obs = Observation {
         path: PathBuf::from("/tmp/closed.md"),
         bytes: b"content".to_vec(),
-        hash: "hash_closed".to_string(),
+        hash: "sha256:".to_owned() + &"4".repeat(64),
     };
 
     let result = watcher.phase_detect_additions(&[obs]).await;
@@ -197,7 +210,7 @@ async fn phase_detect_additions_full_channel_completes_without_false_commit()
             title: "filler".to_string(),
             source_path: "/tmp/filler".to_string(),
             source_bytes: vec![],
-            content_hash: "filler".to_string(),
+            content_hash: ContentHash::new("sha256:".to_owned() + &"f".repeat(64))?,
         }))
         .map_err(|_| "fill the channel")?;
     let mut watcher = Watcher {
@@ -213,7 +226,7 @@ async fn phase_detect_additions_full_channel_completes_without_false_commit()
     let obs = Observation {
         path: PathBuf::from("/tmp/race.md"),
         bytes: b"content".to_vec(),
-        hash: "hash_race".to_string(),
+        hash: "sha256:".to_owned() + &"5".repeat(64),
     };
 
     // Must complete without hanging even though the channel is full.

@@ -47,7 +47,7 @@ fn with_indexed_retrieval(
         claim_ids: Default::default(),
         evidence_ids: [evidence_id].into(),
         index_status: IndexStatus::Indexed,
-        content_hash: Some(content_hash.clone()),
+        content_hash: Some(ContentHash::new(content_hash.clone())?),
         parse_status: None,
         security: Default::default(),
     })?;

@@ -343,7 +343,7 @@ fn artifact_index_status_round_trips_through_repository() -> Result<(), Box<dyn 
 
     // Update to Pending with a content_hash
     artifact.index_status = IndexStatus::Pending;
-    artifact.content_hash = Some("sha256:def456".to_string());
+    artifact.content_hash = Some(ContentHash::new("sha256:".to_owned() + &"d".repeat(64))?);
     ArtifactRepository::put(&store, artifact.clone())?;
     assert_eq!(
         ArtifactRepository::get(&store, ArtifactId::new(1))?,

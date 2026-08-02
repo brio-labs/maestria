@@ -1,5 +1,7 @@
 use crate::test_support::*;
-use maestria_domain::{Artifact, ArtifactId, IndexStatus, ParseArtifactRequest, ParserStarted};
+use maestria_domain::{
+    Artifact, ArtifactId, ContentHash, IndexStatus, ParseArtifactRequest, ParserStarted,
+};
 use maestria_ports::{ArtifactRepository, BlobStore, InMemoryArtifactRepository};
 use std::collections::BTreeSet;
 use std::sync::Arc;
@@ -28,7 +30,7 @@ async fn resume_parse_rejects_blob_when_durable_parser_hash_differs()
         security: maestria_domain::SecurityMetadata::default(),
     })?;
 
-    let expected_content_hash = content_hash(expected_bytes);
+    let expected_content_hash = ContentHash::new(content_hash(expected_bytes))?;
     let mut state = KernelState::new();
     state.pending_parsers.insert(
         artifact_id,

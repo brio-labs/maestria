@@ -210,7 +210,7 @@ async fn fetch_web_records_hashed_blob_and_security_boundary()
             assert_eq!(input.source_bytes, html.as_bytes());
             assert_eq!(
                 input.content_hash,
-                maestria_domain::content_hash(html.as_bytes())
+                ContentHash::new(maestria_domain::content_hash(html.as_bytes()))?
             );
         }
         other => return Err(format!("unexpected indexing input: {other:?}").into()),

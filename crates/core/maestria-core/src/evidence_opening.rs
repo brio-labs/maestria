@@ -151,7 +151,7 @@ fn verify_snapshot_binding(
             ),
         });
     }
-    if artifact.content_hash.as_deref() != Some(snapshot.content_hash().as_str()) {
+    if artifact.content_hash.as_ref() != Some(snapshot.content_hash()) {
         return Err(CoreError::InvalidEvidence {
             evidence_id: evidence.id.to_string(),
             reason: format!(

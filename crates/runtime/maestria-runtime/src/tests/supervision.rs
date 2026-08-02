@@ -1,7 +1,7 @@
 use crate::test_support::*;
 use maestria_domain::{
-    ApprovalDecision, ApprovalId, ArtifactDetected, ArtifactId, DomainEvent, DomainInput,
-    FetchWebRequest, FetchWebRequested, LogicalTick, ModelAgentProposalExecution,
+    ApprovalDecision, ApprovalId, ArtifactDetected, ArtifactId, ContentHash, DomainEvent,
+    DomainInput, FetchWebRequest, FetchWebRequested, LogicalTick, ModelAgentProposalExecution,
     RegisterArtifactInput, ScopeId, content_hash,
 };
 use maestria_ports::{
@@ -193,7 +193,7 @@ async fn parse_artifact_no_deadlock_at_max_concurrency_one()
     let run = tokio::spawn(runtime.run(input_rx, shutdown.clone()));
 
     let source_bytes = b"fn main() {}".to_vec();
-    let source_hash = content_hash(&source_bytes);
+    let source_hash = ContentHash::new(content_hash(&source_bytes))?;
     let artifact_id = ArtifactId::new(1);
 
     // Send ArtifactDetected input — the domain loop produces a

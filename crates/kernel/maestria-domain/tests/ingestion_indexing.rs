@@ -14,7 +14,7 @@ fn full_text_index_partial_feedback() -> Result<(), Box<dyn std::error::Error>> 
         title: "Notes".to_string(),
         source_path: String::new(),
         source_bytes: vec![1, 2, 3],
-        content_hash: fixtures::test_content_hash()?.as_str().to_string(),
+        content_hash: fixtures::test_content_hash()?,
     }))?;
     // Parse with two chunks
     state.apply_input(DomainInput::ParserCompleted(ParserResult {
@@ -92,7 +92,7 @@ fn full_text_index_final_feedback_emits_artifact_indexed() -> Result<(), Box<dyn
         title: "Notes".to_string(),
         source_path: String::new(),
         source_bytes: vec![1, 2, 3],
-        content_hash: fixtures::test_content_hash()?.as_str().to_string(),
+        content_hash: fixtures::test_content_hash()?,
     }))?;
     state.apply_input(DomainInput::ParserCompleted(ParserResult {
         status: maestria_domain::ParseStatus::Parsed,
@@ -165,7 +165,7 @@ fn duplicate_full_text_index_feedback_is_idempotent() -> Result<(), Box<dyn std:
         title: "Notes".to_string(),
         source_path: String::new(),
         source_bytes: vec![1, 2, 3],
-        content_hash: fixtures::test_content_hash()?.as_str().to_string(),
+        content_hash: fixtures::test_content_hash()?,
     }))?;
     state.apply_input(DomainInput::ParserCompleted(ParserResult {
         status: maestria_domain::ParseStatus::Parsed,

@@ -107,7 +107,7 @@ fn visual_embedding_for_chunk(
             record.id, record.artifact_id, artifact.id
         )));
     }
-    if artifact.content_hash.as_deref() != Some(snapshot.content_hash().as_str()) {
+    if artifact.content_hash.as_ref() != Some(snapshot.content_hash()) {
         return Err(RetrievalError::Internal(format!(
             "visual evidence {} source snapshot hash does not match owning artifact: expected {:?}, got {}",
             record.id,
@@ -270,7 +270,9 @@ mod tests {
             claim_ids: Default::default(),
             evidence_ids: Default::default(),
             index_status: IndexStatus::Indexed,
-            content_hash: Some("sha256:".to_owned() + &"0".repeat(64)),
+            content_hash: Some(maestria_domain::ContentHash::new(
+                "sha256:".to_owned() + &"0".repeat(64),
+            )?),
             parse_status: None,
             security: Default::default(),
         };

@@ -1,6 +1,6 @@
 use super::*;
 use maestria_code_intel::REPOSITORY_CODE_INDEX_FILENAME;
-use maestria_domain::{ArtifactId, BlobId, DomainEvent, EventId, SequenceNumber};
+use maestria_domain::{ArtifactId, BlobId, ContentHash, DomainEvent, EventId, SequenceNumber};
 use std::fs;
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -44,7 +44,8 @@ fn load_repository_code_index_rejects_malformed_file_as_typed_error()
 }
 
 #[test]
-fn parser_started_then_source_became_stale_excludes_version() {
+fn parser_started_then_source_became_stale_excludes_version()
+-> Result<(), Box<dyn std::error::Error>> {
     let path = "src/main.rs".to_string();
     let artifact_id = ArtifactId::new(1);
     let events = vec![
@@ -55,7 +56,7 @@ fn parser_started_then_source_became_stale_excludes_version() {
                 artifact_id,
                 title: "main".to_string(),
                 source_path: path.clone(),
-                content_hash: "abc".to_string(),
+                content_hash: ContentHash::new("sha256:".to_owned() + &"a".repeat(64))?,
                 blob_id: BlobId::new(1),
             },
         },
@@ -65,16 +66,17 @@ fn parser_started_then_source_became_stale_excludes_version() {
             event: DomainEvent::SourceBecameStale {
                 artifact_id,
                 source_path: path.clone(),
-                content_hash: "abc".to_string(),
+                content_hash: ContentHash::new("sha256:".to_owned() + &"a".repeat(64))?,
             },
         },
     ];
     let active = reconcile_active_versions(&events);
     assert!(active.is_empty());
+    Ok(())
 }
 
 #[test]
-fn re_ingestion_after_stale_reactivates_version() {
+fn re_ingestion_after_stale_reactivates_version() -> Result<(), Box<dyn std::error::Error>> {
     let path = "src/main.rs".to_string();
     let artifact_id_v1 = ArtifactId::new(1);
     let artifact_id_v2 = ArtifactId::new(2);
@@ -86,7 +88,7 @@ fn re_ingestion_after_stale_reactivates_version() {
                 artifact_id: artifact_id_v1,
                 title: "main".to_string(),
                 source_path: path.clone(),
-                content_hash: "abc".to_string(),
+                content_hash: ContentHash::new("sha256:".to_owned() + &"a".repeat(64))?,
                 blob_id: BlobId::new(1),
             },
         },
@@ -96,7 +98,7 @@ fn re_ingestion_after_stale_reactivates_version() {
             event: DomainEvent::SourceBecameStale {
                 artifact_id: artifact_id_v1,
                 source_path: path.clone(),
-                content_hash: "abc".to_string(),
+                content_hash: ContentHash::new("sha256:".to_owned() + &"a".repeat(64))?,
             },
         },
         DomainEventEnvelope {
@@ -106,7 +108,7 @@ fn re_ingestion_after_stale_reactivates_version() {
                 artifact_id: artifact_id_v2,
                 title: "main".to_string(),
                 source_path: path.clone(),
-                content_hash: "def".to_string(),
+                content_hash: ContentHash::new("sha256:".to_owned() + &"d".repeat(64))?,
                 blob_id: BlobId::new(2),
             },
         },
@@ -114,10 +116,12 @@ fn re_ingestion_after_stale_reactivates_version() {
     let active = reconcile_active_versions(&events);
     assert_eq!(active.len(), 1);
     assert!(active.contains(&ArtifactVersionId::new(artifact_id_v2.value())));
+    Ok(())
 }
 
 #[test]
-fn latest_by_path_semantics_preserved_across_mixed_events() {
+fn latest_by_path_semantics_preserved_across_mixed_events() -> Result<(), Box<dyn std::error::Error>>
+{
     let path_a = "src/a.rs".to_string();
     let path_b = "src/b.rs".to_string();
     let id_a1 = ArtifactId::new(1);
@@ -131,7 +135,7 @@ fn latest_by_path_semantics_preserved_across_mixed_events() {
                 artifact_id: id_a1,
                 title: "a".to_string(),
                 source_path: path_a.clone(),
-                content_hash: "a1".to_string(),
+                content_hash: ContentHash::new("sha256:".to_owned() + &"1".repeat(64))?,
                 blob_id: BlobId::new(1),
             },
         },
@@ -142,7 +146,7 @@ fn latest_by_path_semantics_preserved_across_mixed_events() {
                 artifact_id: id_b1,
                 title: "b".to_string(),
                 source_path: path_b.clone(),
-                content_hash: "b1".to_string(),
+                content_hash: ContentHash::new("sha256:".to_owned() + &"2".repeat(64))?,
                 blob_id: BlobId::new(2),
             },
         },
@@ -153,7 +157,7 @@ fn latest_by_path_semantics_preserved_across_mixed_events() {
                 artifact_id: id_a2,
                 title: "a".to_string(),
                 source_path: path_a.clone(),
-                content_hash: "a2".to_string(),
+                content_hash: ContentHash::new("sha256:".to_owned() + &"3".repeat(64))?,
                 blob_id: BlobId::new(3),
             },
         },
@@ -162,4 +166,5 @@ fn latest_by_path_semantics_preserved_across_mixed_events() {
     assert_eq!(active.len(), 2);
     assert!(active.contains(&ArtifactVersionId::new(id_a2.value())));
     assert!(active.contains(&ArtifactVersionId::new(id_b1.value())));
+    Ok(())
 }

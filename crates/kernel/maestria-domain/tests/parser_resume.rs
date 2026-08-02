@@ -2,6 +2,10 @@ use maestria_domain::*;
 #[path = "common/fixtures.rs"]
 mod fixtures;
 
+fn hash_abc() -> Result<ContentHash, Box<dyn std::error::Error>> {
+    Ok(ContentHash::new(format!("sha256:{:064x}", 3))?)
+}
+
 // ── Crash-recovery resume flows ───────────────────────────────────
 
 #[test]
@@ -14,7 +18,7 @@ fn full_ingestion_flow_with_parser_started() -> Result<(), Box<dyn std::error::E
         title: "Notes".to_string(),
         source_path: "/tmp/notes.md".to_string(),
         source_bytes: vec![1, 2, 3],
-        content_hash: "sha256:abc".to_string(),
+        content_hash: hash_abc()?,
     }))?;
     assert_eq!(output.events.len(), 0, "detection emits no events");
     assert!(matches!(
@@ -27,7 +31,7 @@ fn full_ingestion_flow_with_parser_started() -> Result<(), Box<dyn std::error::E
         artifact_id: ArtifactId::new(1),
         title: "Notes".to_string(),
         source_path: "/tmp/notes.md".to_string(),
-        content_hash: "sha256:abc".to_string(),
+        content_hash: hash_abc()?,
         blob_id: BlobId::new(42),
     }))?;
     assert!(state.pending_parsers.contains_key(&ArtifactId::new(1)));
@@ -98,7 +102,7 @@ fn parser_completed_resume_with_artifact_registered_restores_pending_index()
                 artifact_id: ArtifactId::new(1),
                 title: "Notes".to_string(),
                 source_path: "/tmp/notes.md".to_string(),
-                content_hash: "sha256:abc".to_string(),
+                content_hash: hash_abc()?,
                 blob_id: BlobId::new(42),
             },
         },
@@ -150,7 +154,7 @@ fn parser_completed_resume_with_artifact_registered_restores_pending_index()
         } = &envelope.event
     {
         assert_eq!(*artifact_id, ArtifactId::new(1));
-        assert_eq!(content_hash, "sha256:abc");
+        assert_eq!(content_hash, &hash_abc()?);
     }
 
     // Assert: pending_parsers retained (cleared only at ArtifactIndexed).
@@ -201,7 +205,7 @@ fn parser_completed_resume_pending_same_hash_is_idempotent()
                 artifact_id: ArtifactId::new(1),
                 title: "Notes".to_string(),
                 source_path: "/tmp/notes.md".to_string(),
-                content_hash: "sha256:abc".to_string(),
+                content_hash: hash_abc()?,
                 blob_id: BlobId::new(42),
             },
         },
@@ -210,7 +214,7 @@ fn parser_completed_resume_pending_same_hash_is_idempotent()
             sequence: SequenceNumber::new(3),
             event: DomainEvent::PendingIndex {
                 artifact_id: ArtifactId::new(1),
-                content_hash: "sha256:abc".to_string(),
+                content_hash: hash_abc()?,
             },
         },
     ];
@@ -222,8 +226,8 @@ fn parser_completed_resume_pending_same_hash_is_idempotent()
         IndexStatus::Pending,
     );
     assert_eq!(
-        state.artifacts[&ArtifactId::new(1)].content_hash.as_deref(),
-        Some("sha256:abc"),
+        state.artifacts[&ArtifactId::new(1)].content_hash.as_ref(),
+        Some(&hash_abc()?),
     );
     assert!(state.pending_parsers.contains_key(&ArtifactId::new(1)));
 

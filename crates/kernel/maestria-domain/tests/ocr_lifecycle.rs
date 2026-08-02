@@ -21,7 +21,7 @@ fn intent_is_durable_before_ocr_effect_and_pages_are_exact()
             artifact_id: ArtifactId::new(7),
             title: "scan".into(),
             source_path: "scan.pdf".into(),
-            content_hash: "sha256:source".into(),
+            content_hash: ContentHash::new(format!("sha256:{:064x}", 4))?,
             blob_id: BlobId::new(11),
         },
     );
@@ -190,7 +190,7 @@ fn ocr_failure_terminalizes_parser_in_live_state_and_replay()
         artifact_id: request.artifact_id(),
         title: "scan".to_string(),
         source_path: "scan.pdf".to_string(),
-        content_hash: request.source_hash().as_str().to_string(),
+        content_hash: request.source_hash().clone(),
         blob_id: request.source_blob(),
     };
     let failure = OcrFailed {

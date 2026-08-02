@@ -15,7 +15,7 @@ struct ReplayArtifactSetup<'a> {
     art_id: ArtifactId,
     title: &'a str,
     source_path: &'a str,
-    content_hash: &'a str,
+    content_hash: ContentHash,
     blob_id: BlobId,
     chunk_id: ChunkId,
     chunk_text: &'a str,
@@ -50,7 +50,7 @@ fn replay_setup_artifact(
             artifact_id: art_id,
             title: title.to_string(),
             source_path: source_path.to_string(),
-            content_hash: content_hash.to_string(),
+            content_hash: content_hash.clone(),
             blob_id,
         },
     ))?;
@@ -59,7 +59,7 @@ fn replay_setup_artifact(
         3,
         DomainEvent::PendingIndex {
             artifact_id: art_id,
-            content_hash: content_hash.to_string(),
+            content_hash: content_hash.clone(),
         },
     ))?;
     state.apply_event(new_envelope(
@@ -99,7 +99,7 @@ fn replay_artifact_indexed_clears_pending_parsers() -> Result<(), Box<dyn std::e
             artifact_id: ArtifactId::new(1),
             title: "Notes".to_string(),
             source_path: "/tmp/notes.md".to_string(),
-            content_hash: fixtures::test_content_hash()?.as_str().to_string(),
+            content_hash: fixtures::test_content_hash()?,
             blob_id: BlobId::new(42),
         },
     })?;
@@ -112,7 +112,7 @@ fn replay_artifact_indexed_clears_pending_parsers() -> Result<(), Box<dyn std::e
         sequence: SequenceNumber::new(3),
         event: DomainEvent::PendingIndex {
             artifact_id: ArtifactId::new(1),
-            content_hash: fixtures::test_content_hash()?.as_str().to_string(),
+            content_hash: fixtures::test_content_hash()?,
         },
     })?;
 
@@ -215,7 +215,7 @@ fn replay_artifact_indexed_rejects_incomplete_evidence() -> Result<(), Box<dyn s
             artifact_id: art_id,
             title: "Notes".to_string(),
             source_path: "/tmp/notes.md".to_string(),
-            content_hash: fixtures::test_content_hash()?.as_str().to_string(),
+            content_hash: fixtures::test_content_hash()?,
             blob_id: BlobId::new(42),
         },
     })?;
@@ -228,7 +228,7 @@ fn replay_artifact_indexed_rejects_incomplete_evidence() -> Result<(), Box<dyn s
         sequence: SequenceNumber::new(3),
         event: DomainEvent::PendingIndex {
             artifact_id: art_id,
-            content_hash: fixtures::test_content_hash()?.as_str().to_string(),
+            content_hash: fixtures::test_content_hash()?,
         },
     })?;
 
@@ -293,7 +293,7 @@ fn replay_artifact_indexed_rejects_invalid_evidence() -> Result<(), Box<dyn std:
             art_id,
             title: "Notes",
             source_path: "/tmp/notes.md",
-            content_hash: content_hash.as_str(),
+            content_hash: content_hash.clone(),
             blob_id: BlobId::new(42),
             chunk_id: ChunkId::new(10),
             chunk_text: "hello",

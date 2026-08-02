@@ -1,5 +1,9 @@
 use maestria_domain::*;
 
+fn hash_abc() -> Result<ContentHash, Box<dyn std::error::Error>> {
+    Ok(ContentHash::new(format!("sha256:{:064x}", 3))?)
+}
+
 // ── Replay behavior for parser lifecycle ──────────────────────────
 
 #[test]
@@ -12,7 +16,7 @@ fn replay_reconstructs_pending_parsers() -> Result<(), Box<dyn std::error::Error
             artifact_id: ArtifactId::new(1),
             title: "Notes".to_string(),
             source_path: "/tmp/notes.md".to_string(),
-            content_hash: "sha256:abc".to_string(),
+            content_hash: hash_abc()?,
             blob_id: BlobId::new(42),
         },
     })?;
@@ -44,7 +48,7 @@ fn replay_artifact_parsed_cleans_up_pending_parsers() -> Result<(), Box<dyn std:
             artifact_id: ArtifactId::new(1),
             title: "Notes".to_string(),
             source_path: "/tmp/notes.md".to_string(),
-            content_hash: "sha256:abc".to_string(),
+            content_hash: hash_abc()?,
             blob_id: BlobId::new(42),
         },
     })?;

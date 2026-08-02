@@ -176,7 +176,7 @@ pub(crate) enum StoredEventPayload {
     },
     PendingIndex {
         artifact_id: u64,
-        content_hash: String,
+        content_hash: StoredContentHash,
     },
     FullTextIndexed {
         artifact_id: u64,
@@ -189,7 +189,7 @@ pub(crate) enum StoredEventPayload {
         artifact_id: u64,
         title: String,
         source_path: String,
-        content_hash: String,
+        content_hash: StoredContentHash,
         blob_id: u64,
     },
     OcrRequested {
@@ -231,7 +231,7 @@ pub(crate) enum StoredEventPayload {
     SourceBecameStale {
         artifact_id: u64,
         source_path: String,
-        content_hash: String,
+        content_hash: StoredContentHash,
     },
 }
 
@@ -303,7 +303,7 @@ impl StoredEventPayload {
             } => Some(Self::SourceBecameStale {
                 artifact_id: artifact_id.value(),
                 source_path: source_path.clone(),
-                content_hash: content_hash.clone(),
+                content_hash: StoredContentHash::from_domain(content_hash),
             }),
             _ => None,
         }
@@ -318,7 +318,9 @@ impl StoredEventPayload {
             } => Ok(DomainEvent::SourceBecameStale {
                 artifact_id: maestria_domain::ArtifactId::new(artifact_id),
                 source_path,
-                content_hash,
+                content_hash: content_hash
+                    .try_into_domain()
+                    .map_err(FamilyDecodeError::Invalid)?,
             }),
             other => Err(FamilyDecodeError::Foreign(Box::new(other))),
         }

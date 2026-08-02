@@ -415,7 +415,7 @@ fn fixture_with_security_index(
         chunk_id,
         &source,
         security.clone(),
-    ))?;
+    )?)?;
     chunk_store.put(fixture_chunk(artifact_id, chunk_id)?)?;
     evidence_store.put(fixture_evidence(
         artifact_id,
@@ -441,7 +441,7 @@ fn fixture_with_security_index(
             second_chunk_id,
             &source,
             security.clone(),
-        ))?;
+        )?)?;
         chunk_store.put(fixture_chunk(second_artifact_id, second_chunk_id)?)?;
         evidence_store.put(fixture_evidence(
             second_artifact_id,
@@ -503,8 +503,8 @@ fn fixture_artifact(
     chunk_id: ChunkId,
     source: &[u8],
     security: maestria_domain::SecurityMetadata,
-) -> Artifact {
-    Artifact {
+) -> Result<Artifact, Box<dyn std::error::Error>> {
+    Ok(Artifact {
         id: artifact_id,
         title: "fixture".to_string(),
         chunk_ids: [chunk_id].into(),
@@ -512,10 +512,12 @@ fn fixture_artifact(
         claim_ids: Default::default(),
         evidence_ids: [maestria_domain::evidence_id_for(artifact_id, 0)].into(),
         index_status: IndexStatus::Indexed,
-        content_hash: Some(maestria_domain::content_hash(source)),
+        content_hash: Some(maestria_domain::ContentHash::new(
+            maestria_domain::content_hash(source),
+        )?),
         parse_status: None,
         security,
-    }
+    })
 }
 
 fn fixture_chunk(

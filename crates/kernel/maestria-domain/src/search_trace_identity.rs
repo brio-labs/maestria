@@ -271,7 +271,7 @@ fn mix_diversity(hash: &mut u64, diversity: &SearchTraceDiversity) {
     for candidate in &diversity.candidates {
         mix_hash(hash, &candidate.candidate_id.value().to_le_bytes());
         mix_hash(hash, &(candidate.original_rank as u64).to_le_bytes());
-        mix_debug(hash, &candidate.selected_rank);
+        mix_debug(hash, &candidate.placement);
         mix_debug(hash, &candidate.duplicate_cluster);
         mix_hash(hash, &u64::from(candidate.marginal_coverage).to_le_bytes());
         for key in &candidate.coverage_keys {

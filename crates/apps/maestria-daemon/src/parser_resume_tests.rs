@@ -4,7 +4,9 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use maestria_blob_fs::FsBlobStore;
 use maestria_core::InstanceLayout;
-use maestria_domain::{ArtifactId, BlobId, DomainInput, KernelState, ParserStarted, content_hash};
+use maestria_domain::{
+    ArtifactId, BlobId, ContentHash, DomainInput, KernelState, ParserStarted, content_hash,
+};
 use maestria_ports::BlobStore;
 
 use super::{pending_resume_parsers, verify_pending_blobs};
@@ -43,26 +45,27 @@ fn pending_input(
     blob_id: u64,
     title: &str,
     content_hash: &str,
-) -> DomainInput {
+) -> Result<DomainInput, Box<dyn std::error::Error>> {
     let artifact_id = ArtifactId::new(artifact_id);
     let blob_id = BlobId::new(blob_id);
+    let content_hash = ContentHash::new(content_hash.to_string())?;
     state.pending_parsers.insert(
         artifact_id,
         ParserStarted {
             artifact_id,
             title: title.to_string(),
             source_path: format!("/tmp/{title}"),
-            content_hash: content_hash.to_string(),
+            content_hash: content_hash.clone(),
             blob_id,
         },
     );
-    DomainInput::ResumeParser(ParserStarted {
+    Ok(DomainInput::ResumeParser(ParserStarted {
         artifact_id,
         title: title.to_string(),
         source_path: format!("/tmp/{title}"),
-        content_hash: content_hash.to_string(),
+        content_hash,
         blob_id,
-    })
+    }))
 }
 
 fn build_layout(tempdir: &TempDir) -> InstanceLayout {
@@ -97,7 +100,7 @@ fn pending_resume_parsers_collects_all_pending() -> Result<(), Box<dyn std::erro
             artifact_id: artifact_a,
             title: "a.md".to_string(),
             source_path: "/tmp/a.md".to_string(),
-            content_hash: "sha256:aaa".to_string(),
+            content_hash: ContentHash::new("sha256:".to_owned() + &"a".repeat(64))?,
             blob_id: blob_a,
         },
     );
@@ -107,7 +110,7 @@ fn pending_resume_parsers_collects_all_pending() -> Result<(), Box<dyn std::erro
             artifact_id: artifact_b,
             title: "b.md".to_string(),
             source_path: "/tmp/b.md".to_string(),
-            content_hash: "sha256:bbb".to_string(),
+            content_hash: ContentHash::new("sha256:".to_owned() + &"b".repeat(64))?,
             blob_id: blob_b,
         },
     );
@@ -132,6 +135,7 @@ fn pending_resume_parsers_preserves_all_fields() -> Result<(), Box<dyn std::erro
     let mut state = KernelState::new();
     let artifact_id = ArtifactId::new(42);
     let blob_id = BlobId::new(999);
+    let expected_hash = ContentHash::new("sha256:".to_owned() + &"c".repeat(64))?;
 
     state.pending_parsers.insert(
         artifact_id,
@@ -139,7 +143,7 @@ fn pending_resume_parsers_preserves_all_fields() -> Result<(), Box<dyn std::erro
             artifact_id,
             title: "report.pdf".to_string(),
             source_path: "/data/report.pdf".to_string(),
-            content_hash: "sha256:abcdef1234567890".to_string(),
+            content_hash: expected_hash.clone(),
             blob_id,
         },
     );
@@ -152,7 +156,7 @@ fn pending_resume_parsers_preserves_all_fields() -> Result<(), Box<dyn std::erro
             assert_eq!(ps.artifact_id, artifact_id);
             assert_eq!(ps.title, "report.pdf");
             assert_eq!(ps.source_path, "/data/report.pdf");
-            assert_eq!(ps.content_hash, "sha256:abcdef1234567890");
+            assert_eq!(ps.content_hash, expected_hash);
             assert_eq!(ps.blob_id, blob_id);
         }
         other => return Err(format!("expected ResumeParser, got {other:?}").into()),
@@ -182,14 +186,14 @@ fn verify_pending_blobs_succeeds_when_all_blobs_exist() -> Result<(), Box<dyn st
         artifact_id: ArtifactId::new(blob_id_a.value()),
         title: "a.txt".to_string(),
         source_path: "/tmp/a.txt".to_string(),
-        content_hash: content_hash(b"alpha"),
+        content_hash: ContentHash::new(content_hash(b"alpha"))?,
         blob_id: blob_id_a,
     });
     let input_b = DomainInput::ResumeParser(ParserStarted {
         artifact_id: ArtifactId::new(blob_id_b.value()),
         title: "b.txt".to_string(),
         source_path: "/tmp/b.txt".to_string(),
-        content_hash: content_hash(b"beta"),
+        content_hash: ContentHash::new(content_hash(b"beta"))?,
         blob_id: blob_id_b,
     });
 
@@ -204,7 +208,13 @@ fn verify_pending_blobs_fails_when_blob_missing() -> Result<(), Box<dyn std::err
 
     // Never put blob 42 — it should fail.
     let mut state = KernelState::new();
-    let input = pending_input(&mut state, 1, 42, "missing.txt", "sha256:0");
+    let input = pending_input(
+        &mut state,
+        1,
+        42,
+        "missing.txt",
+        &format!("sha256:{}", "0".repeat(64)),
+    )?;
 
     let result = verify_pending_blobs(&layout, &[input]);
     let err = result.err().ok_or("expected error but succeeded")?;
@@ -240,7 +250,7 @@ fn verify_pending_blobs_fails_when_object_file_missing_but_index_present()
         blob_id.value(),
         "doomed.txt",
         &hash,
-    );
+    )?;
 
     let result = verify_pending_blobs(&layout, &[input]);
     let err = result.err().ok_or("expected error but succeeded")?;
@@ -264,8 +274,12 @@ fn verify_pending_blobs_fails_when_content_hash_mismatch() -> Result<(), Box<dyn
     // Construct a ParserStarted that references the correct blob_id
     // but carries a content hash for *different* bytes.
     let actual_hash = content_hash(bytes);
-    let wrong_hash = content_hash(b"beta"); // hash of different content
-    assert_ne!(actual_hash, wrong_hash, "test requires distinct hashes");
+    let wrong_hash = ContentHash::new(content_hash(b"beta"))?; // hash of different content
+    assert_ne!(
+        actual_hash,
+        wrong_hash.as_str(),
+        "test requires distinct hashes"
+    );
 
     let artifact_id = ArtifactId::new(1);
     let input = DomainInput::ResumeParser(ParserStarted {

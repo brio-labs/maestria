@@ -1,6 +1,6 @@
 use crate::test_support::*;
 use maestria_domain::{
-    Artifact, ArtifactId, DomainEvent, DomainEventEnvelope, EventId, IndexStatus,
+    Artifact, ArtifactId, ContentHash, DomainEvent, DomainEventEnvelope, EventId, IndexStatus,
     ParseArtifactRequest, SequenceNumber, content_hash,
 };
 use maestria_ports::{
@@ -18,7 +18,7 @@ async fn parse_artifact_barrier_blocks_parse_until_persistence_observable()
     let event_log = Arc::new(InMemoryEventLog::new());
     let artifact_id = ArtifactId::new(99);
     let source_bytes = b"fn main() {}".to_vec();
-    let source_hash = content_hash(&source_bytes);
+    let source_hash = ContentHash::new(content_hash(&source_bytes))?;
 
     // Store the blob and record its blob_id so the pre-populated event
     // carries the same identity the handler will compute.

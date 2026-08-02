@@ -164,7 +164,7 @@ impl EffectExecutionContext {
                 return false;
             }
         };
-        let snapshot_ref = SnapshotRef::new(blob_id, snapshot_hash_typed);
+        let snapshot_ref = SnapshotRef::new(blob_id, snapshot_hash_typed.clone());
         let artifact_id = web_artifact_id_for(&snapshot.url, &snapshot.content_hash);
         let evidence_id = web_evidence_id_for(artifact_id);
         if self
@@ -209,7 +209,7 @@ impl EffectExecutionContext {
                 title: snapshot.url.clone(),
                 source_path: snapshot.url.clone(),
                 source_bytes,
-                content_hash: snapshot_hash,
+                content_hash: snapshot_hash_typed.clone(),
             }))
             .await
             .is_err()

@@ -164,14 +164,14 @@ pub struct ArtifactDetected {
     pub title: String,
     pub source_path: String,
     pub source_bytes: Vec<u8>,
-    pub content_hash: String,
+    pub content_hash: crate::search::ContentHash,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SourceRemoved {
     pub artifact_id: ArtifactId,
     pub source_path: String,
-    pub content_hash: String,
+    pub content_hash: crate::search::ContentHash,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -179,7 +179,7 @@ pub struct ParserStarted {
     pub artifact_id: ArtifactId,
     pub title: String,
     pub source_path: String,
-    pub content_hash: String,
+    pub content_hash: crate::search::ContentHash,
     pub blob_id: BlobId,
 }
 

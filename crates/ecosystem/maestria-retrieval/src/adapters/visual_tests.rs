@@ -426,7 +426,7 @@ fn visual_batch_reports_bounded_bytes() -> Result<(), Box<dyn std::error::Error>
     let blob_store = InMemoryBlobStore::new();
     let bytes = b"pdf bytes".to_vec();
     let blob = blob_store.put(bytes.clone())?;
-    let source_hash = maestria_domain::content_hash(&bytes);
+    let source_hash = maestria_domain::ContentHash::new(maestria_domain::content_hash(&bytes))?;
     let artifacts = InMemoryArtifactRepository::new();
     artifacts.put(maestria_domain::Artifact {
         id: artifact_id,
@@ -456,10 +456,7 @@ fn visual_batch_reports_bounded_bytes() -> Result<(), Box<dyn std::error::Error>
         artifact_id,
         claim_id: None,
         kind: EvidenceKind::PdfSpan {
-            snapshot: maestria_domain::SnapshotRef::new(
-                blob,
-                maestria_domain::ContentHash::new(source_hash.clone())?,
-            ),
+            snapshot: maestria_domain::SnapshotRef::new(blob, source_hash.clone()),
             page_start: 1,
             page_end: 1,
         },

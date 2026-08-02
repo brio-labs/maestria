@@ -71,7 +71,10 @@ pub(super) fn open_evidence(layout: &InstanceLayout, evidence_id: u64) -> Result
         evidence_id: output.evidence.id.value(),
         artifact_id: output.artifact.id.value(),
         artifact_title: output.artifact.title,
-        artifact_content_hash: output.artifact.content_hash,
+        artifact_content_hash: output
+            .artifact
+            .content_hash
+            .map(|hash| hash.as_str().to_owned()),
         source: evidence_source(&output.evidence)?,
         excerpt: output.evidence.excerpt,
         observed_at: output.evidence.observed_at.value(),

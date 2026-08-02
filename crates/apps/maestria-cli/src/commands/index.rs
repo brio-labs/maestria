@@ -50,10 +50,10 @@ async fn process_file(file: &Path, ctx: &ProcessContext<'_>) -> Result<()> {
 
     let bytes = fs::read(&file)?;
     let artifact_id = artifact_id_for(&file, &bytes);
-    let hash = content_hash(&bytes);
+    let hash = maestria_domain::ContentHash::new(content_hash(&bytes))?;
     // Check whether this exact artifact was already indexed before this session.
     if let Some(artifact) = ctx.preexisting_state.artifacts.get(&artifact_id)
-        && artifact.content_hash.as_deref() == Some(&hash)
+        && artifact.content_hash.as_ref() == Some(&hash)
         && artifact.index_status == IndexStatus::Indexed
     {
         println!("unchanged artifact={} path={}", artifact.id, file.display());

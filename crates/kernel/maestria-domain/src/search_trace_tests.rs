@@ -69,7 +69,7 @@ fn test_deterministic_id_with_diversity() -> Result<(), SearchCompatibilityError
         .push(crate::SearchTraceDiversityCandidate {
             candidate_id: crate::ids::EvidenceId::new(1),
             original_rank: 0,
-            selected_rank: Some(0),
+            placement: crate::DiversityPlacement::Selected(0),
             duplicate_cluster: None,
             marginal_coverage: 1,
             coverage_keys: vec!["key1".to_string()],

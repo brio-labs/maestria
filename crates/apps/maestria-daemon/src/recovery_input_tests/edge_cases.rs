@@ -27,7 +27,7 @@ fn recovery_inputs_derives_both_kinds_from_state() -> Result<(), Box<dyn std::er
             artifact_id: artifact_a,
             title: "a.md".to_string(),
             source_path: "/tmp/a.md".to_string(),
-            content_hash: "sha256:abc".to_string(),
+            content_hash: ContentHash::new("sha256:".to_owned() + &"a".repeat(64))?,
             blob_id: BlobId::new(100),
         },
     );
@@ -38,7 +38,7 @@ fn recovery_inputs_derives_both_kinds_from_state() -> Result<(), Box<dyn std::er
         title: "b.md".to_string(),
         source_path: "/tmp/b.md".to_string(),
         source_bytes: vec![1, 2, 3],
-        content_hash: "sha256:def".to_string(),
+        content_hash: ContentHash::new("sha256:".to_owned() + &"d".repeat(64))?,
     }))?;
     state.apply_input(DomainInput::ParserCompleted(ParserResult {
         artifact_id: artifact_b,
@@ -108,7 +108,7 @@ fn recovery_inputs_excludes_parser_pending_from_full_text() -> Result<(), Box<dy
         title: "doc.md".to_string(),
         source_path: "/tmp/doc.md".to_string(),
         source_bytes: vec![1, 2, 3],
-        content_hash: "sha256:abc".to_string(),
+        content_hash: ContentHash::new("sha256:".to_owned() + &"a".repeat(64))?,
     }))?;
     state.apply_input(DomainInput::ParserCompleted(ParserResult {
         artifact_id,
@@ -147,7 +147,7 @@ fn recovery_inputs_excludes_parser_pending_from_full_text() -> Result<(), Box<dy
             artifact_id,
             title: "doc.md".to_string(),
             source_path: "/tmp/doc.md".to_string(),
-            content_hash: "sha256:abc".to_string(),
+            content_hash: ContentHash::new("sha256:".to_owned() + &"a".repeat(64))?,
             blob_id: BlobId::new(100),
         },
     );

@@ -73,7 +73,7 @@ fn open_evidence_rejects_file_span_outside_current_manifest_roots() -> Result<()
             claim_ids: BTreeSet::new(),
             evidence_ids: BTreeSet::new(),
             index_status: IndexStatus::Indexed,
-            content_hash: Some("hash".to_string()),
+            content_hash: Some(ContentHash::new("sha256:".to_owned() + &"6".repeat(64))?),
             parse_status: None,
             security: maestria_domain::SecurityMetadata::default(),
         },

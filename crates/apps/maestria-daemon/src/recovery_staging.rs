@@ -69,7 +69,7 @@ pub(crate) fn source_artifact_ids(
                 Ok(path) => path.display().to_string(),
                 Err(_) => source_path,
             };
-            identities.insert(key, (artifact_id, content_hash));
+            identities.insert(key, (artifact_id, content_hash.as_str().to_owned()));
         }
     }
     Ok(identities)

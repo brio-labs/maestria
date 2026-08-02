@@ -26,7 +26,7 @@ fn index_path_recovery_derives_pending_inputs_with_correct_filter()
             artifact_id: artifact_a,
             title: "a.md".to_string(),
             source_path: "/tmp/a.md".to_string(),
-            content_hash: "sha256:aaa".to_string(),
+            content_hash: ContentHash::new("sha256:".to_owned() + &"a".repeat(64))?,
             blob_id: BlobId::new(100),
         },
     );
@@ -37,7 +37,7 @@ fn index_path_recovery_derives_pending_inputs_with_correct_filter()
         title: "b.md".to_string(),
         source_path: "/tmp/b.md".to_string(),
         source_bytes: vec![1, 2, 3],
-        content_hash: "sha256:bbb".to_string(),
+        content_hash: ContentHash::new("sha256:".to_owned() + &"b".repeat(64))?,
     }))?;
     state.apply_input(DomainInput::ParserCompleted(ParserResult {
         artifact_id: artifact_b,
@@ -130,7 +130,7 @@ fn recovery_artifact_ids_covers_both_input_kinds() -> Result<(), Box<dyn std::er
             artifact_id: ArtifactId::new(10),
             title: "a.md".to_string(),
             source_path: "/tmp/a.md".to_string(),
-            content_hash: "sha256:aa".to_string(),
+            content_hash: ContentHash::new("sha256:".to_owned() + &"c".repeat(64))?,
             blob_id: BlobId::new(100),
         })],
         start_full_text: vec![
@@ -187,7 +187,7 @@ fn recovery_drain_all_indexed_predicate() -> Result<(), Box<dyn std::error::Erro
             title: format!("{id}.md"),
             source_path: format!("/tmp/{id}.md"),
             source_bytes: vec![id.value() as u8],
-            content_hash: format!("sha256:{id}"),
+            content_hash: ContentHash::new(format!("sha256:{:064x}", id.value()))?,
         }))?;
         state.apply_input(DomainInput::ParserCompleted(ParserResult {
             artifact_id: id,
@@ -264,7 +264,7 @@ fn index_path_reconcile_projections_succeeds_in_cli_context()
         title: "cli-repair.md".to_string(),
         source_path: "/tmp/cli-repair.md".to_string(),
         source_bytes: vec![9, 8, 7],
-        content_hash: "sha256:cli".to_string(),
+        content_hash: ContentHash::new("sha256:".to_owned() + &"e".repeat(64))?,
     }))?;
 
     let store = maestria_storage_sqlite::SqliteStore::in_memory()?;

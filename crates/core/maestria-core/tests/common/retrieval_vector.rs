@@ -50,7 +50,7 @@ fn seed_vector_artifact(
         claim_ids: Default::default(),
         evidence_ids: [evidence_id].into(),
         index_status: IndexStatus::Indexed,
-        content_hash: Some(maestria_core::content_hash(source.as_bytes())),
+        content_hash: Some(ContentHash::new(maestria_core::content_hash(source.as_bytes()))?),
         parse_status: None,
     })?;
     context.chunks.put(Chunk {

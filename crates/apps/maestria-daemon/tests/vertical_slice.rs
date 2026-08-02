@@ -2,8 +2,8 @@ use anyhow::Error as AnyhowError;
 use maestria_blob_fs::FsBlobStore;
 use maestria_core::{CorePorts, CoreServices, InstanceLayout, InstanceService, OpenEvidenceInput};
 use maestria_domain::{
-    ArtifactDetected, ArtifactId, CardId, ChunkId, DomainInput, EvidenceId, IndexStatus, Relation,
-    RelationEndpoint, RelationId, RelationKind, content_hash,
+    ArtifactDetected, ArtifactId, CardId, ChunkId, ContentHash, DomainInput, EvidenceId,
+    IndexStatus, Relation, RelationEndpoint, RelationId, RelationKind, content_hash,
 };
 use maestria_governance::{AutonomyProfile, RetrievalSecurityPolicy};
 use maestria_graph_sqlite::SqliteGraphIndex;
@@ -156,7 +156,7 @@ async fn index_and_verify_artifact(
             title: "graph-rag.md".to_string(),
             source_path: source_path.to_string(),
             source_bytes: bytes.to_vec(),
-            content_hash: hash.to_string(),
+            content_hash: ContentHash::new(hash.to_string())?,
         }))
         .await?;
 
@@ -172,7 +172,10 @@ async fn index_and_verify_artifact(
         .get(artifact_id)?
         .ok_or_else(|| std::io::Error::other("indexed artifact missing from store"))?;
     assert_eq!(artifact.index_status, IndexStatus::Indexed);
-    assert_eq!(artifact.content_hash.as_deref(), Some(hash));
+    assert_eq!(
+        artifact.content_hash.as_ref().map(|h| h.as_str()),
+        Some(hash)
+    );
     assert!(!artifact.chunk_ids.is_empty(), "should have chunks");
     assert!(!artifact.evidence_ids.is_empty(), "should have evidence");
 
@@ -218,7 +221,7 @@ async fn attempt_idempotent_reindex(
             title: "graph-rag.md".to_string(),
             source_path: source_path.to_string(),
             source_bytes: bytes.to_vec(),
-            content_hash: hash.to_string(),
+            content_hash: ContentHash::new(hash.to_string())?,
         }))
         .await?;
 

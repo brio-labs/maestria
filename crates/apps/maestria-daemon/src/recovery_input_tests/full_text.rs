@@ -15,7 +15,7 @@ fn pending_start_full_text_groups_by_artifact() -> Result<(), Box<dyn std::error
         title: "test.md".to_string(),
         source_path: "/tmp/test.md".to_string(),
         source_bytes: vec![1, 2, 3],
-        content_hash: "sha256:abc".to_string(),
+        content_hash: ContentHash::new("sha256:".to_owned() + &"a".repeat(64))?,
     }))?;
 
     state.apply_input(DomainInput::ParserCompleted(ParserResult {
@@ -91,7 +91,7 @@ fn pending_start_full_text_resumes_indexing_without_reparse()
         title: "notes.md".to_string(),
         source_path: String::new(),
         source_bytes: vec![1, 2, 3],
-        content_hash: "sha256:def".to_string(),
+        content_hash: ContentHash::new("sha256:".to_owned() + &"d".repeat(64))?,
     }))?;
 
     let output = state.apply_input(DomainInput::ParserCompleted(ParserResult {
@@ -221,7 +221,7 @@ fn pending_start_full_text_excludes_pending_parser_artifacts()
             title: title.to_string(),
             source_path: format!("/tmp/{title}"),
             source_bytes: vec![1, 2, 3],
-            content_hash: "sha256:abc".to_string(),
+            content_hash: ContentHash::new("sha256:".to_owned() + &"a".repeat(64))?,
         }))?;
 
         state.apply_input(DomainInput::ParserCompleted(ParserResult {
@@ -270,7 +270,7 @@ fn pending_start_full_text_excludes_pending_parser_artifacts()
             artifact_id: artifact_a,
             title: "a.md".to_string(),
             source_path: "/tmp/a.md".to_string(),
-            content_hash: "sha256:abc".to_string(),
+            content_hash: ContentHash::new("sha256:".to_owned() + &"a".repeat(64))?,
             blob_id: BlobId::new(100),
         },
     );
