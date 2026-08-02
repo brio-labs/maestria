@@ -184,7 +184,7 @@ impl CandidateRetriever for CardRetriever {
         let mut candidates = Vec::with_capacity(bounded.hits.len());
         for (raw_rank, hit) in bounded.hits.into_iter().enumerate() {
             let Some(candidate) =
-                self.candidate_from_hit(&hit, one_based_rank(raw_rank), &authorization)?
+                self.candidate_from_hit(&hit, one_based_rank(raw_rank)?, &authorization)?
             else {
                 continue;
             };

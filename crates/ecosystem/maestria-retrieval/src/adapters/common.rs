@@ -13,14 +13,12 @@ pub(super) fn port_error(error: maestria_ports::PortError) -> RetrievalError {
     RetrievalError::Internal(error.to_string())
 }
 
-pub(super) fn one_based_rank(rank: usize) -> u32 {
-    match u32::try_from(rank.saturating_add(1)) {
-        Ok(rank) => rank,
-        Err(e) => {
-            let _ = e;
-            u32::MAX
-        }
-    }
+pub(super) fn one_based_rank(rank: usize) -> Result<u32, RetrievalError> {
+    // R24: a rank that cannot be represented in the typed score domain is an
+    // error, not a sentinel value.
+    u32::try_from(rank.saturating_add(1)).map_err(|_| {
+        RetrievalError::Internal(format!("candidate rank {rank} exceeds the u32 rank domain"))
+    })
 }
 
 pub(super) fn generation_mismatch(

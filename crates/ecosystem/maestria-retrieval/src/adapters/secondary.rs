@@ -68,18 +68,16 @@ impl ContextExpander for HierarchyGraphExpander {
             .iter()
             .map(|candidate| candidate.evidence_id)
             .collect::<BTreeSet<_>>();
-        let queue = candidates
-            .iter()
-            .map(|candidate| {
-                (
-                    RelationEndpoint::Artifact(maestria_domain::ArtifactId::new(
-                        candidate.candidate.artifact_version.value(),
-                    )),
-                    one_based_rank(candidate.rank),
-                    0_usize,
-                )
-            })
-            .collect::<VecDeque<_>>();
+        let mut queue = VecDeque::new();
+        for candidate in candidates {
+            queue.push_back((
+                RelationEndpoint::Artifact(maestria_domain::ArtifactId::new(
+                    candidate.candidate.artifact_version.value(),
+                )),
+                one_based_rank(candidate.rank)?,
+                0_usize,
+            ));
+        }
         let relation_budget = policy.max_results.saturating_sub(expanded.len()).min(
             maestria_domain::saturating_usize(policy.execution_budget.max_work_units()),
         );

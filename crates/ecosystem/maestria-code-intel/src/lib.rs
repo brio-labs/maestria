@@ -28,8 +28,8 @@ mod query;
 mod symbols;
 mod types;
 pub use context::{
-    ContextDirection, RepositoryContextEdge, RepositoryContextNode, RepositoryContextQuery,
-    RepositoryContextResult, RepositoryContextSummary,
+    ContextDirection, MAX_CONTEXT_DEPTH, RepositoryContextEdge, RepositoryContextNode,
+    RepositoryContextQuery, RepositoryContextResult, RepositoryContextSummary,
 };
 pub use error::CodeIntelError;
 pub use freshness::{RepositoryFreshness, RepositoryIdentitySnapshot};

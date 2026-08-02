@@ -307,7 +307,7 @@ impl CandidateRetriever for LearnedSparseChunkRetriever {
         {
             let Some(candidate) = self.candidate_from_hit(
                 hit,
-                one_based_rank(raw_rank),
+                one_based_rank(raw_rank)?,
                 &request.authorization,
                 &prescore_cache,
             )?

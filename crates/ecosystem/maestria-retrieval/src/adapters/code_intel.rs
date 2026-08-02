@@ -137,7 +137,7 @@ impl CodeIntelRetriever {
                 &self.descriptor,
                 "repository_code",
                 score_for_rank(rank),
-                one_based_rank(rank),
+                one_based_rank(rank)?,
                 "repository_code_rank",
                 score_components,
             )?,
