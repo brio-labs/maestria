@@ -70,10 +70,19 @@ impl ContextExpander for HierarchyGraphExpander {
             .collect::<BTreeSet<_>>();
         let mut queue = VecDeque::new();
         for candidate in candidates {
+            // R27: graph traversal keys on the artifact identity, not the
+            // content-addressed version. Resolve the seed's artifact id from
+            // its evidence so the version namespace is never borrowed as a
+            // document key.
+            let Some(seed_evidence) = self
+                .evidence
+                .get(candidate.candidate.evidence_id)
+                .map_err(port_error)?
+            else {
+                continue;
+            };
             queue.push_back((
-                RelationEndpoint::Artifact(maestria_domain::ArtifactId::new(
-                    candidate.candidate.artifact_version.value(),
-                )),
+                RelationEndpoint::Artifact(seed_evidence.artifact_id),
                 one_based_rank(candidate.rank)?,
                 0_usize,
             ));
@@ -310,6 +319,7 @@ impl HierarchyGraphExpander {
             let raw_rank = state.next_graph_rank;
             let candidate = candidate_from_records(
                 related.artifact.id,
+                related.artifact.content_hash.as_ref(),
                 &chunk.source_span,
                 &evidence,
                 chunk.node_id,

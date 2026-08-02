@@ -139,34 +139,18 @@ pub(crate) fn parsed_artifact(
 /// Derives the content-addressed artifact version identity from a validated
 /// content hash.
 ///
-/// The version id is the leading 64-bit window of the sha256 digest. The
-/// hash is already validated by [`ContentHash`] at the parser boundary, so a
-/// malformed digest is a typed error rather than a silent fallback to the
-/// artifact-id namespace (R24/R27).
+/// Delegates to [`ContentHash::version_id`] — the single domain-owned
+/// derivation (R28) — mapping the compatibility error to the parser error
+/// type.
 pub(crate) fn artifact_version_id_for(
     content_hash: &ContentHash,
 ) -> Result<ArtifactVersionId, PortError> {
-    let digest = content_hash
-        .as_str()
-        .strip_prefix("sha256:")
-        .ok_or_else(|| PortError::InvalidInputContext {
+    content_hash
+        .version_id()
+        .map_err(|error| PortError::InvalidInputContext {
             context: "derive artifact version identity",
-            source: "content hash lacks the sha256: prefix".to_string(),
-        })?;
-    let value = digest
-        .get(..16)
-        .and_then(|prefix| u64::from_str_radix(prefix, 16).ok())
-        .ok_or_else(|| PortError::InvalidInputContext {
-            context: "derive artifact version identity",
-            source: format!("content hash digest is not a 16-hex-digit prefix: {digest}"),
-        })?;
-    if value == 0 {
-        return Err(PortError::InvalidInputContext {
-            context: "derive artifact version identity",
-            source: "content hash digest prefix decodes to zero".to_string(),
-        });
-    }
-    Ok(ArtifactVersionId::new(value))
+            source: format!("{error}"),
+        })
 }
 
 pub(crate) fn summary_card_for(

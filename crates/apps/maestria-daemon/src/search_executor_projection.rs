@@ -7,13 +7,17 @@ use std::collections::{BTreeMap, BTreeSet};
 
 /// Project the active artifact versions from the domain event log.
 ///
-/// `ParserStarted` marks the current version of a source path; a later
+/// `ParserStarted` records the source path for an artifact and a placeholder
+/// version; `DocumentTreeCaptured` carries the real content-addressed version
+/// and replaces the placeholder for that path (R27). A later
 /// `SourceBecameStale` removes the path. The result drives
-/// `CurrentVersionFilter` so stale versions never surface in retrieval.
+/// `CurrentVersionFilter` so stale versions never surface in retrieval and
+/// the version namespace never borrows the artifact-id namespace.
 pub(crate) fn reconcile_active_versions(
     events: &[DomainEventEnvelope],
 ) -> BTreeSet<ArtifactVersionId> {
     let mut latest_by_path = BTreeMap::new();
+    let mut path_by_artifact = BTreeMap::new();
     for envelope in events {
         match &envelope.event {
             DomainEvent::ParserStarted {
@@ -21,13 +25,28 @@ pub(crate) fn reconcile_active_versions(
                 source_path,
                 ..
             } => {
+                path_by_artifact.insert(*artifact_id, source_path.clone());
                 latest_by_path.insert(
                     source_path.clone(),
                     ArtifactVersionId::new(artifact_id.value()),
                 );
             }
-            DomainEvent::SourceBecameStale { source_path, .. } => {
+            DomainEvent::DocumentTreeCaptured {
+                artifact_id,
+                artifact_version_id,
+                ..
+            } => {
+                if let Some(path) = path_by_artifact.get(artifact_id) {
+                    latest_by_path.insert(path.clone(), *artifact_version_id);
+                }
+            }
+            DomainEvent::SourceBecameStale {
+                artifact_id,
+                source_path,
+                ..
+            } => {
                 latest_by_path.remove(source_path);
+                path_by_artifact.remove(artifact_id);
             }
             _ => {}
         }

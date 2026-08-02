@@ -140,6 +140,33 @@ impl ContentHash {
     pub fn as_str(&self) -> &str {
         &self.0
     }
+
+    /// Derives the content-addressed artifact version identity from this
+    /// validated hash (R27): the leading 64-bit window of the sha256 digest.
+    ///
+    /// This is the single derivation used by the parser boundary, retrieval
+    /// record-path candidates, and projection reconciliation so the version
+    /// namespace never borrows the artifact-id namespace (R28).
+    pub fn version_id(&self) -> Result<crate::ids::ArtifactVersionId, SearchCompatibilityError> {
+        let digest =
+            self.0
+                .strip_prefix("sha256:")
+                .ok_or(SearchCompatibilityError::InvalidContentHash(
+                    "Must be sha256: followed by 64 hexadecimal characters",
+                ))?;
+        let value = digest
+            .get(..16)
+            .and_then(|prefix| u64::from_str_radix(prefix, 16).ok())
+            .ok_or(SearchCompatibilityError::InvalidContentHash(
+                "sha256 digest is not a 16-hex-digit prefix",
+            ))?;
+        if value == 0 {
+            return Err(SearchCompatibilityError::InvalidContentHash(
+                "sha256 digest prefix decodes to zero",
+            ));
+        }
+        Ok(crate::ids::ArtifactVersionId::new(value))
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
