@@ -245,10 +245,8 @@ fn mix_trace_rerank(hash: &mut u64, rerank: &SearchTraceRerank) {
     for candidate in &rerank.candidates {
         mix_hash(hash, &candidate.candidate_id.value().to_le_bytes());
         mix_hash(hash, &(candidate.original_rank as u64).to_le_bytes());
-        mix_debug(hash, &candidate.new_rank);
-        mix_debug(hash, &candidate.status);
+        mix_debug(hash, &candidate.position);
         mix_debug(hash, &candidate.relevance_score);
-        mix_debug(hash, &candidate.constraint_score);
         for constraint in &candidate.constraint_scores {
             mix_hash(hash, constraint.name.as_bytes());
             mix_hash(hash, &u64::from(constraint.score).to_le_bytes());

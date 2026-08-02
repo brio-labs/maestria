@@ -3,7 +3,7 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use maestria_domain::{
-    EvidenceCandidate, RerankCandidateStatus, RetrievalModelFingerprint, SearchTraceRerank,
+    EvidenceCandidate, RerankPosition, RetrievalModelFingerprint, SearchTraceRerank,
     SearchTraceRerankCandidate, SourceLocation,
 };
 use maestria_governance::{RetrievalSecurityPolicy, scan_secrets};
@@ -72,17 +72,15 @@ impl VisualReranker {
     fn trace_for_all(
         &self,
         candidates: &[crate::types::RankedCandidate],
-        status: RerankCandidateStatus,
+        position: RerankPosition,
     ) -> Vec<SearchTraceRerankCandidate> {
         candidates
             .iter()
             .map(|candidate| SearchTraceRerankCandidate {
                 candidate_id: candidate.candidate.evidence_id,
                 original_rank: candidate.rank,
-                new_rank: Some(candidate.rank),
-                status: status.clone(),
+                position: position.clone(),
                 relevance_score: None,
-                constraint_score: None,
                 constraint_scores: Vec::new(),
             })
             .collect()
@@ -113,10 +111,7 @@ impl VisualReranker {
     ) -> RerankResult {
         self.result_with_trace(
             candidates.clone(),
-            self.trace_for_all(
-                &candidates,
-                RerankCandidateStatus::ErrorFallback(reason.into()),
-            ),
+            self.trace_for_all(&candidates, RerankPosition::ErrorFallback(reason.into())),
         )
     }
 
@@ -152,7 +147,7 @@ impl CandidateReranker for VisualReranker {
         if plan.intent() != maestria_domain::SearchIntent::VisualDocument {
             return Ok(self.result_with_trace(
                 candidates.clone(),
-                self.trace_for_all(&candidates, RerankCandidateStatus::SkippedNotApplicable),
+                self.trace_for_all(&candidates, RerankPosition::SkippedNotApplicable),
             ));
         }
         if let Err(reason) = self.preflight(plan.original_query()) {
@@ -172,7 +167,7 @@ impl CandidateReranker for VisualReranker {
         {
             return Ok(self.result_with_trace(
                 candidates.clone(),
-                self.trace_for_all(&candidates, RerankCandidateStatus::SkippedNotApplicable),
+                self.trace_for_all(&candidates, RerankPosition::SkippedNotApplicable),
             ));
         }
 
@@ -182,7 +177,7 @@ impl CandidateReranker for VisualReranker {
             Ok(response) => response,
             Err(reason) => return Ok(self.fallback(candidates, reason)),
         };
-        let trace = self.trace_for_all(&candidates, RerankCandidateStatus::SkippedNotApplicable);
+        let trace = self.trace_for_all(&candidates, RerankPosition::SkippedNotApplicable);
         let score_limit = self.limits.input_cap.min(self.limits.score_cap);
         let mut scored = Vec::with_capacity(score_limit.min(visual_positions.len()));
         for position in visual_positions.iter().copied().take(score_limit) {

@@ -196,10 +196,19 @@ pub struct SearchTraceLane {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum RerankCandidateStatus {
-    Reranked,
+/// Final placement of one candidate after a rerank stage.
+///
+/// The new rank exists only on [`RerankPosition::Reranked`]; skipped and
+/// failed candidates carry no rank, so "promoted" and "retained with a new
+/// rank" can never disagree.
+pub enum RerankPosition {
+    /// Candidate promoted by the reranker; carries its new rank.
+    Reranked(usize),
+    /// Candidate skipped because a cap was reached.
     SkippedCap,
+    /// Rerank stage does not apply to this candidate.
     SkippedNotApplicable,
+    /// Scorer failed; the candidate is retained through the fallback path.
     ErrorFallback(String),
 }
 
@@ -212,10 +221,8 @@ pub struct SearchTraceConstraintScore {
 pub struct SearchTraceRerankCandidate {
     pub candidate_id: crate::ids::EvidenceId,
     pub original_rank: usize,
-    pub new_rank: Option<usize>,
-    pub status: RerankCandidateStatus,
+    pub position: RerankPosition,
     pub relevance_score: Option<u32>,
-    pub constraint_score: Option<u32>,
     pub constraint_scores: Vec<SearchTraceConstraintScore>,
 }
 

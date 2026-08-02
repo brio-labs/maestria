@@ -87,8 +87,6 @@ pub(crate) struct StoredRetrievalPolicySnapshot {
     pub(crate) require_trust_zone: Option<StoredTrustZone>,
     pub(crate) max_sensitivity: Option<StoredSensitivity>,
     pub(crate) require_read_allowed: bool,
-    /// Legacy singleton scope projection retained for consumers that only understand one scope.
-    pub(crate) required_scope_id: Option<u64>,
     /// Complete effective scope set. `None` is global; `Some` is restricted.
     pub(crate) effective_scopes: Option<Vec<u64>>,
     pub(crate) allow_unscoped_items: bool,
@@ -106,7 +104,6 @@ impl StoredRetrievalPolicySnapshot {
                 .as_ref()
                 .map(StoredSensitivity::from_domain),
             require_read_allowed: value.require_read_allowed,
-            required_scope_id: value.required_scope_id.as_ref().map(ScopeId::value),
             effective_scopes: value
                 .effective_scopes
                 .as_ref()
@@ -126,7 +123,6 @@ impl StoredRetrievalPolicySnapshot {
                 .map(StoredSensitivity::try_into_domain)
                 .transpose()?,
             require_read_allowed: self.require_read_allowed,
-            required_scope_id: self.required_scope_id.map(ScopeId::new),
             effective_scopes: self
                 .effective_scopes
                 .map(|scopes| scopes.into_iter().map(ScopeId::new).collect()),

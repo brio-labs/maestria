@@ -8,7 +8,7 @@ use maestria_domain::{
     ArtifactVersionId, ConflictSetId, ContentRange, CorpusScope, CorpusSnapshotId,
     DuplicateClusterId, EvidenceId, EvidenceRequirements, EvidenceSpan, FreshnessRequirement,
     FreshnessStatus, IndexGenerationId, Modality, ModalitySet, QueryId, RepresentationName,
-    RerankCandidateStatus, RetrievalLaneScore, RetrievalModelFingerprint, RetrievalRawRank,
+    RerankPosition, RetrievalLaneScore, RetrievalModelFingerprint, RetrievalRawRank,
     RetrievalReason, RetrievalScoreFingerprint, RetrievalScoreKind, RetrievalScoreScale,
     RetrievalScoreSet, SearchBudget, SearchBudgetLimits, SearchExecution, SearchExecutionBudget,
     SearchExecutionCompletion, SearchExecutionUsage, SearchIntent, SearchLaneStatus,
@@ -176,10 +176,8 @@ pub(crate) fn sample_trace_rerank(fingerprint: RetrievalModelFingerprint) -> Sea
         candidates: vec![SearchTraceRerankCandidate {
             candidate_id: EvidenceId::new(1),
             original_rank: 0,
-            new_rank: Some(0),
-            status: RerankCandidateStatus::Reranked,
+            position: RerankPosition::Reranked(0),
             relevance_score: Some(95),
-            constraint_score: Some(80),
             constraint_scores: vec![SearchTraceConstraintScore {
                 name: "freshness".to_owned(),
                 score: 80,

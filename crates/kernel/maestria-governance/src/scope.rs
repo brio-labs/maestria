@@ -123,24 +123,6 @@ impl Scope {
 
     // ── existing public surface ──────────────────────────────────
 
-    /// Returns `true` when `path` starts with any read or write root.
-    ///
-    /// Note: this is a prefix check — it does **not** normalise `..`
-    /// components. For a strict containment check use
-    /// [`check_read_containment`](Self::check_read_containment).
-    pub fn allows_read(&self, path: &Path) -> bool {
-        self.read_roots.iter().any(|root| path.starts_with(root))
-            || self.write_roots.iter().any(|root| path.starts_with(root))
-    }
-
-    /// Returns `true` when `path` starts with any write root.
-    ///
-    /// Note: this is a prefix check — for strict containment use
-    /// [`check_write_containment`](Self::check_write_containment).
-    pub fn allows_write(&self, path: &Path) -> bool {
-        self.write_roots.iter().any(|root| path.starts_with(root))
-    }
-
     pub fn command_allowed(&self, command: &str) -> bool {
         let command = command.trim().to_lowercase();
         if command.is_empty() {
@@ -186,8 +168,8 @@ impl Scope {
     /// Strictly check that `path` is lexically contained within at least
     /// one read or write root.
     ///
-    /// Unlike [`allows_read`](Self::allows_read) this normalises `..` and `.`
-    /// components and rejects empty or escaping paths.
+    /// This normalises `..` and `.` components and rejects empty or escaping
+    /// paths.
     pub fn check_read_containment(&self, path: &Path) -> Result<(), ContainmentError> {
         let all_roots: Vec<PathBuf> = self
             .read_roots
@@ -223,14 +205,6 @@ impl ScopeGuard {
     }
 
     // ── existing delegation ──────────────────────────────────────
-
-    pub fn allows_read(&self, path: &Path) -> bool {
-        self.scope.allows_read(path)
-    }
-
-    pub fn allows_write(&self, path: &Path) -> bool {
-        self.scope.allows_write(path)
-    }
 
     pub fn command_allowed(&self, command: &str) -> bool {
         self.scope.command_allowed(command)
