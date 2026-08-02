@@ -3,7 +3,7 @@ use std::{collections::BTreeMap, sync::Arc};
 use async_trait::async_trait;
 use maestria_code_intel::{
     CodeQuery, QueryResult, REPOSITORY_CODE_PARSER_GENERATION, RepositoryCodeIndex,
-    RepositoryFreshness,
+    RepositoryFreshness, RepositoryIdentitySnapshot,
 };
 use maestria_domain::{
     ContentRange, EvidenceCandidate, EvidenceKind, EvidenceSpan, FreshnessStatus,
@@ -54,6 +54,7 @@ impl CodeIntelRetriever {
         &self,
         binding: AuthorizedCodeBinding,
         freshness: FreshnessStatus,
+        observed: Option<&RepositoryIdentitySnapshot>,
         rank: usize,
     ) -> Result<EvidenceCandidate, RetrievalError> {
         let symbol = &binding.symbol;
@@ -87,6 +88,47 @@ impl CodeIntelRetriever {
         )
         .map_err(|error| RetrievalError::Internal(error.to_string()))?;
 
+        let mut score_components = BTreeMap::from([
+            (
+                "repository_root".to_string(),
+                self.index.summary.repository_root.clone(),
+            ),
+            (
+                "commit_sha".to_string(),
+                symbol.provenance.commit_sha.clone(),
+            ),
+            (
+                "worktree_identity".to_string(),
+                symbol.provenance.worktree_identity.clone(),
+            ),
+            (
+                "parser_generation".to_string(),
+                symbol.provenance.parser_generation.clone(),
+            ),
+            (
+                "content_hash".to_string(),
+                symbol.provenance.content_hash.clone(),
+            ),
+            ("record_id".to_string(), symbol.record_id.clone()),
+            (
+                "source_path".to_string(),
+                symbol.provenance.file_path.clone(),
+            ),
+        ]);
+        // Record what the retrieval-time freshness read actually observed
+        // (the live worktree identity), distinct from the indexed
+        // provenance above, so the trace preserves the evidence of the
+        // live verification rather than only its derived status (R51).
+        if let Some(observed) = observed {
+            score_components.insert(
+                "observed_commit_sha".to_string(),
+                observed.commit_sha.clone(),
+            );
+            score_components.insert(
+                "observed_worktree_identity".to_string(),
+                observed.worktree_identity.clone(),
+            );
+        }
         Ok(EvidenceCandidate {
             evidence_id: binding.evidence.id,
             artifact_version: binding.artifact_version,
@@ -97,33 +139,7 @@ impl CodeIntelRetriever {
                 score_for_rank(rank),
                 one_based_rank(rank),
                 "repository_code_rank",
-                BTreeMap::from([
-                    (
-                        "repository_root".to_string(),
-                        self.index.summary.repository_root.clone(),
-                    ),
-                    (
-                        "commit_sha".to_string(),
-                        symbol.provenance.commit_sha.clone(),
-                    ),
-                    (
-                        "worktree_identity".to_string(),
-                        symbol.provenance.worktree_identity.clone(),
-                    ),
-                    (
-                        "parser_generation".to_string(),
-                        symbol.provenance.parser_generation.clone(),
-                    ),
-                    (
-                        "content_hash".to_string(),
-                        symbol.provenance.content_hash.clone(),
-                    ),
-                    ("record_id".to_string(), symbol.record_id.clone()),
-                    (
-                        "source_path".to_string(),
-                        symbol.provenance.file_path.clone(),
-                    ),
-                ]),
+                score_components,
             )?,
             trust: trust_label(&binding.security),
             freshness,
@@ -143,6 +159,7 @@ impl CodeIntelRetriever {
         query_result: QueryResult,
         authorized_bindings: Vec<AuthorizedCodeBinding>,
         freshness: FreshnessStatus,
+        observed: Option<RepositoryIdentitySnapshot>,
     ) -> Result<
         (
             Vec<EvidenceCandidate>,
@@ -206,7 +223,8 @@ impl CodeIntelRetriever {
                     SearchExecutionCompletion::Exhausted(SearchExecutionResource::BytesRead);
                 break;
             }
-            let candidate = self.candidate_from_binding(binding, freshness.clone(), rank)?;
+            let candidate =
+                self.candidate_from_binding(binding, freshness.clone(), observed.as_ref(), rank)?;
             bytes_read = bytes_read.saturating_add(span_bytes);
             candidates.push(candidate);
         }
@@ -219,7 +237,9 @@ impl CodeIntelRetriever {
         Ok((candidates, usage, completion))
     }
 
-    fn freshness(&self) -> Result<FreshnessStatus, RetrievalError> {
+    fn freshness(
+        &self,
+    ) -> Result<(FreshnessStatus, Option<RepositoryIdentitySnapshot>), RetrievalError> {
         if self
             .index
             .is_stale_generation(REPOSITORY_CODE_PARSER_GENERATION)
@@ -231,7 +251,9 @@ impl CodeIntelRetriever {
         match self.index.freshness().map_err(|error| {
             RetrievalError::Internal(format!("repository code freshness check: {error}"))
         })? {
-            RepositoryFreshness::Current { .. } => Ok(FreshnessStatus::UpToDate),
+            RepositoryFreshness::Current { current, .. } => {
+                Ok((FreshnessStatus::UpToDate, Some(current)))
+            }
             RepositoryFreshness::Stale { .. } => Err(RetrievalError::Internal(
                 "repository code index is stale".to_string(),
             )),
@@ -310,7 +332,7 @@ impl CandidateRetriever for CodeIntelRetriever {
                 "code query rejected by secret scanner".to_string(),
             ));
         }
-        let freshness = self.freshness()?;
+        let (freshness, observed) = self.freshness()?;
         let query = CodeQuery::Symbol {
             pattern: symbol_pattern(&request.query.q),
         };
@@ -332,8 +354,13 @@ impl CandidateRetriever for CodeIntelRetriever {
                 Ok(true)
             },
         )?;
-        let (candidates, usage, completion) =
-            self.materialize_candidates(&request, query_result, authorized_bindings, freshness)?;
+        let (candidates, usage, completion) = self.materialize_candidates(
+            &request,
+            query_result,
+            authorized_bindings,
+            freshness,
+            observed,
+        )?;
         let status = if candidates.is_empty() {
             SearchLaneStatus::Empty
         } else {

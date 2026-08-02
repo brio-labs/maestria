@@ -1,13 +1,21 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use maestria_domain::{SearchOutcome, SearchStatus, SearchStopReason};
+use maestria_domain::SearchOutcome;
 use maestria_ports::EvidenceRepository;
 
+use crate::diversity::select_candidates;
 use crate::traits::RetrievalEvaluator;
-use crate::types::{RetrievalError, RetrievalEvaluationReport};
+use crate::types::{RankedCandidate, RetrievalError, RetrievalEvaluationReport};
 
 /// Evaluates already-filtered evidence candidates into a durable outcome.
+///
+/// Coverage, diversity, and status are derived by the shared diversity
+/// selector ([`select_candidates`]) so the standalone evaluator reports the
+/// same evidence-grounded metrics as the engine pipeline: distinct counts are
+/// deduplicated, marginal coverage counts new coverage keys, and the status
+/// reflects requirements satisfaction rather than mere candidate presence
+/// (R46 — domain state must not be presented as established external facts).
 pub struct EvidenceOutcomeEvaluator {
     evidence: Arc<dyn EvidenceRepository + Send + Sync>,
 }
@@ -24,63 +32,22 @@ impl RetrievalEvaluator for EvidenceOutcomeEvaluator {
         &self,
         experiment: crate::types::RetrievalExperiment,
     ) -> Result<RetrievalEvaluationReport, RetrievalError> {
-        let evidence = experiment.candidates;
-        let status = if evidence.is_empty() {
-            SearchStatus::NoEvidenceFound
-        } else {
-            SearchStatus::Answerable
-        };
-        let coverage = maestria_domain::EvidenceCoverage {
-            percent_covered: if evidence.is_empty() { 0 } else { 100 },
-            gaps_identified: Vec::new(),
-            required_claims: experiment
-                .plan
-                .evidence_requirements()
-                .required_claims
-                .clone(),
-            required_subquestions: experiment
-                .plan
-                .evidence_requirements()
-                .required_subquestions
-                .clone(),
-            distinct_sources: evidence.len(),
-            distinct_documents: evidence.len(),
-            distinct_sections: evidence.len(),
-            candidate_coverage_keys: evidence
-                .iter()
-                .flat_map(|candidate| candidate.coverage_keys.clone())
-                .collect(),
-        };
-        let stop_reason = if evidence.is_empty() {
-            SearchStopReason::NoEvidence
-        } else if evidence.len() >= experiment.plan.stop_conditions().max_results as usize {
-            SearchStopReason::ResultsLimit
-        } else {
-            SearchStopReason::EvidenceComplete
-        };
-        let diversity = maestria_domain::SearchTraceDiversity {
-            distinct_sources: coverage.distinct_sources,
-            distinct_documents: coverage.distinct_documents,
-            distinct_sections: coverage.distinct_sections,
-            required_claims: coverage.required_claims.clone(),
-            required_subquestions: coverage.required_subquestions.clone(),
-            covered_keys: coverage.candidate_coverage_keys.clone(),
-            stop_reason: stop_reason.clone(),
-            candidates: evidence
-                .iter()
-                .enumerate()
-                .map(
-                    |(rank, candidate)| maestria_domain::SearchTraceDiversityCandidate {
-                        candidate_id: candidate.evidence_id,
-                        original_rank: rank,
-                        selected_rank: Some(rank),
-                        duplicate_cluster: candidate.duplicate_cluster,
-                        marginal_coverage: 100,
-                        coverage_keys: candidate.coverage_keys.clone(),
-                    },
-                )
-                .collect(),
-        };
+        let candidates = experiment.candidates;
+        let ranked = candidates
+            .into_iter()
+            .enumerate()
+            .map(|(rank, candidate)| RankedCandidate { candidate, rank })
+            .collect::<Vec<_>>();
+        let selection = select_candidates(&ranked, &experiment.plan);
+        let selected_evidence = selection
+            .candidates
+            .iter()
+            .map(|ranked| ranked.candidate.clone())
+            .collect::<Vec<_>>();
+        let coverage = selection.coverage;
+        let diversity = selection.trace;
+        let status = selection.status;
+        let stop_reason = diversity.stop_reason.clone();
         let policy_fingerprint = match experiment.plan.authorization().as_ref() {
             Some(authorization) => authorization.canonical_fingerprint(),
             None => {
@@ -92,11 +59,11 @@ impl RetrievalEvaluator for EvidenceOutcomeEvaluator {
         let mut trace = maestria_domain::SearchTrace::from_plan(
             &experiment.plan,
             vec!["evidence".to_string()],
-            &evidence,
+            &selected_evidence,
             Vec::new(),
             None,
             Vec::new(),
-            stop_reason.clone(),
+            stop_reason,
         )
         .with_policy_fingerprint(policy_fingerprint);
         trace.diversity = Some(diversity);
@@ -106,7 +73,7 @@ impl RetrievalEvaluator for EvidenceOutcomeEvaluator {
             fingerprint: experiment.plan.fingerprint().clone(),
             index_generation: experiment.plan.index_generation(),
             status,
-            evidence,
+            evidence: selected_evidence,
             coverage,
             conflicts: Vec::new(),
         };

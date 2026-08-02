@@ -88,6 +88,19 @@ async fn retrieve_missing_slot(
     slot: String,
     started: tokio::time::Instant,
 ) -> RetrievalResult<bool> {
+    // The slot text originates from the plan's evidence requirements and is
+    // executed verbatim as a retrieval query. Plan-derived text is an
+    // untrusted proposal until screened: refuse to execute slots that carry
+    // prompt-injection risk instead of running them as queries (R47). The
+    // slot is left marked as attempted, so the adaptive loop terminates with
+    // an honest unmet-requirements outcome and the rewrite is never recorded
+    // as executed.
+    if maestria_governance::contains_prompt_injection_risk(&slot) {
+        // The slot stays marked as attempted, so the adaptive loop terminates
+        // with an honest unmet-requirements outcome and the rewrite is never
+        // recorded as executed.
+        return Ok(true);
+    }
     state.rewrites.set_missing_slots([slot.clone()]);
     let token_estimate = slot.split_whitespace().count().max(1);
     if !state.rewrites.add_missing_slot_rewrite(

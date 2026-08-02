@@ -220,9 +220,10 @@ pub(super) async fn collect_batches(
         {
             continue;
         }
-        let allocation = lane_budget(plan, *execution_usage, lane_count.max(1), 0)
-            .or_else(|| plan.execution_budget().ok())
-            .ok_or_else(|| RetrievalError::Internal("invalid execution budget".to_string()))?;
+        let allocation = match lane_budget(plan, *execution_usage, lane_count.max(1), 0) {
+            Some(allocation) => allocation,
+            None => plan.execution_budget()?,
+        };
         let error = if !lane_generation_is_current(&descriptor, plan) {
             format!(
                 "stale retriever generation: expected primary {}, got {}",

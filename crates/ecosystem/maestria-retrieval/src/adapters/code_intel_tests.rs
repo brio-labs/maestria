@@ -176,10 +176,18 @@ async fn rejects_generation_mismatch() -> Result<(), Box<dyn std::error::Error>>
 #[test]
 fn candidate_ids_are_deterministic() -> Result<(), Box<dyn std::error::Error>> {
     let retriever = retriever(IndexGenerationId::new(1))?;
-    let candidate_a =
-        retriever.candidate_from_binding(authorized_binding()?, FreshnessStatus::UpToDate, 0)?;
-    let candidate_b =
-        retriever.candidate_from_binding(authorized_binding()?, FreshnessStatus::UpToDate, 0)?;
+    let candidate_a = retriever.candidate_from_binding(
+        authorized_binding()?,
+        FreshnessStatus::UpToDate,
+        None,
+        0,
+    )?;
+    let candidate_b = retriever.candidate_from_binding(
+        authorized_binding()?,
+        FreshnessStatus::UpToDate,
+        None,
+        0,
+    )?;
     assert_eq!(candidate_a.evidence_id, candidate_b.evidence_id);
     assert_eq!(candidate_a.artifact_version, candidate_b.artifact_version);
     assert_eq!(candidate_a.evidence_id, EvidenceId::new(79));
@@ -190,8 +198,15 @@ fn candidate_ids_are_deterministic() -> Result<(), Box<dyn std::error::Error>> {
 #[test]
 fn candidate_includes_expected_code_source_provenance() -> Result<(), Box<dyn std::error::Error>> {
     let retriever = retriever(IndexGenerationId::new(1))?;
-    let candidate =
-        retriever.candidate_from_binding(authorized_binding()?, FreshnessStatus::UpToDate, 3)?;
+    let candidate = retriever.candidate_from_binding(
+        authorized_binding()?,
+        FreshnessStatus::UpToDate,
+        Some(&RepositoryIdentitySnapshot {
+            commit_sha: "live-commit".to_string(),
+            worktree_identity: "live-worktree".to_string(),
+        }),
+        3,
+    )?;
     assert_eq!(
         candidate.source_span.location(),
         &SourceLocation::File {
@@ -206,6 +221,17 @@ fn candidate_includes_expected_code_source_provenance() -> Result<(), Box<dyn st
     assert_eq!(
         candidate.coverage_keys,
         vec!["symbol:rec-1", "file:src/lib.rs"]
+    );
+    // The retrieval-time freshness read must be preserved as evidence in the
+    // candidate provenance (R51), distinct from the indexed identity.
+    let components = &candidate.scores.lanes[0].fingerprint.components;
+    assert_eq!(
+        components.get("observed_commit_sha"),
+        Some(&"live-commit".to_string())
+    );
+    assert_eq!(
+        components.get("observed_worktree_identity"),
+        Some(&"live-worktree".to_string())
     );
     Ok(())
 }

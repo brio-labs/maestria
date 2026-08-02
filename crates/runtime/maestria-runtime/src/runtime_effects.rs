@@ -6,6 +6,18 @@ use maestria_domain::{KernelState, MaestriaEffect, ValidationReportId};
 use std::sync::{Arc, atomic::Ordering};
 use tokio::sync::mpsc;
 
+/// Outcome of admitting one effect from a received batch.
+enum AdmitOutcome {
+    /// Spawned the effect; continue with the next item in the batch.
+    Continue,
+    /// The effect was a persist event executed inline; continue.
+    Persisted,
+    /// Stop the whole executor immediately (persist failure).
+    Stop,
+    /// Shutdown/semaphore closed before admission; drop the rest.
+    DropBatch,
+}
+
 impl MaestriaRuntime {
     pub(crate) fn seed_next_validation_report_id(state: &KernelState) -> u64 {
         state
@@ -14,6 +26,29 @@ impl MaestriaRuntime {
             .map(|id| id.value())
             .max()
             .map_or(1, |value| value.saturating_add(1))
+    }
+
+    /// Seed the command correlation-id counter from persisted state so the
+    /// per-process counter never reuses a correlation id already recorded in
+    /// the event log (R27: persisted identity namespaces must not be coupled
+    /// to an ephemeral allocation scheme).
+    pub(crate) fn seed_next_command_id(state: &KernelState) -> u64 {
+        let request_max = state
+            .model_agent_requests
+            .values()
+            .map(|request| request.correlation_id.value())
+            .max();
+        let result_max = state
+            .model_agent_results
+            .values()
+            .map(|result| result.correlation_id().value())
+            .max();
+        let highest = match (request_max, result_max) {
+            (Some(left), Some(right)) => left.max(right),
+            (Some(value), None) | (None, Some(value)) => value,
+            (None, None) => 0,
+        };
+        highest.saturating_add(1).max(1)
     }
 
     fn supervise_effect_failure(
@@ -164,6 +199,52 @@ impl MaestriaRuntime {
         }
     }
 
+    /// Admit one effect: assign its validation-report id, execute inline
+    /// persist events, acquire a semaphore permit, and spawn the task.
+    async fn admit_effect(
+        in_flight: &mut tokio::task::JoinSet<()>,
+        semaphore: &Arc<tokio::sync::Semaphore>,
+        execution_context: EffectExecutionContext,
+        next_validation_report_id: &std::sync::atomic::AtomicU64,
+        mut work: EffectWork,
+        effect_shutdown: &tokio_util::sync::CancellationToken,
+        runtime_shutdown: &tokio_util::sync::CancellationToken,
+    ) -> AdmitOutcome {
+        if effect_shutdown.is_cancelled() {
+            return AdmitOutcome::DropBatch;
+        }
+        Self::assign_validation_report_id(&mut work, next_validation_report_id);
+        let work = match Self::run_persist_event(execution_context.clone(), work).await {
+            Ok(None) => return AdmitOutcome::Persisted,
+            Ok(Some(work)) => work,
+            Err(error) => {
+                tracing::error!(%error, "persist event failed; stopping effect executor");
+                effect_shutdown.cancel();
+                runtime_shutdown.cancel();
+                return AdmitOutcome::Stop;
+            }
+        };
+        let permit = tokio::select! {
+            biased;
+            () = effect_shutdown.cancelled() => return AdmitOutcome::DropBatch,
+            permit = Arc::clone(semaphore).acquire_owned() => {
+                match permit {
+                    Ok(permit) => permit,
+                    Err(_) => return AdmitOutcome::DropBatch,
+                }
+            }
+        };
+        Self::spawn_effect_task(
+            in_flight,
+            execution_context,
+            work,
+            permit,
+            effect_shutdown.clone(),
+            runtime_shutdown.clone(),
+        );
+        AdmitOutcome::Continue
+    }
+
     pub(crate) fn spawn_effect_executor(
         &self,
         mut receiver: mpsc::Receiver<crate::effect_dispatch::EffectBatch>,
@@ -208,44 +289,30 @@ impl MaestriaRuntime {
                 if effect_shutdown.is_cancelled() {
                     break;
                 }
-                for mut work in effects {
-                    if effect_shutdown.is_cancelled() {
-                        break;
-                    }
-                    Self::assign_validation_report_id(&mut work, &next_validation_report_id);
-                    let work = match Self::run_persist_event(execution_context.clone(), work).await
-                    {
-                        Ok(None) => continue,
-                        Ok(Some(work)) => work,
-                        Err(error) => {
-                            tracing::error!(
-                                %error,
-                                "persist event failed; stopping effect executor"
-                            );
-                            effect_shutdown.cancel();
-                            runtime_shutdown.cancel();
-                            break 'executor;
-                        }
-                    };
-                    let context = execution_context.clone();
-                    let permit = tokio::select! {
-                        biased;
-                        () = effect_shutdown.cancelled() => break,
-                        permit = Arc::clone(&semaphore).acquire_owned() => {
-                            match permit {
-                                Ok(permit) => permit,
-                                Err(_) => break,
-                            }
-                        }
-                    };
-                    Self::spawn_effect_task(
+                let mut remaining = effects.len();
+                for work in effects {
+                    remaining = remaining.saturating_sub(1);
+                    match Self::admit_effect(
                         &mut in_flight,
-                        context,
+                        &semaphore,
+                        execution_context.clone(),
+                        &next_validation_report_id,
                         work,
-                        permit,
-                        effect_shutdown.clone(),
-                        runtime_shutdown.clone(),
-                    );
+                        &effect_shutdown,
+                        &runtime_shutdown,
+                    )
+                    .await
+                    {
+                        AdmitOutcome::Continue | AdmitOutcome::Persisted => {}
+                        AdmitOutcome::Stop => break 'executor,
+                        AdmitOutcome::DropBatch => {
+                            tracing::warn!(
+                                dropped_effects = remaining,
+                                "effect executor dropped admitted effects"
+                            );
+                            break;
+                        }
+                    }
                 }
             }
             Self::finish_effect_executor(
@@ -263,47 +330,14 @@ impl MaestriaRuntime {
         report_id: maestria_domain::ValidationReportId,
         shutdown_token: &tokio_util::sync::CancellationToken,
     ) -> bool {
-        let check = async {
-            loop {
-                if shutdown_token.is_cancelled() {
-                    return false;
-                }
-                match self
-                    .adapters
-                    .event_log
-                    .scan(maestria_ports::EventFilter { artifact_id: None })
-                {
-                    Ok(events) => {
-                        if events.iter().any(|env| {
-                            matches!(
-                                &env.event,
-                                maestria_domain::DomainEvent::ValidationReportCreated {
-                                    report_id: id,
-                                    ..
-                                } if *id == report_id
-                            )
-                        }) {
-                            return true;
-                        }
-                    }
-                    Err(error) => {
-                        tracing::error!(
-                            %error,
-                            "failed to scan event log during validation report barrier"
-                        );
-                        return false;
-                    }
-                }
-                tokio::select! {
-                    () = shutdown_token.cancelled() => return false,
-                    () = tokio::time::sleep(std::time::Duration::from_millis(5)) => {}
-                }
-            }
-        };
-        matches!(
-            tokio::time::timeout(self.config.default_effect_timeout, check).await,
-            Ok(true)
+        crate::persistence_barrier::wait_for_event(
+            &*self.adapters.event_log,
+            self.config.default_effect_timeout,
+            shutdown_token,
+            "validation report barrier",
+            crate::persistence_barrier::validation_report_created(report_id),
         )
+        .await
     }
 
     pub(crate) async fn wait_for_event_persistence(
@@ -311,34 +345,16 @@ impl MaestriaRuntime {
         event_id: maestria_domain::EventId,
         shutdown_token: &tokio_util::sync::CancellationToken,
     ) -> bool {
-        let check = async {
-            loop {
-                if shutdown_token.is_cancelled() {
-                    return false;
-                }
-                match self
-                    .adapters
-                    .event_log
-                    .scan(maestria_ports::EventFilter { artifact_id: None })
-                {
-                    Ok(events) if events.iter().any(|event| event.id == event_id) => return true,
-                    Ok(_) => {}
-                    Err(error) => {
-                        tracing::error!(%error, "failed to scan event log during persistence barrier");
-                        return false;
-                    }
-                }
-                tokio::select! {
-                    () = shutdown_token.cancelled() => return false,
-                    () = tokio::time::sleep(std::time::Duration::from_millis(5)) => {}
-                }
-            }
-        };
-        matches!(
-            tokio::time::timeout(self.config.default_effect_timeout, check).await,
-            Ok(true)
+        crate::persistence_barrier::wait_for_event(
+            &*self.adapters.event_log,
+            self.config.default_effect_timeout,
+            shutdown_token,
+            "event persistence barrier",
+            crate::persistence_barrier::event_persisted(event_id),
         )
+        .await
     }
+
     pub(crate) async fn wait_for_approval_resolution(
         &self,
         event_id: maestria_domain::EventId,
@@ -346,66 +362,18 @@ impl MaestriaRuntime {
         approved: bool,
         shutdown_token: &tokio_util::sync::CancellationToken,
     ) -> bool {
-        let check = async {
-            loop {
-                if shutdown_token.is_cancelled() {
-                    return false;
-                }
-                let event_persisted = match self
-                    .adapters
-                    .event_log
-                    .scan(maestria_ports::EventFilter { artifact_id: None })
-                {
-                    Ok(events) => events.iter().any(|event| {
-                        event.id == event_id
-                            && matches!(
-                                &event.event,
-                                maestria_domain::DomainEvent::ApprovalRecorded {
-                                    approval_id: id,
-                                    outcome,
-                                } if *id == approval_id && outcome.approved() == approved
-                            )
-                    }),
-                    Err(error) => {
-                        tracing::error!(
-                            %error,
-                            "failed to scan event log during approval persistence barrier"
-                        );
-                        return false;
-                    }
-                };
-                if event_persisted {
-                    let projected = match self.adapters.approval_repo.find_by_id(approval_id) {
-                        Ok(Some(record)) => {
-                            record.status
-                                == if approved {
-                                    maestria_ports::ApprovalStatus::Approved
-                                } else {
-                                    maestria_ports::ApprovalStatus::Denied
-                                }
-                        }
-                        Ok(None) => false,
-                        Err(error) => {
-                            tracing::error!(
-                                %error,
-                                "failed to read approval projection during persistence barrier"
-                            );
-                            return false;
-                        }
-                    };
-                    if projected {
-                        return true;
-                    }
-                }
-                tokio::select! {
-                    () = shutdown_token.cancelled() => return false,
-                    () = tokio::time::sleep(std::time::Duration::from_millis(5)) => {}
-                }
-            }
-        };
-        matches!(
-            tokio::time::timeout(self.config.default_effect_timeout, check).await,
-            Ok(true)
+        crate::persistence_barrier::wait_for_event(
+            &*self.adapters.event_log,
+            self.config.default_effect_timeout,
+            shutdown_token,
+            "approval persistence barrier",
+            crate::persistence_barrier::approval_resolved(
+                event_id,
+                approval_id,
+                approved,
+                &*self.adapters.approval_repo,
+            ),
         )
+        .await
     }
 }

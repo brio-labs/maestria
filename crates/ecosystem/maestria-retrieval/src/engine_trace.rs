@@ -1,6 +1,6 @@
 use maestria_domain::{
-    CorpusScope, FreshnessRequirement, SearchOutcome, SearchPlan, SearchStatus, SearchStopReason,
-    SearchTrace, SearchTraceExpansion, SearchTraceFilter,
+    CorpusScope, Modality, SearchOutcome, SearchPlan, SearchStatus, SearchStopReason, SearchTrace,
+    SearchTraceExpansion, SearchTraceFilter,
 };
 
 /// Serializes the engine-owned retrieval security policy into the provenance format
@@ -32,7 +32,13 @@ pub fn applied_security_filters(
     if policy.max_sensitivity.is_some() {
         filters.push(SearchTraceFilter::Sensitivity);
     }
-    if !matches!(plan.freshness(), FreshnessRequirement::Any) {
+    // The freshness filter is enforced on repository-code lanes: stale-code
+    // candidates are dropped before fusion, and the code-intel adapter
+    // rejects stale indexes before scoring. Code plans are the only plans
+    // that carry `FreshnessRequirement::Any` while still running this filter;
+    // web plans declare `Realtime` but no web lane is wired, so claiming
+    // `Freshness` for them would record a filter that never executed (R46).
+    if plan.modalities().values().contains(&Modality::Code) {
         filters.push(SearchTraceFilter::Freshness);
     }
     filters

@@ -15,6 +15,7 @@ mod completion;
 /// - `parsing`: artifact parsing effects.
 /// - `parsing_records`: parser record construction.
 /// - `persistence`: event and entity persistence effects.
+/// - `persistence_barrier`: durable event-log persistence barrier polling.
 /// - `proposal_persistence`: approval continuation codec and pending-harness persistence.
 /// - `proposal_recovery`: durable journal recovery boundary for model-agent harness outcomes.
 /// - `proposal_workflow`: governed model-agent terminal workflow and results.
@@ -46,6 +47,7 @@ mod parsing;
 mod parsing_records;
 mod parsing_terminal;
 mod persistence;
+mod persistence_barrier;
 mod proposal_persistence;
 mod proposal_recovery;
 mod proposal_workflow;
