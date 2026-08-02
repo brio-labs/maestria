@@ -325,6 +325,7 @@ RESPONSIBILITY_MAPS: dict[str, tuple[str, ...]] = {
         "ingestion_policy",
         "projection_open",
         "recovery_staging",
+        "source_identity",
     ),
     "crates/apps/maestria-daemon/src/api.rs": (
         "protocol",

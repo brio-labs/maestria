@@ -11,9 +11,11 @@ use tokio::{
 };
 use tokio_util::sync::CancellationToken;
 
+use crate::source_identity::source_key;
+
 #[path = "watcher_scan.rs"]
 mod watcher_scan;
-use watcher_scan::{Observation, scan_manifest, source_key};
+use watcher_scan::{Observation, scan_manifest};
 #[path = "watcher_state.rs"]
 mod watcher_state;
 #[cfg(test)]
