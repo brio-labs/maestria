@@ -22,6 +22,9 @@ pub(crate) enum RelationCandidate {
     Calls {
         source_record_id: String,
         source_qualified: String,
+        /// Enclosing module of the source symbol (module stack joined by `::`),
+        /// used to resolve `self::`, `super::`, and bare paths lexically.
+        module_scope: String,
         target_path: String,
         self_receiver: bool,
     },
@@ -112,13 +115,14 @@ fn resolve_candidate(
             parser_generation,
             CodeRelationKind::Imports,
             by_id.get(&source_record_id).copied(),
-            resolve_target(by_qualified_name, &target_qualified, None),
+            resolve_target(by_qualified_name, &target_qualified, None, None),
         )
         .into_iter()
         .collect(),
         RelationCandidate::Calls {
             source_record_id,
             source_qualified,
+            module_scope,
             target_path,
             self_receiver,
         } => {
@@ -126,7 +130,12 @@ fn resolve_candidate(
             let target = if self_receiver {
                 resolve_self_receiver_target(by_qualified_name, &source_qualified, &target_path)
             } else {
-                resolve_target(by_qualified_name, &target_path, Some(&source_qualified))
+                resolve_target(
+                    by_qualified_name,
+                    &target_path,
+                    Some(&source_qualified),
+                    Some(&module_scope),
+                )
             };
             let Some(call) =
                 relation_for(parser_generation, CodeRelationKind::Calls, source, target)
@@ -154,7 +163,7 @@ fn resolve_candidate(
             parser_generation,
             CodeRelationKind::Implements,
             by_id.get(&source_record_id).copied(),
-            resolve_target(by_qualified_name, &target_qualified, None),
+            resolve_target(by_qualified_name, &target_qualified, None, None),
         )
         .into_iter()
         .collect(),
@@ -227,25 +236,33 @@ fn resolve_target<'a>(
     by_qualified_name: &'a BTreeMap<String, Vec<&'a SymbolRecord>>,
     path: &str,
     source_qualified: Option<&str>,
+    module_scope: Option<&str>,
 ) -> Option<&'a SymbolRecord> {
-    resolve_target_with_depth(by_qualified_name, path, source_qualified, 0)
+    resolve_target_with_depth(by_qualified_name, path, source_qualified, module_scope, 0)
 }
 
 fn resolve_target_with_depth<'a>(
     by_qualified_name: &'a BTreeMap<String, Vec<&'a SymbolRecord>>,
     path: &str,
     source_qualified: Option<&str>,
+    module_scope: Option<&str>,
     depth: usize,
 ) -> Option<&'a SymbolRecord> {
     if depth > 2 {
         return None;
     }
-    if let Some(target) =
-        resolve_import_prefix(by_qualified_name, path, source_qualified, depth + 1)
-    {
+    if let Some(target) = resolve_import_prefix(
+        by_qualified_name,
+        path,
+        source_qualified,
+        module_scope,
+        depth + 1,
+    ) {
         return Some(target);
     }
-    for candidate in super::relation_paths::relation_candidate_names(path, source_qualified) {
+    for candidate in
+        super::relation_paths::relation_candidate_names(path, source_qualified, module_scope)
+    {
         let Some(matches) = by_qualified_name.get(&candidate) else {
             continue;
         };
@@ -259,9 +276,13 @@ fn resolve_target_with_depth<'a>(
             .iter()
             .any(|symbol| symbol.kind == SymbolKind::Import)
         {
-            if let Some(target) =
-                resolve_import_matches(by_qualified_name, matches, source_qualified, depth)
-            {
+            if let Some(target) = resolve_import_matches(
+                by_qualified_name,
+                matches,
+                source_qualified,
+                module_scope,
+                depth,
+            ) {
                 return Some(target);
             }
             continue;
@@ -277,6 +298,7 @@ fn resolve_import_matches<'a>(
     by_qualified_name: &'a BTreeMap<String, Vec<&'a SymbolRecord>>,
     matches: &[&'a SymbolRecord],
     source_qualified: Option<&str>,
+    module_scope: Option<&str>,
     depth: usize,
 ) -> Option<&'a SymbolRecord> {
     let mut imports = matches
@@ -290,17 +312,24 @@ fn resolve_import_matches<'a>(
     let imported = imported
         .split_once(" as ")
         .map_or(imported.as_str(), |(target, _)| target);
-    resolve_target_with_depth(by_qualified_name, imported, source_qualified, depth + 1)
+    resolve_target_with_depth(
+        by_qualified_name,
+        imported,
+        source_qualified,
+        module_scope,
+        depth + 1,
+    )
 }
 fn resolve_import_prefix<'a>(
     by_qualified_name: &'a BTreeMap<String, Vec<&'a SymbolRecord>>,
     path: &str,
     source_qualified: Option<&str>,
+    module_scope: Option<&str>,
     depth: usize,
 ) -> Option<&'a SymbolRecord> {
     let (prefix, remainder) = path.split_once("::")?;
     for prefix_candidate in
-        super::relation_paths::relation_candidate_names(prefix, source_qualified)
+        super::relation_paths::relation_candidate_names(prefix, source_qualified, module_scope)
     {
         let Some(matches) = by_qualified_name.get(&prefix_candidate) else {
             continue;
@@ -318,9 +347,13 @@ fn resolve_import_prefix<'a>(
             .split_once(" as ")
             .map_or(imported.as_str(), |(target, _)| target);
         let expanded = format!("{imported}::{remainder}");
-        if let Some(target) =
-            resolve_target_with_depth(by_qualified_name, &expanded, source_qualified, depth)
-        {
+        if let Some(target) = resolve_target_with_depth(
+            by_qualified_name,
+            &expanded,
+            source_qualified,
+            module_scope,
+            depth,
+        ) {
             return Some(target);
         }
     }

@@ -61,18 +61,9 @@ pub async fn run_resolve(instance_dir: PathBuf, id: u64, approved: bool) -> Resu
             );
         }
 
-        let decision = match record.task_id {
-            Some(task_id) => maestria_domain::ApprovalDecision::Resolve {
-                approval_id,
-                task_id,
-                approved,
-            },
-            None => maestria_domain::ApprovalDecision::Acknowledge {
-                approval_id,
-                task_id: None,
-                approved,
-            },
-        };
+        // One owner of approval resolution semantics: model-agent approvals are
+        // audit acknowledgements, task-activation approvals transition the task.
+        let decision = record.to_decision(approved);
 
         session
             .submit(maestria_domain::DomainInput::ApprovalResolved(decision))

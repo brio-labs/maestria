@@ -23,7 +23,11 @@ pub async fn run_request_validation(instance_dir: PathBuf, task_id: u64) -> Resu
             .get(&task_id)
             .ok_or_else(|| anyhow!("task {} not found", task_id))?
             .status;
-        let transition_plan = task_validation_transition_plan(task_status)?;
+        // Transition-path policy is owned by the domain transition graph (R28);
+        // the CLI only walks the statuses the domain admits.
+        let transition_plan = task_status.path_to_validating().ok_or_else(|| {
+            anyhow!("cannot request validation from task status: {task_status:?}")
+        })?;
         let start_event_index = session.state().event_log.len();
 
         for status in &transition_plan {
@@ -135,17 +139,6 @@ pub async fn run_complete(
     );
 
     Ok(())
-}
-
-fn task_validation_transition_plan(task_status: TaskStatus) -> Result<Vec<TaskStatus>> {
-    Ok(match task_status {
-        TaskStatus::Draft => vec![TaskStatus::Open, TaskStatus::Active, TaskStatus::Validating],
-        TaskStatus::Open => vec![TaskStatus::Active, TaskStatus::Validating],
-        TaskStatus::Active => vec![TaskStatus::Validating],
-        TaskStatus::Blocked => vec![TaskStatus::Active, TaskStatus::Validating],
-        TaskStatus::Validating => Vec::new(),
-        status => anyhow::bail!("cannot request validation from task status: {status:?}"),
-    })
 }
 
 async fn wait_for_task_validation_report(

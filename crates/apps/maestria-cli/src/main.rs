@@ -83,7 +83,7 @@ async fn dispatch_index(
             nested_instance_dir,
         )),
         Some(IndexCommands::Repository { path }) => {
-            commands::code_intel::run_index(instance_dir, path)
+            commands::code_intel::run_index(instance_dir, path).await
         }
         None => {
             let path = path.ok_or_else(|| anyhow::anyhow!("index requires a path"))?;

@@ -25,6 +25,36 @@ pub struct ApprovalRecord {
     pub status: ApprovalStatus,
 }
 
+impl ApprovalRecord {
+    /// Map a stored approval record to the domain decision both the CLI and the
+    /// daemon API submit when resolving it (R28: one owner of approval
+    /// resolution semantics). Model-agent approvals are audit acknowledgements
+    /// that never transition the linked task; task-activation approvals resolve
+    /// (transition) the linked task.
+    pub fn to_decision(&self, approved: bool) -> maestria_domain::ApprovalDecision {
+        if self.effect_kind == "model_agent_harness" {
+            maestria_domain::ApprovalDecision::Acknowledge {
+                approval_id: self.id,
+                task_id: self.task_id,
+                approved,
+            }
+        } else {
+            match self.task_id {
+                Some(task_id) => maestria_domain::ApprovalDecision::Resolve {
+                    approval_id: self.id,
+                    task_id,
+                    approved,
+                },
+                None => maestria_domain::ApprovalDecision::Acknowledge {
+                    approval_id: self.id,
+                    task_id: None,
+                    approved,
+                },
+            }
+        }
+    }
+}
+
 /// Repository for durable approval requests, independent of governance crate.
 pub trait ApprovalRepository: Send + Sync {
     fn save(&self, record: &ApprovalRecord) -> Result<(), crate::PortError>;

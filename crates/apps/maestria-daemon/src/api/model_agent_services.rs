@@ -4,8 +4,8 @@ use std::time::Duration;
 use anyhow::{Context, Result, anyhow};
 use maestria_core::InstanceLayout;
 use maestria_domain::{
-    ApprovalDecision, DomainEvent, DomainInput, EvidenceId, HarnessRunId, KernelState,
-    ModelAgentProposalExecution, TaskId,
+    DomainEvent, DomainInput, EvidenceId, HarnessRunId, KernelState, ModelAgentProposalExecution,
+    TaskId,
 };
 use maestria_ports::{ApprovalRecord, ApprovalRepository, EffectJournal, ModelAgentProposal};
 use maestria_storage_sqlite::SqliteStore;
@@ -102,13 +102,10 @@ pub(super) async fn resolve(
             "model-agent approval requires the canonical runtime command path"
         ));
     };
-    // Model-agent approvals record the outcome without transitioning a task;
-    // the task linkage is audit metadata on the acknowledgement.
-    let decision = ApprovalDecision::Acknowledge {
-        approval_id: record.id,
-        task_id: record.task_id,
-        approved,
-    };
+    // One owner of approval resolution semantics: model-agent approvals are
+    // audit acknowledgements that never transition the linked task (R28); the
+    // task linkage is audit metadata on the acknowledgement.
+    let decision = record.to_decision(approved);
     runtime
         .submit(DomainInput::ApprovalResolved(decision))
         .await

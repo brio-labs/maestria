@@ -1,4 +1,8 @@
-pub(super) fn relation_candidate_names(path: &str, source_qualified: Option<&str>) -> Vec<String> {
+pub(super) fn relation_candidate_names(
+    path: &str,
+    source_qualified: Option<&str>,
+    module_scope: Option<&str>,
+) -> Vec<String> {
     let path = path.trim();
     if path.is_empty() {
         return Vec::new();
@@ -12,18 +16,22 @@ pub(super) fn relation_candidate_names(path: &str, source_qualified: Option<&str
         }
         out.push(normalized.to_string());
     };
+    // Enclosing module of the source symbol, e.g. `crate::foo::bar` for a
+    // symbol declared inside module `crate::foo::bar`.
     let source_scope = source_qualified
         .and_then(|source| source.rsplit_once("::").map(|(scope, _)| scope))
         .map_or("", |scope| scope);
-    let module_scope = source_scope
+    let module_scope = module_scope.map_or("", |scope| scope);
+    // Parent of the enclosing module, used for `super::` resolution.
+    let parent_scope = module_scope
         .rsplit_once("::")
-        .map_or(source_scope, |(parent, _)| parent);
+        .map_or("", |(parent, _)| parent);
 
-    if !path.contains("::") && !source_scope.is_empty() {
-        if module_scope != source_scope {
-            push(format!("{module_scope}::{path}"), &mut names);
+    if !path.contains("::") && !module_scope.is_empty() {
+        push(format!("{module_scope}::{path}"), &mut names);
+        if !parent_scope.is_empty() {
+            push(format!("{parent_scope}::{path}"), &mut names);
         }
-        push(format!("{source_scope}::{path}"), &mut names);
     }
     push(path.to_string(), &mut names);
     if let Some(trimmed) = path.strip_prefix("crate::") {
@@ -42,9 +50,6 @@ pub(super) fn relation_candidate_names(path: &str, source_qualified: Option<&str
         push(format!("{source_scope}::{trimmed}"), &mut names);
     }
     if let Some(trimmed) = path.strip_prefix("super::") {
-        let parent_scope = module_scope
-            .rsplit_once("::")
-            .map_or("", |(parent, _)| parent);
         if parent_scope.is_empty() {
             push(trimmed.to_string(), &mut names);
         } else {

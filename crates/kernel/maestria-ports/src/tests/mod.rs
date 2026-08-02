@@ -1,3 +1,4 @@
+mod approval;
 mod document_tree;
 mod event_log;
 mod harness;

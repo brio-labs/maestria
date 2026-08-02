@@ -13,6 +13,7 @@ use syn::{ImplItem, ItemImpl, ItemUse};
 pub(crate) fn emit_call_candidates(
     source_record_id: String,
     source_qualified: String,
+    module_scope: String,
     call_targets: Vec<(String, bool)>,
     relation_candidates: &mut Vec<RelationCandidate>,
 ) {
@@ -22,6 +23,7 @@ pub(crate) fn emit_call_candidates(
             .map(|(target_path, self_receiver)| RelationCandidate::Calls {
                 source_record_id: source_record_id.clone(),
                 source_qualified: source_qualified.clone(),
+                module_scope: module_scope.clone(),
                 target_path,
                 self_receiver,
             }),
@@ -192,6 +194,7 @@ fn extract_impl_method(
     emit_call_candidates(
         record_id,
         method_qualified,
+        module_stack.join("::"),
         probe.call_targets,
         relation_candidates,
     );
