@@ -4,7 +4,7 @@ use std::{
     sync::atomic::{AtomicUsize, Ordering},
 };
 
-use crate::helpers;
+use crate::helpers::index_files;
 
 static NEXT_TEST_DIRECTORY: AtomicUsize = AtomicUsize::new(0);
 
@@ -104,7 +104,7 @@ fn index_exclusion_policy_covers_sensitive_and_build_paths()
         "workspace/build/output.o",
     ] {
         assert!(
-            helpers::is_excluded_index_path(Path::new(path)),
+            index_files::is_excluded_index_path(Path::new(path)),
             "expected {path} to be excluded from indexing"
         );
     }
@@ -115,7 +115,7 @@ fn index_exclusion_policy_covers_sensitive_and_build_paths()
         "workspace/src/targeted.md",
     ] {
         assert!(
-            !helpers::is_excluded_index_path(Path::new(path)),
+            !index_files::is_excluded_index_path(Path::new(path)),
             "expected {path} to be indexable"
         );
     }
@@ -129,7 +129,7 @@ fn collecting_single_env_file_is_rejected_by_privacy_policy()
     let env_file = directory.path().join(".env");
     write_file(&env_file, "TOKEN=secret")?;
 
-    let error = match helpers::collect_index_files(&env_file, false) {
+    let error = match index_files::collect_index_files(&env_file, false) {
         Err(e) => e,
         Ok(_) => return Err("single .env files must not be accepted for indexing".into()),
     };
@@ -147,7 +147,7 @@ fn collecting_single_unsupported_file_is_rejected() -> Result<(), Box<dyn std::e
     let unsupported_file = directory.path().join("notes.sqlite");
     write_file(&unsupported_file, "not text evidence")?;
 
-    let error = match helpers::collect_index_files(&unsupported_file, false) {
+    let error = match index_files::collect_index_files(&unsupported_file, false) {
         Err(e) => e,
         Ok(_) => return Err("single unsupported files must not be accepted for indexing".into()),
     };
@@ -161,9 +161,9 @@ fn collecting_single_unsupported_file_is_rejected() -> Result<(), Box<dyn std::e
 
 #[test]
 fn pdf_is_supported_index_path() -> Result<(), Box<dyn std::error::Error>> {
-    assert!(helpers::is_supported_index_path(Path::new("paper.pdf")));
-    assert!(helpers::is_supported_index_path(Path::new("paper.PDF")));
-    assert!(helpers::is_supported_index_path(Path::new(
+    assert!(index_files::is_supported_index_path(Path::new("paper.pdf")));
+    assert!(index_files::is_supported_index_path(Path::new("paper.PDF")));
+    assert!(index_files::is_supported_index_path(Path::new(
         "docs/report.Pdf"
     )));
     Ok(())
@@ -175,7 +175,7 @@ fn collecting_single_pdf_is_accepted() -> Result<(), Box<dyn std::error::Error>>
     let pdf_file = directory.path().join("paper.pdf");
     write_file(&pdf_file, "minimal pdf bytes")?;
 
-    let files = helpers::collect_index_files(&pdf_file, false)?;
+    let files = index_files::collect_index_files(&pdf_file, false)?;
 
     assert_eq!(files, vec![pdf_file]);
     Ok(())
@@ -194,7 +194,7 @@ fn recursive_collection_includes_pdf_files() -> Result<(), Box<dyn std::error::E
         "opaque database",
     )?;
 
-    let files = helpers::collect_index_files(directory.path(), true)?;
+    let files = index_files::collect_index_files(directory.path(), true)?;
 
     assert_eq!(
         relative_files(directory.path(), &files)?,
@@ -226,7 +226,7 @@ fn collecting_single_symlink_is_rejected_and_recursive_collection_skips_it()
         }
     }
 
-    let error = match helpers::collect_index_files(&benign_link, false) {
+    let error = match index_files::collect_index_files(&benign_link, false) {
         Err(e) => e,
         Ok(_) => return Err("single symlink files must not be accepted for indexing".into()),
     };
@@ -235,7 +235,7 @@ fn collecting_single_symlink_is_rejected_and_recursive_collection_skips_it()
         "unexpected error for symlink file: {error}"
     );
 
-    let files = helpers::collect_index_files(directory.path(), true)?;
+    let files = index_files::collect_index_files(directory.path(), true)?;
 
     assert_eq!(
         relative_files(directory.path(), &files)?,
@@ -265,7 +265,7 @@ fn collecting_path_with_symlinked_parent_is_rejected() -> Result<(), Box<dyn std
         }
     }
 
-    let error = match helpers::collect_index_files(&linked_note, false) {
+    let error = match index_files::collect_index_files(&linked_note, false) {
         Err(e) => e,
         Ok(_) => return Err("paths through symlinked parents must not be indexed".into()),
     };
@@ -292,7 +292,7 @@ fn recursive_collection_skips_unsupported_files_and_keeps_supported_markdown()
     )?;
     write_file(&directory.path().join("image.png"), "not text evidence")?;
 
-    let files = helpers::collect_index_files(directory.path(), true)?;
+    let files = index_files::collect_index_files(directory.path(), true)?;
 
     assert_eq!(
         relative_files(directory.path(), &files)?,
@@ -324,7 +324,7 @@ fn recursive_collection_skips_excluded_entries_and_keeps_markdown()
     write_file(&directory.path().join("dist/bundle.js"), "bundle")?;
     write_file(&directory.path().join("build/output.o"), "object")?;
 
-    let files = helpers::collect_index_files(directory.path(), true)?;
+    let files = index_files::collect_index_files(directory.path(), true)?;
     let relative_files = relative_files(directory.path(), &files)?;
 
     assert_eq!(
@@ -341,7 +341,7 @@ fn recursive_collection_respects_gitignore() -> Result<(), Box<dyn std::error::E
     write_file(&directory.path().join("ignored_file.md"), "ignored content")?;
     write_file(&directory.path().join(".gitignore"), "ignored_file.md")?;
 
-    let files = helpers::collect_index_files(directory.path(), true)?;
+    let files = index_files::collect_index_files(directory.path(), true)?;
 
     assert_eq!(
         relative_files(directory.path(), &files)?,
@@ -356,7 +356,7 @@ fn recursive_collection_propagates_ignore_file_errors() -> Result<(), Box<dyn st
     write_file(&directory.path().join("note.md"), "# Normal note")?;
     write_file(&directory.path().join(".gitignore"), "{malformed")?;
 
-    let error = match helpers::collect_index_files(directory.path(), true) {
+    let error = match index_files::collect_index_files(directory.path(), true) {
         Err(e) => e,
         Ok(_) => return Err("malformed ignore files must fail traversal".into()),
     };
@@ -379,7 +379,7 @@ fn recursive_collection_skips_hidden_files_and_directories()
         "hidden inside dir",
     )?;
 
-    let files = helpers::collect_index_files(directory.path(), true)?;
+    let files = index_files::collect_index_files(directory.path(), true)?;
 
     assert_eq!(
         relative_files(directory.path(), &files)?,

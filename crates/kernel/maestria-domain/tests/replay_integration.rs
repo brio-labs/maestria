@@ -1,16 +1,10 @@
 use maestria_domain::*;
+#[path = "common/assertions.rs"]
+mod assertions;
 #[path = "common/content_hash.rs"]
 mod fixtures;
 
-fn require_error<T, E>(
-    result: Result<T, E>,
-    message: &str,
-) -> Result<E, Box<dyn std::error::Error>> {
-    match result {
-        Ok(_) => Err(std::io::Error::other(message).into()),
-        Err(error) => Ok(error),
-    }
-}
+use assertions::require_error;
 #[test]
 fn test_replay_artifact_chunk_card_evidence() -> Result<(), Box<dyn std::error::Error>> {
     let mut state = KernelState::new();

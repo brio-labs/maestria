@@ -1,5 +1,7 @@
 #[path = "model_agent_services.rs"]
 mod model_agent_services;
+#[path = "proposal_service.rs"]
+mod proposal_service;
 #[path = "read_services.rs"]
 mod read_services;
 #[path = "search_services.rs"]
@@ -62,7 +64,7 @@ pub(crate) async fn dispatch(
         ClientOperation::ModelAgentStatus { run_id } => {
             let layout = context.layout.clone();
             let response = support::run_database_retry("model-agent status", move || {
-                model_agent_services::status(&layout, run_id)
+                proposal_service::status(&layout, run_id)
             })
             .await?;
             Ok(ClientResponse::ModelAgentStatus(response))

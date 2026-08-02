@@ -1,27 +1,10 @@
-use crate::{ContradictionCheck, MemoryService, PromoteMemoryInput, PromoteMemoryOutput};
+use crate::{ContradictionCheck, MemoryService};
 use std::collections::{BTreeMap, BTreeSet};
 
 use maestria_domain::{
     ArtifactId, Authority, Claim, ClaimId, ClaimStatus, EvidenceId, Memory, MemoryCandidate,
     MemoryCandidateId, MemoryId, MemoryStatus, SecurityMetadata, TrustZone,
 };
-use maestria_governance::{
-    DefaultMemoryPromotionGate, MemoryPromotionDecision, MemoryPromotionGate,
-    MemoryPromotionRequest,
-};
-
-#[derive(Debug)]
-struct FixedGate {
-    decision: MemoryPromotionDecision,
-}
-
-impl MemoryPromotionGate for FixedGate {
-    fn evaluate(&self, request: &MemoryPromotionRequest) -> MemoryPromotionDecision {
-        assert_eq!(request.candidate.id, MemoryCandidateId::new(10));
-        assert!(request.user_approved);
-        self.decision.clone()
-    }
-}
 
 fn evidence_ids(ids: &[u64]) -> BTreeSet<EvidenceId> {
     ids.iter().map(|id| EvidenceId::new(*id)).collect()
@@ -61,104 +44,6 @@ fn claim(id: u64, text: &str) -> Claim {
         evidence_ids: evidence_ids(&[1]),
         security: SecurityMetadata::default(),
     }
-}
-
-#[test]
-fn promote_returns_active_memory_when_gate_allows() {
-    let candidate = candidate(10, 20, &[30]);
-    let input = PromoteMemoryInput {
-        memory_id: MemoryId::new(40),
-        candidate: candidate.clone(),
-        user_approved: true,
-    };
-
-    let output = MemoryService::promote(input, &DefaultMemoryPromotionGate);
-
-    assert_eq!(
-        output,
-        PromoteMemoryOutput::Promoted(Memory {
-            id: MemoryId::new(40),
-            candidate_id: candidate.id,
-            claim_id: candidate.claim_id,
-            evidence_ids: candidate.evidence_ids,
-            status: MemoryStatus::Active,
-            security: candidate.security.clone(),
-        })
-    );
-}
-
-#[test]
-fn promote_requires_evidence_when_gate_requires_evidence() {
-    let input = PromoteMemoryInput {
-        memory_id: MemoryId::new(40),
-        candidate: candidate(10, 20, &[]),
-        user_approved: true,
-    };
-
-    let output = MemoryService::promote(input, &DefaultMemoryPromotionGate);
-
-    assert!(matches!(
-        output,
-        PromoteMemoryOutput::RequiresEvidence { reason } if reason.contains("evidence")
-    ));
-}
-
-#[test]
-fn promote_refuses_evidence_less_candidate_even_when_gate_allows() {
-    let input = PromoteMemoryInput {
-        memory_id: MemoryId::new(40),
-        candidate: candidate(10, 20, &[]),
-        user_approved: true,
-    };
-    let gate = FixedGate {
-        decision: MemoryPromotionDecision::Promote,
-    };
-
-    let output = MemoryService::promote(input, &gate);
-
-    assert!(matches!(
-        output,
-        PromoteMemoryOutput::RequiresEvidence { reason } if reason.contains("evidence")
-    ));
-}
-
-#[test]
-fn promote_requires_review_without_user_approval() {
-    let input = PromoteMemoryInput {
-        memory_id: MemoryId::new(40),
-        candidate: candidate(10, 20, &[30]),
-        user_approved: false,
-    };
-
-    let output = MemoryService::promote(input, &DefaultMemoryPromotionGate);
-
-    assert!(matches!(
-        output,
-        PromoteMemoryOutput::RequiresReview { reason } if reason.contains("approval")
-    ));
-}
-
-#[test]
-fn promotion_delegates_to_memory_promotion_gate() {
-    let input = PromoteMemoryInput {
-        memory_id: MemoryId::new(40),
-        candidate: candidate(10, 20, &[30]),
-        user_approved: true,
-    };
-    let gate = FixedGate {
-        decision: MemoryPromotionDecision::Deny {
-            reason: "test gate denial".to_string(),
-        },
-    };
-
-    let output = MemoryService::promote(input, &gate);
-
-    assert_eq!(
-        output,
-        PromoteMemoryOutput::Denied {
-            reason: "test gate denial".to_string(),
-        }
-    );
 }
 
 #[test]
@@ -218,34 +103,4 @@ fn review_queue_filters_already_promoted_candidates() {
     let queue = MemoryService::review_queue(&candidates, &existing);
 
     assert_eq!(queue, vec![MemoryCandidateId::new(11)]);
-}
-
-#[test]
-fn deprecate_marks_memory_deprecated() {
-    let mut memory = memory(1, 10, 20, MemoryStatus::Active);
-
-    let updated = MemoryService::deprecate(MemoryId::new(1), &mut memory);
-
-    assert_eq!(updated.status, MemoryStatus::Deprecated);
-    assert_eq!(memory.status, MemoryStatus::Deprecated);
-}
-
-#[test]
-fn mark_contradicted_marks_memory_contradicted() {
-    let mut memory = memory(1, 10, 20, MemoryStatus::Active);
-
-    let updated = MemoryService::mark_contradicted(MemoryId::new(1), &mut memory);
-
-    assert_eq!(updated.status, MemoryStatus::Contradicted);
-    assert_eq!(memory.status, MemoryStatus::Contradicted);
-}
-
-#[test]
-fn supersede_marks_memory_superseded() {
-    let mut memory = memory(1, 10, 20, MemoryStatus::Active);
-
-    let updated = MemoryService::supersede(MemoryId::new(1), &mut memory);
-
-    assert_eq!(updated.status, MemoryStatus::Superseded);
-    assert_eq!(memory.status, MemoryStatus::Superseded);
 }

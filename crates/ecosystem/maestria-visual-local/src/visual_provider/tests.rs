@@ -11,6 +11,19 @@ fn endpoint() -> Result<ProviderEndpoint, PortError> {
     ProviderEndpoint::loopback_http(ENDPOINT, VISUAL_ENDPOINT_PATH)
 }
 
+#[test]
+fn local_http_visual_provider_passes_shared_contract() -> Result<(), Box<dyn std::error::Error>> {
+    let provider = LocalHttpVisualProvider::with_transport(
+        ENDPOINT,
+        "siglip-v1",
+        identity()?,
+        Arc::new(RecordingTransport::new(
+            br#"{"model":"siglip-v1","data":[{"embedding":[0.1,0.2]}]}"#.to_vec(),
+        )?),
+    )?;
+    maestria_ports::visual_contract_tests::assert_visual_embedding_provider_contract(&provider)
+}
+
 fn disclosure() -> ProviderDisclosure {
     ProviderDisclosure {
         remote: false,

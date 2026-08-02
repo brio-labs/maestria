@@ -213,6 +213,7 @@ RESPONSIBILITY_MAPS: dict[str, tuple[str, ...]] = {
         "graph_contract_tests",
         "learned_sparse_contract_tests",
         "ocr_contract_tests",
+        "visual_contract_tests",
     ),
     "crates/kernel/maestria-domain/src/lib.rs": (
         "effects",

@@ -21,6 +21,7 @@
 //! - `graph_contract_tests`: graph contract test modules.
 //! - `learned_sparse_contract_tests`: learned sparse contract test modules.
 //! - `ocr_contract_tests`: OCR provider contract test module.
+//! - `visual_contract_tests`: visual embedding provider contract test module.
 
 mod version;
 pub use version::PORTS_VERSION;
@@ -96,6 +97,9 @@ pub mod learned_sparse_contract_tests;
 
 #[cfg(any(test, feature = "contract-tests"))]
 pub mod ocr_contract_tests;
+
+#[cfg(any(test, feature = "contract-tests"))]
+pub mod visual_contract_tests;
 
 #[cfg(test)]
 mod tests;

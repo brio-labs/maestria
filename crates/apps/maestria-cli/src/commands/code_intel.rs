@@ -78,24 +78,7 @@ pub(crate) fn run_search(instance_dir: PathBuf, query: CodeQuery, limit: usize) 
     }
     let layout = super::super::helpers::validated_instance(instance_dir)?;
     let manifest = super::super::helpers::load_manifest(&layout)?;
-    let index_path = layout.system_dir.join(REPOSITORY_CODE_INDEX_FILENAME);
-    let index = RepositoryCodeIndex::load(&index_path)
-        .map_err(|error| anyhow::anyhow!("load repository code index: {error}"))?;
-    if index.is_stale_generation(REPOSITORY_CODE_PARSER_GENERATION) {
-        bail!(
-            "repository code index uses a stale parser generation; run `maestria index repository` again"
-        );
-    }
-    if index.summary.excluded_patterns != manifest.excluded_patterns {
-        bail!(
-            "repository code index uses stale privacy exclusions; run `maestria index repository` again"
-        );
-    }
-    validate_index_scope(&index, &manifest)?;
-    ensure_fresh(&index)?;
-    index
-        .validate_provenance()
-        .map_err(|error| anyhow::anyhow!("validate repository code index integrity: {error}"))?;
+    let index = load_verified_code_index(&layout, &manifest)?;
     let authorization = code_intel_authorization(&layout)?;
     let result = index.query(query, limit, |symbol| {
         authorization
@@ -118,20 +101,7 @@ pub(crate) fn run_context(
     }
     let layout = super::super::helpers::validated_instance(instance_dir)?;
     let manifest = super::super::helpers::load_manifest(&layout)?;
-    let index_path = layout.system_dir.join(REPOSITORY_CODE_INDEX_FILENAME);
-    let index = RepositoryCodeIndex::load(&index_path)
-        .map_err(|error| anyhow::anyhow!("load repository code index: {error}"))?;
-    if index.is_stale_generation(REPOSITORY_CODE_PARSER_GENERATION) {
-        bail!("repository code index uses a stale parser generation");
-    }
-    if index.summary.excluded_patterns != manifest.excluded_patterns {
-        bail!("repository code index uses stale privacy exclusions");
-    }
-    validate_index_scope(&index, &manifest)?;
-    ensure_fresh(&index)?;
-    index
-        .validate_provenance()
-        .map_err(|error| anyhow::anyhow!("validate repository code index integrity: {error}"))?;
+    let index = load_verified_code_index(&layout, &manifest)?;
     let direction = parse_context_direction(&direction)?;
     let authorization = code_intel_authorization(&layout)?;
     let result = index.context(
@@ -150,6 +120,34 @@ pub(crate) fn run_context(
     )?;
     println!("{}", serde_json::to_string_pretty(&result)?);
     Ok(())
+}
+
+/// Load the repository code index and verify generation, privacy exclusions, scope,
+/// freshness, and provenance in one phase so search and context handlers only own
+/// authorization and query execution (R17/R20).
+fn load_verified_code_index(
+    layout: &InstanceLayout,
+    manifest: &InstanceManifest,
+) -> Result<RepositoryCodeIndex> {
+    let index_path = layout.system_dir.join(REPOSITORY_CODE_INDEX_FILENAME);
+    let index = RepositoryCodeIndex::load(&index_path)
+        .map_err(|error| anyhow::anyhow!("load repository code index: {error}"))?;
+    if index.is_stale_generation(REPOSITORY_CODE_PARSER_GENERATION) {
+        bail!(
+            "repository code index uses a stale parser generation; run `maestria index repository` again"
+        );
+    }
+    if index.summary.excluded_patterns != manifest.excluded_patterns {
+        bail!(
+            "repository code index uses stale privacy exclusions; run `maestria index repository` again"
+        );
+    }
+    validate_index_scope(&index, manifest)?;
+    ensure_fresh(&index)?;
+    index
+        .validate_provenance()
+        .map_err(|error| anyhow::anyhow!("validate repository code index integrity: {error}"))?;
+    Ok(index)
 }
 
 fn ensure_fresh(index: &RepositoryCodeIndex) -> Result<()> {

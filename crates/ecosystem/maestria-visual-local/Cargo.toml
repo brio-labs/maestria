@@ -12,3 +12,6 @@ maestria-ports = { path = "../../kernel/maestria-ports" }
 ureq = { version = "2", features = ["json"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+
+[dev-dependencies]
+maestria-ports = { path = "../../kernel/maestria-ports", features = ["contract-tests"] }
