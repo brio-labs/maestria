@@ -83,7 +83,7 @@ impl TantivyFullTextIndex {
             }
             let migrated = Index::open_in_dir(path).map_err(to_port_error)?;
             let projection = Self::from_index(migrated, true, Some(marker), false);
-            let _ = fs::remove_dir_all(&backup_path);
+            fs::remove_dir_all(&backup_path).map_err(to_io_port_error)?;
             return projection;
         }
 

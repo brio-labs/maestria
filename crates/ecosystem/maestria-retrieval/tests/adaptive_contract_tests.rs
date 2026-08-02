@@ -289,8 +289,10 @@ async fn bounded_search_retrieves_declared_missing_slot() -> RetrievalResult<()>
         maestria_domain::SearchStopReason::EvidenceComplete
     );
     assert!(trace.rewrites.iter().any(|rewrite| {
-        rewrite.origin == maestria_domain::SearchRewriteOrigin::MissingSlot
-            && rewrite.missing_slot.as_deref() == Some("slot")
+        rewrite.origin
+            == maestria_domain::SearchRewriteOrigin::MissingSlot {
+                slot: "slot".to_string(),
+            }
     }));
     Ok(())
 }

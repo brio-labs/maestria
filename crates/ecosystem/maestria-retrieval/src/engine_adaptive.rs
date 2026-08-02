@@ -106,9 +106,8 @@ async fn retrieve_missing_slot(
         .records()
         .iter()
         .find(|record| {
-            record.origin == RewriteOrigin::MissingSlot
+            matches!(&record.origin, RewriteOrigin::MissingSlot { slot: named } if named == &slot)
                 && record.stage == StageRole::IterativeRetrieval
-                && record.missing_slot.as_deref() == Some(slot.as_str())
         })
         .map(|record| record.query.clone())
         .ok_or_else(|| {

@@ -1,12 +1,10 @@
 use maestria_core::InstanceLayout;
 use maestria_domain::TaskId;
 
+use super::collection_tests::TestDirectory;
 use crate::commands::task::{
     TASK_WORKSPACE_SUBDIRECTORIES, create_task_workspace_directories, task_workspace_directory,
 };
-use crate::helpers;
-
-use super::collection_tests::TestDirectory;
 
 #[test]
 fn task_workspace_directory_is_deterministic_and_created() -> Result<(), Box<dyn std::error::Error>>
@@ -38,19 +36,21 @@ fn task_workspace_directory_is_deterministic_and_created() -> Result<(), Box<dyn
 }
 
 #[test]
-fn is_db_locked_identifies_lock_and_busy_errors() -> Result<(), Box<dyn std::error::Error>> {
+fn database_busy_matcher_identifies_lock_and_busy_errors() -> Result<(), Box<dyn std::error::Error>>
+{
     use anyhow::anyhow;
+    use maestria_daemon::db_retry::is_database_busy;
 
     let locked = anyhow!("database is locked");
-    assert!(helpers::is_db_locked(&locked));
+    assert!(is_database_busy(&locked));
 
     let busy = anyhow!("database is busy");
-    assert!(helpers::is_db_locked(&busy));
+    assert!(is_database_busy(&busy));
 
     let locked_variant = anyhow!("SQLite error: locked");
-    assert!(helpers::is_db_locked(&locked_variant));
+    assert!(is_database_busy(&locked_variant));
 
     let other = anyhow!("file not found");
-    assert!(!helpers::is_db_locked(&other));
+    assert!(!is_database_busy(&other));
     Ok(())
 }

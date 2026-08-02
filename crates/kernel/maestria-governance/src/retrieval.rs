@@ -213,7 +213,9 @@ impl RetrievalSecurityPolicy {
         });
         match self.authorization_context(&scope) {
             Ok(context) => context.evaluate(metadata),
-            Err(_) => RetrievalDecision::Denied("retrieval scope is not authorized".to_string()),
+            Err(error) => {
+                RetrievalDecision::Denied(format!("retrieval scope is not authorized: {error}"))
+            }
         }
     }
 

@@ -163,23 +163,9 @@ impl EffectExecutionContext {
         generation: u64,
         was_stored: bool,
     ) -> Result<(), EffectFailure> {
-        let mut output = String::from_utf8_lossy(&outcome.stdout).into_owned();
-        if !outcome.stderr.is_empty() {
-            if !output.is_empty() {
-                output.push('\n');
-            }
-            output.push_str(&String::from_utf8_lossy(&outcome.stderr));
-        }
         let delivery = Self::send_input(
             &self.input_tx,
-            DomainInput::HarnessRunCompleted(HarnessRunCompleted {
-                run_id: request.run_id,
-                generation,
-                task_id: request.task_id,
-                command: outcome.command.clone(),
-                exit_code: outcome.exit_code,
-                output,
-            }),
+            harness_completion_input(request.run_id, generation, request.task_id, outcome),
             "harness completion",
         );
         if let Err(error) = delivery {
@@ -215,6 +201,34 @@ impl EffectExecutionContext {
             .effect_journal
             .record_terminal(run_id, generation, status)
     }
+}
+
+/// Build the domain completion input for a finished harness run.
+///
+/// One owner of the completion-output contract: stdout and stderr are merged
+/// with a newline separator so live and recovered deliveries cannot drift
+/// (R28).
+pub(crate) fn harness_completion_input(
+    run_id: maestria_domain::HarnessRunId,
+    generation: u64,
+    task_id: Option<maestria_domain::TaskId>,
+    outcome: &maestria_ports::HarnessOutcome,
+) -> DomainInput {
+    let mut output = String::from_utf8_lossy(&outcome.stdout).into_owned();
+    if !outcome.stderr.is_empty() {
+        if !output.is_empty() {
+            output.push('\n');
+        }
+        output.push_str(&String::from_utf8_lossy(&outcome.stderr));
+    }
+    DomainInput::HarnessRunCompleted(HarnessRunCompleted {
+        run_id,
+        generation,
+        task_id,
+        command: outcome.command.clone(),
+        exit_code: outcome.exit_code,
+        output,
+    })
 }
 
 pub(crate) fn truncate_output(bytes: &[u8]) -> String {

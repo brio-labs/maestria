@@ -224,7 +224,7 @@ impl SearchTrace {
         }
         let mut original_seen = original_seen;
         let mut model_seen = model_seen;
-        match rewrite.origin {
+        match &rewrite.origin {
             super::SearchRewriteOrigin::Original => {
                 if original_seen
                     || rewrite.query != self.original_query
@@ -266,12 +266,7 @@ impl SearchTrace {
                     ));
                 }
             }
-            super::SearchRewriteOrigin::MissingSlot => {
-                let Some(slot) = rewrite.missing_slot.as_deref() else {
-                    return Err(SearchCompatibilityError::TracePlanMismatch(
-                        "missing-slot rewrite is not identified",
-                    ));
-                };
+            super::SearchRewriteOrigin::MissingSlot { slot } => {
                 let declared_required = self
                     .evidence_requirements
                     .required_claims

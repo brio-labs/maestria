@@ -35,10 +35,9 @@ pub(crate) fn load_manifest(layout: &InstanceLayout) -> Result<InstanceManifest>
 
 pub(crate) fn load_kernel_state_with_retry(
     layout: &InstanceLayout,
-    timeout_budget: Duration,
     context: &'static str,
 ) -> Result<KernelState> {
-    retry_db_busy(timeout_budget, context, || {
+    retry_db_busy(context, || {
         maestria_daemon::load_kernel_state(layout).with_context(|| context)
     })
 }
@@ -47,15 +46,11 @@ pub(crate) fn load_kernel_state_with_retry(
 /// locked, delegating the retry cadence to the shared daemon policy
 /// (`maestria_daemon::db_retry`).
 ///
-/// `timeout_budget` is retained for call-site compatibility; the shared
-/// daemon constants (`RETRY_ATTEMPTS` / `RETRY_DELAY`) drive the loop. A
-/// busy error that outlives the retry budget is reported as a timeout with
-/// the last underlying error, matching the historical CLI wording.
-pub(crate) fn retry_db_busy<T>(
-    _timeout_budget: Duration,
-    context: &str,
-    operation: impl Fn() -> Result<T>,
-) -> Result<T> {
+/// The shared daemon constants (`RETRY_ATTEMPTS` / `RETRY_DELAY`) drive the
+/// loop. A busy error that outlives the retry budget is reported as a
+/// timeout with the last underlying error, matching the historical CLI
+/// wording.
+pub(crate) fn retry_db_busy<T>(context: &str, operation: impl Fn() -> Result<T>) -> Result<T> {
     match run_database_retry(operation) {
         Ok(output) => Ok(output),
         Err(error) if is_database_busy(&error) => {
@@ -92,7 +87,7 @@ pub(crate) async fn wait_for_kernel_state(
                     }
                     sleep(Duration::from_millis(25)).await;
                 }
-                Err(error) if is_db_locked(&error) => {
+                Err(error) if is_database_busy(&error) => {
                     if let Ok(mut slot) = last_error_for_wait.lock() {
                         *slot = Some(error.to_string());
                     }
@@ -281,8 +276,4 @@ pub(crate) fn source_label(evidence: &maestria_domain::Evidence) -> String {
             format!("source=validation report={}", report_id)
         }
     }
-}
-
-pub(crate) fn is_db_locked(error: &anyhow::Error) -> bool {
-    is_database_busy(error)
 }

@@ -122,7 +122,6 @@ pub(crate) fn sample_trace() -> Result<SearchTrace, Box<dyn std::error::Error>> 
                 latency_budget_units: 2,
                 is_proposal: false,
             },
-            missing_slot: Some("visual".to_owned()),
         }],
         missing_evidence: vec!["claim-b".to_owned()],
         conflicts: vec![ConflictSetId::new(9)],

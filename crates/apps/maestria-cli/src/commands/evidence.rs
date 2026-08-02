@@ -2,7 +2,7 @@ use anyhow::{Context, Result, anyhow};
 use maestria_core::{OpenChunkEvidenceInput, OpenEvidenceInput};
 use maestria_daemon::evidence_open::{evidence_core_services, open_evidence_stores};
 use maestria_domain::{ChunkId, EvidenceId};
-use std::{path::PathBuf, time::Duration};
+use std::path::PathBuf;
 
 use crate::helpers;
 
@@ -12,7 +12,7 @@ pub fn run(instance_dir: PathBuf, evidence_id: Option<u64>, chunk_id: Option<u64
     let core = evidence_core_services(&stores);
 
     let output = if let Some(id) = evidence_id {
-        helpers::retry_db_busy(Duration::from_secs(2), "opening evidence by id", || {
+        helpers::retry_db_busy("opening evidence by id", || {
             core.open_evidence(OpenEvidenceInput {
                 evidence_id: EvidenceId::new(id),
             })
@@ -20,7 +20,7 @@ pub fn run(instance_dir: PathBuf, evidence_id: Option<u64>, chunk_id: Option<u64
         })
         .context("open evidence by id")?
     } else if let Some(id) = chunk_id {
-        helpers::retry_db_busy(Duration::from_secs(2), "opening chunk evidence", || {
+        helpers::retry_db_busy("opening chunk evidence", || {
             core.open_chunk_evidence(OpenChunkEvidenceInput {
                 chunk_id: ChunkId::new(id),
             })

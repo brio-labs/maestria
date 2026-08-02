@@ -171,7 +171,6 @@ fn mix_trace_rewrites(hash: &mut u64, rewrites: &[SearchTraceRewrite]) {
             &u64::from(rewrite.accounting.latency_budget_units).to_le_bytes(),
         );
         mix_hash(hash, &[u8::from(rewrite.accounting.is_proposal)]);
-        mix_debug(hash, &rewrite.missing_slot);
     }
 }
 

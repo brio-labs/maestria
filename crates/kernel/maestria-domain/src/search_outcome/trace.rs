@@ -83,13 +83,18 @@ pub struct SearchTraceExpansion {
     pub added_candidates: Option<u32>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SearchRewriteOrigin {
     Original,
     Deterministic,
     ModelProposal,
     Feedback,
-    MissingSlot,
+    /// A rewrite that fills a declared missing-evidence slot; the slot
+    /// identity lives on the variant so a missing-slot rewrite without a
+    /// named slot is unrepresentable (R56).
+    MissingSlot {
+        slot: String,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -112,7 +117,6 @@ pub struct SearchTraceRewrite {
     pub origin: SearchRewriteOrigin,
     pub stage: SearchRewriteStage,
     pub accounting: SearchRewriteAccounting,
-    pub missing_slot: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -346,7 +350,6 @@ impl SearchTrace {
                     latency_budget_units: 1,
                     is_proposal: false,
                 },
-                missing_slot: None,
             }],
             filters,
             expansions,

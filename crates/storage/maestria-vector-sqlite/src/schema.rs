@@ -108,12 +108,31 @@ pub(crate) fn migrate(connection: &mut Connection) -> Result<(), PortError> {
 
     transaction.commit().map_err(to_port_error)?;
 
-    attempt_sqlite_vec_bootstrap(connection);
+    attempt_sqlite_vec_bootstrap(connection)?;
     Ok(())
 }
 
-pub(crate) fn attempt_sqlite_vec_bootstrap(connection: &Connection) {
-    let _ = connection.execute(SQLITE_VEC_BOOTSTRAP_SQL, []);
+/// Best-effort creation of the optional `sqlite-vec` virtual table.
+///
+/// Tolerates exactly the missing-module case (the `vec0` extension is an
+/// optional capability, so its absence is a valid outcome). Every other
+/// failure — locked, read-only, or corrupt database — is propagated so a
+/// genuine storage failure is not masked as an optional-capability absence
+/// (R24).
+pub(crate) fn attempt_sqlite_vec_bootstrap(connection: &Connection) -> Result<(), PortError> {
+    match connection.execute(SQLITE_VEC_BOOTSTRAP_SQL, []) {
+        Ok(_) => Ok(()),
+        Err(rusqlite::Error::SqliteFailure(_, Some(message)))
+            if is_missing_vec_module(&message) =>
+        {
+            Ok(())
+        }
+        Err(error) => Err(to_port_error(error)),
+    }
+}
+
+fn is_missing_vec_module(message: &str) -> bool {
+    message.to_ascii_lowercase().contains("no such module")
 }
 
 pub(crate) fn sqlite_vec_available(connection: &Connection) -> Result<bool, PortError> {

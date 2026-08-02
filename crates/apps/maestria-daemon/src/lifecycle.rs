@@ -28,6 +28,20 @@ use crate::vector_startup::{
     reconcile_retrieval_generations, reconcile_vector_projection_for_layout,
 };
 
+/// Preserve a startup/recovery failure together with a concurrent shutdown failure.
+///
+/// Shutdown failures must not be discarded when the primary operation already
+/// failed: teardown errors (runtime-task joins, watcher joins) are as relevant
+/// to the caller as the original failure (R24).
+pub(crate) fn combine_failures(error: anyhow::Error, shutdown: Result<()>) -> anyhow::Error {
+    match shutdown {
+        Ok(()) => error,
+        Err(shutdown_error) => error.context(format!(
+            "lifecycle shutdown also failed: {shutdown_error:#}"
+        )),
+    }
+}
+
 /// Recovery work queued by the shared lifecycle and available to command-specific drain logic.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RecoveryQueue {
@@ -259,10 +273,9 @@ impl InstanceLifecycle {
     /// partially queued and the watcher may have started, but shutdown is not performed.
     pub async fn run_until_shutdown(mut self, shutdown: CancellationToken) -> Result<()> {
         let result = self.queue_recovery().await;
-        if result.is_err() {
+        if let Err(error) = result {
             let shutdown_result = self.shutdown().await;
-            result?;
-            return shutdown_result;
+            return Err(combine_failures(error, shutdown_result));
         }
 
         self.start_watcher();

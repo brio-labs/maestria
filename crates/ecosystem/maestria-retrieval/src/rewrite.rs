@@ -1,12 +1,17 @@
 use std::collections::BTreeSet;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum RewriteOrigin {
     Original,
     Deterministic,
     ModelProposal,
     Feedback,
-    MissingSlot,
+    /// A rewrite that fills a declared missing-evidence slot; the slot
+    /// identity lives on the variant so a missing-slot rewrite without a
+    /// named slot is unrepresentable (R56).
+    MissingSlot {
+        slot: String,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -29,7 +34,6 @@ pub struct QueryRewriteRecord {
     pub origin: RewriteOrigin,
     pub stage: StageRole,
     pub accounting: RewriteAccounting,
-    pub missing_slot: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -74,7 +78,6 @@ impl QueryRewriteSession {
                 latency_budget_units: 1,
                 is_proposal: false,
             },
-            missing_slot: None,
         };
         let used_tokens = original_record.accounting.token_estimate;
         let used_latency_budget_units = original_record.accounting.latency_budget_units;
@@ -121,14 +124,11 @@ impl QueryRewriteSession {
         {
             return false;
         }
-        if !Self::policy_accepts(&record, record.missing_slot.as_deref()) {
+        if !Self::policy_accepts(&record) {
             return false;
         }
-        if record.origin == RewriteOrigin::MissingSlot
-            && !record
-                .missing_slot
-                .as_ref()
-                .is_some_and(|slot| self.allowed_missing_slots.contains(slot))
+        if let RewriteOrigin::MissingSlot { slot } = &record.origin
+            && !self.allowed_missing_slots.contains(slot)
         {
             return false;
         }
@@ -166,15 +166,15 @@ impl QueryRewriteSession {
 
     fn sort_records(&mut self) {
         self.records.sort_by(|a, b| {
-            let rank = |o: RewriteOrigin| match o {
+            let rank = |o: &RewriteOrigin| match o {
                 RewriteOrigin::Original => 0,
                 RewriteOrigin::Deterministic => 1,
-                RewriteOrigin::MissingSlot => 2,
+                RewriteOrigin::MissingSlot { .. } => 2,
                 RewriteOrigin::Feedback => 3,
                 RewriteOrigin::ModelProposal => 4,
             };
-            rank(a.origin)
-                .cmp(&rank(b.origin))
+            rank(&a.origin)
+                .cmp(&rank(&b.origin))
                 .then_with(|| a.query.cmp(&b.query))
                 .then_with(|| (a.stage as u8).cmp(&(b.stage as u8)))
         });
@@ -196,7 +196,6 @@ impl QueryRewriteSession {
                             latency_budget_units: 1,
                             is_proposal: false,
                         },
-                        missing_slot: None,
                     });
                 }
             }
@@ -215,10 +214,9 @@ impl QueryRewriteSession {
     ) -> bool {
         self.add_rewrite(QueryRewriteRecord {
             query: query.into(),
-            origin: RewriteOrigin::MissingSlot,
+            origin: RewriteOrigin::MissingSlot { slot: slot.into() },
             stage: StageRole::IterativeRetrieval,
             accounting,
-            missing_slot: Some(slot.into()),
         })
     }
 
@@ -231,7 +229,7 @@ impl QueryRewriteSession {
             .iter()
             .map(|record| maestria_domain::SearchTraceRewrite {
                 query: record.query.clone(),
-                origin: match record.origin {
+                origin: match &record.origin {
                     RewriteOrigin::Original => maestria_domain::SearchRewriteOrigin::Original,
                     RewriteOrigin::Deterministic => {
                         maestria_domain::SearchRewriteOrigin::Deterministic
@@ -240,7 +238,9 @@ impl QueryRewriteSession {
                         maestria_domain::SearchRewriteOrigin::ModelProposal
                     }
                     RewriteOrigin::Feedback => maestria_domain::SearchRewriteOrigin::Feedback,
-                    RewriteOrigin::MissingSlot => maestria_domain::SearchRewriteOrigin::MissingSlot,
+                    RewriteOrigin::MissingSlot { slot } => {
+                        maestria_domain::SearchRewriteOrigin::MissingSlot { slot: slot.clone() }
+                    }
                 },
                 stage: match record.stage {
                     StageRole::InitialRetrieval => {
@@ -256,17 +256,18 @@ impl QueryRewriteSession {
                     latency_budget_units: record.accounting.latency_budget_units,
                     is_proposal: record.accounting.is_proposal,
                 },
-                missing_slot: record.missing_slot.clone(),
             })
             .collect()
     }
 
-    pub fn policy_accepts(record: &QueryRewriteRecord, missing_slot_context: Option<&str>) -> bool {
-        let role_allowed = match record.origin {
+    pub fn policy_accepts(record: &QueryRewriteRecord) -> bool {
+        let role_allowed = match &record.origin {
             RewriteOrigin::Original | RewriteOrigin::Deterministic => {
                 record.stage == StageRole::InitialRetrieval
             }
-            RewriteOrigin::MissingSlot => record.stage == StageRole::IterativeRetrieval,
+            RewriteOrigin::MissingSlot { slot } => {
+                record.stage == StageRole::IterativeRetrieval && !slot.trim().is_empty()
+            }
             RewriteOrigin::ModelProposal | RewriteOrigin::Feedback => {
                 matches!(
                     record.stage,
@@ -275,17 +276,10 @@ impl QueryRewriteSession {
             }
         };
         if !role_allowed
-            || record.accounting.is_proposal != (record.origin == RewriteOrigin::ModelProposal)
+            || record.accounting.is_proposal
+                != matches!(record.origin, RewriteOrigin::ModelProposal)
         {
             return false;
-        }
-        if record.origin == RewriteOrigin::MissingSlot {
-            let Some(slot) = missing_slot_context else {
-                return false;
-            };
-            if slot.trim().is_empty() {
-                return false;
-            }
         }
         true
     }
