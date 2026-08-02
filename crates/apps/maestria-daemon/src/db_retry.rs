@@ -50,6 +50,11 @@ where
 
 /// Async twin of [`run_database_retry`] for operations that themselves await;
 /// both share the same attempt/delay policy constants.
+///
+/// # Cancellation
+/// Dropping the returned future aborts the retry loop and cancels the
+/// in-flight `operation().await`; no further attempts are made and the
+/// operation's own cancellation semantics apply to the in-flight call.
 pub async fn run_database_retry_async<T, E, F, Fut>(mut operation: F) -> Result<T, E>
 where
     F: FnMut() -> Fut,

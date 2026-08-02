@@ -90,6 +90,12 @@ pub fn try_acquire(layout: &InstanceLayout) -> Result<Option<InstanceWriteLock>>
 }
 
 /// Acquire the instance write lock, retrying with a 5-second timeout.
+///
+/// # Cancellation
+/// The future is bounded by a 5-second timeout; if the timeout fires first,
+/// the returned error is `timed out waiting for instance write lock`. Dropping
+/// the future while it waits abandons the attempt — no lock is left behind
+/// because acquisition only succeeds after the lock file is written.
 pub async fn acquire(layout: &InstanceLayout) -> Result<InstanceWriteLock> {
     timeout(Duration::from_secs(5), async {
         loop {
