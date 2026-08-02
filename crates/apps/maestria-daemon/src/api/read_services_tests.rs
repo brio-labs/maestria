@@ -1,4 +1,5 @@
 use super::*;
+use maestria_core::InstanceManifest;
 use maestria_domain::{
     Artifact, ArtifactId, BlobId, ContentHash, Evidence, EvidenceId, EvidenceKind, IndexStatus,
     LineRange, ScopeId, SecurityMetadata, SnapshotRef, ValidationReportId,

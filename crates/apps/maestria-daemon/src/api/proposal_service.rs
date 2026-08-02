@@ -77,15 +77,19 @@ pub(super) async fn submit_proposal(
 }
 
 /// Record a model-agent approval decision on the runtime and assemble the
-/// status response. The approval record is loaded by the transport handler;
-/// this function owns continuation decoding, run-id correlation, effect
-/// dispatch, and response assembly (R20).
+/// status response. Owns the approval-record read, continuation decoding,
+/// run-id correlation, effect dispatch, and response assembly (R20/R48); the
+/// transport handler only parses the protocol payload.
 pub(super) async fn submit_approval(
     context: &ApiContext,
-    record: ApprovalRecord,
+    approval_id: u64,
     run_id: u64,
     approved: bool,
 ) -> Result<ClientResponse> {
+    let store = SqliteStore::open_read_only(&context.layout.database_path)?;
+    let record = store
+        .find_by_id(maestria_domain::ApprovalId::new(approval_id))?
+        .ok_or_else(|| anyhow!("model-agent approval {approval_id} does not exist"))?;
     let identity = pending_proposal_identity(&record)
         .map_err(|error| anyhow!("approval {}: {error}", record.id))?
         .ok_or_else(|| anyhow!("approval {} is not a model-agent proposal", record.id))?;

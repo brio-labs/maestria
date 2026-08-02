@@ -27,15 +27,6 @@ impl EvidencePack {
         validate_freeze_identity(self, &trace, &policy_fingerprint)?;
         validate_trace_outcome(self, &trace)?;
         validate_trace_evidence(self, &trace)?;
-        if matches!(
-            self.metadata.compression,
-            EvidencePackCompression::Compressed { .. }
-        ) && !self.compression_verified
-        {
-            return Err(EvidencePackError::InvalidFreeze(
-                "compressed evidence lineage was not validated".to_string(),
-            ));
-        }
         validate_pack_materialization(self)?;
         let trace_id = trace.deterministic_id();
         let key = EvidencePackReplayKey {
@@ -45,22 +36,22 @@ impl EvidencePack {
             fingerprint: self.metadata.fingerprint.clone(),
             policy_fingerprint: policy_fingerprint.clone(),
         };
-        self.metadata.search_trace = Some(trace_id);
-        self.metadata.policy_fingerprint = Some(policy_fingerprint);
-        self.metadata.reproducibility = EvidencePackReproducibility::Frozen(key);
-        self.frozen_digest = Some(pack_digest(self));
+        // The digest is the pack's content identity at freeze time: it is
+        // stored on the Frozen variant so the freeze state is the single
+        // source of truth (R56).
+        let digest = pack_digest(self);
+        self.metadata.reproducibility = EvidencePackReproducibility::Frozen { key, digest };
         Ok(())
     }
 
     pub fn reproduce(&self, key: &EvidencePackReplayKey) -> Result<Self, EvidencePackError> {
         let digest = pack_digest(self);
         match &self.metadata.reproducibility {
-            EvidencePackReproducibility::Frozen(existing)
-                if existing == key && self.frozen_digest.as_deref() == Some(digest.as_str()) =>
-            {
-                Ok(self.clone())
-            }
-            EvidencePackReproducibility::Frozen(_) => {
+            EvidencePackReproducibility::Frozen {
+                key: existing,
+                digest: stored_digest,
+            } if existing == key && stored_digest == &digest => Ok(self.clone()),
+            EvidencePackReproducibility::Frozen { .. } => {
                 Err(EvidencePackError::ReplayIdentityMismatch)
             }
             EvidencePackReproducibility::LiveNonReproducible { .. } => {
@@ -132,17 +123,15 @@ impl EvidencePack {
             retained_evidence_ids,
             selector,
         };
-        self.compression_verified = true;
         self.metadata.refresh_stop_reason();
         Ok(())
     }
 
     pub(super) fn is_frozen(&self) -> bool {
-        self.frozen_digest.is_some()
-            || matches!(
-                self.metadata.reproducibility,
-                EvidencePackReproducibility::Frozen(_)
-            )
+        matches!(
+            self.metadata.reproducibility,
+            EvidencePackReproducibility::Frozen { .. }
+        )
     }
 }
 
@@ -320,6 +309,14 @@ fn validate_pack_materialization(pack: &EvidencePack) -> Result<(), EvidencePack
 }
 
 fn pack_digest(pack: &EvidencePack) -> String {
+    // Hash the pack content and metadata with `reproducibility` masked to a
+    // fixed placeholder: the digest is a content-identity check that must be
+    // stable across the Live→Frozen transition, and the replay key equality
+    // check owns freeze identity (R56).
+    let mut metadata = pack.metadata.clone();
+    metadata.reproducibility = EvidencePackReproducibility::LiveNonReproducible {
+        reason: String::new(),
+    };
     let mut digest = Sha256::new();
     digest.update(
         format!(
@@ -329,8 +326,7 @@ fn pack_digest(pack: &EvidencePack) -> String {
                 &pack.cards,
                 &pack.chunks,
                 &pack.evidence_ids,
-                &pack.metadata,
-                pack.compression_verified,
+                &metadata,
             )
         )
         .as_bytes(),

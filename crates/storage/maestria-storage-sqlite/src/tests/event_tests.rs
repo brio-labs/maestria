@@ -376,12 +376,10 @@ fn search_executed_roundtrips_through_appended_scan() -> Result<(), Box<dyn std:
     let store = SqliteStore::in_memory()?;
     let metadata = EvidencePackMetadataRecord {
         query_id: QueryId::new(1),
-        search_trace: Some(SearchTraceId::new(2)),
         corpus_snapshot: CorpusSnapshotId::new(3),
         index_generation: IndexGenerationId::new(4),
-        fingerprint: RetrievalModelFingerprint::new("fingerprint".to_string())?,
-        policy_fingerprint: Some("policy".to_string()),
-        claims_required: vec!["claim".to_string()],
+        fingerprint: RetrievalModelFingerprint::new("fingerprint-v1".to_string())?,
+        claims_required: vec!["claim-1".to_string()],
         requirements: EvidenceRequirements {
             require_primary_sources: false,
             minimum_corroboration: 0,

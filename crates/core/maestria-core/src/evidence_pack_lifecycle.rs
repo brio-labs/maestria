@@ -15,8 +15,6 @@ pub struct EvidencePack {
     pub(crate) chunks: Vec<SourceGroundedSearchHit>,
     pub(crate) evidence_ids: Vec<EvidenceId>,
     pub(crate) metadata: EvidencePackMetadata,
-    frozen_digest: Option<String>,
-    compression_verified: bool,
 }
 
 impl EvidencePack {
@@ -47,8 +45,6 @@ impl EvidencePack {
             chunks,
             evidence_ids,
             metadata,
-            frozen_digest: None,
-            compression_verified: false,
         })
     }
     pub fn query(&self) -> &str {

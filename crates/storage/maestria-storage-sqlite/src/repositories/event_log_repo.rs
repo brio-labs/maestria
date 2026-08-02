@@ -37,9 +37,8 @@ fn decode_scanned_events(stored: Vec<StoredEvent>) -> Result<Vec<DomainEventEnve
                 ..
             } = &mut envelope.event
             {
-                if let Some(trace) = metadata.search_trace {
-                    metadata.search_trace = trace_remap.get(&trace).copied().or(Some(trace));
-                }
+                // The replay key is the single owner of the frozen trace
+                // identity (R56); the remap updates it in place.
                 if let maestria_domain::EvidencePackReproducibilityRecord::Frozen(replay) =
                     &mut metadata.reproducibility
                     && let Some(replacement) = trace_remap.get(&replay.trace)

@@ -296,7 +296,7 @@ fn frozen_pack_reproduces_only_for_the_same_identity() -> Result<(), Box<dyn Err
     pack.freeze(trace_for(&plan, &[evidence_id])?, "policy-v1".to_string())?;
 
     let key = match &pack.metadata().reproducibility {
-        EvidencePackReproducibility::Frozen(key) => key.clone(),
+        EvidencePackReproducibility::Frozen { key, .. } => key.clone(),
         EvidencePackReproducibility::LiveNonReproducible { .. } => {
             return Err("freeze did not produce a frozen replay key".into());
         }

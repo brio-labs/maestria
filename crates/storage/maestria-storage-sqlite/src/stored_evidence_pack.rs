@@ -16,7 +16,6 @@ use crate::payloads::stored_search_trace::StoredSearchStopReason;
 use maestria_domain::{
     ClaimCoverageStatusRecord, ClaimEvidenceCoverageRecord, CorpusSnapshotId, EvidenceId,
     EvidencePackCompressionRecord, EvidencePackMetadataRecord, IndexGenerationId, QueryId,
-    SearchTraceId,
 };
 use serde::{Deserialize, Serialize};
 
@@ -153,11 +152,9 @@ impl StoredEvidencePackCompressionRecord {
 #[serde(deny_unknown_fields)]
 pub(crate) struct StoredEvidencePackMetadataRecord {
     pub(crate) query_id: u64,
-    pub(crate) search_trace: Option<u64>,
     pub(crate) corpus_snapshot: u64,
     pub(crate) index_generation: u64,
     pub(crate) fingerprint: StoredRetrievalModelFingerprint,
-    pub(crate) policy_fingerprint: Option<String>,
     pub(crate) claims_required: Vec<String>,
     pub(crate) requirements: StoredEvidenceRequirements,
     pub(crate) claim_coverage: Vec<StoredClaimEvidenceCoverageRecord>,
@@ -180,11 +177,9 @@ impl StoredEvidencePackMetadataRecord {
     pub(crate) fn from_domain(record: &EvidencePackMetadataRecord) -> Self {
         Self {
             query_id: record.query_id.value(),
-            search_trace: record.search_trace.map(|id| id.value()),
             corpus_snapshot: record.corpus_snapshot.value(),
             index_generation: record.index_generation.value(),
             fingerprint: StoredRetrievalModelFingerprint::from_domain(&record.fingerprint),
-            policy_fingerprint: record.policy_fingerprint.clone(),
             claims_required: record.claims_required.clone(),
             requirements: StoredEvidenceRequirements::from_domain(&record.requirements),
             claim_coverage: record
@@ -227,11 +222,9 @@ impl StoredEvidencePackMetadataRecord {
     ) -> Result<EvidencePackMetadataRecord, maestria_ports::PortError> {
         Ok(EvidencePackMetadataRecord {
             query_id: QueryId::new(self.query_id),
-            search_trace: self.search_trace.map(SearchTraceId::new),
             corpus_snapshot: CorpusSnapshotId::new(self.corpus_snapshot),
             index_generation: IndexGenerationId::new(self.index_generation),
             fingerprint: self.fingerprint.try_into_domain()?,
-            policy_fingerprint: self.policy_fingerprint,
             claims_required: self.claims_required,
             requirements: self.requirements.try_into_domain()?,
             claim_coverage: self
@@ -279,17 +272,16 @@ mod tests {
         ClaimCoverageStatusRecord, ClaimEvidenceCoverageRecord, ConflictSet, ConflictSetId,
         DuplicateClusterId, EvidenceFreshnessRecord, EvidencePackCompressionRecord,
         EvidencePackReplayKeyRecord, EvidencePackReproducibilityRecord, EvidenceRequirements,
-        FreshnessStatus, RetrievalModelFingerprint, SearchStopReason, SourceIndependenceRecord,
+        FreshnessStatus, RetrievalModelFingerprint, SearchStopReason, SearchTraceId,
+        SourceIndependenceRecord,
     };
 
     fn record() -> Result<EvidencePackMetadataRecord, Box<dyn std::error::Error>> {
         Ok(EvidencePackMetadataRecord {
             query_id: QueryId::new(1),
-            search_trace: Some(SearchTraceId::new(2)),
             corpus_snapshot: CorpusSnapshotId::new(3),
             index_generation: IndexGenerationId::new(4),
             fingerprint: RetrievalModelFingerprint::new("fingerprint-v1".to_string())?,
-            policy_fingerprint: Some("policy-v1".to_string()),
             claims_required: vec!["claim-1".to_string()],
             requirements: EvidenceRequirements {
                 require_primary_sources: true,

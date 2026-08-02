@@ -1,9 +1,8 @@
 use std::time::Duration;
 
-use anyhow::{Result, anyhow};
+use anyhow::Result;
 use maestria_domain::{EvidenceId, HarnessRunId, TaskId};
-use maestria_ports::{ApprovalRepository, ModelAgentProposal};
-use maestria_storage_sqlite::SqliteStore;
+use maestria_ports::ModelAgentProposal;
 
 use super::super::protocol::{ClientResponse, ModelAgentProposalPayload};
 use super::super::server::ApiContext;
@@ -21,19 +20,16 @@ pub(super) async fn propose(
     proposal_service::submit_proposal(context, proposal, task_validation, memory_candidate).await
 }
 
-/// Load the approval record for an id and delegate correlation checks, effect
-/// dispatch, and response assembly to `proposal_service` (R20).
+/// Load the approval record and delegate correlation checks, effect
+/// dispatch, and response assembly to `proposal_service` (R20/R48): the
+/// transport handler does not open persistence stores.
 pub(super) async fn resolve(
     context: &ApiContext,
     run_id: u64,
     approval_id: u64,
     approved: bool,
 ) -> Result<ClientResponse> {
-    let store = SqliteStore::open_read_only(&context.layout.database_path)?;
-    let record = store
-        .find_by_id(maestria_domain::ApprovalId::new(approval_id))?
-        .ok_or_else(|| anyhow!("model-agent approval {approval_id} does not exist"))?;
-    proposal_service::submit_approval(context, record, run_id, approved).await
+    proposal_service::submit_approval(context, approval_id, run_id, approved).await
 }
 
 fn build_proposal(payload: ModelAgentProposalPayload) -> ModelAgentProposal {

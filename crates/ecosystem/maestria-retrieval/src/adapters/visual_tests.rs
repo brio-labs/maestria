@@ -1,5 +1,7 @@
 use super::*;
-use crate::adapters::filtered_test_support::request;
+use crate::adapters::filtered_test_support::{
+    CountingChunkRepository, CountingEvidenceRepository, request,
+};
 use crate::adapters::visual_access::visual_pdf_prerequisites;
 use crate::adapters::visual_projection::{VisualProjectionRebuildParts, rebuild_visual_projection};
 use maestria_domain::{EvidenceKind, IndexGeneration, IndexLifecycle, IndexStatus, SourceSpan};
@@ -100,96 +102,18 @@ impl BlobStore for CountingBlobStore {
     }
 }
 
-struct CountingChunkRepository {
-    inner: InMemoryChunkRepository,
-    full_reads: AtomicUsize,
-    owner_reads: AtomicUsize,
+/// Shared counting fixture construction for visual-lane tests (R26): the
+/// counting repos wrap a fresh in-memory backing store.
+fn counting_chunk_repository() -> Arc<CountingChunkRepository> {
+    Arc::new(CountingChunkRepository::new(Arc::new(
+        InMemoryChunkRepository::new(),
+    )))
 }
 
-impl CountingChunkRepository {
-    fn new() -> Self {
-        Self {
-            inner: InMemoryChunkRepository::new(),
-            full_reads: AtomicUsize::new(0),
-            owner_reads: AtomicUsize::new(0),
-        }
-    }
-
-    fn full_reads(&self) -> usize {
-        self.full_reads.load(Ordering::Relaxed)
-    }
-}
-
-impl ChunkRepository for CountingChunkRepository {
-    fn get(
-        &self,
-        chunk_id: maestria_domain::ChunkId,
-    ) -> Result<Option<maestria_domain::Chunk>, PortError> {
-        self.full_reads.fetch_add(1, Ordering::Relaxed);
-        self.inner.get(chunk_id)
-    }
-
-    fn find_artifact_id(
-        &self,
-        chunk_id: maestria_domain::ChunkId,
-    ) -> Result<Option<maestria_domain::ArtifactId>, PortError> {
-        self.owner_reads.fetch_add(1, Ordering::Relaxed);
-        self.inner.find_artifact_id(chunk_id)
-    }
-
-    fn put(&self, chunk: maestria_domain::Chunk) -> Result<(), PortError> {
-        self.inner.put(chunk)
-    }
-
-    fn list_for_artifact(
-        &self,
-        artifact_id: maestria_domain::ArtifactId,
-    ) -> Result<Vec<maestria_domain::Chunk>, PortError> {
-        self.inner.list_for_artifact(artifact_id)
-    }
-}
-
-struct CountingEvidenceRepository {
-    inner: InMemoryEvidenceRepository,
-    reads: AtomicUsize,
-}
-
-impl CountingEvidenceRepository {
-    fn new() -> Self {
-        Self {
-            inner: InMemoryEvidenceRepository::new(),
-            reads: AtomicUsize::new(0),
-        }
-    }
-
-    fn reads(&self) -> usize {
-        self.reads.load(Ordering::Relaxed)
-    }
-}
-
-impl EvidenceRepository for CountingEvidenceRepository {
-    fn get(
-        &self,
-        evidence_id: maestria_domain::EvidenceId,
-    ) -> Result<Option<maestria_domain::Evidence>, PortError> {
-        self.reads.fetch_add(1, Ordering::Relaxed);
-        self.inner.get(evidence_id)
-    }
-
-    fn put(&self, evidence: maestria_domain::Evidence) -> Result<(), PortError> {
-        self.inner.put(evidence)
-    }
-
-    fn replace(&self, evidence: maestria_domain::Evidence) -> Result<(), PortError> {
-        self.inner.replace(evidence)
-    }
-
-    fn list_for_artifact(
-        &self,
-        artifact_id: maestria_domain::ArtifactId,
-    ) -> Result<Vec<maestria_domain::Evidence>, PortError> {
-        self.inner.list_for_artifact(artifact_id)
-    }
+fn counting_evidence_repository() -> Arc<CountingEvidenceRepository> {
+    Arc::new(CountingEvidenceRepository::new(Arc::new(
+        InMemoryEvidenceRepository::new(),
+    )))
 }
 
 #[test]
@@ -315,9 +239,9 @@ fn denied_visual_candidates_are_authorized_before_content_reads()
     let index = Arc::new(FilteredVectorSpy::new(chunk_id));
     let artifacts = InMemoryArtifactRepository::new();
     artifacts.put(denied_artifact(artifact_id))?;
-    let chunks = Arc::new(CountingChunkRepository::new());
+    let chunks = counting_chunk_repository();
     chunks.put(chunk(chunk_id, artifact_id, SourceSpan::pdf_span(1)?))?;
-    let evidence = Arc::new(CountingEvidenceRepository::new());
+    let evidence = counting_evidence_repository();
     let blobs = Arc::new(CountingBlobStore {
         gets: AtomicUsize::new(0),
     });
@@ -378,9 +302,9 @@ fn denied_visual_candidates_are_authorized_before_content_reads()
     assert_eq!(index.filter_calls(), 1);
     assert_eq!(index.score_calls(), 0);
     assert!(batch.candidates.is_empty());
-    assert_eq!(chunks.owner_reads.load(Ordering::Relaxed), 1);
-    assert_eq!(chunks.full_reads(), 0);
-    assert_eq!(evidence.reads(), 0);
+    assert_eq!(chunks.owner_gets(), 1);
+    assert_eq!(chunks.full_gets(), 0);
+    assert_eq!(evidence.gets(), 0);
     assert_eq!(blobs.gets.load(Ordering::Relaxed), 0);
     assert_eq!(provider.post_count.load(Ordering::Relaxed), 0);
     Ok(())
@@ -440,7 +364,7 @@ fn visual_batch_reports_bounded_bytes() -> Result<(), Box<dyn std::error::Error>
         parse_status: None,
         security: Default::default(),
     })?;
-    let chunks = Arc::new(CountingChunkRepository::new());
+    let chunks = counting_chunk_repository();
     chunks.put(maestria_domain::Chunk {
         id: chunk_id,
         artifact_id,
@@ -450,7 +374,7 @@ fn visual_batch_reports_bounded_bytes() -> Result<(), Box<dyn std::error::Error>
         order: 0,
         text: "figure".to_string(),
     })?;
-    let evidence = Arc::new(CountingEvidenceRepository::new());
+    let evidence = counting_evidence_repository();
     evidence.put(maestria_domain::Evidence {
         id: maestria_domain::evidence_id_for(artifact_id, 0),
         artifact_id,
@@ -508,8 +432,8 @@ fn visual_batch_reports_bounded_bytes() -> Result<(), Box<dyn std::error::Error>
     )?;
     assert_eq!(batch.candidates.len(), 1);
     assert_eq!(batch.execution.usage.bytes_read, 4);
-    assert_eq!(chunks.full_reads(), 1);
-    assert_eq!(evidence.reads(), 1);
+    assert_eq!(chunks.full_gets(), 1);
+    assert_eq!(evidence.gets(), 1);
     Ok(())
 }
 
@@ -650,7 +574,7 @@ fn assert_visual_evidence_denied_before_score(
         parse_status: None,
         security: Default::default(),
     })?;
-    let chunks = Arc::new(CountingChunkRepository::new());
+    let chunks = counting_chunk_repository();
     chunks.put(maestria_domain::Chunk {
         id: chunk_id,
         artifact_id,
@@ -660,7 +584,7 @@ fn assert_visual_evidence_denied_before_score(
         order: 0,
         text: chunk_text.to_string(),
     })?;
-    let evidence = Arc::new(CountingEvidenceRepository::new());
+    let evidence = counting_evidence_repository();
     if let Some(record) = evidence_record {
         evidence.put(record)?;
     }

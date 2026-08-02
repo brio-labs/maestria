@@ -57,18 +57,21 @@ pub struct EvidencePackReplayKey {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EvidencePackReproducibility {
-    Frozen(EvidencePackReplayKey),
-    LiveNonReproducible { reason: String },
+    Frozen {
+        key: EvidencePackReplayKey,
+        digest: String,
+    },
+    LiveNonReproducible {
+        reason: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EvidencePackMetadata {
     pub query_id: maestria_domain::QueryId,
-    pub search_trace: Option<SearchTraceId>,
     pub corpus_snapshot: CorpusSnapshotId,
     pub index_generation: IndexGenerationId,
     pub fingerprint: RetrievalModelFingerprint,
-    pub policy_fingerprint: Option<String>,
     pub claims_required: Vec<String>,
     pub requirements: EvidenceRequirements,
     pub claim_coverage: Vec<ClaimEvidenceCoverage>,
@@ -138,11 +141,9 @@ impl EvidencePackMetadata {
             .collect();
         Self {
             query_id: plan.query_id(),
-            search_trace: None,
             corpus_snapshot: plan.corpus_snapshot(),
             index_generation: plan.index_generation(),
             fingerprint: plan.fingerprint().clone(),
-            policy_fingerprint: None,
             claims_required,
             requirements: plan.evidence_requirements().clone(),
             claim_coverage: Vec::new(),
