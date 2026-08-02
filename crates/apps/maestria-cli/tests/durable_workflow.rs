@@ -1,5 +1,5 @@
 use maestria_cli::test_support::*;
-use std::{fs, path::Path};
+use std::{fs, path::Path, time::Duration};
 fn write_file_bytes(
     parent: &Path,
     name: &str,
@@ -338,12 +338,19 @@ fn pdf_no_text_is_rejected() -> Result<(), Box<dyn std::error::Error>> {
     )?;
     let empty_pdf = create_no_text_pdf();
     write_file_bytes(workspace.path(), "scanned.pdf", &empty_pdf)?;
-    let err = assert_err(&[
-        "index",
-        "-i",
-        &instance.path().to_string_lossy(),
-        &workspace.path().join("scanned.pdf").to_string_lossy(),
-    ])?;
+    // A no-text PDF never reaches `IndexStatus::Indexed`, so the CLI burns its
+    // own 30s index budget before reporting a timeout. Run with a larger
+    // harness budget than the default 30s cap so the product's timeout, not
+    // the harness kill, produces the expected error (race-free).
+    let err = assert_err_bounded(
+        &[
+            "index",
+            "-i",
+            &instance.path().to_string_lossy(),
+            &workspace.path().join("scanned.pdf").to_string_lossy(),
+        ],
+        Duration::from_secs(60),
+    )?;
     assert!(
         err.contains("timed out") || err.contains("parser failed"),
         "expected timeout or parser failure for no-text PDF, got: {err}"

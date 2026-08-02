@@ -1356,7 +1356,6 @@ name = "maestria-memory"
 version = "0.6.1"
 dependencies = [
  "maestria-domain",
- "maestria-governance",
 ]
 
 [[package]]
