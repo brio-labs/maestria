@@ -4,14 +4,24 @@
 //! the same five-store stack (SQLite + blob store + full-text index + parser
 //! registry + core services with no vector/graph index). The two copies
 //! drifted (R28), and the CLI copy opened SQLite read-write for read-only
-//! work (R32). Both entry points delegate here.
+//! work (R32). Both entry points delegate here. The scoped open functions are
+//! the single enforcement point for the instance's read scope (R48): every
+//! client surface evaluates the retrieval policy and the manifest read-root
+//! scope before evidence is dispatched.
 
-use anyhow::Result;
+use std::fs;
+
+use anyhow::{Result, anyhow};
 use maestria_blob_fs::FsBlobStore;
-use maestria_core::InstanceLayout;
+use maestria_core::{InstanceLayout, InstanceManifest, OpenChunkEvidenceInput, OpenEvidenceInput};
+use maestria_domain::{ChunkId, Evidence, EvidenceId, EvidenceKind, ScopeId};
+use maestria_governance::RetrievalSecurityPolicy;
 use maestria_parsers::ParserRegistry;
+use maestria_ports::{ArtifactRepository, ChunkRepository, EvidenceRepository};
 use maestria_search_tantivy::TantivyFullTextIndex;
 use maestria_storage_sqlite::SqliteStore;
+
+use crate::blocked_patterns::runtime_blocked_patterns;
 
 /// The store stack backing read-only evidence retrieval.
 pub struct EvidenceStores {
@@ -74,4 +84,173 @@ pub fn evidence_core_services(stores: &EvidenceStores) -> maestria_core::CoreSer
         vector_index: None,
         graph_index: None,
     })
+}
+
+/// The read-side retrieval policy every client surface applies before
+/// dispatching an evidence open (R48): read-allowed security metadata is
+/// required, and unscoped items are tolerated only when no instance scope is
+/// configured.
+fn evidence_retrieval_policy() -> RetrievalSecurityPolicy {
+    RetrievalSecurityPolicy::default()
+        .require_read_allowed(true)
+        .required_scope(ScopeId::new(1))
+        .allow_unscoped_items(true)
+}
+
+/// Open evidence by id after enforcing the instance's read scope and retrieval
+/// policy (R48). Shared by the daemon API handler and the CLI command so the
+/// two client surfaces cannot drift.
+pub fn open_evidence_scoped(
+    layout: &InstanceLayout,
+    evidence_id: u64,
+) -> Result<maestria_core::OpenEvidenceOutput> {
+    let manifest = decode_manifest(layout)?;
+    let sqlite = open_evidence_sqlite(layout)?;
+    let evidence_id = EvidenceId::new(evidence_id);
+    let retrieval_policy = evidence_retrieval_policy();
+    if let Some(evidence) = EvidenceRepository::get(&sqlite, evidence_id)? {
+        reject_denied(retrieval_policy.evaluate(&evidence.security), "evidence")?;
+        validate_evidence_scope(&manifest, &evidence)?;
+        if let Some(artifact) = ArtifactRepository::get(&sqlite, evidence.artifact_id)? {
+            reject_denied(retrieval_policy.evaluate(&artifact.security), "artifact")?;
+        }
+    }
+    let stores = complete_evidence_stores(layout, sqlite)?;
+    let core = evidence_core_services(&stores).with_retrieval_policy(retrieval_policy);
+    let output = core.open_evidence(OpenEvidenceInput { evidence_id })?;
+    Ok(output)
+}
+
+/// Open chunk evidence after enforcing the instance's read scope and retrieval
+/// policy (R48). Shared by the daemon API handler and the CLI command.
+pub fn open_chunk_evidence_scoped(
+    layout: &InstanceLayout,
+    chunk_id: u64,
+) -> Result<maestria_core::OpenEvidenceOutput> {
+    let manifest = decode_manifest(layout)?;
+    let sqlite = open_evidence_sqlite(layout)?;
+    let chunk_id = ChunkId::new(chunk_id);
+    let chunk = ChunkRepository::get(&sqlite, chunk_id)?
+        .ok_or_else(|| anyhow!("chunk {chunk_id} does not exist"))?;
+    let evidence = EvidenceRepository::get(
+        &sqlite,
+        maestria_domain::evidence_id_for(chunk.artifact_id, chunk.order),
+    )?
+    .ok_or_else(|| anyhow!("evidence for chunk {chunk_id} does not exist"))?;
+    if evidence.artifact_id != chunk.artifact_id {
+        return Err(anyhow!(
+            "chunk evidence belongs to artifact {}, requested chunk belongs to artifact {}",
+            evidence.artifact_id,
+            chunk.artifact_id
+        ));
+    }
+    let retrieval_policy = evidence_retrieval_policy();
+    reject_denied(retrieval_policy.evaluate(&evidence.security), "evidence")?;
+    validate_evidence_scope(&manifest, &evidence)?;
+    if let Some(artifact) = ArtifactRepository::get(&sqlite, evidence.artifact_id)? {
+        reject_denied(retrieval_policy.evaluate(&artifact.security), "artifact")?;
+    }
+    let stores = complete_evidence_stores(layout, sqlite)?;
+    let core = evidence_core_services(&stores).with_retrieval_policy(retrieval_policy);
+    let output = core.open_chunk_evidence(OpenChunkEvidenceInput { chunk_id })?;
+    Ok(output)
+}
+
+fn decode_manifest(layout: &InstanceLayout) -> Result<InstanceManifest> {
+    InstanceManifest::decode(&fs::read_to_string(&layout.manifest_path)?)
+        .map_err(|error| anyhow!("parse instance manifest: {error}"))
+}
+
+fn reject_denied(decision: maestria_governance::RetrievalDecision, subject: &str) -> Result<()> {
+    match decision {
+        maestria_governance::RetrievalDecision::Denied(reason) => Err(anyhow!(
+            "{subject} is not available under retrieval policy: {reason}"
+        )),
+        maestria_governance::RetrievalDecision::Allowed => Ok(()),
+    }
+}
+
+/// Reject evidence whose source path is outside the manifest read roots or
+/// matches a blocked pattern (R48).
+pub fn validate_evidence_scope(manifest: &InstanceManifest, evidence: &Evidence) -> Result<()> {
+    let EvidenceKind::FileSpan { path, .. } = &evidence.kind else {
+        return Ok(());
+    };
+    if source_scope_allowed(manifest, path) {
+        return Ok(());
+    }
+    Err(anyhow!(
+        "evidence source path {path} is outside instance read roots or excluded by policy"
+    ))
+}
+
+fn source_scope_allowed(manifest: &InstanceManifest, path: &str) -> bool {
+    let path = std::path::Path::new(path);
+    let mut candidates = vec![lexical_normalize(path)];
+    if path.is_relative() {
+        candidates.push(lexical_normalize(&manifest.root.join(path)));
+    }
+    let roots: Vec<_> = manifest
+        .read_roots
+        .iter()
+        .map(|root| lexical_normalize(root))
+        .collect();
+    let blocked_patterns = runtime_blocked_patterns(manifest);
+    candidates.iter().any(|candidate| {
+        roots.iter().any(|root| candidate.starts_with(root))
+            && !blocked_patterns
+                .iter()
+                .any(|pattern| path_matches_pattern(candidate, pattern))
+    })
+}
+
+fn lexical_normalize(path: &std::path::Path) -> std::path::PathBuf {
+    let mut normalized = std::path::PathBuf::new();
+    for component in path.components() {
+        match component {
+            std::path::Component::CurDir => {}
+            std::path::Component::ParentDir => {
+                normalized.pop();
+            }
+            other => normalized.push(other.as_os_str()),
+        }
+    }
+    normalized
+}
+
+fn path_matches_pattern(path: &std::path::Path, pattern: &str) -> bool {
+    path.components()
+        .any(|component| glob_matches(&component.as_os_str().to_string_lossy(), pattern))
+}
+
+fn glob_matches(value: &str, pattern: &str) -> bool {
+    let value: Vec<char> = value.chars().collect();
+    let pattern: Vec<char> = pattern.chars().collect();
+    let mut value_index = 0usize;
+    let mut pattern_index = 0usize;
+    let mut star_pattern_index = None;
+    let mut star_value_index = 0usize;
+
+    while value_index < value.len() {
+        if pattern_index < pattern.len()
+            && (pattern[pattern_index] == '?' || pattern[pattern_index] == value[value_index])
+        {
+            value_index += 1;
+            pattern_index += 1;
+        } else if pattern_index < pattern.len() && pattern[pattern_index] == '*' {
+            star_pattern_index = Some(pattern_index);
+            star_value_index = value_index;
+            pattern_index += 1;
+        } else if let Some(star_index) = star_pattern_index {
+            pattern_index = star_index + 1;
+            star_value_index += 1;
+            value_index = star_value_index;
+        } else {
+            return false;
+        }
+    }
+    while pattern_index < pattern.len() && pattern[pattern_index] == '*' {
+        pattern_index += 1;
+    }
+    pattern_index == pattern.len()
 }

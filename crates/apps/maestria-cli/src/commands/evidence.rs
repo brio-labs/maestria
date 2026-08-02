@@ -1,30 +1,22 @@
 use anyhow::{Context, Result, anyhow};
-use maestria_core::{OpenChunkEvidenceInput, OpenEvidenceInput};
-use maestria_daemon::evidence_open::{evidence_core_services, open_evidence_stores};
-use maestria_domain::{ChunkId, EvidenceId};
+use maestria_daemon::evidence_open::{open_chunk_evidence_scoped, open_evidence_scoped};
 use std::path::PathBuf;
 
 use crate::helpers;
 
 pub fn run(instance_dir: PathBuf, evidence_id: Option<u64>, chunk_id: Option<u64>) -> Result<()> {
     let layout = helpers::validated_instance(instance_dir)?;
-    let stores = open_evidence_stores(&layout)?;
-    let core = evidence_core_services(&stores);
 
+    // The scoped open is the single owner of instance read-scope and retrieval
+    // policy enforcement (R48); the CLI surface must not bypass it.
     let output = if let Some(id) = evidence_id {
         helpers::retry_db_busy("opening evidence by id", || {
-            core.open_evidence(OpenEvidenceInput {
-                evidence_id: EvidenceId::new(id),
-            })
-            .map_err(anyhow::Error::from)
+            open_evidence_scoped(&layout, id)
         })
         .context("open evidence by id")?
     } else if let Some(id) = chunk_id {
         helpers::retry_db_busy("opening chunk evidence", || {
-            core.open_chunk_evidence(OpenChunkEvidenceInput {
-                chunk_id: ChunkId::new(id),
-            })
-            .map_err(anyhow::Error::from)
+            open_chunk_evidence_scoped(&layout, id)
         })
         .context("open chunk evidence")?
     } else {

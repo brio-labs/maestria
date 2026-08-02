@@ -9,11 +9,9 @@ use crate::{
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EvidencePackMetadataRecord {
     pub query_id: QueryId,
-    pub search_trace: Option<SearchTraceId>,
     pub corpus_snapshot: CorpusSnapshotId,
     pub index_generation: IndexGenerationId,
     pub fingerprint: RetrievalModelFingerprint,
-    pub policy_fingerprint: Option<String>,
     pub claims_required: Vec<String>,
     pub requirements: EvidenceRequirements,
     pub claim_coverage: Vec<ClaimEvidenceCoverageRecord>,

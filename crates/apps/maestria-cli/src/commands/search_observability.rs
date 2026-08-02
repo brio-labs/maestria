@@ -103,16 +103,12 @@ fn load_trace(store: &SqliteStore, id: SearchTraceId) -> Result<DurableTrace> {
             pack_metadata: Some(metadata),
             ..
         } = event.event
-            && metadata.search_trace == Some(id)
+            && let EvidencePackReproducibilityRecord::Frozen(key) = &metadata.reproducibility
+            && key.trace == id
         {
-            return match metadata.reproducibility {
-                EvidencePackReproducibilityRecord::LiveNonReproducible { reason } => {
-                    Err(anyhow!("trace {id} is non-reproducible: {reason}"))
-                }
-                EvidencePackReproducibilityRecord::Frozen(_) => Err(anyhow!(
-                    "trace {id} is unavailable: the frozen pack has no durable trace payload"
-                )),
-            };
+            return Err(anyhow!(
+                "trace {id} is unavailable: the frozen pack has no durable trace payload"
+            ));
         }
     }
     Err(anyhow!("trace {id} was not found"))

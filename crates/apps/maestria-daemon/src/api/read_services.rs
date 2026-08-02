@@ -1,9 +1,6 @@
-use std::fs;
-
 use anyhow::{Context, Result, anyhow};
-use maestria_core::{InstanceLayout, InstanceManifest, OpenEvidenceInput};
-use maestria_domain::{Evidence, EvidenceKind, KernelState, ScopeId, Task};
-use maestria_ports::{ArtifactRepository, EvidenceRepository};
+use maestria_core::InstanceLayout;
+use maestria_domain::{Evidence, EvidenceKind, KernelState, Task};
 
 use super::super::protocol::{
     EvidenceResponse, EvidenceSourceResponse, StatusResponse, TaskResponse, TaskSummary,
@@ -37,36 +34,10 @@ pub(super) fn task(layout: &InstanceLayout, task_id: Option<u64>) -> Result<Task
 }
 
 pub(super) fn open_evidence(layout: &InstanceLayout, evidence_id: u64) -> Result<EvidenceResponse> {
-    let manifest = InstanceManifest::decode(&fs::read_to_string(&layout.manifest_path)?)
-        .map_err(|error| anyhow!("parse instance manifest: {error}"))?;
-    let sqlite = crate::evidence_open::open_evidence_sqlite(layout)?;
-    let evidence_id = maestria_domain::EvidenceId::new(evidence_id);
-    let retrieval_policy = maestria_governance::RetrievalSecurityPolicy::default()
-        .require_read_allowed(true)
-        .required_scope(ScopeId::new(1))
-        .allow_unscoped_items(true);
-    if let Some(evidence) = EvidenceRepository::get(&sqlite, evidence_id)? {
-        if let maestria_governance::RetrievalDecision::Denied(reason) =
-            retrieval_policy.evaluate(&evidence.security)
-        {
-            return Err(anyhow!(
-                "evidence is not available under retrieval policy: {reason}"
-            ));
-        }
-        validate_evidence_scope(&manifest, &evidence)?;
-        if let Some(artifact) = ArtifactRepository::get(&sqlite, evidence.artifact_id)?
-            && let maestria_governance::RetrievalDecision::Denied(reason) =
-                retrieval_policy.evaluate(&artifact.security)
-        {
-            return Err(anyhow!(
-                "artifact is not available under retrieval policy: {reason}"
-            ));
-        }
-    }
-    let stores = crate::evidence_open::complete_evidence_stores(layout, sqlite)?;
-    let core = crate::evidence_open::evidence_core_services(&stores)
-        .with_retrieval_policy(retrieval_policy);
-    let output = core.open_evidence(OpenEvidenceInput { evidence_id })?;
+    // Single owner of evidence scope + policy enforcement (R28/R48): the
+    // shared scoped open applies the manifest read-root scope and retrieval
+    // policy before dispatching to core.
+    let output = crate::evidence_open::open_evidence_scoped(layout, evidence_id)?;
     Ok(EvidenceResponse {
         evidence_id: output.evidence.id.value(),
         artifact_id: output.artifact.id.value(),
@@ -79,94 +50,6 @@ pub(super) fn open_evidence(layout: &InstanceLayout, evidence_id: u64) -> Result
         excerpt: output.evidence.excerpt,
         observed_at: output.evidence.observed_at.value(),
     })
-}
-
-fn validate_evidence_scope(manifest: &InstanceManifest, evidence: &Evidence) -> Result<()> {
-    let EvidenceKind::FileSpan { path, .. } = &evidence.kind else {
-        return Ok(());
-    };
-    if source_scope_allowed(manifest, path) {
-        return Ok(());
-    }
-    Err(anyhow!(
-        "evidence source path {path} is outside instance read roots or excluded by policy"
-    ))
-}
-
-fn source_scope_allowed(manifest: &InstanceManifest, path: &str) -> bool {
-    let path = std::path::Path::new(path);
-    let mut candidates = vec![lexical_normalize(path)];
-    if path.is_relative() {
-        candidates.push(lexical_normalize(&manifest.root.join(path)));
-    }
-    let roots: Vec<_> = manifest
-        .read_roots
-        .iter()
-        .map(|root| lexical_normalize(root))
-        .collect();
-    let blocked_patterns = runtime_blocked_patterns(manifest);
-    candidates.iter().any(|candidate| {
-        roots.iter().any(|root| candidate.starts_with(root))
-            && !blocked_patterns
-                .iter()
-                .any(|pattern| path_matches_pattern(candidate, pattern))
-    })
-}
-
-fn runtime_blocked_patterns(manifest: &InstanceManifest) -> Vec<String> {
-    crate::blocked_patterns::runtime_blocked_patterns(manifest)
-}
-
-fn lexical_normalize(path: &std::path::Path) -> std::path::PathBuf {
-    let mut normalized = std::path::PathBuf::new();
-    for component in path.components() {
-        match component {
-            std::path::Component::CurDir => {}
-            std::path::Component::ParentDir => {
-                normalized.pop();
-            }
-            other => normalized.push(other.as_os_str()),
-        }
-    }
-    normalized
-}
-
-fn path_matches_pattern(path: &std::path::Path, pattern: &str) -> bool {
-    path.components()
-        .any(|component| glob_matches(&component.as_os_str().to_string_lossy(), pattern))
-}
-
-fn glob_matches(value: &str, pattern: &str) -> bool {
-    let value: Vec<char> = value.chars().collect();
-    let pattern: Vec<char> = pattern.chars().collect();
-    let mut value_index = 0usize;
-    let mut pattern_index = 0usize;
-    let mut star_pattern_index = None;
-    let mut star_value_index = 0usize;
-
-    while value_index < value.len() {
-        if pattern_index < pattern.len()
-            && (pattern[pattern_index] == '?' || pattern[pattern_index] == value[value_index])
-        {
-            value_index += 1;
-            pattern_index += 1;
-        } else if pattern_index < pattern.len() && pattern[pattern_index] == '*' {
-            star_pattern_index = Some(pattern_index);
-            star_value_index = value_index;
-            pattern_index += 1;
-        } else if let Some(star_index) = star_pattern_index {
-            star_value_index += 1;
-            value_index = star_value_index;
-            pattern_index = star_index + 1;
-        } else {
-            return false;
-        }
-    }
-
-    while pattern_index < pattern.len() && pattern[pattern_index] == '*' {
-        pattern_index += 1;
-    }
-    pattern_index == pattern.len()
 }
 
 fn load_state(layout: &InstanceLayout) -> Result<KernelState> {
