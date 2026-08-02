@@ -23,8 +23,8 @@ pub struct IndexFingerprint {
     pub artifact_hash: ContentHash,
     pub dimensions: u32,
     pub quantization: String,
-    pub query_template_hash: String,
-    pub document_template_hash: String,
+    pub query_template_hash: ContentHash,
+    pub document_template_hash: ContentHash,
     pub preprocessing_version: String,
 }
 

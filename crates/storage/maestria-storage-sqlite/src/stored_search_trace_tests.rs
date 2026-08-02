@@ -120,7 +120,6 @@ pub(crate) fn sample_trace() -> Result<SearchTrace, Box<dyn std::error::Error>> 
             accounting: SearchRewriteAccounting {
                 token_estimate: 16,
                 latency_budget_units: 2,
-                is_proposal: false,
             },
         }],
         missing_evidence: vec!["claim-b".to_owned()],

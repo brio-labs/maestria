@@ -49,9 +49,15 @@ pub fn try_acquire(layout: &InstanceLayout) -> Result<Option<InstanceWriteLock>>
                 .map_or(0, |duration| duration.as_nanos());
             let token = format!("{}:{nonce}", std::process::id());
             if let Err(error) = writeln!(file, "{token}") {
-                let _ = fs::remove_file(&path);
-                return Err(error)
-                    .with_context(|| format!("write instance lock {}", path.display()));
+                let write_error =
+                    anyhow!(error).context(format!("write instance lock {}", path.display()));
+                return match fs::remove_file(&path) {
+                    Ok(()) => Err(write_error),
+                    Err(cleanup_error) => Err(write_error.context(format!(
+                        "failed to remove partial lock {}: {cleanup_error}",
+                        path.display()
+                    ))),
+                };
             }
             Ok(Some(InstanceWriteLock { path, token }))
         }
@@ -72,7 +78,13 @@ pub fn try_acquire(layout: &InstanceLayout) -> Result<Option<InstanceWriteLock>>
                         try_acquire(layout)
                     }
                     Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                        let _ = fs::remove_file(&quarantine);
+                        if let Err(cleanup_error) = fs::remove_file(&quarantine) {
+                            tracing::warn!(
+                                path = %quarantine.display(),
+                                %cleanup_error,
+                                "failed to remove orphaned quarantine lock"
+                            );
+                        }
                         try_acquire(layout)
                     }
                     Err(error) => Err(error)

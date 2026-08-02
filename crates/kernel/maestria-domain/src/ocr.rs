@@ -15,6 +15,7 @@ pub enum OcrValidationError {
     IdentityMismatch,
     DisclosureMismatch,
     RequestIdentityMismatch,
+    InvalidRequestId,
 }
 
 impl fmt::Display for OcrValidationError {
@@ -34,6 +35,7 @@ impl fmt::Display for OcrValidationError {
             Self::RequestIdentityMismatch => {
                 f.write_str("OCR request identity does not match intent")
             }
+            Self::InvalidRequestId => f.write_str("OCR request id must be a sha256 hex digest"),
         }
     }
 }
@@ -47,9 +49,13 @@ impl OcrRequestId {
         &self.0
     }
     pub fn parse(value: impl Into<String>) -> Result<Self, OcrValidationError> {
+        const PREFIX: &str = "ocr:sha256:";
         let value = value.into();
-        if !value.starts_with("ocr:sha256:") || value.len() != 75 {
-            return Err(OcrValidationError::EmptyValue("request id"));
+        let Some(digest) = value.strip_prefix(PREFIX) else {
+            return Err(OcrValidationError::InvalidRequestId);
+        };
+        if digest.len() != 64 || !digest.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+            return Err(OcrValidationError::InvalidRequestId);
         }
         Ok(Self(value))
     }

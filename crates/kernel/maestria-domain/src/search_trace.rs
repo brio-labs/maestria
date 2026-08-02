@@ -215,13 +215,6 @@ impl SearchTrace {
                 "rewrite accounting is invalid",
             ));
         }
-        if rewrite.accounting.is_proposal
-            != (rewrite.origin == super::SearchRewriteOrigin::ModelProposal)
-        {
-            return Err(SearchCompatibilityError::TracePlanMismatch(
-                "rewrite proposal accounting is invalid",
-            ));
-        }
         let mut original_seen = original_seen;
         let mut model_seen = model_seen;
         match &rewrite.origin {

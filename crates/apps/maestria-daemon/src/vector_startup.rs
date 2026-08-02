@@ -165,8 +165,14 @@ pub fn reconcile_retrieval_generations(
                 dimensions: u32::try_from(config.dimensions)
                     .map_err(|_| anyhow!("embedding dimensions exceed u32"))?,
                 quantization: "f32".to_string(),
-                query_template_hash: maestria_domain::content_hash(b"query: {{text}}"),
-                document_template_hash: maestria_domain::content_hash(b"doc: {{text}}"),
+                query_template_hash: ContentHash::new(maestria_domain::content_hash(
+                    b"query: {{text}}",
+                ))
+                .map_err(|error| anyhow!("invalid query template hash: {error}"))?,
+                document_template_hash: ContentHash::new(maestria_domain::content_hash(
+                    b"doc: {{text}}",
+                ))
+                .map_err(|error| anyhow!("invalid document template hash: {error}"))?,
                 preprocessing_version: config.preprocessing_version.clone(),
             };
             ensure_generation(
@@ -229,10 +235,13 @@ fn validate_profile_fingerprint(
     document_template: &str,
     query_template: &str,
 ) -> Result<()> {
-    let expected_document = maestria_domain::content_hash(document_template.as_bytes());
-    let expected_query = maestria_domain::content_hash(query_template.as_bytes());
-    if identity.fingerprint.document_template_hash != expected_document.as_str()
-        || identity.fingerprint.query_template_hash != expected_query.as_str()
+    let expected_document =
+        ContentHash::new(maestria_domain::content_hash(document_template.as_bytes()))
+            .map_err(|error| anyhow!("invalid document template hash: {error}"))?;
+    let expected_query = ContentHash::new(maestria_domain::content_hash(query_template.as_bytes()))
+        .map_err(|error| anyhow!("invalid query template hash: {error}"))?;
+    if identity.fingerprint.document_template_hash != expected_document
+        || identity.fingerprint.query_template_hash != expected_query
     {
         return Err(anyhow!(
             "active embedding generation fingerprint does not match configured templates"

@@ -25,8 +25,18 @@ impl TantivyFullTextIndex {
             artifact_hash,
             dimensions: 0,
             quantization: "f32".to_string(),
-            query_template_hash: content_hash(b"query: {{text}}"),
-            document_template_hash: content_hash(b"doc: {{text}}"),
+            query_template_hash: ContentHash::new(content_hash(b"query: {{text}}")).map_err(
+                |error| PortError::InternalContext {
+                    context: "invalid query template hash",
+                    source: error.to_string(),
+                },
+            )?,
+            document_template_hash: ContentHash::new(content_hash(b"doc: {{text}}")).map_err(
+                |error| PortError::InternalContext {
+                    context: "invalid document template hash",
+                    source: error.to_string(),
+                },
+            )?,
             preprocessing_version: "tantivy-default-tokenizer-v1".to_string(),
         })
     }

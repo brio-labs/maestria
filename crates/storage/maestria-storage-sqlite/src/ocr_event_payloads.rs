@@ -138,31 +138,23 @@ impl StoredEventPayload {
         };
         let request_id = match OcrRequestId::parse(request_id.clone()) {
             Ok(value) => value,
-            Err(_) => {
-                return Err(FamilyDecodeError::Foreign(Box::new(Self::OcrCompleted {
-                    artifact_id,
-                    request_id,
-                    pages,
-                })));
+            Err(error) => {
+                return Err(FamilyDecodeError::Invalid(PortError::InvalidInputContext {
+                    context: "decode stored OCR request id",
+                    source: error.to_string(),
+                }));
             }
         };
         let decoded = pages
             .into_iter()
             .map(StoredOcrPage::into_domain)
             .collect::<Result<Vec<_>, _>>()
-            .map_err(|_| {
-                FamilyDecodeError::Foreign(Box::new(Self::OcrCompleted {
-                    artifact_id,
-                    request_id: request_id.as_str().to_string(),
-                    pages: Vec::new(),
-                }))
-            })?;
-        let completion = OcrCompletion::from_parts(request_id, decoded).map_err(|_| {
-            FamilyDecodeError::Foreign(Box::new(Self::OcrCompleted {
-                artifact_id,
-                request_id: String::new(),
-                pages: Vec::new(),
-            }))
+            .map_err(FamilyDecodeError::Invalid)?;
+        let completion = OcrCompletion::from_parts(request_id, decoded).map_err(|error| {
+            FamilyDecodeError::Invalid(PortError::InvalidInputContext {
+                context: "decode stored OCR completion",
+                source: error.to_string(),
+            })
         })?;
         Ok(DomainEvent::OcrCompleted {
             artifact_id: maestria_domain::ArtifactId::new(artifact_id),
@@ -179,12 +171,11 @@ impl StoredEventPayload {
         else {
             return Err(FamilyDecodeError::Foreign(Box::new(self)));
         };
-        let request_id = OcrRequestId::parse(request_id).map_err(|_| {
-            FamilyDecodeError::Foreign(Box::new(Self::OcrFailed {
-                artifact_id,
-                request_id: String::new(),
-                reason: reason.clone(),
-            }))
+        let request_id = OcrRequestId::parse(request_id).map_err(|error| {
+            FamilyDecodeError::Invalid(PortError::InvalidInputContext {
+                context: "decode stored OCR failure request id",
+                source: error.to_string(),
+            })
         })?;
         Ok(DomainEvent::OcrFailed {
             artifact_id: maestria_domain::ArtifactId::new(artifact_id),

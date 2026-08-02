@@ -13,8 +13,12 @@ fn make_fingerprint() -> Result<IndexFingerprint, Box<dyn std::error::Error>> {
         )?,
         dimensions: 1536,
         quantization: "f32".to_string(),
-        query_template_hash: "sha256:456".to_string(),
-        document_template_hash: "sha256:789".to_string(),
+        query_template_hash: ContentHash::new(
+            "sha256:3333333333333333333333333333333333333333333333333333333333333333".to_string(),
+        )?,
+        document_template_hash: ContentHash::new(
+            "sha256:4444444444444444444444444444444444444444444444444444444444444444".to_string(),
+        )?,
         preprocessing_version: "1.0".to_string(),
     })
 }

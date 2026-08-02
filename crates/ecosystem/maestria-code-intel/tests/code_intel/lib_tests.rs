@@ -214,6 +214,37 @@ fn load_rejects_tampered_symbol_count() -> Result<(), Box<dyn Error>> {
 }
 
 #[test]
+fn load_rejects_out_of_range_relation_confidence() -> Result<(), Box<dyn Error>> {
+    let tmp = make_workspace_with_relations()?;
+    let path = tmp.path().join("index.json");
+    let index = build_index(tmp.path(), "g2")?;
+    assert!(
+        !index.relations.is_empty(),
+        "fixture must extract relations for this test"
+    );
+    assert!(
+        index
+            .relations
+            .iter()
+            .all(|relation| relation.confidence_milli <= 1000),
+        "extracted relations must respect the documented confidence range"
+    );
+    index.save(&path)?;
+
+    let json = fs::read_to_string(&path)?;
+    let mut value: serde_json::Value = serde_json::from_str(&json)?;
+    value["relations"][0]["confidence_milli"] =
+        serde_json::Value::Number(serde_json::Number::from(1001));
+    fs::write(&path, serde_json::to_vec_pretty(&value)?)?;
+
+    match RepositoryCodeIndex::load(&path) {
+        Err(CodeIntelError::Integrity { .. }) => {}
+        other => return Err(format!("expected Integrity error, got {other:?}").into()),
+    }
+    Ok(())
+}
+
+#[test]
 fn load_rejects_tampered_symbol_provenance() -> Result<(), Box<dyn Error>> {
     let tmp = make_workspace_with_routes()?;
     let path = tmp.path().join("index.json");

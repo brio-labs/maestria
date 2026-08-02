@@ -111,6 +111,12 @@ impl RetrievalAuthorizationContext {
 }
 
 /// Configuration used to derive a request-bound authorization context.
+///
+/// Scope invariants: `required_scope_id` filters *scoped* items (an item
+/// carrying a scope outside the required one is denied); `allow_unscoped_items`
+/// governs items without any scope. The combination is the instance-local
+/// posture: locally ingested items are unscoped by construction, while scoped
+/// (web-sourced) items must belong to the instance scope.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RetrievalSecurityPolicy {
     pub require_trust_zone: Option<TrustZone>,

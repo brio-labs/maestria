@@ -88,8 +88,9 @@ pub fn evidence_core_services(stores: &EvidenceStores) -> maestria_core::CoreSer
 
 /// The read-side retrieval policy every client surface applies before
 /// dispatching an evidence open (R48): read-allowed security metadata is
-/// required, and unscoped items are tolerated only when no instance scope is
-/// configured.
+/// required, scoped items (web-sourced evidence) must belong to the instance
+/// scope, and locally ingested items are unscoped by construction and remain
+/// readable under the instance's local-first baseline.
 fn evidence_retrieval_policy() -> RetrievalSecurityPolicy {
     RetrievalSecurityPolicy::default()
         .require_read_allowed(true)

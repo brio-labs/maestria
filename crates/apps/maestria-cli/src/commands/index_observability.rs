@@ -27,8 +27,8 @@ pub fn run_index_generations(instance_dir: PathBuf) -> Result<()> {
             generation.fingerprint.dimensions,
             generation.fingerprint.quantization,
             generation.fingerprint.artifact_hash,
-            generation.fingerprint.query_template_hash,
-            generation.fingerprint.document_template_hash,
+            generation.fingerprint.query_template_hash.as_str(),
+            generation.fingerprint.document_template_hash.as_str(),
             generation.fingerprint.preprocessing_version,
         );
     }

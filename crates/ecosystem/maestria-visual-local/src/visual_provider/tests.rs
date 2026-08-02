@@ -134,8 +134,22 @@ fn identity() -> Result<EmbeddingIdentity, PortError> {
             artifact_hash,
             dimensions: 2,
             quantization: "int8".to_string(),
-            query_template_hash: "query-r1".to_string(),
-            document_template_hash: "document-r1".to_string(),
+            query_template_hash: ContentHash::new(
+                "sha256:5555555555555555555555555555555555555555555555555555555555555555"
+                    .to_string(),
+            )
+            .map_err(|error| PortError::InternalContext {
+                context: "create test query template hash",
+                source: error.to_string(),
+            })?,
+            document_template_hash: ContentHash::new(
+                "sha256:6666666666666666666666666666666666666666666666666666666666666666"
+                    .to_string(),
+            )
+            .map_err(|error| PortError::InternalContext {
+                context: "create test document template hash",
+                source: error.to_string(),
+            })?,
             preprocessing_version: "siglip-224-r1".to_string(),
         },
         representation: RepresentationName::new("visual_page_v1"),

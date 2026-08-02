@@ -184,3 +184,31 @@ fn supersede_memory_marks_memory_superseded() -> Result<(), Box<dyn std::error::
     ));
     Ok(())
 }
+
+#[test]
+fn supersede_memory_rejects_self_reference() -> Result<(), Box<dyn std::error::Error>> {
+    let mut state = state_with_memory_candidate(MemoryCandidateId::new(90))?;
+    promote_memory(&mut state, MemoryId::new(100), MemoryCandidateId::new(90))?;
+
+    let result = state.apply_input(DomainInput::SupersedeMemory(SupersedeMemoryInput {
+        memory_id: MemoryId::new(100),
+        by_memory_id: MemoryId::new(100),
+    }));
+
+    assert!(matches!(
+        result,
+        Err(DomainError::MemorySupersedesItself { memory_id })
+            if memory_id == MemoryId::new(100)
+    ));
+    assert_eq!(
+        state
+            .memories
+            .get(&MemoryId::new(100))
+            .ok_or(DomainError::MissingMemory {
+                id: MemoryId::new(100),
+            })?
+            .status,
+        MemoryStatus::Active
+    );
+    Ok(())
+}
