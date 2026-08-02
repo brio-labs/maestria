@@ -169,6 +169,7 @@ impl LexicalChunkRetriever {
         self.verifier.verify(&evidence, &artifact)?;
         candidate_from_records(
             artifact.id,
+            artifact.content_hash.as_ref(),
             &chunk.source_span,
             &evidence,
             chunk.node_id,

@@ -465,6 +465,10 @@ fn high_degree_graph_caps_relation_and_evidence_lookups() -> Result<(), Box<dyn 
     ));
     assert_eq!(expanded.execution.usage.work_units, 1);
     assert_eq!(graph.lookup_count(), 1);
-    assert_eq!(counted_evidence.get_count(), 2);
+    // One bounded lookup resolves the seed's artifact identity for traversal
+    // (R27: version ids are never used as document keys), one loads the
+    // relation evidence, one loads the child's evidence, and the capped work
+    // budget stops after the first related artifact.
+    assert_eq!(counted_evidence.get_count(), 3);
     Ok(())
 }

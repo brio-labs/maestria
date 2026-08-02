@@ -73,6 +73,7 @@ impl CandidateRetriever for CurrentVersionFilter {
 
 pub(super) fn candidate_from_records(
     artifact_id: maestria_domain::ArtifactId,
+    artifact_content_hash: Option<&maestria_domain::ContentHash>,
     source_span: &SourceSpan,
     evidence: &Evidence,
     node_id: StructureNodeId,
@@ -88,9 +89,19 @@ pub(super) fn candidate_from_records(
     let (location, range) = evidence_location(evidence, source_span)?;
     let source_span = EvidenceSpan::new(Some(node_id), location, range)
         .map_err(|error| RetrievalError::Internal(error.to_string()))?;
+    // R27: the candidate version is content-addressed. An artifact without a
+    // content hash has no parsed version; the artifact-id placeholder keeps
+    // the record-path convention explicit instead of pretending a version
+    // exists.
+    let artifact_version = match artifact_content_hash {
+        Some(hash) => hash.version_id().map_err(|error| {
+            RetrievalError::Internal(format!("derive artifact version identity: {error}"))
+        })?,
+        None => ArtifactVersionId::new(artifact_id.value()),
+    };
     Ok(EvidenceCandidate {
         evidence_id: evidence.id,
-        artifact_version: ArtifactVersionId::new(artifact_id.value()),
+        artifact_version,
         source_span,
         scores,
         trust: TrustLabel::Unverified,
@@ -180,6 +191,7 @@ mod tests {
         evidence.artifact_id = maestria_domain::ArtifactId::new(2);
         let result = candidate_from_records(
             artifact_id,
+            None,
             &SourceSpan::text_span(1, 1).map_err(|e| RetrievalError::Internal(e.to_string()))?,
             &evidence,
             StructureNodeId::new(1),

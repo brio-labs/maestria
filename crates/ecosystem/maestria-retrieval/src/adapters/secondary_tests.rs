@@ -162,13 +162,6 @@ fn denied_relation_expander_and_seed(
     blobs: Arc<CountingBlobStore>,
     blob_gets: Arc<AtomicUsize>,
 ) -> Result<DeniedRelationFixture, Box<dyn std::error::Error>> {
-    let expander = HierarchyGraphExpander::new(HierarchyGraphExpanderParts {
-        graph: records.graph,
-        artifacts: artifacts.repository,
-        chunks: records.chunks,
-        evidence: records.evidence,
-        blobs,
-    });
     let seed_evidence = Evidence {
         id: EvidenceId::new(99),
         artifact_id: artifacts.owner_id,
@@ -180,8 +173,19 @@ fn denied_relation_expander_and_seed(
         observed_at: LogicalTick::new(1),
         security: Default::default(),
     };
+    // The seed's evidence must be resolvable: expansion keys traversal on
+    // the artifact identity resolved from the seed evidence (R27).
+    records.evidence.put(seed_evidence.clone())?;
+    let expander = HierarchyGraphExpander::new(HierarchyGraphExpanderParts {
+        graph: records.graph,
+        artifacts: artifacts.repository,
+        chunks: records.chunks,
+        evidence: records.evidence,
+        blobs,
+    });
     let seed = candidate_from_records(
         artifacts.owner_id,
+        None,
         &SourceSpan::text_span(1, 1)?,
         &seed_evidence,
         StructureNodeId::new(1),

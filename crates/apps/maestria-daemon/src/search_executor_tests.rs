@@ -168,3 +168,49 @@ fn latest_by_path_semantics_preserved_across_mixed_events() -> Result<(), Box<dy
     assert!(active.contains(&ArtifactVersionId::new(id_b1.value())));
     Ok(())
 }
+
+#[test]
+fn document_tree_captured_version_overrides_placeholder() -> Result<(), Box<dyn std::error::Error>>
+{
+    let path = "src/main.rs".to_string();
+    let artifact_id = ArtifactId::new(1);
+    let content_hash = ContentHash::new("sha256:".to_owned() + &"a".repeat(64))?;
+    let real_version = content_hash.version_id()?;
+    assert_ne!(
+        real_version,
+        ArtifactVersionId::new(artifact_id.value()),
+        "content-derived version must not equal the artifact-id placeholder"
+    );
+    let events = vec![
+        DomainEventEnvelope {
+            id: EventId::new(1),
+            sequence: SequenceNumber::new(1),
+            event: DomainEvent::ParserStarted {
+                artifact_id,
+                title: "main".to_string(),
+                source_path: path.clone(),
+                content_hash: content_hash.clone(),
+                blob_id: BlobId::new(1),
+            },
+        },
+        DomainEventEnvelope {
+            id: EventId::new(2),
+            sequence: SequenceNumber::new(2),
+            event: DomainEvent::DocumentTreeCaptured {
+                artifact_id,
+                artifact_version_id: real_version,
+                content_hash,
+                root_id: maestria_domain::StructureNodeId::new(1),
+                nodes: Vec::new(),
+            },
+        },
+    ];
+    let active = reconcile_active_versions(&events);
+    assert_eq!(active.len(), 1);
+    assert!(
+        active.contains(&real_version),
+        "active versions must use the content-addressed tree-captured version"
+    );
+    assert!(!active.contains(&ArtifactVersionId::new(artifact_id.value())));
+    Ok(())
+}
