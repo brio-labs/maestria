@@ -1,3 +1,4 @@
+use crate::lifecycle::combine_failures;
 use crate::{InstanceLifecycle, RecoveryQueue};
 use anyhow::Result;
 use maestria_core::InstanceLayout;
@@ -138,15 +139,6 @@ impl MutationSession {
     pub async fn finish<T>(self, operation: Result<T>) -> Result<T> {
         let shutdown = self.lifecycle.shutdown().await;
         combine_operation_and_shutdown(operation, shutdown)
-    }
-}
-
-fn combine_failures(error: anyhow::Error, shutdown: Result<()>) -> anyhow::Error {
-    match shutdown {
-        Ok(()) => error,
-        Err(shutdown_error) => error.context(format!(
-            "lifecycle shutdown also failed: {shutdown_error:#}"
-        )),
     }
 }
 

@@ -25,17 +25,33 @@ impl StoredSearchRewriteOrigin {
             SearchRewriteOrigin::Deterministic => Self::Deterministic,
             SearchRewriteOrigin::ModelProposal => Self::ModelProposal,
             SearchRewriteOrigin::Feedback => Self::Feedback,
-            SearchRewriteOrigin::MissingSlot => Self::MissingSlot,
+            SearchRewriteOrigin::MissingSlot { .. } => Self::MissingSlot,
         }
     }
 
-    pub(crate) fn try_into_domain(self) -> Result<SearchRewriteOrigin, maestria_ports::PortError> {
+    /// Converts the stored origin back to the domain type.
+    ///
+    /// The `MissingSlot` variant carries its slot in the domain; the stored
+    /// representation keeps it in the sibling `missing_slot` column, so the
+    /// caller supplies the decoded slot and this conversion rejects a
+    /// missing-slot origin without a slot (R56).
+    pub(crate) fn try_into_domain(
+        self,
+        missing_slot: Option<String>,
+    ) -> Result<SearchRewriteOrigin, maestria_ports::PortError> {
         Ok(match self {
             Self::Original => SearchRewriteOrigin::Original,
             Self::Deterministic => SearchRewriteOrigin::Deterministic,
             Self::ModelProposal => SearchRewriteOrigin::ModelProposal,
             Self::Feedback => SearchRewriteOrigin::Feedback,
-            Self::MissingSlot => SearchRewriteOrigin::MissingSlot,
+            Self::MissingSlot => {
+                let slot =
+                    missing_slot.ok_or_else(|| maestria_ports::PortError::InternalContext {
+                        context: "stored rewrite is a missing-slot rewrite without a slot",
+                        source: "missing_slot column is NULL".to_string(),
+                    })?;
+                SearchRewriteOrigin::MissingSlot { slot }
+            }
         })
     }
 }
@@ -106,22 +122,25 @@ pub(crate) struct StoredSearchTraceRewrite {
 
 impl StoredSearchTraceRewrite {
     pub(crate) fn from_domain(value: &SearchTraceRewrite) -> Self {
+        let missing_slot = match &value.origin {
+            SearchRewriteOrigin::MissingSlot { slot } => Some(slot.clone()),
+            _ => None,
+        };
         Self {
             query: value.query.clone(),
             origin: StoredSearchRewriteOrigin::from_domain(&value.origin),
             stage: StoredSearchRewriteStage::from_domain(&value.stage),
             accounting: StoredSearchRewriteAccounting::from_domain(&value.accounting),
-            missing_slot: value.missing_slot.clone(),
+            missing_slot,
         }
     }
 
     pub(crate) fn try_into_domain(self) -> Result<SearchTraceRewrite, maestria_ports::PortError> {
         Ok(SearchTraceRewrite {
             query: self.query,
-            origin: self.origin.try_into_domain()?,
+            origin: self.origin.try_into_domain(self.missing_slot)?,
             stage: self.stage.try_into_domain()?,
             accounting: self.accounting.try_into_domain()?,
-            missing_slot: self.missing_slot,
         })
     }
 }
@@ -139,10 +158,16 @@ mod tests {
             SearchRewriteOrigin::Deterministic,
             SearchRewriteOrigin::ModelProposal,
             SearchRewriteOrigin::Feedback,
-            SearchRewriteOrigin::MissingSlot,
+            SearchRewriteOrigin::MissingSlot {
+                slot: "missing claim".to_string(),
+            },
         ] {
+            let slot = match &origin {
+                SearchRewriteOrigin::MissingSlot { slot } => Some(slot.clone()),
+                _ => None,
+            };
             assert_eq!(
-                StoredSearchRewriteOrigin::from_domain(&origin).try_into_domain()?,
+                StoredSearchRewriteOrigin::from_domain(&origin).try_into_domain(slot)?,
                 origin
             );
         }

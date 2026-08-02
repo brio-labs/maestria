@@ -3,7 +3,7 @@ use maestria_core::{InstanceLayout, InstanceManifest};
 use maestria_domain::{
     DomainInput, EvidenceCandidate, SearchKnowledgeCompleted, SearchOutcome, SearchPlan, TaskId,
 };
-use std::{path::PathBuf, time::Duration};
+use std::path::PathBuf;
 
 use crate::helpers;
 
@@ -88,11 +88,7 @@ async fn run_read_only_search(
     query: String,
     limit: usize,
 ) -> Result<(SearchPlan, SearchOutcome, maestria_domain::KernelState)> {
-    let state = helpers::load_kernel_state_with_retry(
-        layout,
-        Duration::from_secs(2),
-        "load kernel state for search",
-    )?;
+    let state = helpers::load_kernel_state_with_retry(layout, "load kernel state for search")?;
     let _task_id = validate_task_id(&state, task_id)?;
     let manifest = helpers::load_manifest(layout)?;
     let (plan, outcome) = execute_search(layout, &state, &manifest, query, limit).await?;

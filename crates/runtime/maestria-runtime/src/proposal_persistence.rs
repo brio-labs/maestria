@@ -53,7 +53,10 @@ pub fn decode_pending_continuation(
     if token.journal_generation != journal_generation
         || token.correlation_id != token.proposal.correlation_id
     {
-        return Ok(None);
+        return Err(format!(
+            "decode pending model-agent continuation for approval {}: token fields disagree with the proposal (journal generation or correlation id)",
+            record.id
+        ));
     }
     Ok(Some(token.proposal))
 }

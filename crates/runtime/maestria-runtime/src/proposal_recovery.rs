@@ -4,7 +4,7 @@ use crate::effect_result::EffectFailure;
 use crate::harness::truncate_output;
 use crate::runtime::MaestriaRuntime;
 use maestria_domain::{
-    DomainInput, KernelState, MaestriaEffect, ModelAgentHarnessResult, ModelAgentProposalExecution,
+    KernelState, MaestriaEffect, ModelAgentHarnessResult, ModelAgentProposalExecution,
     ModelAgentProposalRequest, ScopeId,
 };
 use maestria_ports::EffectJournalEntry;
@@ -162,23 +162,14 @@ impl EffectExecutionContext {
                 "journal recovery feedback identity does not match its proposal".to_string(),
             ));
         }
-        let mut output = String::from_utf8_lossy(&outcome.stdout).into_owned();
-        if !outcome.stderr.is_empty() {
-            if !output.is_empty() {
-                output.push('\n');
-            }
-            output.push_str(&String::from_utf8_lossy(&outcome.stderr));
-        }
         Self::send_input(
             &self.input_tx,
-            DomainInput::HarnessRunCompleted(maestria_domain::HarnessRunCompleted {
-                run_id: proposal.run_id,
-                generation: generation.value(),
-                task_id: proposal.task_id,
-                command: outcome.command.clone(),
-                exit_code: outcome.exit_code,
-                output,
-            }),
+            crate::harness::harness_completion_input(
+                proposal.run_id,
+                generation.value(),
+                proposal.task_id,
+                &outcome,
+            ),
             "recovered harness completion",
         )
         .map_err(|error| {

@@ -34,7 +34,6 @@ fn test_deterministic_before_proposal_ordering() {
             latency_budget_units: 1,
             is_proposal: true,
         },
-        missing_slot: None,
     });
 
     // Add deterministic second
@@ -47,7 +46,6 @@ fn test_deterministic_before_proposal_ordering() {
             latency_budget_units: 1,
             is_proposal: false,
         },
-        missing_slot: None,
     });
 
     let records = session.records();
@@ -68,7 +66,6 @@ fn test_policy_stage_restrictions() {
             latency_budget_units: 1,
             is_proposal: true,
         },
-        missing_slot: None,
     };
 
     let proposal_reranking = QueryRewriteRecord {
@@ -80,50 +77,38 @@ fn test_policy_stage_restrictions() {
             latency_budget_units: 1,
             is_proposal: true,
         },
-        missing_slot: None,
     };
 
-    assert!(!QueryRewriteSession::policy_accepts(
-        &proposal_initial,
-        None
-    ));
-    assert!(QueryRewriteSession::policy_accepts(
-        &proposal_reranking,
-        None
-    ));
+    assert!(!QueryRewriteSession::policy_accepts(&proposal_initial));
+    assert!(QueryRewriteSession::policy_accepts(&proposal_reranking));
 }
 
 #[test]
 fn test_policy_missing_slot_gating() {
     let missing_slot_record = QueryRewriteRecord {
         query: "fill slot".to_string(),
-        origin: RewriteOrigin::MissingSlot,
+        origin: RewriteOrigin::MissingSlot {
+            slot: "missing claim".to_string(),
+        },
         stage: StageRole::IterativeRetrieval,
         accounting: RewriteAccounting {
             token_estimate: 1,
             latency_budget_units: 1,
             is_proposal: false,
         },
-        missing_slot: Some("missing claim".to_string()),
     };
 
-    // Reject if no context
-    assert!(!QueryRewriteSession::policy_accepts(
-        &missing_slot_record,
-        None
-    ));
+    // Reject blank slot carried on the variant
+    let blank_slot = QueryRewriteRecord {
+        origin: RewriteOrigin::MissingSlot {
+            slot: "   ".to_string(),
+        },
+        ..missing_slot_record.clone()
+    };
+    assert!(!QueryRewriteSession::policy_accepts(&blank_slot));
 
-    // Reject if empty context
-    assert!(!QueryRewriteSession::policy_accepts(
-        &missing_slot_record,
-        Some("   ")
-    ));
-
-    // Accept if non-empty context
-    assert!(QueryRewriteSession::policy_accepts(
-        &missing_slot_record,
-        Some("context data")
-    ));
+    // Accept when the variant carries a non-empty slot
+    assert!(QueryRewriteSession::policy_accepts(&missing_slot_record));
 }
 
 #[test]
@@ -137,7 +122,6 @@ fn test_budget_accounting() {
             latency_budget_units: 10,
             is_proposal: true,
         },
-        missing_slot: None,
     };
 
     assert_eq!(record.accounting.token_estimate, 3);
@@ -174,7 +158,6 @@ fn test_deterministic_expansions_and_deduplication() {
             latency_budget_units: 1,
             is_proposal: false,
         },
-        missing_slot: None,
     });
 
     assert_eq!(session.records().len(), original_len);
@@ -201,7 +184,6 @@ fn test_model_proposal_requires_deterministic_phase() {
             latency_budget_units: 1,
             is_proposal: true,
         },
-        missing_slot: None,
     };
     assert!(!session.add_rewrite(proposal.clone()));
     session.expand_deterministic();
@@ -221,7 +203,6 @@ fn test_rewrite_budgets_are_enforced() {
             latency_budget_units: 1,
             is_proposal: true,
         },
-        missing_slot: None,
     }));
     assert_eq!(session.records().len(), 1);
 }
@@ -242,9 +223,14 @@ fn test_missing_slot_rewrite_requires_named_slot() -> Result<(), Box<dyn Error>>
     let record = session
         .records()
         .iter()
-        .find(|record| record.origin == RewriteOrigin::MissingSlot)
+        .find(|record| matches!(record.origin, RewriteOrigin::MissingSlot { .. }))
         .ok_or_else(|| std::io::Error::other("missing-slot rewrite should be recorded"))?;
-    assert_eq!(record.missing_slot.as_deref(), Some("claim"));
+    assert_eq!(
+        record.origin,
+        RewriteOrigin::MissingSlot {
+            slot: "claim".to_string()
+        }
+    );
     assert_eq!(record.stage, StageRole::IterativeRetrieval);
     Ok(())
 }

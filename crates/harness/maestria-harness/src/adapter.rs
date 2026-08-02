@@ -70,10 +70,12 @@ async fn execute_impl(request: HarnessRequest) -> Result<HarnessOutcome, PortErr
     let (exit_code, stdout, stderr) =
         execute_command(program, &validated_args, &request, &authorization).await?;
 
-    let duration = match start.elapsed() {
-        Ok(d) => d,
-        Err(_) => std::time::Duration::ZERO,
-    };
+    let duration = start
+        .elapsed()
+        .map_err(|error| PortError::InternalContext {
+            context: "measure harness run duration",
+            source: error.to_string(),
+        })?;
 
     Ok(HarnessOutcome {
         run_id: request.run_id,

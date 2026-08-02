@@ -108,15 +108,23 @@ fn read_chunk(row: &Row<'_>) -> Result<Chunk, PortError> {
         }
     };
     let representations_json = row.get::<_, Option<String>>(6).map_err(to_port_error)?;
-    let representations = if let Some(json) = representations_json {
-        serde_json::from_str::<Vec<crate::payloads::provenance_payloads::StoredParsedRepresentation>>(&json)
-            .map_err(json_error)?
-            .into_iter()
-            .map(Into::into)
-            .collect()
-    } else {
-        Vec::new()
+    let representations_json = match representations_json {
+        Some(json) => json,
+        None => {
+            let chunk_id = row.get::<_, i64>(0).map_err(to_port_error)?;
+            return Err(PortError::InternalContext {
+                context: "chunk repository row missing representations_json",
+                source: format!("chunk_id={chunk_id}"),
+            });
+        }
     };
+    let representations = serde_json::from_str::<
+        Vec<crate::payloads::provenance_payloads::StoredParsedRepresentation>,
+    >(&representations_json)
+    .map_err(json_error)?
+    .into_iter()
+    .map(Into::into)
+    .collect();
 
     Ok(Chunk {
         id: ChunkId::new(i64_to_u64(row.get::<_, i64>(0).map_err(to_port_error)?)?),
