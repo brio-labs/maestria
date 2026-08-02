@@ -50,6 +50,9 @@ pub enum DomainError {
     MissingMemory {
         id: MemoryId,
     },
+    MemorySupersedesItself {
+        memory_id: MemoryId,
+    },
     MissingValidationReport {
         id: ValidationReportId,
     },
@@ -196,6 +199,9 @@ impl fmt::Display for DomainError {
             Self::MissingRelation { id } => Self::fmt_missing(f, "relation", id),
             Self::MissingMemoryCandidate { id } => Self::fmt_missing(f, "memory candidate", id),
             Self::MissingMemory { id } => Self::fmt_missing(f, "memory", id),
+            Self::MemorySupersedesItself { memory_id } => {
+                write!(f, "memory {memory_id} cannot supersede itself")
+            }
             Self::MissingValidationReport { id } => Self::fmt_missing(f, "validation report", id),
             Self::MissingIndexGeneration { id } => Self::fmt_missing(f, "index generation", id),
             Self::ValidationReportTaskMismatch {

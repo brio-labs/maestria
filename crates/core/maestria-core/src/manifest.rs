@@ -218,8 +218,13 @@ impl InstanceManifest {
     }
 
     /// Checks source scope without touching the filesystem.
+    ///
+    /// Paths that lexically escape every configured root (or a root that
+    /// itself escapes) are denied rather than normalized into scope.
     pub fn allows_source(&self, path: &std::path::Path) -> bool {
-        let normalized_path = lexical_normalize(path);
+        let Some(normalized_path) = lexical_normalize(path) else {
+            return false;
+        };
         if self
             .excluded_patterns
             .iter()
@@ -227,10 +232,9 @@ impl InstanceManifest {
         {
             return false;
         }
-        self.read_roots
-            .iter()
-            .map(|root| lexical_normalize(root))
-            .any(|root| normalized_path.starts_with(root))
+        self.read_roots.iter().any(|root| {
+            lexical_normalize(root).is_some_and(|root| normalized_path.starts_with(root))
+        })
     }
 }
 
@@ -372,5 +376,15 @@ mod tests {
         assert!(!manifest.allows_source(Path::new("/tmp/instance/../outside.md")));
         assert!(!manifest.allows_source(Path::new("/tmp/instance/.env.local")));
         assert!(!manifest.allows_source(Path::new("/tmp/other/notes.md")));
+    }
+
+    #[test]
+    fn source_scope_rejects_relative_escape_above_root() {
+        let manifest = InstanceManifest::default_for_root(PathBuf::from("workspace"));
+        assert!(manifest.allows_source(Path::new("workspace/notes.md")));
+        // `..` above the root must not collapse into an in-scope path.
+        assert!(!manifest.allows_source(Path::new("../workspace/notes.md")));
+        assert!(!manifest.allows_source(Path::new("workspace/../outside.md")));
+        assert!(!manifest.allows_source(Path::new("../secret.md")));
     }
 }

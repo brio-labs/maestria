@@ -263,11 +263,11 @@ impl SearchRuntime {
         // runtime effect path; the shared transition rejects out-of-scope plans.
         let plan = plan
             .confine_to_scope(self.scope_id)
-            .map_err(|error| anyhow!(error.to_string()))?;
+            .map_err(anyhow::Error::new)?;
         let engine = self.retrieval_engine()?;
         tokio::runtime::Handle::current()
             .block_on(engine.search(&plan))
-            .map_err(|error| anyhow!(error.to_string()))
+            .map_err(anyhow::Error::new)
     }
 
     fn execute_search_blocking(
@@ -281,12 +281,12 @@ impl SearchRuntime {
         // (R28/R43).
         let plan = engine
             .plan(query, limit, &self.planner_context())
-            .map_err(|error| anyhow!(error.to_string()))?
+            .map_err(anyhow::Error::new)?
             .confine_to_scope(self.scope_id)
-            .map_err(|error| anyhow!(error.to_string()))?;
+            .map_err(anyhow::Error::new)?;
         let outcome = tokio::runtime::Handle::current()
             .block_on(engine.search(&plan))
-            .map_err(|error| anyhow!(error.to_string()))?;
+            .map_err(anyhow::Error::new)?;
         Ok((plan, outcome))
     }
 

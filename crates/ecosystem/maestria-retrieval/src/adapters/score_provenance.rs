@@ -54,11 +54,11 @@ pub(super) fn dense_score(
         ("quantization".to_string(), fingerprint.quantization.clone()),
         (
             "query_template_hash".to_string(),
-            fingerprint.query_template_hash.clone(),
+            fingerprint.query_template_hash.as_str().to_string(),
         ),
         (
             "document_template_hash".to_string(),
-            fingerprint.document_template_hash.clone(),
+            fingerprint.document_template_hash.as_str().to_string(),
         ),
         (
             "preprocessing_version".to_string(),
@@ -81,8 +81,8 @@ pub(super) fn dense_score(
         fingerprint.artifact_hash.as_str(),
         fingerprint.dimensions,
         fingerprint.quantization,
-        fingerprint.query_template_hash,
-        fingerprint.document_template_hash,
+        fingerprint.query_template_hash.as_str(),
+        fingerprint.document_template_hash.as_str(),
         fingerprint.preprocessing_version,
     ))?;
     score_set(

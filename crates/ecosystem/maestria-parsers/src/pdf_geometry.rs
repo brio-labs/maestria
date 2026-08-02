@@ -1,8 +1,5 @@
 use maestria_ports::PortError;
 
-pub(super) const DEFAULT_PAGE_WIDTH: u32 = 612;
-pub(super) const DEFAULT_PAGE_HEIGHT: u32 = 792;
-
 #[derive(Debug, Clone, Copy)]
 pub(super) struct PageGeometry {
     pub(super) origin_x: f32,
@@ -48,12 +45,9 @@ pub(super) fn page_bounds(
         current = match dictionary.get(b"Parent") {
             Ok(lopdf::Object::Reference(parent)) => *parent,
             Ok(_) | Err(lopdf::Error::DictKey(_)) => {
-                return Ok(PageGeometry {
-                    origin_x: 0.0,
-                    origin_y: 0.0,
-                    width: DEFAULT_PAGE_WIDTH,
-                    height: DEFAULT_PAGE_HEIGHT,
-                });
+                return Err(err(
+                    "PDF page has no MediaBox in its page/parent chain".into()
+                ));
             }
             Err(error) => {
                 return Err(err(format!(

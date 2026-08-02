@@ -108,7 +108,6 @@ pub enum SearchRewriteStage {
 pub struct SearchRewriteAccounting {
     pub token_estimate: u32,
     pub latency_budget_units: u32,
-    pub is_proposal: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -375,7 +374,6 @@ impl SearchTrace {
                         .max(1)
                         .min(u32::MAX as usize) as u32,
                     latency_budget_units: 1,
-                    is_proposal: false,
                 },
             }],
             filters,

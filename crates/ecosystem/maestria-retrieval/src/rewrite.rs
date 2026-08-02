@@ -254,7 +254,6 @@ impl QueryRewriteSession {
                 accounting: maestria_domain::SearchRewriteAccounting {
                     token_estimate: record.accounting.token_estimate.min(u32::MAX as usize) as u32,
                     latency_budget_units: record.accounting.latency_budget_units,
-                    is_proposal: record.accounting.is_proposal,
                 },
             })
             .collect()

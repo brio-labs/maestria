@@ -12,14 +12,24 @@ use crate::InstanceLifecycle;
 pub async fn run_instance(instance_dir: std::path::PathBuf) -> Result<()> {
     let shutdown = CancellationToken::new();
     let signal_shutdown = shutdown.clone();
+    let (signal_result_tx, mut signal_result_rx) = tokio::sync::oneshot::channel();
     let signal_task = tokio::spawn(async move {
-        if tokio::signal::ctrl_c().await.is_ok() {
-            signal_shutdown.cancel();
+        match tokio::signal::ctrl_c().await {
+            Ok(()) => signal_shutdown.cancel(),
+            Err(error) => {
+                let _ = signal_result_tx.send(error);
+            }
         }
     });
     let result = run_instance_with_shutdown(instance_dir, shutdown).await;
     signal_task.abort();
-    result
+    match result {
+        Ok(()) => match signal_result_rx.try_recv() {
+            Ok(error) => Err(anyhow::anyhow!("failed to wait for SIGINT: {error}")),
+            Err(_) => Ok(()),
+        },
+        Err(error) => Err(error),
+    }
 }
 
 /// Runs an instance until the provided shutdown token is cancelled.

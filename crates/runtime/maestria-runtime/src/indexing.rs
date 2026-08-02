@@ -62,8 +62,11 @@ impl EffectExecutionContext {
     ) -> Result<(Chunk, SecurityMetadata, Option<String>), bool> {
         let state = self.state.read().await;
         let Some(chunk) = state.chunks.get(&request.chunk_id).cloned() else {
-            tracing::warn!(chunk_id = %request.chunk_id, "chunk missing for full-text index");
-            return Err(true);
+            tracing::error!(
+                chunk_id = %request.chunk_id,
+                "chunk missing for full-text index; effect cannot complete"
+            );
+            return Err(false);
         };
         let Some(artifact) = state.artifacts.get(&request.artifact_id) else {
             tracing::warn!(

@@ -16,8 +16,18 @@ fn fingerprint() -> Result<IndexFingerprint, DomainError> {
         })?,
         dimensions: 1536,
         quantization: "fp32".into(),
-        query_template_hash: "qt-hash".into(),
-        document_template_hash: "dt-hash".into(),
+        query_template_hash: ContentHash::try_from(
+            "sha256:abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789".to_string(),
+        )
+        .map_err(|_| DomainError::InternalInvariantViolation {
+            detail: "generation test query template hash must be valid",
+        })?,
+        document_template_hash: ContentHash::try_from(
+            "sha256:fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210".to_string(),
+        )
+        .map_err(|_| DomainError::InternalInvariantViolation {
+            detail: "generation test document template hash must be valid",
+        })?,
         preprocessing_version: "1.0".into(),
     })
 }

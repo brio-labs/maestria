@@ -42,8 +42,8 @@ impl StoredIndexFingerprint {
             artifact_hash: StoredContentHash::from_domain(&fingerprint.artifact_hash),
             dimensions: fingerprint.dimensions,
             quantization: fingerprint.quantization.clone(),
-            query_template_hash: fingerprint.query_template_hash.clone(),
-            document_template_hash: fingerprint.document_template_hash.clone(),
+            query_template_hash: fingerprint.query_template_hash.as_str().to_string(),
+            document_template_hash: fingerprint.document_template_hash.as_str().to_string(),
             preprocessing_version: fingerprint.preprocessing_version.clone(),
         }
     }
@@ -56,8 +56,16 @@ impl StoredIndexFingerprint {
             artifact_hash: self.artifact_hash.try_into_domain()?,
             dimensions: self.dimensions,
             quantization: self.quantization,
-            query_template_hash: self.query_template_hash,
-            document_template_hash: self.document_template_hash,
+            query_template_hash: maestria_domain::ContentHash::new(self.query_template_hash)
+                .map_err(|error| maestria_ports::PortError::InvalidInputContext {
+                    context: "stored index fingerprint query template hash",
+                    source: error.to_string(),
+                })?,
+            document_template_hash: maestria_domain::ContentHash::new(self.document_template_hash)
+                .map_err(|error| maestria_ports::PortError::InvalidInputContext {
+                    context: "stored index fingerprint document template hash",
+                    source: error.to_string(),
+                })?,
             preprocessing_version: self.preprocessing_version,
         })
     }
@@ -118,8 +126,14 @@ mod tests {
             artifact_hash: ContentHash::new(VALID_HASH.to_string())?,
             dimensions: 768,
             quantization: "int8".to_string(),
-            query_template_hash: "q-template".to_string(),
-            document_template_hash: "d-template".to_string(),
+            query_template_hash: ContentHash::new(
+                "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                    .to_string(),
+            )?,
+            document_template_hash: ContentHash::new(
+                "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+                    .to_string(),
+            )?,
             preprocessing_version: "v1".to_string(),
         })
     }

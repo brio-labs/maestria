@@ -83,8 +83,8 @@ pub(crate) fn serialize_fingerprint(f: &IndexFingerprint) -> String {
     append(f.artifact_hash.as_str());
     append(&dimensions);
     append(&f.quantization);
-    append(&f.query_template_hash);
-    append(&f.document_template_hash);
+    append(f.query_template_hash.as_str());
+    append(f.document_template_hash.as_str());
     append(&f.preprocessing_version);
     serialized
 }

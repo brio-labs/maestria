@@ -154,8 +154,11 @@ impl EffectExecutionContext {
             {
                 Ok(Some(_)) => true,
                 Ok(None) => {
-                    tracing::warn!(%approval_id, "approval resolution had no pending record");
-                    true
+                    tracing::error!(
+                        %approval_id,
+                        "approval resolution skipped: no pending record exists for the event"
+                    );
+                    false
                 }
                 Err(error) => {
                     tracing::error!(%approval_id, %error, "failed to persist approval resolution");

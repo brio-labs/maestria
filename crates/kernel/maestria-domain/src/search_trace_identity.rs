@@ -1,6 +1,6 @@
 use crate::{
-    SearchTrace, SearchTraceCandidate, SearchTraceDiversity, SearchTraceId, SearchTraceLane,
-    SearchTraceRerank, SearchTraceRewrite,
+    SearchRewriteOrigin, SearchTrace, SearchTraceCandidate, SearchTraceDiversity, SearchTraceId,
+    SearchTraceLane, SearchTraceRerank, SearchTraceRewrite,
 };
 
 impl SearchTrace {
@@ -170,7 +170,12 @@ fn mix_trace_rewrites(hash: &mut u64, rewrites: &[SearchTraceRewrite]) {
             hash,
             &u64::from(rewrite.accounting.latency_budget_units).to_le_bytes(),
         );
-        mix_hash(hash, &[u8::from(rewrite.accounting.is_proposal)]);
+        mix_hash(
+            hash,
+            &[u8::from(
+                rewrite.origin == SearchRewriteOrigin::ModelProposal,
+            )],
+        );
     }
 }
 

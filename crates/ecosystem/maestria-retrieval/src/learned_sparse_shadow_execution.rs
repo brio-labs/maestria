@@ -240,12 +240,26 @@ fn lane_from_batch(
     max_candidates: usize,
     max_contributions: usize,
 ) -> LearnedSparseShadowLane {
+    // Lane ranks are bounded by `max_candidates`; a rank that cannot be
+    // represented in the typed lane contract degrades the whole lane
+    // explicitly instead of fabricating a sentinel value (R24).
+    let Ok(max_rank) = u32::try_from(max_candidates) else {
+        return failed_lane(
+            descriptor,
+            namespace,
+            sparse_identity,
+            "shadow candidate rank exceeds the u32 lane contract",
+        );
+    };
     let candidates = batch
         .candidates
         .iter()
-        .take(max_candidates)
+        .take(max_rank as usize)
         .enumerate()
-        .filter_map(|(rank, candidate)| shadow_candidate(candidate, rank, max_contributions))
+        .filter_map(|(rank, candidate)| {
+            // `rank < max_rank` (take bound), so `rank + 1 <= max_rank` fits u32.
+            shadow_candidate(candidate, rank as u32 + 1, max_contributions)
+        })
         .collect::<Vec<_>>();
     let status = match batch.status {
         SearchLaneStatus::Succeeded if candidates.is_empty() => {
@@ -268,7 +282,7 @@ fn lane_from_batch(
 
 fn shadow_candidate(
     candidate: &maestria_domain::EvidenceCandidate,
-    rank: usize,
+    lane_rank: u32,
     max_contributions: usize,
 ) -> Option<LearnedSparseShadowCandidate> {
     let score = candidate
@@ -285,13 +299,7 @@ fn shadow_candidate(
             evidence_id: candidate.evidence_id,
             artifact_version: candidate.artifact_version,
             source_span: candidate.source_span.clone(),
-            lane_rank: match u32::try_from(rank.saturating_add(1)) {
-                Ok(value) => value,
-                Err(e) => {
-                    let _ = e;
-                    u32::MAX
-                }
-            },
+            lane_rank,
             score: score.clone(),
             reason,
         })

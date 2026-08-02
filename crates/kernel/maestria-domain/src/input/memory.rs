@@ -335,6 +335,11 @@ impl KernelState {
         &mut self,
         input: SupersedeMemoryInput,
     ) -> Result<DomainEventEnvelope, DomainError> {
+        if input.by_memory_id == input.memory_id {
+            return Err(DomainError::MemorySupersedesItself {
+                memory_id: input.memory_id,
+            });
+        }
         if !self.memories.contains_key(&input.by_memory_id) {
             return Err(DomainError::MissingMemory {
                 id: input.by_memory_id,

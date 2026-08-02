@@ -117,6 +117,17 @@ impl RepositoryCodeIndex {
                     details: relation.parser_generation.clone(),
                 });
             }
+            if relation.confidence_milli > 1000 {
+                return Err(CodeIntelError::Integrity {
+                    context: "relation confidence range".to_string(),
+                    details: format!(
+                        "{} -> {} confidence {}",
+                        relation.source_record_id,
+                        relation.target_record_id,
+                        relation.confidence_milli
+                    ),
+                });
+            }
             let Some(source) = symbols.get(relation.source_record_id.as_str()) else {
                 return Err(CodeIntelError::Integrity {
                     context: "relation source endpoint".to_string(),

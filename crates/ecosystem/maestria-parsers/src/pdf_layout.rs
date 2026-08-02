@@ -26,7 +26,21 @@ pub(super) struct PdfRegion {
 pub(super) fn extract_page_layouts(doc: &lopdf::Document) -> Result<Vec<PdfPageLayout>, PortError> {
     let mut pages = Vec::new();
     for (page, page_id) in doc.get_pages() {
-        let page_geometry = page_bounds(doc, page_id)?;
+        let page_geometry = match page_bounds(doc, page_id) {
+            Ok(geometry) => geometry,
+            // R53: without authoritative page geometry no coordinate evidence
+            // can be exact; the page degrades to metadata-only instead of
+            // fabricating coordinates against invented dimensions.
+            Err(_) => {
+                pages.push(PdfPageLayout {
+                    page,
+                    text: String::new(),
+                    regions: Vec::new(),
+                    needs_ocr: true,
+                });
+                continue;
+            }
+        };
         let text_result = doc.extract_text(&[page]);
         let (mut text, text_failed) = match text_result {
             Ok(text) if usable_text(&text) => (text.trim().to_string(), false),
@@ -120,7 +134,12 @@ fn collect_pending_regions(
                 pending.push(PendingRegion::Rectangle(bounds));
             }
             "Do" => {
-                if let Some(bounds) = unit_region(transform, geometry) {
+                // An identity transform carries no XObject placement
+                // information; a unit square at the origin would be a
+                // fabricated region, not evidence (R53).
+                if transform != PdfTransform::identity()
+                    && let Some(bounds) = unit_region(transform, geometry)
+                {
                     pending.push(PendingRegion::Figure(bounds));
                 }
             }

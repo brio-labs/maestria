@@ -164,6 +164,9 @@ impl KernelState {
         memory_id: MemoryId,
         by_memory_id: MemoryId,
     ) -> Result<(), DomainError> {
+        if by_memory_id == memory_id {
+            return Err(DomainError::MemorySupersedesItself { memory_id });
+        }
         if !self.memories.contains_key(&by_memory_id) {
             return Err(DomainError::MissingMemory { id: by_memory_id });
         }

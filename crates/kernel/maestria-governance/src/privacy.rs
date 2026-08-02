@@ -29,8 +29,17 @@ impl PrivacyExclusions {
     }
 
     /// Add a sensitive file extension (without leading dot, e.g. `"pem"`).
+    ///
+    /// A leading dot is normalized away so `".pem"` and `"pem"` configure
+    /// the same exclusion; extension matching compares against the path's
+    /// extension, which never carries the dot.
     pub fn with_extension(mut self, extension: impl Into<String>) -> Self {
-        self.sensitive_extensions.push(extension.into());
+        let extension = extension.into();
+        let extension = match extension.strip_prefix('.') {
+            Some(stripped) => stripped.to_string(),
+            None => extension,
+        };
+        self.sensitive_extensions.push(extension);
         self
     }
 
@@ -313,6 +322,13 @@ mod tests {
         assert!(exclusions.is_excluded(Path::new("/docs/classified/report.txt")));
         assert!(exclusions.is_excluded(Path::new("notes.secret")));
         assert!(!exclusions.is_excluded(Path::new("/docs/public/report.txt")));
+    }
+
+    #[test]
+    fn leading_dot_extension_is_normalized() {
+        let exclusions = PrivacyExclusions::new().with_extension(".pem");
+        assert!(exclusions.is_excluded(Path::new("/certs/server.pem")));
+        assert_eq!(exclusions.sensitive_extensions(), ["pem"]);
     }
 
     #[test]

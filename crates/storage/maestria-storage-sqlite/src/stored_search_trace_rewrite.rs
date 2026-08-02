@@ -87,7 +87,6 @@ impl StoredSearchRewriteStage {
 pub(crate) struct StoredSearchRewriteAccounting {
     token_estimate: u32,
     latency_budget_units: u32,
-    is_proposal: bool,
 }
 
 impl StoredSearchRewriteAccounting {
@@ -95,7 +94,6 @@ impl StoredSearchRewriteAccounting {
         Self {
             token_estimate: value.token_estimate,
             latency_budget_units: value.latency_budget_units,
-            is_proposal: value.is_proposal,
         }
     }
 
@@ -105,7 +103,6 @@ impl StoredSearchRewriteAccounting {
         Ok(SearchRewriteAccounting {
             token_estimate: self.token_estimate,
             latency_budget_units: self.latency_budget_units,
-            is_proposal: self.is_proposal,
         })
     }
 }

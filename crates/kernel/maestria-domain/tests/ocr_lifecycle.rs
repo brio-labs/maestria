@@ -240,3 +240,24 @@ fn ocr_failure_terminalizes_parser_in_live_state_and_replay()
     assert!(replayed.pending_ocr.is_empty());
     Ok(())
 }
+
+#[test]
+fn ocr_request_id_requires_sha256_hex_digest() -> Result<(), Box<dyn std::error::Error>> {
+    let valid = format!("ocr:sha256:{}", "a".repeat(64));
+    assert_eq!(OcrRequestId::parse(valid.clone())?.as_str(), valid);
+    assert!(
+        OcrRequestId::parse(
+            "ocr:sha256:not-hex-0000000000000000000000000000000000000000000000000000000000"
+        )
+        .is_err()
+    );
+    assert!(OcrRequestId::parse(format!("ocr:sha256:{}", "a".repeat(63))).is_err());
+    assert!(OcrRequestId::parse(format!("ocr:sha256:{}", "a".repeat(65))).is_err());
+    assert!(
+        OcrRequestId::parse(
+            "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        )
+        .is_err()
+    );
+    Ok(())
+}
