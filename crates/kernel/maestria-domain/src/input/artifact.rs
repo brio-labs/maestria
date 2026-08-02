@@ -1,3 +1,4 @@
+use crate::search::ContentHash;
 use crate::security::SecurityMetadata;
 use crate::types::*;
 
@@ -24,14 +25,14 @@ impl KernelState {
                 let Some(expected_hash) = self
                     .artifacts
                     .get(&artifact_id)
-                    .and_then(|artifact| artifact.content_hash.as_deref())
+                    .and_then(|artifact| artifact.content_hash.as_ref())
                 else {
                     return Err(DomainError::MalformedDeterministicEvidence {
                         evidence_id,
                         reason: "artifact has no content hash for deterministic evidence",
                     });
                 };
-                if snapshot.content_hash().as_str() == expected_hash {
+                if snapshot.content_hash() == expected_hash {
                     Ok(())
                 } else {
                     Err(DomainError::MalformedDeterministicEvidence {
@@ -265,7 +266,7 @@ impl KernelState {
         artifact_id: ArtifactId,
         title: &str,
         source_path: &str,
-        content_hash: &str,
+        content_hash: &ContentHash,
         blob_id: BlobId,
     ) {
         // Reconstruct pending-parser metadata so the daemon can find
@@ -276,7 +277,7 @@ impl KernelState {
                 artifact_id,
                 title: title.to_string(),
                 source_path: source_path.to_string(),
-                content_hash: content_hash.to_string(),
+                content_hash: content_hash.clone(),
                 blob_id,
             },
         );
@@ -285,13 +286,13 @@ impl KernelState {
     pub(crate) fn apply_pending_index(
         &mut self,
         artifact_id: ArtifactId,
-        content_hash: &str,
+        content_hash: &ContentHash,
     ) -> Result<(), DomainError> {
         let artifact = self
             .artifacts
             .get_mut(&artifact_id)
             .ok_or(DomainError::MissingArtifact { id: artifact_id })?;
-        artifact.content_hash = Some(content_hash.to_string());
+        artifact.content_hash = Some(content_hash.clone());
         artifact.index_status = IndexStatus::Pending;
         Ok(())
     }

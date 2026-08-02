@@ -121,7 +121,7 @@ pub enum DomainEvent {
     },
     PendingIndex {
         artifact_id: ArtifactId,
-        content_hash: String,
+        content_hash: ContentHash,
     },
     FullTextIndexed {
         artifact_id: ArtifactId,
@@ -185,7 +185,7 @@ pub enum DomainEvent {
         artifact_id: ArtifactId,
         title: String,
         source_path: String,
-        content_hash: String,
+        content_hash: ContentHash,
         blob_id: BlobId,
     },
 
@@ -221,7 +221,7 @@ pub enum DomainEvent {
     SourceBecameStale {
         artifact_id: ArtifactId,
         source_path: String,
-        content_hash: String,
+        content_hash: ContentHash,
     },
 }
 

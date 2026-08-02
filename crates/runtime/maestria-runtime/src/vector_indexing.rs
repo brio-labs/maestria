@@ -81,7 +81,7 @@ impl EffectExecutionContext {
             chunk_id: request.chunk_id,
             vector: response.vector,
             provenance: maestria_ports::EmbeddingProvenance {
-                content_hash,
+                content_hash: content_hash.as_str().to_owned(),
                 identity: response.identity,
                 provider_id: response.provider_id,
                 model: response.model,
@@ -136,7 +136,10 @@ impl EffectExecutionContext {
         }
     }
 
-    async fn load_vector_chunk(&self, chunk_id: ChunkId) -> Result<(Chunk, String), EffectFailure> {
+    async fn load_vector_chunk(
+        &self,
+        chunk_id: ChunkId,
+    ) -> Result<(Chunk, maestria_domain::ContentHash), EffectFailure> {
         let (chunk, content_hash, security_allowed) = {
             let state = self.state.read().await;
             let Some(chunk) = state.chunks.get(&chunk_id).cloned() else {
@@ -144,15 +147,24 @@ impl EffectExecutionContext {
                     "chunk {chunk_id} is missing"
                 )));
             };
+            let computed =
+                match maestria_domain::ContentHash::new(content_hash(chunk.text.as_bytes())) {
+                    Ok(hash) => hash,
+                    Err(_) => {
+                        return Err(EffectFailure::Failed(format!(
+                            "computed content hash for chunk {chunk_id} is invalid"
+                        )));
+                    }
+                };
             let (content_hash, security_allowed) = match state.artifacts.get(&chunk.artifact_id) {
                 Some(artifact) => {
                     let content_hash = match artifact.content_hash.clone() {
-                        Some(content_hash) => content_hash,
-                        None => content_hash(chunk.text.as_bytes()),
+                        Some(hash) => hash,
+                        None => computed,
                     };
                     (content_hash, artifact.security.retrieval_allowed())
                 }
-                None => (content_hash(chunk.text.as_bytes()), false),
+                None => (computed, false),
             };
             (chunk, content_hash, security_allowed)
         };

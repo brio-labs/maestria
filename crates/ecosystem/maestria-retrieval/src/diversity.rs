@@ -1,9 +1,9 @@
 use std::collections::BTreeSet;
 
 use maestria_domain::{
-    EvidenceCandidate, EvidenceCoverage, EvidenceRequirements, FreshnessStatus, SearchPlan,
-    SearchStatus, SearchStopReason, SearchTraceDiversity, SearchTraceDiversityCandidate,
-    SourceLocation,
+    DiversityPlacement, DiversitySkipReason, EvidenceCandidate, EvidenceCoverage,
+    EvidenceRequirements, FreshnessStatus, SearchPlan, SearchStatus, SearchStopReason,
+    SearchTraceDiversity, SearchTraceDiversityCandidate, SourceLocation,
 };
 
 use crate::types::RankedCandidate;
@@ -58,7 +58,12 @@ pub fn select_candidates(ranked: &[RankedCandidate], plan: &SearchPlan) -> Diver
             .duplicate_cluster
             .is_some_and(|cluster| !seen_clusters.insert(cluster))
         {
-            trace_candidates.push(trace_candidate(evidence, candidate.rank, None, 0));
+            trace_candidates.push(trace_candidate(
+                evidence,
+                candidate.rank,
+                DiversityPlacement::Skipped(DiversitySkipReason::DuplicateCluster),
+                0,
+            ));
             continue;
         }
 
@@ -79,7 +84,12 @@ pub fn select_candidates(ranked: &[RankedCandidate], plan: &SearchPlan) -> Diver
             seen_sections.len(),
         ) && marginal_gain == 0
         {
-            trace_candidates.push(trace_candidate(evidence, candidate.rank, None, 0));
+            trace_candidates.push(trace_candidate(
+                evidence,
+                candidate.rank,
+                DiversityPlacement::Skipped(DiversitySkipReason::LowMarginalGain),
+                0,
+            ));
             stop_reason = Some(SearchStopReason::LowMarginalGain);
             break;
         }
@@ -93,7 +103,7 @@ pub fn select_candidates(ranked: &[RankedCandidate], plan: &SearchPlan) -> Diver
         trace_candidates.push(trace_candidate(
             evidence,
             candidate.rank,
-            Some(selected_rank),
+            DiversityPlacement::Selected(selected_rank),
             marginal_coverage,
         ));
     }
@@ -288,13 +298,13 @@ fn selection_status(
 fn trace_candidate(
     candidate: &EvidenceCandidate,
     original_rank: usize,
-    selected_rank: Option<usize>,
+    placement: DiversityPlacement,
     marginal_coverage: usize,
 ) -> SearchTraceDiversityCandidate {
     SearchTraceDiversityCandidate {
         candidate_id: candidate.evidence_id,
         original_rank,
-        selected_rank,
+        placement,
         duplicate_cluster: candidate.duplicate_cluster,
         marginal_coverage: marginal_coverage.min(u8::MAX as usize) as u8,
         coverage_keys: candidate.coverage_keys.clone(),

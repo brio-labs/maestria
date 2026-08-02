@@ -26,7 +26,7 @@ pub fn malformed_deterministic_evidence_events(
                 artifact_id: art_id,
                 title: "Test".to_string(),
                 source_path: "/tmp/test.md".to_string(),
-                content_hash: content_hash.as_str().to_string(),
+                content_hash: content_hash.clone(),
                 blob_id: BlobId::new(42),
             },
         },
@@ -35,7 +35,7 @@ pub fn malformed_deterministic_evidence_events(
             sequence: SequenceNumber::new(3),
             event: DomainEvent::PendingIndex {
                 artifact_id: art_id,
-                content_hash: content_hash.as_str().to_string(),
+                content_hash: content_hash.clone(),
             },
         },
         DomainEventEnvelope {
@@ -106,7 +106,7 @@ pub fn valid_duplicate_evidence_events()
                 artifact_id: art_id,
                 title: "Test".to_string(),
                 source_path: "/tmp/test.md".to_string(),
-                content_hash: content_hash.as_str().to_string(),
+                content_hash: content_hash.clone(),
                 blob_id: BlobId::new(42),
             },
         },
@@ -115,7 +115,7 @@ pub fn valid_duplicate_evidence_events()
             sequence: SequenceNumber::new(3),
             event: DomainEvent::PendingIndex {
                 artifact_id: art_id,
-                content_hash: content_hash.as_str().to_string(),
+                content_hash: content_hash.clone(),
             },
         },
         DomainEventEnvelope {

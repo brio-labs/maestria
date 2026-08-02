@@ -245,7 +245,9 @@ fn seed_artifact(
         claim_ids: Default::default(),
         evidence_ids: Default::default(),
         index_status: IndexStatus::Indexed,
-        content_hash: Some(maestria_core::content_hash(text.as_bytes())),
+        content_hash: Some(ContentHash::new(maestria_core::content_hash(
+            text.as_bytes(),
+        ))?),
         parse_status: None,
         security: Default::default(),
     })?;

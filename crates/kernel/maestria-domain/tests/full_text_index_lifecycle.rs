@@ -2,6 +2,10 @@ use maestria_domain::*;
 #[path = "common/fixtures.rs"]
 mod fixtures;
 
+fn hash_abc() -> Result<ContentHash, Box<dyn std::error::Error>> {
+    Ok(ContentHash::new(format!("sha256:{:064x}", 3))?)
+}
+
 #[test]
 fn start_full_text_index_emits_for_pending_chunks() -> Result<(), Box<dyn std::error::Error>> {
     let mut state = KernelState::new();
@@ -10,7 +14,7 @@ fn start_full_text_index_emits_for_pending_chunks() -> Result<(), Box<dyn std::e
         title: "Doc".to_string(),
         source_path: String::new(),
         source_bytes: vec![1, 2, 3],
-        content_hash: "sha256:abc".to_string(),
+        content_hash: hash_abc()?,
     }))?;
     state.apply_input(DomainInput::ParserCompleted(ParserResult {
         status: maestria_domain::ParseStatus::Parsed,
@@ -70,7 +74,7 @@ fn start_full_text_index_only_pending_chunks_on_retry() -> Result<(), Box<dyn st
         title: "Doc".to_string(),
         source_path: String::new(),
         source_bytes: vec![1, 2, 3],
-        content_hash: "sha256:abc".to_string(),
+        content_hash: hash_abc()?,
     }))?;
     state.apply_input(DomainInput::ParserCompleted(ParserResult {
         status: maestria_domain::ParseStatus::Parsed,
@@ -136,7 +140,7 @@ fn start_full_text_index_duplicate_is_idempotent() -> Result<(), Box<dyn std::er
         title: "Doc".to_string(),
         source_path: String::new(),
         source_bytes: vec![1, 2, 3],
-        content_hash: "sha256:abc".to_string(),
+        content_hash: hash_abc()?,
     }))?;
     state.apply_input(DomainInput::ParserCompleted(ParserResult {
         status: maestria_domain::ParseStatus::Parsed,

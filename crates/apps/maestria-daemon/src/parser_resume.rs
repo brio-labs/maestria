@@ -42,13 +42,13 @@ pub fn verify_pending_blobs(layout: &InstanceLayout, pending: &[DomainInput]) ->
                 )
             })?;
             let actual_hash = content_hash(&bytes);
-            if actual_hash != record.content_hash {
+            if actual_hash != record.content_hash.as_str() {
                 bail!(
                     "blob {} content hash mismatch for pending parser of artifact {} ({}): expected {}, got {}",
                     record.blob_id,
                     record.artifact_id,
                     record.title,
-                    record.content_hash,
+                    record.content_hash.as_str(),
                     actual_hash,
                 );
             }

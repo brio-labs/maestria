@@ -8,21 +8,14 @@ impl EffectExecutionContext {
         artifact_id: ArtifactId,
         artifact_version_id: maestria_domain::ArtifactVersionId,
         status: maestria_ports::ParseStatus,
-        source_hash: &str,
+        source_hash: &maestria_domain::ContentHash,
     ) -> bool {
-        let Ok(content_hash) = maestria_domain::ContentHash::new(source_hash.to_string()) else {
-            tracing::error!(
-                artifact_id = %artifact_id.value(),
-                "invalid content hash for terminal parse completion"
-            );
-            return false;
-        };
         Self::send_input(
             &self.input_tx,
             DomainInput::ParserCompleted(ParserResult {
                 artifact_id,
                 artifact_version_id,
-                content_hash,
+                content_hash: source_hash.clone(),
                 status: domain_parse_status(status),
                 tree_root_id: None,
                 tree_nodes: Vec::new(),

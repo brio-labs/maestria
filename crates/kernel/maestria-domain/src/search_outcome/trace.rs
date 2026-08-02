@@ -236,11 +236,31 @@ pub struct SearchTraceRerank {
     pub candidates: Vec<SearchTraceRerankCandidate>,
 }
 
+/// Why a diversity candidate was not selected.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DiversitySkipReason {
+    /// Candidate belongs to an already-selected duplicate cluster.
+    DuplicateCluster,
+    /// Requirements are satisfied and the candidate adds no marginal gain.
+    LowMarginalGain,
+}
+
+/// Final placement of one candidate after diversity selection.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DiversityPlacement {
+    /// Candidate selected for the diversified result; carries its selection rank.
+    Selected(usize),
+    /// Candidate skipped; carries the reason.
+    Skipped(DiversitySkipReason),
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SearchTraceDiversityCandidate {
     pub candidate_id: crate::ids::EvidenceId,
     pub original_rank: usize,
-    pub selected_rank: Option<usize>,
+    pub placement: DiversityPlacement,
     pub duplicate_cluster: Option<DuplicateClusterId>,
     pub marginal_coverage: u8,
     pub coverage_keys: Vec<String>,

@@ -1,5 +1,5 @@
 use super::*;
-use maestria_domain::{ArtifactId, BlobId, ParserStarted};
+use maestria_domain::{ArtifactId, BlobId, ContentHash, ParserStarted};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -54,18 +54,22 @@ fn write_manifest(dir: &Path, read_roots: &[&str]) -> std::io::Result<PathBuf> {
     Ok(manifest_path)
 }
 
-fn make_recovery(source_path: &str, artifact_id: u64, title: &str) -> RecoveryInputs {
-    RecoveryInputs {
+fn make_recovery(
+    source_path: &str,
+    artifact_id: u64,
+    title: &str,
+) -> Result<RecoveryInputs, Box<dyn std::error::Error>> {
+    Ok(RecoveryInputs {
         resume_parsers: vec![DomainInput::ResumeParser(ParserStarted {
             artifact_id: ArtifactId::new(artifact_id),
             title: title.to_string(),
             source_path: source_path.to_string(),
-            content_hash: "sha256:aaa".to_string(),
+            content_hash: ContentHash::new("sha256:".to_owned() + &"a".repeat(64))?,
             blob_id: BlobId::new(artifact_id),
         })],
         start_full_text: Vec::new(),
         run_validations: Vec::new(),
-    }
+    })
 }
 
 #[test]
@@ -82,7 +86,7 @@ fn validate_recovery_scope_accepts_in_scope_source_paths() -> Result<(), Box<dyn
     let in_scope_path = temp.path().join("notes.md");
     fs::write(&in_scope_path, "# test")?;
 
-    let recovery = make_recovery(&in_scope_path.display().to_string(), 1, "notes.md");
+    let recovery = make_recovery(&in_scope_path.display().to_string(), 1, "notes.md")?;
 
     validate_recovery_scope(&layout, &recovery)?;
     Ok(())
@@ -99,7 +103,7 @@ fn validate_recovery_scope_rejects_out_of_scope_source_path()
     write_manifest(temp.path(), &[root_str])?;
     let layout = InstanceLayout::for_root(temp.path());
 
-    let recovery = make_recovery("/tmp/outside.md", 1, "outside.md");
+    let recovery = make_recovery("/tmp/outside.md", 1, "outside.md")?;
 
     let result = validate_recovery_scope(&layout, &recovery);
     let error = result
@@ -133,7 +137,7 @@ fn validate_recovery_scope_rejects_excluded_source_path() -> Result<(), Box<dyn 
     let layout = InstanceLayout::for_root(temp.path());
 
     let excluded_path = temp.path().join(".env.local");
-    let recovery = make_recovery(&excluded_path.display().to_string(), 2, ".env.local");
+    let recovery = make_recovery(&excluded_path.display().to_string(), 2, ".env.local")?;
 
     let result = validate_recovery_scope(&layout, &recovery);
     let error = result
@@ -161,7 +165,7 @@ fn validate_recovery_scope_rejects_git_config_by_privacy() -> Result<(), Box<dyn
     let layout = InstanceLayout::for_root(temp.path());
 
     let git_config = temp.path().join(".git/config");
-    let recovery = make_recovery(&git_config.display().to_string(), 10, ".git/config");
+    let recovery = make_recovery(&git_config.display().to_string(), 10, ".git/config")?;
 
     let result = validate_recovery_scope(&layout, &recovery);
     let error = result
@@ -192,7 +196,7 @@ fn validate_recovery_scope_rejects_credentials_by_privacy() -> Result<(), Box<dy
     let layout = InstanceLayout::for_root(temp.path());
 
     let creds_path = temp.path().join("credentials/tokens.json");
-    let recovery = make_recovery(&creds_path.display().to_string(), 11, "tokens.json");
+    let recovery = make_recovery(&creds_path.display().to_string(), 11, "tokens.json")?;
 
     let result = validate_recovery_scope(&layout, &recovery);
     let error = result
@@ -224,7 +228,7 @@ fn validate_recovery_scope_rejects_secret_extension_by_privacy()
             &file_path.display().to_string(),
             artifact_id,
             &format!("bundle.{ext}"),
-        );
+        )?;
 
         let result = validate_recovery_scope(&layout, &recovery);
         let error = result.err().ok_or(format!(
@@ -252,7 +256,7 @@ fn validate_recovery_scope_rejects_env_extension_by_privacy()
     let layout = InstanceLayout::for_root(temp.path());
 
     let env_file = temp.path().join("config/app.env");
-    let recovery = make_recovery(&env_file.display().to_string(), 16, "app.env");
+    let recovery = make_recovery(&env_file.display().to_string(), 16, "app.env")?;
 
     let result = validate_recovery_scope(&layout, &recovery);
     let error = result

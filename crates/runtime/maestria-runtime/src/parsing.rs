@@ -35,7 +35,9 @@ impl EffectExecutionContext {
         };
 
         let path = PathBuf::from(&request.source_path);
-        let source_hash = content_hash(&parse_bytes);
+        let Ok(source_hash) = maestria_domain::ContentHash::new(content_hash(&parse_bytes)) else {
+            return false;
+        };
 
         // 3. Check that the parser supports this file type.
         if !self.check_parser_support(&path, &parse_bytes, artifact.id) {
@@ -148,11 +150,11 @@ impl EffectExecutionContext {
             match self.adapters.blob_store.get(blob_id) {
                 Ok(bytes) => {
                     let actual_content_hash = content_hash(&bytes);
-                    if actual_content_hash != expected_content_hash {
+                    if actual_content_hash != expected_content_hash.as_str() {
                         tracing::error!(
                             artifact_id = %artifact_id,
                             %blob_id,
-                            expected = %expected_content_hash,
+                            expected = %expected_content_hash.as_str(),
                             actual = %actual_content_hash,
                             "resume blob content hash does not match durable ParserStarted hash; rejecting"
                         );
@@ -221,7 +223,7 @@ impl EffectExecutionContext {
         artifact_id: ArtifactId,
         artifact_title: &str,
         source_path: &str,
-        source_hash: &str,
+        source_hash: &maestria_domain::ContentHash,
         blob_id: BlobId,
         barrier_timeout: Option<Duration>,
     ) -> bool {
@@ -238,7 +240,7 @@ impl EffectExecutionContext {
                 artifact_id,
                 title,
                 source_path: source_path.to_owned(),
-                content_hash: source_hash.to_owned(),
+                content_hash: source_hash.clone(),
                 blob_id,
             }),
             "parser started",
@@ -261,7 +263,7 @@ impl EffectExecutionContext {
                 capped,
                 &tokio_util::sync::CancellationToken::new(),
                 "ParserStarted persistence barrier",
-                persistence_barrier::parser_started(artifact_id, blob_id, source_hash.to_string()),
+                persistence_barrier::parser_started(artifact_id, blob_id, source_hash),
             )
             .await;
             if !persisted {

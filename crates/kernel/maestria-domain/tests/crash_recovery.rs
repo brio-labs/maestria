@@ -17,7 +17,7 @@ fn resume_after_crash_replays_and_completes() -> Result<(), Box<dyn std::error::
             artifact_id: ArtifactId::new(1),
             title: "Notes".to_string(),
             source_path: "/tmp/notes.md".to_string(),
-            content_hash: content_hash.as_str().to_string(),
+            content_hash: content_hash.clone(),
             blob_id: BlobId::new(42),
         },
     }];
@@ -30,7 +30,7 @@ fn resume_after_crash_replays_and_completes() -> Result<(), Box<dyn std::error::
         artifact_id: ArtifactId::new(1),
         title: "Notes".to_string(),
         source_path: "/tmp/notes.md".to_string(),
-        content_hash: content_hash.as_str().to_string(),
+        content_hash: content_hash.clone(),
         blob_id: BlobId::new(42),
     }))?;
     assert!(matches!(
@@ -80,7 +80,7 @@ fn parser_completed_cleanup_idempotent_on_resume_retry() -> Result<(), Box<dyn s
             artifact_id: ArtifactId::new(1),
             title: "Notes".to_string(),
             source_path: String::new(),
-            content_hash: content_hash.as_str().to_string(),
+            content_hash: content_hash.clone(),
             blob_id: BlobId::new(42),
         },
     }];
@@ -89,7 +89,7 @@ fn parser_completed_cleanup_idempotent_on_resume_retry() -> Result<(), Box<dyn s
         artifact_id: ArtifactId::new(1),
         title: "Notes".to_string(),
         source_path: String::new(),
-        content_hash: content_hash.as_str().to_string(),
+        content_hash: content_hash.clone(),
         blob_id: BlobId::new(42),
     }))?;
 
@@ -146,13 +146,13 @@ fn crash_before_evidence_pending_parsers_survives_for_resume()
         title: "Notes".to_string(),
         source_path: "/tmp/notes.md".to_string(),
         source_bytes: vec![1, 2, 3],
-        content_hash: content_hash.as_str().to_string(),
+        content_hash: content_hash.clone(),
     }))?;
     state.apply_input(DomainInput::ParserStarted(ParserStarted {
         artifact_id: ArtifactId::new(1),
         title: "Notes".to_string(),
         source_path: "/tmp/notes.md".to_string(),
-        content_hash: content_hash.as_str().to_string(),
+        content_hash: content_hash.clone(),
         blob_id: BlobId::new(42),
     }))?;
 
@@ -265,13 +265,13 @@ fn ingest_artifact_full(
         title: setup.title.clone(),
         source_path: setup.source_path.clone(),
         source_bytes: setup.source_bytes,
-        content_hash: setup.content_hash.as_str().to_string(),
+        content_hash: setup.content_hash.clone(),
     }))?;
     state.apply_input(DomainInput::ParserStarted(ParserStarted {
         artifact_id: setup.art_id,
         title: setup.title.clone(),
         source_path: setup.source_path.clone(),
-        content_hash: setup.content_hash.as_str().to_string(),
+        content_hash: setup.content_hash.clone(),
         blob_id: setup.blob_id,
     }))?;
     let _ = state.apply_input(DomainInput::ParserCompleted(ParserResult {

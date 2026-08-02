@@ -1,8 +1,8 @@
 use crate::EffectExecutionContext;
 use crate::test_support::*;
 use maestria_domain::{
-    Artifact, ArtifactId, BlobId, Evidence, EvidenceId, EvidenceKind, IndexStatus, LogicalTick,
-    ParseArtifactRequest, ParserStarted,
+    Artifact, ArtifactId, BlobId, ContentHash, Evidence, EvidenceId, EvidenceKind, IndexStatus,
+    LogicalTick, ParseArtifactRequest, ParserStarted,
 };
 use maestria_governance::{DefaultApprovalGate, DefaultRiskClassifier, DefaultValidationGate};
 use maestria_ports::{
@@ -74,7 +74,7 @@ async fn resume_parse_uses_existing_blob_and_skips_storage()
             artifact_id: ArtifactId::new(200),
             title: "resume-artifact".to_string(),
             source_path: "/repo/resume.rs".to_string(),
-            content_hash: content_hash(&resume_bytes),
+            content_hash: ContentHash::new(content_hash(&resume_bytes))?,
             blob_id,
         },
     );
@@ -172,7 +172,7 @@ async fn resume_parse_missing_blob_returns_failure() -> Result<(), Box<dyn std::
             artifact_id: ArtifactId::new(201),
             title: "missing-blob-artifact".to_string(),
             source_path: "/repo/missing.rs".to_string(),
-            content_hash: content_hash(b"missing resume bytes"),
+            content_hash: ContentHash::new(content_hash(b"missing resume bytes"))?,
             blob_id,
         },
     );
@@ -276,7 +276,10 @@ async fn fresh_parse_sends_parser_started_with_correct_blob_identity()
             assert_eq!(ps.artifact_id, ArtifactId::new(202));
             assert_eq!(ps.source_path, "/repo/fresh.rs");
             assert_eq!(ps.title, "fresh-artifact");
-            assert_eq!(ps.content_hash, content_hash(&source_bytes));
+            assert_eq!(
+                ps.content_hash,
+                ContentHash::new(content_hash(&source_bytes))?
+            );
             // Verify the blob is actually in the store.
             let stored = blob_store.get(ps.blob_id)?;
             assert_eq!(stored, source_bytes);
@@ -306,7 +309,7 @@ fn populate_resume_event_log_and_state(
             artifact_id: art_id,
             title: "repair-artifact".to_string(),
             source_path: "/repo/repair.rs".to_string(),
-            content_hash: maestria_domain::content_hash(resume_bytes),
+            content_hash: ContentHash::new(maestria_domain::content_hash(resume_bytes))?,
             blob_id,
         },
     })?;
@@ -316,7 +319,7 @@ fn populate_resume_event_log_and_state(
             artifact_id: art_id,
             title: "repair-artifact".to_string(),
             source_path: "/repo/repair.rs".to_string(),
-            content_hash: content_hash(resume_bytes),
+            content_hash: ContentHash::new(content_hash(resume_bytes))?,
             blob_id,
         },
     );

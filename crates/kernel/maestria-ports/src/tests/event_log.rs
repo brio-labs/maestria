@@ -1,6 +1,20 @@
 use super::super::contract_tests::*;
 use super::super::*;
-use maestria_domain::{ArtifactId, BlobId, ChunkId, DomainEvent, DomainEventEnvelope};
+use maestria_domain::{ArtifactId, BlobId, ChunkId, ContentHash, DomainEvent, DomainEventEnvelope};
+
+fn hash_a() -> Result<ContentHash, PortError> {
+    ContentHash::new(format!("sha256:{:064x}", 5)).map_err(|error| PortError::InvalidInputContext {
+        context: "test hash a",
+        source: error.to_string(),
+    })
+}
+
+fn hash_b() -> Result<ContentHash, PortError> {
+    ContentHash::new(format!("sha256:{:064x}", 6)).map_err(|error| PortError::InvalidInputContext {
+        context: "test hash b",
+        source: error.to_string(),
+    })
+}
 
 #[test]
 fn in_memory_event_log_satisfies_contract() -> Result<(), Box<dyn std::error::Error>> {
@@ -64,14 +78,14 @@ fn in_memory_event_log_roundtrips_search_executed() -> Result<(), PortError> {
 fn artifact_filter_events(
     artifact_a: ArtifactId,
     artifact_b: ArtifactId,
-) -> Vec<DomainEventEnvelope> {
-    vec![
+) -> Result<Vec<DomainEventEnvelope>, PortError> {
+    Ok(vec![
         DomainEventEnvelope {
             id: maestria_domain::EventId::new(1),
             sequence: maestria_domain::SequenceNumber::new(1),
             event: DomainEvent::PendingIndex {
                 artifact_id: artifact_a,
-                content_hash: "hash-a".to_string(),
+                content_hash: hash_a()?,
             },
         },
         DomainEventEnvelope {
@@ -96,7 +110,7 @@ fn artifact_filter_events(
                 artifact_id: artifact_a,
                 title: "doc".to_string(),
                 source_path: "/a.md".to_string(),
-                content_hash: "hash-a".to_string(),
+                content_hash: hash_a()?,
                 blob_id: BlobId::new(1),
             },
         },
@@ -106,7 +120,7 @@ fn artifact_filter_events(
             event: DomainEvent::SourceBecameStale {
                 artifact_id: artifact_a,
                 source_path: "/a.md".to_string(),
-                content_hash: "hash-a".to_string(),
+                content_hash: hash_a()?,
             },
         },
         DomainEventEnvelope {
@@ -114,10 +128,10 @@ fn artifact_filter_events(
             sequence: maestria_domain::SequenceNumber::new(6),
             event: DomainEvent::PendingIndex {
                 artifact_id: artifact_b,
-                content_hash: "hash-b".to_string(),
+                content_hash: hash_b()?,
             },
         },
-    ]
+    ])
 }
 
 #[test]
@@ -125,7 +139,7 @@ fn in_memory_event_log_filters_all_artifact_variants() -> Result<(), PortError> 
     let log = InMemoryEventLog::new();
     let artifact_a = ArtifactId::new(1);
     let artifact_b = ArtifactId::new(2);
-    let events = artifact_filter_events(artifact_a, artifact_b);
+    let events = artifact_filter_events(artifact_a, artifact_b)?;
 
     for event in &events {
         log.append(event.clone())?;

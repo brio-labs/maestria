@@ -1,5 +1,7 @@
 use crate::test_support::*;
-use maestria_domain::{Artifact, ArtifactId, DomainInput, IndexStatus, ParseArtifactRequest};
+use maestria_domain::{
+    Artifact, ArtifactId, ContentHash, DomainInput, IndexStatus, ParseArtifactRequest,
+};
 use maestria_ports::{
     ArtifactRepository, BlobStore, FileHandle, FileMetadata, InMemoryArtifactRepository,
     ParseContext, ParsedArtifact, Parser, PortError,
@@ -142,10 +144,10 @@ async fn completed_ocr_is_selected_even_when_older_intent_is_pending()
     })?;
     let blob_store = Arc::new(InMemoryBlobStore::new());
     let blob_id = blob_store.put(bytes.to_vec())?;
-    let hash = maestria_domain::content_hash(bytes);
+    let hash = ContentHash::new(maestria_domain::content_hash(bytes))?;
     let mut intents = vec![
-        ocr_intent_for_source(artifact_id, blob_id, &hash, "first")?,
-        ocr_intent_for_source(artifact_id, blob_id, &hash, "second")?,
+        ocr_intent_for_source(artifact_id, blob_id, hash.as_str(), "first")?,
+        ocr_intent_for_source(artifact_id, blob_id, hash.as_str(), "second")?,
     ];
     intents.sort_by(|left, right| left.request_id().cmp(right.request_id()));
     let pending_intent = intents.remove(0);

@@ -40,7 +40,7 @@ fn deterministic_artifact_id_and_content_hash_from_same_input()
     assert_eq!(source_path, "notes/project.md");
     assert_eq!(title, "project.md");
     assert!(!source_bytes.is_empty());
-    assert!(!content_hash.is_empty());
+    assert!(!content_hash.as_str().is_empty());
     // artifact_id is deterministic for the given path+bytes fixture.
     assert_eq!(artifact_id.value(), 421114891);
     Ok(())

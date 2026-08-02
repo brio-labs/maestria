@@ -63,7 +63,7 @@ impl KernelState {
             }
             if let Some(artifact) = self.artifacts.get_mut(&input.artifact_id) {
                 let needs_pending = artifact.index_status != IndexStatus::Pending
-                    || artifact.content_hash.as_deref() != Some(&parser.content_hash);
+                    || artifact.content_hash.as_ref() != Some(&parser.content_hash);
                 if needs_pending {
                     artifact.content_hash = Some(parser.content_hash.clone());
                     artifact.index_status = IndexStatus::Pending;

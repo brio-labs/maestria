@@ -194,6 +194,14 @@ impl Watcher {
                 Some(name) => name.to_string(),
                 None => "unknown".to_string(),
             };
+            let Ok(content_hash) = maestria_domain::ContentHash::new(observation.hash.clone())
+            else {
+                tracing::warn!(
+                    path = %key,
+                    "watcher observed an invalid content hash; skipping detection"
+                );
+                continue;
+            };
 
             match self
                 .input_tx
@@ -202,7 +210,7 @@ impl Watcher {
                     title,
                     source_path: key.clone(),
                     source_bytes: observation.bytes.clone(),
-                    content_hash: observation.hash.clone(),
+                    content_hash,
                 })) {
                 Ok(()) => {
                     self.pending.insert(
@@ -297,12 +305,20 @@ impl Watcher {
             return Ok(false);
         };
 
+        let Ok(content_hash) = maestria_domain::ContentHash::new(entry_hash.clone()) else {
+            tracing::warn!(
+                source_path = %prev_key,
+                "watcher observed an invalid content hash; skipping removal"
+            );
+            return Ok(false);
+        };
+
         match self
             .input_tx
             .try_send(DomainInput::SourceRemoved(SourceRemoved {
                 artifact_id: maestria_domain::ArtifactId::new(*aid_val),
                 source_path: prev_key.to_string(),
-                content_hash: entry_hash.clone(),
+                content_hash,
             })) {
             Ok(()) => Ok(true),
             Err(mpsc::error::TrySendError::Full(_)) => {

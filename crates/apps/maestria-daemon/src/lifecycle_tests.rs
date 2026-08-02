@@ -1,7 +1,7 @@
 use crate::recovery_staging::{recovery_artifact_ids, validation_task_ids};
 use crate::{InstanceLifecycle, RecoveryInputs, prepare_instance};
 use maestria_domain::{
-    ArtifactDetected, ArtifactId, DomainInput, ParserStarted, RequestTaskValidation,
+    ArtifactDetected, ArtifactId, ContentHash, DomainInput, ParserStarted, RequestTaskValidation,
     StartFullTextIndex, TaskId, content_hash,
 };
 use maestria_governance::AutonomyProfile;
@@ -36,20 +36,20 @@ impl Drop for TempDir {
     }
 }
 
-fn parser_input(id: u64) -> DomainInput {
-    DomainInput::ResumeParser(ParserStarted {
+fn parser_input(id: u64) -> Result<DomainInput, Box<dyn std::error::Error>> {
+    Ok(DomainInput::ResumeParser(ParserStarted {
         artifact_id: ArtifactId::new(id),
         title: format!("artifact-{id}"),
         source_path: format!("/tmp/artifact-{id}"),
-        content_hash: format!("hash-{id}"),
+        content_hash: ContentHash::new(format!("sha256:{:064x}", id))?,
         blob_id: maestria_domain::BlobId::new(id),
-    })
+    }))
 }
 
 #[test]
-fn recovery_queue_ids_preserve_dependency_groups() {
+fn recovery_queue_ids_preserve_dependency_groups() -> Result<(), Box<dyn std::error::Error>> {
     let recovery = RecoveryInputs {
-        resume_parsers: vec![parser_input(1)],
+        resume_parsers: vec![parser_input(1)?],
         start_full_text: vec![DomainInput::StartFullTextIndex(StartFullTextIndex {
             artifact_id: ArtifactId::new(2),
         })],
@@ -62,6 +62,7 @@ fn recovery_queue_ids_preserve_dependency_groups() {
         vec![ArtifactId::new(1), ArtifactId::new(2)]
     );
     assert_eq!(validation_task_ids(&recovery), vec![TaskId::new(3)]);
+    Ok(())
 }
 #[tokio::test]
 async fn internal_runtime_fatal_shutdown_does_not_require_external_signal()
@@ -77,7 +78,7 @@ async fn internal_runtime_fatal_shutdown_does_not_require_external_signal()
             artifact_id: ArtifactId::new(1),
             title: "fatal.md".to_string(),
             source_path: temp_dir.path().join("fatal.md").display().to_string(),
-            content_hash: content_hash(&source_bytes),
+            content_hash: ContentHash::new(content_hash(&source_bytes))?,
             source_bytes,
         }))
         .await?;

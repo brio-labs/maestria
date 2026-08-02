@@ -6,6 +6,10 @@ mod fixtures;
 
 use assertions::require_error;
 
+fn hash_abc() -> Result<ContentHash, Box<dyn std::error::Error>> {
+    Ok(ContentHash::new(format!("sha256:{:064x}", 3))?)
+}
+
 // ── ParserStarted, resume, and pending-parser cleanup ─────────────
 
 #[test]
@@ -16,7 +20,7 @@ fn parser_started_stores_metadata_and_emits_persist_event() -> Result<(), Box<dy
         artifact_id: ArtifactId::new(1),
         title: "Notes".to_string(),
         source_path: "/tmp/notes.md".to_string(),
-        content_hash: "sha256:abc".to_string(),
+        content_hash: hash_abc()?,
         blob_id: BlobId::new(42),
     }))?;
 
@@ -25,7 +29,7 @@ fn parser_started_stores_metadata_and_emits_persist_event() -> Result<(), Box<dy
     let pending = &state.pending_parsers[&ArtifactId::new(1)];
     assert_eq!(pending.title, "Notes");
     assert_eq!(pending.source_path, "/tmp/notes.md");
-    assert_eq!(pending.content_hash, "sha256:abc");
+    assert_eq!(pending.content_hash, hash_abc()?);
     assert_eq!(pending.blob_id, BlobId::new(42));
 
     // Exactly one PersistEvent carrying the ParserStarted event.
@@ -38,7 +42,7 @@ fn parser_started_stores_metadata_and_emits_persist_event() -> Result<(), Box<dy
             source_path,
             content_hash,
             blob_id: BlobId(42),
-        } if title == "Notes" && source_path == "/tmp/notes.md" && content_hash == "sha256:abc"
+        } if title == "Notes" && source_path == "/tmp/notes.md" && content_hash == &hash_abc()?
     ));
     assert_eq!(output.effects.len(), 1);
     assert!(matches!(
@@ -61,7 +65,7 @@ fn resume_parser_emits_parse_artifact_with_source_blob() -> Result<(), Box<dyn s
             artifact_id: ArtifactId::new(1),
             title: "Notes".to_string(),
             source_path: "/tmp/notes.md".to_string(),
-            content_hash: "sha256:abc".to_string(),
+            content_hash: hash_abc()?,
             blob_id: BlobId::new(42),
         },
     );
@@ -70,7 +74,7 @@ fn resume_parser_emits_parse_artifact_with_source_blob() -> Result<(), Box<dyn s
         artifact_id: ArtifactId::new(1),
         title: "Notes".to_string(),
         source_path: "/tmp/notes.md".to_string(),
-        content_hash: "sha256:abc".to_string(),
+        content_hash: hash_abc()?,
         blob_id: BlobId::new(42),
     }))?;
 
@@ -96,7 +100,7 @@ fn resume_parser_without_pending_entry_is_rejected() -> Result<(), Box<dyn std::
             artifact_id: ArtifactId::new(99),
             title: "Ghost".to_string(),
             source_path: String::new(),
-            content_hash: "sha256:abc".to_string(),
+            content_hash: hash_abc()?,
             blob_id: BlobId::new(1),
         })),
         "resume without pending entry must error",
@@ -117,13 +121,13 @@ fn parser_completed_removes_pending_parser() -> Result<(), Box<dyn std::error::E
         title: "Notes".to_string(),
         source_path: String::new(),
         source_bytes: Vec::new(),
-        content_hash: "sha256:abc".to_string(),
+        content_hash: hash_abc()?,
     }))?;
     state.apply_input(DomainInput::ParserStarted(ParserStarted {
         artifact_id: ArtifactId::new(1),
         title: "Notes".to_string(),
         source_path: String::new(),
-        content_hash: "sha256:abc".to_string(),
+        content_hash: hash_abc()?,
         blob_id: BlobId::new(42),
     }))?;
     assert!(state.pending_parsers.contains_key(&ArtifactId::new(1)));

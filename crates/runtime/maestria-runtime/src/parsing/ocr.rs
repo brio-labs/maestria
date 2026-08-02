@@ -16,7 +16,7 @@ impl EffectExecutionContext {
         artifact_id: ArtifactId,
         parse_bytes: Vec<u8>,
         blob_id: BlobId,
-        source_hash: String,
+        source_hash: maestria_domain::ContentHash,
         path: std::path::PathBuf,
     ) -> bool {
         let file = FileHandle {
@@ -38,7 +38,7 @@ impl EffectExecutionContext {
                         .filter(|intent| {
                             intent.artifact_id() == artifact_id
                                 && intent.source_blob() == blob_id
-                                && intent.source_hash().as_str() == source_hash
+                                && intent.source_hash().as_str() == source_hash.as_str()
                         })
                         .map(|_| completion)
                 })
@@ -97,7 +97,7 @@ impl EffectExecutionContext {
         &self,
         artifact_id: ArtifactId,
         blob_id: BlobId,
-        source_hash: &str,
+        source_hash: &maestria_domain::ContentHash,
         pages: &[u32],
     ) -> bool {
         let Some(provider) = &self.adapters.ocr_provider else {
@@ -105,10 +105,6 @@ impl EffectExecutionContext {
         };
         let identity = provider.identity();
         let disclosure = provider.disclosure();
-        let Ok(source_hash_typed) = maestria_domain::ContentHash::new(source_hash.to_string())
-        else {
-            return false;
-        };
         let Ok(provider_identity) = OcrProviderIdentity::new(
             identity.provider,
             identity.model,
@@ -129,7 +125,7 @@ impl EffectExecutionContext {
         let Ok(intent) = OcrIntent::new(
             artifact_id,
             blob_id,
-            source_hash_typed,
+            source_hash.clone(),
             pages.iter().copied(),
             provider_identity,
             OcrDisclosure::new(disclosure.remote, retention),
@@ -150,7 +146,7 @@ impl EffectExecutionContext {
         artifact_id: ArtifactId,
         parsed: maestria_ports::ParsedArtifact,
         blob_id: BlobId,
-        source_hash: &str,
+        source_hash: &maestria_domain::ContentHash,
     ) -> bool {
         if parsed.artifact_id != artifact_id {
             tracing::error!(
@@ -160,10 +156,10 @@ impl EffectExecutionContext {
             );
             return false;
         }
-        if parsed.content_hash.as_str() != source_hash {
+        if parsed.content_hash.as_str() != source_hash.as_str() {
             tracing::error!(
                 artifact_id = %artifact_id.value(),
-                expected = %source_hash,
+                expected = %source_hash.as_str(),
                 actual = %parsed.content_hash.as_str(),
                 "parsed artifact content hash does not match source hash; rejecting"
             );

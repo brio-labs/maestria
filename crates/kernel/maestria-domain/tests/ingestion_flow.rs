@@ -80,7 +80,7 @@ fn full_ingestion_flow_detection_then_parsing() -> Result<(), Box<dyn std::error
         title: "Notes".to_string(),
         source_path: String::new(),
         source_bytes: Vec::new(),
-        content_hash: "sha256:abc".to_string(),
+        content_hash: ContentHash::new(format!("sha256:{:064x}", 3))?,
     }))?;
     let output = state.apply_input(DomainInput::ParserCompleted(two_chunk_parser_result(
         "first chunk",

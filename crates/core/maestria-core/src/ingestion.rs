@@ -20,7 +20,12 @@ pub fn build_artifact_detected_input(
     }
 
     let artifact_id = artifact_id_for(source_path, &source_bytes);
-    let content_hash = content_hash(&source_bytes);
+    let content_hash =
+        maestria_domain::ContentHash::new(content_hash(&source_bytes)).map_err(|error| {
+            CoreError::InvalidInput {
+                message: format!("invalid content hash: {error}"),
+            }
+        })?;
     let title = title_for_path(source_path);
 
     Ok(DomainInput::ArtifactDetected(ArtifactDetected {

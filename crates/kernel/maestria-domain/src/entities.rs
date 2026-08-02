@@ -92,7 +92,7 @@ pub struct Artifact {
     pub claim_ids: BTreeSet<ClaimId>,
     pub evidence_ids: BTreeSet<EvidenceId>,
     pub index_status: IndexStatus,
-    pub content_hash: Option<String>,
+    pub content_hash: Option<crate::search::ContentHash>,
     pub parse_status: Option<crate::provenance::ParseStatus>,
     pub security: SecurityMetadata,
 }
@@ -118,7 +118,7 @@ impl Artifact {
 pub struct PendingArtifact {
     pub artifact_id: ArtifactId,
     pub title: String,
-    pub content_hash: String,
+    pub content_hash: crate::search::ContentHash,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

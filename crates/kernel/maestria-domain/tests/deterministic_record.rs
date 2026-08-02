@@ -20,13 +20,13 @@ fn valid_deterministic_duplicate_still_rejected() -> Result<(), Box<dyn std::err
         title: "Test".to_string(),
         source_path: "/tmp/test.md".to_string(),
         source_bytes: vec![1, 2, 3],
-        content_hash: fixtures::test_content_hash()?.as_str().to_owned(),
+        content_hash: fixtures::test_content_hash()?,
     }))?;
     state.apply_input(DomainInput::ParserStarted(ParserStarted {
         artifact_id: art_id,
         title: "Test".to_string(),
         source_path: "/tmp/test.md".to_string(),
-        content_hash: fixtures::test_content_hash()?.as_str().to_owned(),
+        content_hash: fixtures::test_content_hash()?,
         blob_id: BlobId::new(42),
     }))?;
     state.apply_input(DomainInput::ParserCompleted(ParserResult {
@@ -100,13 +100,13 @@ fn deterministic_cross_owner_rejected() -> Result<(), Box<dyn std::error::Error>
         title: "A".to_string(),
         source_path: "/tmp/a.md".to_string(),
         source_bytes: vec![1],
-        content_hash: fixtures::test_content_hash()?.as_str().to_owned(),
+        content_hash: fixtures::test_content_hash()?,
     }))?;
     state.apply_input(DomainInput::ParserStarted(ParserStarted {
         artifact_id: art_a,
         title: "A".to_string(),
         source_path: "/tmp/a.md".to_string(),
-        content_hash: fixtures::test_content_hash()?.as_str().to_owned(),
+        content_hash: fixtures::test_content_hash()?,
         blob_id: BlobId::new(1),
     }))?;
     state.apply_input(DomainInput::ParserCompleted(ParserResult {
@@ -171,13 +171,13 @@ fn malformed_deterministic_non_filespan_is_rejected_at_record()
         title: "Test".to_string(),
         source_path: "/tmp/test.md".to_string(),
         source_bytes: vec![1, 2, 3],
-        content_hash: fixtures::test_content_hash()?.as_str().to_owned(),
+        content_hash: fixtures::test_content_hash()?,
     }))?;
     state.apply_input(DomainInput::ParserStarted(ParserStarted {
         artifact_id: art_id,
         title: "Test".to_string(),
         source_path: "/tmp/test.md".to_string(),
-        content_hash: fixtures::test_content_hash()?.as_str().to_owned(),
+        content_hash: fixtures::test_content_hash()?,
         blob_id: BlobId::new(42),
     }))?;
     state.apply_input(DomainInput::ParserCompleted(ParserResult {
@@ -301,7 +301,7 @@ fn live_chunk_registration_rejects_preexisting_malformed_deterministic_evidence(
         .artifacts
         .get_mut(&artifact_id)
         .ok_or("registered artifact must exist")?;
-    artifact.content_hash = Some(content_hash.as_str().to_owned());
+    artifact.content_hash = Some(content_hash.clone());
     state.evidences.insert(
         evidence_id,
         Evidence {

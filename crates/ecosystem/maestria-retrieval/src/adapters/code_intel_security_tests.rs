@@ -121,7 +121,7 @@ fn canonical_events(
                 artifact_id,
                 title: FILE_PATH.to_string(),
                 source_path: SOURCE_PATH.to_string(),
-                content_hash: content_hash.as_str().to_string(),
+                content_hash: content_hash.clone(),
                 blob_id,
             },
         },
@@ -171,7 +171,7 @@ fn fixture(mode: FixtureMode) -> Result<Fixture, Box<dyn Error>> {
         claim_ids: BTreeSet::new(),
         evidence_ids: BTreeSet::from([evidence_id]),
         index_status: IndexStatus::Indexed,
-        content_hash: Some(content_hash.as_str().to_string()),
+        content_hash: Some(content_hash.clone()),
         parse_status: None,
         security,
     };
@@ -193,7 +193,7 @@ fn fixture(mode: FixtureMode) -> Result<Fixture, Box<dyn Error>> {
                 event: DomainEvent::SourceBecameStale {
                     artifact_id,
                     source_path: SOURCE_PATH.to_string(),
-                    content_hash: content_hash.as_str().to_string(),
+                    content_hash: content_hash.clone(),
                 },
             });
             events
@@ -327,7 +327,7 @@ fn evidence_snapshot_hash_mismatch_is_a_typed_error() -> Result<(), Box<dyn Erro
 fn artifact_content_hash_mismatch_is_a_typed_error() -> Result<(), Box<dyn Error>> {
     let fixture = fixture(FixtureMode::Complete)?;
     let mut artifact = fixture.artifact.clone();
-    artifact.content_hash = Some(content_hash(b"different source"));
+    artifact.content_hash = Some(ContentHash::new(content_hash(b"different source"))?);
     fixture.artifacts.put(artifact)?;
     assert_internal(
         fixture
@@ -654,7 +654,7 @@ fn delayed_stale_event_does_not_remove_newer_source() -> Result<(), Box<dyn Erro
         event: DomainEvent::SourceBecameStale {
             artifact_id: ArtifactId::new(10),
             source_path: SOURCE_PATH.to_string(),
-            content_hash: old_hash.as_str().to_string(),
+            content_hash: old_hash.clone(),
         },
     });
     let resolver = CodeIntelSecurityResolver::from_events(

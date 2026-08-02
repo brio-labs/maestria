@@ -120,7 +120,7 @@ fn build_recovery_domain_state(
         title: "crash-test.md".to_string(),
         source_path: "/tmp/crash-test.md".to_string(),
         source_bytes: vec![4, 5, 6],
-        content_hash: "sha256:fff".to_string(),
+        content_hash: ContentHash::new("sha256:".to_owned() + &"f".repeat(64))?,
     }))?;
 
     let parser_result = make_test_parser_result(artifact_id, chunk_id_a, chunk_id_b, card_id)?;
@@ -409,7 +409,7 @@ fn reconcile_projections_does_not_emit_events() -> Result<(), Box<dyn std::error
         title: "no-events.md".to_string(),
         source_path: "/tmp/no-events.md".to_string(),
         source_bytes: vec![7, 8, 9],
-        content_hash: "sha256:eee".to_string(),
+        content_hash: ContentHash::new("sha256:".to_owned() + &"e".repeat(64))?,
     }))?;
 
     let store = SqliteStore::in_memory()?;
@@ -449,7 +449,7 @@ fn reconcile_projections_evidence_replace_overwrites_stale_row()
         title: "replace-test.md".to_string(),
         source_path: "/tmp/replace-test.md".to_string(),
         source_bytes: vec![1, 2, 3],
-        content_hash: "sha256:rrr".to_string(),
+        content_hash: ContentHash::new("sha256:".to_owned() + &"7".repeat(64))?,
     }))?;
 
     let stale_evidence = maestria_domain::Evidence {
@@ -487,7 +487,7 @@ fn reconcile_projections_evidence_replace_overwrites_stale_row()
         title: "replace-test.md".to_string(),
         source_path: "/tmp/replace-test.md".to_string(),
         source_bytes: vec![1, 2, 3],
-        content_hash: "sha256:rrr".to_string(),
+        content_hash: ContentHash::new("sha256:".to_owned() + &"7".repeat(64))?,
     }))?;
 
     let corrected_evidence = maestria_domain::Evidence {

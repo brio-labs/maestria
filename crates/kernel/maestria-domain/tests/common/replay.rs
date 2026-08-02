@@ -53,7 +53,7 @@ fn sample_inputs() -> Result<Vec<DomainInput>, Box<dyn std::error::Error>> {
             title: "Project Notes".to_string(),
             source_path: "notes.txt".to_string(),
             source_bytes: b"project notes content".to_vec(),
-            content_hash: content_hash.as_str().to_string(),
+            content_hash: content_hash.clone(),
         }),
         DomainInput::ParserCompleted(sample_parser_result()?),
         DomainInput::CreateClaim(CreateClaimInput {

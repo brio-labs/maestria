@@ -141,8 +141,8 @@ fn pure_input_with_effect_completion_is_replay_consistent() -> Result<(), Box<dy
     state.apply_input(detected.clone())?;
 
     use maestria_domain::{
-        ChunkId, ContentHash, DomainInput, EvidenceKind, LineRange, LogicalTick,
-        RecordEvidenceInput, SnapshotRef, evidence_id_for,
+        ChunkId, DomainInput, EvidenceKind, LineRange, LogicalTick, RecordEvidenceInput,
+        SnapshotRef, evidence_id_for,
     };
     let chunk_id_0 = ChunkId::new(701);
     let chunk_id_1 = ChunkId::new(702);
@@ -157,7 +157,7 @@ fn pure_input_with_effect_completion_is_replay_consistent() -> Result<(), Box<dy
             kind: EvidenceKind::FileSpan {
                 path: source_path.clone(),
                 range: LineRange::new(order + 1, order + 1)?,
-                snapshot: SnapshotRef::new(BlobId::new(42), ContentHash::new(source_hash.clone())?),
+                snapshot: SnapshotRef::new(BlobId::new(42), source_hash.clone()),
             },
             excerpt: excerpt.to_string(),
             observed_at: LogicalTick::new(1),

@@ -31,7 +31,7 @@ impl SourceSnapshotVerifier {
                         evidence.id, evidence.artifact_id, artifact.id
                     )));
                 }
-                if artifact.content_hash.as_deref() != Some(snapshot.content_hash().as_str()) {
+                if artifact.content_hash.as_ref() != Some(snapshot.content_hash()) {
                     return Err(RetrievalError::Internal(format!(
                         "evidence {} source snapshot hash does not match owning artifact: expected {:?}, got {}",
                         evidence.id,
@@ -59,7 +59,7 @@ impl SourceSnapshotVerifier {
                         evidence.id, evidence.artifact_id, artifact.id
                     )));
                 }
-                if artifact.content_hash.as_deref() != Some(snapshot.content_hash().as_str()) {
+                if artifact.content_hash.as_ref() != Some(snapshot.content_hash()) {
                     return Err(RetrievalError::Internal(format!(
                         "evidence {} source snapshot hash does not match owning artifact: expected {:?}, got {}",
                         evidence.id,
@@ -85,7 +85,7 @@ impl SourceSnapshotVerifier {
                         evidence.id, evidence.artifact_id, artifact.id
                     )));
                 }
-                if artifact.content_hash.as_deref() != Some(snapshot.content_hash().as_str()) {
+                if artifact.content_hash.as_ref() != Some(snapshot.content_hash()) {
                     return Err(RetrievalError::Internal(format!(
                         "evidence {} source snapshot hash does not match owning artifact: expected {:?}, got {}",
                         evidence.id,

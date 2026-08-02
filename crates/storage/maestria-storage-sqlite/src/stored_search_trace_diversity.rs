@@ -3,18 +3,59 @@
 //! `crate::payloads::stored_search_trace` so consumers keep a single import path.
 
 use maestria_domain::{
-    DuplicateClusterId, EvidenceId, SearchTraceDiversity, SearchTraceDiversityCandidate,
+    DiversityPlacement, DiversitySkipReason, DuplicateClusterId, EvidenceId, SearchTraceDiversity,
+    SearchTraceDiversityCandidate,
 };
 use serde::{Deserialize, Serialize};
 
 use crate::payloads::stored_search_trace::StoredSearchStopReason;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum StoredDiversityPlacement {
+    Selected(usize),
+    Skipped(StoredDiversitySkipReason),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum StoredDiversitySkipReason {
+    DuplicateCluster,
+    LowMarginalGain,
+}
+
+impl StoredDiversityPlacement {
+    pub(crate) fn from_domain(value: &DiversityPlacement) -> Self {
+        match value {
+            DiversityPlacement::Selected(rank) => Self::Selected(*rank),
+            DiversityPlacement::Skipped(reason) => Self::Skipped(match reason {
+                DiversitySkipReason::DuplicateCluster => {
+                    StoredDiversitySkipReason::DuplicateCluster
+                }
+                DiversitySkipReason::LowMarginalGain => StoredDiversitySkipReason::LowMarginalGain,
+            }),
+        }
+    }
+
+    pub(crate) fn try_into_domain(self) -> Result<DiversityPlacement, maestria_ports::PortError> {
+        Ok(match self {
+            Self::Selected(rank) => DiversityPlacement::Selected(rank),
+            Self::Skipped(reason) => DiversityPlacement::Skipped(match reason {
+                StoredDiversitySkipReason::DuplicateCluster => {
+                    DiversitySkipReason::DuplicateCluster
+                }
+                StoredDiversitySkipReason::LowMarginalGain => DiversitySkipReason::LowMarginalGain,
+            }),
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct StoredSearchTraceDiversityCandidate {
     candidate_id: u64,
     original_rank: usize,
-    selected_rank: Option<usize>,
+    placement: StoredDiversityPlacement,
     duplicate_cluster: Option<u64>,
     marginal_coverage: u8,
     coverage_keys: Vec<String>,
@@ -25,7 +66,7 @@ impl StoredSearchTraceDiversityCandidate {
         Self {
             candidate_id: value.candidate_id.value(),
             original_rank: value.original_rank,
-            selected_rank: value.selected_rank,
+            placement: StoredDiversityPlacement::from_domain(&value.placement),
             duplicate_cluster: value.duplicate_cluster.map(|id| id.value()),
             marginal_coverage: value.marginal_coverage,
             coverage_keys: value.coverage_keys.clone(),
@@ -38,7 +79,7 @@ impl StoredSearchTraceDiversityCandidate {
         Ok(SearchTraceDiversityCandidate {
             candidate_id: EvidenceId::new(self.candidate_id),
             original_rank: self.original_rank,
-            selected_rank: self.selected_rank,
+            placement: self.placement.try_into_domain()?,
             duplicate_cluster: self.duplicate_cluster.map(DuplicateClusterId::new),
             marginal_coverage: self.marginal_coverage,
             coverage_keys: self.coverage_keys,

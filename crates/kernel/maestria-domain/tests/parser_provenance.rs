@@ -75,7 +75,7 @@ fn parsed_provenance_survives_event_replay() -> Result<(), Box<dyn Error>> {
             title: "notes.md".to_owned(),
             source_path: "notes.md".to_owned(),
             source_bytes: b"# notes".to_vec(),
-            content_hash: "sha256:source".to_owned(),
+            content_hash: ContentHash::new(format!("sha256:{:064x}", 4))?,
         }),
         DomainInput::ParserCompleted(parsed_result(ParseStatus::Parsed)?),
     ];
@@ -107,7 +107,7 @@ fn non_parsed_status_is_replayed_without_index_work() -> Result<(), Box<dyn Erro
             title: "scan.pdf".to_owned(),
             source_path: "scan.pdf".to_owned(),
             source_bytes: b"opaque".to_vec(),
-            content_hash: "sha256:source".to_owned(),
+            content_hash: ContentHash::new(format!("sha256:{:064x}", 4))?,
         }),
         DomainInput::ParserCompleted(parsed_result(ParseStatus::NeedsOcr)?),
     ];

@@ -54,7 +54,9 @@ fn evidence_for_source(
         claim_ids: Default::default(),
         evidence_ids: Default::default(),
         index_status: maestria_domain::IndexStatus::Indexed,
-        content_hash: Some(maestria_domain::content_hash(source)),
+        content_hash: Some(maestria_domain::ContentHash::new(
+            maestria_domain::content_hash(source),
+        )?),
         parse_status: None,
         security: Default::default(),
     };
@@ -102,7 +104,9 @@ fn web_evidence_for_source(
         claim_ids: Default::default(),
         evidence_ids: Default::default(),
         index_status: maestria_domain::IndexStatus::Indexed,
-        content_hash: Some(maestria_domain::content_hash(source)),
+        content_hash: Some(maestria_domain::ContentHash::new(
+            maestria_domain::content_hash(source),
+        )?),
         parse_status: None,
         security: Default::default(),
     };
@@ -150,7 +154,9 @@ fn pdf_evidence_with_stored_bytes(
         claim_ids: Default::default(),
         evidence_ids: Default::default(),
         index_status: maestria_domain::IndexStatus::Indexed,
-        content_hash: Some(maestria_domain::content_hash(expected_source)),
+        content_hash: Some(maestria_domain::ContentHash::new(
+            maestria_domain::content_hash(expected_source),
+        )?),
         parse_status: None,
         security: Default::default(),
     };
@@ -180,7 +186,9 @@ fn pdf_snapshot_rejects_cross_artifact_identity_before_blob_read()
 #[test]
 fn pdf_snapshot_rejects_hash_mismatch_before_blob_read() -> Result<(), Box<dyn std::error::Error>> {
     let (verifier, evidence, mut artifact, blobs) = pdf_evidence_for_source(b"pdf bytes")?;
-    artifact.content_hash = Some(maestria_domain::content_hash(b"other bytes"));
+    artifact.content_hash = Some(maestria_domain::ContentHash::new(
+        maestria_domain::content_hash(b"other bytes"),
+    )?);
 
     let result = verifier.verify(&evidence, &artifact);
     assert!(matches!(
@@ -243,7 +251,9 @@ fn web_snapshot_rejects_cross_artifact_identity_before_blob_read()
 fn web_snapshot_rejects_hash_mismatch_before_blob_read() -> Result<(), Box<dyn std::error::Error>> {
     let (verifier, evidence, mut artifact, blobs) =
         web_evidence_for_source(b"h2 web evidence\n", "h2 web evidence")?;
-    artifact.content_hash = Some(maestria_domain::content_hash(b"h1 artifact\n"));
+    artifact.content_hash = Some(maestria_domain::ContentHash::new(
+        maestria_domain::content_hash(b"h1 artifact\n"),
+    )?);
 
     let result = verifier.verify(&evidence, &artifact);
     assert!(matches!(
@@ -341,7 +351,9 @@ fn file_snapshot_hash_must_match_owning_artifact() -> Result<(), Box<dyn std::er
         maestria_domain::LineRange::new(1, 1)?,
         "h2 evidence and blob",
     )?;
-    artifact.content_hash = Some(maestria_domain::content_hash(b"h1 artifact\n"));
+    artifact.content_hash = Some(maestria_domain::ContentHash::new(
+        maestria_domain::content_hash(b"h1 artifact\n"),
+    )?);
     let mismatch = verifier.verify(&evidence, &artifact);
     assert!(matches!(
         mismatch,

@@ -53,12 +53,12 @@ impl KernelState {
         let expected_hash = self
             .artifacts
             .get(&chunk.artifact_id)
-            .and_then(|artifact| artifact.content_hash.as_deref());
+            .and_then(|artifact| artifact.content_hash.as_ref());
         match &input.kind {
             EvidenceKind::FileSpan { snapshot, .. }
             | EvidenceKind::PdfSpan { snapshot, .. }
             | EvidenceKind::PdfRegion { snapshot, .. }
-                if expected_hash == Some(snapshot.content_hash().as_str()) =>
+                if expected_hash == Some(snapshot.content_hash()) =>
             {
                 Ok(())
             }
@@ -101,7 +101,7 @@ impl KernelState {
                 EvidenceKind::FileSpan { snapshot, .. }
                 | EvidenceKind::PdfSpan { snapshot, .. }
                 | EvidenceKind::PdfRegion { snapshot, .. }
-                    if snapshot.content_hash().as_str() == expected_hash =>
+                    if snapshot.content_hash() == expected_hash =>
                 {
                     continue;
                 }
@@ -227,12 +227,12 @@ impl KernelState {
             let expected_hash = self
                 .artifacts
                 .get(&chunk.artifact_id)
-                .and_then(|artifact| artifact.content_hash.as_deref());
+                .and_then(|artifact| artifact.content_hash.as_ref());
             let valid = match kind {
                 EvidenceKind::FileSpan { snapshot, .. }
                 | EvidenceKind::PdfSpan { snapshot, .. }
                 | EvidenceKind::PdfRegion { snapshot, .. } => {
-                    expected_hash == Some(snapshot.content_hash().as_str())
+                    expected_hash == Some(snapshot.content_hash())
                 }
                 _ => false,
             };

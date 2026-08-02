@@ -137,7 +137,7 @@ pub(crate) fn approval_resolved(
 pub(crate) fn parser_started(
     artifact_id: ArtifactId,
     blob_id: BlobId,
-    content_hash: String,
+    content_hash: &maestria_domain::ContentHash,
 ) -> impl Fn(&DomainEventEnvelope) -> bool {
     move |env| {
         matches!(
@@ -147,7 +147,7 @@ pub(crate) fn parser_started(
                 blob_id: bid,
                 content_hash: hash,
                 ..
-            } if *id == artifact_id && *bid == blob_id && *hash == content_hash
+            } if *id == artifact_id && *bid == blob_id && hash == content_hash
         )
     }
 }

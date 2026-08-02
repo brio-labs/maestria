@@ -31,6 +31,17 @@ impl ArtifactRepository for crate::SqliteStore {
             return Ok(None);
         };
 
+        let content_hash = content_hash
+            .map(|value| {
+                maestria_domain::ContentHash::new(value).map_err(|error| {
+                    PortError::InvalidInputContext {
+                        context: "decode stored artifact content hash",
+                        source: error.to_string(),
+                    }
+                })
+            })
+            .transpose()?;
+
         let index_status = match index_status.as_str() {
             "unindexed" => IndexStatus::Unindexed,
             "pending" => IndexStatus::Pending,
@@ -94,7 +105,7 @@ impl ArtifactRepository for crate::SqliteStore {
                 params![
                     u64_to_i64(artifact.id.value())?,
                     artifact.title,
-                    artifact.content_hash,
+                    artifact.content_hash.map(|hash| hash.as_str().to_owned()),
                     index_status_to_text(artifact.index_status),
                     match artifact.parse_status {
                         Some(maestria_domain::ParseStatus::Parsed) => "parsed",

@@ -36,7 +36,7 @@ fn seed_records(
         claim_ids: Default::default(),
         evidence_ids: [evidence_id_0, evidence_id_1].into(),
         index_status: status,
-        content_hash: Some(source_hash.clone()),
+        content_hash: Some(ContentHash::new(source_hash.clone())?),
         parse_status: None,
         security: Default::default(),
     })?;
@@ -232,7 +232,9 @@ fn chunk_evidence_uses_canonical_evidence_id() -> Result<(), Box<dyn std::error:
 fn file_snapshot_hash_must_match_owning_artifact() -> Result<(), Box<dyn std::error::Error>> {
     with_seed(IndexStatus::Indexed, |core, ids, artifacts, _, _| {
         let mut artifact = artifacts.get(ids.0)?.ok_or("seed artifact missing")?;
-        artifact.content_hash = Some(maestria_core::content_hash(b"different bytes"));
+        artifact.content_hash = Some(ContentHash::new(maestria_core::content_hash(
+            b"different bytes",
+        ))?);
         artifacts.put(artifact)?;
 
         let error = match core.open_evidence(OpenEvidenceInput { evidence_id: ids.4 }) {
@@ -383,7 +385,7 @@ fn malformed_utf8_snapshot_is_rejected() -> Result<(), Box<dyn std::error::Error
             let blob_id = blobs.put(bytes.clone())?;
             let hash = maestria_core::content_hash(&bytes);
             let mut artifact = artifacts.get(ids.0)?.ok_or("seed artifact missing")?;
-            artifact.content_hash = Some(hash.clone());
+            artifact.content_hash = Some(ContentHash::new(hash.clone())?);
             artifacts.put(artifact)?;
 
             let mut record = evidence.get(ids.4)?.ok_or("seed evidence missing")?;
@@ -414,7 +416,7 @@ fn retrieved_blob_hash_mismatch_is_rejected() -> Result<(), Box<dyn std::error::
             let blob_id = blobs.put(bytes.to_vec())?;
             let expected_hash = maestria_core::content_hash(b"expected bytes");
             let mut artifact = artifacts.get(ids.0)?.ok_or("seed artifact missing")?;
-            artifact.content_hash = Some(expected_hash.clone());
+            artifact.content_hash = Some(ContentHash::new(expected_hash.clone())?);
             artifacts.put(artifact)?;
 
             let mut record = evidence.get(ids.4)?.ok_or("seed evidence missing")?;
