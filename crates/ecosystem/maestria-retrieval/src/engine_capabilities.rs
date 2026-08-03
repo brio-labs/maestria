@@ -5,27 +5,30 @@ use crate::traits::CandidateRetriever;
 pub(super) fn capabilities_from_retrievers(
     retrievers: &[Arc<dyn CandidateRetriever>],
 ) -> maestria_governance::SearchCapabilities {
-    use maestria_domain::{
-        CorpusSnapshotId, IndexGenerationId, Modality, SearchIntent, SearchStage,
-    };
+    use maestria_domain::{Modality, SearchIntent, SearchStage};
 
+    // The engine serves the instance's single corpus snapshot. A primary
+    // generation is claimed only when a non-dense (lexical) retriever
+    // actually discloses one; a dense-only engine claims no generation so
+    // plan validation fails closed instead of binding plans to a
+    // fabricated identity (R24).
     let primary_generation = retrievers
         .iter()
         .map(|retriever| retriever.descriptor())
         .find(|descriptor| !descriptor.modality.eq_ignore_ascii_case("dense"))
-        .map_or(IndexGenerationId::new(1), |descriptor| {
-            descriptor.generation
-        });
+        .map(|descriptor| descriptor.generation);
     let mut capabilities = maestria_governance::SearchCapabilities::new()
         .with_intent(SearchIntent::ExactLookup)
         .with_intent(SearchIntent::FactualLocal)
         .with_stage(SearchStage::InitialRetrieval)
-        .with_snapshot(CorpusSnapshotId::new(1))
-        .with_generation(primary_generation)
+        .with_snapshot(maestria_domain::DEFAULT_CORPUS_SNAPSHOT_ID)
         .allow_global_scope()
         .max_scope_ids(u32::MAX)
         .max_budgets(1_000, 30_000, 8, 3, 0)
         .with_security_filters();
+    if let Some(generation) = primary_generation {
+        capabilities = capabilities.with_generation(generation);
+    }
     let mut known_modality = false;
     for retriever in retrievers {
         match retriever

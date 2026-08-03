@@ -7,6 +7,12 @@ pub const DOMAIN_VERSION: &str = env!("CARGO_PKG_VERSION");
 /// search surfaces, and the evidence open path all confine to this scope.
 pub const DEFAULT_INSTANCE_SCOPE_ID: ScopeId = ScopeId::new(1);
 
+/// The single corpus snapshot served by an instance. Index generations are
+/// reconciled against this snapshot (R9: projections are rebuildable, the
+/// snapshot identifies the served corpus), so capabilities claim exactly
+/// this snapshot instead of a fabricated default.
+pub const DEFAULT_CORPUS_SNAPSHOT_ID: CorpusSnapshotId = CorpusSnapshotId::new(1);
+
 macro_rules! id_type {
     ($name:ident) => {
         #[derive(
