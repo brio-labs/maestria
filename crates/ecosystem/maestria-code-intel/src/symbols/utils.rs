@@ -148,7 +148,7 @@ pub(crate) fn provenance(context: &FileContext, range: SourceRange) -> RecordPro
         content_hash: context.content_hash.clone(),
         file_path: context.relative_path.clone(),
         source_range: range,
-        parser_generation: context.parser_generation.to_string(),
+        parser_generation: crate::types::ParserGeneration::new(context.parser_generation),
     }
 }
 

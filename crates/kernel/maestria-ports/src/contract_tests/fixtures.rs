@@ -29,15 +29,15 @@ pub fn fixture_embedding_identity(
     Ok(crate::EmbeddingIdentity {
         generation_id: maestria_domain::IndexGenerationId::new(1),
         fingerprint: maestria_domain::IndexFingerprint {
-            provider: "fixture-local".to_string(),
-            model: model.to_string(),
-            revision: "fixture".to_string(),
+            provider: maestria_domain::ProviderName::new("fixture-local"),
+            model: maestria_domain::ModelName::new(model),
+            revision: maestria_domain::FingerprintRevision::new("fixture"),
             artifact_hash,
             dimensions: dimensions as u32,
-            quantization: "f32".to_string(),
+            quantization: maestria_domain::QuantizationScheme::new("f32"),
             query_template_hash: template_hash(3)?,
             document_template_hash: template_hash(4)?,
-            preprocessing_version: "fixture".to_string(),
+            preprocessing_version: maestria_domain::PreprocessingVersion::new("fixture"),
         },
         representation: maestria_domain::RepresentationName::new("dense_text_v1"),
     })

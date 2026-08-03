@@ -77,15 +77,15 @@ pub(crate) fn serialize_fingerprint(f: &IndexFingerprint) -> String {
         serialized.push_str(value);
     };
     let dimensions = f.dimensions.to_string();
-    append(&f.provider);
-    append(&f.model);
-    append(&f.revision);
+    append(f.provider.as_str());
+    append(f.model.as_str());
+    append(f.revision.as_str());
     append(f.artifact_hash.as_str());
     append(&dimensions);
-    append(&f.quantization);
+    append(f.quantization.as_str());
     append(f.query_template_hash.as_str());
     append(f.document_template_hash.as_str());
-    append(&f.preprocessing_version);
+    append(f.preprocessing_version.as_str());
     serialized
 }
 
@@ -207,11 +207,11 @@ mod tests {
         let base =
             maestria_ports::contract_tests::fixture_embedding_identity("model", 2)?.fingerprint;
         let mut first = base.clone();
-        first.provider = "a:b".to_string();
-        first.model = "c".to_string();
+        first.provider = "a:b".to_string().into();
+        first.model = "c".to_string().into();
         let mut second = base;
-        second.provider = "a".to_string();
-        second.model = "b:c".to_string();
+        second.provider = "a".to_string().into();
+        second.model = "b:c".to_string().into();
         assert_ne!(
             serialize_fingerprint(&first),
             serialize_fingerprint(&second)

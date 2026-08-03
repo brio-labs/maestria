@@ -88,13 +88,13 @@ fn fingerprints_match(
     identity: &SparseIdentity,
 ) -> bool {
     let sparse = &identity.fingerprint;
-    generation.provider == sparse.provider
-        && generation.model == sparse.model
-        && generation.revision == sparse.revision
+    generation.provider.as_str() == sparse.provider
+        && generation.model.as_str() == sparse.model
+        && generation.revision.as_str() == sparse.revision
         && generation.artifact_hash == sparse.artifact_hash
         && generation.dimensions == sparse.vocabulary_size
-        && generation.quantization == sparse.quantization
+        && generation.quantization.as_str() == sparse.quantization
         && generation.query_template_hash == sparse.query_template_hash
         && generation.document_template_hash == sparse.document_template_hash
-        && generation.preprocessing_version == sparse.preprocessing_version
+        && generation.preprocessing_version.as_str() == sparse.preprocessing_version
 }

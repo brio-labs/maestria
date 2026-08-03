@@ -57,7 +57,7 @@ impl RepositoryCodeIndex {
                 repository_root: identity.root,
                 commit_sha: identity.commit,
                 worktree_identity: identity.worktree_identity,
-                parser_generation,
+                parser_generation: super::types::ParserGeneration::new(parser_generation),
                 package_count: packages.len(),
                 target_count: packages.iter().map(|package| package.targets.len()).sum(),
                 symbol_count: symbols.len(),

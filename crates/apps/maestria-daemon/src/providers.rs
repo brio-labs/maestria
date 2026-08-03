@@ -35,11 +35,11 @@ pub fn build_visual_provider(
     let Some(config) = manifest.visual.as_ref().filter(|config| config.enabled) else {
         return Ok(None);
     };
-    if identity.fingerprint.model != config.model
+    if identity.fingerprint.model.as_str() != config.model
         || identity.fingerprint.dimensions != config.dimensions as u32
-        || identity.fingerprint.provider != config.provider
-        || identity.fingerprint.revision != config.revision
-        || identity.fingerprint.preprocessing_version != config.preprocessing_version
+        || identity.fingerprint.provider.as_str() != config.provider
+        || identity.fingerprint.revision.as_str() != config.revision
+        || identity.fingerprint.preprocessing_version.as_str() != config.preprocessing_version
         || identity.fingerprint.artifact_hash.as_str() != config.artifact_hash
     {
         return Err(anyhow!(

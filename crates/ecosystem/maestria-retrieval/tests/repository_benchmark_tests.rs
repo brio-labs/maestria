@@ -39,7 +39,7 @@ fn repository_benchmark_observations(
     let executor = RepositoryCodeIndexExecutor::new(
         &index,
         corpus.corpus_id.clone(),
-        index.summary.commit_sha.clone(),
+        index.summary.commit_sha.as_str().to_string(),
     );
     run_repository_benchmark(corpus, &executor)
 }
@@ -259,7 +259,7 @@ fn real_repository_executor_runs_frozen_cases_against_a_code_index()
     let executor = RepositoryCodeIndexExecutor::new(
         &index,
         corpus.corpus_id.clone(),
-        index.summary.commit_sha.clone(),
+        index.summary.commit_sha.as_str().to_string(),
     );
     let observations = run_repository_benchmark(&corpus, &executor)?;
     assert_eq!(observations.len(), corpus.cases.len() * 2);
@@ -316,7 +316,7 @@ fn real_repository_executor_runs_frozen_cases_against_a_code_index()
         let report = Report {
             measurement_kind: "real_repository_code_index",
             corpus_id: &corpus.corpus_id,
-            repository_revision: &index.summary.commit_sha,
+            repository_revision: index.summary.commit_sha.as_str(),
             evaluation_date: &first.evaluation_date,
             index_generation: &first.index_generation,
             model_fingerprint: &first.model_fingerprint,
@@ -346,7 +346,7 @@ fn stale_repository_outcome_matches_index_freshness() -> Result<(), Box<dyn std:
     let fresh_executor = RepositoryCodeIndexExecutor::new(
         &index,
         corpus.corpus_id.clone(),
-        index.summary.commit_sha.clone(),
+        index.summary.commit_sha.as_str().to_string(),
     );
     let fresh_observations = run_repository_benchmark(&corpus, &fresh_executor)?;
     let fresh_stale_case = fresh_observations
@@ -361,7 +361,7 @@ fn stale_repository_outcome_matches_index_freshness() -> Result<(), Box<dyn std:
     let stale_executor = RepositoryCodeIndexExecutor::new(
         &stale_index,
         corpus.corpus_id.clone(),
-        stale_index.summary.commit_sha.clone(),
+        stale_index.summary.commit_sha.as_str().to_string(),
     );
     let stale_observations = run_repository_benchmark(&corpus, &stale_executor)?;
     let stale_case = stale_observations

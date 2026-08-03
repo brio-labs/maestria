@@ -128,12 +128,12 @@ fn identity() -> Result<EmbeddingIdentity, PortError> {
     Ok(EmbeddingIdentity {
         generation_id: IndexGenerationId::new(1),
         fingerprint: IndexFingerprint {
-            provider: "siglip-onnx".to_string(),
-            model: "siglip-v1".to_string(),
-            revision: "r1".to_string(),
+            provider: maestria_domain::ProviderName::new("siglip-onnx"),
+            model: maestria_domain::ModelName::new("siglip-v1"),
+            revision: maestria_domain::FingerprintRevision::new("r1"),
             artifact_hash,
             dimensions: 2,
-            quantization: "int8".to_string(),
+            quantization: maestria_domain::QuantizationScheme::new("int8"),
             query_template_hash: ContentHash::new(
                 "sha256:5555555555555555555555555555555555555555555555555555555555555555"
                     .to_string(),
@@ -150,7 +150,7 @@ fn identity() -> Result<EmbeddingIdentity, PortError> {
                 context: "create test document template hash",
                 source: error.to_string(),
             })?,
-            preprocessing_version: "siglip-224-r1".to_string(),
+            preprocessing_version: maestria_domain::PreprocessingVersion::new("siglip-224-r1"),
         },
         representation: RepresentationName::new("visual_page_v1"),
     })

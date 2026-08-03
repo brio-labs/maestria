@@ -35,9 +35,10 @@ pub use error::CodeIntelError;
 pub use freshness::{RepositoryFreshness, RepositoryIdentitySnapshot};
 pub use types::{
     CodeIndexSummary, CodeQuery, CodeRelationKind, CodeRelationRecord, CodeRelationSummary,
-    DependencyRecord, PackageRecord, QueryResult, QuerySummary, RecordProvenance,
-    RelationSourceAvailability, RelationSourceKind, RelationSourceStatus, RepositoryCodeIndex,
-    SourceRange, SymbolKind, SymbolMarkers, SymbolRecord, TargetRecord, Visibility,
+    CommitSha, DependencyRecord, PackageRecord, ParserGeneration, QueryResult, QuerySummary,
+    RecordProvenance, RelationSourceAvailability, RelationSourceKind, RelationSourceStatus,
+    RepositoryCodeIndex, SourceRange, SymbolKind, SymbolMarkers, SymbolRecord, TargetRecord,
+    Visibility, WorktreeIdentity,
 };
 
 mod index;

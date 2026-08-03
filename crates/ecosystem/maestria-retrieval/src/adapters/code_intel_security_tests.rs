@@ -97,12 +97,12 @@ fn symbol(content_hash: &ContentHash) -> Result<SymbolRecord, Box<dyn std::error
         markers: SymbolMarkers::default(),
         provenance: RecordProvenance {
             repository_root: REPOSITORY_ROOT.to_string(),
-            commit_sha: "abc123".to_string(),
-            worktree_identity: "worktree-1".to_string(),
+            commit_sha: maestria_code_intel::CommitSha::new("abc123"),
+            worktree_identity: maestria_code_intel::WorktreeIdentity::new("worktree-1"),
             content_hash: content_hash.as_str().to_string(),
             file_path: FILE_PATH.to_string(),
             source_range: SourceRange::new(1, 3)?,
-            parser_generation: PARSER_GENERATION.to_string(),
+            parser_generation: maestria_code_intel::ParserGeneration::new(PARSER_GENERATION),
         },
     })
 }

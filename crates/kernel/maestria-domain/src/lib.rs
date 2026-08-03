@@ -74,7 +74,9 @@ pub use crate::evidence_source::{
     verify_text_snapshot,
 };
 pub use crate::generations::{
-    IndexFingerprint, IndexGeneration, IndexGenerationRegistry, IndexLifecycle, RepresentationName,
+    FingerprintRevision, IndexFingerprint, IndexGeneration, IndexGenerationRegistry,
+    IndexLifecycle, ModelName, PreprocessingVersion, ProviderName, QuantizationScheme,
+    RepresentationName,
 };
 pub use crate::ids::{
     ApprovalId, ArtifactId, ArtifactVersionId, BlobId, CardId, ChunkId, ClaimId, ConflictSetId,

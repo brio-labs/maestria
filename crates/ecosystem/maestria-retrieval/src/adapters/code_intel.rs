@@ -96,15 +96,15 @@ impl CodeIntelRetriever {
             ),
             (
                 "commit_sha".to_string(),
-                symbol.provenance.commit_sha.clone(),
+                symbol.provenance.commit_sha.as_str().to_string(),
             ),
             (
                 "worktree_identity".to_string(),
-                symbol.provenance.worktree_identity.clone(),
+                symbol.provenance.worktree_identity.as_str().to_string(),
             ),
             (
                 "parser_generation".to_string(),
-                symbol.provenance.parser_generation.clone(),
+                symbol.provenance.parser_generation.as_str().to_string(),
             ),
             (
                 "content_hash".to_string(),
@@ -123,11 +123,11 @@ impl CodeIntelRetriever {
         if let Some(observed) = observed {
             score_components.insert(
                 "observed_commit_sha".to_string(),
-                observed.commit_sha.clone(),
+                observed.commit_sha.as_str().to_string(),
             );
             score_components.insert(
                 "observed_worktree_identity".to_string(),
-                observed.worktree_identity.clone(),
+                observed.worktree_identity.as_str().to_string(),
             );
         }
         Ok(EvidenceCandidate::new(EvidenceCandidateDto {

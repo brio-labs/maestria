@@ -11,8 +11,8 @@ use std::process::Command;
 #[derive(Debug, Clone)]
 pub(crate) struct RepositoryIdentity {
     pub(crate) root: String,
-    pub(crate) commit: String,
-    pub(crate) worktree_identity: String,
+    pub(crate) commit: crate::types::CommitSha,
+    pub(crate) worktree_identity: crate::types::WorktreeIdentity,
 }
 
 /// Derive repository identity values used for provenance without reading excluded files.
@@ -84,8 +84,8 @@ pub(crate) fn discover_repository_identity(
 
     Ok(RepositoryIdentity {
         root: canonical_root,
-        commit,
-        worktree_identity: to_hex(&hasher.finalize()),
+        commit: crate::types::CommitSha::new(commit),
+        worktree_identity: crate::types::WorktreeIdentity::new(to_hex(&hasher.finalize())),
     })
 }
 
