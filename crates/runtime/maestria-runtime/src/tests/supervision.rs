@@ -165,7 +165,7 @@ async fn approval_command_ack_waits_for_event_and_projection()
     assert_eq!(projected.status, ApprovalStatus::Approved);
 
     shutdown.cancel();
-    let _ = tokio::time::timeout(Duration::from_secs(1), run).await;
+    tokio::time::timeout(Duration::from_secs(1), run).await???;
     Ok(())
 }
 #[tokio::test]
@@ -213,24 +213,23 @@ async fn parse_artifact_no_deadlock_at_max_concurrency_one()
     // Wait for the ParserStarted event to be persisted (proves no deadlock).
     let barrier_passed = tokio::time::timeout(Duration::from_secs(3), async {
         loop {
-            let mut events = Vec::new();
-            if let Ok(scanned) = event_log.scan(EventFilter { artifact_id: None }) {
-                events = scanned;
-            }
+            let events = event_log
+                .scan(EventFilter { artifact_id: None })
+                .map_err(|error| format!("scan failed: {error:?}"))?;
             if events.iter().any(|e| {
                 matches!(&e.event, DomainEvent::ParserStarted { artifact_id: id, .. } if *id == artifact_id)
             }) {
-                break true;
+                break Ok::<bool, Box<dyn std::error::Error>>(true);
             }
             tokio::task::yield_now().await;
         }
     })
-    .await;
+    .await??;
 
     shutdown.cancel();
-    let _ = tokio::time::timeout(Duration::from_secs(1), run).await;
+    tokio::time::timeout(Duration::from_secs(1), run).await???;
 
-    let no_deadlock = matches!(barrier_passed, Ok(true));
+    let no_deadlock = barrier_passed;
     assert!(
         no_deadlock,
         "ParserStarted persistence barrier must not deadlock at max_concurrent_effects=1"
@@ -300,7 +299,7 @@ async fn command_submission_progresses_while_persistence_reads_state()
     third_result?;
 
     shutdown.cancel();
-    let _ = tokio::time::timeout(Duration::from_secs(1), run).await;
+    tokio::time::timeout(Duration::from_secs(1), run).await???;
     assert!(
         third_pending,
         "third command should wait for bounded effect capacity before release"
@@ -354,7 +353,7 @@ async fn spawned_effect_failure_propagates_to_supervisor_and_cancels_runtime()
 
     // The runtime should shut down because the spawned FetchWeb effect
     // fails (no seeded URL) and now propagates the failure.
-    tokio::time::timeout(Duration::from_secs(2), run).await??;
+    tokio::time::timeout(Duration::from_secs(2), run).await???;
     assert!(shutdown.is_cancelled());
     Ok(())
 }
@@ -383,7 +382,7 @@ async fn pre_failed_spawned_task_cancels_runtime() -> Result<(), Box<dyn std::er
         .send(DomainInput::ClockTick(LogicalTick::new(1)))
         .await?;
 
-    tokio::time::timeout(Duration::from_secs(2), run).await??;
+    tokio::time::timeout(Duration::from_secs(2), run).await???;
     assert!(shutdown.is_cancelled());
     Ok(())
 }
@@ -474,7 +473,7 @@ async fn approval_ack_includes_inline_continuation_admission_before_shutdown()
         .await?;
     assert_eq!(application.effects_admitted, 3);
     shutdown.cancel();
-    tokio::time::timeout(Duration::from_secs(2), run).await??;
+    tokio::time::timeout(Duration::from_secs(2), run).await???;
 
     assert!(application.events.iter().any(|event| {
         matches!(
@@ -538,6 +537,6 @@ async fn approval_ack_propagates_inline_continuation_admission_failure()
         other => return Err(format!("unexpected approval result: {other:?}").into()),
     }
     shutdown.cancel();
-    tokio::time::timeout(Duration::from_secs(2), run).await??;
+    tokio::time::timeout(Duration::from_secs(2), run).await???;
     Ok(())
 }

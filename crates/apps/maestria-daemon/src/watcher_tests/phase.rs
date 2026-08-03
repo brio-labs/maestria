@@ -36,7 +36,7 @@ async fn phase_detect_additions_emits_for_new_file() -> Result<(), Box<dyn std::
             status: PendingDeliveryStatus::Enqueued,
         })
     );
-    let _ = watcher
+    watcher
         .phase_detect_additions(&[Observation {
             path: PathBuf::from("/tmp/new.md"),
             bytes: b"content".to_vec(),

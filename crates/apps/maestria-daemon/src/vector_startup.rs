@@ -33,19 +33,12 @@ fn persist_input(state: &mut KernelState, store: &SqliteStore, input: DomainInpu
 
 fn next_generation_id(state: &KernelState) -> IndexGenerationId {
     IndexGenerationId::new(
-        match state
+        state
             .index_generations
             .iter()
             .map(|generation| generation.id.value())
-            .max()
-        {
-            Some(value) => value,
-            None => {
-                let _ = ();
-                0
-            }
-        }
-        .saturating_add(1),
+            .fold(0, u64::max)
+            .saturating_add(1),
     )
 }
 

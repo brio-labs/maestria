@@ -17,7 +17,11 @@ pub async fn run_instance(instance_dir: std::path::PathBuf) -> Result<()> {
         match tokio::signal::ctrl_c().await {
             Ok(()) => signal_shutdown.cancel(),
             Err(error) => {
-                let _ = signal_result_tx.send(error);
+                if signal_result_tx.send(error).is_err() {
+                    tracing::debug!(
+                        "SIGINT result receiver disconnected before signal error delivery"
+                    );
+                }
             }
         }
     });

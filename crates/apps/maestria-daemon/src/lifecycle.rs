@@ -60,8 +60,8 @@ pub struct InstanceLifecycle {
     input_tx: mpsc::Sender<DomainInput>,
     runtime_handle: maestria_runtime::RuntimeHandle,
     shutdown_token: CancellationToken,
-    runtime_task: Option<JoinHandle<()>>,
-    watcher_task: Option<JoinHandle<()>>,
+    runtime_task: Option<JoinHandle<Result<(), maestria_runtime::RuntimeRunError>>>,
+    watcher_task: Option<JoinHandle<Result<()>>>,
     watched_artifacts: BTreeMap<String, (ArtifactId, String)>,
 }
 
@@ -162,7 +162,7 @@ impl InstanceLifecycle {
         let runtime_shutdown = shutdown_token.clone();
         let runtime_task = tokio::spawn(async move {
             let _instance_lock = lock;
-            runtime.run(input_rx, runtime_shutdown).await;
+            runtime.run(input_rx, runtime_shutdown).await
         });
         info!(root = %layout.root.display(), "runtime started");
         Ok(Self {
@@ -255,14 +255,14 @@ impl InstanceLifecycle {
         if let Some(watcher_task) = self.watcher_task.take() {
             watcher_task
                 .await
-                .with_context(|| "continuous ingestion watcher join failed")?;
+                .with_context(|| "continuous ingestion watcher join failed")??;
         }
         let Some(runtime_task) = self.runtime_task.take() else {
             return Ok(());
         };
         runtime_task
             .await
-            .with_context(|| "runtime loop join failed")?;
+            .with_context(|| "runtime loop join failed")??;
         Ok(())
     }
 
@@ -308,7 +308,8 @@ impl InstanceLifecycle {
             },
             RuntimeTermination::TaskCompleted => match runtime_result {
                 Some(Err(error)) => Err(anyhow!(error).context("runtime loop join failed")),
-                Some(Ok(())) | None => Err(anyhow!("runtime loop stopped unexpectedly")),
+                Some(Ok(Err(error))) => Err(anyhow!(error).context("runtime loop failed")),
+                Some(Ok(Ok(()))) | None => Err(anyhow!("runtime loop stopped unexpectedly")),
             },
         }
     }

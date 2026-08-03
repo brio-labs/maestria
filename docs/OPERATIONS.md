@@ -69,7 +69,9 @@ the same document extensions as explicit indexing. A deterministic path/hash
 state is persisted at `system/watcher-state.json`; unchanged files are not
 submitted again, while changed files are sent through the existing bounded
 domain-input channel. The observer stops with the daemon cancellation token and
-persists its latest state before shutdown.
+persists its latest state before shutdown. A watcher-state persistence error
+fails lifecycle shutdown and is returned to the daemon caller rather than being
+logged and discarded.
 
 The current observer uses a one-second polling interval and the runtime's
 bounded channel for backpressure. To pause continuous ingestion, stop the

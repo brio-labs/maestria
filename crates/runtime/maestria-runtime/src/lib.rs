@@ -65,8 +65,8 @@ mod web_evidence;
 pub use config::{Adapters, Governance, RuntimeConfig};
 pub use proposal_persistence::decode_pending_continuation;
 pub use runtime::{
-    DomainApplicationResult, FeedbackError, MaestriaRuntime, RuntimeHandle, RuntimeSubmissionError,
-    RuntimeSubmissionPermit,
+    DomainApplicationResult, FeedbackError, MaestriaRuntime, RuntimeHandle, RuntimeRunError,
+    RuntimeSubmissionError, RuntimeSubmissionPermit,
 };
 
 #[cfg(test)]

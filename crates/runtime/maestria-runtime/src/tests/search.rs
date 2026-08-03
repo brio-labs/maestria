@@ -44,25 +44,23 @@ async fn search_executed_persists_and_is_observable() -> Result<(), Box<dyn std:
     // Wait for the event to appear in the event log.
     tokio::time::timeout(Duration::from_secs(2), async {
         loop {
-            let mut events = Vec::new();
-            if let Ok(scanned) = event_log.scan(EventFilter { artifact_id: None }) {
-                events = scanned;
-            }
+            let events = event_log
+                .scan(EventFilter { artifact_id: None })
+                .map_err(|error| format!("scan failed: {error:?}"))?;
             if events
                 .iter()
                 .any(|env| matches!(env.event, DomainEvent::SearchExecuted { .. }))
             {
-                break;
+                break Ok::<(), Box<dyn std::error::Error>>(());
             }
             tokio::task::yield_now().await;
         }
     })
-    .await?;
+    .await??;
+    let events = event_log
+        .scan(EventFilter { artifact_id: None })
+        .map_err(|error| format!("scan failed: {error:?}"))?;
 
-    let mut events = Vec::new();
-    if let Ok(scanned) = event_log.scan(EventFilter { artifact_id: None }) {
-        events = scanned;
-    }
     assert_eq!(events.len(), 1);
     match &events[0].event {
         DomainEvent::SearchExecuted {
@@ -85,7 +83,7 @@ async fn search_executed_persists_and_is_observable() -> Result<(), Box<dyn std:
     }
 
     shutdown.cancel();
-    run.await?;
+    run.await??;
     Ok(())
 }
 
@@ -121,7 +119,7 @@ async fn search_executed_with_failing_event_log_stops_runtime()
         }))
         .await?;
 
-    tokio::time::timeout(Duration::from_secs(2), run).await??;
+    tokio::time::timeout(Duration::from_secs(2), run).await???;
     assert!(shutdown.is_cancelled());
     Ok(())
 }

@@ -71,6 +71,6 @@ async fn reserved_submission_is_accepted_before_waiting_for_result()
     let result = tokio::time::timeout(Duration::from_secs(2), submission).await???;
     assert_eq!(result.correlation_id, 1);
     shutdown.cancel();
-    tokio::time::timeout(Duration::from_secs(2), run).await??;
+    tokio::time::timeout(Duration::from_secs(2), run).await???;
     Ok(())
 }

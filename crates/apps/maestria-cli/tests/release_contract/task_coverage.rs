@@ -9,19 +9,13 @@ fn line_value<'a>(output: &'a str, prefix: &str) -> Option<&'a str> {
 
 fn status_event_count(instance_path: &str) -> Result<usize, Box<dyn std::error::Error>> {
     let status = assert_ok(&["status", "-i", instance_path])?;
-    Ok(
-        match status
-            .lines()
-            .find_map(|line| line.strip_prefix("events "))
-            .and_then(|value| value.parse().ok())
-        {
-            Some(value) => value,
-            None => {
-                let _ = ();
-                0
-            }
-        },
-    )
+    let value = status
+        .lines()
+        .find_map(|line| line.strip_prefix("events "))
+        .ok_or_else(|| std::io::Error::other("status output missing event count"))?
+        .parse::<usize>()
+        .map_err(|error| std::io::Error::other(format!("invalid event count: {error}")))?;
+    Ok(value)
 }
 
 #[test]
