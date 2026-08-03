@@ -211,10 +211,9 @@ impl KernelState {
             effects: vec![MaestriaEffect::QueryHarness(QueryHarnessRequest {
                 run_id: input.run_id,
                 task_id: input.task_id,
-                generation: input.generation,
+                execution: input.execution,
                 capability: input.capability,
                 scope_id: input.scope_id,
-                approval_id: input.approval_id,
                 command: input.command,
             })],
         })

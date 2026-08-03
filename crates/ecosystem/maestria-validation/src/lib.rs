@@ -45,4 +45,6 @@ mod search_validator_fixtures;
 #[cfg(test)]
 mod search_validator_tests;
 #[cfg(test)]
+mod test_fixtures;
+#[cfg(test)]
 mod tests;

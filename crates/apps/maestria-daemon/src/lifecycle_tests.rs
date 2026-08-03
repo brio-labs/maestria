@@ -1,40 +1,12 @@
 use crate::recovery_staging::{recovery_artifact_ids, validation_task_ids};
+use crate::test_support::TempDir;
 use crate::{InstanceLifecycle, RecoveryInputs, prepare_instance};
 use maestria_domain::{
     ArtifactDetected, ArtifactId, ContentHash, DomainInput, ParserStarted, RequestTaskValidation,
     StartFullTextIndex, TaskId, content_hash,
 };
 use maestria_governance::AutonomyProfile;
-use std::fs;
-use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
 use tokio_util::sync::CancellationToken;
-
-static NEXT_TEMP_ID: AtomicU64 = AtomicU64::new(0);
-
-struct TempDir(PathBuf);
-
-impl TempDir {
-    fn create() -> std::io::Result<Self> {
-        let id = NEXT_TEMP_ID.fetch_add(1, Ordering::Relaxed);
-        let path = std::env::temp_dir().join(format!(
-            "maestria-lifecycle-test-{}-{id}",
-            std::process::id()
-        ));
-        fs::create_dir_all(&path)?;
-        Ok(Self(path))
-    }
-
-    fn path(&self) -> &Path {
-        &self.0
-    }
-}
-
-impl Drop for TempDir {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.0);
-    }
-}
 
 fn parser_input(id: u64) -> Result<DomainInput, Box<dyn std::error::Error>> {
     Ok(DomainInput::ResumeParser(ParserStarted {

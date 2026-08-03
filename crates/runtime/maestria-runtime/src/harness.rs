@@ -20,7 +20,7 @@ impl EffectExecutionContext {
             capability: request.capability.clone(),
             command: request.command.clone(),
             scope_id: self.scope_id,
-            requested_generation: request.generation,
+            requested_generation: request.execution.generation(),
         };
 
         let entry = match self.adapters.effect_journal.record_intent(intent) {

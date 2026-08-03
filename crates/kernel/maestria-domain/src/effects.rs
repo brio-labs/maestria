@@ -49,14 +49,49 @@ pub struct FetchWebRequest {
     pub allowed_content_types: Vec<String>,
 }
 
+/// How a harness run enters execution: fresh, resumed from a journal
+/// generation, or continued after approval.
+///
+/// The correlated `generation`/`approval_id` option pair previously
+/// admitted invalid combinations (an approval without a journal generation
+/// or a generation without its continuation identity); the enum makes the
+/// execution state space exhaustive (R56).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum HarnessExecution {
+    Fresh,
+    JournalRecovery {
+        generation: u64,
+    },
+    ApprovalContinuation {
+        approval_id: ApprovalId,
+        generation: u64,
+    },
+}
+
+impl HarnessExecution {
+    pub fn generation(&self) -> Option<u64> {
+        match self {
+            Self::Fresh => None,
+            Self::JournalRecovery { generation }
+            | Self::ApprovalContinuation { generation, .. } => Some(*generation),
+        }
+    }
+
+    pub fn approval_id(&self) -> Option<ApprovalId> {
+        match self {
+            Self::ApprovalContinuation { approval_id, .. } => Some(*approval_id),
+            Self::Fresh | Self::JournalRecovery { .. } => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct QueryHarnessRequest {
     pub run_id: HarnessRunId,
     pub task_id: Option<TaskId>,
-    pub generation: Option<u64>,
+    pub execution: HarnessExecution,
     pub capability: String,
     pub scope_id: ScopeId,
-    pub approval_id: Option<ApprovalId>,
     pub command: String,
 }
 

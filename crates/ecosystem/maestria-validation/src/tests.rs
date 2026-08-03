@@ -1,90 +1,9 @@
-use std::collections::{BTreeMap, BTreeSet};
-
+use super::test_fixtures::*;
 use super::*;
 use maestria_domain::{
-    Artifact, ArtifactId, BlobId, Claim, ClaimId, ClaimStatus, ContentHash, Evidence, EvidenceId,
-    EvidenceKind, LineRange, LogicalTick, MemoryCandidate, MemoryCandidateId, SecurityMetadata,
-    SnapshotRef, Task, TaskId, TaskPriority, TaskStatus, ValidationReportId,
+    ArtifactId, BlobId, ClaimId, Evidence, EvidenceId, EvidenceKind, LogicalTick,
+    MemoryCandidateId, SecurityMetadata, TaskStatus, ValidationReportId,
 };
-
-#[derive(Default)]
-struct ContextFixture {
-    task: Option<Task>,
-    artifacts: BTreeMap<ArtifactId, Artifact>,
-    claims: BTreeMap<ClaimId, Claim>,
-    evidences: BTreeMap<EvidenceId, Evidence>,
-    memory_candidates: BTreeMap<MemoryCandidateId, MemoryCandidate>,
-    harness_exit_code: Option<i32>,
-}
-
-impl ContextFixture {
-    fn context(&self) -> ValidationContext<'_> {
-        ValidationContext {
-            task: self.task.as_ref(),
-            artifacts: &self.artifacts,
-            claims: &self.claims,
-            evidences: &self.evidences,
-            memory_candidates: &self.memory_candidates,
-            harness_exit_code: self.harness_exit_code,
-            search: None,
-        }
-    }
-}
-
-fn claim(id: u64, evidence_ids: impl IntoIterator<Item = EvidenceId>) -> Claim {
-    Claim {
-        id: ClaimId::new(id),
-        artifact_id: ArtifactId::new(id),
-        text: format!("claim {id}"),
-        status: ClaimStatus::Proposed,
-        evidence_ids: evidence_ids.into_iter().collect(),
-        security: SecurityMetadata::default(),
-    }
-}
-
-fn evidence(id: u64, claim_id: Option<ClaimId>) -> Result<Evidence, Box<dyn std::error::Error>> {
-    Ok(Evidence {
-        id: EvidenceId::new(id),
-        artifact_id: ArtifactId::new(1),
-        claim_id,
-        kind: EvidenceKind::FileSpan {
-            path: "src/lib.rs".to_string(),
-            range: LineRange::new(1, 8)?,
-            snapshot: SnapshotRef::new(
-                maestria_domain::BlobId::new(1),
-                ContentHash::new(format!("sha256:{}", "a".repeat(64)))?,
-            ),
-        },
-        excerpt: "evidence excerpt".to_string(),
-        observed_at: LogicalTick::new(1),
-        security: SecurityMetadata::default(),
-    })
-}
-
-fn task(id: u64, status: TaskStatus) -> Task {
-    Task {
-        id: TaskId::new(id),
-        title: format!("task {id}"),
-        priority: TaskPriority::Normal,
-        status,
-        validation_report_id: None,
-        artifact_ids: BTreeSet::new(),
-        evidence_ids: BTreeSet::new(),
-    }
-}
-
-fn memory_candidate(
-    id: u64,
-    evidence_ids: impl IntoIterator<Item = EvidenceId>,
-) -> MemoryCandidate {
-    MemoryCandidate {
-        id: MemoryCandidateId::new(id),
-        claim_id: ClaimId::new(id),
-        evidence_ids: evidence_ids.into_iter().collect(),
-        confidence_milli: 900,
-        security: SecurityMetadata::default(),
-    }
-}
 
 #[test]
 fn citation_validator_passes_when_all_claims_have_evidence() {

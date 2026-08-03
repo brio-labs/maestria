@@ -1,6 +1,4 @@
 use std::fs;
-use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
 
 use maestria_blob_fs::FsBlobStore;
 use maestria_core::InstanceLayout;
@@ -11,33 +9,7 @@ use maestria_ports::BlobStore;
 
 use super::{pending_resume_parsers, verify_pending_blobs};
 
-/// A temporary directory that is removed on drop. Each instance gets a unique
-/// path via an atomic counter so tests running in the same process do not collide.
-static NEXT_TEMP_ID: AtomicU64 = AtomicU64::new(0);
-
-struct TempDir(PathBuf);
-
-impl TempDir {
-    fn create() -> std::io::Result<Self> {
-        let id = NEXT_TEMP_ID.fetch_add(1, Ordering::Relaxed);
-        let dir = std::env::temp_dir().join(format!(
-            "maestria-parser-resume-test-{}-{id}",
-            std::process::id()
-        ));
-        fs::create_dir_all(&dir)?;
-        Ok(TempDir(dir))
-    }
-
-    fn path(&self) -> &Path {
-        &self.0
-    }
-}
-
-impl Drop for TempDir {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.0);
-    }
-}
+use crate::test_support::TempDir;
 
 fn pending_input(
     state: &mut KernelState,

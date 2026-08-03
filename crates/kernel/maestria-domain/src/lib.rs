@@ -50,8 +50,8 @@ mod task_status;
 mod types;
 
 pub use crate::effects::{
-    DiagnosticEvent, FetchWebRequest, IndexFullTextRequest, IndexVectorRequest, KernelOutput,
-    MaestriaEffect, OcrEffect, ParseArtifactRequest, QueryHarnessProposalRequest,
+    DiagnosticEvent, FetchWebRequest, HarnessExecution, IndexFullTextRequest, IndexVectorRequest,
+    KernelOutput, MaestriaEffect, OcrEffect, ParseArtifactRequest, QueryHarnessProposalRequest,
     QueryHarnessRequest, RequestApprovalRequest, RunValidationRequest, SearchKnowledgeRequest,
     UpdateGraphRequest, ValidationTarget,
 };

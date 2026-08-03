@@ -1,32 +1,7 @@
 use super::*;
+use crate::test_support::TempDir;
 use maestria_domain::{ArtifactId, BlobId, ContentHash, ParserStarted};
-use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
-
-static NEXT_SCOPE_TEST_ID: AtomicU64 = AtomicU64::new(0);
-
-struct TempDir(PathBuf);
-
-impl TempDir {
-    fn create() -> std::io::Result<Self> {
-        let id = NEXT_SCOPE_TEST_ID.fetch_add(1, Ordering::Relaxed);
-        let dir =
-            std::env::temp_dir().join(format!("maestria-scope-test-{}-{id}", std::process::id()));
-        fs::create_dir_all(&dir)?;
-        Ok(TempDir(dir))
-    }
-
-    fn path(&self) -> &Path {
-        &self.0
-    }
-}
-
-impl Drop for TempDir {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.0);
-    }
-}
 
 fn write_manifest(dir: &Path, read_roots: &[&str]) -> std::io::Result<PathBuf> {
     let mut lines = vec![
