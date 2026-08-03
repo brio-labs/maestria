@@ -11,21 +11,25 @@
 /// - `autonomy`: module responsibility.
 /// - `memory`: module responsibility.
 /// - `plan_validation`: module responsibility.
-/// - `privacy`: module responsibility.
+/// - `privacy_exclusions`: path privacy exclusions.
+/// - `prompt_injection`: prompt-injection classification.
 /// - `retrieval`: module responsibility.
 /// - `risk`: module responsibility.
 /// - `scope`: module responsibility.
-/// - `validation`: module responsibility.
+/// - `secret_scanning`: credential and secret classification.
+/// - `validation`: task-completion validation.
 /// - `version`: governance version metadata.
 // ── modules ─────────────────────────────────────────────────────────
 mod approval;
 mod autonomy;
 mod memory;
 mod plan_validation;
-mod privacy;
+mod privacy_exclusions;
+mod prompt_injection;
 mod retrieval;
 mod risk;
 mod scope;
+mod secret_scanning;
 mod validation;
 mod version;
 
@@ -38,16 +42,15 @@ pub use memory::{
     MemoryPromotionRequest,
 };
 pub use plan_validation::{SearchCapabilities, SearchPlanValidationError, SearchPlanValidator};
-pub use privacy::{
-    PrivacyExclusions, SecretFinding, SecretKind, SecretScan, contains_prompt_injection_risk,
-    scan_secrets,
-};
+pub use privacy_exclusions::PrivacyExclusions;
+pub use prompt_injection::contains_prompt_injection_risk;
 pub use retrieval::{
     RetrievalAuthorizationContext, RetrievalAuthorizationError, RetrievalDecision,
     RetrievalSecurityPolicy,
 };
 pub use risk::{ClassifyRisk, DefaultRiskClassifier, PolicyDecision, RiskClass};
 pub use scope::{ContainmentError, Scope, ScopeGuard};
+pub use secret_scanning::{SecretFinding, SecretKind, SecretScan, scan_secrets};
 pub use validation::{
     DefaultValidationGate, ProposedCompletion, ValidationDecision, ValidationGate,
     ValidationRequest,
@@ -61,6 +64,15 @@ pub use version::GOVERNANCE_VERSION;
 
 #[cfg(test)]
 mod plan_validation_tests;
+#[cfg(test)]
+#[path = "privacy_exclusions_tests.rs"]
+mod privacy_exclusions_tests;
+#[cfg(test)]
+#[path = "prompt_injection_tests.rs"]
+mod prompt_injection_tests;
+#[cfg(test)]
+#[path = "secret_scanning_tests.rs"]
+mod secret_scanning_tests;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
