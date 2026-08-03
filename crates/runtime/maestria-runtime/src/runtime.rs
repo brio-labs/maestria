@@ -50,6 +50,31 @@ pub struct DomainApplicationResult {
     pub effects_admitted: usize,
 }
 
+#[derive(Debug, PartialEq, Eq)]
+pub enum RuntimeRunError {
+    RecoveryPlanning { reason: String },
+    CommandReceiverUnavailable,
+    EffectExecutorJoin { reason: String },
+}
+
+impl std::fmt::Display for RuntimeRunError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::RecoveryPlanning { reason } => {
+                write!(formatter, "model-agent recovery planning failed: {reason}")
+            }
+            Self::CommandReceiverUnavailable => {
+                formatter.write_str("runtime command receiver is unavailable")
+            }
+            Self::EffectExecutorJoin { reason } => {
+                write!(formatter, "effect executor task failed: {reason}")
+            }
+        }
+    }
+}
+
+impl std::error::Error for RuntimeRunError {}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RuntimeSubmissionError {
     CapacityFull,

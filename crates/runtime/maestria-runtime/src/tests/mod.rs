@@ -120,7 +120,7 @@ pub async fn run_complete_task_test(
     .map_err(|_| "timeout waiting for deterministic barrier (ClockTick)")??;
 
     shutdown_token.cancel();
-    let _ = runtime_handle.await;
+    runtime_handle.await??;
 
     let all_events = event_log
         .scan(EventFilter { artifact_id: None })

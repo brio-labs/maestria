@@ -61,8 +61,13 @@ pub(crate) async fn wait_for_kernel_state(
                     sleep(Duration::from_millis(25)).await;
                 }
                 Err(error) if is_database_busy(&error) => {
-                    if let Ok(mut slot) = last_error_for_wait.lock() {
-                        *slot = Some(error.to_string());
+                    match last_error_for_wait.lock() {
+                        Ok(mut slot) => *slot = Some(error.to_string()),
+                        Err(_) => {
+                            return Err(anyhow::anyhow!(
+                                "record last database-busy error: state-poll mutex poisoned"
+                            ));
+                        }
                     }
                     sleep(Duration::from_millis(25)).await;
                 }
@@ -76,11 +81,12 @@ pub(crate) async fn wait_for_kernel_state(
         Ok(Ok(state)) => Ok(state),
         Ok(Err(error)) => Err(error),
         Err(_elapsed) => {
-            let detail = last_error
-                .lock()
-                .ok()
-                .and_then(|error| error.clone())
-                .map_or_else(String::new, |error| format!(" {error}"));
+            let detail = match last_error.lock() {
+                Ok(error) => error
+                    .as_deref()
+                    .map_or_else(String::new, |error| format!(" {error}")),
+                Err(_) => " state-poll mutex poisoned while reading last error".to_string(),
+            };
             Err(anyhow::anyhow!("timed out while {wait_context}{detail}"))
         }
     }

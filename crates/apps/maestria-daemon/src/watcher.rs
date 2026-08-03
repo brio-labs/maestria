@@ -49,7 +49,7 @@ pub(crate) fn spawn(
     input_tx: mpsc::Sender<DomainInput>,
     artifact_ids: BTreeMap<String, (maestria_domain::ArtifactId, String)>,
     shutdown: CancellationToken,
-) -> JoinHandle<()> {
+) -> JoinHandle<Result<()>> {
     tokio::spawn(async move {
         let mut state = load_state(&layout);
         // Merge startup artifact_ids from event store into persisted state.
@@ -75,7 +75,7 @@ pub(crate) fn spawn(
             pending: BTreeMap::new(),
             scan_permits,
         };
-        watcher.run().await;
+        watcher.run().await
     })
 }
 
@@ -94,22 +94,24 @@ struct Watcher {
 }
 
 impl Watcher {
-    async fn run(mut self) {
+    async fn run(mut self) -> Result<()> {
         let mut ticks = interval(WATCH_INTERVAL);
         ticks.set_missed_tick_behavior(MissedTickBehavior::Skip);
         loop {
             tokio::select! {
                 _ = self.shutdown.cancelled() => break,
                 _ = ticks.tick() => {
+                    // Scan failures are retryable and remain visible in the
+                    // daemon log; shutdown persistence failures are returned
+                    // to the lifecycle owner.
                     if let Err(error) = self.scan_once().await {
                         tracing::warn!(%error, "continuous ingestion scan failed");
                     }
                 }
             }
         }
-        if let Err(error) = persist_state(&self.layout, &self.state) {
-            tracing::warn!(%error, "failed to persist continuous ingestion state on shutdown");
-        }
+        persist_state(&self.layout, &self.state)
+            .with_context(|| "persist continuous ingestion state on shutdown")
     }
 
     async fn scan_once(&mut self) -> Result<()> {

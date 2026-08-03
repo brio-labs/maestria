@@ -332,7 +332,7 @@ async fn back_to_back_record_report_and_complete_task_succeeds()
     }
 
     shutdown_token.cancel();
-    let _ = runtime_handle.await;
+    runtime_handle.await??;
 
     let all_events = event_log
         .scan(EventFilter { artifact_id: None })

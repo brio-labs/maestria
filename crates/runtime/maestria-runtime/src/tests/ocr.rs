@@ -183,7 +183,7 @@ async fn ocr_transport_waits_for_requested_event_persistence() -> TestResult {
     );
 
     shutdown.cancel();
-    tokio::time::timeout(Duration::from_secs(1), run).await??;
+    tokio::time::timeout(Duration::from_secs(1), run).await???;
     Ok(())
 }
 
@@ -208,11 +208,14 @@ async fn ocr_transport_is_not_called_when_requested_event_persistence_fails() ->
     let handle = runtime.handle();
     let run = tokio::spawn(runtime.run(input_rx, CancellationToken::new()));
 
-    let _ = handle
+    let submission = handle
         .submit(DomainInput::OcrRequested(maestria_domain::OcrRequested {
             intent: request,
         }))
         .await;
+    if submission.is_err() {
+        return Err("OcrRequested was rejected before effect execution".into());
+    }
     for _ in 0..64 {
         tokio::task::yield_now().await;
     }
@@ -222,7 +225,9 @@ async fn ocr_transport_is_not_called_when_requested_event_persistence_fails() ->
         "provider ran despite OcrRequested persistence failure"
     );
     run.abort();
-    let _ = run.await;
+    if run.await.is_ok() {
+        return Err("aborted runtime task unexpectedly joined successfully".into());
+    }
     Ok(())
 }
 

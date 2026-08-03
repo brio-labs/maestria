@@ -436,7 +436,7 @@ fn task_request_validation_and_complete() -> Result<(), Box<dyn std::error::Erro
     assert_index_ok(ip.as_ref(), &notes)?;
     let (_chunk_id, evidence_id) = assert_search_finds(ip.as_ref(), "distributed")?;
     let task_id = assert_task_start(ip.as_ref(), "Validate and complete")?;
-    let _ = assert_ok(&[
+    assert_ok(&[
         "task",
         "add-evidence",
         "-i",
@@ -458,7 +458,7 @@ fn task_request_validation_and_complete() -> Result<(), Box<dyn std::error::Erro
         passed, "true",
         "validation should pass for evidence-backed task: {validation_output}"
     );
-    let _ = assert_ok(&[
+    assert_ok(&[
         "task",
         "complete",
         "-i",

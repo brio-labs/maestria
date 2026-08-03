@@ -178,22 +178,20 @@ async fn persist_effects_keep_duplicate_events_in_order() -> Result<(), Box<dyn 
 
     tokio::time::timeout(Duration::from_secs(2), async {
         loop {
-            let mut events = Vec::new();
-            if let Ok(scanned) = event_log.scan(EventFilter { artifact_id: None }) {
-                events = scanned;
-            }
+            let events = event_log
+                .scan(EventFilter { artifact_id: None })
+                .map_err(|error| format!("scan failed: {error:?}"))?;
             if events.len() == 2 {
-                break;
+                break Ok::<(), Box<dyn std::error::Error>>(());
             }
             tokio::task::yield_now().await;
         }
     })
-    .await?;
+    .await??;
 
-    let mut events = Vec::new();
-    if let Ok(scanned) = event_log.scan(EventFilter { artifact_id: None }) {
-        events = scanned;
-    }
+    let events = event_log
+        .scan(EventFilter { artifact_id: None })
+        .map_err(|error| format!("scan failed: {error:?}"))?;
     assert_eq!(events[0].id.value(), 1);
     assert_eq!(events[0].sequence.value(), 1);
     assert_eq!(events[1].id.value(), 2);
@@ -201,7 +199,7 @@ async fn persist_effects_keep_duplicate_events_in_order() -> Result<(), Box<dyn 
     assert_eq!(events[0].event, events[1].event);
 
     shutdown.cancel();
-    run.await?;
+    run.await??;
     Ok(())
 }
 
@@ -230,7 +228,7 @@ async fn failed_event_persistence_stops_runtime() -> Result<(), Box<dyn std::err
         .send(DomainInput::ClockTick(maestria_domain::LogicalTick::new(1)))
         .await?;
 
-    tokio::time::timeout(Duration::from_secs(2), run).await??;
+    tokio::time::timeout(Duration::from_secs(2), run).await???;
     assert!(shutdown.is_cancelled());
     Ok(())
 }

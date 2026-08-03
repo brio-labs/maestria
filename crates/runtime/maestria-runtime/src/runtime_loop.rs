@@ -78,12 +78,13 @@ impl MaestriaRuntime {
     /// Cancellation stops accepting new inputs. By default, in-flight effects
     /// are cancelled; call [`Self::with_graceful_shutdown`] before `run` to
     /// drain already-started effects. The method returns after the effect
-    /// executor has observed the selected shutdown policy.
+    /// executor has observed the selected shutdown policy and preserves
+    /// recovery or task-join failures for the lifecycle owner.
     pub async fn run(
         mut self,
         input_rx: mpsc::Receiver<DomainInput>,
         shutdown_token: tokio_util::sync::CancellationToken,
-    ) {
+    ) -> Result<(), crate::runtime::RuntimeRunError> {
         let (effect_tx, effect_rx) =
             mpsc::channel::<crate::effect_dispatch::EffectBatch>(self.config.input_buffer_size);
         let effect_shutdown = tokio_util::sync::CancellationToken::new();
@@ -101,12 +102,14 @@ impl MaestriaRuntime {
                 );
                 effect_shutdown.cancel();
                 shutdown_token.cancel();
-                return;
+                return Err(crate::runtime::RuntimeRunError::RecoveryPlanning {
+                    reason: error.to_string(),
+                });
             }
         };
         let Some(command_rx) = self.command_rx.take() else {
             tracing::error!("runtime command receiver missing");
-            return;
+            return Err(crate::runtime::RuntimeRunError::CommandReceiverUnavailable);
         };
 
         let queue_recovery =
@@ -118,9 +121,12 @@ impl MaestriaRuntime {
             effect_shutdown.cancel();
         }
         shutdown_token.cancel();
-        if let Err(error) = effect_executor.await {
-            tracing::error!(%error, "effect executor task failed");
-        }
+        effect_executor.await.map_err(|error| {
+            crate::runtime::RuntimeRunError::EffectExecutorJoin {
+                reason: error.to_string(),
+            }
+        })?;
+        Ok(())
     }
 
     async fn run_input_loop(

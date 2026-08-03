@@ -138,13 +138,8 @@ fn golden_fixture_gates_a_real_core_search_trace() -> Result<(), Box<dyn std::er
         let plan = engine.plan("alpha-token".to_string(), 5, context)?;
         let started = MonotonicInstant::now();
         let outcome = runtime.block_on(engine.search(&plan))?;
-        let latency_ms = match u64::try_from(started.elapsed().as_millis()) {
-            Ok(value) => value,
-            Err(e) => {
-                let _ = e;
-                u64::MAX
-            }
-        };
+        let latency_ms = u64::try_from(started.elapsed().as_millis())
+            .map_err(|error| std::io::Error::other(format!("latency exceeds u64: {error}")))?;
         let trace = outcome
             .trace_data
             .as_deref()
