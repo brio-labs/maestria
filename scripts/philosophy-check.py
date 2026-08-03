@@ -47,6 +47,11 @@ FORBIDDEN_KERNEL_TOKENS = [
     "getrandom",
     "fastrand",
     "RandomState",
+    # Uninitialized memory and raw interior mutability are never needed in
+    # deterministic kernel code: `MaybeUninit` invites uninitialized reads and
+    # `UnsafeCell` bypasses the borrow checker (Rule 1/21).
+    "MaybeUninit",
+    "UnsafeCell",
 ]
 FORBIDDEN_KERNEL_PATTERNS = (
     (r"\bunsafe\s+(?:fn|impl|trait)\b|\bunsafe\s*\{", "unsafe Rust"),
@@ -85,6 +90,8 @@ FORBIDDEN_UNBOUNDED_CHANNEL_PATTERNS = (
     r"\b(?:tokio::sync::)?mpsc::Unbounded(?:Sender|Receiver)\b",
     r"\bstd::sync::mpsc::channel(?:\s*::\s*<[^>]+>)?\s*\(",
     r"\bcrossbeam(?:_channel|::channel)::unbounded(?:\s*::\s*<[^>]+>)?\s*\(",
+    r"\b(?:async_channel|async_std::channel)::unbounded(?:\s*::\s*<[^>]+>)?\s*\(",
+    r"\bflume::unbounded(?:\s*::\s*<[^>]+>)?\s*\(",
 )
 PRIMITIVE_ID_TYPES = {"String", "u8", "u16", "u32", "u64", "u128", "usize"}
 STRINGLY_STATE_FIELD_NAMES = {
@@ -108,6 +115,79 @@ GENERATED_BLOB_MARKERS = (
 )
 FORBIDDEN_STRING_ERROR_PATTERN = re.compile(
     r"^\s*type\s+Error\s*=\s*String\s*;", re.MULTILINE
+)
+
+# Security: hardcoded secret material. The vocabulary mirrors the governance
+# privacy scanner (`scan_secrets` in maestria-governance) so the repository
+# guardrail and the domain's secret policy classify the same shapes.
+_SECRET_PRIVATE_KEY_PATTERN = re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----")
+_SECRET_ACCESS_TOKEN_PATTERN = re.compile(
+    r"\b(?:AKIA[0-9A-Z]{10,}|"
+    r"ghp_[A-Za-z0-9]{20,}|"
+    r"github_pat_[A-Za-z0-9_]{20,}|"
+    r"xox[bp]-[A-Za-z0-9-]{10,}|"
+    r"sk_live_[A-Za-z0-9]{10,})\b"
+)
+_SECRET_ASSIGNMENT_KEYS = ("password", "passwd", "api_key", "apikey", "secret", "token")
+_SECRET_PLACEHOLDER_VALUES = {"xxx", "changeme", "example", "placeholder"}
+
+# Whole-bug-class bans for memory unsafety and leaks. These markers have no
+# legitimate use in this repository's Rust (checked against the workspace);
+# `transmute` silently reinterprets bits, `static mut` is a data-race class,
+# and `Box::leak`/`mem::forget` are deliberate leak hooks.
+MEMORY_UNSAFETY_PATTERNS = (
+    (
+        r"\b(?:std::mem::)?transmute(?:\s*::)?(?:\s*<[^>]*>)?\s*\(",
+        "a transmute call",
+    ),
+    (r"\bstatic\s+mut\b", "a `static mut` declaration"),
+    (r"\bBox::leak\s*\(", "a Box::leak call"),
+    (r"\b(?:std::)?mem::forget\s*\(", "a mem::forget call"),
+)
+
+# Debugging leftovers and unconditional stdout/stderr writes. Library crates
+# must log through `tracing`; app binaries own their console output.
+DEBUG_OUTPUT_PATTERNS = (
+    (r"\bdbg!\s*\(", "a dbg! debug-print call"),
+    (r"\bprint!\s*\(", "a print! stdout call"),
+    (r"\bprintln!\s*\(", "a println! stdout call"),
+    (r"\beprint!\s*\(", "an eprint! stderr call"),
+    (r"\beprintln!\s*\(", "an eprintln! stderr call"),
+)
+
+# Crates that own a user-facing console; `println!`-family writes are their
+# legitimate interface instead of a logging violation.
+APP_CRATE_DIRS = {
+    "maestria-cli",
+    "maestria-daemon",
+    "maestria-harness-cli",
+    "maestria-tui",
+    "maestria-web",
+}
+
+# Rule 1/21: kernel code has no hidden global state or uncontrolled
+# concurrency. Shared ownership and interior mutability are the two Rust
+# mechanisms that introduce both; the in-memory port adapters under
+# maestria-ports are test doubles exempted by their adapter role.
+KERNEL_INTERIOR_MUTABILITY_PATTERNS = (
+    r"\bRc\s*<",
+    r"\bRefCell\s*<",
+    r"\bCell\s*<",
+    r"\bMutex\s*<",
+    r"\bRwLock\s*<",
+    r"\bOnceLock\b",
+    r"\bOnceCell\b",
+    r"\bLazyLock\b",
+    r"\bthread_local!",
+)
+
+# Rule 11 defense-in-depth: `assert!`/`assert_eq!`/`assert_ne!`/`assert_matches!`
+# panic on failure like `panic!` does, so production code must use typed
+# errors. (clippy::panic already gates this; the checker keeps it enforced
+# even when clippy flags are relaxed.) `debug_assert!` is a release no-op and
+# stays allowed.
+_PRODUCTION_ASSERT_PATTERN = re.compile(
+    r"\bassert(?:!|_eq!|_ne!|_matches!)\s*\("
 )
 BOOLEAN_STATE_OPPOSITES = {
     "approved": "denied",
@@ -1257,8 +1337,202 @@ def scan_string_typed_errors() -> list[str]:
         for match in FORBIDDEN_STRING_ERROR_PATTERN.finditer(production):
             line_number = content.count("\n", 0, match.start()) + 1
             violations.append(
-                f"{source.relative_to(ROOT)}:{line_number} uses String as a "
-                "conversion error type; use a typed error"
+            f"{source.relative_to(ROOT)}:{line_number} uses String as a "
+            "conversion error type; use a typed error"
+        )
+    return violations
+
+
+def _secret_assignment_on_line(line: str, is_code: bool) -> bool:
+    """True when a line assigns a non-placeholder value to a credential key.
+
+    Mirrors the governance privacy scanner's `contains_credential_assignment`
+    for `password`/`api_key`/`secret`/`token` keys. Code files additionally
+    require the value to be a literal or bare word so Rust fields
+    (`token: String,`) and expressions (`token = text[idx]`) do not trip it;
+    CI templates (`${{ secrets.X }}`) and `<placeholder>` values never do.
+    """
+    assignment = line.strip()
+    if assignment.startswith("export"):
+        remainder = assignment[6:].lstrip()
+        if remainder:
+            assignment = remainder
+    name, separator, value = assignment.partition("=")
+    if not separator:
+        name, separator, value = assignment.partition(":")
+    if not separator:
+        return False
+    normalized_name = name.strip().strip('"\'{}').strip().lower()
+    if normalized_name not in _SECRET_ASSIGNMENT_KEYS:
+        return False
+    candidate = value.strip()
+    if is_code:
+        # A struct field, type, or expression is not a credential literal.
+        if not (
+            candidate.startswith('"')
+            or candidate.startswith("'")
+            or re.fullmatch(r"[A-Za-z0-9_\-\.]+", candidate)
+        ):
+            return False
+    else:
+        if not candidate or candidate.startswith("${"):
+            return False
+        candidate = candidate.strip('"\' ,}')
+        if not candidate:
+            return False
+    if candidate.startswith("<") and candidate.endswith(">"):
+        return False
+    return candidate.lower().strip(".") not in _SECRET_PLACEHOLDER_VALUES
+
+
+def scan_hardcoded_secrets() -> list[str]:
+    """Security: no hardcoded secret material in non-test files.
+
+    Detects private-key blocks, access-token shapes (AWS/GitHub/Slack/Stripe
+    live keys), and credential assignments with the same vocabulary as the
+    governance privacy scanner. Test sources are exempt: fake credentials are
+    legitimate fixtures there (the governance scanner tests exercise them).
+    Rust files are cfg(test)-stripped so inline test modules do not exempt
+    production lines.
+    """
+    violations = []
+    for candidate in _iter_scannable(ROOT):
+        if candidate == THIS_SCRIPT:
+            continue
+        if candidate.suffix.lower() not in SCAN_EXTS:
+            continue
+        if is_test_source(candidate):
+            continue
+        content = read_text(candidate)
+        if content is None:
+            continue
+        if candidate.suffix.lower() == ".rs":
+            content = production_rust(content)
+        is_code = candidate.suffix.lower() in {".rs", ".py"}
+        for line_number, line in enumerate(content.splitlines(), 1):
+            trimmed = line.strip()
+            if _SECRET_PRIVATE_KEY_PATTERN.search(trimmed):
+                kind = "hardcoded private key material"
+            elif _SECRET_ACCESS_TOKEN_PATTERN.search(trimmed):
+                kind = "a hardcoded access-token pattern"
+            elif _secret_assignment_on_line(trimmed, is_code):
+                kind = "a hardcoded credential assignment"
+            else:
+                continue
+            violations.append(
+                f"{candidate.relative_to(ROOT)}:{line_number} contains {kind}"
+            )
+    return violations
+
+
+def scan_memory_unsafety_markers() -> list[str]:
+    """Ban the memory-unsafety and leak marker classes outright.
+
+    `transmute` reinterprets bits without a checked conversion, `static mut`
+    is a data-race class even under single-threaded use, and
+    `Box::leak`/`mem::forget` deliberately leak memory. No repository code
+    needs them; the ban covers tests too because these classes are never a
+    legitimate test strategy.
+    """
+    violations = []
+    for source in ROOT.rglob("*.rs"):
+        if should_skip(source):
+            continue
+        content = read_text(source)
+        if content is None:
+            continue
+        for pattern, description in MEMORY_UNSAFETY_PATTERNS:
+            if re.search(pattern, content):
+                violations.append(
+                    f"{source.relative_to(ROOT)} contains {description}"
+                )
+    return violations
+
+
+def scan_debug_output() -> list[str]:
+    """Ban debugging leftovers and library console writes.
+
+    `dbg!` is a debugging leftover anywhere, including tests. The
+    `print!`/`println!`/`eprint!`/`eprintln!` family is only legitimate in
+    app crates that own a console; library crates must emit through
+    `tracing` so output is structured, filtered, and testable.
+    """
+    violations = []
+    for source in ROOT.rglob("*.rs"):
+        if should_skip(source):
+            continue
+        content = read_text(source)
+        if content is None:
+            continue
+        is_app = any(segment in APP_CRATE_DIRS for segment in source.parts)
+        for pattern, description in DEBUG_OUTPUT_PATTERNS:
+            if description.startswith("a dbg!"):
+                continue  # dbg! is banned everywhere; handled below.
+            if is_app:
+                continue  # App crates own their console output.
+            if re.search(pattern, content):
+                violations.append(
+                    f"{source.relative_to(ROOT)} contains {description}"
+                )
+        if re.search(r"\bdbg!\s*\(", content):
+            violations.append(
+                f"{source.relative_to(ROOT)} contains a dbg! debug-print call"
+            )
+    return violations
+
+
+def scan_kernel_interior_mutability() -> list[str]:
+    """Rule 1/21: kernel domain and governance code has no shared ownership
+    or interior mutability.
+
+    `Rc`/`RefCell`/`Cell`/`Mutex`/`RwLock`/`OnceLock`/`OnceCell`/`LazyLock`
+    and `thread_local!` introduce hidden global state or uncontrolled
+    concurrency into deterministic code. The in-memory port adapters under
+    `maestria-ports/src/in_memory` are test doubles with an adapter role and
+    are exempt; domain and governance are not.
+    """
+    violations = []
+    for kernel_root in KERNEL_ROOTS:
+        for source in (kernel_root / "src").rglob("*.rs"):
+            if kernel_root.name == "maestria-ports" and "in_memory" in source.parts:
+                continue
+            content = read_text(source)
+            if content is None:
+                continue
+            rel = source.relative_to(ROOT)
+            for pattern in KERNEL_INTERIOR_MUTABILITY_PATTERNS:
+                if re.search(pattern, content):
+                    violations.append(
+                        f"{rel} contains interior-mutability or shared-ownership "
+                        f"token {pattern!r}"
+                    )
+    return violations
+
+
+def scan_production_asserts() -> list[str]:
+    """Rule 11 defense-in-depth: shipped code must not assert.
+
+    `assert!`/`assert_eq!`/`assert_ne!`/`assert_matches!` panic on failure
+    exactly like `panic!`, so production code must return typed errors.
+    clippy::panic already gates this in CI; the checker keeps the class
+    banned even when clippy flags are relaxed. Test sources and inline
+    `#[cfg(test)]` items are exempt.
+    """
+    violations = []
+    for source in ROOT.rglob("*.rs"):
+        if should_skip(source):
+            continue
+        if is_test_source(source):
+            continue
+        content = read_text(source)
+        if content is None:
+            continue
+        production = _scrubbed_production(source)
+        for match in _PRODUCTION_ASSERT_PATTERN.finditer(production):
+            line_number = content.count("\n", 0, match.start()) + 1
+            violations.append(
+                f"{source.relative_to(ROOT)}:{line_number} contains a production "
+                "assert; use a typed error"
             )
     return violations
 
@@ -1696,10 +1970,21 @@ def scan_kernel_dependency_closure() -> list[str]:
     return violations
 
 def is_test_source(path: Path) -> bool:
+    """True for test-only files and directories.
+
+    Covers the `tests/` directory, `*_tests/` directories (e.g.
+    `watcher_tests/`), inline module files named `tests_*.rs`, `*_test.rs`,
+    `*_tests.rs`, `test_support.rs`, and `contract_tests/` modules so
+    production-scoped scans never treat test code as shipped code.
+    """
     return (
         "tests" in path.parts
-        or path.stem in {"tests", "contract_tests"}
+        or any(segment.endswith("_tests") for segment in path.parts)
+        or path.stem in {"tests", "contract_tests", "test_support"}
         or path.stem.endswith("_tests")
+        or path.stem.endswith("_test")
+        or path.stem.startswith("tests_")
+        or (path.suffix == ".py" and path.stem.startswith("test_"))
     )
 
 def _top_level_module_declarations(text: str) -> set[str]:
@@ -2345,9 +2630,14 @@ def main() -> int:
     violations.extend(scan_expect_clippy())
     violations.extend(scan_unbounded_channels())
     violations.extend(scan_rust_forbidden_methods())
+    violations.extend(scan_memory_unsafety_markers())
+    violations.extend(scan_debug_output())
     violations.extend(scan_generated_blobs())
     violations.extend(scan_string_typed_errors())
+    violations.extend(scan_hardcoded_secrets())
     violations.extend(scan_cancellation_docs())
+    violations.extend(scan_kernel_interior_mutability())
+    violations.extend(scan_production_asserts())
     violations.extend(scan_domain_untyped_json())
     violations.extend(scan_facade_boundaries())
     violations.extend(scan_cohesion())
