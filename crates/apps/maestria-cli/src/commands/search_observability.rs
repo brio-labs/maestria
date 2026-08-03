@@ -16,6 +16,11 @@ pub(super) struct DurableTrace {
     pub(super) outcome: SearchOutcome,
 }
 
+/// Explain a durable search trace from the instance's read-only stores.
+///
+/// # Cancellation
+/// Dropping this future aborts the read-only trace load; no mutation is
+/// in flight, so cancellation leaves no partial state.
 pub async fn run_search_explain(
     instance_dir: PathBuf,
     task_id: Option<u64>,
@@ -62,8 +67,8 @@ pub fn run_search_compare(
     println!("fingerprint_b={}", right.plan.fingerprint().as_str());
     println!("status_a={:?}", left.outcome.status);
     println!("status_b={:?}", right.outcome.status);
-    println!("coverage_a={}%", left.outcome.coverage.percent_covered);
-    println!("coverage_b={}%", right.outcome.coverage.percent_covered);
+    println!("coverage_a={}%", left.outcome.coverage.percent_covered());
+    println!("coverage_b={}%", right.outcome.coverage.percent_covered());
     println!("evidence_count_a={}", left.outcome.evidence.len());
     println!("evidence_count_b={}", right.outcome.evidence.len());
     println!("stop_reason_a={:?}", trace(&left)?.stop_reason);
@@ -118,7 +123,8 @@ fn load_trace(store: &SqliteStore, id: SearchTraceId) -> Result<DurableTrace> {
 mod tests {
     use super::*;
     use maestria_domain::{
-        EvidenceCoverage, IndexGenerationId, RetrievalModelFingerprint, SearchStatus,
+        EvidenceCoverage, EvidenceCoverageDto, IndexGenerationId, RetrievalModelFingerprint,
+        SearchStatus,
     };
     use std::error::Error;
 
@@ -130,7 +136,7 @@ mod tests {
             index_generation: IndexGenerationId::new(1),
             status: SearchStatus::NoEvidenceFound,
             evidence: Vec::new(),
-            coverage: EvidenceCoverage {
+            coverage: EvidenceCoverage::new(EvidenceCoverageDto {
                 percent_covered: 0,
                 gaps_identified: Vec::new(),
                 required_claims: Vec::new(),
@@ -139,7 +145,7 @@ mod tests {
                 distinct_documents: 0,
                 distinct_sections: 0,
                 candidate_coverage_keys: Vec::new(),
-            },
+            })?,
             conflicts: Vec::new(),
         })
     }

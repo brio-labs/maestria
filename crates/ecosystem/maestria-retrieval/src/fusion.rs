@@ -1,4 +1,4 @@
-use maestria_domain::EvidenceCandidate;
+use maestria_domain::{EvidenceCandidate, EvidenceCandidateDto};
 use maestria_ports::SearchQuery;
 
 use crate::traits::RankFusion;
@@ -46,9 +46,9 @@ impl RankFusion for FixedKRrf {
                 continue;
             }
             for candidate in &batch.candidates {
-                if let Some(cluster) = candidate.duplicate_cluster {
+                if let Some(cluster) = candidate.duplicate_cluster() {
                     evidence_clusters
-                        .entry(candidate.evidence_id)
+                        .entry(candidate.evidence_id())
                         .and_modify(|existing| *existing = (*existing).min(cluster))
                         .or_insert(cluster);
                 }
@@ -66,7 +66,7 @@ impl RankFusion for FixedKRrf {
             let mut compact_rank = 0usize;
             for candidate in &batch.candidates {
                 let identity =
-                    candidate_identity(candidate, evidence_clusters.get(&candidate.evidence_id));
+                    candidate_identity(candidate, evidence_clusters.get(&candidate.evidence_id()));
                 if !seen.insert(identity.clone()) {
                     continue;
                 }
@@ -87,7 +87,19 @@ impl RankFusion for FixedKRrf {
                     .or_insert(contribution);
                 let mut canonical_candidate = candidate.clone();
                 if let CandidateIdentity::Cluster(cluster_id) = &identity {
-                    canonical_candidate.duplicate_cluster = Some(*cluster_id);
+                    // The canonical member of a cluster carries the canonical
+                    // (minimum) cluster id; fields are private so rebuild.
+                    canonical_candidate = EvidenceCandidate::new(EvidenceCandidateDto {
+                        evidence_id: candidate.evidence_id(),
+                        artifact_version: candidate.artifact_version(),
+                        source_span: candidate.source_span().clone(),
+                        scores: candidate.scores().clone(),
+                        trust: candidate.trust(),
+                        freshness: candidate.freshness(),
+                        duplicate_cluster: Some(*cluster_id),
+                        reasons: candidate.reasons().to_vec(),
+                        coverage_keys: candidate.coverage_keys().to_vec(),
+                    })?;
                 }
                 let replace = best_candidates.get(&identity).is_none_or(|existing| {
                     candidate_order(&canonical_candidate) < candidate_order(existing)
@@ -122,16 +134,16 @@ fn candidate_identity(
     candidate: &EvidenceCandidate,
     normalized_cluster: Option<&maestria_domain::DuplicateClusterId>,
 ) -> CandidateIdentity {
-    if let Some(cluster_id) = normalized_cluster.or(candidate.duplicate_cluster.as_ref()) {
+    if let Some(cluster_id) = normalized_cluster.or(candidate.duplicate_cluster().as_ref()) {
         CandidateIdentity::Cluster(*cluster_id)
     } else {
-        CandidateIdentity::Exact(candidate.evidence_id)
+        CandidateIdentity::Exact(candidate.evidence_id())
     }
 }
 
 fn candidate_order(candidate: &EvidenceCandidate) -> (u64, u64) {
     (
-        candidate.evidence_id.value(),
-        candidate.artifact_version.value(),
+        candidate.evidence_id().value(),
+        candidate.artifact_version().value(),
     )
 }

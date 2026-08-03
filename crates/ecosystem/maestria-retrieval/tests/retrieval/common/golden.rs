@@ -1,10 +1,11 @@
 use maestria_domain::{
     ArtifactVersionId, ConflictSet, ConflictSetId, ContentRange, CorpusScope, CorpusSnapshotId,
-    EvidenceCandidate, EvidenceCoverage, EvidenceId, EvidenceRequirements, EvidenceSpan,
-    FreshnessRequirement, FreshnessStatus, IndexGenerationId, Modality, ModalitySet, QueryId,
-    RetrievalModelFingerprint, RetrievalReason, SearchBudget, SearchIntent, SearchOutcome,
-    SearchPlan, SearchStage, SearchStatus, SearchStopReason, SearchTrace, SearchTraceExpansion,
-    SearchTraceFilter, SourceLocation, StopConditions, TrustLabel,
+    EvidenceCandidate, EvidenceCandidateDto, EvidenceCoverage, EvidenceCoverageDto, EvidenceId,
+    EvidenceRequirements, EvidenceSpan, FreshnessRequirement, FreshnessStatus, IndexGenerationId,
+    Modality, ModalitySet, QueryId, RetrievalModelFingerprint, RetrievalReason, SearchBudget,
+    SearchIntent, SearchOutcome, SearchPlan, SearchStage, SearchStatus, SearchStopReason,
+    SearchTrace, SearchTraceExpansion, SearchTraceFilter, SourceLocation, StopConditions,
+    TrustLabel,
 };
 use maestria_retrieval::golden::{
     GoldenCorpus, GoldenFixture, GoldenGate, GoldenGateConfig, GoldenJudgment, GoldenObservation,
@@ -92,8 +93,7 @@ pub fn candidate_with_freshness(
     start: u32,
     freshness: FreshnessStatus,
 ) -> Result<EvidenceCandidate, Box<dyn std::error::Error>> {
-    Ok(EvidenceCandidate {
-        coverage_keys: vec![],
+    Ok(EvidenceCandidate::new(EvidenceCandidateDto {
         evidence_id: EvidenceId::new(id),
         artifact_version: ArtifactVersionId::new(100 + id),
         source_span: EvidenceSpan::new(
@@ -106,7 +106,8 @@ pub fn candidate_with_freshness(
         freshness,
         duplicate_cluster: None,
         reasons: vec![RetrievalReason::ExactMatch],
-    })
+        coverage_keys: vec![],
+    })?)
 }
 
 pub fn observation(
@@ -141,7 +142,7 @@ pub fn observation_with_profile_and_trace(
         status.clone(),
         filters,
         expansions,
-    );
+    )?;
     Ok(GoldenObservation {
         query_id: plan.query_id(),
         profile,
@@ -152,16 +153,16 @@ pub fn observation_with_profile_and_trace(
             index_generation: plan.index_generation(),
             status,
             evidence,
-            coverage: EvidenceCoverage {
+            coverage: EvidenceCoverage::new(EvidenceCoverageDto {
+                percent_covered: if evidence_empty { 0 } else { 100 },
+                gaps_identified: vec![],
                 required_claims: vec![],
                 required_subquestions: vec![],
                 distinct_sources: 0,
                 distinct_documents: 0,
                 distinct_sections: 0,
                 candidate_coverage_keys: vec![],
-                percent_covered: if evidence_empty { 0 } else { 100 },
-                gaps_identified: vec![],
-            },
+            })?,
             conflicts: vec![],
         },
         resources: ResourceMetrics {
@@ -182,7 +183,7 @@ pub fn fixture_trace(
     status: SearchStatus,
     filters: Vec<SearchTraceFilter>,
     expansions: Vec<SearchTraceExpansion>,
-) -> SearchTrace {
+) -> Result<SearchTrace, Box<dyn std::error::Error>> {
     let stop_reason = match &status {
         SearchStatus::Abstained => SearchStopReason::Abstained,
         SearchStatus::NoEvidenceFound => SearchStopReason::NoEvidence,
@@ -197,7 +198,7 @@ pub fn fixture_trace(
         }
         _ => SearchStopReason::EvidenceComplete,
     };
-    SearchTrace::from_plan(
+    Ok(SearchTrace::from_plan(
         plan,
         vec!["exact".to_owned()],
         evidence,
@@ -205,7 +206,7 @@ pub fn fixture_trace(
         Some("rrf-fixed-k60".to_owned()),
         expansions,
         stop_reason,
-    )
+    )?)
 }
 
 pub fn corpus(
@@ -376,12 +377,12 @@ pub fn fixture_queries(plans: &FixturePlans, evidence: &FixtureEvidence) -> Vec<
             SearchStatus::Answerable,
             vec![
                 GoldenJudgment {
-                    evidence_id: evidence.exact.evidence_id,
+                    evidence_id: evidence.exact.evidence_id(),
                     relevance: 3,
-                    exact_span: Some(evidence.exact.source_span.clone()),
+                    exact_span: Some(evidence.exact.source_span().clone()),
                 },
                 GoldenJudgment {
-                    evidence_id: evidence.lexical_hit.evidence_id,
+                    evidence_id: evidence.lexical_hit.evidence_id(),
                     relevance: 0,
                     exact_span: None,
                 },
@@ -392,14 +393,14 @@ pub fn fixture_queries(plans: &FixturePlans, evidence: &FixtureEvidence) -> Vec<
             SearchStatus::Answerable,
             vec![
                 GoldenJudgment {
-                    evidence_id: evidence.lexical_hit.evidence_id,
+                    evidence_id: evidence.lexical_hit.evidence_id(),
                     relevance: 2,
-                    exact_span: Some(evidence.lexical_hit.source_span.clone()),
+                    exact_span: Some(evidence.lexical_hit.source_span().clone()),
                 },
                 GoldenJudgment {
-                    evidence_id: evidence.lexical_noise.evidence_id,
+                    evidence_id: evidence.lexical_noise.evidence_id(),
                     relevance: 1,
-                    exact_span: Some(evidence.lexical_noise.source_span.clone()),
+                    exact_span: Some(evidence.lexical_noise.source_span().clone()),
                 },
             ],
         ),
@@ -407,9 +408,9 @@ pub fn fixture_queries(plans: &FixturePlans, evidence: &FixtureEvidence) -> Vec<
             &plans.hierarchy,
             SearchStatus::AnswerableWithWarnings,
             vec![GoldenJudgment {
-                evidence_id: evidence.hierarchy.evidence_id,
+                evidence_id: evidence.hierarchy.evidence_id(),
                 relevance: 2,
-                exact_span: Some(evidence.hierarchy.source_span.clone()),
+                exact_span: Some(evidence.hierarchy.source_span().clone()),
             }],
         ),
         golden_query(
@@ -417,9 +418,9 @@ pub fn fixture_queries(plans: &FixturePlans, evidence: &FixtureEvidence) -> Vec<
             SearchStatus::StaleEvidenceOnly,
             vec![
                 GoldenJudgment {
-                    evidence_id: evidence.stale.evidence_id,
+                    evidence_id: evidence.stale.evidence_id(),
                     relevance: 2,
-                    exact_span: Some(evidence.stale.source_span.clone()),
+                    exact_span: Some(evidence.stale.source_span().clone()),
                 },
                 GoldenJudgment {
                     evidence_id: EvidenceId::new(1499),
@@ -462,10 +463,10 @@ pub fn fixture_observations(
             SearchStatus::AnswerableWithWarnings,
             GoldenProfile::V0_4,
             vec![],
-            vec![SearchTraceExpansion {
-                strategy: "hierarchy".to_owned(),
-                added_candidates: Some(3),
-            }],
+            vec![SearchTraceExpansion::new(
+                maestria_domain::SearchExpansionStrategy::Hierarchy,
+                Some(3),
+            )],
         )?,
         observation_with_profile_and_trace(
             &plans.stale,
@@ -508,7 +509,15 @@ pub fn fixture_observations(
             vec![],
         )?,
     ];
+    apply_hierarchy_observation_conflicts(&mut observations)?;
+    Ok(observations)
+}
 
+/// Give the hierarchy observation its declared conflicts and partial
+/// coverage so golden expectations exercise the conflict/coverage fields.
+fn apply_hierarchy_observation_conflicts(
+    observations: &mut [GoldenObservation],
+) -> Result<(), Box<dyn std::error::Error>> {
     let hierarchy = observations
         .get_mut(2)
         .ok_or("hierarchy observation missing")?;
@@ -530,13 +539,22 @@ pub fn fixture_observations(
         trace.deterministic_id()
     };
     hierarchy.outcome.trace = trace_id;
-    hierarchy.outcome.coverage.percent_covered = 50;
-    hierarchy.outcome.coverage.gaps_identified = vec!["unresolved child section".to_owned()];
+    let coverage = hierarchy.outcome.coverage.clone();
+    hierarchy.outcome.coverage = EvidenceCoverage::new(EvidenceCoverageDto {
+        percent_covered: 50,
+        gaps_identified: vec!["unresolved child section".to_owned()],
+        required_claims: coverage.required_claims().to_vec(),
+        required_subquestions: coverage.required_subquestions().to_vec(),
+        distinct_sources: coverage.distinct_sources(),
+        distinct_documents: coverage.distinct_documents(),
+        distinct_sections: coverage.distinct_sections(),
+        candidate_coverage_keys: coverage.candidate_coverage_keys().to_vec(),
+    })?;
     hierarchy.outcome.conflicts = vec![ConflictSet {
         id: conflict_id,
         candidates: vec![conflict_candidate],
     }];
-    Ok(observations)
+    Ok(())
 }
 
 pub fn multi_query_fixture() -> Result<GoldenFixture, Box<dyn std::error::Error>> {

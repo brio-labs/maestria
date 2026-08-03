@@ -101,7 +101,7 @@ impl StoredEventPayload {
                 let kind = evidence_kind.try_into_domain().map_err(|source| {
                     maestria_ports::PortError::InternalContext {
                         context: "decode stored evidence kind",
-                        source,
+                        source: source.to_string(),
                     }
                 })?;
                 Ok(DomainEvent::EvidenceRecorded {

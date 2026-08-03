@@ -42,8 +42,8 @@ fn expansion_policy(
             .iter()
             .map(|candidate| candidate.candidate.clone())
             .collect(),
-        required_claims: initial.coverage.required_claims.clone(),
-        required_subquestions: initial.coverage.required_subquestions.clone(),
+        required_claims: initial.coverage.required_claims().to_vec(),
+        required_subquestions: initial.coverage.required_subquestions().to_vec(),
         authorization: authorization.clone(),
         execution_budget: match expansion_budget {
             Some(budget) => budget,
@@ -119,9 +119,9 @@ pub(crate) async fn run_diversity_stage(
     for candidate in expanded {
         let is_seed = selected_candidates
             .iter()
-            .any(|seed| seed.candidate.evidence_id == candidate.evidence_id);
+            .any(|seed| seed.candidate.evidence_id() == candidate.evidence_id());
         if !is_seed {
-            let range = candidate.source_span.range();
+            let range = candidate.source_span().range();
             let candidate_bytes = range.end().saturating_sub(range.start()) as u64;
             let mut candidate_usage = *execution_usage;
             candidate_usage.candidates = candidate_usage.candidates.saturating_add(1);
@@ -140,7 +140,7 @@ pub(crate) async fn run_diversity_stage(
         .enumerate()
         .map(|(rank, candidate)| RankedCandidate { candidate, rank })
         .collect::<Vec<_>>();
-    let mut final_diversity = crate::diversity::select_candidates(&expanded_ranked, plan);
+    let mut final_diversity = crate::diversity::select_candidates(&expanded_ranked, plan)?;
     if expansion_budget_exhausted {
         final_diversity.trace.stop_reason = maestria_domain::SearchStopReason::BudgetExhausted;
     }

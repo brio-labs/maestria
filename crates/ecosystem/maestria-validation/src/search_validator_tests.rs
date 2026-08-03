@@ -1,5 +1,6 @@
 use maestria_domain::{
-    ClaimId, ConflictSet, ConflictSetId, EvidenceId, EvidenceRequirements, FreshnessStatus,
+    ClaimId, ConflictSet, ConflictSetId, EvidenceCandidate, EvidenceCandidateDto, EvidenceCoverage,
+    EvidenceCoverageDto, EvidenceId, EvidenceRequirements, FreshnessStatus,
     SearchCompatibilityError, SearchStatus, ValidationReportId,
 };
 
@@ -75,7 +76,17 @@ fn candidate_provenance_validator_fails_for_missing_evidence_record()
 fn coverage_validator_fails_when_answerable_coverage_is_incomplete()
 -> Result<(), Box<dyn std::error::Error>> {
     let mut fixture = fixture()?;
-    fixture.outcome.coverage.percent_covered = 50;
+    let coverage = fixture.outcome.coverage.clone();
+    fixture.outcome.coverage = EvidenceCoverage::new(EvidenceCoverageDto {
+        percent_covered: 50,
+        gaps_identified: coverage.gaps_identified().to_vec(),
+        required_claims: coverage.required_claims().to_vec(),
+        required_subquestions: coverage.required_subquestions().to_vec(),
+        distinct_sources: coverage.distinct_sources(),
+        distinct_documents: coverage.distinct_documents(),
+        distinct_sections: coverage.distinct_sections(),
+        candidate_coverage_keys: coverage.candidate_coverage_keys().to_vec(),
+    })?;
     let check = CoverageValidator.validate(&fixture.context());
     assert!(!check.passed);
     assert!(check.message.contains("Answerable"));
@@ -107,8 +118,19 @@ fn conflict_validator_fails_when_status_and_members_mismatch()
 fn freshness_validator_fails_for_stale_high_rank_evidence() -> Result<(), Box<dyn std::error::Error>>
 {
     let mut fixture = fixture()?;
-    if let Some(candidate) = fixture.outcome.evidence.first_mut() {
-        candidate.freshness = FreshnessStatus::Stale;
+    if let Some(candidate) = fixture.outcome.evidence.first() {
+        let rebuilt = EvidenceCandidate::new(EvidenceCandidateDto {
+            evidence_id: candidate.evidence_id(),
+            artifact_version: candidate.artifact_version(),
+            source_span: candidate.source_span().clone(),
+            scores: candidate.scores().clone(),
+            trust: candidate.trust(),
+            freshness: FreshnessStatus::Stale,
+            duplicate_cluster: candidate.duplicate_cluster(),
+            reasons: candidate.reasons().to_vec(),
+            coverage_keys: candidate.coverage_keys().to_vec(),
+        })?;
+        fixture.outcome.evidence[0] = rebuilt;
     }
     let check = FreshnessValidator.validate(&fixture.context());
     assert!(!check.passed);

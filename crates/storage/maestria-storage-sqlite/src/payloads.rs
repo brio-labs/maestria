@@ -81,6 +81,9 @@ pub(crate) mod stored_search_outcome;
 #[path = "stored_search_trace.rs"]
 pub(crate) mod stored_search_trace;
 
+#[path = "stored_search_expansion.rs"]
+pub(crate) mod stored_search_expansion;
+
 #[path = "stored_search_trace_lane.rs"]
 pub(crate) mod stored_search_trace_lane;
 

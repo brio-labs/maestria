@@ -215,7 +215,7 @@ impl RetrievalEngine {
     pub async fn search(&self, plan: &SearchPlan) -> RetrievalResult<SearchOutcome> {
         self.validate_plan(plan)?;
         if maestria_governance::contains_prompt_injection_risk(plan.original_query()) {
-            return Ok(self.prompt_injection_outcome(plan));
+            return self.prompt_injection_outcome(plan);
         }
         let timeout_ms = plan.budgets().max_latency_ms() as u64;
         let started = tokio::time::Instant::now();
@@ -250,7 +250,7 @@ impl RetrievalEngine {
         if matches!(decision, maestria_governance::RetrievalDecision::Denied(_))
             && metadata.prompt_injection_risk
         {
-            return Ok(self.prompt_injection_outcome(plan));
+            return self.prompt_injection_outcome(plan);
         }
         let shadow_task = learned_sparse_shadow::spawn_learned_sparse_shadow(
             self.learned_sparse_shadow_retrievers(plan),
@@ -314,7 +314,7 @@ impl RetrievalEngine {
                     rewrites: state.rewrites.trace_records(),
                     explicit_stop_reason,
                 },
-            );
+            )?;
             outcome.verify_compatibility(plan)?;
             Ok(outcome)
         }

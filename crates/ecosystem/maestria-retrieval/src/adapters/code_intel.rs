@@ -6,9 +6,10 @@ use maestria_code_intel::{
     RepositoryFreshness, RepositoryIdentitySnapshot,
 };
 use maestria_domain::{
-    ContentRange, EvidenceCandidate, EvidenceKind, EvidenceSpan, FreshnessStatus,
-    IndexGenerationId, RetrievalReason, SearchExecution, SearchExecutionCompletion,
-    SearchExecutionResource, SearchExecutionUsage, SearchLaneStatus, SourceLocation,
+    ContentRange, EvidenceCandidate, EvidenceCandidateDto, EvidenceKind, EvidenceSpan,
+    FreshnessStatus, IndexGenerationId, RetrievalReason, SearchExecution,
+    SearchExecutionCompletion, SearchExecutionResource, SearchExecutionUsage, SearchLaneStatus,
+    SourceLocation,
 };
 use maestria_governance::scan_secrets;
 
@@ -129,7 +130,7 @@ impl CodeIntelRetriever {
                 observed.worktree_identity.clone(),
             );
         }
-        Ok(EvidenceCandidate {
+        Ok(EvidenceCandidate::new(EvidenceCandidateDto {
             evidence_id: binding.evidence.id,
             artifact_version: binding.artifact_version,
             source_span,
@@ -151,7 +152,7 @@ impl CodeIntelRetriever {
                 format!("symbol:{}", symbol.record_id),
                 format!("file:{}", symbol.provenance.file_path),
             ],
-        })
+        })?)
     }
     fn materialize_candidates(
         &self,

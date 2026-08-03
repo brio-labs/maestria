@@ -77,7 +77,7 @@ impl VisualReranker {
         candidates
             .iter()
             .map(|candidate| SearchTraceRerankCandidate {
-                candidate_id: candidate.candidate.evidence_id,
+                candidate_id: candidate.candidate.evidence_id(),
                 original_rank: candidate.rank,
                 position: position.clone(),
                 relevance_score: None,
@@ -131,7 +131,7 @@ impl VisualReranker {
 
     fn visual_candidate(candidate: &EvidenceCandidate) -> bool {
         matches!(
-            candidate.source_span.location(),
+            candidate.source_span().location(),
             SourceLocation::Page { .. } | SourceLocation::Region { .. }
         )
     }

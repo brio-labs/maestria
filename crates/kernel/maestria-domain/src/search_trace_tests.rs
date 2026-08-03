@@ -44,7 +44,7 @@ fn test_deterministic_id_with_diversity() -> Result<(), SearchCompatibilityError
         None,
         vec![],
         SearchStopReason::EvidenceComplete,
-    );
+    )?;
     let id1 = trace.deterministic_id();
     trace.diversity = Some(crate::SearchTraceDiversity {
         distinct_sources: 1,

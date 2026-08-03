@@ -2,12 +2,13 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use maestria_domain::{
     Artifact, ArtifactId, ArtifactVersionId, Claim, ClaimId, ClaimStatus, ContentHash,
-    ContentRange, CorpusScope, Evidence, EvidenceCandidate, EvidenceCoverage, EvidenceId,
-    EvidenceKind, EvidenceRequirements, EvidenceSpan, FreshnessRequirement, FreshnessStatus,
-    IndexGenerationId, IndexStatus, LineRange, LogicalTick, Modality, ModalitySet, QueryId,
-    RetrievalModelFingerprint, RetrievalReason, RetrievalScoreSet, SearchBudget, SearchIntent,
-    SearchOutcome, SearchPlan, SearchStage, SearchStatus, SearchStopReason, SearchTrace,
-    SearchTraceFilter, SecurityMetadata, SnapshotRef, SourceLocation, StopConditions, TrustLabel,
+    ContentRange, CorpusScope, Evidence, EvidenceCandidate, EvidenceCandidateDto, EvidenceCoverage,
+    EvidenceCoverageDto, EvidenceId, EvidenceKind, EvidenceRequirements, EvidenceSpan,
+    FreshnessRequirement, FreshnessStatus, IndexGenerationId, IndexStatus, LineRange, LogicalTick,
+    Modality, ModalitySet, QueryId, RetrievalModelFingerprint, RetrievalReason, RetrievalScoreSet,
+    SearchBudget, SearchIntent, SearchOutcome, SearchPlan, SearchStage, SearchStatus,
+    SearchStopReason, SearchTrace, SearchTraceFilter, SecurityMetadata, SnapshotRef,
+    SourceLocation, StopConditions, TrustLabel,
 };
 
 use super::{SearchValidationContext, ValidationContext};
@@ -128,7 +129,7 @@ pub fn plan() -> Result<SearchPlan, Box<dyn std::error::Error>> {
 }
 
 pub fn candidate() -> Result<EvidenceCandidate, Box<dyn std::error::Error>> {
-    Ok(EvidenceCandidate {
+    Ok(EvidenceCandidate::new(EvidenceCandidateDto {
         evidence_id: EvidenceId::new(10),
         artifact_version: ArtifactVersionId::new(12),
         source_span: EvidenceSpan::new(
@@ -142,7 +143,7 @@ pub fn candidate() -> Result<EvidenceCandidate, Box<dyn std::error::Error>> {
         duplicate_cluster: None,
         reasons: vec![RetrievalReason::ExactMatch],
         coverage_keys: Vec::new(),
-    })
+    })?)
 }
 
 pub fn evidence() -> Result<Evidence, Box<dyn std::error::Error>> {
@@ -182,7 +183,7 @@ pub fn fixture() -> Result<SearchFixture, Box<dyn std::error::Error>> {
         Some("rrf-fixed-k60".to_string()),
         Vec::new(),
         SearchStopReason::EvidenceComplete,
-    );
+    )?;
     trace = trace.with_policy_fingerprint(
         "trust=Some(Untrusted);sensitivity=Some(Internal);read_allowed=true;scope=None;unscoped=true"
             .to_string(),
@@ -194,7 +195,7 @@ pub fn fixture() -> Result<SearchFixture, Box<dyn std::error::Error>> {
         index_generation: plan.index_generation(),
         status: SearchStatus::Answerable,
         evidence: vec![candidate],
-        coverage: EvidenceCoverage {
+        coverage: EvidenceCoverage::new(EvidenceCoverageDto {
             percent_covered: 100,
             gaps_identified: Vec::new(),
             required_claims: Vec::new(),
@@ -203,7 +204,7 @@ pub fn fixture() -> Result<SearchFixture, Box<dyn std::error::Error>> {
             distinct_documents: 0,
             distinct_sections: 0,
             candidate_coverage_keys: Vec::new(),
-        },
+        })?,
         conflicts: Vec::new(),
     };
     Ok(SearchFixture {

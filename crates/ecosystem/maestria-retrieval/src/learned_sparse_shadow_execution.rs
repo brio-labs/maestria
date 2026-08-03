@@ -286,19 +286,19 @@ fn shadow_candidate(
     max_contributions: usize,
 ) -> Option<LearnedSparseShadowCandidate> {
     let score = candidate
-        .scores
+        .scores()
         .lane(&RetrievalScoreKind::LearnedSparse)?
         .clone();
-    candidate.reasons.iter().find_map(|reason| {
+    candidate.reasons().iter().find_map(|reason| {
         let RetrievalReason::LearnedSparse(reason) = reason else {
             return None;
         };
         let mut reason = reason.as_ref().clone();
         reason.contributions.truncate(max_contributions);
         Some(LearnedSparseShadowCandidate {
-            evidence_id: candidate.evidence_id,
-            artifact_version: candidate.artifact_version,
-            source_span: candidate.source_span.clone(),
+            evidence_id: candidate.evidence_id(),
+            artifact_version: candidate.artifact_version(),
+            source_span: candidate.source_span().clone(),
             lane_rank,
             score: score.clone(),
             reason,

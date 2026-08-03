@@ -38,7 +38,7 @@ impl RetrievalEvaluator for EvidenceOutcomeEvaluator {
             .enumerate()
             .map(|(rank, candidate)| RankedCandidate { candidate, rank })
             .collect::<Vec<_>>();
-        let selection = select_candidates(&ranked, &experiment.plan);
+        let selection = select_candidates(&ranked, &experiment.plan)?;
         let selected_evidence = selection
             .candidates
             .iter()
@@ -64,7 +64,7 @@ impl RetrievalEvaluator for EvidenceOutcomeEvaluator {
             None,
             Vec::new(),
             stop_reason,
-        )
+        )?
         .with_policy_fingerprint(policy_fingerprint);
         trace.diversity = Some(diversity);
         let outcome = SearchOutcome {

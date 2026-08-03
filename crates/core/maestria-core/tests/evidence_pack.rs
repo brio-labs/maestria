@@ -4,13 +4,14 @@ use maestria_core::{
 };
 use maestria_domain::{
     Artifact, ArtifactId, ArtifactVersionId, BlobId, Chunk, ChunkId, ConflictSet, ContentHash,
-    ContentRange, CorpusScope, CorpusSnapshotId, Evidence, EvidenceCandidate, EvidenceId,
-    EvidenceKind, EvidenceRequirements, EvidenceSpan, FreshnessRequirement, FreshnessStatus,
-    IndexGenerationId, IndexStatus, LineRange, LogicalTick, Modality, ModalitySet, QueryId,
-    RetrievalLaneScore, RetrievalModelFingerprint, RetrievalRawRank, RetrievalReason,
+    ContentRange, CorpusScope, CorpusSnapshotId, Evidence, EvidenceCandidate, EvidenceCandidateDto,
+    EvidenceId, EvidenceKind, EvidenceRequirements, EvidenceSpan, FreshnessRequirement,
+    FreshnessStatus, IndexGenerationId, IndexStatus, LineRange, LogicalTick, Modality, ModalitySet,
+    QueryId, RetrievalLaneScore, RetrievalModelFingerprint, RetrievalRawRank, RetrievalReason,
     RetrievalScoreFingerprint, RetrievalScoreKind, RetrievalScoreScale, RetrievalScoreSet,
     SearchBudget, SearchIntent, SearchPlan, SearchStage, SearchStopReason, SearchTrace,
-    SnapshotRef, SourceLocation, SourceSpan, StopConditions, StructureNodeId, TrustLabel,
+    SearchTraceCandidate, SearchTraceCandidateDto, SnapshotRef, SourceLocation, SourceSpan,
+    StopConditions, StructureNodeId, TrustLabel,
 };
 use std::error::Error;
 
@@ -72,7 +73,7 @@ fn trace_for(
     let evidence = evidence_ids
         .iter()
         .map(|evidence_id| {
-            Ok(EvidenceCandidate {
+            Ok(EvidenceCandidate::new(EvidenceCandidateDto {
                 evidence_id: *evidence_id,
                 artifact_version: ArtifactVersionId::new(101),
                 source_span: EvidenceSpan::new(
@@ -86,7 +87,7 @@ fn trace_for(
                 duplicate_cluster: None,
                 reasons: vec![RetrievalReason::ExactMatch],
                 coverage_keys: Vec::new(),
-            })
+            })?)
         })
         .collect::<Result<Vec<_>, Box<dyn Error>>>()?;
     let mut trace = SearchTrace::from_plan(
@@ -97,7 +98,7 @@ fn trace_for(
         None,
         Vec::new(),
         SearchStopReason::EvidenceComplete,
-    );
+    )?;
     trace.policy_fingerprint = Some("policy-v1".to_string());
     Ok(trace)
 }
@@ -325,11 +326,24 @@ fn freeze_rejects_mismatched_candidate_provenance() -> Result<(), Box<dyn Error>
     let evidence_id = hit.evidence.id;
     let plan = plan(Vec::new())?;
     let mut trace = trace_for(&plan, &[evidence_id])?;
-    trace.raw_candidates[0].source_span = EvidenceSpan::new(
+    let mismatched_span = EvidenceSpan::new(
         Some(StructureNodeId::new(1)),
         SourceLocation::file("source.md".to_string(), 2, 2)?,
         ContentRange::new(1, 1)?,
     )?;
+    let current = trace.raw_candidates[0].clone();
+    trace.raw_candidates[0] = SearchTraceCandidate::new(SearchTraceCandidateDto {
+        evidence_id: current.evidence_id(),
+        artifact_version: current.artifact_version(),
+        source_span: mismatched_span,
+        rank: current.rank(),
+        scores: current.scores().clone(),
+        trust: current.trust(),
+        freshness: current.freshness(),
+        duplicate_cluster: current.duplicate_cluster(),
+        reasons: current.reasons().to_vec(),
+        coverage_keys: current.coverage_keys().to_vec(),
+    })?;
     let mut pack = EvidencePack::from_plan(
         "evidence query".to_string(),
         Vec::new(),

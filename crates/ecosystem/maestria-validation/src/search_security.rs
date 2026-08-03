@@ -23,7 +23,7 @@ fn denied_candidate_count(
         .evidence
         .iter()
         .filter(|candidate| {
-            let Some(evidence) = search.evidence_record(candidate.evidence_id) else {
+            let Some(evidence) = search.evidence_record(candidate.evidence_id()) else {
                 return false;
             };
             let Some(artifact) = search.artifact_record(evidence.artifact_id) else {
@@ -128,7 +128,7 @@ impl Validator for RetrievalSecurityValidator {
                 .outcome
                 .evidence
                 .iter()
-                .filter(|candidate| search.evidence_record(candidate.evidence_id).is_none())
+                .filter(|candidate| search.evidence_record(candidate.evidence_id()).is_none())
                 .count();
             if missing_filters == 0 && denied_count == 0 && missing_records == 0 {
                 Ok("retrieval filters and evidence security metadata permit release".to_string())
@@ -181,7 +181,7 @@ impl Validator for SearchRegressionValidator {
                 errors.push("outcome contains duplicate candidate ids".to_string());
             }
             if trace.stop_reason == SearchStopReason::EvidenceComplete
-                && search.outcome.coverage.percent_covered != 100
+                && search.outcome.coverage.percent_covered() != 100
                 && search.outcome.status == SearchStatus::Answerable
             {
                 errors.push(

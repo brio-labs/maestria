@@ -1,9 +1,9 @@
 use maestria_domain::{
     ArtifactVersionId, ContentRange, CorpusScope, CorpusSnapshotId, DuplicateClusterId,
-    EvidenceCandidate, EvidenceRequirements, EvidenceSpan, FreshnessRequirement, FreshnessStatus,
-    IndexGenerationId, Modality, ModalitySet, QueryId, RetrievalModelFingerprint,
-    RetrievalScoreSet, SearchBudget, SearchIntent, SearchPlan, SearchStage, SearchStatus,
-    SourceLocation, StopConditions, StructureNodeId, TrustLabel,
+    EvidenceCandidate, EvidenceCandidateDto, EvidenceRequirements, EvidenceSpan,
+    FreshnessRequirement, FreshnessStatus, IndexGenerationId, Modality, ModalitySet, QueryId,
+    RetrievalModelFingerprint, RetrievalScoreSet, SearchBudget, SearchIntent, SearchPlan,
+    SearchStage, SearchStatus, SourceLocation, StopConditions, StructureNodeId, TrustLabel,
 };
 use maestria_retrieval::diversity::select_candidates;
 use maestria_retrieval::types::RankedCandidate;
@@ -109,7 +109,7 @@ fn candidate(
 ) -> Result<RankedCandidate, Box<dyn std::error::Error>> {
     Ok(RankedCandidate {
         rank: id as usize,
-        candidate: EvidenceCandidate {
+        candidate: EvidenceCandidate::new(EvidenceCandidateDto {
             evidence_id: maestria_domain::EvidenceId::new(id),
             artifact_version: ArtifactVersionId::new(artifact),
             source_span: EvidenceSpan::new(
@@ -123,7 +123,7 @@ fn candidate(
             duplicate_cluster: duplicate_cluster.map(DuplicateClusterId::new),
             reasons: vec![],
             coverage_keys: coverage_keys.iter().map(|key| (*key).to_string()).collect(),
-        },
+        })?,
     })
 }
 
@@ -135,11 +135,11 @@ fn suppresses_duplicate_clusters_and_preserves_rank_order() -> Result<(), Box<dy
         candidate(2, 2, "b.md", 2, &[], Some(9), FreshnessStatus::UpToDate)?,
         candidate(3, 3, "c.md", 3, &[], None, FreshnessStatus::UpToDate)?,
     ];
-    let selection = select_candidates(&candidates, &plan(requirements(), 10)?);
+    let selection = select_candidates(&candidates, &plan(requirements(), 10)?)?;
 
     assert_eq!(selection.candidates.len(), 2);
-    assert_eq!(selection.candidates[0].candidate.evidence_id.value(), 1);
-    assert_eq!(selection.candidates[1].candidate.evidence_id.value(), 3);
+    assert_eq!(selection.candidates[0].candidate.evidence_id().value(), 1);
+    assert_eq!(selection.candidates[1].candidate.evidence_id().value(), 3);
     assert_eq!(selection.trace.candidates.len(), 3);
     assert_eq!(
         selection.trace.candidates[1].placement,
@@ -172,14 +172,14 @@ fn maps_required_coverage_and_enforces_independent_origins()
         )?,
     ];
 
-    let selection = select_candidates(&candidates, &plan(required, 10)?);
+    let selection = select_candidates(&candidates, &plan(required, 10)?)?;
 
     assert_eq!(selection.status, SearchStatus::Answerable);
-    assert_eq!(selection.coverage.percent_covered, 100);
-    assert!(selection.coverage.gaps_identified.is_empty());
-    assert_eq!(selection.coverage.distinct_sources, 2);
-    assert_eq!(selection.coverage.distinct_documents, 2);
-    assert_eq!(selection.coverage.distinct_sections, 2);
+    assert_eq!(selection.coverage.percent_covered(), 100);
+    assert!(selection.coverage.gaps_identified().is_empty());
+    assert_eq!(selection.coverage.distinct_sources(), 2);
+    assert_eq!(selection.coverage.distinct_documents(), 2);
+    assert_eq!(selection.coverage.distinct_sections(), 2);
     Ok(())
 }
 
@@ -190,7 +190,7 @@ fn stops_when_marginal_gain_is_zero_after_requirements_are_met()
         candidate(1, 1, "a.md", 1, &[], None, FreshnessStatus::UpToDate)?,
         candidate(2, 1, "a.md", 1, &[], None, FreshnessStatus::UpToDate)?,
     ];
-    let selection = select_candidates(&candidates, &plan(requirements(), 10)?);
+    let selection = select_candidates(&candidates, &plan(requirements(), 10)?)?;
 
     assert_eq!(selection.candidates.len(), 1);
     assert_eq!(
@@ -213,12 +213,12 @@ fn returns_stale_and_empty_outcomes() -> Result<(), Box<dyn std::error::Error>> 
             FreshnessStatus::Stale,
         )?],
         &plan(requirements(), 10)?,
-    );
+    )?;
     assert_eq!(stale.status, SearchStatus::StaleEvidenceOnly);
 
-    let empty = select_candidates(&[], &plan(requirements(), 10)?);
+    let empty = select_candidates(&[], &plan(requirements(), 10)?)?;
     assert_eq!(empty.status, SearchStatus::NoEvidenceFound);
-    assert_eq!(empty.coverage.percent_covered, 0);
+    assert_eq!(empty.coverage.percent_covered(), 0);
     Ok(())
 }
 
@@ -231,8 +231,8 @@ fn selection_and_trace_are_deterministic() -> Result<(), Box<dyn std::error::Err
     let mut required = requirements();
     required.required_claims = vec!["claim".to_string()];
     required.required_subquestions = vec!["sub".to_string()];
-    let first = select_candidates(&candidates, &plan(required.clone(), 10)?);
-    let second = select_candidates(&candidates, &plan(required, 10)?);
+    let first = select_candidates(&candidates, &plan(required.clone(), 10)?)?;
+    let second = select_candidates(&candidates, &plan(required, 10)?)?;
 
     assert_eq!(first, second);
     Ok(())

@@ -2,10 +2,10 @@ pub mod golden;
 
 use maestria_domain::{
     ArtifactVersionId, ContentRange, CorpusScope, CorpusSnapshotId, EvidenceCandidate,
-    EvidenceRequirements, EvidenceSpan, FreshnessRequirement, FreshnessStatus, IndexGenerationId,
-    Modality, ModalitySet, QueryId, RetrievalModelFingerprint, RetrievalReason, RetrievalScoreSet,
-    SearchBudget, SearchIntent, SearchPlan, SearchStage, SourceLocation, StopConditions,
-    StructureNodeId, TrustLabel,
+    EvidenceCandidateDto, EvidenceRequirements, EvidenceSpan, FreshnessRequirement,
+    FreshnessStatus, IndexGenerationId, Modality, ModalitySet, QueryId, RetrievalModelFingerprint,
+    RetrievalReason, RetrievalScoreSet, SearchBudget, SearchIntent, SearchPlan, SearchStage,
+    SourceLocation, StopConditions, StructureNodeId, TrustLabel,
 };
 use maestria_retrieval::{RetrievalError, RetrievalResult};
 
@@ -61,8 +61,7 @@ pub fn fixture_scores(
 }
 
 pub fn candidate_fixture() -> RetrievalResult<EvidenceCandidate> {
-    Ok(EvidenceCandidate {
-        coverage_keys: vec![],
+    Ok(EvidenceCandidate::new(EvidenceCandidateDto {
         evidence_id: maestria_domain::EvidenceId::new(23),
         artifact_version: ArtifactVersionId::new(19),
         source_span: EvidenceSpan::new(
@@ -76,7 +75,8 @@ pub fn candidate_fixture() -> RetrievalResult<EvidenceCandidate> {
         freshness: FreshnessStatus::UpToDate,
         duplicate_cluster: Some(maestria_domain::DuplicateClusterId::new(31)),
         reasons: vec![RetrievalReason::ExactMatch, RetrievalReason::CitationLink],
-    })
+        coverage_keys: vec![],
+    })?)
 }
 
 pub fn dummy_plan() -> RetrievalResult<SearchPlan> {

@@ -213,7 +213,7 @@ fn vector_search_returns_grounded_nonliteral_match() -> Result<(), Box<dyn std::
     let outcome = execute_search(&engine, &plan)?;
     assert_eq!(outcome.status, SearchStatus::Answerable);
     assert_eq!(outcome.evidence.len(), 1);
-    assert_eq!(outcome.evidence[0].artifact_version.value(), fixture.artifact_id.value());
-    assert_eq!(outcome.evidence[0].evidence_id, fixture.evidence_id);
+    assert_eq!(outcome.evidence[0].artifact_version().value(), fixture.artifact_id.value());
+    assert_eq!(outcome.evidence[0].evidence_id(), fixture.evidence_id);
     Ok(())
 }

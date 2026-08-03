@@ -13,6 +13,13 @@ use crate::helpers;
 pub(crate) const TASK_WORKSPACE_SUBDIRECTORIES: [&str; 5] =
     ["context", "evidence", "drafts", "validation", "artifacts"];
 
+/// Open a task under the instance mutation session.
+///
+/// # Cancellation
+/// Dropping this future tears down the CLI-side session (instance lock
+/// released, runtime shutdown requested). A task-open command already
+/// accepted by the runtime may still reach durable state; inspect durable
+/// state before retrying an interrupted command.
 pub async fn run_start(
     instance_dir: PathBuf,
     title: String,
@@ -54,6 +61,13 @@ pub async fn run_start(
     Ok(())
 }
 
+/// Link evidence to a task under the instance mutation session.
+///
+/// # Cancellation
+/// Dropping this future tears down the CLI-side session (instance lock
+/// released, runtime shutdown requested). A link command already accepted by
+/// the runtime may still reach durable state; inspect durable state before
+/// retrying an interrupted command.
 pub async fn run_add_evidence(instance_dir: PathBuf, task_id: u64, evidence_id: u64) -> Result<()> {
     let layout = helpers::ensure_instance(instance_dir)?;
     let session =

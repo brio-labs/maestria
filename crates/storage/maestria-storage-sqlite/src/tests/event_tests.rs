@@ -450,7 +450,7 @@ fn search_knowledge_completed_roundtrips_through_appended_scan() -> Result<(), P
         index_generation: IndexGenerationId::new(3),
         status: SearchStatus::NoEvidenceFound,
         evidence: Vec::new(),
-        coverage: EvidenceCoverage {
+        coverage: EvidenceCoverage::new(EvidenceCoverageDto {
             percent_covered: 0,
             gaps_identified: vec!["no evidence".to_string()],
             required_claims: vec![],
@@ -459,7 +459,10 @@ fn search_knowledge_completed_roundtrips_through_appended_scan() -> Result<(), P
             distinct_documents: 0,
             distinct_sections: 0,
             candidate_coverage_keys: vec![],
-        },
+        })
+        .map_err(|error| PortError::Internal {
+            message: error.to_string(),
+        })?,
         conflicts: Vec::new(),
     };
     let envelope = DomainEventEnvelope {
@@ -622,7 +625,7 @@ fn malformed_evidence_snapshot_reports_validation_cause() -> Result<(), Box<dyn 
         PortError::InternalContext {
             context: "decode stored evidence kind",
             source
-        } if source.contains("invalid snapshot content hash")
+        } if source.contains("decode stored evidence snapshot content hash")
     ));
     Ok(())
 }
@@ -644,7 +647,7 @@ fn malformed_evidence_line_range_reports_validation_cause() -> Result<(), Box<dy
         PortError::InternalContext {
             context: "decode stored evidence kind",
             source
-        } if source.contains("invalid evidence line range")
+        } if source.contains("decode stored evidence line range")
     ));
     Ok(())
 }

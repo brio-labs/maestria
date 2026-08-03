@@ -24,7 +24,7 @@ fn span_matches_record(
     candidate: &maestria_domain::EvidenceCandidate,
     evidence: &maestria_domain::Evidence,
 ) -> bool {
-    match (&candidate.source_span.location(), &evidence.kind) {
+    match (candidate.source_span().location(), &evidence.kind) {
         (
             SourceLocation::File { path, .. },
             EvidenceKind::FileSpan {
@@ -33,7 +33,7 @@ fn span_matches_record(
                 ..
             },
         ) => {
-            let candidate_range = candidate.source_span.range();
+            let candidate_range = candidate.source_span().range();
             path == evidence_path
                 && candidate_range.start() == range.start()
                 && candidate_range.end() == range.end()
@@ -51,8 +51,8 @@ fn span_matches_record(
         ) => {
             page_start == evidence_start
                 && page_end == evidence_end
-                && candidate.source_span.range().start() == 0
-                && candidate.source_span.range().end() == 1
+                && candidate.source_span().range().start() == 0
+                && candidate.source_span().range().end() == 1
         }
         (
             SourceLocation::Region {
@@ -76,11 +76,11 @@ fn span_matches_record(
                 && y == evidence_y
                 && width == evidence_width
                 && height == evidence_height
-                && candidate.source_span.range().start() == 0
-                && candidate.source_span.range().end() == 1
+                && candidate.source_span().range().start() == 0
+                && candidate.source_span().range().end() == 1
         }
         (SourceLocation::Symbol { .. }, EvidenceKind::WebSnapshot { url, .. }) => {
-            symbol_span_matches(&candidate.source_span, url, "web_snapshot")
+            symbol_span_matches(candidate.source_span(), url, "web_snapshot")
         }
         (
             SourceLocation::Symbol { .. },
@@ -90,7 +90,7 @@ fn span_matches_record(
                 ..
             },
         ) => symbol_span_matches(
-            &candidate.source_span,
+            candidate.source_span(),
             &format!("harness:{}", harness_run.value()),
             &format!("command_output:{stream:?}"),
         ),
@@ -102,20 +102,20 @@ fn span_matches_record(
                 ..
             },
         ) => symbol_span_matches(
-            &candidate.source_span,
+            candidate.source_span(),
             &format!("harness:{}", harness_run.value()),
             &format!("test_result:{status:?}"),
         ),
         (SourceLocation::Symbol { .. }, EvidenceKind::Diff { harness_run, .. }) => {
             symbol_span_matches(
-                &candidate.source_span,
+                candidate.source_span(),
                 &format!("harness:{}", harness_run.value()),
                 "diff",
             )
         }
         (SourceLocation::Symbol { .. }, EvidenceKind::Validation { report_id }) => {
             symbol_span_matches(
-                &candidate.source_span,
+                candidate.source_span(),
                 &format!("report:{}", report_id.value()),
                 "validation",
             )
@@ -138,9 +138,9 @@ fn candidate_matches_record(
     candidate: &maestria_domain::EvidenceCandidate,
     evidence: &maestria_domain::Evidence,
 ) -> bool {
-    candidate.artifact_version.value() == evidence.artifact_id.value()
+    candidate.artifact_version().value() == evidence.artifact_id.value()
         && span_matches_record(candidate, evidence)
-        && candidate.trust == expected_trust(evidence)
+        && candidate.trust() == expected_trust(evidence)
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -164,7 +164,7 @@ impl Validator for CandidateProvenanceValidator {
                 .iter()
                 .filter(|candidate| {
                     search
-                        .evidence_record(candidate.evidence_id)
+                        .evidence_record(candidate.evidence_id())
                         .is_none_or(|evidence| !candidate_matches_record(candidate, evidence))
                 })
                 .count();

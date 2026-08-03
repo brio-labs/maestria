@@ -303,7 +303,7 @@ async fn search_and_open_evidence_after_restart(
         results
             .evidence
             .iter()
-            .any(|candidate| candidate.evidence_id == evidence_id),
+            .any(|candidate| candidate.evidence_id() == evidence_id),
         "shared retrieval runtime should return the indexed evidence"
     );
     Ok(())

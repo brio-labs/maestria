@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use maestria_domain::RerankPosition;
+use maestria_domain::{EvidenceCandidate, EvidenceCandidateDto, RerankPosition};
 use maestria_retrieval::bounded_reranker::BoundedReranker;
 use maestria_retrieval::traits::{CandidateReranker, RerankScorer};
 use maestria_retrieval::types::{
@@ -31,7 +31,7 @@ impl RerankScorer for MockScorer {
         &self,
         input: RerankScorerInput,
     ) -> Result<RerankScoreComponents, RetrievalError> {
-        let id_val = input.candidate.evidence_id.value();
+        let id_val = input.candidate.evidence_id().value();
         if id_val == 999 {
             return Err(RetrievalError::Timeout);
         }
@@ -49,8 +49,18 @@ impl RerankScorer for MockScorer {
 }
 
 fn create_test_candidate(id: u64, rank: usize) -> RetrievalResult<RankedCandidate> {
-    let mut candidate = candidate_fixture()?;
-    candidate.evidence_id = maestria_domain::EvidenceId::new(id);
+    let base = candidate_fixture()?;
+    let candidate = EvidenceCandidate::new(EvidenceCandidateDto {
+        evidence_id: maestria_domain::EvidenceId::new(id),
+        artifact_version: base.artifact_version(),
+        source_span: base.source_span().clone(),
+        scores: base.scores().clone(),
+        trust: base.trust(),
+        freshness: base.freshness(),
+        duplicate_cluster: base.duplicate_cluster(),
+        reasons: base.reasons().to_vec(),
+        coverage_keys: base.coverage_keys().to_vec(),
+    })?;
     Ok(RankedCandidate { candidate, rank })
 }
 
@@ -86,8 +96,8 @@ async fn test_bounded_reranker_limits_and_trace() -> RetrievalResult<()> {
     let result = reranker.rerank(request).await?;
 
     assert_eq!(result.candidates.len(), 2);
-    assert_eq!(result.candidates[0].candidate.evidence_id.value(), 3);
-    assert_eq!(result.candidates[1].candidate.evidence_id.value(), 2);
+    assert_eq!(result.candidates[0].candidate.evidence_id().value(), 3);
+    assert_eq!(result.candidates[1].candidate.evidence_id().value(), 2);
 
     let trace = result.trace;
     assert_eq!(trace.candidates.len(), 6);
@@ -168,9 +178,9 @@ async fn test_bounded_reranker_fallback() -> RetrievalResult<()> {
 
     let result = reranker.rerank(request).await?;
 
-    assert_eq!(result.candidates[0].candidate.evidence_id.value(), 2);
-    assert_eq!(result.candidates[1].candidate.evidence_id.value(), 1);
-    assert_eq!(result.candidates[2].candidate.evidence_id.value(), 999);
+    assert_eq!(result.candidates[0].candidate.evidence_id().value(), 2);
+    assert_eq!(result.candidates[1].candidate.evidence_id().value(), 1);
+    assert_eq!(result.candidates[2].candidate.evidence_id().value(), 999);
 
     let trace = result.trace;
     let c999 = trace

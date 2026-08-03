@@ -44,7 +44,7 @@ impl VisualReranker {
         let evidence = self
             .parts
             .evidence
-            .get(candidate.candidate.evidence_id)
+            .get(candidate.candidate.evidence_id())
             .map_err(|error| RetrievalError::Internal(error.to_string()).to_string())?
             .ok_or_else(|| "visual reranker evidence is missing".to_string())?;
         let (source, bytes) = self

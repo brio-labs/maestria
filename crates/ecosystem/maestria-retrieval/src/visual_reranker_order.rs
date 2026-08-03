@@ -38,7 +38,7 @@ pub(super) fn reorder_visual_candidates(
             .find(|(selected_position, _)| *selected_position == source_position)
         {
             trace[slot] = SearchTraceRerankCandidate {
-                candidate_id: reranked[slot].candidate.evidence_id,
+                candidate_id: reranked[slot].candidate.evidence_id(),
                 original_rank: candidates[source_position].rank,
                 position: RerankPosition::Reranked(slot),
                 relevance_score: Some(*score),
@@ -49,7 +49,7 @@ pub(super) fn reorder_visual_candidates(
             };
         } else {
             trace[slot] = SearchTraceRerankCandidate {
-                candidate_id: reranked[slot].candidate.evidence_id,
+                candidate_id: reranked[slot].candidate.evidence_id(),
                 original_rank: candidates[source_position].rank,
                 position: RerankPosition::SkippedCap,
                 relevance_score: None,

@@ -188,10 +188,13 @@ fn candidate_ids_are_deterministic() -> Result<(), Box<dyn std::error::Error>> {
         None,
         0,
     )?;
-    assert_eq!(candidate_a.evidence_id, candidate_b.evidence_id);
-    assert_eq!(candidate_a.artifact_version, candidate_b.artifact_version);
-    assert_eq!(candidate_a.evidence_id, EvidenceId::new(79));
-    assert_eq!(candidate_a.artifact_version, ArtifactVersionId::new(73));
+    assert_eq!(candidate_a.evidence_id(), candidate_b.evidence_id());
+    assert_eq!(
+        candidate_a.artifact_version(),
+        candidate_b.artifact_version()
+    );
+    assert_eq!(candidate_a.evidence_id(), EvidenceId::new(79));
+    assert_eq!(candidate_a.artifact_version(), ArtifactVersionId::new(73));
     Ok(())
 }
 
@@ -208,23 +211,23 @@ fn candidate_includes_expected_code_source_provenance() -> Result<(), Box<dyn st
         3,
     )?;
     assert_eq!(
-        candidate.source_span.location(),
+        candidate.source_span().location(),
         &SourceLocation::File {
             path: "/root/repo/src/lib.rs".to_string(),
             start_line: 10,
             end_line: 15
         }
     );
-    assert_eq!(candidate.source_span.range().start(), 10);
-    assert_eq!(candidate.source_span.range().end(), 15);
-    assert_eq!(candidate.freshness, FreshnessStatus::UpToDate);
+    assert_eq!(candidate.source_span().range().start(), 10);
+    assert_eq!(candidate.source_span().range().end(), 15);
+    assert_eq!(candidate.freshness(), FreshnessStatus::UpToDate);
     assert_eq!(
-        candidate.coverage_keys,
+        candidate.coverage_keys(),
         vec!["symbol:rec-1", "file:src/lib.rs"]
     );
     // The retrieval-time freshness read must be preserved as evidence in the
     // candidate provenance (R51), distinct from the indexed identity.
-    let components = &candidate.scores.lanes[0].fingerprint.components;
+    let components = &candidate.scores().lanes[0].fingerprint.components;
     assert_eq!(
         components.get("observed_commit_sha"),
         Some(&"live-commit".to_string())

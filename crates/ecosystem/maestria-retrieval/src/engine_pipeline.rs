@@ -1,5 +1,6 @@
 use maestria_domain::{
     SearchExecutionBudget, SearchExecutionCompletion, SearchExecutionUsage, SearchPlan,
+    SearchTraceLaneCandidateDto,
 };
 use maestria_ports::SearchQuery;
 use std::sync::Arc;
@@ -354,31 +355,35 @@ pub(super) async fn collect_missing_slot_batches(
 
 pub(super) fn trace_lanes(
     batches: &[crate::types::CandidateBatch],
-) -> Vec<maestria_domain::SearchTraceLane> {
+) -> RetrievalResult<Vec<maestria_domain::SearchTraceLane>> {
     batches
         .iter()
-        .map(|batch| maestria_domain::SearchTraceLane {
-            retriever_id: batch.descriptor.id.clone(),
-            query: batch.query.clone(),
-            generation: Some(batch.descriptor.generation),
-            status: batch.status.clone(),
-            execution: batch.execution,
-            candidates: batch
-                .candidates
-                .iter()
-                .enumerate()
-                .map(
-                    |(rank, candidate)| maestria_domain::SearchTraceLaneCandidate {
-                        evidence_id: candidate.evidence_id,
-                        artifact_version: candidate.artifact_version,
-                        source_span: candidate.source_span.clone(),
-                        lane_rank: (rank + 1) as u32,
-                        duplicate_cluster: candidate.duplicate_cluster,
-                        scores: candidate.scores.clone(),
-                        reasons: candidate.reasons.clone(),
-                    },
-                )
-                .collect(),
+        .map(|batch| {
+            Ok(maestria_domain::SearchTraceLane {
+                retriever_id: batch.descriptor.id.clone(),
+                query: batch.query.clone(),
+                generation: Some(batch.descriptor.generation),
+                status: batch.status.clone(),
+                execution: batch.execution,
+                candidates: batch
+                    .candidates
+                    .iter()
+                    .enumerate()
+                    .map(|(rank, candidate)| {
+                        maestria_domain::SearchTraceLaneCandidate::new(
+                            SearchTraceLaneCandidateDto {
+                                evidence_id: candidate.evidence_id(),
+                                artifact_version: candidate.artifact_version(),
+                                source_span: candidate.source_span().clone(),
+                                lane_rank: (rank + 1) as u32,
+                                duplicate_cluster: candidate.duplicate_cluster(),
+                                scores: candidate.scores().clone(),
+                                reasons: candidate.reasons().to_vec(),
+                            },
+                        )
+                    })
+                    .collect::<Result<Vec<_>, _>>()?,
+            })
         })
         .collect()
 }

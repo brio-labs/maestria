@@ -142,6 +142,13 @@ async fn drain_validation_recovery(
 // Public command
 // ---------------------------------------------------------------------------
 
+/// Index files into the instance under the mutation session.
+///
+/// # Cancellation
+/// Dropping this future tears down the CLI-side session (instance lock
+/// released, runtime shutdown requested). Files already accepted by the
+/// runtime may still be indexed to durable state; inspect the index before
+/// retrying an interrupted command.
 pub async fn run(instance_dir: PathBuf, path: PathBuf, recursive: bool) -> Result<()> {
     let layout = helpers::ensure_instance(instance_dir)?;
     let manifest = helpers::load_manifest(&layout)?;

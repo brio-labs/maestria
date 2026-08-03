@@ -241,7 +241,7 @@ fn validate_trace_evidence(
     let trace_evidence_ids = trace
         .raw_candidates
         .iter()
-        .map(|candidate| candidate.evidence_id)
+        .map(|candidate| candidate.evidence_id())
         .collect::<Vec<_>>();
     if trace_evidence_ids != pack.evidence_ids {
         return Err(EvidencePackError::InvalidFreeze(
@@ -251,9 +251,9 @@ fn validate_trace_evidence(
     if trace.raw_candidates.iter().any(|candidate| {
         !pack.chunks.iter().any(|hit| {
             candidate_provenance_matches_hit(
-                candidate.evidence_id,
-                candidate.artifact_version,
-                &candidate.source_span,
+                candidate.evidence_id(),
+                candidate.artifact_version(),
+                candidate.source_span(),
                 hit,
             )
         })
@@ -283,7 +283,7 @@ fn validate_pack_materialization(pack: &EvidencePack) -> Result<(), EvidencePack
             .conflicts
             .iter()
             .flat_map(|conflict| conflict.candidates.iter())
-            .map(|candidate| candidate.evidence_id),
+            .map(|candidate| candidate.evidence_id()),
     );
     if metadata_references.any(|evidence_id| {
         !chunk_ids.contains(&evidence_id) && !compression_source_ids.contains(&evidence_id)

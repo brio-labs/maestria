@@ -78,7 +78,7 @@ pub(super) fn render_trace(plan: &SearchPlan, outcome: &SearchOutcome) -> Result
         trace
             .raw_candidates
             .iter()
-            .map(|candidate| (&candidate.freshness, &candidate.trust))
+            .map(|candidate| (candidate.freshness(), candidate.trust()))
             .collect::<Vec<_>>()
     );
     println!(
@@ -86,7 +86,7 @@ pub(super) fn render_trace(plan: &SearchPlan, outcome: &SearchOutcome) -> Result
         trace
             .raw_candidates
             .iter()
-            .map(|candidate| candidate.duplicate_cluster)
+            .map(|candidate| candidate.duplicate_cluster())
             .collect::<Vec<_>>()
     );
     println!("missing_claims={:?}", trace.missing_evidence);

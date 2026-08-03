@@ -153,12 +153,12 @@ impl EvidencePack {
                 .iter()
                 .flat_map(|conflict| &conflict.candidates)
                 .any(|candidate| {
-                    !available.contains(&candidate.evidence_id)
+                    !available.contains(&candidate.evidence_id())
                         || !self.chunks.iter().any(|hit| {
                             crate::evidence_pack_provenance::candidate_provenance_matches_hit(
-                                candidate.evidence_id,
-                                candidate.artifact_version,
-                                &candidate.source_span,
+                                candidate.evidence_id(),
+                                candidate.artifact_version(),
+                                candidate.source_span(),
                                 hit,
                             )
                         })
