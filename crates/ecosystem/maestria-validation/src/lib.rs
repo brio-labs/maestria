@@ -48,3 +48,12 @@ mod search_validator_tests;
 mod test_fixtures;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+#[path = "tests_harness.rs"]
+mod tests_harness;
+#[cfg(test)]
+#[path = "tests_memory.rs"]
+mod tests_memory;
+#[cfg(test)]
+#[path = "tests_task_state.rs"]
+mod tests_task_state;
