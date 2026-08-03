@@ -135,6 +135,40 @@ _SECRET_PLACEHOLDER_VALUES = {"xxx", "changeme", "example", "placeholder"}
 # legitimate use in this repository's Rust (checked against the workspace);
 # `transmute` silently reinterprets bits, `static mut` is a data-race class,
 # and `Box::leak`/`mem::forget` are deliberate leak hooks.
+# Whole-bug-class bans for unchecked/UB-adjacent APIs. These "skip the
+# check" calls (unsound UTF-8 casts, raw-pointer construction, unchecked
+# indexing, `transmute_copy`, zeroed/uninitialized memory) have no
+# legitimate use in this repository (census-validated against the
+# workspace); the harness's confined unsafe file-handle code uses checked
+# alternatives.
+UNCHECKED_API_PATTERNS = (
+    (r"\b(?:String::)?from_utf8_unchecked\s*\(", "a from_utf8_unchecked call"),
+    (r"\bfrom_utf16_unchecked\s*\(", "a from_utf16_unchecked call"),
+    (r"\b(?:std::)?slice::from_raw_parts(?:_mut)?\s*\(", "a slice::from_raw_parts call"),
+    (r"\bNonNull::new_unchecked\s*\(", "a NonNull::new_unchecked call"),
+    (r"\b(?:std::hint::)?unreachable_unchecked\s*\(", "an unreachable_unchecked call"),
+    (r"\bget_unchecked(?:_mut)?\s*\(", "a get_unchecked call"),
+    (r"\b(?:std::mem::)?transmute_copy(?:\s*::)?(?:\s*<[^>]*>)?\s*\(", "a transmute_copy call"),
+    (r"\b(?:std::)?mem::zeroed\s*\(", "a mem::zeroed call"),
+    (r"\b(?:std::)?mem::uninitialized\s*\(", "a mem::uninitialized call"),
+)
+
+# Task markers and unreachable guarantees as source tokens. The clippy
+# `panic` gate already rejects these in every target; this scan keeps the
+# ban enforced even when clippy flags are relaxed (defense-in-depth, like
+# the assert-family scan). String and comment contexts are scrubbed so
+# tests that reference the tokens do not self-flag.
+FAILURE_TOKEN_PATTERNS = (
+    (r"\btodo!\s*\(", "a todo! marker"),
+    (r"\bunimplemented!\s*\(", "an unimplemented! marker"),
+    (r"\bunreachable!\s*\(", "an unreachable! marker"),
+)
+
+# Host-process termination. Library crates must return typed errors;
+# `process::exit` belongs only to app crates that own the process lifecycle
+# (the same boundary as the console-output ban).
+PROCESS_EXIT_PATTERN = re.compile(r"\b(?:std::)?process::exit\s*\(")
+
 MEMORY_UNSAFETY_PATTERNS = (
     (
         r"\b(?:std::mem::)?transmute(?:\s*::)?(?:\s*<[^>]*>)?\s*\(",
@@ -143,6 +177,17 @@ MEMORY_UNSAFETY_PATTERNS = (
     (r"\bstatic\s+mut\b", "a `static mut` declaration"),
     (r"\bBox::leak\s*\(", "a Box::leak call"),
     (r"\b(?:std::)?mem::forget\s*\(", "a mem::forget call"),
+)
+
+# Process-global environment mutation. `set_var`/`remove_var`/`set_current_dir`
+# mutate state every thread and future child observes, race with concurrent
+# readers, and cannot be scoped; the correct mechanism is per-process
+# `Command::env` or an explicit environment parameter. No repository code
+# needs them (census-validated); the ban covers tests too.
+ENV_MUTATION_PATTERNS = (
+    (r"\b(?:std::)?env::set_var\s*\(", "a process-global env::set_var"),
+    (r"\b(?:std::)?env::remove_var\s*\(", "a process-global env::remove_var"),
+    (r"\b(?:std::)?env::set_current_dir\s*\(", "a process-global env::set_current_dir"),
 )
 
 # Debugging leftovers and unconditional stdout/stderr writes. Library crates
@@ -1441,6 +1486,103 @@ def scan_memory_unsafety_markers() -> list[str]:
     return violations
 
 
+def scan_unchecked_apis() -> list[str]:
+    """Ban unchecked/UB-adjacent API calls outright.
+
+    These "skip the check" calls (unsound UTF-8 casts, raw-pointer
+    construction, unchecked indexing, `transmute_copy`, zeroed/uninitialized
+    memory) are never a legitimate strategy in this repository (census
+    validated); the harness's confined unsafe file-handle code uses checked
+    alternatives. String and comment contexts are scrubbed so documentation
+    references do not self-flag.
+    """
+    violations = []
+    for source in ROOT.rglob("*.rs"):
+        if should_skip(source):
+            continue
+        content = read_text(source)
+        if content is None:
+            continue
+        scrubbed = _rust_syntax(content)
+        for pattern, description in UNCHECKED_API_PATTERNS:
+            if re.search(pattern, scrubbed):
+                violations.append(
+                    f"{source.relative_to(ROOT)} contains {description}"
+                )
+    return violations
+
+
+def scan_failure_tokens() -> list[str]:
+    """Ban `todo!`/`unimplemented!`/`unreachable!` repo-wide.
+
+    Defense-in-depth alongside the clippy `panic` gate: these markers are
+    never shipped code or test strategy. String and comment contexts are
+    scrubbed so tests that reference the tokens do not self-flag.
+    """
+    violations = []
+    for source in ROOT.rglob("*.rs"):
+        if should_skip(source):
+            continue
+        content = read_text(source)
+        if content is None:
+            continue
+        scrubbed = _rust_syntax(content)
+        for pattern, description in FAILURE_TOKEN_PATTERNS:
+            if re.search(pattern, scrubbed):
+                violations.append(
+                    f"{source.relative_to(ROOT)} contains {description}"
+                )
+    return violations
+
+
+def scan_process_exit() -> list[str]:
+    """Ban host-process termination outside app crates.
+
+    Library crates must return typed errors; `process::exit` belongs only to
+    app crates that own the process lifecycle (the same boundary as the
+    console-output ban).
+    """
+    violations = []
+    for source in ROOT.rglob("*.rs"):
+        if should_skip(source):
+            continue
+        content = read_text(source)
+        if content is None:
+            continue
+        is_app = any(segment in APP_CRATE_DIRS for segment in source.parts)
+        if is_app:
+            continue
+        if PROCESS_EXIT_PATTERN.search(content):
+            violations.append(
+                f"{source.relative_to(ROOT)} contains a process::exit call outside an app crate"
+            )
+    return violations
+
+
+def scan_env_mutation() -> list[str]:
+    """Ban process-global environment mutation outright.
+
+    `set_var`/`remove_var`/`set_current_dir` mutate state every thread and
+    future child observes; they race with concurrent readers and cannot be
+    scoped to a single test or command. Per-process configuration belongs in
+    `Command::env` or an explicit environment parameter. The ban covers
+    tests too because the mutation class is never a legitimate strategy.
+    """
+    violations = []
+    for source in ROOT.rglob("*.rs"):
+        if should_skip(source):
+            continue
+        content = read_text(source)
+        if content is None:
+            continue
+        for pattern, description in ENV_MUTATION_PATTERNS:
+            if re.search(pattern, content):
+                violations.append(
+                    f"{source.relative_to(ROOT)} contains {description}"
+                )
+    return violations
+
+
 def scan_debug_output() -> list[str]:
     """Ban debugging leftovers and library console writes.
 
@@ -2623,6 +2765,10 @@ def main() -> int:
     violations.extend(scan_unbounded_channels())
     violations.extend(scan_rust_forbidden_methods())
     violations.extend(scan_memory_unsafety_markers())
+    violations.extend(scan_unchecked_apis())
+    violations.extend(scan_failure_tokens())
+    violations.extend(scan_process_exit())
+    violations.extend(scan_env_mutation())
     violations.extend(scan_debug_output())
     violations.extend(scan_generated_blobs())
     violations.extend(scan_string_typed_errors())

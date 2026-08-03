@@ -1641,6 +1641,111 @@ dev_alias = { package = "unknown-package", version = "1" }
             self.assertTrue(any("Box::leak" in item for item in violations), violations)
             self.assertTrue(any("mem::forget" in item for item in violations), violations)
 
+    def test_unchecked_apis_report_ub_marker_classes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.configure_root(root)
+            source = root / "crates" / "apps" / "example" / "src" / "lib.rs"
+            source.parent.mkdir(parents=True, exist_ok=True)
+            source.write_text(
+                "fn f() { let _ = std::mem::transmute_copy::<u32, u64>(&0u32); }\n"
+                "fn g(b: &[u8]) { let _ = unsafe { b.get_unchecked(0) }; }\n"
+                "fn h() { let _ = String::from_utf8_unchecked(vec![]); }\n"
+            )
+            violations = PHILOSOPHY_CHECK.scan_unchecked_apis()
+            self.assertTrue(any("transmute_copy" in item for item in violations), violations)
+            self.assertTrue(any("get_unchecked" in item for item in violations), violations)
+            self.assertTrue(
+                any("from_utf8_unchecked" in item for item in violations), violations
+            )
+
+    def test_unchecked_apis_ignore_string_references(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.configure_root(root)
+            source = root / "crates" / "apps" / "example" / "src" / "lib.rs"
+            source.parent.mkdir(parents=True, exist_ok=True)
+            source.write_text('fn f() { let _ = "get_unchecked("; }\n')
+            violations = PHILOSOPHY_CHECK.scan_unchecked_apis()
+            self.assertEqual(violations, [])
+
+    def test_failure_tokens_report_markers_even_in_tests(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.configure_root(root)
+            source = root / "crates" / "apps" / "example" / "tests" / "markers.rs"
+            source.parent.mkdir(parents=True, exist_ok=True)
+            source.write_text(
+                "fn f() { todo!(); unimplemented!(); unreachable!(); }\n"
+            )
+            violations = PHILOSOPHY_CHECK.scan_failure_tokens()
+            self.assertTrue(any("todo!" in item for item in violations), violations)
+            self.assertTrue(any("unimplemented!" in item for item in violations), violations)
+            self.assertTrue(any("unreachable!" in item for item in violations), violations)
+
+    def test_failure_tokens_ignore_string_references(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.configure_root(root)
+            source = root / "crates" / "apps" / "example" / "tests" / "markers.rs"
+            source.parent.mkdir(parents=True, exist_ok=True)
+            source.write_text('fn f() { let _ = "unreachable!("; }\n')
+            violations = PHILOSOPHY_CHECK.scan_failure_tokens()
+            self.assertEqual(violations, [])
+
+    def test_process_exit_reports_library_usage_but_allows_apps(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.configure_root(root)
+            library = root / "crates" / "core" / "maestria-core" / "src" / "lib.rs"
+            library.parent.mkdir(parents=True, exist_ok=True)
+            library.write_text("fn f() { std::process::exit(1); }\n")
+            app = root / "crates" / "apps" / "maestria-cli" / "src" / "main.rs"
+            app.parent.mkdir(parents=True, exist_ok=True)
+            app.write_text("fn main() { std::process::exit(1); }\n")
+            violations = PHILOSOPHY_CHECK.scan_process_exit()
+            self.assertTrue(any("process::exit" in item for item in violations), violations)
+            self.assertEqual(len(violations), 1, violations)
+
+    def test_env_mutation_reports_set_var_even_in_tests(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.configure_root(root)
+            source = root / "crates" / "apps" / "example" / "tests" / "env.rs"
+            source.parent.mkdir(parents=True, exist_ok=True)
+            source.write_text(
+                'fn fixture() { std::env::set_var("PATH", "/hostile"); }\n'
+            )
+            violations = PHILOSOPHY_CHECK.scan_env_mutation()
+            self.assertTrue(any("env::set_var" in item for item in violations), violations)
+
+    def test_env_mutation_reports_remove_var_and_set_current_dir(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.configure_root(root)
+            source = root / "crates" / "apps" / "example" / "src" / "lib.rs"
+            source.parent.mkdir(parents=True, exist_ok=True)
+            source.write_text(
+                "fn fixture() { env::remove_var(\"K\"); env::set_current_dir(\"/tmp\"); }\n"
+            )
+            violations = PHILOSOPHY_CHECK.scan_env_mutation()
+            self.assertTrue(any("env::remove_var" in item for item in violations), violations)
+            self.assertTrue(
+                any("env::set_current_dir" in item for item in violations), violations
+            )
+
+    def test_env_mutation_allows_var_reads(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.configure_root(root)
+            source = root / "crates" / "apps" / "example" / "src" / "lib.rs"
+            source.parent.mkdir(parents=True, exist_ok=True)
+            source.write_text(
+                "fn fixture() { let _ = std::env::var(\"PATH\"); }\n"
+            )
+            violations = PHILOSOPHY_CHECK.scan_env_mutation()
+            self.assertEqual(violations, [])
+
     def test_debug_output_reports_dbg_even_in_tests(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
