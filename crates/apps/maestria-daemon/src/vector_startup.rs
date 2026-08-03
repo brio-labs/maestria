@@ -142,7 +142,7 @@ pub fn reconcile_retrieval_generations(
         .with_context(|| format!("open sqlite store {}", layout.database_path.display()))?;
     let lexical_index = TantivyFullTextIndex::open(&layout.full_text_index_dir)
         .with_context(|| "open lexical index for fingerprint")?;
-    let snapshot = maestria_domain::CorpusSnapshotId::new(1);
+    let snapshot = maestria_domain::DEFAULT_CORPUS_SNAPSHOT_ID;
     let primary = ensure_generation(
         state,
         &store,

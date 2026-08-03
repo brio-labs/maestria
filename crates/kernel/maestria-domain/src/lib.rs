@@ -80,10 +80,10 @@ pub use crate::generations::{
 };
 pub use crate::ids::{
     ApprovalId, ArtifactId, ArtifactVersionId, BlobId, CardId, ChunkId, ClaimId, ConflictSetId,
-    CorpusSnapshotId, CorrelationId, DEFAULT_INSTANCE_SCOPE_ID, DOMAIN_VERSION, DuplicateClusterId,
-    EventId, EvidenceId, HarnessRunId, IndexGenerationId, JournalGeneration, LogicalTick,
-    MemoryCandidateId, MemoryId, QueryId, RelationId, ScopeId, SearchTraceId, SequenceNumber,
-    SnapshotId, StructureNodeId, TaskId, ValidationReportId,
+    CorpusSnapshotId, CorrelationId, DEFAULT_CORPUS_SNAPSHOT_ID, DEFAULT_INSTANCE_SCOPE_ID,
+    DOMAIN_VERSION, DuplicateClusterId, EventId, EvidenceId, HarnessRunId, IndexGenerationId,
+    JournalGeneration, LogicalTick, MemoryCandidateId, MemoryId, QueryId, RelationId, ScopeId,
+    SearchTraceId, SequenceNumber, SnapshotId, StructureNodeId, TaskId, ValidationReportId,
 };
 pub use crate::inputs::{
     ApprovalDecision, ArtifactDetected, ChangeTaskStatusInput, CompleteTaskInput,
