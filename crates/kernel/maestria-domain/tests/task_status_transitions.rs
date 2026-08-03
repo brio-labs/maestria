@@ -37,9 +37,14 @@ fn validating_is_already_on_the_path() {
 
 #[test]
 fn terminal_statuses_have_no_validation_path() {
+    let report = maestria_domain::ValidationReportId::new(1);
     for status in [
-        TaskStatus::CompletedVerified,
-        TaskStatus::CompletedWithWarnings,
+        TaskStatus::CompletedVerified {
+            validation_report_id: report,
+        },
+        TaskStatus::CompletedWithWarnings {
+            validation_report_id: report,
+        },
         TaskStatus::Failed,
         TaskStatus::Cancelled,
     ] {

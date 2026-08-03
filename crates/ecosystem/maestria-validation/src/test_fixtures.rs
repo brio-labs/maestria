@@ -72,7 +72,6 @@ pub(crate) fn task(id: u64, status: TaskStatus) -> Task {
         title: format!("task {id}"),
         priority: TaskPriority::Normal,
         status,
-        validation_report_id: None,
         artifact_ids: BTreeSet::new(),
         evidence_ids: BTreeSet::new(),
     }

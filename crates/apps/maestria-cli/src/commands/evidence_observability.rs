@@ -15,7 +15,7 @@ pub fn run_evidence_coverage(instance_dir: PathBuf, task_id: u64) -> Result<()> 
     println!("task_id={} status={:?}", task.id, task.status);
     println!("evidence_ids={:?}", task.evidence_ids);
     println!("evidence_count={}", task.evidence_ids.len());
-    match task.validation_report_id {
+    match task.status.validation_report_id() {
         Some(report_id) => {
             let report = state.validation_reports.get(&report_id).ok_or_else(|| {
                 anyhow!("validation report {report_id} for task {task_id} was not found")

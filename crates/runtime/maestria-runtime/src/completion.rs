@@ -1,5 +1,5 @@
 use crate::MaestriaRuntime;
-use maestria_domain::{CompleteTaskInput, RunValidationRequest, TaskStatus, ValidationTarget};
+use maestria_domain::{CompleteTaskInput, RunValidationRequest, ValidationTarget};
 use maestria_governance::{ValidationDecision, ValidationRequest};
 
 impl MaestriaRuntime {
@@ -61,8 +61,10 @@ impl MaestriaRuntime {
 
         if let Some(task) = task {
             let proposed_status = match &durable_report {
-                Some(r) if !r.warnings.is_empty() => TaskStatus::CompletedWithWarnings,
-                _ => TaskStatus::CompletedVerified,
+                Some(r) if !r.warnings.is_empty() => {
+                    maestria_governance::ProposedCompletion::WithWarnings
+                }
+                _ => maestria_governance::ProposedCompletion::Verified,
             };
             let request = ValidationRequest {
                 task,

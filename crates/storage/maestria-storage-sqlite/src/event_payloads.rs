@@ -1,6 +1,4 @@
-use super::evidence_payloads::{
-    StoredClaimStatus, StoredEvidenceKind, StoredTaskPriority, StoredTaskStatus,
-};
+use super::evidence_payloads::{StoredClaimStatus, StoredEvidenceKind};
 use super::ocr_event_payloads::StoredOcrPage;
 use super::relation_payloads::{StoredRelationEndpoint, StoredRelationKind};
 use super::stored_content::StoredContentHash;
@@ -12,6 +10,7 @@ use super::stored_model_agent::{StoredModelAgentProposalRequest, StoredModelAgen
 use super::stored_search::{StoredSearchOutcome, StoredSearchPlan};
 use super::stored_security::StoredSecurityMetadata;
 use super::stored_structure::StoredStructureNode;
+use super::task_event_payloads::{StoredTaskPriority, StoredTaskStatus};
 use maestria_domain::DomainEvent;
 use maestria_ports::PortError;
 use serde::{Deserialize, Serialize};
@@ -72,7 +71,6 @@ pub(crate) enum StoredEventPayload {
     TaskCompletionRecorded {
         task_id: u64,
         status: StoredTaskStatus,
-        validation_report_id: u64,
     },
     TaskEvidenceLinked {
         task_id: u64,

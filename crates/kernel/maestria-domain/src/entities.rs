@@ -1,7 +1,7 @@
 use crate::evidence_source::EvidenceKind;
 use crate::ids::{
     ArtifactId, CardId, ChunkId, ClaimId, EvidenceId, LogicalTick, MemoryCandidateId, MemoryId,
-    RelationId, TaskId, ValidationReportId,
+    RelationId, TaskId,
 };
 use crate::security::SecurityMetadata;
 use crate::task_status::TaskStatus;
@@ -363,7 +363,6 @@ pub struct Task {
     pub title: String,
     pub priority: TaskPriority,
     pub status: TaskStatus,
-    pub validation_report_id: Option<ValidationReportId>,
     pub artifact_ids: BTreeSet<ArtifactId>,
     pub evidence_ids: BTreeSet<EvidenceId>,
 }
@@ -375,7 +374,6 @@ impl Task {
             title,
             priority,
             status: TaskStatus::Draft,
-            validation_report_id: None,
             artifact_ids: BTreeSet::new(),
             evidence_ids: BTreeSet::new(),
         }

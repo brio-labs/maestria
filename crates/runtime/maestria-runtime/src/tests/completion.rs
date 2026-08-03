@@ -21,7 +21,6 @@ async fn task_completion_blocked_by_missing_durable_report()
         title: "test".to_string(),
         priority: maestria_domain::TaskPriority::Normal,
         status: TaskStatus::Validating,
-        validation_report_id: None,
         artifact_ids: Default::default(),
         evidence_ids: Default::default(),
     };
@@ -52,7 +51,6 @@ async fn task_completion_blocked_by_failed_report() -> Result<(), Box<dyn std::e
         title: "test".to_string(),
         priority: maestria_domain::TaskPriority::Normal,
         status: TaskStatus::Validating,
-        validation_report_id: None,
         artifact_ids: Default::default(),
         evidence_ids: Default::default(),
     };
@@ -89,7 +87,6 @@ async fn task_completion_blocked_by_mismatched_report() -> Result<(), Box<dyn st
         title: "test".to_string(),
         priority: maestria_domain::TaskPriority::Normal,
         status: TaskStatus::Validating,
-        validation_report_id: None,
         artifact_ids: Default::default(),
         evidence_ids: Default::default(),
     };
@@ -126,7 +123,6 @@ async fn task_completion_allowed() -> Result<(), Box<dyn std::error::Error>> {
         title: "test".to_string(),
         priority: maestria_domain::TaskPriority::Normal,
         status: TaskStatus::Validating,
-        validation_report_id: None,
         artifact_ids: Default::default(),
         evidence_ids: Default::default(),
     };
@@ -155,7 +151,7 @@ async fn task_completion_allowed() -> Result<(), Box<dyn std::error::Error>> {
     }
     match &events[0].event {
         DomainEvent::TaskCompletionRecorded { status, .. } => {
-            if *status != TaskStatus::CompletedVerified {
+            if !matches!(status, TaskStatus::CompletedVerified { .. }) {
                 return Err(format!("expected CompletedVerified, got {:?}", status).into());
             }
         }
@@ -174,7 +170,6 @@ async fn task_completion_blocked_by_warnings_when_disallowed()
         title: "test".to_string(),
         priority: maestria_domain::TaskPriority::Normal,
         status: TaskStatus::Validating,
-        validation_report_id: None,
         artifact_ids: Default::default(),
         evidence_ids: Default::default(),
     };
@@ -217,7 +212,6 @@ async fn task_completion_allowed_with_warnings_when_configured()
         title: "test".to_string(),
         priority: maestria_domain::TaskPriority::Normal,
         status: TaskStatus::Validating,
-        validation_report_id: None,
         artifact_ids: Default::default(),
         evidence_ids: Default::default(),
     };
@@ -251,7 +245,7 @@ async fn task_completion_allowed_with_warnings_when_configured()
     }
     match &events[0].event {
         DomainEvent::TaskCompletionRecorded { status, .. } => {
-            if *status != TaskStatus::CompletedWithWarnings {
+            if !matches!(status, TaskStatus::CompletedWithWarnings { .. }) {
                 return Err(format!("expected CompletedWithWarnings, got {:?}", status).into());
             }
         }
@@ -270,7 +264,6 @@ async fn back_to_back_record_report_and_complete_task_succeeds()
         title: "test".to_string(),
         priority: maestria_domain::TaskPriority::Normal,
         status: TaskStatus::Validating,
-        validation_report_id: None,
         artifact_ids: Default::default(),
         evidence_ids: Default::default(),
     };
@@ -358,7 +351,7 @@ async fn back_to_back_record_report_and_complete_task_succeeds()
     }
     match &new_events[0].event {
         DomainEvent::TaskCompletionRecorded { status, .. } => {
-            if *status != TaskStatus::CompletedVerified {
+            if !matches!(status, TaskStatus::CompletedVerified { .. }) {
                 return Err(format!("expected CompletedVerified, got {:?}", status).into());
             }
         }

@@ -274,7 +274,7 @@ impl EffectExecutionContext {
         let request = ValidationRequest {
             task,
             validation_report: None,
-            proposed_status: maestria_domain::TaskStatus::CompletedVerified,
+            proposed_status: maestria_governance::ProposedCompletion::Verified,
         };
         match self.governance.validation_gate.evaluate(&request) {
             ValidationDecision::AllowCompletion => Some(ModelAgentValidationResult {

@@ -1,8 +1,97 @@
 use super::event_payloads::{FamilyDecodeError, StoredApprovalOutcome, StoredEventPayload};
-use super::evidence_payloads::{StoredTaskPriority, StoredTaskStatus};
 use maestria_domain::{
-    ApprovalId, ApprovalOutcome, ArtifactId, DomainEvent, EvidenceId, TaskId, ValidationReportId,
+    ApprovalId, ApprovalOutcome, ArtifactId, DomainEvent, EvidenceId, TaskId, TaskPriority,
+    TaskStatus, ValidationReportId,
 };
+use serde::{Deserialize, Serialize};
+
+/// Stored task priority and status payloads (Rule 13: task payload
+/// conversion lives with the task event family).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum StoredTaskPriority {
+    Low,
+    Normal,
+    High,
+}
+
+impl StoredTaskPriority {
+    pub(crate) fn from_domain(priority: TaskPriority) -> Self {
+        match priority {
+            TaskPriority::Low => Self::Low,
+            TaskPriority::Normal => Self::Normal,
+            TaskPriority::High => Self::High,
+        }
+    }
+
+    pub(crate) fn into_domain(self) -> TaskPriority {
+        match self {
+            Self::Low => TaskPriority::Low,
+            Self::Normal => TaskPriority::Normal,
+            Self::High => TaskPriority::High,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum StoredTaskStatus {
+    Draft,
+    Open,
+    Active,
+    Validating,
+    Blocked,
+    CompletedVerified { validation_report_id: u64 },
+    CompletedWithWarnings { validation_report_id: u64 },
+    Failed,
+    Cancelled,
+}
+
+impl StoredTaskStatus {
+    pub(crate) fn from_domain(status: TaskStatus) -> Self {
+        match status {
+            TaskStatus::Draft => Self::Draft,
+            TaskStatus::Open => Self::Open,
+            TaskStatus::Active => Self::Active,
+            TaskStatus::Validating => Self::Validating,
+            TaskStatus::Blocked => Self::Blocked,
+            TaskStatus::CompletedVerified {
+                validation_report_id,
+            } => Self::CompletedVerified {
+                validation_report_id: validation_report_id.value(),
+            },
+            TaskStatus::CompletedWithWarnings {
+                validation_report_id,
+            } => Self::CompletedWithWarnings {
+                validation_report_id: validation_report_id.value(),
+            },
+            TaskStatus::Failed => Self::Failed,
+            TaskStatus::Cancelled => Self::Cancelled,
+        }
+    }
+
+    pub(crate) fn into_domain(self) -> TaskStatus {
+        match self {
+            Self::Draft => TaskStatus::Draft,
+            Self::Open => TaskStatus::Open,
+            Self::Active => TaskStatus::Active,
+            Self::Validating => TaskStatus::Validating,
+            Self::Blocked => TaskStatus::Blocked,
+            Self::CompletedVerified {
+                validation_report_id,
+            } => TaskStatus::CompletedVerified {
+                validation_report_id: ValidationReportId::new(validation_report_id),
+            },
+            Self::CompletedWithWarnings {
+                validation_report_id,
+            } => TaskStatus::CompletedWithWarnings {
+                validation_report_id: ValidationReportId::new(validation_report_id),
+            },
+            Self::Failed => TaskStatus::Failed,
+            Self::Cancelled => TaskStatus::Cancelled,
+        }
+    }
+}
 
 impl StoredEventPayload {
     pub(crate) fn try_from_domain_task(event: &DomainEvent) -> Option<Self> {
@@ -23,15 +112,12 @@ impl StoredEventPayload {
                 from: StoredTaskStatus::from_domain(*from),
                 to: StoredTaskStatus::from_domain(*to),
             }),
-            DomainEvent::TaskCompletionRecorded {
-                task_id,
-                status,
-                validation_report_id,
-            } => Some(Self::TaskCompletionRecorded {
-                task_id: task_id.value(),
-                status: StoredTaskStatus::from_domain(*status),
-                validation_report_id: validation_report_id.value(),
-            }),
+            DomainEvent::TaskCompletionRecorded { task_id, status } => {
+                Some(Self::TaskCompletionRecorded {
+                    task_id: task_id.value(),
+                    status: StoredTaskStatus::from_domain(*status),
+                })
+            }
             DomainEvent::TaskEvidenceLinked {
                 task_id,
                 evidence_id,
@@ -92,15 +178,12 @@ impl StoredEventPayload {
                 from: from.into_domain(),
                 to: to.into_domain(),
             }),
-            Self::TaskCompletionRecorded {
-                task_id,
-                status,
-                validation_report_id,
-            } => Ok(DomainEvent::TaskCompletionRecorded {
-                task_id: TaskId::new(task_id),
-                status: status.into_domain(),
-                validation_report_id: ValidationReportId::new(validation_report_id),
-            }),
+            Self::TaskCompletionRecorded { task_id, status } => {
+                Ok(DomainEvent::TaskCompletionRecorded {
+                    task_id: TaskId::new(task_id),
+                    status: status.into_domain(),
+                })
+            }
             Self::TaskEvidenceLinked {
                 task_id,
                 evidence_id,

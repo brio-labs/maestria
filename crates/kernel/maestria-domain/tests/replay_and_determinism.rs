@@ -195,13 +195,12 @@ fn replay_keeps_new_event_and_effect_shapes_deterministic() -> Result<(), Box<dy
     assert_eq!(effects_a, effects_b);
     assert!(events_a.iter().any(|envelope| matches!(
         &envelope.event,
-        DomainEvent::TaskCompletionRecorded {
-            task_id,
-            status,
-            validation_report_id,
-        } if *task_id == TaskId::new(50)
-            && *status == TaskStatus::CompletedVerified
-            && *validation_report_id == ValidationReportId::new(80)
+        DomainEvent::TaskCompletionRecorded { task_id, status } if *task_id == TaskId::new(50)
+            && *status
+                == TaskStatus::CompletedVerified {
+                    validation_report_id: ValidationReportId::new(80),
+                }
+            && status.validation_report_id() == Some(ValidationReportId::new(80))
     )));
     assert!(events_a.iter().any(|envelope| matches!(
         &envelope.event,
