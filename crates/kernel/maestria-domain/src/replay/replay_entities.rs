@@ -93,11 +93,9 @@ impl KernelState {
             DomainEvent::TaskStatusChanged { task_id, from, to } => {
                 self.apply_task_status_changed(*task_id, *from, *to)
             }
-            DomainEvent::TaskCompletionRecorded {
-                task_id,
-                status,
-                validation_report_id,
-            } => self.apply_task_completion_recorded(*task_id, *status, *validation_report_id),
+            DomainEvent::TaskCompletionRecorded { task_id, status } => {
+                self.apply_task_completion_recorded(*task_id, *status)
+            }
             DomainEvent::TaskEvidenceLinked {
                 task_id,
                 evidence_id,

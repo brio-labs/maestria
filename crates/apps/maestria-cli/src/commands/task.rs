@@ -153,7 +153,7 @@ fn print_task(task: &Task) {
         task.id, task.status, task.priority, task.title
     );
 
-    if let Some(report_id) = task.validation_report_id {
+    if let Some(report_id) = task.status.validation_report_id() {
         print!(" validation_report={report_id}");
     }
 

@@ -21,7 +21,6 @@ async fn search_validation_failure_records_a_failed_report()
             title: "search validation".to_string(),
             priority: maestria_domain::TaskPriority::Normal,
             status: TaskStatus::Validating,
-            validation_report_id: None,
             artifact_ids: Default::default(),
             evidence_ids: Default::default(),
         },
@@ -99,7 +98,6 @@ async fn completion_rejects_a_forged_passing_search_report()
         title: "search completion".to_string(),
         priority: maestria_domain::TaskPriority::Normal,
         status: TaskStatus::Validating,
-        validation_report_id: None,
         artifact_ids: Default::default(),
         evidence_ids: Default::default(),
     };
@@ -170,7 +168,6 @@ async fn associated_search_coverage_and_conflicts_block_verified_completion()
             title: "associated search".to_string(),
             priority: maestria_domain::TaskPriority::Normal,
             status: TaskStatus::Validating,
-            validation_report_id: None,
             artifact_ids: Default::default(),
             evidence_ids: Default::default(),
         },

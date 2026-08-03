@@ -1,7 +1,7 @@
 use super::web_evidence_payload::StoredWebEvidenceMetadata;
 use maestria_domain::{
     BlobId, ClaimStatus, ContentHash, EvidenceKind, HarnessRunId, LineRange, LogicalTick,
-    OutputStream, SnapshotRef, TaskPriority, TaskStatus, ValidationReportId,
+    OutputStream, SnapshotRef, ValidationReportId,
 };
 use maestria_ports::PortError;
 use serde::{Deserialize, Serialize};
@@ -305,76 +305,6 @@ impl StoredTestStatus {
             Self::Passed => maestria_domain::TestStatus::Passed,
             Self::Failed => maestria_domain::TestStatus::Failed,
             Self::TimedOut => maestria_domain::TestStatus::TimedOut,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub(crate) enum StoredTaskPriority {
-    Low,
-    Normal,
-    High,
-}
-
-impl StoredTaskPriority {
-    pub(crate) fn from_domain(priority: TaskPriority) -> Self {
-        match priority {
-            TaskPriority::Low => Self::Low,
-            TaskPriority::Normal => Self::Normal,
-            TaskPriority::High => Self::High,
-        }
-    }
-
-    pub(crate) fn into_domain(self) -> TaskPriority {
-        match self {
-            Self::Low => TaskPriority::Low,
-            Self::Normal => TaskPriority::Normal,
-            Self::High => TaskPriority::High,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub(crate) enum StoredTaskStatus {
-    Draft,
-    Open,
-    Active,
-    Validating,
-    Blocked,
-    CompletedVerified,
-    CompletedWithWarnings,
-    Failed,
-    Cancelled,
-}
-
-impl StoredTaskStatus {
-    pub(crate) fn from_domain(status: TaskStatus) -> Self {
-        match status {
-            TaskStatus::Draft => Self::Draft,
-            TaskStatus::Open => Self::Open,
-            TaskStatus::Active => Self::Active,
-            TaskStatus::Validating => Self::Validating,
-            TaskStatus::Blocked => Self::Blocked,
-            TaskStatus::CompletedVerified => Self::CompletedVerified,
-            TaskStatus::CompletedWithWarnings => Self::CompletedWithWarnings,
-            TaskStatus::Failed => Self::Failed,
-            TaskStatus::Cancelled => Self::Cancelled,
-        }
-    }
-
-    pub(crate) fn into_domain(self) -> TaskStatus {
-        match self {
-            Self::Draft => TaskStatus::Draft,
-            Self::Open => TaskStatus::Open,
-            Self::Active => TaskStatus::Active,
-            Self::Validating => TaskStatus::Validating,
-            Self::Blocked => TaskStatus::Blocked,
-            Self::CompletedVerified => TaskStatus::CompletedVerified,
-            Self::CompletedWithWarnings => TaskStatus::CompletedWithWarnings,
-            Self::Failed => TaskStatus::Failed,
-            Self::Cancelled => TaskStatus::Cancelled,
         }
     }
 }

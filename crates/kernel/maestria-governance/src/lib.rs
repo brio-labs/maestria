@@ -49,7 +49,8 @@ pub use retrieval::{
 pub use risk::{ClassifyRisk, DefaultRiskClassifier, PolicyDecision, RiskClass};
 pub use scope::{ContainmentError, Scope, ScopeGuard};
 pub use validation::{
-    DefaultValidationGate, ValidationDecision, ValidationGate, ValidationRequest,
+    DefaultValidationGate, ProposedCompletion, ValidationDecision, ValidationGate,
+    ValidationRequest,
 };
 
 // ── metadata ────────────────────────────────────────────────────────

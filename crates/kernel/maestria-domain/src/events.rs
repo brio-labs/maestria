@@ -70,10 +70,10 @@ pub enum DomainEvent {
         from: TaskStatus,
         to: TaskStatus,
     },
+    /// The completed status carries its validation report (R56).
     TaskCompletionRecorded {
         task_id: TaskId,
         status: TaskStatus,
-        validation_report_id: ValidationReportId,
     },
     TaskEvidenceLinked {
         task_id: TaskId,

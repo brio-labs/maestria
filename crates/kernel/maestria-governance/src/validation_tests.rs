@@ -7,7 +7,6 @@ fn create_task(id: u64, status: TaskStatus) -> Task {
         title: "Test Task".to_string(),
         priority: maestria_domain::TaskPriority::Normal,
         status,
-        validation_report_id: None,
         artifact_ids: Default::default(),
         evidence_ids: Default::default(),
     }
@@ -27,7 +26,7 @@ fn validation_fails_if_task_not_validating() {
     let request = ValidationRequest {
         task: create_task(1, TaskStatus::Active),
         validation_report: Some(create_report(1, true, vec![])),
-        proposed_status: TaskStatus::CompletedVerified,
+        proposed_status: ProposedCompletion::Verified,
     };
 
     let decision = gate.evaluate(&request);
@@ -42,7 +41,7 @@ fn validation_fails_if_report_missing() {
     let request = ValidationRequest {
         task: create_task(1, TaskStatus::Validating),
         validation_report: None,
-        proposed_status: TaskStatus::CompletedVerified,
+        proposed_status: ProposedCompletion::Verified,
     };
 
     let decision = gate.evaluate(&request);
@@ -58,7 +57,7 @@ fn validation_fails_if_report_task_mismatch() {
     let request = ValidationRequest {
         task: create_task(1, TaskStatus::Validating),
         validation_report: Some(create_report(2, true, vec![])),
-        proposed_status: TaskStatus::CompletedVerified,
+        proposed_status: ProposedCompletion::Verified,
     };
 
     let decision = gate.evaluate(&request);
@@ -73,7 +72,7 @@ fn validation_fails_if_report_failed() {
     let request = ValidationRequest {
         task: create_task(1, TaskStatus::Validating),
         validation_report: Some(create_report(1, false, vec![])),
-        proposed_status: TaskStatus::CompletedVerified,
+        proposed_status: ProposedCompletion::Verified,
     };
 
     let decision = gate.evaluate(&request);
@@ -88,7 +87,7 @@ fn validation_fails_if_warnings_present_but_not_allowed() {
     let request = ValidationRequest {
         task: create_task(1, TaskStatus::Validating),
         validation_report: Some(create_report(1, true, vec!["warning"])),
-        proposed_status: TaskStatus::CompletedWithWarnings,
+        proposed_status: ProposedCompletion::WithWarnings,
     };
 
     let decision = gate.evaluate(&request);
@@ -103,7 +102,7 @@ fn validation_succeeds_with_warnings_if_allowed() {
     let request = ValidationRequest {
         task: create_task(1, TaskStatus::Validating),
         validation_report: Some(create_report(1, true, vec!["warning"])),
-        proposed_status: TaskStatus::CompletedWithWarnings,
+        proposed_status: ProposedCompletion::WithWarnings,
     };
 
     let decision = gate.evaluate(&request);
@@ -116,7 +115,7 @@ fn validation_fails_if_warnings_present_but_status_is_verified() {
     let request = ValidationRequest {
         task: create_task(1, TaskStatus::Validating),
         validation_report: Some(create_report(1, true, vec!["warning"])),
-        proposed_status: TaskStatus::CompletedVerified,
+        proposed_status: ProposedCompletion::Verified,
     };
 
     let decision = gate.evaluate(&request);
@@ -131,7 +130,7 @@ fn validation_fails_if_no_warnings_but_status_is_with_warnings() {
     let request = ValidationRequest {
         task: create_task(1, TaskStatus::Validating),
         validation_report: Some(create_report(1, true, vec![])),
-        proposed_status: TaskStatus::CompletedWithWarnings,
+        proposed_status: ProposedCompletion::WithWarnings,
     };
 
     let decision = gate.evaluate(&request);
@@ -146,24 +145,9 @@ fn validation_succeeds_without_warnings_verified() {
     let request = ValidationRequest {
         task: create_task(1, TaskStatus::Validating),
         validation_report: Some(create_report(1, true, vec![])),
-        proposed_status: TaskStatus::CompletedVerified,
+        proposed_status: ProposedCompletion::Verified,
     };
 
     let decision = gate.evaluate(&request);
     assert_eq!(decision, ValidationDecision::AllowCompletion);
-}
-
-#[test]
-fn validation_fails_if_proposed_status_is_not_completion() {
-    let gate = DefaultValidationGate::new(true);
-    let request = ValidationRequest {
-        task: create_task(1, TaskStatus::Validating),
-        validation_report: Some(create_report(1, true, vec![])),
-        proposed_status: TaskStatus::Active,
-    };
-
-    let decision = gate.evaluate(&request);
-    assert!(
-        matches!(decision, ValidationDecision::BlockedByPolicy { reason } if reason.contains("not a valid successful completion status"))
-    );
 }

@@ -36,7 +36,9 @@ fn task_status_transition_is_restricted() -> Result<(), DomainError> {
     assert!(matches!(
         state.apply_input(DomainInput::ChangeTaskStatus(ChangeTaskStatusInput {
             task_id: TaskId::new(3),
-            to: TaskStatus::CompletedVerified,
+            to: TaskStatus::CompletedVerified {
+                validation_report_id: ValidationReportId::new(9),
+            },
         })),
         Err(DomainError::ValidationRequired { .. })
     ));
@@ -57,8 +59,16 @@ fn task_status_transition_is_restricted() -> Result<(), DomainError> {
         .tasks
         .get(&TaskId::new(3))
         .ok_or(DomainError::MissingTask { id: TaskId::new(3) })?;
-    assert_eq!(task.status, TaskStatus::CompletedVerified);
-    assert_eq!(task.validation_report_id, Some(ValidationReportId::new(9)));
+    assert_eq!(
+        task.status,
+        TaskStatus::CompletedVerified {
+            validation_report_id: ValidationReportId::new(9)
+        }
+    );
+    assert_eq!(
+        task.status.validation_report_id(),
+        Some(ValidationReportId::new(9))
+    );
     Ok(())
 }
 
@@ -98,7 +108,9 @@ fn validated_completion_is_the_only_completion_path() -> Result<(), DomainError>
         Some(DomainError::InvalidTaskTransition {
             task_id: TaskId::new(7),
             from: TaskStatus::Active,
-            to: TaskStatus::CompletedWithWarnings,
+            to: TaskStatus::CompletedWithWarnings {
+                validation_report_id: ValidationReportId::new(80),
+            },
         })
     );
 
@@ -115,20 +127,27 @@ fn validated_completion_is_the_only_completion_path() -> Result<(), DomainError>
         .tasks
         .get(&TaskId::new(7))
         .ok_or(DomainError::MissingTask { id: TaskId::new(7) })?;
-    assert_eq!(task.status, TaskStatus::CompletedWithWarnings);
-    assert_eq!(task.validation_report_id, Some(ValidationReportId::new(80)));
+    assert_eq!(
+        task.status,
+        TaskStatus::CompletedWithWarnings {
+            validation_report_id: ValidationReportId::new(80)
+        }
+    );
+    assert_eq!(
+        task.status.validation_report_id(),
+        Some(ValidationReportId::new(80))
+    );
     assert!(matches!(
         output.events.as_slice(),
         [DomainEventEnvelope {
-            event: DomainEvent::TaskCompletionRecorded {
-                task_id,
-                status,
-                validation_report_id,
-            },
+            event: DomainEvent::TaskCompletionRecorded { task_id, status },
             ..
         }] if *task_id == TaskId::new(7)
-            && *status == TaskStatus::CompletedWithWarnings
-            && *validation_report_id == ValidationReportId::new(80)
+            && *status
+                == TaskStatus::CompletedWithWarnings {
+                    validation_report_id: ValidationReportId::new(80),
+                }
+            && status.validation_report_id() == Some(ValidationReportId::new(80))
     ));
     assert_eq!(
         output.effects,
@@ -221,7 +240,9 @@ fn test_all_legal_task_transitions() -> Result<(), DomainError> {
     // We can't transition directly to CompletedVerified via ChangeTaskStatus due to ValidationRequired
     let err = match state.apply_input(DomainInput::ChangeTaskStatus(ChangeTaskStatusInput {
         task_id,
-        to: TaskStatus::CompletedVerified,
+        to: TaskStatus::CompletedVerified {
+            validation_report_id: ValidationReportId::new(9),
+        },
     })) {
         Err(e) => e,
         Ok(_) => return Err(DomainError::ValidationRequired { task_id }),

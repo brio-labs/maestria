@@ -136,7 +136,7 @@ fn task_summary(task: &Task) -> TaskSummary {
         status: format!("{:?}", task.status),
         priority: format!("{:?}", task.priority),
         evidence_ids: task.evidence_ids.iter().map(|id| id.value()).collect(),
-        validation_report_id: task.validation_report_id.map(|id| id.value()),
+        validation_report_id: task.status.validation_report_id().map(|id| id.value()),
     }
 }
 

@@ -1,11 +1,21 @@
 use maestria_domain::{Task, TaskStatus, ValidationReportRecord};
 
+/// A payload-free proposed completion flavor for the validation gate. The
+/// gate decides policy (verified vs with-warnings); the report identity
+/// itself is carried by the completed task status (R56) and is not part of
+/// the proposal.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProposedCompletion {
+    Verified,
+    WithWarnings,
+}
+
 /// Request to evaluate whether a task's completion is valid.
 #[derive(Debug)]
 pub struct ValidationRequest {
     pub task: Task,
     pub validation_report: Option<ValidationReportRecord>,
-    pub proposed_status: TaskStatus,
+    pub proposed_status: ProposedCompletion,
 }
 
 /// Outcome of a validation gate evaluation.
@@ -74,7 +84,7 @@ impl ValidationGate for DefaultValidationGate {
         }
 
         match request.proposed_status {
-            TaskStatus::CompletedVerified => {
+            ProposedCompletion::Verified => {
                 if has_warnings {
                     ValidationDecision::BlockedByPolicy {
                         reason: "proposed status CompletedVerified but warnings are present"
@@ -84,7 +94,7 @@ impl ValidationGate for DefaultValidationGate {
                     ValidationDecision::AllowCompletion
                 }
             }
-            TaskStatus::CompletedWithWarnings => {
+            ProposedCompletion::WithWarnings => {
                 if !has_warnings {
                     ValidationDecision::BlockedByPolicy {
                         reason: "proposed status CompletedWithWarnings but no warnings are present"
@@ -94,12 +104,6 @@ impl ValidationGate for DefaultValidationGate {
                     ValidationDecision::AllowCompletion
                 }
             }
-            _ => ValidationDecision::BlockedByPolicy {
-                reason: format!(
-                    "proposed status {:?} is not a valid successful completion status",
-                    request.proposed_status
-                ),
-            },
         }
     }
 }

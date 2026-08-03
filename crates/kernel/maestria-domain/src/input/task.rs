@@ -84,9 +84,13 @@ impl KernelState {
             });
         }
         let to = if report.warnings.is_empty() {
-            TaskStatus::CompletedVerified
+            TaskStatus::CompletedVerified {
+                validation_report_id: input.validation_report_id,
+            }
         } else {
-            TaskStatus::CompletedWithWarnings
+            TaskStatus::CompletedWithWarnings {
+                validation_report_id: input.validation_report_id,
+            }
         };
         if !from.can_transition_to(to) {
             return Err(DomainError::InvalidTaskTransition {
@@ -96,11 +100,9 @@ impl KernelState {
             });
         }
         task.status = to;
-        task.validation_report_id = Some(input.validation_report_id);
         Ok(self.emit_event(DomainEvent::TaskCompletionRecorded {
             task_id: input.task_id,
             status: to,
-            validation_report_id: input.validation_report_id,
         }))
     }
 
@@ -191,12 +193,14 @@ impl KernelState {
         &mut self,
         task_id: TaskId,
         status: TaskStatus,
-        validation_report_id: ValidationReportId,
     ) -> Result<(), DomainError> {
         let task = self
             .tasks
             .get_mut(&task_id)
             .ok_or(DomainError::MissingTask { id: task_id })?;
+        let validation_report_id = status
+            .validation_report_id()
+            .ok_or(DomainError::ValidationRequired { task_id })?;
         let report = self.validation_reports.get(&validation_report_id).ok_or(
             DomainError::MissingValidationReport {
                 id: validation_report_id,
@@ -212,13 +216,14 @@ impl KernelState {
         if !report.passed {
             return Err(DomainError::ValidationFailed { task_id });
         }
-        if status == TaskStatus::CompletedVerified && !report.warnings.is_empty() {
+        if matches!(status, TaskStatus::CompletedVerified { .. }) && !report.warnings.is_empty() {
             return Err(DomainError::ValidationWarningsForbidden { task_id });
         }
-        if status == TaskStatus::CompletedWithWarnings && report.warnings.is_empty() {
+        if matches!(status, TaskStatus::CompletedWithWarnings { .. }) && report.warnings.is_empty()
+        {
             return Err(DomainError::ValidationWarningsRequired { task_id });
         }
-        if status != TaskStatus::CompletedVerified && status != TaskStatus::CompletedWithWarnings {
+        if !status.is_completion() {
             return Err(DomainError::InvalidTaskTransition {
                 task_id,
                 from: task.status,
@@ -233,7 +238,6 @@ impl KernelState {
             });
         }
         task.status = status;
-        task.validation_report_id = Some(validation_report_id);
         Ok(())
     }
 

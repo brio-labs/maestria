@@ -15,7 +15,6 @@ fn make_task(id: u64) -> maestria_domain::Task {
         title: "test task".into(),
         status: TaskStatus::Open,
         priority: TaskPriority::High,
-        validation_report_id: None,
         artifact_ids: BTreeSet::new(),
         evidence_ids: BTreeSet::new(),
     }

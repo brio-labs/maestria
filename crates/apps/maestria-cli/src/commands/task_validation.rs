@@ -132,8 +132,12 @@ pub async fn run_complete(
             &layout,
             task_id,
             &[
-                TaskStatus::CompletedVerified,
-                TaskStatus::CompletedWithWarnings,
+                TaskStatus::CompletedVerified {
+                    validation_report_id,
+                },
+                TaskStatus::CompletedWithWarnings {
+                    validation_report_id,
+                },
             ],
             Duration::from_secs(10),
         )

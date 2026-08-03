@@ -208,13 +208,19 @@ fn replay_accepts_legacy_completion_noop_status_events() -> Result<(), DomainErr
         sequence: SequenceNumber::new(next_event),
         event: DomainEvent::TaskStatusChanged {
             task_id,
-            from: TaskStatus::CompletedVerified,
-            to: TaskStatus::CompletedVerified,
+            from: TaskStatus::CompletedVerified {
+                validation_report_id: report_id,
+            },
+            to: TaskStatus::CompletedVerified {
+                validation_report_id: report_id,
+            },
         },
     })?;
     assert_eq!(
         state.tasks.get(&task_id).map(|task| task.status),
-        Some(TaskStatus::CompletedVerified)
+        Some(TaskStatus::CompletedVerified {
+            validation_report_id: report_id
+        })
     );
     Ok(())
 }
@@ -551,8 +557,9 @@ fn test_task_completion_status_mismatch() -> Result<(), DomainError> {
         sequence: SequenceNumber::new(5),
         event: DomainEvent::TaskCompletionRecorded {
             task_id,
-            status: TaskStatus::CompletedVerified,
-            validation_report_id: rep_id,
+            status: TaskStatus::CompletedVerified {
+                validation_report_id: rep_id,
+            },
         },
     };
 
