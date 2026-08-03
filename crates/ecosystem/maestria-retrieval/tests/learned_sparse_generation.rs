@@ -55,15 +55,17 @@ fn registry(identity: &SparseIdentity) -> TestResult<IndexGenerationRegistry> {
         corpus_snapshot: identity.corpus_snapshot,
         sparse_namespace: Some(identity.namespace.clone()),
         fingerprint: IndexFingerprint {
-            provider: sparse.provider.clone(),
-            model: sparse.model.clone(),
-            revision: sparse.revision.clone(),
+            provider: maestria_domain::ProviderName::new(sparse.provider.clone()),
+            model: maestria_domain::ModelName::new(sparse.model.clone()),
+            revision: maestria_domain::FingerprintRevision::new(sparse.revision.clone()),
             artifact_hash: sparse.artifact_hash.clone(),
             dimensions: sparse.vocabulary_size,
-            quantization: sparse.quantization.clone(),
+            quantization: maestria_domain::QuantizationScheme::new(sparse.quantization.clone()),
             query_template_hash: sparse.query_template_hash.clone(),
             document_template_hash: sparse.document_template_hash.clone(),
-            preprocessing_version: sparse.preprocessing_version.clone(),
+            preprocessing_version: maestria_domain::PreprocessingVersion::new(
+                sparse.preprocessing_version.clone(),
+            ),
         },
         lifecycle: IndexLifecycle::Building,
     })?;

@@ -19,12 +19,12 @@ impl TantivyFullTextIndex {
                 source: error.to_string(),
             })?;
         Ok(IndexFingerprint {
-            provider: "tantivy".to_string(),
-            model: "lexical".to_string(),
-            revision,
+            provider: maestria_domain::ProviderName::new("tantivy"),
+            model: maestria_domain::ModelName::new("lexical"),
+            revision: maestria_domain::FingerprintRevision::new(revision),
             artifact_hash,
             dimensions: 0,
-            quantization: "f32".to_string(),
+            quantization: maestria_domain::QuantizationScheme::new("f32"),
             query_template_hash: ContentHash::new(content_hash(b"query: {{text}}")).map_err(
                 |error| PortError::InternalContext {
                     context: "invalid query template hash",
@@ -37,7 +37,9 @@ impl TantivyFullTextIndex {
                     source: error.to_string(),
                 },
             )?,
-            preprocessing_version: "tantivy-default-tokenizer-v1".to_string(),
+            preprocessing_version: maestria_domain::PreprocessingVersion::new(
+                "tantivy-default-tokenizer-v1",
+            ),
         })
     }
 

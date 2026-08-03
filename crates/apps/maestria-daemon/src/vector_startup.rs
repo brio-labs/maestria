@@ -158,13 +158,13 @@ pub fn reconcile_retrieval_generations(
             let artifact_hash = ContentHash::new(config.artifact_hash.clone())
                 .map_err(|error| anyhow!("invalid embedding artifact hash: {error}"))?;
             let fingerprint = IndexFingerprint {
-                provider: config.provider.clone(),
-                model: config.model.clone(),
-                revision: config.revision.clone(),
+                provider: maestria_domain::ProviderName::new(config.provider.clone()),
+                model: maestria_domain::ModelName::new(config.model.clone()),
+                revision: maestria_domain::FingerprintRevision::new(config.revision.clone()),
                 artifact_hash,
                 dimensions: u32::try_from(config.dimensions)
                     .map_err(|_| anyhow!("embedding dimensions exceed u32"))?,
-                quantization: "f32".to_string(),
+                quantization: maestria_domain::QuantizationScheme::new("f32"),
                 query_template_hash: ContentHash::new(maestria_domain::content_hash(
                     b"query: {{text}}",
                 ))
@@ -173,7 +173,9 @@ pub fn reconcile_retrieval_generations(
                     b"doc: {{text}}",
                 ))
                 .map_err(|error| anyhow!("invalid document template hash: {error}"))?,
-                preprocessing_version: config.preprocessing_version.clone(),
+                preprocessing_version: maestria_domain::PreprocessingVersion::new(
+                    config.preprocessing_version.clone(),
+                ),
             };
             ensure_generation(
                 state,

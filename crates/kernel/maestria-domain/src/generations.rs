@@ -14,18 +14,187 @@ impl RepresentationName {
     }
 }
 
+/// Distinct fingerprint identity components (R56): provider, model,
+/// revision, quantization scheme, and preprocessing version are
+/// semantically distinct labels that must not be swapped; each is a
+/// newtype so interchange does not compile.
+#[derive(
+    Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, ::serde::Serialize, ::serde::Deserialize,
+)]
+pub struct ProviderName(pub String);
+
+impl ProviderName {
+    pub fn new(name: impl Into<String>) -> Self {
+        Self(name.into())
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl From<&str> for PreprocessingVersion {
+    fn from(value: &str) -> Self {
+        Self::new(value)
+    }
+}
+
+impl From<String> for PreprocessingVersion {
+    fn from(value: String) -> Self {
+        Self::new(value)
+    }
+}
+
+impl std::fmt::Display for PreprocessingVersion {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl From<&str> for QuantizationScheme {
+    fn from(value: &str) -> Self {
+        Self::new(value)
+    }
+}
+
+impl From<String> for QuantizationScheme {
+    fn from(value: String) -> Self {
+        Self::new(value)
+    }
+}
+
+impl std::fmt::Display for QuantizationScheme {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl From<&str> for FingerprintRevision {
+    fn from(value: &str) -> Self {
+        Self::new(value)
+    }
+}
+
+impl From<String> for FingerprintRevision {
+    fn from(value: String) -> Self {
+        Self::new(value)
+    }
+}
+
+impl std::fmt::Display for FingerprintRevision {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl From<&str> for ModelName {
+    fn from(value: &str) -> Self {
+        Self::new(value)
+    }
+}
+
+impl From<String> for ModelName {
+    fn from(value: String) -> Self {
+        Self::new(value)
+    }
+}
+
+impl std::fmt::Display for ModelName {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl From<&str> for ProviderName {
+    fn from(value: &str) -> Self {
+        Self::new(value)
+    }
+}
+
+impl From<String> for ProviderName {
+    fn from(value: String) -> Self {
+        Self::new(value)
+    }
+}
+
+impl std::fmt::Display for ProviderName {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+#[derive(
+    Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, ::serde::Serialize, ::serde::Deserialize,
+)]
+pub struct ModelName(pub String);
+
+impl ModelName {
+    pub fn new(name: impl Into<String>) -> Self {
+        Self(name.into())
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+#[derive(
+    Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, ::serde::Serialize, ::serde::Deserialize,
+)]
+pub struct FingerprintRevision(pub String);
+
+impl FingerprintRevision {
+    pub fn new(revision: impl Into<String>) -> Self {
+        Self(revision.into())
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+#[derive(
+    Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, ::serde::Serialize, ::serde::Deserialize,
+)]
+pub struct QuantizationScheme(pub String);
+
+impl QuantizationScheme {
+    pub fn new(scheme: impl Into<String>) -> Self {
+        Self(scheme.into())
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+#[derive(
+    Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, ::serde::Serialize, ::serde::Deserialize,
+)]
+pub struct PreprocessingVersion(pub String);
+
+impl PreprocessingVersion {
+    pub fn new(version: impl Into<String>) -> Self {
+        Self(version.into())
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, ::serde::Serialize, ::serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct IndexFingerprint {
-    pub provider: String,
-    pub model: String,
-    pub revision: String,
+    pub provider: ProviderName,
+    pub model: ModelName,
+    pub revision: FingerprintRevision,
     pub artifact_hash: ContentHash,
     pub dimensions: u32,
-    pub quantization: String,
+    pub quantization: QuantizationScheme,
     pub query_template_hash: ContentHash,
     pub document_template_hash: ContentHash,
-    pub preprocessing_version: String,
+    pub preprocessing_version: PreprocessingVersion,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ::serde::Serialize, ::serde::Deserialize)]

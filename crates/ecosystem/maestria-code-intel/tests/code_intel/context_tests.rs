@@ -4,13 +4,13 @@ use std::error::Error;
 fn make_provenance(file_path: &str, start_line: usize) -> Result<RecordProvenance, Box<dyn Error>> {
     Ok(RecordProvenance {
         repository_root: "/work".to_string(),
-        commit_sha: "0000000".to_string(),
-        worktree_identity: "local".to_string(),
+        commit_sha: maestria_code_intel::CommitSha::new("0000000"),
+        worktree_identity: maestria_code_intel::WorktreeIdentity::new("local"),
         content_hash: "sha256:0000000000000000000000000000000000000000000000000000000000000000"
             .to_string(),
         file_path: file_path.to_string(),
         source_range: SourceRange::new(start_line, start_line)?,
-        parser_generation: "test".to_string(),
+        parser_generation: maestria_code_intel::ParserGeneration::new("test"),
     })
 }
 
@@ -46,7 +46,7 @@ fn make_relation(
         target_record_id: target.record_id.clone(),
         source_provenance: source.provenance.clone(),
         target_provenance: target.provenance.clone(),
-        parser_generation: "test".to_string(),
+        parser_generation: maestria_code_intel::ParserGeneration::new("test"),
         confidence_milli: 1000,
         source_kind: RelationSourceKind::Ast,
     }
@@ -79,9 +79,9 @@ fn context_fixture() -> Result<RepositoryCodeIndex, Box<dyn Error>> {
     Ok(RepositoryCodeIndex {
         summary: CodeIndexSummary {
             repository_root: "/work".to_string(),
-            commit_sha: "0000000".to_string(),
-            worktree_identity: "local".to_string(),
-            parser_generation: "test".to_string(),
+            commit_sha: maestria_code_intel::CommitSha::new("0000000"),
+            worktree_identity: maestria_code_intel::WorktreeIdentity::new("local"),
+            parser_generation: maestria_code_intel::ParserGeneration::new("test"),
             package_count: 1,
             target_count: 1,
             symbol_count: symbols.len(),

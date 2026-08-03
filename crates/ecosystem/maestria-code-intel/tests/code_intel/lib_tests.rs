@@ -129,8 +129,8 @@ fn provenance_and_stale_generation_identity() -> Result<(), Box<dyn Error>> {
     let tmp = make_workspace()?;
     let index = build_index(tmp.path(), "g1")?;
 
-    assert!(!index.summary.commit_sha.is_empty());
-    assert_eq!(index.summary.parser_generation, "g1");
+    assert!(!index.summary.commit_sha.as_str().is_empty());
+    assert_eq!(index.summary.parser_generation.as_str(), "g1");
     assert!(!index.is_stale_generation("g1"));
     assert!(index.is_stale_generation("g2"));
 

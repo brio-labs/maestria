@@ -6,9 +6,9 @@ use std::path::Path;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RepositoryIdentitySnapshot {
     /// Commit identifier produced by `git rev-parse HEAD`.
-    pub commit_sha: String,
+    pub commit_sha: crate::types::CommitSha,
     /// Deterministic hash of identity-relevant tracked source and manifest content.
-    pub worktree_identity: String,
+    pub worktree_identity: crate::types::WorktreeIdentity,
 }
 
 /// Result of comparing persisted index identity with the current repository identity.

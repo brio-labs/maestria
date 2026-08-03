@@ -216,6 +216,6 @@ fn metadata_provenance(
         content_hash: content_hash(&bytes),
         file_path,
         source_range: SourceRange::new(1, 1)?,
-        parser_generation: parser_generation.to_string(),
+        parser_generation: crate::types::ParserGeneration::new(parser_generation),
     })
 }

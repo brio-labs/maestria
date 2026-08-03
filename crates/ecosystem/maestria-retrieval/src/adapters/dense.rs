@@ -232,7 +232,7 @@ impl CandidateRetriever for DenseChunkRetriever {
             .embedding_provider
             .embed(EmbeddingRequest {
                 text: request.query.q.clone(),
-                model: identity.fingerprint.model.clone(),
+                model: identity.fingerprint.model.as_str().to_string(),
                 kind: EmbeddingInputKind::Query,
                 identity,
             })

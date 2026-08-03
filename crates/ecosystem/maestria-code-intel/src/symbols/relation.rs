@@ -196,7 +196,7 @@ fn make_relation(
         target_record_id: target.record_id.clone(),
         source_provenance: source.provenance.clone(),
         target_provenance: target.provenance.clone(),
-        parser_generation: parser_generation.to_string(),
+        parser_generation: crate::types::ParserGeneration::new(parser_generation),
         confidence_milli: AST_RELATION_CONFIDENCE_MILLI,
         source_kind: RelationSourceKind::Ast,
     }

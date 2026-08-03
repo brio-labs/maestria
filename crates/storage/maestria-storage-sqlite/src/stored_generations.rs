@@ -36,26 +36,26 @@ pub(crate) struct StoredIndexFingerprint {
 impl StoredIndexFingerprint {
     pub(crate) fn from_domain(fingerprint: &IndexFingerprint) -> Self {
         Self {
-            provider: fingerprint.provider.clone(),
-            model: fingerprint.model.clone(),
-            revision: fingerprint.revision.clone(),
+            provider: fingerprint.provider.as_str().to_string(),
+            model: fingerprint.model.as_str().to_string(),
+            revision: fingerprint.revision.as_str().to_string(),
             artifact_hash: StoredContentHash::from_domain(&fingerprint.artifact_hash),
             dimensions: fingerprint.dimensions,
-            quantization: fingerprint.quantization.clone(),
+            quantization: fingerprint.quantization.as_str().to_string(),
             query_template_hash: fingerprint.query_template_hash.as_str().to_string(),
             document_template_hash: fingerprint.document_template_hash.as_str().to_string(),
-            preprocessing_version: fingerprint.preprocessing_version.clone(),
+            preprocessing_version: fingerprint.preprocessing_version.as_str().to_string(),
         }
     }
 
     pub(crate) fn try_into_domain(self) -> Result<IndexFingerprint, maestria_ports::PortError> {
         Ok(IndexFingerprint {
-            provider: self.provider,
-            model: self.model,
-            revision: self.revision,
+            provider: maestria_domain::ProviderName::new(self.provider),
+            model: maestria_domain::ModelName::new(self.model),
+            revision: maestria_domain::FingerprintRevision::new(self.revision),
             artifact_hash: self.artifact_hash.try_into_domain()?,
             dimensions: self.dimensions,
-            quantization: self.quantization,
+            quantization: maestria_domain::QuantizationScheme::new(self.quantization),
             query_template_hash: maestria_domain::ContentHash::new(self.query_template_hash)
                 .map_err(|error| maestria_ports::PortError::InvalidInputContext {
                     context: "stored index fingerprint query template hash",
@@ -66,7 +66,9 @@ impl StoredIndexFingerprint {
                     context: "stored index fingerprint document template hash",
                     source: error.to_string(),
                 })?,
-            preprocessing_version: self.preprocessing_version,
+            preprocessing_version: maestria_domain::PreprocessingVersion::new(
+                self.preprocessing_version,
+            ),
         })
     }
 }
@@ -120,12 +122,12 @@ mod tests {
 
     fn fingerprint() -> Result<IndexFingerprint, Box<dyn std::error::Error>> {
         Ok(IndexFingerprint {
-            provider: "test-provider".to_string(),
-            model: "test-model".to_string(),
-            revision: "rev-1".to_string(),
+            provider: maestria_domain::ProviderName::new("test-provider"),
+            model: maestria_domain::ModelName::new("test-model"),
+            revision: maestria_domain::FingerprintRevision::new("rev-1"),
             artifact_hash: ContentHash::new(VALID_HASH.to_string())?,
             dimensions: 768,
-            quantization: "int8".to_string(),
+            quantization: maestria_domain::QuantizationScheme::new("int8"),
             query_template_hash: ContentHash::new(
                 "sha256:1111111111111111111111111111111111111111111111111111111111111111"
                     .to_string(),
@@ -134,7 +136,7 @@ mod tests {
                 "sha256:2222222222222222222222222222222222222222222222222222222222222222"
                     .to_string(),
             )?,
-            preprocessing_version: "v1".to_string(),
+            preprocessing_version: maestria_domain::PreprocessingVersion::new("v1"),
         })
     }
 

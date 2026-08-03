@@ -43,15 +43,24 @@ pub(super) fn dense_score(
     }
     let fingerprint = &identity.fingerprint;
     let components = BTreeMap::from([
-        ("provider".to_string(), fingerprint.provider.clone()),
-        ("model".to_string(), fingerprint.model.clone()),
-        ("revision".to_string(), fingerprint.revision.clone()),
+        (
+            "provider".to_string(),
+            fingerprint.provider.as_str().to_string(),
+        ),
+        ("model".to_string(), fingerprint.model.as_str().to_string()),
+        (
+            "revision".to_string(),
+            fingerprint.revision.as_str().to_string(),
+        ),
         (
             "artifact_hash".to_string(),
             fingerprint.artifact_hash.as_str().to_string(),
         ),
         ("dimensions".to_string(), fingerprint.dimensions.to_string()),
-        ("quantization".to_string(), fingerprint.quantization.clone()),
+        (
+            "quantization".to_string(),
+            fingerprint.quantization.as_str().to_string(),
+        ),
         (
             "query_template_hash".to_string(),
             fingerprint.query_template_hash.as_str().to_string(),
@@ -62,7 +71,7 @@ pub(super) fn dense_score(
         ),
         (
             "preprocessing_version".to_string(),
-            fingerprint.preprocessing_version.clone(),
+            fingerprint.preprocessing_version.as_str().to_string(),
         ),
         (
             "generation".to_string(),
@@ -103,9 +112,15 @@ pub(super) fn learned_sparse_score(
 ) -> Result<RetrievalScoreSet, RetrievalError> {
     let fingerprint = &identity.fingerprint;
     let components = BTreeMap::from([
-        ("provider".to_string(), fingerprint.provider.clone()),
-        ("model".to_string(), fingerprint.model.clone()),
-        ("revision".to_string(), fingerprint.revision.clone()),
+        (
+            "provider".to_string(),
+            fingerprint.provider.as_str().to_string(),
+        ),
+        ("model".to_string(), fingerprint.model.as_str().to_string()),
+        (
+            "revision".to_string(),
+            fingerprint.revision.as_str().to_string(),
+        ),
         (
             "artifact_hash".to_string(),
             fingerprint.artifact_hash.as_str().to_string(),
@@ -136,13 +151,16 @@ pub(super) fn learned_sparse_score(
         ),
         (
             "preprocessing_version".to_string(),
-            fingerprint.preprocessing_version.clone(),
+            fingerprint.preprocessing_version.as_str().to_string(),
         ),
         (
             "weighting_version".to_string(),
             fingerprint.weighting_version.clone(),
         ),
-        ("quantization".to_string(), fingerprint.quantization.clone()),
+        (
+            "quantization".to_string(),
+            fingerprint.quantization.as_str().to_string(),
+        ),
         (
             "pruning_threshold".to_string(),
             fingerprint.pruning_threshold.to_string(),

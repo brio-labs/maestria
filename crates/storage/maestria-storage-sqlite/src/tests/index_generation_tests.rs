@@ -5,21 +5,21 @@ use rusqlite::params;
 
 fn make_fingerprint() -> Result<IndexFingerprint, Box<dyn std::error::Error>> {
     Ok(IndexFingerprint {
-        provider: "openai".to_string(),
-        model: "text-embedding-ada-002".to_string(),
-        revision: "v1".to_string(),
+        provider: ProviderName::new("openai"),
+        model: ModelName::new("text-embedding-ada-002"),
+        revision: FingerprintRevision::new("v1"),
         artifact_hash: ContentHash::new(
             "sha256:0000000000000000000000000000000000000000000000000000000000000000".to_string(),
         )?,
         dimensions: 1536,
-        quantization: "f32".to_string(),
+        quantization: QuantizationScheme::new("f32"),
         query_template_hash: ContentHash::new(
             "sha256:3333333333333333333333333333333333333333333333333333333333333333".to_string(),
         )?,
         document_template_hash: ContentHash::new(
             "sha256:4444444444444444444444444444444444444444444444444444444444444444".to_string(),
         )?,
-        preprocessing_version: "1.0".to_string(),
+        preprocessing_version: PreprocessingVersion::new("1.0"),
     })
 }
 

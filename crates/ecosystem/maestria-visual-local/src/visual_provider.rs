@@ -77,7 +77,7 @@ fn validate_profile(model: &str, identity: &EmbeddingIdentity) -> Result<(), Por
             source: "identity representation must be visual_page_v1".to_string(),
         });
     }
-    if identity.fingerprint.model != model {
+    if identity.fingerprint.model.as_str() != model {
         return Err(PortError::InvalidInputContext {
             context: "visual model identity mismatch",
             source: "model does not match the provider identity".to_string(),

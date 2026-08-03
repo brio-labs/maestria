@@ -97,15 +97,113 @@ mod tests {
     }
 }
 
+/// Distinct repository identity components (R56): commit, worktree
+/// identity, and parser generation are semantically distinct identifiers
+/// that must not be swapped; each is a newtype so interchange does not
+/// compile. They serialize transparently as their underlying strings, so
+/// persisted index JSON is unchanged.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub struct CommitSha(pub String);
+
+impl CommitSha {
+    pub fn new(sha: impl Into<String>) -> Self {
+        Self(sha.into())
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl From<&str> for CommitSha {
+    fn from(value: &str) -> Self {
+        Self::new(value)
+    }
+}
+
+impl From<String> for CommitSha {
+    fn from(value: String) -> Self {
+        Self::new(value)
+    }
+}
+
+impl std::fmt::Display for CommitSha {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub struct WorktreeIdentity(pub String);
+
+impl WorktreeIdentity {
+    pub fn new(identity: impl Into<String>) -> Self {
+        Self(identity.into())
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl From<&str> for WorktreeIdentity {
+    fn from(value: &str) -> Self {
+        Self::new(value)
+    }
+}
+
+impl From<String> for WorktreeIdentity {
+    fn from(value: String) -> Self {
+        Self::new(value)
+    }
+}
+
+impl std::fmt::Display for WorktreeIdentity {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub struct ParserGeneration(pub String);
+
+impl ParserGeneration {
+    pub fn new(generation: impl Into<String>) -> Self {
+        Self(generation.into())
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl From<&str> for ParserGeneration {
+    fn from(value: &str) -> Self {
+        Self::new(value)
+    }
+}
+
+impl From<String> for ParserGeneration {
+    fn from(value: String) -> Self {
+        Self::new(value)
+    }
+}
+
+impl std::fmt::Display for ParserGeneration {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
 /// Repository identity attached to every persisted record.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RecordProvenance {
     /// Repository root used for this index build.
     pub repository_root: String,
     /// `git rev-parse HEAD` output.
-    pub commit_sha: String,
+    pub commit_sha: CommitSha,
     /// Deterministic identity of the indexed worktree contents and paths.
-    pub worktree_identity: String,
+    pub worktree_identity: WorktreeIdentity,
     /// Deterministic SHA-256 hash of the persisted source bytes (`sha256:<lowercase hex>`).
     pub content_hash: String,
     /// Relative file path from repository root.
@@ -113,7 +211,7 @@ pub struct RecordProvenance {
     /// Source span for this record.
     pub source_range: SourceRange,
     /// Parser generation passed at index build time.
-    pub parser_generation: String,
+    pub parser_generation: ParserGeneration,
 }
 
 /// Visibility as represented by the Rust AST.
@@ -178,7 +276,7 @@ pub struct CodeRelationRecord {
     /// Target endpoint provenance snapshot.
     pub target_provenance: RecordProvenance,
     /// Parser generation that produced this relation.
-    pub parser_generation: String,
+    pub parser_generation: ParserGeneration,
     /// Relation-confidence in basis points (0-1000).
     pub confidence_milli: u16,
     /// Extractor type for this relation edge.
@@ -334,9 +432,9 @@ pub struct QueryResult {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CodeIndexSummary {
     pub repository_root: String,
-    pub commit_sha: String,
-    pub worktree_identity: String,
-    pub parser_generation: String,
+    pub commit_sha: CommitSha,
+    pub worktree_identity: WorktreeIdentity,
+    pub parser_generation: ParserGeneration,
     pub package_count: usize,
     pub target_count: usize,
     pub symbol_count: usize,

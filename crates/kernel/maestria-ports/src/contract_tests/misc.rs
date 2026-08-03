@@ -143,7 +143,7 @@ pub fn assert_embedding_provider_contract(
         .ok_or("embedding provider must disclose its identity")?;
     let response = provider.embed(EmbeddingRequest {
         text: "contract test input".to_string(),
-        model: identity.fingerprint.model.clone(),
+        model: identity.fingerprint.model.as_str().to_string(),
         kind: EmbeddingInputKind::Document,
         identity: identity.clone(),
     })?;

@@ -27,11 +27,11 @@ pub fn assert_visual_embedding_provider_contract(
         "visual provider identity dimensions must be positive"
     );
     assert!(
-        !identity.fingerprint.model.is_empty(),
+        !identity.fingerprint.model.as_str().is_empty(),
         "visual provider identity model must be disclosed"
     );
     assert!(
-        !identity.fingerprint.provider.is_empty(),
+        !identity.fingerprint.provider.as_str().is_empty(),
         "visual provider identity provider name must be disclosed"
     );
 

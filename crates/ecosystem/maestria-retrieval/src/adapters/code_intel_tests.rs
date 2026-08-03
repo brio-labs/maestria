@@ -17,9 +17,9 @@ fn archive() -> Result<maestria_code_intel::RepositoryCodeIndex, Box<dyn std::er
     Ok(maestria_code_intel::RepositoryCodeIndex {
         summary: maestria_code_intel::CodeIndexSummary {
             repository_root: "/root/repo".to_string(),
-            commit_sha: "abc123".to_string(),
-            worktree_identity: "wt-1".to_string(),
-            parser_generation: "cargo-rust-code-v2".to_string(),
+            commit_sha: maestria_code_intel::CommitSha::new("abc123"),
+            worktree_identity: maestria_code_intel::WorktreeIdentity::new("wt-1"),
+            parser_generation: maestria_code_intel::ParserGeneration::new("cargo-rust-code-v2"),
             package_count: 1,
             target_count: 1,
             symbol_count: 1,
@@ -53,13 +53,13 @@ fn symbol(record_id: &str) -> Result<SymbolRecord, Box<dyn std::error::Error>> {
         markers: maestria_code_intel::SymbolMarkers::default(),
         provenance: maestria_code_intel::RecordProvenance {
             repository_root: "/root/repo".to_string(),
-            commit_sha: "abc123".to_string(),
-            worktree_identity: "wt-1".to_string(),
+            commit_sha: maestria_code_intel::CommitSha::new("abc123"),
+            worktree_identity: maestria_code_intel::WorktreeIdentity::new("wt-1"),
             content_hash: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
                 .to_string(),
             file_path: "src/lib.rs".to_string(),
             source_range: maestria_code_intel::SourceRange::new(10, 15)?,
-            parser_generation: "cargo-rust-code-v2".to_string(),
+            parser_generation: maestria_code_intel::ParserGeneration::new("cargo-rust-code-v2"),
         },
     })
 }
@@ -205,8 +205,8 @@ fn candidate_includes_expected_code_source_provenance() -> Result<(), Box<dyn st
         authorized_binding()?,
         FreshnessStatus::UpToDate,
         Some(&RepositoryIdentitySnapshot {
-            commit_sha: "live-commit".to_string(),
-            worktree_identity: "live-worktree".to_string(),
+            commit_sha: maestria_code_intel::CommitSha::new("live-commit"),
+            worktree_identity: maestria_code_intel::WorktreeIdentity::new("live-worktree"),
         }),
         3,
     )?;

@@ -71,7 +71,7 @@ impl RepositoryCodeIndex {
 
     /// Whether stored parser generation matches `parser_generation`.
     pub fn is_stale_generation(&self, parser_generation: &str) -> bool {
-        self.summary.parser_generation != parser_generation
+        self.summary.parser_generation.as_str() != parser_generation
     }
     /// Validate that all persisted records belong to this index snapshot.
     pub fn validate_provenance(&self) -> Result<(), CodeIntelError> {
@@ -114,7 +114,7 @@ impl RepositoryCodeIndex {
             if relation.parser_generation != summary.parser_generation {
                 return Err(CodeIntelError::Integrity {
                     context: "relation parser generation".to_string(),
-                    details: relation.parser_generation.clone(),
+                    details: relation.parser_generation.to_string(),
                 });
             }
             if relation.confidence_milli > 1000 {

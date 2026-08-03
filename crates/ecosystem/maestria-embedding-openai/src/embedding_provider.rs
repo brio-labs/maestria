@@ -95,7 +95,7 @@ fn validate_profile(
             source: "dimensions must be positive when provided".to_string(),
         });
     }
-    if model != identity.fingerprint.model {
+    if model != identity.fingerprint.model.as_str() {
         return Err(PortError::InvalidInputContext {
             context: "embedding model identity mismatch",
             source: "model does not match the identity fingerprint".to_string(),

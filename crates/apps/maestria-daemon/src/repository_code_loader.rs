@@ -20,7 +20,7 @@ pub(crate) fn load_repository_code_index_with_exclusions(
     if index.is_stale_generation(maestria_code_intel::REPOSITORY_CODE_PARSER_GENERATION) {
         return Err(maestria_code_intel::CodeIntelError::Integrity {
             context: "parser generation".to_string(),
-            details: index.summary.parser_generation.clone(),
+            details: index.summary.parser_generation.as_str().to_string(),
         });
     }
     if let Some(manifest) = expected_manifest {
