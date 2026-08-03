@@ -359,4 +359,10 @@ mod tests {
         }
         Ok(())
     }
+
+    #[test]
+    fn satisfies_shared_approval_repository_contract() -> Result<(), Box<dyn std::error::Error>> {
+        let store = SqliteStore::in_memory()?;
+        maestria_ports::contract_tests::assert_approval_repository_contract(&store)
+    }
 }

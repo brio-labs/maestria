@@ -326,3 +326,15 @@ impl crate::ApprovalRepository for InMemoryApprovalRepository {
             .collect())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn satisfies_shared_approval_repository_contract() -> Result<(), Box<dyn std::error::Error>> {
+        crate::contract_tests::assert_approval_repository_contract(
+            &InMemoryApprovalRepository::new(),
+        )
+    }
+}

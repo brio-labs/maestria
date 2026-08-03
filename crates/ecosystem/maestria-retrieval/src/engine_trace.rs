@@ -72,10 +72,8 @@ struct ExpectedTraceState {
     fusion: Option<String>,
     /// Expansions when expansion is enabled.
     expansions: Vec<SearchTraceExpansion>,
-    /// Human-readable degradation message when the visual provider is unavailable.
-    degradation: Option<String>,
-    /// Name of the unavailable capability (e.g. `"visual provider"`).
-    unavailable_capability: Option<String>,
+    /// Named capability degradation when the visual provider is unavailable.
+    degradation: Option<maestria_domain::SearchDegradation>,
 }
 
 /// Computes the expected trace state from the plan, outcome, lanes, and options.
@@ -141,10 +139,11 @@ fn compute_expected_trace_state(
                 maestria_domain::SearchLaneStatus::Failed { .. }
             )
     });
-    let expected_degradation = (visual_plan_fallback || visual_lane_failed)
-        .then(|| "visual provider unavailable; using text/layout retrieval".to_string());
-    let expected_unavailable_capability =
-        (visual_plan_fallback || visual_lane_failed).then(|| "visual provider".to_string());
+    let expected_degradation =
+        (visual_plan_fallback || visual_lane_failed).then(|| maestria_domain::SearchDegradation {
+            capability: "visual provider".to_string(),
+            reason: "visual provider unavailable; using text/layout retrieval".to_string(),
+        });
 
     ExpectedTraceState {
         policy_fingerprint: expected_policy_fingerprint,
@@ -153,14 +152,13 @@ fn compute_expected_trace_state(
         fusion: expected_fusion,
         expansions: expected_expansions,
         degradation: expected_degradation,
-        unavailable_capability: expected_unavailable_capability,
     }
 }
 
 /// Checks whether an existing `SearchTrace` matches the computed expectations.
 ///
 /// Performs a 13-condition equality check covering:
-/// deterministic ID, plan match, degradation, unavailable capability, retrievers,
+/// deterministic ID, plan match, degradation, retrievers,
 /// lanes, fusion, rerank, diversity, expansions, rewrites, stop reason, and
 /// evidence alignment.
 fn trace_matches_expected(
@@ -176,7 +174,6 @@ fn trace_matches_expected(
         && trace.policy_fingerprint.as_deref() == Some(expected.policy_fingerprint.as_str())
         && trace.filters == expected.filters
         && trace.degradation == expected.degradation
-        && trace.unavailable_capability == expected.unavailable_capability
         && trace.retrievers
             == lanes
                 .iter()
@@ -239,7 +236,7 @@ pub fn ensure_trace(
         return Ok(outcome);
     }
     let mut trace = assemble_trace(plan, &outcome, lanes, &expected)?;
-    trace = apply_degradation(trace, expected.degradation, expected.unavailable_capability);
+    trace = apply_degradation(trace, expected.degradation);
     trace.rewrites = options.rewrites;
     trace.rerank = options.rerank_trace;
     trace.diversity = options.diversity_trace;
@@ -250,15 +247,10 @@ pub fn ensure_trace(
 
 fn apply_degradation(
     trace: SearchTrace,
-    degradation: Option<String>,
-    unavailable_capability: Option<String>,
+    degradation: Option<maestria_domain::SearchDegradation>,
 ) -> SearchTrace {
-    let trace = match degradation {
+    match degradation {
         Some(value) => trace.with_degradation(value),
-        None => trace,
-    };
-    match unavailable_capability {
-        Some(value) => trace.with_unavailable_capability(value),
         None => trace,
     }
 }

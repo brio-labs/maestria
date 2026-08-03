@@ -6,6 +6,12 @@ use maestria_ports::EventLog;
 use maestria_ports::IdAllocator;
 
 #[test]
+fn satisfies_shared_id_allocator_contract() -> Result<(), Box<dyn std::error::Error>> {
+    let store = SqliteStore::in_memory()?;
+    maestria_ports::contract_tests::assert_id_allocator_contract(&store)
+}
+
+#[test]
 fn allocates_independent_namespaces_from_fresh_db() -> Result<(), Box<dyn std::error::Error>> {
     let store = SqliteStore::in_memory()?;
     let c1 = store.allocate_claim_id()?;

@@ -147,27 +147,18 @@ impl EffectExecutionContext {
                 "only a fresh proposal can create a harness journal intent".to_string(),
             ));
         }
-        let entry = self
-            .adapters
-            .effect_journal
-            .record_intent(EffectJournalIntent {
+        self.record_harness_intent_and_start(
+            EffectJournalIntent {
                 run_id: proposal.run_id,
                 task_id: proposal.task_id,
                 capability: proposal.capability.clone(),
                 command: proposal.command.clone(),
                 scope_id: self.scope_id,
                 requested_generation: None,
-            })
-            .map_err(|error| {
-                EffectFailure::Failed(format!("record proposal harness intent: {error}"))
-            })?;
-        self.adapters
-            .effect_journal
-            .record_started(proposal.run_id, entry.generation)
-            .map_err(|error| {
-                EffectFailure::Failed(format!("record proposal harness start: {error}"))
-            })?;
-        Ok(entry.generation)
+            },
+            "record proposal harness intent",
+            "record proposal harness start",
+        )
     }
 
     async fn execute_proposal_harness(
