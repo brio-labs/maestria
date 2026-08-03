@@ -287,7 +287,12 @@ async fn command_submission_progresses_while_persistence_reads_state()
         let handle = handle.clone();
         tokio::spawn(async move { handle.submit(register(3)).await })
     };
-    tokio::time::sleep(Duration::from_millis(50)).await;
+    // Give a misbehaving runtime scheduler turns to (wrongly) complete the
+    // third submission while the append is still blocked, without depending
+    // on wall clock.
+    for _ in 0..128 {
+        tokio::task::yield_now().await;
+    }
     let third_pending = !third.is_finished();
 
     release_append.store(true, Ordering::SeqCst);

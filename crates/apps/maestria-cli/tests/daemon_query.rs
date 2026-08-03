@@ -51,18 +51,37 @@ fn daemon_instance_serves_search_status_and_open_evidence_while_running()
             .stderr(Stdio::null())
             .spawn()?,
     };
-    thread::sleep(Duration::from_millis(200));
-
     let query_timeout = Duration::from_secs(2);
-
-    let (_status_code, status_stdout, _status_stderr) =
-        run_bounded(&["status", "-i", &instance_path], query_timeout)?;
+    // Poll the daemon until it answers the status command instead of
+    // sleeping a fixed startup window.
+    let mut status_attempts = 200;
+    let (_status_code, status_stdout, _status_stderr) = loop {
+        match run_bounded(&["status", "-i", &instance_path], query_timeout) {
+            Ok((0, stdout, stderr)) => break (0, stdout, stderr),
+            Ok(_) if status_attempts > 0 => {
+                status_attempts -= 1;
+                thread::sleep(Duration::from_millis(25));
+            }
+            other => break other?,
+        }
+    };
     assert!(status_stdout.contains("events "));
 
-    let (search_live_code, search_live_stdout, search_live_stderr) = run_bounded(
-        &["search", "-i", &instance_path, "lock test"],
-        query_timeout,
-    )?;
+    // The daemon holds the store; the search CLI may transiently hit a
+    // locked database right after startup, so retry briefly instead of
+    // relying on a fixed startup sleep.
+    let mut search_attempts = 200;
+    let (search_live_code, search_live_stdout, search_live_stderr) = loop {
+        let attempt = run_bounded(
+            &["search", "-i", &instance_path, "lock test"],
+            query_timeout,
+        )?;
+        if attempt.1.contains("evidence=") || search_attempts == 0 {
+            break attempt;
+        }
+        search_attempts -= 1;
+        thread::sleep(Duration::from_millis(50));
+    };
     assert!(
         search_live_stdout.contains("evidence="),
         "live search failed code={search_live_code} stdout={search_live_stdout} stderr={search_live_stderr}"

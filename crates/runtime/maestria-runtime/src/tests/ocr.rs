@@ -155,7 +155,12 @@ async fn ocr_transport_waits_for_requested_event_persistence() -> TestResult {
         }
     })
     .await?;
-    tokio::time::sleep(Duration::from_millis(25)).await;
+    // Give a misbehaving dispatcher scheduler turns to (wrongly) invoke the
+    // provider while the append is still blocked, without depending on wall
+    // clock.
+    for _ in 0..64 {
+        tokio::task::yield_now().await;
+    }
     assert_eq!(
         calls.load(Ordering::SeqCst),
         0,
@@ -208,7 +213,9 @@ async fn ocr_transport_is_not_called_when_requested_event_persistence_fails() ->
             intent: request,
         }))
         .await;
-    tokio::time::sleep(Duration::from_millis(25)).await;
+    for _ in 0..64 {
+        tokio::task::yield_now().await;
+    }
     assert_eq!(
         calls.load(Ordering::SeqCst),
         0,

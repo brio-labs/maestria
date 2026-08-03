@@ -20,3 +20,9 @@ pub use graph::SqliteGraphIndex;
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+#[path = "tests_lifecycle.rs"]
+mod tests_lifecycle;
+#[cfg(test)]
+#[path = "tests_migration.rs"]
+mod tests_migration;

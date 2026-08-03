@@ -506,8 +506,19 @@ async fn query_harness_rejects_stale_feedback_when_not_current()
         MaestriaRuntime::test_execute_effect(MaestriaEffect::QueryHarness(request), ctx, None).await
     });
 
-    // Give the effect handler time to record intent and start executing
-    tokio::time::sleep(Duration::from_millis(100)).await;
+    // Wait until the effect handler has recorded its journal intent so the
+    // superseding intent below is ordered after it (no wall-clock sleep).
+    tokio::time::timeout(Duration::from_secs(1), async {
+        loop {
+            let in_flight = adapters.effect_journal.scan_in_flight()?;
+            if in_flight.iter().any(|entry| entry.run_id == run_id) {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+        Ok::<(), maestria_ports::PortError>(())
+    })
+    .await??;
 
     // Manually supersede the entry to make the current execution stale
     let intent = maestria_ports::EffectJournalIntent {
