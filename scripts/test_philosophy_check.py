@@ -1432,9 +1432,6 @@ dev_alias = { package = "unknown-package", version = "1" }
                 output,
             )
 
-if __name__ == "__main__":
-    unittest.main()
-
     def test_bypassable_validation_reports_serde_try_from_with_public_fields(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -1608,6 +1605,218 @@ if __name__ == "__main__":
             self.assertTrue(
                 any("state field `strategy`" in item for item in violations), violations
             )
+
+    def test_memory_unsafety_markers_reports_transmute(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.configure_root(root)
+            source = root / "crates" / "apps" / "example" / "src" / "lib.rs"
+            source.parent.mkdir(parents=True, exist_ok=True)
+            source.write_text(
+                "fn reinterpret(value: u32) { let _ = std::mem::transmute::<u32, f32>(value); }\n"
+            )
+            violations = PHILOSOPHY_CHECK.scan_memory_unsafety_markers()
+            self.assertTrue(any("transmute call" in item for item in violations), violations)
+
+    def test_memory_unsafety_markers_reports_static_mut(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.configure_root(root)
+            source = root / "crates" / "apps" / "example" / "src" / "lib.rs"
+            source.parent.mkdir(parents=True, exist_ok=True)
+            source.write_text("static mut COUNTER: u64 = 0;\n")
+            violations = PHILOSOPHY_CHECK.scan_memory_unsafety_markers()
+            self.assertTrue(any("static mut" in item for item in violations), violations)
+
+    def test_memory_unsafety_markers_reports_leaks_even_in_tests(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.configure_root(root)
+            source = root / "crates" / "apps" / "example" / "tests" / "leak.rs"
+            source.parent.mkdir(parents=True, exist_ok=True)
+            source.write_text(
+                "fn fixture() { let _ = Box::leak(Box::new(1)); std::mem::forget(2); }\n"
+            )
+            violations = PHILOSOPHY_CHECK.scan_memory_unsafety_markers()
+            self.assertTrue(any("Box::leak" in item for item in violations), violations)
+            self.assertTrue(any("mem::forget" in item for item in violations), violations)
+
+    def test_debug_output_reports_dbg_even_in_tests(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.configure_root(root)
+            source = root / "crates" / "apps" / "example" / "tests" / "debug.rs"
+            source.parent.mkdir(parents=True, exist_ok=True)
+            source.write_text("fn trace() { dbg!(1); }\n")
+            violations = PHILOSOPHY_CHECK.scan_debug_output()
+            self.assertTrue(any("dbg!" in item for item in violations), violations)
+
+    def test_debug_output_reports_stdout_in_library_only(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.configure_root(root)
+            library = root / "crates" / "core" / "maestria-core" / "src" / "lib.rs"
+            library.parent.mkdir(parents=True, exist_ok=True)
+            library.write_text("fn emit() { println!(\"hello\"); eprintln!(\"bye\"); }\n")
+            app = root / "crates" / "apps" / "maestria-cli" / "src" / "main.rs"
+            app.parent.mkdir(parents=True, exist_ok=True)
+            app.write_text("fn main() { println!(\"hello\"); }\n")
+            violations = PHILOSOPHY_CHECK.scan_debug_output()
+            self.assertTrue(
+                any("println!" in item and "maestria-core" in item for item in violations),
+                violations,
+            )
+            self.assertFalse(any("maestria-cli" in item for item in violations), violations)
+
+    def test_hardcoded_secrets_reports_private_key_and_token(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.configure_root(root)
+            source = root / "docs" / "deploy.md"
+            source.parent.mkdir(parents=True, exist_ok=True)
+            source.write_text(
+                "-----BEGIN RSA PRIVATE KEY-----\n" "export AWS_KEY=AKIA1234567890ABCDEF\n"
+            )
+            violations = PHILOSOPHY_CHECK.scan_hardcoded_secrets()
+            self.assertTrue(any("private key material" in item for item in violations), violations)
+            self.assertTrue(any("access-token pattern" in item for item in violations), violations)
+
+    def test_hardcoded_secrets_reports_credential_assignment_in_code(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.configure_root(root)
+            source = root / "scripts" / "deploy.py"
+            source.parent.mkdir(parents=True, exist_ok=True)
+            source.write_text('password = "hunter2"\n')
+            violations = PHILOSOPHY_CHECK.scan_hardcoded_secrets()
+            self.assertTrue(any("credential assignment" in item for item in violations), violations)
+
+    def test_hardcoded_secrets_skips_tests_and_ci_templates(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.configure_root(root)
+            test_file = root / "crates" / "apps" / "example" / "tests" / "fixture.rs"
+            test_file.parent.mkdir(parents=True, exist_ok=True)
+            test_file.write_text("const FAKE: &str = \"AKIA1234567890ABCDEF\";\n")
+            workflow = root / ".github" / "workflows" / "ci.yml"
+            workflow.parent.mkdir(parents=True, exist_ok=True)
+            workflow.write_text(
+                "password: ${{ secrets.DB_PASSWORD }}\n" "token: <contents of system/daemon.token>\n"
+            )
+            violations = PHILOSOPHY_CHECK.scan_hardcoded_secrets()
+            self.assertEqual(violations, [])
+
+    def test_hardcoded_secrets_skips_inline_cfg_test_fixtures(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.configure_root(root)
+            source = root / "crates" / "kernel" / "maestria-domain" / "src" / "lib.rs"
+            source.parent.mkdir(parents=True, exist_ok=True)
+            source.write_text(
+                "#[cfg(test)]\n" "mod tests { const FAKE: &str = \"-----BEGIN PRIVATE KEY-----\"; }\n"
+            )
+            violations = PHILOSOPHY_CHECK.scan_hardcoded_secrets()
+            self.assertEqual(violations, [])
+
+    def test_hardcoded_secrets_accepts_struct_fields_and_expressions(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.configure_root(root)
+            source = root / "crates" / "apps" / "example" / "src" / "lib.rs"
+            source.parent.mkdir(parents=True, exist_ok=True)
+            source.write_text(
+                "struct Request { token: String }\n"
+                "fn clone(token: &str) { let _ = token; }\n"
+                "fn assign(token: String) { let copy = token; }\n"
+            )
+            violations = PHILOSOPHY_CHECK.scan_hardcoded_secrets()
+            self.assertEqual(violations, [])
+
+    def test_kernel_interior_mutability_reports_mutex_in_domain(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.configure_root(root)
+            source = root / "crates" / "kernel" / "maestria-domain" / "src" / "lib.rs"
+            source.parent.mkdir(parents=True, exist_ok=True)
+            source.write_text(
+                "use std::sync::Mutex;\n" "fn guard(m: Mutex<u64>) { let _ = m; }\n"
+            )
+            violations = PHILOSOPHY_CHECK.scan_kernel_interior_mutability()
+            self.assertTrue(any("interior-mutability" in item for item in violations), violations)
+
+    def test_kernel_interior_mutability_exempts_in_memory_ports(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.configure_root(root)
+            source = (
+                root / "crates" / "kernel" / "maestria-ports" / "src" / "in_memory" / "store.rs"
+            )
+            source.parent.mkdir(parents=True, exist_ok=True)
+            source.write_text("use std::sync::Mutex;\npub struct Store { inner: Mutex<Vec<u8>> }\n")
+            violations = PHILOSOPHY_CHECK.scan_kernel_interior_mutability()
+            self.assertEqual(violations, [])
+
+    def test_production_asserts_reports_shipped_assert(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.configure_root(root)
+            source = root / "crates" / "core" / "maestria-core" / "src" / "lib.rs"
+            source.parent.mkdir(parents=True, exist_ok=True)
+            source.write_text("fn check(value: u8) { assert!(value > 0); }\n")
+            violations = PHILOSOPHY_CHECK.scan_production_asserts()
+            self.assertTrue(any("production assert" in item for item in violations), violations)
+
+    def test_production_asserts_skips_tests_and_debug_assert(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.configure_root(root)
+            source = root / "crates" / "core" / "maestria-core" / "src" / "lib.rs"
+            source.parent.mkdir(parents=True, exist_ok=True)
+            source.write_text(
+                "fn check(value: u8) { debug_assert!(value > 0); }\n"
+                "#[cfg(test)]\n"
+                "mod tests { fn t() { assert_eq!(1, 1); } }\n"
+            )
+            test_file = root / "crates" / "core" / "maestria-core" / "tests" / "behavior.rs"
+            test_file.parent.mkdir(parents=True, exist_ok=True)
+            test_file.write_text("fn t() { assert_ne!(1, 2); }\n")
+            violations = PHILOSOPHY_CHECK.scan_production_asserts()
+            self.assertEqual(violations, [])
+
+    def test_is_test_source_covers_test_prefixed_modules(self) -> None:
+        self.assertTrue(PHILOSOPHY_CHECK.is_test_source(Path("src/tests_boundary.rs")))
+        self.assertTrue(PHILOSOPHY_CHECK.is_test_source(Path("src/watcher_tests/e2e.rs")))
+        self.assertTrue(PHILOSOPHY_CHECK.is_test_source(Path("src/test_support.rs")))
+        self.assertTrue(PHILOSOPHY_CHECK.is_test_source(Path("src/contract_tests/misc.rs")))
+        self.assertFalse(PHILOSOPHY_CHECK.is_test_source(Path("src/lib.rs")))
+
+    def test_unbounded_channels_reports_async_channel_and_flume(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.configure_root(root)
+            source = root / "crates" / "apps" / "example" / "src" / "lib.rs"
+            source.parent.mkdir(parents=True, exist_ok=True)
+            first = root / "crates" / "apps" / "example" / "src" / "async.rs"
+            first.parent.mkdir(parents=True, exist_ok=True)
+            first.write_text(
+                "fn chans() { let (_tx, _rx) = async_channel::unbounded(); }\n"
+            )
+            second = root / "crates" / "apps" / "example" / "src" / "flume.rs"
+            second.write_text(
+                "fn chans() { let (_tx, _rx) = flume::unbounded(); }\n"
+            )
+            violations = PHILOSOPHY_CHECK.scan_unbounded_channels()
+            self.assertEqual(len(violations), 2, violations)
+
+    def test_kernel_tokens_reject_maybe_uninit(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.configure_root(root)
+            source = root / "crates" / "kernel" / "maestria-domain" / "src" / "lib.rs"
+            source.parent.mkdir(parents=True, exist_ok=True)
+            source.write_text("fn init() { let _ = std::mem::MaybeUninit::<u8>::uninit(); }\n")
+            violations = PHILOSOPHY_CHECK.scan_kernel_sources()
+            self.assertTrue(any("MaybeUninit" in item for item in violations), violations)
 
 if __name__ == "__main__":
     unittest.main()
