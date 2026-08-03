@@ -178,7 +178,7 @@ pub(super) fn record_denied_harness(
             capability: request.capability.clone(),
             command: request.command.clone(),
             scope_id: request.scope_id,
-            requested_generation: request.generation,
+            requested_generation: request.execution.generation(),
         })
         .map_err(|error| EffectFailure::Failed(format!("record denied harness intent: {error}")))?;
     context

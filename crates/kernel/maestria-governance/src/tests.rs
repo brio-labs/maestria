@@ -113,10 +113,9 @@ fn risky_effects_require_approval_gate() {
         maestria_domain::MaestriaEffect::QueryHarness(maestria_domain::QueryHarnessRequest {
             run_id: maestria_domain::HarnessRunId::new(1),
             task_id: None,
-            generation: None,
+            execution: maestria_domain::HarnessExecution::Fresh,
             capability: "shell".into(),
             scope_id: maestria_domain::ScopeId::new(1),
-            approval_id: None,
             command: "rm -rf /tmp".into(),
         });
 
@@ -266,10 +265,9 @@ fn readonly_allows_full_text_index_but_gates_risky_effects() {
         maestria_domain::MaestriaEffect::QueryHarness(maestria_domain::QueryHarnessRequest {
             run_id: maestria_domain::HarnessRunId::new(1),
             task_id: None,
-            generation: None,
+            execution: maestria_domain::HarnessExecution::Fresh,
             capability: "shell".into(),
             scope_id: maestria_domain::ScopeId::new(1),
-            approval_id: None,
             command: "rm -rf /tmp".into(),
         });
     let harness_req = ApprovalRequest {
@@ -316,10 +314,9 @@ fn approval_policy_exhaustively_covers_all_profile_risk_cells() {
         maestria_domain::MaestriaEffect::QueryHarness(maestria_domain::QueryHarnessRequest {
             run_id: maestria_domain::HarnessRunId::new(1),
             task_id: None,
-            generation: None,
+            execution: maestria_domain::HarnessExecution::Fresh,
             capability: "shell".into(),
             scope_id: maestria_domain::ScopeId::new(1),
-            approval_id: None,
             command: "rm -rf /tmp".into(),
         });
     let effects = [

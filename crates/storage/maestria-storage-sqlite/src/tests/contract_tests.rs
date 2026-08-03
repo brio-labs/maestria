@@ -47,3 +47,10 @@ fn satisfies_shared_evidence_replace_contract() -> Result<(), Box<dyn std::error
     contract_tests::assert_evidence_repository_replace_contract(&store)?;
     Ok(())
 }
+
+#[test]
+fn satisfies_shared_effect_journal_contract() -> Result<(), Box<dyn std::error::Error>> {
+    let store = SqliteStore::in_memory()?;
+    contract_tests::assert_effect_journal_contract(&store)?;
+    Ok(())
+}

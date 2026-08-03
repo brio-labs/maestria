@@ -31,10 +31,9 @@ async fn query_harness_denies_invalid_grammar_before_spawn()
     let request = maestria_domain::QueryHarnessRequest {
         run_id: maestria_domain::HarnessRunId(1),
         task_id: None,
-        generation: None,
+        execution: maestria_domain::HarnessExecution::Fresh,
         capability: "shell".to_string(),
         scope_id: maestria_domain::ScopeId(1),
-        approval_id: None,
         command: "echo hello | cat".to_string(),
     };
 
@@ -79,10 +78,9 @@ async fn query_harness_rejects_cat_outside_scope() -> Result<(), Box<dyn std::er
     let request = maestria_domain::QueryHarnessRequest {
         run_id: maestria_domain::HarnessRunId(2),
         task_id: None,
-        generation: None,
+        execution: maestria_domain::HarnessExecution::Fresh,
         capability: "shell".to_string(),
         scope_id: maestria_domain::ScopeId(1),
-        approval_id: None,
         command: "cat /etc/passwd".to_string(),
     };
 
@@ -127,10 +125,9 @@ async fn query_harness_rejects_blocked_pattern_before_custom_adapter()
     let request = maestria_domain::QueryHarnessRequest {
         run_id: maestria_domain::HarnessRunId(6),
         task_id: None,
-        generation: None,
+        execution: maestria_domain::HarnessExecution::Fresh,
         capability: "shell".to_string(),
         scope_id: maestria_domain::ScopeId(1),
-        approval_id: None,
         command: "cat /workspace/.env".to_string(),
     };
 
@@ -185,10 +182,9 @@ async fn query_harness_rejects_blocked_path_before_custom_adapter()
     let request = maestria_domain::QueryHarnessRequest {
         run_id: maestria_domain::HarnessRunId(7),
         task_id: None,
-        generation: None,
+        execution: maestria_domain::HarnessExecution::Fresh,
         capability: "shell".to_string(),
         scope_id: maestria_domain::ScopeId(1),
-        approval_id: None,
         command: "cat /workspace/private/notes.txt".to_string(),
     };
 
@@ -243,10 +239,9 @@ async fn query_harness_allows_grammar_compliant_echo() -> Result<(), Box<dyn std
     let request = maestria_domain::QueryHarnessRequest {
         run_id: maestria_domain::HarnessRunId(3),
         task_id: None,
-        generation: None,
+        execution: maestria_domain::HarnessExecution::Fresh,
         capability: "shell".to_string(),
         scope_id: maestria_domain::ScopeId(1),
-        approval_id: None,
         command: "echo hello world".to_string(),
     };
 
@@ -301,10 +296,9 @@ async fn query_harness_allows_pwd() -> Result<(), Box<dyn std::error::Error>> {
     let request = maestria_domain::QueryHarnessRequest {
         run_id: maestria_domain::HarnessRunId(4),
         task_id: None,
-        generation: None,
+        execution: maestria_domain::HarnessExecution::Fresh,
         capability: "shell".to_string(),
         scope_id: maestria_domain::ScopeId(1),
-        approval_id: None,
         command: "pwd".to_string(),
     };
 
@@ -342,10 +336,9 @@ async fn query_harness_allows_cat_within_scope() -> Result<(), Box<dyn std::erro
     let request = maestria_domain::QueryHarnessRequest {
         run_id: maestria_domain::HarnessRunId(5),
         task_id: None,
-        generation: None,
+        execution: maestria_domain::HarnessExecution::Fresh,
         capability: "shell".to_string(),
         scope_id: maestria_domain::ScopeId(1),
-        approval_id: None,
         command: "cat /workspace/file.txt".to_string(),
     };
 
@@ -398,10 +391,9 @@ async fn query_harness_records_lifecycle_and_processes_current_feedback()
     let request = maestria_domain::QueryHarnessRequest {
         run_id,
         task_id: None,
-        generation: None,
+        execution: maestria_domain::HarnessExecution::Fresh,
         capability: "shell".to_string(),
         scope_id: maestria_domain::ScopeId(1),
-        approval_id: None,
         command: "pwd".to_string(),
     };
 
@@ -494,10 +486,9 @@ async fn query_harness_rejects_stale_feedback_when_not_current()
     let request = maestria_domain::QueryHarnessRequest {
         run_id,
         task_id: None,
-        generation: None,
+        execution: maestria_domain::HarnessExecution::Fresh,
         capability: "shell".to_string(),
         scope_id: maestria_domain::ScopeId(1),
-        approval_id: None,
         command: "echo test".to_string(),
     };
 

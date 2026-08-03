@@ -246,10 +246,9 @@ pub struct HarnessRunCompleted {
 pub struct HarnessRunRequested {
     pub run_id: HarnessRunId,
     pub task_id: Option<TaskId>,
-    pub generation: Option<u64>,
+    pub execution: crate::effects::HarnessExecution,
     pub capability: String,
     pub scope_id: ScopeId,
-    pub approval_id: Option<ApprovalId>,
     pub command: String,
 }
 

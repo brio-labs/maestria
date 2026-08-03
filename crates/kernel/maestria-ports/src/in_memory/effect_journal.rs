@@ -224,6 +224,11 @@ mod tests {
     }
 
     #[test]
+    fn satisfies_shared_effect_journal_contract() -> Result<(), Box<dyn std::error::Error>> {
+        crate::contract_tests::assert_effect_journal_contract(&InMemoryEffectJournal::default())
+    }
+
+    #[test]
     fn records_lifecycle_and_current_generation() -> Result<(), PortError> {
         let journal = InMemoryEffectJournal::default();
         let entry = journal.record_intent(intent(1, None))?;

@@ -64,7 +64,6 @@ fn mix_trace_header(hash: &mut u64, trace: &SearchTrace) {
     mix_hash(hash, trace.original_query.as_bytes());
     if identity_v5 {
         mix_debug(hash, &trace.original_intent);
-        mix_debug(hash, &trace.unavailable_capability);
         mix_debug(hash, &trace.route_decision);
     }
     mix_debug(hash, &trace.intent);

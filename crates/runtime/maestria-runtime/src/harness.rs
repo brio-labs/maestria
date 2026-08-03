@@ -14,35 +14,18 @@ impl EffectExecutionContext {
     ) -> Result<(), EffectFailure> {
         let (class, working_directory) = self.gate_harness_request(&request)?;
 
-        let intent = maestria_ports::EffectJournalIntent {
-            run_id: request.run_id,
-            task_id: request.task_id,
-            capability: request.capability.clone(),
-            command: request.command.clone(),
-            scope_id: self.scope_id,
-            requested_generation: request.generation,
-        };
-
-        let entry = match self.adapters.effect_journal.record_intent(intent) {
-            Ok(entry) => entry,
-            Err(error) => {
-                tracing::error!(%error, "failed to record harness intent");
-                return Err(EffectFailure::Failed(format!(
-                    "failed to record harness intent: {error}"
-                )));
-            }
-        };
-
-        if let Err(error) = self
-            .adapters
-            .effect_journal
-            .record_started(request.run_id, entry.generation)
-        {
-            tracing::error!(%error, "failed to record harness start");
-            return Err(EffectFailure::Failed(format!(
-                "failed to record harness start: {error}"
-            )));
-        }
+        let generation = self.record_harness_intent_and_start(
+            maestria_ports::EffectJournalIntent {
+                run_id: request.run_id,
+                task_id: request.task_id,
+                capability: request.capability.clone(),
+                command: request.command.clone(),
+                scope_id: self.scope_id,
+                requested_generation: request.execution.generation(),
+            },
+            "failed to record harness intent",
+            "failed to record harness start",
+        )?;
 
         let scope_guard = maestria_governance::ScopeGuard::new(self.scope.clone());
         let scope = scope_guard.scope();
@@ -57,9 +40,37 @@ impl EffectExecutionContext {
             blocked_patterns: scope.blocked_patterns().to_vec(),
         };
 
-        self.execute_and_process_harness(request, harness_request, entry.generation)
+        self.execute_and_process_harness(request, harness_request, generation)
             .await
             .map(|_| ())
+    }
+
+    /// Record a harness intent and its start transition, returning the
+    /// journal generation. Composed once so every harness entrypoint shares
+    /// the same startup ordering (R28: lifecycle orchestration has one
+    /// owner).
+    pub(crate) fn record_harness_intent_and_start(
+        &self,
+        intent: maestria_ports::EffectJournalIntent,
+        intent_context: &'static str,
+        start_context: &'static str,
+    ) -> Result<u64, EffectFailure> {
+        let entry = match self.adapters.effect_journal.record_intent(intent) {
+            Ok(entry) => entry,
+            Err(error) => {
+                tracing::error!(%error, "{intent_context}");
+                return Err(EffectFailure::Failed(format!("{intent_context}: {error}")));
+            }
+        };
+        if let Err(error) = self
+            .adapters
+            .effect_journal
+            .record_started(entry.run_id, entry.generation)
+        {
+            tracing::error!(%error, "{start_context}");
+            return Err(EffectFailure::Failed(format!("{start_context}: {error}")));
+        }
+        Ok(entry.generation)
     }
 
     pub(crate) async fn execute_and_process_harness(

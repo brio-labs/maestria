@@ -46,6 +46,8 @@ mod runtime_construction;
 mod search_executor;
 mod source_identity;
 mod supervision_recovery;
+#[cfg(test)]
+mod test_support;
 mod validation_recovery;
 mod vector_startup;
 mod watcher;

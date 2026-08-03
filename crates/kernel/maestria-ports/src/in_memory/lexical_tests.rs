@@ -1,7 +1,9 @@
-use super::*;
 use crate::FullTextIndex;
 use crate::in_memory::InMemoryFullTextIndex;
-use crate::lexical::{CardField, ChunkField, FieldSelector, HitReason, LexicalQuery, MatchMode};
+use crate::lexical::{
+    CardField, ChunkField, FieldSelector, HitReason, IndexedLexicalCard, IndexedLexicalChunk,
+    LexicalQuery, MatchMode,
+};
 use maestria_domain::{ArtifactId, CardId, ChunkId};
 
 fn search_budget(

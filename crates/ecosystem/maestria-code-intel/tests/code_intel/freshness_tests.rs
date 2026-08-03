@@ -1,37 +1,8 @@
+use super::common::{init_git, write_file};
 use maestria_code_intel::*;
 use std::error::Error;
 use std::fs;
-use std::path::Path;
-use std::process::Command;
 use tempfile::tempdir;
-
-fn run_git(root: &Path, args: &[&str], operation: &str) -> Result<(), Box<dyn Error>> {
-    let status = Command::new("git").current_dir(root).args(args).status()?;
-    if !status.success() {
-        return Err(format!("{operation} failed in {}: exit {status}", root.display()).into());
-    }
-    Ok(())
-}
-
-fn init_git(root: &Path) -> Result<(), Box<dyn Error>> {
-    run_git(root, &["init", "--initial-branch", "main"], "git init")?;
-    run_git(
-        root,
-        &["config", "user.email", "ci@example.com"],
-        "git config user.email",
-    )?;
-    run_git(root, &["config", "user.name", "CI"], "git config user.name")?;
-    run_git(root, &["add", "."], "git add")?;
-    run_git(root, &["commit", "-m", "fixture init"], "git commit")
-}
-
-fn write_file(path: &Path, contents: &str) -> Result<(), Box<dyn Error>> {
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)?;
-    }
-    fs::write(path, contents)?;
-    Ok(())
-}
 
 fn make_workspace() -> Result<tempfile::TempDir, Box<dyn Error>> {
     let root = tempdir()?;

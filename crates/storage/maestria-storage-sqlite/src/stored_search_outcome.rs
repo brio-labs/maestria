@@ -139,54 +139,15 @@ impl StoredSearchOutcome {
 }
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeMap;
-
     use maestria_domain::{
-        ConflictSet, ConflictSetId, ContentRange, DuplicateClusterId, EvidenceCandidate,
-        EvidenceCandidateDto, EvidenceCoverage, EvidenceCoverageDto, EvidenceSpan, FreshnessStatus,
-        IndexGenerationId, LearnedSparseContribution, LearnedSparseReason, RepresentationName,
-        RetrievalLaneScore, RetrievalModelFingerprint, RetrievalRawRank, RetrievalReason,
-        RetrievalScoreFingerprint, RetrievalScoreKind, RetrievalScoreScale, RetrievalScoreSet,
-        SearchOutcome, SearchStatus, SearchTraceId, SourceLocation, StructureNodeId, TrustLabel,
+        ConflictSet, ConflictSetId, EvidenceCandidate, EvidenceCoverage, EvidenceCoverageDto,
+        IndexGenerationId, RetrievalModelFingerprint, SearchOutcome, SearchStatus, SearchTraceId,
     };
 
     use super::*;
 
     fn sample_candidate() -> Result<EvidenceCandidate, Box<dyn std::error::Error>> {
-        let lane = RetrievalLaneScore::new(
-            RetrievalScoreKind::Exact,
-            1,
-            RetrievalRawRank::ranked(1),
-            RetrievalScoreScale::Binary,
-            RepresentationName::new("text/plain"),
-            RetrievalScoreFingerprint::new(
-                RetrievalModelFingerprint::new("fp-v1".to_string())?,
-                BTreeMap::from([("model".to_string(), "exact".to_string())]),
-            ),
-        );
-        Ok(EvidenceCandidate::new(EvidenceCandidateDto {
-            evidence_id: maestria_domain::EvidenceId::new(41),
-            artifact_version: maestria_domain::ArtifactVersionId::new(42),
-            source_span: EvidenceSpan::new(
-                Some(StructureNodeId::new(3)),
-                SourceLocation::file("/repo/src/lib.rs".to_string(), 10, 20)?,
-                ContentRange::new(100, 250)?,
-            )?,
-            scores: RetrievalScoreSet::new(vec![lane])?,
-            trust: TrustLabel::Verified,
-            freshness: FreshnessStatus::UpToDate,
-            duplicate_cluster: Some(DuplicateClusterId::new(11)),
-            reasons: vec![
-                RetrievalReason::ExactMatch,
-                RetrievalReason::LearnedSparse(Box::new(LearnedSparseReason::new(vec![
-                    LearnedSparseContribution {
-                        term_id: 5,
-                        contribution_micros: 42,
-                    },
-                ]))),
-            ],
-            coverage_keys: vec!["doc:7".to_string()],
-        })?)
+        crate::tests::sample_evidence_candidate()
     }
 
     fn sample_outcome() -> Result<SearchOutcome, Box<dyn std::error::Error>> {

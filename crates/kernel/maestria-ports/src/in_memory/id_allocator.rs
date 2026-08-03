@@ -58,6 +58,11 @@ mod tests {
     use super::*;
 
     #[test]
+    fn satisfies_shared_id_allocator_contract() -> Result<(), Box<dyn std::error::Error>> {
+        crate::contract_tests::assert_id_allocator_contract(&InMemoryIdAllocator::new())
+    }
+
+    #[test]
     fn allocates_independent_namespaces() -> Result<(), PortError> {
         let allocator = InMemoryIdAllocator::new();
         let c1 = allocator.allocate_claim_id()?;

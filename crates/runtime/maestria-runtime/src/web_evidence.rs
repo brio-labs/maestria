@@ -71,9 +71,16 @@ impl EffectExecutionContext {
                 .last()
                 .map_or(0, |entry| entry.sequence.value())
         };
-        let accessed_at = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map_or(0, |duration| duration.as_secs());
+        let accessed_at = match SystemTime::now().duration_since(UNIX_EPOCH) {
+            Ok(duration) => duration.as_secs(),
+            Err(error) => {
+                // Rule 24: a clock failure must not fabricate an epoch
+                // timestamp into the evidence record; drop the snapshot
+                // instead of persisting a misleading accessed_at.
+                tracing::error!(url = %request.url, %error, "system clock before unix epoch; web evidence rejected");
+                return false;
+            }
+        };
         let mut metadata = std::mem::take(&mut snapshot.metadata);
         metadata.accessed_at = Some(accessed_at.to_string());
         let security = self.security_metadata_for_web(&snapshot.html);

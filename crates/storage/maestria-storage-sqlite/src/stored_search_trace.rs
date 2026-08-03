@@ -18,8 +18,8 @@
 
 use maestria_domain::{
     ArtifactVersionId, ConflictSetId, CorpusSnapshotId, DuplicateClusterId, EvidenceId,
-    IndexGenerationId, QueryId, SearchStopReason, SearchTrace, SearchTraceCandidate,
-    SearchTraceCandidateDto, SearchTraceFilter,
+    IndexGenerationId, QueryId, SearchDegradation, SearchStopReason, SearchTrace,
+    SearchTraceCandidate, SearchTraceCandidateDto, SearchTraceFilter,
 };
 use serde::{Deserialize, Serialize};
 
@@ -181,14 +181,13 @@ pub(crate) struct StoredSearchTrace {
     original_query: String,
     intent: StoredSearchIntent,
     original_intent: Option<StoredSearchIntent>,
-    unavailable_capability: Option<String>,
     route_decision: Option<String>,
     scope: StoredCorpusScope,
     corpus_snapshot: u64,
     index_generation: u64,
     freshness: StoredFreshnessRequirement,
     modalities: StoredModalitySet,
-    degradation: Option<String>,
+    degradation: Option<SearchDegradation>,
     stages: Vec<StoredSearchStage>,
     budgets: StoredSearchBudget,
     stop_conditions: StoredStopConditions,
@@ -220,7 +219,6 @@ impl StoredSearchTrace {
                 .original_intent
                 .as_ref()
                 .map(StoredSearchIntent::from_domain),
-            unavailable_capability: value.unavailable_capability.clone(),
             route_decision: value.route_decision.clone(),
             scope: StoredCorpusScope::from_domain(&value.scope),
             corpus_snapshot: value.corpus_snapshot.value(),
@@ -291,7 +289,6 @@ impl StoredSearchTrace {
                 .original_intent
                 .map(StoredSearchIntent::try_into_domain)
                 .transpose()?,
-            unavailable_capability: self.unavailable_capability,
             route_decision: self.route_decision,
             scope: self.scope.try_into_domain()?,
             corpus_snapshot: CorpusSnapshotId::new(self.corpus_snapshot),

@@ -147,27 +147,18 @@ impl EffectExecutionContext {
                 "only a fresh proposal can create a harness journal intent".to_string(),
             ));
         }
-        let entry = self
-            .adapters
-            .effect_journal
-            .record_intent(EffectJournalIntent {
+        self.record_harness_intent_and_start(
+            EffectJournalIntent {
                 run_id: proposal.run_id,
                 task_id: proposal.task_id,
                 capability: proposal.capability.clone(),
                 command: proposal.command.clone(),
                 scope_id: self.scope_id,
                 requested_generation: None,
-            })
-            .map_err(|error| {
-                EffectFailure::Failed(format!("record proposal harness intent: {error}"))
-            })?;
-        self.adapters
-            .effect_journal
-            .record_started(proposal.run_id, entry.generation)
-            .map_err(|error| {
-                EffectFailure::Failed(format!("record proposal harness start: {error}"))
-            })?;
-        Ok(entry.generation)
+            },
+            "record proposal harness intent",
+            "record proposal harness start",
+        )
     }
 
     async fn execute_proposal_harness(
@@ -180,13 +171,25 @@ impl EffectExecutionContext {
         let ordinary = QueryHarnessRequest {
             run_id: proposal.run_id,
             task_id: proposal.task_id,
-            generation: proposal
-                .execution
-                .journal_generation()
-                .map(|generation| generation.value()),
+            execution: match &proposal.execution {
+                maestria_domain::ModelAgentProposalExecution::Fresh => {
+                    maestria_domain::HarnessExecution::Fresh
+                }
+                maestria_domain::ModelAgentProposalExecution::JournalRecovery {
+                    journal_generation,
+                } => maestria_domain::HarnessExecution::JournalRecovery {
+                    generation: journal_generation.value(),
+                },
+                maestria_domain::ModelAgentProposalExecution::ApprovalContinuation {
+                    approval_id,
+                    journal_generation,
+                } => maestria_domain::HarnessExecution::ApprovalContinuation {
+                    approval_id: *approval_id,
+                    generation: journal_generation.value(),
+                },
+            },
             capability: proposal.capability.clone(),
             scope_id: self.scope_id,
-            approval_id: proposal.execution.approval_id(),
             command: proposal.command.clone(),
         };
         let (class, default_working_directory) = self.gate_harness_request(&ordinary)?;
@@ -223,7 +226,9 @@ impl EffectExecutionContext {
         let outcome = self
             .execute_and_process_harness(
                 QueryHarnessRequest {
-                    generation: Some(generation.value()),
+                    execution: maestria_domain::HarnessExecution::JournalRecovery {
+                        generation: generation.value(),
+                    },
                     ..ordinary
                 },
                 HarnessRequest {

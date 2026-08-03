@@ -405,10 +405,9 @@ async fn fresh_policy_denial_and_legacy_harness_denial_keep_trusted_terminalizat
     let legacy = MaestriaEffect::QueryHarness(QueryHarnessRequest {
         run_id: HarnessRunId::new(52),
         task_id: None,
-        generation: None,
+        execution: maestria_domain::HarnessExecution::Fresh,
         capability: "shell".to_string(),
         scope_id: ScopeId::new(1),
-        approval_id: None,
         command: "echo denied".to_string(),
     });
     assert!(matches!(

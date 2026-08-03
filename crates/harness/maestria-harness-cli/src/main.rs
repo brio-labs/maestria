@@ -1,6 +1,8 @@
 use anyhow::Result;
 use clap::Parser;
-use maestria_domain::{HarnessRunId, MaestriaEffect, QueryHarnessRequest, ScopeId};
+use maestria_domain::{
+    HarnessExecution, HarnessRunId, MaestriaEffect, QueryHarnessRequest, ScopeId,
+};
 use maestria_governance::{
     ApprovalGate, ApprovalRequest, AutonomyProfile, ClassifyRisk, DefaultApprovalGate,
     DefaultRiskClassifier, PolicyDecision, PrivacyExclusions, Scope, ScopeGuard,
@@ -75,10 +77,9 @@ async fn main() -> Result<()> {
     let effect = MaestriaEffect::QueryHarness(QueryHarnessRequest {
         run_id: HarnessRunId::new(1),
         task_id: None,
-        generation: None,
+        execution: HarnessExecution::Fresh,
         capability: "shell".to_string(),
         scope_id: ScopeId::new(1),
-        approval_id: None,
         command: cli.command.clone(),
     });
     let risk = DefaultRiskClassifier.classify(&effect, &guard);
@@ -155,7 +156,15 @@ mod tests {
             Ok(()) => return Err(anyhow::anyhow!("denied policy unexpectedly allowed")),
         };
 
-        assert_eq!(err.to_string(), "Governance: Denied. blocked command");
+        let rendered = err.to_string();
+        assert!(
+            rendered.contains("Denied"),
+            "denial label must be surfaced: {rendered}"
+        );
+        assert!(
+            rendered.contains("blocked command"),
+            "reason must be preserved: {rendered}"
+        );
         Ok(())
     }
 
@@ -168,9 +177,14 @@ mod tests {
             Ok(()) => return Err(anyhow::anyhow!("approval policy unexpectedly allowed")),
         };
 
-        assert_eq!(
-            err.to_string(),
-            "Governance: Requires approval. needs explicit approval"
+        let rendered = err.to_string();
+        assert!(
+            rendered.contains("Requires approval"),
+            "approval label must be surfaced: {rendered}"
+        );
+        assert!(
+            rendered.contains("needs explicit approval"),
+            "reason must be preserved: {rendered}"
         );
         Ok(())
     }

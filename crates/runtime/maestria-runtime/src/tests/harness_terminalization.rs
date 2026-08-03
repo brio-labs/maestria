@@ -39,10 +39,9 @@ async fn query_harness_infrastructure_claim_failure_returns_false()
     let request = maestria_domain::QueryHarnessRequest {
         run_id,
         task_id: None,
-        generation: None,
+        execution: maestria_domain::HarnessExecution::Fresh,
         capability: "shell".to_string(),
         scope_id: maestria_domain::ScopeId(1),
-        approval_id: None,
         command: "echo test".to_string(),
     };
 
@@ -101,10 +100,9 @@ async fn query_harness_record_terminal_failure_observable() -> Result<(), Box<dy
     let request = maestria_domain::QueryHarnessRequest {
         run_id,
         task_id: None,
-        generation: None,
+        execution: maestria_domain::HarnessExecution::Fresh,
         capability: "shell".to_string(),
         scope_id: maestria_domain::ScopeId(1),
-        approval_id: None,
         command: "echo test".to_string(),
     };
 
@@ -150,10 +148,9 @@ async fn query_harness_scope_denial_preserves_typed_reason()
     let request = maestria_domain::QueryHarnessRequest {
         run_id: HarnessRunId(102),
         task_id: None,
-        generation: None,
+        execution: maestria_domain::HarnessExecution::Fresh,
         capability: "shell".to_string(),
         scope_id: maestria_domain::ScopeId(1),
-        approval_id: None,
         command: "echo denied".to_string(),
     };
     let ctx = EffectExecutionContext {
@@ -209,10 +206,9 @@ async fn query_harness_full_input_channel_pauses_and_fails_effect()
     let request = maestria_domain::QueryHarnessRequest {
         run_id,
         task_id: None,
-        generation: None,
+        execution: maestria_domain::HarnessExecution::Fresh,
         capability: "shell".to_string(),
         scope_id: maestria_domain::ScopeId(1),
-        approval_id: None,
         command: "echo full".to_string(),
     };
     let ctx = EffectExecutionContext::test_default(
@@ -267,10 +263,9 @@ async fn query_harness_closed_input_channel_pauses_and_fails_retry()
     let request = maestria_domain::QueryHarnessRequest {
         run_id,
         task_id: None,
-        generation: None,
+        execution: maestria_domain::HarnessExecution::Fresh,
         capability: "shell".to_string(),
         scope_id: maestria_domain::ScopeId(1),
-        approval_id: None,
         command: "echo closed".to_string(),
     };
     let ctx = EffectExecutionContext::test_default(
@@ -318,10 +313,9 @@ async fn query_harness_pause_failure_remains_observable() -> Result<(), Box<dyn 
     let request = maestria_domain::QueryHarnessRequest {
         run_id,
         task_id: None,
-        generation: None,
+        execution: maestria_domain::HarnessExecution::Fresh,
         capability: "shell".to_string(),
         scope_id: maestria_domain::ScopeId(1),
-        approval_id: None,
         command: "echo pause-failure".to_string(),
     };
     let ctx = EffectExecutionContext::test_default(

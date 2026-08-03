@@ -213,17 +213,9 @@ BOOLEAN_STATE_PREFIXES = ("is_", "was_")
 MAX_PRODUCTION_LOGICAL_LINES = 400
 MAX_MODULE_PHYSICAL_LINES = 900
 MAX_FUNCTION_LOGICAL_LINES = 100
-MODULE_SIZE_EXEMPTIONS: dict[str, str] = {
-    # In-memory lexical index module (480 logical lines; functions already
-    # within budgets; split after lexical lane consolidation).
-    "crates/kernel/maestria-ports/src/in_memory/lexical.rs": "v0.7.0",
-}
+MODULE_SIZE_EXEMPTIONS: dict[str, str] = {}
 FUNCTION_SIZE_EXEMPTIONS: dict[str, dict[str, str]] = {}
-MIXED_RESPONSIBILITY_EXEMPTIONS: dict[str, str] = {
-    # Visual benchmark evidence schema and route evaluation share one
-    # versioned benchmark format; split after the format is stable.
-    "crates/ecosystem/maestria-retrieval/src/visual_benchmark.rs": "v0.7.0",
-}
+MIXED_RESPONSIBILITY_EXEMPTIONS: dict[str, str] = {}
 ADR_MODULE_EXEMPTIONS: dict[str, str] = {}
 
 VERSION_PATTERN = re.compile(r"^v?(\d+)\.(\d+)\.(\d+)(?:[-+][0-9A-Za-z.-]+)?$")

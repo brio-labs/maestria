@@ -23,8 +23,9 @@ pub(super) fn render_trace(plan: &SearchPlan, outcome: &SearchOutcome) -> Result
     if let Some(route_decision) = &trace.route_decision {
         println!("route_decision={}", route_decision);
     }
-    if let Some(unavailable_capability) = &trace.unavailable_capability {
-        println!("unavailable_capability={}", unavailable_capability);
+    if let Some(degradation) = &trace.degradation {
+        println!("unavailable_capability={}", degradation.capability);
+        println!("degradation_reason={}", degradation.reason);
     }
     println!("scope={:?}", plan.scope());
     println!("snapshot={}", plan.corpus_snapshot());
@@ -69,7 +70,13 @@ pub(super) fn render_trace(plan: &SearchPlan, outcome: &SearchOutcome) -> Result
     println!("raw_candidates={:?}", trace.raw_candidates);
     println!("fusion={:?}", trace.fusion);
     println!("retrieval_mode={}", retrieval_mode(trace));
-    println!("visual_degradation={:?}", trace.degradation);
+    println!(
+        "visual_degradation={:?}",
+        trace
+            .degradation
+            .as_ref()
+            .map(|d| (&d.capability, &d.reason))
+    );
     println!("reranked={:?}", trace.rerank);
     println!("filters={:?}", trace.filters);
     println!("expansion={:?}", trace.expansions);

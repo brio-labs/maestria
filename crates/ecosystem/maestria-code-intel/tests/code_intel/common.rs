@@ -6,6 +6,9 @@ use std::process::Command;
 use tempfile::tempdir;
 
 pub fn write_file(path: &Path, contents: &str) -> Result<(), Box<dyn Error>> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
     fs::write(path, contents)?;
     Ok(())
 }

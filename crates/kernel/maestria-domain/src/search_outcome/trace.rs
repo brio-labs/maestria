@@ -264,13 +264,25 @@ pub struct SearchTraceDiversity {
     pub candidates: Vec<SearchTraceDiversityCandidate>,
 }
 
+/// Explicit retrieval degradation: the unavailable capability and the
+/// traced fallback reason (Rule 54: unavailable providers degrade with a
+/// trace, never an implicit fallback). One value carries both facets, so a
+/// degradation can never name a capability without its reason or vice
+/// versa.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SearchDegradation {
+    /// The capability that was unavailable, e.g. `"visual provider"`.
+    pub capability: String,
+    /// The fallback behavior applied, e.g. text/layout retrieval.
+    pub reason: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SearchTrace {
     pub query_id: crate::ids::QueryId,
     pub original_query: String,
     pub intent: crate::search::SearchIntent,
     pub original_intent: Option<crate::search::SearchIntent>,
-    pub unavailable_capability: Option<String>,
     pub route_decision: Option<String>,
     pub scope: CorpusScope,
     pub corpus_snapshot: crate::ids::CorpusSnapshotId,
@@ -279,7 +291,7 @@ pub struct SearchTrace {
     pub modalities: ModalitySet,
     /// Explicit capability degradation, such as visual retrieval falling back
     /// to text/layout retrieval when no visual provider is available.
-    pub degradation: Option<String>,
+    pub degradation: Option<SearchDegradation>,
     pub stages: Vec<SearchStage>,
     pub budgets: SearchBudget,
     pub stop_conditions: StopConditions,
@@ -320,7 +332,6 @@ impl SearchTrace {
             original_query: plan.original_query().to_string(),
             intent: plan.intent(),
             original_intent: plan.original_intent(),
-            unavailable_capability: None,
             route_decision: plan.route_decision().map(str::to_string),
             scope: plan.scope().clone(),
             corpus_snapshot: plan.corpus_snapshot(),
@@ -331,7 +342,7 @@ impl SearchTrace {
             stages: plan.stages().to_vec(),
             evidence_requirements: plan.evidence_requirements().clone(),
             fingerprint: plan.fingerprint().clone(),
-            identity_version: 7,
+            identity_version: 8,
             retrievers,
             policy_fingerprint: None,
             budgets: plan.budgets().clone(),
@@ -381,14 +392,9 @@ impl SearchTrace {
         trace.canonicalize_score_provenance()?;
         Ok(trace)
     }
-    pub fn with_degradation(mut self, degradation: impl Into<String>) -> Self {
-        self.identity_version = self.identity_version.max(7);
-        self.degradation = Some(degradation.into());
-        self
-    }
-    pub fn with_unavailable_capability(mut self, capability: impl Into<String>) -> Self {
-        self.identity_version = self.identity_version.max(7);
-        self.unavailable_capability = Some(capability.into());
+    pub fn with_degradation(mut self, degradation: SearchDegradation) -> Self {
+        self.identity_version = self.identity_version.max(8);
+        self.degradation = Some(degradation);
         self
     }
 
