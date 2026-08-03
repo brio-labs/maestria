@@ -199,11 +199,14 @@ impl MaestriaRuntime {
             return self.defer_application(run_id, command, outcome);
         }
         if let Some(command) = command.take() {
-            let _ = command.reply.send(Ok(DomainApplicationResult {
-                correlation_id: command.correlation_id,
-                events: std::mem::take(&mut outcome.events),
-                effects_admitted: outcome.effects_admitted,
-            }));
+            super::deliver_reply(
+                command.reply,
+                Ok(DomainApplicationResult {
+                    correlation_id: command.correlation_id,
+                    events: std::mem::take(&mut outcome.events),
+                    effects_admitted: outcome.effects_admitted,
+                }),
+            );
         }
         self.finish_validation_barrier(staged.barriers.validation_report_id, shutdown_token)
             .await

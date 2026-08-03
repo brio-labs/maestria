@@ -89,7 +89,7 @@ impl MaestriaRuntime {
                 }
                 Err(error) => {
                     if let Some(command) = command.take() {
-                        let _ = command.reply.send(Err(error));
+                        super::deliver_reply(command.reply, Err(error));
                     }
                     return Err(keep_running);
                 }
@@ -156,6 +156,6 @@ impl MaestriaRuntime {
             .effects_admitted
             .saturating_add(outcome.effects_admitted);
         application.outcome.events.append(&mut outcome.events);
-        let _ = application.command.reply.send(Ok(application.outcome));
+        super::deliver_reply(application.command.reply, Ok(application.outcome));
     }
 }
