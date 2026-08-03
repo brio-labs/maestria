@@ -145,6 +145,17 @@ MEMORY_UNSAFETY_PATTERNS = (
     (r"\b(?:std::)?mem::forget\s*\(", "a mem::forget call"),
 )
 
+# Process-global environment mutation. `set_var`/`remove_var`/`set_current_dir`
+# mutate state every thread and future child observes, race with concurrent
+# readers, and cannot be scoped; the correct mechanism is per-process
+# `Command::env` or an explicit environment parameter. No repository code
+# needs them (census-validated); the ban covers tests too.
+ENV_MUTATION_PATTERNS = (
+    (r"\b(?:std::)?env::set_var\s*\(", "a process-global env::set_var"),
+    (r"\b(?:std::)?env::remove_var\s*\(", "a process-global env::remove_var"),
+    (r"\b(?:std::)?env::set_current_dir\s*\(", "a process-global env::set_current_dir"),
+)
+
 # Debugging leftovers and unconditional stdout/stderr writes. Library crates
 # must log through `tracing`; app binaries own their console output.
 DEBUG_OUTPUT_PATTERNS = (
@@ -1441,6 +1452,30 @@ def scan_memory_unsafety_markers() -> list[str]:
     return violations
 
 
+def scan_env_mutation() -> list[str]:
+    """Ban process-global environment mutation outright.
+
+    `set_var`/`remove_var`/`set_current_dir` mutate state every thread and
+    future child observes; they race with concurrent readers and cannot be
+    scoped to a single test or command. Per-process configuration belongs in
+    `Command::env` or an explicit environment parameter. The ban covers
+    tests too because the mutation class is never a legitimate strategy.
+    """
+    violations = []
+    for source in ROOT.rglob("*.rs"):
+        if should_skip(source):
+            continue
+        content = read_text(source)
+        if content is None:
+            continue
+        for pattern, description in ENV_MUTATION_PATTERNS:
+            if re.search(pattern, content):
+                violations.append(
+                    f"{source.relative_to(ROOT)} contains {description}"
+                )
+    return violations
+
+
 def scan_debug_output() -> list[str]:
     """Ban debugging leftovers and library console writes.
 
@@ -2623,6 +2658,7 @@ def main() -> int:
     violations.extend(scan_unbounded_channels())
     violations.extend(scan_rust_forbidden_methods())
     violations.extend(scan_memory_unsafety_markers())
+    violations.extend(scan_env_mutation())
     violations.extend(scan_debug_output())
     violations.extend(scan_generated_blobs())
     violations.extend(scan_string_typed_errors())

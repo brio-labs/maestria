@@ -1641,6 +1641,45 @@ dev_alias = { package = "unknown-package", version = "1" }
             self.assertTrue(any("Box::leak" in item for item in violations), violations)
             self.assertTrue(any("mem::forget" in item for item in violations), violations)
 
+    def test_env_mutation_reports_set_var_even_in_tests(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.configure_root(root)
+            source = root / "crates" / "apps" / "example" / "tests" / "env.rs"
+            source.parent.mkdir(parents=True, exist_ok=True)
+            source.write_text(
+                'fn fixture() { std::env::set_var("PATH", "/hostile"); }\n'
+            )
+            violations = PHILOSOPHY_CHECK.scan_env_mutation()
+            self.assertTrue(any("env::set_var" in item for item in violations), violations)
+
+    def test_env_mutation_reports_remove_var_and_set_current_dir(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.configure_root(root)
+            source = root / "crates" / "apps" / "example" / "src" / "lib.rs"
+            source.parent.mkdir(parents=True, exist_ok=True)
+            source.write_text(
+                "fn fixture() { env::remove_var(\"K\"); env::set_current_dir(\"/tmp\"); }\n"
+            )
+            violations = PHILOSOPHY_CHECK.scan_env_mutation()
+            self.assertTrue(any("env::remove_var" in item for item in violations), violations)
+            self.assertTrue(
+                any("env::set_current_dir" in item for item in violations), violations
+            )
+
+    def test_env_mutation_allows_var_reads(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.configure_root(root)
+            source = root / "crates" / "apps" / "example" / "src" / "lib.rs"
+            source.parent.mkdir(parents=True, exist_ok=True)
+            source.write_text(
+                "fn fixture() { let _ = std::env::var(\"PATH\"); }\n"
+            )
+            violations = PHILOSOPHY_CHECK.scan_env_mutation()
+            self.assertEqual(violations, [])
+
     def test_debug_output_reports_dbg_even_in_tests(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
