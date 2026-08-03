@@ -5,7 +5,17 @@ use crate::runtime_transition::TransitionBarriers;
 use maestria_domain::{DomainEventEnvelope, DomainInput, KernelState, MaestriaEffect};
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Mutex, atomic::AtomicU64};
-use tokio::sync::{RwLock, mpsc};
+use tokio::sync::{RwLock, mpsc, oneshot};
+
+/// Best-effort delivery of a command reply (R24: send failures are not
+/// silently discarded). A disconnected receiver is expected when the
+/// submitter cancelled or the runtime is shutting down, so it is logged at
+/// debug level instead of being dropped with `let _ =`.
+pub(super) fn deliver_reply<T>(reply: oneshot::Sender<T>, result: T) {
+    if reply.send(result).is_err() {
+        tracing::debug!("command reply receiver disconnected; result dropped");
+    }
+}
 
 mod continuation;
 mod pipeline;

@@ -224,9 +224,8 @@ async fn attempt_idempotent_reindex(
             content_hash: ContentHash::new(hash.to_string())?,
         }))
         .await?;
-
-    // Brief wait for the runtime to process the no-op input
-    tokio::time::sleep(Duration::from_millis(300)).await;
+    // `MutationSession::submit` awaits the correlated runtime reply, so the
+    // no-op input is fully processed and persisted when it returns.
 
     let check_db = SqliteStore::open(db_path)?;
     let event_count_after = EventLog::scan(
@@ -460,7 +459,10 @@ async fn vertical_slice_run_instance_restart_rebuilds_projections()
         env.layout.root.clone(),
         shutdown.clone(),
     ));
-    tokio::time::sleep(Duration::from_millis(200)).await;
+    // The API server starts only after instance setup and startup recovery,
+    // so API readiness means the projection rebuild has run before we shut
+    // the daemon down.
+    wait_for_daemon_client(&env.layout).await?;
     shutdown.cancel();
     daemon.await??;
 

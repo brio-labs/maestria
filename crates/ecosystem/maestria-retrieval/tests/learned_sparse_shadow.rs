@@ -440,7 +440,12 @@ async fn cancelled_search_aborts_shadow_provider_and_discards_observation() -> T
     }
     search.abort();
     let _ = search.await;
-    tokio::time::sleep(Duration::from_millis(150)).await;
+    // Aborting the search task drops its JoinSet, which aborts the in-flight
+    // retriever tasks; give a misbehaving runner scheduler turns to (wrongly)
+    // complete them before asserting, without depending on wall clock.
+    for _ in 0..64 {
+        tokio::task::yield_now().await;
+    }
     assert_eq!(completed.load(Ordering::SeqCst), 0);
     assert!(store.snapshot().is_empty());
     Ok(())
@@ -451,8 +456,10 @@ async fn disabled_sparse_policy_executes_no_shadow_lane() -> TestResult {
     let store = LearnedSparseShadowStore::new(4)?;
     let engine = engine(LearnedSparseExecutionPolicy::Disabled, store.clone())?;
     let _outcome = engine.search(&plan()?).await?;
-    tokio::time::sleep(Duration::from_millis(2)).await;
-    assert!(store.snapshot().is_empty());
+    assert!(
+        store.snapshot().is_empty(),
+        "disabled shadow policy must not record observations"
+    );
     Ok(())
 }
 
