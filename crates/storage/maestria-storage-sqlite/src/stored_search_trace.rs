@@ -3,11 +3,12 @@
 //! format instead of embedding maestria_domain types.
 //!
 //! This module is the facade for the mirror family: it defines the trace
-//! record itself (`StoredSearchTrace`, its candidates, expansions, filters and
-//! stop reason) and re-exports the sibling stage mirrors registered in
-//! `crate::payloads` (`stored_search_trace_lane`, `stored_search_trace_rerank`,
-//! `stored_search_trace_diversity`, `stored_search_trace_rewrite`) so every
-//! mirror stays importable from `crate::payloads::stored_search_trace`.
+//! record itself (`StoredSearchTrace`, its candidates, filters and stop
+//! reason) and re-exports the sibling stage mirrors registered in
+//! `crate::payloads` (`stored_search_expansion`, `stored_search_trace_lane`,
+//! `stored_search_trace_rerank`, `stored_search_trace_diversity`,
+//! `stored_search_trace_rewrite`) so every mirror stays importable from
+//! `crate::payloads::stored_search_trace`.
 //!
 //! Nested search types (`StoredSearchIntent`, `StoredCorpusScope`,
 //! `StoredEvidenceSpan`, `StoredRetrievalScoreSet`, ...) live in
@@ -18,7 +19,7 @@
 use maestria_domain::{
     ArtifactVersionId, ConflictSetId, CorpusSnapshotId, DuplicateClusterId, EvidenceId,
     IndexGenerationId, QueryId, SearchStopReason, SearchTrace, SearchTraceCandidate,
-    SearchTraceExpansion, SearchTraceFilter,
+    SearchTraceCandidateDto, SearchTraceFilter,
 };
 use serde::{Deserialize, Serialize};
 
@@ -29,6 +30,7 @@ use crate::payloads::stored_search::{
     StoredSearchStage, StoredStopConditions, StoredTrustLabel,
 };
 
+pub(crate) use crate::payloads::stored_search_expansion::*;
 pub(crate) use crate::payloads::stored_search_trace_diversity::*;
 pub(crate) use crate::payloads::stored_search_trace_lane::*;
 pub(crate) use crate::payloads::stored_search_trace_rerank::*;
@@ -90,25 +92,25 @@ pub(crate) struct StoredSearchTraceCandidate {
 impl StoredSearchTraceCandidate {
     pub(crate) fn from_domain(value: &SearchTraceCandidate) -> Self {
         Self {
-            evidence_id: value.evidence_id.value(),
-            artifact_version: value.artifact_version.value(),
-            source_span: StoredEvidenceSpan::from_domain(&value.source_span),
-            rank: value.rank,
-            scores: StoredRetrievalScoreSet::from_domain(&value.scores),
-            trust: StoredTrustLabel::from_domain(&value.trust),
-            freshness: StoredFreshnessStatus::from_domain(&value.freshness),
-            duplicate_cluster: value.duplicate_cluster.map(|id| id.value()),
+            evidence_id: value.evidence_id().value(),
+            artifact_version: value.artifact_version().value(),
+            source_span: StoredEvidenceSpan::from_domain(value.source_span()),
+            rank: value.rank(),
+            scores: StoredRetrievalScoreSet::from_domain(value.scores()),
+            trust: StoredTrustLabel::from_domain(&value.trust()),
+            freshness: StoredFreshnessStatus::from_domain(&value.freshness()),
+            duplicate_cluster: value.duplicate_cluster().map(|id| id.value()),
             reasons: value
-                .reasons
+                .reasons()
                 .iter()
                 .map(StoredRetrievalReason::from_domain)
                 .collect(),
-            coverage_keys: value.coverage_keys.clone(),
+            coverage_keys: value.coverage_keys().to_vec(),
         }
     }
 
     pub(crate) fn try_into_domain(self) -> Result<SearchTraceCandidate, maestria_ports::PortError> {
-        Ok(SearchTraceCandidate {
+        SearchTraceCandidate::new(SearchTraceCandidateDto {
             evidence_id: EvidenceId::new(self.evidence_id),
             artifact_version: ArtifactVersionId::new(self.artifact_version),
             source_span: self.source_span.try_into_domain()?,
@@ -124,28 +126,9 @@ impl StoredSearchTraceCandidate {
                 .collect::<Result<_, _>>()?,
             coverage_keys: self.coverage_keys,
         })
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(crate) struct StoredSearchTraceExpansion {
-    strategy: String,
-    added_candidates: Option<u32>,
-}
-
-impl StoredSearchTraceExpansion {
-    pub(crate) fn from_domain(value: &SearchTraceExpansion) -> Self {
-        Self {
-            strategy: value.strategy.clone(),
-            added_candidates: value.added_candidates,
-        }
-    }
-
-    pub(crate) fn try_into_domain(self) -> Result<SearchTraceExpansion, maestria_ports::PortError> {
-        Ok(SearchTraceExpansion {
-            strategy: self.strategy,
-            added_candidates: self.added_candidates,
+        .map_err(|error| maestria_ports::PortError::InvalidInputContext {
+            context: "decode stored search trace candidate",
+            source: error.to_string(),
         })
     }
 }

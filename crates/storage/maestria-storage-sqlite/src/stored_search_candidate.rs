@@ -9,7 +9,8 @@
 
 use maestria_domain::{
     ConflictSet, ConflictSetId, ContentRange, DuplicateClusterId, EvidenceCandidate,
-    EvidenceCoverage, EvidenceSpan, FreshnessStatus, SourceLocation, StructureNodeId, TrustLabel,
+    EvidenceCandidateDto, EvidenceCoverage, EvidenceCoverageDto, EvidenceSpan, FreshnessStatus,
+    SourceLocation, StructureNodeId, TrustLabel,
 };
 use maestria_ports::PortError;
 use serde::{Deserialize, Serialize};
@@ -238,24 +239,24 @@ pub(crate) struct StoredEvidenceCandidate {
 impl StoredEvidenceCandidate {
     pub(crate) fn from_domain(value: &EvidenceCandidate) -> Self {
         Self {
-            evidence_id: value.evidence_id.value(),
-            artifact_version: value.artifact_version.value(),
-            source_span: StoredEvidenceSpan::from_domain(&value.source_span),
-            scores: StoredRetrievalScoreSet::from_domain(&value.scores),
-            trust: StoredTrustLabel::from_domain(&value.trust),
-            freshness: StoredFreshnessStatus::from_domain(&value.freshness),
-            duplicate_cluster: value.duplicate_cluster.map(|id| id.value()),
+            evidence_id: value.evidence_id().value(),
+            artifact_version: value.artifact_version().value(),
+            source_span: StoredEvidenceSpan::from_domain(value.source_span()),
+            scores: StoredRetrievalScoreSet::from_domain(value.scores()),
+            trust: StoredTrustLabel::from_domain(&value.trust()),
+            freshness: StoredFreshnessStatus::from_domain(&value.freshness()),
+            duplicate_cluster: value.duplicate_cluster().map(|id| id.value()),
             reasons: value
-                .reasons
+                .reasons()
                 .iter()
                 .map(StoredRetrievalReason::from_domain)
                 .collect(),
-            coverage_keys: value.coverage_keys.clone(),
+            coverage_keys: value.coverage_keys().to_vec(),
         }
     }
 
     pub(crate) fn try_into_domain(self) -> Result<EvidenceCandidate, PortError> {
-        Ok(EvidenceCandidate {
+        EvidenceCandidate::new(EvidenceCandidateDto {
             evidence_id: maestria_domain::EvidenceId::new(self.evidence_id),
             artifact_version: maestria_domain::ArtifactVersionId::new(self.artifact_version),
             source_span: self.source_span.try_into_domain()?,
@@ -269,6 +270,10 @@ impl StoredEvidenceCandidate {
                 .map(StoredRetrievalReason::try_into_domain)
                 .collect::<Result<Vec<_>, _>>()?,
             coverage_keys: self.coverage_keys,
+        })
+        .map_err(|error| PortError::InvalidInputContext {
+            context: "decode stored evidence candidate",
+            source: error.to_string(),
         })
     }
 }
@@ -320,14 +325,14 @@ pub(crate) struct StoredEvidenceCoverage {
 impl StoredEvidenceCoverage {
     pub(crate) fn from_domain(value: &EvidenceCoverage) -> Self {
         Self {
-            percent_covered: value.percent_covered,
-            gaps_identified: value.gaps_identified.clone(),
-            required_claims: value.required_claims.clone(),
-            required_subquestions: value.required_subquestions.clone(),
-            distinct_sources: value.distinct_sources,
-            distinct_documents: value.distinct_documents,
-            distinct_sections: value.distinct_sections,
-            candidate_coverage_keys: value.candidate_coverage_keys.clone(),
+            percent_covered: value.percent_covered(),
+            gaps_identified: value.gaps_identified().to_vec(),
+            required_claims: value.required_claims().to_vec(),
+            required_subquestions: value.required_subquestions().to_vec(),
+            distinct_sources: value.distinct_sources(),
+            distinct_documents: value.distinct_documents(),
+            distinct_sections: value.distinct_sections(),
+            candidate_coverage_keys: value.candidate_coverage_keys().to_vec(),
         }
     }
 
@@ -338,7 +343,7 @@ impl StoredEvidenceCoverage {
                 source: "percent_covered must be between 0 and 100".to_string(),
             });
         }
-        Ok(EvidenceCoverage {
+        EvidenceCoverage::new(EvidenceCoverageDto {
             percent_covered: self.percent_covered,
             gaps_identified: self.gaps_identified,
             required_claims: self.required_claims,
@@ -348,6 +353,10 @@ impl StoredEvidenceCoverage {
             distinct_sections: self.distinct_sections,
             candidate_coverage_keys: self.candidate_coverage_keys,
         })
+        .map_err(|error| PortError::InvalidInputContext {
+            context: "decode stored evidence coverage",
+            source: error.to_string(),
+        })
     }
 }
 #[cfg(test)]
@@ -355,11 +364,11 @@ mod tests {
     use std::collections::BTreeMap;
 
     use maestria_domain::{
-        ContentRange, DuplicateClusterId, EvidenceCandidate, EvidenceSpan, FreshnessStatus,
-        LearnedSparseContribution, LearnedSparseReason, RepresentationName, RetrievalLaneScore,
-        RetrievalModelFingerprint, RetrievalRawRank, RetrievalReason, RetrievalScoreFingerprint,
-        RetrievalScoreKind, RetrievalScoreScale, RetrievalScoreSet, SourceLocation,
-        StructureNodeId, TrustLabel,
+        ContentRange, DuplicateClusterId, EvidenceCandidate, EvidenceCandidateDto, EvidenceSpan,
+        FreshnessStatus, LearnedSparseContribution, LearnedSparseReason, RepresentationName,
+        RetrievalLaneScore, RetrievalModelFingerprint, RetrievalRawRank, RetrievalReason,
+        RetrievalScoreFingerprint, RetrievalScoreKind, RetrievalScoreScale, RetrievalScoreSet,
+        SourceLocation, StructureNodeId, TrustLabel,
     };
 
     use super::*;
@@ -376,7 +385,7 @@ mod tests {
                 BTreeMap::from([("model".to_string(), "exact".to_string())]),
             ),
         );
-        Ok(EvidenceCandidate {
+        Ok(EvidenceCandidate::new(EvidenceCandidateDto {
             evidence_id: maestria_domain::EvidenceId::new(41),
             artifact_version: maestria_domain::ArtifactVersionId::new(42),
             source_span: EvidenceSpan::new(
@@ -398,7 +407,7 @@ mod tests {
                 ]))),
             ],
             coverage_keys: vec!["doc:7".to_string()],
-        })
+        })?)
     }
 
     #[test]

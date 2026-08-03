@@ -1,10 +1,13 @@
 use std::collections::BTreeMap;
 
 use maestria_domain::{
-    ArtifactVersionId, ContentRange, EvidenceCandidate, EvidenceId, EvidenceSpan, FreshnessStatus,
-    LearnedSparseContribution, LearnedSparseReason, RepresentationName, RetrievalLaneScore,
-    RetrievalModelFingerprint, RetrievalRawRank, RetrievalReason, RetrievalScoreFingerprint,
-    RetrievalScoreKind, RetrievalScoreScale, RetrievalScoreSet, SourceLocation, TrustLabel,
+    ArtifactVersionId, ContentRange, CorpusScope, CorpusSnapshotId, EvidenceCandidate,
+    EvidenceCandidateDto, EvidenceId, EvidenceRequirements, EvidenceSpan, FreshnessRequirement,
+    FreshnessStatus, IndexGenerationId, LearnedSparseContribution, LearnedSparseReason, Modality,
+    ModalitySet, QueryId, RepresentationName, RetrievalLaneScore, RetrievalModelFingerprint,
+    RetrievalRawRank, RetrievalReason, RetrievalScoreFingerprint, RetrievalScoreKind,
+    RetrievalScoreScale, RetrievalScoreSet, SearchBudget, SearchIntent, SearchPlan, SearchStage,
+    SearchStopReason, SearchTrace, SearchTraceId, SourceLocation, StopConditions, TrustLabel,
 };
 
 fn fingerprint(name: &str) -> Result<RetrievalScoreFingerprint, Box<dyn std::error::Error>> {
@@ -84,7 +87,7 @@ fn legacy_flat_score_payload_is_rejected() -> Result<(), Box<dyn std::error::Err
 
 #[test]
 fn learned_sparse_reason_round_trips_current_shape() -> Result<(), Box<dyn std::error::Error>> {
-    let candidate = EvidenceCandidate {
+    let candidate = EvidenceCandidate::new(EvidenceCandidateDto {
         evidence_id: EvidenceId::new(1),
         artifact_version: ArtifactVersionId::new(2),
         source_span: EvidenceSpan::new(
@@ -108,7 +111,7 @@ fn learned_sparse_reason_round_trips_current_shape() -> Result<(), Box<dyn std::
             }]),
         ))],
         coverage_keys: Vec::new(),
-    };
+    })?;
     let value = serde_json::to_value(&candidate)?;
     let decoded: EvidenceCandidate = serde_json::from_value(value.clone())?;
     assert_eq!(decoded, candidate);
@@ -119,7 +122,7 @@ fn learned_sparse_reason_round_trips_current_shape() -> Result<(), Box<dyn std::
 
 #[test]
 fn legacy_sparse_reason_payload_is_rejected() -> Result<(), Box<dyn std::error::Error>> {
-    let mut value = serde_json::to_value(EvidenceCandidate {
+    let mut value = serde_json::to_value(EvidenceCandidate::new(EvidenceCandidateDto {
         evidence_id: EvidenceId::new(1),
         artifact_version: ArtifactVersionId::new(2),
         source_span: EvidenceSpan::new(
@@ -138,7 +141,7 @@ fn legacy_sparse_reason_payload_is_rejected() -> Result<(), Box<dyn std::error::
             }]),
         ))],
         coverage_keys: Vec::new(),
-    })?;
+    })?)?;
     value["reasons"] = serde_json::from_str(
         r#"[{"LearnedSparse":{"score_micros":12,"representation":"sparse_text_v1","fingerprint":"fixture:sparse:v1","contributions":[{"term_id":7,"contribution_micros":12}]}}]"#,
     )?;
@@ -233,13 +236,82 @@ fn every_declared_score_kind_has_one_canonical_wire_shape() -> Result<(), Box<dy
 #[test]
 fn complete_fingerprint_and_rank_change_the_trace_identity()
 -> Result<(), Box<dyn std::error::Error>> {
-    use maestria_domain::{
-        CorpusScope, CorpusSnapshotId, EvidenceRequirements, FreshnessRequirement,
-        IndexGenerationId, Modality, ModalitySet, QueryId, SearchBudget, SearchIntent, SearchPlan,
-        SearchStage, SearchStopReason, SearchTrace, StopConditions,
-    };
+    let plan = provenance_plan()?;
+    let mut candidate = EvidenceCandidate::new(EvidenceCandidateDto {
+        evidence_id: EvidenceId::new(1),
+        artifact_version: ArtifactVersionId::new(2),
+        source_span: EvidenceSpan::new(
+            None,
+            SourceLocation::file("fixture.md".to_string(), 1, 1)?,
+            ContentRange::new(1, 1)?,
+        )?,
+        scores: RetrievalScoreSet::single(lane(
+            RetrievalScoreKind::DenseSimilarity,
+            900_000,
+            RetrievalRawRank::ranked(1),
+            "dense_text_v1",
+        )?)?,
+        trust: TrustLabel::Verified,
+        freshness: FreshnessStatus::UpToDate,
+        duplicate_cluster: None,
+        reasons: vec![RetrievalReason::SemanticSimilarity],
+        coverage_keys: Vec::new(),
+    })?;
+    let trace_for =
+        |candidate: &EvidenceCandidate| -> Result<SearchTraceId, Box<dyn std::error::Error>> {
+            Ok(SearchTrace::from_plan(
+                &plan,
+                vec!["dense".to_string()],
+                std::slice::from_ref(candidate),
+                Vec::new(),
+                None,
+                Vec::new(),
+                SearchStopReason::EvidenceComplete,
+            )?
+            .deterministic_id())
+        };
+    let first = trace_for(&candidate)?;
 
-    let plan = SearchPlan::builder()
+    let mut revised_scores = candidate.scores().clone();
+    revised_scores.lanes[0]
+        .fingerprint
+        .components
+        .insert("revision".to_string(), "v2".to_string());
+    candidate = EvidenceCandidate::new(EvidenceCandidateDto {
+        evidence_id: candidate.evidence_id(),
+        artifact_version: candidate.artifact_version(),
+        source_span: candidate.source_span().clone(),
+        scores: revised_scores,
+        trust: candidate.trust(),
+        freshness: candidate.freshness(),
+        duplicate_cluster: candidate.duplicate_cluster(),
+        reasons: candidate.reasons().to_vec(),
+        coverage_keys: candidate.coverage_keys().to_vec(),
+    })?;
+    let second = trace_for(&candidate)?;
+    assert_ne!(first, second);
+
+    let mut revised_scores = candidate.scores().clone();
+    revised_scores.lanes[0].raw_rank = RetrievalRawRank::ranked(2);
+    candidate = EvidenceCandidate::new(EvidenceCandidateDto {
+        evidence_id: candidate.evidence_id(),
+        artifact_version: candidate.artifact_version(),
+        source_span: candidate.source_span().clone(),
+        scores: revised_scores,
+        trust: candidate.trust(),
+        freshness: candidate.freshness(),
+        duplicate_cluster: candidate.duplicate_cluster(),
+        reasons: candidate.reasons().to_vec(),
+        coverage_keys: candidate.coverage_keys().to_vec(),
+    })?;
+    let third = trace_for(&candidate)?;
+    assert_ne!(second, third);
+    Ok(())
+}
+
+/// Shared plan for the trace-identity provenance tests.
+fn provenance_plan() -> Result<SearchPlan, Box<dyn std::error::Error>> {
+    Ok(SearchPlan::builder()
         .query_id(QueryId::new(1))
         .original_query("trace provenance".to_string())
         .intent(SearchIntent::FactualLocal)
@@ -269,65 +341,5 @@ fn complete_fingerprint_and_rank_change_the_trace_identity()
         .authorization(Some(
             maestria_domain::RetrievalPolicySnapshot::global_default(),
         ))
-        .build()?;
-    let mut candidate = EvidenceCandidate {
-        evidence_id: EvidenceId::new(1),
-        artifact_version: ArtifactVersionId::new(2),
-        source_span: EvidenceSpan::new(
-            None,
-            SourceLocation::file("fixture.md".to_string(), 1, 1)?,
-            ContentRange::new(1, 1)?,
-        )?,
-        scores: RetrievalScoreSet::single(lane(
-            RetrievalScoreKind::DenseSimilarity,
-            900_000,
-            RetrievalRawRank::ranked(1),
-            "dense_text_v1",
-        )?)?,
-        trust: TrustLabel::Verified,
-        freshness: FreshnessStatus::UpToDate,
-        duplicate_cluster: None,
-        reasons: vec![RetrievalReason::SemanticSimilarity],
-        coverage_keys: Vec::new(),
-    };
-    let first = SearchTrace::from_plan(
-        &plan,
-        vec!["dense".to_string()],
-        std::slice::from_ref(&candidate),
-        Vec::new(),
-        None,
-        Vec::new(),
-        SearchStopReason::EvidenceComplete,
-    )
-    .deterministic_id();
-
-    candidate.scores.lanes[0]
-        .fingerprint
-        .components
-        .insert("revision".to_string(), "v2".to_string());
-    let second = SearchTrace::from_plan(
-        &plan,
-        vec!["dense".to_string()],
-        std::slice::from_ref(&candidate),
-        Vec::new(),
-        None,
-        Vec::new(),
-        SearchStopReason::EvidenceComplete,
-    )
-    .deterministic_id();
-    assert_ne!(first, second);
-
-    candidate.scores.lanes[0].raw_rank = RetrievalRawRank::ranked(2);
-    let third = SearchTrace::from_plan(
-        &plan,
-        vec!["dense".to_string()],
-        std::slice::from_ref(&candidate),
-        Vec::new(),
-        None,
-        Vec::new(),
-        SearchStopReason::EvidenceComplete,
-    )
-    .deterministic_id();
-    assert_ne!(second, third);
-    Ok(())
+        .build()?)
 }

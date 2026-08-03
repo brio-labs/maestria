@@ -26,6 +26,13 @@ pub fn run(instance_dir: PathBuf, limit: usize) -> Result<()> {
     Ok(())
 }
 
+/// Propose a memory candidate under the instance mutation session.
+///
+/// # Cancellation
+/// Dropping this future tears down the CLI-side session (instance lock
+/// released, runtime shutdown requested). A proposal already accepted by the
+/// runtime may still reach durable state; inspect durable state before
+/// retrying an interrupted command.
 pub async fn run_propose(
     instance_dir: PathBuf,
     text: String,
@@ -90,6 +97,13 @@ pub async fn run_propose(
     Ok(())
 }
 
+/// Promote a memory candidate under the instance mutation session.
+///
+/// # Cancellation
+/// Dropping this future tears down the CLI-side session (instance lock
+/// released, runtime shutdown requested). A promotion already accepted by the
+/// runtime may still reach durable state; inspect durable state before
+/// retrying an interrupted command.
 pub async fn run_promote(
     instance_dir: PathBuf,
     candidate_id: u64,

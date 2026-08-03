@@ -81,11 +81,11 @@ fn search_response(query: String, query_id: u64, outcome: SearchOutcome) -> Sear
         index_generation: outcome.index_generation.value(),
         evidence: outcome.evidence.iter().map(search_evidence).collect(),
         coverage: CoverageResponse {
-            percent_covered: outcome.coverage.percent_covered,
-            gaps: outcome.coverage.gaps_identified,
-            distinct_sources: outcome.coverage.distinct_sources,
-            distinct_documents: outcome.coverage.distinct_documents,
-            distinct_sections: outcome.coverage.distinct_sections,
+            percent_covered: outcome.coverage.percent_covered(),
+            gaps: outcome.coverage.gaps_identified().to_vec(),
+            distinct_sources: outcome.coverage.distinct_sources(),
+            distinct_documents: outcome.coverage.distinct_documents(),
+            distinct_sections: outcome.coverage.distinct_sections(),
         },
         conflict_count: outcome.conflicts.len(),
     }
@@ -93,15 +93,15 @@ fn search_response(query: String, query_id: u64, outcome: SearchOutcome) -> Sear
 
 fn search_evidence(candidate: &EvidenceCandidate) -> SearchEvidenceResponse {
     SearchEvidenceResponse {
-        evidence_id: candidate.evidence_id.value(),
-        artifact_version: candidate.artifact_version.value(),
-        source: format_source_span(&candidate.source_span),
-        range_start: candidate.source_span.range().start(),
-        range_end: candidate.source_span.range().end(),
-        score_schema_version: candidate.scores.schema_version,
-        scores: candidate.scores.lanes.iter().map(search_score).collect(),
-        trust: format!("{:?}", candidate.trust),
-        freshness: format!("{:?}", candidate.freshness),
+        evidence_id: candidate.evidence_id().value(),
+        artifact_version: candidate.artifact_version().value(),
+        source: format_source_span(candidate.source_span()),
+        range_start: candidate.source_span().range().start(),
+        range_end: candidate.source_span().range().end(),
+        score_schema_version: candidate.scores().schema_version,
+        scores: candidate.scores().lanes.iter().map(search_score).collect(),
+        trust: format!("{:?}", candidate.trust()),
+        freshness: format!("{:?}", candidate.freshness()),
     }
 }
 

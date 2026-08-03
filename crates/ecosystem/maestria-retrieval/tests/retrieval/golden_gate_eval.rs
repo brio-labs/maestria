@@ -15,12 +15,12 @@ fn golden_gate_reports_relevance_and_exact_span_metrics() -> Result<(), Box<dyn 
         &plan,
         vec![
             maestria_retrieval::golden::GoldenJudgment {
-                evidence_id: first.evidence_id,
+                evidence_id: first.evidence_id(),
                 relevance: 3,
-                exact_span: Some(first.source_span.clone()),
+                exact_span: Some(first.source_span().clone()),
             },
             maestria_retrieval::golden::GoldenJudgment {
-                evidence_id: second.evidence_id,
+                evidence_id: second.evidence_id(),
                 relevance: 1,
                 exact_span: None,
             },
@@ -50,12 +50,12 @@ fn golden_metrics_do_not_count_duplicate_evidence_twice() -> Result<(), Box<dyn 
         &plan,
         vec![
             maestria_retrieval::golden::GoldenJudgment {
-                evidence_id: first.evidence_id,
+                evidence_id: first.evidence_id(),
                 relevance: 1,
                 exact_span: None,
             },
             maestria_retrieval::golden::GoldenJudgment {
-                evidence_id: second.evidence_id,
+                evidence_id: second.evidence_id(),
                 relevance: 1,
                 exact_span: None,
             },
@@ -80,7 +80,7 @@ fn golden_gate_rejects_security_regressions() -> Result<(), Box<dyn std::error::
     let corpus = corpus(
         &plan,
         vec![maestria_retrieval::golden::GoldenJudgment {
-            evidence_id: first.evidence_id,
+            evidence_id: first.evidence_id(),
             relevance: 1,
             exact_span: None,
         }],
@@ -141,7 +141,7 @@ fn golden_gate_rejects_resource_and_attack_regressions() -> Result<(), Box<dyn s
     let corpus = corpus(
         &plan,
         vec![maestria_retrieval::golden::GoldenJudgment {
-            evidence_id: first.evidence_id,
+            evidence_id: first.evidence_id(),
             relevance: 1,
             exact_span: None,
         }],
@@ -188,7 +188,7 @@ fn golden_gate_rejects_configured_quality_regressions() -> Result<(), Box<dyn st
         vec![maestria_retrieval::golden::GoldenJudgment {
             evidence_id: EvidenceId::new(1),
             relevance: 1,
-            exact_span: Some(candidate(1, 3)?.source_span.clone()),
+            exact_span: Some(candidate(1, 3)?.source_span().clone()),
         }],
     )?;
     for (field, expected_reason) in [

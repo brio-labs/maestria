@@ -1,12 +1,12 @@
 use async_trait::async_trait;
 use maestria_domain::{
     ArtifactVersionId, ContentHash, ContentRange, CorpusScope, CorpusSnapshotId,
-    DuplicateClusterId, EvidenceCandidate, EvidenceCoverage, EvidenceId, EvidenceRequirements,
-    EvidenceSpan, FreshnessRequirement, FreshnessStatus, IndexGenerationId,
-    LearnedSparseContribution, LearnedSparseReason, Modality, ModalitySet, QueryId,
-    RepresentationName, RetrievalModelFingerprint, RetrievalReason, RetrievalScoreSet,
-    SearchBudget, SearchIntent, SearchOutcome, SearchPlan, SearchStatus, SearchTraceId,
-    SourceLocation, SparseNamespace, StopConditions, TrustLabel, TrustZone,
+    DuplicateClusterId, EvidenceCandidate, EvidenceCandidateDto, EvidenceCoverage,
+    EvidenceCoverageDto, EvidenceId, EvidenceRequirements, EvidenceSpan, FreshnessRequirement,
+    FreshnessStatus, IndexGenerationId, LearnedSparseContribution, LearnedSparseReason, Modality,
+    ModalitySet, QueryId, RepresentationName, RetrievalModelFingerprint, RetrievalReason,
+    RetrievalScoreSet, SearchBudget, SearchIntent, SearchOutcome, SearchPlan, SearchStatus,
+    SearchTraceId, SourceLocation, SparseNamespace, StopConditions, TrustLabel, TrustZone,
 };
 use maestria_retrieval::types::{
     CandidateBatch, CandidateRequest, RetrievalError, RetrievalEvaluationReport,
@@ -204,7 +204,7 @@ impl RetrievalEvaluator for PassthroughEvaluator {
                 index_generation: experiment.plan.index_generation(),
                 status: SearchStatus::Answerable,
                 evidence: experiment.candidates,
-                coverage: EvidenceCoverage {
+                coverage: EvidenceCoverage::new(EvidenceCoverageDto {
                     percent_covered: 100,
                     gaps_identified: Vec::new(),
                     required_claims: Vec::new(),
@@ -213,7 +213,7 @@ impl RetrievalEvaluator for PassthroughEvaluator {
                     distinct_documents: evaluated_candidates,
                     distinct_sections: evaluated_candidates,
                     candidate_coverage_keys: Vec::new(),
-                },
+                })?,
                 conflicts: Vec::new(),
             },
             evaluated_candidates,
@@ -239,7 +239,7 @@ fn source_span() -> TestResult<EvidenceSpan> {
 }
 
 fn lexical_candidate() -> TestResult<EvidenceCandidate> {
-    Ok(EvidenceCandidate {
+    Ok(EvidenceCandidate::new(EvidenceCandidateDto {
         evidence_id: EvidenceId::new(1),
         artifact_version: ArtifactVersionId::new(1),
         source_span: source_span()?,
@@ -249,11 +249,11 @@ fn lexical_candidate() -> TestResult<EvidenceCandidate> {
         duplicate_cluster: Some(DuplicateClusterId::new(1)),
         reasons: vec![RetrievalReason::ExactMatch],
         coverage_keys: Vec::new(),
-    })
+    })?)
 }
 
 fn sparse_candidate() -> TestResult<EvidenceCandidate> {
-    Ok(EvidenceCandidate {
+    Ok(EvidenceCandidate::new(EvidenceCandidateDto {
         evidence_id: EvidenceId::new(2),
         artifact_version: ArtifactVersionId::new(2),
         source_span: source_span()?,
@@ -286,7 +286,7 @@ fn sparse_candidate() -> TestResult<EvidenceCandidate> {
             }]),
         ))],
         coverage_keys: Vec::new(),
-    })
+    })?)
 }
 
 fn plan() -> TestResult<SearchPlan> {
@@ -367,10 +367,10 @@ async fn shadow_sparse_observation_cannot_change_served_evidence() -> TestResult
     let outcome = engine.search(&plan()?).await?;
 
     assert_eq!(outcome.evidence.len(), 1);
-    assert_eq!(outcome.evidence[0].evidence_id, EvidenceId::new(1));
+    assert_eq!(outcome.evidence[0].evidence_id(), EvidenceId::new(1));
     assert!(
         outcome.evidence[0]
-            .reasons
+            .reasons()
             .iter()
             .all(|reason| !matches!(reason, RetrievalReason::LearnedSparse(_)))
     );

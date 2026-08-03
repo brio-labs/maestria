@@ -20,7 +20,7 @@ pub(crate) fn calculate_report(
     let ranked = outcome
         .evidence
         .iter()
-        .filter(|candidate| seen.insert(candidate.evidence_id))
+        .filter(|candidate| seen.insert(candidate.evidence_id()))
         .collect::<Vec<_>>();
     let top = ranked.iter().take(k).copied().collect::<Vec<_>>();
     let relevant_total = relevance.values().filter(|score| **score > 0).count();
@@ -28,7 +28,7 @@ pub(crate) fn calculate_report(
         .iter()
         .filter(|candidate| {
             relevance
-                .get(&candidate.evidence_id)
+                .get(&candidate.evidence_id())
                 .is_some_and(|score| *score > 0)
         })
         .count();
@@ -37,7 +37,7 @@ pub(crate) fn calculate_report(
         .iter()
         .position(|candidate| {
             relevance
-                .get(&candidate.evidence_id)
+                .get(&candidate.evidence_id())
                 .is_some_and(|score| *score > 0)
         })
         .map_or(Metric::ZERO, |rank| Metric::from_ratio(1, rank + 1));
@@ -58,7 +58,8 @@ pub(crate) fn calculate_report(
         .filter(|judgment| {
             judgment.exact_span.as_ref().is_some_and(|span| {
                 outcome.evidence.iter().any(|candidate| {
-                    candidate.evidence_id == judgment.evidence_id && &candidate.source_span == span
+                    candidate.evidence_id() == judgment.evidence_id
+                        && candidate.source_span() == span
                 })
             })
         })
@@ -85,7 +86,7 @@ fn ndcg(
         .iter()
         .enumerate()
         .map(|(rank, candidate)| {
-            let score = match relevance.get(&candidate.evidence_id).copied() {
+            let score = match relevance.get(&candidate.evidence_id()).copied() {
                 Some(value) => value,
                 None => {
                     let _ = ();

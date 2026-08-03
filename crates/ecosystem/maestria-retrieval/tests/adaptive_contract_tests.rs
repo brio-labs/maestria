@@ -1,11 +1,11 @@
 use async_trait::async_trait;
 use maestria_domain::{
     ArtifactVersionId, ContentRange, CorpusScope, CorpusSnapshotId, EvidenceCandidate,
-    EvidenceCoverage, EvidenceRequirements, EvidenceSpan, FreshnessRequirement, FreshnessStatus,
-    IndexGenerationId, Modality, ModalitySet, QueryId, RetrievalModelFingerprint, RetrievalReason,
-    RetrievalScoreSet, SearchBudget, SearchIntent, SearchOutcome, SearchPlan, SearchStage,
-    SearchStatus, SearchTraceFilter, SearchTraceId, SourceLocation, StopConditions,
-    StructureNodeId, TrustLabel,
+    EvidenceCandidateDto, EvidenceCoverage, EvidenceCoverageDto, EvidenceRequirements,
+    EvidenceSpan, FreshnessRequirement, FreshnessStatus, IndexGenerationId, Modality, ModalitySet,
+    QueryId, RetrievalModelFingerprint, RetrievalReason, RetrievalScoreSet, SearchBudget,
+    SearchIntent, SearchOutcome, SearchPlan, SearchStage, SearchStatus, SearchTraceFilter,
+    SearchTraceId, SourceLocation, StopConditions, StructureNodeId, TrustLabel,
 };
 use maestria_retrieval::{
     CandidateRetriever, RetrievalEngine, RetrievalError, RetrievalEvaluator, RetrievalResult,
@@ -64,8 +64,7 @@ fn fixture_scores(
 }
 
 fn candidate_fixture() -> RetrievalResult<EvidenceCandidate> {
-    Ok(EvidenceCandidate {
-        coverage_keys: vec![],
+    Ok(EvidenceCandidate::new(EvidenceCandidateDto {
         evidence_id: maestria_domain::EvidenceId::new(23),
         artifact_version: ArtifactVersionId::new(19),
         source_span: EvidenceSpan::new(
@@ -79,7 +78,8 @@ fn candidate_fixture() -> RetrievalResult<EvidenceCandidate> {
         freshness: FreshnessStatus::UpToDate,
         duplicate_cluster: Some(maestria_domain::DuplicateClusterId::new(31)),
         reasons: vec![RetrievalReason::ExactMatch, RetrievalReason::CitationLink],
-    })
+        coverage_keys: vec![],
+    })?)
 }
 
 fn adaptive_plan(max_queries: u32, max_stages: u32) -> RetrievalResult<SearchPlan> {
@@ -143,12 +143,23 @@ impl CandidateRetriever for AdaptiveLane {
         let returns_candidate = !self.slot_only || request.query.q.contains("slot");
         let mut candidates = Vec::new();
         if returns_candidate {
-            let mut candidate = candidate_fixture()?;
-            if self.slot_only {
-                candidate.coverage_keys = vec!["slot".to_string()];
+            let base = candidate_fixture()?;
+            let coverage_keys = if self.slot_only {
+                vec!["slot".to_string()]
             } else {
-                candidate.coverage_keys.clear();
-            }
+                Vec::new()
+            };
+            let candidate = EvidenceCandidate::new(EvidenceCandidateDto {
+                evidence_id: base.evidence_id(),
+                artifact_version: base.artifact_version(),
+                source_span: base.source_span().clone(),
+                scores: base.scores().clone(),
+                trust: base.trust(),
+                freshness: base.freshness(),
+                duplicate_cluster: base.duplicate_cluster(),
+                reasons: base.reasons().to_vec(),
+                coverage_keys,
+            })?;
             candidates.push(candidate);
         }
         let generation = if self.stale_generation {
@@ -187,7 +198,7 @@ impl RetrievalEvaluator for AdaptiveEvaluator {
         let evidence = experiment.candidates;
         let covered = evidence
             .iter()
-            .flat_map(|candidate| candidate.coverage_keys.iter())
+            .flat_map(|candidate| candidate.coverage_keys().iter())
             .any(|key| key == "slot");
         let status = if evidence.is_empty() {
             SearchStatus::NoEvidenceFound
@@ -210,16 +221,16 @@ impl RetrievalEvaluator for AdaptiveEvaluator {
                 index_generation: experiment.plan.index_generation(),
                 status,
                 evidence,
-                coverage: EvidenceCoverage {
+                coverage: EvidenceCoverage::new(EvidenceCoverageDto {
+                    percent_covered: if covered { 100 } else { 0 },
+                    gaps_identified,
                     required_claims: vec!["slot".to_string()],
                     required_subquestions: vec![],
                     distinct_sources: 0,
                     distinct_documents: 0,
                     distinct_sections: 0,
                     candidate_coverage_keys: vec![],
-                    percent_covered: if covered { 100 } else { 0 },
-                    gaps_identified,
-                },
+                })?,
                 conflicts: vec![],
             },
         })
@@ -250,16 +261,16 @@ impl RetrievalEvaluator for AnswerableEvaluator {
                 index_generation: experiment.plan.index_generation(),
                 status,
                 evidence,
-                coverage: EvidenceCoverage {
+                coverage: EvidenceCoverage::new(EvidenceCoverageDto {
+                    percent_covered,
+                    gaps_identified: vec![],
                     required_claims: vec![],
                     required_subquestions: vec![],
                     distinct_sources: 0,
                     distinct_documents: 0,
                     distinct_sections: 0,
                     candidate_coverage_keys: vec![],
-                    percent_covered,
-                    gaps_identified: vec![],
-                },
+                })?,
                 conflicts: vec![],
             },
         })

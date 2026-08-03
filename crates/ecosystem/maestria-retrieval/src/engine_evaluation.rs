@@ -27,7 +27,7 @@ pub(super) async fn evaluate_batches(
     Option<maestria_domain::SearchTraceRerank>,
     maestria_domain::SearchTraceDiversity,
 )> {
-    let lanes = engine_pipeline::trace_lanes(batches);
+    let lanes = engine_pipeline::trace_lanes(batches)?;
     let repository_specialized = engine
         .repository_execution_policy
         .allows_specialized(&query.q);
@@ -63,7 +63,7 @@ pub(super) async fn evaluate_batches(
     };
     let (ranked, rerank_trace) =
         apply_reranking(engine, plan, visual_enabled, started, ranked).await?;
-    let initial_diversity = crate::diversity::select_candidates(&ranked, plan);
+    let initial_diversity = crate::diversity::select_candidates(&ranked, plan)?;
     let expansion_enabled = plan
         .stages()
         .contains(&maestria_domain::SearchStage::Filtering);
@@ -104,7 +104,10 @@ fn prepare_fusion_batches(
     let has_fresh_code_evidence = batches.iter().any(|batch| {
         batch_is_code(batch)
             && batch.candidates.iter().any(|candidate| {
-                !matches!(candidate.freshness, maestria_domain::FreshnessStatus::Stale)
+                !matches!(
+                    candidate.freshness(),
+                    maestria_domain::FreshnessStatus::Stale
+                )
             })
     });
     let stale_code_only = !has_non_code_evidence
@@ -112,7 +115,10 @@ fn prepare_fusion_batches(
         && batches.iter().any(|batch| {
             batch_is_code(batch)
                 && batch.candidates.iter().any(|candidate| {
-                    matches!(candidate.freshness, maestria_domain::FreshnessStatus::Stale)
+                    matches!(
+                        candidate.freshness(),
+                        maestria_domain::FreshnessStatus::Stale
+                    )
                 })
         });
     let fusion_batches: Vec<_> = batches
@@ -134,7 +140,10 @@ fn prepare_fusion_batches(
             let mut batch = batch.clone();
             if batch_is_code(&batch) {
                 batch.candidates.retain(|candidate| {
-                    !matches!(candidate.freshness, maestria_domain::FreshnessStatus::Stale)
+                    !matches!(
+                        candidate.freshness(),
+                        maestria_domain::FreshnessStatus::Stale
+                    )
                 });
                 if batch.candidates.is_empty() {
                     return None;

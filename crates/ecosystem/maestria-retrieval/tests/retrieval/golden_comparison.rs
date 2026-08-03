@@ -34,12 +34,12 @@ fn golden_comparison_promotes_only_for_material_quality_improvement()
         &plan,
         vec![
             maestria_retrieval::golden::GoldenJudgment {
-                evidence_id: first.evidence_id,
+                evidence_id: first.evidence_id(),
                 relevance: 1,
                 exact_span: None,
             },
             maestria_retrieval::golden::GoldenJudgment {
-                evidence_id: second.evidence_id,
+                evidence_id: second.evidence_id(),
                 relevance: 1,
                 exact_span: None,
             },
@@ -106,12 +106,12 @@ fn golden_comparison_requires_complete_promotion_telemetry()
         &plan,
         vec![
             maestria_retrieval::golden::GoldenJudgment {
-                evidence_id: first.evidence_id,
+                evidence_id: first.evidence_id(),
                 relevance: 1,
                 exact_span: None,
             },
             maestria_retrieval::golden::GoldenJudgment {
-                evidence_id: second.evidence_id,
+                evidence_id: second.evidence_id(),
                 relevance: 1,
                 exact_span: None,
             },
@@ -162,7 +162,7 @@ fn golden_comparison_retains_baseline_when_candidate_regresses()
     let corpus = corpus(
         &plan,
         vec![maestria_retrieval::golden::GoldenJudgment {
-            evidence_id: c.evidence_id,
+            evidence_id: c.evidence_id(),
             relevance: 1,
             exact_span: None,
         }],

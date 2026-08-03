@@ -1,7 +1,9 @@
 use maestria_domain::{
-    CorpusScope, Modality, SearchOutcome, SearchPlan, SearchStatus, SearchStopReason, SearchTrace,
-    SearchTraceExpansion, SearchTraceFilter,
+    CorpusScope, Modality, SearchExpansionStrategy, SearchOutcome, SearchPlan, SearchStatus,
+    SearchStopReason, SearchTrace, SearchTraceExpansion, SearchTraceFilter,
 };
+
+use crate::types::RetrievalError;
 
 /// Serializes the engine-owned retrieval security policy into the provenance format
 /// consumed by the retrieval security validator.
@@ -123,10 +125,10 @@ fn compute_expected_trace_state(
     let expected_fusion = options.fusion_enabled.then_some("configured".to_string());
     let expected_expansions = options
         .expansion_enabled
-        .then_some(SearchTraceExpansion {
-            strategy: "hierarchy+graph".to_string(),
-            added_candidates: None,
-        })
+        .then_some(SearchTraceExpansion::new(
+            SearchExpansionStrategy::HierarchyGraph,
+            None,
+        ))
         .into_iter()
         .collect::<Vec<_>>();
     let visual_plan_fallback = plan.intent() == maestria_domain::SearchIntent::FactualLocal
@@ -200,8 +202,8 @@ fn assemble_trace(
     outcome: &SearchOutcome,
     lanes: Vec<maestria_domain::SearchTraceLane>,
     expected: &ExpectedTraceState,
-) -> SearchTrace {
-    SearchTrace::from_plan(
+) -> Result<SearchTrace, RetrievalError> {
+    Ok(SearchTrace::from_plan(
         plan,
         lanes.iter().map(|lane| lane.retriever_id.clone()).collect(),
         &outcome.evidence,
@@ -209,17 +211,17 @@ fn assemble_trace(
         expected.fusion.clone(),
         expected.expansions.clone(),
         expected.stop_reason.clone(),
-    )
+    )?
     .with_policy_fingerprint(expected.policy_fingerprint.clone())
     .with_lanes(lanes)
     .with_gaps_and_conflicts(
-        outcome.coverage.gaps_identified.clone(),
+        outcome.coverage.gaps_identified().to_vec(),
         outcome
             .conflicts
             .iter()
             .map(|conflict| conflict.id)
             .collect(),
-    )
+    ))
 }
 
 /// Rebuilds the outcome trace so it matches the governed search context.
@@ -228,22 +230,22 @@ pub fn ensure_trace(
     mut outcome: SearchOutcome,
     lanes: Vec<maestria_domain::SearchTraceLane>,
     options: EnsureTraceOptions,
-) -> SearchOutcome {
+) -> Result<SearchOutcome, RetrievalError> {
     let expected = compute_expected_trace_state(plan, &outcome, &lanes, &options);
     let trace_is_valid = outcome.trace_data.as_ref().is_some_and(|trace| {
         trace_matches_expected(trace, plan, &outcome, &lanes, &expected, &options)
     });
     if trace_is_valid {
-        return outcome;
+        return Ok(outcome);
     }
-    let mut trace = assemble_trace(plan, &outcome, lanes, &expected);
+    let mut trace = assemble_trace(plan, &outcome, lanes, &expected)?;
     trace = apply_degradation(trace, expected.degradation, expected.unavailable_capability);
     trace.rewrites = options.rewrites;
     trace.rerank = options.rerank_trace;
     trace.diversity = options.diversity_trace;
     outcome.trace = trace.deterministic_id();
     outcome.trace_data = Some(Box::new(trace));
-    outcome
+    Ok(outcome)
 }
 
 fn apply_degradation(

@@ -654,16 +654,16 @@ async fn learned_sparse_retriever_preserves_score_and_source_lineage()
     assert_eq!(batch.candidates.len(), 1);
     let candidate = &batch.candidates[0];
     assert_eq!(
-        candidate.evidence_id,
+        candidate.evidence_id(),
         maestria_domain::evidence_id_for(fixture.artifact_id, 0)
     );
     let sparse_score = candidate
-        .scores
+        .scores()
         .lane(&maestria_domain::RetrievalScoreKind::LearnedSparse)
         .ok_or("candidate is missing its learned-sparse score")?;
     assert!(sparse_score.raw_score > 0);
     assert_eq!(sparse_score.representation.0, SPARSE_REPRESENTATION_V1);
-    let Some(RetrievalReason::LearnedSparse(reason)) = candidate.reasons.first() else {
+    let Some(RetrievalReason::LearnedSparse(reason)) = candidate.reasons().first() else {
         return Err("candidate is missing learned-sparse provenance".into());
     };
     assert!(!reason.contributions.is_empty());

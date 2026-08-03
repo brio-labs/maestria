@@ -66,7 +66,7 @@ impl ContextExpander for HierarchyGraphExpander {
             .collect::<Vec<_>>();
         let seen_evidence = expanded
             .iter()
-            .map(|candidate| candidate.evidence_id)
+            .map(|candidate| candidate.evidence_id())
             .collect::<BTreeSet<_>>();
         let mut queue = VecDeque::new();
         for candidate in candidates {
@@ -76,7 +76,7 @@ impl ContextExpander for HierarchyGraphExpander {
             // document key.
             let Some(seed_evidence) = self
                 .evidence
-                .get(candidate.candidate.evidence_id)
+                .get(candidate.candidate.evidence_id())
                 .map_err(port_error)?
             else {
                 continue;

@@ -5,9 +5,9 @@ use std::sync::{
 
 use maestria_domain::{
     Artifact, ArtifactId, ArtifactVersionId, Chunk, ChunkId, ContentHash, ContentRange,
-    CorpusScope, CorpusSnapshotId, Evidence, EvidenceCandidate, EvidenceId, EvidenceKind,
-    EvidenceSpan, FreshnessStatus, IndexGenerationId, IndexStatus, LineRange, LogicalTick,
-    Relation, RelationEndpoint, RelationId, RelationKind, RetrievalModelFingerprint,
+    CorpusScope, CorpusSnapshotId, Evidence, EvidenceCandidate, EvidenceCandidateDto, EvidenceId,
+    EvidenceKind, EvidenceSpan, FreshnessStatus, IndexGenerationId, IndexStatus, LineRange,
+    LogicalTick, Relation, RelationEndpoint, RelationId, RelationKind, RetrievalModelFingerprint,
     RetrievalScoreSet, SearchOutcome, SearchStatus, SnapshotRef, SourceLocation, SourceSpan,
     StopConditions, StructureNodeId, TrustLabel,
 };
@@ -114,7 +114,7 @@ fn ranked_seed(
 ) -> Result<RankedCandidate, Box<dyn std::error::Error>> {
     Ok(RankedCandidate {
         rank: 0,
-        candidate: EvidenceCandidate {
+        candidate: EvidenceCandidate::new(EvidenceCandidateDto {
             evidence_id,
             artifact_version: ArtifactVersionId::new(artifact_id.value()),
             source_span: EvidenceSpan::new(
@@ -128,7 +128,7 @@ fn ranked_seed(
             duplicate_cluster: None,
             reasons: Vec::new(),
             coverage_keys: Vec::new(),
-        },
+        })?,
     })
 }
 struct Fixture {
@@ -355,7 +355,7 @@ fn hierarchy_expands_children_and_siblings_with_query_adaptive_depth()
         precise
             .evidence
             .iter()
-            .map(|candidate| candidate.evidence_id)
+            .map(|candidate| candidate.evidence_id())
             .collect::<Vec<_>>(),
         vec![
             maestria_domain::evidence_id_for(root_artifact, 0),
@@ -374,7 +374,7 @@ fn hierarchy_expands_children_and_siblings_with_query_adaptive_depth()
 
     let empty = execute_search(&engine, &context, "unmatched query", 0)?;
     assert_eq!(empty.evidence.len(), 0);
-    assert_eq!(empty.coverage.percent_covered, 0);
+    assert_eq!(empty.coverage.percent_covered(), 0);
     Ok(())
 }
 
@@ -452,7 +452,7 @@ fn high_degree_graph_caps_relation_and_evidence_lookups() -> Result<(), Box<dyn 
         expanded
             .candidates
             .iter()
-            .map(|candidate| candidate.evidence_id)
+            .map(|candidate| candidate.evidence_id())
             .collect::<Vec<_>>(),
         vec![root_evidence, child_evidence]
     );

@@ -1,7 +1,8 @@
 use std::sync::Arc;
 
 use maestria_domain::{
-    EvidenceCoverage, SearchOutcome, SearchPlan, SearchStatus, SearchStopReason, SearchTrace,
+    EvidenceCoverage, EvidenceCoverageDto, SearchOutcome, SearchPlan, SearchStatus,
+    SearchStopReason, SearchTrace,
 };
 
 use crate::traits::CandidateRetriever;
@@ -100,7 +101,10 @@ impl RetrievalEngine {
             .collect()
     }
 
-    pub(super) fn prompt_injection_outcome(&self, plan: &SearchPlan) -> SearchOutcome {
+    pub(super) fn prompt_injection_outcome(
+        &self,
+        plan: &SearchPlan,
+    ) -> RetrievalResult<SearchOutcome> {
         let retriever_ids = self
             .retrievers
             .iter()
@@ -118,16 +122,16 @@ impl RetrievalEngine {
             self.fusion.as_ref().map(|_| "configured".to_string()),
             Vec::new(),
             SearchStopReason::PolicyDenied,
-        )
+        )?
         .with_policy_fingerprint(policy_fingerprint);
-        SearchOutcome {
+        Ok(SearchOutcome {
             trace: trace.deterministic_id(),
             trace_data: Some(Box::new(trace)),
             fingerprint: plan.fingerprint().clone(),
             index_generation: plan.index_generation(),
             status: SearchStatus::QuarantinedForReview,
             evidence: Vec::new(),
-            coverage: EvidenceCoverage {
+            coverage: EvidenceCoverage::new(EvidenceCoverageDto {
                 required_claims: vec![],
                 required_subquestions: vec![],
                 distinct_sources: 0,
@@ -136,8 +140,8 @@ impl RetrievalEngine {
                 candidate_coverage_keys: vec![],
                 percent_covered: 0,
                 gaps_identified: vec![],
-            },
+            })?,
             conflicts: Vec::new(),
-        }
+        })
     }
 }

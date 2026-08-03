@@ -2,11 +2,11 @@ use std::collections::BTreeSet;
 
 use maestria_domain::{
     DiversityPlacement, DiversitySkipReason, EvidenceCandidate, EvidenceCoverage,
-    EvidenceRequirements, FreshnessStatus, SearchPlan, SearchStatus, SearchStopReason,
-    SearchTraceDiversity, SearchTraceDiversityCandidate, SourceLocation,
+    EvidenceCoverageDto, EvidenceRequirements, FreshnessStatus, SearchPlan, SearchStatus,
+    SearchStopReason, SearchTraceDiversity, SearchTraceDiversityCandidate, SourceLocation,
 };
 
-use crate::types::RankedCandidate;
+use crate::types::{RankedCandidate, RetrievalError};
 
 /// Result of deterministic diversity-aware candidate selection.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -34,7 +34,10 @@ struct SelectionSummary<'a> {
 ///
 /// Duplicate clusters are hard exclusions. Source, document, section, and coverage
 /// requirements are satisfied greedily before low-marginal-gain stopping is allowed.
-pub fn select_candidates(ranked: &[RankedCandidate], plan: &SearchPlan) -> DiversitySelection {
+pub fn select_candidates(
+    ranked: &[RankedCandidate],
+    plan: &SearchPlan,
+) -> Result<DiversitySelection, RetrievalError> {
     let requirements = plan.evidence_requirements();
     let max_results = plan.stop_conditions().max_results as usize;
     let required_keys = required_keys(requirements);
@@ -55,7 +58,7 @@ pub fn select_candidates(ranked: &[RankedCandidate], plan: &SearchPlan) -> Diver
 
         let evidence = &candidate.candidate;
         if evidence
-            .duplicate_cluster
+            .duplicate_cluster()
             .is_some_and(|cluster| !seen_clusters.insert(cluster))
         {
             trace_candidates.push(trace_candidate(
@@ -97,7 +100,7 @@ pub fn select_candidates(ranked: &[RankedCandidate], plan: &SearchPlan) -> Diver
         seen_sources.insert(source);
         seen_documents.insert(document);
         seen_sections.insert(section);
-        covered_keys.extend(evidence.coverage_keys.iter().cloned());
+        covered_keys.extend(evidence.coverage_keys().iter().cloned());
         let selected_rank = selected.len();
         selected.push(candidate.clone());
         trace_candidates.push(trace_candidate(
@@ -118,19 +121,19 @@ pub fn select_candidates(ranked: &[RankedCandidate], plan: &SearchPlan) -> Diver
         document_count: seen_documents.len(),
         section_count: seen_sections.len(),
         stop_reason,
-    });
+    })?;
     let status = selection_status(&selected, &coverage, requirements, &stop_reason);
 
-    DiversitySelection {
+    Ok(DiversitySelection {
         candidates: selected,
         trace,
         coverage,
         status,
-    }
+    })
 }
 fn finalize_selection(
     summary: SelectionSummary<'_>,
-) -> (SearchStopReason, EvidenceCoverage, SearchTraceDiversity) {
+) -> Result<(SearchStopReason, EvidenceCoverage, SearchTraceDiversity), RetrievalError> {
     let SelectionSummary {
         requirements,
         required_keys,
@@ -167,7 +170,7 @@ fn finalize_selection(
         source_count,
         document_count,
         section_count,
-    );
+    )?;
     let mut covered_keys_vec = covered_keys.iter().cloned().collect::<Vec<_>>();
     covered_keys_vec.sort();
     let trace = SearchTraceDiversity {
@@ -180,7 +183,7 @@ fn finalize_selection(
         stop_reason: stop_reason.clone(),
         candidates: trace_candidates,
     };
-    (stop_reason, coverage, trace)
+    Ok((stop_reason, coverage, trace))
 }
 
 fn required_keys(requirements: &EvidenceRequirements) -> Vec<String> {
@@ -199,10 +202,10 @@ fn candidate_metrics(
     sections: &BTreeSet<String>,
 ) -> (String, String, String, usize, usize) {
     let source = source_identity(candidate);
-    let document = format!("artifact:{}", candidate.artifact_version.value());
+    let document = format!("artifact:{}", candidate.artifact_version().value());
     let section = section_identity(candidate);
     let marginal_coverage = candidate
-        .coverage_keys
+        .coverage_keys()
         .iter()
         .filter(|key| !covered_keys.contains(*key))
         .collect::<BTreeSet<_>>()
@@ -238,7 +241,7 @@ fn build_coverage(
     source_count: usize,
     document_count: usize,
     section_count: usize,
-) -> EvidenceCoverage {
+) -> Result<EvidenceCoverage, RetrievalError> {
     let missing = required_keys
         .iter()
         .filter(|key| !covered_keys.contains(*key))
@@ -254,7 +257,7 @@ fn build_coverage(
     };
     let mut candidate_coverage_keys = covered_keys.iter().cloned().collect::<Vec<_>>();
     candidate_coverage_keys.sort();
-    EvidenceCoverage {
+    Ok(EvidenceCoverage::new(EvidenceCoverageDto {
         percent_covered,
         gaps_identified: missing,
         required_claims: requirements.required_claims.clone(),
@@ -263,7 +266,7 @@ fn build_coverage(
         distinct_documents: document_count,
         distinct_sections: section_count,
         candidate_coverage_keys,
-    }
+    })?)
 }
 fn selection_status(
     selected: &[RankedCandidate],
@@ -276,17 +279,17 @@ fn selection_status(
     }
     if selected
         .iter()
-        .all(|candidate| matches!(candidate.candidate.freshness, FreshnessStatus::Stale))
+        .all(|candidate| matches!(candidate.candidate.freshness(), FreshnessStatus::Stale))
     {
         return SearchStatus::StaleEvidenceOnly;
     }
-    let diversity_satisfied = coverage.distinct_sources
+    let diversity_satisfied = coverage.distinct_sources()
         >= requirements
             .minimum_sources
             .max(usize::from(requirements.minimum_corroboration))
-        && coverage.distinct_documents >= requirements.minimum_documents
-        && coverage.distinct_sections >= requirements.minimum_sections;
-    if coverage.percent_covered < 100 {
+        && coverage.distinct_documents() >= requirements.minimum_documents
+        && coverage.distinct_sections() >= requirements.minimum_sections;
+    if coverage.percent_covered() < 100 {
         SearchStatus::EvidenceIncomplete
     } else if !diversity_satisfied || matches!(stop_reason, SearchStopReason::RequirementsUnmet) {
         SearchStatus::AnswerableWithWarnings
@@ -302,30 +305,30 @@ fn trace_candidate(
     marginal_coverage: usize,
 ) -> SearchTraceDiversityCandidate {
     SearchTraceDiversityCandidate {
-        candidate_id: candidate.evidence_id,
+        candidate_id: candidate.evidence_id(),
         original_rank,
         placement,
-        duplicate_cluster: candidate.duplicate_cluster,
+        duplicate_cluster: candidate.duplicate_cluster(),
         marginal_coverage: marginal_coverage.min(u8::MAX as usize) as u8,
-        coverage_keys: candidate.coverage_keys.clone(),
+        coverage_keys: candidate.coverage_keys().to_vec(),
     }
 }
 
 fn source_identity(candidate: &EvidenceCandidate) -> String {
-    match candidate.source_span.location() {
+    match candidate.source_span().location() {
         SourceLocation::File { path, .. } | SourceLocation::Symbol { path, .. } => path.clone(),
         SourceLocation::Page { .. } | SourceLocation::Region { .. } => {
-            format!("artifact:{}", candidate.artifact_version.value())
+            format!("artifact:{}", candidate.artifact_version().value())
         }
     }
 }
 
 fn section_identity(candidate: &EvidenceCandidate) -> String {
-    let artifact = candidate.artifact_version.value();
-    if let Some(node_id) = candidate.source_span.node_id() {
+    let artifact = candidate.artifact_version().value();
+    if let Some(node_id) = candidate.source_span().node_id() {
         return format!("artifact:{artifact}:node:{}", node_id.value());
     }
-    match candidate.source_span.location() {
+    match candidate.source_span().location() {
         SourceLocation::File {
             path,
             start_line,

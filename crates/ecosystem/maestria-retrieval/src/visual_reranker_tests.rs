@@ -3,8 +3,8 @@ use std::sync::Arc;
 
 use maestria_domain::{
     Artifact, ArtifactId, ArtifactVersionId, ContentRange, CorpusScope, CorpusSnapshotId, Evidence,
-    EvidenceCandidate, EvidenceId, EvidenceKind, EvidenceRequirements, EvidenceSpan,
-    FreshnessRequirement, FreshnessStatus, IndexGeneration, IndexGenerationId,
+    EvidenceCandidate, EvidenceCandidateDto, EvidenceId, EvidenceKind, EvidenceRequirements,
+    EvidenceSpan, FreshnessRequirement, FreshnessStatus, IndexGeneration, IndexGenerationId,
     IndexGenerationRegistry, IndexLifecycle, IndexStatus, Modality, ModalitySet, QueryId,
     RetrievalModelFingerprint, RetrievalReason, RetrievalScoreSet, SearchBudget, SearchIntent,
     SearchPlan, SearchStage, SecurityMetadata, SourceLocation, StopConditions, TrustLabel,
@@ -199,7 +199,7 @@ fn candidate(
     page: u32,
     x: u32,
 ) -> Result<EvidenceCandidate, Box<dyn std::error::Error>> {
-    Ok(EvidenceCandidate {
+    Ok(EvidenceCandidate::new(EvidenceCandidateDto {
         evidence_id: id,
         artifact_version: ArtifactVersionId::new(1),
         source_span: EvidenceSpan::new(
@@ -213,7 +213,7 @@ fn candidate(
         duplicate_cluster: None,
         reasons: vec![RetrievalReason::SemanticSimilarity],
         coverage_keys: Vec::new(),
-    })
+    })?)
 }
 
 #[tokio::test]
@@ -299,10 +299,10 @@ async fn visual_reranker_reorders_visual_slots_and_preserves_coordinates()
             max_latency_ms: 100,
         })
         .await?;
-    assert_eq!(result.candidates[0].candidate.evidence_id, second_id);
-    assert_eq!(result.candidates[1].candidate.evidence_id, first_id);
+    assert_eq!(result.candidates[0].candidate.evidence_id(), second_id);
+    assert_eq!(result.candidates[1].candidate.evidence_id(), first_id);
     assert_eq!(
-        result.candidates[0].candidate.source_span.location(),
+        result.candidates[0].candidate.source_span().location(),
         &SourceLocation::Region {
             page: 2,
             x: 20,
@@ -349,7 +349,7 @@ async fn visual_reranker_returns_traced_fallback_for_secret_queries()
             max_latency_ms: 100,
         })
         .await?;
-    assert_eq!(result.candidates[0].candidate.evidence_id, evidence_id);
+    assert_eq!(result.candidates[0].candidate.evidence_id(), evidence_id);
     assert!(matches!(
         result.trace.candidates[0].position,
         RerankPosition::ErrorFallback(_)

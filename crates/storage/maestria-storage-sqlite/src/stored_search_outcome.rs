@@ -143,11 +143,11 @@ mod tests {
 
     use maestria_domain::{
         ConflictSet, ConflictSetId, ContentRange, DuplicateClusterId, EvidenceCandidate,
-        EvidenceCoverage, EvidenceSpan, FreshnessStatus, IndexGenerationId,
-        LearnedSparseContribution, LearnedSparseReason, RepresentationName, RetrievalLaneScore,
-        RetrievalModelFingerprint, RetrievalRawRank, RetrievalReason, RetrievalScoreFingerprint,
-        RetrievalScoreKind, RetrievalScoreScale, RetrievalScoreSet, SearchOutcome, SearchStatus,
-        SearchTraceId, SourceLocation, StructureNodeId, TrustLabel,
+        EvidenceCandidateDto, EvidenceCoverage, EvidenceCoverageDto, EvidenceSpan, FreshnessStatus,
+        IndexGenerationId, LearnedSparseContribution, LearnedSparseReason, RepresentationName,
+        RetrievalLaneScore, RetrievalModelFingerprint, RetrievalRawRank, RetrievalReason,
+        RetrievalScoreFingerprint, RetrievalScoreKind, RetrievalScoreScale, RetrievalScoreSet,
+        SearchOutcome, SearchStatus, SearchTraceId, SourceLocation, StructureNodeId, TrustLabel,
     };
 
     use super::*;
@@ -164,7 +164,7 @@ mod tests {
                 BTreeMap::from([("model".to_string(), "exact".to_string())]),
             ),
         );
-        Ok(EvidenceCandidate {
+        Ok(EvidenceCandidate::new(EvidenceCandidateDto {
             evidence_id: maestria_domain::EvidenceId::new(41),
             artifact_version: maestria_domain::ArtifactVersionId::new(42),
             source_span: EvidenceSpan::new(
@@ -186,7 +186,7 @@ mod tests {
                 ]))),
             ],
             coverage_keys: vec!["doc:7".to_string()],
-        })
+        })?)
     }
 
     fn sample_outcome() -> Result<SearchOutcome, Box<dyn std::error::Error>> {
@@ -197,7 +197,7 @@ mod tests {
             index_generation: IndexGenerationId::new(3),
             status: SearchStatus::AnswerableWithWarnings,
             evidence: vec![sample_candidate()?],
-            coverage: EvidenceCoverage {
+            coverage: EvidenceCoverage::new(EvidenceCoverageDto {
                 percent_covered: 80,
                 gaps_identified: vec!["gap-a".to_string()],
                 required_claims: Vec::new(),
@@ -206,7 +206,7 @@ mod tests {
                 distinct_documents: 1,
                 distinct_sections: 3,
                 candidate_coverage_keys: Vec::new(),
-            },
+            })?,
             conflicts: vec![ConflictSet {
                 id: ConflictSetId::new(4),
                 candidates: vec![sample_candidate()?],

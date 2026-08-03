@@ -144,16 +144,16 @@ fn mix_trace_candidates(
     complete_score_provenance: bool,
 ) {
     for candidate in candidates {
-        mix_hash(hash, &candidate.evidence_id.value().to_le_bytes());
-        mix_hash(hash, &candidate.artifact_version.value().to_le_bytes());
-        mix_debug(hash, &candidate.source_span);
-        mix_hash(hash, &u64::from(candidate.rank).to_le_bytes());
-        mix_scores(hash, &candidate.scores, complete_score_provenance);
-        mix_debug(hash, &candidate.trust);
-        mix_debug(hash, &candidate.freshness);
-        mix_debug(hash, &candidate.duplicate_cluster);
-        mix_debug(hash, &candidate.reasons);
-        mix_debug(hash, &candidate.coverage_keys);
+        mix_hash(hash, &candidate.evidence_id().value().to_le_bytes());
+        mix_hash(hash, &candidate.artifact_version().value().to_le_bytes());
+        mix_debug(hash, candidate.source_span());
+        mix_hash(hash, &u64::from(candidate.rank()).to_le_bytes());
+        mix_scores(hash, candidate.scores(), complete_score_provenance);
+        mix_debug(hash, &candidate.trust());
+        mix_debug(hash, &candidate.freshness());
+        mix_debug(hash, &candidate.duplicate_cluster());
+        mix_debug(hash, &candidate.reasons());
+        mix_debug(hash, &candidate.coverage_keys());
     }
 }
 
@@ -199,13 +199,13 @@ fn mix_trace_lanes(
             mix_debug(hash, &lane.execution);
         }
         for candidate in &lane.candidates {
-            mix_hash(hash, &candidate.evidence_id.value().to_le_bytes());
-            mix_hash(hash, &candidate.artifact_version.value().to_le_bytes());
-            mix_debug(hash, &candidate.source_span);
-            mix_hash(hash, &u64::from(candidate.lane_rank).to_le_bytes());
-            mix_debug(hash, &candidate.duplicate_cluster);
-            mix_scores(hash, &candidate.scores, complete_score_provenance);
-            mix_debug(hash, &candidate.reasons);
+            mix_hash(hash, &candidate.evidence_id().value().to_le_bytes());
+            mix_hash(hash, &candidate.artifact_version().value().to_le_bytes());
+            mix_debug(hash, candidate.source_span());
+            mix_hash(hash, &u64::from(candidate.lane_rank()).to_le_bytes());
+            mix_debug(hash, &candidate.duplicate_cluster());
+            mix_scores(hash, candidate.scores(), complete_score_provenance);
+            mix_debug(hash, &candidate.reasons());
         }
     }
 }

@@ -103,7 +103,7 @@ async fn score_candidates(
 
 fn skipped_trace(ranked: &RankedCandidate) -> SearchTraceRerankCandidate {
     SearchTraceRerankCandidate {
-        candidate_id: ranked.candidate.evidence_id,
+        candidate_id: ranked.candidate.evidence_id(),
         original_rank: ranked.rank,
         position: RerankPosition::SkippedCap,
         relevance_score: None,
@@ -124,14 +124,14 @@ fn finish_candidates(
             .then(
                 left.ranked
                     .candidate
-                    .evidence_id
-                    .cmp(&right.ranked.candidate.evidence_id),
+                    .evidence_id()
+                    .cmp(&right.ranked.candidate.evidence_id()),
             )
     });
     let mut final_candidates = Vec::new();
     for mut item in scored {
         let original_rank = item.ranked.rank;
-        let candidate_id = item.ranked.candidate.evidence_id;
+        let candidate_id = item.ranked.candidate.evidence_id();
         let position = if final_candidates.len() < output_cap {
             let rank = final_candidates.len();
             item.ranked.rank = rank;

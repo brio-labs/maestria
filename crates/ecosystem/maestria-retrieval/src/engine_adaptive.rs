@@ -201,7 +201,7 @@ fn missing_required_slots(plan: &SearchPlan, outcome: &SearchOutcome) -> Vec<Str
         .collect::<BTreeSet<_>>();
     outcome
         .coverage
-        .gaps_identified
+        .gaps_identified()
         .iter()
         .filter(|gap| required.contains(*gap))
         .cloned()
@@ -214,6 +214,6 @@ fn evidence_ids(
     outcome
         .evidence
         .iter()
-        .map(|candidate| candidate.evidence_id)
+        .map(|candidate| candidate.evidence_id())
         .collect()
 }

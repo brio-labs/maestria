@@ -63,6 +63,7 @@ fn no_evidence_outcome(plan: &SearchPlan) -> Result<SearchOutcome, DomainError> 
         vec![],
         SearchStopReason::NoEvidence,
     )
+    .map_err(|error| DomainError::SearchIncompatible { error })?
     .with_policy_fingerprint(policy_fingerprint);
     Ok(SearchOutcome {
         trace: trace.deterministic_id(),
@@ -71,7 +72,7 @@ fn no_evidence_outcome(plan: &SearchPlan) -> Result<SearchOutcome, DomainError> 
         index_generation: plan.index_generation(),
         status: SearchStatus::NoEvidenceFound,
         evidence: vec![],
-        coverage: EvidenceCoverage {
+        coverage: EvidenceCoverage::new(EvidenceCoverageDto {
             percent_covered: 0,
             gaps_identified: vec![],
             required_claims: vec![],
@@ -80,7 +81,8 @@ fn no_evidence_outcome(plan: &SearchPlan) -> Result<SearchOutcome, DomainError> 
             distinct_documents: 0,
             distinct_sections: 0,
             candidate_coverage_keys: vec![],
-        },
+        })
+        .map_err(|error| DomainError::SearchIncompatible { error })?,
         conflicts: vec![],
     })
 }

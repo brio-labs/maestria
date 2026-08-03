@@ -4,9 +4,9 @@ use crate::traits::CandidateRetriever;
 use crate::types::{CandidateBatch, CandidateRequest, RetrievalError, RetrieverDescriptor};
 use async_trait::async_trait;
 use maestria_domain::{
-    ArtifactVersionId, ContentRange, Evidence, EvidenceCandidate, EvidenceKind, EvidenceSpan,
-    FreshnessStatus, IndexGenerationId, RetrievalReason, RetrievalScoreSet, SearchLaneStatus,
-    SourceLocation, SourceSpan, StructureNodeId, TrustLabel,
+    ArtifactVersionId, ContentRange, Evidence, EvidenceCandidate, EvidenceCandidateDto,
+    EvidenceKind, EvidenceSpan, FreshnessStatus, IndexGenerationId, RetrievalReason,
+    RetrievalScoreSet, SearchLaneStatus, SourceLocation, SourceSpan, StructureNodeId, TrustLabel,
 };
 
 pub(super) fn port_error(error: maestria_ports::PortError) -> RetrievalError {
@@ -62,7 +62,7 @@ impl CandidateRetriever for CurrentVersionFilter {
         } else {
             batch
                 .candidates
-                .retain(|candidate| self.active_versions.contains(&candidate.artifact_version));
+                .retain(|candidate| self.active_versions.contains(&candidate.artifact_version()));
             if batch.candidates.is_empty() && matches!(batch.status, SearchLaneStatus::Succeeded) {
                 batch.status = SearchLaneStatus::Empty;
             }
@@ -99,7 +99,7 @@ pub(super) fn candidate_from_records(
         })?,
         None => ArtifactVersionId::new(artifact_id.value()),
     };
-    Ok(EvidenceCandidate {
+    Ok(EvidenceCandidate::new(EvidenceCandidateDto {
         evidence_id: evidence.id,
         artifact_version,
         source_span,
@@ -109,7 +109,7 @@ pub(super) fn candidate_from_records(
         duplicate_cluster: None,
         reasons,
         coverage_keys: Vec::new(),
-    })
+    })?)
 }
 
 fn evidence_location(

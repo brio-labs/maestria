@@ -1434,3 +1434,180 @@ dev_alias = { package = "unknown-package", version = "1" }
 
 if __name__ == "__main__":
     unittest.main()
+
+    def test_bypassable_validation_reports_serde_try_from_with_public_fields(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.configure_root(root)
+            source = root / "crates" / "kernel" / "maestria-domain" / "src" / "coverage.rs"
+            source.parent.mkdir(parents=True, exist_ok=True)
+            source.write_text(
+                "use serde::{Deserialize, Serialize};\n"
+                "#[derive(Debug, Clone, Serialize, Deserialize)]\n"
+                '#[serde(try_from = "CoverageDto")]\n'
+                "pub struct Coverage {\n"
+                "    pub percent_covered: u8,\n"
+                "    pub gaps: Vec<String>,\n"
+                "}\n"
+                "#[derive(Deserialize)]\n"
+                "struct CoverageDto {\n"
+                "    percent_covered: u8,\n"
+                "    gaps: Vec<String>,\n"
+                "}\n"
+                "impl TryFrom<CoverageDto> for Coverage {\n"
+                "    type Error = String;\n"
+                "    fn try_from(dto: CoverageDto) -> Result<Self, Self::Error> {\n"
+                "        if dto.percent_covered > 100 { return Err(\"out of range\".into()); }\n"
+                "        Ok(Self { percent_covered: dto.percent_covered, gaps: dto.gaps })\n"
+                "    }\n"
+                "}\n"
+            )
+            violations = PHILOSOPHY_CHECK.scan_bypassable_validation()
+            self.assertTrue(
+                any("struct `Coverage` exposes public fields" in item for item in violations),
+                violations,
+            )
+
+    def test_bypassable_validation_accepts_private_field_validated_struct(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.configure_root(root)
+            source = root / "crates" / "kernel" / "maestria-domain" / "src" / "coverage.rs"
+            source.parent.mkdir(parents=True, exist_ok=True)
+            source.write_text(
+                "use serde::{Deserialize, Serialize};\n"
+                "#[derive(Debug, Clone, Serialize, Deserialize)]\n"
+                '#[serde(try_from = "CoverageDto")]\n'
+                "pub struct Coverage {\n"
+                "    percent_covered: u8,\n"
+                "}\n"
+                "#[derive(Deserialize)]\n"
+                "struct CoverageDto {\n"
+                "    percent_covered: u8,\n"
+                "}\n"
+                "impl TryFrom<CoverageDto> for Coverage {\n"
+                "    type Error = String;\n"
+                "    fn try_from(dto: CoverageDto) -> Result<Self, Self::Error> {\n"
+                "        if dto.percent_covered > 100 { return Err(\"out of range\".into()); }\n"
+                "        Ok(Self { percent_covered: dto.percent_covered })\n"
+                "    }\n"
+                "}\n"
+                "impl Coverage { pub fn percent_covered(&self) -> u8 { self.percent_covered } }\n"
+            )
+            violations = PHILOSOPHY_CHECK.scan_bypassable_validation()
+            self.assertFalse(
+                any("struct `Coverage`" in item for item in violations),
+                violations,
+            )
+
+    def test_string_typed_errors_reports_bare_string_error_type(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.configure_root(root)
+            source = root / "crates" / "kernel" / "maestria-domain" / "src" / "decode.rs"
+            source.parent.mkdir(parents=True, exist_ok=True)
+            source.write_text(
+                "impl TryFrom<Dto> for DomainValue {\n"
+                "    type Error = String;\n"
+                "    fn try_from(dto: Dto) -> Result<Self, Self::Error> { Ok(Self) }\n"
+                "}\n"
+            )
+            violations = PHILOSOPHY_CHECK.scan_string_typed_errors()
+            self.assertTrue(any("uses String as a conversion error" in item for item in violations))
+
+    def test_cancellation_docs_requires_public_async_docs(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.configure_root(root)
+            source = root / "crates" / "kernel" / "maestria-domain" / "src" / "lib.rs"
+            source.parent.mkdir(parents=True, exist_ok=True)
+            source.write_text(
+                "pub async fn run() {}\n"
+            )
+            violations = PHILOSOPHY_CHECK.scan_cancellation_docs()
+            self.assertTrue(any("`run` is a public async operation" in item for item in violations))
+
+    def test_cancellation_docs_accepts_documented_and_crate_private(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.configure_root(root)
+            source = root / "crates" / "kernel" / "maestria-domain" / "src" / "lib.rs"
+            source.parent.mkdir(parents=True, exist_ok=True)
+            source.write_text(
+                "/// # Cancellation\n"
+                "/// Dropping the future aborts the wait.\n"
+                "pub async fn run() {}\n"
+                "pub(crate) async fn internal() {}\n"
+            )
+            violations = PHILOSOPHY_CHECK.scan_cancellation_docs()
+            self.assertEqual(violations, [])
+
+    def test_cancellation_docs_accepts_prose_cancel_mention(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.configure_root(root)
+            source = root / "crates" / "kernel" / "maestria-domain" / "src" / "lib.rs"
+            source.parent.mkdir(parents=True, exist_ok=True)
+            source.write_text(
+                "/// Submit one command.\n"
+                "/// Dropping the future does not cancel the server-side command.\n"
+                "pub async fn submit() {}\n"
+            )
+            violations = PHILOSOPHY_CHECK.scan_cancellation_docs()
+            self.assertEqual(violations, [])
+
+    def test_generated_blobs_reports_production_marker_only(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.configure_root(root)
+            production = root / "crates" / "kernel" / "maestria-domain" / "src" / "gen.rs"
+            production.parent.mkdir(parents=True, exist_ok=True)
+            production.write_text("// DO NOT EDIT: generated by bindgen\npub fn f() {}\n")
+            test_file = root / "crates" / "kernel" / "maestria-domain" / "tests" / "gen_fixture.rs"
+            test_file.parent.mkdir(parents=True, exist_ok=True)
+            test_file.write_text("// @generated fixture data\n")
+            violations = PHILOSOPHY_CHECK.scan_generated_blobs()
+            self.assertTrue(any("gen.rs" in item for item in violations))
+            self.assertFalse(any("gen_fixture.rs" in item for item in violations))
+
+    def test_forbidden_methods_reports_catch_unwind(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.configure_root(root)
+            source = root / "crates" / "kernel" / "maestria-domain" / "src" / "lib.rs"
+            source.parent.mkdir(parents=True, exist_ok=True)
+            source.write_text("fn swallow() { std::panic::catch_unwind(|| {}); }\n")
+            violations = PHILOSOPHY_CHECK.scan_rust_forbidden_methods()
+            self.assertTrue(any("catch_unwind" in item for item in violations))
+
+    def test_kernel_tokens_reject_random_sampling(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.configure_root(root)
+            source = root / "crates" / "kernel" / "maestria-domain" / "src" / "lib.rs"
+            source.parent.mkdir(parents=True, exist_ok=True)
+            source.write_text("fn pick() { let _ = thread_rng(); }\n")
+            violations = PHILOSOPHY_CHECK.scan_kernel_sources()
+            self.assertTrue(any("thread_rng" in item for item in violations))
+
+    def test_dependency_closure_skips_without_cargo_metadata(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.configure_root(root)
+            violations = PHILOSOPHY_CHECK.scan_kernel_dependency_closure()
+            self.assertEqual(violations, [])
+
+    def test_strategy_field_is_stringly_state(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.configure_root(root)
+            source = root / "crates" / "kernel" / "maestria-domain" / "src" / "trace.rs"
+            source.parent.mkdir(parents=True, exist_ok=True)
+            source.write_text("pub struct Expansion { pub strategy: String }\n")
+            violations = PHILOSOPHY_CHECK.scan_type_invariant_modeling()
+            self.assertTrue(
+                any("state field `strategy`" in item for item in violations), violations
+            )
+
+if __name__ == "__main__":
+    unittest.main()

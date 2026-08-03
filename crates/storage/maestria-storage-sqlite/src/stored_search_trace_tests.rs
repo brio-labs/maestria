@@ -13,10 +13,11 @@ use maestria_domain::{
     RetrievalScoreScale, RetrievalScoreSet, SearchBudget, SearchBudgetLimits, SearchExecution,
     SearchExecutionBudget, SearchExecutionCompletion, SearchExecutionUsage, SearchIntent,
     SearchLaneStatus, SearchRewriteAccounting, SearchRewriteOrigin, SearchRewriteStage,
-    SearchStage, SearchStopReason, SearchTrace, SearchTraceCandidate, SearchTraceConstraintScore,
-    SearchTraceDiversity, SearchTraceDiversityCandidate, SearchTraceExpansion, SearchTraceFilter,
-    SearchTraceLane, SearchTraceLaneCandidate, SearchTraceRerank, SearchTraceRerankCandidate,
-    SearchTraceRewrite, SourceLocation, StopConditions, StructureNodeId, TrustLabel,
+    SearchStage, SearchStopReason, SearchTrace, SearchTraceCandidate, SearchTraceCandidateDto,
+    SearchTraceConstraintScore, SearchTraceDiversity, SearchTraceDiversityCandidate,
+    SearchTraceExpansion, SearchTraceFilter, SearchTraceLane, SearchTraceLaneCandidate,
+    SearchTraceLaneCandidateDto, SearchTraceRerank, SearchTraceRerankCandidate, SearchTraceRewrite,
+    SourceLocation, StopConditions, StructureNodeId, TrustLabel,
 };
 
 pub(crate) fn sample_fingerprint() -> Result<RetrievalModelFingerprint, Box<dyn std::error::Error>>
@@ -109,10 +110,10 @@ pub(crate) fn sample_trace() -> Result<SearchTrace, Box<dyn std::error::Error>> 
             SearchTraceFilter::Sensitivity,
             SearchTraceFilter::PromptInjection,
         ],
-        expansions: vec![SearchTraceExpansion {
-            strategy: "synonym".to_owned(),
-            added_candidates: Some(5),
-        }],
+        expansions: vec![SearchTraceExpansion::new(
+            maestria_domain::SearchExpansionStrategy::Synonym,
+            Some(5),
+        )],
         rewrites: vec![SearchTraceRewrite {
             query: "how does routing work".to_owned(),
             origin: SearchRewriteOrigin::Deterministic,
@@ -132,7 +133,7 @@ pub(crate) fn sample_trace() -> Result<SearchTrace, Box<dyn std::error::Error>> 
 }
 
 pub(crate) fn sample_trace_candidate() -> Result<SearchTraceCandidate, Box<dyn std::error::Error>> {
-    Ok(SearchTraceCandidate {
+    Ok(SearchTraceCandidate::new(SearchTraceCandidateDto {
         evidence_id: EvidenceId::new(1),
         artifact_version: ArtifactVersionId::new(11),
         source_span: sample_span()?,
@@ -143,7 +144,7 @@ pub(crate) fn sample_trace_candidate() -> Result<SearchTraceCandidate, Box<dyn s
         duplicate_cluster: Some(DuplicateClusterId::new(5)),
         reasons: vec![RetrievalReason::ExactMatch],
         coverage_keys: vec!["k-1".to_owned()],
-    })
+    })?)
 }
 
 pub(crate) fn sample_trace_lane() -> Result<SearchTraceLane, Box<dyn std::error::Error>> {
@@ -152,15 +153,17 @@ pub(crate) fn sample_trace_lane() -> Result<SearchTraceLane, Box<dyn std::error:
         query: "routing".to_owned(),
         generation: Some(IndexGenerationId::new(2)),
         status: SearchLaneStatus::Succeeded,
-        candidates: vec![SearchTraceLaneCandidate {
-            evidence_id: EvidenceId::new(1),
-            artifact_version: ArtifactVersionId::new(11),
-            source_span: sample_span()?,
-            lane_rank: 0,
-            duplicate_cluster: Some(DuplicateClusterId::new(5)),
-            scores: sample_score_set()?,
-            reasons: vec![RetrievalReason::LexicalMatch],
-        }],
+        candidates: vec![SearchTraceLaneCandidate::new(
+            SearchTraceLaneCandidateDto {
+                evidence_id: EvidenceId::new(1),
+                artifact_version: ArtifactVersionId::new(11),
+                source_span: sample_span()?,
+                lane_rank: 0,
+                duplicate_cluster: Some(DuplicateClusterId::new(5)),
+                scores: sample_score_set()?,
+                reasons: vec![RetrievalReason::LexicalMatch],
+            },
+        )?],
         execution: sample_execution()?,
     })
 }

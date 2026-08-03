@@ -2,7 +2,8 @@ use crate::test_helpers;
 use crate::tests::run_complete_task_test;
 use crate::{EffectExecutionContext, MaestriaRuntime};
 use maestria_domain::{
-    DomainEvent, DomainInput, KernelState, Task, TaskId, TaskStatus, ValidationReportId,
+    DomainEvent, DomainInput, EvidenceCoverageDto, KernelState, Task, TaskId, TaskStatus,
+    ValidationReportId,
 };
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -32,7 +33,7 @@ async fn search_validation_failure_records_a_failed_report()
         index_generation: maestria_domain::IndexGenerationId::new(1),
         status: maestria_domain::SearchStatus::Answerable,
         evidence: Vec::new(),
-        coverage: maestria_domain::EvidenceCoverage {
+        coverage: maestria_domain::EvidenceCoverage::new(EvidenceCoverageDto {
             percent_covered: 0,
             gaps_identified: vec!["required evidence".to_string()],
             required_claims: Vec::new(),
@@ -41,7 +42,7 @@ async fn search_validation_failure_records_a_failed_report()
             distinct_documents: 0,
             distinct_sections: 0,
             candidate_coverage_keys: Vec::new(),
-        },
+        })?,
         conflicts: Vec::new(),
     };
     state.event_log.push(maestria_domain::DomainEventEnvelope {
@@ -109,7 +110,7 @@ async fn completion_rejects_a_forged_passing_search_report()
         index_generation: maestria_domain::IndexGenerationId::new(1),
         status: maestria_domain::SearchStatus::Answerable,
         evidence: Vec::new(),
-        coverage: maestria_domain::EvidenceCoverage {
+        coverage: maestria_domain::EvidenceCoverage::new(EvidenceCoverageDto {
             percent_covered: 0,
             gaps_identified: vec!["required evidence".to_string()],
             required_claims: Vec::new(),
@@ -118,7 +119,7 @@ async fn completion_rejects_a_forged_passing_search_report()
             distinct_documents: 0,
             distinct_sections: 0,
             candidate_coverage_keys: Vec::new(),
-        },
+        })?,
         conflicts: Vec::new(),
     };
     let events = vec![
@@ -189,7 +190,7 @@ async fn associated_search_coverage_and_conflicts_block_verified_completion()
                 index_generation: maestria_domain::IndexGenerationId::new(1),
                 status: maestria_domain::SearchStatus::SourcesConflict,
                 evidence: Vec::new(),
-                coverage: maestria_domain::EvidenceCoverage {
+                coverage: maestria_domain::EvidenceCoverage::new(EvidenceCoverageDto {
                     percent_covered: 50,
                     gaps_identified: vec!["unresolved claim".to_string()],
                     required_claims: vec!["claim".to_string()],
@@ -198,7 +199,7 @@ async fn associated_search_coverage_and_conflicts_block_verified_completion()
                     distinct_documents: 0,
                     distinct_sections: 0,
                     candidate_coverage_keys: Vec::new(),
-                },
+                })?,
                 conflicts: vec![maestria_domain::ConflictSet {
                     id: maestria_domain::ConflictSetId::new(1),
                     candidates: Vec::new(),

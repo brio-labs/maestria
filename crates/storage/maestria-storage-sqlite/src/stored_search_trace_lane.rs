@@ -12,6 +12,7 @@ use maestria_domain::{
     ArtifactVersionId, DuplicateClusterId, EvidenceId, IndexGenerationId, SearchExecution,
     SearchExecutionBudget, SearchExecutionCompletion, SearchExecutionResource,
     SearchExecutionUsage, SearchLaneStatus, SearchTraceLane, SearchTraceLaneCandidate,
+    SearchTraceLaneCandidateDto,
 };
 use serde::{Deserialize, Serialize};
 
@@ -34,14 +35,14 @@ pub(crate) struct StoredSearchTraceLaneCandidate {
 impl StoredSearchTraceLaneCandidate {
     pub(crate) fn from_domain(value: &SearchTraceLaneCandidate) -> Self {
         Self {
-            evidence_id: value.evidence_id.value(),
-            artifact_version: value.artifact_version.value(),
-            source_span: StoredEvidenceSpan::from_domain(&value.source_span),
-            lane_rank: value.lane_rank,
-            duplicate_cluster: value.duplicate_cluster.map(|id| id.value()),
-            scores: StoredRetrievalScoreSet::from_domain(&value.scores),
+            evidence_id: value.evidence_id().value(),
+            artifact_version: value.artifact_version().value(),
+            source_span: StoredEvidenceSpan::from_domain(value.source_span()),
+            lane_rank: value.lane_rank(),
+            duplicate_cluster: value.duplicate_cluster().map(|id| id.value()),
+            scores: StoredRetrievalScoreSet::from_domain(value.scores()),
             reasons: value
-                .reasons
+                .reasons()
                 .iter()
                 .map(StoredRetrievalReason::from_domain)
                 .collect(),
@@ -51,7 +52,7 @@ impl StoredSearchTraceLaneCandidate {
     pub(crate) fn try_into_domain(
         self,
     ) -> Result<SearchTraceLaneCandidate, maestria_ports::PortError> {
-        Ok(SearchTraceLaneCandidate {
+        SearchTraceLaneCandidate::new(SearchTraceLaneCandidateDto {
             evidence_id: EvidenceId::new(self.evidence_id),
             artifact_version: ArtifactVersionId::new(self.artifact_version),
             source_span: self.source_span.try_into_domain()?,
@@ -63,6 +64,10 @@ impl StoredSearchTraceLaneCandidate {
                 .into_iter()
                 .map(StoredRetrievalReason::try_into_domain)
                 .collect::<Result<_, _>>()?,
+        })
+        .map_err(|error| maestria_ports::PortError::InvalidInputContext {
+            context: "decode stored search trace lane candidate",
+            source: error.to_string(),
         })
     }
 }

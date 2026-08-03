@@ -9,6 +9,13 @@ use std::time::Duration;
 
 use crate::helpers;
 
+/// Request a validation report for a task under the instance mutation session.
+///
+/// # Cancellation
+/// Dropping this future tears down the CLI-side session (instance lock
+/// released, runtime shutdown requested). A validation request already
+/// accepted by the runtime may still reach durable state; inspect durable
+/// state before retrying an interrupted command.
 pub async fn run_request_validation(instance_dir: PathBuf, task_id: u64) -> Result<()> {
     let layout = helpers::ensure_instance(instance_dir)?;
     let session =
@@ -67,6 +74,13 @@ pub async fn run_request_validation(instance_dir: PathBuf, task_id: u64) -> Resu
     Ok(())
 }
 
+/// Complete a task with a recorded validation report under the mutation session.
+///
+/// # Cancellation
+/// Dropping this future tears down the CLI-side session (instance lock
+/// released, runtime shutdown requested). A completion command already
+/// accepted by the runtime may still reach durable state; inspect durable
+/// state before retrying an interrupted command.
 pub async fn run_complete(
     instance_dir: PathBuf,
     task_id: u64,

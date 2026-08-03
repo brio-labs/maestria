@@ -51,16 +51,16 @@ impl SearchTrace {
                 .enumerate()
                 .all(|(rank, traced)| {
                     evidence.get(rank).is_some_and(|candidate| {
-                        traced.evidence_id == candidate.evidence_id
-                            && traced.artifact_version == candidate.artifact_version
-                            && traced.source_span == candidate.source_span
-                            && traced.rank == rank as u32
-                            && traced.scores == candidate.scores
-                            && traced.trust == candidate.trust
-                            && traced.freshness == candidate.freshness
-                            && traced.duplicate_cluster == candidate.duplicate_cluster
-                            && traced.reasons == candidate.reasons
-                            && traced.coverage_keys == candidate.coverage_keys
+                        traced.evidence_id() == candidate.evidence_id()
+                            && traced.artifact_version() == candidate.artifact_version()
+                            && traced.source_span() == candidate.source_span()
+                            && traced.rank() == rank as u32
+                            && traced.scores() == candidate.scores()
+                            && traced.trust() == candidate.trust()
+                            && traced.freshness() == candidate.freshness()
+                            && traced.duplicate_cluster() == candidate.duplicate_cluster()
+                            && traced.reasons() == candidate.reasons()
+                            && traced.coverage_keys() == candidate.coverage_keys()
                     })
                 })
     }
@@ -129,31 +129,31 @@ impl SearchTrace {
         evidence_len: usize,
     ) -> bool {
         let percent_consistent = match (evidence_len, self.missing_evidence.is_empty()) {
-            (0, _) => coverage.percent_covered == 0,
-            (_, true) => coverage.percent_covered == 100,
-            (_, false) => coverage.percent_covered < 100,
+            (0, _) => coverage.percent_covered() == 0,
+            (_, true) => coverage.percent_covered() == 100,
+            (_, false) => coverage.percent_covered() < 100,
         };
         let diversity_consistent = match &self.diversity {
             Some(trace) => {
-                trace.distinct_sources == coverage.distinct_sources
-                    && trace.distinct_documents == coverage.distinct_documents
-                    && trace.distinct_sections == coverage.distinct_sections
-                    && trace.required_claims == coverage.required_claims
-                    && trace.required_subquestions == coverage.required_subquestions
-                    && trace.covered_keys == coverage.candidate_coverage_keys
+                trace.distinct_sources == coverage.distinct_sources()
+                    && trace.distinct_documents == coverage.distinct_documents()
+                    && trace.distinct_sections == coverage.distinct_sections()
+                    && trace.required_claims == coverage.required_claims()
+                    && trace.required_subquestions == coverage.required_subquestions()
+                    && trace.covered_keys == coverage.candidate_coverage_keys()
             }
             None => {
-                coverage.distinct_sources == 0
-                    && coverage.distinct_documents == 0
-                    && coverage.distinct_sections == 0
-                    && coverage.required_claims.is_empty()
-                    && coverage.required_subquestions.is_empty()
-                    && coverage.candidate_coverage_keys.is_empty()
+                coverage.distinct_sources() == 0
+                    && coverage.distinct_documents() == 0
+                    && coverage.distinct_sections() == 0
+                    && coverage.required_claims().is_empty()
+                    && coverage.required_subquestions().is_empty()
+                    && coverage.candidate_coverage_keys().is_empty()
             }
         };
         percent_consistent
             && diversity_consistent
-            && self.missing_evidence == coverage.gaps_identified
+            && self.missing_evidence == coverage.gaps_identified()
             && self.conflicts
                 == conflicts
                     .iter()

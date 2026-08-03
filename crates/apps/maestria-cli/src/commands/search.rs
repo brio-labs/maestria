@@ -7,6 +7,13 @@ use std::path::PathBuf;
 
 use crate::helpers;
 
+/// Run an interactive search against the instance.
+///
+/// # Cancellation
+/// Dropping this future tears down the CLI-side session (instance lock
+/// released, runtime shutdown requested). A search already accepted by the
+/// runtime may still reach durable state; inspect durable state before
+/// retrying an interrupted command.
 pub async fn run(
     instance_dir: PathBuf,
     task_id: Option<u64>,
@@ -169,7 +176,7 @@ pub(super) fn print_search_outcome(state: &maestria_domain::KernelState, outcome
             "rank={} artifact={} evidence={} {} snippet={}",
             rank + 1,
             artifact_id,
-            evidence_candidate.evidence_id,
+            evidence_candidate.evidence_id(),
             source,
             snippet,
         );
@@ -180,9 +187,9 @@ fn describe_evidence(
     state: &maestria_domain::KernelState,
     candidate: &EvidenceCandidate,
 ) -> (String, String, String) {
-    let Some(evidence) = state.evidences.get(&candidate.evidence_id) else {
+    let Some(evidence) = state.evidences.get(&candidate.evidence_id()) else {
         return (
-            format!("artver:{}", candidate.artifact_version.value()),
+            format!("artver:{}", candidate.artifact_version().value()),
             "source=missing".to_string(),
             "(missing evidence)".to_string(),
         );

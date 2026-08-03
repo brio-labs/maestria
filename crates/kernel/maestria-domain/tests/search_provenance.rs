@@ -1,11 +1,12 @@
 use maestria_domain::{
     ArtifactId, ArtifactVersion, ArtifactVersionId, ConflictSet, ConflictSetId, ContentHash,
     ContentRange, CorpusScope, CorpusSnapshotId, DuplicateClusterId, EvidenceCandidate,
-    EvidenceCoverage, EvidenceId, EvidenceRequirements, EvidenceSpan, FreshnessRequirement,
-    FreshnessStatus, IndexGenerationId, Modality, ModalitySet, QueryId, RetrievalModelFingerprint,
-    RetrievalReason, RetrievalScoreSet, SearchBudget, SearchCompatibilityError, SearchIntent,
-    SearchOutcome, SearchPlan, SearchStage, SearchStatus, SearchStopReason, SearchTrace,
-    SearchTraceFilter, SourceLocation, StopConditions, StructureNodeId, TrustLabel,
+    EvidenceCandidateDto, EvidenceCoverage, EvidenceCoverageDto, EvidenceId, EvidenceRequirements,
+    EvidenceSpan, FreshnessRequirement, FreshnessStatus, IndexGenerationId, Modality, ModalitySet,
+    QueryId, RetrievalModelFingerprint, RetrievalReason, RetrievalScoreSet, SearchBudget,
+    SearchCompatibilityError, SearchIntent, SearchOutcome, SearchPlan, SearchStage, SearchStatus,
+    SearchStopReason, SearchTrace, SearchTraceFilter, SourceLocation, StopConditions,
+    StructureNodeId, TrustLabel,
 };
 
 fn fixture_scores(
@@ -109,7 +110,7 @@ fn artifact_version() -> Result<ArtifactVersion, Box<dyn std::error::Error>> {
 }
 
 fn candidate() -> Result<EvidenceCandidate, Box<dyn std::error::Error>> {
-    Ok(EvidenceCandidate {
+    Ok(EvidenceCandidate::new(EvidenceCandidateDto {
         evidence_id: EvidenceId::new(23),
         artifact_version: ArtifactVersionId::new(19),
         source_span: EvidenceSpan::new(
@@ -123,7 +124,7 @@ fn candidate() -> Result<EvidenceCandidate, Box<dyn std::error::Error>> {
         duplicate_cluster: Some(DuplicateClusterId::new(31)),
         reasons: vec![RetrievalReason::ExactMatch, RetrievalReason::CitationLink],
         coverage_keys: vec![],
-    })
+    })?)
 }
 
 fn outcome() -> Result<SearchOutcome, Box<dyn std::error::Error>> {
@@ -138,7 +139,7 @@ fn outcome() -> Result<SearchOutcome, Box<dyn std::error::Error>> {
         None,
         vec![],
         SearchStopReason::EvidenceComplete,
-    )
+    )?
     .with_policy_fingerprint(policy_fingerprint)
     .with_gaps_and_conflicts(
         vec!["missing section".to_owned()],
@@ -152,7 +153,7 @@ fn outcome() -> Result<SearchOutcome, Box<dyn std::error::Error>> {
         index_generation: IndexGenerationId::new(13),
         status: SearchStatus::Answerable,
         evidence,
-        coverage: EvidenceCoverage {
+        coverage: EvidenceCoverage::new(EvidenceCoverageDto {
             percent_covered: 50,
             gaps_identified: vec!["missing section".to_owned()],
             required_claims: vec![],
@@ -161,7 +162,7 @@ fn outcome() -> Result<SearchOutcome, Box<dyn std::error::Error>> {
             distinct_documents: 0,
             distinct_sections: 0,
             candidate_coverage_keys: vec![],
-        },
+        })?,
         conflicts: vec![ConflictSet {
             id: ConflictSetId::new(41),
             candidates: vec![candidate()?],
@@ -222,7 +223,7 @@ fn trace_captures_plan_and_rejects_incompatible_replay() -> Result<(), Box<dyn s
         Some("rrf-fixed-k60".to_owned()),
         vec![],
         SearchStopReason::EvidenceComplete,
-    )
+    )?
     .with_policy_fingerprint(policy_fingerprint(&plan)?)
     .with_gaps_and_conflicts(
         vec!["missing section".to_owned()],
@@ -252,6 +253,7 @@ fn trace_captures_plan_and_rejects_incompatible_replay() -> Result<(), Box<dyn s
 fn trace_lane_changes_alter_deterministic_identity() -> Result<(), Box<dyn std::error::Error>> {
     use maestria_domain::{
         SearchExecution, SearchLaneStatus, SearchTraceLane, SearchTraceLaneCandidate,
+        SearchTraceLaneCandidateDto,
     };
     let plan = plan()?;
     let mut trace = SearchTrace::from_plan(
@@ -262,7 +264,7 @@ fn trace_lane_changes_alter_deterministic_identity() -> Result<(), Box<dyn std::
         None,
         vec![],
         SearchStopReason::EvidenceComplete,
-    );
+    )?;
     let id_without_lanes = trace.deterministic_id();
 
     trace = trace.with_lanes(vec![SearchTraceLane {
@@ -271,19 +273,21 @@ fn trace_lane_changes_alter_deterministic_identity() -> Result<(), Box<dyn std::
         generation: None,
         status: SearchLaneStatus::Succeeded,
         execution: SearchExecution::default(),
-        candidates: vec![SearchTraceLaneCandidate {
-            evidence_id: EvidenceId::new(42),
-            artifact_version: ArtifactVersionId::new(10),
-            source_span: EvidenceSpan::new(
-                None,
-                SourceLocation::file("test".to_owned(), 1, 2)?,
-                maestria_domain::ContentRange::new(0, 10)?,
-            )?,
-            lane_rank: 1,
-            duplicate_cluster: None,
-            scores: fixture_scores(1, 0)?,
-            reasons: vec![],
-        }],
+        candidates: vec![SearchTraceLaneCandidate::new(
+            SearchTraceLaneCandidateDto {
+                evidence_id: EvidenceId::new(42),
+                artifact_version: ArtifactVersionId::new(10),
+                source_span: EvidenceSpan::new(
+                    None,
+                    SourceLocation::file("test".to_owned(), 1, 2)?,
+                    maestria_domain::ContentRange::new(0, 10)?,
+                )?,
+                lane_rank: 1,
+                duplicate_cluster: None,
+                scores: fixture_scores(1, 0)?,
+                reasons: vec![],
+            },
+        )?],
     }]);
     let id_with_succeeded_lane = trace.deterministic_id();
     assert_ne!(id_without_lanes, id_with_succeeded_lane);
@@ -313,7 +317,7 @@ fn trace_identity_versions_do_not_alias() -> Result<(), Box<dyn std::error::Erro
         None,
         Vec::new(),
         SearchStopReason::EvidenceComplete,
-    );
+    )?;
     let current_id = trace.deterministic_id();
     let mut previous = trace.clone();
     previous.identity_version = 2;
@@ -339,7 +343,7 @@ fn trace_lanes_serialize_and_deserialize_without_fallback() -> Result<(), Box<dy
         None,
         vec![],
         SearchStopReason::EvidenceComplete,
-    )
+    )?
     .with_lanes(vec![SearchTraceLane {
         retriever_id: "dense".to_owned(),
         query: "test query".to_owned(),
@@ -444,9 +448,19 @@ fn results_limit_accepts_exact_boundary_but_rejects_over_limit_outcome()
     })?;
 
     let first = candidate()?;
-    let mut second = candidate()?;
-    second.evidence_id = EvidenceId::new(24);
-    let coverage = EvidenceCoverage {
+    let second = candidate()?;
+    let second = EvidenceCandidate::new(EvidenceCandidateDto {
+        evidence_id: EvidenceId::new(24),
+        artifact_version: second.artifact_version(),
+        source_span: second.source_span().clone(),
+        scores: second.scores().clone(),
+        trust: second.trust(),
+        freshness: second.freshness(),
+        duplicate_cluster: second.duplicate_cluster(),
+        reasons: second.reasons().to_vec(),
+        coverage_keys: second.coverage_keys().to_vec(),
+    })?;
+    let coverage = EvidenceCoverage::new(EvidenceCoverageDto {
         percent_covered: 100,
         gaps_identified: vec![],
         required_claims: vec![],
@@ -455,7 +469,7 @@ fn results_limit_accepts_exact_boundary_but_rejects_over_limit_outcome()
         distinct_documents: 0,
         distinct_sections: 0,
         candidate_coverage_keys: vec![],
-    };
+    })?;
 
     let boundary_evidence = vec![first.clone()];
     let boundary_trace = SearchTrace::from_plan(
@@ -466,7 +480,7 @@ fn results_limit_accepts_exact_boundary_but_rejects_over_limit_outcome()
         None,
         vec![],
         SearchStopReason::ResultsLimit,
-    )
+    )?
     .with_policy_fingerprint(policy_fingerprint(&plan)?);
     let boundary_trace_id = boundary_trace.deterministic_id();
     assert!(boundary_trace.matches_outcome(&SearchStatus::Answerable, 1));
@@ -492,7 +506,7 @@ fn results_limit_accepts_exact_boundary_but_rejects_over_limit_outcome()
         None,
         vec![],
         SearchStopReason::ResultsLimit,
-    )
+    )?
     .with_policy_fingerprint(policy_fingerprint(&plan)?);
     let over_limit = SearchOutcome {
         trace: over_limit_trace.deterministic_id(),

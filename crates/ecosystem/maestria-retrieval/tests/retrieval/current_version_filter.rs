@@ -90,7 +90,7 @@ async fn active_versions_retain_matching_candidates() -> RetrievalResult<()> {
     let batch = filtered.retrieve(request()?).await?;
     assert_eq!(batch.candidates.len(), 1);
     assert_eq!(
-        batch.candidates[0].artifact_version,
+        batch.candidates[0].artifact_version(),
         ArtifactVersionId::new(19)
     );
     assert_eq!(batch.status, SearchLaneStatus::Succeeded);

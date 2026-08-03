@@ -19,14 +19,14 @@ impl<'a> SearchValidationContext<'a> {
         self.outcome
             .evidence
             .iter()
-            .find(|candidate| candidate.evidence_id == evidence_id)
+            .find(|candidate| candidate.evidence_id() == evidence_id)
     }
 
     pub fn candidate_ids(&self) -> impl Iterator<Item = EvidenceId> + '_ {
         self.outcome
             .evidence
             .iter()
-            .map(|candidate| candidate.evidence_id)
+            .map(|candidate| candidate.evidence_id())
     }
 
     pub fn has_duplicate_candidates(&self) -> bool {
@@ -34,7 +34,7 @@ impl<'a> SearchValidationContext<'a> {
         self.outcome
             .evidence
             .iter()
-            .any(|candidate| !seen.insert(candidate.evidence_id))
+            .any(|candidate| !seen.insert(candidate.evidence_id()))
     }
 
     pub fn duplicate_clusters(&self) -> usize {
@@ -42,7 +42,7 @@ impl<'a> SearchValidationContext<'a> {
         self.outcome
             .evidence
             .iter()
-            .filter_map(|candidate| candidate.duplicate_cluster)
+            .filter_map(|candidate| candidate.duplicate_cluster())
             .filter(|cluster_id| !seen.insert(*cluster_id))
             .count()
     }
@@ -61,7 +61,7 @@ impl<'a> SearchValidationContext<'a> {
             .evidence
             .iter()
             .take(count)
-            .map(|candidate| candidate.evidence_id)
+            .map(|candidate| candidate.evidence_id())
             .collect()
     }
 

@@ -34,6 +34,13 @@ pub fn run_list(instance_dir: PathBuf) -> Result<()> {
     Ok(())
 }
 
+/// Resolve a pending approval under the instance mutation session.
+///
+/// # Cancellation
+/// Dropping this future tears down the CLI-side session (instance lock
+/// released, runtime shutdown requested). A resolution command already
+/// accepted by the runtime may still reach durable state; inspect durable
+/// state before retrying an interrupted command.
 pub async fn run_resolve(instance_dir: PathBuf, id: u64, approved: bool) -> Result<()> {
     let layout = helpers::validated_instance(instance_dir)?;
     let session = maestria_daemon::MutationSession::start(

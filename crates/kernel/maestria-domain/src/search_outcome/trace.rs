@@ -4,6 +4,12 @@ use crate::ids::{
     ArtifactVersionId, ConflictSetId, DuplicateClusterId, EvidenceId, IndexGenerationId,
 };
 use crate::search::search_outcome::candidate::canonicalize_candidate_scores;
+use crate::search::search_outcome::expansion::SearchTraceExpansion;
+use crate::search::search_outcome::rerank::SearchTraceRerank;
+use crate::search::search_outcome::rewrite::{
+    SearchRewriteAccounting, SearchRewriteOrigin, SearchRewriteStage, SearchStopReason,
+    SearchTraceFilter, SearchTraceRewrite,
+};
 use crate::search::{
     CorpusScope, EvidenceRequirements, EvidenceSpan, FreshnessRequirement, ModalitySet,
     RetrievalModelFingerprint, RetrievalScoreSet, SearchBudget, SearchCompatibilityError,
@@ -11,33 +17,8 @@ use crate::search::{
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum SearchTraceFilter {
-    Scope,
-    Acl,
-    Trust,
-    Sensitivity,
-    Quarantine,
-    PromptInjection,
-    Freshness,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(try_from = "SearchTraceCandidateDto")]
 pub struct SearchTraceCandidate {
-    pub evidence_id: EvidenceId,
-    pub artifact_version: ArtifactVersionId,
-    pub source_span: EvidenceSpan,
-    pub rank: u32,
-    pub scores: RetrievalScoreSet,
-    pub trust: super::TrustLabel,
-    pub freshness: super::FreshnessStatus,
-    pub duplicate_cluster: Option<DuplicateClusterId>,
-    pub reasons: Vec<super::RetrievalReason>,
-    pub coverage_keys: Vec<String>,
-}
-
-#[derive(Deserialize)]
-struct SearchTraceCandidateDto {
     evidence_id: EvidenceId,
     artifact_version: ArtifactVersionId,
     source_span: EvidenceSpan,
@@ -50,10 +31,11 @@ struct SearchTraceCandidateDto {
     coverage_keys: Vec<String>,
 }
 
-impl TryFrom<SearchTraceCandidateDto> for SearchTraceCandidate {
-    type Error = SearchCompatibilityError;
-
-    fn try_from(dto: SearchTraceCandidateDto) -> Result<Self, Self::Error> {
+impl SearchTraceCandidate {
+    /// Validate and construct a trace candidate from its boundary input;
+    /// score provenance is canonicalized before the value exists (R56:
+    /// fields are private).
+    pub fn new(dto: SearchTraceCandidateDto) -> Result<Self, SearchCompatibilityError> {
         let mut candidate = Self {
             evidence_id: dto.evidence_id,
             artifact_version: dto.artifact_version,
@@ -69,81 +51,79 @@ impl TryFrom<SearchTraceCandidateDto> for SearchTraceCandidate {
         candidate.canonicalize_score_provenance()?;
         Ok(candidate)
     }
-}
 
-impl SearchTraceCandidate {
+    pub fn evidence_id(&self) -> EvidenceId {
+        self.evidence_id
+    }
+
+    pub fn artifact_version(&self) -> ArtifactVersionId {
+        self.artifact_version
+    }
+
+    pub fn source_span(&self) -> &EvidenceSpan {
+        &self.source_span
+    }
+
+    pub fn rank(&self) -> u32 {
+        self.rank
+    }
+
+    pub fn scores(&self) -> &RetrievalScoreSet {
+        &self.scores
+    }
+
+    pub fn trust(&self) -> super::TrustLabel {
+        self.trust.clone()
+    }
+
+    pub fn freshness(&self) -> super::FreshnessStatus {
+        self.freshness.clone()
+    }
+
+    pub fn duplicate_cluster(&self) -> Option<DuplicateClusterId> {
+        self.duplicate_cluster
+    }
+
+    pub fn reasons(&self) -> &[super::RetrievalReason] {
+        &self.reasons
+    }
+
+    pub fn coverage_keys(&self) -> &[String] {
+        &self.coverage_keys
+    }
+
     fn canonicalize_score_provenance(&mut self) -> Result<(), SearchCompatibilityError> {
         canonicalize_candidate_scores(&mut self.scores)
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct SearchTraceExpansion {
-    pub strategy: String,
-    pub added_candidates: Option<u32>,
+/// Boundary input for [`SearchTraceCandidate`] (R37).
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SearchTraceCandidateDto {
+    pub evidence_id: EvidenceId,
+    pub artifact_version: ArtifactVersionId,
+    pub source_span: EvidenceSpan,
+    pub rank: u32,
+    pub scores: RetrievalScoreSet,
+    pub trust: super::TrustLabel,
+    pub freshness: super::FreshnessStatus,
+    pub duplicate_cluster: Option<DuplicateClusterId>,
+    pub reasons: Vec<super::RetrievalReason>,
+    pub coverage_keys: Vec<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum SearchRewriteOrigin {
-    Original,
-    Deterministic,
-    ModelProposal,
-    Feedback,
-    /// A rewrite that fills a declared missing-evidence slot; the slot
-    /// identity lives on the variant so a missing-slot rewrite without a
-    /// named slot is unrepresentable (R56).
-    MissingSlot {
-        slot: String,
-    },
-}
+impl TryFrom<SearchTraceCandidateDto> for SearchTraceCandidate {
+    type Error = SearchCompatibilityError;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum SearchRewriteStage {
-    InitialRetrieval,
-    Reranking,
-    IterativeRetrieval,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct SearchRewriteAccounting {
-    pub token_estimate: u32,
-    pub latency_budget_units: u32,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct SearchTraceRewrite {
-    pub query: String,
-    pub origin: SearchRewriteOrigin,
-    pub stage: SearchRewriteStage,
-    pub accounting: SearchRewriteAccounting,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum SearchStopReason {
-    ResultsLimit,
-    EvidenceComplete,
-    RequirementsUnmet,
-    NoEvidence,
-    LowMarginalGain,
-    BudgetExhausted,
-    PolicyDenied,
-    Abstained,
+    fn try_from(dto: SearchTraceCandidateDto) -> Result<Self, Self::Error> {
+        Self::new(dto)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(try_from = "SearchTraceLaneCandidateDto")]
 pub struct SearchTraceLaneCandidate {
-    pub evidence_id: EvidenceId,
-    pub artifact_version: ArtifactVersionId,
-    pub source_span: EvidenceSpan,
-    pub lane_rank: u32,
-    pub duplicate_cluster: Option<DuplicateClusterId>,
-    pub scores: RetrievalScoreSet,
-    pub reasons: Vec<super::RetrievalReason>,
-}
-
-#[derive(Deserialize)]
-struct SearchTraceLaneCandidateDto {
     evidence_id: EvidenceId,
     artifact_version: ArtifactVersionId,
     source_span: EvidenceSpan,
@@ -153,10 +133,11 @@ struct SearchTraceLaneCandidateDto {
     reasons: Vec<super::RetrievalReason>,
 }
 
-impl TryFrom<SearchTraceLaneCandidateDto> for SearchTraceLaneCandidate {
-    type Error = SearchCompatibilityError;
-
-    fn try_from(dto: SearchTraceLaneCandidateDto) -> Result<Self, Self::Error> {
+impl SearchTraceLaneCandidate {
+    /// Validate and construct a lane candidate from its boundary input;
+    /// score provenance is canonicalized before the value exists (R56:
+    /// fields are private).
+    pub fn new(dto: SearchTraceLaneCandidateDto) -> Result<Self, SearchCompatibilityError> {
         let mut candidate = Self {
             evidence_id: dto.evidence_id,
             artifact_version: dto.artifact_version,
@@ -169,11 +150,58 @@ impl TryFrom<SearchTraceLaneCandidateDto> for SearchTraceLaneCandidate {
         candidate.canonicalize_score_provenance()?;
         Ok(candidate)
     }
-}
 
-impl SearchTraceLaneCandidate {
+    pub fn evidence_id(&self) -> EvidenceId {
+        self.evidence_id
+    }
+
+    pub fn artifact_version(&self) -> ArtifactVersionId {
+        self.artifact_version
+    }
+
+    pub fn source_span(&self) -> &EvidenceSpan {
+        &self.source_span
+    }
+
+    pub fn lane_rank(&self) -> u32 {
+        self.lane_rank
+    }
+
+    pub fn duplicate_cluster(&self) -> Option<DuplicateClusterId> {
+        self.duplicate_cluster
+    }
+
+    pub fn scores(&self) -> &RetrievalScoreSet {
+        &self.scores
+    }
+
+    pub fn reasons(&self) -> &[super::RetrievalReason] {
+        &self.reasons
+    }
+
     fn canonicalize_score_provenance(&mut self) -> Result<(), SearchCompatibilityError> {
         canonicalize_candidate_scores(&mut self.scores)
+    }
+}
+
+/// Boundary input for [`SearchTraceLaneCandidate`] (R37).
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SearchTraceLaneCandidateDto {
+    pub evidence_id: EvidenceId,
+    pub artifact_version: ArtifactVersionId,
+    pub source_span: EvidenceSpan,
+    pub lane_rank: u32,
+    pub duplicate_cluster: Option<DuplicateClusterId>,
+    pub scores: RetrievalScoreSet,
+    pub reasons: Vec<super::RetrievalReason>,
+}
+
+impl TryFrom<SearchTraceLaneCandidateDto> for SearchTraceLaneCandidate {
+    type Error = SearchCompatibilityError;
+
+    fn try_from(dto: SearchTraceLaneCandidateDto) -> Result<Self, Self::Error> {
+        Self::new(dto)
     }
 }
 
@@ -192,47 +220,6 @@ pub struct SearchTraceLane {
     pub status: SearchLaneStatus,
     pub candidates: Vec<SearchTraceLaneCandidate>,
     pub execution: crate::SearchExecution,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-/// Final placement of one candidate after a rerank stage.
-///
-/// The new rank exists only on [`RerankPosition::Reranked`]; skipped and
-/// failed candidates carry no rank, so "promoted" and "retained with a new
-/// rank" can never disagree.
-pub enum RerankPosition {
-    /// Candidate promoted by the reranker; carries its new rank.
-    Reranked(usize),
-    /// Candidate skipped because a cap was reached.
-    SkippedCap,
-    /// Rerank stage does not apply to this candidate.
-    SkippedNotApplicable,
-    /// Scorer failed; the candidate is retained through the fallback path.
-    ErrorFallback(String),
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct SearchTraceConstraintScore {
-    pub name: String,
-    pub score: u32,
-}
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct SearchTraceRerankCandidate {
-    pub candidate_id: crate::ids::EvidenceId,
-    pub original_rank: usize,
-    pub position: RerankPosition,
-    pub relevance_score: Option<u32>,
-    pub constraint_scores: Vec<SearchTraceConstraintScore>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct SearchTraceRerank {
-    pub model: String,
-    pub fingerprint: RetrievalModelFingerprint,
-    pub input_cap: usize,
-    pub score_cap: usize,
-    pub output_cap: usize,
-    pub candidates: Vec<SearchTraceRerankCandidate>,
 }
 
 /// Why a diversity candidate was not selected.
@@ -315,6 +302,10 @@ pub struct SearchTrace {
 }
 
 impl SearchTrace {
+    /// Build a trace from a validated plan and its evidence candidates.
+    ///
+    /// Candidate score provenance is canonicalized during construction and
+    /// a typed error surfaces when the evidence set cannot be traced.
     pub fn from_plan(
         plan: &SearchPlan,
         retrievers: Vec<String>,
@@ -323,8 +314,8 @@ impl SearchTrace {
         fusion: Option<String>,
         expansions: Vec<SearchTraceExpansion>,
         stop_reason: SearchStopReason,
-    ) -> Self {
-        Self {
+    ) -> Result<Self, SearchCompatibilityError> {
+        let mut trace = Self {
             query_id: plan.query_id(),
             original_query: plan.original_query().to_string(),
             intent: plan.intent(),
@@ -348,19 +339,21 @@ impl SearchTrace {
             raw_candidates: evidence
                 .iter()
                 .enumerate()
-                .map(|(rank, candidate)| SearchTraceCandidate {
-                    evidence_id: candidate.evidence_id,
-                    artifact_version: candidate.artifact_version,
-                    source_span: candidate.source_span.clone(),
-                    rank: rank as u32,
-                    scores: candidate.scores.clone(),
-                    trust: candidate.trust.clone(),
-                    freshness: candidate.freshness.clone(),
-                    duplicate_cluster: candidate.duplicate_cluster,
-                    reasons: candidate.reasons.clone(),
-                    coverage_keys: candidate.coverage_keys.clone(),
+                .map(|(rank, candidate)| {
+                    SearchTraceCandidate::new(SearchTraceCandidateDto {
+                        evidence_id: candidate.evidence_id(),
+                        artifact_version: candidate.artifact_version(),
+                        source_span: candidate.source_span().clone(),
+                        rank: rank as u32,
+                        scores: candidate.scores().clone(),
+                        trust: candidate.trust(),
+                        freshness: candidate.freshness(),
+                        duplicate_cluster: candidate.duplicate_cluster(),
+                        reasons: candidate.reasons().to_vec(),
+                        coverage_keys: candidate.coverage_keys().to_vec(),
+                    })
                 })
-                .collect(),
+                .collect::<Result<Vec<_>, _>>()?,
             fusion,
             rewrites: vec![SearchTraceRewrite {
                 query: plan.original_query().to_string(),
@@ -384,7 +377,9 @@ impl SearchTrace {
             lanes: Vec::new(),
             rerank: None,
             diversity: None,
-        }
+        };
+        trace.canonicalize_score_provenance()?;
+        Ok(trace)
     }
     pub fn with_degradation(mut self, degradation: impl Into<String>) -> Self {
         self.identity_version = self.identity_version.max(7);

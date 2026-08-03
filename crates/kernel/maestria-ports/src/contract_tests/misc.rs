@@ -62,6 +62,12 @@ pub fn assert_parser_round_trip(
     Ok(())
 }
 
+/// Shared contract assertion: a harness adapter round-trips a request.
+///
+/// # Cancellation
+/// Dropping this future aborts the in-flight round trip; the adapter may
+/// have started the underlying command, so the assertion result is lost but
+/// no domain state is touched by this helper.
 pub async fn assert_harness_adapter_round_trip(
     harness: &impl HarnessAdapter,
 ) -> Result<(), Box<dyn std::error::Error>> {

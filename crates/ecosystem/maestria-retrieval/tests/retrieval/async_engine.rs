@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use maestria_domain::{
-    EvidenceCandidate, EvidenceCoverage, IndexGenerationId, SearchIntent, SearchOutcome,
-    SearchStatus, SearchTraceId,
+    EvidenceCandidate, EvidenceCandidateDto, EvidenceCoverage, EvidenceCoverageDto,
+    IndexGenerationId, SearchIntent, SearchOutcome, SearchStatus, SearchTraceId,
 };
 use maestria_retrieval::{
     CandidateRetriever, FixedKRrf, HybridExecutionPolicy, HybridPromotionRecord, RetrievalEngine,
@@ -290,7 +290,7 @@ impl RetrievalEvaluator for AsyncEvaluator {
                 index_generation: experiment.plan.index_generation(),
                 status,
                 evidence,
-                coverage: EvidenceCoverage {
+                coverage: EvidenceCoverage::new(EvidenceCoverageDto {
                     required_claims: vec![],
                     required_subquestions: vec![],
                     distinct_sources: 0,
@@ -299,7 +299,7 @@ impl RetrievalEvaluator for AsyncEvaluator {
                     candidate_coverage_keys: vec![],
                     percent_covered: coverage,
                     gaps_identified: vec![],
-                },
+                })?,
                 conflicts: vec![],
             },
         })
@@ -385,8 +385,18 @@ async fn stale_code_only_evidence_is_not_served_and_retains_stale_trace() -> Ret
         .with_modalities(maestria_domain::ModalitySet::new(vec![
             maestria_domain::Modality::Code,
         ]))?;
-    let mut candidate = candidate_fixture()?;
-    candidate.freshness = maestria_domain::FreshnessStatus::Stale;
+    let candidate = candidate_fixture()?;
+    let candidate = EvidenceCandidate::new(EvidenceCandidateDto {
+        evidence_id: candidate.evidence_id(),
+        artifact_version: candidate.artifact_version(),
+        source_span: candidate.source_span().clone(),
+        scores: candidate.scores().clone(),
+        trust: candidate.trust(),
+        freshness: maestria_domain::FreshnessStatus::Stale,
+        duplicate_cluster: candidate.duplicate_cluster(),
+        reasons: candidate.reasons().to_vec(),
+        coverage_keys: candidate.coverage_keys().to_vec(),
+    })?;
     let engine = RetrievalEngine::new(
         vec![Arc::new(StaleCodeLane { candidate })],
         Arc::new(AsyncEvaluator),

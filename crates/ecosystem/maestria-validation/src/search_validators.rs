@@ -124,22 +124,22 @@ impl Validator for CoverageValidator {
                     search.outcome.status
                 ));
             }
-            if search.outcome.coverage.percent_covered == 0 {
+            if search.outcome.coverage.percent_covered() == 0 {
                 errors.push("coverage is zero for the search outcome".to_string());
             }
             if search.outcome.status == SearchStatus::Answerable
-                && (search.outcome.coverage.percent_covered != 100
-                    || !search.outcome.coverage.gaps_identified.is_empty())
+                && (search.outcome.coverage.percent_covered() != 100
+                    || !search.outcome.coverage.gaps_identified().is_empty())
             {
                 errors.push("Answerable outcome has incomplete coverage".to_string());
             }
             if let Some(trace) = search.trace {
                 let requirements = &trace.evidence_requirements;
-                if search.outcome.coverage.required_claims != requirements.required_claims {
+                if search.outcome.coverage.required_claims() != requirements.required_claims {
                     errors
                         .push("required claim coverage does not match the SearchTrace".to_string());
                 }
-                if search.outcome.coverage.required_subquestions
+                if search.outcome.coverage.required_subquestions()
                     != requirements.required_subquestions
                 {
                     errors.push(
@@ -149,19 +149,19 @@ impl Validator for CoverageValidator {
                 if search.outcome.evidence.len() < usize::from(requirements.minimum_corroboration) {
                     errors.push("minimum corroboration is not satisfied".to_string());
                 }
-                if search.outcome.coverage.distinct_sources < requirements.minimum_sources {
+                if search.outcome.coverage.distinct_sources() < requirements.minimum_sources {
                     errors.push("minimum source coverage is not satisfied".to_string());
                 }
-                if search.outcome.coverage.distinct_documents < requirements.minimum_documents {
+                if search.outcome.coverage.distinct_documents() < requirements.minimum_documents {
                     errors.push("minimum document coverage is not satisfied".to_string());
                 }
-                if search.outcome.coverage.distinct_sections < requirements.minimum_sections {
+                if search.outcome.coverage.distinct_sections() < requirements.minimum_sections {
                     errors.push("minimum section coverage is not satisfied".to_string());
                 }
                 if requirements.require_primary_sources
                     && !search.outcome.evidence.iter().any(|candidate| {
                         search
-                            .evidence_record(candidate.evidence_id)
+                            .evidence_record(candidate.evidence_id())
                             .is_some_and(is_primary_source)
                     })
                 {
@@ -178,7 +178,7 @@ impl Validator for CoverageValidator {
             if errors.is_empty() {
                 Ok(format!(
                     "coverage is {}% across {} candidate(s)",
-                    search.outcome.coverage.percent_covered,
+                    search.outcome.coverage.percent_covered(),
                     search.outcome.evidence.len()
                 ))
             } else {
@@ -212,7 +212,7 @@ impl Validator for ConflictValidator {
                 if conflict
                     .candidates
                     .iter()
-                    .any(|candidate| !candidate_ids.contains(&candidate.evidence_id))
+                    .any(|candidate| !candidate_ids.contains(&candidate.evidence_id()))
                 {
                     errors.push(format!(
                         "conflict {} references a candidate outside the outcome",
@@ -260,7 +260,7 @@ impl Validator for FreshnessValidator {
                 .outcome
                 .evidence
                 .iter()
-                .filter(|candidate| candidate.freshness != FreshnessStatus::UpToDate)
+                .filter(|candidate| candidate.freshness() != FreshnessStatus::UpToDate)
                 .count();
             if stale_count == 0 {
                 Ok("all candidates satisfy the freshness requirement".to_string())

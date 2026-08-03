@@ -152,7 +152,7 @@ fn golden_fixture_gates_a_real_core_search_trace() -> Result<(), Box<dyn std::er
         let candidate = outcome.evidence.first().ok_or_else(|| {
             std::io::Error::other("core search returned no source-grounded evidence")
         })?;
-        assert_eq!(candidate.evidence_id, evidence_id);
+        assert_eq!(candidate.evidence_id(), evidence_id);
         assert_eq!(outcome.status, SearchStatus::Answerable);
 
         let fixture = GoldenFixture {
@@ -167,9 +167,9 @@ fn golden_fixture_gates_a_real_core_search_trace() -> Result<(), Box<dyn std::er
                     expected_plan: plan,
                     expected_status: SearchStatus::Answerable,
                     judgments: vec![GoldenJudgment {
-                        evidence_id: candidate.evidence_id,
+                        evidence_id: candidate.evidence_id(),
                         relevance: 3,
-                        exact_span: Some(candidate.source_span.clone()),
+                        exact_span: Some(candidate.source_span().clone()),
                     }],
                     expected_trace: Some(trace.clone()),
                 }],

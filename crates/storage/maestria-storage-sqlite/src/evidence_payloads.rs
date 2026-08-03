@@ -3,6 +3,7 @@ use maestria_domain::{
     BlobId, ClaimStatus, ContentHash, EvidenceKind, HarnessRunId, LineRange, LogicalTick,
     OutputStream, SnapshotRef, TaskPriority, TaskStatus, ValidationReportId,
 };
+use maestria_ports::PortError;
 use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -21,11 +22,15 @@ impl From<&SnapshotRef> for StoredSnapshotRef {
 }
 
 impl TryFrom<StoredSnapshotRef> for SnapshotRef {
-    type Error = String;
+    type Error = PortError;
 
     fn try_from(snapshot: StoredSnapshotRef) -> Result<Self, Self::Error> {
-        let content_hash = ContentHash::new(snapshot.content_hash)
-            .map_err(|error| format!("invalid snapshot content hash: {error}"))?;
+        let content_hash = ContentHash::new(snapshot.content_hash).map_err(|error| {
+            PortError::InvalidInputContext {
+                context: "decode stored evidence snapshot content hash",
+                source: error.to_string(),
+            }
+        })?;
         Ok(Self::new(BlobId::new(snapshot.blob_id), content_hash))
     }
 }
@@ -157,13 +162,13 @@ impl StoredEvidenceKind {
         }
     }
 
-    pub(crate) fn try_into_domain(self) -> Result<EvidenceKind, String> {
+    pub(crate) fn try_into_domain(self) -> Result<EvidenceKind, PortError> {
         self.try_into()
     }
 }
 
 impl TryFrom<StoredEvidenceKind> for EvidenceKind {
-    type Error = String;
+    type Error = PortError;
 
     fn try_from(value: StoredEvidenceKind) -> Result<Self, Self::Error> {
         match value {
@@ -176,8 +181,12 @@ impl TryFrom<StoredEvidenceKind> for EvidenceKind {
                 let snapshot = SnapshotRef::try_from(snapshot)?;
                 Ok(EvidenceKind::FileSpan {
                     path,
-                    range: LineRange::new(start, end)
-                        .map_err(|error| format!("invalid evidence line range: {error}"))?,
+                    range: LineRange::new(start, end).map_err(|error| {
+                        PortError::InvalidInputContext {
+                            context: "decode stored evidence line range",
+                            source: error.to_string(),
+                        }
+                    })?,
                     snapshot,
                 })
             }
