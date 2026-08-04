@@ -127,6 +127,14 @@ impl EffectExecutionContext {
         chunk_id: ChunkId,
         reason: &'static str,
     ) -> Result<(), EffectFailure> {
+        if self.adapters.vector_index.is_none() {
+            tracing::debug!(
+                chunk_id = %chunk_id,
+                %reason,
+                "vector projection unavailable; effect degraded without invalidation"
+            );
+            return Err(EffectFailure::Degraded(reason.to_string()));
+        }
         if self.invalidate_vector_projection(chunk_id).await {
             Err(EffectFailure::Degraded(reason.to_string()))
         } else {
