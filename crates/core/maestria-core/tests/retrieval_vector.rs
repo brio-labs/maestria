@@ -5,20 +5,19 @@ use maestria_domain::{
     EvidenceKind, IndexGenerationId, IndexStatus, LineRange, RetrievalModelFingerprint, SearchPlan,
     SearchStatus, SnapshotRef, SourceSpan, StructureNodeId,
 };
-use maestria_governance::RetrievalSecurityPolicy;
 use maestria_ports::{
     ArtifactRepository, BlobStore, ChunkRepository, EmbeddingIdentity, EmbeddingProvider,
-    EmbeddingRequest, EmbeddingResponse, EvidenceRepository, InMemoryArtifactRepository, InMemoryBlobStore,
-    InMemoryChunkRepository, InMemoryEvidenceRepository, InMemoryFullTextIndex, InMemoryVectorIndex,
-    PortError, ProviderDisclosure, RetentionPolicy, VectorIndex,
+    EmbeddingRequest, EmbeddingResponse, EvidenceRepository, InMemoryArtifactRepository,
+    InMemoryBlobStore, InMemoryChunkRepository, InMemoryEvidenceRepository, InMemoryFullTextIndex,
+    InMemoryVectorIndex, PortError, ProviderDisclosure, RetentionPolicy, VectorIndex,
 };
 use maestria_retrieval::{
+    HybridExecutionPolicy, HybridPromotionRecord, RetrievalEngine, SearchPlannerContext,
     adapters::{
         DenseChunkRetriever, DenseChunkRetrieverParts, EvidenceOutcomeEvaluator,
         LexicalChunkRetriever, LexicalChunkRetrieverParts,
     },
     traits::CandidateRetriever,
-    HybridExecutionPolicy, HybridPromotionRecord, RetrievalEngine, SearchPlannerContext,
 };
 
 struct VectorFixture {
@@ -50,7 +49,9 @@ fn seed_vector_artifact(
         claim_ids: Default::default(),
         evidence_ids: [evidence_id].into(),
         index_status: IndexStatus::Indexed,
-        content_hash: Some(ContentHash::new(maestria_core::content_hash(source.as_bytes()))?),
+        content_hash: Some(ContentHash::new(maestria_core::content_hash(
+            source.as_bytes(),
+        ))?),
         parse_status: None,
     })?;
     context.chunks.put(Chunk {
@@ -130,7 +131,9 @@ fn planner_context() -> Result<SearchPlannerContext, Box<dyn std::error::Error>>
     Ok(SearchPlannerContext {
         corpus_snapshot: CorpusSnapshotId::new(1),
         primary_generation: IndexGenerationId::new(1),
-        fingerprint: RetrievalModelFingerprint::new("maestria-core:hybrid-shadow-vector-fixture".to_string())?,
+        fingerprint: RetrievalModelFingerprint::new(
+            "maestria-core:hybrid-shadow-vector-fixture".to_string(),
+        )?,
         scope: None,
     })
 }
@@ -168,25 +171,34 @@ fn build_search_engine(
 ) -> Result<(RetrievalEngine, SearchPlannerContext, VectorFixture), Box<dyn std::error::Error>> {
     let fixture = seed_vector_fixture()?;
     let context = planner_context()?;
-    let mut retrievers: Vec<Arc<dyn CandidateRetriever>> = Vec::new();
-    retrievers.push(Arc::new(LexicalChunkRetriever::new(LexicalChunkRetrieverParts {
-        index: fixture.search_index.clone(),
-        artifacts: fixture.artifacts.clone(),
-        chunks: fixture.chunks.clone(),
-        evidence: fixture.evidence.clone(),
-        blobs: fixture.blobs.clone(),
-    }, context.primary_generation)));
-    retrievers.push(Arc::new(DenseChunkRetriever::new(DenseChunkRetrieverParts {
-        index: fixture.vector_index.clone(),
-        artifacts: fixture.artifacts.clone(),
-        chunks: fixture.chunks.clone(),
-        evidence: fixture.evidence.clone(),
-        blobs: fixture.blobs.clone(),
-        embedding_provider: Arc::new(DenseVectorFixtureEmbeddingProvider),
-    }, context.primary_generation)));
+    let mut retrievers: Vec<Arc<dyn CandidateRetriever>> =
+        vec![Arc::new(LexicalChunkRetriever::new(
+            LexicalChunkRetrieverParts {
+                index: fixture.search_index.clone(),
+                artifacts: fixture.artifacts.clone(),
+                chunks: fixture.chunks.clone(),
+                evidence: fixture.evidence.clone(),
+                blobs: fixture.blobs.clone(),
+            },
+            context.primary_generation,
+        ))];
+    retrievers.push(Arc::new(DenseChunkRetriever::new(
+        DenseChunkRetrieverParts {
+            index: fixture.vector_index.clone(),
+            artifacts: fixture.artifacts.clone(),
+            chunks: fixture.chunks.clone(),
+            evidence: fixture.evidence.clone(),
+            blobs: fixture.blobs.clone(),
+            embedding_provider: Arc::new(DenseVectorFixtureEmbeddingProvider),
+        },
+        context.primary_generation,
+    )));
 
-    let engine = RetrievalEngine::new(retrievers,
-    Arc::new(EvidenceOutcomeEvaluator::new(fixture.evidence.clone())), maestria_governance::RetrievalSecurityPolicy::default())
+    let engine = RetrievalEngine::new(
+        retrievers,
+        Arc::new(EvidenceOutcomeEvaluator::new(fixture.evidence.clone())),
+        maestria_governance::RetrievalSecurityPolicy::default(),
+    )
     .with_hybrid_policy(policy);
 
     Ok((engine, context, fixture))
@@ -205,15 +217,18 @@ fn execute_search(
 
 #[test]
 fn vector_search_returns_grounded_nonliteral_match() -> Result<(), Box<dyn std::error::Error>> {
-    let promotion_record = HybridPromotionRecord::new("eval-test".to_string(), "2026-07-16".to_string())
-        .ok_or("promotion record requires non-empty evaluation metadata")?;
+    let promotion_record =
+        HybridPromotionRecord::new("eval-test".to_string(), "2026-07-16".to_string())
+            .ok_or("promotion record requires non-empty evaluation metadata")?;
     let (engine, context, fixture) =
         build_search_engine(HybridExecutionPolicy::Active(promotion_record))?;
     let plan = engine.plan("unrelated query", 5, &context)?;
     let outcome = execute_search(&engine, &plan)?;
     assert_eq!(outcome.status, SearchStatus::Answerable);
     assert_eq!(outcome.evidence.len(), 1);
-    assert_eq!(outcome.evidence[0].artifact_version().value(), fixture.artifact_id.value());
+    let expected_version =
+        ContentHash::new(maestria_core::content_hash(b"literal source text\n"))?.version_id()?;
+    assert_eq!(outcome.evidence[0].artifact_version(), expected_version);
     assert_eq!(outcome.evidence[0].evidence_id(), fixture.evidence_id);
     Ok(())
 }

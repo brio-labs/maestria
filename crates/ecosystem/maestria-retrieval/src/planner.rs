@@ -64,6 +64,9 @@ fn build_plan(
         web_concurrency,
     )
     .map_err(|error| RetrievalError::Internal(error.to_string()))?;
+    let max_results = u32::try_from(limit)
+        .map_err(|_| RetrievalError::InvalidResultLimit { limit })?
+        .max(1);
     let mut stages = vec![maestria_domain::SearchStage::InitialRetrieval];
     if reranking_enabled {
         stages.push(maestria_domain::SearchStage::Reranking);
@@ -98,10 +101,7 @@ fn build_plan(
         .stages(stages)
         .budgets(budgets)
         .stop_conditions(maestria_domain::StopConditions {
-            max_results: match u32::try_from(limit) {
-                Ok(value) => value.max(1),
-                Err(_) => u32::MAX,
-            },
+            max_results,
             min_score_threshold: 0,
         })
         .evidence_requirements(maestria_domain::EvidenceRequirements {
@@ -305,78 +305,6 @@ impl RetrievalEngine {
         Ok(fallback_plan)
     }
 }
-
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use maestria_domain::{CorpusSnapshotId, IndexGenerationId, RetrievalModelFingerprint};
-
-    #[test]
-    fn visual_document_plan_requests_text_and_visual_modalities()
-    -> Result<(), Box<dyn std::error::Error>> {
-        let context = SearchPlannerContext {
-            corpus_snapshot: CorpusSnapshotId::new(3),
-            primary_generation: IndexGenerationId::new(7),
-            fingerprint: RetrievalModelFingerprint::new("test:visual".to_string())?,
-            scope: None,
-        };
-        let plan = build_plan(
-            "show the table in the visual PDF",
-            5,
-            &context,
-            PlanOptions {
-                max_stages: 1,
-                expansion_enabled: false,
-                reranking_enabled: false,
-                web_limits: (0, 0, 1),
-            },
-            RouteParameters {
-                intent: SearchIntent::VisualDocument,
-                modality: Modality::Image,
-                original_intent: None,
-                route_decision: None,
-            },
-            maestria_domain::RetrievalPolicySnapshot::global_default(),
-        )?;
-        assert_eq!(
-            plan.modalities().values(),
-            &[Modality::Text, Modality::Image]
-        );
-        Ok(())
-    }
-    #[test]
-    fn visual_plan_can_request_bounded_reranking_stage() -> Result<(), Box<dyn std::error::Error>> {
-        let context = SearchPlannerContext {
-            corpus_snapshot: CorpusSnapshotId::new(3),
-            primary_generation: IndexGenerationId::new(7),
-            fingerprint: RetrievalModelFingerprint::new("test:visual".to_string())?,
-            scope: None,
-        };
-        let plan = build_plan(
-            "show the figure in the visual PDF",
-            5,
-            &context,
-            PlanOptions {
-                max_stages: 2,
-                expansion_enabled: false,
-                reranking_enabled: true,
-                web_limits: (0, 0, 1),
-            },
-            RouteParameters {
-                intent: SearchIntent::VisualDocument,
-                modality: Modality::Image,
-                original_intent: None,
-                route_decision: None,
-            },
-            maestria_domain::RetrievalPolicySnapshot::global_default(),
-        )?;
-        assert_eq!(
-            plan.stages(),
-            &[
-                maestria_domain::SearchStage::InitialRetrieval,
-                maestria_domain::SearchStage::Reranking,
-            ]
-        );
-        Ok(())
-    }
-}
+#[path = "planner_tests.rs"]
+mod tests;
