@@ -88,10 +88,10 @@ pub async fn run_propose(
 
     println!(
         "proposed candidate={} claim={} confidence={}/1000 evidence={}",
-        candidate.id,
-        candidate.claim_id,
-        candidate.confidence_milli,
-        candidate.evidence_ids.len(),
+        candidate.id(),
+        candidate.claim_id(),
+        candidate.confidence_milli(),
+        candidate.evidence_ids().len(),
     );
 
     Ok(())
@@ -168,11 +168,11 @@ pub async fn run_promote(
 fn print_memory_candidate(candidate: &MemoryCandidate) {
     println!(
         "candidate={} claim={} confidence={} evidence={} ids={:?}",
-        candidate.id,
-        candidate.claim_id,
-        candidate.confidence_milli,
-        candidate.evidence_ids.len(),
-        candidate.evidence_ids
+        candidate.id(),
+        candidate.claim_id(),
+        candidate.confidence_milli(),
+        candidate.evidence_ids().len(),
+        candidate.evidence_ids()
     );
 }
 

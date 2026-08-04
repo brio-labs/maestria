@@ -50,7 +50,7 @@ fn validation_runner_passes_when_all_default_checks_pass() -> Result<(), Box<dyn
         .insert(evidence_id, evidence(10, Some(claim_id))?);
     fixture.memory_candidates.insert(
         MemoryCandidateId::new(1),
-        memory_candidate(1, [evidence_id]),
+        memory_candidate(1, [evidence_id])?,
     );
 
     let report = ValidationRunner::new().run(
@@ -68,16 +68,18 @@ fn validation_runner_passes_when_all_default_checks_pass() -> Result<(), Box<dyn
 }
 
 #[test]
-fn validation_runner_reports_failures_as_errors_not_warnings() {
+fn validation_runner_reports_failures_as_errors_not_warnings()
+-> Result<(), Box<dyn std::error::Error>> {
     let mut fixture = ContextFixture {
         task: Some(task(1, TaskStatus::Active)),
         harness_exit_code: Some(1),
         ..ContextFixture::default()
     };
     fixture.claims.insert(ClaimId::new(1), claim(1, []));
-    fixture
-        .memory_candidates
-        .insert(MemoryCandidateId::new(1), memory_candidate(1, []));
+    fixture.memory_candidates.insert(
+        MemoryCandidateId::new(1),
+        memory_candidate(1, [EvidenceId::new(20)])?,
+    );
 
     let report = ValidationRunner::new().run(
         ValidationReportId::new(100),
@@ -88,6 +90,7 @@ fn validation_runner_reports_failures_as_errors_not_warnings() {
     assert!(!report.passed);
     assert_eq!(report.checks.len(), 13);
     assert_eq!(report.warnings.len(), 0);
+    Ok(())
 }
 
 #[test]

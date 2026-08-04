@@ -54,13 +54,13 @@ impl KernelState {
                 security = security.taint_from(&ev.security);
             }
         }
-        let candidate = MemoryCandidate {
-            id: input.candidate_id,
-            claim_id: input.claim_id,
-            evidence_ids: evidence_ids.clone(),
-            confidence_milli: input.confidence_milli,
-            security: security.clone(),
-        };
+        let candidate = MemoryCandidate::try_new(
+            input.candidate_id,
+            input.claim_id,
+            evidence_ids.clone(),
+            input.confidence_milli,
+            security.clone(),
+        )?;
         self.memory_candidates.insert(input.candidate_id, candidate);
         Ok(self.emit_event(DomainEvent::MemoryCandidateCreated {
             candidate_id: input.candidate_id,
@@ -113,13 +113,13 @@ impl KernelState {
 
         self.memory_candidates.insert(
             input.candidate_id,
-            MemoryCandidate {
-                id: input.candidate_id,
-                claim_id: input.claim_id,
-                evidence_ids: evidence_ids.clone(),
-                confidence_milli: input.confidence_milli,
-                security: security.clone(),
-            },
+            MemoryCandidate::try_new(
+                input.candidate_id,
+                input.claim_id,
+                evidence_ids.clone(),
+                input.confidence_milli,
+                security.clone(),
+            )?,
         );
         let candidate_created = self.emit_event(DomainEvent::MemoryCandidateCreated {
             candidate_id: input.candidate_id,
@@ -206,11 +206,11 @@ impl KernelState {
     }
 
     pub(crate) fn current_memory_security(&self, candidate: &MemoryCandidate) -> SecurityMetadata {
-        let mut security = candidate.security.clone();
-        if let Some(claim) = self.claims.get(&candidate.claim_id) {
+        let mut security = candidate.security().clone();
+        if let Some(claim) = self.claims.get(&candidate.claim_id()) {
             security = security.taint_from(&claim.security);
         }
-        for evidence_id in &candidate.evidence_ids {
+        for evidence_id in candidate.evidence_ids() {
             if let Some(evidence) = self.evidences.get(evidence_id) {
                 security = security.taint_from(&evidence.security);
             }
@@ -227,22 +227,22 @@ impl KernelState {
                 id: input.candidate_id,
             },
         )?;
-        if candidate.evidence_ids.is_empty() {
+        if candidate.evidence_ids().is_empty() {
             return Err(DomainError::MemoryCandidateIneligibleForPromotion {
-                candidate_id: candidate.id,
-                confidence_milli: candidate.confidence_milli,
+                candidate_id: candidate.id(),
+                confidence_milli: candidate.confidence_milli(),
                 minimum_confidence_milli: MIN_PROMOTION_CONFIDENCE_MILLI,
                 reason: "no evidence ids",
             });
         }
         if !candidate
-            .evidence_ids
+            .evidence_ids()
             .iter()
             .all(|evidence_id| self.evidences.contains_key(evidence_id))
         {
             return Err(DomainError::MemoryCandidateIneligibleForPromotion {
-                candidate_id: candidate.id,
-                confidence_milli: candidate.confidence_milli,
+                candidate_id: candidate.id(),
+                confidence_milli: candidate.confidence_milli(),
                 minimum_confidence_milli: MIN_PROMOTION_CONFIDENCE_MILLI,
                 reason: "missing evidence",
             });
@@ -250,16 +250,16 @@ impl KernelState {
         let security = self.current_memory_security(candidate);
         if !security.memory_promotion_allowed() {
             return Err(DomainError::MemoryCandidateIneligibleForPromotion {
-                candidate_id: candidate.id,
-                confidence_milli: candidate.confidence_milli,
+                candidate_id: candidate.id(),
+                confidence_milli: candidate.confidence_milli(),
                 minimum_confidence_milli: MIN_PROMOTION_CONFIDENCE_MILLI,
                 reason: "security metadata blocks promotion",
             });
         }
-        if candidate.confidence_milli < MIN_PROMOTION_CONFIDENCE_MILLI {
+        if candidate.confidence_milli() < MIN_PROMOTION_CONFIDENCE_MILLI {
             return Err(DomainError::MemoryCandidateIneligibleForPromotion {
-                candidate_id: candidate.id,
-                confidence_milli: candidate.confidence_milli,
+                candidate_id: candidate.id(),
+                confidence_milli: candidate.confidence_milli(),
                 minimum_confidence_milli: MIN_PROMOTION_CONFIDENCE_MILLI,
                 reason: "insufficient confidence",
             });
@@ -274,8 +274,8 @@ impl KernelState {
         let memory = Memory {
             id: input.memory_id,
             candidate_id: input.candidate_id,
-            claim_id: candidate.claim_id,
-            evidence_ids: candidate.evidence_ids.clone(),
+            claim_id: candidate.claim_id(),
+            evidence_ids: candidate.evidence_ids().clone(),
             status: MemoryStatus::Active,
             security: security.clone(),
         };

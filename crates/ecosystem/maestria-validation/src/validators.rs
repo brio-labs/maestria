@@ -133,38 +133,25 @@ impl Validator for MemoryValidator {
     }
 
     fn validate(&self, context: &ValidationContext<'_>) -> ValidationCheck {
-        let (missing_evidence_refs, missing_candidate_ids) =
-            context.memory_candidates.values().fold(
-                (0usize, 0usize),
-                |(missing_refs, missing_ids), candidate| {
-                    let missing_ids = missing_ids + usize::from(candidate.evidence_ids.is_empty());
-                    let refs = candidate
-                        .evidence_ids
-                        .iter()
-                        .filter(|evidence_id| !context.evidences.contains_key(evidence_id))
-                        .count();
-                    (missing_refs + refs, missing_ids)
-                },
-            );
+        let missing_evidence_refs = context
+            .memory_candidates
+            .values()
+            .flat_map(|candidate| candidate.evidence_ids().iter())
+            .filter(|evidence_id| !context.evidences.contains_key(evidence_id))
+            .count();
 
-        if missing_evidence_refs == 0 && missing_candidate_ids == 0 {
+        if missing_evidence_refs == 0 {
             passed_check(
                 self.name(),
                 "all memory candidates have at least one referenced evidence id",
             )
         } else {
-            let mut messages = Vec::new();
-            if missing_candidate_ids > 0 {
-                messages.push(format!(
-                    "{missing_candidate_ids} memory candidate(s) are missing evidence ids"
-                ));
-            }
-            if missing_evidence_refs > 0 {
-                messages.push(format!(
+            failed_check(
+                self.name(),
+                format!(
                     "{missing_evidence_refs} memory candidate evidence reference(s) do not exist"
-                ));
-            }
-            failed_check(self.name(), messages.join("; "))
+                ),
+            )
         }
     }
 }

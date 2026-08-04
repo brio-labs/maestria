@@ -13,7 +13,7 @@ fn memory_validator_passes_when_all_candidates_have_evidence()
     fixture.evidences.insert(evidence_id, evidence(10, None)?);
     fixture.memory_candidates.insert(
         MemoryCandidateId::new(1),
-        memory_candidate(1, [evidence_id]),
+        memory_candidate(1, [evidence_id])?,
     );
 
     let check = MemoryValidator.validate(&fixture.context());
@@ -24,27 +24,12 @@ fn memory_validator_passes_when_all_candidates_have_evidence()
 }
 
 #[test]
-fn memory_validator_fails_when_any_candidate_lacks_evidence() {
-    let mut fixture = ContextFixture::default();
-    fixture
-        .memory_candidates
-        .insert(MemoryCandidateId::new(1), memory_candidate(1, []));
-    fixture.memory_candidates.insert(
-        MemoryCandidateId::new(2),
-        memory_candidate(2, [EvidenceId::new(20)]),
-    );
-
-    let check = MemoryValidator.validate(&fixture.context());
-
-    assert!(!check.passed);
-    assert!(check.message.contains("1 memory candidate"));
-}
-#[test]
-fn memory_validator_fails_when_candidate_references_missing_evidence() {
+fn memory_validator_fails_when_candidate_references_missing_evidence()
+-> Result<(), Box<dyn std::error::Error>> {
     let mut fixture = ContextFixture::default();
     fixture.memory_candidates.insert(
         MemoryCandidateId::new(1),
-        memory_candidate(1, [EvidenceId::new(10)]),
+        memory_candidate(1, [EvidenceId::new(10)])?,
     );
 
     let check = MemoryValidator.validate(&fixture.context());
@@ -55,6 +40,7 @@ fn memory_validator_fails_when_candidate_references_missing_evidence() {
             .message
             .contains("1 memory candidate evidence reference")
     );
+    Ok(())
 }
 
 #[test]
