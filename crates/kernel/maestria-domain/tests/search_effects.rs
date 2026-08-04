@@ -38,22 +38,13 @@ fn search_plan() -> Result<SearchPlan, DomainError> {
                 }
             })?,
         )
-        .authorization(Some(
-            maestria_domain::RetrievalPolicySnapshot::global_default(),
-        ))
+        .authorization(maestria_domain::RetrievalPolicySnapshot::global_default())
         .build()
         .map_err(|error| DomainError::SearchIncompatible { error })
 }
 
 fn no_evidence_outcome(plan: &SearchPlan) -> Result<SearchOutcome, DomainError> {
-    let policy_fingerprint = match plan.authorization().as_ref() {
-        Some(authorization) => authorization.canonical_fingerprint(),
-        None => {
-            return Err(DomainError::InternalInvariantViolation {
-                detail: "search fixture requires authorization",
-            });
-        }
-    };
+    let policy_fingerprint = plan.authorization().canonical_fingerprint();
     let trace = SearchTrace::from_plan(
         plan,
         vec![],

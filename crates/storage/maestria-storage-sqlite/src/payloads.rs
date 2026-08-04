@@ -63,6 +63,9 @@ pub(crate) mod stored_search;
 #[path = "stored_search_plan.rs"]
 pub(crate) mod stored_search_plan;
 
+#[path = "stored_search_route.rs"]
+pub(crate) mod stored_search_route;
+
 #[path = "stored_search_plan_policy.rs"]
 pub(crate) mod stored_search_plan_policy;
 

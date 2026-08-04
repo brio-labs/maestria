@@ -105,8 +105,6 @@ pub fn dummy_plan() -> RetrievalResult<SearchPlan> {
             minimum_corroboration: 1,
         })
         .fingerprint(RetrievalModelFingerprint::new("dummy-model".into())?)
-        .authorization(Some(
-            maestria_domain::RetrievalPolicySnapshot::global_default(),
-        ))
+        .authorization(maestria_domain::RetrievalPolicySnapshot::global_default())
         .build()?)
 }

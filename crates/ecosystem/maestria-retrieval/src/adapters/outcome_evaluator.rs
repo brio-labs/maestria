@@ -48,14 +48,7 @@ impl RetrievalEvaluator for EvidenceOutcomeEvaluator {
         let diversity = selection.trace;
         let status = selection.status;
         let stop_reason = diversity.stop_reason.clone();
-        let policy_fingerprint = match experiment.plan.authorization().as_ref() {
-            Some(authorization) => authorization.canonical_fingerprint(),
-            None => {
-                return Err(RetrievalError::Internal(
-                    "search plan authorization snapshot is missing".to_string(),
-                ));
-            }
-        };
+        let policy_fingerprint = experiment.plan.authorization().canonical_fingerprint();
         let mut trace = maestria_domain::SearchTrace::from_plan(
             &experiment.plan,
             vec!["evidence".to_string()],

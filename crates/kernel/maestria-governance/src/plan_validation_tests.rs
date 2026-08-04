@@ -4,7 +4,7 @@ use super::*;
 use maestria_domain::{
     CorpusScope, CorpusSnapshotId, EvidenceRequirements, FreshnessRequirement, IndexGenerationId,
     Modality, ModalitySet, QueryId, RetrievalModelFingerprint, ScopeId, SearchBudget, SearchIntent,
-    SearchPlan, SearchStage, StopConditions,
+    SearchPlan, SearchRouteDecision, SearchStage, StopConditions,
 };
 
 fn plan() -> Result<SearchPlan, Box<dyn Error>> {
@@ -33,9 +33,7 @@ fn plan() -> Result<SearchPlan, Box<dyn Error>> {
             minimum_sections: 0,
         })
         .fingerprint(RetrievalModelFingerprint::new("test:v1".to_string())?)
-        .authorization(Some(
-            maestria_domain::RetrievalPolicySnapshot::global_default(),
-        ))
+        .authorization(maestria_domain::RetrievalPolicySnapshot::global_default())
         .build()?)
 }
 
@@ -259,14 +257,11 @@ fn fallback_plan_carries_original_intent_metadata() -> Result<(), Box<dyn std::e
             minimum_sections: 0,
         })
         .fingerprint(RetrievalModelFingerprint::new("test:v1".to_string())?)
-        .authorization(Some(
-            maestria_domain::RetrievalPolicySnapshot::global_default(),
-        ))
+        .authorization(maestria_domain::RetrievalPolicySnapshot::global_default())
         .original_intent(Some(SearchIntent::TemporalMemory))
-        .route_decision(Some(
-            "governed fallback to local text retrieval for unavailable TemporalMemory intent"
-                .to_string(),
-        ))
+        .route_decision(Some(SearchRouteDecision::UnsupportedIntent {
+            intent: SearchIntent::TemporalMemory,
+        }))
         .build()?;
     let caps = capabilities();
     assert!(
@@ -274,9 +269,11 @@ fn fallback_plan_carries_original_intent_metadata() -> Result<(), Box<dyn std::e
         "fallback FactualLocal plan must validate"
     );
     assert_eq!(plan.original_intent(), Some(SearchIntent::TemporalMemory));
-    assert!(
-        plan.route_decision()
-            .is_some_and(|decision| decision.contains("TemporalMemory"))
+    assert_eq!(
+        plan.route_decision(),
+        Some(&SearchRouteDecision::UnsupportedIntent {
+            intent: SearchIntent::TemporalMemory,
+        })
     );
     Ok(())
 }

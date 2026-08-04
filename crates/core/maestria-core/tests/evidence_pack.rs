@@ -61,9 +61,7 @@ fn plan(required_claims: Vec<String>) -> Result<SearchPlan, Box<dyn Error>> {
         .fingerprint(RetrievalModelFingerprint::new(
             "test-fingerprint".to_string(),
         )?)
-        .authorization(Some(
-            maestria_domain::RetrievalPolicySnapshot::global_default(),
-        ))
+        .authorization(maestria_domain::RetrievalPolicySnapshot::global_default())
         .build()?)
 }
 fn trace_for(

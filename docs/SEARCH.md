@@ -89,6 +89,7 @@ pub struct SearchPlan {
     pub budget: SearchBudget,
     pub stop: StopConditions,
     pub evidence: EvidenceRequirements,
+    pub authorization: RetrievalPolicySnapshot,
 }
 ```
 
@@ -105,6 +106,7 @@ candidate retrieval stages
 fusion and reranking policy
 context expansion policy
 quality and resource budgets
+authorization snapshot
 stop conditions
 required evidence coverage
 ```
@@ -217,10 +219,11 @@ An outcome may be useful without being complete. Missing coverage and unresolved
 
 When a specialized local intent is unavailable, planning uses one bounded governed
 local-text fallback instead of retrying or silently changing scope. The trace keeps
-the classified intent and records a degradation such as `governed local-text
-fallback for unavailable TemporalMemory intent`; malformed plans still return
-typed errors. The fallback is intentionally non-promotional: specialized routes
-remain disabled until their frozen benchmark proves a quality and resource win.
+the classified intent and a typed route decision, and records a degradation such as
+`governed local-text fallback for unavailable TemporalMemory intent`; malformed
+plans still return typed errors. The fallback is intentionally non-promotional:
+specialized routes remain disabled until their frozen benchmark proves a quality and
+resource win.
 
 ### Search Trace and Golden Gate
 

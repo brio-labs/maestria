@@ -3,7 +3,7 @@ use crate::rewrite::QueryRewriteSession;
 use crate::types::{RetrievalError, RetrievalResult};
 use maestria_domain::{
     CorpusSnapshotId, IndexGenerationId, Modality, RetrievalModelFingerprint, SearchIntent,
-    SearchPlan,
+    SearchPlan, SearchRouteDecision,
 };
 
 /// Runtime inputs used to build a deterministic search plan.
@@ -39,7 +39,7 @@ struct RouteParameters {
     intent: SearchIntent,
     modality: Modality,
     original_intent: Option<SearchIntent>,
-    route_decision: Option<String>,
+    route_decision: Option<SearchRouteDecision>,
 }
 
 fn build_plan(
@@ -114,7 +114,7 @@ fn build_plan(
             minimum_sections: 0,
         })
         .fingerprint(context.fingerprint.clone())
-        .authorization(Some(authorization))
+        .authorization(authorization)
         .original_intent(route.original_intent)
         .route_decision(route.route_decision)
         .build()
@@ -255,21 +255,19 @@ impl RetrievalEngine {
         if !fallback_eligible {
             return Err(RetrievalError::SearchPlan(inferred_error));
         }
-        let fallback_reason = match &inferred_error {
+        let fallback_decision = match &inferred_error {
             maestria_governance::SearchPlanValidationError::UnsupportedIntent(intent) => {
-                format!(
-                    "governed fallback to local text retrieval for unavailable {intent:?} intent"
-                )
+                SearchRouteDecision::UnsupportedIntent { intent: *intent }
             }
             maestria_governance::SearchPlanValidationError::UnsupportedModality(modality) => {
-                format!(
-                    "governed fallback to local text retrieval for unsupported {modality:?} modality"
-                )
+                SearchRouteDecision::UnsupportedModality {
+                    modality: *modality,
+                }
             }
             maestria_governance::SearchPlanValidationError::WebCapabilityMissing => {
-                "governed fallback to local text retrieval: web capability missing".to_string()
+                SearchRouteDecision::MissingWebCapability
             }
-            _ => "governed fallback to local text retrieval".to_string(),
+            _ => SearchRouteDecision::LocalTextFallback,
         };
         let capabilities = self
             .capabilities
@@ -290,7 +288,7 @@ impl RetrievalEngine {
                 intent: SearchIntent::FactualLocal,
                 modality: Modality::Text,
                 original_intent: Some(inferred_intent),
-                route_decision: Some(fallback_reason),
+                route_decision: Some(fallback_decision),
             },
             self.authorization_snapshot(context)?,
         )?;

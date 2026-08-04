@@ -5,6 +5,9 @@ use crate::ids::*;
 #[path = "search_plan.rs"]
 mod search_plan;
 pub use search_plan::*;
+#[path = "search_route.rs"]
+mod search_route;
+pub use search_route::*;
 #[path = "search_budget.rs"]
 mod search_budget;
 #[path = "search_plan_dto.rs"]

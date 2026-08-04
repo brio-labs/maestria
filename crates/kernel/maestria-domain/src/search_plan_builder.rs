@@ -2,7 +2,7 @@ use super::{SearchCompatibilityError, SearchPlan, SearchStage};
 use crate::ids::{CorpusSnapshotId, IndexGenerationId, QueryId};
 use crate::search::{
     CorpusScope, EvidenceRequirements, FreshnessRequirement, ModalitySet, SearchBudget,
-    SearchIntent, StopConditions,
+    SearchIntent, SearchRouteDecision, StopConditions,
 };
 
 /// Incremental constructor for [`SearchPlan`]; [`build`](SearchPlanBuilder::build)
@@ -22,9 +22,9 @@ pub struct SearchPlanBuilder {
     stop_conditions: Option<StopConditions>,
     evidence_requirements: Option<EvidenceRequirements>,
     fingerprint: Option<crate::RetrievalModelFingerprint>,
-    authorization: Option<Option<crate::RetrievalPolicySnapshot>>,
+    authorization: Option<crate::RetrievalPolicySnapshot>,
     original_intent: Option<Option<SearchIntent>>,
-    route_decision: Option<Option<String>>,
+    route_decision: Option<Option<SearchRouteDecision>>,
 }
 
 impl SearchPlanBuilder {
@@ -93,7 +93,7 @@ impl SearchPlanBuilder {
         self
     }
 
-    pub fn authorization(mut self, value: Option<crate::RetrievalPolicySnapshot>) -> Self {
+    pub fn authorization(mut self, value: crate::RetrievalPolicySnapshot) -> Self {
         self.authorization = Some(value);
         self
     }
@@ -103,7 +103,7 @@ impl SearchPlanBuilder {
         self
     }
 
-    pub fn route_decision(mut self, value: Option<String>) -> Self {
+    pub fn route_decision(mut self, value: Option<SearchRouteDecision>) -> Self {
         self.route_decision = Some(value);
         self
     }
@@ -125,7 +125,7 @@ impl SearchPlanBuilder {
             stop_conditions: required(self.stop_conditions)?,
             evidence_requirements: required(self.evidence_requirements)?,
             fingerprint: required(self.fingerprint)?,
-            authorization: self.authorization.flatten(),
+            authorization: required(self.authorization)?,
             original_intent: self.original_intent.flatten(),
             route_decision: self.route_decision.flatten(),
         };

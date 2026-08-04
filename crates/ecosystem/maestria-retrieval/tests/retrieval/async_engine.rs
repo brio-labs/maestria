@@ -310,9 +310,7 @@ impl RetrievalEvaluator for AsyncEvaluator {
 async fn failed_lane_is_degraded_without_losing_successful_evidence() -> RetrievalResult<()> {
     let plan = dummy_plan()?;
     let mut authorization = plan.authorization().clone();
-    if let Some(authorization) = authorization.as_mut() {
-        authorization.allow_unscoped_items = true;
-    }
+    authorization.allow_unscoped_items = true;
     let plan = plan.with_authorization(authorization)?;
     let engine = RetrievalEngine::new(
         vec![
@@ -473,9 +471,7 @@ async fn specialized_generation_is_served_while_primary_stale_lane_is_rejected()
 -> RetrievalResult<()> {
     let plan = dummy_plan()?;
     let mut authorization = plan.authorization().clone();
-    if let Some(authorization) = authorization.as_mut() {
-        authorization.allow_unscoped_items = true;
-    }
+    authorization.allow_unscoped_items = true;
     let plan = plan.with_authorization(authorization)?;
     let specialized_calls = Arc::new(AtomicUsize::new(0));
     let stale_calls = Arc::new(AtomicUsize::new(0));

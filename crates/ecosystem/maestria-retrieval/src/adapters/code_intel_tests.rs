@@ -90,9 +90,7 @@ fn plan() -> Result<SearchPlan, SearchCompatibilityError> {
             minimum_corroboration: 1,
         })
         .fingerprint(RetrievalModelFingerprint::new("maestria:test".into())?)
-        .authorization(Some(
-            maestria_domain::RetrievalPolicySnapshot::global_default(),
-        ))
+        .authorization(maestria_domain::RetrievalPolicySnapshot::global_default())
         .build()
 }
 

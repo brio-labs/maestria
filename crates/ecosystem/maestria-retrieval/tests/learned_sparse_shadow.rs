@@ -319,9 +319,7 @@ fn plan() -> TestResult<SearchPlan> {
         .fingerprint(RetrievalModelFingerprint::new(
             "fixture-search-v1".to_string(),
         )?)
-        .authorization(Some(
-            maestria_domain::RetrievalPolicySnapshot::global_default(),
-        ))
+        .authorization(maestria_domain::RetrievalPolicySnapshot::global_default())
         .build()?)
 }
 

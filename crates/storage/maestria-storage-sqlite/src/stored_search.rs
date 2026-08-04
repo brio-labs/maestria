@@ -18,5 +18,5 @@ pub(crate) use crate::payloads::stored_search_outcome::{
 pub(crate) use crate::payloads::stored_search_plan::{
     StoredCorpusScope, StoredEvidenceRequirements, StoredFreshnessRequirement, StoredModalitySet,
     StoredRetrievalModelFingerprint, StoredSearchBudget, StoredSearchIntent, StoredSearchPlan,
-    StoredSearchStage, StoredStopConditions,
+    StoredSearchRouteDecision, StoredSearchStage, StoredStopConditions,
 };

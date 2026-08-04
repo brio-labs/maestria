@@ -122,9 +122,7 @@ pub fn plan() -> Result<SearchPlan, Box<dyn std::error::Error>> {
         .fingerprint(RetrievalModelFingerprint::new(
             "validation-fixture-v1".to_string(),
         )?)
-        .authorization(Some(
-            maestria_domain::RetrievalPolicySnapshot::global_default(),
-        ))
+        .authorization(maestria_domain::RetrievalPolicySnapshot::global_default())
         .build()?)
 }
 

@@ -27,7 +27,7 @@ use crate::payloads::stored_search::{
     StoredCorpusScope, StoredEvidenceRequirements, StoredEvidenceSpan, StoredFreshnessRequirement,
     StoredFreshnessStatus, StoredModalitySet, StoredRetrievalModelFingerprint,
     StoredRetrievalReason, StoredRetrievalScoreSet, StoredSearchBudget, StoredSearchIntent,
-    StoredSearchStage, StoredStopConditions, StoredTrustLabel,
+    StoredSearchRouteDecision, StoredSearchStage, StoredStopConditions, StoredTrustLabel,
 };
 
 pub(crate) use crate::payloads::stored_search_expansion::*;
@@ -181,7 +181,7 @@ pub(crate) struct StoredSearchTrace {
     original_query: String,
     intent: StoredSearchIntent,
     original_intent: Option<StoredSearchIntent>,
-    route_decision: Option<String>,
+    route_decision: Option<StoredSearchRouteDecision>,
     scope: StoredCorpusScope,
     corpus_snapshot: u64,
     index_generation: u64,
@@ -219,7 +219,10 @@ impl StoredSearchTrace {
                 .original_intent
                 .as_ref()
                 .map(StoredSearchIntent::from_domain),
-            route_decision: value.route_decision.clone(),
+            route_decision: value
+                .route_decision
+                .as_ref()
+                .map(StoredSearchRouteDecision::from_domain),
             scope: StoredCorpusScope::from_domain(&value.scope),
             corpus_snapshot: value.corpus_snapshot.value(),
             index_generation: value.index_generation.value(),
@@ -289,7 +292,10 @@ impl StoredSearchTrace {
                 .original_intent
                 .map(StoredSearchIntent::try_into_domain)
                 .transpose()?,
-            route_decision: self.route_decision,
+            route_decision: self
+                .route_decision
+                .map(StoredSearchRouteDecision::try_into_domain)
+                .transpose()?,
             scope: self.scope.try_into_domain()?,
             corpus_snapshot: CorpusSnapshotId::new(self.corpus_snapshot),
             index_generation: IndexGenerationId::new(self.index_generation),
