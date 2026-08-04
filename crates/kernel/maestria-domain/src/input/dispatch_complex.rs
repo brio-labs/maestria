@@ -59,8 +59,7 @@ impl KernelState {
                 .push(MaestriaEffect::ParseArtifact(ParseArtifactRequest {
                     artifact_id: input.artifact_id,
                     source_path: input.source_path,
-                    source_bytes: input.source_bytes,
-                    source_blob: None,
+                    source: ParseArtifactSource::Inline(input.source_bytes),
                 }));
         }
         Ok(output)
@@ -290,8 +289,7 @@ impl KernelState {
             .push(MaestriaEffect::ParseArtifact(ParseArtifactRequest {
                 artifact_id: input.artifact_id,
                 source_path: input.source_path,
-                source_bytes: Vec::new(),
-                source_blob: Some(input.blob_id),
+                source: ParseArtifactSource::Blob(input.blob_id),
             }));
         Ok(output)
     }

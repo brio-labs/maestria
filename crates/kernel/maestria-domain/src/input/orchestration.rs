@@ -31,6 +31,16 @@ impl KernelState {
         &mut self,
         input: ParserResult,
     ) -> Result<Vec<DomainEventEnvelope>, DomainError> {
+        let mut staged = self.clone();
+        let generated = staged.apply_parser_completed(input)?;
+        *self = staged;
+        Ok(generated)
+    }
+
+    fn apply_parser_completed(
+        &mut self,
+        input: ParserResult,
+    ) -> Result<Vec<DomainEventEnvelope>, DomainError> {
         let mut generated = Vec::new();
 
         // First-time commit from fresh detection (pending_artifacts).

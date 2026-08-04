@@ -207,8 +207,7 @@ async fn pdf_evidence_maps_page_one_to_pdf_span() -> Result<(), Box<dyn std::err
         MaestriaEffect::ParseArtifact(ParseArtifactRequest {
             artifact_id: ArtifactId::new(100),
             source_path: "/repo/doc.pdf".to_string(),
-            source_bytes: b"%PDF-1.4 fake".to_vec(),
-            source_blob: None,
+            source: maestria_domain::ParseArtifactSource::Inline(b"%PDF-1.4 fake".to_vec()),
         }),
         ctx,
         None,
@@ -286,8 +285,7 @@ async fn pdf_evidence_maps_page_n_to_pdf_span() -> Result<(), Box<dyn std::error
         MaestriaEffect::ParseArtifact(ParseArtifactRequest {
             artifact_id: ArtifactId::new(200),
             source_path: "/repo/multi.pdf".to_string(),
-            source_bytes: b"%PDF-1.7 multi-page".to_vec(),
-            source_blob: None,
+            source: maestria_domain::ParseArtifactSource::Inline(b"%PDF-1.7 multi-page".to_vec()),
         }),
         ctx,
         None,
@@ -371,8 +369,9 @@ async fn scanned_pdf_no_extractable_text_emits_terminal_parser_failure()
         MaestriaEffect::ParseArtifact(ParseArtifactRequest {
             artifact_id: ArtifactId::new(300),
             source_path: "/repo/scanned.pdf".to_string(),
-            source_bytes: b"%PDF-1.4 scanned image only".to_vec(),
-            source_blob: None,
+            source: maestria_domain::ParseArtifactSource::Inline(
+                b"%PDF-1.4 scanned image only".to_vec(),
+            ),
         }),
         ctx,
         None,

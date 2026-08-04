@@ -89,8 +89,7 @@ async fn resume_parse_uses_existing_blob_and_skips_storage()
         MaestriaEffect::ParseArtifact(ParseArtifactRequest {
             artifact_id: ArtifactId::new(200),
             source_path: "/repo/resume.rs".to_string(),
-            source_bytes: Vec::new(), // empty — bytes come from blob store
-            source_blob: Some(blob_id),
+            source: maestria_domain::ParseArtifactSource::Blob(blob_id),
         }),
         ctx,
         None,
@@ -187,8 +186,7 @@ async fn resume_parse_missing_blob_returns_failure() -> Result<(), Box<dyn std::
         MaestriaEffect::ParseArtifact(ParseArtifactRequest {
             artifact_id: ArtifactId::new(201),
             source_path: "/repo/missing.rs".to_string(),
-            source_bytes: Vec::new(),
-            source_blob: Some(blob_id),
+            source: maestria_domain::ParseArtifactSource::Blob(blob_id),
         }),
         ctx,
         None,
@@ -260,8 +258,7 @@ async fn fresh_parse_sends_parser_started_with_correct_blob_identity()
         MaestriaEffect::ParseArtifact(ParseArtifactRequest {
             artifact_id: ArtifactId::new(202),
             source_path: "/repo/fresh.rs".to_string(),
-            source_bytes: source_bytes.clone(),
-            source_blob: None,
+            source: maestria_domain::ParseArtifactSource::Inline(source_bytes.clone()),
         }),
         ctx,
         None,
@@ -466,8 +463,7 @@ async fn resume_sends_record_evidence_when_evidence_already_in_state()
         MaestriaEffect::ParseArtifact(ParseArtifactRequest {
             artifact_id: art_id,
             source_path: "/repo/repair.rs".to_string(),
-            source_bytes: Vec::new(),
-            source_blob: Some(blob_id),
+            source: maestria_domain::ParseArtifactSource::Blob(blob_id),
         }),
         ctx,
         None,

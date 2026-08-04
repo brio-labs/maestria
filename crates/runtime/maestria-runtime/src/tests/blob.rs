@@ -73,8 +73,7 @@ async fn parse_artifact_calls_blob_put_exactly_once() -> Result<(), Box<dyn std:
         MaestriaEffect::ParseArtifact(ParseArtifactRequest {
             artifact_id: ArtifactId::new(55),
             source_path: "/repo/single.rs".to_string(),
-            source_bytes: source_bytes.clone(),
-            source_blob: None,
+            source: maestria_domain::ParseArtifactSource::Inline(source_bytes.clone()),
         }),
         ctx,
         None,
@@ -151,8 +150,7 @@ async fn parse_artifact_retry_redrives_existing_evidence() -> Result<(), Box<dyn
         MaestriaEffect::ParseArtifact(ParseArtifactRequest {
             artifact_id,
             source_path: "/repo/retry.rs".to_string(),
-            source_bytes: b"retry content".to_vec(),
-            source_blob: None,
+            source: maestria_domain::ParseArtifactSource::Inline(b"retry content".to_vec()),
         }),
         ctx,
         None,

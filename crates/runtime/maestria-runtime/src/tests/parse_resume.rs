@@ -59,10 +59,9 @@ async fn resume_parse_rejects_blob_when_durable_parser_hash_differs()
 
     let result = MaestriaRuntime::test_execute_effect(
         MaestriaEffect::ParseArtifact(ParseArtifactRequest {
-            artifact_id,
+            artifact_id: ArtifactId::new(701),
             source_path: "/repo/resume-hash.rs".to_string(),
-            source_bytes: Vec::new(),
-            source_blob: Some(blob_id),
+            source: maestria_domain::ParseArtifactSource::Blob(blob_id),
         }),
         ctx,
         None,

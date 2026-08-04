@@ -36,7 +36,10 @@ fn resume_after_crash_replays_and_completes() -> Result<(), Box<dyn std::error::
     assert!(matches!(
         &output.effects[0],
         MaestriaEffect::ParseArtifact(req)
-            if req.source_blob == Some(BlobId::new(42))
+            if matches!(
+                &req.source,
+                ParseArtifactSource::Blob(blob_id) if *blob_id == BlobId::new(42)
+            )
     ));
 
     // Parser completes — clean up pending_parsers and create artifact

@@ -1,4 +1,4 @@
-use crate::effects::{MaestriaEffect, OcrEffect, ParseArtifactRequest};
+use crate::effects::{MaestriaEffect, OcrEffect, ParseArtifactRequest, ParseArtifactSource};
 use crate::events::DomainEvent;
 use crate::inputs::{OcrCompleted, OcrFailed, OcrRequested};
 use crate::{DomainError, KernelOutput};
@@ -101,8 +101,7 @@ impl crate::KernelState {
             .push(MaestriaEffect::ParseArtifact(ParseArtifactRequest {
                 artifact_id: intent.artifact_id(),
                 source_path: parser.source_path,
-                source_bytes: Vec::new(),
-                source_blob: Some(intent.source_blob()),
+                source: ParseArtifactSource::Blob(intent.source_blob()),
             }));
         Ok(output)
     }

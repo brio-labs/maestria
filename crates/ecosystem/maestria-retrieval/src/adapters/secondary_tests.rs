@@ -159,6 +159,7 @@ fn denied_relation_records(
 fn denied_relation_expander_and_seed(
     artifacts: DeniedRelationArtifacts,
     records: DeniedRelationRecords,
+    content_hash: &str,
     blobs: Arc<CountingBlobStore>,
     blob_gets: Arc<AtomicUsize>,
 ) -> Result<DeniedRelationFixture, Box<dyn std::error::Error>> {
@@ -183,9 +184,10 @@ fn denied_relation_expander_and_seed(
         evidence: records.evidence,
         blobs,
     });
+    let owner_content_hash = ContentHash::new(content_hash.to_string())?;
     let seed = candidate_from_records(
         artifacts.owner_id,
-        None,
+        Some(&owner_content_hash),
         &SourceSpan::text_span(1, 1)?,
         &seed_evidence,
         StructureNodeId::new(1),
@@ -211,7 +213,8 @@ fn denied_relation_owner_causes_zero_blob_reads_and_zero_expansion()
     });
     let artifacts = denied_relation_artifacts(&content_hash, false)?;
     let records = denied_relation_records(&artifacts, &content_hash, "neighbor")?;
-    let fixture = denied_relation_expander_and_seed(artifacts, records, blobs, blob_gets)?;
+    let fixture =
+        denied_relation_expander_and_seed(artifacts, records, &content_hash, blobs, blob_gets)?;
     let authorization = RetrievalSecurityPolicy::default()
         .authorization_context(&maestria_domain::CorpusScope::Global)?;
     let expanded = fixture.expander.expand(
@@ -247,7 +250,8 @@ fn graph_expansion_rejects_secret_bearing_chunks() -> Result<(), Box<dyn std::er
     let artifacts = denied_relation_artifacts(&content_hash, true)?;
     let records =
         denied_relation_records(&artifacts, &content_hash, "password=super-secret-value")?;
-    let fixture = denied_relation_expander_and_seed(artifacts, records, blobs, blob_gets)?;
+    let fixture =
+        denied_relation_expander_and_seed(artifacts, records, &content_hash, blobs, blob_gets)?;
     let authorization = RetrievalSecurityPolicy::default()
         .authorization_context(&maestria_domain::CorpusScope::Global)?;
     let expanded = fixture.expander.expand(

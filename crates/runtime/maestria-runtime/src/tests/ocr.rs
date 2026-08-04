@@ -338,8 +338,7 @@ async fn durable_ocr_completion_restart_resumes_parse_without_provider_retransmi
         MaestriaEffect::ParseArtifact(maestria_domain::ParseArtifactRequest {
             artifact_id: maestria_domain::ArtifactId::new(9),
             source_path: "recovered.rs".into(),
-            source_bytes: Vec::new(),
-            source_blob: Some(blob),
+            source: maestria_domain::ParseArtifactSource::Blob(blob),
         }),
         EffectExecutionContext::test_default(
             Arc::new(adapters),

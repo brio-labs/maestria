@@ -85,8 +85,10 @@ fn resume_parser_emits_parse_artifact_with_source_blob() -> Result<(), Box<dyn s
         &output.effects[0],
         MaestriaEffect::ParseArtifact(req)
             if req.artifact_id == ArtifactId::new(1)
-            && req.source_blob == Some(BlobId::new(42))
-            && req.source_bytes.is_empty()
+            && matches!(
+                &req.source,
+                ParseArtifactSource::Blob(blob_id) if *blob_id == BlobId::new(42)
+            )
     ));
     Ok(())
 }

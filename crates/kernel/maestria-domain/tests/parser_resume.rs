@@ -23,7 +23,11 @@ fn full_ingestion_flow_with_parser_started() -> Result<(), Box<dyn std::error::E
     assert_eq!(output.events.len(), 0, "detection emits no events");
     assert!(matches!(
         &output.effects[0],
-        MaestriaEffect::ParseArtifact(req) if req.source_blob.is_none()
+        MaestriaEffect::ParseArtifact(req)
+            if matches!(
+                &req.source,
+                ParseArtifactSource::Inline(bytes) if bytes.as_slice() == [1, 2, 3]
+            )
     ));
 
     // 2. ParserStarted (runtime stores blob, then reports metadata)
