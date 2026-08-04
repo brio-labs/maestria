@@ -63,6 +63,10 @@ pub use version::GOVERNANCE_VERSION;
 // ── tests ────────────────────────────────────────────────────────────
 
 #[cfg(test)]
+mod approval_tests;
+#[cfg(test)]
+mod memory_tests;
+#[cfg(test)]
 mod plan_validation_tests;
 #[cfg(test)]
 #[path = "privacy_exclusions_tests.rs"]
@@ -71,9 +75,11 @@ mod privacy_exclusions_tests;
 #[path = "prompt_injection_tests.rs"]
 mod prompt_injection_tests;
 #[cfg(test)]
+mod risk_tests;
+#[cfg(test)]
+mod scope_guard_tests;
+#[cfg(test)]
 #[path = "secret_scanning_tests.rs"]
 mod secret_scanning_tests;
-#[cfg(test)]
-mod tests;
 #[cfg(test)]
 mod validation_tests;

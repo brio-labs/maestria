@@ -1,51 +1,5 @@
 use super::*;
-use maestria_domain::{DomainEvent, DomainEventEnvelope, EvidenceId, MemoryCandidateId};
-
-fn candidate_with_artifact(id: u64, has_evidence: bool) -> maestria_domain::MemoryCandidate {
-    let mut evidence_ids = std::collections::BTreeSet::new();
-    if has_evidence {
-        evidence_ids.insert(EvidenceId::new(id));
-    }
-
-    maestria_domain::MemoryCandidate {
-        id: MemoryCandidateId::new(id),
-        claim_id: maestria_domain::ClaimId::new(id),
-        evidence_ids,
-        confidence_milli: 900,
-        security: maestria_domain::SecurityMetadata::default(),
-    }
-}
-
-#[test]
-fn scope_guard_checks_read_write_paths() {
-    let scope = Scope::new(
-        vec![std::path::PathBuf::from("/allowed/read")],
-        vec![std::path::PathBuf::from("/allowed/write")],
-        vec!["shell".into()],
-        vec!["rm -rf".into()],
-        true,
-    );
-    let guard = ScopeGuard::new(scope);
-
-    assert!(
-        guard
-            .check_read_containment(std::path::Path::new("/allowed/read/docs/note.md"))
-            .is_ok()
-    );
-    assert!(
-        guard
-            .check_write_containment(std::path::Path::new("/allowed/write/output.md"))
-            .is_ok()
-    );
-    assert!(
-        guard
-            .check_write_containment(std::path::Path::new("/allowed/read/docs/note.md"))
-            .is_err()
-    );
-    assert!(!guard.command_allowed("rm -rf /tmp"));
-    assert!(guard.harness_allowed("shell"));
-    assert!(guard.web_allowed());
-}
+use maestria_domain::{DomainEvent, DomainEventEnvelope};
 
 #[test]
 fn approval_profile_changes_decision_without_domain_changes() {
@@ -134,100 +88,6 @@ fn risky_effects_require_approval_gate() {
     ));
 }
 
-fn fixture_ocr_intent(
-    disclosure: maestria_domain::OcrDisclosure,
-) -> Result<maestria_domain::OcrIntent, Box<dyn std::error::Error>> {
-    let identity = maestria_domain::OcrProviderIdentity::new(
-        "fixture",
-        "ocr",
-        "v1",
-        "sha256:provider",
-        "prep-v1",
-    )?;
-    let source_hash = maestria_domain::ContentHash::new(maestria_domain::content_hash(b"pdf"))?;
-    Ok(maestria_domain::OcrIntent::new(
-        maestria_domain::ArtifactId::new(1),
-        maestria_domain::BlobId::new(1),
-        source_hash,
-        [1],
-        identity,
-        disclosure,
-    )?)
-}
-
-#[test]
-fn ocr_risk_requires_low_for_local_no_retention_and_governs_other_disclosures()
--> Result<(), Box<dyn std::error::Error>> {
-    let scope = ScopeGuard::new(Scope::new(
-        vec![std::path::PathBuf::from("/data")],
-        vec![std::path::PathBuf::from("/data")],
-        vec![],
-        vec![],
-        false,
-    ));
-    let classifier = DefaultRiskClassifier;
-
-    let local_no_retention = classifier.classify(
-        &maestria_domain::MaestriaEffect::Ocr(maestria_domain::OcrEffect::new(fixture_ocr_intent(
-            maestria_domain::OcrDisclosure::new(
-                false,
-                maestria_domain::OcrRetentionPolicy::NoRetention,
-            ),
-        )?)),
-        &scope,
-    );
-    assert_eq!(local_no_retention, RiskClass::Low);
-
-    let local_provider_defined = classifier.classify(
-        &maestria_domain::MaestriaEffect::Ocr(maestria_domain::OcrEffect::new(fixture_ocr_intent(
-            maestria_domain::OcrDisclosure::new(
-                false,
-                maestria_domain::OcrRetentionPolicy::ProviderDefined,
-            ),
-        )?)),
-        &scope,
-    );
-    assert_eq!(local_provider_defined, RiskClass::Medium);
-
-    let remote_no_retention = classifier.classify(
-        &maestria_domain::MaestriaEffect::Ocr(maestria_domain::OcrEffect::new(fixture_ocr_intent(
-            maestria_domain::OcrDisclosure::new(
-                true,
-                maestria_domain::OcrRetentionPolicy::NoRetention,
-            ),
-        )?)),
-        &scope,
-    );
-    assert_eq!(remote_no_retention, RiskClass::High);
-    Ok(())
-}
-
-#[test]
-fn memory_promotion_gate_requires_evidence() {
-    let candidate = candidate_with_artifact(42, false);
-    let request = MemoryPromotionRequest {
-        candidate,
-        user_approved: true,
-    };
-
-    let decision = DefaultMemoryPromotionGate.evaluate(&request);
-    assert!(matches!(
-        decision,
-        MemoryPromotionDecision::RequireEvidence { .. }
-    ));
-}
-
-#[test]
-fn memory_promotion_denies_tainted_candidate() {
-    let mut candidate = candidate_with_artifact(43, true);
-    candidate.security.prompt_injection_risk = true;
-    let decision = DefaultMemoryPromotionGate.evaluate(&MemoryPromotionRequest {
-        candidate,
-        user_approved: true,
-    });
-    assert!(matches!(decision, MemoryPromotionDecision::Deny { .. }));
-}
-
 /// ReadOnly allows IndexFullText (rebuildable projection) but still gates risky effects.
 #[test]
 fn readonly_allows_full_text_index_but_gates_risky_effects() {
@@ -241,7 +101,6 @@ fn readonly_allows_full_text_index_but_gates_risky_effects() {
     let guard = ScopeGuard::new(scope);
     let gate = DefaultApprovalGate;
 
-    // IndexFullText is a rebuildable projection — ReadOnly must allow it.
     let index_effect =
         maestria_domain::MaestriaEffect::IndexFullText(maestria_domain::IndexFullTextRequest {
             artifact_id: maestria_domain::ArtifactId::new(1),
@@ -260,7 +119,6 @@ fn readonly_allows_full_text_index_but_gates_risky_effects() {
     );
     assert_eq!(index_decision.risk, RiskClass::Low);
 
-    // QueryHarness with destructive commands must still be gated under ReadOnly.
     let harness_effect =
         maestria_domain::MaestriaEffect::QueryHarness(maestria_domain::QueryHarnessRequest {
             run_id: maestria_domain::HarnessRunId::new(1),
