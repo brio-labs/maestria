@@ -92,10 +92,7 @@ fn compute_expected_trace_state(
     lanes: &[maestria_domain::SearchTraceLane],
     options: &EnsureTraceOptions,
 ) -> ExpectedTraceState {
-    let expected_policy_fingerprint = match plan.authorization().as_ref() {
-        Some(authorization) => authorization.canonical_fingerprint(),
-        None => security_policy_fingerprint(&options.security_policy),
-    };
+    let expected_policy_fingerprint = plan.authorization().canonical_fingerprint();
     let expected_filters = applied_security_filters(plan, &options.security_policy);
     let expected_stop_reason = match options.explicit_stop_reason.clone() {
         Some(stop_reason) => stop_reason,

@@ -171,9 +171,7 @@ fn plan() -> Result<SearchPlan, Box<dyn std::error::Error>> {
             minimum_sections: 0,
         })
         .fingerprint(RetrievalModelFingerprint::new("test:visual".to_string())?)
-        .authorization(Some(
-            maestria_domain::RetrievalPolicySnapshot::global_default(),
-        ))
+        .authorization(maestria_domain::RetrievalPolicySnapshot::global_default())
         .build()?)
 }
 

@@ -108,9 +108,9 @@ pub struct SearchPlan {
     evidence_requirements: EvidenceRequirements,
     fingerprint: super::RetrievalModelFingerprint,
     /// Trusted request-bound authorization captured when the plan was created.
-    authorization: Option<crate::RetrievalPolicySnapshot>,
+    authorization: crate::RetrievalPolicySnapshot,
     original_intent: Option<SearchIntent>,
-    route_decision: Option<String>,
+    route_decision: Option<super::SearchRouteDecision>,
 }
 
 fn validate_web_budget(plan: &SearchPlan) -> Result<(), SearchCompatibilityError> {
@@ -187,7 +187,7 @@ impl SearchPlan {
         &self.fingerprint
     }
 
-    pub fn authorization(&self) -> &Option<crate::RetrievalPolicySnapshot> {
+    pub fn authorization(&self) -> &crate::RetrievalPolicySnapshot {
         &self.authorization
     }
 
@@ -195,8 +195,8 @@ impl SearchPlan {
         self.original_intent
     }
 
-    pub fn route_decision(&self) -> Option<&str> {
-        self.route_decision.as_deref()
+    pub fn route_decision(&self) -> Option<&super::SearchRouteDecision> {
+        self.route_decision.as_ref()
     }
 
     /// Returns a copy of this plan with a replaced original query.
@@ -316,7 +316,7 @@ impl SearchPlan {
     /// Returns a copy of this plan with a replaced authorization snapshot.
     pub fn with_authorization(
         mut self,
-        authorization: Option<crate::RetrievalPolicySnapshot>,
+        authorization: crate::RetrievalPolicySnapshot,
     ) -> Result<Self, SearchCompatibilityError> {
         self.authorization = authorization;
         self.validate_schema()?;
@@ -325,11 +325,6 @@ impl SearchPlan {
 
     /// Validates schema invariants before policy or runtime evaluation.
     pub fn validate_schema(&self) -> Result<(), SearchCompatibilityError> {
-        if self.authorization.is_none() {
-            return Err(SearchCompatibilityError::InvalidPlan(
-                "authorization snapshot is required",
-            ));
-        }
         if self.original_query.trim().is_empty() {
             return Err(SearchCompatibilityError::InvalidPlan(
                 "original_query must not be empty",

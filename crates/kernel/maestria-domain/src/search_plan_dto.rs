@@ -7,7 +7,7 @@ use serde::Deserialize;
 use super::search_plan::SearchPlan;
 use crate::search::{
     CorpusScope, EvidenceRequirements, FreshnessRequirement, ModalitySet, SearchBudget,
-    SearchCompatibilityError, SearchIntent, SearchStage, StopConditions,
+    SearchCompatibilityError, SearchIntent, SearchRouteDecision, SearchStage, StopConditions,
 };
 use crate::{
     CorpusSnapshotId, IndexGenerationId, QueryId, RetrievalModelFingerprint,
@@ -31,7 +31,7 @@ pub(crate) struct SearchPlanDto {
     pub(crate) fingerprint: RetrievalModelFingerprint,
     pub(crate) authorization: Option<RetrievalPolicySnapshot>,
     pub(crate) original_intent: Option<SearchIntent>,
-    pub(crate) route_decision: Option<String>,
+    pub(crate) route_decision: Option<SearchRouteDecision>,
 }
 
 impl TryFrom<SearchPlanDto> for SearchPlan {
@@ -52,7 +52,12 @@ impl TryFrom<SearchPlanDto> for SearchPlan {
             .stop_conditions(dto.stop_conditions)
             .evidence_requirements(dto.evidence_requirements)
             .fingerprint(dto.fingerprint)
-            .authorization(dto.authorization)
+            .authorization(
+                dto.authorization
+                    .ok_or(SearchCompatibilityError::InvalidPlan(
+                        "authorization snapshot is required",
+                    ))?,
+            )
             .original_intent(dto.original_intent)
             .route_decision(dto.route_decision)
             .build()

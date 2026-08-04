@@ -280,16 +280,7 @@ impl KernelState {
             .outcome
             .verify_compatibility(&input.plan)
             .map_err(|error| DomainError::SearchIncompatible { error })?;
-        let expected_policy = input
-            .plan
-            .authorization()
-            .as_ref()
-            .ok_or(DomainError::SearchIncompatible {
-                error: SearchCompatibilityError::TracePlanMismatch(
-                    "authorization snapshot is missing",
-                ),
-            })?
-            .canonical_fingerprint();
+        let expected_policy = input.plan.authorization().canonical_fingerprint();
         let found_policy = input
             .outcome
             .trace_data

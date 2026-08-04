@@ -80,9 +80,7 @@ fn plan(
         })
         .evidence_requirements(requirements)
         .fingerprint(RetrievalModelFingerprint::new("fixture-model".to_string())?)
-        .authorization(Some(
-            maestria_domain::RetrievalPolicySnapshot::global_default(),
-        ))
+        .authorization(maestria_domain::RetrievalPolicySnapshot::global_default())
         .build()?)
 }
 

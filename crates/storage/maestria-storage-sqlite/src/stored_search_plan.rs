@@ -26,6 +26,7 @@ pub(crate) use crate::payloads::stored_search_plan_policy::{
 pub(crate) use crate::payloads::stored_search_plan_requirements::{
     StoredEvidenceRequirements, StoredStopConditions,
 };
+pub(crate) use crate::payloads::stored_search_route::StoredSearchRouteDecision;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -243,7 +244,7 @@ pub(crate) struct StoredSearchPlan {
     /// Trusted request-bound authorization captured when the plan was created.
     pub(crate) authorization: Option<StoredRetrievalPolicySnapshot>,
     pub(crate) original_intent: Option<StoredSearchIntent>,
-    pub(crate) route_decision: Option<String>,
+    pub(crate) route_decision: Option<StoredSearchRouteDecision>,
 }
 
 impl StoredSearchPlan {
@@ -268,19 +269,31 @@ impl StoredSearchPlan {
                 value.evidence_requirements(),
             ),
             fingerprint: StoredRetrievalModelFingerprint::from_domain(value.fingerprint()),
-            authorization: value
-                .authorization()
-                .as_ref()
-                .map(StoredRetrievalPolicySnapshot::from_domain),
+            authorization: Some(StoredRetrievalPolicySnapshot::from_domain(
+                value.authorization(),
+            )),
             original_intent: value
                 .original_intent()
-                .as_ref()
-                .map(StoredSearchIntent::from_domain),
-            route_decision: value.route_decision().map(str::to_string),
+                .map(|value| StoredSearchIntent::from_domain(&value)),
+            route_decision: value
+                .route_decision()
+                .map(StoredSearchRouteDecision::from_domain),
         }
     }
 
     pub(crate) fn try_into_domain(self) -> Result<SearchPlan, PortError> {
+        let authorization = self
+            .authorization
+            .map(StoredRetrievalPolicySnapshot::try_into_domain)
+            .transpose()?
+            .ok_or(PortError::InvalidInputContext {
+                context: "decode stored search plan",
+                source: "authorization snapshot is required".to_string(),
+            })?;
+        let route_decision = self
+            .route_decision
+            .map(StoredSearchRouteDecision::try_into_domain)
+            .transpose()?;
         SearchPlan::builder()
             .query_id(QueryId::new(self.query_id))
             .original_query(self.original_query)
@@ -300,17 +313,13 @@ impl StoredSearchPlan {
             .stop_conditions(self.stop_conditions.try_into_domain()?)
             .evidence_requirements(self.evidence_requirements.try_into_domain()?)
             .fingerprint(self.fingerprint.try_into_domain()?)
-            .authorization(
-                self.authorization
-                    .map(StoredRetrievalPolicySnapshot::try_into_domain)
-                    .transpose()?,
-            )
+            .authorization(authorization)
             .original_intent(
                 self.original_intent
                     .map(StoredSearchIntent::try_into_domain)
                     .transpose()?,
             )
-            .route_decision(self.route_decision)
+            .route_decision(route_decision)
             .build()
             .map_err(|error| PortError::InvalidInputContext {
                 context: "decode stored search plan",
@@ -324,8 +333,8 @@ mod tests {
     use maestria_domain::{
         CorpusScope, EvidenceRequirements, FreshnessRequirement, IndexGenerationId, Modality,
         ModalitySet, QueryId, RetrievalModelFingerprint, RetrievalPolicySnapshot, ScopeId,
-        SearchBudget, SearchIntent, SearchPlan, SearchStage, Sensitivity, StopConditions,
-        TrustZone,
+        SearchBudget, SearchIntent, SearchPlan, SearchRouteDecision, SearchStage, Sensitivity,
+        StopConditions, TrustZone,
     };
     use maestria_ports::PortError;
 
@@ -362,15 +371,15 @@ mod tests {
                 minimum_sections: 0,
             })
             .fingerprint(RetrievalModelFingerprint::new("model-v1".to_string())?)
-            .authorization(Some(RetrievalPolicySnapshot {
+            .authorization(RetrievalPolicySnapshot {
                 require_trust_zone: Some(TrustZone::Verified),
                 max_sensitivity: Some(Sensitivity::Confidential),
                 require_read_allowed: true,
                 effective_scopes: Some(vec![ScopeId::new(7)]),
                 allow_unscoped_items: false,
-            }))
+            })
             .original_intent(Some(SearchIntent::SemanticDiscovery))
-            .route_decision(Some("fallback".to_string()))
+            .route_decision(Some(SearchRouteDecision::LocalTextFallback))
             .build()?)
     }
 

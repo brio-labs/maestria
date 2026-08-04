@@ -11,7 +11,7 @@ impl SearchTrace {
             && self.original_query == plan.original_query()
             && self.intent == plan.intent()
             && self.original_intent == plan.original_intent()
-            && self.route_decision.as_deref() == plan.route_decision()
+            && self.route_decision.as_ref() == plan.route_decision()
             && self.scope == *plan.scope()
             && self.corpus_snapshot == plan.corpus_snapshot()
             && self.index_generation == plan.index_generation()
@@ -306,13 +306,7 @@ impl SearchOutcome {
                 ));
             }
             trace.validate_rewrites()?;
-            let expected_policy = plan
-                .authorization()
-                .as_ref()
-                .ok_or(SearchCompatibilityError::TracePlanMismatch(
-                    "authorization snapshot is missing",
-                ))?
-                .canonical_fingerprint();
+            let expected_policy = plan.authorization().canonical_fingerprint();
             if trace.policy_fingerprint.as_deref() != Some(expected_policy.as_str()) {
                 return Err(SearchCompatibilityError::TracePlanMismatch(
                     "authorization policy differs from trusted plan snapshot",

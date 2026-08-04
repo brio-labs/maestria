@@ -33,7 +33,7 @@ fn test_deterministic_id_with_diversity() -> Result<(), SearchCompatibilityError
             minimum_corroboration: 1,
         })
         .fingerprint(RetrievalModelFingerprint::new("test".to_string())?)
-        .authorization(Some(RetrievalPolicySnapshot::global_default()))
+        .authorization(RetrievalPolicySnapshot::global_default())
         .build()?;
 
     let mut trace = SearchTrace::from_plan(

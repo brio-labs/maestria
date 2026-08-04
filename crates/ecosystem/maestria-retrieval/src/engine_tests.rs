@@ -115,9 +115,7 @@ fn dense_only_engine_claims_no_generation_and_plan_validation_fails_closed()
             maestria_domain::RetrievalModelFingerprint::new("dummy-model".to_string())
                 .map_err(|_| "valid fingerprint was rejected")?,
         )
-        .authorization(Some(
-            maestria_domain::RetrievalPolicySnapshot::global_default(),
-        ))
+        .authorization(maestria_domain::RetrievalPolicySnapshot::global_default())
         .build()
         .map_err(|_| "valid test plan was rejected")?;
 

@@ -3,10 +3,10 @@ use std::error::Error;
 use maestria_domain::{
     CorpusScope, CorpusSnapshotId, EvidenceRequirements, FreshnessRequirement, IndexGenerationId,
     Modality, ModalitySet, QueryId, RetrievalModelFingerprint, SearchBudget, SearchIntent,
-    SearchPlan, SearchStage, StopConditions,
+    SearchPlan, SearchPlanBuilder, SearchStage, StopConditions,
 };
 
-fn plan() -> Result<SearchPlan, Box<dyn Error>> {
+fn builder() -> Result<SearchPlanBuilder, Box<dyn Error>> {
     Ok(SearchPlan::builder()
         .query_id(QueryId::new(1))
         .original_query("find local notes".to_string())
@@ -31,11 +31,19 @@ fn plan() -> Result<SearchPlan, Box<dyn Error>> {
             minimum_documents: 0,
             minimum_sections: 0,
         })
-        .fingerprint(RetrievalModelFingerprint::new("test:v1".to_string())?)
-        .authorization(Some(
-            maestria_domain::RetrievalPolicySnapshot::global_default(),
-        ))
+        .fingerprint(RetrievalModelFingerprint::new("test:v1".to_string())?))
+}
+
+fn plan() -> Result<SearchPlan, Box<dyn Error>> {
+    Ok(builder()?
+        .authorization(maestria_domain::RetrievalPolicySnapshot::global_default())
         .build()?)
+}
+
+#[test]
+fn builder_rejects_missing_authorization_snapshot() -> Result<(), Box<dyn Error>> {
+    assert!(builder()?.build().is_err());
+    Ok(())
 }
 
 #[test]

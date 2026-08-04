@@ -341,9 +341,7 @@ pub fn plan(intent: SearchIntent) -> Result<SearchPlan, SearchCompatibilityError
             minimum_corroboration: 1,
         })
         .fingerprint(RetrievalModelFingerprint::new("maestria:test".to_string())?)
-        .authorization(Some(
-            maestria_domain::RetrievalPolicySnapshot::global_default(),
-        ))
+        .authorization(maestria_domain::RetrievalPolicySnapshot::global_default())
         .build()
 }
 

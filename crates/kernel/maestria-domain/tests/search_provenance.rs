@@ -86,18 +86,12 @@ fn plan() -> Result<SearchPlan, Box<dyn std::error::Error>> {
             minimum_corroboration: 2,
         })
         .fingerprint(RetrievalModelFingerprint::new("model:v1".to_owned())?)
-        .authorization(Some(
-            maestria_domain::RetrievalPolicySnapshot::global_default(),
-        ))
+        .authorization(maestria_domain::RetrievalPolicySnapshot::global_default())
         .build()?)
 }
 
 fn policy_fingerprint(plan: &SearchPlan) -> Result<String, Box<dyn std::error::Error>> {
-    Ok(plan
-        .authorization()
-        .as_ref()
-        .ok_or("fixture authorization is missing")?
-        .canonical_fingerprint())
+    Ok(plan.authorization().canonical_fingerprint())
 }
 fn artifact_version() -> Result<ArtifactVersion, Box<dyn std::error::Error>> {
     Ok(ArtifactVersion::new(

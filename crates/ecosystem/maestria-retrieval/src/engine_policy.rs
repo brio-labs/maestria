@@ -8,7 +8,7 @@ use maestria_domain::{
 use crate::traits::CandidateRetriever;
 use crate::types::{RetrievalError, RetrievalResult};
 
-use super::{RetrievalEngine, applied_security_filters, security_policy_fingerprint};
+use super::{RetrievalEngine, applied_security_filters};
 
 impl RetrievalEngine {
     pub(super) fn validate_plan(&self, plan: &SearchPlan) -> RetrievalResult<()> {
@@ -19,7 +19,7 @@ impl RetrievalEngine {
                 RetrievalError::Internal(format!("retrieval authorization denied: {error:?}"))
             })?
             .policy_snapshot();
-        if plan.authorization().as_ref() != Some(&expected_authorization) {
+        if plan.authorization() != &expected_authorization {
             return Err(RetrievalError::Internal(
                 "search plan authorization is not trusted for this runtime".to_string(),
             ));
@@ -110,10 +110,7 @@ impl RetrievalEngine {
             .iter()
             .map(|retriever| retriever.descriptor().id.clone())
             .collect();
-        let policy_fingerprint = match plan.authorization().as_ref() {
-            Some(policy) => policy.canonical_fingerprint(),
-            None => security_policy_fingerprint(&self.security_policy),
-        };
+        let policy_fingerprint = plan.authorization().canonical_fingerprint();
         let trace = SearchTrace::from_plan(
             plan,
             retriever_ids,
