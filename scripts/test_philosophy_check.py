@@ -1497,6 +1497,31 @@ dev_alias = { package = "unknown-package", version = "1" }
                 violations,
             )
 
+    def test_bypassable_validation_reports_fallible_constructor_with_public_fields(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.configure_root(root)
+            source = root / "crates" / "kernel" / "maestria-domain" / "src" / "coverage.rs"
+            source.parent.mkdir(parents=True, exist_ok=True)
+            source.write_text(
+                "pub struct Coverage {\n"
+                "    pub percent_covered: u8,\n"
+                "}\n"
+                "impl Coverage {\n"
+                "    pub fn new(percent_covered: u8) -> Result<Self, &'static str> {\n"
+                "        if percent_covered > 100 { return Err(\"out of range\"); }\n"
+                "        Ok(Self { percent_covered })\n"
+                "    }\n"
+                "}\n",
+                encoding="utf-8",
+            )
+
+            violations = PHILOSOPHY_CHECK.scan_bypassable_validation()
+            self.assertTrue(
+                any("struct `Coverage` exposes public fields" in item for item in violations),
+                violations,
+            )
+
     def test_string_typed_errors_reports_bare_string_error_type(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

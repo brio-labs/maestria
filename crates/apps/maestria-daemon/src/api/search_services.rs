@@ -98,8 +98,13 @@ fn search_evidence(candidate: &EvidenceCandidate) -> SearchEvidenceResponse {
         source: format_source_span(candidate.source_span()),
         range_start: candidate.source_span().range().start(),
         range_end: candidate.source_span().range().end(),
-        score_schema_version: candidate.scores().schema_version,
-        scores: candidate.scores().lanes.iter().map(search_score).collect(),
+        score_schema_version: candidate.scores().schema_version(),
+        scores: candidate
+            .scores()
+            .lanes()
+            .iter()
+            .map(search_score)
+            .collect(),
         trust: format!("{:?}", candidate.trust()),
         freshness: format!("{:?}", candidate.freshness()),
     }

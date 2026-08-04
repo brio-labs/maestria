@@ -18,7 +18,10 @@ impl RetrievalEngine {
             .map_err(|error| {
                 RetrievalError::Internal(format!("retrieval authorization denied: {error:?}"))
             })?
-            .policy_snapshot();
+            .policy_snapshot()
+            .map_err(|error| {
+                RetrievalError::Internal(format!("retrieval policy snapshot invalid: {error}"))
+            })?;
         if plan.authorization() != &expected_authorization {
             return Err(RetrievalError::Internal(
                 "search plan authorization is not trusted for this runtime".to_string(),

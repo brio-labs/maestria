@@ -85,11 +85,19 @@ pub struct ParsedRepresentation {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DocumentTree {
-    pub root_id: StructureNodeId,
-    pub nodes: Vec<StructureNode>,
+    root_id: StructureNodeId,
+    nodes: Vec<StructureNode>,
 }
 
 impl DocumentTree {
+    pub const fn root_id(&self) -> StructureNodeId {
+        self.root_id
+    }
+
+    pub fn nodes(&self) -> &[StructureNode] {
+        &self.nodes
+    }
+
     pub fn new(root_id: StructureNodeId, nodes: Vec<StructureNode>) -> Result<Self, PortError> {
         let mut ids = BTreeSet::new();
         for node in &nodes {

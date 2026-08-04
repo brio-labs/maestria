@@ -1,19 +1,111 @@
 use crate::{ScopeId, Sensitivity, TrustZone};
 
-/// Immutable, typed representation of the retrieval policy recorded in a search trace.
+/// Immutable, validated representation of the retrieval policy recorded in a
+/// search trace.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(try_from = "RetrievalPolicySnapshotDto")]
 pub struct RetrievalPolicySnapshot {
-    pub require_trust_zone: Option<TrustZone>,
-    pub max_sensitivity: Option<Sensitivity>,
-    pub require_read_allowed: bool,
+    require_trust_zone: Option<TrustZone>,
+    max_sensitivity: Option<Sensitivity>,
+    require_read_allowed: bool,
     /// Complete effective scope set. `None` is global; `Some` is restricted.
-    pub effective_scopes: Option<Vec<ScopeId>>,
-    pub allow_unscoped_items: bool,
+    effective_scopes: Option<Vec<ScopeId>>,
+    allow_unscoped_items: bool,
+}
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RetrievalPolicySnapshotDto {
+    require_trust_zone: Option<TrustZone>,
+    max_sensitivity: Option<Sensitivity>,
+    require_read_allowed: bool,
+    effective_scopes: Option<Vec<ScopeId>>,
+    allow_unscoped_items: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RetrievalPolicySnapshotError {
+    Empty,
+    UnknownField(String),
+    DuplicateField(String),
+    InvalidValue { field: String, value: String },
+    MissingField(String),
+    InvalidScopeSet,
+}
+
+impl std::fmt::Display for RetrievalPolicySnapshotError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Empty => formatter.write_str("policy snapshot is empty"),
+            Self::UnknownField(field) => write!(formatter, "unknown policy field: {field}"),
+            Self::DuplicateField(field) => write!(formatter, "duplicate policy field: {field}"),
+            Self::InvalidValue { field, value } => {
+                write!(formatter, "invalid value for policy field {field}: {value}")
+            }
+            Self::MissingField(field) => write!(formatter, "missing policy field: {field}"),
+            Self::InvalidScopeSet => formatter.write_str(
+                "effective scopes must be absent or a strictly increasing non-empty list",
+            ),
+        }
+    }
+}
+
+impl std::error::Error for RetrievalPolicySnapshotError {}
+
+impl TryFrom<RetrievalPolicySnapshotDto> for RetrievalPolicySnapshot {
+    type Error = RetrievalPolicySnapshotError;
+
+    fn try_from(dto: RetrievalPolicySnapshotDto) -> Result<Self, Self::Error> {
+        Self::try_new(
+            dto.require_trust_zone,
+            dto.max_sensitivity,
+            dto.require_read_allowed,
+            dto.effective_scopes,
+            dto.allow_unscoped_items,
+        )
+    }
 }
 
 impl RetrievalPolicySnapshot {
-    pub fn effective_scope_set(&self) -> Option<&[ScopeId]> {
+    pub fn try_new(
+        require_trust_zone: Option<TrustZone>,
+        max_sensitivity: Option<Sensitivity>,
+        require_read_allowed: bool,
+        effective_scopes: Option<Vec<ScopeId>>,
+        allow_unscoped_items: bool,
+    ) -> Result<Self, RetrievalPolicySnapshotError> {
+        if let Some(scopes) = &effective_scopes
+            && (scopes.is_empty() || scopes.windows(2).any(|pair| pair[0] >= pair[1]))
+        {
+            return Err(RetrievalPolicySnapshotError::InvalidScopeSet);
+        }
+        Ok(Self {
+            require_trust_zone,
+            max_sensitivity,
+            require_read_allowed,
+            effective_scopes,
+            allow_unscoped_items,
+        })
+    }
+
+    pub fn require_trust_zone(&self) -> Option<&TrustZone> {
+        self.require_trust_zone.as_ref()
+    }
+
+    pub fn max_sensitivity(&self) -> Option<&Sensitivity> {
+        self.max_sensitivity.as_ref()
+    }
+
+    pub const fn requires_read_allowed(&self) -> bool {
+        self.require_read_allowed
+    }
+
+    pub fn effective_scopes(&self) -> Option<&[ScopeId]> {
         self.effective_scopes.as_deref()
+    }
+
+    pub const fn allows_unscoped_items(&self) -> bool {
+        self.allow_unscoped_items
     }
 
     pub fn global_default() -> Self {
@@ -26,27 +118,27 @@ impl RetrievalPolicySnapshot {
         }
     }
 
-    pub fn restricted(scopes: impl IntoIterator<Item = ScopeId>) -> Self {
+    pub fn restricted(
+        scopes: impl IntoIterator<Item = ScopeId>,
+    ) -> Result<Self, RetrievalPolicySnapshotError> {
         let mut effective_scopes = scopes.into_iter().collect::<Vec<_>>();
         effective_scopes.sort();
         effective_scopes.dedup();
-        Self {
-            require_trust_zone: None,
-            max_sensitivity: None,
-            require_read_allowed: true,
-            effective_scopes: Some(effective_scopes),
-            allow_unscoped_items: false,
-        }
+        Self::try_new(None, None, true, Some(effective_scopes), false)
     }
-}
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum RetrievalPolicySnapshotError {
-    Empty,
-    UnknownField(String),
-    DuplicateField(String),
-    InvalidValue { field: String, value: String },
-    MissingField(String),
+    pub fn with_allow_unscoped_items(
+        self,
+        allow_unscoped_items: bool,
+    ) -> Result<Self, RetrievalPolicySnapshotError> {
+        Self::try_new(
+            self.require_trust_zone,
+            self.max_sensitivity,
+            self.require_read_allowed,
+            self.effective_scopes,
+            allow_unscoped_items,
+        )
+    }
 }
 
 impl RetrievalPolicySnapshot {
@@ -98,13 +190,13 @@ impl RetrievalPolicySnapshot {
             }
         }
         let effective_scopes = scope.ok_or_else(|| missing("scope"))?;
-        Ok(Self {
-            require_trust_zone: trust.ok_or_else(|| missing("trust"))?,
-            max_sensitivity: sensitivity.ok_or_else(|| missing("sensitivity"))?,
-            require_read_allowed: read_allowed.ok_or_else(|| missing("read_allowed"))?,
+        Self::try_new(
+            trust.ok_or_else(|| missing("trust"))?,
+            sensitivity.ok_or_else(|| missing("sensitivity"))?,
+            read_allowed.ok_or_else(|| missing("read_allowed"))?,
             effective_scopes,
-            allow_unscoped_items: unscoped.ok_or_else(|| missing("unscoped"))?,
-        })
+            unscoped.ok_or_else(|| missing("unscoped"))?,
+        )
     }
 }
 

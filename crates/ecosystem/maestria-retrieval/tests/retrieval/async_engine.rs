@@ -309,8 +309,13 @@ impl RetrievalEvaluator for AsyncEvaluator {
 #[tokio::test]
 async fn failed_lane_is_degraded_without_losing_successful_evidence() -> RetrievalResult<()> {
     let plan = dummy_plan()?;
-    let mut authorization = plan.authorization().clone();
-    authorization.allow_unscoped_items = true;
+    let authorization = plan
+        .authorization()
+        .clone()
+        .with_allow_unscoped_items(true)
+        .map_err(|error| {
+            RetrievalError::Internal(format!("invalid test authorization: {error}"))
+        })?;
     let plan = plan.with_authorization(authorization)?;
     let engine = RetrievalEngine::new(
         vec![
@@ -470,8 +475,13 @@ async fn stale_generation_lane_is_rejected_before_dispatch() -> RetrievalResult<
 async fn specialized_generation_is_served_while_primary_stale_lane_is_rejected()
 -> RetrievalResult<()> {
     let plan = dummy_plan()?;
-    let mut authorization = plan.authorization().clone();
-    authorization.allow_unscoped_items = true;
+    let authorization = plan
+        .authorization()
+        .clone()
+        .with_allow_unscoped_items(true)
+        .map_err(|error| {
+            RetrievalError::Internal(format!("invalid test authorization: {error}"))
+        })?;
     let plan = plan.with_authorization(authorization)?;
     let specialized_calls = Arc::new(AtomicUsize::new(0));
     let stale_calls = Arc::new(AtomicUsize::new(0));

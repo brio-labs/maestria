@@ -95,38 +95,32 @@ pub(crate) struct StoredRetrievalPolicySnapshot {
 impl StoredRetrievalPolicySnapshot {
     pub(crate) fn from_domain(value: &RetrievalPolicySnapshot) -> Self {
         Self {
-            require_trust_zone: value
-                .require_trust_zone
-                .as_ref()
-                .map(StoredTrustZone::from_domain),
-            max_sensitivity: value
-                .max_sensitivity
-                .as_ref()
-                .map(StoredSensitivity::from_domain),
-            require_read_allowed: value.require_read_allowed,
+            require_trust_zone: value.require_trust_zone().map(StoredTrustZone::from_domain),
+            max_sensitivity: value.max_sensitivity().map(StoredSensitivity::from_domain),
+            require_read_allowed: value.requires_read_allowed(),
             effective_scopes: value
-                .effective_scopes
-                .as_ref()
+                .effective_scopes()
                 .map(|scopes| scopes.iter().map(ScopeId::value).collect()),
-            allow_unscoped_items: value.allow_unscoped_items,
+            allow_unscoped_items: value.allows_unscoped_items(),
         }
     }
 
     pub(crate) fn try_into_domain(self) -> Result<RetrievalPolicySnapshot, PortError> {
-        Ok(RetrievalPolicySnapshot {
-            require_trust_zone: self
-                .require_trust_zone
+        RetrievalPolicySnapshot::try_new(
+            self.require_trust_zone
                 .map(StoredTrustZone::try_into_domain)
                 .transpose()?,
-            max_sensitivity: self
-                .max_sensitivity
+            self.max_sensitivity
                 .map(StoredSensitivity::try_into_domain)
                 .transpose()?,
-            require_read_allowed: self.require_read_allowed,
-            effective_scopes: self
-                .effective_scopes
+            self.require_read_allowed,
+            self.effective_scopes
                 .map(|scopes| scopes.into_iter().map(ScopeId::new).collect()),
-            allow_unscoped_items: self.allow_unscoped_items,
+            self.allow_unscoped_items,
+        )
+        .map_err(|error| PortError::InvalidInputContext {
+            context: "decode stored retrieval policy snapshot",
+            source: error.to_string(),
         })
     }
 }

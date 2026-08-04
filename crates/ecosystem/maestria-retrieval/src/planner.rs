@@ -132,9 +132,12 @@ impl RetrievalEngine {
             });
         self.security_policy
             .authorization_context(&scope)
-            .map(|context| context.policy_snapshot())
             .map_err(|error| {
                 RetrievalError::Internal(format!("retrieval authorization denied: {error:?}"))
+            })?
+            .policy_snapshot()
+            .map_err(|error| {
+                RetrievalError::Internal(format!("retrieval policy snapshot invalid: {error}"))
             })
     }
 

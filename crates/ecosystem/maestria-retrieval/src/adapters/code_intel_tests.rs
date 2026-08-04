@@ -225,7 +225,7 @@ fn candidate_includes_expected_code_source_provenance() -> Result<(), Box<dyn st
     );
     // The retrieval-time freshness read must be preserved as evidence in the
     // candidate provenance (R51), distinct from the indexed identity.
-    let components = &candidate.scores().lanes[0].fingerprint.components;
+    let components = &candidate.scores().lanes()[0].fingerprint.components;
     assert_eq!(
         components.get("observed_commit_sha"),
         Some(&"live-commit".to_string())
