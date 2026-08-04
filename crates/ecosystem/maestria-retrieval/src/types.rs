@@ -149,6 +149,10 @@ pub enum RetrievalError {
     Cancelled,
     #[error("Retrieval timed out")]
     Timeout,
+    #[error("artifact {artifact_id} has no immutable content-addressed version")]
+    MissingArtifactVersion {
+        artifact_id: maestria_domain::ArtifactId,
+    },
     #[error("Internal engine error: {0}")]
     Internal(String),
 }

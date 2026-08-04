@@ -63,8 +63,7 @@ async fn parse_artifact_barrier_blocks_parse_until_persistence_observable()
         MaestriaEffect::ParseArtifact(ParseArtifactRequest {
             artifact_id,
             source_path: "/repo/barrier.rs".to_string(),
-            source_bytes,
-            source_blob: None,
+            source: maestria_domain::ParseArtifactSource::Inline(source_bytes),
         }),
         ctx,
         Some(Duration::from_millis(500)),
@@ -117,10 +116,9 @@ async fn parse_artifact_barrier_timeout_without_persistence_returns_failure()
     );
     let result = MaestriaRuntime::test_execute_effect(
         MaestriaEffect::ParseArtifact(ParseArtifactRequest {
-            artifact_id,
+            artifact_id: ArtifactId::new(99),
             source_path: "/repo/timeout.rs".to_string(),
-            source_bytes: b"fn main() {}".to_vec(),
-            source_blob: None,
+            source: maestria_domain::ParseArtifactSource::Inline(b"fn main() {}".to_vec()),
         }),
         ctx,
         Some(Duration::from_millis(100)),

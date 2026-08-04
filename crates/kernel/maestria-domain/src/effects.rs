@@ -5,11 +5,16 @@ use crate::ids::{
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ParseArtifactSource {
+    Inline(Vec<u8>),
+    Blob(BlobId),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ParseArtifactRequest {
     pub artifact_id: ArtifactId,
     pub source_path: String,
-    pub source_bytes: Vec<u8>,
-    pub source_blob: Option<BlobId>,
+    pub source: ParseArtifactSource,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

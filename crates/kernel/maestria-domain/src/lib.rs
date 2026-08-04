@@ -51,9 +51,9 @@ mod types;
 
 pub use crate::effects::{
     DiagnosticEvent, FetchWebRequest, HarnessExecution, IndexFullTextRequest, IndexVectorRequest,
-    KernelOutput, MaestriaEffect, OcrEffect, ParseArtifactRequest, QueryHarnessProposalRequest,
-    QueryHarnessRequest, RequestApprovalRequest, RunValidationRequest, SearchKnowledgeRequest,
-    UpdateGraphRequest, ValidationTarget,
+    KernelOutput, MaestriaEffect, OcrEffect, ParseArtifactRequest, ParseArtifactSource,
+    QueryHarnessProposalRequest, QueryHarnessRequest, RequestApprovalRequest, RunValidationRequest,
+    SearchKnowledgeRequest, UpdateGraphRequest, ValidationTarget,
 };
 pub use crate::entities::{
     Artifact, Card, Chunk, Claim, ClaimStatus, ContentRange, ContentRangeError, Evidence,

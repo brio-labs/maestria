@@ -71,8 +71,7 @@ async fn needs_ocr_without_provider_emits_empty_pending_completion()
         MaestriaEffect::ParseArtifact(ParseArtifactRequest {
             artifact_id: ArtifactId::new(801),
             source_path: "/repo/scanned.pdf".into(),
-            source_bytes: b"scanned".to_vec(),
-            source_blob: None,
+            source: maestria_domain::ParseArtifactSource::Inline(b"scanned".to_vec()),
         }),
         ctx,
         None,
@@ -198,8 +197,7 @@ async fn completed_ocr_is_selected_even_when_older_intent_is_pending()
         MaestriaEffect::ParseArtifact(ParseArtifactRequest {
             artifact_id,
             source_path: "/repo/scanned.pdf".into(),
-            source_bytes: Vec::new(),
-            source_blob: Some(blob_id),
+            source: maestria_domain::ParseArtifactSource::Blob(blob_id),
         }),
         ctx,
         None,

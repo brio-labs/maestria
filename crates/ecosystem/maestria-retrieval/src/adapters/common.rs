@@ -89,15 +89,13 @@ pub(super) fn candidate_from_records(
     let (location, range) = evidence_location(evidence, source_span)?;
     let source_span = EvidenceSpan::new(Some(node_id), location, range)
         .map_err(|error| RetrievalError::Internal(error.to_string()))?;
-    // R27: the candidate version is content-addressed. An artifact without a
-    // content hash has no parsed version; the artifact-id placeholder keeps
-    // the record-path convention explicit instead of pretending a version
-    // exists.
     let artifact_version = match artifact_content_hash {
         Some(hash) => hash.version_id().map_err(|error| {
             RetrievalError::Internal(format!("derive artifact version identity: {error}"))
         })?,
-        None => ArtifactVersionId::new(artifact_id.value()),
+        None => {
+            return Err(RetrievalError::MissingArtifactVersion { artifact_id });
+        }
     };
     Ok(EvidenceCandidate::new(EvidenceCandidateDto {
         evidence_id: evidence.id,
@@ -202,6 +200,38 @@ mod tests {
             result,
             Err(RetrievalError::Internal(message))
                 if message.contains("belongs to artifact")
+        ));
+        Ok(())
+    }
+
+    #[test]
+    fn candidate_construction_rejects_missing_artifact_version()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let artifact_id = maestria_domain::ArtifactId::new(1);
+        let evidence = Evidence {
+            id: maestria_domain::EvidenceId::new(1),
+            artifact_id,
+            claim_id: None,
+            kind: EvidenceKind::Validation {
+                report_id: maestria_domain::ValidationReportId::new(1),
+            },
+            excerpt: "alpha".to_string(),
+            observed_at: maestria_domain::LogicalTick::new(1),
+            security: Default::default(),
+        };
+        let result = candidate_from_records(
+            artifact_id,
+            None,
+            &SourceSpan::text_span(1, 1).map_err(|e| RetrievalError::Internal(e.to_string()))?,
+            &evidence,
+            StructureNodeId::new(1),
+            RetrievalScoreSet::empty(),
+            Vec::new(),
+        );
+        assert!(matches!(
+            result,
+            Err(RetrievalError::MissingArtifactVersion { artifact_id: actual })
+                if actual == artifact_id
         ));
         Ok(())
     }

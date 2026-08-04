@@ -45,8 +45,7 @@ async fn parse_artifact_passes_exact_source_path_and_bytes()
         MaestriaEffect::ParseArtifact(ParseArtifactRequest {
             artifact_id: ArtifactId::new(42),
             source_path: "/repo/src/main.rs".to_string(),
-            source_bytes: b"fn hello() {}".to_vec(),
-            source_blob: None,
+            source: maestria_domain::ParseArtifactSource::Inline(b"fn hello() {}".to_vec()),
         }),
         ctx,
         None,
@@ -143,8 +142,7 @@ async fn parse_artifact_empty_bytes_emit_terminal_failure() -> Result<(), Box<dy
         MaestriaEffect::ParseArtifact(ParseArtifactRequest {
             artifact_id: ArtifactId::new(7),
             source_path: "/repo/empty.rs".to_string(),
-            source_bytes: Vec::new(),
-            source_blob: None,
+            source: maestria_domain::ParseArtifactSource::Inline(Vec::new()),
         }),
         ctx,
         None,
@@ -208,8 +206,7 @@ async fn parse_artifact_unsupported_parser_emits_terminal_status()
         MaestriaEffect::ParseArtifact(ParseArtifactRequest {
             artifact_id: ArtifactId::new(9),
             source_path: "/repo/data.pdf".to_string(),
-            source_bytes: b"pdf content".to_vec(),
-            source_blob: None,
+            source: maestria_domain::ParseArtifactSource::Inline(b"pdf content".to_vec()),
         }),
         ctx,
         None,
@@ -240,10 +237,9 @@ async fn parse_artifact_staged_ingestion_constructs_ephemeral_context()
     );
     let result = MaestriaRuntime::test_execute_effect(
         MaestriaEffect::ParseArtifact(ParseArtifactRequest {
-            artifact_id,
+            artifact_id: ArtifactId::new(99),
             source_path: "/repo/ghost.rs".to_string(),
-            source_bytes: b"fn gone() {}".to_vec(),
-            source_blob: None,
+            source: maestria_domain::ParseArtifactSource::Inline(b"fn gone() {}".to_vec()),
         }),
         ctx,
         None,
@@ -331,8 +327,7 @@ async fn parse_artifact_repository_error_returns_failure() -> Result<(), Box<dyn
         MaestriaEffect::ParseArtifact(ParseArtifactRequest {
             artifact_id: ArtifactId::new(99),
             source_path: "/repo/ghost.rs".to_string(),
-            source_bytes: b"fn gone() {}".to_vec(),
-            source_blob: None,
+            source: maestria_domain::ParseArtifactSource::Inline(b"fn gone() {}".to_vec()),
         }),
         ctx,
         None,
@@ -469,8 +464,7 @@ async fn parse_artifact_mismatched_content_hash_rejects_completion()
         MaestriaEffect::ParseArtifact(ParseArtifactRequest {
             artifact_id: ArtifactId::new(77),
             source_path: "/repo/mismatch.rs".to_string(),
-            source_bytes: b"fn mismatch() {}".to_vec(),
-            source_blob: None,
+            source: maestria_domain::ParseArtifactSource::Inline(b"fn mismatch() {}".to_vec()),
         }),
         ctx,
         None,
@@ -533,8 +527,7 @@ async fn parse_artifact_mismatched_artifact_id_rejects_completion_and_index_inpu
         MaestriaEffect::ParseArtifact(ParseArtifactRequest {
             artifact_id,
             source_path: "/repo/identity.rs".to_string(),
-            source_bytes: b"fn identity() {}".to_vec(),
-            source_blob: None,
+            source: maestria_domain::ParseArtifactSource::Inline(b"fn identity() {}".to_vec()),
         }),
         ctx,
         None,

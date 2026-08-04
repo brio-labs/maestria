@@ -377,3 +377,49 @@ fn parsed_tree_replaces_needs_ocr_tree_for_same_version() -> Result<(), Box<dyn 
     );
     Ok(())
 }
+
+#[test]
+fn malformed_first_parse_does_not_commit_partial_state() -> Result<(), Box<dyn std::error::Error>> {
+    let mut state = KernelState::new();
+    let artifact_id = ArtifactId::new(91);
+    let source_bytes = vec![1, 2, 3];
+    let content_hash = ContentHash::new(maestria_domain::content_hash(&source_bytes))?;
+    state.apply_input(DomainInput::ArtifactDetected(ArtifactDetected {
+        artifact_id,
+        title: "pending.md".to_string(),
+        source_path: "/tmp/pending.md".to_string(),
+        source_bytes,
+        content_hash: content_hash.clone(),
+    }))?;
+    let before = state.clone();
+
+    let error = require_error(
+        state.apply_input(DomainInput::ParserCompleted(ParserResult {
+            status: maestria_domain::ParseStatus::Parsed,
+            artifact_id,
+            artifact_version_id: ArtifactVersionId::new(91),
+            content_hash,
+            tree_root_id: Some(StructureNodeId::new(910)),
+            tree_nodes: vec![fixtures::tree_root_node(StructureNodeId::new(910))?],
+            chunks: vec![RegisterChunkInput {
+                chunk_id: ChunkId::new(911),
+                artifact_id,
+                node_id: StructureNodeId::new(999),
+                source_span: SourceSpan::text_span(1, 1)?,
+                representations: Vec::new(),
+                order: 0,
+                text: "invalid node reference".to_string(),
+            }],
+            cards: Vec::new(),
+        })),
+        "malformed first parse must fail",
+    )?;
+
+    assert!(matches!(
+        error,
+        DomainError::InternalInvariantViolation { detail }
+            if detail.contains("missing document tree node")
+    ));
+    assert_eq!(state, before);
+    Ok(())
+}
