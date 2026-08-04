@@ -73,7 +73,7 @@ fn trace_for(
         .map(|evidence_id| {
             Ok(EvidenceCandidate::new(EvidenceCandidateDto {
                 evidence_id: *evidence_id,
-                artifact_version: ArtifactVersionId::new(101),
+                artifact_version: ArtifactVersionId::new(701),
                 source_span: EvidenceSpan::new(
                     Some(StructureNodeId::new(1)),
                     SourceLocation::file("source.md".to_string(), 1, 1)?,
@@ -125,6 +125,7 @@ fn file_hit(snapshot: Option<BlobId>) -> Result<SourceGroundedSearchHit, Box<dyn
             parse_status: None,
             security: Default::default(),
         },
+        artifact_version_id: ArtifactVersionId::new(701),
         chunk: Chunk {
             id: chunk_id,
             artifact_id,
@@ -334,6 +335,40 @@ fn freeze_rejects_mismatched_candidate_provenance() -> Result<(), Box<dyn Error>
         evidence_id: current.evidence_id(),
         artifact_version: current.artifact_version(),
         source_span: mismatched_span,
+        rank: current.rank(),
+        scores: current.scores().clone(),
+        trust: current.trust(),
+        freshness: current.freshness(),
+        duplicate_cluster: current.duplicate_cluster(),
+        reasons: current.reasons().to_vec(),
+        coverage_keys: current.coverage_keys().to_vec(),
+    })?;
+    let mut pack = EvidencePack::from_plan(
+        "evidence query".to_string(),
+        Vec::new(),
+        vec![hit],
+        vec![evidence_id],
+        &plan,
+    )?;
+
+    assert!(matches!(
+        pack.freeze(trace, "policy-v1".to_string()),
+        Err(EvidencePackError::InvalidFreeze(_))
+    ));
+    Ok(())
+}
+
+#[test]
+fn freeze_rejects_artifact_version_not_owned_by_hit() -> Result<(), Box<dyn Error>> {
+    let hit = file_hit(Some(BlobId::new(23)))?;
+    let evidence_id = hit.evidence.id;
+    let plan = plan(Vec::new())?;
+    let mut trace = trace_for(&plan, &[evidence_id])?;
+    let current = trace.raw_candidates[0].clone();
+    trace.raw_candidates[0] = SearchTraceCandidate::new(SearchTraceCandidateDto {
+        evidence_id: current.evidence_id(),
+        artifact_version: ArtifactVersionId::new(101),
+        source_span: current.source_span().clone(),
         rank: current.rank(),
         scores: current.scores().clone(),
         trust: current.trust(),

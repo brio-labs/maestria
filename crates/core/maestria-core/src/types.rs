@@ -1,4 +1,4 @@
-use maestria_domain::{Artifact, Card, Chunk, ChunkId, Evidence, EvidenceId};
+use maestria_domain::{Artifact, ArtifactVersionId, Card, Chunk, ChunkId, Evidence, EvidenceId};
 
 #[path = "evidence_pack.rs"]
 mod evidence_pack;
@@ -13,6 +13,7 @@ pub use evidence_pack_lifecycle::EvidencePack;
 #[derive(Debug, Clone, PartialEq)]
 pub struct SourceGroundedSearchHit {
     pub artifact: Artifact,
+    pub artifact_version_id: ArtifactVersionId,
     pub chunk: Chunk,
     pub evidence: Evidence,
     pub score: u32,

@@ -145,6 +145,8 @@ pub enum RetrievalError {
     SearchPlan(#[from] maestria_governance::SearchPlanValidationError),
     #[error("Compatibility error: {0}")]
     Compatibility(#[from] maestria_domain::SearchCompatibilityError),
+    #[error("result limit {limit} exceeds the supported u32 maximum")]
+    InvalidResultLimit { limit: usize },
     #[error("Retrieval cancelled")]
     Cancelled,
     #[error("Retrieval timed out")]

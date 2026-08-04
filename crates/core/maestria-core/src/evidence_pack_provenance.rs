@@ -9,7 +9,7 @@ pub(crate) fn candidate_provenance_matches_hit(
     hit: &SourceGroundedSearchHit,
 ) -> bool {
     evidence_id == hit.evidence.id
-        && artifact_version.value() == hit.artifact.id.value()
+        && artifact_version == hit.artifact_version_id
         && source_span.node_id() == Some(hit.chunk.node_id)
         && source_kind_matches_hit(&hit.evidence.kind, source_span, hit)
 }
