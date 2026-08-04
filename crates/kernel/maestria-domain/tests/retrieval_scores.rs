@@ -62,8 +62,8 @@ fn current_score_schema_round_trips_canonically() -> Result<(), Box<dyn std::err
 fn current_score_schema_decodes_from_json() -> Result<(), Box<dyn std::error::Error>> {
     let json = r#"{"schema_version":2,"lanes":[{"score_kind":"lexical_bm25","raw_score":80,"raw_rank":{"state":"ranked","rank":1},"scale":{"kind":"unbounded","name":"fixture_raw","higher_is_better":true},"representation":"lexical_text_v1","fingerprint":{"identity":"fixture:lexical_text_v1","components":{"fixture":"retrieval_scores"}}}]}"#;
     let decoded: RetrievalScoreSet = serde_json::from_str(json)?;
-    assert_eq!(decoded.schema_version, 2);
-    assert_eq!(decoded.lanes.len(), 1);
+    assert_eq!(decoded.schema_version(), 2);
+    assert_eq!(decoded.lanes().len(), 1);
     let lexical = decoded
         .lane(&RetrievalScoreKind::LexicalBm25)
         .ok_or("missing decoded lexical lane")?;
@@ -224,7 +224,7 @@ fn every_declared_score_kind_has_one_canonical_wire_shape() -> Result<(), Box<dy
         })
         .collect::<Result<Vec<_>, _>>()?;
     let scores = RetrievalScoreSet::new(lanes)?;
-    assert_eq!(scores.lanes.len(), 7);
+    assert_eq!(scores.lanes().len(), 7);
     let json = serde_json::to_string(&scores)?;
     assert!(json.contains("late_interaction"));
     assert!(json.contains("graph"));
@@ -273,10 +273,16 @@ fn complete_fingerprint_and_rank_change_the_trace_identity()
     let first = trace_for(&candidate)?;
 
     let mut revised_scores = candidate.scores().clone();
-    revised_scores.lanes[0]
+    let mut revised_lane = revised_scores
+        .lanes()
+        .first()
+        .cloned()
+        .ok_or("missing dense score lane")?;
+    revised_lane
         .fingerprint
         .components
         .insert("revision".to_string(), "v2".to_string());
+    revised_scores.upsert(revised_lane)?;
     candidate = EvidenceCandidate::new(EvidenceCandidateDto {
         evidence_id: candidate.evidence_id(),
         artifact_version: candidate.artifact_version(),
@@ -292,7 +298,13 @@ fn complete_fingerprint_and_rank_change_the_trace_identity()
     assert_ne!(first, second);
 
     let mut revised_scores = candidate.scores().clone();
-    revised_scores.lanes[0].raw_rank = RetrievalRawRank::ranked(2);
+    let mut revised_lane = revised_scores
+        .lanes()
+        .first()
+        .cloned()
+        .ok_or("missing dense score lane")?;
+    revised_lane.raw_rank = RetrievalRawRank::ranked(2);
+    revised_scores.upsert(revised_lane)?;
     candidate = EvidenceCandidate::new(EvidenceCandidateDto {
         evidence_id: candidate.evidence_id(),
         artifact_version: candidate.artifact_version(),

@@ -211,8 +211,8 @@ fn mix_trace_lanes(
 
 fn mix_scores(hash: &mut u64, scores: &crate::RetrievalScoreSet, complete_score_provenance: bool) {
     if complete_score_provenance {
-        mix_hash(hash, &u64::from(scores.schema_version).to_le_bytes());
-        for score in &scores.lanes {
+        mix_hash(hash, &u64::from(scores.schema_version()).to_le_bytes());
+        for score in scores.lanes() {
             mix_debug(hash, &score.score_kind);
             mix_hash(hash, &score.raw_score.to_le_bytes());
             mix_debug(hash, &score.raw_rank);
@@ -229,7 +229,7 @@ fn mix_scores(hash: &mut u64, scores: &crate::RetrievalScoreSet, complete_score_
 
     let mut bm25 = 0_i64;
     let mut semantic = 0_i64;
-    for score in &scores.lanes {
+    for score in scores.lanes() {
         match &score.score_kind {
             crate::RetrievalScoreKind::LexicalBm25 => bm25 = score.raw_score,
             crate::RetrievalScoreKind::DenseSimilarity => semantic = score.raw_score,

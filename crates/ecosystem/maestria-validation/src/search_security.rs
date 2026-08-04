@@ -89,10 +89,10 @@ impl Validator for RetrievalSecurityValidator {
                 Ok(policy) => policy,
                 Err(error) => return Err(error),
             };
-            let required_trust = policy.require_trust_zone.clone();
-            let maximum_sensitivity = policy.max_sensitivity.clone();
-            let effective_scopes = policy.effective_scope_set();
-            let policy_allows_unscoped = policy.allow_unscoped_items;
+            let required_trust = policy.require_trust_zone().cloned();
+            let maximum_sensitivity = policy.max_sensitivity().cloned();
+            let effective_scopes = policy.effective_scopes();
+            let policy_allows_unscoped = policy.allows_unscoped_items();
             let mut required_filters = vec![
                 SearchTraceFilter::Quarantine,
                 SearchTraceFilter::PromptInjection,
@@ -100,7 +100,7 @@ impl Validator for RetrievalSecurityValidator {
             if matches!(trace.scope, CorpusScope::Restricted(_)) || effective_scopes.is_some() {
                 required_filters.push(SearchTraceFilter::Scope);
             }
-            if policy.require_read_allowed {
+            if policy.requires_read_allowed() {
                 required_filters.push(SearchTraceFilter::Acl);
             }
             if required_trust.is_some() {

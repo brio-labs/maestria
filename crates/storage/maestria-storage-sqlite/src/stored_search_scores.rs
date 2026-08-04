@@ -243,9 +243,9 @@ pub(crate) struct StoredRetrievalScoreSet {
 impl StoredRetrievalScoreSet {
     pub(crate) fn from_domain(value: &RetrievalScoreSet) -> Self {
         Self {
-            schema_version: value.schema_version,
+            schema_version: value.schema_version(),
             lanes: value
-                .lanes
+                .lanes()
                 .iter()
                 .map(StoredRetrievalLaneScore::from_domain)
                 .collect(),

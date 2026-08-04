@@ -206,7 +206,7 @@ impl EffectExecutionContext {
             }
             (Vec::new(), Vec::new(), Vec::new())
         };
-        let tree_nodes = parsed.tree.nodes.clone();
+        let tree_nodes = parsed.tree.nodes().to_vec();
         if Self::send_input(
             &self.input_tx,
             DomainInput::ParserCompleted(ParserResult {
@@ -214,7 +214,7 @@ impl EffectExecutionContext {
                 artifact_version_id: parsed.artifact_version_id,
                 content_hash: parsed.content_hash,
                 status,
-                tree_root_id: Some(parsed.tree.root_id),
+                tree_root_id: Some(parsed.tree.root_id()),
                 tree_nodes,
                 chunks,
                 cards,

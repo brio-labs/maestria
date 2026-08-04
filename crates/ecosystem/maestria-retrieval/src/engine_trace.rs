@@ -5,11 +5,11 @@ use maestria_domain::{
 
 use crate::types::RetrievalError;
 
-/// Serializes the engine-owned retrieval security policy into the provenance format
-/// consumed by the retrieval security validator.
+/// Serializes the engine-owned retrieval security policy into the provenance
+/// format consumed by the retrieval security validator.
 pub fn security_policy_fingerprint(
     policy: &maestria_governance::RetrievalSecurityPolicy,
-) -> String {
+) -> Result<String, maestria_governance::RetrievalAuthorizationError> {
     policy.canonical_fingerprint()
 }
 

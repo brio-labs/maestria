@@ -43,7 +43,7 @@ pub fn assert_parser_round_trip(
     assert_eq!(parsed.artifact_id, artifact_id);
     assert_eq!(parsed.status, ParseStatus::Parsed);
     assert!(
-        !parsed.tree.nodes.is_empty(),
+        !parsed.tree.nodes().is_empty(),
         "parsed tree must have at least one node"
     );
 

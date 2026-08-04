@@ -266,8 +266,18 @@ impl RetrievalLaneScore {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct RetrievalScoreSet {
-    pub schema_version: u16,
-    pub lanes: Vec<RetrievalLaneScore>,
+    schema_version: u16,
+    lanes: Vec<RetrievalLaneScore>,
+}
+
+impl RetrievalScoreSet {
+    pub const fn schema_version(&self) -> u16 {
+        self.schema_version
+    }
+
+    pub fn lanes(&self) -> &[RetrievalLaneScore] {
+        &self.lanes
+    }
 }
 
 impl Default for RetrievalScoreSet {

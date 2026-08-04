@@ -1831,14 +1831,13 @@ def scan_bypassable_validation() -> list[str]:
 def _function_belongs_to_struct(text: str, fn_start: int, struct_name: str) -> bool:
     """True when the fallible constructor at *fn_start* sits inside an
     `impl <struct_name> { ... }` block."""
-    before = text[:fn_start]
-    impl_matches = list(re.finditer(r"impl\s+(?:<[^>]*>\s+)?(\w+)\s*\{", before))
+    impl_matches = list(re.finditer(r"impl\s+(?:<[^>]*>\s+)?(\w+)\s*\{", text))
     for impl_match in reversed(impl_matches):
-        opening = before.find("{", impl_match.start())
-        closing = _matching_delimiter(before, opening, "{", "}")
+        opening = text.find("{", impl_match.start())
+        closing = _matching_delimiter(text, opening, "{", "}")
         if closing is None:
             continue
-        if fn_start < closing:
+        if opening < fn_start < closing:
             return impl_match.group(1) == struct_name
     return False
 

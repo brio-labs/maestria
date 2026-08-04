@@ -110,11 +110,11 @@ pub(crate) fn parsed_artifact(
         }
     };
     let mut card = summary_card_for(artifact_id, path, &chunks)?;
-    card.node_id = tree.root_id;
+    card.node_id = tree.root_id();
     card.source_span = domain_source_span(&card_source_span)?;
     let parsed_card = ParsedCard {
         card,
-        node_id: tree.root_id,
+        node_id: tree.root_id(),
         source_span: card_source_span,
     };
     let hash_string = maestria_domain::content_hash(bytes);

@@ -41,7 +41,7 @@ fn pdf_without_extractable_text_is_explicitly_ocr_pending() -> Result<(), Box<dy
     )?;
     assert_eq!(parsed.status, maestria_ports::ParseStatus::NeedsOcr);
     assert!(parsed.chunks.is_empty());
-    assert_eq!(parsed.tree.nodes.len(), 2);
+    assert_eq!(parsed.tree.nodes().len(), 2);
     Ok(())
 }
 
@@ -99,7 +99,7 @@ fn pdf_layout_regions_preserve_geometry_and_structure() -> Result<(), Box<dyn Er
             representation.kind == maestria_ports::RepresentationKind::Raw
         })
     );
-    assert!(parsed.tree.nodes.iter().any(|node| {
+    assert!(parsed.tree.nodes().iter().any(|node| {
         node.id == chunk.node_id
             && node.node_type == maestria_domain::StructureNodeType::Table
             && node.page == Some(1)

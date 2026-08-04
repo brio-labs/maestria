@@ -371,13 +371,13 @@ mod tests {
                 minimum_sections: 0,
             })
             .fingerprint(RetrievalModelFingerprint::new("model-v1".to_string())?)
-            .authorization(RetrievalPolicySnapshot {
-                require_trust_zone: Some(TrustZone::Verified),
-                max_sensitivity: Some(Sensitivity::Confidential),
-                require_read_allowed: true,
-                effective_scopes: Some(vec![ScopeId::new(7)]),
-                allow_unscoped_items: false,
-            })
+            .authorization(RetrievalPolicySnapshot::try_new(
+                Some(TrustZone::Verified),
+                Some(Sensitivity::Confidential),
+                true,
+                Some(vec![ScopeId::new(7)]),
+                false,
+            )?)
             .original_intent(Some(SearchIntent::SemanticDiscovery))
             .route_decision(Some(SearchRouteDecision::LocalTextFallback))
             .build()?)

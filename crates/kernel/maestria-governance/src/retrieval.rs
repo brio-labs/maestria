@@ -27,6 +27,7 @@ pub struct RetrievalAuthorizationContext {
 pub enum RetrievalAuthorizationError {
     ScopeDenied,
     InvalidPolicy(String),
+    InvalidPolicySnapshot(maestria_domain::RetrievalPolicySnapshotError),
 }
 
 impl std::fmt::Display for RetrievalAuthorizationError {
@@ -34,6 +35,9 @@ impl std::fmt::Display for RetrievalAuthorizationError {
         match self {
             Self::ScopeDenied => formatter.write_str("retrieval scope denied"),
             Self::InvalidPolicy(reason) => write!(formatter, "invalid retrieval policy: {reason}"),
+            Self::InvalidPolicySnapshot(error) => {
+                write!(formatter, "invalid retrieval policy snapshot: {error}")
+            }
         }
     }
 }
@@ -95,18 +99,19 @@ impl RetrievalAuthorizationContext {
         self.effective_scopes.as_ref()
     }
 
-    pub fn policy_snapshot(&self) -> RetrievalPolicySnapshot {
+    pub fn policy_snapshot(&self) -> Result<RetrievalPolicySnapshot, RetrievalAuthorizationError> {
         let effective_scopes = self
             .effective_scopes
             .as_ref()
             .map(|scopes| scopes.iter().copied().collect::<Vec<_>>());
-        RetrievalPolicySnapshot {
-            require_trust_zone: self.require_trust_zone.clone(),
-            max_sensitivity: self.max_sensitivity.clone(),
-            require_read_allowed: self.require_read_allowed,
+        RetrievalPolicySnapshot::try_new(
+            self.require_trust_zone.clone(),
+            self.max_sensitivity.clone(),
+            self.require_read_allowed,
             effective_scopes,
-            allow_unscoped_items: self.allow_unscoped_items,
-        }
+            self.allow_unscoped_items,
+        )
+        .map_err(RetrievalAuthorizationError::InvalidPolicySnapshot)
     }
 }
 
@@ -222,7 +227,7 @@ impl RetrievalSecurityPolicy {
         }
     }
 
-    pub fn policy_snapshot(&self) -> RetrievalPolicySnapshot {
+    pub fn policy_snapshot(&self) -> Result<RetrievalPolicySnapshot, RetrievalAuthorizationError> {
         let effective_scopes = match (&self.instance_scope_ids, self.required_scope_id) {
             (Some(scopes), Some(required)) => Some(
                 scopes
@@ -234,17 +239,19 @@ impl RetrievalSecurityPolicy {
             (None, Some(required)) => Some(vec![required]),
             (None, None) => None,
         };
-        RetrievalPolicySnapshot {
-            require_trust_zone: self.require_trust_zone.clone(),
-            max_sensitivity: self.max_sensitivity.clone(),
-            require_read_allowed: self.require_read_allowed,
+        RetrievalPolicySnapshot::try_new(
+            self.require_trust_zone.clone(),
+            self.max_sensitivity.clone(),
+            self.require_read_allowed,
             effective_scopes,
-            allow_unscoped_items: self.allow_unscoped_items,
-        }
+            self.allow_unscoped_items,
+        )
+        .map_err(RetrievalAuthorizationError::InvalidPolicySnapshot)
     }
 
-    pub fn canonical_fingerprint(&self) -> String {
-        self.policy_snapshot().canonical_fingerprint()
+    pub fn canonical_fingerprint(&self) -> Result<String, RetrievalAuthorizationError> {
+        self.policy_snapshot()
+            .map(|snapshot| snapshot.canonical_fingerprint())
     }
 }
 
