@@ -52,11 +52,11 @@ fn propose_memory_candidate_creates_claim_and_candidate_atomically()
         .ok_or(DomainError::MissingMemoryCandidate {
             id: MemoryCandidateId::new(90),
         })?;
-    assert_eq!(candidate.claim_id, ClaimId::new(20));
-    assert_eq!(candidate.confidence_milli, 750);
+    assert_eq!(candidate.claim_id(), ClaimId::new(20));
+    assert_eq!(candidate.confidence_milli(), 750);
     assert_eq!(
-        candidate.evidence_ids,
-        BTreeSet::from([EvidenceId::new(40)])
+        candidate.evidence_ids(),
+        &BTreeSet::from([EvidenceId::new(40)])
     );
 
     // Evidence claim_id was updated.
@@ -488,7 +488,7 @@ fn propose_memory_candidate_does_not_promote() -> Result<(), Box<dyn std::error:
         .ok_or(DomainError::MissingMemoryCandidate {
             id: MemoryCandidateId::new(90),
         })?;
-    assert!(candidate.confidence_milli >= 500);
+    assert!(candidate.confidence_milli() >= 500);
 
     Ok(())
 }

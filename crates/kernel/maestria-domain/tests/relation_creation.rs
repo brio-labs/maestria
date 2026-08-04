@@ -108,12 +108,12 @@ fn assert_memory_candidate_created_with_evidence(
             id: MemoryCandidateId::new(90),
         })?;
     assert!(candidate.has_evidence());
-    assert_eq!(candidate.claim_id, ClaimId::new(20));
+    assert_eq!(candidate.claim_id(), ClaimId::new(20));
     assert_eq!(
-        candidate.evidence_ids,
-        std::collections::BTreeSet::from([EvidenceId::new(40)])
+        candidate.evidence_ids(),
+        &std::collections::BTreeSet::from([EvidenceId::new(40)])
     );
-    assert_eq!(candidate.confidence_milli, 720);
+    assert_eq!(candidate.confidence_milli(), 720);
     Ok(())
 }
 

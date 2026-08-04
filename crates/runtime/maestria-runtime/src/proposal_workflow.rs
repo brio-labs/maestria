@@ -318,17 +318,20 @@ impl EffectExecutionContext {
             scope_id: Some(self.scope_id),
             ..maestria_domain::SecurityMetadata::default()
         };
-        let candidate = maestria_domain::MemoryCandidate {
-            id: candidate_id,
+        let candidate = maestria_domain::MemoryCandidate::try_new(
+            candidate_id,
             claim_id,
-            evidence_ids: proposal
+            proposal
                 .evidence_ids
                 .iter()
                 .copied()
                 .collect::<BTreeSet<_>>(),
-            confidence_milli: 800,
-            security: security.clone(),
-        };
+            800,
+            security.clone(),
+        )
+        .map_err(|error| {
+            EffectFailure::Failed(format!("build proposal memory candidate: {error}"))
+        })?;
         let decision = self
             .governance
             .memory_promotion_gate

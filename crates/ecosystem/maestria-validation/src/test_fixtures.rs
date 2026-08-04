@@ -80,12 +80,12 @@ pub(crate) fn task(id: u64, status: TaskStatus) -> Task {
 pub(crate) fn memory_candidate(
     id: u64,
     evidence_ids: impl IntoIterator<Item = EvidenceId>,
-) -> MemoryCandidate {
-    MemoryCandidate {
-        id: MemoryCandidateId::new(id),
-        claim_id: ClaimId::new(id),
-        evidence_ids: evidence_ids.into_iter().collect(),
-        confidence_milli: 900,
-        security: SecurityMetadata::default(),
-    }
+) -> Result<MemoryCandidate, maestria_domain::DomainError> {
+    MemoryCandidate::try_new(
+        MemoryCandidateId::new(id),
+        ClaimId::new(id),
+        evidence_ids.into_iter().collect(),
+        900,
+        SecurityMetadata::default(),
+    )
 }
