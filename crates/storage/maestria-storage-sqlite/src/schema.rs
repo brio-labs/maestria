@@ -9,11 +9,10 @@ use crate::sqlite_store::to_port_error;
 
 /// Current storage schema version supported by this adapter.
 ///
-/// Version 13 is the first post-legacy shape: the `approval_event_mapping`
-/// table is gone from the base schema, so fresh databases are distinguishable
-/// from every legacy schema. Databases at any other version are rejected;
-/// there is no migration path.
-pub(crate) const CURRENT_SCHEMA_VERSION: i64 = 13;
+/// Version 14 adds the rebuildable provider realm-read-grant projection.
+/// Version 13 is migrated forward exactly once; newer or older layouts are
+/// rejected rather than guessed.
+pub(crate) const CURRENT_SCHEMA_VERSION: i64 = 14;
 
 /// Captures the pre-migration state of the database.
 struct SchemaState {
@@ -128,6 +127,21 @@ const BASE_SCHEMA_SQL: &str = r#"CREATE TABLE IF NOT EXISTS schema_version (
      );
      CREATE INDEX IF NOT EXISTS idx_domain_events_artifact_sequence
          ON domain_events(artifact_id, sequence);
+     CREATE TABLE IF NOT EXISTS realm_read_grants (
+         token_digest TEXT NOT NULL PRIMARY KEY,
+         provider_realm TEXT NOT NULL,
+         consumer_realm TEXT NOT NULL,
+         access TEXT NOT NULL CHECK(access IN ('search_only', 'search_and_open_evidence')),
+         max_sensitivity TEXT NOT NULL CHECK(max_sensitivity IN ('public', 'internal', 'confidential', 'restricted')),
+         max_results INTEGER NOT NULL CHECK(max_results BETWEEN 1 AND 100),
+         max_evidence_bytes INTEGER NOT NULL CHECK(max_evidence_bytes BETWEEN 1 AND 65536),
+         state TEXT NOT NULL CHECK(state IN ('active', 'revoked'))
+     );
+     CREATE INDEX IF NOT EXISTS idx_realm_read_grants_consumer
+         ON realm_read_grants(consumer_realm);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_realm_read_grants_active_consumer
+        ON realm_read_grants(consumer_realm)
+        WHERE state = 'active';
      CREATE TABLE IF NOT EXISTS id_counters (
          namespace TEXT PRIMARY KEY,
          next_id INTEGER NOT NULL DEFAULT 1
@@ -297,6 +311,28 @@ fn ensure_foreign_keys(connection: &Connection) -> Result<(), PortError> {
     Ok(())
 }
 
+fn migrate_v13_to_v14(connection: &Connection) -> Result<(), PortError> {
+    connection
+        .execute_batch(
+            "CREATE TABLE IF NOT EXISTS realm_read_grants (
+                 token_digest TEXT NOT NULL PRIMARY KEY,
+                 provider_realm TEXT NOT NULL,
+                 consumer_realm TEXT NOT NULL,
+                 access TEXT NOT NULL CHECK(access IN ('search_only', 'search_and_open_evidence')),
+                 max_sensitivity TEXT NOT NULL CHECK(max_sensitivity IN ('public', 'internal', 'confidential', 'restricted')),
+                 max_results INTEGER NOT NULL CHECK(max_results BETWEEN 1 AND 100),
+                 max_evidence_bytes INTEGER NOT NULL CHECK(max_evidence_bytes BETWEEN 1 AND 65536),
+                 state TEXT NOT NULL CHECK(state IN ('active', 'revoked'))
+             );
+             CREATE INDEX IF NOT EXISTS idx_realm_read_grants_consumer
+                 ON realm_read_grants(consumer_realm);
+             CREATE UNIQUE INDEX IF NOT EXISTS idx_realm_read_grants_active_consumer
+                 ON realm_read_grants(consumer_realm)
+                 WHERE state = 'active';",
+        )
+        .map_err(to_port_error)
+}
+
 /// Brings a database to [`CURRENT_SCHEMA_VERSION`].
 ///
 /// Fresh databases (no recorded version) are created from
@@ -309,22 +345,26 @@ pub(crate) fn migrate(connection: &mut Connection) -> Result<(), PortError> {
     let transaction = connection.transaction().map_err(to_port_error)?;
     let state = detect_schema_state(&transaction)?;
     if let Some(version) = state.version
+        && version != 13
         && version != CURRENT_SCHEMA_VERSION
     {
         return Err(PortError::InternalContext {
             context: "unsupported sqlite schema version",
-            source: format!("{version}; expected {CURRENT_SCHEMA_VERSION}"),
+            source: format!("{version}; expected 13 or {CURRENT_SCHEMA_VERSION}"),
         });
     }
 
     create_base_schema(&transaction)?;
+    if state.version == Some(13) {
+        migrate_v13_to_v14(&transaction)?;
+    }
     seed_id_counters(&transaction)?;
 
     validate_domain_events_schema(&transaction)?;
     validate_event_order(&transaction)?;
     validate_stored_event_payloads(&transaction)?;
 
-    if state.version.is_none() {
+    if state.version.is_none() || state.version == Some(13) {
         transaction
             .execute(
                 "INSERT OR IGNORE INTO schema_version (version) VALUES (?1)",

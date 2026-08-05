@@ -1,5 +1,6 @@
 use crate::error::CoreError;
 use crate::error::CoreResult;
+use maestria_domain::RealmId;
 
 use std::path::PathBuf;
 
@@ -58,6 +59,7 @@ impl InstanceLayout {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InitInstanceInput {
     pub root: PathBuf,
+    pub realm_id: RealmId,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -73,12 +75,13 @@ pub struct InstanceService;
 
 impl InstanceService {
     pub fn init_instance(input: InitInstanceInput) -> CoreResult<InitInstancePlan> {
-        Self::init_instance_with_roots(input.root.clone(), vec![input.root])
+        Self::init_instance_with_roots(input.root.clone(), vec![input.root], input.realm_id)
     }
 
     pub fn init_instance_with_roots(
         root: PathBuf,
         read_roots: Vec<PathBuf>,
+        realm_id: RealmId,
     ) -> CoreResult<InitInstancePlan> {
         if root.as_os_str().is_empty() {
             return Err(CoreError::InvalidInput {
@@ -92,7 +95,8 @@ impl InstanceService {
         }
 
         let layout = InstanceLayout::for_root(root);
-        let mut manifest = crate::manifest::InstanceManifest::default_for_root(layout.root.clone());
+        let mut manifest =
+            crate::manifest::InstanceManifest::default_for_root(layout.root.clone(), realm_id);
         manifest.read_roots = read_roots;
         let manifest_contents = manifest.encode();
         Ok(InitInstancePlan {

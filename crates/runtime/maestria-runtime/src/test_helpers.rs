@@ -4,7 +4,8 @@ use maestria_ports::{
     InMemoryApprovalRepository, InMemoryArtifactRepository, InMemoryBlobStore,
     InMemoryCardRepository, InMemoryChunkRepository, InMemoryEffectJournal, InMemoryEventLog,
     InMemoryEvidenceRepository, InMemoryFullTextIndex, InMemoryGraphIndex, InMemoryHarnessAdapter,
-    InMemoryIdAllocator, InMemoryParser, InMemoryVectorIndex, InMemoryWebFetcher,
+    InMemoryIdAllocator, InMemoryParser, InMemoryRealmReadGrantRepository, InMemoryVectorIndex,
+    InMemoryWebFetcher,
 };
 use std::sync::Arc;
 
@@ -25,6 +26,7 @@ pub fn test_adapters() -> Adapters {
         chunk_repo: Arc::new(InMemoryChunkRepository::new()),
         card_repo: Arc::new(InMemoryCardRepository::new()),
         evidence_repo: Arc::new(InMemoryEvidenceRepository::new()),
+        realm_read_grant_repo: Arc::new(InMemoryRealmReadGrantRepository::new()),
         embedding_provider: None,
         ocr_provider: None,
         search_executor: None,

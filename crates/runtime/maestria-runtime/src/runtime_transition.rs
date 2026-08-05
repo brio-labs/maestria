@@ -5,6 +5,9 @@ pub(crate) struct TransitionBarriers {
     pub(crate) proposal_event_id: Option<maestria_domain::EventId>,
     pub(crate) approval: Option<(maestria_domain::EventId, maestria_domain::ApprovalId, bool)>,
     pub(crate) validation_report_id: Option<maestria_domain::ValidationReportId>,
+    pub(crate) durable_event_ids: Vec<maestria_domain::EventId>,
+    pub(crate) durable_grant_event_ids:
+        Vec<(maestria_domain::EventId, maestria_domain::GrantTokenDigest)>,
 }
 
 impl MaestriaRuntime {
@@ -123,6 +126,7 @@ impl MaestriaRuntime {
         events: &[maestria_domain::DomainEventEnvelope],
         effects: &[MaestriaEffect],
         approval_barrier: Option<(maestria_domain::ApprovalId, bool)>,
+        durable: bool,
     ) -> TransitionBarriers {
         let proposal_event_id = events.iter().find_map(|event| {
             matches!(
@@ -154,10 +158,45 @@ impl MaestriaRuntime {
             };
             Some(*report_id)
         });
+        let durable_event_ids = if durable {
+            effects
+                .iter()
+                .filter_map(|effect| match effect {
+                    MaestriaEffect::PersistEvent { envelope } => Some(envelope.id),
+                    _ => None,
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
+        let durable_grant_event_ids = if durable {
+            effects
+                .iter()
+                .filter_map(|effect| {
+                    let MaestriaEffect::PersistEvent { envelope } = effect else {
+                        return None;
+                    };
+                    let digest = match &envelope.event {
+                        maestria_domain::DomainEvent::RealmReadGrantIssued { grant } => {
+                            grant.token_digest().clone()
+                        }
+                        maestria_domain::DomainEvent::RealmReadGrantRevoked { token_digest } => {
+                            token_digest.clone()
+                        }
+                        _ => return None,
+                    };
+                    Some((envelope.id, digest))
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
         TransitionBarriers {
             proposal_event_id,
             approval,
             validation_report_id,
+            durable_event_ids,
+            durable_grant_event_ids,
         }
     }
 
@@ -181,6 +220,43 @@ impl MaestriaRuntime {
                 .await
         {
             return false;
+        }
+        if command_submitted {
+            for event_id in &barriers.durable_event_ids {
+                if !self
+                    .wait_for_event_persistence(*event_id, shutdown_token)
+                    .await
+                {
+                    return false;
+                }
+            }
+        }
+        if command_submitted {
+            let expected_grants = {
+                let state = self.state.read().await;
+                barriers
+                    .durable_grant_event_ids
+                    .iter()
+                    .map(|(event_id, digest)| {
+                        state
+                            .realm_read_grants
+                            .get(digest)
+                            .cloned()
+                            .map(|grant| (*event_id, grant))
+                    })
+                    .collect::<Option<Vec<_>>>()
+            };
+            let Some(expected_grants) = expected_grants else {
+                return false;
+            };
+            for (event_id, grant) in expected_grants {
+                if !self
+                    .wait_for_realm_read_grant_persistence(event_id, grant, shutdown_token)
+                    .await
+                {
+                    return false;
+                }
+            }
         }
         true
     }

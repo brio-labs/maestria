@@ -16,7 +16,9 @@ use crate::lock::{
     acquire as acquire_instance_write_lock, try_acquire as try_acquire_instance_write_lock,
 };
 use crate::parser_resume::verify_pending_blobs;
-use crate::projection_recovery::{reconcile_graph_projection, reconcile_projections};
+use crate::projection_recovery::{
+    reconcile_full_text_projection, reconcile_graph_projection, reconcile_projections,
+};
 use crate::recovery_inputs::RecoveryInputs;
 use crate::recovery_staging::{
     RecoveryQueueStage, queue_recovery_inputs, recovery_artifact_ids, source_artifact_ids,
@@ -133,6 +135,12 @@ impl InstanceLifecycle {
 
         reconcile_projections(&state, &store)
             .with_context(|| "reconcile projection repositories")?;
+        let search_index =
+            crate::projection_open::open_full_text_index(&layout, &state, true, true)
+                .with_context(|| "open full-text projection")?;
+        reconcile_full_text_projection(&state, &*search_index)
+            .with_context(|| "reconcile full-text projection")?;
+        drop(search_index);
         let graph_index = SqliteGraphIndex::open(layout.graph_index_dir.join("projection.db"))
             .with_context(|| format!("open graph index {}", layout.graph_index_dir.display()))?;
         reconcile_graph_projection(&state, &graph_index)

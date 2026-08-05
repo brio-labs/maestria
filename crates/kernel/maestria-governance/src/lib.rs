@@ -10,6 +10,7 @@
 /// - `approval`: module responsibility.
 /// - `autonomy`: module responsibility.
 /// - `memory`: module responsibility.
+/// - `federation`: pre-retrieval realm-grant authorization.
 /// - `plan_validation`: module responsibility.
 /// - `privacy_exclusions`: path privacy exclusions.
 /// - `prompt_injection`: prompt-injection classification.
@@ -22,6 +23,7 @@
 // ── modules ─────────────────────────────────────────────────────────
 mod approval;
 mod autonomy;
+mod federation;
 mod memory;
 mod plan_validation;
 mod privacy_exclusions;
@@ -37,6 +39,7 @@ mod version;
 
 pub use approval::{ApprovalGate, ApprovalGateDecision, ApprovalRequest, DefaultApprovalGate};
 pub use autonomy::AutonomyProfile;
+pub use federation::{FederatedGrantDecision, FederatedGrantDenial, authorize_federated_read};
 pub use memory::{
     DefaultMemoryPromotionGate, MemoryPromotionDecision, MemoryPromotionGate,
     MemoryPromotionRequest,

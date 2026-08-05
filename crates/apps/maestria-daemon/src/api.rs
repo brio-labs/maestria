@@ -11,12 +11,14 @@ mod services;
 mod token;
 
 pub use protocol::{
-    ClientOperation, ClientRequest, ClientResponse, CoverageResponse, DaemonClient,
-    EvidenceResponse, EvidenceSourceResponse, ModelAgentHarnessOutcome,
+    ClientAuthentication, ClientOperation, ClientRequest, ClientResponse, CoverageResponse,
+    DaemonClient, EvidenceResponse, EvidenceSourceResponse, FederationCredential,
+    FederationEvidenceResponse, FederationSearchResponse, ModelAgentHarnessOutcome,
     ModelAgentMemoryCandidateSummary, ModelAgentProposalPayload, ModelAgentProposalResponse,
-    ModelAgentStatusResponse, ModelAgentValidationSummary, SearchEvidenceResponse,
-    SearchRawRankResponse, SearchResponse, SearchScoreResponse, SearchScoreScaleResponse,
-    StatusResponse, TaskResponse, TaskSummary,
+    ModelAgentStatusResponse, ModelAgentValidationSummary, RealmGrantAccess,
+    RealmGrantCreatedResponse, RealmGrantListResponse, RealmGrantResponse, RealmGrantSensitivity,
+    SearchEvidenceResponse, SearchRawRankResponse, SearchResponse, SearchScoreResponse,
+    SearchScoreScaleResponse, StatusResponse, TaskResponse, TaskSummary,
 };
 pub use server::ApiServer;
 

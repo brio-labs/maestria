@@ -12,7 +12,7 @@ async fn scan_once_detects_creation_and_removal() -> Result<(), Box<dyn std::err
 
     fs::write(root.join("hello.md"), "hello world")?;
 
-    let manifest = test_manifest(root.clone());
+    let manifest = test_manifest(root.clone())?;
     let state = WatchState::default();
     let scan_permits = Arc::new(Semaphore::new(MAX_CONCURRENT_SCANS));
     let mut watcher = Watcher {
@@ -110,7 +110,7 @@ async fn changed_file_gets_new_artifact_identity_after_restart()
 
     let (input_tx, mut input_rx) = mpsc::channel(256);
     let layout = InstanceLayout::for_root(root.clone());
-    let manifest = test_manifest(root.clone());
+    let manifest = test_manifest(root.clone())?;
     let mut first_watcher = Watcher {
         layout: layout.clone(),
         manifest: manifest.clone(),
@@ -178,7 +178,7 @@ async fn state_persistence_survives_restart() -> Result<(), Box<dyn std::error::
     fs::write(root.join("survive.md"), "hello")?;
     let (tx, mut rx) = mpsc::channel(256);
     let shutdown = CancellationToken::new();
-    let manifest = test_manifest(root.clone());
+    let manifest = test_manifest(root.clone())?;
     let state = WatchState::default();
     let scan_permits = Arc::new(Semaphore::new(MAX_CONCURRENT_SCANS));
     let mut watcher = Watcher {
@@ -261,7 +261,7 @@ async fn enqueued_delivery_is_retried_after_cancelled_restart()
     fs::write(root.join("retry.md"), "retry me")?;
     let layout = InstanceLayout::for_root(root.clone());
     fs::create_dir_all(&layout.system_dir)?;
-    let manifest = test_manifest(root.clone());
+    let manifest = test_manifest(root.clone())?;
 
     let (input_tx, mut input_rx) = mpsc::channel(1);
     let shutdown = CancellationToken::new();
@@ -334,7 +334,7 @@ async fn rename_emits_source_removed_for_old_path() -> Result<(), Box<dyn std::e
 
     // Seed a file and scan once.
     fs::write(root.join("original.md"), "same content")?;
-    let manifest = test_manifest(root.clone());
+    let manifest = test_manifest(root.clone())?;
     let state = WatchState::default();
     let scan_permits = Arc::new(Semaphore::new(MAX_CONCURRENT_SCANS));
     let mut watcher = Watcher {

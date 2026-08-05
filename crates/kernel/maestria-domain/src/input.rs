@@ -6,6 +6,7 @@ mod dispatch;
 mod dispatch_complex;
 mod dispatch_crud;
 mod evidence;
+mod federation;
 mod generation;
 #[cfg(test)]
 mod generation_tests;
@@ -68,6 +69,11 @@ impl KernelState {
             }
             DomainInput::FullTextIndexCompleted(input) => {
                 self.process_full_text_index_completed(input)
+            }
+            DomainInput::IssueRealmReadGrant(input) => self.process_issue_realm_read_grant(input),
+            DomainInput::RevokeRealmReadGrant(input) => self.process_revoke_realm_read_grant(input),
+            DomainInput::RecordFederatedAccess(input) => {
+                self.process_record_federated_access(input)
             }
             DomainInput::StartFullTextIndex(input) => self.process_start_full_text_index(input),
             DomainInput::SearchCompleted(input) => self.process_search_completed(input),

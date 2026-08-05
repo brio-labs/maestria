@@ -52,7 +52,29 @@ impl RuntimeHandle {
         &self,
         input: DomainInput,
     ) -> Result<DomainApplicationResult, RuntimeSubmissionError> {
-        self.reserve_submission().await?.submit(input).await
+        self.reserve_submission()
+            .await?
+            .submit_with_preparation(input, EffectPreparation::Deferred)
+            .await
+    }
+
+    /// Submit an input whose caller must not receive success until emitted
+    /// persistence effects complete. Realm grant issue/revoke/access audit
+    /// commands use this correlated barrier.
+    ///
+    /// # Cancellation
+    /// Cancellation while reserving capacity leaves the input unsubmitted. Once
+    /// reservation succeeds, the command is sent before this future awaits the
+    /// correlated result; cancelling afterward leaves the runtime completing the
+    /// durable effect barrier while its reply is discarded.
+    pub async fn submit_durable(
+        &self,
+        input: DomainInput,
+    ) -> Result<DomainApplicationResult, RuntimeSubmissionError> {
+        self.reserve_submission()
+            .await?
+            .submit_with_preparation(input, EffectPreparation::BeforeReply)
+            .await
     }
     /// Allocate a claim ID and memory-candidate ID through the configured durable allocator.
     pub fn allocate_memory_proposal_ids(
@@ -78,11 +100,20 @@ impl RuntimeSubmissionPermit {
         self,
         input: DomainInput,
     ) -> Result<DomainApplicationResult, RuntimeSubmissionError> {
+        self.submit_with_preparation(input, EffectPreparation::Deferred)
+            .await
+    }
+
+    async fn submit_with_preparation(
+        self,
+        input: DomainInput,
+        effect_preparation: EffectPreparation,
+    ) -> Result<DomainApplicationResult, RuntimeSubmissionError> {
         let (reply_tx, reply_rx) = oneshot::channel();
         self.permit.send(RuntimeCommand {
             correlation_id: self.correlation_id,
             input,
-            effect_preparation: EffectPreparation::Deferred,
+            effect_preparation,
             reply: reply_tx,
         });
         reply_rx
@@ -94,6 +125,8 @@ impl RuntimeSubmissionPermit {
 impl MaestriaRuntime {
     pub fn handle(&self) -> RuntimeHandle {
         RuntimeHandle {
+            realm_read_grant_repo: std::sync::Arc::clone(&self.adapters.realm_read_grant_repo),
+            state: std::sync::Arc::clone(&self.state),
             input_tx: self.input_tx.clone(),
             command_tx: self.command_tx.clone(),
             next_command_id: std::sync::Arc::clone(&self.next_command_id),

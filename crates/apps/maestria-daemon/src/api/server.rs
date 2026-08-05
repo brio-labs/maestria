@@ -1,9 +1,9 @@
 use std::{future::Future, path::Path, sync::Arc};
 
 use anyhow::{Context, Result, anyhow};
-use maestria_core::InstanceLayout;
+use maestria_core::{InstanceLayout, InstanceManifest};
 use tokio::{
-    io::{AsyncReadExt, AsyncWriteExt},
+    io::AsyncWriteExt,
     net::{UnixListener, UnixStream},
     sync::{Mutex, Semaphore},
     task::{JoinHandle, JoinSet},
@@ -12,7 +12,9 @@ use tokio::{
 use tokio_util::sync::CancellationToken;
 use tracing::error;
 
-use super::protocol::ClientRequest;
+use super::protocol::{
+    ClientAuthentication, ClientRequest, FederationCredential, read_capped_ndjson_line,
+};
 use super::{
     ClientReplyOut, MAX_REQUEST_BYTES, dispatch, load_or_create_token, remove_stale_socket,
     set_private_permissions, socket_path, token_path,
@@ -38,6 +40,13 @@ impl ApiServer {
         let socket = socket_path(&layout);
         super::set_private_directory_permissions(&layout.system_dir)?;
         let token = load_or_create_token(&token_path(&layout))?;
+        let manifest_contents =
+            std::fs::read_to_string(&layout.manifest_path).with_context(|| {
+                format!("read instance manifest {}", layout.manifest_path.display())
+            })?;
+        let realm_id = InstanceManifest::decode(&manifest_contents)
+            .context("decode instance manifest for daemon realm identity")?
+            .realm_id;
         remove_stale_socket(&socket)?;
         let listener = UnixListener::bind(&socket)
             .map_err(|error| anyhow!("bind daemon socket {}: {error}", socket.display()))?;
@@ -47,6 +56,7 @@ impl ApiServer {
             token,
             socket_path: socket,
             runtime: Some(runtime),
+            realm_id,
         });
         let shutdown = CancellationToken::new();
         let connections = ConnectionTasks::default();
@@ -135,6 +145,16 @@ pub(crate) struct ApiContext {
     pub(crate) token: String,
     pub(crate) socket_path: std::path::PathBuf,
     pub(crate) runtime: Option<maestria_runtime::RuntimeHandle>,
+    pub(crate) realm_id: maestria_domain::RealmId,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) enum RequestPrincipal {
+    Instance,
+    Federation {
+        consumer_realm: maestria_domain::RealmId,
+        credential: FederationCredential,
+    },
 }
 
 async fn serve(
@@ -178,77 +198,78 @@ async fn handle_connection(
     {
         Some(Ok(Ok(line))) => line,
         Some(Ok(Err(error))) => {
-            return match run_until_shutdown(
+            return write_reply_until_shutdown(
                 &shutdown,
-                write_reply(&mut stream, None, Some(error.to_string())),
+                &mut stream,
+                None,
+                Some(error.to_string()),
             )
-            .await
-            {
-                Some(result) => result,
-                None => Ok(()),
-            };
+            .await;
         }
         Some(Err(_)) => {
-            return match run_until_shutdown(
+            return write_reply_until_shutdown(
                 &shutdown,
-                write_reply(&mut stream, None, Some("request timed out".to_string())),
+                &mut stream,
+                None,
+                Some("request timed out".to_string()),
             )
-            .await
-            {
-                Some(result) => result,
-                None => Ok(()),
-            };
+            .await;
         }
         None => return Ok(()),
     };
     let request = match serde_json::from_slice::<ClientRequest>(line.trim_ascii()) {
         Ok(request) => request,
         Err(error) => {
-            return match run_until_shutdown(
+            return write_reply_until_shutdown(
                 &shutdown,
-                write_reply(&mut stream, None, Some(format!("invalid request: {error}"))),
+                &mut stream,
+                None,
+                Some(format!("invalid request: {error}")),
             )
-            .await
-            {
-                Some(result) => result,
-                None => Ok(()),
-            };
+            .await;
         }
     };
-    if request.token != context.token {
-        return match run_until_shutdown(
-            &shutdown,
-            write_reply(&mut stream, None, Some("unauthorized".to_string())),
-        )
-        .await
+    let principal = match request.authentication {
+        ClientAuthentication::InstanceToken { token } if token == context.token => {
+            RequestPrincipal::Instance
+        }
+        ClientAuthentication::FederationGrant {
+            consumer_realm,
+            credential,
+        } if matches!(
+            &request.operation,
+            super::ClientOperation::FederationSearch { .. }
+                | super::ClientOperation::FederationEvidence { .. }
+        ) =>
         {
-            Some(result) => result,
-            None => Ok(()),
-        };
-    }
-    let response = match run_until_shutdown(&shutdown, dispatch(&context, request.operation)).await
-    {
-        Some(response) => response,
-        None => return Ok(()),
-    };
-    match response {
-        Ok(response) => {
-            match run_until_shutdown(&shutdown, write_reply(&mut stream, Some(response), None))
-                .await
-            {
-                Some(result) => result,
-                None => Ok(()),
+            RequestPrincipal::Federation {
+                consumer_realm,
+                credential,
             }
         }
-        Err(error) => match run_until_shutdown(
-            &shutdown,
-            write_reply(&mut stream, None, Some(error.to_string())),
-        )
-        .await
+        _ => {
+            return write_reply_until_shutdown(
+                &shutdown,
+                &mut stream,
+                None,
+                Some("unauthorized".to_string()),
+            )
+            .await;
+        }
+    };
+    let response =
+        match run_until_shutdown(&shutdown, dispatch(&context, principal, request.operation)).await
         {
-            Some(result) => result,
-            None => Ok(()),
-        },
+            Some(response) => response,
+            None => return Ok(()),
+        };
+    match response {
+        Ok(response) => {
+            write_reply_until_shutdown(&shutdown, &mut stream, Some(response), None).await
+        }
+        Err(error) => {
+            write_reply_until_shutdown(&shutdown, &mut stream, None, Some(error.to_string())).await
+        }
     }
 }
 
@@ -263,31 +284,20 @@ where
     }
 }
 
-async fn read_request_line(stream: &mut UnixStream) -> Result<Vec<u8>> {
-    let mut line = Vec::new();
-    let mut buf = [0u8; 1];
-    loop {
-        match stream.read_exact(&mut buf).await {
-            Ok(_) => {}
-            Err(error) if error.kind() == std::io::ErrorKind::UnexpectedEof => {
-                let message = if line.is_empty() {
-                    "connection closed before any data"
-                } else {
-                    "connection closed before end of request"
-                };
-                return Err(anyhow!(message));
-            }
-            Err(error) => return Err(error).context("read request line"),
-        }
-        if buf[0] == b'\n' {
-            break;
-        }
-        if line.len() >= MAX_REQUEST_BYTES {
-            return Err(anyhow!("request line exceeds maximum length"));
-        }
-        line.push(buf[0]);
+async fn write_reply_until_shutdown(
+    shutdown: &CancellationToken,
+    stream: &mut UnixStream,
+    response: Option<super::ClientResponse>,
+    error: Option<String>,
+) -> Result<()> {
+    match run_until_shutdown(shutdown, write_reply(stream, response, error)).await {
+        Some(result) => result,
+        None => Ok(()),
     }
-    Ok(line)
+}
+
+async fn read_request_line(stream: &mut UnixStream) -> Result<Vec<u8>> {
+    read_capped_ndjson_line(stream).await
 }
 
 async fn write_reply(
@@ -295,8 +305,15 @@ async fn write_reply(
     response: Option<super::ClientResponse>,
     error: Option<String>,
 ) -> Result<()> {
-    let reply = ClientReplyOut { response, error };
-    let mut bytes = serde_json::to_vec(&reply).context("serialise daemon response")?;
+    let mut bytes = serde_json::to_vec(&ClientReplyOut { response, error })
+        .context("serialise daemon response")?;
+    if bytes.len() + 1 > MAX_REQUEST_BYTES {
+        bytes = serde_json::to_vec(&ClientReplyOut {
+            response: None,
+            error: Some("daemon response exceeds size limit".to_string()),
+        })
+        .context("serialise bounded daemon response")?;
+    }
     bytes.push(b'\n');
     stream
         .write_all(&bytes)

@@ -1,6 +1,7 @@
 use crate::config::EffectExecutionContext;
 use maestria_domain::{DomainEvent, DomainEventEnvelope, KernelState};
-use maestria_ports::{EventFilter, PortError};
+use maestria_ports::{EventFilter, PortError, RealmReadGrantRepository};
+use std::collections::BTreeSet;
 
 impl EffectExecutionContext {
     /// Persist a domain event to the event log, then cascade persistence
@@ -132,6 +133,27 @@ impl EffectExecutionContext {
                 )
                 .await
             }
+            DomainEvent::RealmReadGrantIssued { grant } => {
+                let token_digest = grant.token_digest().clone();
+                self.persist_entity(
+                    token_digest.clone(),
+                    |state| state.realm_read_grants.get(&token_digest).cloned(),
+                    |grant| self.adapters.realm_read_grant_repo.put(grant),
+                    "realm read grant",
+                    Some("issue"),
+                )
+                .await
+            }
+            DomainEvent::RealmReadGrantRevoked { token_digest } => {
+                self.persist_entity(
+                    token_digest.clone(),
+                    |state| state.realm_read_grants.get(token_digest).cloned(),
+                    |grant| self.adapters.realm_read_grant_repo.put(grant),
+                    "realm read grant",
+                    Some("revoke"),
+                )
+                .await
+            }
             DomainEvent::PendingIndex { artifact_id, .. }
             | DomainEvent::ArtifactParsed { artifact_id, .. }
             | DomainEvent::ArtifactIndexed { artifact_id } => {
@@ -168,6 +190,24 @@ impl EffectExecutionContext {
             _ => true,
         }
     }
+}
+
+/// Rebuilds the durable current-grant projection from replayed event state.
+/// This is intentionally an adapter operation outside API handlers.
+pub fn rebuild_realm_read_grant_projection(
+    repository: &(dyn RealmReadGrantRepository + Send + Sync),
+    state: &KernelState,
+) -> Result<(), PortError> {
+    let token_digests = state
+        .realm_read_grants
+        .keys()
+        .cloned()
+        .collect::<BTreeSet<_>>();
+    repository.delete_not_in(&token_digests)?;
+    for grant in state.realm_read_grants.values().cloned() {
+        repository.put(grant)?;
+    }
+    Ok(())
 }
 
 #[cfg(test)]

@@ -1,9 +1,12 @@
 use crate::error::{CoreError, CoreResult};
+use maestria_domain::RealmId;
 use maestria_ports::RetentionPolicy;
 use std::path::PathBuf;
 
 #[path = "manifest_codec.rs"]
 mod manifest_codec;
+#[path = "manifest_encoding.rs"]
+mod manifest_encoding;
 #[path = "manifest_scope.rs"]
 mod manifest_scope;
 
@@ -13,7 +16,7 @@ use manifest_codec::{
 };
 use manifest_scope::{lexical_normalize, path_matches_pattern};
 
-const MANIFEST_SCHEMA_VERSION: u32 = 1;
+const MANIFEST_SCHEMA_VERSION: u32 = 2;
 const DEFAULT_EXCLUSIONS: [&str; 11] = [
     ".env",
     ".env.*",
@@ -74,6 +77,7 @@ pub struct VisualConfig {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InstanceManifest {
     pub schema_version: u32,
+    pub realm_id: RealmId,
     pub root: PathBuf,
     pub read_roots: Vec<PathBuf>,
     pub excluded_patterns: Vec<String>,
@@ -83,9 +87,10 @@ pub struct InstanceManifest {
 }
 
 impl InstanceManifest {
-    pub fn default_for_root(root: PathBuf) -> Self {
+    pub fn default_for_root(root: PathBuf, realm_id: RealmId) -> Self {
         Self {
             schema_version: MANIFEST_SCHEMA_VERSION,
+            realm_id,
             read_roots: vec![root.clone()],
             root,
             excluded_patterns: DEFAULT_EXCLUSIONS
@@ -98,86 +103,31 @@ impl InstanceManifest {
         }
     }
 
-    pub fn encode(&self) -> String {
-        let mut lines = vec![
-            format!("schema_version={}", self.schema_version),
-            format!("root={}", self.root.display()),
-        ];
-        lines.extend(
-            self.read_roots
-                .iter()
-                .map(|root| format!("read_root={}", root.display())),
-        );
-        lines.extend(
-            self.excluded_patterns
-                .iter()
-                .map(|pattern| format!("excluded_pattern={pattern}")),
-        );
-        if let Some(embeddings) = &self.embeddings {
-            lines.push(format!("embedding_enabled={}", embeddings.enabled));
-            lines.push(format!("embedding_endpoint={}", embeddings.endpoint));
-            lines.push(format!("embedding_provider={}", embeddings.provider));
-            lines.push(format!("embedding_revision={}", embeddings.revision));
-            lines.push(format!(
-                "embedding_artifact_hash={}",
-                embeddings.artifact_hash
-            ));
-            lines.push(format!(
-                "embedding_preprocessing_version={}",
-                embeddings.preprocessing_version
-            ));
-            lines.push(format!(
-                "embedding_remote_provider={}",
-                embeddings.remote_provider
-            ));
-            lines.push(format!(
-                "embedding_retention_policy={}",
-                retention_policy_name(&embeddings.retention_policy)
-            ));
-            lines.push(format!("embedding_model={}", embeddings.model));
-            lines.push(format!("embedding_dimensions={}", embeddings.dimensions));
-        }
-        if let Some(ocr) = &self.ocr {
-            lines.push(format!("ocr_enabled={}", ocr.enabled));
-            lines.push(format!("ocr_endpoint={}", ocr.endpoint));
-            lines.push(format!("ocr_provider={}", ocr.provider));
-            lines.push(format!("ocr_revision={}", ocr.revision));
-            lines.push(format!("ocr_artifact_hash={}", ocr.artifact_hash));
-            lines.push(format!(
-                "ocr_preprocessing_version={}",
-                ocr.preprocessing_version
-            ));
-            lines.push(format!("ocr_model={}", ocr.model));
-        }
-        if let Some(visual) = &self.visual {
-            lines.push(format!("visual_enabled={}", visual.enabled));
-            lines.push(format!("visual_endpoint={}", visual.endpoint));
-            lines.push(format!("visual_provider={}", visual.provider));
-            lines.push(format!("visual_revision={}", visual.revision));
-            lines.push(format!("visual_artifact_hash={}", visual.artifact_hash));
-            lines.push(format!(
-                "visual_preprocessing_version={}",
-                visual.preprocessing_version
-            ));
-            lines.push(format!("visual_remote_provider={}", visual.remote_provider));
-            lines.push(format!(
-                "visual_retention_policy={}",
-                retention_policy_name(&visual.retention_policy)
-            ));
-            lines.push(format!("visual_model={}", visual.model));
-            lines.push(format!("visual_dimensions={}", visual.dimensions));
-        }
-        lines.push(String::new());
-        lines.join("\n")
-    }
-
     pub fn decode(contents: &str) -> CoreResult<Self> {
         let fields = parse_manifest_fields(contents)?;
+        Self::from_fields(fields, MANIFEST_SCHEMA_VERSION, None)
+    }
+
+    /// Performs the explicit v1-to-v2 manifest migration.
+    ///
+    /// Existing manifests deliberately remain unreadable as v2 until this
+    /// boundary is invoked with a newly generated, validated realm identity.
+    pub fn migrate_v1(contents: &str, realm_id: RealmId) -> CoreResult<Self> {
+        let fields = parse_manifest_fields(contents)?;
+        Self::from_fields(fields, 1, Some(realm_id))
+    }
+
+    fn from_fields(
+        fields: ManifestFields,
+        expected_schema_version: u32,
+        migrated_realm_id: Option<RealmId>,
+    ) -> CoreResult<Self> {
         let embeddings = parse_embedding_config(&fields)?;
         let ocr = parse_ocr_config(&fields)?;
         let visual = parse_visual_config(&fields)?;
         let ManifestFields {
             schema_version,
+            realm_id: parsed_realm_id,
             root,
             read_roots,
             excluded_patterns,
@@ -187,11 +137,29 @@ impl InstanceManifest {
         let schema_version = schema_version.ok_or_else(|| CoreError::InvalidInput {
             message: "instance manifest is missing schema_version".to_string(),
         })?;
-        if schema_version != MANIFEST_SCHEMA_VERSION {
+        if schema_version != expected_schema_version {
             return Err(CoreError::InvalidInput {
                 message: format!("unsupported instance manifest schema version {schema_version}"),
             });
         }
+        let realm_id = match migrated_realm_id {
+            Some(realm_id) if parsed_realm_id.is_none() => realm_id,
+            Some(_) => {
+                return Err(CoreError::InvalidManifest {
+                    key: "realm_id".to_string(),
+                    reason: "schema version 1 must not define a realm identity".to_string(),
+                });
+            }
+            None => {
+                let realm_id = parsed_realm_id.ok_or_else(|| CoreError::InvalidInput {
+                    message: "instance manifest is missing realm_id".to_string(),
+                })?;
+                RealmId::try_from(realm_id).map_err(|error| CoreError::InvalidManifest {
+                    key: "realm_id".to_string(),
+                    reason: error.to_string(),
+                })?
+            }
+        };
         let root = root.ok_or_else(|| CoreError::InvalidInput {
             message: "instance manifest is missing root".to_string(),
         })?;
@@ -207,7 +175,8 @@ impl InstanceManifest {
         }
 
         Ok(Self {
-            schema_version,
+            schema_version: MANIFEST_SCHEMA_VERSION,
+            realm_id,
             root,
             read_roots,
             excluded_patterns,
@@ -242,12 +211,16 @@ impl InstanceManifest {
 mod tests {
     use super::*;
     use std::path::Path;
+    fn test_realm_id() -> Result<RealmId, Box<dyn std::error::Error>> {
+        Ok(RealmId::try_from("a".repeat(64))?)
+    }
 
     #[test]
     fn manifest_round_trips_ordered_roots_and_exclusions() -> Result<(), Box<dyn std::error::Error>>
     {
         let manifest = InstanceManifest {
             schema_version: MANIFEST_SCHEMA_VERSION,
+            realm_id: test_realm_id()?,
             root: PathBuf::from("/tmp/instance"),
             read_roots: vec![PathBuf::from("/tmp/notes"), PathBuf::from("/tmp/project")],
             excluded_patterns: vec![".env".to_string(), "*.key".to_string()],
@@ -265,6 +238,7 @@ mod tests {
     fn embedding_configuration_round_trips() -> Result<(), Box<dyn std::error::Error>> {
         let manifest = InstanceManifest {
             schema_version: MANIFEST_SCHEMA_VERSION,
+            realm_id: test_realm_id()?,
             root: PathBuf::from("/tmp/instance"),
             read_roots: vec![PathBuf::from("/tmp/instance")],
             excluded_patterns: vec![".env".to_string()],
@@ -294,6 +268,7 @@ mod tests {
     fn ocr_configuration_round_trips() -> Result<(), Box<dyn std::error::Error>> {
         let manifest = InstanceManifest {
             schema_version: MANIFEST_SCHEMA_VERSION,
+            realm_id: test_realm_id()?,
             root: PathBuf::from("/tmp/instance"),
             read_roots: vec![PathBuf::from("/tmp/instance")],
             excluded_patterns: vec![".env".to_string()],
@@ -319,6 +294,7 @@ mod tests {
     fn visual_configuration_round_trips() -> Result<(), Box<dyn std::error::Error>> {
         let manifest = InstanceManifest {
             schema_version: MANIFEST_SCHEMA_VERSION,
+            realm_id: test_realm_id()?,
             root: PathBuf::from("/tmp/instance"),
             read_roots: vec![PathBuf::from("/tmp/instance")],
             excluded_patterns: vec![".env".to_string()],
@@ -343,48 +319,73 @@ mod tests {
         assert_eq!(InstanceManifest::decode(&manifest.encode())?, manifest);
         Ok(())
     }
+    #[test]
+    fn migration_requires_explicit_realm_identity_and_preserves_v1_scope()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let v1 = "schema_version=1\nroot=/tmp/instance\nread_root=/tmp/notes\n\
+            read_root=/tmp/project\nexcluded_pattern=.env\nexcluded_pattern=*.key\n";
+        assert!(InstanceManifest::decode(v1).is_err());
+
+        let migrated = InstanceManifest::migrate_v1(v1, test_realm_id()?)?;
+        assert_eq!(migrated.schema_version, MANIFEST_SCHEMA_VERSION);
+        assert_eq!(migrated.realm_id, test_realm_id()?);
+        assert_eq!(
+            migrated.read_roots,
+            vec![PathBuf::from("/tmp/notes"), PathBuf::from("/tmp/project")]
+        );
+        assert_eq!(InstanceManifest::decode(&migrated.encode())?, migrated);
+        Ok(())
+    }
 
     #[test]
-    fn embedding_configuration_rejects_remote_endpoint() {
-        let contents = "schema_version=1\nroot=/tmp/instance\nread_root=/tmp/instance\n\
+    fn embedding_configuration_rejects_remote_endpoint() -> Result<(), Box<dyn std::error::Error>> {
+        let contents = "schema_version=2\nrealm_id=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\nroot=/tmp/instance\nread_root=/tmp/instance\n\
             excluded_pattern=.env\nembedding_enabled=true\n\
             embedding_endpoint=https://example.com/v1/embeddings\n\
             embedding_model=remote\nembedding_dimensions=3\n";
         let result = InstanceManifest::decode(contents);
         assert!(matches!(result, Err(CoreError::InvalidManifest { .. })));
+        Ok(())
     }
 
     #[test]
-    fn embedding_configuration_rejects_partial_values() {
-        let contents = "schema_version=1\nroot=/tmp/instance\nread_root=/tmp/instance\n\
+    fn embedding_configuration_rejects_partial_values() -> Result<(), Box<dyn std::error::Error>> {
+        let contents = "schema_version=2\nrealm_id=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\nroot=/tmp/instance\nread_root=/tmp/instance\n\
             excluded_pattern=.env\nembedding_enabled=true\n";
         let result = InstanceManifest::decode(contents);
         assert!(matches!(result, Err(CoreError::InvalidManifest { .. })));
+        Ok(())
     }
 
     #[test]
-    fn default_manifest_scopes_reads_to_instance_root() {
-        let manifest = InstanceManifest::default_for_root(PathBuf::from("/tmp/instance"));
+    fn default_manifest_scopes_reads_to_instance_root() -> Result<(), Box<dyn std::error::Error>> {
+        let manifest =
+            InstanceManifest::default_for_root(PathBuf::from("/tmp/instance"), test_realm_id()?);
         assert_eq!(manifest.read_roots, vec![PathBuf::from("/tmp/instance")]);
         assert!(manifest.excluded_patterns.iter().any(|item| item == ".env"));
+        Ok(())
     }
 
     #[test]
-    fn source_scope_rejects_escape_and_sensitive_paths() {
-        let manifest = InstanceManifest::default_for_root(PathBuf::from("/tmp/instance"));
+    fn source_scope_rejects_escape_and_sensitive_paths() -> Result<(), Box<dyn std::error::Error>> {
+        let manifest =
+            InstanceManifest::default_for_root(PathBuf::from("/tmp/instance"), test_realm_id()?);
         assert!(manifest.allows_source(Path::new("/tmp/instance/notes.md")));
         assert!(!manifest.allows_source(Path::new("/tmp/instance/../outside.md")));
         assert!(!manifest.allows_source(Path::new("/tmp/instance/.env.local")));
         assert!(!manifest.allows_source(Path::new("/tmp/other/notes.md")));
+        Ok(())
     }
 
     #[test]
-    fn source_scope_rejects_relative_escape_above_root() {
-        let manifest = InstanceManifest::default_for_root(PathBuf::from("workspace"));
+    fn source_scope_rejects_relative_escape_above_root() -> Result<(), Box<dyn std::error::Error>> {
+        let manifest =
+            InstanceManifest::default_for_root(PathBuf::from("workspace"), test_realm_id()?);
         assert!(manifest.allows_source(Path::new("workspace/notes.md")));
         // `..` above the root must not collapse into an in-scope path.
         assert!(!manifest.allows_source(Path::new("../workspace/notes.md")));
         assert!(!manifest.allows_source(Path::new("workspace/../outside.md")));
         assert!(!manifest.allows_source(Path::new("../secret.md")));
+        Ok(())
     }
 }

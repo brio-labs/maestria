@@ -1,11 +1,19 @@
-use std::{collections::BTreeMap, fs, path::PathBuf};
+use std::collections::BTreeMap;
 
-use anyhow::{Context, Result, anyhow};
-use maestria_core::InstanceLayout;
+use maestria_domain::RealmId;
 use serde::{Deserialize, Serialize};
-use tokio::{
-    io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
-    net::UnixStream,
+
+#[path = "protocol_client.rs"]
+mod protocol_client;
+#[path = "protocol_federation.rs"]
+mod protocol_federation;
+
+pub use protocol_client::DaemonClient;
+pub(crate) use protocol_client::{ClientReplyOut, read_capped_ndjson_line};
+pub use protocol_federation::{
+    ClientAuthentication, FederationCredential, FederationEvidenceResponse,
+    FederationSearchResponse, RealmGrantAccess, RealmGrantCreatedResponse, RealmGrantListResponse,
+    RealmGrantResponse, RealmGrantSensitivity,
 };
 
 const MAX_SEARCH_LIMIT: usize = 100;
@@ -36,11 +44,36 @@ pub enum ClientOperation {
         approval_id: u64,
         approved: bool,
     },
+    RealmGrantCreate {
+        consumer_realm: RealmId,
+        access: RealmGrantAccess,
+        max_sensitivity: RealmGrantSensitivity,
+        max_results: usize,
+        max_evidence_bytes: usize,
+    },
+    RealmGrantList,
+    RealmGrantRevoke {
+        token_digest: String,
+    },
+    InstallFederationBinding {
+        provider_realm: RealmId,
+        provider_socket_path: String,
+        credential: FederationCredential,
+    },
+    FederationSearch {
+        provider_realm: RealmId,
+        query: String,
+        limit: usize,
+    },
+    FederationEvidence {
+        provider_realm: RealmId,
+        evidence_id: u64,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ClientRequest {
-    pub token: String,
+    pub authentication: ClientAuthentication,
     pub operation: ClientOperation,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -52,6 +85,11 @@ pub enum ClientResponse {
     Task(TaskResponse),
     ModelAgentProposal(ModelAgentProposalResponse),
     ModelAgentStatus(ModelAgentStatusResponse),
+    RealmGrantCreated(RealmGrantCreatedResponse),
+    RealmGrantList(RealmGrantListResponse),
+    FederationBindingInstalled,
+    FederationSearch(FederationSearchResponse),
+    FederationEvidence(FederationEvidenceResponse),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -277,98 +315,10 @@ pub struct ModelAgentMemoryCandidateSummary {
     pub decision: String,
 }
 
-#[derive(Debug, Deserialize)]
-pub(crate) struct ClientReply {
-    pub(crate) response: Option<ClientResponse>,
-    pub(crate) error: Option<String>,
-}
-
-#[derive(Serialize)]
-pub(crate) struct ClientReplyOut {
-    pub(crate) response: Option<ClientResponse>,
-    pub(crate) error: Option<String>,
-}
-
-#[derive(Debug, Clone)]
-pub struct DaemonClient {
-    socket_path: PathBuf,
-    token: String,
-}
-
-impl DaemonClient {
-    pub fn from_instance(layout: &InstanceLayout) -> Result<Self> {
-        let token_path = super::token_path(layout);
-        let token = fs::read_to_string(&token_path)
-            .with_context(|| format!("read daemon token {}", token_path.display()))?
-            .trim()
-            .to_string();
-        super::validate_token(&token)?;
-        Ok(Self {
-            socket_path: super::socket_path(layout),
-            token,
-        })
-    }
-
-    pub fn new(socket_path: PathBuf, token_path: PathBuf) -> Result<Self> {
-        let token = fs::read_to_string(&token_path)
-            .with_context(|| format!("read daemon token {}", token_path.display()))?
-            .trim()
-            .to_string();
-        super::validate_token(&token)?;
-        Ok(Self { socket_path, token })
-    }
-
-    /// Send an operation to the daemon and return its response.
-    ///
-    /// # Cancellation
-    /// Dropping the future closes the socket and abandons the request. No server-side
-    /// cancellation is guaranteed.
-    pub async fn request(&self, operation: ClientOperation) -> Result<ClientResponse> {
-        if let ClientOperation::Search { limit, .. } = operation
-            && !(1..=MAX_SEARCH_LIMIT).contains(&limit)
-        {
-            return Err(anyhow!(
-                "search limit must be between 1 and {MAX_SEARCH_LIMIT}"
-            ));
-        }
-        let mut stream = UnixStream::connect(&self.socket_path)
-            .await
-            .with_context(|| format!("connect daemon socket {}", self.socket_path.display()))?;
-        let request = ClientRequest {
-            token: self.token.clone(),
-            operation,
-        };
-        let mut line = serde_json::to_vec(&request).context("encode daemon request")?;
-        line.push(b'\n');
-        if line.len() > super::MAX_REQUEST_BYTES {
-            return Err(anyhow!("daemon request exceeds size limit"));
-        }
-        stream
-            .write_all(&line)
-            .await
-            .context("send daemon request")?;
-        let mut reader = BufReader::new(stream);
-        let mut response_line = Vec::new();
-        reader
-            .read_until(b'\n', &mut response_line)
-            .await
-            .context("read daemon response")?;
-        if response_line.len() > super::MAX_REQUEST_BYTES {
-            return Err(anyhow!("daemon response exceeds size limit"));
-        }
-        let reply: ClientReply =
-            serde_json::from_slice(response_line.trim_ascii()).context("decode daemon response")?;
-        match (reply.response, reply.error) {
-            (Some(response), None) => Ok(response),
-            (None, Some(error)) => Err(anyhow!("daemon request rejected: {error}")),
-            _ => Err(anyhow!("daemon returned malformed response envelope")),
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tokio::io::AsyncWriteExt;
 
     #[test]
     fn model_agent_proposal_payload_round_trips() -> Result<(), Box<dyn std::error::Error>> {
@@ -390,6 +340,51 @@ mod tests {
         let deserialized: ModelAgentProposalPayload = serde_json::from_str(&json)?;
         assert_eq!(deserialized.run_id, 1);
         assert_eq!(deserialized.query, "test query");
+        Ok(())
+    }
+
+    #[test]
+    fn federation_credential_is_redacted_and_authentication_is_tagged()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let credential = FederationCredential::try_from("a".repeat(64))?;
+        let request = ClientRequest {
+            authentication: ClientAuthentication::FederationGrant {
+                consumer_realm: RealmId::try_from("b".repeat(64))?,
+                credential: credential.clone(),
+            },
+            operation: ClientOperation::FederationSearch {
+                provider_realm: RealmId::try_from("c".repeat(64))?,
+                query: "needle".to_string(),
+                limit: 1,
+            },
+        };
+
+        let encoded = serde_json::to_string(&request)?;
+
+        assert!(encoded.contains(r#""authentication":{"type":"federation_grant""#));
+        assert!(!format!("{credential:?}").contains(credential.as_str()));
+        let instance_authentication = ClientAuthentication::InstanceToken {
+            token: "owner-secret".to_string(),
+        };
+        assert!(!format!("{instance_authentication:?}").contains("owner-secret"));
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn capped_ndjson_reader_rejects_unterminated_oversized_message()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let (mut writer, mut reader) = tokio::io::duplex(super::super::MAX_REQUEST_BYTES + 2);
+        writer
+            .write_all(&vec![b'x'; super::super::MAX_REQUEST_BYTES + 1])
+            .await?;
+        drop(writer);
+
+        let error = read_capped_ndjson_line(&mut reader)
+            .await
+            .err()
+            .ok_or("oversized message unexpectedly succeeded")?;
+
+        assert!(error.to_string().contains("exceeds maximum length"));
         Ok(())
     }
 }

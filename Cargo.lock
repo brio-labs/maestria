@@ -1207,6 +1207,7 @@ version = "0.6.1"
 dependencies = [
  "anyhow",
  "clap",
+ "getrandom 0.2.17",
  "ignore",
  "maestria-blob-fs",
  "maestria-code-intel",

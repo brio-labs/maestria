@@ -124,6 +124,54 @@ maestria start -i .maestria-dev
 # Stop with Ctrl-C; start again picks up where it left off
 ```
 
+### Local realm federation
+
+Federation is an explicit, local, provider-owned read capability. It never
+changes ordinary `search` or `open-evidence`: use the `realm` commands from a
+consumer instance instead.
+
+New instances are schema v2. Before using an existing schema-v1 instance,
+migrate it once and retain the printed stable identity:
+
+```bash
+maestria realm migrate -i ~/provider
+maestria realm migrate -i ~/consumer
+maestria realm identity -i ~/provider
+maestria realm identity -i ~/consumer
+```
+
+Start both local daemons, then have the provider issue and install a bounded
+consumer binding:
+
+```bash
+maestria start -i ~/provider
+maestria start -i ~/consumer
+
+maestria realm grant create -i ~/provider \
+  --consumer-instance ~/consumer \
+  --access search-and-open-evidence \
+  --max-sensitivity confidential \
+  --max-results 1 \
+  --max-evidence-bytes 128
+```
+
+The create command prints the grant digest but never the bearer credential. Use
+the provider realm printed by `realm identity` for consumer reads, and revoke
+with the digest when access is no longer required:
+
+```bash
+maestria realm search -i ~/consumer \
+  --provider-realm <provider-realm-id> "provider-only phrase" --limit 1
+maestria realm open-evidence -i ~/consumer \
+  --provider-realm <provider-realm-id> --evidence-id 1
+maestria realm grant list -i ~/provider
+maestria realm grant revoke -i ~/provider <grant-token-digest>
+```
+
+Federation is Unix-socket-only. The provider keeps its daemon token; the
+consumer receives a private, revocable capability that can search and,
+only when granted, open a bounded provider evidence excerpt.
+
 ## Supported surfaces and capability status
 
 ### Daemon client
@@ -132,10 +180,14 @@ maestria start -i .maestria-dev
 client boundary is newline-delimited JSON on
 `<instance>/system/daemon.sock`; the token is stored in
 `<instance>/system/daemon.token`.
-The supported operations are `status`, `search`, `evidence`, `task`,
-`model_agent_propose`, `model_agent_status`, and `model_agent_resolve`.
-Requests without the matching token are rejected, and read-only operations
-cannot mutate domain state. `model_agent_propose` is a bounded, policy-gated
+The owner-only instance-token operations are `status`, `search`, `evidence`,
+`task`, `model_agent_propose`, `model_agent_status`, `model_agent_resolve`,
+`realm_grant_create`, `realm_grant_list`, `realm_grant_revoke`, and
+`install_federation_binding`. A federation credential can invoke only the
+separate `federation_search` and `federation_evidence` provider operations.
+Requests without the matching capability are rejected. Ordinary read-only local
+operations cannot mutate domain state; successful federated reads append only
+their bounded access-audit event. `model_agent_propose` is a bounded,
 proposal workflow: it may search and request harness execution, while
 `model_agent_status` reads its durable state and `model_agent_resolve` records
 the operator decision. Governance, validation, and approval still control
@@ -375,6 +427,31 @@ Start the Maestria daemon for the given instance.
 ```
 maestria start [-i <dir>]
 ```
+
+### `realm`
+
+Manage explicit local federation. Schema-v1 instances must first run
+`realm migrate`; normal local searches never cross a realm boundary.
+
+```
+maestria realm migrate [-i <instance>]
+maestria realm identity [-i <instance>]
+maestria realm grant create [-i <provider>] --consumer-instance <consumer> \
+  --access search-only|search-and-open-evidence \
+  --max-sensitivity public|internal|confidential|restricted \
+  --max-results <1..100> --max-evidence-bytes <1..65536>
+maestria realm grant list [-i <provider>]
+maestria realm grant revoke [-i <provider>] <grant-token-digest>
+maestria realm search [-i <consumer>] --provider-realm <realm-id> [-l <n>] <query>
+maestria realm open-evidence [-i <consumer>] --provider-realm <realm-id> \
+  --evidence-id <n>
+```
+
+`grant create` must run while both local daemons are available. It creates the
+provider grant and installs the credential only in the consumer's private
+binding. `grant list` and `grant revoke` are provider administration commands.
+`realm search` and `realm open-evidence` use the consumer daemon and return
+only provider-authorized, bounded data with provider realm provenance.
 
 ### `task`
 

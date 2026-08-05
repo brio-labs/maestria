@@ -1,9 +1,13 @@
 use super::*;
 use crate::projection_open::{
-    open_base_stores, open_full_text_index, open_graph_index, open_vector_index,
-    reconcile_vector_projection, resolve_index_generations,
+    open_base_stores, open_base_stores_read_only, open_full_text_index, open_graph_index,
+    open_vector_index, reconcile_vector_projection, resolve_index_generations,
 };
 use anyhow::Context as _;
+use maestria_retrieval::CandidateRetriever;
+use maestria_retrieval::adapters::{
+    CurrentVersionFilter, VisualPageRegionRetriever, VisualPageRegionRetrieverParts,
+};
 
 impl SearchRuntime {
     pub(super) fn visual_retriever(
@@ -65,6 +69,7 @@ pub fn prepare_search_runtime_with_repository_policy(
         retrieval_policy,
         repository_execution_policy,
         true,
+        false,
     )
 }
 
@@ -84,6 +89,25 @@ pub fn prepare_search_runtime_read_only(
     )
 }
 
+/// Construct the federation search runtime with read-only stores and no
+/// graph, dense projection, or persistent shadow-observation adapters.
+pub fn prepare_search_runtime_read_only_for_federation(
+    layout: &InstanceLayout,
+    state: &KernelState,
+    manifest: &InstanceManifest,
+    retrieval_policy: maestria_governance::RetrievalSecurityPolicy,
+) -> Result<Arc<SearchRuntime>> {
+    prepare_search_runtime_with_options(
+        layout,
+        state,
+        manifest,
+        retrieval_policy,
+        RepositoryExecutionPolicy::Shadow,
+        false,
+        true,
+    )
+}
+
 /// Construct a read-only search runtime with a verified repository policy.
 pub fn prepare_search_runtime_read_only_with_repository_policy(
     layout: &InstanceLayout,
@@ -99,6 +123,7 @@ pub fn prepare_search_runtime_read_only_with_repository_policy(
         retrieval_policy,
         repository_execution_policy,
         false,
+        false,
     )
 }
 
@@ -109,8 +134,13 @@ fn prepare_search_runtime_with_options(
     retrieval_policy: maestria_governance::RetrievalSecurityPolicy,
     repository_execution_policy: RepositoryExecutionPolicy,
     allow_projection_writes: bool,
+    federation_read_only: bool,
 ) -> Result<Arc<SearchRuntime>> {
-    let (sqlite_store, blob_store) = open_base_stores(layout)?;
+    let (sqlite_store, blob_store) = if federation_read_only {
+        open_base_stores_read_only(layout)?
+    } else {
+        open_base_stores(layout)?
+    };
     let search_index = open_full_text_index(
         layout,
         state,
@@ -119,8 +149,16 @@ fn prepare_search_runtime_with_options(
     )?;
     let repository_code_index = load_repository_code_index_with_exclusions(layout, Some(manifest))
         .context("load repository code index")?;
-    let embedding_provider = crate::vector_startup::build_embedding_provider(manifest, state)?;
-    let vector_index = open_vector_index(layout, embedding_provider.is_some())?;
+    let embedding_provider = if federation_read_only {
+        None
+    } else {
+        crate::vector_startup::build_embedding_provider(manifest, state)?
+    };
+    let vector_index = if federation_read_only {
+        None
+    } else {
+        open_vector_index(layout, embedding_provider.is_some())?
+    };
     reconcile_vector_projection(
         state,
         manifest,
@@ -128,7 +166,12 @@ fn prepare_search_runtime_with_options(
         &vector_index,
         allow_projection_writes,
     );
-    let graph_index = open_graph_index(layout, state, allow_projection_writes)?;
+    let graph_index: Option<Arc<dyn maestria_ports::GraphIndex + Send + Sync>> =
+        if federation_read_only {
+            None
+        } else {
+            Some(open_graph_index(layout, state, allow_projection_writes)?)
+        };
     let (primary_generation, corpus_snapshot, dense_generation) = resolve_index_generations(state)?;
 
     let parts = SearchRuntimeParts {
@@ -140,7 +183,7 @@ fn prepare_search_runtime_with_options(
         blobs: blob_store,
         vector_index,
         event_log: sqlite_store.clone(),
-        graph_index: Some(graph_index),
+        graph_index,
         primary_generation,
         dense_generation,
         repository_code_index,

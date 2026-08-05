@@ -65,6 +65,7 @@ async fn dispatch(command: Commands) -> Result<()> {
         Commands::Task { command } => dispatch_task(command).await?,
         Commands::Memory { command } => dispatch_memory(command).await?,
         Commands::Approval { command } => dispatch_approval(command).await?,
+        Commands::Realm { command } => commands::realm::run(command).await?,
     }
     Ok(())
 }

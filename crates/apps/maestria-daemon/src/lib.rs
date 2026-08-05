@@ -52,7 +52,10 @@ mod validation_recovery;
 mod vector_startup;
 mod watcher;
 
-pub use api::{ApiServer, ClientOperation, ClientRequest, ClientResponse, DaemonClient};
+pub use api::{
+    ApiServer, ClientAuthentication, ClientOperation, ClientRequest, ClientResponse, DaemonClient,
+    FederationCredential, RealmGrantAccess, RealmGrantSensitivity,
+};
 pub use approval_recovery::{reconcile_approval_repo, reconcile_pending_approvals};
 pub use full_text_recovery::pending_start_full_text;
 pub use instance_setup::{
@@ -74,6 +77,7 @@ pub use providers::{build_visual_provider, ocr_status, visual_status};
 pub use recovery_inputs::{RecoveryInputs, recovery_inputs};
 pub use search_executor::{
     SearchRuntime, prepare_search_runtime, prepare_search_runtime_read_only,
+    prepare_search_runtime_read_only_for_federation,
     prepare_search_runtime_read_only_with_repository_policy,
     prepare_search_runtime_with_repository_policy,
 };

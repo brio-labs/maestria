@@ -149,7 +149,8 @@ fn configured_dense_generation_survives_projection_rebuild_and_fallback()
     let workspace_path = workspace.path().to_string_lossy().into_owned();
     assert_init_ok(&instance_path, &workspace_path)?;
     let manifest = format!(
-        "schema_version=1\nroot={instance_path}\nread_root={workspace_path}\nexcluded_pattern=.env\nembedding_enabled=true\nembedding_endpoint={}\nembedding_provider=local\nembedding_revision=v1\nembedding_artifact_hash=sha256:0000000000000000000000000000000000000000000000000000000000000000\nembedding_preprocessing_version=v1\nembedding_model=local-model\nembedding_dimensions=2\n",
+        "schema_version=2\nrealm_id={}\nroot={instance_path}\nread_root={workspace_path}\nexcluded_pattern=.env\nembedding_enabled=true\nembedding_endpoint={}\nembedding_provider=local\nembedding_revision=v1\nembedding_artifact_hash=sha256:0000000000000000000000000000000000000000000000000000000000000000\nembedding_preprocessing_version=v1\nembedding_model=local-model\nembedding_dimensions=2\n",
+        "a".repeat(64),
         server.endpoint()
     );
     write_file(instance.path(), "manifest.txt", &manifest)?;

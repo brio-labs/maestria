@@ -366,7 +366,9 @@ RESPONSIBILITY_MAPS: dict[str, tuple[str, ...]] = {
         "errors",
         "events",
         "evidence_pack",
+        "federated_evidence_bounds",
         "generations",
+        "grant_token_digest",
         "ids",
         "input",
         "inputs",
@@ -376,6 +378,7 @@ RESPONSIBILITY_MAPS: dict[str, tuple[str, ...]] = {
         "provenance",
         "replay",
         "search",
+        "realm_identity",
         "security",
         "security_snapshot",
         "sparse_namespace",
@@ -385,6 +388,7 @@ RESPONSIBILITY_MAPS: dict[str, tuple[str, ...]] = {
     "crates/kernel/maestria-governance/src/lib.rs": (
         "approval",
         "autonomy",
+        "federation",
         "memory",
         "plan_validation",
         "privacy_exclusions",
@@ -1320,7 +1324,7 @@ def scan_unbounded_channels() -> list[str]:
 
 def scan_rust_forbidden_methods() -> list[str]:
     violations = []
-    for source in ROOT.rglob("*.rs"):
+    for source in sorted(ROOT.rglob("*.rs")):
         if should_skip(source):
             continue
         content = read_text(source)
@@ -2161,7 +2165,7 @@ def _top_level_module_declarations(text: str) -> set[str]:
 def scan_kernel_sources() -> list[str]:
     violations = []
     for kernel_root in KERNEL_ROOTS:
-        for source in (kernel_root / "src").rglob("*.rs"):
+        for source in sorted((kernel_root / "src").rglob("*.rs")):
             content = read_text(source)
             if content is None:
                 continue

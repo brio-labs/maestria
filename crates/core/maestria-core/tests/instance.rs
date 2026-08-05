@@ -1,11 +1,14 @@
 use std::path::PathBuf;
 
 use maestria_core::{InitInstanceInput, InstanceService};
+use maestria_domain::RealmId;
 
 #[test]
 fn init_instance_returns_isolated_local_layout() -> Result<(), Box<dyn std::error::Error>> {
+    let realm_id = RealmId::try_from("a".repeat(64))?;
     let plan = InstanceService::init_instance(InitInstanceInput {
         root: PathBuf::from("/tmp/maestria/personal"),
+        realm_id: realm_id.clone(),
     })?;
 
     assert_eq!(
@@ -17,8 +20,10 @@ fn init_instance_returns_isolated_local_layout() -> Result<(), Box<dyn std::erro
         PathBuf::from("/tmp/maestria/personal/indexes/full-text")
     );
     assert!(plan.directories.contains(&plan.layout.active_tasks_dir));
-    assert!(plan.manifest_contents.contains("schema_version=1"));
+    assert!(plan.manifest_contents.contains("schema_version=2"));
+    assert!(plan.manifest_contents.contains(realm_id.as_str()));
     let manifest = InstanceService::parse_manifest(&plan.manifest_contents)?;
+    assert_eq!(manifest.realm_id, realm_id);
     assert_eq!(manifest.root, plan.layout.root);
     assert_eq!(manifest.read_roots, vec![plan.layout.root.clone()]);
     assert!(manifest.excluded_patterns.iter().any(|item| item == ".env"));

@@ -30,6 +30,25 @@ pub(crate) fn open_base_stores(
     Ok((sqlite_store, blob_store))
 }
 
+/// Open the sqlite store without applying migrations or acquiring a writer lock.
+pub(crate) fn open_base_stores_read_only(
+    layout: &InstanceLayout,
+) -> Result<(Arc<SqliteStore>, Arc<FsBlobStore>)> {
+    let sqlite_store = Arc::new(
+        SqliteStore::open_read_only(&layout.database_path).with_context(|| {
+            format!(
+                "open sqlite store read-only {}",
+                layout.database_path.display()
+            )
+        })?,
+    );
+    let blob_store = Arc::new(
+        FsBlobStore::open(&layout.blobs_dir)
+            .with_context(|| format!("open blob store {}", layout.blobs_dir.display()))?,
+    );
+    Ok((sqlite_store, blob_store))
+}
+
 /// Open the full-text index, read-only unless writes are allowed.
 ///
 /// When `ensure_search_index` is set and writes are allowed, the index card table is rebuilt

@@ -11,8 +11,8 @@ use crate::runtime_construction::build_runtime;
 use maestria_domain::{
     ArtifactDetected, ArtifactId, ArtifactVersionId, BlobId, CardId, ChunkId, ContentHash,
     ContentRange, CreateCardInput, DomainInput, EvidenceId, EvidenceKind, KernelState, LineRange,
-    LogicalTick, ParseStatus, ParserResult, RecordEvidenceInput, RegisterChunkInput, SnapshotRef,
-    SourceSpan, StructureNode, StructureNodeId, StructureNodeType,
+    LogicalTick, ParseStatus, ParserResult, RealmId, RecordEvidenceInput, RegisterChunkInput,
+    SnapshotRef, SourceSpan, StructureNode, StructureNodeId, StructureNodeType,
 };
 use maestria_ports::{
     ArtifactRepository, CardRepository, ChunkRepository, EmbeddingProvider, EmbeddingRequest,
@@ -683,7 +683,10 @@ fn build_runtime_fails_on_corrupt_vector_projection() -> Result<(), Box<dyn std:
     // Configure the dense capability so the corrupt projection is a configured
     // store: a disabled embedding profile must not open the vector projection
     // (mirroring the search runtime's provider-gated boundary).
-    let mut manifest = maestria_core::InstanceManifest::default_for_root(layout.root.clone());
+    let mut manifest = maestria_core::InstanceManifest::default_for_root(
+        layout.root.clone(),
+        RealmId::try_from("a".repeat(64))?,
+    );
     manifest.embeddings = Some(maestria_core::EmbeddingConfig {
         enabled: true,
         endpoint: "http://127.0.0.1:9/v1/embeddings".to_string(),

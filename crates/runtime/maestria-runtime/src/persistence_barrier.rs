@@ -15,9 +15,10 @@
 use std::time::Duration;
 
 use maestria_domain::{
-    ApprovalId, ArtifactId, BlobId, DomainEvent, DomainEventEnvelope, EventId, ValidationReportId,
+    ApprovalId, ArtifactId, BlobId, DomainEvent, DomainEventEnvelope, EventId, RealmReadGrant,
+    ValidationReportId,
 };
-use maestria_ports::{ApprovalRepository, EventFilter, EventLog};
+use maestria_ports::{ApprovalRepository, EventFilter, EventLog, RealmReadGrantRepository};
 use tokio_util::sync::CancellationToken;
 
 /// Wait until `matches` observes the target condition in the event log, or
@@ -82,6 +83,31 @@ pub(crate) fn validation_report_created(
 /// Predicate observing that the event with `event_id` is durably recorded.
 pub(crate) fn event_persisted(event_id: EventId) -> impl Fn(&DomainEventEnvelope) -> bool {
     move |env| env.id == event_id
+}
+
+/// Predicate observing that a realm grant event is durable and its current
+/// grant projection matches the post-transition domain state.
+pub(crate) fn realm_read_grant_persisted(
+    event_id: EventId,
+    expected: RealmReadGrant,
+    repository: &dyn RealmReadGrantRepository,
+) -> impl Fn(&DomainEventEnvelope) -> bool + '_ {
+    move |env| {
+        if env.id != event_id {
+            return false;
+        }
+        match repository.get(expected.token_digest()) {
+            Ok(Some(grant)) => grant == expected,
+            Ok(None) => false,
+            Err(error) => {
+                tracing::error!(
+                    %error,
+                    "failed to read realm read grant projection during persistence barrier"
+                );
+                false
+            }
+        }
+    }
 }
 
 /// Predicate observing that the `ApprovalRecorded` event for `approval_id`

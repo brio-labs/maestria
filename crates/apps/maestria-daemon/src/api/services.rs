@@ -1,9 +1,15 @@
+#[path = "federation_binding.rs"]
+mod federation_binding;
+#[path = "federation_services.rs"]
+mod federation_services;
 #[path = "model_agent_services.rs"]
 mod model_agent_services;
 #[path = "proposal_service.rs"]
 mod proposal_service;
 #[path = "read_services.rs"]
 mod read_services;
+#[path = "realm_grant_services.rs"]
+mod realm_grant_services;
 #[path = "search_services.rs"]
 mod search_services;
 #[path = "support.rs"]
@@ -11,13 +17,14 @@ mod support;
 
 use anyhow::{Result, anyhow};
 
-use super::server::ApiContext;
+use super::server::{ApiContext, RequestPrincipal};
 use super::{ClientOperation, ClientResponse};
 
 const MAX_SEARCH_LIMIT: usize = 100;
 
 pub(crate) async fn dispatch(
     context: &ApiContext,
+    principal: RequestPrincipal,
     operation: ClientOperation,
 ) -> Result<ClientResponse> {
     match operation {
@@ -74,5 +81,65 @@ pub(crate) async fn dispatch(
             approval_id,
             approved,
         } => model_agent_services::resolve(context, run_id, approval_id, approved).await,
+        operation @ (ClientOperation::RealmGrantCreate { .. }
+        | ClientOperation::RealmGrantList
+        | ClientOperation::RealmGrantRevoke { .. }) => {
+            dispatch_realm_grant(context, &principal, operation).await
+        }
+        ClientOperation::InstallFederationBinding {
+            provider_realm,
+            provider_socket_path,
+            credential,
+        } => {
+            federation_services::install_binding(
+                context,
+                &principal,
+                provider_realm,
+                provider_socket_path,
+                credential,
+            )
+            .await
+        }
+        ClientOperation::FederationSearch {
+            provider_realm,
+            query,
+            limit,
+        } => federation_services::search(context, &principal, provider_realm, query, limit).await,
+        ClientOperation::FederationEvidence {
+            provider_realm,
+            evidence_id,
+        } => federation_services::evidence(context, &principal, provider_realm, evidence_id).await,
+    }
+}
+
+async fn dispatch_realm_grant(
+    context: &ApiContext,
+    principal: &RequestPrincipal,
+    operation: ClientOperation,
+) -> Result<ClientResponse> {
+    match operation {
+        ClientOperation::RealmGrantCreate {
+            consumer_realm,
+            access,
+            max_sensitivity,
+            max_results,
+            max_evidence_bytes,
+        } => {
+            realm_grant_services::create(
+                context,
+                principal,
+                consumer_realm,
+                access,
+                max_sensitivity,
+                max_results,
+                max_evidence_bytes,
+            )
+            .await
+        }
+        ClientOperation::RealmGrantList => realm_grant_services::list(context, principal),
+        ClientOperation::RealmGrantRevoke { token_digest } => {
+            realm_grant_services::revoke(context, principal, token_digest).await
+        }
+        _ => Err(anyhow!("invalid realm grant operation")),
     }
 }

@@ -24,6 +24,9 @@ pub(crate) mod claim_event_payloads;
 #[path = "memory_event_payloads.rs"]
 pub(crate) mod memory_event_payloads;
 
+#[path = "realm_read_grant_event_payloads.rs"]
+pub(crate) mod realm_read_grant_event_payloads;
+
 #[path = "misc_event_payloads.rs"]
 pub(crate) mod misc_event_payloads;
 
@@ -108,6 +111,6 @@ pub(crate) use evidence_payloads::StoredEvidenceKind;
 
 /// Current stored-event payload format version.
 ///
-/// Rows always write this version; decode no longer dispatches on it because
-/// no legacy formats exist. The column remains as a format marker.
-pub(crate) const CURRENT_PAYLOAD_VERSION: i64 = 4;
+/// Rows write v5; tagged payload decoding remains compatible with records
+/// written by prior versions.
+pub(crate) const CURRENT_PAYLOAD_VERSION: i64 = 5;

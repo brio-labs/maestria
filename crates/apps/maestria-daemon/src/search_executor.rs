@@ -1,5 +1,7 @@
 #[path = "search_runtime_construction.rs"]
 mod construction;
+#[path = "search_runtime_engine.rs"]
+mod engine;
 #[path = "search_executor_port.rs"]
 mod port;
 #[path = "search_executor_projection.rs"]
@@ -10,6 +12,7 @@ mod repository_code_loader;
 mod visual_runtime;
 pub use construction::{
     prepare_search_runtime, prepare_search_runtime_read_only,
+    prepare_search_runtime_read_only_for_federation,
     prepare_search_runtime_read_only_with_repository_policy,
     prepare_search_runtime_with_repository_policy,
 };
@@ -30,17 +33,9 @@ use maestria_ports::{
     ArtifactRepository, BlobStore, CardRepository, ChunkRepository, EmbeddingProvider, EventFilter,
     EventLog, EvidenceRepository, FullTextIndex, GraphIndex, VectorIndex,
 };
-use maestria_retrieval::adapters::{
-    CardRetriever, CardRetrieverParts, CodeIntelRetriever, CodeIntelRetrieverParts,
-    CodeIntelSecurityResolver, CodeIntelSecurityResolverParts, CurrentVersionFilter,
-    DenseChunkRetriever, DenseChunkRetrieverParts, EvidenceOutcomeEvaluator,
-    HierarchyGraphExpander, HierarchyGraphExpanderParts, LexicalChunkRetriever,
-    LexicalChunkRetrieverParts, VisualGenerationCapability, VisualPageRegionRetriever,
-    VisualPageRegionRetrieverParts,
-};
+use maestria_retrieval::adapters::VisualGenerationCapability;
 use maestria_retrieval::{
-    CandidateReranker, CandidateRetriever, FixedKRrf, HybridExecutionPolicy,
-    RepositoryExecutionPolicy, RetrievalEngine, SearchPlannerContext, VisualExecutionPolicy,
+    CandidateReranker, RepositoryExecutionPolicy, SearchPlannerContext, VisualExecutionPolicy,
 };
 use maestria_storage_sqlite::SqliteStore;
 
@@ -78,6 +73,7 @@ pub struct SearchRuntime {
     pub(crate) visual_vector_index: Option<Arc<dyn VectorIndex + Send + Sync>>,
     pub(crate) graph_index: Option<Arc<dyn GraphIndex + Send + Sync>>,
     pub(crate) event_log: Arc<SqliteStore>,
+    pub(crate) persist_learned_sparse_observations: bool,
     pub(crate) embedding_provider: Option<Arc<dyn EmbeddingProvider + Send + Sync>>,
     pub(crate) reranker: Option<Arc<dyn CandidateReranker>>,
     pub(crate) retrieval_policy: maestria_governance::RetrievalSecurityPolicy,
@@ -116,6 +112,7 @@ impl SearchRuntime {
             visual_vector_index: None,
             graph_index: parts.graph_index,
             event_log: parts.event_log,
+            persist_learned_sparse_observations: true,
             embedding_provider,
             reranker: None,
             visual_embedding_provider: None,
@@ -153,100 +150,14 @@ impl SearchRuntime {
         Ok(reconcile_active_versions(&events))
     }
 
-    fn retrieval_engine(&self) -> Result<RetrievalEngine> {
-        let events = self.domain_events()?;
-        let active_versions = reconcile_active_versions(&events);
-        let card: Arc<dyn CandidateRetriever> = Arc::new(CurrentVersionFilter::new(
-            Arc::new(CardRetriever::new(
-                CardRetrieverParts {
-                    index: self.search_index.clone(),
-                    artifacts: self.artifacts.clone(),
-                    cards: self.cards.clone(),
-                    chunks: self.chunks.clone(),
-                    evidence: self.evidence.clone(),
-                    blobs: self.blobs.clone(),
-                },
-                self.primary_generation,
-            )),
-            active_versions.clone(),
-        ));
-        let lexical: Arc<dyn CandidateRetriever> = Arc::new(CurrentVersionFilter::new(
-            Arc::new(LexicalChunkRetriever::new(
-                LexicalChunkRetrieverParts {
-                    index: self.search_index.clone(),
-                    artifacts: self.artifacts.clone(),
-                    chunks: self.chunks.clone(),
-                    evidence: self.evidence.clone(),
-                    blobs: self.blobs.clone(),
-                },
-                self.primary_generation,
-            )),
-            active_versions.clone(),
-        ));
-        let mut retrievers: Vec<Arc<dyn CandidateRetriever>> = vec![card, lexical];
-        if let Some(index) = self.repository_code_index.clone() {
-            let security = CodeIntelSecurityResolver::from_events(
-                CodeIntelSecurityResolverParts {
-                    artifacts: self.artifacts.clone(),
-                    evidence: self.evidence.clone(),
-                    blobs: self.blobs.clone(),
-                },
-                &events,
-            )
-            .map_err(|error| anyhow!("prepare repository code security resolver: {error}"))?;
-            retrievers.push(Arc::new(CodeIntelRetriever::new(
-                CodeIntelRetrieverParts { index, security },
-                self.primary_generation,
-            )));
-        }
-        if let (Some(vector_index), Some(provider), Some(generation)) = (
-            self.vector_index.clone(),
-            self.embedding_provider.clone(),
-            self.dense_generation,
-        ) {
-            retrievers.push(Arc::new(CurrentVersionFilter::new(
-                Arc::new(DenseChunkRetriever::new(
-                    DenseChunkRetrieverParts {
-                        index: vector_index,
-                        artifacts: self.artifacts.clone(),
-                        chunks: self.chunks.clone(),
-                        evidence: self.evidence.clone(),
-                        blobs: self.blobs.clone(),
-                        embedding_provider: provider,
-                    },
-                    generation,
-                )),
-                active_versions.clone(),
-            )));
-        }
-        if let Some(retriever) = self.visual_retriever(active_versions) {
-            retrievers.push(retriever);
-        }
-        let mut engine = RetrievalEngine::new(
-            retrievers,
-            Arc::new(EvidenceOutcomeEvaluator::new(self.evidence.clone())),
-            self.retrieval_policy.clone(),
-        )
-        .with_fusion(Arc::new(FixedKRrf::new(60)))
-        .with_learned_sparse_observation_repository(self.event_log.clone());
-        if let Some(reranker) = self.reranker.clone() {
-            engine = engine.with_visual_reranker(reranker);
-        }
-        if let Some(graph) = self.graph_index.clone() {
-            engine = engine.with_expander(Arc::new(HierarchyGraphExpander::new(
-                HierarchyGraphExpanderParts {
-                    graph,
-                    artifacts: self.artifacts.clone(),
-                    chunks: self.chunks.clone(),
-                    evidence: self.evidence.clone(),
-                    blobs: self.blobs.clone(),
-                },
-            )));
-        }
-        Ok(engine
-            .with_hybrid_policy(HybridExecutionPolicy::Shadow)
-            .with_repository_execution_policy(self.repository_execution_policy.clone())
-            .with_visual_execution_policy(self.visual_execution_policy.clone()))
+    /// Produces a request-bound runtime that cannot materialize graph
+    /// relations before authorization. Federation deliberately degrades this
+    /// lane until the graph port supports pre-materialization filtering.
+    pub fn without_graph_expansion(&self) -> Self {
+        let mut runtime = self.clone();
+        runtime.graph_index = None;
+        runtime.persist_learned_sparse_observations = false;
+        runtime
     }
 
     fn planner_context(&self) -> SearchPlannerContext {
@@ -290,6 +201,24 @@ impl SearchRuntime {
         Ok((plan, outcome))
     }
 
+    fn execute_pre_authorized_blocking(
+        &self,
+        query: String,
+        limit: usize,
+        authorization: maestria_governance::RetrievalAuthorizationContext,
+    ) -> Result<(SearchPlan, SearchOutcome)> {
+        let engine = self.retrieval_engine()?;
+        let plan = engine
+            .plan(query, limit, &self.planner_context())
+            .map_err(anyhow::Error::new)?
+            .confine_to_scope(self.scope_id)
+            .map_err(anyhow::Error::new)?;
+        let outcome = tokio::runtime::Handle::current()
+            .block_on(engine.search_pre_authorized(&plan, authorization))
+            .map_err(anyhow::Error::new)?;
+        Ok((plan, outcome))
+    }
+
     /// Build and execute the same plan used by daemon search effects.
     ///
     /// # Cancellation
@@ -304,5 +233,25 @@ impl SearchRuntime {
         tokio::task::spawn_blocking(move || runtime.execute_search_blocking(query, limit))
             .await
             .map_err(|error| anyhow!("search worker failed: {error}"))?
+    }
+
+    /// Executes a provider-composed authorization context without rebuilding
+    /// policy in any retrieval lane.
+    ///
+    /// # Cancellation
+    /// Cancelling the returned future does not abort the blocking search worker; the spawned
+    /// blocking task continues until completion.
+    pub async fn execute_pre_authorized(
+        &self,
+        query: String,
+        limit: usize,
+        authorization: maestria_governance::RetrievalAuthorizationContext,
+    ) -> Result<(SearchPlan, SearchOutcome)> {
+        let runtime = self.clone();
+        tokio::task::spawn_blocking(move || {
+            runtime.execute_pre_authorized_blocking(query, limit, authorization)
+        })
+        .await
+        .map_err(|error| anyhow!("search worker failed: {error}"))?
     }
 }

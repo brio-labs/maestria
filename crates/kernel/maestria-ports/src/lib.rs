@@ -62,9 +62,10 @@ pub use traits::{
     GovernedAgentProposal, GraphIndex, GraphRelationPage, GraphRelationQuery, HarnessAdapter,
     HarnessCapabilities, HarnessCommandClass, HarnessOutcome, HarnessRequest, HarnessRunId,
     IdAllocator, IndexedCard, IndexedChunk, ModelAgentProposal, ModelAgentProposalError, PortError,
-    ProviderDisclosure, ProviderEndpoint, ProviderTransport, RetentionPolicy, SearchFuture,
-    SearchHit, SearchKnowledgeExecutor, SearchQuery, VectorEmbedding, VectorIndex, VectorSearchHit,
-    VectorSearchQuery, WebFetchOptions, WebFetcher, WebSnapshotData,
+    ProviderDisclosure, ProviderEndpoint, ProviderTransport, RealmReadGrantRepository,
+    RetentionPolicy, SearchFuture, SearchHit, SearchKnowledgeExecutor, SearchQuery,
+    VectorEmbedding, VectorIndex, VectorSearchHit, VectorSearchQuery, WebFetchOptions, WebFetcher,
+    WebSnapshotData,
 };
 mod visual;
 pub use visual::{VisualEmbeddingProvider, VisualEmbeddingRequest, VisualSource};
@@ -83,7 +84,7 @@ pub use in_memory::{
     InMemoryCardRepository, InMemoryChunkRepository, InMemoryEffectJournal, InMemoryEventLog,
     InMemoryEvidenceRepository, InMemoryFullTextIndex, InMemoryGraphIndex, InMemoryHarnessAdapter,
     InMemoryIdAllocator, InMemoryLearnedSparseIndex, InMemoryLearnedSparseProvider, InMemoryParser,
-    InMemoryVectorIndex, InMemoryWebFetcher,
+    InMemoryRealmReadGrantRepository, InMemoryVectorIndex, InMemoryWebFetcher,
 };
 
 #[cfg(any(test, feature = "contract-tests"))]

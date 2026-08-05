@@ -1,7 +1,8 @@
 use maestria_domain::{
     ApprovalId, Artifact, ArtifactId, Card, CardId, Chunk, ChunkId, ClaimId, DomainEventEnvelope,
-    Evidence, EvidenceId, MemoryCandidateId,
+    Evidence, EvidenceId, GrantTokenDigest, MemoryCandidateId, RealmReadGrant,
 };
+use std::collections::BTreeSet;
 
 use crate::PortError;
 
@@ -41,6 +42,17 @@ pub trait EvidenceRepository: Send + Sync {
     /// Unconditionally store evidence, replacing any existing row.
     fn replace(&self, evidence: Evidence) -> Result<(), PortError>;
     fn list_for_artifact(&self, artifact_id: ArtifactId) -> Result<Vec<Evidence>, PortError>;
+}
+
+/// Rebuildable current-state projection for provider-owned realm grants.
+///
+/// The append-only event log remains authoritative. Handlers consume this
+/// port; they never mutate adapter storage directly.
+pub trait RealmReadGrantRepository: Send + Sync {
+    fn get(&self, token_digest: &GrantTokenDigest) -> Result<Option<RealmReadGrant>, PortError>;
+    fn put(&self, grant: RealmReadGrant) -> Result<(), PortError>;
+    fn list(&self) -> Result<Vec<RealmReadGrant>, PortError>;
+    fn delete_not_in(&self, token_digests: &BTreeSet<GrantTokenDigest>) -> Result<(), PortError>;
 }
 
 pub trait EventLog: Send + Sync {

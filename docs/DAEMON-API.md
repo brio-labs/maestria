@@ -13,17 +13,24 @@ The daemon creates a per-instance credential at:
 <instance>/system/daemon.token
 ```
 
-Both files are private to the account that owns the instance. A client must
-possess the token and connect to the matching instance socket. The daemon does
-not listen on TCP and does not accept requests without the token.
+Both files are private to the account that owns the instance. Ordinary local
+requests must possess the token and connect to the matching instance socket.
+Federation requests use the tagged consumer realm grant instead; the daemon
+does not listen on TCP.
 
 ## Request envelope
 
-Each request is one JSON object followed by a newline:
+Each request is one JSON object followed by a newline. Authentication is
+tagged; the instance token and a realm grant are different capabilities.
+
+An ordinary local request uses the owner-only instance token:
 
 ```json
 {
-  "token": "<contents of system/daemon.token>",
+  "authentication": {
+    "type": "instance_token",
+    "token": "<contents of system/daemon.token>"
+  },
   "operation": {
     "type": "search",
     "query": "validation gate",
@@ -32,23 +39,66 @@ Each request is one JSON object followed by a newline:
 }
 ```
 
-Supported operation tags are:
+A provider receives a federated request only through a consumer binding:
 
-- `status`
-- `search` with `query` and a `limit` from 1 through 100
-- `evidence` with `evidence_id`
-- `task` with an optional `task_id`
-- `model_agent_propose` with a bounded `proposal` payload
-- `model_agent_status` with `run_id`
-- `model_agent_resolve` with `run_id`, `approval_id`, and `approved`
-The server reads at most 64 KiB per request line and applies a five-second
-timeout while reading a request. It also permits at most 32 concurrent
-connections.
+```json
+{
+  "authentication": {
+    "type": "federation_grant",
+    "consumer_realm": "<64 lowercase hex realm ID>",
+    "credential": "<64 lowercase hex bearer credential>"
+  },
+  "operation": {
+    "type": "federation_search",
+    "provider_realm": "<64 lowercase hex realm ID>",
+    "query": "validation gate",
+    "limit": 10
+  }
+}
+```
+
+Instance-token operations are `status`, `search`, `evidence`, `task`,
+`model_agent_propose`, `model_agent_status`, `model_agent_resolve`,
+`realm_grant_create`, `realm_grant_list`, `realm_grant_revoke`, and
+`install_federation_binding`. A federation credential authorizes only
+`federation_search` and `federation_evidence`; it cannot call the ordinary
+local operations, status, task/model-agent endpoints, or grant administration.
+
+Every request and reply is one capped 64 KiB NDJSON line. The server rejects an
+oversized or unterminated line before extending its allocation beyond that cap,
+applies a five-second request-read timeout, and permits at most 32 concurrent
+connections. Dropping a client request closes its socket; server-side work is
+not guaranteed to be cancelled.
 
 The response is one typed JSON envelope. Successful responses contain a
-`response` object tagged with `status`, `search`, `evidence`, `task`,
-`model_agent_proposal`, or `model_agent_status`. Failed requests contain an
-`error` string and never mutate domain state.
+`response` object tagged with the operation result. Failed requests contain an
+`error` string; successful federated reads append only their bounded access-audit
+event, while denied requests do not expose provider data.
+
+## Realm federation
+
+Realm federation is local Unix-socket transport between two instances. It does
+not expose TCP/HTTP, share a provider database/blob store/index, or reuse a
+provider daemon token.
+
+The provider owns a current, durable realm-read grant keyed by a
+domain-separated digest of the bearer credential. Before every provider
+`federation_search` or `federation_evidence` request it reads the current
+grant, verifies the provider and consumer realm, active state, access type, and
+bounds, then composes the grant sensitivity ceiling with provider retrieval
+policy before any candidate is retrieved or scored. Graph expansion is
+disabled for federated search.
+
+`federation_search` replies carry the provider realm, explicit graph
+degradation, normal search provenance, and no more than the grant's result
+bound. `federation_evidence` requires `search-and-open-evidence` access and
+truncates the excerpt to the grant's evidence-byte bound. Missing, wrong, and
+revoked credentials return a denial without provider data.
+
+Only successful federated searches and evidence opens append an access record.
+Grant issue and revocation are separate append-only events; revocation is read
+from current state on the next provider request, so stale consumer bindings
+cannot regain access after restart.
 
 ## Scope and provenance
 

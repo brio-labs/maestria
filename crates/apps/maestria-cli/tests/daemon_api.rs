@@ -8,8 +8,9 @@ use std::{
 
 use maestria_cli::test_support::*;
 use maestria_core::InstanceLayout;
-use maestria_daemon::ClientRequest;
-use maestria_daemon::{ClientOperation, ClientResponse, DaemonClient};
+use maestria_daemon::{
+    ClientAuthentication, ClientOperation, ClientRequest, ClientResponse, DaemonClient,
+};
 use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
     net::UnixStream,
@@ -117,7 +118,9 @@ fn runtime_auth_request(layout: &InstanceLayout) -> TextResult {
     runtime.block_on(async {
         let mut stream = UnixStream::connect(layout.system_dir.join("daemon.sock")).await?;
         let request = ClientRequest {
-            token: "0".repeat(64),
+            authentication: ClientAuthentication::InstanceToken {
+                token: "0".repeat(64),
+            },
             operation: ClientOperation::Status,
         };
         let mut line = serde_json::to_vec(&request)?;

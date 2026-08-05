@@ -98,6 +98,12 @@ fn evidence_retrieval_policy() -> RetrievalSecurityPolicy {
         .allow_unscoped_items(true)
 }
 
+fn evidence_retrieval_authorization() -> Result<maestria_governance::RetrievalAuthorizationContext>
+{
+    evidence_retrieval_policy()
+        .authorization_context(&maestria_domain::CorpusScope::Global)
+        .map_err(|error| anyhow!("evidence retrieval policy is not authorized: {error}"))
+}
 /// Open evidence by id after enforcing the instance's read scope and retrieval
 /// policy (R48). Shared by the daemon API handler and the CLI command so the
 /// two client surfaces cannot drift.
@@ -105,20 +111,34 @@ pub fn open_evidence_scoped(
     layout: &InstanceLayout,
     evidence_id: u64,
 ) -> Result<maestria_core::OpenEvidenceOutput> {
+    open_evidence_scoped_with_authorization(
+        layout,
+        evidence_id,
+        evidence_retrieval_authorization()?,
+    )
+}
+
+/// Open evidence with a caller-composed authorization context that has already
+/// passed provider-side federation governance.
+pub fn open_evidence_scoped_with_authorization(
+    layout: &InstanceLayout,
+    evidence_id: u64,
+    authorization: maestria_governance::RetrievalAuthorizationContext,
+) -> Result<maestria_core::OpenEvidenceOutput> {
     let manifest = decode_manifest(layout)?;
     let sqlite = open_evidence_sqlite(layout)?;
     let evidence_id = EvidenceId::new(evidence_id);
-    let retrieval_policy = evidence_retrieval_policy();
     if let Some(evidence) = EvidenceRepository::get(&sqlite, evidence_id)? {
-        reject_denied(retrieval_policy.evaluate(&evidence.security), "evidence")?;
+        reject_denied(authorization.evaluate(&evidence.security), "evidence")?;
         validate_evidence_scope(&manifest, &evidence)?;
         if let Some(artifact) = ArtifactRepository::get(&sqlite, evidence.artifact_id)? {
-            reject_denied(retrieval_policy.evaluate(&artifact.security), "artifact")?;
+            reject_denied(authorization.evaluate(&artifact.security), "artifact")?;
         }
     }
     let stores = complete_evidence_stores(layout, sqlite)?;
-    let core = evidence_core_services(&stores).with_retrieval_policy(retrieval_policy);
-    let output = core.open_evidence(OpenEvidenceInput { evidence_id })?;
+    let core = evidence_core_services(&stores);
+    let output =
+        core.open_evidence_pre_authorized(OpenEvidenceInput { evidence_id }, &authorization)?;
     Ok(output)
 }
 
@@ -145,15 +165,16 @@ pub fn open_chunk_evidence_scoped(
             chunk.artifact_id
         ));
     }
-    let retrieval_policy = evidence_retrieval_policy();
-    reject_denied(retrieval_policy.evaluate(&evidence.security), "evidence")?;
+    let authorization = evidence_retrieval_authorization()?;
+    reject_denied(authorization.evaluate(&evidence.security), "evidence")?;
     validate_evidence_scope(&manifest, &evidence)?;
     if let Some(artifact) = ArtifactRepository::get(&sqlite, evidence.artifact_id)? {
-        reject_denied(retrieval_policy.evaluate(&artifact.security), "artifact")?;
+        reject_denied(authorization.evaluate(&artifact.security), "artifact")?;
     }
     let stores = complete_evidence_stores(layout, sqlite)?;
-    let core = evidence_core_services(&stores).with_retrieval_policy(retrieval_policy);
-    let output = core.open_chunk_evidence(OpenChunkEvidenceInput { chunk_id })?;
+    let core = evidence_core_services(&stores);
+    let output = core
+        .open_chunk_evidence_pre_authorized(OpenChunkEvidenceInput { chunk_id }, &authorization)?;
     Ok(output)
 }
 

@@ -1,11 +1,15 @@
-use std::collections::BTreeSet;
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    path::Path,
+};
 
 use anyhow::{Context, Result};
-use maestria_domain::KernelState;
+use maestria_domain::{EvidenceKind, KernelState};
 use maestria_governance::scan_secrets;
 use maestria_ports::{
     ArtifactRepository, CardRepository, ChunkRepository, EmbeddingProvider, EmbeddingRequest,
-    EvidenceRepository, GraphIndex, VectorEmbedding, VectorIndex,
+    EvidenceRepository, FullTextIndex, GraphIndex, IndexedCard, IndexedChunk, IndexedLexicalCard,
+    IndexedLexicalChunk, VectorEmbedding, VectorIndex,
 };
 use maestria_storage_sqlite::SqliteStore;
 /// Reconcile projection repositories from replayed domain truth.
@@ -44,6 +48,135 @@ pub fn reconcile_projections(state: &KernelState, store: &SqliteStore) -> Result
     for evidence in state.evidences.values() {
         EvidenceRepository::replace(store, evidence.clone())
             .with_context(|| format!("replace evidence {}", evidence.id))?;
+    }
+    Ok(())
+}
+
+/// Repair missing full-text projection entries from replayed domain truth.
+///
+/// Full-text rows are derived data. Reindexing each current, retrieval-eligible
+/// chunk and card is idempotent: adapters replace entries by their stable
+/// artifact/entity key. Stale rows remain harmless because every retrieval
+/// path pre-filters against current artifact state before scoring.
+pub fn reconcile_full_text_projection(
+    state: &KernelState,
+    index: &(dyn FullTextIndex + Send + Sync),
+) -> Result<()> {
+    let source_paths: BTreeMap<_, _> = state
+        .evidences
+        .values()
+        .filter_map(|evidence| match &evidence.kind {
+            EvidenceKind::FileSpan { path, .. } => Some((evidence.artifact_id, path.clone())),
+            _ => None,
+        })
+        .collect();
+
+    let chunks: Vec<_> = state
+        .chunks
+        .values()
+        .filter(|chunk| {
+            state
+                .artifacts
+                .get(&chunk.artifact_id)
+                .is_some_and(|artifact| artifact.security.retrieval_allowed())
+                && scan_secrets(&chunk.text).is_clean()
+        })
+        .map(|chunk| {
+            (
+                IndexedChunk {
+                    artifact_id: chunk.artifact_id,
+                    chunk_id: chunk.id,
+                    text: chunk.text.clone(),
+                },
+                source_paths.get(&chunk.artifact_id).cloned(),
+            )
+        })
+        .collect();
+    let cards: Vec<_> = state
+        .cards
+        .values()
+        .filter(|card| {
+            state
+                .artifacts
+                .get(&card.artifact_id)
+                .is_some_and(|artifact| artifact.security.retrieval_allowed())
+                && scan_secrets(&card.title).is_clean()
+                && scan_secrets(&card.body).is_clean()
+        })
+        .map(|card| {
+            (
+                IndexedCard {
+                    artifact_id: card.artifact_id,
+                    card_id: card.id,
+                    title: card.title.clone(),
+                    body: card.body.clone(),
+                },
+                source_paths.get(&card.artifact_id).cloned(),
+            )
+        })
+        .collect();
+
+    if !chunks.is_empty() {
+        index
+            .index_chunks(chunks.iter().map(|(chunk, _)| chunk.clone()).collect())
+            .context("index full-text chunks")?;
+    }
+    if !cards.is_empty() {
+        index
+            .index_cards(cards.iter().map(|(card, _)| card.clone()).collect())
+            .context("index full-text cards")?;
+    }
+    index_lexical_metadata(index, &chunks, &cards)
+}
+
+fn index_lexical_metadata(
+    index: &(dyn FullTextIndex + Send + Sync),
+    chunks: &[(IndexedChunk, Option<String>)],
+    cards: &[(IndexedCard, Option<String>)],
+) -> Result<()> {
+    if !index.supports_lexical_metadata() {
+        return Ok(());
+    }
+    let lexical_chunks: Vec<IndexedLexicalChunk> = chunks
+        .iter()
+        .map(|(chunk, path)| IndexedLexicalChunk {
+            artifact_id: chunk.artifact_id,
+            chunk_id: chunk.chunk_id,
+            text: chunk.text.clone(),
+            path: path.clone(),
+            filename: path
+                .as_deref()
+                .and_then(|path| Path::new(path).file_name())
+                .and_then(|name| name.to_str())
+                .map(str::to_owned),
+            symbol: None,
+        })
+        .collect();
+    let lexical_cards: Vec<IndexedLexicalCard> = cards
+        .iter()
+        .map(|(card, path)| IndexedLexicalCard {
+            artifact_id: card.artifact_id,
+            card_id: card.card_id,
+            title: card.title.clone(),
+            body: card.body.clone(),
+            path: path.clone(),
+            filename: path
+                .as_deref()
+                .and_then(|path| Path::new(path).file_name())
+                .and_then(|name| name.to_str())
+                .map(str::to_owned),
+            symbol: None,
+        })
+        .collect();
+    if !lexical_chunks.is_empty() {
+        index
+            .index_lexical_chunks(lexical_chunks)
+            .context("index lexical full-text chunks")?;
+    }
+    if !lexical_cards.is_empty() {
+        index
+            .index_lexical_cards(lexical_cards)
+            .context("index lexical full-text cards")?;
     }
     Ok(())
 }

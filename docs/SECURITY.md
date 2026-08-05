@@ -153,6 +153,54 @@ Network access is disabled unless explicitly granted. Domain, URL, method, conte
 
 Redirects, uploads, authenticated requests, and access to local or private network addresses require separate authorization.
 
+### 4.4 Local Realm Federation
+
+Realm federation is a local, provider-owned read capability, not shared
+instance storage. Every schema-v2 manifest has one stable `RealmId`. An
+existing schema-v1 manifest has no realm identity and must be explicitly
+migrated before it can participate.
+
+The provider owns grant issuance and revocation. A grant binds exactly one
+consumer realm to:
+
+```text
+search-only or search-and-open-evidence access
+a sensitivity ceiling
+a maximum result count
+a maximum evidence excerpt size
+```
+
+The raw bearer credential exists only in the provider's create reply, the
+consumer's private binding, and a local federation request. The provider
+stores and keys grants by a domain-separated credential digest; raw
+credentials are not domain state, events, projections, ordinary logs, or CLI
+output. The consumer never receives or reuses the provider daemon token.
+
+For every provider request, authorization is ordered as follows:
+
+1. accept only the tagged federation authentication envelope and only
+   `federation_search` or `federation_evidence`;
+2. derive the credential digest and read the provider's current grant
+   projection;
+3. verify provider realm, consumer realm, active state, requested operation,
+   finite bounds, and access type;
+4. intersect the grant sensitivity ceiling with the provider retrieval policy;
+5. pass that composed authorization context to every enabled candidate lane
+   before candidate retrieval or scoring;
+6. return bounded provenance-bearing data and append a successful access audit
+   event.
+
+Denied, missing, wrong, or revoked credentials reveal no provider result,
+count, source path, or evidence. Graph expansion is disabled for federation
+until graph relations can be authorized before materialization; it must not be
+post-filtered.
+
+Grants do not expire automatically and have no rate quota. Explicit revocation
+is observed on the next provider request, including after restart. A
+`search-only` grant cannot open evidence. The v1 authenticated actor is the
+consumer realm itself, not a user or per-agent principal; a future principal
+model must add a separate identity and grant boundary.
+
 ## 5. Taint and Quarantine
 
 Taint tracks data that may affect safety, reliability, or authorization.

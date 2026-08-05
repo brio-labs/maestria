@@ -38,6 +38,12 @@ pub(super) fn open_evidence(layout: &InstanceLayout, evidence_id: u64) -> Result
     // shared scoped open applies the manifest read-root scope and retrieval
     // policy before dispatching to core.
     let output = crate::evidence_open::open_evidence_scoped(layout, evidence_id)?;
+    evidence_response(output)
+}
+
+pub(super) fn evidence_response(
+    output: maestria_core::OpenEvidenceOutput,
+) -> Result<EvidenceResponse> {
     Ok(EvidenceResponse {
         evidence_id: output.evidence.id.value(),
         artifact_id: output.artifact.id.value(),

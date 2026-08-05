@@ -71,7 +71,11 @@ async fn prepare_read_only_search_runtime(
     .map_err(|error| anyhow!("prepare search runtime task failed: {error}"))?
 }
 
-fn search_response(query: String, query_id: u64, outcome: SearchOutcome) -> SearchResponse {
+pub(super) fn search_response(
+    query: String,
+    query_id: u64,
+    outcome: SearchOutcome,
+) -> SearchResponse {
     SearchResponse {
         query,
         query_id,

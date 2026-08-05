@@ -5,6 +5,7 @@ mod claim;
 mod content_range;
 mod evidence;
 mod memory;
+mod realm_read_grant;
 mod relation;
 mod task;
 mod test;
@@ -17,6 +18,10 @@ pub use claim::{Claim, ClaimStatus};
 pub use content_range::{ContentRange, ContentRangeError};
 pub use evidence::Evidence;
 pub use memory::{MIN_PROMOTION_CONFIDENCE_MILLI, Memory, MemoryCandidate, MemoryStatus};
+pub use realm_read_grant::{
+    FederatedAccessRecord, FederatedReadAccess, FederatedReadOperation, RealmReadGrant,
+    RealmReadGrantState,
+};
 pub use relation::{Relation, RelationEndpoint, RelationKind};
 pub use task::{Task, TaskPriority};
 pub use test::{OutputStream, TestStatus};

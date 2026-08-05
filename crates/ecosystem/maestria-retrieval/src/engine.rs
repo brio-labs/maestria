@@ -213,13 +213,35 @@ impl RetrievalEngine {
     /// Dropping the future aborts the search. When `timeout_ms` is greater than zero, the search
     /// is also aborted if the latency budget is exceeded.
     pub async fn search(&self, plan: &SearchPlan) -> RetrievalResult<SearchOutcome> {
+        let authorization = self
+            .security_policy
+            .authorization_context(plan.scope())
+            .map_err(|error| {
+                RetrievalError::Internal(format!("retrieval authorization denied: {error:?}"))
+            })?;
+        self.search_pre_authorized(plan, authorization).await
+    }
+
+    /// Executes with a caller-composed authorization context. This is the
+    /// federation boundary: all retrieval lanes consume this context before
+    /// scoring and must not reconstruct policy from the engine configuration.
+    ///
+    /// # Cancellation
+    /// Dropping the future aborts the active search and its owned shadow task. When
+    /// `timeout_ms` is greater than zero, the search is also aborted if the latency budget
+    /// is exceeded.
+    pub async fn search_pre_authorized(
+        &self,
+        plan: &SearchPlan,
+        authorization: maestria_governance::RetrievalAuthorizationContext,
+    ) -> RetrievalResult<SearchOutcome> {
         self.validate_plan(plan)?;
         if maestria_governance::contains_prompt_injection_risk(plan.original_query()) {
             return self.prompt_injection_outcome(plan);
         }
         let timeout_ms = plan.budgets().max_latency_ms() as u64;
         let started = tokio::time::Instant::now();
-        let search = self.search_internal(plan, started);
+        let search = self.search_internal(plan, started, authorization);
         if timeout_ms > 0 {
             tokio::time::timeout(Duration::from_millis(timeout_ms), search)
                 .await
@@ -233,25 +255,8 @@ impl RetrievalEngine {
         &self,
         plan: &SearchPlan,
         started: tokio::time::Instant,
+        authorization: maestria_governance::RetrievalAuthorizationContext,
     ) -> RetrievalResult<SearchOutcome> {
-        let authorization = self
-            .security_policy
-            .authorization_context(plan.scope())
-            .map_err(|error| {
-                RetrievalError::Internal(format!("retrieval authorization denied: {error:?}"))
-            })?;
-        let metadata = maestria_domain::SecurityMetadata {
-            prompt_injection_risk: maestria_governance::contains_prompt_injection_risk(
-                plan.original_query(),
-            ),
-            ..maestria_domain::SecurityMetadata::default()
-        };
-        let decision = self.security_policy.evaluate(&metadata);
-        if matches!(decision, maestria_governance::RetrievalDecision::Denied(_))
-            && metadata.prompt_injection_risk
-        {
-            return self.prompt_injection_outcome(plan);
-        }
         let shadow_task = learned_sparse_shadow::spawn_learned_sparse_shadow(
             self.learned_sparse_shadow_retrievers(plan),
             plan.clone(),
@@ -292,9 +297,15 @@ impl RetrievalEngine {
                 rerank_trace,
                 diversity_trace,
             };
-            let explicit_stop_reason =
-                engine_adaptive::iterate_until_stop(self, plan, &query, &mut state, started)
-                    .await?;
+            let explicit_stop_reason = engine_adaptive::iterate_until_stop(
+                self,
+                plan,
+                &query,
+                &authorization,
+                &mut state,
+                started,
+            )
+            .await?;
             let expansion_enabled = plan
                 .stages()
                 .contains(&maestria_domain::SearchStage::Filtering);

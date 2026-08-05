@@ -1,4 +1,5 @@
 use super::*;
+use maestria_domain::RealmId;
 use std::{env, fs, path::PathBuf, process};
 
 #[test]
@@ -12,7 +13,8 @@ fn scan_skips_instance_state_when_root_contains_instance() -> Result<(), Box<dyn
     fs::write(instance.join("system").join(WATCH_STATE_FILE), "{}")?;
 
     let manifest = InstanceManifest {
-        schema_version: 1,
+        schema_version: 2,
+        realm_id: RealmId::try_from("a".repeat(64))?,
         root: instance,
         read_roots: vec![root.clone()],
         excluded_patterns: Vec::new(),
@@ -35,7 +37,7 @@ fn scan_preserves_relative_manifest_scope() -> Result<(), Box<dyn std::error::Er
     fs::create_dir_all(&root)?;
     fs::write(root.join("note.md"), "relative note")?;
 
-    let manifest = test_manifest(root.clone());
+    let manifest = test_manifest(root.clone())?;
     let observations = scan_manifest(&manifest)?;
 
     assert_eq!(observations.len(), 1);
@@ -54,7 +56,8 @@ fn scan_allows_read_root_nested_in_instance() -> Result<(), Box<dyn std::error::
     fs::write(nested.join("note.md"), "nested note")?;
 
     let manifest = InstanceManifest {
-        schema_version: 1,
+        schema_version: 2,
+        realm_id: RealmId::try_from("a".repeat(64))?,
         root: instance,
         read_roots: vec![nested],
         excluded_patterns: Vec::new(),
@@ -83,7 +86,8 @@ fn scan_excludes_instance_manifest_and_preserves_alias_scope()
     fs::write(instance.join("workspace").join("note.md"), "user note")?;
 
     let manifest = InstanceManifest {
-        schema_version: 1,
+        schema_version: 2,
+        realm_id: RealmId::try_from("a".repeat(64))?,
         root: instance.clone(),
         read_roots: vec![instance.join(".")],
         excluded_patterns: Vec::new(),
@@ -106,7 +110,7 @@ fn scan_is_deterministic_and_skips_sensitive_files() -> Result<(), Box<dyn std::
     fs::create_dir_all(&root)?;
     fs::write(root.join("note.md"), "note")?;
     fs::write(root.join(".env"), "secret")?;
-    let manifest = test_manifest(root.clone());
+    let manifest = test_manifest(root.clone())?;
     let first = scan_manifest(&manifest)?;
     let second = scan_manifest(&manifest)?;
     assert_eq!(
@@ -126,7 +130,7 @@ fn scan_respects_gitignore() -> Result<(), Box<dyn std::error::Error>> {
     fs::write(root.join("tracked.md"), "tracked content")?;
     fs::write(root.join("ignored.md"), "ignored content")?;
     fs::write(root.join(".gitignore"), "ignored.md")?;
-    let manifest = test_manifest(root.clone());
+    let manifest = test_manifest(root.clone())?;
     let observations = scan_manifest(&manifest)?;
     assert_eq!(observations.len(), 1);
     assert!(
@@ -146,7 +150,7 @@ fn scan_respects_ignore_file() -> Result<(), Box<dyn std::error::Error>> {
     fs::write(root.join("ok.md"), "ok")?;
     fs::write(root.join("ignored.md"), "should be ignored")?;
     fs::write(root.join(".ignore"), "ignored.md")?;
-    let manifest = test_manifest(root.clone());
+    let manifest = test_manifest(root.clone())?;
     let observations = scan_manifest(&manifest)?;
     assert_eq!(observations.len(), 1);
     assert!(
