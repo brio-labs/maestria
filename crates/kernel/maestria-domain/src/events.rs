@@ -223,6 +223,18 @@ pub enum DomainEvent {
         source_path: String,
         content_hash: ContentHash,
     },
+    RealmReadGrantIssued {
+        grant: crate::entities::RealmReadGrant,
+    },
+    RealmReadGrantRevoked {
+        token_digest: crate::GrantTokenDigest,
+    },
+    FederatedReadAccessRecorded {
+        token_digest: crate::GrantTokenDigest,
+        provider_realm: crate::RealmId,
+        consumer_realm: crate::RealmId,
+        record: crate::entities::FederatedAccessRecord,
+    },
 }
 
 /// Outcome recorded by an `ApprovalRecorded` event.

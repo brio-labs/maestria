@@ -6,6 +6,7 @@ mod index_generation_tests;
 mod learned_sparse_observation_tests;
 mod learned_sparse_projection_tests;
 mod migration_tests;
+mod realm_read_grant_tests;
 mod repository_tests;
 
 use std::collections::BTreeSet;

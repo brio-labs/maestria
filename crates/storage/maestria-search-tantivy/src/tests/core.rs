@@ -235,3 +235,50 @@ fn directory_backed_index_can_be_reopened() -> Result<(), Box<dyn std::error::Er
     assert_eq!(hits.hits[0].chunk.chunk_id, ChunkId::new(40));
     Ok(())
 }
+
+#[test]
+fn read_only_directory_backed_index_searches_durable_chunks()
+-> Result<(), Box<dyn std::error::Error>> {
+    let directory = TempDir::new()?;
+    let index = TantivyFullTextIndex::open(directory.path())?;
+    index.index_chunks(vec![chunk(4, 40, "durable indexed text")])?;
+    drop(index);
+
+    let reopened = TantivyFullTextIndex::open_read_only(directory.path())?;
+    let hits = reopened.search(SearchQuery {
+        q: "durable".to_string(),
+        limit: 10,
+        offset: 0,
+        execution_budget: search_budget(10)?,
+    })?;
+
+    assert_eq!(hits.hits.len(), 1);
+    assert_eq!(hits.hits[0].chunk.artifact_id, ArtifactId::new(4));
+    assert_eq!(hits.hits[0].chunk.chunk_id, ChunkId::new(40));
+    Ok(())
+}
+
+#[test]
+fn read_only_directory_backed_index_pre_filters_before_scoring()
+-> Result<(), Box<dyn std::error::Error>> {
+    let directory = TempDir::new()?;
+    let index = TantivyFullTextIndex::open(directory.path())?;
+    index.index_chunks(vec![chunk(4, 40, "durable indexed text")])?;
+    drop(index);
+
+    let reopened = TantivyFullTextIndex::open_read_only(directory.path())?;
+    let hits = reopened.search_filtered(
+        SearchQuery {
+            q: "durable".to_string(),
+            limit: 10,
+            offset: 0,
+            execution_budget: search_budget(10)?,
+        },
+        &|chunk_id, artifact_id| {
+            Ok(chunk_id == ChunkId::new(40) && artifact_id == ArtifactId::new(4))
+        },
+    )?;
+
+    assert_eq!(hits.hits.len(), 1);
+    Ok(())
+}

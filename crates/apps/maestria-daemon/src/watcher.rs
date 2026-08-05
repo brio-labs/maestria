@@ -1,5 +1,7 @@
 use anyhow::{Context, Result};
 use maestria_core::{InstanceLayout, InstanceManifest, artifact_id_for};
+#[cfg(test)]
+use maestria_domain::RealmId;
 use maestria_domain::{ArtifactDetected, DomainInput, SourceRemoved};
 #[cfg(test)]
 use std::path::PathBuf;
@@ -340,16 +342,17 @@ impl Watcher {
 }
 
 #[cfg(test)]
-fn test_manifest(root: PathBuf) -> InstanceManifest {
-    InstanceManifest {
-        schema_version: 1,
+fn test_manifest(root: PathBuf) -> Result<InstanceManifest, Box<dyn std::error::Error>> {
+    Ok(InstanceManifest {
+        schema_version: 2,
+        realm_id: RealmId::try_from("a".repeat(64))?,
         root: root.clone(),
         read_roots: vec![root],
         excluded_patterns: vec![".env".to_string()],
         embeddings: None,
         ocr: None,
         visual: None,
-    }
+    })
 }
 
 #[cfg(test)]

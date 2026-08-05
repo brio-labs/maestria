@@ -11,7 +11,9 @@ mod errors;
 mod events;
 mod evidence_pack;
 mod evidence_source;
+mod federated_evidence_bounds;
 mod generations;
+mod grant_token_digest;
 mod ids;
 mod input;
 mod inputs;
@@ -24,8 +26,10 @@ mod model_agent;
 /// - `errors`: module responsibility.
 /// - `events`: module responsibility.
 /// - `evidence_pack`: module responsibility.
+/// - `federated_evidence_bounds`: validated finite limits for federated retrieval.
 /// - `generations`: module responsibility.
 /// - `ids`: module responsibility.
+/// - `grant_token_digest`: domain-separated federation credential digests.
 /// - `input`: module responsibility.
 /// - `inputs`: module responsibility.
 /// - `model_agent`: model-agent proposal execution and result types.
@@ -33,6 +37,7 @@ mod model_agent;
 /// - `ocr`: module responsibility.
 /// - `provenance`: module responsibility.
 /// - `replay`: module responsibility.
+/// - `realm_identity`: validated stable instance realm identities.
 /// - `search`: module responsibility.
 /// - `security`: module responsibility.
 /// - `security_snapshot`: authorization and integrity security snapshots.
@@ -41,6 +46,7 @@ mod model_agent;
 /// - `types`: module responsibility.
 mod ocr;
 mod provenance;
+mod realm_identity;
 mod replay;
 mod search;
 mod security;
@@ -57,9 +63,10 @@ pub use crate::effects::{
 };
 pub use crate::entities::{
     Artifact, Card, Chunk, Claim, ClaimStatus, ContentRange, ContentRangeError, Evidence,
-    IndexStatus, MIN_PROMOTION_CONFIDENCE_MILLI, Memory, MemoryCandidate, MemoryStatus,
-    OutputStream, PendingArtifact, Relation, RelationEndpoint, RelationKind, Task, TaskPriority,
-    TestStatus, ValidationReportRecord,
+    FederatedAccessRecord, FederatedReadAccess, FederatedReadOperation, IndexStatus,
+    MIN_PROMOTION_CONFIDENCE_MILLI, Memory, MemoryCandidate, MemoryStatus, OutputStream,
+    PendingArtifact, RealmReadGrant, RealmReadGrantState, Relation, RelationEndpoint, RelationKind,
+    Task, TaskPriority, TestStatus, ValidationReportRecord,
 };
 pub use crate::errors::DomainError;
 pub use crate::events::{ApprovalOutcome, DomainEvent, DomainEventEnvelope};
@@ -73,11 +80,16 @@ pub use crate::evidence_source::{
     TextSnapshotVerificationError, WebEvidenceMetadata, verify_snapshot_bytes,
     verify_text_snapshot,
 };
+pub use crate::federated_evidence_bounds::{
+    FederatedEvidenceBounds, FederatedEvidenceBoundsError, MAX_FEDERATED_EVIDENCE_BYTES,
+    MAX_FEDERATED_RESULTS, MIN_FEDERATED_EVIDENCE_BYTES, MIN_FEDERATED_RESULTS,
+};
 pub use crate::generations::{
     FingerprintRevision, IndexFingerprint, IndexGeneration, IndexGenerationRegistry,
     IndexLifecycle, ModelName, PreprocessingVersion, ProviderName, QuantizationScheme,
     RepresentationName,
 };
+pub use crate::grant_token_digest::{GrantTokenDigest, GrantTokenDigestError};
 pub use crate::ids::{
     ApprovalId, ArtifactId, ArtifactVersionId, BlobId, CardId, ChunkId, ClaimId, ConflictSetId,
     CorpusSnapshotId, CorrelationId, DEFAULT_CORPUS_SNAPSHOT_ID, DEFAULT_INSTANCE_SCOPE_ID,
@@ -89,10 +101,11 @@ pub use crate::inputs::{
     ApprovalDecision, ArtifactDetected, ChangeTaskStatusInput, CompleteTaskInput,
     ContradictMemoryInput, CreateCardInput, CreateClaimInput, CreateMemoryCandidateInput,
     CreateRelationInput, DeprecateMemoryInput, DomainInput, FetchWebRequested,
-    FullTextIndexCompleted, HarnessRunCompleted, HarnessRunRequested, LinkEvidenceToClaimInput,
-    LinkEvidenceToTaskInput, OcrCompleted, OcrFailed, OcrRequested, OpenTaskInput, ParserResult,
-    ParserStarted, PromoteMemoryInput, ProposeMemoryCandidateInput, RecordEvidenceInput,
-    RecordValidationReportInput, RegisterArtifactInput, RegisterChunkInput, RequestTaskValidation,
+    FullTextIndexCompleted, HarnessRunCompleted, HarnessRunRequested, IssueRealmReadGrantInput,
+    LinkEvidenceToClaimInput, LinkEvidenceToTaskInput, OcrCompleted, OcrFailed, OcrRequested,
+    OpenTaskInput, ParserResult, ParserStarted, PromoteMemoryInput, ProposeMemoryCandidateInput,
+    RecordEvidenceInput, RecordFederatedAccessInput, RecordValidationReportInput,
+    RegisterArtifactInput, RegisterChunkInput, RequestTaskValidation, RevokeRealmReadGrantInput,
     SearchExecutedInput, SearchKnowledgeCompleted, SearchKnowledgeRequested, SearchResultSet,
     SourceRemoved, StartFullTextIndex, StartIndexGenerationInput, SupersedeMemoryInput,
     TransitionIndexGenerationInput, UserIntent, ValidationCompleted,
@@ -112,6 +125,7 @@ pub use crate::provenance::{
     content_hash, evidence_id_for, excerpt_for, line_range_for_chunk, web_artifact_id_for,
     web_evidence_id_for,
 };
+pub use crate::realm_identity::{RealmId, RealmIdError};
 pub use crate::replay::{replay_events, replay_inputs};
 pub use crate::search::{
     ArtifactVersion, ConflictSet, ContentHash, CorpusScope, DiversityPlacement,

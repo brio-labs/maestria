@@ -24,7 +24,7 @@ pub use learned_sparse::{InMemoryLearnedSparseIndex, InMemoryLearnedSparseProvid
 pub use parser::InMemoryParser;
 pub use repositories::{
     InMemoryApprovalRepository, InMemoryArtifactRepository, InMemoryCardRepository,
-    InMemoryChunkRepository, InMemoryEvidenceRepository,
+    InMemoryChunkRepository, InMemoryEvidenceRepository, InMemoryRealmReadGrantRepository,
 };
 pub use vector_index::InMemoryVectorIndex;
 pub use web::InMemoryWebFetcher;

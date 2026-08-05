@@ -349,6 +349,26 @@ pub struct TransitionIndexGenerationInput {
     pub to: crate::generations::IndexLifecycle,
 }
 
+/// Issues a provider-owned realm read grant. It intentionally contains only
+/// the credential digest, never the bearer credential bytes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IssueRealmReadGrantInput {
+    pub grant: crate::entities::RealmReadGrant,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RevokeRealmReadGrantInput {
+    pub token_digest: crate::GrantTokenDigest,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RecordFederatedAccessInput {
+    pub token_digest: crate::GrantTokenDigest,
+    pub provider_realm: crate::RealmId,
+    pub consumer_realm: crate::RealmId,
+    pub record: crate::entities::FederatedAccessRecord,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DomainInput {
     ModelAgentProposalRequested(ModelAgentProposalRequest),
@@ -392,6 +412,9 @@ pub enum DomainInput {
     ApprovalResolved(ApprovalDecision),
     FetchWebRequested(FetchWebRequested),
     StartIndexGeneration(StartIndexGenerationInput),
+    IssueRealmReadGrant(IssueRealmReadGrantInput),
+    RevokeRealmReadGrant(RevokeRealmReadGrantInput),
+    RecordFederatedAccess(RecordFederatedAccessInput),
     SearchKnowledgeRequested(SearchKnowledgeRequested),
     SearchExecuted(SearchExecutedInput),
     SearchKnowledgeCompleted(SearchKnowledgeCompleted),

@@ -10,6 +10,7 @@ use crate::error::{CoreError, CoreResult};
 
 pub(super) struct ManifestFields {
     pub(super) schema_version: Option<u32>,
+    pub(super) realm_id: Option<String>,
     pub(super) root: Option<PathBuf>,
     pub(super) read_roots: Vec<PathBuf>,
     pub(super) excluded_patterns: Vec<String>,
@@ -235,6 +236,7 @@ pub(super) fn parse_manifest_fields(contents: &str) -> CoreResult<ManifestFields
 fn empty_manifest_fields() -> ManifestFields {
     ManifestFields {
         schema_version: None,
+        realm_id: None,
         root: None,
         read_roots: Vec::new(),
         excluded_patterns: Vec::new(),
@@ -271,6 +273,7 @@ fn empty_manifest_fields() -> ManifestFields {
 fn parse_manifest_field(fields: &mut ManifestFields, key: &str, value: &str) -> CoreResult<()> {
     match key {
         "schema_version" => fields.schema_version = Some(parse_value(value, key)?),
+        "realm_id" => fields.realm_id = Some(value.to_string()),
         "root" => fields.root = Some(PathBuf::from(value)),
         "read_root" => fields.read_roots.push(PathBuf::from(value)),
         "excluded_pattern" => fields.excluded_patterns.push(value.to_string()),

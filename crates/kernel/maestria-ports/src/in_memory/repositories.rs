@@ -1,12 +1,14 @@
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     sync::{Arc, Mutex},
 };
 
 use crate::PortError;
 use maestria_domain::{ApprovalId, TaskId};
-use maestria_domain::{Artifact, ArtifactId, Card, CardId, Chunk, ChunkId, Evidence, EvidenceId};
-
+use maestria_domain::{
+    Artifact, ArtifactId, Card, CardId, Chunk, ChunkId, Evidence, EvidenceId, GrantTokenDigest,
+    RealmReadGrant,
+};
 // ── ArtifactRepository ──────────────────────────────────────────────
 
 #[derive(Clone, Default)]
@@ -215,6 +217,66 @@ impl crate::EvidenceRepository for InMemoryEvidenceRepository {
             .filter(|evidence| evidence.artifact_id == artifact_id)
             .cloned()
             .collect())
+    }
+}
+
+// ── RealmReadGrantRepository ─────────────────────────────────────────
+
+#[derive(Clone, Default)]
+pub struct InMemoryRealmReadGrantRepository {
+    grants: Arc<Mutex<BTreeMap<GrantTokenDigest, RealmReadGrant>>>,
+}
+
+impl InMemoryRealmReadGrantRepository {
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
+
+impl crate::RealmReadGrantRepository for InMemoryRealmReadGrantRepository {
+    fn get(&self, token_digest: &GrantTokenDigest) -> Result<Option<RealmReadGrant>, PortError> {
+        let grants = self.grants.lock().map_err(|_| PortError::InternalContext {
+            context: "realm read grant repository lock poisoned",
+            source: "realm read grant repository mutex is poisoned".to_string(),
+        })?;
+        Ok(grants.get(token_digest).cloned())
+    }
+
+    fn put(&self, grant: RealmReadGrant) -> Result<(), PortError> {
+        let mut grants = self.grants.lock().map_err(|_| PortError::InternalContext {
+            context: "realm read grant repository lock poisoned",
+            source: "realm read grant repository mutex is poisoned".to_string(),
+        })?;
+        if grant.state() == maestria_domain::RealmReadGrantState::Active
+            && grants.iter().any(|(digest, existing)| {
+                digest != grant.token_digest()
+                    && existing.state() == maestria_domain::RealmReadGrantState::Active
+                    && existing.consumer_realm() == grant.consumer_realm()
+            })
+        {
+            return Err(PortError::Conflict {
+                message: "consumer realm already has an active read grant".to_string(),
+            });
+        }
+        grants.insert(grant.token_digest().clone(), grant);
+        Ok(())
+    }
+
+    fn list(&self) -> Result<Vec<RealmReadGrant>, PortError> {
+        let grants = self.grants.lock().map_err(|_| PortError::InternalContext {
+            context: "realm read grant repository lock poisoned",
+            source: "realm read grant repository mutex is poisoned".to_string(),
+        })?;
+        Ok(grants.values().cloned().collect())
+    }
+
+    fn delete_not_in(&self, token_digests: &BTreeSet<GrantTokenDigest>) -> Result<(), PortError> {
+        let mut grants = self.grants.lock().map_err(|_| PortError::InternalContext {
+            context: "realm read grant repository lock poisoned",
+            source: "realm read grant repository mutex is poisoned".to_string(),
+        })?;
+        grants.retain(|digest, _| token_digests.contains(digest));
+        Ok(())
     }
 }
 

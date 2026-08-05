@@ -251,7 +251,12 @@ impl MaestriaRuntime {
             effects_admitted: effects.len(),
             events: output.events.clone(),
         };
-        let barriers = Self::transition_barriers(&outcome.events, &effects, approval_barrier);
+        let barriers = Self::transition_barriers(
+            &outcome.events,
+            &effects,
+            approval_barrier,
+            prepare_before_reply,
+        );
         self.commit_staged_input(candidate, harness_feedback, &effects)
             .await;
         if !self

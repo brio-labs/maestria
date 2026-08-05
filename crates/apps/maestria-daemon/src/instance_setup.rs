@@ -2,7 +2,7 @@ use std::{fs, path::PathBuf};
 
 use anyhow::{Context, Result, anyhow};
 use maestria_core::{InitInstanceInput, InstanceLayout, InstanceManifest, InstanceService};
-use maestria_domain::{DomainInput, KernelState, replay_events};
+use maestria_domain::{DomainInput, KernelState, RealmId, replay_events};
 use maestria_governance::PrivacyExclusions;
 use maestria_ports::EventFilter;
 use maestria_storage_sqlite::SqliteStore;
@@ -46,8 +46,25 @@ pub fn validate_recovery_scope(layout: &InstanceLayout, recovery: &RecoveryInput
     Ok(())
 }
 
+/// Generates the stable realm identity at the application boundary. The
+/// deterministic domain only accepts the already-validated value.
+pub fn generate_realm_id() -> Result<RealmId> {
+    let mut bytes = [0u8; 32];
+    getrandom::getrandom(&mut bytes)
+        .map_err(|error| anyhow!("generate realm identity: {error}"))?;
+    let encoded = bytes
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>();
+    RealmId::try_from(encoded)
+        .map_err(|error| anyhow!("validate generated realm identity: {error}"))
+}
+
 pub fn prepare_instance(instance_dir: PathBuf) -> Result<InstanceLayout> {
-    let plan = InstanceService::init_instance(InitInstanceInput { root: instance_dir })?;
+    let plan = InstanceService::init_instance(InitInstanceInput {
+        root: instance_dir,
+        realm_id: generate_realm_id()?,
+    })?;
     for directory in &plan.directories {
         fs::create_dir_all(directory)?;
     }
@@ -63,7 +80,8 @@ pub fn prepare_instance_with_roots(
     instance_dir: PathBuf,
     read_roots: Vec<PathBuf>,
 ) -> Result<InstanceLayout> {
-    let plan = InstanceService::init_instance_with_roots(instance_dir, read_roots)?;
+    let plan =
+        InstanceService::init_instance_with_roots(instance_dir, read_roots, generate_realm_id()?)?;
     for directory in &plan.directories {
         fs::create_dir_all(directory)?;
     }

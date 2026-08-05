@@ -10,7 +10,7 @@ use maestria_ports::{
     InMemoryArtifactRepository, InMemoryBlobStore, InMemoryCardRepository, InMemoryChunkRepository,
     InMemoryEffectJournal, InMemoryEventLog, InMemoryEvidenceRepository, InMemoryFullTextIndex,
     InMemoryGraphIndex, InMemoryHarnessAdapter, InMemoryIdAllocator, InMemoryParser,
-    InMemoryVectorIndex, InMemoryWebFetcher,
+    InMemoryRealmReadGrantRepository, InMemoryVectorIndex, InMemoryWebFetcher,
 };
 use std::collections::BTreeSet;
 use std::sync::Arc;
@@ -49,6 +49,7 @@ async fn resume_parse_uses_existing_blob_and_skips_storage()
         chunk_repo: Arc::new(InMemoryChunkRepository::new()),
         card_repo: Arc::new(InMemoryCardRepository::new()),
         evidence_repo: Arc::new(InMemoryEvidenceRepository::new()),
+        realm_read_grant_repo: Arc::new(InMemoryRealmReadGrantRepository::new()),
         embedding_provider: None,
         ocr_provider: None,
         search_executor: None,
@@ -146,6 +147,7 @@ async fn resume_parse_missing_blob_returns_failure() -> Result<(), Box<dyn std::
         chunk_repo: Arc::new(InMemoryChunkRepository::new()),
         card_repo: Arc::new(InMemoryCardRepository::new()),
         evidence_repo: Arc::new(InMemoryEvidenceRepository::new()),
+        realm_read_grant_repo: Arc::new(InMemoryRealmReadGrantRepository::new()),
         embedding_provider: None,
         ocr_provider: None,
         search_executor: None,
@@ -229,6 +231,7 @@ async fn fresh_parse_sends_parser_started_with_correct_blob_identity()
         chunk_repo: Arc::new(InMemoryChunkRepository::new()),
         card_repo: Arc::new(InMemoryCardRepository::new()),
         evidence_repo: Arc::new(InMemoryEvidenceRepository::new()),
+        realm_read_grant_repo: Arc::new(InMemoryRealmReadGrantRepository::new()),
         embedding_provider: None,
         ocr_provider: None,
         search_executor: None,
@@ -436,6 +439,7 @@ async fn resume_sends_record_evidence_when_evidence_already_in_state()
         card_repo: Arc::new(InMemoryCardRepository::new()),
         ocr_provider: None,
         evidence_repo: Arc::new(InMemoryEvidenceRepository::new()),
+        realm_read_grant_repo: Arc::new(InMemoryRealmReadGrantRepository::new()),
         embedding_provider: None,
         search_executor: None,
         vector_index: Some(Arc::new(InMemoryVectorIndex::new())),

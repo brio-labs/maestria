@@ -8,7 +8,7 @@ async fn phase_detect_additions_emits_for_new_file() -> Result<(), Box<dyn std::
     let (input_tx, mut input_rx) = mpsc::channel(256);
     let mut watcher = Watcher {
         layout: InstanceLayout::for_root(PathBuf::from("/tmp")),
-        manifest: test_manifest(PathBuf::from("/tmp")),
+        manifest: test_manifest(PathBuf::from("/tmp"))?,
         input_tx,
         artifact_ids: BTreeMap::new(),
         shutdown: CancellationToken::new(),
@@ -54,7 +54,7 @@ async fn phase_detect_additions_skips_unchanged_file() -> Result<(), Box<dyn std
     let (input_tx, mut input_rx) = mpsc::channel(256);
     let mut watcher = Watcher {
         layout: InstanceLayout::for_root(PathBuf::from("/tmp")),
-        manifest: test_manifest(PathBuf::from("/tmp")),
+        manifest: test_manifest(PathBuf::from("/tmp"))?,
         input_tx,
         artifact_ids: BTreeMap::new(),
         shutdown: CancellationToken::new(),
@@ -93,7 +93,7 @@ async fn phase_detect_additions_skips_matching_artifact_id_and_hash()
     let (input_tx, mut input_rx) = mpsc::channel(256);
     let mut watcher = Watcher {
         layout: InstanceLayout::for_root(PathBuf::from("/tmp")),
-        manifest: test_manifest(PathBuf::from("/tmp")),
+        manifest: test_manifest(PathBuf::from("/tmp"))?,
         input_tx,
         artifact_ids: [(
             "/tmp/existing.md".to_string(),
@@ -141,7 +141,7 @@ async fn phase_detect_additions_respects_backpressure() -> Result<(), Box<dyn st
         .await?;
     let mut watcher = Watcher {
         layout: InstanceLayout::for_root(PathBuf::from("/tmp")),
-        manifest: test_manifest(PathBuf::from("/tmp")),
+        manifest: test_manifest(PathBuf::from("/tmp"))?,
         input_tx,
         artifact_ids: BTreeMap::new(),
         shutdown: CancellationToken::new(),
@@ -179,7 +179,7 @@ async fn phase_detect_additions_reports_closed_input_channel()
     drop(input_rx);
     let mut watcher = Watcher {
         layout: InstanceLayout::for_root(PathBuf::from("/tmp")),
-        manifest: test_manifest(PathBuf::from("/tmp")),
+        manifest: test_manifest(PathBuf::from("/tmp"))?,
         input_tx,
         artifact_ids: BTreeMap::new(),
         shutdown: CancellationToken::new(),
@@ -215,7 +215,7 @@ async fn phase_detect_additions_full_channel_completes_without_false_commit()
         .map_err(|_| "fill the channel")?;
     let mut watcher = Watcher {
         layout: InstanceLayout::for_root(PathBuf::from("/tmp")),
-        manifest: test_manifest(PathBuf::from("/tmp")),
+        manifest: test_manifest(PathBuf::from("/tmp"))?,
         input_tx,
         artifact_ids: BTreeMap::new(),
         shutdown: CancellationToken::new(),

@@ -1,6 +1,7 @@
-use crate::error::CoreResult;
+use crate::error::{CoreError, CoreResult};
 use crate::evidence_opening::{open_chunk_evidence, open_evidence};
 use crate::types::{OpenChunkEvidenceInput, OpenEvidenceInput, OpenEvidenceOutput};
+use maestria_domain::CorpusScope;
 use maestria_ports::{
     ArtifactRepository, BlobStore, CardRepository, ChunkRepository, EventLog, FullTextIndex, Parser,
 };
@@ -39,14 +40,41 @@ impl<'a> CoreServices<'a> {
         self
     }
 
+    fn authorization(&self) -> CoreResult<maestria_governance::RetrievalAuthorizationContext> {
+        self.retrieval_policy
+            .authorization_context(&CorpusScope::Global)
+            .map_err(|_| CoreError::NotAvailable {
+                kind: "evidence",
+                reason: "not available under retrieval policy",
+            })
+    }
+
     pub fn open_evidence(&self, input: OpenEvidenceInput) -> CoreResult<OpenEvidenceOutput> {
-        open_evidence(&self.ports, input, &self.retrieval_policy)
+        let authorization = self.authorization()?;
+        open_evidence(&self.ports, input, &authorization)
+    }
+
+    pub fn open_evidence_pre_authorized(
+        &self,
+        input: OpenEvidenceInput,
+        authorization: &maestria_governance::RetrievalAuthorizationContext,
+    ) -> CoreResult<OpenEvidenceOutput> {
+        open_evidence(&self.ports, input, authorization)
     }
 
     pub fn open_chunk_evidence(
         &self,
         input: OpenChunkEvidenceInput,
     ) -> CoreResult<OpenEvidenceOutput> {
-        open_chunk_evidence(&self.ports, input, &self.retrieval_policy)
+        let authorization = self.authorization()?;
+        open_chunk_evidence(&self.ports, input, &authorization)
+    }
+
+    pub fn open_chunk_evidence_pre_authorized(
+        &self,
+        input: OpenChunkEvidenceInput,
+        authorization: &maestria_governance::RetrievalAuthorizationContext,
+    ) -> CoreResult<OpenEvidenceOutput> {
+        open_chunk_evidence(&self.ports, input, authorization)
     }
 }

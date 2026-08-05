@@ -6,7 +6,7 @@ async fn phase_detect_removals_emits_source_removed() -> Result<(), Box<dyn std:
     let (input_tx, mut input_rx) = mpsc::channel(256);
     let mut watcher = Watcher {
         layout: InstanceLayout::for_root(PathBuf::from("/tmp")),
-        manifest: test_manifest(PathBuf::from("/tmp")),
+        manifest: test_manifest(PathBuf::from("/tmp"))?,
         input_tx,
         artifact_ids: BTreeMap::new(),
         shutdown: CancellationToken::new(),
@@ -67,7 +67,7 @@ async fn phase_detect_removals_retries_after_channel_backpressure()
         .map_err(|_| "fill the input channel")?;
     let mut watcher = Watcher {
         layout: InstanceLayout::for_root(PathBuf::from("/tmp")),
-        manifest: test_manifest(PathBuf::from("/tmp")),
+        manifest: test_manifest(PathBuf::from("/tmp"))?,
         shutdown: CancellationToken::new(),
         input_tx,
         artifact_ids: BTreeMap::new(),
@@ -133,7 +133,7 @@ async fn phase_detect_removals_detects_rename() -> Result<(), Box<dyn std::error
     let (input_tx, mut input_rx) = mpsc::channel(256);
     let mut watcher = Watcher {
         layout: InstanceLayout::for_root(PathBuf::from("/tmp")),
-        manifest: test_manifest(PathBuf::from("/tmp")),
+        manifest: test_manifest(PathBuf::from("/tmp"))?,
         input_tx,
         artifact_ids: BTreeMap::new(),
         shutdown: CancellationToken::new(),
@@ -184,7 +184,7 @@ async fn phase_detect_removals_cleans_up_stale_artifact_ids()
     let (input_tx, _input_rx) = mpsc::channel(256);
     let mut watcher = Watcher {
         layout: InstanceLayout::for_root(PathBuf::from("/tmp")),
-        manifest: test_manifest(PathBuf::from("/tmp")),
+        manifest: test_manifest(PathBuf::from("/tmp"))?,
         input_tx,
         artifact_ids: BTreeMap::new(),
         shutdown: CancellationToken::new(),
@@ -232,7 +232,7 @@ fn emit_source_removed_returns_true_on_success() -> Result<(), Box<dyn std::erro
     let (input_tx, mut input_rx) = mpsc::channel(256);
     let watcher = Watcher {
         layout: InstanceLayout::for_root(PathBuf::from("/tmp")),
-        manifest: test_manifest(PathBuf::from("/tmp")),
+        manifest: test_manifest(PathBuf::from("/tmp"))?,
         input_tx,
         artifact_ids: BTreeMap::new(),
         shutdown: CancellationToken::new(),
@@ -275,7 +275,7 @@ fn emit_source_removed_returns_false_when_channel_full() -> Result<(), Box<dyn s
         .map_err(|_| "fill the channel")?;
     let watcher = Watcher {
         layout: InstanceLayout::for_root(PathBuf::from("/tmp")),
-        manifest: test_manifest(PathBuf::from("/tmp")),
+        manifest: test_manifest(PathBuf::from("/tmp"))?,
         input_tx,
         artifact_ids: BTreeMap::new(),
         shutdown: CancellationToken::new(),
@@ -306,7 +306,7 @@ fn emit_source_removed_returns_false_when_artifact_id_missing()
     let (input_tx, mut input_rx) = mpsc::channel(256);
     let watcher = Watcher {
         layout: InstanceLayout::for_root(PathBuf::from("/tmp")),
-        manifest: test_manifest(PathBuf::from("/tmp")),
+        manifest: test_manifest(PathBuf::from("/tmp"))?,
         input_tx,
         artifact_ids: BTreeMap::new(),
         shutdown: CancellationToken::new(),

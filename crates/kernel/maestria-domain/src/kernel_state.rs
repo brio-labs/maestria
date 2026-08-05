@@ -1,6 +1,7 @@
+use crate::GrantTokenDigest;
 use crate::entities::{
-    Artifact, Card, Chunk, Claim, Evidence, Memory, MemoryCandidate, PendingArtifact, Relation,
-    Task, ValidationReportRecord,
+    Artifact, Card, Chunk, Claim, Evidence, Memory, MemoryCandidate, PendingArtifact,
+    RealmReadGrant, Relation, Task, ValidationReportRecord,
 };
 use crate::events::DomainEventEnvelope;
 use crate::ids::{
@@ -40,5 +41,7 @@ pub struct KernelState {
     pub parsed_artifact_ids: BTreeSet<ArtifactId>,
     pub stale_sources: BTreeSet<String>,
     pub index_generations: crate::generations::IndexGenerationRegistry,
+    /// Rebuildable provider grant current state. The event log is authoritative.
+    pub realm_read_grants: BTreeMap<GrantTokenDigest, RealmReadGrant>,
     pub event_log: Vec<DomainEventEnvelope>,
 }

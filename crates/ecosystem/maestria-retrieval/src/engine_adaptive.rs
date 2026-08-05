@@ -24,6 +24,7 @@ pub(super) async fn iterate_until_stop(
     engine: &RetrievalEngine,
     plan: &SearchPlan,
     query: &SearchQuery,
+    authorization: &maestria_governance::RetrievalAuthorizationContext,
     state: &mut AdaptiveSearchState,
     started: tokio::time::Instant,
 ) -> RetrievalResult<Option<SearchStopReason>> {
@@ -56,7 +57,7 @@ pub(super) async fn iterate_until_stop(
         else {
             return Ok(Some(SearchStopReason::RequirementsUnmet));
         };
-        if !retrieve_missing_slot(engine, plan, query, state, slot, started).await? {
+        if !retrieve_missing_slot(engine, plan, query, authorization, state, slot, started).await? {
             return Ok(Some(SearchStopReason::BudgetExhausted));
         }
         iteration_count = iteration_count.saturating_add(1);
@@ -84,6 +85,7 @@ async fn retrieve_missing_slot(
     engine: &RetrievalEngine,
     plan: &SearchPlan,
     query: &SearchQuery,
+    authorization: &maestria_governance::RetrievalAuthorizationContext,
     state: &mut AdaptiveSearchState,
     slot: String,
     started: tokio::time::Instant,
@@ -127,18 +129,12 @@ async fn retrieve_missing_slot(
             RetrievalError::Internal("accepted missing-slot rewrite was not retained".to_string())
         })?;
     let active_retrievers = engine.active_retrievers(plan);
-    let authorization = engine
-        .security_policy
-        .authorization_context(plan.scope())
-        .map_err(|error| {
-            RetrievalError::Internal(format!("retrieval authorization denied: {error:?}"))
-        })?;
     state.batches.extend(
         engine_pipeline::collect_missing_slot_batches(
             &active_retrievers,
             plan,
             &query_text,
-            &authorization,
+            authorization,
             &mut state.web_requests_used,
             &mut state.execution_usage,
         )
@@ -156,7 +152,7 @@ async fn retrieve_missing_slot(
             &state.batches,
             started,
             &mut state.execution_usage,
-            &authorization,
+            authorization,
         )
         .await?;
     Ok(true)

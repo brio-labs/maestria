@@ -6,6 +6,7 @@ pub mod index;
 pub mod init;
 pub mod memory;
 pub mod observability;
+pub mod realm;
 pub mod search;
 pub mod status;
 pub mod task;

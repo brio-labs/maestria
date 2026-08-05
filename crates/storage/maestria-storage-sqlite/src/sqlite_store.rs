@@ -66,6 +66,13 @@ impl SqliteStore {
 }
 
 pub(crate) fn to_port_error(error: Error) -> PortError {
+    if let Error::SqliteFailure(failure, _) = &error
+        && failure.code == ErrorCode::ConstraintViolation
+    {
+        return PortError::Conflict {
+            message: error.to_string(),
+        };
+    }
     PortError::DownstreamContext {
         context: "sqlite database query failed",
         source: error.to_string(),

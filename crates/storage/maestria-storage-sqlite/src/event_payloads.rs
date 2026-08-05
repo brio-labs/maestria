@@ -226,6 +226,25 @@ pub(crate) enum StoredEventPayload {
         to: StoredIndexLifecycle,
         replaced_active_id: Option<u64>,
     },
+    RealmReadGrantIssued {
+        token_digest: String,
+        provider_realm: String,
+        consumer_realm: String,
+        access: crate::payloads::realm_read_grant_event_payloads::StoredFederatedReadAccess,
+        max_sensitivity:
+            crate::payloads::realm_read_grant_event_payloads::StoredFederatedSensitivity,
+        max_results: u64,
+        max_evidence_bytes: u64,
+    },
+    RealmReadGrantRevoked {
+        token_digest: String,
+    },
+    FederatedReadAccessRecorded {
+        token_digest: String,
+        provider_realm: String,
+        consumer_realm: String,
+        record: crate::payloads::realm_read_grant_event_payloads::StoredFederatedAccessRecord,
+    },
     SourceBecameStale {
         artifact_id: u64,
         source_path: String,
@@ -236,6 +255,7 @@ pub(crate) enum StoredEventPayload {
 impl StoredEventPayload {
     pub(crate) fn from_domain(event: &DomainEvent) -> Result<Self, PortError> {
         Self::try_from_domain_stale(event)
+            .or_else(|| Self::try_from_domain_federation(event))
             .or_else(|| Self::try_from_domain_ocr(event))
             .or_else(|| Self::try_from_domain_artifact(event))
             .or_else(|| Self::try_from_domain_task(event))
@@ -253,6 +273,7 @@ impl StoredEventPayload {
             return self.try_into_domain_evidence();
         }
         self.try_into_domain_stale()
+            .or_else(|e| e.or_next(StoredEventPayload::try_into_domain_federation))
             .or_else(|e| e.or_next(StoredEventPayload::try_into_domain_ocr))
             .or_else(|e| e.or_next(StoredEventPayload::try_into_domain_artifact))
             .or_else(|e| e.or_next(StoredEventPayload::try_into_domain_task))
@@ -270,6 +291,7 @@ impl StoredEventPayload {
 
     pub(crate) fn kind(&self) -> Result<&'static str, PortError> {
         self.try_kind_stale()
+            .or_else(|| self.try_kind_federation())
             .or_else(|| self.try_kind_ocr())
             .or_else(|| self.try_kind_artifact())
             .or_else(|| self.try_kind_task())
@@ -284,6 +306,7 @@ impl StoredEventPayload {
 
     pub(crate) fn filter_artifact_id(&self) -> Option<u64> {
         self.try_filter_artifact_id_stale()
+            .or_else(|| self.try_filter_artifact_id_federation())
             .or_else(|| self.try_filter_artifact_id_ocr())
             .or_else(|| self.try_filter_artifact_id_artifact())
             .or_else(|| self.try_filter_artifact_id_task())

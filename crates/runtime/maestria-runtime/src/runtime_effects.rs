@@ -355,6 +355,26 @@ impl MaestriaRuntime {
         .await
     }
 
+    pub(crate) async fn wait_for_realm_read_grant_persistence(
+        &self,
+        event_id: maestria_domain::EventId,
+        expected: maestria_domain::RealmReadGrant,
+        shutdown_token: &tokio_util::sync::CancellationToken,
+    ) -> bool {
+        crate::persistence_barrier::wait_for_event(
+            &*self.adapters.event_log,
+            self.config.default_effect_timeout,
+            shutdown_token,
+            "realm read grant projection barrier",
+            crate::persistence_barrier::realm_read_grant_persisted(
+                event_id,
+                expected,
+                &*self.adapters.realm_read_grant_repo,
+            ),
+        )
+        .await
+    }
+
     pub(crate) async fn wait_for_approval_resolution(
         &self,
         event_id: maestria_domain::EventId,

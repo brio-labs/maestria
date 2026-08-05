@@ -2,7 +2,7 @@ use super::*;
 use maestria_core::InstanceManifest;
 use maestria_domain::{
     Artifact, ArtifactId, BlobId, ContentHash, Evidence, EvidenceId, EvidenceKind, IndexStatus,
-    LineRange, ScopeId, SecurityMetadata, SnapshotRef, ValidationReportId,
+    LineRange, RealmId, ScopeId, SecurityMetadata, SnapshotRef, ValidationReportId,
 };
 use maestria_ports::{ArtifactRepository, EvidenceRepository};
 use maestria_storage_sqlite::SqliteStore;
@@ -49,7 +49,7 @@ fn fixture() -> Result<Fixture> {
     if let Some(parent) = layout.database_path.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    let manifest = InstanceManifest::default_for_root(root);
+    let manifest = InstanceManifest::default_for_root(root, RealmId::try_from("a".repeat(64))?);
     std::fs::write(&layout.manifest_path, manifest.encode())?;
 
     Ok(Fixture {

@@ -72,6 +72,11 @@ impl KernelState {
             DomainEvent::SourceBecameStale { source_path, .. } => {
                 self.stale_sources.insert(source_path.clone());
             }
+            DomainEvent::RealmReadGrantIssued { .. }
+            | DomainEvent::RealmReadGrantRevoked { .. }
+            | DomainEvent::FederatedReadAccessRecorded { .. } => {
+                self.replay_federation_events(&envelope.event)?;
+            }
         }
 
         self.event_log.push(envelope);
@@ -271,6 +276,31 @@ impl KernelState {
             }
             _ => Err(DomainError::InternalInvariantViolation {
                 detail: "replay_orchestration_events: unexpected event variant",
+            }),
+        }
+    }
+
+    fn replay_federation_events(&mut self, event: &DomainEvent) -> Result<(), DomainError> {
+        match event {
+            DomainEvent::RealmReadGrantIssued { grant } => {
+                self.apply_realm_read_grant_issued(grant)
+            }
+            DomainEvent::RealmReadGrantRevoked { token_digest } => {
+                self.apply_realm_read_grant_revoked(token_digest)
+            }
+            DomainEvent::FederatedReadAccessRecorded {
+                token_digest,
+                provider_realm,
+                consumer_realm,
+                record,
+            } => self.apply_federated_access_recorded(
+                token_digest,
+                provider_realm,
+                consumer_realm,
+                record,
+            ),
+            _ => Err(DomainError::InternalInvariantViolation {
+                detail: "replay_federation_events: unexpected event variant",
             }),
         }
     }

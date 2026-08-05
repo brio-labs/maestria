@@ -5,7 +5,8 @@ use std::path::{Path, PathBuf};
 
 fn write_manifest(dir: &Path, read_roots: &[&str]) -> std::io::Result<PathBuf> {
     let mut lines = vec![
-        "schema_version=1".to_string(),
+        "schema_version=2".to_string(),
+        format!("realm_id={}", "a".repeat(64)),
         format!("root={}", dir.display()),
     ];
     for root in read_roots {

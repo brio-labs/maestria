@@ -3,6 +3,7 @@ use crate::ids::{
     MemoryCandidateId, MemoryId, RelationId, TaskId, ValidationReportId,
 };
 use crate::task_status::TaskStatus;
+use crate::{GrantTokenDigest, RealmId};
 use std::fmt;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -124,6 +125,32 @@ pub enum DomainError {
     SearchIncompatible {
         error: crate::search::SearchCompatibilityError,
     },
+    DuplicateRealmReadGrantDigest {
+        digest: GrantTokenDigest,
+    },
+    DuplicateActiveRealmReadGrant {
+        consumer_realm: RealmId,
+    },
+    MissingRealmReadGrant {
+        digest: GrantTokenDigest,
+    },
+    RealmReadGrantAlreadyRevoked {
+        digest: GrantTokenDigest,
+    },
+    RealmReadGrantRevoked {
+        digest: GrantTokenDigest,
+    },
+    RealmReadGrantUnsupportedAccess {
+        digest: GrantTokenDigest,
+    },
+    RealmReadGrantProviderMismatch {
+        expected: RealmId,
+        actual: RealmId,
+    },
+    RealmReadGrantConsumerMismatch {
+        expected: RealmId,
+        actual: RealmId,
+    },
     InternalInvariantViolation {
         detail: &'static str,
     },
@@ -161,6 +188,10 @@ impl DomainError {
     ) -> fmt::Result {
         write!(f, "{prefix} {id}: {from:?} -> {to:?}")
     }
+
+    fn fmt_validation_required(f: &mut fmt::Formatter, task_id: TaskId) -> fmt::Result {
+        write!(f, "task {task_id} requires validation before completion")
+    }
     fn fmt_model_agent(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let (message, run_id) = match self {
             Self::DuplicateModelAgentProposalRunId { run_id } => {
@@ -179,6 +210,61 @@ impl DomainError {
             _ => return Err(fmt::Error),
         };
         write!(f, "{message}: {run_id}")
+    }
+
+    fn fmt_memory_candidate(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let Self::MemoryCandidateIneligibleForPromotion {
+            candidate_id,
+            confidence_milli,
+            minimum_confidence_milli,
+            reason,
+        } = self
+        else {
+            return Err(fmt::Error);
+        };
+        write!(
+            f,
+            "memory candidate {candidate_id} cannot be promoted ({reason}): {confidence_milli} < {minimum_confidence_milli}"
+        )
+    }
+
+    fn fmt_realm_read_grant(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Self::DuplicateRealmReadGrantDigest { digest } => {
+                write!(f, "duplicate realm read grant digest: {digest}")
+            }
+            Self::DuplicateActiveRealmReadGrant { consumer_realm } => {
+                write!(
+                    f,
+                    "consumer realm already has an active read grant: {consumer_realm}"
+                )
+            }
+            Self::MissingRealmReadGrant { digest } => {
+                write!(f, "missing realm read grant: {digest}")
+            }
+            Self::RealmReadGrantAlreadyRevoked { digest } => {
+                write!(f, "realm read grant is already revoked: {digest}")
+            }
+            Self::RealmReadGrantRevoked { digest } => {
+                write!(f, "realm read grant is revoked: {digest}")
+            }
+            Self::RealmReadGrantUnsupportedAccess { digest } => {
+                write!(f, "realm read grant does not allow this access: {digest}")
+            }
+            Self::RealmReadGrantProviderMismatch { expected, actual } => {
+                write!(
+                    f,
+                    "realm read grant provider mismatch: expected {expected}, got {actual}"
+                )
+            }
+            Self::RealmReadGrantConsumerMismatch { expected, actual } => {
+                write!(
+                    f,
+                    "realm read grant consumer mismatch: expected {expected}, got {actual}"
+                )
+            }
+            _ => Err(fmt::Error),
+        }
     }
 }
 
@@ -217,23 +303,15 @@ impl fmt::Display for DomainError {
             Self::InvalidGenerationTransition { id, from, to } => {
                 Self::fmt_transition(f, "invalid index generation transition for", id, from, to)
             }
-            Self::ValidationRequired { task_id } => {
-                write!(f, "task {task_id} requires validation before completion")
-            }
+            Self::ValidationRequired { task_id } => Self::fmt_validation_required(f, *task_id),
             Self::EmptyClaimText => write!(f, "claim text must not be empty"),
             Self::EmptyIntent => write!(f, "user intent must not be empty"),
             Self::EvidenceRequired { kind, id } => {
                 write!(f, "{kind} {id} requires at least one evidence id")
             }
-            Self::MemoryCandidateIneligibleForPromotion {
-                candidate_id,
-                confidence_milli,
-                minimum_confidence_milli,
-                reason,
-            } => write!(
-                f,
-                "memory candidate {candidate_id} cannot be promoted ({reason}): {confidence_milli} < {minimum_confidence_milli}"
-            ),
+            error @ Self::MemoryCandidateIneligibleForPromotion { .. } => {
+                error.fmt_memory_candidate(f)
+            }
             Self::InvalidSequence { expected, actual } => {
                 write!(
                     f,
@@ -280,6 +358,14 @@ impl fmt::Display for DomainError {
             Self::SearchIncompatible { error } => {
                 write!(f, "search contract violation: {error}")
             }
+            error @ (Self::DuplicateRealmReadGrantDigest { .. }
+            | Self::DuplicateActiveRealmReadGrant { .. }
+            | Self::MissingRealmReadGrant { .. }
+            | Self::RealmReadGrantAlreadyRevoked { .. }
+            | Self::RealmReadGrantRevoked { .. }
+            | Self::RealmReadGrantUnsupportedAccess { .. }
+            | Self::RealmReadGrantProviderMismatch { .. }
+            | Self::RealmReadGrantConsumerMismatch { .. }) => error.fmt_realm_read_grant(f),
             Self::InternalInvariantViolation { detail } => {
                 write!(f, "internal invariant violation: {detail}")
             }

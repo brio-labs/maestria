@@ -157,6 +157,7 @@ fn build_adapters(
         chunk_repo: storage.sqlite_store.clone(),
         card_repo: storage.sqlite_store.clone(),
         evidence_repo: storage.sqlite_store.clone(),
+        realm_read_grant_repo: storage.sqlite_store.clone(),
         embedding_provider,
         web_fetcher: Arc::new(UreqWebFetcher::new()),
         vector_index: indexes.vector_index,
@@ -211,6 +212,8 @@ pub(crate) fn build_runtime_with_repository_policy(
         repository_execution_policy,
         false,
     )?;
+    maestria_runtime::rebuild_realm_read_grant_projection(&*adapters.realm_read_grant_repo, &state)
+        .with_context(|| "rebuild realm read grant projection")?;
     let governance = Governance {
         classifier: Arc::new(DefaultRiskClassifier),
         approval_gate: Arc::new(DefaultApprovalGate),

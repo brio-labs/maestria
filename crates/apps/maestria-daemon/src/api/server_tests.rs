@@ -3,16 +3,19 @@ use std::{
     path::PathBuf,
     sync::atomic::{AtomicU64, Ordering},
 };
+use tokio::io::AsyncReadExt;
 
 static NEXT_TEST_SOCKET: AtomicU64 = AtomicU64::new(0);
 
-fn test_context(socket_path: PathBuf) -> Arc<ApiContext> {
-    Arc::new(ApiContext {
+fn test_context(socket_path: PathBuf) -> Result<Arc<ApiContext>> {
+    let realm_id = maestria_domain::RealmId::try_from("a".repeat(64))?;
+    Ok(Arc::new(ApiContext {
         layout: InstanceLayout::for_root(std::env::temp_dir()),
         token: "test-token".to_string(),
         socket_path,
         runtime: None,
-    })
+        realm_id,
+    }))
 }
 
 #[tokio::test]
@@ -24,7 +27,7 @@ async fn partial_request_disconnect_is_reported() -> Result<()> {
     let result = read_request_line(&mut reader).await;
 
     assert!(
-        matches!(result.as_ref(), Err(error) if error.to_string().contains("before end of request")),
+        matches!(result.as_ref(), Err(error) if error.to_string().contains("before end of message")),
         "expected truncated request error, got {result:?}"
     );
     Ok(())
@@ -43,7 +46,7 @@ async fn shutdown_joins_blocked_connection_handler() -> Result<()> {
     let connections = ConnectionTasks::default();
     let task = tokio::spawn(serve(
         listener,
-        test_context(socket_path.clone()),
+        test_context(socket_path.clone())?,
         shutdown.clone(),
         connections.clone(),
     ));

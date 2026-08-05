@@ -60,7 +60,13 @@ fn migrations_are_idempotent() -> Result<(), Box<dyn std::error::Error>> {
             row.get(0)
         })?;
     assert_eq!(version, CURRENT_SCHEMA_VERSION);
-    for table in ["chunks", "cards", "card_claims", "evidence"] {
+    for table in [
+        "chunks",
+        "cards",
+        "card_claims",
+        "evidence",
+        "realm_read_grants",
+    ] {
         let count: i64 = connection.query_row(
             "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?1",
             params![table],
@@ -128,7 +134,7 @@ fn migrate_rejects_unsupported_schema_versions() -> Result<(), Box<dyn std::erro
 }
 
 #[test]
-fn migrate_repairs_missing_tables_at_current_version() -> Result<(), PortError> {
+fn migrate_v13_creates_realm_read_grant_projection() -> Result<(), PortError> {
     use crate::schema::migrate;
     let mut connection = Connection::open_in_memory().map_err(to_port_error)?;
     connection
@@ -142,17 +148,22 @@ fn migrate_repairs_missing_tables_at_current_version() -> Result<(), PortError> 
         .map_err(to_port_error)?;
 
     migrate(&mut connection)?;
+    let version: i64 = connection
+        .query_row("SELECT MAX(version) FROM schema_version", [], |row| {
+            row.get(0)
+        })
+        .map_err(to_port_error)?;
+    assert_eq!(version, CURRENT_SCHEMA_VERSION);
     let count: i64 = connection
         .query_row(
-            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'domain_events'",
+            "SELECT COUNT(*) FROM sqlite_master
+             WHERE type = 'table' AND name = 'realm_read_grants'",
             [],
             |row| row.get(0),
         )
         .map_err(to_port_error)?;
-    assert_eq!(
-        count, 1,
-        "current-version databases must be repaired idempotently"
-    );
+    assert_eq!(count, 1);
+    migrate(&mut connection)?;
     Ok(())
 }
 

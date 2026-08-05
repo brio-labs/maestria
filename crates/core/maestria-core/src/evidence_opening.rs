@@ -8,7 +8,7 @@ use maestria_domain::{
 pub(super) fn open_evidence<'a>(
     ports: &CorePorts<'a>,
     input: OpenEvidenceInput,
-    policy: &maestria_governance::RetrievalSecurityPolicy,
+    authorization: &maestria_governance::RetrievalAuthorizationContext,
 ) -> CoreResult<OpenEvidenceOutput> {
     let evidence =
         ports
@@ -18,7 +18,8 @@ pub(super) fn open_evidence<'a>(
                 kind: "evidence",
                 id: input.evidence_id.to_string(),
             })?;
-    if policy.evaluate(&evidence.security) != maestria_governance::RetrievalDecision::Allowed {
+    if authorization.evaluate(&evidence.security) != maestria_governance::RetrievalDecision::Allowed
+    {
         return Err(CoreError::NotAvailable {
             kind: "evidence",
             reason: "not available under retrieval policy",
@@ -38,7 +39,8 @@ pub(super) fn open_evidence<'a>(
                 kind: "artifact",
                 id: evidence.artifact_id.to_string(),
             })?;
-    if policy.evaluate(&artifact.security) != maestria_governance::RetrievalDecision::Allowed {
+    if authorization.evaluate(&artifact.security) != maestria_governance::RetrievalDecision::Allowed
+    {
         return Err(CoreError::NotAvailable {
             kind: "artifact",
             reason: "not available under retrieval policy",
@@ -57,7 +59,7 @@ pub(super) fn open_evidence<'a>(
 pub(super) fn open_chunk_evidence<'a>(
     ports: &CorePorts<'a>,
     input: OpenChunkEvidenceInput,
-    policy: &maestria_governance::RetrievalSecurityPolicy,
+    authorization: &maestria_governance::RetrievalAuthorizationContext,
 ) -> CoreResult<OpenEvidenceOutput> {
     let chunk = ports
         .chunks
@@ -90,7 +92,7 @@ pub(super) fn open_chunk_evidence<'a>(
         OpenEvidenceInput {
             evidence_id: evidence.id,
         },
-        policy,
+        authorization,
     )
 }
 

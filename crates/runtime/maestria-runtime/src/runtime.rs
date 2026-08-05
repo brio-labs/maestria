@@ -124,6 +124,9 @@ pub struct RuntimeHandle {
     pub(crate) id_allocator: Arc<dyn maestria_ports::IdAllocator + Send + Sync>,
     pub(crate) search_executor:
         Option<Arc<dyn maestria_ports::SearchKnowledgeExecutor + Send + Sync>>,
+    pub(crate) realm_read_grant_repo:
+        Arc<dyn maestria_ports::RealmReadGrantRepository + Send + Sync>,
+    pub(crate) state: Arc<RwLock<KernelState>>,
 }
 
 impl RuntimeHandle {
@@ -136,6 +139,21 @@ impl RuntimeHandle {
         &self,
     ) -> Option<Arc<dyn maestria_ports::SearchKnowledgeExecutor + Send + Sync>> {
         self.search_executor.clone()
+    }
+
+    pub fn realm_read_grant_repository(
+        &self,
+    ) -> Arc<dyn maestria_ports::RealmReadGrantRepository + Send + Sync> {
+        self.realm_read_grant_repo.clone()
+    }
+
+    /// Snapshot the current replayed domain state for a request-bound,
+    /// read-only provider runtime.
+    ///
+    /// # Cancellation
+    /// Cancelling while waiting for the read lock leaves runtime state unchanged.
+    pub async fn kernel_state(&self) -> KernelState {
+        self.state.read().await.clone()
     }
 }
 

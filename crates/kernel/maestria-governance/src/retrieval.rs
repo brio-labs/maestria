@@ -113,6 +113,19 @@ impl RetrievalAuthorizationContext {
         )
         .map_err(RetrievalAuthorizationError::InvalidPolicySnapshot)
     }
+
+    /// Applies an additional immutable ceiling without relaxing any provider
+    /// policy. Used by a request-bound delegated capability before retrieval.
+    pub fn with_sensitivity_ceiling(&self, ceiling: Sensitivity) -> Self {
+        let mut context = self.clone();
+        context.max_sensitivity = match &context.max_sensitivity {
+            Some(existing) if sensitivity_level(existing) <= sensitivity_level(&ceiling) => {
+                Some(existing.clone())
+            }
+            _ => Some(ceiling),
+        };
+        context
+    }
 }
 
 /// Configuration used to derive a request-bound authorization context.
