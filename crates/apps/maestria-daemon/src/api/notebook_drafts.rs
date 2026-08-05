@@ -234,10 +234,11 @@ pub(super) fn source_allowed(
     state: &maestria_domain::KernelState,
     artifact_id: maestria_domain::ArtifactId,
 ) -> Result<bool> {
-    let Some(parser) = state.pending_parsers.get(&artifact_id) else {
-        return Ok(false);
-    };
-    Ok(manifest(context)?.allows_source(std::path::Path::new(&parser.source_path)))
+    let manifest = manifest(context)?;
+    Ok(state.active_sources.iter().any(|(source_key, active_id)| {
+        *active_id == artifact_id
+            && manifest.allows_source(std::path::Path::new(source_key.as_str()))
+    }))
 }
 
 pub(crate) async fn submit(

@@ -167,16 +167,16 @@ fn selected_artifact_ids(
     let artifact_ids: BTreeSet<_> = notebook
         .source_keys
         .iter()
-        .filter_map(|key| state.active_sources.get(key).copied())
-        .filter(|id| {
-            let Some(parser) = state.pending_parsers.get(id) else {
-                return false;
-            };
-            manifest.allows_source(std::path::Path::new(&parser.source_path))
-                && state
-                    .artifacts
-                    .get(id)
-                    .is_some_and(|a| a.index_status == IndexStatus::Indexed)
+        .filter_map(|key| {
+            let id = state.active_sources.get(key).copied()?;
+            if !manifest.allows_source(std::path::Path::new(key.as_str())) {
+                return None;
+            }
+            state
+                .artifacts
+                .get(&id)
+                .is_some_and(|artifact| artifact.index_status == IndexStatus::Indexed)
+                .then_some(id)
         })
         .collect();
     if artifact_ids.is_empty() {
@@ -185,4 +185,59 @@ fn selected_artifact_ids(
         ));
     }
     Ok(artifact_ids)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use maestria_domain::{
+        Artifact, ArtifactId, KernelState, Notebook, NotebookTitle, SecurityMetadata,
+        SourceIdentityKey,
+    };
+    use std::collections::BTreeSet;
+
+    #[test]
+    fn selected_context_accepts_completed_indexed_source() -> Result<(), Box<dyn std::error::Error>>
+    {
+        let source_path = "/tmp/maestria-context-regression/source.md";
+        let artifact_id = ArtifactId::new(7);
+        let source_key = SourceIdentityKey::try_from(source_path.to_owned())?;
+        let notebook_id = NotebookId::new(3);
+        let mut state = KernelState::default();
+        state.active_sources.insert(source_key.clone(), artifact_id);
+        state.artifacts.insert(
+            artifact_id,
+            Artifact {
+                id: artifact_id,
+                title: "source.md".to_owned(),
+                chunk_ids: BTreeSet::new(),
+                card_ids: BTreeSet::new(),
+                claim_ids: BTreeSet::new(),
+                evidence_ids: BTreeSet::new(),
+                index_status: IndexStatus::Indexed,
+                content_hash: None,
+                parse_status: None,
+                security: SecurityMetadata::default(),
+            },
+        );
+        state.notebooks.insert(
+            notebook_id,
+            Notebook {
+                id: notebook_id,
+                title: NotebookTitle::try_from("Regression".to_owned())?,
+                source_keys: [source_key].into_iter().collect(),
+                created_at: maestria_domain::LogicalTick::new(1),
+                updated_at: maestria_domain::LogicalTick::new(1),
+            },
+        );
+        let manifest = maestria_core::InstanceManifest::decode(
+            "schema_version=2\nrealm_id=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\nroot=/tmp/maestria-context-regression\nread_root=/tmp/maestria-context-regression\nexcluded_pattern=.env\n",
+        )?;
+
+        let selected = selected_artifact_ids(&state, notebook_id, &manifest)?;
+
+        assert_eq!(selected, [artifact_id].into_iter().collect());
+        assert!(state.pending_parsers.is_empty());
+        Ok(())
+    }
 }

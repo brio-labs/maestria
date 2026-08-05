@@ -100,18 +100,37 @@ pub(crate) async fn source_catalog(
         Some(query) => query.to_lowercase(),
         None => String::new(),
     };
-    let mut entries: Vec<_> = state
+    let mut entries = source_catalog_entries(&state, &manifest, &query);
+    entries.sort_by_key(|entry| {
+        let title = match entry.title.as_deref() {
+            Some(title) => title.to_lowercase(),
+            None => String::new(),
+        };
+        (title, entry.source_key.clone())
+    });
+    let sources = entries.into_iter().skip(offset).take(limit).collect();
+    Ok(NotebookSourceCatalogResponse {
+        sources,
+        offset,
+        limit,
+    })
+}
+fn source_catalog_entries(
+    state: &maestria_domain::KernelState,
+    manifest: &maestria_core::InstanceManifest,
+    query: &str,
+) -> Vec<NotebookSourceCatalogEntry> {
+    state
         .active_sources
         .iter()
         .filter_map(|(key, artifact_id)| {
-            let parser = state.pending_parsers.get(artifact_id)?;
-            if !manifest.allows_source(std::path::Path::new(&parser.source_path)) {
+            if !manifest.allows_source(std::path::Path::new(key.as_str())) {
                 return None;
             }
             let artifact = state.artifacts.get(artifact_id)?;
             if !query.is_empty()
-                && !artifact.title.to_lowercase().contains(&query)
-                && !key.as_str().to_lowercase().contains(&query)
+                && !artifact.title.to_lowercase().contains(query)
+                && !key.as_str().to_lowercase().contains(query)
             {
                 return None;
             }
@@ -132,20 +151,7 @@ pub(crate) async fn source_catalog(
                 available: artifact.index_status == IndexStatus::Indexed,
             })
         })
-        .collect();
-    entries.sort_by_key(|entry| {
-        let title = match entry.title.as_deref() {
-            Some(title) => title.to_lowercase(),
-            None => String::new(),
-        };
-        (title, entry.source_key.clone())
-    });
-    let sources = entries.into_iter().skip(offset).take(limit).collect();
-    Ok(NotebookSourceCatalogResponse {
-        sources,
-        offset,
-        limit,
-    })
+        .collect()
 }
 
 pub(crate) async fn attach(
@@ -178,4 +184,46 @@ pub(crate) async fn detach(
     )
     .await?;
     get(context, notebook_id).await
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use maestria_domain::{
+        Artifact, ArtifactId, IndexStatus, KernelState, SecurityMetadata, SourceIdentityKey,
+    };
+    use std::collections::BTreeSet;
+
+    #[test]
+    fn completed_indexed_sources_remain_in_catalog() -> Result<(), Box<dyn std::error::Error>> {
+        let source_path = "/tmp/maestria-catalog-regression/source.md";
+        let artifact_id = ArtifactId::new(7);
+        let source_key = SourceIdentityKey::try_from(source_path.to_owned())?;
+        let mut state = KernelState::default();
+        state.active_sources.insert(source_key, artifact_id);
+        state.artifacts.insert(
+            artifact_id,
+            Artifact {
+                id: artifact_id,
+                title: "source.md".to_owned(),
+                chunk_ids: BTreeSet::new(),
+                card_ids: BTreeSet::new(),
+                claim_ids: BTreeSet::new(),
+                evidence_ids: BTreeSet::new(),
+                index_status: IndexStatus::Indexed,
+                content_hash: None,
+                parse_status: None,
+                security: SecurityMetadata::default(),
+            },
+        );
+        let manifest = maestria_core::InstanceManifest::decode(
+            "schema_version=2\nrealm_id=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\nroot=/tmp/maestria-catalog-regression\nread_root=/tmp/maestria-catalog-regression\nexcluded_pattern=.env\n",
+        )?;
+
+        let entries = source_catalog_entries(&state, &manifest, "");
+
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].artifact_id, Some(7));
+        assert!(state.pending_parsers.is_empty());
+        Ok(())
+    }
 }

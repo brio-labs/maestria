@@ -92,7 +92,9 @@ async fn handle_http(mut stream: TcpStream, state: StudioState) -> Result<()> {
         drop(permit);
         return Ok(());
     }
-    if request.headers.get("authorization") != Some(&format!("Bearer {}", state.bearer)) {
+    let authorized =
+        request.headers.get("authorization") == Some(&format!("Bearer {}", state.bearer));
+    if !authorized && !is_static_frontend_get(&request.method, &request.path) {
         let body =
             br#"{"error":{"code":"unauthorized","message":"Studio session is unauthorized"}}"#;
         write_http(&mut stream, 401, "application/json", body).await?;
@@ -118,6 +120,10 @@ async fn handle_http(mut stream: TcpStream, state: StudioState) -> Result<()> {
     }
     drop(permit);
     Ok(())
+}
+
+fn is_static_frontend_get(method: &str, path: &str) -> bool {
+    method == "GET" && !path.starts_with("/api/")
 }
 
 fn origin_allowed(method: &str, origin: Option<&String>, expected: &str) -> bool {
@@ -330,10 +336,9 @@ fn json_response<T: Serialize>(status: u16, value: &T) -> Result<(u16, &'static 
         serde_json::to_vec(value).context("encode Studio JSON response")?,
     ))
 }
-
 #[cfg(test)]
 mod tests {
-    use super::{classify_http_error, origin_allowed};
+    use super::{classify_http_error, is_static_frontend_get, origin_allowed};
     use crate::AgentProfile;
 
     #[test]
@@ -358,6 +363,14 @@ mod tests {
             Some(&"https://attacker.invalid".to_owned()),
             expected
         ));
+    }
+
+    #[test]
+    fn frontend_shell_is_public_but_api_remains_authenticated() {
+        assert!(is_static_frontend_get("GET", "/"));
+        assert!(is_static_frontend_get("GET", "/app.js"));
+        assert!(!is_static_frontend_get("GET", "/api/bootstrap"));
+        assert!(!is_static_frontend_get("POST", "/api/notebooks"));
     }
 
     #[test]

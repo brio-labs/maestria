@@ -241,12 +241,13 @@ export function App(): ReactElement {
 
   const createNotebook = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    const title = new FormData(event.currentTarget).get('title')?.toString().trim();
+    const form = event.currentTarget;
+    const title = new FormData(form).get('title')?.toString().trim();
     if (!title) return;
     try {
       setError(null); setStatus('Creating notebook…');
       const created = unwrap(await api<NotebookSummary>('/api/notebooks', { method: 'POST', body: JSON.stringify({ title }) }));
-      event.currentTarget.reset();
+      form.reset();
       await selectNotebook(created.notebook_id);
       setStatus('Notebook created');
     } catch (reason) { showFailure(reason); }
