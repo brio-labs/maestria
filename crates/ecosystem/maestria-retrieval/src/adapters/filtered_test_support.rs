@@ -364,5 +364,6 @@ pub fn request(
         execution_budget: maestria_domain::SearchExecutionBudget::new(5, 300, 10, 0)?,
         expected_generation: generation,
         authorization,
+        source_filter: None,
     })
 }

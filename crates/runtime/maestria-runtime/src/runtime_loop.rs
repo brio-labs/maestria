@@ -25,12 +25,12 @@ pub(crate) struct ApplicationOutcome {
     pub(crate) effects_admitted: usize,
 }
 
-/// Per-input data produced before staging that finalization needs.
 struct StagedInput {
     completed_run_id: Option<maestria_domain::HarnessRunId>,
     approval_continuation: Option<maestria_domain::ModelAgentProposalRequest>,
     should_resume_approval: bool,
     barriers: TransitionBarriers,
+    previous_state: KernelState,
 }
 enum EffectBatchPreparationError {
     Admission,
@@ -64,6 +64,7 @@ impl MaestriaRuntime {
                 journal_recovery_claims: Arc::new(Mutex::new(BTreeSet::new())),
                 feedback_acks: Arc::new(Mutex::new(BTreeMap::new())),
                 pending_applications: Mutex::new(BTreeMap::new()),
+                pending_notebook_drafts: Mutex::new(BTreeMap::new()),
                 next_validation_report_id,
                 #[cfg(test)]
                 test_pre_failed_effect_task: false,
@@ -212,7 +213,20 @@ impl MaestriaRuntime {
         shutdown_token: &tokio_util::sync::CancellationToken,
     ) -> bool {
         let input = Self::correlate_proposal(input, command.as_ref());
+        if command.is_none() {
+            let correlation_id = match &input {
+                DomainInput::NotebookDraftBlobStored(stored) => stored.correlation_id,
+                _ => None,
+            };
+            command = self.take_notebook_draft_command(correlation_id);
+        }
         let completed_run_id = Self::completed_run_id(&input);
+        if let DomainInput::NotebookDraftBlobStoreFailed(failure) = &input {
+            if let Some(command) = command.take() {
+                Self::reply_preparation_error(Some(command), failure.reason.clone());
+            }
+            return true;
+        }
         let approval_continuation = match self.resolve_approval_continuation(&input, &mut command) {
             Ok(continuation) => continuation,
             Err(()) => return true,
@@ -225,13 +239,18 @@ impl MaestriaRuntime {
         }
         let harness_feedback = Self::harness_feedback(&input);
         let approval_barrier = Self::approval_barrier(&input, command.as_ref());
-        let Some((candidate, output, should_resume_approval)) = self
-            .stage_correlated_input(input, approval_continuation.is_some(), &mut command)
+        let Some((candidate, output, should_resume_approval, previous_state)) = self
+            .stage_correlated_input(input.clone(), approval_continuation.is_some(), &mut command)
             .await
         else {
             return true;
         };
-        let effects = output.effects;
+        let mut effects = output.effects;
+        Self::assign_notebook_draft_correlation(
+            &input,
+            &mut effects,
+            command.as_ref().map(|command| command.correlation_id),
+        );
         let prepare_before_reply = command
             .as_ref()
             .is_some_and(|command| command.effect_preparation == EffectPreparation::BeforeReply);
@@ -265,12 +284,24 @@ impl MaestriaRuntime {
         {
             return false;
         }
+        if matches!(input, DomainInput::SaveNotebookDraftRequested(_))
+            && let Some(correlation_id) = command.as_ref().map(|command| command.correlation_id)
+            && let Some(command) = command.take()
+        {
+            if let Ok(mut pending) = self.pending_notebook_drafts.lock() {
+                pending.insert(correlation_id, command);
+            } else {
+                tracing::error!("notebook draft pending-command lock poisoned");
+                return false;
+            }
+        }
         self.await_persistence_and_finalize(
             StagedInput {
                 completed_run_id,
                 approval_continuation,
                 should_resume_approval,
                 barriers,
+                previous_state,
             },
             &mut command,
             &mut outcome,

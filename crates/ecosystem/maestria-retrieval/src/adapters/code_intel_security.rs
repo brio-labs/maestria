@@ -145,6 +145,18 @@ impl CodeIntelSecurityResolver {
             .map(|binding| binding.is_some())
     }
 
+    /// Resolves only the canonical source identity, without loading its
+    /// artifact or evidence. Source selection uses this preflight boundary.
+    pub(super) fn source_artifact_id(
+        &self,
+        symbol: &SymbolRecord,
+    ) -> Result<ArtifactId, RetrievalError> {
+        let expected_path =
+            Path::new(&symbol.provenance.repository_root).join(&symbol.provenance.file_path);
+        self.resolve_source(&expected_path, symbol)
+            .map(|(artifact_id, _, _)| artifact_id)
+    }
+
     pub(super) fn resolve(
         &self,
         symbol: &SymbolRecord,

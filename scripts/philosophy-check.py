@@ -372,8 +372,10 @@ RESPONSIBILITY_MAPS: dict[str, tuple[str, ...]] = {
         "ids",
         "input",
         "inputs",
-        "model_agent",
         "kernel_state",
+        "notebook_inputs",
+        "model_agent",
+        "notebook",
         "ocr",
         "provenance",
         "replay",
@@ -400,7 +402,6 @@ RESPONSIBILITY_MAPS: dict[str, tuple[str, ...]] = {
         "validation",
         "version",
     ),
-    # ── runtime ──────────────────────────────────────────────────────
     "crates/runtime/maestria-runtime/src/lib.rs": (
         "config",
         "effect_admission",
@@ -411,6 +412,7 @@ RESPONSIBILITY_MAPS: dict[str, tuple[str, ...]] = {
         "harness",
         "harness_gate",
         "indexing",
+        "notebook_draft",
         "ocr",
         "parser_mapping",
         "parsing",
@@ -442,6 +444,7 @@ RESPONSIBILITY_MAPS: dict[str, tuple[str, ...]] = {
         "ingestion",
         "instance",
         "manifest",
+        "notebook_draft_opening",
         "ports",
         "provenance",
         "types",
@@ -449,6 +452,11 @@ RESPONSIBILITY_MAPS: dict[str, tuple[str, ...]] = {
     ),
     "crates/apps/maestria-cli/src/lib.rs": (
         "test_support",
+    ),
+    "crates/apps/maestria-studio/src/lib.rs": (
+        "agent",
+        "http",
+        "server",
     ),
     "crates/apps/maestria-daemon/src/lib.rs": (
         "api",
@@ -473,9 +481,10 @@ RESPONSIBILITY_MAPS: dict[str, tuple[str, ...]] = {
         "db_retry",
         "evidence_open",
         "ingestion_policy",
+        "source_identity",
+        "notebook_draft_open",
         "projection_open",
         "recovery_staging",
-        "source_identity",
     ),
     "crates/apps/maestria-daemon/src/api.rs": (
         "protocol",
@@ -483,17 +492,7 @@ RESPONSIBILITY_MAPS: dict[str, tuple[str, ...]] = {
         "services",
         "token",
     ),
-    # ── harness ───────────────────────────────────────────────────────
-    "crates/harness/maestria-harness/src/lib.rs": (
-        "adapter",
-        "command",
-        "process",
-        "tokenize",
-    ),
-    # ── storage ───────────────────────────────────────────────────────
-    "crates/storage/maestria-blob-fs/src/lib.rs": (
-        "store",
-    ),
+    # -- storage ------------------------------------------------------
     "crates/storage/maestria-storage-sqlite/src/lib.rs": (
         "events",
         "id_allocator",
@@ -524,6 +523,15 @@ RESPONSIBILITY_MAPS: dict[str, tuple[str, ...]] = {
         "documents",
         "tantivy_index",
         "execution",
+    ),
+    "crates/harness/maestria-harness/src/lib.rs": (
+        "adapter",
+        "command",
+        "process",
+        "tokenize",
+    ),
+    "crates/storage/maestria-blob-fs/src/lib.rs": (
+        "store",
     ),
     "crates/storage/maestria-graph-sqlite/src/lib.rs": (
         "conversion",

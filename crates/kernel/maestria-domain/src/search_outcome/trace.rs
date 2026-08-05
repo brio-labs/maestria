@@ -300,6 +300,8 @@ pub struct SearchTrace {
     pub identity_version: u16,
     pub retrievers: Vec<String>,
     pub policy_fingerprint: Option<String>,
+    #[serde(default)]
+    pub source_selection_digest: Option<String>,
     pub raw_candidates: Vec<SearchTraceCandidate>,
     pub fusion: Option<String>,
     pub filters: Vec<SearchTraceFilter>,
@@ -342,9 +344,10 @@ impl SearchTrace {
             stages: plan.stages().to_vec(),
             evidence_requirements: plan.evidence_requirements().clone(),
             fingerprint: plan.fingerprint().clone(),
-            identity_version: 8,
+            identity_version: 9,
             retrievers,
             policy_fingerprint: None,
+            source_selection_digest: None,
             budgets: plan.budgets().clone(),
             stop_conditions: plan.stop_conditions().clone(),
             raw_candidates: evidence

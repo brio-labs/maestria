@@ -117,6 +117,7 @@ async fn collect_batches_serially(
     plan: &SearchPlan,
     query: &SearchQuery,
     authorization: &maestria_governance::RetrievalAuthorizationContext,
+    source_filter: Option<&crate::types::CandidateSourceFilter>,
     web_requests_used: &mut u32,
     execution_usage: &mut SearchExecutionUsage,
 ) -> RetrievalResult<Vec<crate::types::CandidateBatch>> {
@@ -188,6 +189,7 @@ async fn collect_batches_serially(
             execution_budget: allocation,
             expected_generation: descriptor.generation,
             authorization: authorization.clone(),
+            source_filter: source_filter.cloned(),
         };
         let batch = match retriever.retrieve(request).await {
             Ok(batch) => normalize_batch(
@@ -213,12 +215,12 @@ async fn collect_batches_serially(
     }
     Ok(batches)
 }
-
 async fn dispatch_eligible_lanes(
     retrievers: &[Arc<dyn CandidateRetriever>],
     plan: &SearchPlan,
     query: &SearchQuery,
     authorization: &maestria_governance::RetrievalAuthorizationContext,
+    source_filter: Option<&crate::types::CandidateSourceFilter>,
     web_requests_used: &mut u32,
     execution_usage: SearchExecutionUsage,
 ) -> RetrievalResult<(Vec<CompletedLane>, JoinSet<RetrieverTask>, usize)> {
@@ -278,6 +280,7 @@ async fn dispatch_eligible_lanes(
             execution_budget: allocation,
             expected_generation: generation,
             authorization: authorization.clone(),
+            source_filter: source_filter.cloned(),
         };
         let semaphore = Arc::clone(&semaphore);
         tasks.spawn(async move {
@@ -294,12 +297,12 @@ async fn dispatch_eligible_lanes(
     }
     Ok((completed, tasks, lane_count))
 }
-
 pub(crate) async fn collect_batches(
     retrievers: &[Arc<dyn CandidateRetriever>],
     plan: &SearchPlan,
     query: &SearchQuery,
     authorization: &maestria_governance::RetrievalAuthorizationContext,
+    source_filter: Option<&crate::types::CandidateSourceFilter>,
     web_requests_used: &mut u32,
     execution_usage: &mut SearchExecutionUsage,
 ) -> RetrievalResult<Vec<crate::types::CandidateBatch>> {
@@ -312,6 +315,7 @@ pub(crate) async fn collect_batches(
             plan,
             query,
             authorization,
+            source_filter,
             web_requests_used,
             execution_usage,
         )
@@ -322,6 +326,7 @@ pub(crate) async fn collect_batches(
         plan,
         query,
         authorization,
+        source_filter,
         web_requests_used,
         *execution_usage,
     )

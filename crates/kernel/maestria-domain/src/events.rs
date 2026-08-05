@@ -223,6 +223,46 @@ pub enum DomainEvent {
         source_path: String,
         content_hash: ContentHash,
     },
+    NotebookCreated {
+        notebook_id: crate::ids::NotebookId,
+        title: crate::notebook::NotebookTitle,
+        created_at: LogicalTick,
+        updated_at: LogicalTick,
+    },
+    NotebookRenamed {
+        notebook_id: crate::ids::NotebookId,
+        title: crate::notebook::NotebookTitle,
+        updated_at: LogicalTick,
+    },
+    NotebookDeleted {
+        notebook_id: crate::ids::NotebookId,
+    },
+    NotebookSourceAttached {
+        notebook_id: crate::ids::NotebookId,
+        source_key: crate::notebook::SourceIdentityKey,
+        updated_at: LogicalTick,
+    },
+    NotebookSourceDetached {
+        notebook_id: crate::ids::NotebookId,
+        source_key: crate::notebook::SourceIdentityKey,
+        updated_at: LogicalTick,
+    },
+    NotebookDraftSaved {
+        draft_id: crate::ids::NotebookDraftId,
+        notebook_id: crate::ids::NotebookId,
+        title: crate::notebook::NotebookDraftTitle,
+        body_blob: BlobId,
+        body_hash: ContentHash,
+        revision: crate::notebook::NotebookDraftRevision,
+        citations: Vec<crate::notebook::FrozenNotebookCitation>,
+        created_at: LogicalTick,
+        updated_at: LogicalTick,
+    },
+    NotebookDraftDeleted {
+        notebook_id: crate::ids::NotebookId,
+        draft_id: crate::ids::NotebookDraftId,
+        revision: crate::notebook::NotebookDraftRevision,
+    },
     RealmReadGrantIssued {
         grant: crate::entities::RealmReadGrant,
     },

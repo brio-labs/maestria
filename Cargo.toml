@@ -10,8 +10,9 @@ publish = false
 [workspace]
 resolver = "2"
 members = [
-     "crates/apps/maestria-daemon",
-     "crates/apps/maestria-cli",
+    "crates/apps/maestria-daemon",
+    "crates/apps/maestria-studio",
+    "crates/apps/maestria-cli",
      "crates/core/maestria-core",
      "crates/ecosystem/maestria-memory",
      "crates/ecosystem/maestria-code-intel",

@@ -6,6 +6,7 @@ use crate::ids::{
     ValidationReportId,
 };
 use crate::model_agent::{ModelAgentProposalRequest, ModelAgentProposalResult};
+use crate::notebook_inputs::*;
 use crate::task_status::TaskStatus;
 
 use crate::security::SecurityMetadata;
@@ -182,7 +183,6 @@ pub struct ParserStarted {
     pub content_hash: crate::search::ContentHash,
     pub blob_id: BlobId,
 }
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ParserResult {
     pub artifact_id: ArtifactId,
@@ -384,9 +384,18 @@ pub enum DomainInput {
     OpenTask(OpenTaskInput),
     ChangeTaskStatus(ChangeTaskStatusInput),
     CompleteTask(CompleteTaskInput),
-    LinkEvidenceToTask(LinkEvidenceToTaskInput),
     LinkEvidenceToClaim(LinkEvidenceToClaimInput),
+    LinkEvidenceToTask(LinkEvidenceToTaskInput),
     CreateRelation(CreateRelationInput),
+    CreateNotebook(CreateNotebookInput),
+    RenameNotebook(RenameNotebookInput),
+    DeleteNotebook(DeleteNotebookInput),
+    AttachNotebookSource(AttachNotebookSourceInput),
+    DetachNotebookSource(DetachNotebookSourceInput),
+    SaveNotebookDraftRequested(SaveNotebookDraftRequested),
+    NotebookDraftBlobStored(NotebookDraftBlobStored),
+    NotebookDraftBlobStoreFailed(NotebookDraftBlobStoreFailed),
+    DeleteNotebookDraft(DeleteNotebookDraftInput),
     CreateMemoryCandidate(CreateMemoryCandidateInput),
     PromoteMemory(PromoteMemoryInput),
     ContradictMemory(ContradictMemoryInput),

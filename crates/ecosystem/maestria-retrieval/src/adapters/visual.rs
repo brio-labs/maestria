@@ -1,13 +1,17 @@
+use async_trait::async_trait;
+
 use std::sync::Arc;
 
 use super::SourceSnapshotVerifier;
+use super::chunk_access::source_filter_allows_chunk;
 use super::common::{candidate_from_records, generation_mismatch, one_based_rank, port_error};
 use super::prescore_cache::PrescoreCache;
 use super::score_provenance::dense_score;
 use super::visual_access::{VisualPrescoreRecord, load_authorized_visual_record};
 use crate::traits::CandidateRetriever;
-use crate::types::{CandidateBatch, CandidateRequest, RetrievalError, RetrieverDescriptor};
-use async_trait::async_trait;
+use crate::types::{
+    CandidateBatch, CandidateRequest, CandidateSourceFilter, RetrievalError, RetrieverDescriptor,
+};
 use maestria_domain::{
     CorpusSnapshotId, EvidenceCandidate, IndexGenerationId, IndexGenerationRegistry,
     RepresentationName, RetrievalReason, SearchExecution, SearchExecutionCompletion,
@@ -146,8 +150,14 @@ impl VisualPageRegionRetriever {
         raw_rank: u32,
         identity: &EmbeddingIdentity,
         authorization: &maestria_governance::RetrievalAuthorizationContext,
+        source_filter: Option<&CandidateSourceFilter>,
         cache: &PrescoreCache<VisualPrescoreRecord>,
     ) -> Result<Option<EvidenceCandidate>, RetrievalError> {
+        if !source_filter_allows_chunk(self.chunks.as_ref(), hit.chunk_id, source_filter)
+            .map_err(port_error)?
+        {
+            return Ok(None);
+        }
         let record = match cache.take(hit.chunk_id) {
             Some(record) => record,
             None => match self.authorized_record(hit.chunk_id, authorization)? {
@@ -156,6 +166,9 @@ impl VisualPageRegionRetriever {
             },
         };
         let (artifact, chunk, evidence) = record;
+        if source_filter.is_some_and(|filter| !filter.allows(artifact.id)) {
+            return Ok(None);
+        }
         let score = if hit.score.is_finite() && hit.score > 0.0 {
             (hit.score.min(1.0) * 1_000_000.0).floor() as u32
         } else {
@@ -178,13 +191,18 @@ impl VisualPageRegionRetriever {
         )?;
         Ok(Some(candidate))
     }
-
     fn prefilter_hit(
         &self,
         chunk_id: maestria_domain::ChunkId,
         authorization: &maestria_governance::RetrievalAuthorizationContext,
         cache: &PrescoreCache<VisualPrescoreRecord>,
+        source_filter: Option<&CandidateSourceFilter>,
     ) -> Result<bool, RetrievalError> {
+        if !source_filter_allows_chunk(self.chunks.as_ref(), chunk_id, source_filter)
+            .map_err(port_error)?
+        {
+            return Ok(false);
+        }
         let Some(record) = self.authorized_record(chunk_id, authorization)? else {
             return Ok(false);
         };
@@ -217,19 +235,30 @@ impl VisualPageRegionRetriever {
         let bounded = self
             .index
             .search_similar_filtered(vector, &|chunk_id| {
-                self.prefilter_hit(chunk_id, &request.authorization, &cache)
-                    .map_err(|error| maestria_ports::PortError::InternalContext {
-                        context: "visual authorization filter",
-                        source: error.to_string(),
-                    })
+                self.prefilter_hit(
+                    chunk_id,
+                    &request.authorization,
+                    &cache,
+                    request.source_filter.as_ref(),
+                )
+                .map_err(|error| maestria_ports::PortError::InternalContext {
+                    context: "visual authorization filter",
+                    source: error.to_string(),
+                })
             })
             .map_err(port_error)?;
         let hits = bounded.hits;
         let mut candidates = Vec::with_capacity(hits.len());
         for (index, hit) in hits.into_iter().enumerate() {
             let raw_rank = one_based_rank(index)?;
-            let Some(candidate) =
-                self.candidate_from_hit(hit, raw_rank, identity, &request.authorization, &cache)?
+            let Some(candidate) = self.candidate_from_hit(
+                hit,
+                raw_rank,
+                identity,
+                &request.authorization,
+                request.source_filter.as_ref(),
+                &cache,
+            )?
             else {
                 continue;
             };

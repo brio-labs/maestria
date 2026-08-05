@@ -215,6 +215,16 @@ jobs:
       - uses: actions/checkout@v7.0.0
         with:
           ref: ${{ inputs.commit }}
+      - name: Set up Node.js 24
+        uses: actions/setup-node@v4.4.0
+        with:
+          node-version: '24.11.1'
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4.0.0
+        with:
+          version: 9.15.9
+      - name: Install Studio frontend dependencies
+        run: corepack pnpm@9.15.9 --dir web install --frozen-lockfile
       - uses: ./.github/actions/setup-rust-build-dependencies
       - uses: dtolnay/rust-toolchain@master
         with:
@@ -346,7 +356,9 @@ jobs:
           tar -xzf "dist/maestria-$VERSION-$TARGET.tar.gz" -C "$smoke_dir"
           tar -xzf "dist/maestriad-$VERSION-$TARGET.tar.gz" -C "$smoke_dir"
           "$smoke_dir/maestria" --help >/dev/null
+          "$smoke_dir/maestria" studio --help >/dev/null
           "$smoke_dir/maestriad" --help >/dev/null
+          test ! -e "$smoke_dir/web"
           tar -tzf "dist/maestria-$VERSION-$TARGET.tar.gz" | grep -Fx 'maestria' >/dev/null
           tar -tzf "dist/maestriad-$VERSION-$TARGET.tar.gz" | grep -Fx 'maestriad' >/dev/null
       - name: Upload release artifacts

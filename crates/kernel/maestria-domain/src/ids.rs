@@ -74,6 +74,8 @@ id_type!(IndexGenerationId);
 id_type!(DuplicateClusterId);
 id_type!(ConflictSetId);
 id_type!(CorrelationId);
+id_type!(NotebookId);
+id_type!(NotebookDraftId);
 id_type!(JournalGeneration);
 
 impl QueryId {

@@ -13,20 +13,35 @@ fn batch_is_code(batch: &crate::types::CandidateBatch) -> bool {
             .contains("code_intel")
 }
 
+pub(super) struct EvaluationRequest<'a> {
+    pub(super) engine: &'a RetrievalEngine,
+    pub(super) plan: &'a SearchPlan,
+    pub(super) query: &'a SearchQuery,
+    pub(super) batches: &'a [crate::types::CandidateBatch],
+    pub(super) started: tokio::time::Instant,
+    pub(super) execution_usage: &'a mut maestria_domain::SearchExecutionUsage,
+    pub(super) authorization: &'a maestria_governance::RetrievalAuthorizationContext,
+    pub(super) source_filter: Option<&'a crate::types::CandidateSourceFilter>,
+}
+
 pub(super) async fn evaluate_batches(
-    engine: &RetrievalEngine,
-    plan: &SearchPlan,
-    query: &SearchQuery,
-    batches: &[crate::types::CandidateBatch],
-    started: tokio::time::Instant,
-    execution_usage: &mut maestria_domain::SearchExecutionUsage,
-    authorization: &maestria_governance::RetrievalAuthorizationContext,
+    request: EvaluationRequest<'_>,
 ) -> RetrievalResult<(
     SearchOutcome,
     Vec<maestria_domain::SearchTraceLane>,
     Option<maestria_domain::SearchTraceRerank>,
     maestria_domain::SearchTraceDiversity,
 )> {
+    let EvaluationRequest {
+        engine,
+        plan,
+        query,
+        batches,
+        started,
+        execution_usage,
+        authorization,
+        source_filter,
+    } = request;
     let lanes = engine_pipeline::trace_lanes(batches)?;
     let repository_specialized = engine
         .repository_execution_policy
@@ -75,6 +90,7 @@ pub(super) async fn evaluate_batches(
         &engine.evaluator,
         execution_usage,
         authorization,
+        source_filter,
     )
     .await?;
     raw_outcome.status = reconcile_status(&raw_outcome.status, &final_diversity.status);

@@ -8,6 +8,7 @@ publish = false
 
 [dependencies]
 maestria-core = { path = "../../core/maestria-core" }
+maestria-studio = { path = "../maestria-studio" }
 maestria-daemon = { path = "../maestria-daemon" }
 maestria-governance = { path = "../../kernel/maestria-governance" }
 maestria-domain = { path = "../../kernel/maestria-domain" }

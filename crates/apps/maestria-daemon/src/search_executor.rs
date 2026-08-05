@@ -219,6 +219,25 @@ impl SearchRuntime {
         Ok((plan, outcome))
     }
 
+    fn execute_selected_blocking(
+        &self,
+        query: String,
+        limit: usize,
+        authorization: maestria_governance::RetrievalAuthorizationContext,
+        source_filter: maestria_retrieval::CandidateSourceFilter,
+    ) -> Result<(SearchPlan, SearchOutcome)> {
+        let engine = self.retrieval_engine()?;
+        let plan = engine
+            .plan(query, limit, &self.planner_context())
+            .map_err(anyhow::Error::new)?
+            .confine_to_scope(self.scope_id)
+            .map_err(anyhow::Error::new)?;
+        let outcome = tokio::runtime::Handle::current()
+            .block_on(engine.search_pre_authorized_selected(&plan, authorization, source_filter))
+            .map_err(anyhow::Error::new)?;
+        Ok((plan, outcome))
+    }
+
     /// Build and execute the same plan used by daemon search effects.
     ///
     /// # Cancellation
@@ -250,6 +269,26 @@ impl SearchRuntime {
         let runtime = self.clone();
         tokio::task::spawn_blocking(move || {
             runtime.execute_pre_authorized_blocking(query, limit, authorization)
+        })
+        .await
+        .map_err(|error| anyhow!("search worker failed: {error}"))?
+    }
+    /// Executes a search restricted to the explicitly selected artifact set.
+    ///
+    /// # Cancellation
+    ///
+    /// Dropping the future stops awaiting the bounded worker; the worker
+    /// itself does not mutate shared state after cancellation.
+    pub async fn execute_selected_sources(
+        &self,
+        query: String,
+        limit: usize,
+        authorization: maestria_governance::RetrievalAuthorizationContext,
+        source_filter: maestria_retrieval::CandidateSourceFilter,
+    ) -> Result<(SearchPlan, SearchOutcome)> {
+        let runtime = self.clone();
+        tokio::task::spawn_blocking(move || {
+            runtime.execute_selected_blocking(query, limit, authorization, source_filter)
         })
         .await
         .map_err(|error| anyhow!("search worker failed: {error}"))?

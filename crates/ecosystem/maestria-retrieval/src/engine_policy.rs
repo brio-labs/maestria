@@ -107,6 +107,7 @@ impl RetrievalEngine {
     pub(super) fn prompt_injection_outcome(
         &self,
         plan: &SearchPlan,
+        source_filter: Option<&crate::types::CandidateSourceFilter>,
     ) -> RetrievalResult<SearchOutcome> {
         let retriever_ids = self
             .retrievers
@@ -114,7 +115,7 @@ impl RetrievalEngine {
             .map(|retriever| retriever.descriptor().id.clone())
             .collect();
         let policy_fingerprint = plan.authorization().canonical_fingerprint();
-        let trace = SearchTrace::from_plan(
+        let mut trace = SearchTrace::from_plan(
             plan,
             retriever_ids,
             &[],
@@ -124,6 +125,8 @@ impl RetrievalEngine {
             SearchStopReason::PolicyDenied,
         )?
         .with_policy_fingerprint(policy_fingerprint);
+        trace.source_selection_digest =
+            source_filter.map(crate::types::CandidateSourceFilter::digest);
         Ok(SearchOutcome {
             trace: trace.deterministic_id(),
             trace_data: Some(Box::new(trace)),

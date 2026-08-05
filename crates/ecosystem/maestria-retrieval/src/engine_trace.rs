@@ -52,6 +52,7 @@ pub struct EnsureTraceOptions {
     pub(crate) fusion_enabled: bool,
     pub(crate) expansion_enabled: bool,
     pub(crate) rerank_trace: Option<maestria_domain::SearchTraceRerank>,
+    pub(crate) source_selection_digest: Option<String>,
     pub(crate) diversity_trace: Option<maestria_domain::SearchTraceDiversity>,
     pub(crate) rewrites: Vec<maestria_domain::SearchTraceRewrite>,
     pub(crate) explicit_stop_reason: Option<SearchStopReason>,
@@ -64,7 +65,9 @@ pub struct EnsureTraceOptions {
 struct ExpectedTraceState {
     /// Canonical fingerprint of the engine-owned retrieval security policy.
     policy_fingerprint: String,
-    /// Security filters applied by the engine-owned retrieval policy.
+    /// Digest of the explicit source-selection filter, when present.
+    source_selection_digest: Option<String>,
+    /// Security filters applied by engine-owned retrieval policy.
     filters: Vec<SearchTraceFilter>,
     /// Stop reason derived from the outcome status, explicit override, or result count.
     stop_reason: SearchStopReason,
@@ -144,6 +147,7 @@ fn compute_expected_trace_state(
 
     ExpectedTraceState {
         policy_fingerprint: expected_policy_fingerprint,
+        source_selection_digest: options.source_selection_digest.clone(),
         filters: expected_filters,
         stop_reason: expected_stop_reason,
         fusion: expected_fusion,
@@ -168,6 +172,7 @@ fn trace_matches_expected(
 ) -> bool {
     outcome.trace == trace.deterministic_id()
         && trace.matches_plan(plan)
+        && trace.source_selection_digest == expected.source_selection_digest
         && trace.policy_fingerprint.as_deref() == Some(expected.policy_fingerprint.as_str())
         && trace.filters == expected.filters
         && trace.degradation == expected.degradation
@@ -197,7 +202,7 @@ fn assemble_trace(
     lanes: Vec<maestria_domain::SearchTraceLane>,
     expected: &ExpectedTraceState,
 ) -> Result<SearchTrace, RetrievalError> {
-    Ok(SearchTrace::from_plan(
+    let mut trace = SearchTrace::from_plan(
         plan,
         lanes.iter().map(|lane| lane.retriever_id.clone()).collect(),
         &outcome.evidence,
@@ -215,7 +220,9 @@ fn assemble_trace(
             .iter()
             .map(|conflict| conflict.id)
             .collect(),
-    ))
+    );
+    trace.source_selection_digest = expected.source_selection_digest.clone();
+    Ok(trace)
 }
 
 /// Rebuilds the outcome trace so it matches the governed search context.

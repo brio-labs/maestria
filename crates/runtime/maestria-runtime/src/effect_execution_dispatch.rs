@@ -189,6 +189,10 @@ impl EffectExecutionContext {
             MaestriaEffect::PersistEvent { envelope } => {
                 handler_result(self.handle_persist_event(*envelope).await, "persist event")
             }
+            MaestriaEffect::PersistNotebookDraftBlob(request) => handler_result(
+                self.handle_persist_notebook_draft_blob(request).await,
+                "persist notebook draft blob",
+            ),
             MaestriaEffect::ParseArtifact(request) => handler_result(
                 self.handle_parse_artifact(request, persistence_barrier_timeout)
                     .await,

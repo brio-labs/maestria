@@ -1,7 +1,6 @@
+use maestria_domain::{SearchOutcome, SearchPlan};
 use std::future::Future;
 use std::pin::Pin;
-
-use maestria_domain::{SearchOutcome, SearchPlan};
 
 pub type SearchFuture<'a, T> =
     Pin<Box<dyn Future<Output = Result<T, crate::PortError>> + Send + 'a>>;
@@ -23,4 +22,23 @@ pub trait SearchKnowledgeExecutor: Send + Sync {
         query: String,
         limit: usize,
     ) -> SearchFuture<'_, (SearchPlan, SearchOutcome)>;
+
+    /// Execute a query restricted to an explicit artifact allowlist.
+    ///
+    /// The port uses typed IDs rather than the retrieval crate's filter type
+    /// to keep the dependency graph acyclic; the daemon constructs and
+    /// validates the retrieval filter at its boundary.
+    fn plan_and_search_selected(
+        &self,
+        _query: String,
+        _limit: usize,
+        _artifact_ids: std::collections::BTreeSet<maestria_domain::ArtifactId>,
+    ) -> SearchFuture<'_, (SearchPlan, SearchOutcome)> {
+        Box::pin(async {
+            Err(crate::PortError::InternalContext {
+                context: "selected-source search",
+                source: "executor does not support source selection".to_string(),
+            })
+        })
+    }
 }

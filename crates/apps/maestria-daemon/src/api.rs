@@ -6,19 +6,24 @@
 /// - `services`: dispatch and routing façade over responsibility-specific service siblings.
 /// - `token`: module responsibility.
 mod protocol;
-mod server;
+pub(crate) mod server;
 mod services;
 mod token;
 
 pub use protocol::{
-    ClientAuthentication, ClientOperation, ClientRequest, ClientResponse, CoverageResponse,
-    DaemonClient, EvidenceResponse, EvidenceSourceResponse, FederationCredential,
-    FederationEvidenceResponse, FederationSearchResponse, ModelAgentHarnessOutcome,
-    ModelAgentMemoryCandidateSummary, ModelAgentProposalPayload, ModelAgentProposalResponse,
-    ModelAgentStatusResponse, ModelAgentValidationSummary, RealmGrantAccess,
-    RealmGrantCreatedResponse, RealmGrantListResponse, RealmGrantResponse, RealmGrantSensitivity,
-    SearchEvidenceResponse, SearchRawRankResponse, SearchResponse, SearchScoreResponse,
-    SearchScoreScaleResponse, StatusResponse, TaskResponse, TaskSummary,
+    ClientAuthentication, ClientErrorCode, ClientOperation, ClientRequest, ClientResponse,
+    CoverageResponse, DaemonClient, DaemonRequestError, EvidenceResponse, EvidenceSourceResponse,
+    FederationCredential, FederationEvidenceResponse, FederationSearchResponse,
+    FrozenNotebookCitationResponse, ModelAgentHarnessOutcome, ModelAgentMemoryCandidateSummary,
+    ModelAgentProposalPayload, ModelAgentProposalResponse, ModelAgentStatusResponse,
+    ModelAgentValidationSummary, NotebookCitationResponse, NotebookContextResponse,
+    NotebookDraftDeletedResponse, NotebookDraftListResponse, NotebookDraftResponse,
+    NotebookDraftSavedResponse, NotebookDraftSummary, NotebookListResponse, NotebookResponse,
+    NotebookSourceCatalogEntry, NotebookSourceCatalogResponse, NotebookSourceSelection,
+    NotebookSummary, RealmGrantAccess, RealmGrantCreatedResponse, RealmGrantListResponse,
+    RealmGrantResponse, RealmGrantSensitivity, SearchEvidenceResponse, SearchRawRankResponse,
+    SearchResponse, SearchScoreResponse, SearchScoreScaleResponse, StatusResponse, TaskResponse,
+    TaskSummary,
 };
 pub use server::ApiServer;
 

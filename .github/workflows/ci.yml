@@ -46,6 +46,7 @@ jobs:
               - '.github/workflows/**'
               - '.github/actions/**'
               - 'scripts/*'
+              - 'web/**'
             philosophy:
               - 'README.md'
               - 'CONTRIBUTING.md'
@@ -58,6 +59,39 @@ jobs:
               - '.github/CODEOWNERS'
               - '.github/workflows/**'
               - '.github/PULL_REQUEST_TEMPLATE.md'
+  studio-frontend:
+    needs: [changes]
+    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request' || needs.changes.outputs.rust == 'true'
+    steps:
+      - uses: actions/checkout@v7.0.0
+      - name: Set up Node.js 24
+        uses: actions/setup-node@v4.4.0
+        with:
+          node-version: '24.11.1'
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4.0.0
+        with:
+          version: 9.15.9
+      - name: Install Studio frontend dependencies
+        run: corepack pnpm@9.15.9 --dir web install --frozen-lockfile
+      - name: Typecheck Studio frontend
+        run: corepack pnpm@9.15.9 --dir web typecheck
+      - name: Test Studio frontend
+        run: corepack pnpm@9.15.9 --dir web test
+      - name: Run Studio component tests
+        run: corepack pnpm@9.15.9 --dir web test:component
+      - name: Build Studio frontend
+        run: corepack pnpm@9.15.9 --dir web build
+      - name: Verify deterministic Studio assets
+        run: bash scripts/verify-studio-assets.sh
+      - name: Install Playwright Chromium
+        run: corepack pnpm@9.15.9 --dir web exec playwright install --with-deps chromium
+      - name: Run Studio browser tests
+        run: corepack pnpm@9.15.9 --dir web test:e2e
+      - name: Reject frontend bundle drift
+        run: git diff --exit-code -- web/dist
+
   fmt:
     needs: [changes]
     runs-on: ubuntu-latest
@@ -246,6 +280,16 @@ jobs:
     if: github.event_name != 'pull_request' || needs.changes.outputs.rust == 'true'
     steps:
       - uses: actions/checkout@v7.0.0
+      - name: Set up Node.js 24
+        uses: actions/setup-node@v4.4.0
+        with:
+          node-version: '24.11.1'
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4.0.0
+        with:
+          version: 9.15.9
+      - name: Install Studio frontend dependencies
+        run: corepack pnpm@9.15.9 --dir web install --frozen-lockfile
       - uses: ./.github/actions/setup-rust-build-dependencies
       - name: Set up Rust toolchain
         uses: dtolnay/rust-toolchain@master

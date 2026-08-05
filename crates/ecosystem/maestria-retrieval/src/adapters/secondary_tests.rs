@@ -1,4 +1,5 @@
 use super::*;
+use crate::types::CandidateSourceFilter;
 use maestria_domain::{
     Artifact, ArtifactId, Chunk, ChunkId, ContentHash, Evidence, EvidenceId, EvidenceKind,
     LogicalTick, RelationKind, SourceSpan, StructureNodeId, ValidationReportId,
@@ -27,6 +28,30 @@ impl BlobStore for CountingBlobStore {
     }
 }
 
+struct CountingEvidenceRepository {
+    inner: Arc<InMemoryEvidenceRepository>,
+    gets: Arc<AtomicUsize>,
+}
+
+impl EvidenceRepository for CountingEvidenceRepository {
+    fn get(&self, evidence_id: EvidenceId) -> Result<Option<Evidence>, PortError> {
+        self.gets.fetch_add(1, Ordering::Relaxed);
+        self.inner.get(evidence_id)
+    }
+
+    fn put(&self, evidence: Evidence) -> Result<(), PortError> {
+        self.inner.put(evidence)
+    }
+
+    fn replace(&self, evidence: Evidence) -> Result<(), PortError> {
+        self.inner.replace(evidence)
+    }
+
+    fn list_for_artifact(&self, artifact_id: ArtifactId) -> Result<Vec<Evidence>, PortError> {
+        self.inner.list_for_artifact(artifact_id)
+    }
+}
+
 struct DeniedRelationArtifacts {
     owner_id: ArtifactId,
     neighbor_id: ArtifactId,
@@ -34,17 +59,18 @@ struct DeniedRelationArtifacts {
 }
 
 struct DeniedRelationRecords {
-    evidence: Arc<InMemoryEvidenceRepository>,
+    evidence: Arc<CountingEvidenceRepository>,
     chunks: Arc<InMemoryChunkRepository>,
     graph: Arc<InMemoryGraphIndex>,
+    evidence_gets: Arc<AtomicUsize>,
 }
 
 struct DeniedRelationFixture {
     expander: HierarchyGraphExpander,
     seed: EvidenceCandidate,
     blob_gets: Arc<AtomicUsize>,
+    evidence_gets: Arc<AtomicUsize>,
 }
-
 fn denied_relation_artifacts(
     content_hash: &str,
     owner_read_allowed: bool,
@@ -92,7 +118,11 @@ fn denied_relation_records(
     chunk_text: &str,
 ) -> Result<DeniedRelationRecords, Box<dyn std::error::Error>> {
     let relation_evidence_id = EvidenceId::new(7);
-    let evidence = Arc::new(InMemoryEvidenceRepository::new());
+    let evidence_gets = Arc::new(AtomicUsize::new(0));
+    let evidence = Arc::new(CountingEvidenceRepository {
+        inner: Arc::new(InMemoryEvidenceRepository::new()),
+        gets: Arc::clone(&evidence_gets),
+    });
     evidence.put(Evidence {
         id: relation_evidence_id,
         artifact_id: artifacts.owner_id,
@@ -153,6 +183,7 @@ fn denied_relation_records(
         evidence,
         chunks,
         graph,
+        evidence_gets,
     })
 }
 
@@ -177,6 +208,7 @@ fn denied_relation_expander_and_seed(
     // The seed's evidence must be resolvable: expansion keys traversal on
     // the artifact identity resolved from the seed evidence (R27).
     records.evidence.put(seed_evidence.clone())?;
+    let evidence_gets = Arc::clone(&records.evidence_gets);
     let expander = HierarchyGraphExpander::new(HierarchyGraphExpanderParts {
         graph: records.graph,
         artifacts: artifacts.repository,
@@ -198,6 +230,7 @@ fn denied_relation_expander_and_seed(
         expander,
         seed,
         blob_gets,
+        evidence_gets,
     })
 }
 
@@ -230,11 +263,52 @@ fn denied_relation_owner_causes_zero_blob_reads_and_zero_expansion()
             required_subquestions: Vec::new(),
             authorization,
             execution_budget: maestria_domain::SearchExecutionBudget::new(3, 3, 3, 0)?,
+            source_filter: None,
         },
     )?;
 
     assert_eq!(expanded.candidates.len(), 1);
     assert_eq!(fixture.blob_gets.load(Ordering::Relaxed), 0);
+    Ok(())
+}
+
+#[test]
+fn source_filter_blocks_neighbor_graph_expansion() -> Result<(), Box<dyn std::error::Error>> {
+    let source = b"relation and target evidence\n";
+    let content_hash = maestria_domain::content_hash(source);
+    let blob_gets = Arc::new(AtomicUsize::new(0));
+    let blobs = Arc::new(CountingBlobStore {
+        bytes: source.to_vec(),
+        gets: Arc::clone(&blob_gets),
+    });
+    let artifacts = denied_relation_artifacts(&content_hash, true)?;
+    let records = denied_relation_records(&artifacts, &content_hash, "neighbor")?;
+    let fixture =
+        denied_relation_expander_and_seed(artifacts, records, &content_hash, blobs, blob_gets)?;
+    let authorization = RetrievalSecurityPolicy::default()
+        .authorization_context(&maestria_domain::CorpusScope::Global)?;
+    let expanded = fixture.expander.expand(
+        &[RankedCandidate {
+            candidate: fixture.seed,
+            rank: 1,
+        }],
+        &ExpansionPolicy {
+            max_results: 3,
+            max_depth: 2,
+            selected_seeds: Vec::new(),
+            required_claims: Vec::new(),
+            required_subquestions: Vec::new(),
+            authorization,
+            execution_budget: maestria_domain::SearchExecutionBudget::new(3, 3, 3, 0)?,
+            source_filter: Some(CandidateSourceFilter::try_new(
+                std::collections::BTreeSet::from([ArtifactId::new(1)]),
+            )?),
+        },
+    )?;
+    assert_eq!(expanded.candidates.len(), 1);
+    // The seed lookup is the only evidence read; the unselected neighbor's
+    // relation evidence must be rejected before repository materialization.
+    assert_eq!(fixture.evidence_gets.load(Ordering::Relaxed), 1);
     Ok(())
 }
 
@@ -266,6 +340,7 @@ fn graph_expansion_rejects_secret_bearing_chunks() -> Result<(), Box<dyn std::er
             required_claims: Vec::new(),
             required_subquestions: Vec::new(),
             authorization,
+            source_filter: None,
             execution_budget: maestria_domain::SearchExecutionBudget::new(3, 3, 3, 0)?,
         },
     )?;

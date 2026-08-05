@@ -9,12 +9,14 @@ use maestria_ports::{
 };
 
 use super::SourceSnapshotVerifier;
-use super::chunk_access::load_authorized_chunk;
+use super::chunk_access::{load_authorized_chunk, source_filter_allows_chunk};
 use super::common::{candidate_from_records, generation_mismatch, one_based_rank, port_error};
 use super::prescore_cache::PrescoreCache;
 use super::score_provenance::dense_score;
 use crate::traits::CandidateRetriever;
-use crate::types::{CandidateBatch, CandidateRequest, RetrievalError, RetrieverDescriptor};
+use crate::types::{
+    CandidateBatch, CandidateRequest, CandidateSourceFilter, RetrievalError, RetrieverDescriptor,
+};
 #[cfg(test)]
 #[path = "dense_tests.rs"]
 mod tests;
@@ -83,7 +85,12 @@ impl DenseChunkRetriever {
         let bounded = self
             .index
             .search_similar_filtered(vector, &|chunk_id| {
-                self.prefilter_hit(chunk_id, &request.authorization, &authorized)
+                self.prefilter_hit(
+                    chunk_id,
+                    &request.authorization,
+                    &authorized,
+                    request.source_filter.as_ref(),
+                )
             })
             .map_err(port_error)?;
         let hits = bounded.hits;
@@ -94,6 +101,7 @@ impl DenseChunkRetriever {
                 one_based_rank(raw_rank)?,
                 &identity,
                 &request.authorization,
+                request.source_filter.as_ref(),
                 &authorized,
             )?
             else {
@@ -121,7 +129,11 @@ impl DenseChunkRetriever {
         chunk_id: maestria_domain::ChunkId,
         authorization: &maestria_governance::RetrievalAuthorizationContext,
         authorized: &PrescoreCache<AuthorizedDenseRecord>,
+        source_filter: Option<&CandidateSourceFilter>,
     ) -> Result<bool, maestria_ports::PortError> {
+        if !source_filter_allows_chunk(self.chunks.as_ref(), chunk_id, source_filter)? {
+            return Ok(false);
+        }
         let Some(record) = self.authorized_record(chunk_id, authorization)? else {
             return Ok(false);
         };
@@ -169,8 +181,14 @@ impl DenseChunkRetriever {
         raw_rank: u32,
         identity: &maestria_ports::EmbeddingIdentity,
         authorization: &maestria_governance::RetrievalAuthorizationContext,
+        source_filter: Option<&CandidateSourceFilter>,
         authorized: &PrescoreCache<AuthorizedDenseRecord>,
     ) -> Result<Option<EvidenceCandidate>, RetrievalError> {
+        if !source_filter_allows_chunk(self.chunks.as_ref(), hit.chunk_id, source_filter)
+            .map_err(port_error)?
+        {
+            return Ok(None);
+        }
         let record = match authorized.take(hit.chunk_id) {
             Some(record) => Some(record),
             None => self

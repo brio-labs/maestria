@@ -19,6 +19,8 @@ mod input;
 mod inputs;
 mod kernel_state;
 mod model_agent;
+mod notebook;
+mod notebook_inputs;
 /// Responsibility map:
 /// - `effects`: module responsibility.
 /// - `evidence_source`: immutable text and snapshot evidence boundaries.
@@ -32,7 +34,9 @@ mod model_agent;
 /// - `grant_token_digest`: domain-separated federation credential digests.
 /// - `input`: module responsibility.
 /// - `inputs`: module responsibility.
+/// - `notebook_inputs`: notebook input command contracts.
 /// - `model_agent`: model-agent proposal execution and result types.
+/// - `notebook`: notebook identity, source selection, and draft revision contracts.
 /// - `kernel_state`: module responsibility.
 /// - `ocr`: module responsibility.
 /// - `provenance`: module responsibility.
@@ -57,9 +61,9 @@ mod types;
 
 pub use crate::effects::{
     DiagnosticEvent, FetchWebRequest, HarnessExecution, IndexFullTextRequest, IndexVectorRequest,
-    KernelOutput, MaestriaEffect, OcrEffect, ParseArtifactRequest, ParseArtifactSource,
-    QueryHarnessProposalRequest, QueryHarnessRequest, RequestApprovalRequest, RunValidationRequest,
-    SearchKnowledgeRequest, UpdateGraphRequest, ValidationTarget,
+    KernelOutput, MaestriaEffect, NotebookDraftBlobRequest, OcrEffect, ParseArtifactRequest,
+    ParseArtifactSource, QueryHarnessProposalRequest, QueryHarnessRequest, RequestApprovalRequest,
+    RunValidationRequest, SearchKnowledgeRequest, UpdateGraphRequest, ValidationTarget,
 };
 pub use crate::entities::{
     Artifact, Card, Chunk, Claim, ClaimStatus, ContentRange, ContentRangeError, Evidence,
@@ -94,8 +98,9 @@ pub use crate::ids::{
     ApprovalId, ArtifactId, ArtifactVersionId, BlobId, CardId, ChunkId, ClaimId, ConflictSetId,
     CorpusSnapshotId, CorrelationId, DEFAULT_CORPUS_SNAPSHOT_ID, DEFAULT_INSTANCE_SCOPE_ID,
     DOMAIN_VERSION, DuplicateClusterId, EventId, EvidenceId, HarnessRunId, IndexGenerationId,
-    JournalGeneration, LogicalTick, MemoryCandidateId, MemoryId, QueryId, RelationId, ScopeId,
-    SearchTraceId, SequenceNumber, SnapshotId, StructureNodeId, TaskId, ValidationReportId,
+    JournalGeneration, LogicalTick, MemoryCandidateId, MemoryId, NotebookDraftId, NotebookId,
+    QueryId, RelationId, ScopeId, SearchTraceId, SequenceNumber, SnapshotId, StructureNodeId,
+    TaskId, ValidationReportId,
 };
 pub use crate::inputs::{
     ApprovalDecision, ArtifactDetected, ChangeTaskStatusInput, CompleteTaskInput,
@@ -115,6 +120,15 @@ pub use crate::model_agent::{
     ModelAgentHarnessResult, ModelAgentMemoryDecision, ModelAgentMemoryResult,
     ModelAgentProposalExecution, ModelAgentProposalRequest, ModelAgentProposalResult,
     ModelAgentSearchResult, ModelAgentValidationResult,
+};
+pub use crate::notebook::{
+    FrozenNotebookCitation, Notebook, NotebookDraft, NotebookDraftRevision, NotebookDraftTitle,
+    NotebookTitle, NotebookValueError, SourceIdentityKey, validate_frozen_citations,
+};
+pub use crate::notebook_inputs::{
+    AttachNotebookSourceInput, CreateNotebookInput, DeleteNotebookDraftInput, DeleteNotebookInput,
+    DetachNotebookSourceInput, NotebookDraftBlobStoreFailed, NotebookDraftBlobStored,
+    RenameNotebookInput, SaveNotebookDraftRequested,
 };
 pub use crate::ocr::{
     OcrCompletion, OcrDisclosure, OcrIntent, OcrPageText, OcrProviderIdentity, OcrRequestId,

@@ -196,6 +196,8 @@ pub(crate) struct StoredSearchTrace {
     identity_version: u16,
     retrievers: Vec<String>,
     policy_fingerprint: Option<String>,
+    #[serde(default)]
+    source_selection_digest: Option<String>,
     raw_candidates: Vec<StoredSearchTraceCandidate>,
     fusion: Option<String>,
     filters: Vec<StoredSearchTraceFilter>,
@@ -243,6 +245,7 @@ impl StoredSearchTrace {
             identity_version: value.identity_version,
             retrievers: value.retrievers.clone(),
             policy_fingerprint: value.policy_fingerprint.clone(),
+            source_selection_digest: value.source_selection_digest.clone(),
             raw_candidates: value
                 .raw_candidates
                 .iter()
@@ -314,6 +317,7 @@ impl StoredSearchTrace {
             identity_version: self.identity_version,
             retrievers: self.retrievers,
             policy_fingerprint: self.policy_fingerprint,
+            source_selection_digest: self.source_selection_digest,
             raw_candidates: self
                 .raw_candidates
                 .into_iter()
