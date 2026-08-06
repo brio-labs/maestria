@@ -212,8 +212,70 @@ pub fn line_range_for_chunk(
 }
 
 pub fn excerpt_for(text: &str) -> String {
-    let compact = text.split_whitespace().collect::<Vec<_>>().join(" ");
-    compact.chars().take(240).collect()
+    const MAX_EXCERPT_CHARS: usize = 240;
+    let mut excerpt = String::new();
+    let mut excerpt_chars: usize = 0;
+    // Keep token boundaries intact: source verification compares whitespace
+    // tokens, so a character-boundary cut would invalidate the evidence.
+    for word in text.split_whitespace() {
+        let word_chars = word.chars().count();
+        let separator_chars = usize::from(!excerpt.is_empty());
+        if !excerpt.is_empty()
+            && excerpt_chars
+                .saturating_add(separator_chars)
+                .saturating_add(word_chars)
+                > MAX_EXCERPT_CHARS
+        {
+            break;
+        }
+        if !excerpt.is_empty() {
+            excerpt.push(' ');
+            excerpt_chars += 1;
+        }
+        excerpt.push_str(word);
+        excerpt_chars += word_chars;
+    }
+    excerpt
+}
+
+#[cfg(test)]
+mod excerpt_tests {
+    use super::excerpt_for;
+    use crate::{BlobId, ContentHash, LineRange, SnapshotRef, content_hash, verify_text_snapshot};
+
+    #[test]
+    fn excerpt_truncates_between_tokens() {
+        let text = format!("{} audit record", "word ".repeat(48));
+        let excerpt = excerpt_for(&text);
+
+        assert_eq!(excerpt, "word ".repeat(48).trim_end().to_owned());
+        assert!(!excerpt.ends_with("audi"));
+    }
+
+    #[test]
+    fn excerpt_keeps_a_single_oversized_token_intact() {
+        let text = "x".repeat(241);
+
+        assert_eq!(excerpt_for(&text), text);
+    }
+
+    #[test]
+    fn excerpt_verifies_against_the_source_snapshot() {
+        let source = format!("{} audit record", "word ".repeat(48));
+        let snapshot = SnapshotRef::new(
+            BlobId::new(1),
+            ContentHash::new(content_hash(source.as_bytes())).expect("valid content hash"),
+        );
+        let range = LineRange::new(1, 1).expect("valid line range");
+
+        verify_text_snapshot(
+            &snapshot,
+            source.as_bytes(),
+            Some(&range),
+            &excerpt_for(&source),
+        )
+        .expect("excerpt must remain source-verifiable");
+    }
 }
 
 fn hex_digest(bytes: &[u8]) -> String {
