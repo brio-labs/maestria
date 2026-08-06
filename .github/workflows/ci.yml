@@ -65,6 +65,14 @@ jobs:
     if: github.event_name != 'pull_request' || needs.changes.outputs.rust == 'true'
     steps:
       - uses: actions/checkout@v7.0.0
+      - uses: ./.github/actions/setup-rust-build-dependencies
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly-2026-06-15
+          targets: wasm32-unknown-unknown
+          components: rustc-codegen-cranelift
+      - uses: Swatinem/rust-cache@v2.9.1
       - name: Set up Node.js 24
         uses: actions/setup-node@v4.4.0
         with:
@@ -73,14 +81,14 @@ jobs:
         uses: pnpm/action-setup@v4.0.0
         with:
           version: 9.15.9
+      - name: Install Dioxus CLI
+        run: cargo install dioxus-cli --version 0.7.10 --locked
       - name: Install Studio frontend dependencies
         run: corepack pnpm@9.15.9 --dir web install --frozen-lockfile
-      - name: Typecheck Studio frontend
-        run: corepack pnpm@9.15.9 --dir web typecheck
-      - name: Test Studio frontend
-        run: corepack pnpm@9.15.9 --dir web test
-      - name: Run Studio component tests
-        run: corepack pnpm@9.15.9 --dir web test:component
+      - name: Test Studio web crate
+        run: cargo test -p maestria-studio-web
+      - name: Check Studio web WASM
+        run: cargo check --target wasm32-unknown-unknown -p maestria-studio-web
       - name: Build Studio frontend
         run: corepack pnpm@9.15.9 --dir web build
       - name: Verify deterministic Studio assets
@@ -288,14 +296,15 @@ jobs:
         uses: pnpm/action-setup@v4.0.0
         with:
           version: 9.15.9
-      - name: Install Studio frontend dependencies
-        run: corepack pnpm@9.15.9 --dir web install --frozen-lockfile
       - uses: ./.github/actions/setup-rust-build-dependencies
       - name: Set up Rust toolchain
         uses: dtolnay/rust-toolchain@master
         with:
           toolchain: nightly-2026-06-15
+          targets: wasm32-unknown-unknown
           components: rustc-codegen-cranelift
+      - name: Install Dioxus CLI
+        run: cargo install dioxus-cli --version 0.7.10 --locked
       - uses: Swatinem/rust-cache@v2.9.1
       - uses: mozilla-actions/sccache-action@v0.0.10
       - name: Run release contract

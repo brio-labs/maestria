@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use agent_client_protocol::{
-    AcpAgent, Client,
+    AcpAgent, Client, Error as AgentProtocolError,
     schema::{
         ProtocolVersion,
         v1::{
@@ -182,6 +182,41 @@ pub struct AgentHost {
     profile: AgentProfile,
     workdir: PathBuf,
 }
+#[derive(Debug)]
+pub enum AgentHostError {
+    Unconfigured,
+    Timeout,
+    OutputTooLarge,
+    Protocol(anyhow::Error),
+}
+
+impl std::fmt::Display for AgentHostError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Unconfigured => formatter.write_str("agent is unconfigured"),
+            Self::Timeout => formatter.write_str("ACP agent timed out"),
+            Self::OutputTooLarge => formatter.write_str("ACP agent output exceeds Studio limit"),
+            Self::Protocol(error) => write!(formatter, "ACP v1 session failed: {error}"),
+        }
+    }
+}
+impl std::error::Error for AgentHostError {}
+fn acp_agent(profile: &AgentProfile) -> Result<AcpAgent, AgentHostError> {
+    let server = AcpServerConfig {
+        server_type: "stdio",
+        name: &profile.id,
+        command: &profile.command,
+        args: &profile.args,
+        env: [],
+    };
+    let command = serde_json::to_string(&server)
+        .map_err(|error| AgentHostError::Protocol(anyhow::Error::new(error)))?;
+    command.parse::<AcpAgent>().map_err(|error| {
+        AgentHostError::Protocol(anyhow::Error::msg(format!(
+            "parse ACP agent configuration: {error}"
+        )))
+    })
+}
 
 impl AgentHost {
     pub fn new(profile: AgentProfile) -> Self {
@@ -208,21 +243,11 @@ impl AgentHost {
     /// # Cancellation
     ///
     /// Dropping the returned future cancels the bounded ACP operation and its child process.
-    pub async fn ask(&self, prompt: String) -> Result<String> {
+    pub async fn ask(&self, prompt: String) -> std::result::Result<String, AgentHostError> {
         if self.profile.status == "agent_unconfigured" {
-            return Err(anyhow!("agent is unconfigured"));
+            return Err(AgentHostError::Unconfigured);
         }
-        let server = AcpServerConfig {
-            server_type: "stdio",
-            name: &self.profile.id,
-            command: &self.profile.command,
-            args: &self.profile.args,
-            env: [],
-        };
-        let command = serde_json::to_string(&server).context("encode ACP agent configuration")?;
-        let agent = command
-            .parse::<AcpAgent>()
-            .map_err(|error| anyhow!("parse ACP agent configuration: {error}"))?;
+        let agent = acp_agent(&self.profile)?;
         let workdir = self.workdir.clone();
         let max_output = self.profile.max_output_bytes;
         let result = timeout(
@@ -268,10 +293,10 @@ impl AgentHost {
                                                     if answer.len().saturating_add(text.text.len())
                                                         > max_output
                                                     {
-                                                        return Err(
-                                                            agent_client_protocol::Error::internal_error()
-                                                                .data("ACP agent output exceeds Studio limit"),
-                                                        );
+                                                        let error =
+                                                            AgentProtocolError::internal_error()
+                                                                .data("ACP agent output exceeds Studio limit");
+                                                        return Err(error);
                                                     }
                                                     answer.push_str(&text.text);
                                                 }
@@ -297,8 +322,15 @@ impl AgentHost {
             }),
         )
         .await
-        .map_err(|_| anyhow!("ACP agent timed out"))?
-        .map_err(|error| anyhow!("ACP v1 session failed: {error}"))?;
+        .map_err(|_| AgentHostError::Timeout)?
+        .map_err(|error| {
+            let message = error.to_string();
+            if message.contains("output exceeds Studio limit") {
+                AgentHostError::OutputTooLarge
+            } else {
+                AgentHostError::Protocol(anyhow::Error::msg(message))
+            }
+        })?;
         Ok(result)
     }
 }

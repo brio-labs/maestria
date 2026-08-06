@@ -10,6 +10,7 @@ publish = false
 [workspace]
 resolver = "2"
 members = [
+    "web",
     "crates/apps/maestria-daemon",
     "crates/apps/maestria-studio",
     "crates/apps/maestria-cli",

@@ -10,10 +10,15 @@ publish = false
 [dependencies]
 agent-client-protocol = "1.0"
 anyhow = "1.0"
+axum = "0.8.9"
 maestria-core = { path = "../../core/maestria-core" }
 maestria-daemon = { path = "../maestria-daemon" }
+mime_guess = "2.0.5"
+rust-embed = "8.7"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 toml = "0.8"
-rust-embed = "8.7"
 tokio = { version = "1.37", features = ["fs", "io-util", "net", "process", "time"] }
+tokio-util = "0.7.18"
+tower = { version = "0.5.3", features = ["limit", "util"] }
+tower-http = { version = "0.7.0", features = ["limit", "set-header", "timeout", "trace"] }

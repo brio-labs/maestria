@@ -6,5 +6,5 @@ mod agent;
 mod http;
 mod server;
 
-pub use agent::{AgentHost, AgentProfile};
+pub use agent::{AgentHost, AgentHostError, AgentProfile};
 pub use server::StudioServer;

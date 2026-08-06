@@ -260,21 +260,21 @@ mod excerpt_tests {
     }
 
     #[test]
-    fn excerpt_verifies_against_the_source_snapshot() {
+    fn excerpt_verifies_against_the_source_snapshot() -> Result<(), Box<dyn std::error::Error>> {
         let source = format!("{} audit record", "word ".repeat(48));
         let snapshot = SnapshotRef::new(
             BlobId::new(1),
-            ContentHash::new(content_hash(source.as_bytes())).expect("valid content hash"),
+            ContentHash::new(content_hash(source.as_bytes()))?,
         );
-        let range = LineRange::new(1, 1).expect("valid line range");
+        let range = LineRange::new(1, 1)?;
 
         verify_text_snapshot(
             &snapshot,
             source.as_bytes(),
             Some(&range),
             &excerpt_for(&source),
-        )
-        .expect("excerpt must remain source-verifiable");
+        )?;
+        Ok(())
     }
 }
 

@@ -257,7 +257,11 @@ fn pin_operand(
                     source: error.to_string(),
                 });
             }
-            Err(error) if matches!(error.raw_os_error(), Some(code) if code == libc::EXDEV || code == libc::ELOOP) =>
+            Err(error)
+                if matches!(
+                    error.raw_os_error(),
+                    Some(code) if code == libc::EXDEV || code == libc::ELOOP
+                ) =>
             {
                 return Err(PortError::InvalidInputContext {
                     context: "cat path escapes readable roots",

@@ -3,7 +3,8 @@ use std::{fs::File, io::Read, net::SocketAddr, path::PathBuf, sync::Arc};
 use anyhow::{Context, Result, anyhow};
 use maestria_core::InstanceLayout;
 use maestria_daemon::api::DaemonClient;
-use tokio::{fs, net::TcpListener, sync::Semaphore};
+use tokio::{fs, net::TcpListener};
+use tokio_util::sync::CancellationToken;
 
 use crate::{
     agent::{AgentHost, AgentProfile},
@@ -13,6 +14,7 @@ use crate::{
 pub struct StudioServer {
     address: SocketAddr,
     bearer: Arc<str>,
+    shutdown: CancellationToken,
     task: tokio::task::JoinHandle<Result<()>>,
 }
 
@@ -47,17 +49,19 @@ impl StudioServer {
         let address = listener
             .local_addr()
             .context("read Studio loopback address")?;
+        let shutdown = CancellationToken::new();
         let state = StudioState {
             client,
             agent,
             bearer: bearer.clone(),
             origin: Arc::from(format!("http://{address}")),
-            request_slots: Arc::new(Semaphore::new(32)),
         };
-        let task = tokio::spawn(async move { serve(listener, state).await });
+        let server_shutdown = shutdown.clone();
+        let task = tokio::spawn(async move { serve(listener, state, server_shutdown).await });
         Ok(Self {
             address,
             bearer,
+            shutdown,
             task,
         })
     }
@@ -74,12 +78,11 @@ impl StudioServer {
     ///
     /// # Cancellation
     ///
-    /// Dropping the returned future leaves the server task running.
+    /// Dropping the shutdown future leaves the server task running. Cancelling the token drains accepted requests.
     pub async fn shutdown(self) -> Result<()> {
-        self.task.abort();
+        self.shutdown.cancel();
         match self.task.await {
             Ok(result) => result,
-            Err(error) if error.is_cancelled() => Ok(()),
             Err(error) => Err(anyhow!("Studio server task failed: {error}")),
         }
     }

@@ -40,7 +40,12 @@ impl CardRepository for crate::SqliteStore {
                     card.title,
                     card.body,
                     u64_to_i64(card.node_id.value())?,
-                    serde_json::to_string(&crate::payloads::provenance_payloads::StoredSourceSpan::from(card.source_span)).map_err(json_error)?,
+                    serde_json::to_string(
+                        &crate::payloads::provenance_payloads::StoredSourceSpan::from(
+                            card.source_span
+                        )
+                    )
+                    .map_err(json_error)?,
                     serde_json::to_string(&card.security).map_err(json_error)?,
                 ],
             )

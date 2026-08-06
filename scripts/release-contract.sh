@@ -1,15 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
-
-# Studio's committed bundle is deliberately buildable without Cargo invoking
-# Node. Release gates still install the pinned frontend dependencies, exercise
-# the frontend checks, rebuild, and reject any dist drift.
+export PATH="${HOME}/.cargo/bin:${PATH}"
+# Studio's committed Dioxus bundle is built after installing the pinned
+# Tailwind and Playwright toolchain, then checked for deterministic drift.
 corepack pnpm@9.15.9 --dir web install --frozen-lockfile
-corepack pnpm@9.15.9 --dir web typecheck
-corepack pnpm@9.15.9 --dir web test
-corepack pnpm@9.15.9 --dir web test:component
 corepack pnpm@9.15.9 --dir web build
 bash scripts/verify-studio-assets.sh
+cargo test -p maestria-studio-web
+cargo check --target wasm32-unknown-unknown -p maestria-studio-web
 cargo test -p maestria-studio -- --nocapture
 
 cargo test -p maestria-cli --test release_contract -- --test-threads=1 --nocapture
