@@ -628,6 +628,7 @@ RESPONSIBILITY_MAPS: dict[str, tuple[str, ...]] = {
         "registry",
         "rust_source",
         "tree_builder",
+        "typescript_source",
     ),
     "crates/ecosystem/maestria-validation/src/lib.rs": (
         "runner",

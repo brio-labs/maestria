@@ -272,6 +272,13 @@ maestria search -i .maestria-dev code symbol "SearchPlan"
 maestria search -i .maestria-dev code context "RetrievalEngine" --depth 2 --nodes 32
 ```
 
+Cargo workspaces, Python distributions (`pyproject.toml`/`setup.cfg`/`setup.py`), and
+web/TypeScript packages (`package.json`, workspaces discovered by walk) index into the
+same repository projection: Rust, Python, and TS/JS symbols (modules, functions, JSX
+components, classes, interfaces/types, imports) are searchable with the same
+`search code` commands, and web lockfiles participate in the worktree identity.
+
+
 PDF evidence preserves page/region provenance. Text/layout retrieval is the
 stable route. Visual-provider retrieval is optional and remains shadowed unless
 its frozen benchmark proves a quality and resource win; missing visual or OCR

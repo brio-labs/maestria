@@ -166,6 +166,9 @@ pub(crate) fn candidate_id_prefix(candidate: &RelationCandidate) -> String {
         } => source_record_id,
         RelationCandidate::PythonCall {
             source_record_id, ..
+        }
+        | RelationCandidate::TypeScriptCall {
+            source_record_id, ..
         } => source_record_id,
     };
     id.split_once(':')

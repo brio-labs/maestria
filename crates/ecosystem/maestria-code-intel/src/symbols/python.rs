@@ -18,7 +18,8 @@ pub(super) fn resolve_call<'a>(
     hint: &str,
 ) -> Option<&'a SymbolRecord> {
     let hint = hint.trim();
-    let hint = match ["self.", "cls."]
+    // `this.` is the TypeScript analogue of Python's `self.` receiver.
+    let hint = match ["self.", "cls.", "this."]
         .iter()
         .find_map(|prefix| hint.strip_prefix(prefix))
     {

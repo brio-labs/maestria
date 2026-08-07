@@ -647,3 +647,84 @@ fn python_repository_code_index_search_roundtrip() -> Result<(), Box<dyn Error>>
     assert!(stdout.contains("mode=noop"), "expected noop: {stdout}");
     Ok(())
 }
+
+/// Build a git repo with a `package.json` and a small `src/` tree with a
+/// JSX component and an import chain.
+fn make_web_repo(repo: &Path) -> Result<(), Box<dyn Error>> {
+    write_file(
+        repo,
+        "package.json",
+        "{\n  \"name\": \"ui-kit\",\n  \"version\": \"0.1.0\",\n  \"main\": \"src/index.ts\"\n}\n",
+    )?;
+    write_file(
+        repo,
+        "src/index.ts",
+        "import { Button } from \"./components/Button\";\n\nexport function createDefaultItem() {\n  return Button({ label: \"Go\" });\n}\n",
+    )?;
+    write_file(
+        repo,
+        "src/components/Button.tsx",
+        "export function Button({ label }: { label: string }) {\n  return <button>{label}</button>;\n}\n",
+    )?;
+    run_git(repo, &["init", "--initial-branch", "main"])?;
+    run_git(repo, &["config", "user.email", "ci@example.com"])?;
+    run_git(repo, &["config", "user.name", "CI"])?;
+    run_git(repo, &["add", "."])?;
+    run_git(repo, &["commit", "-m", "fixture init"])?;
+    Ok(())
+}
+
+#[test]
+fn web_repository_code_index_search_roundtrip() -> Result<(), Box<dyn Error>> {
+    let repo = TempDir::new("maestria-release-web-repo")?;
+    let instance = TempDir::new("maestria-release-web-instance")?;
+    let instance_path = instance.path().to_string_lossy().into_owned();
+    let repo_path = repo.path().to_string_lossy().into_owned();
+    make_web_repo(repo.path())?;
+    assert_init_ok(&instance_path, &repo_path)?;
+
+    // Web repositories index with real symbols and searchable records.
+    let stdout = assert_ok(&["index", "-i", &instance_path, "repository", &repo_path])?;
+    assert!(
+        stdout.contains("mode=full"),
+        "expected full build: {stdout}"
+    );
+    let summary_start = stdout.find('{').ok_or("missing summary JSON")?;
+    let summary: serde_json::Value = serde_json::from_str(&stdout[summary_start..])?;
+    let symbol_count = summary["symbol_count"]
+        .as_u64()
+        .ok_or("missing symbol_count")?;
+    assert!(symbol_count >= 4);
+
+    let (matched, records) = search_code_symbol(&instance_path, "Button")?;
+    assert!(
+        matched >= 1
+            && records
+                .iter()
+                .any(|record| record.contains(":function:") && record.contains("Button.tsx")),
+        "web component not searchable: {records:?}"
+    );
+    let (matched, _) = search_code_symbol(&instance_path, "createDefaultItem")?;
+    assert!(matched >= 1, "web function not searchable");
+
+    // An edit rebuilds incrementally and stays searchable.
+    let index_file = repo.path().join("src/index.ts");
+    let mut source = fs::read_to_string(&index_file)?;
+    source.push_str("\nexport function catalogCount(): number {\n  return 3;\n}\n");
+    fs::write(&index_file, source)?;
+    let stdout = assert_ok(&["index", "-i", &instance_path, "repository", &repo_path])?;
+    assert!(
+        stdout.contains("mode=incremental"),
+        "expected incremental: {stdout}"
+    );
+    let (matched, _) = search_code_symbol(&instance_path, "catalogCount")?;
+    assert_eq!(
+        matched, 1,
+        "new web symbol not searchable after incremental rebuild"
+    );
+
+    // Unchanged repository is a no-op.
+    let stdout = assert_ok(&["index", "-i", &instance_path, "repository", &repo_path])?;
+    assert!(stdout.contains("mode=noop"), "expected noop: {stdout}");
+    Ok(())
+}

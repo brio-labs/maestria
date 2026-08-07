@@ -15,6 +15,7 @@
 /// - `registry`: module responsibility.
 /// - `rust_source`: module responsibility.
 /// - `tree_builder`: module responsibility.
+/// - `typescript_source`: module responsibility.
 mod cargo_toml;
 mod chunking;
 mod markdown;
@@ -27,6 +28,7 @@ mod python_source;
 mod registry;
 mod rust_source;
 mod tree_builder;
+mod typescript_source;
 
 pub use cargo_toml::CargoTomlParser;
 pub use chunking::{card_id_for, chunk_id_for};
@@ -36,6 +38,7 @@ pub use plain_text::PlainTextParser;
 pub use python_source::PythonSourceParser;
 pub use registry::ParserRegistry;
 pub use rust_source::RustSourceParser;
+pub use typescript_source::TypeScriptSourceParser;
 
 #[cfg(test)]
 mod tests;

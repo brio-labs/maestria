@@ -20,14 +20,23 @@ pub(crate) fn check_new_auto_targets(
     index: &RepositoryCodeIndex,
     state: &RebuildState,
 ) -> Result<bool, CodeIntelError> {
+    // Every package's manifest directory, as a repository-relative path.
+    // Cargo manifests are absolute (their root manifest strips to the empty
+    // path); walk-based manifests (Python, TypeScript) are relative, so an
+    // empty parent is mapped to the root explicitly.
     let package_roots: BTreeSet<String> = index
         .packages
         .iter()
         .filter_map(|package| {
-            Path::new(&package.manifest_path)
-                .parent()
-                .and_then(|parent| parent.strip_prefix(&inputs.canonical_root).ok())
-                .map(|relative| relative.to_string_lossy().into_owned())
+            let parent = Path::new(&package.manifest_path).parent();
+            match parent.and_then(|parent| parent.strip_prefix(&inputs.canonical_root).ok()) {
+                Some(relative) if relative.as_os_str().is_empty() => Some(String::new()),
+                Some(relative) => Some(relative.to_string_lossy().into_owned()),
+                None if parent.is_some_and(|parent| parent.as_os_str().is_empty()) => {
+                    Some(String::new())
+                }
+                None => None,
+            }
         })
         .collect();
     let mut walk_set = BTreeSet::new();

@@ -94,6 +94,10 @@ pub(super) fn resolve_candidate(
         RelationCandidate::PythonCall {
             source_record_id,
             target_hint,
+        }
+        | RelationCandidate::TypeScriptCall {
+            source_record_id,
+            target_hint,
         } => relation_for(
             parser_generation,
             CodeRelationKind::Calls,

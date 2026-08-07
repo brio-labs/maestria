@@ -38,7 +38,7 @@
           "docs/PHILOSOPHY.md",
           "crates/ecosystem/maestria-retrieval/tests/fixtures/golden-v3.json"
         ],
-        "source_hash": "88a6121670f2d65148c4d349d1e7c2dca702655fba6037e70051d939e9c075a3"
+        "source_hash": "c2b8fab8f75f3013eda715897b4ad39f8c03d3d68eed52c61e63820d8f3c3811"
       },
       "fingerprints": {
         "corpus_snapshot": "maestria-document-snapshot-v1",
@@ -95,7 +95,7 @@
           "docs/PHILOSOPHY.md",
           "crates/ecosystem/maestria-retrieval/tests/fixtures/golden-v3.json"
         ],
-        "source_hash": "88a6121670f2d65148c4d349d1e7c2dca702655fba6037e70051d939e9c075a3"
+        "source_hash": "c2b8fab8f75f3013eda715897b4ad39f8c03d3d68eed52c61e63820d8f3c3811"
       },
       "fingerprints": {
         "corpus_snapshot": "maestria-document-snapshot-v1",
@@ -377,6 +377,70 @@
         {
           "kind": "repository",
           "path": "target/benchmark-reports/python-repository-real.json"
+        }
+      ]
+    },
+    {
+      "milestone": "v1.1 — Web Repository Intelligence",
+      "release_stage": "implementation-complete",
+      "data_fidelity": "real",
+      "corpus": {
+        "id": "web-repository-frozen-v1",
+        "snapshot": "sha256:f05e58be54cb48c6c43297141f776c59e451c26bb40232f25112fbad7dd85804",
+        "judgment_set": "web-repository-benchmark-v1",
+        "source_paths": [
+          "crates/ecosystem/maestria-retrieval/tests/fixtures/web-repository-v1/package.json",
+          "crates/ecosystem/maestria-retrieval/tests/fixtures/web-repository-v1/README.md",
+          "crates/ecosystem/maestria-retrieval/tests/fixtures/web-repository-v1/src/index.ts",
+          "crates/ecosystem/maestria-retrieval/tests/fixtures/web-repository-v1/src/components/Button.tsx",
+          "crates/ecosystem/maestria-retrieval/tests/fixtures/web-repository-v1/src/components/Card.tsx",
+          "crates/ecosystem/maestria-retrieval/tests/fixtures/web-repository-v1/src/models/Item.ts",
+          "crates/ecosystem/maestria-retrieval/tests/fixtures/web-repository-v1/src/utils/format.ts",
+          "crates/ecosystem/maestria-retrieval/tests/fixtures/web-repository-v1/src/types.ts",
+          "crates/ecosystem/maestria-retrieval/tests/fixtures/web-repository-v1/tests/button.test.ts",
+          "crates/ecosystem/maestria-retrieval/tests/fixtures/web-repository-benchmark-v1.json",
+          "crates/ecosystem/maestria-retrieval/tests/web_repository_benchmark_tests.rs"
+        ],
+        "source_hash": "f05e58be54cb48c6c43297141f776c59e451c26bb40232f25112fbad7dd85804"
+      },
+      "fingerprints": {
+        "corpus_snapshot": "web-repository-frozen-v1",
+        "index_generation": "cargo-rust-code-v3",
+        "model_fingerprint": "repository-code-index-v2"
+      },
+      "environment": {
+        "os": "ubuntu-24.04",
+        "rust_toolchain": "nightly-2026-06-15",
+        "cpu_arch": "x86_64"
+      },
+      "results": {
+        "quality": {
+          "status": "warning",
+          "reason": "real web repository observations are emitted for every frozen query class; promotion still requires benchmark comparison"
+        },
+        "resource": {
+          "status": "warning",
+          "reason": "code-intel adapter reports platform counters as unavailable"
+        },
+        "security": {
+          "status": "warning",
+          "reason": "code-intel adapter does not measure serving-boundary security counters"
+        }
+      },
+      "degradations": [
+        {
+          "area": "resource",
+          "description": "Memory, disk, and energy counters are unavailable in the code-intel adapter and are not inferred."
+        },
+        {
+          "area": "evidence",
+          "description": "Doc-comment and code-marker classes abstain because the TypeScript extractor does not emit doc comments or source markers (honest expected-Abstain cases)."
+        }
+      ],
+      "reports": [
+        {
+          "kind": "repository",
+          "path": "target/benchmark-reports/web-repository-real.json"
         }
       ]
     }

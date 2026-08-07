@@ -3,9 +3,10 @@
 //! `RepositoryCodeIndex` construction and incremental rebuilds dispatch
 //! manifest discovery, source walking, and symbol extraction through
 //! [`LanguageBackend`] implementations. Rust is the first backend; Python
-//! the second. Adding a language (issue #414 plans TypeScript) is purely
-//! additive: a new `LanguageKind` variant, a new backend module, and one
-//! entry in [`active_backends`].
+//! the second; TypeScript/JavaScript the third (web packages via
+//! `package.json`, tokenizer-based TS/JS extraction). Adding a language is
+//! purely additive: a new `LanguageKind` variant, a new backend module, and
+//! one entry in [`active_backends`].
 //!
 //! The incremental core stays language-agnostic: the orchestrator
 //! (`incremental/`) consumes only per-file records and per-backend
@@ -25,21 +26,24 @@ type ReextractedFile = (Vec<SymbolRecord>, Vec<RelationCandidate>, FileContextRe
 
 pub(crate) mod python;
 pub(crate) mod rust;
+pub(crate) mod typescript;
 
 /// Languages with an extraction backend.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) enum LanguageKind {
     Rust,
     Python,
+    TypeScript,
 }
 
 /// Re-derived per-file context for incremental subtree derivation.
 ///
 /// The Rust backend re-derives `mod` trees and records the module stack,
 /// test/bench flags, and declaring-file parent for every reachable file; the
-/// Python backend has no module tree and returns only the file itself with
-/// its recorded context. `parent` is the relative repository path of the
-/// file that declared this file, `None` for target roots.
+/// Python and TypeScript backends have no module tree and return only the
+/// file itself with its recorded context. `parent` is the relative
+/// repository path of the file that declared this file, `None` for target
+/// roots.
 #[derive(Debug, Clone)]
 pub(crate) struct DerivedFileContext {
     pub(crate) stack: Vec<String>,
@@ -145,14 +149,15 @@ pub(crate) trait LanguageBackend {
 }
 
 /// Every backend whose `detect()` succeeds, in deterministic order (Rust,
-/// then Python — enforced by the `LanguageKind` ordering).
+/// then Python, then TypeScript — enforced by the `LanguageKind` ordering).
 pub(crate) fn active_backends(
     root: &Path,
     excluded_patterns: &[String],
 ) -> Result<Vec<Box<dyn LanguageBackend>>, CodeIntelError> {
-    let candidates: [Box<dyn LanguageBackend>; 2] = [
+    let candidates: [Box<dyn LanguageBackend>; 3] = [
         Box::new(rust::RustBackend::new()),
         Box::new(python::PythonBackend::new()),
+        Box::new(typescript::TypeScriptBackend::new()),
     ];
     let mut active = Vec::new();
     for backend in candidates {
@@ -198,7 +203,8 @@ pub(crate) fn is_backend_manifest_path(path: &str, backends: &[Box<dyn LanguageB
 /// source walks always cover these, even when no manifest activates the
 /// backend (a repository with `.rs` sources but no `Cargo.toml` still has
 /// those sources participate in the identity digest).
-pub(crate) const KNOWN_SOURCE_EXTENSIONS: [&str; 2] = ["rs", "py"];
+pub(crate) const KNOWN_SOURCE_EXTENSIONS: [&str; 8] =
+    ["rs", "py", "ts", "tsx", "js", "jsx", "mjs", "cjs"];
 
 /// Union of every active backend's manifest file names (excluding lock-file
 /// siblings, which are derived from manifests, not discovered).

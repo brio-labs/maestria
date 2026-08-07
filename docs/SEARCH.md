@@ -324,8 +324,23 @@ dependencies, and Rust symbols into one repository-wide index. Python repositori
 (PEP 621 `pyproject.toml`, `setup.cfg`, or `setup.py`) are discovered with the same
 walk: each distribution becomes a package whose targets are its top-level packages
 and modules, and Python classes, functions, methods, imports, and calls are extracted
-with a deterministic tokenizer (no execution, no installation). Each symbol carries
-repository root, commit SHA, worktree identity, source path/range, and parser generation.
+with a deterministic tokenizer (no execution, no installation). Web/TypeScript
+repositories are discovered by walking every `package.json` (skipping `node_modules`,
+`dist/`, hidden directories, and privacy-excluded paths): each package's targets are
+its `src/` walk, its entry points (`main`/`module`/`exports` string leaves), and its
+`tests`/`e2e`/`benchmarks` directories. `workspaces` globs are not resolved — the
+walk finds member manifests and packages are deduplicated by manifest path — and
+lockfiles (`package-lock.json`, `yarn.lock`, `pnpm-lock.yaml`) participate in the
+worktree identity but are never parsed. TypeScript/JavaScript symbols are extracted
+with a deterministic tokenizer (no `tsc`, no bundler, no dependency install): modules,
+functions (including arrow JSX components — a module-level arrow `const` whose body
+contains a JSX marker `<` + letter or `<>` becomes a `Function`), classes with
+methods, interfaces and `type` aliases (both `TypeAlias`), `const`/`let`/`var`
+bindings, and imports. `export` is the public-API signal; `*.test.ts(x)`/`*.spec.ts(x)`
+and `__tests__`/`tests`/`e2e` paths are flagged `is_test`. Relative imports resolve to
+target module paths deterministically; bare package specifiers are not resolvable
+offline and produce no relation. Each symbol carries repository root, commit SHA,
+worktree identity, source path/range, and parser generation.
 
 Exact queries remain available without neural indexes:
 
@@ -431,17 +446,20 @@ symbols against durable, blob-verified evidence; files the kernel refuses to ind
 
 Multiple workspace roots share one repository index: member manifests that resolve to an
 already-indexed workspace are deduplicated, and packages are deduplicated by package id.
-A repository without any supported manifest (neither `Cargo.toml` nor a Python manifest)
-indexes to a valid, fresh empty index: `mode=full` with zero symbols, no matches from
-code queries, and no-op rebuilds on subsequent runs. A root `Cargo.toml` that exists but
-fails `cargo metadata` is a typed error, as is a root `pyproject.toml` that fails to
-parse. A NESTED manifest that fails does not kill the index: the broken workspace or
-distribution is skipped, the healthy ones are still indexed, and the degradation is
-surfaced as a `workspace_warnings` entry in the summary JSON plus a `warning:` line on
-stderr — never silently.
+A repository without any supported manifest (neither `Cargo.toml`, a Python manifest, nor
+a `package.json`) indexes to a valid, fresh empty index: `mode=full` with zero symbols,
+no matches from code queries, and no-op rebuilds on subsequent runs. A root `Cargo.toml`
+that exists but fails `cargo metadata` is a typed error, as is a root `pyproject.toml`
+that fails to parse and a root `package.json` that fails to parse. A NESTED manifest that
+fails does not kill the index: the broken workspace, distribution, or package is skipped,
+the healthy ones are still indexed, and the degradation is surfaced as a
+`workspace_warnings` entry in the summary JSON plus a `warning:` line on stderr — never
+silently. Web new-file auto-targeting covers `src/` and `tests`/`e2e`/`benchmarks` under
+a package root; new web sources elsewhere need a manifest change to be discovered.
 
-Repository-code promotion is governed by the frozen `rust-repository-frozen-v1` and
-`python-repository-frozen-v1` benchmarks in `maestria-retrieval`. They compare the
+Repository-code promotion is governed by the frozen `rust-repository-frozen-v1`,
+`python-repository-frozen-v1`, and `web-repository-frozen-v1` benchmarks in
+`maestria-retrieval`. They compare the
 Phase C route with the code-specialized route for exact-span recall, evidence-chain
 accuracy, p95 latency, freshness errors, outcome accuracy, abstention accuracy, peak
 memory, privacy violations, security violations, and energy across seven query classes:

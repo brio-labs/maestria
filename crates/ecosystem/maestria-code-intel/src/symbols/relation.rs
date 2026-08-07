@@ -41,6 +41,14 @@ pub(crate) enum RelationCandidate {
         source_record_id: String,
         target_hint: String,
     },
+    /// TypeScript/JavaScript call: the bare or dotted callee expression as
+    /// written (e.g. `render`, `Item.total`, `this.helper`). Resolution
+    /// mirrors Python: exact qualified names first, then the short name when
+    /// unambiguous; ambiguity yields no edge.
+    TypeScriptCall {
+        source_record_id: String,
+        target_hint: String,
+    },
 }
 
 pub(crate) fn relation_status_summary(total_relations: usize) -> CodeRelationSummary {
