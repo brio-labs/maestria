@@ -71,6 +71,25 @@ impl InstanceManifest {
             lines.push(format!("visual_model={}", visual.model));
             lines.push(format!("visual_dimensions={}", visual.dimensions));
         }
+        if let Some(sparse) = &self.sparse {
+            lines.push(format!("sparse_enabled={}", sparse.enabled));
+            lines.push(format!("sparse_endpoint={}", sparse.endpoint));
+            lines.push(format!("sparse_provider={}", sparse.provider));
+            lines.push(format!("sparse_revision={}", sparse.revision));
+            lines.push(format!("sparse_artifact_hash={}", sparse.artifact_hash));
+            lines.push(format!(
+                "sparse_preprocessing_version={}",
+                sparse.preprocessing_version
+            ));
+            lines.push(format!("sparse_remote_provider={}", sparse.remote_provider));
+            lines.push(format!(
+                "sparse_retention_policy={}",
+                retention_policy_name(&sparse.retention_policy)
+            ));
+            lines.push(format!("sparse_model={}", sparse.model));
+            lines.push(format!("sparse_vocabulary_size={}", sparse.vocabulary_size));
+            lines.push(format!("sparse_term_cap={}", sparse.term_cap));
+        }
         lines.push(String::new());
         lines.join("\n")
     }

@@ -167,6 +167,62 @@ no inputs. Visual activation additionally requires a matching fingerprinted
 `visual_page_v1` generation and a passing benchmark; otherwise the app keeps
 the text/layout route.
 
+### 4.3. Learned-sparse profile: SPLADE ONNX (CPU)
+
+Dated research candidate (pinned 2026-08-07). The checkpoint is the
+SPLADE++/cocondenser-family export `prithivida/Splade_PP_en_v1` (revision
+`762be6a7206e2f299182705972a65e5c46e62be2`, Apache-2.0, distilbert vocabulary
+of 30 522 terms). Re-pinning a different SPLADE-family checkpoint updates this
+section and the sparse manifest keys.
+
+```bash
+uv venv .venv-sparse
+uv pip install --python .venv-sparse/bin/python \
+  -r scripts/requirements-sparse.txt
+```
+
+Download the pinned artifacts into `.maestria/models/splade/onnx/` (from
+`prithivida/Splade_PP_en_v1` at the revision above), then start the sidecar:
+
+```bash
+.venv-sparse/bin/python scripts/splade_server.py \
+  --host 127.0.0.1 --port 10002 \
+  --model prithivida/Splade_PP_en_v1 \
+  --model-dir .maestria/models/splade
+```
+
+Compute the artifact fingerprint before enabling the profile:
+
+```bash
+python3 scripts/sparse_model_fingerprint.py \
+  --profile splade_pp_en_v1_cpu \
+  --model-dir .maestria/models/splade
+```
+
+Manifest keys (set `sparse_artifact_hash` to the fingerprint output):
+
+```text
+sparse_enabled=true
+sparse_endpoint=http://127.0.0.1:10002/v1/sparse
+sparse_provider=splade-onnx
+sparse_revision=762be6a7206e2f299182705972a65e5c46e62be2
+sparse_artifact_hash=sha256:<fingerprint-output>
+sparse_preprocessing_version=splade-templates-v1
+sparse_model=prithivida/Splade_PP_en_v1
+sparse_vocabulary_size=30522
+sparse_term_cap=256
+sparse_remote_provider=false
+sparse_retention_policy=no_retention
+```
+
+The sidecar applies the `query: {text}` / `document: {text}` templates, caps
+term vectors at 256 terms, accepts loopback traffic only, performs CPU
+inference, and retains no inputs. Unlike the embedding/visual profiles, a
+remote provider or retained retention policy is a manifest error, not a
+deferred rejection. Sparse activation additionally requires a matching
+fingerprinted `sparse_text_v1` generation and a passing benchmark; otherwise
+the app keeps the lexical/hybrid route.
+
 ## 3. Promotion Criteria
 
 A candidate is promoted from this research document to an active architectural component only when:
