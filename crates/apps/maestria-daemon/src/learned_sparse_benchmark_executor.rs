@@ -16,7 +16,7 @@ use std::time::Instant;
 use anyhow::{Context, Result, anyhow};
 use maestria_core::{InstanceLayout, InstanceManifest};
 use maestria_domain::{
-    Chunk, ChunkId, ContentHash, IndexGenerationId, KernelState, SearchOutcome,
+    Chunk, ChunkId, ContentHash, IndexGenerationId, KernelState, SearchOutcome, SearchPlan,
 };
 use maestria_ports::{
     LearnedSparseIndex, LearnedSparseProjectionLifecycle, LearnedSparseProvider, SparseDocument,
@@ -41,7 +41,8 @@ use maestria_storage_sqlite::{SqliteLearnedSparseIndex, SqliteStore};
 
 use crate::search_executor::{SearchRuntime, prepare_search_runtime};
 use crate::sparse_startup::{
-    build_sparse_provider_for_layout, reconcile_sparse_generation, sparse_identity,
+    build_sparse_provider_for_layout, reconcile_sparse_generation,
+    reconcile_sparse_projection_for_layout, sparse_identity,
 };
 
 const HYBRID_RECORD_VERSION: &str = "hybrid";
@@ -97,6 +98,9 @@ impl LearnedSparseBenchmarkExecutor {
             .is_some_and(|config| config.enabled)
         {
             let generation_id = reconcile_sparse_generation(layout, state, manifest)?;
+            // Populates the projection from the replayed chunks and advances
+            // its lifecycle to Active so the retriever can serve.
+            reconcile_sparse_projection_for_layout(layout, state, manifest)?;
             let identity = sparse_identity(state, manifest, generation_id)?;
             let provider = build_sparse_provider_for_layout(manifest, state)?
                 .ok_or_else(|| anyhow!("sparse provider is not configured"))?;
@@ -273,11 +277,13 @@ impl LearnedSparseBenchmarkExecutor {
                 HybridExecutionPolicy::Shadow,
                 LearnedSparseExecutionPolicy::Disabled,
                 None,
+                true,
             ),
             LearnedSparseRoute::Hybrid => self.runtime.retrieval_engine_with_policies(
                 HybridExecutionPolicy::Active(self.hybrid_record.clone()),
                 LearnedSparseExecutionPolicy::Disabled,
                 None,
+                true,
             ),
             LearnedSparseRoute::SparseOnly => {
                 let record = self.active_record(class)?;
@@ -285,6 +291,7 @@ impl LearnedSparseBenchmarkExecutor {
                     HybridExecutionPolicy::Shadow,
                     LearnedSparseExecutionPolicy::Active(Box::new(record)),
                     sparse_retriever,
+                    false,
                 )
             }
             LearnedSparseRoute::SparseFused => {
@@ -293,34 +300,131 @@ impl LearnedSparseBenchmarkExecutor {
                     HybridExecutionPolicy::Active(self.hybrid_record.clone()),
                     LearnedSparseExecutionPolicy::Active(Box::new(record)),
                     sparse_retriever,
+                    true,
                 )
             }
         }
     }
 
-    fn plan_and_search(
+    fn plan_for(
         &self,
         engine: &RetrievalEngine,
+        route: LearnedSparseRoute,
         query: &str,
         limit: usize,
-    ) -> Result<SearchOutcome> {
+    ) -> Result<SearchPlan> {
+        let mut context = self.runtime.planner_context();
+        if route == LearnedSparseRoute::SparseOnly {
+            // The sparse-only ablation serves exclusively from the sparse
+            // generation, so its plan must target that generation.
+            context.primary_generation = self
+                .sparse_generation_id
+                .ok_or_else(|| anyhow!("sparse generation is unavailable"))?;
+        }
         let plan = engine
-            .plan(query, limit, &self.runtime.planner_context())
+            .plan(query, limit, &context)
             .map_err(anyhow::Error::new)?;
-        let plan = plan
-            .confine_to_scope(self.runtime.scope_id)
-            .map_err(anyhow::Error::new)?;
-        tokio::runtime::Handle::current()
-            .block_on(engine.search(&plan))
+        plan.confine_to_scope(self.runtime.scope_id)
             .map_err(anyhow::Error::new)
     }
 
-    fn outcome_candidates(
+    fn plan_and_search(
         &self,
-        outcome: &SearchOutcome,
+        engine: &RetrievalEngine,
+        plan: &SearchPlan,
+    ) -> Result<SearchOutcome> {
+        // The engine is async; the daemon runs it on a blocking worker so the
+        // benchmark can run both inside and outside an existing runtime.
+        std::thread::scope(|scope| {
+            scope
+                .spawn(|| {
+                    let runtime = tokio::runtime::Builder::new_current_thread()
+                        .enable_all()
+                        .build()
+                        .map_err(anyhow::Error::new)?;
+                    runtime
+                        .block_on(engine.search(plan))
+                        .map_err(anyhow::Error::new)
+                })
+                .join()
+                .map_err(|_| anyhow!("benchmark search worker panicked"))?
+        })
+    }
+
+    /// The sparse-only ablation: the projection's own retriever through the
+    /// same authorization path the engine applies, scored standalone.
+    ///
+    /// Returns `None` when the engine refuses to plan the query on this
+    /// instance; the route then abstains honestly.
+    fn sparse_only_candidates(
+        &self,
+        query: &str,
+        limit: usize,
+    ) -> Result<Option<Vec<LearnedSparseRetrievedCandidate>>> {
+        let lane = self
+            .sparse
+            .as_ref()
+            .ok_or_else(|| anyhow!("sparse lane is unavailable"))?;
+        let generation_id = self
+            .sparse_generation_id
+            .ok_or_else(|| anyhow!("sparse generation is unavailable"))?;
+        let route_configuration = self
+            .corpus
+            .route_configurations
+            .get(&LearnedSparseRoute::SparseOnly)
+            .cloned()
+            .ok_or_else(|| anyhow!("sparse-only route configuration is missing"))?;
+        let engine = self.engine_for(
+            LearnedSparseRoute::SparseOnly,
+            LearnedSparseQueryClass::VocabularyExpansion,
+        )?;
+        let plan = match self.plan_for(&engine, LearnedSparseRoute::SparseOnly, query, limit) {
+            Ok(plan) => plan,
+            Err(error) => {
+                eprintln!("sparse-only plan refused, recording abstention: {error}");
+                return Ok(None);
+            }
+        };
+        let authorization = self
+            .runtime
+            .retrieval_policy
+            .authorization_context(plan.scope())
+            .map_err(anyhow::Error::new)?;
+        let request = maestria_retrieval::types::CandidateRequest {
+            plan: plan.clone(),
+            query: maestria_ports::SearchQuery {
+                q: query.to_string(),
+                limit,
+                offset: 0,
+                execution_budget: route_configuration.budget,
+            },
+            execution_budget: route_configuration.budget,
+            expected_generation: generation_id,
+            authorization,
+            source_filter: None,
+        };
+        let batch = std::thread::scope(|scope| {
+            scope
+                .spawn(|| {
+                    let runtime = tokio::runtime::Builder::new_current_thread()
+                        .enable_all()
+                        .build()
+                        .map_err(anyhow::Error::new)?;
+                    runtime
+                        .block_on(lane.retriever.retrieve(request))
+                        .map_err(anyhow::Error::new)
+                })
+                .join()
+                .map_err(|_| anyhow!("benchmark sparse-only worker panicked"))?
+        })?;
+        Ok(Some(self.candidates_from(batch.candidates)))
+    }
+
+    fn candidates_from(
+        &self,
+        candidates: Vec<maestria_domain::EvidenceCandidate>,
     ) -> Vec<LearnedSparseRetrievedCandidate> {
-        outcome
-            .evidence
+        candidates
             .iter()
             .enumerate()
             .filter_map(|(index, candidate)| {
@@ -353,6 +457,13 @@ impl LearnedSparseBenchmarkExecutor {
                 })
             })
             .collect()
+    }
+
+    fn outcome_candidates(
+        &self,
+        outcome: &SearchOutcome,
+    ) -> Vec<LearnedSparseRetrievedCandidate> {
+        self.candidates_from(outcome.evidence.clone())
     }
 
     /// Latency percentiles from the timed runs (warmup excluded).
@@ -456,8 +567,9 @@ impl LearnedSparseBenchmarkExecutor {
                 let content_hash = ContentHash::new(maestria_domain::content_hash(
                     chunk.text.as_bytes(),
                 ))?;
+                let encoded_text = crate::sparse_startup::truncate_document_text(&chunk.text);
                 let vector = provider.encode(
-                    &chunk.text,
+                    &encoded_text,
                     SparseInputKind::Document,
                     identity.clone(),
                 )?;
@@ -672,18 +784,47 @@ impl maestria_retrieval::LearnedSparseBenchmarkExecutor for LearnedSparseBenchma
         let mut candidates = Vec::new();
         for run in 0..(WARMUP_SAMPLES + RUN_SAMPLES) {
             let started = Instant::now();
-            let outcome = self
-                .plan_and_search(&engine, &case.query, limit)
-                .map_err(|error| {
-                    LearnedSparseBenchmarkError::InvalidMeasurement(format!(
-                        "search on route {route:?} for case {} failed: {error}",
-                        case.case_id
-                    ))
-                })?;
+            if route == LearnedSparseRoute::SparseOnly {
+                candidates = self
+                    .sparse_only_candidates(&case.query, limit)
+                    .map_err(|error| {
+                        LearnedSparseBenchmarkError::InvalidMeasurement(format!(
+                            "sparse-only retrieval on route {route:?} for case {} failed: {error}",
+                            case.case_id
+                        ))
+                    })?
+                    .unwrap_or_default();
+            } else {
+                match self.plan_for(&engine, route, &case.query, limit) {
+                    Ok(plan) => {
+                        let outcome = self
+                            .plan_and_search(&engine, &plan)
+                            .map_err(|error| {
+                                LearnedSparseBenchmarkError::InvalidMeasurement(format!(
+                                    "search on route {route:?} for case {} failed: {error}",
+                                    case.case_id
+                                ))
+                            })?;
+                        candidates = self.outcome_candidates(&outcome);
+                    }
+                    Err(error) => {
+                        // A plan the engine refuses (unsupported intent or
+                        // modality on this instance) is an honest route
+                        // abstention: no evidence is produced or fabricated.
+                        // Recorded once per observation, not per run.
+                        if run == WARMUP_SAMPLES {
+                            eprintln!(
+                                "case {} route {route:?}: plan refused, recording abstention: {error}",
+                                case.case_id
+                            );
+                        }
+                        candidates = Vec::new();
+                    }
+                }
+            }
             if run >= WARMUP_SAMPLES {
                 samples.push(started.elapsed().as_micros());
             }
-            candidates = self.outcome_candidates(&outcome);
         }
         let (p50, p95, p99) = Self::percentiles(&samples);
         let quality = score_case(&case.case_id, &expected, &candidates).map_err(|error| {

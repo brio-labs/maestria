@@ -123,24 +123,53 @@ fn enable_sparse_profile(layout: &maestria_core::InstanceLayout) -> Result<(), B
     Ok(())
 }
 
-/// Verifies the corpus source files against their recorded content hashes.
-fn verify_sources(corpus: &LearnedSparseTaskCorpus) -> Result<(), Box<dyn std::error::Error>> {
-    let root = repo_root();
+/// The commit whose tree content matches every frozen corpus source hash.
+///
+/// The live working tree has drifted since the corpus freeze; the evaluation
+/// runs against the exact frozen content so the accepted spans and evidence
+/// remain the dated evidence the judgments describe.
+const CORPUS_CONTENT_COMMIT: &str = "658d1af1";
+
+/// Materializes the frozen corpus sources under `sources_dir` and verifies
+/// every content hash. Returns the map of materialized path to source id.
+fn materialize_sources(
+    corpus: &LearnedSparseTaskCorpus,
+    root: &Path,
+    sources_dir: &Path,
+) -> Result<BTreeMap<String, String>, Box<dyn std::error::Error>> {
+    let mut source_ids = BTreeMap::new();
     for source in &corpus.source_inputs {
-        let path = root.join(&source.path);
-        let bytes = fs::read(&path)
-            .map_err(|error| format!("read corpus source {}: {error}", source.path))?;
-        let actual = content_hash(&bytes);
+        let output = std::process::Command::new("git")
+            .arg("show")
+            .arg(format!("{CORPUS_CONTENT_COMMIT}:{}", source.path))
+            .current_dir(root)
+            .output()
+            .map_err(|error| format!("git show {}: {error}", source.path))?;
+        if !output.status.success() {
+            return Err(format!(
+                "git show {} failed: {}",
+                source.path,
+                String::from_utf8_lossy(&output.stderr)
+            )
+            .into());
+        }
+        let actual = content_hash(&output.stdout);
         if actual != source.content_hash.as_str() {
             return Err(format!(
-                "corpus source {} hash drift: expected {}, got {actual}",
+                "corpus source {} hash drift at {CORPUS_CONTENT_COMMIT}: expected {}, got {actual}",
                 source.path,
                 source.content_hash.as_str()
             )
             .into());
         }
+        let destination = sources_dir.join(&source.path);
+        if let Some(parent) = destination.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        fs::write(&destination, &output.stdout)?;
+        source_ids.insert(destination.display().to_string(), source.source_id.clone());
     }
-    Ok(())
+    Ok(source_ids)
 }
 
 /// Polls persisted kernel state until the artifact reaches `Indexed`.
@@ -251,18 +280,20 @@ async fn learned_sparse_four_profile_real_evaluation() -> Result<(), Box<dyn std
     }
     let root = repo_root();
     let temp = TempDir::create()?;
-    let layout = prepare_instance_with_roots(temp.path().to_path_buf(), vec![root.clone()])?;
+    let sources_dir = temp.path().join("sources");
+    fs::create_dir_all(&sources_dir)?;
+    let layout = prepare_instance_with_roots(temp.path().to_path_buf(), vec![sources_dir.clone()])?;
     enable_sparse_profile(&layout)?;
 
-    // C1: index the frozen corpus source inputs with verified hashes.
+    // C1: index the frozen corpus source inputs with verified hashes. The
+    // content is the dated freeze, not the drifted working tree.
     let corpus = task_corpus()?;
-    verify_sources(&corpus)?;
+    let source_ids = materialize_sources(&corpus, &root, &sources_dir)?;
     {
         let session = MutationSession::start(layout.clone(), AutonomyProfile::TrustedWorkspace).await?;
         let result = async {
-            for source in &corpus.source_inputs {
-                let path = root.join(&source.path);
-                index_source(&session, &layout, &path).await?;
+            for (path, _) in &source_ids {
+                index_source(&session, &layout, Path::new(path)).await?;
             }
             Ok::<(), anyhow::Error>(())
         }
@@ -291,11 +322,6 @@ async fn learned_sparse_four_profile_real_evaluation() -> Result<(), Box<dyn std
         namespace,
     )?;
 
-    let source_ids = corpus
-        .source_inputs
-        .iter()
-        .map(|source| (source.path.clone(), source.source_id.clone()))
-        .collect::<BTreeMap<_, _>>();
     let chunks = state.chunks.values().cloned().collect::<Vec<_>>();
     if chunks.is_empty() {
         return Err("the prepared instance has no indexed chunks".into());

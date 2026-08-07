@@ -22,6 +22,15 @@ const QUERY_TEMPLATE: &str = "query: {text}";
 const DOCUMENT_TEMPLATE: &str = "document: {text}";
 const TERM_NAMESPACE: &str = "splade-vocabulary-v1";
 const WEIGHTING_VERSION: &str = "splade-log1p-relu-v1";
+/// The sidecar contract caps encoded text at 8192 characters; document
+/// chunks are truncated to that bound before encoding. The chunk content
+/// hash still covers the full source text.
+pub const MAX_ENCODE_TEXT_CHARS: usize = 8_192;
+
+/// Bounds document text to the sidecar encoding contract.
+pub fn truncate_document_text(text: &str) -> String {
+    text.chars().take(MAX_ENCODE_TEXT_CHARS).collect()
+}
 
 /// The instance's learned-sparse namespace: one per realm, verified zone,
 /// sparse projection. Deterministic from the manifest.
@@ -226,8 +235,9 @@ pub fn reconcile_sparse_projection_for_layout(
                     })?
                 }
             };
+            let encoded_text = truncate_document_text(&chunk.text);
             let vector = provider
-                .encode(&chunk.text, SparseInputKind::Document, identity.clone())
+                .encode(&encoded_text, SparseInputKind::Document, identity.clone())
                 .map_err(|error| anyhow!("encode chunk {}: {error}", chunk.id))?;
             if vector.identity() != &identity {
                 return Err(anyhow!(

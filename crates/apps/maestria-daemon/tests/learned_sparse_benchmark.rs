@@ -28,10 +28,12 @@ const TASK_CORPUS: &str = include_str!("../../../../tests/contracts/learned_spar
 const ROUTE_CONFIGURATIONS: &str =
     include_str!("../../../../tests/contracts/learned_sparse_benchmark_v2.json");
 
-/// Labels bound to the checked-in ledger entry; the real evaluation (Stage C)
-/// replaces them with the measured instance fingerprints.
-const INDEX_GENERATION_LABEL: &str = "sparse-text-v1-contract-fixture";
-const MODEL_FINGERPRINT: &str = "sparse-fixture-model-v1";
+/// Labels bound to the checked-in ledger entry. The contract report is a
+/// deterministic fixture, but its identity binding must name the same
+/// generation and model fingerprint as the evaluated instance so CI report
+/// validation stays authoritative.
+const INDEX_GENERATION_LABEL: &str = "sparse-text-v1-2";
+const MODEL_FINGERPRINT: &str = "sparse:splade-onnx:prithivida/Splade_PP_en_v1:762be6a7206e2f299182705972a65e5c46e62be2:sha256:b6e75f8fd45d3de85db2c737f75d8ec670e600e92d746f267a8628747d75ff8a:splade-templates-v1";
 
 fn route_configurations() -> Result<
     BTreeMap<LearnedSparseRoute, LearnedSparseRouteConfiguration>,
