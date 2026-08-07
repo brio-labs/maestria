@@ -6,6 +6,7 @@ use maestria_domain::{
 use maestria_governance::scan_secrets;
 use maestria_ports::{IndexedCard, IndexedChunk, IndexedLexicalCard, IndexedLexicalChunk};
 use std::path::Path;
+use tokio::sync::mpsc;
 
 impl EffectExecutionContext {
     /// Index a chunk in the full-text search index.
@@ -72,19 +73,60 @@ impl EffectExecutionContext {
             );
             return false;
         }
-        if Self::send_input(
+        if let Err(error) = Self::deliver_full_text_completion(
             &self.input_tx,
-            DomainInput::FullTextIndexCompleted(FullTextIndexCompleted {
+            FullTextIndexCompleted {
                 artifact_id: request.artifact_id,
                 chunk_id: request.chunk_id,
-            }),
-            "full-text index completion",
-        )
-        .is_err()
-        {
+            },
+        ) {
+            tracing::error!(%error, "failed to deliver full-text index completion");
             return false;
         }
         true
+    }
+
+    /// Deliver a successfully committed full-text completion to the domain
+    /// input loop.
+    ///
+    /// A completion must never become a retryable failure just because the
+    /// serial kernel input loop is momentarily behind and its input channel
+    /// is at capacity: retrying would re-run the expensive per-artifact
+    /// `index_artifact_chunk` commit while holding a semaphore permit, which
+    /// is exactly the retry storm that stalls registration on large
+    /// repositories. On `CapacityFull` the completion is handed to a detached
+    /// task that awaits channel capacity (`Sender::send` waits for the input
+    /// loop to drain) and the effect reports success, releasing its permit.
+    /// The artifact still reaches `Indexed` once the input loop drains.
+    /// A closed channel still fails: the runtime is shutting down anyway and
+    /// the existing `Failed` path cancels the run.
+    fn deliver_full_text_completion(
+        input_tx: &mpsc::Sender<DomainInput>,
+        completion: FullTextIndexCompleted,
+    ) -> Result<(), crate::FeedbackError> {
+        match Self::send_input(
+            input_tx,
+            DomainInput::FullTextIndexCompleted(completion.clone()),
+            "full-text index completion",
+        ) {
+            Ok(()) => Ok(()),
+            Err(crate::FeedbackError::CapacityFull) => {
+                let input_tx = input_tx.clone();
+                tokio::spawn(async move {
+                    if let Err(error) = input_tx
+                        .send(DomainInput::FullTextIndexCompleted(completion))
+                        .await
+                    {
+                        tracing::warn!(
+                            %error,
+                            "full-text index completion dropped; runtime input channel closed"
+                        );
+                    }
+                });
+                Ok(())
+            }
+            Err(error @ crate::FeedbackError::RuntimeShutdown) => Err(error),
+        }
     }
 
     /// Materialize the artifact's cards for full-text indexing, refusing the

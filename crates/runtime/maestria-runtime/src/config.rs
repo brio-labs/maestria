@@ -1,4 +1,4 @@
-use maestria_domain::{DomainInput, EventId, HarnessRunId, KernelState, ScopeId};
+use maestria_domain::{ArtifactId, DomainInput, EventId, HarnessRunId, KernelState, ScopeId};
 use maestria_governance::{
     ApprovalGate, AutonomyProfile, ClassifyRisk, MemoryPromotionGate, Scope, ValidationGate,
 };
@@ -71,6 +71,15 @@ pub struct Governance {
 pub(crate) type HarnessFeedbackAcks = Arc<Mutex<BTreeMap<EventId, (HarnessRunId, u64)>>>;
 pub(crate) type JournalRecoveryClaims = Arc<Mutex<BTreeSet<(HarnessRunId, u64)>>>;
 
+/// Runtime-scoped record of artifacts whose vector lane has permanently
+/// degraded (no embedding provider, model, or generation identity). Shared
+/// across every [`EffectExecutionContext`] clone so later `IndexVector`
+/// effects for the same artifact short-circuit without repeating per-chunk
+/// stale-projection invalidations. Values carry the first degradation reason
+/// for logging; the set is intentionally not persisted (a fresh runtime
+/// re-probes configuration).
+pub(crate) type DegradedVectorArtifacts = Arc<Mutex<BTreeMap<ArtifactId, String>>>;
+
 /// Bundles everything an effect handler needs at execution time.
 #[derive(Clone)]
 pub struct EffectExecutionContext {
@@ -83,6 +92,7 @@ pub struct EffectExecutionContext {
     pub input_tx: mpsc::Sender<DomainInput>,
     pub feedback_acks: HarnessFeedbackAcks,
     pub journal_recovery_claims: JournalRecoveryClaims,
+    pub degraded_vector_artifacts: DegradedVectorArtifacts,
     pub embedding_model: Option<String>,
     pub default_effect_timeout: Duration,
     pub max_retries: u32,
@@ -107,6 +117,7 @@ impl EffectExecutionContext {
             input_tx,
             feedback_acks: Arc::new(Mutex::new(BTreeMap::new())),
             journal_recovery_claims: Arc::new(Mutex::new(BTreeSet::new())),
+            degraded_vector_artifacts: Arc::new(Mutex::new(BTreeMap::new())),
             embedding_model: None,
             default_effect_timeout: Duration::from_secs(300),
             max_retries: 3,

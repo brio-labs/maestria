@@ -34,6 +34,7 @@ mod search_validation;
 mod shell_policy;
 mod submission;
 mod supervision;
+mod vector_lane;
 
 /// EventLog implementation that always fails, useful for testing
 /// runtime shutdown on persistence errors.

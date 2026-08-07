@@ -1,10 +1,29 @@
 use crate::config::EffectExecutionContext;
 use crate::effect_dispatch::EffectWork;
+use crate::effect_execution_dispatch::PreparedEffect;
 use crate::effect_result::EffectFailure;
 use crate::runtime::MaestriaRuntime;
 use maestria_domain::{KernelState, MaestriaEffect, ValidationReportId};
 use std::sync::{Arc, atomic::Ordering};
 use tokio::sync::mpsc;
+
+/// Dedicated permit budget for `IndexVector` effects.
+///
+/// Vector effects run on their own lane so a degraded vector flood (one
+/// effect per chunk, degrading per artifact with no embedding provider) can
+/// never occupy the main effect semaphore to the exclusion of full-text and
+/// parse effects. Two permits keep the lane usable for provider-backed runs
+/// (two concurrent embeddings) while bounding the degradation fallout to a
+/// constant; the main lane semantics are untouched.
+const VECTOR_LANE_PERMITS: usize = 2;
+
+/// The two semaphore lanes the effect executor admits effects under: the main
+/// lane carries every effect except vector indexing, which runs on its own
+/// bounded lane (see [`VECTOR_LANE_PERMITS`]).
+struct EffectLanes {
+    main: Arc<tokio::sync::Semaphore>,
+    vector: Arc<tokio::sync::Semaphore>,
+}
 
 /// Outcome of admitting one effect from a received batch.
 enum AdmitOutcome {
@@ -147,11 +166,26 @@ impl MaestriaRuntime {
         in_flight: &mut tokio::task::JoinSet<()>,
         context: EffectExecutionContext,
         work: EffectWork,
-        permit: tokio::sync::OwnedSemaphorePermit,
+        lane: Arc<tokio::sync::Semaphore>,
         effect_shutdown: tokio_util::sync::CancellationToken,
         runtime_shutdown: tokio_util::sync::CancellationToken,
     ) {
         in_flight.spawn(async move {
+            // The permit is acquired inside the task (not in the executor's
+            // admit loop): a batch of many effects must not stall batch
+            // consumption behind the semaphore. The lane still bounds how
+            // many effect executions run concurrently — tasks simply wait
+            // for their permit before executing — but the executor can keep
+            // draining batches, so the effect channel never backs up and the
+            // kernel input loop never blocks on batch reservation.
+            let permit = tokio::select! {
+                biased;
+                () = effect_shutdown.cancelled() => return,
+                permit = lane.acquire_owned() => match permit {
+                    Ok(permit) => permit,
+                    Err(_) => return,
+                },
+            };
             let result = match work {
                 EffectWork::Pending(effect) => context.execute_with_retries(effect).await,
                 EffectWork::Prepared(effect) => {
@@ -194,6 +228,7 @@ impl MaestriaRuntime {
             embedding_model: self.config.embedding_model.clone(),
             feedback_acks: Arc::clone(&self.feedback_acks),
             journal_recovery_claims: Arc::clone(&self.journal_recovery_claims),
+            degraded_vector_artifacts: Arc::clone(&self.degraded_vector_artifacts),
             default_effect_timeout: self.config.default_effect_timeout,
             max_retries: self.config.max_retries,
         }
@@ -201,9 +236,13 @@ impl MaestriaRuntime {
 
     /// Admit one effect: assign its validation-report id, execute inline
     /// persist events, acquire a semaphore permit, and spawn the task.
+    ///
+    /// `IndexVector` effects (in both the pending and prepared forms) are
+    /// admitted under the dedicated vector lane so their flood can never
+    /// starve the main lane that carries full-text and parse effects.
     async fn admit_effect(
         in_flight: &mut tokio::task::JoinSet<()>,
-        semaphore: &Arc<tokio::sync::Semaphore>,
+        lanes: &EffectLanes,
         execution_context: EffectExecutionContext,
         next_validation_report_id: &std::sync::atomic::AtomicU64,
         mut work: EffectWork,
@@ -224,21 +263,22 @@ impl MaestriaRuntime {
                 return AdmitOutcome::Stop;
             }
         };
-        let permit = tokio::select! {
-            biased;
-            () = effect_shutdown.cancelled() => return AdmitOutcome::DropBatch,
-            permit = Arc::clone(semaphore).acquire_owned() => {
-                match permit {
-                    Ok(permit) => permit,
-                    Err(_) => return AdmitOutcome::DropBatch,
-                }
-            }
+        let is_vector_effect = matches!(&work, EffectWork::Pending(MaestriaEffect::IndexVector(_)))
+            || matches!(
+                &work,
+                EffectWork::Prepared(PreparedEffect::Dispatch { effect, .. })
+                    if matches!(**effect, MaestriaEffect::IndexVector(_))
+            );
+        let lane = if is_vector_effect {
+            Arc::clone(&lanes.vector)
+        } else {
+            Arc::clone(&lanes.main)
         };
         Self::spawn_effect_task(
             in_flight,
             execution_context,
             work,
-            permit,
+            lane,
             effect_shutdown.clone(),
             runtime_shutdown.clone(),
         );
@@ -258,7 +298,10 @@ impl MaestriaRuntime {
         #[cfg(test)]
         let test_pre_failed_effect_task = self.test_pre_failed_effect_task;
         tokio::spawn(async move {
-            let semaphore = Arc::new(tokio::sync::Semaphore::new(max_concurrent_effects));
+            let lanes = EffectLanes {
+                main: Arc::new(tokio::sync::Semaphore::new(max_concurrent_effects)),
+                vector: Arc::new(tokio::sync::Semaphore::new(VECTOR_LANE_PERMITS)),
+            };
             let mut in_flight = tokio::task::JoinSet::new();
             #[cfg(test)]
             if test_pre_failed_effect_task {
@@ -294,7 +337,7 @@ impl MaestriaRuntime {
                     remaining = remaining.saturating_sub(1);
                     match Self::admit_effect(
                         &mut in_flight,
-                        &semaphore,
+                        &lanes,
                         execution_context.clone(),
                         &next_validation_report_id,
                         work,

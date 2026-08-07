@@ -1,6 +1,6 @@
 use crate::config::EffectExecutionContext;
 use crate::effect_result::EffectFailure;
-use maestria_domain::{Chunk, ChunkId, IndexVectorRequest, content_hash};
+use maestria_domain::{ArtifactId, Chunk, ChunkId, IndexVectorRequest, content_hash};
 use maestria_governance::scan_secrets;
 use maestria_ports::{EmbeddingInputKind, EmbeddingProvider, EmbeddingRequest, VectorEmbedding};
 use std::sync::Arc;
@@ -10,10 +10,26 @@ impl EffectExecutionContext {
         &self,
         request: IndexVectorRequest,
     ) -> Result<(), EffectFailure> {
+        // The vector lane degrades permanently per artifact: once the
+        // provider/model/identity configuration has rejected the artifact,
+        // nothing can change mid-run, so every later chunk of the same
+        // artifact short-circuits here instead of repeating the per-chunk
+        // stale-projection invalidation (thousands of useless DB writes on
+        // large repositories).
+        if let Some(reason) = self.degraded_artifact_reason(request.artifact_id) {
+            tracing::debug!(
+                artifact_id = %request.artifact_id,
+                chunk_id = %request.chunk_id,
+                %reason,
+                "vector indexing already degraded for artifact"
+            );
+            return Err(EffectFailure::Degraded(reason));
+        }
         let Some(provider) = &self.adapters.embedding_provider else {
             tracing::debug!(chunk_id = %request.chunk_id, "vector indexing disabled");
             return self
-                .degraded_after_invalidation(
+                .degrade_vector_artifact(
+                    request.artifact_id,
                     request.chunk_id,
                     "embedding provider is not configured",
                 )
@@ -27,7 +43,8 @@ impl EffectExecutionContext {
                 "embedding transport violates local no-retention policy"
             );
             return self
-                .degraded_after_invalidation(
+                .degrade_vector_artifact(
+                    request.artifact_id,
                     request.chunk_id,
                     "embedding transport violates local no-retention policy",
                 )
@@ -40,14 +57,19 @@ impl EffectExecutionContext {
         else {
             tracing::warn!(chunk_id = %request.chunk_id, "vector provider configured without model");
             return self
-                .degraded_after_invalidation(request.chunk_id, "embedding model is not configured")
+                .degrade_vector_artifact(
+                    request.artifact_id,
+                    request.chunk_id,
+                    "embedding model is not configured",
+                )
                 .await;
         };
         let (chunk, content_hash) = self.load_vector_chunk(request.chunk_id).await?;
         let Some(identity) = provider.identity() else {
             tracing::warn!(chunk_id = %request.chunk_id, "embedding provider has no generation identity");
             return self
-                .degraded_after_invalidation(
+                .degrade_vector_artifact(
+                    request.artifact_id,
                     request.chunk_id,
                     "embedding provider has no generation identity",
                 )
@@ -120,6 +142,43 @@ impl EffectExecutionContext {
                     .await
             }
         }
+    }
+
+    /// Record the artifact's vector lane as permanently degraded and report
+    /// `Degraded`, running the stale-projection invalidation only for the
+    /// first chunk that hits the degraded path. Every later chunk of the
+    /// artifact short-circuits in [`Self::handle_index_vector`], so the
+    /// no-provider/no-model path costs at most one invalidation per artifact
+    /// instead of one per chunk.
+    /// Return the recorded degradation reason when this artifact's vector
+    /// lane has already permanently degraded, `None` while the lane is live.
+    fn degraded_artifact_reason(&self, artifact_id: ArtifactId) -> Option<String> {
+        let degraded = self.degraded_vector_artifacts.lock().ok()?;
+        degraded.get(&artifact_id).cloned()
+    }
+
+    async fn degrade_vector_artifact(
+        &self,
+        artifact_id: ArtifactId,
+        chunk_id: ChunkId,
+        reason: &'static str,
+    ) -> Result<(), EffectFailure> {
+        let first_for_artifact = match self.degraded_vector_artifacts.lock() {
+            Ok(mut degraded) => match degraded.entry(artifact_id) {
+                std::collections::btree_map::Entry::Occupied(_) => false,
+                std::collections::btree_map::Entry::Vacant(slot) => {
+                    slot.insert(reason.to_string());
+                    true
+                }
+            },
+            // A poisoned lock only means the artifact already degraded once;
+            // skip the invalidation and stay degraded.
+            Err(_) => false,
+        };
+        if !first_for_artifact {
+            return Err(EffectFailure::Degraded(reason.to_string()));
+        }
+        self.degraded_after_invalidation(chunk_id, reason).await
     }
 
     async fn degraded_after_invalidation(
