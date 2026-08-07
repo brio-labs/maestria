@@ -407,6 +407,29 @@ typed promotion record returned by the benchmark comparison to the explicit
 repository-policy runtime constructor. No persisted promotion file is trusted
 automatically, so an absent or unverifiable promotion remains on Phase C.
 
+### Build latency
+
+`index repository` registers each symbol-bearing source as a canonical kernel
+artifact through a bounded submit-ahead window: at most 4 artifacts are in
+flight (submitted but not yet awaited) at any time, and waits for the
+terminal indexed state are serialized oldest-first. The window is sized
+inside the runtime's effect-semaphore headroom (16 slots) so a mid-size
+repository never floods the input loop; it is a named constant
+(`REGISTRATION_IN_FLIGHT`) in `crates/apps/maestria-cli/src/commands/
+code_intel_sources.rs` and must not be raised without fresh measurements of
+the runtime pipeline. Per-artifact runtime cost is dominated by the
+full-text indexing effect (tantivy commit per artifact across cards, lexical
+cards, chunks, and lexical chunks); commit batching in the runtime is
+intentionally out of scope until it is proven safe with the daemon e2e.
+
+Build latency is measured by `repository_build_latency_tests` in
+`maestria-retrieval`: it generates fixture workspaces (50 and 200
+symbol-bearing files), times cold full builds of the extraction pipeline
+over several runs, and writes p50/p95 latency to
+`target/benchmark-reports/repository-build-latency.json`, which the
+`benchmark_evidence_v1` ledger validates so latency regressions block
+promotion (Rule 44).
+
 ### Fusion and Ranking
 
 Fusion and ranking must account for the query and evidence requirements, not only similarity.

@@ -169,7 +169,7 @@
         },
         "resource": {
           "status": "warning",
-          "reason": "code-intel adapter reports platform counters as unavailable"
+          "reason": "code-intel adapter reports platform counters as unavailable; repository build latency is measured by repository_build_latency_tests into repository-build-latency.json"
         },
         "security": {
           "status": "warning",
@@ -182,6 +182,10 @@
           "description": "Memory, disk, and energy counters are unavailable in the code-intel adapter and are not inferred."
         },
         {
+          "area": "resource",
+          "description": "Measured on this machine (2026-08-07, debug build, N=4 registration window + single-commit artifact indexing): 50-file fixture full build 10.8s wall, incremental rebuild 2.8s, 200-file fixture full build 64.9s wall with no runtime cancellation or stall. Extraction-only p50/p95 are in target/benchmark-reports/repository-build-latency.json."
+        },
+        {
           "area": "freshness",
           "description": "Stale worktree outcomes are explicit and cannot support current-worktree claims."
         }
@@ -190,6 +194,10 @@
         {
           "kind": "repository",
           "path": "target/benchmark-reports/repository-real.json"
+        },
+        {
+          "kind": "build-latency",
+          "path": "target/benchmark-reports/repository-build-latency.json"
         }
       ]
     },

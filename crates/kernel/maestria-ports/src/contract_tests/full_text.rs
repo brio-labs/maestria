@@ -11,6 +11,75 @@ pub fn assert_full_text_index_round_trip(
     verify_card_replacement(index)?;
     verify_tie_ordering(index)?;
     verify_empty_query(index)?;
+    verify_artifact_chunk_batch(index)?;
+    Ok(())
+}
+
+/// One `index_artifact_chunk` update must make the chunk and its cards
+/// searchable together, and a re-index with updated content must replace
+/// the prior documents (idempotent delete-then-add).
+///
+/// Query terms are invented words so the assertions cannot collide with any
+/// document written by the earlier contract steps (the in-memory adapter
+/// matches case-insensitive substrings).
+fn verify_artifact_chunk_batch(
+    index: &impl FullTextIndex,
+) -> Result<(), Box<dyn std::error::Error>> {
+    index.index_artifact_chunk(
+        IndexedChunk {
+            artifact_id: ArtifactId::new(7),
+            chunk_id: ChunkId::new(70),
+            text: "zymurgy quuxwobble".to_string(),
+        },
+        vec![IndexedCard {
+            artifact_id: ArtifactId::new(7),
+            card_id: CardId::new(700),
+            title: "Zymurgy Card".to_string(),
+            body: "zymurgy frazzle".to_string(),
+        }],
+        None,
+        Vec::new(),
+    )?;
+
+    let chunk_hits = index.search(SearchQuery {
+        q: "quuxwobble".to_string(),
+        limit: 10,
+        offset: 0,
+        execution_budget: search_budget(10)?,
+    })?;
+    assert_eq!(chunk_hits.hits.len(), 1);
+    assert_eq!(chunk_hits.hits[0].chunk.chunk_id, ChunkId::new(70));
+
+    let card_hits = index.search_cards(SearchQuery {
+        q: "frazzle".to_string(),
+        limit: 10,
+        offset: 0,
+        execution_budget: search_budget(10)?,
+    })?;
+    assert_eq!(card_hits.hits.len(), 1);
+    assert_eq!(card_hits.hits[0].card.card_id, CardId::new(700));
+
+    // Re-index the same chunk with updated content: the old document must be
+    // replaced, not duplicated.
+    index.index_artifact_chunk(
+        IndexedChunk {
+            artifact_id: ArtifactId::new(7),
+            chunk_id: ChunkId::new(70),
+            text: "zymurgy quuxwobble revv".to_string(),
+        },
+        Vec::new(),
+        None,
+        Vec::new(),
+    )?;
+    let revised_hits = index.search(SearchQuery {
+        q: "revv".to_string(),
+        limit: 10,
+        offset: 0,
+        execution_budget: search_budget(10)?,
+    })?;
+    assert_eq!(revised_hits.hits.len(), 1);
+    assert_eq!(revised_hits.hits[0].chunk.chunk_id, ChunkId::new(70));
+    assert_eq!(revised_hits.hits[0].chunk.text, "zymurgy quuxwobble revv");
     Ok(())
 }
 

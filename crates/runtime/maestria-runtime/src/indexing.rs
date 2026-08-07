@@ -12,6 +12,13 @@ impl EffectExecutionContext {
     /// On the first chunk (order 0), also indexes all cards belonging
     /// to the artifact. Sends FullTextIndexCompleted back to the domain
     /// loop after the chunk is indexed.
+    ///
+    /// The chunk, its cards, and their lexical metadata are written through
+    /// the port's single-commit `index_artifact_chunk` batch: the search
+    /// index commits are the dominant per-artifact cost (segment flush and
+    /// fsync per commit), so one atomic update per artifact chunk replaces
+    /// four separate commits. The delete-then-add pattern keeps re-drives
+    /// idempotent, and the update becomes visible atomically.
     pub(crate) async fn handle_index_full_text(&self, request: IndexFullTextRequest) -> bool {
         let (chunk, artifact_security, source_path) =
             match self.extract_index_metadata(&request).await {
@@ -35,10 +42,34 @@ impl EffectExecutionContext {
             );
             return false;
         }
-        if chunk.order == 0 && !self.index_cards_phase(&request, source_path.as_ref()).await {
-            return false;
-        }
-        if !self.index_chunk_phase(&request, chunk, source_path) {
+        // Cards belong to the artifact, not to individual chunks; index them
+        // only on the first chunk so they are registered once per artifact.
+        let cards = if chunk.order == 0 {
+            match self.materialize_artifact_cards(&request).await {
+                Some(cards) => cards,
+                None => return false,
+            }
+        } else {
+            Vec::new()
+        };
+        let (lexical_cards, lexical_chunk) =
+            self.lexical_index_views(&request, &cards, &chunk, source_path);
+        if let Err(error) = self.adapters.search_index.index_artifact_chunk(
+            IndexedChunk {
+                artifact_id: request.artifact_id,
+                chunk_id: request.chunk_id,
+                text: chunk.text,
+            },
+            cards,
+            lexical_chunk,
+            lexical_cards,
+        ) {
+            tracing::error!(
+                artifact_id = %request.artifact_id,
+                chunk_id = %request.chunk_id,
+                %error,
+                "failed to index artifact chunk"
+            );
             return false;
         }
         if Self::send_input(
@@ -54,6 +85,82 @@ impl EffectExecutionContext {
             return false;
         }
         true
+    }
+
+    /// Materialize the artifact's cards for full-text indexing, refusing the
+    /// whole artifact when any card carries secret-like content (the runtime
+    /// shuts down on secret-bearing indexing).
+    async fn materialize_artifact_cards(
+        &self,
+        request: &IndexFullTextRequest,
+    ) -> Option<Vec<IndexedCard>> {
+        let artifact_cards: Vec<IndexedCard> = {
+            let state = self.state.read().await;
+            state
+                .cards
+                .values()
+                .filter(|c| c.artifact_id == request.artifact_id)
+                .map(|c| IndexedCard {
+                    artifact_id: c.artifact_id,
+                    card_id: c.id,
+                    title: c.title.clone(),
+                    body: c.body.clone(),
+                })
+                .collect()
+        };
+        for card in &artifact_cards {
+            let title_scan = scan_secrets(&card.title);
+            let body_scan = scan_secrets(&card.body);
+            if !title_scan.is_clean() || !body_scan.is_clean() {
+                tracing::warn!(
+                    card_id = %card.card_id,
+                    "refusing full-text indexing for secret-bearing card"
+                );
+                return None;
+            }
+        }
+        Some(artifact_cards)
+    }
+
+    /// Build the lexical metadata views for the artifact's cards and the
+    /// current chunk, empty when the search index does not support lexical
+    /// metadata.
+    fn lexical_index_views(
+        &self,
+        request: &IndexFullTextRequest,
+        cards: &[IndexedCard],
+        chunk: &Chunk,
+        source_path: Option<String>,
+    ) -> (Vec<IndexedLexicalCard>, Option<IndexedLexicalChunk>) {
+        if !self.adapters.search_index.supports_lexical_metadata() {
+            return (Vec::new(), None);
+        }
+        let filename = source_path
+            .as_deref()
+            .and_then(|path| Path::new(path).file_name())
+            .and_then(|name| name.to_str())
+            .map(str::to_string);
+        let lexical_cards = cards
+            .iter()
+            .map(|card| IndexedLexicalCard {
+                artifact_id: card.artifact_id,
+                card_id: card.card_id,
+                title: card.title.clone(),
+                body: card.body.clone(),
+                path: source_path.clone(),
+                filename: filename.clone(),
+                symbol: None,
+            })
+            .collect();
+        let lexical_chunk = Some(IndexedLexicalChunk {
+            artifact_id: request.artifact_id,
+            chunk_id: request.chunk_id,
+            text: chunk.text.clone(),
+            path: source_path,
+            filename,
+            symbol: None,
+        });
+        (lexical_cards, lexical_chunk)
     }
 
     async fn extract_index_metadata(
@@ -91,122 +198,5 @@ impl EffectExecutionContext {
                 _ => None,
             });
         Ok((chunk, artifact.security.clone(), source_path))
-    }
-
-    async fn index_cards_phase(
-        &self,
-        request: &IndexFullTextRequest,
-        source_path: Option<&String>,
-    ) -> bool {
-        let artifact_cards: Vec<IndexedCard> = {
-            let state = self.state.read().await;
-            state
-                .cards
-                .values()
-                .filter(|c| c.artifact_id == request.artifact_id)
-                .map(|c| IndexedCard {
-                    artifact_id: c.artifact_id,
-                    card_id: c.id,
-                    title: c.title.clone(),
-                    body: c.body.clone(),
-                })
-                .collect()
-        };
-        for card in &artifact_cards {
-            let title_scan = scan_secrets(&card.title);
-            let body_scan = scan_secrets(&card.body);
-            if !title_scan.is_clean() || !body_scan.is_clean() {
-                tracing::warn!(
-                    card_id = %card.card_id,
-                    "refusing full-text indexing for secret-bearing card"
-                );
-                return false;
-            }
-        }
-        if !artifact_cards.is_empty()
-            && let Err(error) = self
-                .adapters
-                .search_index
-                .index_cards(artifact_cards.clone())
-        {
-            tracing::error!(artifact_id = %request.artifact_id, %error, "failed to index cards");
-            return false;
-        }
-        let lexical_cards: Vec<IndexedLexicalCard> = artifact_cards
-            .iter()
-            .map(|card| {
-                let filename = source_path
-                    .and_then(|path| Path::new(path).file_name())
-                    .and_then(|name| name.to_str())
-                    .map(str::to_string);
-                IndexedLexicalCard {
-                    artifact_id: card.artifact_id,
-                    card_id: card.card_id,
-                    title: card.title.clone(),
-                    body: card.body.clone(),
-                    path: source_path.cloned(),
-                    filename,
-                    symbol: None,
-                }
-            })
-            .collect();
-        if self.adapters.search_index.supports_lexical_metadata()
-            && !lexical_cards.is_empty()
-            && let Err(error) = self
-                .adapters
-                .search_index
-                .index_lexical_cards(lexical_cards)
-        {
-            tracing::error!(
-                artifact_id = %request.artifact_id,
-                %error,
-                "failed to index lexical cards"
-            );
-            return false;
-        }
-        true
-    }
-
-    fn index_chunk_phase(
-        &self,
-        request: &IndexFullTextRequest,
-        chunk: Chunk,
-        source_path: Option<String>,
-    ) -> bool {
-        if let Err(error) = self.adapters.search_index.index_chunks(vec![IndexedChunk {
-            artifact_id: request.artifact_id,
-            chunk_id: request.chunk_id,
-            text: chunk.text.clone(),
-        }]) {
-            tracing::error!(chunk_id = %request.chunk_id, %error, "failed to index chunk");
-            return false;
-        }
-        if self.adapters.search_index.supports_lexical_metadata() {
-            let filename = source_path
-                .as_deref()
-                .and_then(|path| Path::new(path).file_name())
-                .and_then(|name| name.to_str())
-                .map(str::to_string);
-            if let Err(error) =
-                self.adapters
-                    .search_index
-                    .index_lexical_chunks(vec![IndexedLexicalChunk {
-                        artifact_id: request.artifact_id,
-                        chunk_id: request.chunk_id,
-                        text: chunk.text,
-                        path: source_path,
-                        filename,
-                        symbol: None,
-                    }])
-            {
-                tracing::error!(
-                    chunk_id = %request.chunk_id,
-                    %error,
-                    "failed to index lexical chunk"
-                );
-                return false;
-            }
-        }
-        true
     }
 }

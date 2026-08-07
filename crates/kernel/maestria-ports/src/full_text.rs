@@ -50,6 +50,39 @@ pub trait FullTextIndex: Send + Sync {
     /// Index cards with lexical metadata.
     fn index_lexical_cards(&self, cards: Vec<IndexedLexicalCard>) -> Result<(), PortError>;
 
+    /// Index one artifact chunk together with its cards as one atomic
+    /// projection update.
+    ///
+    /// The default implementation preserves the historical call sequence
+    /// (cards, lexical cards, chunk, lexical chunk), each with its own
+    /// commit, so adapters without a native batch path keep identical
+    /// semantics. Adapters whose writes are costly per commit (for example a
+    /// search index that flushes and fsyncs on every commit) SHOULD override
+    /// this to apply the whole artifact update in one commit; the operations
+    /// must stay idempotent (delete-then-add per key) so retries and
+    /// recovery re-drives replace rather than duplicate documents.
+    fn index_artifact_chunk(
+        &self,
+        chunk: IndexedChunk,
+        cards: Vec<IndexedCard>,
+        lexical_chunk: Option<IndexedLexicalChunk>,
+        lexical_cards: Vec<IndexedLexicalCard>,
+    ) -> Result<(), PortError> {
+        if !cards.is_empty() {
+            self.index_cards(cards)?;
+        }
+        if self.supports_lexical_metadata() && !lexical_cards.is_empty() {
+            self.index_lexical_cards(lexical_cards)?;
+        }
+        self.index_chunks(vec![chunk])?;
+        if self.supports_lexical_metadata()
+            && let Some(lexical_chunk) = lexical_chunk
+        {
+            self.index_lexical_chunks(vec![lexical_chunk])?;
+        }
+        Ok(())
+    }
+
     /// Execute a typed lexical search for chunks.
     fn search_lexical(
         &self,
