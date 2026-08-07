@@ -757,8 +757,7 @@ fn repository_index_with_empty_source_files_succeeds() -> Result<(), Box<dyn Err
     run_git(repo.path(), &["commit", "-m", "add empty source"])?;
     assert_init_ok(&instance_path, &repo_path)?;
 
-    let (code, stdout, stderr) =
-        run(&["index", "-i", &instance_path, "repository", &repo_path])?;
+    let (code, stdout, stderr) = run(&["index", "-i", &instance_path, "repository", &repo_path])?;
     assert_eq!(code, 0, "index failed: {stderr}");
     assert!(
         stdout.contains("mode=full"),
