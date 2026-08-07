@@ -27,7 +27,7 @@ const BUILD_LATENCY_RUNS: usize = 5;
 /// Frozen corpus whose repository resource evidence this benchmark feeds.
 const CORPUS_ID: &str = "rust-repository-frozen-v1";
 /// Model fingerprint of the deterministic repository code index.
-const MODEL_FINGERPRINT: &str = "repository-code-index-v2";
+const MODEL_FINGERPRINT: &str = "repository-code-index-v3";
 
 #[derive(Serialize)]
 struct BuildLatencyReport {

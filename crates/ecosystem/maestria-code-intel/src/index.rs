@@ -13,7 +13,7 @@ use crate::types::{
 
 /// Persisted filename for the repository code projection.
 pub const REPOSITORY_CODE_INDEX_FILENAME: &str = "repository-code-index.json";
-pub const REPOSITORY_CODE_PARSER_GENERATION: &str = "cargo-rust-code-v3";
+pub const REPOSITORY_CODE_PARSER_GENERATION: &str = "repository-code-v4";
 
 impl RepositoryCodeIndex {
     /// Save index to JSON without exposing a partially written prior index.

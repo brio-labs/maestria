@@ -150,12 +150,12 @@
           "crates/ecosystem/maestria-retrieval/tests/fixtures/rust-repository-benchmark-v1.json",
           "crates/ecosystem/maestria-retrieval/src/repository_benchmark_runner.rs"
         ],
-        "source_hash": "36d1c9d5a5222613b46f19c61af2a4a2e24b07114ae0a5f10310bd0a0632cb16"
+        "source_hash": "5c8b9a8e1f4b2663cb6793a051b93cc3e4f6324f04db7bc1d559ec6ecf6b05ff"
       },
       "fingerprints": {
         "corpus_snapshot": "rust-repository-frozen-v1",
-        "index_generation": "cargo-rust-code-v3",
-        "model_fingerprint": "repository-code-index-v2"
+        "index_generation": "repository-code-v4",
+        "model_fingerprint": "repository-code-index-v3"
       },
       "environment": {
         "os": "ubuntu-24.04",
@@ -274,12 +274,12 @@
           "crates/ecosystem/maestria-retrieval/tests/fixtures/rust-repository-benchmark-v1.json",
           "crates/ecosystem/maestria-retrieval/src/repository_benchmark_runner.rs"
         ],
-        "source_hash": "36d1c9d5a5222613b46f19c61af2a4a2e24b07114ae0a5f10310bd0a0632cb16"
+        "source_hash": "5c8b9a8e1f4b2663cb6793a051b93cc3e4f6324f04db7bc1d559ec6ecf6b05ff"
       },
       "fingerprints": {
         "corpus_snapshot": "rust-repository-frozen-v1",
-        "index_generation": "cargo-rust-code-v3",
-        "model_fingerprint": "repository-code-index-v2"
+        "index_generation": "repository-code-v4",
+        "model_fingerprint": "repository-code-index-v3"
       },
       "environment": {
         "os": "ubuntu-24.04",
@@ -337,12 +337,12 @@
           "crates/ecosystem/maestria-retrieval/tests/fixtures/python-repository-benchmark-v1.json",
           "crates/ecosystem/maestria-retrieval/tests/python_repository_benchmark_tests.rs"
         ],
-        "source_hash": "64287c1bb0163cb68f20c79a950d93dfc50d8ca2677d6075f9825ed1069e03d0"
+        "source_hash": "7ba5c6406fe8b53f8f9f79d850cfef6a48771d1d24dbb2d81a57bbda7b94eadd"
       },
       "fingerprints": {
         "corpus_snapshot": "python-repository-frozen-v1",
-        "index_generation": "cargo-rust-code-v3",
-        "model_fingerprint": "repository-code-index-v2"
+        "index_generation": "repository-code-v4",
+        "model_fingerprint": "repository-code-index-v3"
       },
       "environment": {
         "os": "ubuntu-24.04",
@@ -405,8 +405,8 @@
       },
       "fingerprints": {
         "corpus_snapshot": "web-repository-frozen-v1",
-        "index_generation": "cargo-rust-code-v3",
-        "model_fingerprint": "repository-code-index-v2"
+        "index_generation": "repository-code-v4",
+        "model_fingerprint": "repository-code-index-v3"
       },
       "environment": {
         "os": "ubuntu-24.04",

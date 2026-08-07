@@ -89,7 +89,7 @@ impl<'a> RepositoryCodeIndexExecutor<'a> {
             repository_revision: repository_revision.into(),
             evaluation_date: now,
             index_generation: maestria_code_intel::REPOSITORY_CODE_PARSER_GENERATION.to_string(),
-            model_fingerprint: "repository-code-index-v2".into(),
+            model_fingerprint: "repository-code-index-v3".into(),
             route_config: route_config(),
         }
     }

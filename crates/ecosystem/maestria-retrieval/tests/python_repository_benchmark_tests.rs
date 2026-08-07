@@ -168,5 +168,38 @@ fn python_repository_corpus_executes_against_the_frozen_fixture_index()
     // The fixture commit must be reachable from the corpus revision contract.
     assert_eq!(revision.len(), 40);
     let _ = case_by_id(&corpus, "python-exact-symbol");
+
+    if let Ok(report_dir) = std::env::var("MAESTRIA_BENCHMARK_REPORT_DIR") {
+        #[derive(serde::Serialize)]
+        struct Report<'a> {
+            measurement_kind: &'static str,
+            corpus_id: &'a str,
+            repository_revision: &'a str,
+            evaluation_date: &'a str,
+            index_generation: &'a str,
+            model_fingerprint: &'a str,
+            route_config: &'a serde_json::Value,
+            measurement_status: &'a maestria_retrieval::MeasurementStatus,
+            observations:
+                &'a [maestria_retrieval::repository_benchmark::RepositoryBenchmarkObservation],
+        }
+        fs::create_dir_all(&report_dir)?;
+        let first = &observations[0];
+        let report = Report {
+            measurement_kind: "real_python_repository_code_index",
+            corpus_id: &corpus.corpus_id,
+            repository_revision: index.summary.commit_sha.as_str(),
+            evaluation_date: &first.evaluation_date,
+            index_generation: &first.index_generation,
+            model_fingerprint: &first.model_fingerprint,
+            route_config: &first.route_config,
+            measurement_status: &first.measurement_status,
+            observations: &observations,
+        };
+        fs::write(
+            std::path::Path::new(&report_dir).join("python-repository-real.json"),
+            serde_json::to_vec_pretty(&report)?,
+        )?;
+    }
     Ok(())
 }
