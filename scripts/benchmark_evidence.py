@@ -27,6 +27,7 @@ REQUIRED_MILESTONES = (
     "v0.9 — Doc & Marker Search",
     "v1.0 — Python Repository Intelligence",
     "v1.1 — Web Repository Intelligence",
+    "v1.2 — Learned-Sparse Four-Profile Evaluation",
 )
 REQUIRED_RESULT_KEYS = ("quality", "resource", "security")
 REQUIRED_ENVIRONMENT_KEYS = ("os", "rust_toolchain", "cpu_arch")
@@ -269,6 +270,89 @@ def errors_for_report(
             errors.append(f"{path}: visual report must state provider_status=unavailable")
         if not isinstance(report.get("observations"), list) or not report["observations"]:
             errors.append(f"{path}: observations must be non-empty")
+    elif kind == "learned-sparse":
+        for key in (
+            "measurement_kind",
+            "evaluation_date",
+            "corpus_id",
+            "corpus_revision",
+            "index_generation",
+            "model_fingerprint",
+            "namespace",
+        ):
+            if not str(report.get(key, "")).strip():
+                errors.append(f"{path}: missing {key}")
+        route_configuration = report.get("route_configuration")
+        if not isinstance(route_configuration, dict) or route_configuration.get("route") != "SparseFused":
+            errors.append(f"{path}: route_configuration must state the SparseFused route")
+        if manifest_entry is not None:
+            corpus = manifest_entry.get("corpus", {})
+            fingerprints = manifest_entry.get("fingerprints", {})
+            for key, expected in (
+                ("corpus_id", corpus.get("id")),
+                ("index_generation", fingerprints.get("index_generation")),
+                ("model_fingerprint", fingerprints.get("model_fingerprint")),
+            ):
+                if report.get(key) != expected:
+                    errors.append(f"{path}: {key} is not bound to its manifest")
+        observations = report.get("observations")
+        if not isinstance(observations, list) or not observations:
+            errors.append(f"{path}: observations must be non-empty")
+        else:
+            for index, observation in enumerate(observations):
+                prefix = f"{path}: observations[{index}]"
+                if not isinstance(observation, dict):
+                    errors.append(f"{prefix} must be an object")
+                    continue
+                for key in ("case_id", "route", "quality", "resources", "safety"):
+                    if not isinstance(observation.get(key), (str, dict)) or not observation[key]:
+                        errors.append(f"{prefix} missing or empty {key}")
+                if observation.get("route") not in {
+                    "Lexical",
+                    "Hybrid",
+                    "SparseOnly",
+                    "SparseFused",
+                }:
+                    errors.append(f"{prefix}.route is invalid")
+                for container in ("quality", "resources", "safety"):
+                    value = observation.get(container)
+                    if isinstance(value, dict) and not value:
+                        errors.append(f"{prefix}.{container} must be non-empty")
+                status = observation.get("measurement_status")
+                if not (
+                    status == "Measured"
+                    or isinstance(status, dict)
+                    and isinstance(status.get("Unavailable"), dict)
+                    and str(status["Unavailable"].get("reason", "")).strip()
+                ):
+                    errors.append(f"{prefix}.measurement_status is invalid")
+        decisions = report.get("decisions")
+        if not isinstance(decisions, dict) or not decisions:
+            errors.append(f"{path}: decisions must be a non-empty map")
+        else:
+            for class_name in (
+                "ExactLiteral",
+                "VocabularyExpansion",
+                "DomainTerminology",
+                "MultiTerm",
+                "NoEvidence",
+                "Security",
+            ):
+                decision = decisions.get(class_name)
+                if decision not in {
+                    "PromoteSparseFused",
+                    "RetainHybrid",
+                    "RetainLexical",
+                    "RemainShadowed",
+                    "Disable",
+                }:
+                    errors.append(f"{path}: decisions[{class_name}] is invalid")
+            if any(
+                decision == "PromoteSparseFused"
+                for class_name, decision in decisions.items()
+                if class_name in {"ExactLiteral", "NoEvidence", "Security"}
+            ):
+                errors.append(f"{path}: protected classes cannot be promoted")
     else:
         errors.append(f"{path}: unknown report kind {kind!r}")
     return errors

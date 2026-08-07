@@ -46,11 +46,12 @@ pub use learned_sparse_benchmark::{
     LearnedSparseBenchmarkError, LearnedSparseBenchmarkIdentity, LearnedSparseBenchmarkObservation,
     LearnedSparseClassComparison, LearnedSparseClassDecision, LearnedSparseDataFidelity,
     LearnedSparseDataSplit, LearnedSparseEnvironment, LearnedSparseExpectedOutcome,
-    LearnedSparseOperationMeasurement, LearnedSparsePromotionRecord,
-    LearnedSparseProviderDisclosure, LearnedSparseQualityMetrics, LearnedSparseQueryClass,
-    LearnedSparseResourceMetrics, LearnedSparseRetentionPolicy, LearnedSparseRollbackTarget,
+    LearnedSparseBenchmarkExecutor, LearnedSparseOperationMeasurement,
+    LearnedSparsePromotionRecord, LearnedSparseProviderDisclosure, LearnedSparseQualityMetrics,
+    LearnedSparseQueryClass, LearnedSparseResourceMetrics, LearnedSparseRetentionPolicy,
+    LearnedSparseRetrievedCandidate, LearnedSparseRetrievedSpan, LearnedSparseRollbackTarget,
     LearnedSparseRoute, LearnedSparseRouteConfiguration, LearnedSparseRouteMetrics,
-    LearnedSparseSafetyMetrics, Measurement,
+    LearnedSparseSafetyMetrics, Measurement, run_learned_sparse_benchmark, score_case,
 };
 pub use learned_sparse_corpus::{
     LEARNED_SPARSE_TASK_CORPUS_SCHEMA_VERSION, LearnedSparseAbstentionReason,

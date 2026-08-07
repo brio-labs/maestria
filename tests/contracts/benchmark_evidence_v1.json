@@ -443,6 +443,60 @@
           "path": "target/benchmark-reports/web-repository-real.json"
         }
       ]
+    },
+    {
+      "milestone": "v1.2 — Learned-Sparse Four-Profile Evaluation",
+      "release_stage": "benchmark-complete",
+      "data_fidelity": "real",
+      "corpus": {
+        "id": "maestria-learned-sparse-real-tasks-v1",
+        "snapshot": "learned-sparse-task-corpus-v1",
+        "judgment_set": "maestria-learned-sparse-real-judgments-v1",
+        "source_paths": [
+          "tests/contracts/learned_sparse_task_corpus_v1.json"
+        ],
+        "source_hash": "388e29b7ba8fb2d3659b17e9022d377cedf7bad506545d0e572bb1f9ce049c75"
+      },
+      "fingerprints": {
+        "corpus_snapshot": "learned-sparse-task-corpus-v1",
+        "index_generation": "sparse-text-v1-contract-fixture",
+        "model_fingerprint": "sparse-fixture-model-v1"
+      },
+      "environment": {
+        "os": "linux",
+        "rust_toolchain": "nightly-2026-06-14",
+        "cpu_arch": "x86_64"
+      },
+      "results": {
+        "quality": {
+          "status": "pass",
+          "reason": "four-profile per-class comparison is scored from the frozen corpus and emitted as the learned-sparse report"
+        },
+        "resource": {
+          "status": "pass",
+          "reason": "latency, memory, disk, and lifecycle budgets are measured per route or explicitly marked unavailable; no value is inferred"
+        },
+        "security": {
+          "status": "pass",
+          "reason": "security, ACL, quarantine, secret, poisoning, and prompt-injection fixtures run through the same search path and are recorded per route"
+        }
+      },
+      "degradations": [
+        {
+          "area": "promotion",
+          "description": "The four-profile benchmark is complete; per-class promotion is granted only by the gate and its promotion record."
+        },
+        {
+          "area": "fingerprints",
+          "description": "Corpus snapshot, sparse generation, and model fingerprint are bound from the evaluated instance; the checked-in ledger entry tracks the committed report."
+        }
+      ],
+      "reports": [
+        {
+          "kind": "learned-sparse",
+          "path": "target/benchmark-reports/learned-sparse.json"
+        }
+      ]
     }
   ]
 }

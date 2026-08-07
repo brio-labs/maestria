@@ -13,74 +13,96 @@ use maestria_retrieval::{CandidateRetriever, FixedKRrf, HybridExecutionPolicy, R
 use super::{SearchRuntime, reconcile_active_versions};
 
 impl SearchRuntime {
+    /// The production engine: shadow hybrid, disabled sparse serving.
     pub(super) fn retrieval_engine(&self) -> Result<RetrievalEngine> {
+        self.retrieval_engine_with_policies(
+            HybridExecutionPolicy::Shadow,
+            maestria_retrieval::LearnedSparseExecutionPolicy::Disabled,
+            None,
+        )
+    }
+
+    /// One shared assembly for every engine variant.
+    ///
+    /// The benchmark executor and the daemon both build engines here (R28);
+    /// only the policies and the optional learned-sparse lane differ.
+    pub(crate) fn retrieval_engine_with_policies(
+        &self,
+        hybrid_policy: HybridExecutionPolicy,
+        sparse_policy: maestria_retrieval::LearnedSparseExecutionPolicy,
+        sparse_retriever: Option<Arc<dyn CandidateRetriever>>,
+    ) -> Result<RetrievalEngine> {
         let events = self.domain_events()?;
         let active_versions = reconcile_active_versions(&events);
-        let card: Arc<dyn CandidateRetriever> = Arc::new(CurrentVersionFilter::new(
-            Arc::new(CardRetriever::new(
-                CardRetrieverParts {
-                    index: self.search_index.clone(),
-                    artifacts: self.artifacts.clone(),
-                    cards: self.cards.clone(),
-                    chunks: self.chunks.clone(),
-                    evidence: self.evidence.clone(),
-                    blobs: self.blobs.clone(),
-                },
-                self.primary_generation,
-            )),
-            active_versions.clone(),
-        ));
-        let lexical: Arc<dyn CandidateRetriever> = Arc::new(CurrentVersionFilter::new(
-            Arc::new(LexicalChunkRetriever::new(
-                LexicalChunkRetrieverParts {
-                    index: self.search_index.clone(),
-                    artifacts: self.artifacts.clone(),
-                    chunks: self.chunks.clone(),
-                    evidence: self.evidence.clone(),
-                    blobs: self.blobs.clone(),
-                },
-                self.primary_generation,
-            )),
-            active_versions.clone(),
-        ));
-        let mut retrievers: Vec<Arc<dyn CandidateRetriever>> = vec![card, lexical];
-        if let Some(index) = self.repository_code_index.clone() {
-            let security = CodeIntelSecurityResolver::from_events(
-                CodeIntelSecurityResolverParts {
-                    artifacts: self.artifacts.clone(),
-                    evidence: self.evidence.clone(),
-                    blobs: self.blobs.clone(),
-                },
-                &events,
-            )
-            .map_err(|error| anyhow!("prepare repository code security resolver: {error}"))?;
-            retrievers.push(Arc::new(CodeIntelRetriever::new(
-                CodeIntelRetrieverParts { index, security },
-                self.primary_generation,
-            )));
-        }
-        if let (Some(vector_index), Some(provider), Some(generation)) = (
-            self.vector_index.clone(),
-            self.embedding_provider.clone(),
-            self.dense_generation,
-        ) {
+        let mut retrievers: Vec<Arc<dyn CandidateRetriever>> = Vec::new();
+        if let Some(sparse_retriever) = sparse_retriever {
+            retrievers.push(sparse_retriever);
+        } else {
             retrievers.push(Arc::new(CurrentVersionFilter::new(
-                Arc::new(DenseChunkRetriever::new(
-                    DenseChunkRetrieverParts {
-                        index: vector_index,
+                Arc::new(CardRetriever::new(
+                    CardRetrieverParts {
+                        index: self.search_index.clone(),
+                        artifacts: self.artifacts.clone(),
+                        cards: self.cards.clone(),
+                        chunks: self.chunks.clone(),
+                        evidence: self.evidence.clone(),
+                        blobs: self.blobs.clone(),
+                    },
+                    self.primary_generation,
+                )),
+                active_versions.clone(),
+            )));
+            retrievers.push(Arc::new(CurrentVersionFilter::new(
+                Arc::new(LexicalChunkRetriever::new(
+                    LexicalChunkRetrieverParts {
+                        index: self.search_index.clone(),
                         artifacts: self.artifacts.clone(),
                         chunks: self.chunks.clone(),
                         evidence: self.evidence.clone(),
                         blobs: self.blobs.clone(),
-                        embedding_provider: provider,
                     },
-                    generation,
+                    self.primary_generation,
                 )),
                 active_versions.clone(),
             )));
-        }
-        if let Some(retriever) = self.visual_retriever(active_versions) {
-            retrievers.push(retriever);
+            if let Some(index) = self.repository_code_index.clone() {
+                let security = CodeIntelSecurityResolver::from_events(
+                    CodeIntelSecurityResolverParts {
+                        artifacts: self.artifacts.clone(),
+                        evidence: self.evidence.clone(),
+                        blobs: self.blobs.clone(),
+                    },
+                    &events,
+                )
+                .map_err(|error| anyhow!("prepare repository code security resolver: {error}"))?;
+                retrievers.push(Arc::new(CodeIntelRetriever::new(
+                    CodeIntelRetrieverParts { index, security },
+                    self.primary_generation,
+                )));
+            }
+            if let (Some(vector_index), Some(provider), Some(generation)) = (
+                self.vector_index.clone(),
+                self.embedding_provider.clone(),
+                self.dense_generation,
+            ) {
+                retrievers.push(Arc::new(CurrentVersionFilter::new(
+                    Arc::new(DenseChunkRetriever::new(
+                        DenseChunkRetrieverParts {
+                            index: vector_index,
+                            artifacts: self.artifacts.clone(),
+                            chunks: self.chunks.clone(),
+                            evidence: self.evidence.clone(),
+                            blobs: self.blobs.clone(),
+                            embedding_provider: provider,
+                        },
+                        generation,
+                    )),
+                    active_versions.clone(),
+                )));
+            }
+            if let Some(retriever) = self.visual_retriever(active_versions) {
+                retrievers.push(retriever);
+            }
         }
         let mut engine = RetrievalEngine::new(
             retrievers,
@@ -106,7 +128,8 @@ impl SearchRuntime {
             )));
         }
         Ok(engine
-            .with_hybrid_policy(HybridExecutionPolicy::Shadow)
+            .with_hybrid_policy(hybrid_policy)
+            .with_learned_sparse_execution_policy(sparse_policy)
             .with_repository_execution_policy(self.repository_execution_policy.clone())
             .with_visual_execution_policy(self.visual_execution_policy.clone()))
     }

@@ -22,7 +22,11 @@ pub struct RetrievalGenerations {
     pub dense: Option<IndexGenerationId>,
 }
 
-fn persist_input(state: &mut KernelState, store: &SqliteStore, input: DomainInput) -> Result<()> {
+pub(crate) fn persist_input(
+    state: &mut KernelState,
+    store: &SqliteStore,
+    input: DomainInput,
+) -> Result<()> {
     let output = state
         .apply_input(input)
         .map_err(|error| anyhow!("apply generation input: {error}"))?;
@@ -34,7 +38,7 @@ fn persist_input(state: &mut KernelState, store: &SqliteStore, input: DomainInpu
     Ok(())
 }
 
-fn next_generation_id(state: &KernelState) -> IndexGenerationId {
+pub(crate) fn next_generation_id(state: &KernelState) -> IndexGenerationId {
     IndexGenerationId::new(
         state
             .index_generations
@@ -45,7 +49,7 @@ fn next_generation_id(state: &KernelState) -> IndexGenerationId {
     )
 }
 
-fn advance_generation(
+pub(crate) fn advance_generation(
     state: &mut KernelState,
     store: &SqliteStore,
     id: IndexGenerationId,
@@ -84,15 +88,17 @@ fn advance_generation(
     Ok(())
 }
 
-fn ensure_generation(
+pub(crate) fn ensure_generation(
     state: &mut KernelState,
     store: &SqliteStore,
     name: RepresentationName,
     fingerprint: IndexFingerprint,
     snapshot: maestria_domain::CorpusSnapshotId,
+    sparse_namespace: Option<maestria_domain::SparseNamespace>,
 ) -> Result<IndexGenerationId> {
     if let Some(active) = state.index_generations.get_active(&name)
         && active.fingerprint == fingerprint
+        && active.sparse_namespace == sparse_namespace
     {
         return Ok(active.id);
     }
@@ -102,6 +108,7 @@ fn ensure_generation(
         .find(|generation| {
             generation.name == name
                 && generation.fingerprint == fingerprint
+                && generation.sparse_namespace == sparse_namespace
                 && matches!(
                     generation.lifecycle,
                     IndexLifecycle::Building | IndexLifecycle::Evaluated | IndexLifecycle::Shadow
@@ -121,6 +128,7 @@ fn ensure_generation(
                 name,
                 corpus_snapshot: snapshot,
                 fingerprint,
+                sparse_namespace,
             }),
         )?;
     }
@@ -145,6 +153,7 @@ pub fn reconcile_retrieval_generations(
         RepresentationName::new("lexical_text_v1"),
         lexical_index.fingerprint()?,
         snapshot,
+        None,
     )?;
     let dense = manifest
         .embeddings
@@ -179,6 +188,7 @@ pub fn reconcile_retrieval_generations(
                 RepresentationName::new("dense_text_v1"),
                 fingerprint,
                 snapshot,
+                None,
             )
         })
         .transpose()?;

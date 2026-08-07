@@ -101,6 +101,33 @@ pub enum Commands {
         #[command(subcommand)]
         command: RealmCommands,
     },
+    /// Learned-sparse promotion record management
+    Promotion {
+        #[command(subcommand)]
+        command: PromotionCommands,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum PromotionCommands {
+    /// Set (or replace) the instance promotion record from a JSON file
+    Set {
+        #[arg(short, long, default_value = ".maestria-dev")]
+        instance_dir: PathBuf,
+        /// Path to a serialized LearnedSparsePromotionRecord JSON file
+        #[arg(long)]
+        record: PathBuf,
+    },
+    /// Remove the promotion record and restore the lexical/hybrid route
+    Remove {
+        #[arg(short, long, default_value = ".maestria-dev")]
+        instance_dir: PathBuf,
+    },
+    /// Print the stored promotion record (or a no-record notice)
+    Show {
+        #[arg(short, long, default_value = ".maestria-dev")]
+        instance_dir: PathBuf,
+    },
 }
 
 #[derive(Subcommand)]

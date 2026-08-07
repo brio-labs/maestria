@@ -5,6 +5,7 @@ mod index_event_tests;
 mod index_generation_tests;
 mod learned_sparse_observation_tests;
 mod learned_sparse_projection_tests;
+mod learned_sparse_promotion_tests;
 mod migration_tests;
 mod realm_read_grant_tests;
 mod repository_tests;

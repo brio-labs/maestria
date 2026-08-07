@@ -244,7 +244,86 @@ pub struct LearnedSparsePromotionRecord {
 }
 
 impl LearnedSparsePromotionRecord {
-    pub(crate) fn is_valid(&self) -> bool {
+    /// Validates every promotion rule, naming the first violated rule.
+    ///
+    /// The daemon and CLI call this boundary before persisting or activating
+    /// a record; `is_valid()` remains the fast gate for in-crate policy
+    /// decisions.
+    pub fn validate(&self) -> Result<(), LearnedSparseBenchmarkError> {
+        let invalid = |rule: &'static str| {
+            LearnedSparseBenchmarkError::InvalidPromotion(rule.to_string())
+        };
+        if self.evaluation_id.trim().is_empty() {
+            return Err(invalid("evaluation_id must be non-empty"));
+        }
+        if self.evaluation_date.trim().is_empty() {
+            return Err(invalid("evaluation_date must be non-empty"));
+        }
+        if self.corpus_id.trim().is_empty() {
+            return Err(invalid("corpus_id must be non-empty"));
+        }
+        if self.corpus_revision.trim().is_empty() {
+            return Err(invalid("corpus_revision must be non-empty"));
+        }
+        if self.judgment_set_id.trim().is_empty() {
+            return Err(invalid("judgment_set_id must be non-empty"));
+        }
+        if ContentHash::new(self.source_input_hash.clone()).is_err() {
+            return Err(invalid("source_input_hash must be a SHA-256 content hash"));
+        }
+        if self.judgment_set_hash.is_none() {
+            return Err(invalid("judgment_set_hash must be present"));
+        }
+        if !self.final_evaluation {
+            return Err(invalid("final_evaluation must be true"));
+        }
+        if self.data_fidelity != LearnedSparseDataFidelity::RealMaestriaTask {
+            return Err(invalid("data_fidelity must be RealMaestriaTask"));
+        }
+        self.environment
+            .validate()
+            .map_err(|_| invalid("environment is incomplete"))?;
+        self.identity
+            .validate()
+            .map_err(|_| invalid("identity is incomplete"))?;
+        if self.identity.corpus_snapshot.value() == 0 {
+            return Err(invalid("identity corpus snapshot must be positive"));
+        }
+        if self.identity.index_generation.value() == 0 {
+            return Err(invalid("identity index generation must be positive"));
+        }
+        if self.route_configuration.route != LearnedSparseRoute::SparseFused {
+            return Err(invalid("route_configuration must be the sparse-fused route"));
+        }
+        self.route_configuration
+            .validate()
+            .map_err(|_| invalid("route_configuration is incomplete"))?;
+        if self.rollback_target.index_generation.value() == 0 {
+            return Err(invalid("rollback target index generation must be positive"));
+        }
+        if self.rollback_target.route == LearnedSparseRoute::SparseFused {
+            return Err(invalid("rollback target must not be the sparse-fused route"));
+        }
+        for class in LearnedSparseQueryClass::all() {
+            if !self.decisions.contains_key(&class) {
+                return Err(invalid("decisions must cover every query class"));
+            }
+            if !self.budgets.contains_key(&class) {
+                return Err(invalid("budgets must cover every query class"));
+            }
+            if !self.class_final_real.contains_key(&class) {
+                return Err(invalid("class_final_real must cover every query class"));
+            }
+        }
+        for (class, decision) in &self.decisions {
+            if matches!(decision, LearnedSparseClassDecision::PromoteSparseFused)
+                && self.class_final_real.get(class) != Some(&true)
+            {
+                return Err(invalid(
+                    "a promoted class must be final-evaluation real-task measured",
+                ));
+            }
+        }
         let protected_promotion = self.decisions.iter().any(|(class, decision)| {
             matches!(
                 class,
@@ -253,38 +332,25 @@ impl LearnedSparsePromotionRecord {
                     | LearnedSparseQueryClass::Security
             ) && matches!(decision, LearnedSparseClassDecision::PromoteSparseFused)
         });
-        !self.evaluation_id.trim().is_empty()
-            && !self.evaluation_date.trim().is_empty()
-            && !self.corpus_id.trim().is_empty()
-            && !self.corpus_revision.trim().is_empty()
-            && !self.judgment_set_id.trim().is_empty()
-            && !self.source_input_hash.trim().is_empty()
-            && ContentHash::new(self.source_input_hash.clone()).is_ok()
-            && self.judgment_set_hash.is_some()
-            && self.final_evaluation
-            && self.data_fidelity == LearnedSparseDataFidelity::RealMaestriaTask
-            && self.environment.validate().is_ok()
-            && self.identity.validate().is_ok()
-            && self.identity.corpus_snapshot.value() > 0
-            && self.identity.index_generation.value() > 0
-            && self.route_configuration.route == LearnedSparseRoute::SparseFused
-            && self.route_configuration.validate().is_ok()
-            && self.rollback_target.index_generation.value() > 0
-            && self.rollback_target.route != LearnedSparseRoute::SparseFused
-            && LearnedSparseQueryClass::all().iter().all(|class| {
-                self.decisions.contains_key(class)
-                    && self.budgets.contains_key(class)
-                    && self.class_final_real.contains_key(class)
-            })
-            && self.decisions.iter().all(|(class, decision)| {
-                !matches!(decision, LearnedSparseClassDecision::PromoteSparseFused)
-                    || self.class_final_real.get(class) == Some(&true)
-            })
-            && !protected_promotion
-            && self
-                .decisions
-                .values()
-                .any(|decision| matches!(decision, LearnedSparseClassDecision::PromoteSparseFused))
+        if protected_promotion {
+            return Err(invalid(
+                "protected query classes cannot be promoted to sparse fusion",
+            ));
+        }
+        if !self
+            .decisions
+            .values()
+            .any(|decision| matches!(decision, LearnedSparseClassDecision::PromoteSparseFused))
+        {
+            return Err(invalid(
+                "a promotion record must promote at least one class",
+            ));
+        }
+        Ok(())
+    }
+
+    pub(crate) fn is_valid(&self) -> bool {
+        self.validate().is_ok()
     }
 
     pub fn winning_routes(&self) -> BTreeMap<LearnedSparseQueryClass, LearnedSparseRoute> {
@@ -302,7 +368,7 @@ fn all_routes() -> [LearnedSparseRoute; 4] {
     LearnedSparseRoute::all()
 }
 
-fn validate_observations(
+pub(super) fn validate_observations(
     corpus: &LearnedSparseBenchmarkCorpus,
     observations: &[LearnedSparseBenchmarkObservation],
 ) -> Result<(), LearnedSparseBenchmarkError> {

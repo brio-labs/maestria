@@ -341,6 +341,7 @@ pub struct StartIndexGenerationInput {
     pub name: crate::generations::RepresentationName,
     pub corpus_snapshot: crate::ids::CorpusSnapshotId,
     pub fingerprint: crate::generations::IndexFingerprint,
+    pub sparse_namespace: Option<crate::SparseNamespace>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

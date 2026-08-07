@@ -211,6 +211,9 @@ pub enum DomainEvent {
         name: crate::generations::RepresentationName,
         corpus_snapshot: crate::ids::CorpusSnapshotId,
         fingerprint: crate::generations::IndexFingerprint,
+        /// Learned-sparse namespace bound to the generation, when the
+        /// representation is the sparse projection.
+        sparse_namespace: Option<crate::SparseNamespace>,
     },
     IndexGenerationTransitioned {
         id: IndexGenerationId,
