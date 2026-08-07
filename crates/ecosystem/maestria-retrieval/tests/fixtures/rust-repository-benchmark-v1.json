@@ -104,6 +104,18 @@
         }
       },
       "latency_budget_ms": 150
+    },
+    {
+      "case_id": "rust-reference-usage",
+      "class": "ReferenceUsage",
+      "query": "Where is `Repository::new` used in this Rust repository?",
+      "expected": {
+        "Evidence": {
+          "exact_span_count": 5,
+          "evidence_chain_length": 1
+        }
+      },
+      "latency_budget_ms": 200
     }
   ]
 }

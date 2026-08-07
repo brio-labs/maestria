@@ -49,10 +49,10 @@ fn repository_benchmark_fixture_parses_and_covers_all_required_query_classes()
 -> Result<(), Box<dyn std::error::Error>> {
     let corpus = rust_repository_benchmark_fixture()?;
 
-    assert_eq!(corpus.cases.len(), 9);
+    assert_eq!(corpus.cases.len(), 10);
     corpus.validate()?;
     let classes: BTreeSet<_> = corpus.cases.iter().map(|case| case.class).collect();
-    assert_eq!(classes.len(), 9);
+    assert_eq!(classes.len(), 10);
     assert_eq!(classes, expected_class_set());
 
     let ids: BTreeSet<_> = corpus
@@ -60,7 +60,7 @@ fn repository_benchmark_fixture_parses_and_covers_all_required_query_classes()
         .iter()
         .map(|case| case.case_id.as_str())
         .collect();
-    assert_eq!(ids.len(), 9);
+    assert_eq!(ids.len(), 10);
 
     for case in &corpus.cases {
         assert_eq!(

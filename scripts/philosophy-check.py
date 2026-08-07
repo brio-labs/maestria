@@ -609,6 +609,7 @@ RESPONSIBILITY_MAPS: dict[str, tuple[str, ...]] = {
         "metadata",
         "provenance",
         "query",
+        "references",
         "symbols",
         "types",
         "index",

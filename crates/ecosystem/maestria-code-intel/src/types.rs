@@ -417,6 +417,18 @@ pub struct SymbolRecord {
     pub provenance: RecordProvenance,
 }
 
+/// Direction of a cross-file references query over persisted relations.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ReferencesDirection {
+    /// Relations whose target is a seed symbol: usage sites that call,
+    /// import, implement, or define the seed.
+    Inbound,
+    /// Relations whose source is a seed symbol: symbols the seed calls,
+    /// imports, implements, or defines.
+    Outbound,
+}
+
 /// Query description for in-memory filtering.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -438,6 +450,14 @@ pub enum CodeQuery {
     /// delta when `since` is `None`, or a live git diff plus the current
     /// dirty set when `Some`.
     Changed { since: Option<CommitSha> },
+    /// Cross-file symbol references: symbols whose name or qualified name
+    /// contains `pattern` are the seed; `direction` selects the relations
+    /// that flow into (inbound usage sites) or out of (outbound targets)
+    /// the seed.
+    References {
+        pattern: String,
+        direction: ReferencesDirection,
+    },
 }
 
 /// Query summary.
@@ -459,6 +479,10 @@ pub struct QuerySummary {
 pub struct QueryResult {
     pub summary: QuerySummary,
     pub records: Vec<SymbolRecord>,
+    /// Relations matched by the query. Symbol queries leave this empty;
+    /// `CodeQuery::References` fills it with the evidence-bearing edges
+    /// whose endpoints are the returned records.
+    pub relations: Vec<CodeRelationRecord>,
 }
 
 /// Files and symbols that changed between the build-time baseline and the

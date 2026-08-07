@@ -1,5 +1,6 @@
 pub mod approval;
 pub mod code_intel;
+pub mod code_intel_auth;
 pub mod code_intel_sources;
 pub mod doctor;
 pub mod evidence;

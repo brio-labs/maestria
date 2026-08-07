@@ -42,6 +42,7 @@ where
                         regex_error: Some(error.to_string()),
                     },
                     records: Vec::new(),
+                    relations: Vec::new(),
                 });
             }
         },
@@ -50,6 +51,9 @@ where
         CodeQuery::Changed { .. } => QueryMatcher::ChangedFiles {
             files: changed_files,
         },
+        // References are relation-based and execute through
+        // `RepositoryCodeIndex::references`, never through the symbol scan.
+        CodeQuery::References { .. } => QueryMatcher::NoMatch,
     };
 
     let mut matched = 0;
@@ -87,10 +91,11 @@ where
             regex_error: None,
         },
         records,
+        relations: Vec::new(),
     })
 }
 
-fn symbol_order(left: &SymbolRecord, right: &SymbolRecord) -> std::cmp::Ordering {
+pub(crate) fn symbol_order(left: &SymbolRecord, right: &SymbolRecord) -> std::cmp::Ordering {
     (
         left.provenance.file_path.as_str(),
         left.provenance.source_range.start_line(),
@@ -115,6 +120,7 @@ enum QueryMatcher<'a> {
     Doc { pattern: &'a str },
     Markers { kind: crate::MarkerQueryKind },
     ChangedFiles { files: Option<&'a BTreeSet<String>> },
+    NoMatch,
 }
 
 impl<'a> QueryMatcher<'a> {
@@ -145,6 +151,7 @@ impl<'a> QueryMatcher<'a> {
             Self::ChangedFiles { files } => {
                 files.is_some_and(|files| files.contains(&symbol.provenance.file_path))
             }
+            Self::NoMatch => false,
         }
     }
 }

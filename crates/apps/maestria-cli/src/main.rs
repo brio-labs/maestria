@@ -221,6 +221,20 @@ async fn dispatch_search(
                 CodeSearchCommands::Changed { since } => {
                     return commands::code_intel::run_changed(instance_dir, since, limit);
                 }
+                CodeSearchCommands::References { pattern, direction } => {
+                    let direction = match direction {
+                        Some(raw) => raw
+                            .parse::<maestria_code_intel::ReferencesDirection>()
+                            .map_err(|error| anyhow!("invalid references direction: {error}"))?,
+                        None => maestria_code_intel::ReferencesDirection::Inbound,
+                    };
+                    return commands::code_intel::run_references(
+                        instance_dir,
+                        pattern,
+                        direction,
+                        limit,
+                    );
+                }
             };
             commands::code_intel::run_search(instance_dir, query, limit)
         }

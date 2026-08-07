@@ -26,6 +26,7 @@ pub enum RepositoryQueryClass {
     CorrectAbstention,
     DocComment,
     CodeMarker,
+    ReferenceUsage,
 }
 
 impl RepositoryQueryClass {
@@ -52,6 +53,15 @@ impl RepositoryQueryClass {
             || normalized.contains("call chain")
         {
             Self::MultiHopDependency
+        } else if normalized.contains("used by")
+            || normalized.contains("callers of")
+            || normalized.contains("where is")
+            || normalized.contains("usages of")
+        {
+            // Reference phrasing must be classified before the
+            // `definition/reference` arm so a plain "references" question
+            // still lands on DefinitionReference.
+            Self::ReferenceUsage
         } else if normalized.contains("definition")
             || normalized.contains("references")
             || normalized.contains("reference")
@@ -82,7 +92,7 @@ impl RepositoryQueryClass {
     }
 
     /// Return all classes required by the frozen benchmark contract.
-    pub const fn all() -> [Self; 9] {
+    pub const fn all() -> [Self; 10] {
         [
             Self::ExactSymbol,
             Self::DefinitionReference,
@@ -93,6 +103,7 @@ impl RepositoryQueryClass {
             Self::CorrectAbstention,
             Self::DocComment,
             Self::CodeMarker,
+            Self::ReferenceUsage,
         ]
     }
 }

@@ -365,6 +365,32 @@ else is rejected before any git call. Like every code query, a stale index
 fails closed with the freshness message before current-state claims are
 allowed.
 
+`search code references <symbol>` resolves where a symbol is used by
+traversing the persisted relations directly instead of re-resolving source:
+
+```bash
+maestria search code references "Repository::new"
+maestria search code references "Repository::new" --direction inbound
+maestria search code references "Repository::new" --direction outbound
+```
+
+The seed is every indexed symbol whose name or qualified name contains the
+pattern (the same substring semantics as `search code symbol`);
+`--direction inbound` (the default) returns the usage sites — the source
+symbols of relations whose target is a seed, i.e. callers, importers,
+implementors, and defining modules — while `--direction outbound` returns
+the targets of relations whose source is a seed, i.e. the symbols the seed
+calls, imports, implements, or defines. The direction value is
+case-insensitive; anything else is a parse error. Results carry the matched evidence-backed relations (kind,
+confidence, and source/target spans and provenance) alongside the deduped
+records, are ordered by file path then start line then qualified name, and
+`--limit` caps records exactly like the other code queries with truncation
+reflected in the query summary. Authorization applies to both seed symbols
+and returned usage sites; unauthorized endpoints are skipped, never errors.
+References always reflect the indexed state: the relation set is derived on
+every rebuild, and a stale index fails closed with the same freshness
+message as every other code query.
+
 Bounded repository context can expand exact/lexical seeds through typed relations:
 
 ```bash

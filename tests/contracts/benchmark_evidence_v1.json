@@ -38,7 +38,7 @@
           "docs/PHILOSOPHY.md",
           "crates/ecosystem/maestria-retrieval/tests/fixtures/golden-v3.json"
         ],
-        "source_hash": "a964d5f98fdc4107f3db66918926a474e4af0768b8578d7be7c166be090b4b5e"
+        "source_hash": "88a6121670f2d65148c4d349d1e7c2dca702655fba6037e70051d939e9c075a3"
       },
       "fingerprints": {
         "corpus_snapshot": "maestria-document-snapshot-v1",
@@ -95,7 +95,7 @@
           "docs/PHILOSOPHY.md",
           "crates/ecosystem/maestria-retrieval/tests/fixtures/golden-v3.json"
         ],
-        "source_hash": "a964d5f98fdc4107f3db66918926a474e4af0768b8578d7be7c166be090b4b5e"
+        "source_hash": "88a6121670f2d65148c4d349d1e7c2dca702655fba6037e70051d939e9c075a3"
       },
       "fingerprints": {
         "corpus_snapshot": "maestria-document-snapshot-v1",
@@ -150,7 +150,7 @@
           "crates/ecosystem/maestria-retrieval/tests/fixtures/rust-repository-benchmark-v1.json",
           "crates/ecosystem/maestria-retrieval/src/repository_benchmark_runner.rs"
         ],
-        "source_hash": "9088903e6a9dd5de9ec03cc77a90e2a0baf2eeaafea0532dd4a434d60b1059b2"
+        "source_hash": "36d1c9d5a5222613b46f19c61af2a4a2e24b07114ae0a5f10310bd0a0632cb16"
       },
       "fingerprints": {
         "corpus_snapshot": "rust-repository-frozen-v1",
@@ -274,7 +274,7 @@
           "crates/ecosystem/maestria-retrieval/tests/fixtures/rust-repository-benchmark-v1.json",
           "crates/ecosystem/maestria-retrieval/src/repository_benchmark_runner.rs"
         ],
-        "source_hash": "9088903e6a9dd5de9ec03cc77a90e2a0baf2eeaafea0532dd4a434d60b1059b2"
+        "source_hash": "36d1c9d5a5222613b46f19c61af2a4a2e24b07114ae0a5f10310bd0a0632cb16"
       },
       "fingerprints": {
         "corpus_snapshot": "rust-repository-frozen-v1",
@@ -337,7 +337,7 @@
           "crates/ecosystem/maestria-retrieval/tests/fixtures/python-repository-benchmark-v1.json",
           "crates/ecosystem/maestria-retrieval/tests/python_repository_benchmark_tests.rs"
         ],
-        "source_hash": "40c75ec16842af16267255ef1b15339d84436298a3b027d3b397eff6c4620d30"
+        "source_hash": "64287c1bb0163cb68f20c79a950d93dfc50d8ca2677d6075f9825ed1069e03d0"
       },
       "fingerprints": {
         "corpus_snapshot": "python-repository-frozen-v1",

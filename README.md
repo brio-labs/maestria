@@ -421,6 +421,7 @@ maestria search code regex <pattern>
 maestria search code doc <pattern>
 maestria search code markers <todo|fixme|hack|unsafe>
 maestria search code changed [--since <commit>]
+maestria search code references <pattern> [--direction inbound|outbound]
 maestria search code context <pattern> [--depth <n>] [--nodes <n>] [--direction both|forward|reverse]
 ```
 
@@ -432,6 +433,7 @@ maestria search code context <pattern> [--depth <n>] [--nodes <n>] [--direction 
 | `doc` | Match repository symbols whose doc comment contains the pattern (from `///`, `//!`, and `#[doc]` attributes) |
 | `markers` | Match repository symbols carrying a `todo`, `fixme`, `hack`, or `unsafe` source marker |
 | `changed` | Match symbols in files changed since a commit (persisted delta without `--since`, live git diff plus dirty set with it) |
+| `references` | Resolve cross-file symbol references from a seed (inbound callers/importers by default; `--direction outbound` for the symbols the seed uses) |
 | `context` | Traverse bounded repository relations from a symbol seed |
 
 | Flag | Description |
@@ -441,7 +443,7 @@ maestria search code context <pattern> [--depth <n>] [--nodes <n>] [--direction 
 | `--since` | Commit reference: full 40-hex SHA-1, short hex prefix, or `HEAD`-family ref (changed only) |
 | `--depth` | Context traversal depth (default 2, context only) |
 | `--nodes` | Max nodes in context response (default 64, context only) |
-| `--direction` | Traversal direction: `both`, `forward`, or `reverse` (default `both`, context only) |
+| `--direction` | References direction `inbound`/`outbound` (default `inbound`, references only; case-insensitive), or context traversal `both`/`forward`/`reverse` (default `both`, context only) |
 
 The code index is built from Cargo metadata and Rust source files. It is
 validated against the instance manifest read scope before indexing and

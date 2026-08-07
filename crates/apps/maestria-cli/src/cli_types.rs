@@ -166,6 +166,13 @@ pub enum CodeSearchCommands {
         #[arg(long, default_value = "both")]
         direction: String,
     },
+    /// Resolve cross-file symbol references (inbound callers/importers by
+    /// default; pass --direction outbound for the symbols the seed uses)
+    References {
+        pattern: String,
+        #[arg(long)]
+        direction: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]

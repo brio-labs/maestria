@@ -267,6 +267,7 @@ fn source_filter_rejects_disallowed_code_binding() -> Result<(), Box<dyn std::er
             regex_error: None,
         },
         records: vec![symbol("rec-1")?],
+        relations: Vec::new(),
     };
     let (candidates, _, _) = retriever.materialize_candidates(
         &request,

@@ -29,7 +29,9 @@ fn route_config() -> serde_json::Value {
     ]))
 }
 
-use maestria_code_intel::{CodeQuery, RepositoryCodeIndex, RepositoryFreshness};
+use maestria_code_intel::{
+    CodeQuery, ReferencesDirection, RepositoryCodeIndex, RepositoryFreshness,
+};
 
 /// Executes one frozen repository case against one route and reports measurements.
 pub trait RepositoryBenchmarkExecutor {
@@ -98,6 +100,43 @@ impl<'a> RepositoryCodeIndexExecutor<'a> {
             .nth(1)
             .map_or_else(|| case.query.clone(), str::to_string)
     }
+
+    /// The specialized route's query for a frozen case: symbol, doc, and
+    /// marker classes run through the symbol scan; `ReferenceUsage` runs
+    /// through the references path (inbound usage sites). The boolean marks
+    /// the references execution path.
+    fn specialized_query(
+        case: &RepositoryBenchmarkCase,
+        pattern: &str,
+    ) -> Result<(CodeQuery, bool), RepositoryBenchmarkError> {
+        Ok(match case.class {
+            RepositoryQueryClass::DocComment => (
+                CodeQuery::Doc {
+                    pattern: pattern.to_string(),
+                },
+                false,
+            ),
+            RepositoryQueryClass::CodeMarker => (
+                CodeQuery::Markers {
+                    marker_kind: parse_marker_kind(pattern)?,
+                },
+                false,
+            ),
+            RepositoryQueryClass::ReferenceUsage => (
+                CodeQuery::References {
+                    pattern: pattern.to_string(),
+                    direction: ReferencesDirection::Inbound,
+                },
+                true,
+            ),
+            _ => (
+                CodeQuery::Symbol {
+                    pattern: pattern.to_string(),
+                },
+                false,
+            ),
+        })
+    }
 }
 
 impl RepositoryBenchmarkExecutor for RepositoryCodeIndexExecutor<'_> {
@@ -115,21 +154,17 @@ impl RepositoryBenchmarkExecutor for RepositoryCodeIndexExecutor<'_> {
             },
             RepositoryExpectedOutcome::Evidence { .. } => {
                 let pattern = Self::pattern(&case);
-                let query = match route {
-                    RepositoryRoute::PhaseC => CodeQuery::All,
-                    RepositoryRoute::CodeSpecialized => match case.class {
-                        RepositoryQueryClass::DocComment => CodeQuery::Doc {
-                            pattern: pattern.clone(),
-                        },
-                        RepositoryQueryClass::CodeMarker => CodeQuery::Markers {
-                            marker_kind: parse_marker_kind(&pattern)?,
-                        },
-                        _ => CodeQuery::Symbol {
-                            pattern: pattern.clone(),
-                        },
-                    },
+                let (query, references_route) = match route {
+                    RepositoryRoute::PhaseC => (CodeQuery::All, false),
+                    RepositoryRoute::CodeSpecialized => Self::specialized_query(&case, &pattern)?,
                 };
-                let result = match self.index.query(query, 32, benchmark_record_authorization) {
+                let result = if references_route {
+                    self.index
+                        .references(query, 32, benchmark_record_authorization)
+                } else {
+                    self.index.query(query, 32, benchmark_record_authorization)
+                };
+                let result = match result {
                     Ok(result) => result,
                     Err(error) => {
                         return Err(RepositoryBenchmarkError::CodeQueryFailed(error.to_string()));
@@ -154,6 +189,10 @@ impl RepositoryBenchmarkExecutor for RepositoryCodeIndexExecutor<'_> {
                             .filter(|record| record.has_marker(kind))
                             .count()
                     }
+                    // ReferenceUsage reports the usage-site records the
+                    // references path resolved: inbound callers/importers
+                    // with evidence-backed relations.
+                    RepositoryQueryClass::ReferenceUsage => result.records.len(),
                     _ => result
                         .records
                         .iter()

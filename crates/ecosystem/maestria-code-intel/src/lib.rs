@@ -15,6 +15,7 @@
 //! - `metadata`: bounded Cargo workspace metadata extraction.
 //! - `provenance`: canonical per-file content hashing and hash validation.
 //! - `query`: bounded in-memory symbol query execution.
+//! - `references`: cross-file symbol references over persisted relations.
 //! - `symbols`: Rust source symbol and relation extraction.
 //! - `types`: serializable index, symbol, relation, and query records.
 //! - `index`: index persistence, querying, and provenance validation.
@@ -30,11 +31,12 @@ mod error;
 mod freshness;
 mod identity;
 mod incremental;
-mod markers;
 mod language;
+mod markers;
 mod metadata;
 mod provenance;
 mod query;
+mod references;
 mod symbols;
 mod types;
 mod walk;
@@ -48,12 +50,14 @@ pub use freshness::{RepositoryFreshness, RepositoryIdentitySnapshot};
 pub use markers::{
     CodeMarker, CodeMarkerError, CodeMarkerKind, MarkerQueryKind, MarkerQueryKindParseError,
 };
+pub use references::ReferencesDirectionParseError;
 pub use types::{
     CodeIndexSummary, CodeQuery, CodeRelationKind, CodeRelationRecord, CodeRelationSummary,
     CommitSha, DependencyRecord, FileContextRecord, PackageRecord, ParserGeneration, QueryResult,
-    QuerySummary, RecordProvenance, RelationSourceAvailability, RelationSourceKind,
-    RelationSourceStatus, RepositoryChangeDelta, RepositoryCodeIndex, SourceRange, SymbolKind,
-    SymbolMarkers, SymbolRecord, TargetRecord, Visibility, WorktreeIdentity,
+    QuerySummary, RecordProvenance, ReferencesDirection, RelationSourceAvailability,
+    RelationSourceKind, RelationSourceStatus, RepositoryChangeDelta, RepositoryCodeIndex,
+    SourceRange, SymbolKind, SymbolMarkers, SymbolRecord, TargetRecord, Visibility,
+    WorktreeIdentity,
 };
 
 mod index;

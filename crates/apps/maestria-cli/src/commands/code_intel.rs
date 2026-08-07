@@ -1,50 +1,18 @@
 use anyhow::{Context, Result, bail};
-use maestria_blob_fs::FsBlobStore;
 use maestria_code_intel::{
     CodeQuery, CommitSha, ContextDirection, MAX_CONTEXT_DEPTH, REPOSITORY_CODE_CANDIDATES_FILENAME,
-    REPOSITORY_CODE_INDEX_FILENAME, REPOSITORY_CODE_PARSER_GENERATION, RepositoryCodeIndex,
-    RepositoryContextQuery, RepositoryFreshness, RepositoryIndexBuildMode,
+    REPOSITORY_CODE_INDEX_FILENAME, REPOSITORY_CODE_PARSER_GENERATION, ReferencesDirection,
+    RepositoryCodeIndex, RepositoryContextQuery, RepositoryFreshness, RepositoryIndexBuildMode,
     build_or_update_repository_index, is_plausible_commit_sha,
 };
 use maestria_core::{InstanceLayout, InstanceManifest};
-use maestria_domain::CorpusScope;
-use maestria_governance::{
-    AutonomyProfile, RetrievalAuthorizationContext, RetrievalSecurityPolicy,
-};
-use maestria_ports::{EventFilter, EventLog};
-use maestria_retrieval::adapters::{CodeIntelSecurityResolver, CodeIntelSecurityResolverParts};
-use maestria_storage_sqlite::SqliteStore;
+use maestria_governance::AutonomyProfile;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 
+use super::code_intel_auth::code_intel_authorization;
 use super::code_intel_sources::register_repository_sources;
 
 const MAX_QUERY_LIMIT: usize = 1_000;
-
-struct CodeIntelAuthorization {
-    resolver: CodeIntelSecurityResolver,
-    context: RetrievalAuthorizationContext,
-}
-
-fn code_intel_authorization(layout: &InstanceLayout) -> Result<CodeIntelAuthorization> {
-    let store = Arc::new(SqliteStore::open_read_only(&layout.database_path)?);
-    let events = EventLog::scan(store.as_ref(), EventFilter { artifact_id: None })?;
-    let resolver = CodeIntelSecurityResolver::from_events(
-        CodeIntelSecurityResolverParts {
-            artifacts: store.clone(),
-            evidence: store,
-            blobs: Arc::new(FsBlobStore::open(&layout.blobs_dir)?),
-        },
-        &events,
-    )
-    .map_err(|error| anyhow::anyhow!("prepare repository code authorization: {error}"))?;
-    let context = RetrievalSecurityPolicy::default()
-        .require_read_allowed(true)
-        .allow_unscoped_items(true)
-        .authorization_context(&CorpusScope::Global)
-        .map_err(|error| anyhow::anyhow!("authorize repository code query: {error}"))?;
-    Ok(CodeIntelAuthorization { resolver, context })
-}
 
 pub(crate) async fn run_index(instance_dir: PathBuf, repository: PathBuf) -> Result<()> {
     let layout = super::super::helpers::validated_instance(instance_dir)?;
@@ -204,6 +172,32 @@ pub(crate) fn run_changed(
             .resolver
             .authorizes(symbol, &authorization.context)
     })?;
+    println!("{}", serde_json::to_string_pretty(&result)?);
+    Ok(())
+}
+
+pub(crate) fn run_references(
+    instance_dir: PathBuf,
+    pattern: String,
+    direction: ReferencesDirection,
+    limit: usize,
+) -> Result<()> {
+    if !(1..=MAX_QUERY_LIMIT).contains(&limit) {
+        bail!("code query limit must be between 1 and {MAX_QUERY_LIMIT}");
+    }
+    let layout = super::super::helpers::validated_instance(instance_dir)?;
+    let manifest = super::super::helpers::load_manifest(&layout)?;
+    let index = load_verified_code_index(&layout, &manifest)?;
+    let authorization = code_intel_authorization(&layout)?;
+    let result = index.references(
+        CodeQuery::References { pattern, direction },
+        limit,
+        |symbol| {
+            authorization
+                .resolver
+                .authorizes(symbol, &authorization.context)
+        },
+    )?;
     println!("{}", serde_json::to_string_pretty(&result)?);
     Ok(())
 }
