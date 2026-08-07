@@ -25,7 +25,7 @@
   },
   "milestones": [
     {
-      "milestone": "v0.4 \u2014 Deterministic Search Baseline",
+      "milestone": "v0.4 — Deterministic Search Baseline",
       "release_stage": "implementation-complete",
       "data_fidelity": "mixed",
       "corpus": {
@@ -82,7 +82,7 @@
       ]
     },
     {
-      "milestone": "v0.5 \u2014 Evaluated Hybrid Retrieval",
+      "milestone": "v0.5 — Evaluated Hybrid Retrieval",
       "release_stage": "implementation-complete",
       "data_fidelity": "mixed",
       "corpus": {
@@ -139,7 +139,7 @@
       ]
     },
     {
-      "milestone": "v0.7 \u2014 Repository Intelligence",
+      "milestone": "v0.7 — Repository Intelligence",
       "release_stage": "implementation-complete",
       "data_fidelity": "real",
       "corpus": {
@@ -202,7 +202,7 @@
       ]
     },
     {
-      "milestone": "v0.8 \u2014 Visual Document Retrieval",
+      "milestone": "v0.8 — Visual Document Retrieval",
       "release_stage": "implementation-complete",
       "data_fidelity": "mixed",
       "corpus": {
@@ -263,7 +263,7 @@
       ]
     },
     {
-      "milestone": "v0.9 \u2014 Doc & Marker Search",
+      "milestone": "v0.9 — Doc & Marker Search",
       "release_stage": "implementation-complete",
       "data_fidelity": "real",
       "corpus": {
@@ -314,6 +314,69 @@
         {
           "kind": "repository",
           "path": "target/benchmark-reports/repository-real.json"
+        }
+      ]
+    },
+    {
+      "milestone": "v1.0 — Python Repository Intelligence",
+      "release_stage": "implementation-complete",
+      "data_fidelity": "real",
+      "corpus": {
+        "id": "python-repository-frozen-v1",
+        "snapshot": "sha256:1751c9729ece6fa19f7c355e629ea56b0d80a6fcbe880df83a02b96c1d313b71",
+        "judgment_set": "python-repository-benchmark-v1",
+        "source_paths": [
+          "crates/ecosystem/maestria-retrieval/tests/fixtures/python-repository-v1/pyproject.toml",
+          "crates/ecosystem/maestria-retrieval/tests/fixtures/python-repository-v1/README.md",
+          "crates/ecosystem/maestria-retrieval/tests/fixtures/python-repository-v1/src/wishlist/__init__.py",
+          "crates/ecosystem/maestria-retrieval/tests/fixtures/python-repository-v1/src/wishlist/items.py",
+          "crates/ecosystem/maestria-retrieval/tests/fixtures/python-repository-v1/src/wishlist/orders.py",
+          "crates/ecosystem/maestria-retrieval/tests/fixtures/python-repository-v1/src/wishlist/pricing.py",
+          "crates/ecosystem/maestria-retrieval/tests/fixtures/python-repository-v1/tests/test_items.py",
+          "crates/ecosystem/maestria-retrieval/tests/fixtures/python-repository-v1/tests/test_orders.py",
+          "crates/ecosystem/maestria-retrieval/tests/fixtures/python-repository-benchmark-v1.json",
+          "crates/ecosystem/maestria-retrieval/tests/python_repository_benchmark_tests.rs"
+        ],
+        "source_hash": "40c75ec16842af16267255ef1b15339d84436298a3b027d3b397eff6c4620d30"
+      },
+      "fingerprints": {
+        "corpus_snapshot": "python-repository-frozen-v1",
+        "index_generation": "cargo-rust-code-v3",
+        "model_fingerprint": "repository-code-index-v2"
+      },
+      "environment": {
+        "os": "ubuntu-24.04",
+        "rust_toolchain": "nightly-2026-06-15",
+        "cpu_arch": "x86_64"
+      },
+      "results": {
+        "quality": {
+          "status": "warning",
+          "reason": "real python repository observations are emitted; promotion still requires benchmark comparison"
+        },
+        "resource": {
+          "status": "warning",
+          "reason": "code-intel adapter reports platform counters as unavailable"
+        },
+        "security": {
+          "status": "warning",
+          "reason": "code-intel adapter does not measure serving-boundary security counters"
+        }
+      },
+      "degradations": [
+        {
+          "area": "resource",
+          "description": "Memory, disk, and energy counters are unavailable in the code-intel adapter and are not inferred."
+        },
+        {
+          "area": "freshness",
+          "description": "Stale worktree outcomes are explicit and cannot support current-worktree claims."
+        }
+      ],
+      "reports": [
+        {
+          "kind": "repository",
+          "path": "target/benchmark-reports/python-repository-real.json"
         }
       ]
     }

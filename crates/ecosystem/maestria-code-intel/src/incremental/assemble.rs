@@ -1,19 +1,20 @@
 //! Rebuilt index and candidate-list assembly, and the new-file check.
 
 use crate::CodeIntelError;
+use crate::language::backend_for_path;
 use crate::symbols::relation;
 use crate::types::{CodeIndexSummary, ParserGeneration, RepositoryCodeIndex};
-use crate::walk::{collect_rust_paths, is_excluded_path};
+use crate::walk::is_excluded_path;
 use std::collections::BTreeSet;
 use std::path::Path;
 
 use super::state::{RebuildInputs, RebuildState, rewrite_identity};
 
-/// New-file check: only newly added cargo auto-discovery targets inside
-/// member packages can become extractable without a manifest change or an
-/// edited parent. Any other `.rs` file absent from contexts is unreachable
-/// for extraction (a full build does not extract it either). Returns whether
-/// a full rebuild is required.
+/// New-file check: only newly added auto-discovery targets can become
+/// extractable without a manifest change or an edited parent. Any other
+/// source file absent from contexts is unreachable for extraction (a full
+/// build does not extract it either). Returns whether a full rebuild is
+/// required.
 pub(crate) fn check_new_auto_targets(
     inputs: &RebuildInputs,
     index: &RepositoryCodeIndex,
@@ -30,75 +31,24 @@ pub(crate) fn check_new_auto_targets(
         })
         .collect();
     let mut walk_set = BTreeSet::new();
-    collect_rust_paths(
-        inputs.root,
-        inputs.root,
-        &mut walk_set,
-        inputs.excluded_patterns,
-    )?;
+    for backend in &inputs.backends {
+        walk_set.extend(backend.collect_source_files(inputs.root, inputs.excluded_patterns)?);
+    }
     for path in inputs.file_set.union(&walk_set) {
-        if !path.ends_with(".rs") || is_excluded_path(Path::new(path), inputs.excluded_patterns) {
+        if is_excluded_path(Path::new(path), inputs.excluded_patterns) {
             continue;
         }
+        let Some(backend) = backend_for_path(&inputs.backends, path) else {
+            continue;
+        };
         if !state.contexts.contains_key(path)
             && !state.processed.contains(path)
-            && is_new_auto_target_root(Path::new(path), &package_roots)
+            && backend.is_new_auto_target_root(path, &package_roots)
         {
             return Ok(true);
         }
     }
     Ok(false)
-}
-
-/// Whether a not-yet-indexed `.rs` path is a plausible new cargo
-/// auto-discovery target root: a file cargo turns into a target without any
-/// manifest change, inside a member package. `package_roots` are the relative
-/// repository paths of the package manifest directories from the loaded index.
-fn is_new_auto_target_root(path: &Path, package_roots: &BTreeSet<String>) -> bool {
-    let Some(file_name) = path.file_name().and_then(|name| name.to_str()) else {
-        return false;
-    };
-    if file_name == "mod.rs" {
-        // cargo never auto-discovers `mod.rs` as a target.
-        return false;
-    }
-    let Some(parent) = path
-        .parent()
-        .map(|parent| parent.to_string_lossy().into_owned())
-    else {
-        return false;
-    };
-    let grandparent = path
-        .parent()
-        .and_then(|parent| parent.parent())
-        .map(|parent| parent.to_string_lossy().into_owned());
-    for root in package_roots {
-        let base = if root.is_empty() {
-            String::new()
-        } else {
-            format!("{root}/")
-        };
-        if file_name == "build.rs" && parent == *root {
-            return true;
-        }
-        if matches!(file_name, "lib.rs" | "main.rs") && parent == format!("{base}src") {
-            return true;
-        }
-        if parent == format!("{base}src/bin") {
-            return true;
-        }
-        for directory in ["tests", "benches", "examples"] {
-            if parent == format!("{base}{directory}") {
-                return true;
-            }
-            // Multi-file target: `<dir>/<name>/main.rs`.
-            let multi_root = format!("{base}{directory}");
-            if file_name == "main.rs" && grandparent.as_deref() == Some(multi_root.as_str()) {
-                return true;
-            }
-        }
-    }
-    false
 }
 
 /// Assemble the rebuilt index: symbols in original order with replaced files

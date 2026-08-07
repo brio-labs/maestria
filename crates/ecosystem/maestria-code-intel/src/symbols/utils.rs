@@ -149,6 +149,7 @@ pub(crate) fn record_id(
 pub(crate) fn symbol_kind_id(kind: &SymbolKind) -> &'static str {
     match kind {
         SymbolKind::Module => "module",
+        SymbolKind::Class => "class",
         SymbolKind::Struct => "struct",
         SymbolKind::Enum => "enum",
         SymbolKind::Union => "union",

@@ -7,6 +7,7 @@ use crate::chunking::metadata_for_handle;
 use crate::markdown::MarkdownParser;
 use crate::pdf::PdfParser;
 use crate::plain_text::PlainTextParser;
+use crate::python_source::PythonSourceParser;
 use crate::rust_source::RustSourceParser;
 
 #[derive(Default)]
@@ -24,6 +25,7 @@ impl ParserRegistry {
         registry.register(MarkdownParser::new());
         registry.register(PlainTextParser::new());
         registry.register(RustSourceParser::new());
+        registry.register(PythonSourceParser::new());
         registry.register(CargoTomlParser::new());
         registry.register(PdfParser::new());
         registry

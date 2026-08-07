@@ -18,6 +18,7 @@
 //! - `symbols`: Rust source symbol and relation extraction.
 //! - `types`: serializable index, symbol, relation, and query records.
 //! - `index`: index persistence, querying, and provenance validation.
+//! - `language`: language backend boundary (Rust and Python backends).
 //! - `walk`: bounded repository file walking for identity and discovery.
 
 mod builder;
@@ -30,6 +31,7 @@ mod freshness;
 mod identity;
 mod incremental;
 mod markers;
+mod language;
 mod metadata;
 mod provenance;
 mod query;

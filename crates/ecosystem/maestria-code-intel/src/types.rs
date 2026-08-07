@@ -327,6 +327,7 @@ pub struct SymbolMarkers {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SymbolKind {
     Module,
+    Class,
     Struct,
     Enum,
     Union,

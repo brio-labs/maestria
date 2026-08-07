@@ -570,3 +570,80 @@ fn repository_code_changed_query_flow() -> Result<(), Box<dyn Error>> {
     );
     Ok(())
 }
+
+/// Build a git repo with a PEP 621 manifest and a small `src/` package.
+fn make_python_repo(repo: &Path) -> Result<(), Box<dyn Error>> {
+    write_file(
+        repo,
+        "pyproject.toml",
+        "[project]\nname = \"wishlist\"\nversion = \"0.1.0\"\n",
+    )?;
+    write_file(
+        repo,
+        "src/wishlist/__init__.py",
+        "from wishlist.items import Item\n",
+    )?;
+    write_file(
+        repo,
+        "src/wishlist/items.py",
+        "class Item:\n    def __init__(self, name):\n        self.name = name\n\n    def total(self):\n        return 1\n",
+    )?;
+    run_git(repo, &["init", "--initial-branch", "main"])?;
+    run_git(repo, &["config", "user.email", "ci@example.com"])?;
+    run_git(repo, &["config", "user.name", "CI"])?;
+    run_git(repo, &["add", "."])?;
+    run_git(repo, &["commit", "-m", "fixture init"])?;
+    Ok(())
+}
+
+#[test]
+fn python_repository_code_index_search_roundtrip() -> Result<(), Box<dyn Error>> {
+    let repo = TempDir::new("maestria-release-python-repo")?;
+    let instance = TempDir::new("maestria-release-python-instance")?;
+    let instance_path = instance.path().to_string_lossy().into_owned();
+    let repo_path = repo.path().to_string_lossy().into_owned();
+    make_python_repo(repo.path())?;
+    assert_init_ok(&instance_path, &repo_path)?;
+
+    // Python repositories index with real symbols and searchable records.
+    let stdout = assert_ok(&["index", "-i", &instance_path, "repository", &repo_path])?;
+    assert!(
+        stdout.contains("mode=full"),
+        "expected full build: {stdout}"
+    );
+    let summary_start = stdout.find('{').ok_or("missing summary JSON")?;
+    let summary: serde_json::Value = serde_json::from_str(&stdout[summary_start..])?;
+    let symbol_count = summary["symbol_count"]
+        .as_u64()
+        .ok_or("missing symbol_count")?;
+    assert!(symbol_count >= 4);
+
+    let (matched, records) = search_code_symbol(&instance_path, "Item")?;
+    assert!(
+        matched >= 1 && records.iter().any(|record| record.contains(":class:")),
+        "python class not searchable: {records:?}"
+    );
+    let (matched, _) = search_code_symbol(&instance_path, "total")?;
+    assert!(matched >= 1, "python method not searchable");
+
+    // An edit rebuilds incrementally and stays searchable.
+    let items = repo.path().join("src/wishlist/items.py");
+    let mut source = fs::read_to_string(&items)?;
+    source.push_str("\n\ndef make_item(name):\n    return Item(name)\n");
+    fs::write(&items, source)?;
+    let stdout = assert_ok(&["index", "-i", &instance_path, "repository", &repo_path])?;
+    assert!(
+        stdout.contains("mode=incremental"),
+        "expected incremental: {stdout}"
+    );
+    let (matched, _) = search_code_symbol(&instance_path, "make_item")?;
+    assert_eq!(
+        matched, 1,
+        "new python symbol not searchable after incremental rebuild"
+    );
+
+    // Unchanged repository is a no-op.
+    let stdout = assert_ok(&["index", "-i", &instance_path, "repository", &repo_path])?;
+    assert!(stdout.contains("mode=noop"), "expected noop: {stdout}");
+    Ok(())
+}

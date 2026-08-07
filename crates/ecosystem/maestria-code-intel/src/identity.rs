@@ -1,7 +1,8 @@
 //! Repository identity discovery for provenance.
 
 use crate::CodeIntelError;
-use crate::walk::{collect_rust_paths, discover_manifests, is_excluded_path};
+use crate::language::{KNOWN_SOURCE_EXTENSIONS, LanguageBackend, all_manifest_names};
+use crate::walk::{collect_source_paths, discover_manifests, is_excluded_path};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{self, File};
@@ -20,33 +21,14 @@ pub(crate) struct RepositoryIdentity {
 pub(crate) fn discover_repository_identity(
     root: &Path,
     excluded_patterns: &[String],
+    backends: &[Box<dyn LanguageBackend>],
 ) -> Result<RepositoryIdentity, CodeIntelError> {
     let canonical_root = canonical_root(root)?;
     let commit = git_output(root, &["rev-parse", "HEAD"], "git rev-parse HEAD")?;
     let dirty = discover_dirty_paths(root)?;
     let file_set = discover_file_set(root)?;
     let blob_map = git_blob_map(root)?;
-
-    let mut paths: BTreeSet<String> = file_set
-        .iter()
-        .filter(|line| is_identity_input(Path::new(line), excluded_patterns))
-        .cloned()
-        .collect();
-    collect_rust_paths(root, root, &mut paths, excluded_patterns)?;
-    // Every manifest the bounded discovery walk can see (and its `Cargo.lock`
-    // sibling) participates in the identity digest, so editing a nested
-    // manifest always invalidates the worktree identity even when the file is
-    // gitignored and invisible to the git file set.
-    for manifest in discover_manifests(root, excluded_patterns)? {
-        if let Ok(relative) = manifest.strip_prefix(root) {
-            paths.insert(relative.to_string_lossy().into_owned());
-        }
-        let lock = manifest.with_extension("lock");
-        if let Ok(relative) = lock.strip_prefix(root) {
-            paths.insert(relative.to_string_lossy().into_owned());
-        }
-    }
-
+    let paths = collect_identity_paths(root, excluded_patterns, backends, &file_set)?;
     let mut hasher = Sha256::new();
     hasher.update(b"maestria-worktree-identity-v2\0");
     // Pass 1: per-path presence (missing marker vs path record).
@@ -124,6 +106,43 @@ pub(crate) fn discover_repository_identity(
         commit: crate::types::CommitSha::new(commit),
         worktree_identity: crate::types::WorktreeIdentity::new(to_hex(&hasher.finalize())),
     })
+}
+
+/// Every path participating in the worktree identity digest: identity inputs
+/// from the git file set, known source files from the bounded walk (so
+/// gitignored sources participate), and every manifest the discovery walk
+/// can see (plus `Cargo.lock` siblings), even when gitignored.
+fn collect_identity_paths(
+    root: &Path,
+    excluded_patterns: &[String],
+    backends: &[Box<dyn LanguageBackend>],
+    file_set: &BTreeSet<String>,
+) -> Result<BTreeSet<String>, CodeIntelError> {
+    let mut paths: BTreeSet<String> = file_set
+        .iter()
+        .filter(|line| is_identity_input(Path::new(line), excluded_patterns, backends))
+        .cloned()
+        .collect();
+    collect_source_paths(
+        root,
+        root,
+        &mut paths,
+        excluded_patterns,
+        &KNOWN_SOURCE_EXTENSIONS,
+    )?;
+    let manifest_names = all_manifest_names(backends);
+    for manifest in discover_manifests(root, excluded_patterns, &manifest_names)? {
+        if let Ok(relative) = manifest.strip_prefix(root) {
+            paths.insert(relative.to_string_lossy().into_owned());
+        }
+        if manifest.file_name().and_then(|name| name.to_str()) == Some("Cargo.toml") {
+            let lock = manifest.with_extension("lock");
+            if let Ok(relative) = lock.strip_prefix(root) {
+                paths.insert(relative.to_string_lossy().into_owned());
+            }
+        }
+    }
+    Ok(paths)
 }
 
 /// The `git ls-files --cached --others --exclude-standard` file set: every
@@ -231,11 +250,23 @@ fn decode_hex_nibble(byte: u8) -> Option<u8> {
     }
 }
 
-fn is_identity_input(path: &Path, excluded_patterns: &[String]) -> bool {
-    let is_source = matches!(
-        path.extension().and_then(|extension| extension.to_str()),
-        Some("rs" | "toml" | "lock")
-    );
+fn is_identity_input(
+    path: &Path,
+    excluded_patterns: &[String],
+    backends: &[Box<dyn LanguageBackend>],
+) -> bool {
+    let extension = path.extension().and_then(|extension| extension.to_str());
+    let file_name = path.file_name().and_then(|name| name.to_str());
+    let is_source = matches!(extension, Some("toml" | "lock"))
+        || KNOWN_SOURCE_EXTENSIONS
+            .iter()
+            .any(|accepted| extension == Some(*accepted))
+        || backends.iter().any(|backend| {
+            backend
+                .identity_inputs()
+                .iter()
+                .any(|name| file_name == Some(*name))
+        });
     is_source && !is_excluded_path(path, excluded_patterns)
 }
 
@@ -335,6 +366,18 @@ mod tests {
         Ok(())
     }
 
+    fn discover_identity(
+        root: &Path,
+        excluded_patterns: &[String],
+    ) -> Result<RepositoryIdentity, Box<dyn std::error::Error>> {
+        let backends = crate::language::active_backends(root, excluded_patterns)?;
+        Ok(discover_repository_identity(
+            root,
+            excluded_patterns,
+            &backends,
+        )?)
+    }
+
     #[test]
     fn clean_blob_hash_matches_git_hash_object() -> Result<(), Box<dyn std::error::Error>> {
         let root = tempdir()?;
@@ -359,10 +402,10 @@ mod tests {
         run_git_ok(root.path(), &["add", "."])?;
         run_git_ok(root.path(), &["commit", "-m", "init"])?;
 
-        let original = discover_repository_identity(root.path(), &[])?.worktree_identity;
+        let original = discover_identity(root.path(), &[])?.worktree_identity;
 
         fs::write(&manifest, "[workspace]\nmembers = []\n# edited\n")?;
-        let modified = discover_repository_identity(root.path(), &[])?.worktree_identity;
+        let modified = discover_identity(root.path(), &[])?.worktree_identity;
         assert_ne!(original, modified);
         Ok(())
     }
@@ -379,10 +422,10 @@ mod tests {
         run_git_ok(root.path(), &["add", "."])?;
         run_git_ok(root.path(), &["commit", "-m", "init"])?;
 
-        let original = discover_repository_identity(root.path(), &[])?.worktree_identity;
+        let original = discover_identity(root.path(), &[])?.worktree_identity;
 
         fs::write(&manifest, "[workspace]\nmembers = []\n# edited\n")?;
-        let modified = discover_repository_identity(root.path(), &[])?.worktree_identity;
+        let modified = discover_identity(root.path(), &[])?.worktree_identity;
         assert_ne!(original, modified);
         Ok(())
     }
@@ -397,14 +440,14 @@ mod tests {
         run_git_ok(root.path(), &["add", "."])?;
         run_git_ok(root.path(), &["commit", "-m", "init"])?;
 
-        let original = discover_repository_identity(root.path(), &[])?.worktree_identity;
+        let original = discover_identity(root.path(), &[])?.worktree_identity;
 
         fs::write(&source, "pub fn add(a: i32, b: i32) -> i32 { a - b }\n")?;
-        let modified = discover_repository_identity(root.path(), &[])?.worktree_identity;
+        let modified = discover_identity(root.path(), &[])?.worktree_identity;
         assert_ne!(original, modified);
 
         run_git_ok(root.path(), &["checkout", "--", "src/lib.rs"])?;
-        let restored = discover_repository_identity(root.path(), &[])?.worktree_identity;
+        let restored = discover_identity(root.path(), &[])?.worktree_identity;
         assert_eq!(original, restored);
         Ok(())
     }

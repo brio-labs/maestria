@@ -132,7 +132,7 @@ pub(crate) fn extract_workspace_packages(
     // Nested manifests: member manifests of an already-indexed workspace are
     // skipped without a cargo invocation; a failing manifest warns and is
     // skipped; a duplicate workspace root is converted once.
-    for manifest in discover_manifests(root, excluded_patterns)? {
+    for manifest in discover_manifests(root, excluded_patterns, &["Cargo.toml"])? {
         if manifest == root_manifest || seen_members.contains(&manifest) {
             continue;
         }

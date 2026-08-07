@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     CodeRelationKind, CodeRelationRecord, CodeRelationSummary, RelationSourceAvailability,
-    RelationSourceKind, RelationSourceStatus, SymbolKind, SymbolRecord,
+    RelationSourceKind, RelationSourceStatus, SymbolRecord,
 };
 
 pub(crate) const AST_RELATION_CONFIDENCE_MILLI: u16 = 1000;
@@ -34,6 +34,13 @@ pub(crate) enum RelationCandidate {
         source_record_id: String,
         target_qualified: String,
     },
+    /// Python call: the bare or dotted callee expression as written (e.g.
+    /// `get`, `requests.get`, `self.helper`). Resolution is exact against
+    /// qualified names first, then the short name when unambiguous.
+    PythonCall {
+        source_record_id: String,
+        target_hint: String,
+    },
 }
 
 pub(crate) fn relation_status_summary(total_relations: usize) -> CodeRelationSummary {
@@ -61,12 +68,14 @@ pub(crate) fn resolve_relations(
 ) -> Vec<CodeRelationRecord> {
     let mut by_id = BTreeMap::<String, &SymbolRecord>::new();
     let mut by_qualified_name = BTreeMap::<String, Vec<&SymbolRecord>>::new();
+    let mut by_name = BTreeMap::<String, Vec<&SymbolRecord>>::new();
     for symbol in symbols {
         by_id.insert(symbol.record_id.clone(), symbol);
         by_qualified_name
             .entry(symbol.qualified_name.clone())
             .or_default()
             .push(symbol);
+        by_name.entry(symbol.name.clone()).or_default().push(symbol);
     }
     for list in by_qualified_name.values_mut() {
         list.sort_by_key(|record| {
@@ -81,7 +90,13 @@ pub(crate) fn resolve_relations(
     let mut relations = candidates
         .iter()
         .flat_map(|candidate| {
-            resolve_candidate(parser_generation, &by_id, &by_qualified_name, candidate)
+            super::resolution::resolve_candidate(
+                parser_generation,
+                &by_id,
+                &by_qualified_name,
+                &by_name,
+                candidate,
+            )
         })
         .collect::<Vec<_>>();
     relations.sort_by(relation_order);
@@ -89,90 +104,7 @@ pub(crate) fn resolve_relations(
     relations
 }
 
-fn resolve_candidate(
-    parser_generation: &str,
-    by_id: &BTreeMap<String, &SymbolRecord>,
-    by_qualified_name: &BTreeMap<String, Vec<&SymbolRecord>>,
-    candidate: &RelationCandidate,
-) -> Vec<CodeRelationRecord> {
-    match candidate {
-        RelationCandidate::Defines {
-            source_module_qualified,
-            target_record_id,
-        } => {
-            let target = by_id.get(target_record_id).copied();
-            let source = target.and_then(|target| {
-                by_qualified_name
-                    .get(source_module_qualified)
-                    .and_then(|matches| resolve_definition_source(matches, target))
-            });
-            relation_for(parser_generation, CodeRelationKind::Defines, source, target)
-                .into_iter()
-                .collect()
-        }
-        RelationCandidate::Imports {
-            source_record_id,
-            target_qualified,
-        } => relation_for(
-            parser_generation,
-            CodeRelationKind::Imports,
-            by_id.get(source_record_id).copied(),
-            resolve_target(by_qualified_name, target_qualified, None, None),
-        )
-        .into_iter()
-        .collect(),
-        RelationCandidate::Calls {
-            source_record_id,
-            source_qualified,
-            module_scope,
-            target_path,
-            self_receiver,
-        } => {
-            let source = by_id.get(source_record_id).copied();
-            let target = if *self_receiver {
-                resolve_self_receiver_target(by_qualified_name, source_qualified, target_path)
-            } else {
-                resolve_target(
-                    by_qualified_name,
-                    target_path,
-                    Some(source_qualified),
-                    Some(module_scope),
-                )
-            };
-            let Some(call) =
-                relation_for(parser_generation, CodeRelationKind::Calls, source, target)
-            else {
-                return Vec::new();
-            };
-            let mut relations = vec![call];
-            if let Some(source) = source
-                && source.is_test
-                && let Some(test_relation) = relation_for(
-                    parser_generation,
-                    CodeRelationKind::Tests,
-                    Some(source),
-                    target,
-                )
-            {
-                relations.push(test_relation);
-            }
-            relations
-        }
-        RelationCandidate::Implements {
-            source_record_id,
-            target_qualified,
-        } => relation_for(
-            parser_generation,
-            CodeRelationKind::Implements,
-            by_id.get(source_record_id).copied(),
-            resolve_target(by_qualified_name, target_qualified, None, None),
-        )
-        .into_iter()
-        .collect(),
-    }
-}
-
-fn relation_for(
+pub(super) fn relation_for(
     parser_generation: &str,
     kind: CodeRelationKind,
     source: Option<&SymbolRecord>,
@@ -232,188 +164,4 @@ fn relation_kind_order(kind: &CodeRelationKind) -> u8 {
         CodeRelationKind::Implements => 3,
         CodeRelationKind::Tests => 4,
     }
-}
-
-fn resolve_target<'a>(
-    by_qualified_name: &'a BTreeMap<String, Vec<&'a SymbolRecord>>,
-    path: &str,
-    source_qualified: Option<&str>,
-    module_scope: Option<&str>,
-) -> Option<&'a SymbolRecord> {
-    resolve_target_with_depth(by_qualified_name, path, source_qualified, module_scope, 0)
-}
-
-fn resolve_target_with_depth<'a>(
-    by_qualified_name: &'a BTreeMap<String, Vec<&'a SymbolRecord>>,
-    path: &str,
-    source_qualified: Option<&str>,
-    module_scope: Option<&str>,
-    depth: usize,
-) -> Option<&'a SymbolRecord> {
-    if depth > 2 {
-        return None;
-    }
-    if let Some(target) = resolve_import_prefix(
-        by_qualified_name,
-        path,
-        source_qualified,
-        module_scope,
-        depth + 1,
-    ) {
-        return Some(target);
-    }
-    for candidate in
-        super::relation_paths::relation_candidate_names(path, source_qualified, module_scope)
-    {
-        let Some(matches) = by_qualified_name.get(&candidate) else {
-            continue;
-        };
-        if path.starts_with("crate::")
-            && let Some(symbol) = unique_symbol(matches)
-            && symbol.kind != SymbolKind::Import
-        {
-            return Some(symbol);
-        }
-        if matches
-            .iter()
-            .any(|symbol| symbol.kind == SymbolKind::Import)
-        {
-            if let Some(target) = resolve_import_matches(
-                by_qualified_name,
-                matches,
-                source_qualified,
-                module_scope,
-                depth,
-            ) {
-                return Some(target);
-            }
-            continue;
-        }
-        if let Some(symbol) = unique_symbol(matches) {
-            return Some(symbol);
-        }
-    }
-    None
-}
-
-fn resolve_import_matches<'a>(
-    by_qualified_name: &'a BTreeMap<String, Vec<&'a SymbolRecord>>,
-    matches: &[&'a SymbolRecord],
-    source_qualified: Option<&str>,
-    module_scope: Option<&str>,
-    depth: usize,
-) -> Option<&'a SymbolRecord> {
-    let mut imports = matches
-        .iter()
-        .filter(|symbol| symbol.kind == SymbolKind::Import);
-    let import = match (imports.next(), imports.next()) {
-        (Some(import), None) => *import,
-        _ => return None,
-    };
-    let imported = import.imports.first()?;
-    let imported = imported
-        .split_once(" as ")
-        .map_or(imported.as_str(), |(target, _)| target);
-    resolve_target_with_depth(
-        by_qualified_name,
-        imported,
-        source_qualified,
-        module_scope,
-        depth + 1,
-    )
-}
-fn resolve_import_prefix<'a>(
-    by_qualified_name: &'a BTreeMap<String, Vec<&'a SymbolRecord>>,
-    path: &str,
-    source_qualified: Option<&str>,
-    module_scope: Option<&str>,
-    depth: usize,
-) -> Option<&'a SymbolRecord> {
-    let (prefix, remainder) = path.split_once("::")?;
-    for prefix_candidate in
-        super::relation_paths::relation_candidate_names(prefix, source_qualified, module_scope)
-    {
-        let Some(matches) = by_qualified_name.get(&prefix_candidate) else {
-            continue;
-        };
-        let Some(import) = unique_symbol(matches) else {
-            continue;
-        };
-        if import.kind != SymbolKind::Import {
-            continue;
-        }
-        let Some(imported) = import.imports.first() else {
-            continue;
-        };
-        let imported = imported
-            .split_once(" as ")
-            .map_or(imported.as_str(), |(target, _)| target);
-        let expanded = format!("{imported}::{remainder}");
-        if let Some(target) = resolve_target_with_depth(
-            by_qualified_name,
-            &expanded,
-            source_qualified,
-            module_scope,
-            depth,
-        ) {
-            return Some(target);
-        }
-    }
-    None
-}
-fn resolve_definition_source<'a>(
-    matches: &[&'a SymbolRecord],
-    target: &SymbolRecord,
-) -> Option<&'a SymbolRecord> {
-    let scoped = matches
-        .iter()
-        .copied()
-        .filter(|symbol| symbol.package == target.package && symbol.target == target.target)
-        .collect::<Vec<_>>();
-    if matches!(&target.kind, SymbolKind::Method) {
-        if let Some(source) = unique_kind(&scoped, &SymbolKind::Impl) {
-            return Some(source);
-        }
-        if let Some(source) = unique_kind(&scoped, &SymbolKind::Trait) {
-            return Some(source);
-        }
-    } else if let Some(source) = unique_kind(&scoped, &SymbolKind::Module) {
-        return Some(source);
-    }
-    unique_symbol(&scoped)
-}
-
-fn unique_kind<'a>(matches: &[&'a SymbolRecord], kind: &SymbolKind) -> Option<&'a SymbolRecord> {
-    let mut candidates = matches
-        .iter()
-        .copied()
-        .filter(|symbol| &symbol.kind == kind);
-    match (candidates.next(), candidates.next()) {
-        (Some(symbol), None) => Some(symbol),
-        _ => None,
-    }
-}
-
-fn unique_symbol<'a>(matches: &[&'a SymbolRecord]) -> Option<&'a SymbolRecord> {
-    let mut declarations = matches
-        .iter()
-        .filter(|symbol| symbol.kind != SymbolKind::Import);
-    match (declarations.next(), declarations.next()) {
-        (Some(symbol), None) => Some(*symbol),
-        (None, None) if matches.len() == 1 => matches.first().copied(),
-        _ => None,
-    }
-}
-
-fn resolve_self_receiver_target<'a>(
-    by_qualified_name: &'a BTreeMap<String, Vec<&'a SymbolRecord>>,
-    source_qualified: &str,
-    method: &str,
-) -> Option<&'a SymbolRecord> {
-    let candidate = source_qualified
-        .rsplit_once("::")
-        .map(|(parent, _)| format!("{parent}::{method}"))?;
-    by_qualified_name
-        .get(&candidate)
-        .and_then(|candidates| unique_symbol(candidates))
 }

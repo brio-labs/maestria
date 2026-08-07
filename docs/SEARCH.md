@@ -320,7 +320,11 @@ The deterministic repository lane is a persisted projection, not an embedding fa
 `maestria index repository <path>` discovers every Cargo workspace under the repository
 root with a bounded walk (skipping `.git`, `target/`, hidden directories, and
 privacy-excluded paths) and records each workspace's packages, targets, features,
-dependencies, and Rust symbols into one repository-wide index. Each symbol carries
+dependencies, and Rust symbols into one repository-wide index. Python repositories
+(PEP 621 `pyproject.toml`, `setup.cfg`, or `setup.py`) are discovered with the same
+walk: each distribution becomes a package whose targets are its top-level packages
+and modules, and Python classes, functions, methods, imports, and calls are extracted
+with a deterministic tokenizer (no execution, no installation). Each symbol carries
 repository root, commit SHA, worktree identity, source path/range, and parser generation.
 
 Exact queries remain available without neural indexes:
@@ -401,19 +405,20 @@ symbols against durable, blob-verified evidence; files the kernel refuses to ind
 
 Multiple workspace roots share one repository index: member manifests that resolve to an
 already-indexed workspace are deduplicated, and packages are deduplicated by package id.
-A repository without any `Cargo.toml` (Python, web, or other non-Rust code) indexes to
-a valid, fresh empty index: `mode=full` with zero symbols, no matches from code queries,
-and no-op rebuilds on subsequent runs. A root `Cargo.toml` that exists but fails
-`cargo metadata` is a typed error. A NESTED manifest that fails `cargo metadata` does
-not kill the index: the broken workspace is skipped, the healthy workspaces are still
-indexed, and the degradation is surfaced as a `workspace_warnings` entry in the summary
-JSON plus a `warning:` line on stderr — never silently.
+A repository without any supported manifest (neither `Cargo.toml` nor a Python manifest)
+indexes to a valid, fresh empty index: `mode=full` with zero symbols, no matches from
+code queries, and no-op rebuilds on subsequent runs. A root `Cargo.toml` that exists but
+fails `cargo metadata` is a typed error, as is a root `pyproject.toml` that fails to
+parse. A NESTED manifest that fails does not kill the index: the broken workspace or
+distribution is skipped, the healthy ones are still indexed, and the degradation is
+surfaced as a `workspace_warnings` entry in the summary JSON plus a `warning:` line on
+stderr — never silently.
 
-Repository-code promotion is governed by the frozen `rust-repository-frozen-v1`
-benchmark in `maestria-retrieval`. It compares the Phase C route with the
-code-specialized route for exact-span recall, evidence-chain accuracy, p95
-latency, freshness errors, outcome accuracy, abstention accuracy, peak memory,
-privacy violations, security violations, and energy across seven query classes:
+Repository-code promotion is governed by the frozen `rust-repository-frozen-v1` and
+`python-repository-frozen-v1` benchmarks in `maestria-retrieval`. They compare the
+Phase C route with the code-specialized route for exact-span recall, evidence-chain
+accuracy, p95 latency, freshness errors, outcome accuracy, abstention accuracy, peak
+memory, privacy violations, security violations, and energy across seven query classes:
 exact symbol, definition/reference, issue-to-file, multi-hop dependency, test
 association, stale worktree, and correct abstention.
 Specialized routing is shadowed by default. A promotion record may activate it

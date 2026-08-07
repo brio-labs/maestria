@@ -9,6 +9,7 @@
 
 use crate::CodeIntelError;
 use crate::identity::{discover_dirty_paths, discover_file_set, discover_repository_identity};
+use crate::language::{active_backends, is_backend_manifest_path};
 use crate::types::RepositoryCodeIndex;
 use std::path::Path;
 
@@ -90,7 +91,8 @@ pub fn build_or_update_repository_index(
     {
         return full(candidates_path);
     }
-    let identity = discover_repository_identity(root, excluded_patterns)?;
+    let backends = active_backends(root, excluded_patterns)?;
+    let identity = discover_repository_identity(root, excluded_patterns, &backends)?;
     if index.file_contexts.is_empty() && !index.symbols.is_empty() {
         // Invariant guard: an index with symbols but no per-file contexts
         // cannot be patched incrementally (there is nothing to re-derive or
@@ -111,10 +113,11 @@ pub fn build_or_update_repository_index(
     // diff", never content-derived files.
     let porcelain_dirty = discover_dirty_paths(root)?;
     let mut dirty = porcelain_dirty.clone();
-    if dirty
-        .iter()
-        .any(|path| path.ends_with(".toml") || path.ends_with(".lock"))
-    {
+    if dirty.iter().any(|path| {
+        path.ends_with(".toml")
+            || path.ends_with(".lock")
+            || is_backend_manifest_path(path, &backends)
+    }) {
         return full(candidates_path);
     }
     let file_set = discover_file_set(root)?;
@@ -146,6 +149,7 @@ pub fn build_or_update_repository_index(
         file_set,
         dirty,
         delta_files,
+        backends,
     };
     drop_deleted_files(&inputs, &mut state)?;
     reextract_gitignored(&inputs, &mut state)?;

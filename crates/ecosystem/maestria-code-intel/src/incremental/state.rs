@@ -1,6 +1,7 @@
 //! Working stores threaded through the incremental rebuild phases.
 
 use crate::identity::RepositoryIdentity;
+use crate::language::LanguageBackend;
 use crate::symbols::RelationCandidate;
 use crate::types::{FileContextRecord, RepositoryCodeIndex};
 use std::collections::{BTreeMap, BTreeSet};
@@ -18,6 +19,9 @@ pub(crate) struct RebuildInputs<'a> {
     /// Changed file set persisted into the rebuilt summary: porcelain dirty
     /// set plus the diff between the replaced index's commit and HEAD.
     pub(crate) delta_files: BTreeSet<String>,
+    /// Active language backends used to dispatch per-file re-extraction,
+    /// subtree derivation, and the new-file check.
+    pub(crate) backends: Vec<Box<dyn LanguageBackend>>,
 }
 
 /// Working stores threaded through the incremental rebuild phases.
@@ -158,6 +162,9 @@ pub(crate) fn candidate_id_prefix(candidate: &RelationCandidate) -> String {
             source_record_id, ..
         } => source_record_id,
         RelationCandidate::Implements {
+            source_record_id, ..
+        } => source_record_id,
+        RelationCandidate::PythonCall {
             source_record_id, ..
         } => source_record_id,
     };
