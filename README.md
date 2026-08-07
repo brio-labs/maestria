@@ -418,6 +418,8 @@ Query the persisted repository code index built by `index repository`. All
 maestria search code symbol <pattern>
 maestria search code path <pattern>
 maestria search code regex <pattern>
+maestria search code doc <pattern>
+maestria search code markers <todo|fixme|hack|unsafe>
 maestria search code changed [--since <commit>]
 maestria search code context <pattern> [--depth <n>] [--nodes <n>] [--direction both|forward|reverse]
 ```
@@ -427,6 +429,8 @@ maestria search code context <pattern> [--depth <n>] [--nodes <n>] [--direction 
 | `symbol` | Match repository symbols by name or qualified-name substring |
 | `path` | Match repository symbols by source path substring |
 | `regex` | Match repository symbols and paths with a regular expression |
+| `doc` | Match repository symbols whose doc comment contains the pattern (from `///`, `//!`, and `#[doc]` attributes) |
+| `markers` | Match repository symbols carrying a `todo`, `fixme`, `hack`, or `unsafe` source marker |
 | `changed` | Match symbols in files changed since a commit (persisted delta without `--since`, live git diff plus dirty set with it) |
 | `context` | Traverse bounded repository relations from a symbol seed |
 

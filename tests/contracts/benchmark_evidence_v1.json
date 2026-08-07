@@ -38,7 +38,7 @@
           "docs/PHILOSOPHY.md",
           "crates/ecosystem/maestria-retrieval/tests/fixtures/golden-v3.json"
         ],
-        "source_hash": "76fd22018939fb2d2e90d4b82664917aeb2439eec6e9b1c1b078e178d2b0d38c"
+        "source_hash": "a964d5f98fdc4107f3db66918926a474e4af0768b8578d7be7c166be090b4b5e"
       },
       "fingerprints": {
         "corpus_snapshot": "maestria-document-snapshot-v1",
@@ -95,7 +95,7 @@
           "docs/PHILOSOPHY.md",
           "crates/ecosystem/maestria-retrieval/tests/fixtures/golden-v3.json"
         ],
-        "source_hash": "76fd22018939fb2d2e90d4b82664917aeb2439eec6e9b1c1b078e178d2b0d38c"
+        "source_hash": "a964d5f98fdc4107f3db66918926a474e4af0768b8578d7be7c166be090b4b5e"
       },
       "fingerprints": {
         "corpus_snapshot": "maestria-document-snapshot-v1",
@@ -150,7 +150,7 @@
           "crates/ecosystem/maestria-retrieval/tests/fixtures/rust-repository-benchmark-v1.json",
           "crates/ecosystem/maestria-retrieval/src/repository_benchmark_runner.rs"
         ],
-        "source_hash": "8265273fe557585732255710ceed7b1a971d28074119e938918b75fd819d5196"
+        "source_hash": "9088903e6a9dd5de9ec03cc77a90e2a0baf2eeaafea0532dd4a434d60b1059b2"
       },
       "fingerprints": {
         "corpus_snapshot": "rust-repository-frozen-v1",
@@ -259,6 +259,61 @@
         {
           "kind": "visual",
           "path": "target/benchmark-reports/visual-provider-unavailable.json"
+        }
+      ]
+    },
+    {
+      "milestone": "v0.9 \u2014 Doc & Marker Search",
+      "release_stage": "implementation-complete",
+      "data_fidelity": "real",
+      "corpus": {
+        "id": "rust-repository-frozen-v1",
+        "snapshot": "sha256:af0a6dc77b5b27dfefff19c071d6b49817965652e9d7ab6942ab08e7d7d0783a",
+        "judgment_set": "rust-repository-benchmark-v1",
+        "source_paths": [
+          "crates/ecosystem/maestria-retrieval/tests/fixtures/rust-repository-benchmark-v1.json",
+          "crates/ecosystem/maestria-retrieval/src/repository_benchmark_runner.rs"
+        ],
+        "source_hash": "9088903e6a9dd5de9ec03cc77a90e2a0baf2eeaafea0532dd4a434d60b1059b2"
+      },
+      "fingerprints": {
+        "corpus_snapshot": "rust-repository-frozen-v1",
+        "index_generation": "cargo-rust-code-v3",
+        "model_fingerprint": "repository-code-index-v2"
+      },
+      "environment": {
+        "os": "ubuntu-24.04",
+        "rust_toolchain": "nightly-2026-06-15",
+        "cpu_arch": "x86_64"
+      },
+      "results": {
+        "quality": {
+          "status": "warning",
+          "reason": "doc-comment and code-marker query classes execute against the real repository index; promotion still requires benchmark comparison"
+        },
+        "resource": {
+          "status": "warning",
+          "reason": "code-intel adapter reports platform counters as unavailable"
+        },
+        "security": {
+          "status": "warning",
+          "reason": "code-intel adapter does not measure serving-boundary security counters"
+        }
+      },
+      "degradations": [
+        {
+          "area": "resource",
+          "description": "Memory, disk, and energy counters are unavailable in the code-intel adapter and are not inferred."
+        },
+        {
+          "area": "promotion",
+          "description": "Doc-comment and marker routes are benchmark-gated and are not promoted by implementation status."
+        }
+      ],
+      "reports": [
+        {
+          "kind": "repository",
+          "path": "target/benchmark-reports/repository-real.json"
         }
       ]
     }

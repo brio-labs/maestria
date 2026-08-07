@@ -1,8 +1,8 @@
 use crate::symbols::context::FileContext;
 use crate::{CodeIntelError, RecordProvenance, SourceRange, SymbolKind, SymbolRecord, Visibility};
 use proc_macro2::Span;
-use syn::Type;
 use syn::spanned::Spanned;
+use syn::{Attribute, Type};
 
 pub(crate) fn simple_record(
     kind: SymbolKind,
@@ -28,8 +28,47 @@ pub(crate) fn simple_record(
         is_bench: context.is_bench_target || crate::symbols::markers::attr_bench(attrs),
         signature: Some(name.to_string()),
         imports: Vec::new(),
+        doc_comment: doc_comment_from_attrs(attrs),
         markers: crate::symbols::markers::declaration_markers(attrs, &context.file_markers),
         provenance: provenance(context, range),
+    }
+}
+
+/// Join the text of every `#[doc]` attribute (`///`, `//!`, or explicit
+/// `#[doc = "…"]`) into one `\n`-joined, trimmed string. Lines are trimmed
+/// of trailing whitespace; the overall text is trimmed of leading and
+/// trailing blank lines.
+pub(crate) fn doc_comment_from_attrs(attrs: &[Attribute]) -> Option<String> {
+    let mut lines = Vec::new();
+    for attribute in attrs {
+        if !attribute.path().is_ident("doc") {
+            continue;
+        }
+        let syn::Meta::NameValue(value) = &attribute.meta else {
+            continue;
+        };
+        let syn::Expr::Lit(expression) = &value.value else {
+            continue;
+        };
+        let syn::Lit::Str(literal) = &expression.lit else {
+            continue;
+        };
+        lines.extend(
+            literal
+                .value()
+                .lines()
+                .map(|line| line.trim_end().to_string()),
+        );
+    }
+    if lines.is_empty() {
+        return None;
+    }
+    let joined = lines.join("\n");
+    let trimmed = joined.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_string())
     }
 }
 

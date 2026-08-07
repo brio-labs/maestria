@@ -66,6 +66,7 @@ impl<'a> FunctionProbe<'a> {
             is_bench: self.context.is_bench_target,
             signature: Some("unsafe".to_string()),
             imports: Vec::new(),
+            doc_comment: None,
             markers: self.context.file_markers.clone(),
             provenance: provenance(self.context, range),
         });

@@ -24,6 +24,8 @@ pub enum RepositoryQueryClass {
     TestAssociation,
     StaleWorktree,
     CorrectAbstention,
+    DocComment,
+    CodeMarker,
 }
 
 impl RepositoryQueryClass {
@@ -55,6 +57,17 @@ impl RepositoryQueryClass {
             || normalized.contains("reference")
         {
             Self::DefinitionReference
+        } else if normalized.contains("doc comment")
+            || normalized.contains("docs for")
+            || normalized.contains("documented")
+        {
+            Self::DocComment
+        } else if normalized.contains("todo")
+            || normalized.contains("fixme")
+            || normalized.contains("unsafe block")
+            || normalized.contains("marker")
+        {
+            Self::CodeMarker
         } else if normalized.contains("symbol")
             || normalized.contains("struct ")
             || normalized.contains("function ")
@@ -69,7 +82,7 @@ impl RepositoryQueryClass {
     }
 
     /// Return all classes required by the frozen benchmark contract.
-    pub const fn all() -> [Self; 7] {
+    pub const fn all() -> [Self; 9] {
         [
             Self::ExactSymbol,
             Self::DefinitionReference,
@@ -78,6 +91,8 @@ impl RepositoryQueryClass {
             Self::TestAssociation,
             Self::StaleWorktree,
             Self::CorrectAbstention,
+            Self::DocComment,
+            Self::CodeMarker,
         ]
     }
 }

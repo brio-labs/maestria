@@ -329,9 +329,28 @@ Exact queries remain available without neural indexes:
 maestria search code symbol "RetrievalEngine"
 maestria search code path "crates/ecosystem/maestria-retrieval"
 maestria search code regex "impl .*CandidateRetriever"
+maestria search code doc "Build a fresh index"
+maestria search code markers todo
+maestria search code markers unsafe
 maestria search code changed
 maestria search code changed --since HEAD~1
 ```
+
+`search code doc <pattern>` matches symbols whose doc comment contains the
+pattern as a case-sensitive substring. Doc text comes from `#[doc]`
+attributes — `///` lines, `//!` file/module docs, and explicit
+`#[doc = "…"]` — joined and trimmed deterministically from the AST, never
+from a model. File-level `//!` docs attach to the file's root module symbol.
+
+`search code markers <kind>` matches symbols carrying a source marker, where
+`kind` is one of `todo`, `fixme`, `hack`, or `unsafe` (case-insensitive;
+anything else is a parse error). todo/fixme/hack markers come from a
+deterministic raw-text comment scan (strings and char literals are skipped);
+each marker attaches to the innermost symbol whose source range contains the
+comment, with an orphan comment attaching to the file's root module symbol.
+Markers carry validated one-based inclusive source ranges and are never
+LLM-derived. `unsafe` matches `UnsafeBlock` symbols and unsafe-bearing
+declarations instead of comment markers.
 
 `search code changed` returns symbols in files that changed since the
 indexed baseline (the persisted delta), and `--since <commit>` computes the

@@ -11,6 +11,7 @@
 //! - `identity`: repository and worktree provenance discovery.
 //! - `incremental`: git-incremental index rebuild (assemble, candidates,
 //!   reconcile, and state submodules).
+//! - `markers`: validated code-marker records and the marker query surface.
 //! - `metadata`: bounded Cargo workspace metadata extraction.
 //! - `provenance`: canonical per-file content hashing and hash validation.
 //! - `query`: bounded in-memory symbol query execution.
@@ -28,6 +29,7 @@ mod error;
 mod freshness;
 mod identity;
 mod incremental;
+mod markers;
 mod metadata;
 mod provenance;
 mod query;
@@ -41,6 +43,9 @@ pub use context::{
 };
 pub use error::CodeIntelError;
 pub use freshness::{RepositoryFreshness, RepositoryIdentitySnapshot};
+pub use markers::{
+    CodeMarker, CodeMarkerError, CodeMarkerKind, MarkerQueryKind, MarkerQueryKindParseError,
+};
 pub use types::{
     CodeIndexSummary, CodeQuery, CodeRelationKind, CodeRelationRecord, CodeRelationSummary,
     CommitSha, DependencyRecord, FileContextRecord, PackageRecord, ParserGeneration, QueryResult,

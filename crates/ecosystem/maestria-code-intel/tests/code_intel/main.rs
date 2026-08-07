@@ -1,6 +1,7 @@
 mod changed_tests;
 mod common;
 mod context_tests;
+mod doc_marker_tests;
 mod freshness_tests;
 mod incremental_tests;
 mod lib_tests;

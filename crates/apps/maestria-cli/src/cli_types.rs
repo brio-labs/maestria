@@ -146,6 +146,10 @@ pub enum CodeSearchCommands {
     Path { pattern: String },
     /// Match repository symbols and paths with a regular expression
     Regex { pattern: String },
+    /// Match repository symbols whose doc comment contains the pattern
+    Doc { pattern: String },
+    /// Match repository symbols carrying a todo|fixme|hack|unsafe marker
+    Markers { kind: String },
     /// Match symbols in files changed since a commit (persisted delta when
     /// --since is omitted; live git diff plus dirty set when given)
     Changed {

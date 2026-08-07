@@ -144,6 +144,44 @@ fn search_code_symbol(
     Ok((matched, records))
 }
 
+/// Run `search code doc <pattern>` and return (matched, record ids).
+fn search_code_doc(
+    instance_path: &str,
+    pattern: &str,
+) -> Result<(usize, Vec<String>), Box<dyn Error>> {
+    let stdout = assert_ok(&["search", "-i", instance_path, "code", "doc", pattern])?;
+    let value: serde_json::Value = serde_json::from_str(&stdout)?;
+    let matched = value["summary"]["matched"]
+        .as_u64()
+        .ok_or("missing matched")? as usize;
+    let records = value["records"]
+        .as_array()
+        .ok_or("missing records")?
+        .iter()
+        .filter_map(|record| record["record_id"].as_str().map(str::to_string))
+        .collect();
+    Ok((matched, records))
+}
+
+/// Run `search code markers <kind>` and return (matched, record ids).
+fn search_code_markers(
+    instance_path: &str,
+    kind: &str,
+) -> Result<(usize, Vec<String>), Box<dyn Error>> {
+    let stdout = assert_ok(&["search", "-i", instance_path, "code", "markers", kind])?;
+    let value: serde_json::Value = serde_json::from_str(&stdout)?;
+    let matched = value["summary"]["matched"]
+        .as_u64()
+        .ok_or("missing matched")? as usize;
+    let records = value["records"]
+        .as_array()
+        .ok_or("missing records")?
+        .iter()
+        .filter_map(|record| record["record_id"].as_str().map(str::to_string))
+        .collect();
+    Ok((matched, records))
+}
+
 #[test]
 fn repository_index_on_non_rust_repo_is_empty_and_fresh() -> Result<(), Box<dyn Error>> {
     let repo = TempDir::new("maestria-release-nonrust-repo")?;
@@ -179,6 +217,29 @@ fn repository_index_on_non_rust_repo_is_empty_and_fresh() -> Result<(), Box<dyn 
     // Unchanged repository is a no-op and stays searchable (no matches).
     let stdout = assert_ok(&["index", "-i", &instance_path, "repository", &repo_path])?;
     assert!(stdout.contains("mode=noop"), "expected noop: {stdout}");
+    Ok(())
+}
+
+/// Exercise `search code doc` and `search code markers` end to end: doc
+/// records, deterministic marker counts, and the invalid-kind parse error.
+fn assert_doc_and_marker_search(instance_path: &str) -> Result<(), Box<dyn Error>> {
+    let (matched, records) = search_code_doc(instance_path, "Adds two numbers")?;
+    assert!(
+        matched >= 1
+            && records
+                .iter()
+                .any(|record| record.contains(":function:add:")),
+        "doc search for `add` found nothing: {records:?}"
+    );
+    let (matched, _) = search_code_markers(instance_path, "todo")?;
+    assert_eq!(matched, 0, "fixture has no todo markers yet: {matched}");
+    let (code, _stdout, stderr) =
+        run(&["search", "-i", instance_path, "code", "markers", "bogus"])?;
+    assert_ne!(code, 0, "invalid marker kind must fail");
+    assert!(
+        stderr.contains("invalid marker kind"),
+        "expected marker parse error: {stderr}"
+    );
     Ok(())
 }
 
@@ -219,10 +280,15 @@ fn repository_code_index_search_roundtrip() -> Result<(), Box<dyn Error>> {
     let (matched, _) = search_code_symbol(&instance_path, "helper")?;
     assert!(matched >= 1, "module file symbol not searchable");
 
+    // Doc-comment and marker search go through the same run_search path.
+    assert_doc_and_marker_search(&instance_path)?;
+
     // An edit re-parses only the affected file and keeps the index fresh.
     let lib = repo.path().join("src/lib.rs");
     let mut source = fs::read_to_string(&lib)?;
-    source.push_str("\npub fn subtracted() -> i32 { 3 }\n");
+    source.push_str(
+        "\n/// Subtracted docs.\npub fn subtracted() -> i32 {\n    // todo: subtract later\n    3\n}\n",
+    );
     fs::write(&lib, source)?;
     let stdout = assert_ok(&["index", "-i", &instance_path, "repository", &repo_path])?;
     assert!(
@@ -233,6 +299,16 @@ fn repository_code_index_search_roundtrip() -> Result<(), Box<dyn Error>> {
     assert!(
         matched == 1 && records.iter().any(|record| record.contains("subtracted")),
         "new symbol not searchable after incremental rebuild: {records:?}"
+    );
+    let (matched, records) = search_code_doc(&instance_path, "Subtracted docs")?;
+    assert!(
+        matched == 1 && records.iter().any(|record| record.contains("subtracted")),
+        "doc text not searchable after incremental rebuild: {records:?}"
+    );
+    let (matched, records) = search_code_markers(&instance_path, "todo")?;
+    assert!(
+        matched == 1 && records.iter().any(|record| record.contains("subtracted")),
+        "todo marker not searchable after incremental rebuild: {records:?}"
     );
 
     // Unchanged repository is a no-op and stays searchable.
@@ -254,6 +330,20 @@ fn repository_code_index_search_roundtrip() -> Result<(), Box<dyn Error>> {
         "dirty_probe",
     ])?;
     assert_ne!(code, 0, "stale search unexpectedly succeeded: {stdout}");
+    assert!(
+        stderr.contains("repository code index is stale"),
+        "expected stale freshness error: {stderr}"
+    );
+    // Doc-comment search shares the same freshness gate.
+    let (code, stdout, stderr) = run(&[
+        "search",
+        "-i",
+        &instance_path,
+        "code",
+        "doc",
+        "Subtracted docs",
+    ])?;
+    assert_ne!(code, 0, "stale doc search unexpectedly succeeded: {stdout}");
     assert!(
         stderr.contains("repository code index is stale"),
         "expected stale freshness error: {stderr}"
@@ -378,7 +468,6 @@ fn broken_nested_workspace_warns_on_stderr_and_indexes_healthy() -> Result<(), B
     );
     Ok(())
 }
-
 
 #[test]
 fn repository_code_changed_query_flow() -> Result<(), Box<dyn Error>> {

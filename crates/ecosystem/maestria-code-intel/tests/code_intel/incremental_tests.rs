@@ -6,7 +6,6 @@ use std::error::Error;
 use std::fs;
 use tempfile::tempdir;
 
-
 #[test]
 fn incremental_edit_equals_full_rebuild() -> Result<(), Box<dyn Error>> {
     let tmp = make_workspace()?;

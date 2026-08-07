@@ -209,6 +209,15 @@ async fn dispatch_search(
                 CodeSearchCommands::Regex { pattern } => {
                     maestria_code_intel::CodeQuery::Regex { pattern }
                 }
+                CodeSearchCommands::Doc { pattern } => {
+                    maestria_code_intel::CodeQuery::Doc { pattern }
+                }
+                CodeSearchCommands::Markers { kind } => {
+                    let marker_kind = kind
+                        .parse::<maestria_code_intel::MarkerQueryKind>()
+                        .map_err(|error| anyhow!("invalid marker kind {kind:?}: {error}"))?;
+                    maestria_code_intel::CodeQuery::Markers { marker_kind }
+                }
                 CodeSearchCommands::Changed { since } => {
                     return commands::code_intel::run_changed(instance_dir, since, limit);
                 }

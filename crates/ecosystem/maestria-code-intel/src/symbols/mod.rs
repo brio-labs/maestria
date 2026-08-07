@@ -12,6 +12,7 @@ use std::fs;
 use std::path::Path;
 
 pub(crate) mod collect_rust;
+pub(crate) mod comments;
 mod compound;
 pub(crate) mod context;
 pub(crate) mod extract;

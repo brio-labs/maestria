@@ -94,6 +94,7 @@ fn symbol(content_hash: &ContentHash) -> Result<SymbolRecord, Box<dyn std::error
         is_bench: false,
         signature: None,
         imports: Vec::new(),
+        doc_comment: None,
         markers: SymbolMarkers::default(),
         provenance: RecordProvenance {
             repository_root: REPOSITORY_ROOT.to_string(),

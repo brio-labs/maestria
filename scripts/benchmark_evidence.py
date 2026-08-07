@@ -24,6 +24,7 @@ REQUIRED_MILESTONES = (
     "v0.5 — Evaluated Hybrid Retrieval",
     "v0.7 — Repository Intelligence",
     "v0.8 — Visual Document Retrieval",
+    "v0.9 — Doc & Marker Search",
 )
 REQUIRED_RESULT_KEYS = ("quality", "resource", "security")
 REQUIRED_ENVIRONMENT_KEYS = ("os", "rust_toolchain", "cpu_arch")

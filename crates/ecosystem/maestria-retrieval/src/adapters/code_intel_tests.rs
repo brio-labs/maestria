@@ -58,6 +58,7 @@ fn symbol(record_id: &str) -> Result<SymbolRecord, Box<dyn std::error::Error>> {
         is_bench: false,
         signature: None,
         imports: Vec::new(),
+        doc_comment: None,
         markers: maestria_code_intel::SymbolMarkers::default(),
         provenance: maestria_code_intel::RecordProvenance {
             repository_root: "/root/repo".to_string(),

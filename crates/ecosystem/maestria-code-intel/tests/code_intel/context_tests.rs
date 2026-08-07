@@ -30,6 +30,7 @@ fn make_symbol(id: &str, file_path: &str, line: usize) -> Result<SymbolRecord, B
         is_bench: false,
         signature: None,
         imports: Vec::new(),
+        doc_comment: None,
         markers: SymbolMarkers::default(),
         provenance: make_provenance(file_path, line)?,
     })

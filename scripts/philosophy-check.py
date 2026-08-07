@@ -604,6 +604,7 @@ RESPONSIBILITY_MAPS: dict[str, tuple[str, ...]] = {
         "freshness",
         "identity",
         "incremental",
+        "markers",
         "metadata",
         "provenance",
         "query",

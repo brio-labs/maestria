@@ -45,6 +45,8 @@ where
                 });
             }
         },
+        CodeQuery::Doc { pattern } => QueryMatcher::Doc { pattern },
+        CodeQuery::Markers { marker_kind } => QueryMatcher::Markers { kind: *marker_kind },
         CodeQuery::Changed { .. } => QueryMatcher::ChangedFiles {
             files: changed_files,
         },
@@ -110,6 +112,8 @@ enum QueryMatcher<'a> {
     All,
     Contains { pattern: &'a str, mode: MatchMode },
     Regex(Regex),
+    Doc { pattern: &'a str },
+    Markers { kind: crate::MarkerQueryKind },
     ChangedFiles { files: Option<&'a BTreeSet<String>> },
 }
 
@@ -133,6 +137,11 @@ impl<'a> QueryMatcher<'a> {
                         .is_some_and(|signature| regex.is_match(signature))
                     || symbol.imports.iter().any(|import| regex.is_match(import))
             }
+            Self::Doc { pattern } => symbol
+                .doc_comment
+                .as_deref()
+                .is_some_and(|doc_comment| doc_comment.contains(pattern)),
+            Self::Markers { kind } => symbol.has_marker(*kind),
             Self::ChangedFiles { files } => {
                 files.is_some_and(|files| files.contains(&symbol.provenance.file_path))
             }

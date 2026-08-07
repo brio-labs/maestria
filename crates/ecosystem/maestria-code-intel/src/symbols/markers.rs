@@ -62,6 +62,7 @@ pub(crate) fn file_markers(path: &std::path::Path, source: &str) -> SymbolMarker
             || lowered.contains("do not edit"),
         axum_routes: Vec::new(),
         sqlx_queries: Vec::new(),
+        code_markers: Vec::new(),
     }
 }
 

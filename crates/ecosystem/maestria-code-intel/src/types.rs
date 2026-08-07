@@ -1,5 +1,6 @@
 //! Shared serializable types for repository code intelligence records.
 
+use crate::markers::{CodeMarker, MarkerQueryKind};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
@@ -317,6 +318,9 @@ pub struct SymbolMarkers {
     pub axum_routes: Vec<String>,
     /// SQLx query calls/macros detected in scope.
     pub sqlx_queries: Vec<String>,
+    /// Raw-text todo/fixme/hack comments attached to this symbol by source
+    /// range containment (see `symbols::comments`).
+    pub code_markers: Vec<CodeMarker>,
 }
 
 /// Typed symbol kinds emitted by this index.
@@ -404,6 +408,10 @@ pub struct SymbolRecord {
     pub is_bench: bool,
     pub signature: Option<String>,
     pub imports: Vec<String>,
+    /// Joined `#[doc]` attribute text (`///`, `//!`, or explicit
+    /// `#[doc = "…"]`), lines trimmed and `\n`-joined; `None` when the item
+    /// carries no doc attributes.
+    pub doc_comment: Option<String>,
     pub markers: SymbolMarkers,
     pub provenance: RecordProvenance,
 }
@@ -420,6 +428,11 @@ pub enum CodeQuery {
     Path { pattern: String },
     /// Match symbol, qualified symbol, or path by regex.
     Regex { pattern: String },
+    /// Match symbols whose doc comment contains the pattern (case-sensitive
+    /// substring over the joined `#[doc]` text).
+    Doc { pattern: String },
+    /// Match symbols carrying a todo/fixme/hack/unsafe marker.
+    Markers { marker_kind: MarkerQueryKind },
     /// Symbols in files that changed since `since`: the persisted build-time
     /// delta when `since` is `None`, or a live git diff plus the current
     /// dirty set when `Some`.
