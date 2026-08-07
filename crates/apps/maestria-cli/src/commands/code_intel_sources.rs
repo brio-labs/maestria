@@ -72,6 +72,15 @@ pub(super) async fn register_repository_sources(
             mismatched.insert(relative_path.clone());
             continue;
         }
+        // An empty source file parses to zero chunks, so the kernel pipeline
+        // never reaches the Indexed state and the wait would time out. Such a
+        // file has no indexable content; its records (typically only the
+        // module symbol) stay unbound and the query authorization skips them,
+        // exactly like secret-skipped files.
+        if bytes.is_empty() {
+            skipped += 1;
+            continue;
+        }
         // The kernel refuses to index secret-bearing chunks (its full-text
         // effect fails and the runtime shuts down), so files the same scanner
         // flags are left unbound up front; their symbols are then skipped by
@@ -105,7 +114,7 @@ pub(super) async fn register_repository_sources(
     }
     if skipped > 0 {
         eprintln!(
-            "skipped {} repository source(s) containing secret-like content (not searchable)",
+            "skipped {} repository source(s) with no indexable content or secret-like content (not searchable)",
             skipped
         );
     }

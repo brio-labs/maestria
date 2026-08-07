@@ -728,3 +728,51 @@ fn web_repository_code_index_search_roundtrip() -> Result<(), Box<dyn Error>> {
     assert!(stdout.contains("mode=noop"), "expected noop: {stdout}");
     Ok(())
 }
+
+#[test]
+fn repository_index_with_empty_source_files_succeeds() -> Result<(), Box<dyn Error>> {
+    let repo = TempDir::new("maestria-release-empty-repo")?;
+    let instance = TempDir::new("maestria-release-empty-instance")?;
+    let instance_path = instance.path().to_string_lossy().into_owned();
+    let repo_path = repo.path().to_string_lossy().into_owned();
+    write_file(
+        repo.path(),
+        "pyproject.toml",
+        "[project]\nname = \"empty_fixture\"\nversion = \"0.1.0\"\n",
+    )?;
+    // An empty package file still carries a module symbol (the python
+    // extractor emits one per file), but it parses to zero chunks;
+    // registration must skip it instead of waiting forever for an Indexed
+    // state that never arrives.
+    write_file(repo.path(), "src/empty_pkg/__init__.py", "")?;
+    write_file(
+        repo.path(),
+        "src/empty_pkg/mod.py",
+        "def probe():\n    return 1\n",
+    )?;
+    run_git(repo.path(), &["init", "-q"])?;
+    run_git(repo.path(), &["config", "user.email", "ci@example.com"])?;
+    run_git(repo.path(), &["config", "user.name", "CI"])?;
+    run_git(repo.path(), &["add", "."])?;
+    run_git(repo.path(), &["commit", "-m", "add empty source"])?;
+    assert_init_ok(&instance_path, &repo_path)?;
+
+    let (code, stdout, stderr) =
+        run(&["index", "-i", &instance_path, "repository", &repo_path])?;
+    assert_eq!(code, 0, "index failed: {stderr}");
+    assert!(
+        stdout.contains("mode=full"),
+        "expected full build: {stdout}"
+    );
+    assert!(
+        stderr.contains("skipped 1 repository source(s)"),
+        "expected the empty source to be skipped: {stderr}"
+    );
+
+    // Non-empty symbols remain searchable, and a second run is a no-op.
+    let (matched, _) = search_code_symbol(&instance_path, "probe")?;
+    assert!(matched >= 1, "non-empty symbols must stay searchable");
+    let stdout = assert_ok(&["index", "-i", &instance_path, "repository", &repo_path])?;
+    assert!(stdout.contains("mode=noop"), "expected noop: {stdout}");
+    Ok(())
+}
