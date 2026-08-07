@@ -420,6 +420,10 @@ pub enum CodeQuery {
     Path { pattern: String },
     /// Match symbol, qualified symbol, or path by regex.
     Regex { pattern: String },
+    /// Symbols in files that changed since `since`: the persisted build-time
+    /// delta when `since` is `None`, or a live git diff plus the current
+    /// dirty set when `Some`.
+    Changed { since: Option<CommitSha> },
 }
 
 /// Query summary.
@@ -443,6 +447,18 @@ pub struct QueryResult {
     pub records: Vec<SymbolRecord>,
 }
 
+/// Files and symbols that changed between the build-time baseline and the
+/// current repository state, computed from porcelain status and git history
+/// metadata only (zero content reads).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RepositoryChangeDelta {
+    /// Relative repository paths in the changed set, sorted.
+    pub files: Vec<String>,
+    /// `record_id`s of symbols whose file is in `files`, ordered by file
+    /// then qualified name.
+    pub symbols: Vec<String>,
+}
+
 /// Top-level index summary.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CodeIndexSummary {
@@ -464,6 +480,11 @@ pub struct CodeIndexSummary {
     /// Relation extraction status and summary.
     #[serde(default)]
     pub relation_summary: CodeRelationSummary,
+    /// Files and symbols changed since the build-time baseline (porcelain
+    /// dirty set plus the git diff between the replaced index's commit and
+    /// HEAD). Required on every persisted index; indexes persisted without
+    /// it fail to load and rebuild from scratch.
+    pub changed: RepositoryChangeDelta,
 }
 
 /// Serializable persisted index container.

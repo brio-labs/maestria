@@ -378,3 +378,106 @@ fn broken_nested_workspace_warns_on_stderr_and_indexes_healthy() -> Result<(), B
     );
     Ok(())
 }
+
+
+#[test]
+fn repository_code_changed_query_flow() -> Result<(), Box<dyn Error>> {
+    let repo = TempDir::new("maestria-release-changed-repo")?;
+    let instance = TempDir::new("maestria-release-changed-instance")?;
+    let instance_path = instance.path().to_string_lossy().into_owned();
+    let repo_path = repo.path().to_string_lossy().into_owned();
+    make_repo(repo.path())?;
+    assert_init_ok(&instance_path, &repo_path)?;
+
+    // A clean full build reports an empty changed section.
+    let stdout = assert_ok(&["index", "-i", &instance_path, "repository", &repo_path])?;
+    assert!(
+        stdout.contains("mode=full"),
+        "expected full build: {stdout}"
+    );
+    assert!(
+        stdout.contains("changed_files=0 changed_symbols=0"),
+        "clean full build must report an empty changed section: {stdout}"
+    );
+
+    // Commit an edit and rebuild: the summary gains the edited file and its
+    // symbols through the baseline..HEAD diff.
+    let lib = repo.path().join("src/lib.rs");
+    let mut source = fs::read_to_string(&lib)?;
+    source.push_str("\npub fn changed_fn() -> i32 { 4 }\n");
+    fs::write(&lib, source)?;
+    run_git(repo.path(), &["add", "."])?;
+    run_git(repo.path(), &["commit", "-m", "edit"])?;
+    let stdout = assert_ok(&["index", "-i", &instance_path, "repository", &repo_path])?;
+    assert!(
+        stdout.contains("mode=incremental"),
+        "edited repository should rebuild incrementally: {stdout}"
+    );
+    assert!(
+        stdout.contains("changed_files=1"),
+        "committed edit must be in the changed section: {stdout}"
+    );
+
+    // `search code changed` uses the persisted delta: the edited file's
+    // symbols exactly.
+    let stdout = assert_ok(&["search", "-i", &instance_path, "code", "changed"])?;
+    let value: serde_json::Value = serde_json::from_str(&stdout)?;
+    let matched = value["summary"]["matched"]
+        .as_u64()
+        .ok_or("missing matched")?;
+    assert!(matched >= 1, "changed query found nothing: {stdout}");
+    let records = value["records"].as_array().ok_or("missing records")?;
+    assert!(
+        records
+            .iter()
+            .all(|record| record["provenance"]["file_path"] == "src/lib.rs"),
+        "changed query must only return edited-file symbols: {stdout}"
+    );
+    assert!(
+        records.iter().any(|record| record["record_id"]
+            .as_str()
+            .is_some_and(|id| id.contains(":function:changed_fn:"))),
+        "changed query must include the newly committed symbol: {stdout}"
+    );
+
+    // `search code changed --since HEAD~1` resolves the same delta live
+    // (git diff plus the current dirty set) and matches the same symbols.
+    let stdout = assert_ok(&[
+        "search",
+        "-i",
+        &instance_path,
+        "code",
+        "changed",
+        "--since",
+        "HEAD~1",
+    ])?;
+    let value: serde_json::Value = serde_json::from_str(&stdout)?;
+    let matched = value["summary"]["matched"]
+        .as_u64()
+        .ok_or("missing matched")?;
+    assert!(matched >= 1, "live changed query found nothing: {stdout}");
+    let records = value["records"].as_array().ok_or("missing records")?;
+    assert!(
+        records
+            .iter()
+            .all(|record| record["provenance"]["file_path"] == "src/lib.rs"),
+        "live changed query must only return edited-file symbols: {stdout}"
+    );
+
+    // Garbage --since values fail before any git call.
+    let (code, stdout, stderr) = run(&[
+        "search",
+        "-i",
+        &instance_path,
+        "code",
+        "changed",
+        "--since",
+        "not-a-commit",
+    ])?;
+    assert_ne!(code, 0, "garbage --since unexpectedly succeeded: {stdout}");
+    assert!(
+        stderr.contains("invalid commit reference"),
+        "expected invalid commit reference error: {stderr}"
+    );
+    Ok(())
+}

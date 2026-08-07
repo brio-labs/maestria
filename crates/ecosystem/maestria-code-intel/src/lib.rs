@@ -2,6 +2,7 @@
 
 //! Responsibility map:
 //! - `builder`: repository index construction and exclusion handling.
+//! - `changes`: git-history-aware change delta computation for queries.
 //! - `context`: public repository-context query models and execution.
 //! - `context_assembly`: deterministic context graph result assembly.
 //! - `context_support`: context query normalization and bounded graph traversal.
@@ -19,6 +20,7 @@
 //! - `walk`: bounded repository file walking for identity and discovery.
 
 mod builder;
+mod changes;
 mod context;
 mod context_assembly;
 mod context_support;
@@ -32,6 +34,7 @@ mod query;
 mod symbols;
 mod types;
 mod walk;
+pub use changes::is_plausible_commit_sha;
 pub use context::{
     ContextDirection, MAX_CONTEXT_DEPTH, RepositoryContextEdge, RepositoryContextNode,
     RepositoryContextQuery, RepositoryContextResult, RepositoryContextSummary,
@@ -42,8 +45,8 @@ pub use types::{
     CodeIndexSummary, CodeQuery, CodeRelationKind, CodeRelationRecord, CodeRelationSummary,
     CommitSha, DependencyRecord, FileContextRecord, PackageRecord, ParserGeneration, QueryResult,
     QuerySummary, RecordProvenance, RelationSourceAvailability, RelationSourceKind,
-    RelationSourceStatus, RepositoryCodeIndex, SourceRange, SymbolKind, SymbolMarkers,
-    SymbolRecord, TargetRecord, Visibility, WorktreeIdentity,
+    RelationSourceStatus, RepositoryChangeDelta, RepositoryCodeIndex, SourceRange, SymbolKind,
+    SymbolMarkers, SymbolRecord, TargetRecord, Visibility, WorktreeIdentity,
 };
 
 mod index;

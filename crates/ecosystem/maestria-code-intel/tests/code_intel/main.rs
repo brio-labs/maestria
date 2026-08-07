@@ -1,3 +1,4 @@
+mod changed_tests;
 mod common;
 mod context_tests;
 mod freshness_tests;

@@ -1,5 +1,6 @@
 use super::{CodeIntelError, RepositoryCodeIndex};
-use crate::identity::discover_repository_identity;
+use crate::changes::{build_delta, compute_delta_files};
+use crate::identity::{discover_dirty_paths, discover_repository_identity};
 use crate::metadata::extract_workspace_packages;
 use crate::symbols::RelationCandidate;
 use crate::symbols::extract_symbols;
@@ -55,6 +56,11 @@ impl RepositoryCodeIndex {
             )?;
         }
         let packages = discovery.packages;
+        // From-scratch full builds have no prior index to diff against, so the
+        // delta is the porcelain dirty set only (git metadata, no content
+        // reads); incremental rebuilds add the baseline..HEAD diff.
+        let dirty = discover_dirty_paths(root)?;
+        let delta_files = compute_delta_files(root, None, &dirty)?;
         let extraction = extract_symbols(
             &packages,
             Path::new(&identity.root),
@@ -86,6 +92,7 @@ impl RepositoryCodeIndex {
                     excluded_patterns: excluded_patterns.to_vec(),
                     workspace_warnings: discovery.warnings,
                     relation_summary: extraction.relation_summary,
+                    changed: build_delta(&delta_files, &extraction.symbols),
                 },
                 packages,
                 symbols: extraction.symbols,

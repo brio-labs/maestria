@@ -157,6 +157,7 @@ pub(crate) fn assemble_index(
         .iter()
         .map(|symbol| &symbol.provenance.file_path)
         .collect();
+    let changed = crate::changes::build_delta(&inputs.delta_files, &symbols);
     Ok((
         RepositoryCodeIndex {
             summary: CodeIndexSummary {
@@ -179,6 +180,7 @@ pub(crate) fn assemble_index(
                 // the previous discovery pass stay valid.
                 workspace_warnings: index.summary.workspace_warnings.clone(),
                 relation_summary: relation::relation_status_summary(relations.len()),
+                changed,
             },
             packages,
             symbols,

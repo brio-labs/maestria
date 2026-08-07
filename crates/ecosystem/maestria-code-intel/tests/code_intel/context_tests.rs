@@ -93,6 +93,10 @@ fn context_fixture() -> Result<RepositoryCodeIndex, Box<dyn Error>> {
                 total_relations: relations.len(),
                 source_statuses: Vec::new(),
             },
+            changed: maestria_code_intel::RepositoryChangeDelta {
+                files: Vec::new(),
+                symbols: Vec::new(),
+            },
         },
         packages: Vec::new(),
         symbols,

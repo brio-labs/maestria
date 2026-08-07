@@ -329,7 +329,18 @@ Exact queries remain available without neural indexes:
 maestria search code symbol "RetrievalEngine"
 maestria search code path "crates/ecosystem/maestria-retrieval"
 maestria search code regex "impl .*CandidateRetriever"
+maestria search code changed
+maestria search code changed --since HEAD~1
 ```
+
+`search code changed` returns symbols in files that changed since the
+indexed baseline (the persisted delta), and `--since <commit>` computes the
+change set live: `git diff --name-only <commit> HEAD` plus the current
+porcelain dirty set. `--since` accepts a full 40-hex SHA-1, a short hex
+prefix, or a `HEAD`-family reference (`HEAD`, `HEAD~2`, `HEAD^`); anything
+else is rejected before any git call. Like every code query, a stale index
+fails closed with the freshness message before current-state claims are
+allowed.
 
 Bounded repository context can expand exact/lexical seeds through typed relations:
 
@@ -351,7 +362,15 @@ and tests are separate governed effects and must return their own evidence.
 `maestria index repository <path>` reports its build mode: `mode=full` (from scratch),
 `mode=incremental` (only files whose extraction inputs changed are re-parsed, and the
 result is exactly equivalent to a full rebuild at the same repository state), or
-`mode=noop` (index already current; nothing written). Worktree identity is derived from
+`mode=noop` (index already current; nothing written). The summary it prints includes a
+`changed` section (`changed_files=N changed_symbols=M` plus the persisted JSON delta):
+the porcelain dirty set (staged plus worktree edits) unioned with
+`git diff --name-only <baseline> HEAD`, where the baseline is the commit of the
+replaced index for incremental rebuilds and the empty set for from-scratch full
+builds. Both porcelain status and the name-only diff are git metadata calls — no file
+contents are read to compute the delta, so a clean worktree costs the same as before.
+`changed.symbols` are the record ids of indexed symbols whose file is in the changed
+set, ordered by file then qualified name. Worktree identity is derived from
 git without content reads when the worktree is clean (index blob map plus porcelain
 status); dirty, untracked, and ignored files are content-hashed. Every discovered
 manifest (and its `Cargo.lock`) participates in the worktree identity, so editing a

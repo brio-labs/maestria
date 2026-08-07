@@ -2,12 +2,17 @@
 
 use crate::{CodeQuery, QueryResult, QuerySummary, SymbolRecord};
 use regex::Regex;
+use std::collections::BTreeSet;
 
-/// Apply a bounded query over extracted symbols.
+/// Apply a bounded query over extracted symbols. `changed_files` carries the
+/// changed file set for `CodeQuery::Changed` (computed by the caller from the
+/// persisted delta or live git state); when absent, a `Changed` query matches
+/// nothing rather than fabricating matches.
 pub(crate) fn execute_query<E, F>(
     symbols: &[SymbolRecord],
     query: CodeQuery,
     limit: usize,
+    changed_files: Option<&BTreeSet<String>>,
     authorize: &mut F,
 ) -> Result<QueryResult, E>
 where
@@ -39,6 +44,9 @@ where
                     records: Vec::new(),
                 });
             }
+        },
+        CodeQuery::Changed { .. } => QueryMatcher::ChangedFiles {
+            files: changed_files,
         },
     };
 
@@ -102,6 +110,7 @@ enum QueryMatcher<'a> {
     All,
     Contains { pattern: &'a str, mode: MatchMode },
     Regex(Regex),
+    ChangedFiles { files: Option<&'a BTreeSet<String>> },
 }
 
 impl<'a> QueryMatcher<'a> {
@@ -123,6 +132,9 @@ impl<'a> QueryMatcher<'a> {
                         .as_deref()
                         .is_some_and(|signature| regex.is_match(signature))
                     || symbol.imports.iter().any(|import| regex.is_match(import))
+            }
+            Self::ChangedFiles { files } => {
+                files.is_some_and(|files| files.contains(&symbol.provenance.file_path))
             }
         }
     }

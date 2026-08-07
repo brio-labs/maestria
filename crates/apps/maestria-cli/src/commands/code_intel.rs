@@ -1,10 +1,10 @@
 use anyhow::{Context, Result, bail};
 use maestria_blob_fs::FsBlobStore;
 use maestria_code_intel::{
-    CodeQuery, ContextDirection, MAX_CONTEXT_DEPTH, REPOSITORY_CODE_CANDIDATES_FILENAME,
+    CodeQuery, CommitSha, ContextDirection, MAX_CONTEXT_DEPTH, REPOSITORY_CODE_CANDIDATES_FILENAME,
     REPOSITORY_CODE_INDEX_FILENAME, REPOSITORY_CODE_PARSER_GENERATION, RepositoryCodeIndex,
     RepositoryContextQuery, RepositoryFreshness, RepositoryIndexBuildMode,
-    build_or_update_repository_index,
+    build_or_update_repository_index, is_plausible_commit_sha,
 };
 use maestria_core::{InstanceLayout, InstanceManifest};
 use maestria_domain::CorpusScope;
@@ -127,6 +127,11 @@ pub(crate) async fn run_index(instance_dir: PathBuf, repository: PathBuf) -> Res
     for warning in &summary.workspace_warnings {
         eprintln!("warning: {warning}");
     }
+    println!(
+        "changed_files={} changed_symbols={}",
+        summary.changed.files.len(),
+        summary.changed.symbols.len()
+    );
     println!("{}", serde_json::to_string_pretty(&summary)?);
     Ok(())
 }
@@ -165,6 +170,36 @@ pub(crate) fn run_search(instance_dir: PathBuf, query: CodeQuery, limit: usize) 
     let index = load_verified_code_index(&layout, &manifest)?;
     let authorization = code_intel_authorization(&layout)?;
     let result = index.query(query, limit, |symbol| {
+        authorization
+            .resolver
+            .authorizes(symbol, &authorization.context)
+    })?;
+    println!("{}", serde_json::to_string_pretty(&result)?);
+    Ok(())
+}
+
+pub(crate) fn run_changed(
+    instance_dir: PathBuf,
+    since: Option<String>,
+    limit: usize,
+) -> Result<()> {
+    if !(1..=MAX_QUERY_LIMIT).contains(&limit) {
+        bail!("code query limit must be between 1 and {MAX_QUERY_LIMIT}");
+    }
+    let since = match since {
+        Some(reference) => {
+            if !is_plausible_commit_sha(&reference) {
+                bail!("invalid commit reference for --since: {reference}");
+            }
+            Some(CommitSha::new(reference))
+        }
+        None => None,
+    };
+    let layout = super::super::helpers::validated_instance(instance_dir)?;
+    let manifest = super::super::helpers::load_manifest(&layout)?;
+    let index = load_verified_code_index(&layout, &manifest)?;
+    let authorization = code_intel_authorization(&layout)?;
+    let result = index.query(CodeQuery::Changed { since }, limit, |symbol| {
         authorization
             .resolver
             .authorizes(symbol, &authorization.context)

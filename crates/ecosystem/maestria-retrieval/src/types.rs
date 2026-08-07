@@ -202,6 +202,8 @@ pub enum RetrievalError {
     MissingArtifactVersion {
         artifact_id: maestria_domain::ArtifactId,
     },
+    #[error("repository code index error: {0}")]
+    CodeIntel(#[from] maestria_code_intel::CodeIntelError),
     #[error("Internal engine error: {0}")]
     Internal(String),
 }

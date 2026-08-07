@@ -25,7 +25,6 @@ fn route_config() -> serde_json::Value {
         ),
     ]))
 }
-use std::convert::Infallible;
 
 use maestria_code_intel::{CodeQuery, RepositoryCodeIndex, RepositoryFreshness};
 
@@ -121,7 +120,9 @@ impl RepositoryBenchmarkExecutor for RepositoryCodeIndexExecutor<'_> {
                 };
                 let result = match self.index.query(query, 32, benchmark_record_authorization) {
                     Ok(result) => result,
-                    Err(error) => match error {},
+                    Err(error) => {
+                        return Err(RepositoryBenchmarkError::CodeQueryFailed(error.to_string()));
+                    }
                 };
                 (
                     result
@@ -175,7 +176,7 @@ impl RepositoryBenchmarkExecutor for RepositoryCodeIndexExecutor<'_> {
 
 fn benchmark_record_authorization(
     _: &maestria_code_intel::SymbolRecord,
-) -> Result<bool, Infallible> {
+) -> Result<bool, maestria_code_intel::CodeIntelError> {
     // Frozen benchmark records measure route quality and never cross a serving boundary.
     Ok(true)
 }

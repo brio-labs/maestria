@@ -302,4 +302,6 @@ pub enum RepositoryBenchmarkError {
         case_id: String,
         route: RepositoryRoute,
     },
+    #[error("repository code query failed: {0}")]
+    CodeQueryFailed(String),
 }

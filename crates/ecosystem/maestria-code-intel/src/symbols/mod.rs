@@ -256,15 +256,17 @@ pub(crate) fn derive_subtree_contexts(
     )
 }
 
-/// Query extracted symbols.
+/// Query extracted symbols. `changed_files` is the changed file set for
+/// `CodeQuery::Changed`; other queries ignore it.
 pub(crate) fn query_symbols<E, F>(
     symbols: &[SymbolRecord],
     query: CodeQuery,
     limit: usize,
+    changed_files: Option<&std::collections::BTreeSet<String>>,
     authorize: &mut F,
 ) -> Result<QueryResult, E>
 where
     F: FnMut(&SymbolRecord) -> Result<bool, E>,
 {
-    execute_query(symbols, query, limit, authorize)
+    execute_query(symbols, query, limit, changed_files, authorize)
 }

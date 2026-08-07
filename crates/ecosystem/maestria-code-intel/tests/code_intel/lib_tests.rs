@@ -117,10 +117,13 @@ fn query_caps_results_and_authorizes_every_match() -> Result<(), Box<dyn Error>>
 fn query_propagates_authorization_failure() -> Result<(), Box<dyn Error>> {
     let tmp = make_workspace()?;
     let index = build_index(tmp.path(), "g1")?;
-    let result = index.query(CodeQuery::All, 1, |_: &SymbolRecord| {
-        Err::<bool, &'static str>("authorization failed")
+    let result: Result<_, Box<dyn Error>> = index.query(CodeQuery::All, 1, |_: &SymbolRecord| {
+        Err::<bool, Box<dyn Error>>("authorization failed".into())
     });
-    assert_eq!(result.err(), Some("authorization failed"));
+    assert_eq!(
+        result.err().map(|error| error.to_string()),
+        Some("authorization failed".to_string())
+    );
     Ok(())
 }
 

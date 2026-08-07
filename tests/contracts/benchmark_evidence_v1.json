@@ -38,7 +38,7 @@
           "docs/PHILOSOPHY.md",
           "crates/ecosystem/maestria-retrieval/tests/fixtures/golden-v3.json"
         ],
-        "source_hash": "624745e2c38240d2337a5b21d2e5b9f6a7fd82821545aa49e1dd7eba93e0dd8d"
+        "source_hash": "76fd22018939fb2d2e90d4b82664917aeb2439eec6e9b1c1b078e178d2b0d38c"
       },
       "fingerprints": {
         "corpus_snapshot": "maestria-document-snapshot-v1",
@@ -95,7 +95,7 @@
           "docs/PHILOSOPHY.md",
           "crates/ecosystem/maestria-retrieval/tests/fixtures/golden-v3.json"
         ],
-        "source_hash": "624745e2c38240d2337a5b21d2e5b9f6a7fd82821545aa49e1dd7eba93e0dd8d"
+        "source_hash": "76fd22018939fb2d2e90d4b82664917aeb2439eec6e9b1c1b078e178d2b0d38c"
       },
       "fingerprints": {
         "corpus_snapshot": "maestria-document-snapshot-v1",
@@ -150,7 +150,7 @@
           "crates/ecosystem/maestria-retrieval/tests/fixtures/rust-repository-benchmark-v1.json",
           "crates/ecosystem/maestria-retrieval/src/repository_benchmark_runner.rs"
         ],
-        "source_hash": "1c3db2f8b35d6b1e39c6aebca1740ff72f23cec9fc9bdba39b1df02b8589bf30"
+        "source_hash": "8265273fe557585732255710ceed7b1a971d28074119e938918b75fd819d5196"
       },
       "fingerprints": {
         "corpus_snapshot": "rust-repository-frozen-v1",

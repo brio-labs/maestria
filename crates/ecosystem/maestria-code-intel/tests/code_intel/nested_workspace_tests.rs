@@ -65,7 +65,7 @@ fn edit_in_either_workspace_is_incremental_and_equivalent() -> Result<(), Box<dy
 
     let (index, mode) = build_or_update(&index_path, &candidates_path, root)?;
     assert_eq!(mode, RepositoryIndexBuildMode::Incremental);
-    assert_equivalent_to_full_rebuild(&index, root)?;
+    assert_equivalent_to_full_rebuild(&index, root, true)?;
     assert!(
         index
             .symbols
@@ -82,7 +82,7 @@ fn edit_in_either_workspace_is_incremental_and_equivalent() -> Result<(), Box<dy
 
     let (index, mode) = build_or_update(&index_path, &candidates_path, root)?;
     assert_eq!(mode, RepositoryIndexBuildMode::Incremental);
-    assert_equivalent_to_full_rebuild(&index, root)?;
+    assert_equivalent_to_full_rebuild(&index, root, true)?;
     assert!(
         index
             .symbols
@@ -141,7 +141,7 @@ fn broken_nested_manifest_warns_and_indexes_healthy_workspaces() -> Result<(), B
     fs::write(&nested_lib, source)?;
     let (index, mode) = build_or_update(&index_path, &candidates_path, root)?;
     assert_eq!(mode, RepositoryIndexBuildMode::Incremental);
-    assert_equivalent_to_full_rebuild(&index, root)?;
+    assert_equivalent_to_full_rebuild(&index, root, true)?;
     assert!(!index.summary.workspace_warnings.is_empty());
     Ok(())
 }

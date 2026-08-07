@@ -105,7 +105,12 @@ pub fn build_or_update_repository_index(
     let Some(candidates) = load_relation_candidates(candidates_path, parser_generation)? else {
         return full(candidates_path);
     };
-    let mut dirty = discover_dirty_paths(root)?;
+    // The porcelain dirty set drives both re-extraction and the changed
+    // delta; the delta uses it BEFORE the content-staleness pass extends it,
+    // because the delta rule is exactly "porcelain dirty set plus baseline
+    // diff", never content-derived files.
+    let porcelain_dirty = discover_dirty_paths(root)?;
+    let mut dirty = porcelain_dirty.clone();
     if dirty
         .iter()
         .any(|path| path.ends_with(".toml") || path.ends_with(".lock"))
@@ -123,6 +128,14 @@ pub fn build_or_update_repository_index(
     let stale = discover_stale_content_files(root, &index.file_contexts, &index.symbols)?;
     dirty.extend(stale);
 
+    // Baseline for the persisted changed delta: the commit of the index being
+    // replaced, read before the rebuilt index overwrites it.
+    let delta_files = crate::changes::compute_delta_files(
+        root,
+        Some(&index.summary.commit_sha),
+        &porcelain_dirty,
+    )?;
+
     let mut state = rebuild_working_stores(&index, &candidates);
     let inputs = RebuildInputs {
         root,
@@ -132,6 +145,7 @@ pub fn build_or_update_repository_index(
         parser_generation,
         file_set,
         dirty,
+        delta_files,
     };
     drop_deleted_files(&inputs, &mut state)?;
     reextract_gitignored(&inputs, &mut state)?;

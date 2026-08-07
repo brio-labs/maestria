@@ -209,6 +209,9 @@ async fn dispatch_search(
                 CodeSearchCommands::Regex { pattern } => {
                     maestria_code_intel::CodeQuery::Regex { pattern }
                 }
+                CodeSearchCommands::Changed { since } => {
+                    return commands::code_intel::run_changed(instance_dir, since, limit);
+                }
             };
             commands::code_intel::run_search(instance_dir, query, limit)
         }

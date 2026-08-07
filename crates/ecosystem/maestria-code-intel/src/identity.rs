@@ -273,7 +273,7 @@ fn git_output(root: &Path, args: &[&str], context: &str) -> Result<String, CodeI
 /// (untrimmed) stdout. Used by NUL-delimited calls whose leading-space records
 /// and empty output are meaningful (clean worktree, empty index); callers
 /// split on `\0` or trim per line themselves.
-fn git_output_allow_empty(
+pub(crate) fn git_output_allow_empty(
     root: &Path,
     args: &[&str],
     context: &str,

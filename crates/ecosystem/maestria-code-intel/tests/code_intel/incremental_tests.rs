@@ -6,6 +6,7 @@ use std::error::Error;
 use std::fs;
 use tempfile::tempdir;
 
+
 #[test]
 fn incremental_edit_equals_full_rebuild() -> Result<(), Box<dyn Error>> {
     let tmp = make_workspace()?;
@@ -25,7 +26,7 @@ fn incremental_edit_equals_full_rebuild() -> Result<(), Box<dyn Error>> {
 
     let (incremental, mode) = build_or_update(&index_path, &candidates_path, root)?;
     assert_eq!(mode, RepositoryIndexBuildMode::Incremental);
-    assert_equivalent_to_full_rebuild(&incremental, root)?;
+    assert_equivalent_to_full_rebuild(&incremental, root, true)?;
 
     // Edit the body of an existing function in the same file.
     let source = fs::read_to_string(&lib_path)?;
@@ -34,7 +35,7 @@ fn incremental_edit_equals_full_rebuild() -> Result<(), Box<dyn Error>> {
 
     let (incremental, mode) = build_or_update(&index_path, &candidates_path, root)?;
     assert_eq!(mode, RepositoryIndexBuildMode::Incremental);
-    assert_equivalent_to_full_rebuild(&incremental, root)?;
+    assert_equivalent_to_full_rebuild(&incremental, root, true)?;
     Ok(())
 }
 
@@ -141,7 +142,7 @@ fn incremental_handles_git_rename() -> Result<(), Box<dyn Error>> {
             .file_contexts
             .contains_key("crate_one/src/sub.rs")
     );
-    assert_equivalent_to_full_rebuild(&incremental, root)?;
+    assert_equivalent_to_full_rebuild(&incremental, root, true)?;
     Ok(())
 }
 
@@ -186,7 +187,7 @@ fn incremental_module_edit_then_undeclare() -> Result<(), Box<dyn Error>> {
             .and_then(|record| record.parent.as_deref()),
         Some("crate_one/src/lib.rs")
     );
-    assert_equivalent_to_full_rebuild(&index, root)?;
+    assert_equivalent_to_full_rebuild(&index, root, true)?;
 
     // Remove the `mod` declaration: the module must be dropped even though it
     // was re-extracted by the previous rebuild.
@@ -202,7 +203,7 @@ fn incremental_module_edit_then_undeclare() -> Result<(), Box<dyn Error>> {
             .all(|symbol| symbol.provenance.file_path != "crate_one/src/sub.rs")
     );
     assert!(!index.file_contexts.contains_key("crate_one/src/sub.rs"));
-    assert_equivalent_to_full_rebuild(&index, root)?;
+    assert_equivalent_to_full_rebuild(&index, root, true)?;
     Ok(())
 }
 
@@ -233,7 +234,7 @@ fn staged_edit_is_reparsed() -> Result<(), Box<dyn Error>> {
                 && symbol.name == "staged_fn"
         )
     );
-    assert_equivalent_to_full_rebuild(&index, root)?;
+    assert_equivalent_to_full_rebuild(&index, root, true)?;
     Ok(())
 }
 
@@ -270,7 +271,7 @@ fn reverted_edit_is_reparsed() -> Result<(), Box<dyn Error>> {
             .iter()
             .all(|symbol| symbol.name != "reverted_fn")
     );
-    assert_equivalent_to_full_rebuild(&index, root)?;
+    assert_equivalent_to_full_rebuild(&index, root, true)?;
     Ok(())
 }
 
@@ -305,7 +306,22 @@ fn committed_edit_stays_incremental() -> Result<(), Box<dyn Error>> {
                 && symbol.name == "committed_fn"
         )
     );
-    assert_equivalent_to_full_rebuild(&index, root)?;
+    // The changed section intentionally differs from a full rebuild here: the
+    // incremental path diffs the replaced index's baseline commit against the
+    // new HEAD, which a from-scratch full build cannot do.
+    assert_eq!(
+        index.summary.changed.files,
+        vec!["crate_one/src/lib.rs".to_string()]
+    );
+    assert!(
+        index
+            .summary
+            .changed
+            .symbols
+            .iter()
+            .any(|record_id| { record_id.starts_with("crate_one/src/lib.rs:") })
+    );
+    assert_equivalent_to_full_rebuild(&index, root, false)?;
     Ok(())
 }
 
@@ -511,6 +527,6 @@ fn gitignored_extracted_file_reparsed() -> Result<(), Box<dyn Error>> {
                     && symbol.name == "generated_two"
             )
     );
-    assert_equivalent_to_full_rebuild(&index, root)?;
+    assert_equivalent_to_full_rebuild(&index, root, true)?;
     Ok(())
 }

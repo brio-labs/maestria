@@ -146,6 +146,12 @@ pub enum CodeSearchCommands {
     Path { pattern: String },
     /// Match repository symbols and paths with a regular expression
     Regex { pattern: String },
+    /// Match symbols in files changed since a commit (persisted delta when
+    /// --since is omitted; live git diff plus dirty set when given)
+    Changed {
+        #[arg(long)]
+        since: Option<String>,
+    },
     /// Traverse bounded repository relations from a symbol seed
     Context {
         pattern: String,

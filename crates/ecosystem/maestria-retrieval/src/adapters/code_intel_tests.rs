@@ -30,6 +30,10 @@ fn archive() -> Result<maestria_code_intel::RepositoryCodeIndex, Box<dyn std::er
             excluded_patterns: Vec::new(),
             workspace_warnings: Vec::new(),
             relation_summary: maestria_code_intel::CodeRelationSummary::default(),
+            changed: maestria_code_intel::RepositoryChangeDelta {
+                files: Vec::new(),
+                symbols: Vec::new(),
+            },
         },
         packages: Vec::new(),
         symbols: vec![symbol("rec-1")?],

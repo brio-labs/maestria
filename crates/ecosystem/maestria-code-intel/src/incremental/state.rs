@@ -15,6 +15,9 @@ pub(crate) struct RebuildInputs<'a> {
     pub(crate) parser_generation: &'a str,
     pub(crate) file_set: BTreeSet<String>,
     pub(crate) dirty: BTreeSet<String>,
+    /// Changed file set persisted into the rebuilt summary: porcelain dirty
+    /// set plus the diff between the replaced index's commit and HEAD.
+    pub(crate) delta_files: BTreeSet<String>,
 }
 
 /// Working stores threaded through the incremental rebuild phases.

@@ -596,6 +596,7 @@ RESPONSIBILITY_MAPS: dict[str, tuple[str, ...]] = {
     ),
     "crates/ecosystem/maestria-code-intel/src/lib.rs": (
         "builder",
+        "changes",
         "context",
         "context_assembly",
         "context_support",

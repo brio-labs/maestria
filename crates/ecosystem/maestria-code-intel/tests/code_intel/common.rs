@@ -67,6 +67,7 @@ pub fn build_or_update(
 pub fn assert_equivalent_to_full_rebuild(
     incremental: &RepositoryCodeIndex,
     root: &Path,
+    compare_changed: bool,
 ) -> Result<(), Box<dyn Error>> {
     let fresh = RepositoryCodeIndex::build(root, "g1")?;
     assert_eq!(
@@ -92,6 +93,9 @@ pub fn assert_equivalent_to_full_rebuild(
     let mut fresh_symbols = fresh.symbols.clone();
     fresh_symbols.sort_by(|left, right| left.record_id.cmp(&right.record_id));
     assert_eq!(incremental_symbols, fresh_symbols);
+    if compare_changed {
+        assert_eq!(incremental.summary.changed, fresh.summary.changed);
+    }
     Ok(())
 }
 

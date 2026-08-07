@@ -96,6 +96,7 @@ impl RepositoryCodeIndex {
             &self.symbols,
             query.query.clone(),
             MAX_CONTEXT_SEED_MATCHES,
+            None,
             &mut authorize,
         )?;
         let symbol_by_id = self
