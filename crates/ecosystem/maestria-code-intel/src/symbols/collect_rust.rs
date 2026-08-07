@@ -115,15 +115,60 @@ pub(crate) fn collect_source_and_modules(
         ),
         details: error.to_string(),
     })?;
-    for item in file.items {
+    let base_dir = match canonical.parent() {
+        Some(base) => base.to_path_buf(),
+        None => PathBuf::from("."),
+    };
+    let mut discovery = ModuleDiscovery {
+        root,
+        declaring_file: &canonical,
+        out,
+        excluded_patterns,
+        module_contexts,
+        parents,
+    };
+    follow_module_items(&file.items, &base_dir, module_context, &mut discovery)
+}
+
+/// Shared state of one module-discovery walk over a single source file: the
+/// repository scope, the file that declared the walked module scope (recorded
+/// as the parent of every file-backed child), and the accumulators.
+struct ModuleDiscovery<'a> {
+    root: &'a Path,
+    declaring_file: &'a Path,
+    out: &'a mut Vec<PathBuf>,
+    excluded_patterns: &'a [String],
+    module_contexts: &'a mut BTreeMap<PathBuf, ModuleContext>,
+    parents: &'a mut BTreeMap<PathBuf, PathBuf>,
+}
+
+/// Follow `mod` declarations inside a module scope the way rustc does: inline
+/// `mod { }` blocks are entered recursively (their file-backed child mods
+/// resolve against the block's base directory, redirected by a `#[path]`
+/// attribute on the block itself), while file-backed `mod x;` declarations
+/// resolve against the current base directory and recurse into their own
+/// file. Macro bodies are token trees and therefore invisible here.
+fn follow_module_items(
+    items: &[syn::Item],
+    base_dir: &Path,
+    module_context: &ModuleContext,
+    discovery: &mut ModuleDiscovery<'_>,
+) -> Result<(), CodeIntelError> {
+    for item in items {
         let syn::Item::Mod(module) = item else {
             continue;
         };
-        if module.content.is_some() {
+        let mut child_context = module_context.clone();
+        child_context.stack.push(module.ident.to_string());
+        child_context.is_test |= attr_test(&module.attrs);
+        child_context.is_bench |= attr_bench(&module.attrs);
+        if let Some((_, block_items)) = &module.content {
+            let nested_base = inline_mod_base(base_dir, module);
+            follow_module_items(block_items, &nested_base, &child_context, discovery)?;
             continue;
         }
-        let module_path = external_module_path(&canonical, &module);
-        if !module_path.exists() || is_excluded(&module_path, excluded_patterns) {
+        let module_path = external_module_path(base_dir, module);
+        if !module_path.exists() || is_excluded(&module_path, discovery.excluded_patterns) {
             continue;
         }
         let child = module_path
@@ -133,36 +178,43 @@ pub(crate) fn collect_source_and_modules(
                 path: module_path.to_string_lossy().into_owned(),
                 details: error.to_string(),
             })?;
-        if !child.starts_with(root) {
+        if !child.starts_with(discovery.root) {
             return Err(CodeIntelError::Identity {
                 context: "validate external Rust module scope".to_string(),
                 details: format!("module {} points outside repository", module.ident),
             });
         }
-        let mut child_context = module_context.clone();
-        child_context.stack.push(module.ident.to_string());
-        child_context.is_test |= attr_test(&module.attrs);
-        child_context.is_bench |= attr_bench(&module.attrs);
-        parents.insert(child.clone(), canonical.clone());
+        discovery
+            .parents
+            .insert(child.clone(), discovery.declaring_file.to_path_buf());
         collect_source_and_modules(
             &child,
-            root,
-            out,
-            excluded_patterns,
+            discovery.root,
+            discovery.out,
+            discovery.excluded_patterns,
             &child_context,
-            module_contexts,
-            parents,
+            discovery.module_contexts,
+            discovery.parents,
         )?;
     }
     Ok(())
 }
 
-fn external_module_path(parent: &Path, module: &syn::ItemMod) -> PathBuf {
-    let base = match parent.parent() {
-        Some(base) => base,
-        None => Path::new("."),
+/// Base directory for file-backed mods nested in an inline `mod { }` block:
+/// rustc resolves them relative to the directory of the block's `#[path]`
+/// value when present, otherwise relative to the enclosing base directory.
+fn inline_mod_base(base_dir: &Path, module: &syn::ItemMod) -> PathBuf {
+    let Some(value) = path_attr_value(&module.attrs) else {
+        return base_dir.to_path_buf();
     };
-    if let Some(path) = module.attrs.iter().find_map(|attribute| {
+    match base_dir.join(value).parent() {
+        Some(parent) => parent.to_path_buf(),
+        None => base_dir.to_path_buf(),
+    }
+}
+
+fn path_attr_value(attrs: &[syn::Attribute]) -> Option<String> {
+    attrs.iter().find_map(|attribute| {
         if !attribute.path().is_ident("path") {
             return None;
         }
@@ -175,16 +227,20 @@ fn external_module_path(parent: &Path, module: &syn::ItemMod) -> PathBuf {
         let syn::Lit::Str(path) = &expression.lit else {
             return None;
         };
-        Some(PathBuf::from(path.value()))
-    }) {
-        return base.join(path);
+        Some(path.value())
+    })
+}
+
+fn external_module_path(base_dir: &Path, module: &syn::ItemMod) -> PathBuf {
+    if let Some(path) = path_attr_value(&module.attrs) {
+        return base_dir.join(path);
     }
     let module_name = module.ident.to_string();
-    let flat = base.join(format!("{module_name}.rs"));
+    let flat = base_dir.join(format!("{module_name}.rs"));
     if flat.exists() {
         flat
     } else {
-        base.join(&module_name).join("mod.rs")
+        base_dir.join(&module_name).join("mod.rs")
     }
 }
 

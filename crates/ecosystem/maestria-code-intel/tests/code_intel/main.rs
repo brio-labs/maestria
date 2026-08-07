@@ -5,6 +5,7 @@ mod doc_marker_tests;
 mod freshness_tests;
 mod incremental_tests;
 mod lib_tests;
+mod module_path_tests;
 mod nested_workspace_tests;
 mod python_tests;
 mod references_tests;
