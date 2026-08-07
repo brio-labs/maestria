@@ -346,6 +346,17 @@ node, and relation-kind caps. Missing LSP/provider support is recorded as an exp
 degraded status; unresolved edges are omitted rather than presented as facts. Live reads
 and tests are separate governed effects and must return their own evidence.
 
+`maestria index repository <path>` reports its build mode: `mode=full` (from scratch),
+`mode=incremental` (only files whose extraction inputs changed are re-parsed, and the
+result is exactly equivalent to a full rebuild at the same repository state), or
+`mode=noop` (index already current; nothing written). Worktree identity is derived from
+git without content reads when the worktree is clean (index blob map plus porcelain
+status); dirty, untracked, and ignored files are content-hashed. New cargo
+auto-discovery targets and manifest changes fall back to a full rebuild. Sources are
+registered as canonical artifacts through the kernel pipeline, so code queries authorize
+symbols against durable, blob-verified evidence; files the kernel refuses to index
+(secret-bearing content) are skipped by authorization rather than erroring.
+
 Repository-code promotion is governed by the frozen `rust-repository-frozen-v1`
 benchmark in `maestria-retrieval`. It compares the Phase C route with the
 code-specialized route for exact-span recall, evidence-chain accuracy, p95

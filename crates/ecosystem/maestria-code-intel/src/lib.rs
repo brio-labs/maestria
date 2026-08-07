@@ -8,6 +8,8 @@
 //! - `error`: typed indexing, persistence, and integrity errors.
 //! - `freshness`: repository snapshot freshness comparison.
 //! - `identity`: repository and worktree provenance discovery.
+//! - `incremental`: git-incremental index rebuild (assemble, candidates,
+//!   reconcile, and state submodules).
 //! - `metadata`: bounded Cargo workspace metadata extraction.
 //! - `provenance`: canonical per-file content hashing and hash validation.
 //! - `query`: bounded in-memory symbol query execution.

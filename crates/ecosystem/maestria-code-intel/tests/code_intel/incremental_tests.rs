@@ -1,4 +1,4 @@
-use super::common::{init_git, make_workspace, run_git, write_file};
+use super::common::{make_workspace, run_git, write_file};
 use maestria_code_intel::*;
 use std::error::Error;
 use std::fs;

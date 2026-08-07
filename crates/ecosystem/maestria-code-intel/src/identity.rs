@@ -101,7 +101,7 @@ pub(crate) fn discover_repository_identity(
             hasher.update(file_hasher.finalize());
         } else {
             hasher.update([0x02]);
-            hasher.update(&blob_map[relative_path]);
+            hasher.update(blob_map[relative_path]);
         }
     }
 
@@ -153,12 +153,11 @@ pub(crate) fn discover_dirty_paths(root: &Path) -> Result<BTreeSet<String>, Code
         if y != b' ' || x != b' ' {
             dirty.insert(path.to_string());
         }
-        if x == b'R' || x == b'C' {
-            if let Some(target) = records.next() {
-                if y != b' ' || x != b' ' {
-                    dirty.insert(target.to_string());
-                }
-            }
+        if (x == b'R' || x == b'C')
+            && let Some(target) = records.next()
+            && (y != b' ' || x != b' ')
+        {
+            dirty.insert(target.to_string());
         }
     }
     Ok(dirty)
@@ -379,28 +378,26 @@ mod tests {
     use std::fs;
     use tempfile::tempdir;
 
-    fn run_git_ok(root: &Path, args: &[&str]) {
-        let status = Command::new("git")
-            .current_dir(root)
-            .args(args)
-            .status()
-            .expect("spawn git");
+    fn run_git_ok(root: &Path, args: &[&str]) -> Result<(), Box<dyn std::error::Error>> {
+        let status = Command::new("git").current_dir(root).args(args).status()?;
         assert!(status.success(), "git {args:?} failed in {root:?}");
+        Ok(())
     }
 
-    fn init_repo(root: &Path) {
-        run_git_ok(root, &["init", "--initial-branch", "main"]);
-        run_git_ok(root, &["config", "user.email", "ci@example.com"]);
-        run_git_ok(root, &["config", "user.name", "CI"]);
+    fn init_repo(root: &Path) -> Result<(), Box<dyn std::error::Error>> {
+        run_git_ok(root, &["init", "--initial-branch", "main"])?;
+        run_git_ok(root, &["config", "user.email", "ci@example.com"])?;
+        run_git_ok(root, &["config", "user.name", "CI"])?;
+        Ok(())
     }
 
     #[test]
-    fn clean_blob_hash_matches_git_hash_object() -> Result<(), CodeIntelError> {
-        let root = tempdir().expect("tempdir");
-        init_repo(root.path());
-        fs::write(root.path().join("a.txt"), "hello blob\n").expect("write file");
-        run_git_ok(root.path(), &["add", "a.txt"]);
-        run_git_ok(root.path(), &["commit", "-m", "init"]);
+    fn clean_blob_hash_matches_git_hash_object() -> Result<(), Box<dyn std::error::Error>> {
+        let root = tempdir()?;
+        init_repo(root.path())?;
+        fs::write(root.path().join("a.txt"), "hello blob\n")?;
+        run_git_ok(root.path(), &["add", "a.txt"])?;
+        run_git_ok(root.path(), &["commit", "-m", "init"])?;
 
         let blobs = git_blob_map(root.path())?;
         let hash = git_output(root.path(), &["hash-object", "a.txt"], "git hash-object")?;
@@ -409,22 +406,22 @@ mod tests {
     }
 
     #[test]
-    fn identity_changes_then_restores() -> Result<(), CodeIntelError> {
-        let root = tempdir().expect("tempdir");
-        init_repo(root.path());
-        fs::create_dir_all(root.path().join("src")).expect("create src");
+    fn identity_changes_then_restores() -> Result<(), Box<dyn std::error::Error>> {
+        let root = tempdir()?;
+        init_repo(root.path())?;
+        fs::create_dir_all(root.path().join("src"))?;
         let source = root.path().join("src/lib.rs");
-        fs::write(&source, "pub fn add(a: i32, b: i32) -> i32 { a + b }\n").expect("write source");
-        run_git_ok(root.path(), &["add", "."]);
-        run_git_ok(root.path(), &["commit", "-m", "init"]);
+        fs::write(&source, "pub fn add(a: i32, b: i32) -> i32 { a + b }\n")?;
+        run_git_ok(root.path(), &["add", "."])?;
+        run_git_ok(root.path(), &["commit", "-m", "init"])?;
 
         let original = discover_repository_identity(root.path(), &[])?.worktree_identity;
 
-        fs::write(&source, "pub fn add(a: i32, b: i32) -> i32 { a - b }\n").expect("modify source");
+        fs::write(&source, "pub fn add(a: i32, b: i32) -> i32 { a - b }\n")?;
         let modified = discover_repository_identity(root.path(), &[])?.worktree_identity;
         assert_ne!(original, modified);
 
-        run_git_ok(root.path(), &["checkout", "--", "src/lib.rs"]);
+        run_git_ok(root.path(), &["checkout", "--", "src/lib.rs"])?;
         let restored = discover_repository_identity(root.path(), &[])?.worktree_identity;
         assert_eq!(original, restored);
         Ok(())

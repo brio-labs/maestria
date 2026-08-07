@@ -602,6 +602,7 @@ RESPONSIBILITY_MAPS: dict[str, tuple[str, ...]] = {
         "error",
         "freshness",
         "identity",
+        "incremental",
         "metadata",
         "provenance",
         "query",
