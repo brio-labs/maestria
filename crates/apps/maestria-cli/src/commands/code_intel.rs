@@ -1,20 +1,24 @@
 use anyhow::{Context, Result, bail};
 use maestria_blob_fs::FsBlobStore;
 use maestria_code_intel::{
-    CodeQuery, ContextDirection, MAX_CONTEXT_DEPTH, REPOSITORY_CODE_INDEX_FILENAME,
-    REPOSITORY_CODE_PARSER_GENERATION, RepositoryCodeIndex, RepositoryContextQuery,
-    RepositoryFreshness,
+    CodeQuery, ContextDirection, MAX_CONTEXT_DEPTH, REPOSITORY_CODE_CANDIDATES_FILENAME,
+    REPOSITORY_CODE_INDEX_FILENAME, REPOSITORY_CODE_PARSER_GENERATION, RepositoryCodeIndex,
+    RepositoryContextQuery, RepositoryFreshness, RepositoryIndexBuildMode,
+    build_or_update_repository_index,
 };
-use maestria_core::{InstanceLayout, InstanceManifest};
+use maestria_core::{InstanceLayout, InstanceManifest, artifact_id_for, content_hash};
+use maestria_domain::{ArtifactDetected, ContentHash, DomainInput, IndexStatus};
 use maestria_domain::CorpusScope;
 use maestria_governance::{
-    AutonomyProfile, RetrievalAuthorizationContext, RetrievalSecurityPolicy,
+    AutonomyProfile, RetrievalAuthorizationContext, RetrievalSecurityPolicy, scan_secrets,
 };
 use maestria_ports::{EventFilter, EventLog};
 use maestria_retrieval::adapters::{CodeIntelSecurityResolver, CodeIntelSecurityResolverParts};
 use maestria_storage_sqlite::SqliteStore;
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::Duration;
 
 const MAX_QUERY_LIMIT: usize = 1_000;
 
@@ -47,6 +51,13 @@ pub(crate) async fn run_index(instance_dir: PathBuf, repository: PathBuf) -> Res
     let layout = super::super::helpers::validated_instance(instance_dir)?;
     let manifest = super::super::helpers::load_manifest(&layout)?;
     let repository = allowed_repository_root(&repository, &manifest)?;
+    let index_path = layout.system_dir.join(REPOSITORY_CODE_INDEX_FILENAME);
+    // The mutation session fails closed on an index whose generation, privacy
+    // exclusions, or integrity do not match the current instance (daemon
+    // runtime construction). The index is regenerable cache, so a stale or
+    // corrupt persisted index is removed up front; `build_or_update_repository_index`
+    // then takes its Full fallback, which is the one-time migration path.
+    repair_stale_repository_index(&index_path, &manifest)?;
     // Instance state is written under the instance write lock (R28/R32): the
     // mutation session is the one owner of startup, recovery, and shutdown.
     let session =
@@ -54,23 +65,174 @@ pub(crate) async fn run_index(instance_dir: PathBuf, repository: PathBuf) -> Res
             .await
             .context("start mutation session")?;
     let result = async {
-        let index = RepositoryCodeIndex::build_with_exclusions(
+        let candidates_path = layout.system_dir.join(REPOSITORY_CODE_CANDIDATES_FILENAME);
+        let mut index = build_or_update_repository_index(
+            &index_path,
+            &candidates_path,
             &repository,
             REPOSITORY_CODE_PARSER_GENERATION,
             &manifest.excluded_patterns,
         )
         .map_err(|error| anyhow::anyhow!("build repository code index: {error}"))?;
-        let index_path = layout.system_dir.join(REPOSITORY_CODE_INDEX_FILENAME);
-        index
-            .save(&index_path)
-            .map_err(|error| anyhow::anyhow!("save repository code index: {error}"))?;
-        Ok::<_, anyhow::Error>((index_path, index.summary))
+        let mut mode = index.1;
+        if !matches!(mode, RepositoryIndexBuildMode::Noop) {
+            index
+                .0
+                .save(&index_path)
+                .map_err(|error| anyhow::anyhow!("save repository code index: {error}"))?;
+        }
+        // Register every indexed source as a canonical artifact through the
+        // kernel so code queries can authorize symbols against durable
+        // evidence. If a file changed between extraction and registration
+        // (content hash mismatch), rebuild once and re-register; the
+        // incremental path re-extracts the mismatched files.
+        let mismatched = register_repository_sources(&layout, &session, &index.0, &repository)
+            .await
+            .map_err(|error| anyhow::anyhow!("register repository code sources: {error}"))?;
+        if !mismatched.is_empty() {
+            let rebuilt = build_or_update_repository_index(
+                &index_path,
+                &candidates_path,
+                &repository,
+                REPOSITORY_CODE_PARSER_GENERATION,
+                &manifest.excluded_patterns,
+            )
+            .map_err(|error| anyhow::anyhow!("rebuild repository code index: {error}"))?;
+            mode = rebuilt.1;
+            if !matches!(mode, RepositoryIndexBuildMode::Noop) {
+                rebuilt
+                    .0
+                    .save(&index_path)
+                    .map_err(|error| anyhow::anyhow!("save repository code index: {error}"))?;
+            }
+            index = rebuilt;
+            let remaining = register_repository_sources(&layout, &session, &index.0, &repository)
+                .await
+                .map_err(|error| anyhow::anyhow!("register repository code sources: {error}"))?;
+            if !remaining.is_empty() {
+                // The repository changed again mid-command; the next index
+                // run reconciles it. The persisted index is still consistent
+                // with the worktree at save time.
+                eprintln!(
+                    "warning: {} repository source(s) changed during indexing; re-run `maestria index repository` to reconcile",
+                    remaining.len()
+                );
+            }
+        }
+        Ok::<_, anyhow::Error>((index_path, mode, index.0.summary))
     }
     .await;
-    let (index_path, summary) = session.finish(result).await?;
+    let (index_path, mode, summary) = session.finish(result).await?;
     println!("repository_code_index={}", index_path.display());
+    println!("mode={}", mode.as_str());
     println!("{}", serde_json::to_string_pretty(&summary)?);
     Ok(())
+}
+
+/// Remove a persisted repository code index that the daemon runtime would
+/// reject (stale parser generation, changed privacy exclusions, or integrity
+/// failure). Returns Ok for a missing or healthy index.
+fn repair_stale_repository_index(index_path: &Path, manifest: &InstanceManifest) -> Result<()> {
+    if !index_path.exists() {
+        return Ok(());
+    }
+    let unhealthy = match RepositoryCodeIndex::load(index_path) {
+        Ok(index) => {
+            index.is_stale_generation(REPOSITORY_CODE_PARSER_GENERATION)
+                || index.summary.excluded_patterns != manifest.excluded_patterns
+        }
+        Err(_) => true,
+    };
+    if unhealthy {
+        std::fs::remove_file(index_path)
+            .with_context(|| format!("remove stale repository code index {}", index_path.display()))?;
+    }
+    Ok(())
+}
+
+/// Register every file with indexed symbols as a canonical source artifact
+/// through the kernel pipeline (the same `ArtifactDetected` flow the generic
+/// indexer uses), then wait until all are durably indexed. Code queries
+/// authorize symbols against these artifacts and their evidence, so a code
+/// index without registered sources cannot be searched.
+///
+/// Returns the relative paths whose on-disk content no longer matches the
+/// indexed content hash (the caller should rebuild and re-register those).
+async fn register_repository_sources(
+    layout: &InstanceLayout,
+    session: &maestria_daemon::MutationSession,
+    index: &RepositoryCodeIndex,
+    repository: &Path,
+) -> Result<std::collections::BTreeSet<String>> {
+    let mut expected: std::collections::BTreeMap<String, String> = std::collections::BTreeMap::new();
+    for symbol in &index.symbols {
+        expected
+            .entry(symbol.provenance.file_path.clone())
+            .or_insert_with(|| symbol.provenance.content_hash.clone());
+    }
+    if expected.is_empty() {
+        return Ok(std::collections::BTreeSet::new());
+    }
+    let mut mismatched = std::collections::BTreeSet::new();
+    let mut skipped = 0_usize;
+    // Submit one artifact at a time and wait for it to reach the terminal
+    // indexed state before the next. The kernel processes inputs serially
+    // and index effects run under a bounded semaphore; flooding the input
+    // channel with every source at once stalls the pipeline, so mirror the
+    // generic indexer's submit-and-wait cadence.
+    for (relative_path, indexed_hash) in &expected {
+        let path = repository.join(relative_path);
+        let bytes = fs::read(&path).with_context(|| {
+            format!("read repository source for artifact registration: {}", path.display())
+        })?;
+        let content_hash = content_hash(&bytes);
+        if content_hash != *indexed_hash {
+            mismatched.insert(relative_path.clone());
+            continue;
+        }
+        // The kernel refuses to index secret-bearing chunks (its full-text
+        // effect fails and the runtime shuts down), so files the same scanner
+        // flags are left unbound up front; their symbols are then skipped by
+        // the query authorization instead of erroring.
+        if !scan_secrets(&String::from_utf8_lossy(&bytes)).is_clean() {
+            skipped += 1;
+            continue;
+        }
+        let artifact_id = artifact_id_for(&path, &bytes);
+        let title = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("artifact")
+            .to_string();
+        session
+            .submit(DomainInput::ArtifactDetected(ArtifactDetected {
+                artifact_id,
+                title,
+                source_path: path.display().to_string(),
+                source_bytes: bytes,
+                content_hash: ContentHash::new(content_hash)?,
+            }))
+            .await
+            .with_context(|| format!("submit repository source artifact for {}", path.display()))?;
+        crate::helpers::wait_for_kernel_state(
+            layout,
+            Duration::from_secs(60),
+            format!("waiting for repository source indexing: {}", path.display()),
+            |state| {
+                state.artifacts.get(&artifact_id).is_some_and(|artifact| {
+                    artifact.index_status == IndexStatus::Indexed
+                })
+            },
+        )
+        .await?;
+    }
+    if skipped > 0 {
+        eprintln!(
+            "skipped {} repository source(s) containing secret-like content (not searchable)",
+            skipped
+        );
+    }
+    Ok(mismatched)
 }
 
 pub(crate) fn run_search(instance_dir: PathBuf, query: CodeQuery, limit: usize) -> Result<()> {

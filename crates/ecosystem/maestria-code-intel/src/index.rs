@@ -13,7 +13,7 @@ use crate::types::{
 
 /// Persisted filename for the repository code projection.
 pub const REPOSITORY_CODE_INDEX_FILENAME: &str = "repository-code-index.json";
-pub const REPOSITORY_CODE_PARSER_GENERATION: &str = "cargo-rust-code-v2";
+pub const REPOSITORY_CODE_PARSER_GENERATION: &str = "cargo-rust-code-v3";
 
 impl RepositoryCodeIndex {
     /// Save index to JSON without exposing a partially written prior index.
@@ -103,6 +103,16 @@ impl RepositoryCodeIndex {
         }
         for symbol in &self.symbols {
             validate_record_provenance(summary, &symbol.provenance, "symbol")?;
+        }
+        if !self.file_contexts.is_empty() {
+            for symbol in &self.symbols {
+                if !self.file_contexts.contains_key(&symbol.provenance.file_path) {
+                    return Err(CodeIntelError::Integrity {
+                        context: "index file contexts".to_string(),
+                        details: symbol.provenance.file_path.clone(),
+                    });
+                }
+            }
         }
 
         let symbols = self

@@ -18,6 +18,7 @@ pub(crate) fn collect_rust_files(
     excluded_patterns: &[String],
     module_context: &ModuleContext,
     module_contexts: &mut BTreeMap<PathBuf, ModuleContext>,
+    parents: &mut BTreeMap<PathBuf, PathBuf>,
 ) -> Result<(), CodeIntelError> {
     if is_excluded(path, excluded_patterns) {
         return Ok(());
@@ -39,6 +40,7 @@ pub(crate) fn collect_rust_files(
                 excluded_patterns,
                 module_context,
                 module_contexts,
+                parents,
             )?;
         }
         return Ok(());
@@ -70,18 +72,20 @@ pub(crate) fn collect_rust_files(
             excluded_patterns,
             module_context,
             module_contexts,
+            parents,
         )?;
     }
     Ok(())
 }
 
-fn collect_source_and_modules(
+pub(crate) fn collect_source_and_modules(
     path: &Path,
     root: &Path,
     out: &mut Vec<PathBuf>,
     excluded_patterns: &[String],
     module_context: &ModuleContext,
     module_contexts: &mut BTreeMap<PathBuf, ModuleContext>,
+    parents: &mut BTreeMap<PathBuf, PathBuf>,
 ) -> Result<(), CodeIntelError> {
     let canonical = path.canonicalize().map_err(|error| CodeIntelError::Io {
         operation: "canonicalize Rust module".to_string(),
@@ -139,6 +143,7 @@ fn collect_source_and_modules(
         child_context.stack.push(module.ident.to_string());
         child_context.is_test |= attr_test(&module.attrs);
         child_context.is_bench |= attr_bench(&module.attrs);
+        parents.insert(child.clone(), canonical.clone());
         collect_source_and_modules(
             &child,
             root,
@@ -146,6 +151,7 @@ fn collect_source_and_modules(
             excluded_patterns,
             &child_context,
             module_contexts,
+            parents,
         )?;
     }
     Ok(())

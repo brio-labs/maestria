@@ -20,7 +20,7 @@ const SOURCE: &[u8] = b"fn compute() {\n    42\n}\n";
 const REPOSITORY_ROOT: &str = "/root/repo";
 const FILE_PATH: &str = "src/lib.rs";
 const SOURCE_PATH: &str = "/root/repo/src/lib.rs";
-const PARSER_GENERATION: &str = "cargo-rust-code-v2";
+const PARSER_GENERATION: &str = "cargo-rust-code-v3";
 
 #[derive(Clone, Copy)]
 enum FixtureMode {
@@ -444,25 +444,23 @@ fn prompt_injection_policy_rejection_is_independent() -> Result<(), Box<dyn Erro
 }
 
 #[test]
-fn missing_source_events_are_typed_errors() -> Result<(), Box<dyn Error>> {
+fn unbound_source_is_unauthorized() -> Result<(), Box<dyn Error>> {
     let fixture = fixture(FixtureMode::MissingSource)?;
-    assert_internal(
-        fixture
+    assert!(
+        !fixture
             .resolver
-            .authorizes(&fixture.symbol, &default_authorization()?),
-        "canonical repository source binding is missing",
+            .authorizes(&fixture.symbol, &default_authorization()?)?
     );
     Ok(())
 }
 
 #[test]
-fn stale_source_event_is_a_typed_error() -> Result<(), Box<dyn Error>> {
+fn stale_source_is_unauthorized() -> Result<(), Box<dyn Error>> {
     let fixture = fixture(FixtureMode::StaleSource)?;
-    assert_internal(
-        fixture
+    assert!(
+        !fixture
             .resolver
-            .authorizes(&fixture.symbol, &default_authorization()?),
-        "canonical repository source binding is missing",
+            .authorizes(&fixture.symbol, &default_authorization()?)?
     );
     Ok(())
 }
@@ -521,7 +519,8 @@ fn evidence_path_mismatch_is_a_typed_error() -> Result<(), Box<dyn Error>> {
 #[test]
 fn evidence_range_mismatch_is_a_typed_error() -> Result<(), Box<dyn Error>> {
     let fixture = fixture(FixtureMode::Complete)?;
-    replace_file_evidence(&fixture, SOURCE_PATH, LineRange::new(1, 1)?)?;
+    // Evidence that does not cover the symbol's start line does not bind it.
+    replace_file_evidence(&fixture, SOURCE_PATH, LineRange::new(2, 3)?)?;
     assert_internal(
         fixture
             .resolver
@@ -532,16 +531,36 @@ fn evidence_range_mismatch_is_a_typed_error() -> Result<(), Box<dyn Error>> {
 }
 
 #[test]
-fn non_indexed_artifact_is_a_typed_error() -> Result<(), Box<dyn Error>> {
+fn evidence_covering_start_line_binds_spanning_symbol() -> Result<(), Box<dyn Error>> {
+    let fixture = fixture(FixtureMode::Complete)?;
+    // A symbol spanning beyond the evidence range (impl blocks, nested
+    // items) still authorizes when the evidence covers its start line.
+    let mut replacement = fixture.evidence_record.clone();
+    replacement.kind = EvidenceKind::FileSpan {
+        path: SOURCE_PATH.to_string(),
+        range: LineRange::new(1, 1)?,
+        snapshot: SnapshotRef::new(fixture.blob_id, fixture.content_hash.clone()),
+    };
+    replacement.excerpt = "fn compute() {".to_string();
+    fixture.evidence.replace(replacement)?;
+    assert!(
+        fixture
+            .resolver
+            .authorizes(&fixture.symbol, &default_authorization()?)?
+    );
+    Ok(())
+}
+
+#[test]
+fn non_indexed_artifact_is_unauthorized() -> Result<(), Box<dyn Error>> {
     let fixture = fixture(FixtureMode::Complete)?;
     let mut artifact = fixture.artifact.clone();
     artifact.index_status = IndexStatus::Pending;
     fixture.artifacts.put(artifact)?;
-    assert_internal(
-        fixture
+    assert!(
+        !fixture
             .resolver
-            .authorizes(&fixture.symbol, &default_authorization()?),
-        "canonical repository artifact 11 is stale or mismatched",
+            .authorizes(&fixture.symbol, &default_authorization()?)?
     );
     Ok(())
 }

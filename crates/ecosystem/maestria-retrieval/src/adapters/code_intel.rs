@@ -356,7 +356,9 @@ impl CandidateRetriever for CodeIntelRetriever {
             scan_limit,
             |symbol| -> Result<bool, RetrievalError> {
                 if let Some(filter) = request.source_filter.as_ref() {
-                    let artifact_id = security.source_artifact_id(symbol)?;
+                    let Some(artifact_id) = security.source_artifact_id(symbol)? else {
+                        return Ok(false);
+                    };
                     if !filter.allows(artifact_id) {
                         return Ok(false);
                     }

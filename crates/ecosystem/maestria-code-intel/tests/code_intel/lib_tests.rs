@@ -96,20 +96,20 @@ fn query_symbol_path_and_regex_filters() -> Result<(), Box<dyn Error>> {
 }
 
 #[test]
-fn query_bounds_authorization_scan() -> Result<(), Box<dyn Error>> {
+fn query_caps_results_and_authorizes_every_match() -> Result<(), Box<dyn Error>> {
     let tmp = make_workspace()?;
     let index = build_index(tmp.path(), "g1")?;
     let mut callbacks = 0;
     let result = index.query(CodeQuery::All, 1, |_: &SymbolRecord| {
         callbacks += 1;
-        Ok::<bool, Box<dyn Error>>(callbacks > 1)
+        Ok::<bool, Box<dyn Error>>(true)
     })?;
 
-    assert_eq!(callbacks, 1);
-    assert_eq!(result.summary.matched, 0);
-    assert_eq!(result.summary.returned, 0);
+    assert_eq!(callbacks, index.symbols.len());
+    assert_eq!(result.summary.matched, index.symbols.len());
+    assert_eq!(result.summary.returned, 1);
     assert!(result.summary.truncated);
-    assert_eq!(result.summary.scanned, 1);
+    assert_eq!(result.summary.scanned, index.symbols.len());
     Ok(())
 }
 

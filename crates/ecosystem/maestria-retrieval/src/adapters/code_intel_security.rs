@@ -150,11 +150,14 @@ impl CodeIntelSecurityResolver {
     pub(super) fn source_artifact_id(
         &self,
         symbol: &SymbolRecord,
-    ) -> Result<ArtifactId, RetrievalError> {
-        let expected_path =
-            Path::new(&symbol.provenance.repository_root).join(&symbol.provenance.file_path);
-        self.resolve_source(&expected_path, symbol)
-            .map(|(artifact_id, _, _)| artifact_id)
+    ) -> Result<Option<ArtifactId>, RetrievalError> {
+        Ok(self
+            .resolve_source(
+                &Path::new(&symbol.provenance.repository_root)
+                    .join(&symbol.provenance.file_path),
+                symbol,
+            )?
+            .map(|(artifact_id, _, _)| artifact_id))
     }
 
     pub(super) fn resolve(
@@ -167,8 +170,16 @@ impl CodeIntelSecurityResolver {
         }
         let expected_path =
             Path::new(&symbol.provenance.repository_root).join(&symbol.provenance.file_path);
-        let (artifact_id, artifact_version, content_hash) =
-            self.resolve_source(&expected_path, symbol)?;
+        // A source without a canonical binding is unauthorized, not an error:
+        // files the kernel refuses to index (secret-bearing content) and
+        // sources unbound by staleness are legitimate states the query path
+        // must degrade past. The CLI freshness check still fails closed with
+        // the stale message before authorization.
+        let Some((artifact_id, artifact_version, content_hash)) =
+            self.resolve_source(&expected_path, symbol)?
+        else {
+            return Ok(None);
+        };
         let Some(artifact) = self.resolve_artifact(artifact_id, content_hash, authorization)?
         else {
             return Ok(None);
@@ -187,12 +198,9 @@ impl CodeIntelSecurityResolver {
         &'a self,
         expected_path: &Path,
         symbol: &SymbolRecord,
-    ) -> Result<(ArtifactId, ArtifactVersionId, &'a ContentHash), RetrievalError> {
+    ) -> Result<Option<(ArtifactId, ArtifactVersionId, &'a ContentHash)>, RetrievalError> {
         let Some(source) = self.sources.get(expected_path) else {
-            return Err(RetrievalError::Internal(format!(
-                "canonical repository source binding is missing for {}",
-                expected_path.display()
-            )));
+            return Ok(None);
         };
         let (artifact_id, artifact_version, content_hash) = match source {
             CanonicalCodeSource::Ready {
@@ -231,7 +239,7 @@ impl CodeIntelSecurityResolver {
                 symbol.provenance.file_path
             )));
         }
-        Ok((artifact_id, artifact_version, content_hash))
+        Ok(Some((artifact_id, artifact_version, content_hash)))
     }
 
     fn resolve_artifact(
@@ -245,13 +253,16 @@ impl CodeIntelSecurityResolver {
                 "canonical repository artifact {artifact_id} is missing"
             )));
         };
-        if artifact.index_status != IndexStatus::Indexed
-            || artifact.content_hash.as_ref() != Some(content_hash)
-        {
+        if artifact.content_hash.as_ref() != Some(content_hash) {
             return Err(RetrievalError::Internal(format!(
                 "canonical repository artifact {} is stale or mismatched",
                 artifact.id
             )));
+        }
+        if artifact.index_status != IndexStatus::Indexed {
+            // Artifacts the kernel deliberately leaves unindexed (secret-
+            // bearing content) are unauthorized, not an error.
+            return Ok(None);
         }
         if authorization.evaluate(&artifact.security) != RetrievalDecision::Allowed {
             return Ok(None);
@@ -338,10 +349,15 @@ fn evidence_binds_symbol(
     else {
         return false;
     };
+    // A symbol binds the evidence row whose range covers its start line.
+    // Rust chunk evidence tiles a source file contiguously (header chunk
+    // through last item), so every symbol's origin line is covered by exactly
+    // one row; symbols spanning multiple chunks (impl blocks, nested items)
+    // still bind their own chunk via their start line.
     Path::new(path) == expected_path
         && snapshot.content_hash() == content_hash
         && range.start() <= symbol.provenance.source_range.start_line()
-        && range.end() >= symbol.provenance.source_range.end_line()
+        && range.end() >= symbol.provenance.source_range.start_line()
 }
 
 /// Maps a symbol's security metadata to the evidence trust label.
