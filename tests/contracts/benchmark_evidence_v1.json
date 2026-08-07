@@ -154,7 +154,7 @@
       },
       "fingerprints": {
         "corpus_snapshot": "rust-repository-frozen-v1",
-        "index_generation": "cargo-rust-code-v2",
+        "index_generation": "cargo-rust-code-v3",
         "model_fingerprint": "repository-code-index-v2"
       },
       "environment": {
