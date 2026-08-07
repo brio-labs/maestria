@@ -11,7 +11,9 @@ use super::SourceSnapshotVerifier;
 use super::common::{candidate_from_records, generation_mismatch, one_based_rank, port_error};
 use super::score_provenance::lexical_score;
 use crate::traits::CandidateRetriever;
-use crate::types::{CandidateBatch, CandidateRequest, RetrievalError, RetrieverDescriptor};
+use crate::types::{
+    CandidateBatch, CandidateRequest, CandidateSourceFilter, RetrievalError, RetrieverDescriptor,
+};
 
 /// Dependencies required by the lexical chunk adapter.
 pub struct LexicalChunkRetrieverParts {
@@ -68,7 +70,12 @@ impl CandidateRetriever for LexicalChunkRetriever {
         let bounded = self
             .index
             .search_filtered(query, &|chunk_id, artifact_id| {
-                self.prefilter_hit(chunk_id, artifact_id, &request.authorization)
+                self.prefilter_hit(
+                    chunk_id,
+                    artifact_id,
+                    &request.authorization,
+                    request.source_filter.as_ref(),
+                )
             })
             .map_err(port_error)?;
         let hits = bounded.hits;
@@ -103,7 +110,11 @@ impl LexicalChunkRetriever {
         chunk_id: maestria_domain::ChunkId,
         artifact_id: maestria_domain::ArtifactId,
         authorization: &maestria_governance::RetrievalAuthorizationContext,
+        source_filter: Option<&CandidateSourceFilter>,
     ) -> Result<bool, maestria_ports::PortError> {
+        if source_filter.is_some_and(|filter| !filter.allows(artifact_id)) {
+            return Ok(false);
+        }
         let Some(artifact) = self.artifacts.get(artifact_id)? else {
             return Ok(false);
         };

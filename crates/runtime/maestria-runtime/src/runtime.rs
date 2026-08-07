@@ -37,6 +37,7 @@ pub struct MaestriaRuntime {
     pub(crate) next_validation_report_id: Arc<AtomicU64>,
     pub(crate) feedback_acks: HarnessFeedbackAcks,
     pub(crate) pending_applications: Mutex<BTreeMap<HarnessRunId, PendingApplication>>,
+    pub(crate) pending_notebook_drafts: Mutex<BTreeMap<u64, RuntimeCommand>>,
     #[cfg(test)]
     pub(crate) test_pre_failed_effect_task: bool,
 }

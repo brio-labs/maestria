@@ -15,6 +15,9 @@ pub enum CoreError {
         key: String,
         reason: String,
     },
+    BlobIntegrity {
+        message: String,
+    },
     NotFound {
         message: String,
     },
@@ -43,6 +46,7 @@ impl fmt::Display for CoreError {
             Self::InvalidManifest { key, reason } => {
                 write!(f, "invalid manifest key '{key}': {reason}")
             }
+            Self::BlobIntegrity { message } => write!(f, "blob integrity failure: {message}"),
             Self::SearchPlan(error) => write!(f, "search plan rejected: {error}"),
             Self::NotFound { message } => write!(f, "not found: {message}"),
             Self::NotFoundEntity { kind, id } => write!(f, "not found: {kind} {id}"),

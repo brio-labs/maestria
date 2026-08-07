@@ -5,9 +5,10 @@ use maestria_domain::{
 use maestria_ports::SearchQuery;
 
 use super::RetrievalEngine;
+use super::engine_evaluation;
 use super::engine_pipeline;
 use crate::rewrite::{RewriteAccounting, RewriteOrigin, StageRole};
-use crate::types::{CandidateBatch, RetrievalError, RetrievalResult};
+use crate::types::{CandidateBatch, CandidateSourceFilter, RetrievalError, RetrievalResult};
 
 pub(super) struct AdaptiveSearchState {
     pub(super) batches: Vec<CandidateBatch>,
@@ -25,6 +26,7 @@ pub(super) async fn iterate_until_stop(
     plan: &SearchPlan,
     query: &SearchQuery,
     authorization: &maestria_governance::RetrievalAuthorizationContext,
+    source_filter: Option<&CandidateSourceFilter>,
     state: &mut AdaptiveSearchState,
     started: tokio::time::Instant,
 ) -> RetrievalResult<Option<SearchStopReason>> {
@@ -57,7 +59,18 @@ pub(super) async fn iterate_until_stop(
         else {
             return Ok(Some(SearchStopReason::RequirementsUnmet));
         };
-        if !retrieve_missing_slot(engine, plan, query, authorization, state, slot, started).await? {
+        if !retrieve_missing_slot(MissingSlotRequest {
+            engine,
+            plan,
+            query,
+            authorization,
+            source_filter,
+            state,
+            slot,
+            started,
+        })
+        .await?
+        {
             return Ok(Some(SearchStopReason::BudgetExhausted));
         }
         iteration_count = iteration_count.saturating_add(1);
@@ -81,15 +94,28 @@ pub(super) async fn iterate_until_stop(
     }
 }
 
-async fn retrieve_missing_slot(
-    engine: &RetrievalEngine,
-    plan: &SearchPlan,
-    query: &SearchQuery,
-    authorization: &maestria_governance::RetrievalAuthorizationContext,
-    state: &mut AdaptiveSearchState,
+struct MissingSlotRequest<'a> {
+    engine: &'a RetrievalEngine,
+    plan: &'a SearchPlan,
+    query: &'a SearchQuery,
+    authorization: &'a maestria_governance::RetrievalAuthorizationContext,
+    source_filter: Option<&'a CandidateSourceFilter>,
+    state: &'a mut AdaptiveSearchState,
     slot: String,
     started: tokio::time::Instant,
-) -> RetrievalResult<bool> {
+}
+
+async fn retrieve_missing_slot(request: MissingSlotRequest<'_>) -> RetrievalResult<bool> {
+    let MissingSlotRequest {
+        engine,
+        plan,
+        query,
+        authorization,
+        source_filter,
+        state,
+        slot,
+        started,
+    } = request;
     // The slot text originates from the plan's evidence requirements and is
     // executed verbatim as a retrieval query. Plan-derived text is an
     // untrusted proposal until screened: refuse to execute slots that carry
@@ -135,26 +161,28 @@ async fn retrieve_missing_slot(
             plan,
             &query_text,
             authorization,
+            source_filter,
             &mut state.web_requests_used,
             &mut state.execution_usage,
         )
         .await?,
     );
-    (
-        state.outcome,
-        state.lanes,
-        state.rerank_trace,
-        state.diversity_trace,
-    ) = engine
-        .evaluate_batches(
+    let (outcome, lanes, rerank_trace, diversity_trace) =
+        engine_evaluation::evaluate_batches(engine_evaluation::EvaluationRequest {
+            engine,
             plan,
             query,
-            &state.batches,
+            batches: &state.batches,
             started,
-            &mut state.execution_usage,
+            execution_usage: &mut state.execution_usage,
             authorization,
-        )
+            source_filter,
+        })
         .await?;
+    state.outcome = outcome;
+    state.lanes = lanes;
+    state.rerank_trace = rerank_trace;
+    state.diversity_trace = diversity_trace;
     Ok(true)
 }
 

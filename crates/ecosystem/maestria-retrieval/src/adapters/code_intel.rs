@@ -209,6 +209,13 @@ impl CodeIntelRetriever {
                 )));
             };
             let binding = bindings.remove(position);
+            if request
+                .source_filter
+                .as_ref()
+                .is_some_and(|filter| !filter.allows(binding.evidence.artifact_id))
+            {
+                continue;
+            }
             let span_bytes = maestria_domain::saturating_u64(
                 binding
                     .symbol
@@ -348,6 +355,12 @@ impl CandidateRetriever for CodeIntelRetriever {
             query,
             scan_limit,
             |symbol| -> Result<bool, RetrievalError> {
+                if let Some(filter) = request.source_filter.as_ref() {
+                    let artifact_id = security.source_artifact_id(symbol)?;
+                    if !filter.allows(artifact_id) {
+                        return Ok(false);
+                    }
+                }
                 let Some(binding) = security.resolve(symbol, &request.authorization)? else {
                     return Ok(false);
                 };

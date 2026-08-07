@@ -1,0 +1,49 @@
+@import "tailwindcss";
+@source "./src/**/*.{rs,html,css}";
+
+@theme {
+  --color-page: #f4f6f8;
+  --color-panel: #ffffff;
+  --color-muted: #eef2f6;
+  --color-input: #fbfcfd;
+  --color-ink-strong: #17212b;
+  --color-ink: #334454;
+  --color-ink-muted: #627383;
+  --color-line: #cbd5df;
+  --color-line-strong: #9eacba;
+  --color-accent: #1f63b7;
+  --color-accent-hover: #174f98;
+  --color-accent-soft: #e8f1fc;
+  --color-success: #176c4a;
+  --color-warning: #805b00;
+  --color-danger: #a63a3a;
+  --color-danger-hover: #8d2f2f;
+  --color-danger-soft: #fff0ef;
+  --color-focus: #b86b00;
+  --color-frozen: #7b5aa6;
+  --color-conflict-bg: #fff8e6;
+  --color-conflict-line: #c99532;
+  --color-conflict-ink: #694b00;
+}
+
+@layer base {
+  :root { font-family: ui-sans-serif, system-ui, sans-serif; color: var(--color-ink); background: var(--color-page); }
+  *, *::before, *::after { box-sizing: border-box; }
+  :focus-visible { outline: 3px solid var(--color-focus); outline-offset: 2px; }
+  @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; scroll-behavior: auto !important; } }
+}
+
+@layer components {
+  .markdown-body h1, .markdown-body h2, .markdown-body h3 { color: var(--color-ink-strong); font-weight: 700; margin: 1rem 0 .5rem; }
+  .markdown-body h1 { font-size: 1.5rem; }
+  .markdown-body h2 { font-size: 1.25rem; }
+  .markdown-body h3 { font-size: 1.1rem; }
+  .markdown-body p, .markdown-body ul, .markdown-body ol, .markdown-body pre { margin: .65rem 0; }
+  .markdown-body ul, .markdown-body ol { padding-left: 1.5rem; }
+  .markdown-body ul { list-style: disc; }
+  .markdown-body ol { list-style: decimal; }
+  .markdown-body pre { overflow-x: auto; border-radius: .5rem; background: var(--color-muted); padding: .75rem; }
+  .markdown-body code { border-radius: .25rem; background: var(--color-muted); padding: .1rem .25rem; }
+  .markdown-body pre code { background: transparent; padding: 0; }
+  .markdown-body a { color: var(--color-accent); text-decoration: underline; }
+}

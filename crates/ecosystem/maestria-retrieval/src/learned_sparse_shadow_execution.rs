@@ -49,6 +49,7 @@ pub(crate) fn spawn_learned_sparse_shadow(
     retrievers: Vec<Arc<dyn CandidateRetriever>>,
     plan: SearchPlan,
     authorization: maestria_governance::RetrievalAuthorizationContext,
+    source_filter: Option<crate::types::CandidateSourceFilter>,
     store: LearnedSparseShadowStore,
 ) -> Option<LearnedSparseShadowTask> {
     let retrievers = retrievers
@@ -66,16 +67,16 @@ pub(crate) fn spawn_learned_sparse_shadow(
     }
     Some(LearnedSparseShadowTask {
         handle: Some(tokio::spawn(async move {
-            let observation = run_shadow(retrievers, plan, authorization).await;
+            let observation = run_shadow(retrievers, plan, authorization, source_filter).await;
             store.record(observation);
         })),
     })
 }
-
 async fn run_shadow(
     retrievers: Vec<ShadowRetriever>,
     plan: SearchPlan,
     authorization: maestria_governance::RetrievalAuthorizationContext,
+    source_filter: Option<crate::types::CandidateSourceFilter>,
 ) -> LearnedSparseShadowObservation {
     let started = tokio::time::Instant::now();
     let timeout_ms = u64::from(plan.budgets().max_latency_ms()).clamp(1, MAX_SHADOW_LATENCY_MS);
@@ -83,7 +84,13 @@ async fn run_shadow(
     let lanes = match plan.execution_budget() {
         Ok(execution_budget) => match tokio::time::timeout(
             Duration::from_millis(timeout_ms),
-            collect_shadow_lanes(shadow_retrievers, &plan, &authorization, execution_budget),
+            collect_shadow_lanes(
+                shadow_retrievers,
+                &plan,
+                &authorization,
+                source_filter.as_ref(),
+                execution_budget,
+            ),
         )
         .await
         {
@@ -161,6 +168,7 @@ async fn collect_shadow_lanes(
     retrievers: Vec<ShadowRetriever>,
     plan: &SearchPlan,
     authorization: &maestria_governance::RetrievalAuthorizationContext,
+    source_filter: Option<&crate::types::CandidateSourceFilter>,
     execution_budget: maestria_domain::SearchExecutionBudget,
 ) -> Vec<LearnedSparseShadowLane> {
     let mut lanes = Vec::with_capacity(retrievers.len());
@@ -193,6 +201,7 @@ async fn collect_shadow_lanes(
             execution_budget,
             expected_generation: descriptor.generation,
             authorization: authorization.clone(),
+            source_filter: source_filter.cloned(),
         };
         let lane = match retriever.retrieve(request).await {
             Ok(batch)

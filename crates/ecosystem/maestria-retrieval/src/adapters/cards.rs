@@ -12,7 +12,9 @@ use super::SourceSnapshotVerifier;
 use super::common::{candidate_from_records, generation_mismatch, one_based_rank, port_error};
 use super::score_provenance::lexical_score;
 use crate::traits::CandidateRetriever;
-use crate::types::{CandidateBatch, CandidateRequest, RetrievalError, RetrieverDescriptor};
+use crate::types::{
+    CandidateBatch, CandidateRequest, CandidateSourceFilter, RetrievalError, RetrieverDescriptor,
+};
 
 /// Port-backed card retrieval that emits source-grounded evidence candidates.
 pub struct CardRetriever {
@@ -50,16 +52,16 @@ impl CardRetriever {
             },
         }
     }
-
     fn filtered_hits(
         &self,
         query: SearchQuery,
         authorization: &maestria_governance::RetrievalAuthorizationContext,
+        source_filter: Option<&CandidateSourceFilter>,
     ) -> Result<maestria_ports::BoundedSearch<maestria_ports::CardHit>, RetrievalError> {
         let hits = self
             .index
             .search_cards_filtered(query, &|card_id, artifact_id| {
-                self.prefilter_hit(card_id, artifact_id, authorization)
+                self.prefilter_hit(card_id, artifact_id, authorization, source_filter)
             })
             .map_err(port_error)?;
         Ok(hits)
@@ -70,7 +72,11 @@ impl CardRetriever {
         card_id: maestria_domain::CardId,
         artifact_id: maestria_domain::ArtifactId,
         authorization: &maestria_governance::RetrievalAuthorizationContext,
+        source_filter: Option<&CandidateSourceFilter>,
     ) -> Result<bool, maestria_ports::PortError> {
+        if source_filter.is_some_and(|filter| !filter.allows(artifact_id)) {
+            return Ok(false);
+        }
         let Some(artifact) = self.artifacts.get(artifact_id)? else {
             return Ok(false);
         };
@@ -110,7 +116,11 @@ impl CardRetriever {
         hit: &maestria_ports::CardHit,
         raw_rank: u32,
         authorization: &maestria_governance::RetrievalAuthorizationContext,
+        source_filter: Option<&CandidateSourceFilter>,
     ) -> Result<Option<EvidenceCandidate>, RetrievalError> {
+        if source_filter.is_some_and(|filter| !filter.allows(hit.card.artifact_id)) {
+            return Ok(None);
+        }
         let Some(artifact) = self
             .artifacts
             .get(hit.card.artifact_id)
@@ -181,11 +191,15 @@ impl CandidateRetriever for CardRetriever {
         let authorization = request.authorization.clone();
         let mut query = request.query.clone();
         query.execution_budget = request.execution_budget;
-        let bounded = self.filtered_hits(query, &authorization)?;
+        let bounded = self.filtered_hits(query, &authorization, request.source_filter.as_ref())?;
         let mut candidates = Vec::with_capacity(bounded.hits.len());
         for (raw_rank, hit) in bounded.hits.into_iter().enumerate() {
-            let Some(candidate) =
-                self.candidate_from_hit(&hit, one_based_rank(raw_rank)?, &authorization)?
+            let Some(candidate) = self.candidate_from_hit(
+                &hit,
+                one_based_rank(raw_rank)?,
+                &authorization,
+                request.source_filter.as_ref(),
+            )?
             else {
                 continue;
             };

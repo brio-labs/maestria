@@ -1,6 +1,6 @@
-use std::{future::Future, pin::Pin};
+use std::{collections::BTreeSet, future::Future, pin::Pin};
 
-use maestria_domain::{SearchOutcome, SearchPlan};
+use maestria_domain::{ArtifactId, SearchOutcome, SearchPlan};
 use maestria_ports::SearchKnowledgeExecutor;
 
 use super::SearchRuntime;
@@ -44,6 +44,37 @@ impl SearchKnowledgeExecutor for SearchRuntime {
                     source: error.to_string(),
                 }
             })
+        })
+    }
+    fn plan_and_search_selected(
+        &self,
+        query: String,
+        limit: usize,
+        artifact_ids: BTreeSet<ArtifactId>,
+    ) -> maestria_ports::SearchFuture<'_, (SearchPlan, SearchOutcome)> {
+        let runtime = self.clone();
+        Box::pin(async move {
+            let source_filter = maestria_retrieval::CandidateSourceFilter::try_new(artifact_ids)
+                .map_err(|error| maestria_ports::PortError::InvalidInputContext {
+                    context: "selected source filter",
+                    source: error.to_string(),
+                })?;
+            let authorization = runtime
+                .retrieval_policy
+                .authorization_context(&maestria_domain::CorpusScope::Restricted(vec![
+                    runtime.scope_id,
+                ]))
+                .map_err(|error| maestria_ports::PortError::InternalContext {
+                    context: "selected search authorization",
+                    source: format!("{error:?}"),
+                })?;
+            runtime
+                .execute_selected_sources(query, limit, authorization, source_filter)
+                .await
+                .map_err(|error| maestria_ports::PortError::InternalContext {
+                    context: "selected source search",
+                    source: error.to_string(),
+                })
         })
     }
 }

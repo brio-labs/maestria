@@ -16,6 +16,18 @@ pub struct ParseArtifactRequest {
     pub source_path: String,
     pub source: ParseArtifactSource,
 }
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NotebookDraftBlobRequest {
+    pub notebook_id: crate::ids::NotebookId,
+    pub draft_id: Option<crate::ids::NotebookDraftId>,
+    pub expected_revision: Option<crate::notebook::NotebookDraftRevision>,
+    pub title: crate::notebook::NotebookDraftTitle,
+    pub body: String,
+    pub citations: Vec<crate::notebook::FrozenNotebookCitation>,
+    /// Runtime correlation for returning the eventual durable event to the
+    /// command that requested the blob write.
+    pub correlation_id: Option<u64>,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OcrEffect {
@@ -159,10 +171,10 @@ pub struct SearchKnowledgeRequest {
     pub task_id: Option<TaskId>,
     pub plan: crate::search::SearchPlan,
 }
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MaestriaEffect {
     PersistEvent { envelope: Box<DomainEventEnvelope> },
+    PersistNotebookDraftBlob(NotebookDraftBlobRequest),
     ParseArtifact(ParseArtifactRequest),
     Ocr(OcrEffect),
     IndexFullText(IndexFullTextRequest),

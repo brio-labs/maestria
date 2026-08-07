@@ -72,6 +72,15 @@ pub enum Commands {
         #[arg(short, long, default_value = ".maestria-dev")]
         instance_dir: PathBuf,
     },
+    /// Launch the local authenticated Studio frontend
+    Studio {
+        /// Instance containing the daemon socket, token, and Studio configuration.
+        #[arg(short = 'i', long = "instance-dir", default_value = ".maestria-dev")]
+        instance_dir: PathBuf,
+        /// Do not open the printed Studio URL in the default browser.
+        #[arg(long)]
+        no_open: bool,
+    },
     /// Task workflow commands
     Task {
         #[command(subcommand)]

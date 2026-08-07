@@ -255,6 +255,7 @@ STATE_OPTIONAL_PAYLOADS = {
     "rejected": {"rejected_at", "rejected_by", "rejection_reason"},
 }
 BOOLEAN_STATE_PREFIXES = ("is_", "was_")
+MAX_PRODUCTION_LINE_WIDTH = 100
 MAX_PRODUCTION_LOGICAL_LINES = 400
 MAX_MODULE_PHYSICAL_LINES = 900
 MAX_FUNCTION_LOGICAL_LINES = 100
@@ -328,7 +329,19 @@ RESPONSIBILITY_MAPS: dict[str, tuple[str, ...]] = {
     "src/lib.rs": (
         "version",
     ),
-    # ── kernel ───────────────────────────────────────────────────────
+    "web/src/lib.rs": (
+        "api",
+        "api_types",
+        "ask",
+        "app",
+        "components",
+        "drafts",
+        "markdown",
+        "pages",
+        "route",
+        "session",
+        "state",
+    ),
     "crates/kernel/maestria-ports/src/traits.rs": (
         "errors",
         "repositories",
@@ -372,8 +385,10 @@ RESPONSIBILITY_MAPS: dict[str, tuple[str, ...]] = {
         "ids",
         "input",
         "inputs",
-        "model_agent",
         "kernel_state",
+        "notebook_inputs",
+        "model_agent",
+        "notebook",
         "ocr",
         "provenance",
         "replay",
@@ -400,7 +415,6 @@ RESPONSIBILITY_MAPS: dict[str, tuple[str, ...]] = {
         "validation",
         "version",
     ),
-    # ── runtime ──────────────────────────────────────────────────────
     "crates/runtime/maestria-runtime/src/lib.rs": (
         "config",
         "effect_admission",
@@ -411,6 +425,7 @@ RESPONSIBILITY_MAPS: dict[str, tuple[str, ...]] = {
         "harness",
         "harness_gate",
         "indexing",
+        "notebook_draft",
         "ocr",
         "parser_mapping",
         "parsing",
@@ -442,6 +457,7 @@ RESPONSIBILITY_MAPS: dict[str, tuple[str, ...]] = {
         "ingestion",
         "instance",
         "manifest",
+        "notebook_draft_opening",
         "ports",
         "provenance",
         "types",
@@ -449,6 +465,11 @@ RESPONSIBILITY_MAPS: dict[str, tuple[str, ...]] = {
     ),
     "crates/apps/maestria-cli/src/lib.rs": (
         "test_support",
+    ),
+    "crates/apps/maestria-studio/src/lib.rs": (
+        "agent",
+        "http",
+        "server",
     ),
     "crates/apps/maestria-daemon/src/lib.rs": (
         "api",
@@ -473,9 +494,10 @@ RESPONSIBILITY_MAPS: dict[str, tuple[str, ...]] = {
         "db_retry",
         "evidence_open",
         "ingestion_policy",
+        "source_identity",
+        "notebook_draft_open",
         "projection_open",
         "recovery_staging",
-        "source_identity",
     ),
     "crates/apps/maestria-daemon/src/api.rs": (
         "protocol",
@@ -483,17 +505,7 @@ RESPONSIBILITY_MAPS: dict[str, tuple[str, ...]] = {
         "services",
         "token",
     ),
-    # ── harness ───────────────────────────────────────────────────────
-    "crates/harness/maestria-harness/src/lib.rs": (
-        "adapter",
-        "command",
-        "process",
-        "tokenize",
-    ),
-    # ── storage ───────────────────────────────────────────────────────
-    "crates/storage/maestria-blob-fs/src/lib.rs": (
-        "store",
-    ),
+    # -- storage ------------------------------------------------------
     "crates/storage/maestria-storage-sqlite/src/lib.rs": (
         "events",
         "id_allocator",
@@ -524,6 +536,15 @@ RESPONSIBILITY_MAPS: dict[str, tuple[str, ...]] = {
         "documents",
         "tantivy_index",
         "execution",
+    ),
+    "crates/harness/maestria-harness/src/lib.rs": (
+        "adapter",
+        "command",
+        "process",
+        "tokenize",
+    ),
+    "crates/storage/maestria-blob-fs/src/lib.rs": (
+        "store",
     ),
     "crates/storage/maestria-graph-sqlite/src/lib.rs": (
         "conversion",
@@ -931,13 +952,15 @@ _SIMPLE_PARAMETER_PATTERN = re.compile(
 )
 
 
-def _blank_non_newlines(chars: list[str], start: int, end: int) -> None:
+def _blank_non_newlines(
+    chars: list[str], start: int, end: int, replacement: str = " "
+) -> None:
     for index in range(start, end):
         if chars[index] not in {"\n", "\r"}:
-            chars[index] = " "
+            chars[index] = replacement
 
 
-def _rust_syntax(text: str) -> str:
+def _rust_syntax(text: str, replacement: str = " ") -> str:
     """Blank comments and literals while preserving source positions."""
     chars = list(text)
     index = 0
@@ -945,7 +968,7 @@ def _rust_syntax(text: str) -> str:
         if text.startswith("//", index):
             end = text.find("\n", index)
             end = len(text) if end == -1 else end
-            _blank_non_newlines(chars, index, end)
+            _blank_non_newlines(chars, index, end, replacement)
             index = end
             continue
 
@@ -961,7 +984,7 @@ def _rust_syntax(text: str) -> str:
                     end += 2
                 else:
                     end += 1
-            _blank_non_newlines(chars, index, end)
+            _blank_non_newlines(chars, index, end, replacement)
             index = end
             continue
 
@@ -971,7 +994,7 @@ def _rust_syntax(text: str) -> str:
             content_start = index + raw.end()
             closing = text.find(delimiter, content_start)
             end = len(text) if closing == -1 else closing + len(delimiter)
-            _blank_non_newlines(chars, index, end)
+            _blank_non_newlines(chars, index, end, replacement)
             index = end
             continue
 
@@ -987,7 +1010,7 @@ def _rust_syntax(text: str) -> str:
                     escaped = True
                 elif token == '"':
                     break
-            _blank_non_newlines(chars, index, end)
+            _blank_non_newlines(chars, index, end, replacement)
             index = end
             continue
 
@@ -1009,7 +1032,7 @@ def _rust_syntax(text: str) -> str:
                     escaped = True
                 elif token == "'":
                     break
-            _blank_non_newlines(chars, index, end)
+            _blank_non_newlines(chars, index, end, replacement)
             index = end
             continue
 
@@ -2709,6 +2732,63 @@ def scan_function_sizes() -> list[str]:
     return violations
 
 
+def _statement_terminator_count(line: str) -> int:
+    """Count statement terminators outside grouping delimiters."""
+    round_depth = 0
+    square_depth = 0
+    count = 0
+    for token in line:
+        if token == "(":
+            round_depth += 1
+        elif token == ")" and round_depth:
+            round_depth -= 1
+        elif token == "[":
+            square_depth += 1
+        elif token == "]" and square_depth:
+            square_depth -= 1
+        elif token == ";" and round_depth == 0 and square_depth == 0:
+            count += 1
+    return count
+
+
+def scan_readability_style() -> list[str]:
+    one_line_function = re.compile(r"(?m)\bfn\s+\w+\b[^{\n]*\{([^{}\n]*)\}")
+    violations: list[str] = []
+    for source in ROOT.rglob("*.rs"):
+        if should_skip(source) or is_test_source(source):
+            continue
+        content = read_text(source)
+        if content is None:
+            continue
+        production = production_rust(content)
+        scrubbed = _rust_syntax(production)
+        code_only = _rust_syntax(production, "\0")
+        rel = source.relative_to(ROOT).as_posix()
+        for line_number, line in enumerate(code_only.splitlines(), 1):
+            code_line = line.replace("\0", "")
+            if code_line.strip() and len(code_line.rstrip()) > MAX_PRODUCTION_LINE_WIDTH:
+                violations.append(
+                    f"{rel}:{line_number} production code line is "
+                    f"{len(code_line.rstrip())} characters "
+                    f"(limit {MAX_PRODUCTION_LINE_WIDTH})"
+                )
+        for line_number, line in enumerate(scrubbed.splitlines(), 1):
+            if line.strip() and _statement_terminator_count(line) > 1:
+                violations.append(
+                    f"{rel}:{line_number} has multiple production statements on one line"
+                )
+        for match in one_line_function.finditer(scrubbed):
+            body = match.group(1).strip()
+            if not body:
+                continue
+            line_number = scrubbed.count("\n", 0, match.start()) + 1
+            violations.append(
+                f"{rel}:{line_number} has a one-line production function body; "
+                "expand it into a readable block"
+            )
+    return violations
+
+
 def scan_mixed_responsibilities() -> list[str]:
     """Flag non-façade modules that declare many sub-modules and are large.
 
@@ -2784,6 +2864,7 @@ def main() -> int:
     violations.extend(scan_domain_untyped_json())
     violations.extend(scan_facade_boundaries())
     violations.extend(scan_cohesion())
+    violations.extend(scan_readability_style())
     violations.extend(scan_function_sizes())
     violations.extend(scan_mixed_responsibilities())
 

@@ -222,6 +222,24 @@ impl HierarchyGraphExpander {
         policy: &ExpansionPolicy,
         visited_artifacts: &mut BTreeSet<maestria_domain::ArtifactId>,
     ) -> Result<Option<RelatedArtifact>, RetrievalError> {
+        let neighbor = if relation.source == endpoint {
+            relation.target
+        } else {
+            relation.source
+        };
+        let RelationEndpoint::Artifact(artifact_id) = neighbor else {
+            return Ok(None);
+        };
+        // Source selection is an independent pre-materialization boundary:
+        // reject an unselected neighbor before looking up its relation
+        // evidence, artifact, or content-bearing blob.
+        if policy
+            .source_filter
+            .as_ref()
+            .is_some_and(|filter| !filter.allows(artifact_id))
+        {
+            return Ok(None);
+        }
         if policy.authorization.evaluate(&relation.security) != RetrievalDecision::Allowed {
             return Ok(None);
         }
@@ -255,14 +273,6 @@ impl HierarchyGraphExpander {
         {
             return Ok(None);
         }
-        let neighbor = if relation.source == endpoint {
-            relation.target
-        } else {
-            relation.source
-        };
-        let RelationEndpoint::Artifact(artifact_id) = neighbor else {
-            return Ok(None);
-        };
         if !visited_artifacts.insert(artifact_id) {
             return Ok(None);
         }
@@ -292,6 +302,13 @@ impl HierarchyGraphExpander {
         policy: &ExpansionPolicy,
         state: &mut ExpansionState,
     ) -> Result<(), RetrievalError> {
+        if policy
+            .source_filter
+            .as_ref()
+            .is_some_and(|filter| !filter.allows(related.artifact.id))
+        {
+            return Ok(());
+        }
         let mut chunks = self
             .chunks
             .list_for_artifact(related.artifact.id)

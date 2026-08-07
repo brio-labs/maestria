@@ -66,6 +66,41 @@ class PhilosophyCheckTests(unittest.TestCase):
             },
         )
 
+    def test_scan_readability_rejects_width_and_dense_statements(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.configure_root(root)
+            source = root / "crates" / "apps" / "example" / "src" / "lib.rs"
+            source.parent.mkdir(parents=True)
+            source.write_text(
+                "fn example() {\n"
+                "    let first = 1; let second = 2;\n"
+                f"    let long_name = {'x' * 120};\n"
+                "}\n",
+                encoding="utf-8",
+            )
+
+            violations = PHILOSOPHY_CHECK.scan_readability_style()
+            self.assertTrue(any("production code line is" in item for item in violations), violations)
+            self.assertTrue(any("multiple production statements" in item for item in violations), violations)
+
+    def test_scan_readability_allows_simple_declarations(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.configure_root(root)
+            source = root / "crates" / "apps" / "example" / "src" / "lib.rs"
+            source.parent.mkdir(parents=True)
+            source.write_text(
+                "struct Pair { left: u8 }\n"
+                "fn empty() {}\n"
+                "fn compact() { 1 + 1 }\n",
+                encoding="utf-8",
+            )
+
+            violations = PHILOSOPHY_CHECK.scan_readability_style()
+            self.assertEqual(len(violations), 1, violations)
+            self.assertIn("one-line production function body", violations[0])
+
     def test_scan_markers_reports_task_marker(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

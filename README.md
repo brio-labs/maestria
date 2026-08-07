@@ -124,6 +124,66 @@ maestria start -i .maestria-dev
 # Stop with Ctrl-C; start again picks up where it left off
 ```
 
+### Local Studio
+
+Studio is a daemon-first, authenticated loopback frontend. Start the matching
+daemon, then launch the client with the instance explicitly selected:
+
+```bash
+maestria start -i .maestria-dev
+maestria studio -i .maestria-dev --no-open
+```
+
+Without `--no-open`, the CLI asks the platform default browser to open the
+printed `studio_url`. If the daemon is unavailable, the command exits with:
+`daemon unavailable; start it with maestria start -i .maestria-dev`.
+
+Studio reads agent profiles only from
+`.maestria-dev/system/studio-agents.toml`; the CLI has no agent-config path
+override and never reads a profile from the current working directory. The
+file may configure an ACP-compatible external command:
+
+```toml
+default_agent = "omp"
+
+[[agents]]
+id = "omp"
+label = "Oh My Pi"
+command = "omp"
+args = ["--no-tools", "--no-session", "acp"]
+timeout_secs = 120
+max_output_bytes = 65536
+```
+
+If the file is absent and `omp` is on `PATH`, Studio discovers the exact
+in-memory profile `omp --no-tools --no-session acp`. If neither is available,
+the notebook, search, citation, and draft UI remains usable while Ask reports
+`agent_unconfigured`. Maestria is an ACP client: it does not ship, install,
+update, authenticate, or implement an agent harness or model provider.
+
+The URL carries an ephemeral bearer session fragment. Studio moves it into
+origin-scoped session storage, removes it from the address bar, and sends it
+as an Authorization bearer on API requests. Every Ask starts a fresh ACP v1
+session with no filesystem, terminal, elicitation, boolean config-option, or
+MCP capability. Only bounded text chunks and a terminal `end_turn` are
+accepted. The agent must return exactly one validated JSON object; citations
+are rebuilt from the daemon context and generated Markdown is never saved
+automatically.
+
+Questions run against each notebook's explicitly attached, currently indexed
+and policy-allowed sources. Retrieval applies source selection before
+candidate fusion, reranking, graph expansion, and evidence loading, and
+returns a deterministic source-selection digest. Answers are rejected when
+citations refer to evidence outside the returned context. Draft Markdown is
+saved explicitly through typed notebook draft actions; the daemon remains
+authoritative for source identity, evidence, provenance, and durable revisions.
+
+The daemon notebook operations used by Studio are `notebook_list`,
+`notebook_create`, `notebook_get`, `notebook_rename`, `notebook_delete`,
+`notebook_source_catalog`, `notebook_source_attach`, `notebook_source_detach`,
+`notebook_context`, `notebook_evidence`, `notebook_draft_list`,
+`notebook_draft_get`, `notebook_draft_save`, and `notebook_draft_delete`.
+
 ### Local realm federation
 
 Federation is an explicit, local, provider-owned read capability. It never
@@ -180,20 +240,27 @@ only when granted, open a bounded provider evidence excerpt.
 client boundary is newline-delimited JSON on
 `<instance>/system/daemon.sock`; the token is stored in
 `<instance>/system/daemon.token`.
-The owner-only instance-token operations are `status`, `search`, `evidence`,
+The owner-only instance-token operations include `status`, `search`, `evidence`,
 `task`, `model_agent_propose`, `model_agent_status`, `model_agent_resolve`,
-`realm_grant_create`, `realm_grant_list`, `realm_grant_revoke`, and
-`install_federation_binding`. A federation credential can invoke only the
-separate `federation_search` and `federation_evidence` provider operations.
-Requests without the matching capability are rejected. Ordinary read-only local
-operations cannot mutate domain state; successful federated reads append only
-their bounded access-audit event. `model_agent_propose` is a bounded,
-proposal workflow: it may search and request harness execution, while
-`model_agent_status` reads its durable state and `model_agent_resolve` records
-the operator decision. Governance, validation, and approval still control
-every side effect. See
-[`docs/DAEMON-API.md`](./docs/DAEMON-API.md) for the request and response
-envelopes and transport limits.
+`realm_grant_create`, `realm_grant_list`, `realm_grant_revoke`,
+`install_federation_binding`, and the notebook/draft operations
+`notebook_list`, `notebook_create`, `notebook_get`, `notebook_rename`,
+`notebook_delete`, `notebook_source_catalog`, `notebook_source_attach`,
+`notebook_source_detach`, `notebook_context`, `notebook_evidence`,
+`notebook_draft_list`, `notebook_draft_get`, `notebook_draft_save`, and
+`notebook_draft_delete`. A federation credential can invoke only the separate
+`federation_search` and `federation_evidence` provider operations.
+Requests without the matching capability are rejected. Notebook mutations are
+durable domain inputs and wait for their event/blob persistence barrier;
+ordinary read-only operations cannot mutate domain state. Successful
+federated reads append only their bounded access-audit event.
+`model_agent_propose` is a bounded proposal workflow: it may search and request
+harness execution, while `model_agent_status` reads its durable state and
+`model_agent_resolve` records the operator decision. Governance, validation,
+and approval still control every side effect. See
+[`docs/DAEMON-API.md`](./docs/DAEMON-API.md) for typed errors, 64 KiB framing,
+cancellation behavior, source-selection semantics, and request/response
+envelopes.
 
 ### Repository and document retrieval
 

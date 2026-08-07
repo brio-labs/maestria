@@ -4,6 +4,8 @@ mod federation_binding;
 mod federation_services;
 #[path = "model_agent_services.rs"]
 mod model_agent_services;
+#[path = "notebook_services.rs"]
+mod notebook_services;
 #[path = "proposal_service.rs"]
 mod proposal_service;
 #[path = "read_services.rs"]
@@ -28,30 +30,9 @@ pub(crate) async fn dispatch(
     operation: ClientOperation,
 ) -> Result<ClientResponse> {
     match operation {
-        ClientOperation::Status => {
-            let layout = context.layout.clone();
-            let socket_path = context.socket_path.clone();
-            let response = support::run_database_retry("status", move || {
-                read_services::status(&layout, &socket_path)
-            })
-            .await?;
-            Ok(ClientResponse::Status(response))
-        }
-        ClientOperation::Task { task_id } => {
-            let layout = context.layout.clone();
-            let response =
-                support::run_database_retry("task", move || read_services::task(&layout, task_id))
-                    .await?;
-            Ok(ClientResponse::Task(response))
-        }
-        ClientOperation::Evidence { evidence_id } => {
-            let layout = context.layout.clone();
-            let response = support::run_database_retry("evidence", move || {
-                read_services::open_evidence(&layout, evidence_id)
-            })
-            .await?;
-            Ok(ClientResponse::Evidence(response))
-        }
+        operation @ (ClientOperation::Status
+        | ClientOperation::Task { .. }
+        | ClientOperation::Evidence { .. }) => dispatch_read(context, operation).await,
         ClientOperation::Search { query, limit } => {
             if query.trim().is_empty() {
                 return Err(anyhow!("search query must not be empty"));
@@ -64,6 +45,22 @@ pub(crate) async fn dispatch(
             Ok(ClientResponse::Search(
                 search_services::search_with_retry(context, query, limit).await?,
             ))
+        }
+        operation @ (ClientOperation::NotebookList
+        | ClientOperation::NotebookCreate { .. }
+        | ClientOperation::NotebookGet { .. }
+        | ClientOperation::NotebookRename { .. }
+        | ClientOperation::NotebookDelete { .. }
+        | ClientOperation::NotebookSourceCatalog { .. }
+        | ClientOperation::NotebookSourceAttach { .. }
+        | ClientOperation::NotebookSourceDetach { .. }
+        | ClientOperation::NotebookContext { .. }
+        | ClientOperation::NotebookEvidence { .. }
+        | ClientOperation::NotebookDraftList { .. }
+        | ClientOperation::NotebookDraftGet { .. }
+        | ClientOperation::NotebookDraftSave { .. }
+        | ClientOperation::NotebookDraftDelete { .. }) => {
+            dispatch_notebook(context, operation).await
         }
         ClientOperation::ModelAgentPropose { proposal } => {
             model_agent_services::propose(context, proposal).await
@@ -109,6 +106,131 @@ pub(crate) async fn dispatch(
             provider_realm,
             evidence_id,
         } => federation_services::evidence(context, &principal, provider_realm, evidence_id).await,
+    }
+}
+
+async fn dispatch_read(context: &ApiContext, operation: ClientOperation) -> Result<ClientResponse> {
+    match operation {
+        ClientOperation::Status => {
+            let layout = context.layout.clone();
+            let socket_path = context.socket_path.clone();
+            let response = support::run_database_retry("status", move || {
+                read_services::status(&layout, &socket_path)
+            })
+            .await?;
+            Ok(ClientResponse::Status(response))
+        }
+        ClientOperation::Task { task_id } => {
+            let layout = context.layout.clone();
+            let response =
+                support::run_database_retry("task", move || read_services::task(&layout, task_id))
+                    .await?;
+            Ok(ClientResponse::Task(response))
+        }
+        ClientOperation::Evidence { evidence_id } => {
+            let layout = context.layout.clone();
+            let response = support::run_database_retry("evidence", move || {
+                read_services::open_evidence(&layout, evidence_id)
+            })
+            .await?;
+            Ok(ClientResponse::Evidence(response))
+        }
+        _ => Err(anyhow!("invalid read operation")),
+    }
+}
+
+async fn dispatch_notebook(
+    context: &ApiContext,
+    operation: ClientOperation,
+) -> Result<ClientResponse> {
+    match operation {
+        ClientOperation::NotebookList => Ok(ClientResponse::NotebookList(
+            notebook_services::list(context).await?,
+        )),
+        ClientOperation::NotebookCreate { title } => Ok(ClientResponse::Notebook(
+            notebook_services::create(context, title).await?,
+        )),
+        ClientOperation::NotebookGet { notebook_id } => Ok(ClientResponse::Notebook(
+            notebook_services::get(context, notebook_id).await?,
+        )),
+        ClientOperation::NotebookRename { notebook_id, title } => Ok(ClientResponse::Notebook(
+            notebook_services::rename(context, notebook_id, title).await?,
+        )),
+        ClientOperation::NotebookDelete { notebook_id } => {
+            notebook_services::delete(context, notebook_id).await?;
+            Ok(ClientResponse::NotebookDeleted)
+        }
+        ClientOperation::NotebookSourceCatalog {
+            query,
+            offset,
+            limit,
+        } => Ok(ClientResponse::NotebookSources(
+            notebook_services::source_catalog(context, query, offset, limit).await?,
+        )),
+        ClientOperation::NotebookSourceAttach {
+            notebook_id,
+            source_key,
+        } => Ok(ClientResponse::Notebook(
+            notebook_services::attach(context, notebook_id, source_key).await?,
+        )),
+        ClientOperation::NotebookSourceDetach {
+            notebook_id,
+            source_key,
+        } => Ok(ClientResponse::Notebook(
+            notebook_services::detach(context, notebook_id, source_key).await?,
+        )),
+        ClientOperation::NotebookContext {
+            notebook_id,
+            query,
+            limit,
+            max_context_bytes,
+        } => Ok(ClientResponse::NotebookContext(
+            notebook_services::context(context, notebook_id, query, limit, max_context_bytes)
+                .await?,
+        )),
+        ClientOperation::NotebookEvidence {
+            notebook_id,
+            evidence_id,
+        } => Ok(ClientResponse::NotebookEvidence(
+            notebook_services::evidence(context, notebook_id, evidence_id).await?,
+        )),
+        ClientOperation::NotebookDraftList { notebook_id } => Ok(ClientResponse::NotebookDrafts(
+            notebook_services::draft_list(context, notebook_id).await?,
+        )),
+        ClientOperation::NotebookDraftGet {
+            notebook_id,
+            draft_id,
+        } => Ok(ClientResponse::NotebookDraft(
+            notebook_services::draft_get(context, notebook_id, draft_id).await?,
+        )),
+        ClientOperation::NotebookDraftSave {
+            notebook_id,
+            draft_id,
+            expected_revision,
+            title,
+            markdown,
+            evidence_ids,
+        } => Ok(ClientResponse::NotebookDraftSaved(
+            notebook_services::draft_save(
+                context,
+                notebook_id,
+                draft_id,
+                expected_revision,
+                title,
+                markdown,
+                evidence_ids,
+            )
+            .await?,
+        )),
+        ClientOperation::NotebookDraftDelete {
+            notebook_id,
+            draft_id,
+            expected_revision,
+        } => Ok(ClientResponse::NotebookDraftDeleted(
+            notebook_services::draft_delete(context, notebook_id, draft_id, expected_revision)
+                .await?,
+        )),
+        _ => Err(anyhow!("invalid notebook operation")),
     }
 }
 

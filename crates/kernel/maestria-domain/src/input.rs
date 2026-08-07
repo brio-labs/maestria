@@ -14,6 +14,8 @@ mod handlers;
 mod index;
 mod memory;
 mod memory_replay;
+mod notebook;
+mod notebook_support;
 mod ocr;
 mod orchestration;
 mod orchestration_replay;
@@ -38,6 +40,23 @@ impl KernelState {
             DomainInput::ChangeTaskStatus(input) => self.process_change_task_status(input),
             DomainInput::CompleteTask(input) => self.process_complete_task(input),
             DomainInput::LinkEvidenceToTask(input) => self.process_link_evidence_to_task(input),
+            DomainInput::CreateNotebook(input) => self.process_create_notebook(input),
+            DomainInput::RenameNotebook(input) => self.process_rename_notebook(input),
+            DomainInput::DeleteNotebook(input) => self.process_delete_notebook(input),
+            DomainInput::AttachNotebookSource(input) => self.process_attach_notebook_source(input),
+            DomainInput::DetachNotebookSource(input) => self.process_detach_notebook_source(input),
+            DomainInput::SaveNotebookDraftRequested(input) => {
+                self.process_save_notebook_draft_requested(input)
+            }
+            DomainInput::NotebookDraftBlobStored(input) => {
+                self.process_notebook_draft_blob_stored(input)
+            }
+            DomainInput::NotebookDraftBlobStoreFailed(_input) => {
+                Err(DomainError::InternalInvariantViolation {
+                    detail: "notebook draft blob persistence failed",
+                })
+            }
+            DomainInput::DeleteNotebookDraft(input) => self.process_delete_notebook_draft(input),
             DomainInput::LinkEvidenceToClaim(input) => self.process_link_evidence_to_claim(input),
             DomainInput::CreateRelation(input) => self.process_create_relation(input),
             DomainInput::CreateMemoryCandidate(input) => {

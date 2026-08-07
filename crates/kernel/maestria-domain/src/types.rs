@@ -10,4 +10,5 @@ pub(crate) use crate::evidence_source::*;
 pub(crate) use crate::ids::*;
 pub(crate) use crate::inputs::*;
 pub(crate) use crate::kernel_state::*;
+pub(crate) use crate::notebook::*;
 pub(crate) use crate::task_status::*;

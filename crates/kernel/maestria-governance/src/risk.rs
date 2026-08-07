@@ -47,6 +47,7 @@ impl ClassifyRisk for DefaultRiskClassifier {
         match effect {
             // Rebuildable projections: low-risk, no user-facing write or action authorization.
             MaestriaEffect::PersistEvent { .. }
+            | MaestriaEffect::PersistNotebookDraftBlob(_)
             | MaestriaEffect::ParseArtifact(_)
             | MaestriaEffect::EmitDiagnostic(_)
             | MaestriaEffect::IndexFullText(_) => RiskClass::Low,

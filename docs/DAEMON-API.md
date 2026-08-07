@@ -1,7 +1,9 @@
 # Daemon Client Boundary
 
-The running daemon exposes a local, read-only client boundary for one Maestria
-instance. It is newline-delimited JSON over a Unix domain socket:
+The running daemon exposes an authenticated client boundary for one Maestria
+instance. Read operations are projections of replayed kernel state; notebook
+and draft operations are the typed, durable mutation surface used by Studio.
+Transport is newline-delimited JSON over a Unix domain socket:
 
 ```text
 <instance>/system/daemon.sock
@@ -55,25 +57,60 @@ A provider receives a federated request only through a consumer binding:
     "limit": 10
   }
 }
-```
-
 Instance-token operations are `status`, `search`, `evidence`, `task`,
 `model_agent_propose`, `model_agent_status`, `model_agent_resolve`,
-`realm_grant_create`, `realm_grant_list`, `realm_grant_revoke`, and
-`install_federation_binding`. A federation credential authorizes only
-`federation_search` and `federation_evidence`; it cannot call the ordinary
-local operations, status, task/model-agent endpoints, or grant administration.
+`realm_grant_create`, `realm_grant_list`, `realm_grant_revoke`,
+`install_federation_binding`, and the notebook/draft operations listed below.
+A federation credential authorizes only `federation_search` and
+`federation_evidence`; it cannot call ordinary local operations, status,
+notebook endpoints, task/model-agent endpoints, or grant administration.
 
-Every request and reply is one capped 64 KiB NDJSON line. The server rejects an
-oversized or unterminated line before extending its allocation beyond that cap,
-applies a five-second request-read timeout, and permits at most 32 concurrent
-connections. Dropping a client request closes its socket; server-side work is
-not guaranteed to be cancelled.
+Every request and reply is one capped 64 KiB NDJSON frame. The serialized JSON
+body **plus its terminating newline** must be at most 64 KiB; a body at the
+boundary is accepted and a body whose body-plus-newline exceeds it is rejected.
+The server rejects oversized or unterminated frames before extending its
+allocation beyond that cap, applies a five-second request-read timeout, and
+permits at most 32 concurrent connections. Dropping a client request closes its
+socket and stops waiting for its reply; work already accepted by the daemon is
+not implicitly rolled back or guaranteed to stop.
 
-The response is one typed JSON envelope. Successful responses contain a
-`response` object tagged with the operation result. Failed requests contain an
-`error` string; successful federated reads append only their bounded access-audit
-event, while denied requests do not expose provider data.
+The response is one typed JSON envelope. A success has `response` set and both
+`error` and `error_code` set to `null`. A failure has `response: null`, a
+human-readable string `error`, and a machine-readable `error_code` from:
+`unauthorized`, `invalid_input`, `not_found`, `source_unavailable`,
+`source_not_selected`, `revision_conflict`, `no_evidence`,
+`request_too_large`, or `internal`.
+
+## Notebook operations
+
+Studio uses the authenticated instance-token operations
+`notebook_list`, `notebook_create`, `notebook_get`, `notebook_rename`,
+`notebook_delete`, `notebook_source_catalog`, `notebook_source_attach`,
+`notebook_source_detach`, `notebook_context`, `notebook_evidence`,
+`notebook_draft_list`, `notebook_draft_get`, `notebook_draft_save`, and
+`notebook_draft_delete`.
+
+Notebook mutations are durable domain inputs, not direct SQLite or blob-path
+writes. `notebook_create`, rename, source attach/detach, and notebook delete
+return only after the corresponding event is persisted. Attach is idempotent
+for an already-attached key, detach is idempotent for an absent key, and
+deleting a notebook removes its live drafts in the same durable transition.
+Draft save accepts Markdown and up to 12 unique evidence IDs. A new draft
+requires `draft_id: null` and `expected_revision: null`; an update requires
+both the draft ID and its exact current revision. A mismatch returns
+`revision_conflict` and leaves the submitted body untouched. Blob persistence
+is correlated with the event append; a blob write without a committed event
+does not expose a draft.
+
+Notebook context always supplies a source-selection filter alongside normal
+retrieval authorization. Only currently attached, manifest-allowed, indexed
+artifacts may contribute candidates or evidence. The filter is applied before
+fusion, reranking, graph expansion, and evidence loading; excluded artifacts
+cannot affect scores or coverage. The context response carries a deterministic
+source-selection digest. Direct evidence opens for an unselected artifact
+return `source_not_selected` without path or excerpt metadata. Saved drafts
+retain frozen citation metadata so they can be reopened after a source changes
+or disappears.
 
 ## Realm federation
 
@@ -102,12 +139,15 @@ cannot regain access after restart.
 
 ## Scope and provenance
 
-The boundary is intentionally read-only. Search uses the daemon's read-only
-retrieval runtime, including ACL, trust, sensitivity, quarantine, and
-prompt-injection filtering. Evidence requests use the core evidence-opening
-service, which verifies source snapshots and hides records denied by retrieval
-policy. Task and status responses are projections of replayed authoritative
-state; they do not write storage.
+Search uses the daemon's governed retrieval runtime, including ACL, trust,
+sensitivity, quarantine, prompt-injection filtering, and source-selection
+filters. Evidence requests use the core evidence-opening service, which
+verifies source snapshots and hides records denied by retrieval policy.
+Notebook metadata, source selections, and draft revisions are projections of
+replayed authoritative state; mutation handlers submit domain inputs and wait
+for their persistence barrier before acknowledging success. The daemon never
+trusts a browser or agent to supply source identity, hashes, or citation
+provenance.
 
 The supported Rust client is `maestria_daemon::DaemonClient`:
 
@@ -118,9 +158,59 @@ let response = client
     .await?;
 ```
 
+`request` returns `Result<ClientResponse, DaemonRequestError>`. The error has
+the typed `ClientErrorCode` above and a safe message. Callers should branch on
+the code rather than parse the human-readable string.
+
 This boundary keeps transport DTOs separate from domain entities while
-preserving stable identifiers, search trace identity, evidence provenance, and
-validation-relevant task state.
+preserving stable identifiers, search trace identity, source-selection digests,
+evidence provenance, and validation-relevant task state.
+
+## Studio and ACP
+
+Studio is an ACP v1 **client**. It does not implement or ship a model
+provider, agent harness, filesystem callback, terminal callback, or MCP
+server. Launch it after the daemon with:
+
+```bash
+maestria start -i <instance>
+maestria studio -i <instance> --no-open
+```
+
+The CLI performs an authenticated `status` preflight. If the daemon is not
+reachable it exits with exactly:
+`daemon unavailable; start it with maestria start -i <instance>`.
+Studio reads optional profiles only from
+`<instance>/system/studio-agents.toml`; there is no current-working-directory
+or CLI agent-config override. If that file is absent and `omp` is on `PATH`,
+the in-memory built-in profile runs
+`omp --no-tools --no-session acp`. Studio does not install, update,
+authenticate, or configure that external command.
+
+Each readiness probe and Ask starts a fresh ACP child/session. Initialization
+negotiates protocol version 1, advertises no filesystem, terminal, elicitation,
+boolean config-option, or MCP capability, and uses an instance-scoped agent
+workdir. Only bounded text `agent_message_chunk` updates are accepted, and
+the terminal stop reason must be `end_turn`. Permission requests are rejected
+once when possible; unsupported callbacks cancel the turn. A profile timeout,
+browser cancellation, or output overflow sends the ACP cancellation request,
+closes stdin, waits briefly, then kills and reaps an uncooperative child.
+
+The external agent must return one JSON object, with no surrounding prose or
+fences:
+
+```json
+{
+  "answer_markdown": "bounded Markdown",
+  "citation_ids": [41],
+  "draft_previews": []
+}
+```
+
+Studio validates bounds, unknown fields, duplicate IDs, and citation
+membership against the daemon context. Citation metadata is rebuilt from that
+context; agent text is never persisted automatically. Draft previews remain
+transient until an explicit typed `notebook_draft_save` mutation.
 
 ## Supported model-agent boundary
 

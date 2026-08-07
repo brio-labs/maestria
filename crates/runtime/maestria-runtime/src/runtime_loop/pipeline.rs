@@ -59,7 +59,7 @@ impl MaestriaRuntime {
         input: DomainInput,
         resume_approval: bool,
         command: &mut Option<crate::runtime::RuntimeCommand>,
-    ) -> Option<(KernelState, KernelOutput, bool)> {
+    ) -> Option<(KernelState, KernelOutput, bool, KernelState)> {
         match self.stage_input(input, resume_approval).await {
             Ok(staged) => Some(staged),
             Err(error) => {
@@ -152,6 +152,8 @@ impl MaestriaRuntime {
             .wait_transition_barriers(&staged.barriers, command.is_some(), shutdown_token)
             .await
         {
+            let mut state = self.state.write().await;
+            *state = staged.previous_state;
             Self::reply_persistence_error(command.take());
             return true;
         }

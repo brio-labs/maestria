@@ -106,6 +106,7 @@ pub(crate) fn sample_trace() -> Result<SearchTrace, Box<dyn std::error::Error>> 
         identity_version: 7,
         retrievers: vec!["bm25".to_owned(), "vector".to_owned()],
         policy_fingerprint: Some("policy:v2".to_owned()),
+        source_selection_digest: None,
         raw_candidates: vec![sample_trace_candidate()?],
         fusion: Some("rrf".to_owned()),
         filters: vec![

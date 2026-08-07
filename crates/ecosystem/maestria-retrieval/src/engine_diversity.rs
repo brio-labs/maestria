@@ -24,15 +24,28 @@ fn seed_expansion(
     }
 }
 
-fn expansion_policy(
-    plan: &SearchPlan,
-    initial: &crate::diversity::DiversitySelection,
-    selected_candidates: &[RankedCandidate],
+struct ExpansionPolicyRequest<'a> {
+    plan: &'a SearchPlan,
+    initial: &'a crate::diversity::DiversitySelection,
+    selected_candidates: &'a [RankedCandidate],
     remaining_candidates: u64,
-    authorization: &maestria_governance::RetrievalAuthorizationContext,
+    authorization: &'a maestria_governance::RetrievalAuthorizationContext,
+    source_filter: Option<&'a crate::types::CandidateSourceFilter>,
     expansion_budget: Option<SearchExecutionBudget>,
     fallback_budget: SearchExecutionBudget,
-) -> ExpansionPolicy {
+}
+
+fn expansion_policy(request: ExpansionPolicyRequest<'_>) -> ExpansionPolicy {
+    let ExpansionPolicyRequest {
+        plan,
+        initial,
+        selected_candidates,
+        remaining_candidates,
+        authorization,
+        source_filter,
+        expansion_budget,
+        fallback_budget,
+    } = request;
     ExpansionPolicy {
         max_results: (plan.stop_conditions().max_results as u64)
             .min(remaining_candidates)
@@ -45,6 +58,7 @@ fn expansion_policy(
         required_claims: initial.coverage.required_claims().to_vec(),
         required_subquestions: initial.coverage.required_subquestions().to_vec(),
         authorization: authorization.clone(),
+        source_filter: source_filter.cloned(),
         execution_budget: match expansion_budget {
             Some(budget) => budget,
             None => fallback_budget,
@@ -86,6 +100,7 @@ pub(crate) async fn run_diversity_stage(
     evaluator: &Arc<dyn RetrievalEvaluator>,
     execution_usage: &mut SearchExecutionUsage,
     authorization: &maestria_governance::RetrievalAuthorizationContext,
+    source_filter: Option<&crate::types::CandidateSourceFilter>,
 ) -> RetrievalResult<(SearchOutcome, crate::diversity::DiversitySelection)> {
     let selected_candidates = initial.candidates.clone();
     let budget = plan.execution_budget()?;
@@ -93,15 +108,16 @@ pub(crate) async fn run_diversity_stage(
         .max_candidates()
         .saturating_sub(execution_usage.candidates);
     let expansion_budget = super::remaining_budget(plan, *execution_usage);
-    let policy = expansion_policy(
+    let policy = expansion_policy(ExpansionPolicyRequest {
         plan,
-        &initial,
-        &selected_candidates,
+        initial: &initial,
+        selected_candidates: &selected_candidates,
         remaining_candidates,
         authorization,
+        source_filter,
         expansion_budget,
-        budget,
-    );
+        fallback_budget: budget,
+    });
     let ContextExpansion {
         candidates: expanded,
         execution,

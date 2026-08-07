@@ -1,6 +1,10 @@
+#[path = "error_notebook.rs"]
+mod error_notebook;
+
 use crate::ids::{
     ArtifactId, CardId, ChunkId, ClaimId, EvidenceId, HarnessRunId, IndexGenerationId,
-    MemoryCandidateId, MemoryId, RelationId, TaskId, ValidationReportId,
+    MemoryCandidateId, MemoryId, NotebookDraftId, NotebookId, RelationId, TaskId,
+    ValidationReportId,
 };
 use crate::task_status::TaskStatus;
 use crate::{GrantTokenDigest, RealmId};
@@ -150,6 +154,24 @@ pub enum DomainError {
     RealmReadGrantConsumerMismatch {
         expected: RealmId,
         actual: RealmId,
+    },
+    MissingNotebook {
+        id: NotebookId,
+    },
+    MissingNotebookDraft {
+        id: NotebookDraftId,
+    },
+    NotebookSourceUnavailable {
+        key: String,
+    },
+    NotebookDraftRevisionConflict {
+        notebook_id: NotebookId,
+        draft_id: Option<NotebookDraftId>,
+        expected: Option<u64>,
+        actual: Option<u64>,
+    },
+    InvalidNotebookDraft {
+        reason: String,
     },
     InternalInvariantViolation {
         detail: &'static str,
@@ -330,24 +352,9 @@ impl fmt::Display for DomainError {
             Self::ValidationFailed { task_id } => {
                 write!(f, "task {task_id} validation failed")
             }
-            Self::ValidationWarningsRequired { task_id } => {
-                write!(
-                    f,
-                    "task {task_id} completed with warnings but validation report has none"
-                )
-            }
-            Self::ValidationWarningsForbidden { task_id } => {
-                write!(
-                    f,
-                    "task {task_id} completed verified but validation report has warnings"
-                )
-            }
-            Self::PendingChunksExist { artifact_id } => {
-                write!(
-                    f,
-                    "artifact {artifact_id} still has pending full-text chunks"
-                )
-            }
+            error @ (Self::ValidationWarningsRequired { .. }
+            | Self::ValidationWarningsForbidden { .. }
+            | Self::PendingChunksExist { .. }) => error.fmt_validation(f),
             Self::MalformedDeterministicEvidence {
                 evidence_id,
                 reason,
@@ -366,9 +373,12 @@ impl fmt::Display for DomainError {
             | Self::RealmReadGrantUnsupportedAccess { .. }
             | Self::RealmReadGrantProviderMismatch { .. }
             | Self::RealmReadGrantConsumerMismatch { .. }) => error.fmt_realm_read_grant(f),
-            Self::InternalInvariantViolation { detail } => {
-                write!(f, "internal invariant violation: {detail}")
-            }
+            error @ (Self::MissingNotebook { .. }
+            | Self::MissingNotebookDraft { .. }
+            | Self::NotebookSourceUnavailable { .. }
+            | Self::NotebookDraftRevisionConflict { .. }
+            | Self::InvalidNotebookDraft { .. }
+            | Self::InternalInvariantViolation { .. }) => error.fmt_notebook(f),
         }
     }
 }
