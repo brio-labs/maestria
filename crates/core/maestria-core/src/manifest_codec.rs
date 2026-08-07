@@ -1,6 +1,9 @@
 #[path = "manifest_codec_visual.rs"]
 mod visual;
+#[path = "manifest_codec_sparse.rs"]
+mod sparse;
 use std::path::PathBuf;
+pub(super) use sparse::parse_sparse_config;
 pub(super) use visual::parse_visual_config;
 
 use maestria_ports::RetentionPolicy;
@@ -41,6 +44,17 @@ pub(super) struct ManifestFields {
     visual_preprocessing_version: Option<String>,
     visual_remote_provider: Option<bool>,
     visual_retention_policy: Option<String>,
+    sparse_enabled: Option<bool>,
+    sparse_endpoint: Option<String>,
+    sparse_provider: Option<String>,
+    sparse_revision: Option<String>,
+    sparse_artifact_hash: Option<String>,
+    sparse_preprocessing_version: Option<String>,
+    sparse_model: Option<String>,
+    sparse_vocabulary_size: Option<u32>,
+    sparse_term_cap: Option<u32>,
+    sparse_remote_provider: Option<bool>,
+    sparse_retention_policy: Option<String>,
 }
 
 pub(super) fn parse_ocr_config(fields: &ManifestFields) -> CoreResult<Option<super::OcrConfig>> {
@@ -267,6 +281,17 @@ fn empty_manifest_fields() -> ManifestFields {
         visual_preprocessing_version: None,
         visual_remote_provider: None,
         visual_retention_policy: None,
+        sparse_enabled: None,
+        sparse_endpoint: None,
+        sparse_provider: None,
+        sparse_revision: None,
+        sparse_artifact_hash: None,
+        sparse_preprocessing_version: None,
+        sparse_model: None,
+        sparse_vocabulary_size: None,
+        sparse_term_cap: None,
+        sparse_remote_provider: None,
+        sparse_retention_policy: None,
     }
 }
 
@@ -317,6 +342,23 @@ fn parse_manifest_field(fields: &mut ManifestFields, key: &str, value: &str) -> 
         }
         "visual_retention_policy" => {
             fields.visual_retention_policy = Some(value.to_string());
+        }
+        "sparse_enabled" => fields.sparse_enabled = Some(parse_value(value, key)?),
+        "sparse_endpoint" => fields.sparse_endpoint = Some(value.to_string()),
+        "sparse_provider" => fields.sparse_provider = Some(value.to_string()),
+        "sparse_revision" => fields.sparse_revision = Some(value.to_string()),
+        "sparse_artifact_hash" => fields.sparse_artifact_hash = Some(value.to_string()),
+        "sparse_preprocessing_version" => {
+            fields.sparse_preprocessing_version = Some(value.to_string());
+        }
+        "sparse_model" => fields.sparse_model = Some(value.to_string()),
+        "sparse_vocabulary_size" => fields.sparse_vocabulary_size = Some(parse_value(value, key)?),
+        "sparse_term_cap" => fields.sparse_term_cap = Some(parse_value(value, key)?),
+        "sparse_remote_provider" => {
+            fields.sparse_remote_provider = Some(parse_value(value, key)?);
+        }
+        "sparse_retention_policy" => {
+            fields.sparse_retention_policy = Some(value.to_string());
         }
         other => {
             return Err(CoreError::InvalidManifest {

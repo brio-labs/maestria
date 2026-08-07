@@ -35,6 +35,7 @@ members = [
      "crates/ecosystem/maestria-ocr-local",
      "crates/ecosystem/maestria-embedding-openai",
      "crates/ecosystem/maestria-visual-local",
+     "crates/ecosystem/maestria-sparse-local",
  ]
 
 [workspace.package]
