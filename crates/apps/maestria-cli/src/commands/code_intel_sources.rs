@@ -121,12 +121,28 @@ pub(super) async fn register_repository_sources(
     Ok(mismatched)
 }
 
+/// Per-file wait budget for one repository source artifact to reach the
+/// terminal `Indexed` state.
+///
+/// The budget is not a hard deadline: [`wait_oldest_registered`] extends it
+/// for as long as the kernel pipeline keeps making progress (the persisted
+/// event log keeps growing), so a throughput-bound run — thousands of
+/// per-chunk full-text commits and degraded vector effects competing for the
+/// serial kernel input loop — never fails the whole registration because one
+/// artifact's effect chain is merely slow. A budget with NO progress means
+/// the runtime pipeline is genuinely stalled or dead, and the run fails fast
+/// with the usual timeout.
+const REGISTRATION_WAIT_BUDGET: Duration = Duration::from_secs(60);
+
 /// Wait until the oldest in-flight submission reaches the terminal
 /// `Indexed` state, then drop it from the window.
 ///
 /// Waits are serialized: only the oldest artifact is polled at any moment,
 /// and the newer submissions are already queued behind the kernel input
-/// loop, so their waits complete as soon as their effect chains drain.
+/// loop, so their waits complete as soon as their effect chains drain. When
+/// a wait budget expires, the wait is extended while the kernel event log
+/// keeps advancing (the runtime pipeline is alive and the artifact is still
+/// being processed); only a budget with zero kernel progress fails.
 async fn wait_oldest_registered(
     layout: &InstanceLayout,
     in_flight: &mut VecDeque<(ArtifactId, PathBuf)>,
@@ -134,17 +150,42 @@ async fn wait_oldest_registered(
     let (artifact_id, path) = in_flight
         .pop_front()
         .ok_or_else(|| anyhow::anyhow!("repository registration window drained unexpectedly"))?;
-    crate::helpers::wait_for_kernel_state(
+    let wait_context = format!("waiting for repository source indexing: {}", path.display());
+    let mut last_event_count = crate::helpers::load_kernel_state_with_retry(
         layout,
-        Duration::from_secs(60),
-        format!("waiting for repository source indexing: {}", path.display()),
-        |state| {
-            state
-                .artifacts
-                .get(&artifact_id)
-                .is_some_and(|artifact| artifact.index_status == IndexStatus::Indexed)
-        },
-    )
-    .await?;
-    Ok(())
+        "seed repository registration progress",
+    )?
+    .event_log
+    .len();
+    loop {
+        let wait = crate::helpers::wait_for_kernel_state(
+            layout,
+            REGISTRATION_WAIT_BUDGET,
+            wait_context.clone(),
+            |state| {
+                state
+                    .artifacts
+                    .get(&artifact_id)
+                    .is_some_and(|artifact| artifact.index_status == IndexStatus::Indexed)
+            },
+        )
+        .await;
+        match wait {
+            Ok(_) => return Ok(()),
+            Err(error) => {
+                let state = crate::helpers::load_kernel_state_with_retry(
+                    layout,
+                    "assess repository registration progress",
+                )?;
+                let event_count = state.event_log.len();
+                let progressed = event_count > last_event_count;
+                last_event_count = event_count;
+                if !progressed {
+                    return Err(error.context(
+                        "repository source indexing stalled: kernel event log made no progress",
+                    ));
+                }
+            }
+        }
+    }
 }
