@@ -121,28 +121,15 @@ pub(super) async fn register_repository_sources(
     Ok(mismatched)
 }
 
-/// Per-file wait budget for one repository source artifact to reach the
-/// terminal `Indexed` state.
-///
-/// The budget is not a hard deadline: [`wait_oldest_registered`] extends it
-/// for as long as the kernel pipeline keeps making progress (the persisted
-/// event log keeps growing), so a throughput-bound run — thousands of
-/// per-chunk full-text commits and degraded vector effects competing for the
-/// serial kernel input loop — never fails the whole registration because one
-/// artifact's effect chain is merely slow. A budget with NO progress means
-/// the runtime pipeline is genuinely stalled or dead, and the run fails fast
-/// with the usual timeout.
+/// Per-file wait budget for one repository source artifact to reach
+/// `Indexed`. Not a hard deadline: the wait extends while the kernel event
+/// log keeps growing (pipeline alive); a zero-progress budget fails.
 const REGISTRATION_WAIT_BUDGET: Duration = Duration::from_secs(60);
 
-/// Wait until the oldest in-flight submission reaches the terminal
-/// `Indexed` state, then drop it from the window.
-///
-/// Waits are serialized: only the oldest artifact is polled at any moment,
-/// and the newer submissions are already queued behind the kernel input
-/// loop, so their waits complete as soon as their effect chains drain. When
-/// a wait budget expires, the wait is extended while the kernel event log
-/// keeps advancing (the runtime pipeline is alive and the artifact is still
-/// being processed); only a budget with zero kernel progress fails.
+/// Wait until the oldest in-flight submission reaches `Indexed`, then drop
+/// it from the window. Waits are serialized (oldest first); a budget expiry
+/// extends while the kernel event log keeps advancing, so a slow-but-alive
+/// pipeline never fails registration (see [`REGISTRATION_WAIT_BUDGET`]).
 async fn wait_oldest_registered(
     layout: &InstanceLayout,
     in_flight: &mut VecDeque<(ArtifactId, PathBuf)>,

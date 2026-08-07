@@ -86,20 +86,11 @@ impl EffectExecutionContext {
         true
     }
 
-    /// Deliver a successfully committed full-text completion to the domain
-    /// input loop.
-    ///
-    /// A completion must never become a retryable failure just because the
-    /// serial kernel input loop is momentarily behind and its input channel
-    /// is at capacity: retrying would re-run the expensive per-artifact
-    /// `index_artifact_chunk` commit while holding a semaphore permit, which
-    /// is exactly the retry storm that stalls registration on large
-    /// repositories. On `CapacityFull` the completion is handed to a detached
-    /// task that awaits channel capacity (`Sender::send` waits for the input
-    /// loop to drain) and the effect reports success, releasing its permit.
-    /// The artifact still reaches `Indexed` once the input loop drains.
-    /// A closed channel still fails: the runtime is shutting down anyway and
-    /// the existing `Failed` path cancels the run.
+    /// Deliver a committed full-text completion to the domain input loop.
+    /// On `CapacityFull` a detached task awaits channel capacity and the
+    /// effect succeeds: retrying would re-run the expensive
+    /// `index_artifact_chunk` commit under a permit (the #421 retry storm).
+    /// A closed channel still fails — the runtime is shutting down anyway.
     fn deliver_full_text_completion(
         input_tx: &mpsc::Sender<DomainInput>,
         completion: FullTextIndexCompleted,

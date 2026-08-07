@@ -71,13 +71,9 @@ pub struct Governance {
 pub(crate) type HarnessFeedbackAcks = Arc<Mutex<BTreeMap<EventId, (HarnessRunId, u64)>>>;
 pub(crate) type JournalRecoveryClaims = Arc<Mutex<BTreeSet<(HarnessRunId, u64)>>>;
 
-/// Runtime-scoped record of artifacts whose vector lane has permanently
-/// degraded (no embedding provider, model, or generation identity). Shared
-/// across every [`EffectExecutionContext`] clone so later `IndexVector`
-/// effects for the same artifact short-circuit without repeating per-chunk
-/// stale-projection invalidations. Values carry the first degradation reason
-/// for logging; the set is intentionally not persisted (a fresh runtime
-/// re-probes configuration).
+/// Artifacts whose vector lane permanently degraded (no provider/model);
+/// shared across [`EffectExecutionContext`] clones so later `IndexVector`
+/// effects short-circuit. Not persisted: a fresh runtime re-probes.
 pub(crate) type DegradedVectorArtifacts = Arc<Mutex<BTreeMap<ArtifactId, String>>>;
 
 /// Bundles everything an effect handler needs at execution time.

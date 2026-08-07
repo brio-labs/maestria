@@ -7,19 +7,13 @@ use maestria_domain::{KernelState, MaestriaEffect, ValidationReportId};
 use std::sync::{Arc, atomic::Ordering};
 use tokio::sync::mpsc;
 
-/// Dedicated permit budget for `IndexVector` effects.
-///
-/// Vector effects run on their own lane so a degraded vector flood (one
-/// effect per chunk, degrading per artifact with no embedding provider) can
+/// Dedicated lane for `IndexVector` effects: a degraded vector flood must
 /// never occupy the main effect semaphore to the exclusion of full-text and
-/// parse effects. Two permits keep the lane usable for provider-backed runs
-/// (two concurrent embeddings) while bounding the degradation fallout to a
-/// constant; the main lane semantics are untouched.
+/// parse effects. Two permits keep provider-backed runs concurrent.
 const VECTOR_LANE_PERMITS: usize = 2;
 
-/// The two semaphore lanes the effect executor admits effects under: the main
-/// lane carries every effect except vector indexing, which runs on its own
-/// bounded lane (see [`VECTOR_LANE_PERMITS`]).
+/// Effect semaphores: the main lane carries every effect except vector
+/// indexing, which runs under [`VECTOR_LANE_PERMITS`].
 struct EffectLanes {
     main: Arc<tokio::sync::Semaphore>,
     vector: Arc<tokio::sync::Semaphore>,
@@ -171,13 +165,9 @@ impl MaestriaRuntime {
         runtime_shutdown: tokio_util::sync::CancellationToken,
     ) {
         in_flight.spawn(async move {
-            // The permit is acquired inside the task (not in the executor's
-            // admit loop): a batch of many effects must not stall batch
-            // consumption behind the semaphore. The lane still bounds how
-            // many effect executions run concurrently — tasks simply wait
-            // for their permit before executing — but the executor can keep
-            // draining batches, so the effect channel never backs up and the
-            // kernel input loop never blocks on batch reservation.
+            // Permit acquired inside the task so batch consumption never
+            // blocks on the semaphore; the lane still bounds concurrent
+            // executions and the effect channel cannot back up.
             let permit = tokio::select! {
                 biased;
                 () = effect_shutdown.cancelled() => return,
@@ -235,11 +225,8 @@ impl MaestriaRuntime {
     }
 
     /// Admit one effect: assign its validation-report id, execute inline
-    /// persist events, acquire a semaphore permit, and spawn the task.
-    ///
-    /// `IndexVector` effects (in both the pending and prepared forms) are
-    /// admitted under the dedicated vector lane so their flood can never
-    /// starve the main lane that carries full-text and parse effects.
+    /// persist events, and spawn the task. `IndexVector` effects (pending
+    /// and prepared forms) run under the dedicated vector lane.
     async fn admit_effect(
         in_flight: &mut tokio::task::JoinSet<()>,
         lanes: &EffectLanes,

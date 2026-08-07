@@ -10,12 +10,9 @@ impl EffectExecutionContext {
         &self,
         request: IndexVectorRequest,
     ) -> Result<(), EffectFailure> {
-        // The vector lane degrades permanently per artifact: once the
-        // provider/model/identity configuration has rejected the artifact,
-        // nothing can change mid-run, so every later chunk of the same
-        // artifact short-circuits here instead of repeating the per-chunk
-        // stale-projection invalidation (thousands of useless DB writes on
-        // large repositories).
+        // Permanent per-artifact degradation: configuration cannot change
+        // mid-run, so later chunks short-circuit instead of repeating the
+        // per-chunk stale-projection invalidation.
         if let Some(reason) = self.degraded_artifact_reason(request.artifact_id) {
             tracing::debug!(
                 artifact_id = %request.artifact_id,
@@ -144,12 +141,8 @@ impl EffectExecutionContext {
         }
     }
 
-    /// Record the artifact's vector lane as permanently degraded and report
-    /// `Degraded`, running the stale-projection invalidation only for the
-    /// first chunk that hits the degraded path. Every later chunk of the
-    /// artifact short-circuits in [`Self::handle_index_vector`], so the
-    /// no-provider/no-model path costs at most one invalidation per artifact
-    /// instead of one per chunk.
+    /// Record permanent degradation for the artifact, running the
+    /// stale-projection invalidation only for its first degraded chunk.
     /// Return the recorded degradation reason when this artifact's vector
     /// lane has already permanently degraded, `None` while the lane is live.
     fn degraded_artifact_reason(&self, artifact_id: ArtifactId) -> Option<String> {
