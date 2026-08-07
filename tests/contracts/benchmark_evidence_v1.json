@@ -459,8 +459,8 @@
       },
       "fingerprints": {
         "corpus_snapshot": "learned-sparse-task-corpus-v1",
-        "index_generation": "sparse-text-v1-contract-fixture",
-        "model_fingerprint": "sparse-fixture-model-v1"
+        "index_generation": "sparse-text-v1-2",
+        "model_fingerprint": "sparse:splade-onnx:prithivida/Splade_PP_en_v1:762be6a7206e2f299182705972a65e5c46e62be2:sha256:b6e75f8fd45d3de85db2c737f75d8ec670e600e92d746f267a8628747d75ff8a:splade-templates-v1"
       },
       "environment": {
         "os": "linux",
@@ -495,6 +495,10 @@
         {
           "kind": "learned-sparse",
           "path": "target/benchmark-reports/learned-sparse.json"
+        },
+        {
+          "kind": "learned-sparse",
+          "path": "tests/contracts/learned_sparse_report_v1.json"
         }
       ]
     }

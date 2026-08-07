@@ -19,25 +19,26 @@ impl SearchRuntime {
             HybridExecutionPolicy::Shadow,
             maestria_retrieval::LearnedSparseExecutionPolicy::Disabled,
             None,
+            true,
         )
     }
 
     /// One shared assembly for every engine variant.
     ///
     /// The benchmark executor and the daemon both build engines here (R28);
-    /// only the policies and the optional learned-sparse lane differ.
+    /// only the policies, the optional learned-sparse lane, and whether the
+    /// base retrievers are registered differ.
     pub(crate) fn retrieval_engine_with_policies(
         &self,
         hybrid_policy: HybridExecutionPolicy,
         sparse_policy: maestria_retrieval::LearnedSparseExecutionPolicy,
         sparse_retriever: Option<Arc<dyn CandidateRetriever>>,
+        include_base_retrievers: bool,
     ) -> Result<RetrievalEngine> {
         let events = self.domain_events()?;
         let active_versions = reconcile_active_versions(&events);
         let mut retrievers: Vec<Arc<dyn CandidateRetriever>> = Vec::new();
-        if let Some(sparse_retriever) = sparse_retriever {
-            retrievers.push(sparse_retriever);
-        } else {
+        if include_base_retrievers {
             retrievers.push(Arc::new(CurrentVersionFilter::new(
                 Arc::new(CardRetriever::new(
                     CardRetrieverParts {
@@ -103,6 +104,11 @@ impl SearchRuntime {
             if let Some(retriever) = self.visual_retriever(active_versions) {
                 retrievers.push(retriever);
             }
+        }
+        // The sparse lane registers after the base lanes so the engine's
+        // primary generation stays the lexical generation (R24).
+        if let Some(sparse_retriever) = sparse_retriever {
+            retrievers.push(sparse_retriever);
         }
         let mut engine = RetrievalEngine::new(
             retrievers,
