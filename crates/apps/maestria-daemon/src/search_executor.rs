@@ -160,7 +160,7 @@ impl SearchRuntime {
         runtime
     }
 
-    fn planner_context(&self) -> SearchPlannerContext {
+    pub(crate) fn planner_context(&self) -> SearchPlannerContext {
         SearchPlannerContext {
             corpus_snapshot: self.corpus_snapshot,
             primary_generation: self.primary_generation,

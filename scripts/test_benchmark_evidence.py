@@ -123,6 +123,107 @@ class BenchmarkEvidenceManifestTests(unittest.TestCase):
             errors = EVIDENCE.errors_for_report(path, "build-latency")
         self.assertEqual(errors, [])
 
+    def test_learned_sparse_report_contract_accepts_well_formed_report(self) -> None:
+        report = {
+            "measurement_kind": "learned_sparse_four_profile",
+            "evaluation_date": "2026-08-07",
+            "corpus_id": "corpus-v1",
+            "corpus_revision": "rev-v1",
+            "index_generation": "index-v1",
+            "model_fingerprint": "model-v1",
+            "namespace": "instance-a:verified:sparse_text_v1",
+            "route_configuration": {"route": "SparseFused", "result_limit": 20},
+            "observations": [
+                {
+                    "case_id": "case-1",
+                    "route": "SparseFused",
+                    "quality": {"recall_at_5": 1},
+                    "resources": {"p50_latency_ms": 12},
+                    "safety": {"acl_leakage": 0},
+                    "measurement_status": "Measured",
+                }
+            ],
+            "decisions": {
+                "ExactLiteral": "RetainLexical",
+                "VocabularyExpansion": "PromoteSparseFused",
+                "DomainTerminology": "RetainHybrid",
+                "MultiTerm": "RetainHybrid",
+                "NoEvidence": "RetainLexical",
+                "Security": "RetainLexical",
+            },
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "learned-sparse.json"
+            path.write_text(json.dumps(report), encoding="utf-8")
+            errors = EVIDENCE.errors_for_report(path, "learned-sparse")
+        self.assertEqual(errors, [])
+
+    def test_learned_sparse_report_contract_rejects_bad_route_and_status(self) -> None:
+        report = {
+            "measurement_kind": "learned_sparse_four_profile",
+            "evaluation_date": "2026-08-07",
+            "corpus_id": "corpus-v1",
+            "corpus_revision": "rev-v1",
+            "index_generation": "index-v1",
+            "model_fingerprint": "model-v1",
+            "namespace": "instance-a:verified:sparse_text_v1",
+            "route_configuration": {"route": "Hybrid"},
+            "observations": [
+                {
+                    "case_id": "case-1",
+                    "route": "Vector",
+                    "quality": {},
+                    "resources": {},
+                    "safety": {},
+                    "measurement_status": {"Unavailable": {"reason": ""}},
+                }
+            ],
+            "decisions": {"VocabularyExpansion": "PromoteSparseFused"},
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "learned-sparse.json"
+            path.write_text(json.dumps(report), encoding="utf-8")
+            errors = EVIDENCE.errors_for_report(path, "learned-sparse")
+        self.assertTrue(any("route_configuration" in error for error in errors))
+        self.assertTrue(any("route is invalid" in error for error in errors))
+        self.assertTrue(any("measurement_status" in error for error in errors))
+        self.assertTrue(any("decisions[ExactLiteral]" in error for error in errors))
+
+    def test_learned_sparse_report_contract_rejects_protected_promotion(self) -> None:
+        report = {
+            "measurement_kind": "learned_sparse_four_profile",
+            "evaluation_date": "2026-08-07",
+            "corpus_id": "corpus-v1",
+            "corpus_revision": "rev-v1",
+            "index_generation": "index-v1",
+            "model_fingerprint": "model-v1",
+            "namespace": "instance-a:verified:sparse_text_v1",
+            "route_configuration": {"route": "SparseFused", "result_limit": 20},
+            "observations": [
+                {
+                    "case_id": "case-1",
+                    "route": "Lexical",
+                    "quality": {"recall_at_5": 1},
+                    "resources": {"p50_latency_ms": 12},
+                    "safety": {"acl_leakage": 0},
+                    "measurement_status": "Measured",
+                }
+            ],
+            "decisions": {
+                "ExactLiteral": "PromoteSparseFused",
+                "VocabularyExpansion": "RetainHybrid",
+                "DomainTerminology": "RetainHybrid",
+                "MultiTerm": "RetainHybrid",
+                "NoEvidence": "RetainLexical",
+                "Security": "RetainLexical",
+            },
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "learned-sparse.json"
+            path.write_text(json.dumps(report), encoding="utf-8")
+            errors = EVIDENCE.errors_for_report(path, "learned-sparse")
+        self.assertTrue(any("protected classes cannot be promoted" in error for error in errors))
+
 
 if __name__ == "__main__":
     unittest.main()

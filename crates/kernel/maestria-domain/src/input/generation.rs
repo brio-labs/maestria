@@ -10,6 +10,7 @@ impl KernelState {
             name: input.name.clone(),
             corpus_snapshot: input.corpus_snapshot,
             fingerprint: input.fingerprint.clone(),
+            sparse_namespace: input.sparse_namespace.clone(),
         };
 
         self.apply_index_generation_started(
@@ -17,6 +18,7 @@ impl KernelState {
             input.name,
             input.corpus_snapshot,
             input.fingerprint,
+            input.sparse_namespace,
         )?;
         let envelope = self.emit_event(event);
 
@@ -34,12 +36,13 @@ impl KernelState {
         name: crate::generations::RepresentationName,
         corpus_snapshot: crate::ids::CorpusSnapshotId,
         fingerprint: crate::generations::IndexFingerprint,
+        sparse_namespace: Option<crate::SparseNamespace>,
     ) -> Result<(), DomainError> {
         let generation = crate::generations::IndexGeneration {
             id,
             name,
             corpus_snapshot,
-            sparse_namespace: None,
+            sparse_namespace,
             fingerprint,
             lifecycle: crate::generations::IndexLifecycle::Building,
         };

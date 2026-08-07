@@ -35,6 +35,7 @@ pub mod ingestion_policy;
 mod instance_setup;
 mod lifecycle;
 mod lifecycle_entry;
+mod learned_sparse_benchmark_executor;
 mod lock;
 mod mutation_session;
 mod notebook_draft_open;
@@ -51,6 +52,7 @@ mod supervision_recovery;
 #[cfg(test)]
 mod test_support;
 mod validation_recovery;
+mod sparse_startup;
 mod vector_startup;
 mod watcher;
 
@@ -66,6 +68,11 @@ pub use approval_recovery::{reconcile_approval_repo, reconcile_pending_approvals
 pub use full_text_recovery::pending_start_full_text;
 pub use instance_setup::{
     load_kernel_state, prepare_instance, prepare_instance_with_roots, validate_recovery_scope,
+};
+pub use learned_sparse_benchmark_executor::LearnedSparseBenchmarkExecutor;
+pub use sparse_startup::{
+    build_sparse_provider_for_layout, reconcile_sparse_generation,
+    reconcile_sparse_projection_for_layout, sparse_fingerprint, sparse_identity, sparse_namespace,
 };
 pub(crate) use lifecycle::InstanceLifecycle;
 pub use lifecycle::RecoveryQueue;

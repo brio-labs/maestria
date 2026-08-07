@@ -2831,6 +2831,7 @@ dependencies = [
  "maestria-storage-sqlite",
  "maestria-studio",
  "serde_json",
+ "tempfile",
  "tokio",
  "tracing-subscriber",
 ]

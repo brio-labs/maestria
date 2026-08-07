@@ -66,6 +66,7 @@ fn migrations_are_idempotent() -> Result<(), Box<dyn std::error::Error>> {
         "card_claims",
         "evidence",
         "realm_read_grants",
+        "learned_sparse_promotion_records",
     ] {
         let count: i64 = connection.query_row(
             "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?1",
@@ -158,6 +159,50 @@ fn migrate_v13_creates_realm_read_grant_projection() -> Result<(), PortError> {
         .query_row(
             "SELECT COUNT(*) FROM sqlite_master
              WHERE type = 'table' AND name = 'realm_read_grants'",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(to_port_error)?;
+    assert_eq!(count, 1);
+    migrate(&mut connection)?;
+    Ok(())
+}
+
+#[test]
+fn migrate_v14_creates_learned_sparse_promotion_records() -> Result<(), PortError> {
+    use crate::schema::migrate;
+    let mut connection = Connection::open_in_memory().map_err(to_port_error)?;
+    connection
+        .execute_batch(
+            "CREATE TABLE schema_version (
+                 version INTEGER NOT NULL PRIMARY KEY,
+                 applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+             );
+             INSERT INTO schema_version (version) VALUES (14);
+             CREATE TABLE realm_read_grants (
+                 token_digest TEXT NOT NULL PRIMARY KEY,
+                 provider_realm TEXT NOT NULL,
+                 consumer_realm TEXT NOT NULL,
+                 access TEXT NOT NULL,
+                 max_sensitivity TEXT NOT NULL,
+                 max_results INTEGER NOT NULL,
+                 max_evidence_bytes INTEGER NOT NULL,
+                 state TEXT NOT NULL
+             );",
+        )
+        .map_err(to_port_error)?;
+
+    migrate(&mut connection)?;
+    let version: i64 = connection
+        .query_row("SELECT MAX(version) FROM schema_version", [], |row| {
+            row.get(0)
+        })
+        .map_err(to_port_error)?;
+    assert_eq!(version, CURRENT_SCHEMA_VERSION);
+    let count: i64 = connection
+        .query_row(
+            "SELECT COUNT(*) FROM sqlite_master
+             WHERE type = 'table' AND name = 'learned_sparse_promotion_records'",
             [],
             |row| row.get(0),
         )

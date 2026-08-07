@@ -221,6 +221,8 @@ pub(crate) enum StoredEventPayload {
         name: StoredRepresentationName,
         corpus_snapshot: u64,
         fingerprint: StoredIndexFingerprint,
+        #[serde(default)]
+        sparse_namespace: Option<maestria_domain::SparseNamespace>,
     },
     IndexGenerationTransitioned {
         id: u64,

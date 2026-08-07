@@ -34,6 +34,7 @@ fn index_generation_started_round_trips() -> Result<(), Box<dyn std::error::Erro
             name: RepresentationName::new("dense_vector"),
             corpus_snapshot: CorpusSnapshotId::new(42),
             fingerprint: make_fingerprint()?,
+            sparse_namespace: None,
         },
     };
     store.append(event.clone())?;
@@ -80,6 +81,7 @@ fn full_lifecycle_replay_asserts_active_generation() -> Result<(), Box<dyn std::
                 name: RepresentationName::new("dense_vector"),
                 corpus_snapshot: CorpusSnapshotId::new(42),
                 fingerprint: fingerprint.clone(),
+            sparse_namespace: None,
             },
         };
 
