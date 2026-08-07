@@ -28,6 +28,7 @@ fn archive() -> Result<maestria_code_intel::RepositoryCodeIndex, Box<dyn std::er
             file_count: 1,
             packages: vec!["pkg".to_string()],
             excluded_patterns: Vec::new(),
+            workspace_warnings: Vec::new(),
             relation_summary: maestria_code_intel::CodeRelationSummary::default(),
         },
         packages: Vec::new(),

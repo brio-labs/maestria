@@ -457,6 +457,10 @@ pub struct CodeIndexSummary {
     pub packages: Vec<String>,
     /// Privacy exclusions applied to source identity and extraction.
     pub excluded_patterns: Vec<String>,
+    /// Per-workspace discovery degradations (a nested manifest that failed
+    /// `cargo metadata` was skipped). Required on every persisted index;
+    /// indexes without it fail to load and are rebuilt from scratch.
+    pub workspace_warnings: Vec<String>,
     /// Relation extraction status and summary.
     #[serde(default)]
     pub relation_summary: CodeRelationSummary,

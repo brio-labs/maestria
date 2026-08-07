@@ -56,6 +56,76 @@ impl Widget {
     Ok(())
 }
 
+/// Build a git repo fixture with two independent Cargo workspaces under one
+/// repository root: a root workspace with member `crate_one` and an unrelated
+/// nested workspace at `rust/tools` with member `tool_x`.
+fn make_nested_repo(repo: &Path) -> Result<(), Box<dyn Error>> {
+    write_file(
+        repo,
+        "Cargo.toml",
+        r#"
+[workspace]
+members = ["crate_one"]
+
+[workspace.package]
+edition = "2024"
+"#,
+    )?;
+    write_file(
+        repo,
+        "crate_one/Cargo.toml",
+        r#"
+[package]
+name = "crate_one"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+path = "src/lib.rs"
+"#,
+    )?;
+    write_file(
+        repo,
+        "crate_one/src/lib.rs",
+        "pub fn root_add(a: i32, b: i32) -> i32 { a + b }\n",
+    )?;
+    write_file(
+        repo,
+        "rust/tools/Cargo.toml",
+        r#"
+[workspace]
+members = ["tool_x"]
+
+[workspace.package]
+edition = "2024"
+"#,
+    )?;
+    write_file(
+        repo,
+        "rust/tools/tool_x/Cargo.toml",
+        r#"
+[package]
+name = "tool_x"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+path = "src/lib.rs"
+"#,
+    )?;
+    write_file(
+        repo,
+        "rust/tools/tool_x/src/lib.rs",
+        "pub fn nested_util() -> i32 { 42 }\n",
+    )?;
+    run_git(repo, &["init", "--initial-branch", "main"])?;
+    run_git(repo, &["config", "user.email", "ci@example.com"])?;
+    run_git(repo, &["config", "user.name", "CI"])?;
+    run_git(repo, &["add", "."])?;
+    run_git(repo, &["commit", "-m", "fixture init"])?;
+    Ok(())
+}
+
 fn search_code_symbol(
     instance_path: &str,
     pattern: &str,
@@ -187,6 +257,124 @@ fn repository_code_index_search_roundtrip() -> Result<(), Box<dyn Error>> {
     assert!(
         stderr.contains("repository code index is stale"),
         "expected stale freshness error: {stderr}"
+    );
+    Ok(())
+}
+
+#[test]
+fn repository_code_index_covers_nested_workspaces() -> Result<(), Box<dyn Error>> {
+    let repo = TempDir::new("maestria-release-nested-repo")?;
+    let instance = TempDir::new("maestria-release-nested-instance")?;
+    let instance_path = instance.path().to_string_lossy().into_owned();
+    let repo_path = repo.path().to_string_lossy().into_owned();
+    make_nested_repo(repo.path())?;
+    assert_init_ok(&instance_path, &repo_path)?;
+
+    // Both workspaces' packages are indexed into the single repository index.
+    let stdout = assert_ok(&["index", "-i", &instance_path, "repository", &repo_path])?;
+    assert!(
+        stdout.contains("mode=full"),
+        "first repository index should be a full build: {stdout}"
+    );
+    let summary_start = stdout.find('{').ok_or("missing summary JSON")?;
+    let summary: serde_json::Value = serde_json::from_str(&stdout[summary_start..])?;
+    let packages: Vec<&str> = summary["packages"]
+        .as_array()
+        .ok_or("missing packages")?
+        .iter()
+        .filter_map(|package| package.as_str())
+        .collect();
+    assert!(
+        packages.contains(&"crate_one"),
+        "root workspace package missing: {packages:?}"
+    );
+    assert!(
+        packages.contains(&"tool_x"),
+        "nested workspace package missing: {packages:?}"
+    );
+    assert_eq!(
+        summary["workspace_warnings"].as_array().map_or(0, Vec::len),
+        0,
+        "healthy fixture must not warn: {stdout}"
+    );
+
+    // Symbols from both workspaces are searchable through the same index.
+    let (matched, records) = search_code_symbol(&instance_path, "nested_util")?;
+    assert!(
+        matched >= 1
+            && records
+                .iter()
+                .any(|record| record.contains("rust/tools/tool_x/src/lib.rs")),
+        "nested workspace symbol not searchable: {records:?}"
+    );
+    let (matched, records) = search_code_symbol(&instance_path, "root_add")?;
+    assert!(
+        matched >= 1
+            && records
+                .iter()
+                .any(|record| record.contains("crate_one/src/lib.rs")),
+        "root workspace symbol not searchable: {records:?}"
+    );
+
+    // An edit inside the nested workspace rebuilds incrementally and the new
+    // symbol is searchable.
+    let nested = repo.path().join("rust/tools/tool_x/src/lib.rs");
+    let mut source = fs::read_to_string(&nested)?;
+    source.push_str("\npub fn nested_extra() -> i32 { 7 }\n");
+    fs::write(&nested, source)?;
+    let stdout = assert_ok(&["index", "-i", &instance_path, "repository", &repo_path])?;
+    assert!(
+        stdout.contains("mode=incremental"),
+        "edited nested workspace should rebuild incrementally: {stdout}"
+    );
+    let (matched, records) = search_code_symbol(&instance_path, "nested_extra")?;
+    assert!(
+        matched == 1 && records.iter().any(|record| record.contains("nested_extra")),
+        "new nested symbol not searchable after incremental rebuild: {records:?}"
+    );
+    Ok(())
+}
+
+#[test]
+fn broken_nested_workspace_warns_on_stderr_and_indexes_healthy() -> Result<(), Box<dyn Error>> {
+    let repo = TempDir::new("maestria-release-broken-nested-repo")?;
+    let instance = TempDir::new("maestria-release-broken-nested-instance")?;
+    let instance_path = instance.path().to_string_lossy().into_owned();
+    let repo_path = repo.path().to_string_lossy().into_owned();
+    make_nested_repo(repo.path())?;
+    // A broken standalone nested workspace with a missing member.
+    write_file(
+        repo.path(),
+        "rust/broken/Cargo.toml",
+        "[workspace]\nmembers = [\"does_not_exist\"]\n",
+    )?;
+    run_git(repo.path(), &["add", "."])?;
+    run_git(
+        repo.path(),
+        &["commit", "-m", "add broken nested workspace"],
+    )?;
+    assert_init_ok(&instance_path, &repo_path)?;
+
+    // The index command succeeds, prints a `warning:` line naming the broken
+    // workspace on stderr, and still indexes the healthy workspaces.
+    let (code, stdout, stderr) = run(&["index", "-i", &instance_path, "repository", &repo_path])?;
+    assert_eq!(code, 0, "index failed: {stderr}");
+    assert!(
+        stderr.contains("warning:") && stderr.contains("rust/broken"),
+        "expected a warning naming the broken workspace: {stderr}"
+    );
+    let summary_start = stdout.find('{').ok_or("missing summary JSON")?;
+    let summary: serde_json::Value = serde_json::from_str(&stdout[summary_start..])?;
+    assert!(
+        summary["workspace_warnings"]
+            .as_array()
+            .is_some_and(|warnings| !warnings.is_empty()),
+        "summary JSON must carry the warnings: {stdout}"
+    );
+    let (matched, _) = search_code_symbol(&instance_path, "nested_util")?;
+    assert!(
+        matched >= 1,
+        "healthy nested workspace must stay searchable"
     );
     Ok(())
 }

@@ -609,6 +609,7 @@ RESPONSIBILITY_MAPS: dict[str, tuple[str, ...]] = {
         "symbols",
         "types",
         "index",
+        "walk",
     ),
     "crates/ecosystem/maestria-parsers/src/lib.rs": (
         "cargo_toml",

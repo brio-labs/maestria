@@ -16,6 +16,7 @@
 //! - `symbols`: Rust source symbol and relation extraction.
 //! - `types`: serializable index, symbol, relation, and query records.
 //! - `index`: index persistence, querying, and provenance validation.
+//! - `walk`: bounded repository file walking for identity and discovery.
 
 mod builder;
 mod context;
@@ -30,6 +31,7 @@ mod provenance;
 mod query;
 mod symbols;
 mod types;
+mod walk;
 pub use context::{
     ContextDirection, MAX_CONTEXT_DEPTH, RepositoryContextEdge, RepositoryContextNode,
     RepositoryContextQuery, RepositoryContextResult, RepositoryContextSummary,

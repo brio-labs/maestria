@@ -124,6 +124,9 @@ pub(crate) async fn run_index(instance_dir: PathBuf, repository: PathBuf) -> Res
     let (index_path, mode, summary) = session.finish(result).await?;
     println!("repository_code_index={}", index_path.display());
     println!("mode={}", mode.as_str());
+    for warning in &summary.workspace_warnings {
+        eprintln!("warning: {warning}");
+    }
     println!("{}", serde_json::to_string_pretty(&summary)?);
     Ok(())
 }

@@ -1,9 +1,9 @@
 //! Rebuilt index and candidate-list assembly, and the new-file check.
 
 use crate::CodeIntelError;
-use crate::identity::{collect_rust_paths, is_excluded_path};
 use crate::symbols::relation;
 use crate::types::{CodeIndexSummary, ParserGeneration, RepositoryCodeIndex};
+use crate::walk::{collect_rust_paths, is_excluded_path};
 use std::collections::BTreeSet;
 use std::path::Path;
 
@@ -173,6 +173,11 @@ pub(crate) fn assemble_index(
                     .map(|package| package.name.clone())
                     .collect(),
                 excluded_patterns: inputs.excluded_patterns.to_vec(),
+                // Discovery only re-runs on Full builds; on an incremental
+                // rebuild the manifest set is unchanged (any dirty
+                // manifest/lock already forced Full), so the warnings from
+                // the previous discovery pass stay valid.
+                workspace_warnings: index.summary.workspace_warnings.clone(),
                 relation_summary: relation::relation_status_summary(relations.len()),
             },
             packages,

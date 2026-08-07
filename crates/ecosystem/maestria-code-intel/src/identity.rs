@@ -1,6 +1,7 @@
 //! Repository identity discovery for provenance.
 
 use crate::CodeIntelError;
+use crate::walk::{collect_rust_paths, discover_manifests, is_excluded_path};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{self, File};
@@ -32,6 +33,19 @@ pub(crate) fn discover_repository_identity(
         .cloned()
         .collect();
     collect_rust_paths(root, root, &mut paths, excluded_patterns)?;
+    // Every manifest the bounded discovery walk can see (and its `Cargo.lock`
+    // sibling) participates in the identity digest, so editing a nested
+    // manifest always invalidates the worktree identity even when the file is
+    // gitignored and invisible to the git file set.
+    for manifest in discover_manifests(root, excluded_patterns)? {
+        if let Ok(relative) = manifest.strip_prefix(root) {
+            paths.insert(relative.to_string_lossy().into_owned());
+        }
+        let lock = manifest.with_extension("lock");
+        if let Ok(relative) = lock.strip_prefix(root) {
+            paths.insert(relative.to_string_lossy().into_owned());
+        }
+    }
 
     let mut hasher = Sha256::new();
     hasher.update(b"maestria-worktree-identity-v2\0");
@@ -134,10 +148,14 @@ pub(crate) fn discover_file_set(root: &Path) -> Result<BTreeSet<String>, CodeInt
 /// then differs from what the previous build extracted even though porcelain
 /// shows no worktree change). Rename/copy entries contribute their target
 /// path (and their source path when the record is not fully clean).
+///
+/// `--untracked-files=all` lists every untracked file individually instead of
+/// collapsing fully-untracked directories into one entry, so nested manifest
+/// and source edits inside untracked directories are detected.
 pub(crate) fn discover_dirty_paths(root: &Path) -> Result<BTreeSet<String>, CodeIntelError> {
     let output = git_output_allow_empty(
         root,
-        &["status", "--porcelain", "-z"],
+        &["status", "--porcelain", "-z", "--untracked-files=all"],
         "git status --porcelain",
     )?;
     let mut dirty = BTreeSet::new();
@@ -213,86 +231,12 @@ fn decode_hex_nibble(byte: u8) -> Option<u8> {
     }
 }
 
-pub(crate) fn collect_rust_paths(
-    root: &Path,
-    directory: &Path,
-    paths: &mut BTreeSet<String>,
-    excluded_patterns: &[String],
-) -> Result<(), CodeIntelError> {
-    if is_excluded_path(directory, excluded_patterns) {
-        return Ok(());
-    }
-    let metadata = fs::symlink_metadata(directory).map_err(|error| CodeIntelError::Identity {
-        context: "inspect Rust source directory".to_string(),
-        details: format!("{}: {error}", directory.display()),
-    })?;
-    if metadata.is_file() {
-        let relative = directory
-            .strip_prefix(root)
-            .map_err(|error| CodeIntelError::Identity {
-                context: "derive Rust source identity path".to_string(),
-                details: error.to_string(),
-            })?;
-        if directory
-            .extension()
-            .and_then(|extension| extension.to_str())
-            == Some("rs")
-            && is_identity_input(relative, excluded_patterns)
-        {
-            paths.insert(relative.to_string_lossy().into_owned());
-        }
-        return Ok(());
-    }
-    if !metadata.is_dir() {
-        return Ok(());
-    }
-    for entry in fs::read_dir(directory).map_err(|error| CodeIntelError::Identity {
-        context: "read Rust source directory".to_string(),
-        details: format!("{}: {error}", directory.display()),
-    })? {
-        let entry = entry.map_err(|error| CodeIntelError::Identity {
-            context: "read Rust source directory entry".to_string(),
-            details: error.to_string(),
-        })?;
-        let child = entry.path();
-        if child
-            .file_name()
-            .and_then(|name| name.to_str())
-            .is_some_and(|name| name == ".git" || name == "target")
-        {
-            continue;
-        }
-        collect_rust_paths(root, &child, paths, excluded_patterns)?;
-    }
-    Ok(())
-}
-
 fn is_identity_input(path: &Path, excluded_patterns: &[String]) -> bool {
     let is_source = matches!(
         path.extension().and_then(|extension| extension.to_str()),
         Some("rs" | "toml" | "lock")
     );
     is_source && !is_excluded_path(path, excluded_patterns)
-}
-
-pub(crate) fn is_excluded_path(path: &Path, patterns: &[String]) -> bool {
-    path.components().any(|component| {
-        let name = component.as_os_str().to_string_lossy();
-        name == ".git"
-            || name == ".ssh"
-            || name == ".gnupg"
-            || name == "secrets"
-            || name == "node_modules"
-            || name == "target"
-            || name == "dist"
-            || name == "build"
-            || patterns.iter().any(|pattern| {
-                pattern.as_str() == name
-                    || (pattern == ".env.*" && name.starts_with(".env."))
-                    || (pattern == "*.pem" && name.ends_with(".pem"))
-                    || (pattern == "*.key" && name.ends_with(".key"))
-            })
-    })
 }
 
 fn git_output(root: &Path, args: &[&str], context: &str) -> Result<String, CodeIntelError> {
@@ -402,6 +346,44 @@ mod tests {
         let blobs = git_blob_map(root.path())?;
         let hash = git_output(root.path(), &["hash-object", "a.txt"], "git hash-object")?;
         assert_eq!(to_hex(&blobs["a.txt"]), hash);
+        Ok(())
+    }
+
+    #[test]
+    fn nested_manifest_edit_changes_identity() -> Result<(), Box<dyn std::error::Error>> {
+        let root = tempdir()?;
+        init_repo(root.path())?;
+        fs::create_dir_all(root.path().join("rust/tools"))?;
+        let manifest = root.path().join("rust/tools/Cargo.toml");
+        fs::write(&manifest, "[workspace]\nmembers = []\n")?;
+        run_git_ok(root.path(), &["add", "."])?;
+        run_git_ok(root.path(), &["commit", "-m", "init"])?;
+
+        let original = discover_repository_identity(root.path(), &[])?.worktree_identity;
+
+        fs::write(&manifest, "[workspace]\nmembers = []\n# edited\n")?;
+        let modified = discover_repository_identity(root.path(), &[])?.worktree_identity;
+        assert_ne!(original, modified);
+        Ok(())
+    }
+
+    #[test]
+    fn gitignored_nested_manifest_participates_in_identity()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let root = tempdir()?;
+        init_repo(root.path())?;
+        fs::write(root.path().join(".gitignore"), "rust/ignored/\n")?;
+        fs::create_dir_all(root.path().join("rust/ignored"))?;
+        let manifest = root.path().join("rust/ignored/Cargo.toml");
+        fs::write(&manifest, "[workspace]\nmembers = []\n")?;
+        run_git_ok(root.path(), &["add", "."])?;
+        run_git_ok(root.path(), &["commit", "-m", "init"])?;
+
+        let original = discover_repository_identity(root.path(), &[])?.worktree_identity;
+
+        fs::write(&manifest, "[workspace]\nmembers = []\n# edited\n")?;
+        let modified = discover_repository_identity(root.path(), &[])?.worktree_identity;
+        assert_ne!(original, modified);
         Ok(())
     }
 

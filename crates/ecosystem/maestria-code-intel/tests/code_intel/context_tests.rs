@@ -88,6 +88,7 @@ fn context_fixture() -> Result<RepositoryCodeIndex, Box<dyn Error>> {
             file_count: 1,
             packages: vec!["pkg".to_string()],
             excluded_patterns: Vec::new(),
+            workspace_warnings: Vec::new(),
             relation_summary: CodeRelationSummary {
                 total_relations: relations.len(),
                 source_statuses: Vec::new(),

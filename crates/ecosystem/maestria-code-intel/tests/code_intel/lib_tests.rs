@@ -173,6 +173,30 @@ fn load_rejects_tampered_provenance_commit_sha() -> Result<(), Box<dyn Error>> {
 }
 
 #[test]
+fn load_rejects_index_without_workspace_warnings() -> Result<(), Box<dyn Error>> {
+    let tmp = make_workspace()?;
+    let path = tmp.path().join("index.json");
+    let index = build_index(tmp.path(), "g2")?;
+    index.save(&path)?;
+
+    // A persisted index without the REQUIRED `workspace_warnings` field (the
+    // pre-#417 shape) fails to load and is rebuilt from scratch.
+    let json = fs::read_to_string(&path)?;
+    let mut value: serde_json::Value = serde_json::from_str(&json)?;
+    value["summary"]
+        .as_object_mut()
+        .ok_or("missing summary")?
+        .remove("workspace_warnings");
+    fs::write(&path, serde_json::to_vec_pretty(&value)?)?;
+
+    match RepositoryCodeIndex::load(&path) {
+        Err(CodeIntelError::Persist { context, .. }) if context == "deserialize index" => {}
+        other => return Err(format!("expected decode Persist error, got {other:?}").into()),
+    }
+    Ok(())
+}
+
+#[test]
 fn load_rejects_legacy_provenance_without_content_hash() -> Result<(), Box<dyn Error>> {
     let tmp = make_workspace_with_routes()?;
     let path = tmp.path().join("index.json");

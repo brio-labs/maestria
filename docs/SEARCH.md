@@ -317,9 +317,11 @@ Visual activation is benchmark-gated by frozen `Text`, `Table`, `Chart`, `Figure
 ### Repository Code Intelligence
 
 The deterministic repository lane is a persisted projection, not an embedding fallback.
-`maestria index repository <path>` records Cargo workspace packages, targets, features,
-dependencies, and Rust symbols. Each symbol carries repository root, commit SHA, worktree
-identity, source path/range, and parser generation.
+`maestria index repository <path>` discovers every Cargo workspace under the repository
+root with a bounded walk (skipping `.git`, `target/`, hidden directories, and
+privacy-excluded paths) and records each workspace's packages, targets, features,
+dependencies, and Rust symbols into one repository-wide index. Each symbol carries
+repository root, commit SHA, worktree identity, source path/range, and parser generation.
 
 Exact queries remain available without neural indexes:
 
@@ -351,15 +353,23 @@ and tests are separate governed effects and must return their own evidence.
 result is exactly equivalent to a full rebuild at the same repository state), or
 `mode=noop` (index already current; nothing written). Worktree identity is derived from
 git without content reads when the worktree is clean (index blob map plus porcelain
-status); dirty, untracked, and ignored files are content-hashed. New cargo
+status); dirty, untracked, and ignored files are content-hashed. Every discovered
+manifest (and its `Cargo.lock`) participates in the worktree identity, so editing a
+nested manifest invalidates the index like any other source change. New cargo
 auto-discovery targets and manifest changes fall back to a full rebuild. Sources are
 registered as canonical artifacts through the kernel pipeline, so code queries authorize
 symbols against durable, blob-verified evidence; files the kernel refuses to index
-(secret-bearing content) are skipped by authorization rather than erroring. A
-repository without a root `Cargo.toml` (Python, web, or other non-Rust code) indexes to
+(secret-bearing content) are skipped by authorization rather than erroring.
+
+Multiple workspace roots share one repository index: member manifests that resolve to an
+already-indexed workspace are deduplicated, and packages are deduplicated by package id.
+A repository without any `Cargo.toml` (Python, web, or other non-Rust code) indexes to
 a valid, fresh empty index: `mode=full` with zero symbols, no matches from code queries,
-and no-op rebuilds on subsequent runs; a manifest that exists but fails `cargo metadata`
-is a typed error.
+and no-op rebuilds on subsequent runs. A root `Cargo.toml` that exists but fails
+`cargo metadata` is a typed error. A NESTED manifest that fails `cargo metadata` does
+not kill the index: the broken workspace is skipped, the healthy workspaces are still
+indexed, and the degradation is surfaced as a `workspace_warnings` entry in the summary
+JSON plus a `warning:` line on stderr — never silently.
 
 Repository-code promotion is governed by the frozen `rust-repository-frozen-v1`
 benchmark in `maestria-retrieval`. It compares the Phase C route with the

@@ -37,7 +37,7 @@ impl RepositoryCodeIndex {
         let root = root.as_ref();
         let parser_generation = parser_generation.into();
         let initial_identity = discover_repository_identity(root, excluded_patterns)?;
-        let mut packages = extract_workspace_packages(
+        let mut discovery = extract_workspace_packages(
             Path::new(&initial_identity.root),
             &initial_identity,
             &parser_generation,
@@ -47,13 +47,14 @@ impl RepositoryCodeIndex {
         if identity.commit != initial_identity.commit
             || identity.worktree_identity != initial_identity.worktree_identity
         {
-            packages = extract_workspace_packages(
+            discovery = extract_workspace_packages(
                 Path::new(&identity.root),
                 &identity,
                 &parser_generation,
                 excluded_patterns,
             )?;
         }
+        let packages = discovery.packages;
         let extraction = extract_symbols(
             &packages,
             Path::new(&identity.root),
@@ -83,6 +84,7 @@ impl RepositoryCodeIndex {
                         .map(|package| package.name.clone())
                         .collect(),
                     excluded_patterns: excluded_patterns.to_vec(),
+                    workspace_warnings: discovery.warnings,
                     relation_summary: extraction.relation_summary,
                 },
                 packages,
