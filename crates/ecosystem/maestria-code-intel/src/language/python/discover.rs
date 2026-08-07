@@ -342,7 +342,7 @@ fn parent_is_package(dir: &Path) -> bool {
     dir.parent().is_some_and(is_package_dir)
 }
 
-fn is_package_dir(dir: &Path) -> bool {
+pub(crate) fn is_package_dir(dir: &Path) -> bool {
     dir.join("__init__.py").is_file()
 }
 

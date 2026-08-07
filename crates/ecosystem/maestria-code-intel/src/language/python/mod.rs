@@ -10,7 +10,7 @@ pub(crate) mod tokens;
 use crate::CodeIntelError;
 use crate::identity::RepositoryIdentity;
 use crate::language::python::discover::{
-    PYTHON_MANIFEST_NAMES, collect_python_source_files, discover_python_packages,
+    PYTHON_MANIFEST_NAMES, collect_python_source_files, discover_python_packages, is_package_dir,
 };
 use crate::language::python::extract::extract_python_file;
 use crate::language::python::tokens::{is_bench_file, is_test_file, module_path_for_file};
@@ -123,7 +123,9 @@ impl LanguageBackend for PythonBackend {
         _excluded_patterns: &[String],
     ) -> Result<Vec<(PathBuf, DerivedFileContext)>, CodeIntelError> {
         // Python has no module tree: only the file itself is re-derived, with
-        // its recorded context unchanged.
+        // its recorded context unchanged. Package-root shifts (which would
+        // re-path siblings) always coincide with target-set changes and are
+        // handled by the full-rebuild trigger on init deletions.
         let canonical = file.canonicalize().map_err(|error| CodeIntelError::Io {
             operation: "canonicalize dirty Python source".to_string(),
             path: file.to_string_lossy().into_owned(),
@@ -138,6 +140,25 @@ impl LanguageBackend for PythonBackend {
                 parent: record.parent.clone(),
             },
         )])
+    }
+
+    fn deleted_file_requires_full(&self, root: &Path, relative_path: &str) -> bool {
+        // Deleting a TOP-LEVEL package init removes a discovered target (and
+        // can shift the package root), so the persisted package records are
+        // stale until a full rebuild — exactly like a manifest change. A
+        // nested init deletion leaves targets and module paths unchanged and
+        // reconciles incrementally.
+        if !relative_path.ends_with("__init__.py") {
+            return false;
+        }
+        let path = Path::new(relative_path);
+        let Some(package_dir) = path.parent() else {
+            return false;
+        };
+        let Some(parent_of_package) = package_dir.parent() else {
+            return false;
+        };
+        !is_package_dir(&root.join(parent_of_package))
     }
 
     fn is_new_auto_target_root(

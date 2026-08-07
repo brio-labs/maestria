@@ -309,14 +309,14 @@ fn committed_edit_stays_incremental() -> Result<(), Box<dyn Error>> {
     // incremental path diffs the replaced index's baseline commit against the
     // new HEAD, which a from-scratch full build cannot do.
     assert_eq!(
-        index.summary.changed.files,
+        index.summary.changed.files().to_vec(),
         vec!["crate_one/src/lib.rs".to_string()]
     );
     assert!(
         index
             .summary
             .changed
-            .symbols
+            .symbols()
             .iter()
             .any(|record_id| { record_id.starts_with("crate_one/src/lib.rs:") })
     );

@@ -1,8 +1,9 @@
 use super::{CodeIntelError, RepositoryCodeIndex};
 use crate::changes::{build_delta, compute_delta_files};
 use crate::identity::{discover_dirty_paths, discover_repository_identity};
-use crate::language::{
-    active_backends, discover_all_packages, merge_extractions, resolve_merged_relations,
+use crate::language::active_backends;
+use crate::language::compose::{
+    discover_all_packages, merge_extractions, resolve_merged_relations,
 };
 use crate::symbols::RelationCandidate;
 use std::collections::BTreeSet;

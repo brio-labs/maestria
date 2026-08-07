@@ -1,4 +1,6 @@
-use super::common::{assert_equivalent_to_full_rebuild, build_or_update, init_git, write_file};
+use super::common::{
+    assert_equivalent_to_full_rebuild, build_or_update, init_git, run_git, write_file,
+};
 use maestria_code_intel::*;
 use std::error::Error;
 use std::fs;
@@ -402,6 +404,221 @@ fn python_new_test_file_forces_full() -> Result<(), Box<dyn Error>> {
             .symbols
             .iter()
             .any(|symbol| symbol.qualified_name == "tests.test_extra.test_extra" && symbol.is_test)
+    );
+    Ok(())
+}
+
+#[test]
+fn python_init_edit_keeps_sibling_module_paths() -> Result<(), Box<dyn Error>> {
+    let root = make_python_repo()?;
+    let index_dir = tempdir()?;
+    let index_path = index_dir.path().join("index.json");
+    let candidates_path = index_dir.path().join("candidates.json");
+
+    let (_, mode) = build_or_update(&index_path, &candidates_path, root.path())?;
+    assert_eq!(mode, RepositoryIndexBuildMode::Full);
+
+    // Editing an init's CONTENT must not touch siblings: module paths depend
+    // on init presence, not content.
+    let init = root.path().join("src/wishlist/__init__.py");
+    let mut source = fs::read_to_string(&init)?;
+    source.push_str("\n\ndef extra_helper():\n    return 1\n");
+    fs::write(&init, source)?;
+
+    let (index, mode) = build_or_update(&index_path, &candidates_path, root.path())?;
+    assert_eq!(mode, RepositoryIndexBuildMode::Incremental);
+    assert_equivalent_to_full_rebuild(&index, root.path(), true)?;
+    assert!(
+        index
+            .symbols
+            .iter()
+            .any(|symbol| symbol.qualified_name == "wishlist.items.Item"),
+        "sibling module path must survive an init edit"
+    );
+    assert!(
+        index
+            .symbols
+            .iter()
+            .any(|symbol| symbol.qualified_name == "wishlist.extra_helper")
+    );
+    Ok(())
+}
+
+#[test]
+fn python_nested_init_deletion_keeps_surviving_modules() -> Result<(), Box<dyn Error>> {
+    let root = make_python_repo()?;
+    fs::create_dir_all(root.path().join("src/wishlist/sub"))?;
+    write_file(
+        &root.path().join("src/wishlist/sub/__init__.py"),
+        "\"\"\"Sub package.\"\"\"\n",
+    )?;
+    write_file(
+        &root.path().join("src/wishlist/sub/mod.py"),
+        "def sub_fn():\n    return 1\n",
+    )?;
+    let index_dir = tempdir()?;
+    let index_path = index_dir.path().join("index.json");
+    let candidates_path = index_dir.path().join("candidates.json");
+
+    let (index, mode) = build_or_update(&index_path, &candidates_path, root.path())?;
+    assert_eq!(mode, RepositoryIndexBuildMode::Full);
+    assert!(
+        index
+            .symbols
+            .iter()
+            .any(|symbol| symbol.qualified_name == "wishlist.sub.mod.sub_fn")
+    );
+
+    // Deleting a NESTED init (the package root above it survives) must keep
+    // the modules below it, with full-rebuild-equivalent paths.
+    fs::remove_file(root.path().join("src/wishlist/sub/__init__.py"))?;
+    let (index, mode) = build_or_update(&index_path, &candidates_path, root.path())?;
+    assert_eq!(mode, RepositoryIndexBuildMode::Incremental);
+    assert_equivalent_to_full_rebuild(&index, root.path(), true)?;
+    assert!(
+        index
+            .symbols
+            .iter()
+            .any(|symbol| symbol.qualified_name == "wishlist.sub.mod.sub_fn"),
+        "surviving modules must keep their paths after a nested init deletion"
+    );
+    assert!(
+        !index
+            .symbols
+            .iter()
+            .any(|symbol| symbol.qualified_name.contains("wishlist.sub")
+                && symbol.kind == SymbolKind::Module
+                && symbol.name == "wishlist.sub"),
+        "the deleted init's own module record must be gone"
+    );
+    Ok(())
+}
+
+#[test]
+fn python_top_level_init_deletion_drops_package_subtree() -> Result<(), Box<dyn Error>> {
+    let root = make_python_repo()?;
+    let index_dir = tempdir()?;
+    let index_path = index_dir.path().join("index.json");
+    let candidates_path = index_dir.path().join("candidates.json");
+
+    let (index, mode) = build_or_update(&index_path, &candidates_path, root.path())?;
+    assert_eq!(mode, RepositoryIndexBuildMode::Full);
+    assert!(
+        index
+            .symbols
+            .iter()
+            .any(|symbol| symbol.qualified_name == "wishlist.items.Item")
+    );
+
+    // Deleting the TOP-LEVEL init removes the package target: package
+    // records are stale until a full rebuild (mirroring a manifest change),
+    // so the rebuild is full and drops the subtree.
+    fs::remove_file(root.path().join("src/wishlist/__init__.py"))?;
+    let (index, mode) = build_or_update(&index_path, &candidates_path, root.path())?;
+    assert_eq!(mode, RepositoryIndexBuildMode::Full);
+    assert_equivalent_to_full_rebuild(&index, root.path(), true)?;
+    assert!(
+        index
+            .symbols
+            .iter()
+            .all(|symbol| !symbol.provenance.file_path.starts_with("src/wishlist/")),
+        "the package subtree must be dropped with its init"
+    );
+    Ok(())
+}
+
+#[test]
+fn python_committed_top_level_init_deletion_forces_full() -> Result<(), Box<dyn Error>> {
+    let root = make_python_repo()?;
+    let index_dir = tempdir()?;
+    let index_path = index_dir.path().join("index.json");
+    let candidates_path = index_dir.path().join("candidates.json");
+
+    let (_, mode) = build_or_update(&index_path, &candidates_path, root.path())?;
+    assert_eq!(mode, RepositoryIndexBuildMode::Full);
+
+    // A COMMITTED init deletion is invisible to porcelain, but the file-set
+    // comparison still forces the full rebuild.
+    fs::remove_file(root.path().join("src/wishlist/__init__.py"))?;
+    run_git(root.path(), &["add", "-A"], "git add")?;
+    run_git(
+        root.path(),
+        &["commit", "-m", "remove package"],
+        "git commit",
+    )?;
+    let (index, mode) = build_or_update(&index_path, &candidates_path, root.path())?;
+    assert_eq!(mode, RepositoryIndexBuildMode::Full);
+    assert_equivalent_to_full_rebuild(&index, root.path(), true)?;
+    assert!(
+        index
+            .symbols
+            .iter()
+            .all(|symbol| !symbol.provenance.file_path.starts_with("src/wishlist/"))
+    );
+    Ok(())
+}
+
+#[test]
+fn python_package_root_init_deletion_repairs_module_paths() -> Result<(), Box<dyn Error>> {
+    // Layout with src/ as the package root: deleting src/__init__.py shifts
+    // the root down to src/wishlist, re-pathing every module and dropping
+    // files the new root no longer covers.
+    let root = make_python_repo()?;
+    write_file(
+        &root.path().join("src/__init__.py"),
+        "\"\"\"Source package.\"\"\"\n",
+    )?;
+    write_file(
+        &root.path().join("src/top.py"),
+        "def top_fn():\n    return 1\n",
+    )?;
+    let index_dir = tempdir()?;
+    let index_path = index_dir.path().join("index.json");
+    let candidates_path = index_dir.path().join("candidates.json");
+
+    let (index, mode) = build_or_update(&index_path, &candidates_path, root.path())?;
+    assert_eq!(mode, RepositoryIndexBuildMode::Full);
+    assert!(
+        index
+            .symbols
+            .iter()
+            .any(|symbol| symbol.qualified_name == "src.wishlist.items.Item")
+    );
+    assert!(
+        index
+            .symbols
+            .iter()
+            .any(|symbol| symbol.qualified_name == "src.top.top_fn")
+    );
+
+    // Deleting the src/__init__.py removes the src package target and shifts
+    // the root down to src/wishlist: package records are stale, so the
+    // rebuild is full, re-pathing every module and dropping files the new
+    // root no longer covers.
+    fs::remove_file(root.path().join("src/__init__.py"))?;
+    let (index, mode) = build_or_update(&index_path, &candidates_path, root.path())?;
+    assert_eq!(mode, RepositoryIndexBuildMode::Full);
+    assert_equivalent_to_full_rebuild(&index, root.path(), true)?;
+    assert!(
+        index
+            .symbols
+            .iter()
+            .any(|symbol| symbol.qualified_name == "wishlist.items.Item"),
+        "modules must re-path to the new package root"
+    );
+    assert!(
+        !index
+            .symbols
+            .iter()
+            .any(|symbol| symbol.qualified_name.contains("src.wishlist")),
+        "no stale src-prefixed paths may survive"
+    );
+    assert!(
+        !index
+            .symbols
+            .iter()
+            .any(|symbol| symbol.provenance.file_path == "src/top.py"),
+        "files the new root no longer covers must drop"
     );
     Ok(())
 }

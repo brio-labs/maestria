@@ -6,6 +6,7 @@
 //! - `context`: public repository-context query models and execution.
 //! - `context_assembly`: deterministic context graph result assembly.
 //! - `context_support`: context query normalization and bounded graph traversal.
+//! - `delta`: validated changed-file delta record with files/symbols consistency.
 //! - `error`: typed indexing, persistence, and integrity errors.
 //! - `freshness`: repository snapshot freshness comparison.
 //! - `identity`: repository and worktree provenance discovery.
@@ -28,6 +29,7 @@ mod changes;
 mod context;
 mod context_assembly;
 mod context_support;
+mod delta;
 mod error;
 mod freshness;
 mod identity;
@@ -46,6 +48,7 @@ pub use context::{
     ContextDirection, MAX_CONTEXT_DEPTH, RepositoryContextEdge, RepositoryContextNode,
     RepositoryContextQuery, RepositoryContextResult, RepositoryContextSummary,
 };
+pub use delta::RepositoryChangeDelta;
 pub use error::CodeIntelError;
 pub use freshness::{RepositoryFreshness, RepositoryIdentitySnapshot};
 pub use markers::{
@@ -56,9 +59,8 @@ pub use types::{
     CodeIndexSummary, CodeQuery, CodeRelationKind, CodeRelationRecord, CodeRelationSummary,
     CommitSha, DependencyRecord, FileContextRecord, PackageRecord, ParserGeneration, QueryResult,
     QuerySummary, RecordProvenance, ReferencesDirection, RelationSourceAvailability,
-    RelationSourceKind, RelationSourceStatus, RepositoryChangeDelta, RepositoryCodeIndex,
-    SourceRange, SymbolKind, SymbolMarkers, SymbolRecord, TargetRecord, Visibility,
-    WorktreeIdentity,
+    RelationSourceKind, RelationSourceStatus, RepositoryCodeIndex, SourceRange, SymbolKind,
+    SymbolMarkers, SymbolRecord, TargetRecord, Visibility, WorktreeIdentity,
 };
 
 mod index;

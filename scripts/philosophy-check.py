@@ -600,6 +600,7 @@ RESPONSIBILITY_MAPS: dict[str, tuple[str, ...]] = {
         "context",
         "context_assembly",
         "context_support",
+        "delta",
         "error",
         "freshness",
         "identity",

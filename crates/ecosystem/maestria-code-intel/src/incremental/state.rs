@@ -81,11 +81,13 @@ pub(crate) fn rebuild_working_stores(
 
 impl RebuildState {
     /// Remove a file and every context key whose parent chain reaches it
-    /// from the working stores.
+    /// from the working stores. Every dropped key is marked processed so the
+    /// new-file check never re-arms a full rebuild for a reconciled drop.
     pub(crate) fn drop_file(&mut self, key: String) {
         if !self.dropped_files.insert(key.clone()) {
             return;
         }
+        self.processed.insert(key.clone());
         self.symbols_by_file.remove(&key);
         self.candidates_by_id_prefix.remove(&key);
         self.contexts.remove(&key);
@@ -110,6 +112,7 @@ impl RebuildState {
                 if !self.dropped_files.insert(child.clone()) {
                     continue;
                 }
+                self.processed.insert(child.clone());
                 self.symbols_by_file.remove(&child);
                 self.candidates_by_id_prefix.remove(&child);
                 self.contexts.remove(&child);

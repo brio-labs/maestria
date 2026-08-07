@@ -6,8 +6,9 @@
 //! path, so a clean worktree costs the same as before the delta existed.
 
 use crate::CodeIntelError;
+use crate::delta::RepositoryChangeDelta;
 use crate::identity::{discover_dirty_paths, git_output_allow_empty};
-use crate::types::{CommitSha, RepositoryChangeDelta, RepositoryCodeIndex, SymbolRecord};
+use crate::types::{CommitSha, RepositoryCodeIndex, SymbolRecord};
 use std::collections::BTreeSet;
 use std::path::Path;
 
@@ -20,7 +21,7 @@ pub(crate) fn changed_file_set(
 ) -> Result<BTreeSet<String>, CodeIntelError> {
     let root = Path::new(&index.summary.repository_root);
     match since {
-        None => Ok(index.summary.changed.files.iter().cloned().collect()),
+        None => Ok(index.summary.changed.files().iter().cloned().collect()),
         Some(commit) => {
             let mut files = diff_files_since(root, commit)?;
             files.extend(discover_dirty_paths(root)?);
@@ -44,25 +45,14 @@ pub(crate) fn compute_delta_files(
     Ok(files)
 }
 
-/// `record_id`s of symbols whose file is in `files`, ordered by file then
-/// qualified name (deterministic regardless of input symbol order).
-pub(crate) fn delta_symbol_ids(files: &BTreeSet<String>, symbols: &[SymbolRecord]) -> Vec<String> {
-    let mut by_name: Vec<(&str, &str, &str)> = symbols
-        .iter()
-        .filter(|symbol| files.contains(&symbol.provenance.file_path))
-        .map(|symbol| {
-            (
-                symbol.provenance.file_path.as_str(),
-                symbol.qualified_name.as_str(),
-                symbol.record_id.as_str(),
-            )
-        })
-        .collect();
-    by_name.sort_by(|left, right| left.0.cmp(right.0).then_with(|| left.1.cmp(right.1)));
-    by_name
-        .into_iter()
-        .map(|(_, _, record_id)| record_id.to_string())
-        .collect()
+/// Build a completed delta from a file set and the indexed symbols. The
+/// symbol list is derived inside [`RepositoryChangeDelta::from_parts`], so
+/// files/symbols consistency is by construction.
+pub(crate) fn build_delta(
+    files: &BTreeSet<String>,
+    symbols: &[SymbolRecord],
+) -> RepositoryChangeDelta {
+    RepositoryChangeDelta::from_parts(files.clone(), symbols)
 }
 
 /// `git diff --name-only <baseline> HEAD` as a sorted set of relative paths.
@@ -98,17 +88,6 @@ pub fn is_plausible_commit_sha(sha: &str) -> bool {
         return rest.is_empty() || rest.bytes().all(|byte| byte.is_ascii_digit());
     }
     sha == "HEAD"
-}
-
-/// Build a completed delta from a file set and the indexed symbols.
-pub(crate) fn build_delta(
-    files: &BTreeSet<String>,
-    symbols: &[SymbolRecord],
-) -> RepositoryChangeDelta {
-    RepositoryChangeDelta {
-        files: files.iter().cloned().collect(),
-        symbols: delta_symbol_ids(files, symbols),
-    }
 }
 
 #[cfg(test)]

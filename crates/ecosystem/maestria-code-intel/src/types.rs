@@ -1,5 +1,6 @@
 //! Shared serializable types for repository code intelligence records.
 
+use crate::delta::RepositoryChangeDelta;
 use crate::markers::{CodeMarker, MarkerQueryKind};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -483,18 +484,6 @@ pub struct QueryResult {
     /// `CodeQuery::References` fills it with the evidence-bearing edges
     /// whose endpoints are the returned records.
     pub relations: Vec<CodeRelationRecord>,
-}
-
-/// Files and symbols that changed between the build-time baseline and the
-/// current repository state, computed from porcelain status and git history
-/// metadata only (zero content reads).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct RepositoryChangeDelta {
-    /// Relative repository paths in the changed set, sorted.
-    pub files: Vec<String>,
-    /// `record_id`s of symbols whose file is in `files`, ordered by file
-    /// then qualified name.
-    pub symbols: Vec<String>,
 }
 
 /// Top-level index summary.

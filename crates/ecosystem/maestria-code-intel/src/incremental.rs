@@ -9,8 +9,9 @@
 
 use crate::CodeIntelError;
 use crate::identity::{discover_dirty_paths, discover_file_set, discover_repository_identity};
-use crate::language::{active_backends, is_backend_manifest_path};
-use crate::types::RepositoryCodeIndex;
+use crate::language::{LanguageBackend, active_backends, is_backend_manifest_path};
+use crate::types::{FileContextRecord, RepositoryCodeIndex};
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 mod assemble;
@@ -44,6 +45,36 @@ impl RepositoryIndexBuildMode {
             RepositoryIndexBuildMode::Full => "full",
         }
     }
+}
+
+/// Whether any deleted path invalidates persisted package records (a Python
+/// top-level package init removes a discovered target), forcing a full
+/// rebuild. Unstaged deletions appear in the porcelain dirty set (still
+/// cached in the git index); staged and committed deletions only in the
+/// file-set comparison.
+fn deletions_force_full(
+    root: &Path,
+    canonical_root: &Path,
+    backends: &[Box<dyn LanguageBackend>],
+    porcelain_dirty: &BTreeSet<String>,
+    indexed_contexts: &BTreeMap<String, FileContextRecord>,
+    file_set: &BTreeSet<String>,
+) -> bool {
+    let deleted_paths: Vec<String> = indexed_contexts
+        .keys()
+        .filter(|key| !file_set.contains(*key) && !root.join(key).exists())
+        .cloned()
+        .collect();
+    let deletion_forces_full = |path: &str| {
+        !root.join(path).exists()
+            && backends
+                .iter()
+                .any(|backend| backend.deleted_file_requires_full(canonical_root, path))
+    };
+    deleted_paths.iter().any(|path| deletion_forces_full(path))
+        || porcelain_dirty
+            .iter()
+            .any(|path| deletion_forces_full(path))
 }
 
 /// Persisted sidecar filename for the relation candidate list.
@@ -121,6 +152,21 @@ pub fn build_or_update_repository_index(
         return full(candidates_path);
     }
     let file_set = discover_file_set(root)?;
+
+    // Deletions that invalidate persisted package records (a Python
+    // top-level package init removes a discovered target) force a full
+    // rebuild, exactly like a dirty manifest: package records are only
+    // recomputed on full builds.
+    if deletions_force_full(
+        root,
+        &canonical_root,
+        &backends,
+        &porcelain_dirty,
+        &index.file_contexts,
+        &file_set,
+    ) {
+        return full(candidates_path);
+    }
 
     // Content-staleness pass: files whose on-disk content differs from what
     // the previous build extracted (symbols' persisted content hashes). This

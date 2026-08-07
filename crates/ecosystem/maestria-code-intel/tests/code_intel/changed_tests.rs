@@ -57,8 +57,8 @@ fn changed_delta_includes_unstaged_edit() -> Result<(), Box<dyn Error>> {
 
     let (index, mode) = build_or_update(&index_path, &candidates_path, root)?;
     assert_eq!(mode, RepositoryIndexBuildMode::Full);
-    assert!(index.summary.changed.files.is_empty());
-    assert!(index.summary.changed.symbols.is_empty());
+    assert!(index.summary.changed.files().is_empty());
+    assert!(index.summary.changed.symbols().is_empty());
 
     let lib_path = root.join("crate_one/src/lib.rs");
     let mut source = fs::read_to_string(&lib_path)?;
@@ -68,18 +68,18 @@ fn changed_delta_includes_unstaged_edit() -> Result<(), Box<dyn Error>> {
     let (index, mode) = build_or_update(&index_path, &candidates_path, root)?;
     assert_eq!(mode, RepositoryIndexBuildMode::Incremental);
     assert_eq!(
-        index.summary.changed.files,
+        index.summary.changed.files().to_vec(),
         vec!["crate_one/src/lib.rs".to_string()]
     );
     assert_eq!(
-        index.summary.changed.symbols.len(),
+        index.summary.changed.symbols().len(),
         lib_symbol_count(&index)
     );
     assert!(
         index
             .summary
             .changed
-            .symbols
+            .symbols()
             .iter()
             .all(|record_id| record_id.starts_with("crate_one/src/lib.rs:"))
     );
@@ -115,7 +115,7 @@ fn changed_delta_includes_staged_edit() -> Result<(), Box<dyn Error>> {
     let (index, mode) = build_or_update(&index_path, &candidates_path, root)?;
     assert_eq!(mode, RepositoryIndexBuildMode::Incremental);
     assert_eq!(
-        index.summary.changed.files,
+        index.summary.changed.files().to_vec(),
         vec!["crate_one/src/lib.rs".to_string()]
     );
     assert_equivalent_to_full_rebuild(&index, root, true)?;
@@ -145,14 +145,14 @@ fn changed_delta_includes_committed_edit() -> Result<(), Box<dyn Error>> {
     let (index, mode) = build_or_update(&index_path, &candidates_path, root)?;
     assert_eq!(mode, RepositoryIndexBuildMode::Incremental);
     assert_eq!(
-        index.summary.changed.files,
+        index.summary.changed.files().to_vec(),
         vec!["crate_one/src/lib.rs".to_string()]
     );
     assert!(
         index
             .summary
             .changed
-            .symbols
+            .symbols()
             .iter()
             .any(|record_id| { record_id.contains(":function:changed_committed:") })
     );
@@ -171,8 +171,8 @@ fn changed_delta_clean_worktree_is_empty_and_noop() -> Result<(), Box<dyn Error>
 
     let (index, mode) = build_or_update(&index_path, &candidates_path, root)?;
     assert_eq!(mode, RepositoryIndexBuildMode::Full);
-    assert!(index.summary.changed.files.is_empty());
-    assert!(index.summary.changed.symbols.is_empty());
+    assert!(index.summary.changed.files().is_empty());
+    assert!(index.summary.changed.symbols().is_empty());
 
     let (_, mode) = build_or_update(&index_path, &candidates_path, root)?;
     assert_eq!(mode, RepositoryIndexBuildMode::Noop);
@@ -245,7 +245,7 @@ fn changed_query_since_commit() -> Result<(), Box<dyn Error>> {
     let (index, mode) = build_or_update(&index_path, &candidates_path, root)?;
     assert_eq!(mode, RepositoryIndexBuildMode::Noop);
     assert_eq!(
-        index.summary.changed.files,
+        index.summary.changed.files().to_vec(),
         vec!["crate_one/src/lib.rs".to_string()]
     );
     let result = index.query(

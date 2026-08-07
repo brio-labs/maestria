@@ -97,8 +97,8 @@ pub(crate) async fn run_index(instance_dir: PathBuf, repository: PathBuf) -> Res
     }
     println!(
         "changed_files={} changed_symbols={}",
-        summary.changed.files.len(),
-        summary.changed.symbols.len()
+        summary.changed.files().len(),
+        summary.changed.symbols().len()
     );
     println!("{}", serde_json::to_string_pretty(&summary)?);
     Ok(())
