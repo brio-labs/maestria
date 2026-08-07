@@ -83,12 +83,20 @@ struct RawTarget {
 }
 
 /// Runs `cargo metadata --no-deps --format-version 1` from `root`.
+///
+/// A repository without a root `Cargo.toml` has no Rust workspace: it yields
+/// an empty package list (a valid, fresh code index with no symbols) instead
+/// of failing. A manifest that exists but fails cargo metadata is a real
+/// error and propagates.
 pub(crate) fn extract_workspace_packages(
     root: &Path,
     identity: &RepositoryIdentity,
     parser_generation: &str,
     excluded_patterns: &[String],
 ) -> Result<Vec<PackageRecord>, CodeIntelError> {
+    if !root.join("Cargo.toml").exists() {
+        return Ok(Vec::new());
+    }
     let command = "cargo metadata";
     let output = Command::new("cargo")
         .current_dir(root)

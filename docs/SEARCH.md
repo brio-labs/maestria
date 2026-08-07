@@ -355,7 +355,11 @@ status); dirty, untracked, and ignored files are content-hashed. New cargo
 auto-discovery targets and manifest changes fall back to a full rebuild. Sources are
 registered as canonical artifacts through the kernel pipeline, so code queries authorize
 symbols against durable, blob-verified evidence; files the kernel refuses to index
-(secret-bearing content) are skipped by authorization rather than erroring.
+(secret-bearing content) are skipped by authorization rather than erroring. A
+repository without a root `Cargo.toml` (Python, web, or other non-Rust code) indexes to
+a valid, fresh empty index: `mode=full` with zero symbols, no matches from code queries,
+and no-op rebuilds on subsequent runs; a manifest that exists but fails `cargo metadata`
+is a typed error.
 
 Repository-code promotion is governed by the frozen `rust-repository-frozen-v1`
 benchmark in `maestria-retrieval`. It compares the Phase C route with the

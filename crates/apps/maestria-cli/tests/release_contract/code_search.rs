@@ -75,6 +75,44 @@ fn search_code_symbol(
 }
 
 #[test]
+fn repository_index_on_non_rust_repo_is_empty_and_fresh() -> Result<(), Box<dyn Error>> {
+    let repo = TempDir::new("maestria-release-nonrust-repo")?;
+    let instance = TempDir::new("maestria-release-nonrust-instance")?;
+    let instance_path = instance.path().to_string_lossy().into_owned();
+    let repo_path = repo.path().to_string_lossy().into_owned();
+    write_file(repo.path(), "app.py", "def main():\n    return 42\n")?;
+    write_file(repo.path(), "README.md", "# non-rust fixture\n")?;
+    run_git(repo.path(), &["init", "--initial-branch", "main"])?;
+    run_git(repo.path(), &["config", "user.email", "ci@example.com"])?;
+    run_git(repo.path(), &["config", "user.name", "CI"])?;
+    run_git(repo.path(), &["add", "."])?;
+    run_git(repo.path(), &["commit", "-m", "fixture init"])?;
+    assert_init_ok(&instance_path, &repo_path)?;
+
+    // A repository without a Rust workspace indexes to a valid, fresh empty
+    // index instead of failing.
+    let stdout = assert_ok(&["index", "-i", &instance_path, "repository", &repo_path])?;
+    assert!(
+        stdout.contains("mode=full"),
+        "expected full build: {stdout}"
+    );
+    let summary_start = stdout.find('{').ok_or("missing summary JSON")?;
+    let summary: serde_json::Value = serde_json::from_str(&stdout[summary_start..])?;
+    assert_eq!(summary["symbol_count"], serde_json::Value::from(0));
+
+    let (matched, records) = search_code_symbol(&instance_path, "main")?;
+    assert_eq!(
+        matched, 0,
+        "non-Rust repo must have no symbols: {records:?}"
+    );
+
+    // Unchanged repository is a no-op and stays searchable (no matches).
+    let stdout = assert_ok(&["index", "-i", &instance_path, "repository", &repo_path])?;
+    assert!(stdout.contains("mode=noop"), "expected noop: {stdout}");
+    Ok(())
+}
+
+#[test]
 fn repository_code_index_search_roundtrip() -> Result<(), Box<dyn Error>> {
     let repo = TempDir::new("maestria-release-code-repo")?;
     let instance = TempDir::new("maestria-release-code-instance")?;
