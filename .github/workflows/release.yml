@@ -248,6 +248,9 @@ jobs:
           cargo test --workspace --all-targets --all-features
           # Generate real‑route benchmark reports for release evidence.
           cargo test -p maestria-retrieval --test repository_benchmark_tests -- --nocapture
+          cargo test -p maestria-retrieval --test repository_build_latency_tests -- --nocapture
+          cargo test -p maestria-retrieval --test python_repository_benchmark_tests -- --nocapture
+          cargo test -p maestria-retrieval --test web_repository_benchmark_tests -- --nocapture
           cargo test -p maestria-retrieval --test visual_benchmark_tests -- --nocapture
       - name: Frozen golden gate
         run: |
