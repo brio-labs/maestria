@@ -1,16 +1,11 @@
-use maestria_cli::test_support::{
-    TempDir, assert_init_ok, assert_ok, run, write_file,
-};
+use maestria_cli::test_support::{TempDir, assert_init_ok, assert_ok, run, write_file};
 use std::error::Error;
 use std::fs;
 use std::path::Path;
 use std::process::Command;
 
 fn run_git(repo: &Path, args: &[&str]) -> Result<(), Box<dyn Error>> {
-    let status = Command::new("git")
-        .current_dir(repo)
-        .args(args)
-        .status()?;
+    let status = Command::new("git").current_dir(repo).args(args).status()?;
     if !status.success() {
         return Err(format!("git {args:?} failed in {}", repo.display()).into());
     }
@@ -65,16 +60,11 @@ fn search_code_symbol(
     instance_path: &str,
     pattern: &str,
 ) -> Result<(usize, Vec<String>), Box<dyn Error>> {
-    let stdout = assert_ok(&[
-        "search",
-        "-i",
-        instance_path,
-        "code",
-        "symbol",
-        pattern,
-    ])?;
+    let stdout = assert_ok(&["search", "-i", instance_path, "code", "symbol", pattern])?;
     let value: serde_json::Value = serde_json::from_str(&stdout)?;
-    let matched = value["summary"]["matched"].as_u64().ok_or("missing matched")? as usize;
+    let matched = value["summary"]["matched"]
+        .as_u64()
+        .ok_or("missing matched")? as usize;
     let records = value["records"]
         .as_array()
         .ok_or("missing records")?
@@ -103,7 +93,10 @@ fn repository_code_index_search_roundtrip() -> Result<(), Box<dyn Error>> {
 
     // Symbols across files and inside impl blocks are all searchable.
     let (matched, records) = search_code_symbol(&instance_path, "add")?;
-    assert!(matched >= 1, "symbol search for `add` found nothing: {records:?}");
+    assert!(
+        matched >= 1,
+        "symbol search for `add` found nothing: {records:?}"
+    );
     assert!(
         records
             .iter()

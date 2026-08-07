@@ -38,13 +38,12 @@ pub use types::{
     CodeIndexSummary, CodeQuery, CodeRelationKind, CodeRelationRecord, CodeRelationSummary,
     CommitSha, DependencyRecord, FileContextRecord, PackageRecord, ParserGeneration, QueryResult,
     QuerySummary, RecordProvenance, RelationSourceAvailability, RelationSourceKind,
-    RelationSourceStatus, RepositoryCodeIndex, SourceRange, SymbolKind, SymbolMarkers, SymbolRecord,
-    TargetRecord, Visibility, WorktreeIdentity,
+    RelationSourceStatus, RepositoryCodeIndex, SourceRange, SymbolKind, SymbolMarkers,
+    SymbolRecord, TargetRecord, Visibility, WorktreeIdentity,
 };
 
 mod index;
-pub use index::{REPOSITORY_CODE_INDEX_FILENAME, REPOSITORY_CODE_PARSER_GENERATION};
 pub use incremental::{
-    REPOSITORY_CODE_CANDIDATES_FILENAME, RepositoryIndexBuildMode,
-    build_or_update_repository_index,
+    REPOSITORY_CODE_CANDIDATES_FILENAME, RepositoryIndexBuildMode, build_or_update_repository_index,
 };
+pub use index::{REPOSITORY_CODE_INDEX_FILENAME, REPOSITORY_CODE_PARSER_GENERATION};

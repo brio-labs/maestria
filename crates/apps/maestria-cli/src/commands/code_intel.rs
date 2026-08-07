@@ -7,8 +7,8 @@ use maestria_code_intel::{
     build_or_update_repository_index,
 };
 use maestria_core::{InstanceLayout, InstanceManifest, artifact_id_for, content_hash};
-use maestria_domain::{ArtifactDetected, ContentHash, DomainInput, IndexStatus};
 use maestria_domain::CorpusScope;
+use maestria_domain::{ArtifactDetected, ContentHash, DomainInput, IndexStatus};
 use maestria_governance::{
     AutonomyProfile, RetrievalAuthorizationContext, RetrievalSecurityPolicy, scan_secrets,
 };
@@ -144,8 +144,12 @@ fn repair_stale_repository_index(index_path: &Path, manifest: &InstanceManifest)
         Err(_) => true,
     };
     if unhealthy {
-        std::fs::remove_file(index_path)
-            .with_context(|| format!("remove stale repository code index {}", index_path.display()))?;
+        std::fs::remove_file(index_path).with_context(|| {
+            format!(
+                "remove stale repository code index {}",
+                index_path.display()
+            )
+        })?;
     }
     Ok(())
 }
@@ -164,7 +168,8 @@ async fn register_repository_sources(
     index: &RepositoryCodeIndex,
     repository: &Path,
 ) -> Result<std::collections::BTreeSet<String>> {
-    let mut expected: std::collections::BTreeMap<String, String> = std::collections::BTreeMap::new();
+    let mut expected: std::collections::BTreeMap<String, String> =
+        std::collections::BTreeMap::new();
     for symbol in &index.symbols {
         expected
             .entry(symbol.provenance.file_path.clone())
@@ -183,7 +188,10 @@ async fn register_repository_sources(
     for (relative_path, indexed_hash) in &expected {
         let path = repository.join(relative_path);
         let bytes = fs::read(&path).with_context(|| {
-            format!("read repository source for artifact registration: {}", path.display())
+            format!(
+                "read repository source for artifact registration: {}",
+                path.display()
+            )
         })?;
         let content_hash = content_hash(&bytes);
         if content_hash != *indexed_hash {
@@ -219,9 +227,10 @@ async fn register_repository_sources(
             Duration::from_secs(60),
             format!("waiting for repository source indexing: {}", path.display()),
             |state| {
-                state.artifacts.get(&artifact_id).is_some_and(|artifact| {
-                    artifact.index_status == IndexStatus::Indexed
-                })
+                state
+                    .artifacts
+                    .get(&artifact_id)
+                    .is_some_and(|artifact| artifact.index_status == IndexStatus::Indexed)
             },
         )
         .await?;

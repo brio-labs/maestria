@@ -153,8 +153,7 @@ impl CodeIntelSecurityResolver {
     ) -> Result<Option<ArtifactId>, RetrievalError> {
         Ok(self
             .resolve_source(
-                &Path::new(&symbol.provenance.repository_root)
-                    .join(&symbol.provenance.file_path),
+                &Path::new(&symbol.provenance.repository_root).join(&symbol.provenance.file_path),
                 symbol,
             )?
             .map(|(artifact_id, _, _)| artifact_id))

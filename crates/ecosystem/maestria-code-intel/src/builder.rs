@@ -1,8 +1,8 @@
 use super::{CodeIntelError, RepositoryCodeIndex};
 use crate::identity::discover_repository_identity;
 use crate::metadata::extract_workspace_packages;
-use crate::symbols::extract_symbols;
 use crate::symbols::RelationCandidate;
+use crate::symbols::extract_symbols;
 use std::collections::BTreeSet;
 use std::path::Path;
 
@@ -21,12 +21,10 @@ impl RepositoryCodeIndex {
         parser_generation: impl Into<String>,
         excluded_patterns: &[String],
     ) -> Result<Self, CodeIntelError> {
-        Ok(Self::build_with_exclusions_and_candidates(
-            root,
-            parser_generation,
-            excluded_patterns,
-        )?
-        .0)
+        Ok(
+            Self::build_with_exclusions_and_candidates(root, parser_generation, excluded_patterns)?
+                .0,
+        )
     }
 
     /// Build a fresh index, also returning the full relation candidate list

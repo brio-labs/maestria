@@ -403,11 +403,7 @@ mod tests {
         run_git_ok(root.path(), &["commit", "-m", "init"]);
 
         let blobs = git_blob_map(root.path())?;
-        let hash = git_output(
-            root.path(),
-            &["hash-object", "a.txt"],
-            "git hash-object",
-        )?;
+        let hash = git_output(root.path(), &["hash-object", "a.txt"], "git hash-object")?;
         assert_eq!(to_hex(&blobs["a.txt"]), hash);
         Ok(())
     }
@@ -418,15 +414,13 @@ mod tests {
         init_repo(root.path());
         fs::create_dir_all(root.path().join("src")).expect("create src");
         let source = root.path().join("src/lib.rs");
-        fs::write(&source, "pub fn add(a: i32, b: i32) -> i32 { a + b }\n")
-            .expect("write source");
+        fs::write(&source, "pub fn add(a: i32, b: i32) -> i32 { a + b }\n").expect("write source");
         run_git_ok(root.path(), &["add", "."]);
         run_git_ok(root.path(), &["commit", "-m", "init"]);
 
         let original = discover_repository_identity(root.path(), &[])?.worktree_identity;
 
-        fs::write(&source, "pub fn add(a: i32, b: i32) -> i32 { a - b }\n")
-            .expect("modify source");
+        fs::write(&source, "pub fn add(a: i32, b: i32) -> i32 { a - b }\n").expect("modify source");
         let modified = discover_repository_identity(root.path(), &[])?.worktree_identity;
         assert_ne!(original, modified);
 

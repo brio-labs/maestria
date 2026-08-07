@@ -2,6 +2,7 @@
 //! inputs changed and patch the persisted index, producing a result exactly
 //! equivalent to a full rebuild at the same repository state.
 
+use crate::CodeIntelError;
 use crate::identity::{
     RepositoryIdentity, collect_rust_paths, discover_dirty_paths, discover_file_set,
     discover_repository_identity, is_excluded_path,
@@ -11,10 +12,7 @@ use crate::symbols::RelationCandidate;
 use crate::symbols::collect_rust::ModuleContext;
 use crate::symbols::context::FileContext;
 use crate::symbols::{derive_subtree_contexts, extract, markers, relation};
-use crate::types::{
-    CodeIndexSummary, FileContextRecord, ParserGeneration, RepositoryCodeIndex,
-};
-use crate::CodeIntelError;
+use crate::types::{CodeIndexSummary, FileContextRecord, ParserGeneration, RepositoryCodeIndex};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
@@ -110,7 +108,10 @@ pub fn build_or_update_repository_index(
         return full(candidates_path);
     };
     let mut dirty = discover_dirty_paths(root)?;
-    if dirty.iter().any(|path| path.ends_with(".toml") || path.ends_with(".lock")) {
+    if dirty
+        .iter()
+        .any(|path| path.ends_with(".toml") || path.ends_with(".lock"))
+    {
         return full(candidates_path);
     }
     let file_set = discover_file_set(root)?;
@@ -132,7 +133,10 @@ pub fn build_or_update_repository_index(
     for candidate in &candidates {
         let prefix = candidate_id_prefix(candidate);
         candidate_prefixes.push(prefix.clone());
-        candidates_by_id_prefix.entry(prefix).or_default().push(candidate.clone());
+        candidates_by_id_prefix
+            .entry(prefix)
+            .or_default()
+            .push(candidate.clone());
     }
     let mut contexts = index.file_contexts.clone();
     let mut processed: BTreeSet<String> = BTreeSet::new();
@@ -224,11 +228,13 @@ pub fn build_or_update_repository_index(
             // New file not yet handled; Step 16 decides.
             continue;
         };
-        let canonical = absolute.canonicalize().map_err(|error| CodeIntelError::Io {
-            operation: "canonicalize dirty Rust source".to_string(),
-            path: absolute.to_string_lossy().into_owned(),
-            details: error.to_string(),
-        })?;
+        let canonical = absolute
+            .canonicalize()
+            .map_err(|error| CodeIntelError::Io {
+                operation: "canonicalize dirty Rust source".to_string(),
+                path: absolute.to_string_lossy().into_owned(),
+                details: error.to_string(),
+            })?;
         let mut out = Vec::new();
         let mut derived = BTreeMap::new();
         let mut derived_parents = BTreeMap::new();
@@ -288,23 +294,22 @@ pub fn build_or_update_repository_index(
                     stack: new.stack.clone(),
                     is_test: new.is_test,
                     is_bench: new.is_bench,
-                    parent: derived_parents.get(&child).and_then(|parent| {
-                        parent.strip_prefix(&canonical_root).ok().map(|path| {
-                            path.to_string_lossy().into_owned()
+                    parent: derived_parents
+                        .get(&child)
+                        .and_then(|parent| {
+                            parent
+                                .strip_prefix(&canonical_root)
+                                .ok()
+                                .map(|path| path.to_string_lossy().into_owned())
                         })
-                    }).or_else(|| {
-                        // Derivation root (the dirty file itself): its module
-                        // parent is outside this subtree and unchanged.
-                        old.as_ref().and_then(|old| old.parent.clone())
-                    }),
+                        .or_else(|| {
+                            // Derivation root (the dirty file itself): its module
+                            // parent is outside this subtree and unchanged.
+                            old.as_ref().and_then(|old| old.parent.clone())
+                        }),
                 };
-                let (symbols, extracted_candidates) = reextract_file(
-                    root,
-                    &rel,
-                    &replacement,
-                    &identity,
-                    parser_generation,
-                )?;
+                let (symbols, extracted_candidates) =
+                    reextract_file(root, &rel, &replacement, &identity, parser_generation)?;
                 candidates_by_id_prefix.remove(&rel);
                 symbols_by_file.insert(rel.clone(), symbols);
                 if !files_in_order.iter().any(|file| file == &rel) {
@@ -587,9 +592,7 @@ fn is_new_auto_target_root(path: &Path, package_roots: &BTreeSet<String>) -> boo
             }
             // Multi-file target: `<dir>/<name>/main.rs`.
             let multi_root = format!("{base}{directory}");
-            if file_name == "main.rs"
-                && grandparent.as_deref() == Some(multi_root.as_str())
-            {
+            if file_name == "main.rs" && grandparent.as_deref() == Some(multi_root.as_str()) {
                 return true;
             }
         }
@@ -662,10 +665,18 @@ fn parent_chain_reaches(
 /// Path prefix of the record id identifying the file a candidate came from.
 fn candidate_id_prefix(candidate: &RelationCandidate) -> String {
     let id = match candidate {
-        RelationCandidate::Defines { target_record_id, .. } => target_record_id,
-        RelationCandidate::Imports { source_record_id, .. } => source_record_id,
-        RelationCandidate::Calls { source_record_id, .. } => source_record_id,
-        RelationCandidate::Implements { source_record_id, .. } => source_record_id,
+        RelationCandidate::Defines {
+            target_record_id, ..
+        } => target_record_id,
+        RelationCandidate::Imports {
+            source_record_id, ..
+        } => source_record_id,
+        RelationCandidate::Calls {
+            source_record_id, ..
+        } => source_record_id,
+        RelationCandidate::Implements {
+            source_record_id, ..
+        } => source_record_id,
     };
     id.split_once(':')
         .map(|(prefix, _)| prefix.to_string())

@@ -106,7 +106,10 @@ impl RepositoryCodeIndex {
         }
         if !self.file_contexts.is_empty() {
             for symbol in &self.symbols {
-                if !self.file_contexts.contains_key(&symbol.provenance.file_path) {
+                if !self
+                    .file_contexts
+                    .contains_key(&symbol.provenance.file_path)
+                {
                     return Err(CodeIntelError::Integrity {
                         context: "index file contexts".to_string(),
                         details: symbol.provenance.file_path.clone(),

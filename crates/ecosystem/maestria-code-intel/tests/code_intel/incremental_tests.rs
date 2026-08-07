@@ -10,7 +10,8 @@ fn build_or_update(
     candidates_path: &Path,
     root: &Path,
 ) -> Result<(RepositoryCodeIndex, RepositoryIndexBuildMode), Box<dyn Error>> {
-    let (index, mode) = build_or_update_repository_index(index_path, candidates_path, root, "g1", &[])?;
+    let (index, mode) =
+        build_or_update_repository_index(index_path, candidates_path, root, "g1", &[])?;
     if !matches!(mode, RepositoryIndexBuildMode::Noop) {
         index.save(index_path)?;
     }
@@ -22,7 +23,10 @@ fn assert_equivalent_to_full_rebuild(
     root: &Path,
 ) -> Result<(), Box<dyn Error>> {
     let fresh = RepositoryCodeIndex::build(root, "g1")?;
-    assert_eq!(incremental.summary.package_count, fresh.summary.package_count);
+    assert_eq!(
+        incremental.summary.package_count,
+        fresh.summary.package_count
+    );
     assert_eq!(incremental.summary.target_count, fresh.summary.target_count);
     assert_eq!(incremental.summary.symbol_count, fresh.summary.symbol_count);
     assert_eq!(incremental.summary.file_count, fresh.summary.file_count);
@@ -94,14 +98,19 @@ fn incremental_removes_deleted_file() -> Result<(), Box<dyn Error>> {
             .iter()
             .all(|symbol| symbol.provenance.file_path != "crate_one/src/lib.rs")
     );
+    assert!(incremental.relations.iter().all(|relation| {
+        !relation
+            .source_record_id
+            .starts_with("crate_one/src/lib.rs:")
+            && !relation
+                .target_record_id
+                .starts_with("crate_one/src/lib.rs:")
+    }));
     assert!(
-        incremental
-            .relations
-            .iter()
-            .all(|relation| !relation.source_record_id.starts_with("crate_one/src/lib.rs:")
-                && !relation.target_record_id.starts_with("crate_one/src/lib.rs:"))
+        !incremental
+            .file_contexts
+            .contains_key("crate_one/src/lib.rs")
     );
-    assert!(!incremental.file_contexts.contains_key("crate_one/src/lib.rs"));
     assert_eq!(incremental.summary.symbol_count, 0);
     assert_eq!(incremental.summary.file_count, 0);
     assert_eq!(incremental.summary.relation_summary.total_relations, 0);
@@ -147,8 +156,10 @@ fn incremental_handles_git_rename() -> Result<(), Box<dyn Error>> {
         incremental
             .symbols
             .iter()
-            .any(|symbol| symbol.provenance.file_path == "crate_one/src/sub2.rs"
-                && symbol.name == "sub_helper")
+            .any(
+                |symbol| symbol.provenance.file_path == "crate_one/src/sub2.rs"
+                    && symbol.name == "sub_helper"
+            )
     );
     assert!(
         incremental
@@ -156,14 +167,19 @@ fn incremental_handles_git_rename() -> Result<(), Box<dyn Error>> {
             .iter()
             .all(|symbol| symbol.provenance.file_path != "crate_one/src/sub.rs")
     );
+    assert!(incremental.relations.iter().all(|relation| {
+        !relation
+            .source_record_id
+            .starts_with("crate_one/src/sub.rs:")
+            && !relation
+                .target_record_id
+                .starts_with("crate_one/src/sub.rs:")
+    }));
     assert!(
-        incremental
-            .relations
-            .iter()
-            .all(|relation| !relation.source_record_id.starts_with("crate_one/src/sub.rs:")
-                && !relation.target_record_id.starts_with("crate_one/src/sub.rs:"))
+        !incremental
+            .file_contexts
+            .contains_key("crate_one/src/sub.rs")
     );
-    assert!(!incremental.file_contexts.contains_key("crate_one/src/sub.rs"));
     assert_equivalent_to_full_rebuild(&incremental, root)?;
     Ok(())
 }
@@ -190,15 +206,17 @@ fn incremental_module_edit_then_undeclare() -> Result<(), Box<dyn Error>> {
 
     // Edit only the module file (parent stays clean): it is re-extracted as
     // its own derivation root while keeping its module parent linkage.
-    write_file(&sub_path, "pub fn sub_helper() -> i32 { 1 }\npub fn sub_extra() -> i32 { 3 }\n")?;
+    write_file(
+        &sub_path,
+        "pub fn sub_helper() -> i32 { 1 }\npub fn sub_extra() -> i32 { 3 }\n",
+    )?;
     let (index, mode) = build_or_update(&index_path, &candidates_path, root)?;
     assert_eq!(mode, RepositoryIndexBuildMode::Incremental);
     assert!(
-        index
-            .symbols
-            .iter()
-            .any(|symbol| symbol.provenance.file_path == "crate_one/src/sub.rs"
-                && symbol.name == "sub_extra")
+        index.symbols.iter().any(
+            |symbol| symbol.provenance.file_path == "crate_one/src/sub.rs"
+                && symbol.name == "sub_extra"
+        )
     );
     assert_eq!(
         index
@@ -249,11 +267,10 @@ fn staged_edit_is_reparsed() -> Result<(), Box<dyn Error>> {
     let (index, mode) = build_or_update(&index_path, &candidates_path, root)?;
     assert_eq!(mode, RepositoryIndexBuildMode::Incremental);
     assert!(
-        index
-            .symbols
-            .iter()
-            .any(|symbol| symbol.provenance.file_path == "crate_one/src/lib.rs"
-                && symbol.name == "staged_fn")
+        index.symbols.iter().any(
+            |symbol| symbol.provenance.file_path == "crate_one/src/lib.rs"
+                && symbol.name == "staged_fn"
+        )
     );
     assert_equivalent_to_full_rebuild(&index, root)?;
     Ok(())
@@ -279,7 +296,11 @@ fn reverted_edit_is_reparsed() -> Result<(), Box<dyn Error>> {
     let (_, mode) = build_or_update(&index_path, &candidates_path, root)?;
     assert_eq!(mode, RepositoryIndexBuildMode::Incremental);
 
-    run_git(root, &["checkout", "--", "crate_one/src/lib.rs"], "git checkout")?;
+    run_git(
+        root,
+        &["checkout", "--", "crate_one/src/lib.rs"],
+        "git checkout",
+    )?;
     let (index, mode) = build_or_update(&index_path, &candidates_path, root)?;
     assert_eq!(mode, RepositoryIndexBuildMode::Incremental);
     assert!(
@@ -318,11 +339,10 @@ fn committed_edit_stays_incremental() -> Result<(), Box<dyn Error>> {
     let (index, mode) = build_or_update(&index_path, &candidates_path, root)?;
     assert_eq!(mode, RepositoryIndexBuildMode::Incremental);
     assert!(
-        index
-            .symbols
-            .iter()
-            .any(|symbol| symbol.provenance.file_path == "crate_one/src/lib.rs"
-                && symbol.name == "committed_fn")
+        index.symbols.iter().any(
+            |symbol| symbol.provenance.file_path == "crate_one/src/lib.rs"
+                && symbol.name == "committed_fn"
+        )
     );
     assert_equivalent_to_full_rebuild(&index, root)?;
     Ok(())
@@ -368,11 +388,9 @@ path = "src/lib.rs"
     assert_eq!(mode, RepositoryIndexBuildMode::Full);
     assert!(index.summary.packages.contains(&"crate_two".to_string()));
     assert!(
-        index
-            .symbols
-            .iter()
-            .any(|symbol| symbol.provenance.file_path == "crate_two/src/lib.rs"
-                && symbol.name == "two")
+        index.symbols.iter().any(
+            |symbol| symbol.provenance.file_path == "crate_two/src/lib.rs" && symbol.name == "two"
+        )
     );
     Ok(())
 }
@@ -479,8 +497,10 @@ fn new_auto_test_target_forces_full() -> Result<(), Box<dyn Error>> {
         index
             .symbols
             .iter()
-            .any(|symbol| symbol.provenance.file_path == "crate_one/tests/integ.rs"
-                && symbol.name == "integ_helper")
+            .any(
+                |symbol| symbol.provenance.file_path == "crate_one/tests/integ.rs"
+                    && symbol.name == "integ_helper"
+            )
     );
     Ok(())
 }
@@ -505,12 +525,19 @@ fn gitignored_extracted_file_reparsed() -> Result<(), Box<dyn Error>> {
     let generated = root.join("crate_one/src/generated.rs");
     write_file(&generated, "pub fn generated() -> i32 { 1 }\n")?;
     run_git(root, &["add", "."], "git add")?;
-    run_git(root, &["commit", "-m", "add gitignore and generated module"], "git commit")?;
+    run_git(
+        root,
+        &["commit", "-m", "add gitignore and generated module"],
+        "git commit",
+    )?;
 
     let (_, mode) = build_or_update(&index_path, &candidates_path, root)?;
     assert_eq!(mode, RepositoryIndexBuildMode::Full);
 
-    write_file(&generated, "pub fn generated() -> i32 { 1 }\npub fn generated_two() -> i32 { 2 }\n")?;
+    write_file(
+        &generated,
+        "pub fn generated() -> i32 { 1 }\npub fn generated_two() -> i32 { 2 }\n",
+    )?;
 
     let (index, mode) = build_or_update(&index_path, &candidates_path, root)?;
     assert_eq!(mode, RepositoryIndexBuildMode::Incremental);
@@ -518,8 +545,10 @@ fn gitignored_extracted_file_reparsed() -> Result<(), Box<dyn Error>> {
         index
             .symbols
             .iter()
-            .any(|symbol| symbol.provenance.file_path == "crate_one/src/generated.rs"
-                && symbol.name == "generated_two")
+            .any(
+                |symbol| symbol.provenance.file_path == "crate_one/src/generated.rs"
+                    && symbol.name == "generated_two"
+            )
     );
     assert_equivalent_to_full_rebuild(&index, root)?;
     Ok(())
