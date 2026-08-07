@@ -98,6 +98,18 @@
         "Abstain": null
       },
       "latency_budget_ms": 120
+    },
+    {
+      "case_id": "web-reference-usage",
+      "class": "ReferenceUsage",
+      "query": "Where is `Button` used in this TypeScript repository?",
+      "expected": {
+        "Evidence": {
+          "exact_span_count": 1,
+          "evidence_chain_length": 1
+        }
+      },
+      "latency_budget_ms": 150
     }
   ]
 }

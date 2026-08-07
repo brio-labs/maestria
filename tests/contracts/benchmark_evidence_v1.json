@@ -401,7 +401,7 @@
           "crates/ecosystem/maestria-retrieval/tests/fixtures/web-repository-benchmark-v1.json",
           "crates/ecosystem/maestria-retrieval/tests/web_repository_benchmark_tests.rs"
         ],
-        "source_hash": "f05e58be54cb48c6c43297141f776c59e451c26bb40232f25112fbad7dd85804"
+        "source_hash": "86e2852fe9c1c0d99cfe1e22a3937b6038361d998df6d8c30478ba71c03e861b"
       },
       "fingerprints": {
         "corpus_snapshot": "web-repository-frozen-v1",
