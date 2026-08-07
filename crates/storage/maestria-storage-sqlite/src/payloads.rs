@@ -29,6 +29,8 @@ pub(crate) mod realm_read_grant_event_payloads;
 
 #[path = "misc_event_payloads.rs"]
 pub(crate) mod misc_event_payloads;
+#[path = "notebook_event_payloads.rs"]
+pub(crate) mod notebook_event_payloads;
 
 #[path = "provenance_payloads.rs"]
 pub(crate) mod provenance_payloads;
@@ -113,4 +115,4 @@ pub(crate) use evidence_payloads::StoredEvidenceKind;
 ///
 /// Rows write v5; tagged payload decoding remains compatible with records
 /// written by prior versions.
-pub(crate) const CURRENT_PAYLOAD_VERSION: i64 = 5;
+pub(crate) const CURRENT_PAYLOAD_VERSION: i64 = 6;

@@ -108,9 +108,18 @@ impl MaestriaRuntime {
         &self,
         input: DomainInput,
         has_approval_continuation: bool,
-    ) -> Result<(KernelState, maestria_domain::KernelOutput, bool), DomainError> {
+    ) -> Result<
+        (
+            KernelState,
+            maestria_domain::KernelOutput,
+            bool,
+            KernelState,
+        ),
+        DomainError,
+    > {
         let state = self.state.read().await;
-        let mut candidate = state.clone();
+        let previous = state.clone();
+        let mut candidate = previous.clone();
         let should_resume_approval = matches!(
             &input,
             DomainInput::ApprovalResolved(decision)
@@ -119,7 +128,7 @@ impl MaestriaRuntime {
         );
         drop(state);
         let output = candidate.apply_input(input)?;
-        Ok((candidate, output, should_resume_approval))
+        Ok((candidate, output, should_resume_approval, previous))
     }
 
     pub(crate) fn transition_barriers(
@@ -326,5 +335,30 @@ impl MaestriaRuntime {
                     correlation_id: command.correlation_id,
                 }));
         }
+    }
+    pub(crate) fn assign_notebook_draft_correlation(
+        input: &DomainInput,
+        effects: &mut [maestria_domain::MaestriaEffect],
+        correlation_id: Option<u64>,
+    ) {
+        if !matches!(input, DomainInput::SaveNotebookDraftRequested(_)) {
+            return;
+        }
+        for effect in effects {
+            if let maestria_domain::MaestriaEffect::PersistNotebookDraftBlob(request) = effect {
+                request.correlation_id = correlation_id;
+            }
+        }
+    }
+
+    pub(crate) fn take_notebook_draft_command(
+        &self,
+        correlation_id: Option<u64>,
+    ) -> Option<crate::runtime::RuntimeCommand> {
+        let correlation_id = correlation_id?;
+        self.pending_notebook_drafts
+            .lock()
+            .ok()?
+            .remove(&correlation_id)
     }
 }

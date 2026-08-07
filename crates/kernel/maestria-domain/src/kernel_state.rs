@@ -6,9 +6,11 @@ use crate::entities::{
 use crate::events::DomainEventEnvelope;
 use crate::ids::{
     ApprovalId, ArtifactId, ArtifactVersionId, CardId, ChunkId, ClaimId, EvidenceId, HarnessRunId,
-    MemoryCandidateId, MemoryId, RelationId, StructureNodeId, TaskId, ValidationReportId,
+    MemoryCandidateId, MemoryId, NotebookDraftId, NotebookId, RelationId, StructureNodeId, TaskId,
+    ValidationReportId,
 };
 use crate::inputs::ParserStarted;
+use crate::notebook::{Notebook, NotebookDraft, SourceIdentityKey};
 use crate::search::{ContentHash, StructureNode};
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -40,6 +42,9 @@ pub struct KernelState {
     pub pending_full_text: BTreeSet<ChunkId>,
     pub parsed_artifact_ids: BTreeSet<ArtifactId>,
     pub stale_sources: BTreeSet<String>,
+    pub notebooks: BTreeMap<NotebookId, Notebook>,
+    pub notebook_drafts: BTreeMap<NotebookDraftId, NotebookDraft>,
+    pub active_sources: BTreeMap<SourceIdentityKey, ArtifactId>,
     pub index_generations: crate::generations::IndexGenerationRegistry,
     /// Rebuildable provider grant current state. The event log is authoritative.
     pub realm_read_grants: BTreeMap<GrantTokenDigest, RealmReadGrant>,

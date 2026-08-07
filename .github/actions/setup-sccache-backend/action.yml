@@ -1,0 +1,59 @@
+name: 'Configure sccache cloud backend'
+description: >-
+  Point sccache at a shared S3 or GCS cache when cloud secrets are configured;
+  otherwise leave the GitHub Actions cache backend untouched. Pass the secret
+  values as inputs; empty inputs fall through to the existing backend.
+inputs:
+  sccache-bucket:
+    description: 'S3 bucket name for the shared sccache cache'
+    required: false
+  sccache-region:
+    description: 'AWS region of the sccache bucket (default: us-east-1)'
+    required: false
+  aws-access-key-id:
+    description: 'AWS access key id for the sccache bucket'
+    required: false
+  aws-secret-access-key:
+    description: 'AWS secret access key for the sccache bucket'
+    required: false
+  sccache-gcs-bucket:
+    description: 'GCS bucket name for the shared sccache cache'
+    required: false
+  sccache-gcs-key:
+    description: 'GCS service account JSON key (base64 or raw JSON) for the sccache bucket'
+    required: false
+runs:
+  using: composite
+  steps:
+    - name: Configure sccache S3 backend
+      if: inputs.sccache-bucket != ''
+      shell: bash
+      env:
+        SCCACHE_BUCKET: ${{ inputs.sccache-bucket }}
+        SCCACHE_REGION: ${{ inputs.sccache-region }}
+        AWS_ACCESS_KEY_ID: ${{ inputs.aws-access-key-id }}
+        AWS_SECRET_ACCESS_KEY: ${{ inputs.aws-secret-access-key }}
+      run: |
+        echo "SCCACHE_BUCKET=${SCCACHE_BUCKET}" >> "$GITHUB_ENV"
+        echo "SCCACHE_REGION=${SCCACHE_REGION:-us-east-1}" >> "$GITHUB_ENV"
+        echo "AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}" >> "$GITHUB_ENV"
+        echo "AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}" >> "$GITHUB_ENV"
+        echo "SCCACHE_IDLE_TIMEOUT=0" >> "$GITHUB_ENV"
+        echo "SCCACHE_GHA_ENABLED=false" >> "$GITHUB_ENV"
+        echo "Using shared S3 sccache backend (bucket ${SCCACHE_BUCKET})."
+    - name: Configure sccache GCS backend
+      if: inputs.sccache-bucket == '' && inputs.sccache-gcs-bucket != ''
+      shell: bash
+      env:
+        SCCACHE_GCS_BUCKET: ${{ inputs.sccache-gcs-bucket }}
+        SCCACHE_GCS_KEY: ${{ inputs.sccache-gcs-key }}
+      run: |
+        if [[ -n "${SCCACHE_GCS_KEY}" ]]; then
+          printf '%s\n' "${SCCACHE_GCS_KEY}" > "${RUNNER_TEMP}/sccache-gcs-key.json"
+          echo "SCCACHE_GCS_KEY_PATH=${RUNNER_TEMP}/sccache-gcs-key.json" >> "$GITHUB_ENV"
+        fi
+        echo "SCCACHE_GCS_BUCKET=${SCCACHE_GCS_BUCKET}" >> "$GITHUB_ENV"
+        echo "SCCACHE_GCS_RW_MODE=READ_WRITE" >> "$GITHUB_ENV"
+        echo "SCCACHE_IDLE_TIMEOUT=0" >> "$GITHUB_ENV"
+        echo "SCCACHE_GHA_ENABLED=false" >> "$GITHUB_ENV"
+        echo "Using shared GCS sccache backend (bucket ${SCCACHE_GCS_BUCKET})."

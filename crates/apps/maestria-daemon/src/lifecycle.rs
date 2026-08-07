@@ -295,7 +295,9 @@ impl InstanceLifecycle {
                     runtime_result = runtime_task => {
                         (RuntimeTermination::TaskCompleted, Some(runtime_result))
                     }
-                    () = self.shutdown_token.cancelled() => (RuntimeTermination::InternalShutdown, None),
+                    () = self.shutdown_token.cancelled() => {
+                        (RuntimeTermination::InternalShutdown, None)
+                    }
                     () = shutdown.cancelled() => (RuntimeTermination::ExternalShutdown, None),
                 }
             }

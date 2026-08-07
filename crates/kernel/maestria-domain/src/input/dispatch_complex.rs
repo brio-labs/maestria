@@ -246,20 +246,28 @@ impl KernelState {
         &mut self,
         input: ParserStarted,
     ) -> Result<KernelOutput, DomainError> {
-        // Idempotent: identical metadata must not emit duplicate events.
+        // Reappearance of a previously stale path is a valid active source,
+        // including when the watcher sees unchanged content and suppresses a
+        // duplicate parser event.
+        let source_key = SourceIdentityKey::try_from(input.source_path.clone()).ok();
+        self.stale_sources.remove(&input.source_path);
         if let Some(existing) = self.pending_parsers.get(&input.artifact_id)
             && existing.title == input.title
             && existing.source_path == input.source_path
             && existing.content_hash == input.content_hash
             && existing.blob_id == input.blob_id
         {
+            if let Some(source_key) = source_key {
+                self.active_sources.insert(source_key, input.artifact_id);
+            }
             // Identical metadata — skip duplicate event and effect.
             return Ok(KernelOutput::default());
         }
-        // Record durable pending-parser metadata; emitted as a PersistEvent
-        // so that restart can find this artifact if parsing never finishes.
         self.pending_parsers
             .insert(input.artifact_id, input.clone());
+        if let Some(source_key) = source_key {
+            self.active_sources.insert(source_key, input.artifact_id);
+        }
         let event = self.emit_event(DomainEvent::ParserStarted {
             artifact_id: input.artifact_id,
             title: input.title,
@@ -352,6 +360,11 @@ impl KernelState {
         let mut output = KernelOutput::default();
         let source_path = input.source_path.clone();
         if self.stale_sources.insert(source_path.clone()) {
+            if let Ok(key) = SourceIdentityKey::try_from(source_path.clone())
+                && self.active_sources.get(&key) == Some(&input.artifact_id)
+            {
+                self.active_sources.remove(&key);
+            }
             let event = self.emit_event(DomainEvent::SourceBecameStale {
                 artifact_id: input.artifact_id,
                 source_path,

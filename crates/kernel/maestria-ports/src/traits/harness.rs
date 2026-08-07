@@ -1,5 +1,6 @@
 use std::future::Future;
 use std::path::PathBuf;
+use std::pin::Pin;
 use std::time::Duration;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum HarnessCommandClass {
@@ -40,6 +41,8 @@ pub struct HarnessOutcome {
     pub diff_summary: Option<String>,
     pub validation_hints: Vec<String>,
 }
+type HarnessExecution<'a> =
+    Pin<Box<dyn Future<Output = Result<HarnessOutcome, crate::PortError>> + Send + 'a>>;
 
 pub trait HarnessAdapter: Send + Sync {
     fn capabilities(&self) -> Result<HarnessCapabilities, crate::PortError>;
@@ -54,12 +57,8 @@ pub trait HarnessAdapter: Send + Sync {
     /// execution; exceeding it aborts the run and returns a timeout error.
     /// The outcome is atomic: either the full outcome is returned or an error
     /// describes the failure.
-    fn execute(
-        &self,
-        request: HarnessRequest,
-    ) -> std::pin::Pin<Box<dyn Future<Output = Result<HarnessOutcome, crate::PortError>> + Send + '_>>;
+    fn execute(&self, request: HarnessRequest) -> HarnessExecution<'_>;
 }
-
 /// Untrusted proposal submitted by a model-facing adapter.
 ///
 /// Validation produces a governed [`HarnessRequest`]; the proposal itself

@@ -6,12 +6,13 @@ use std::time::Duration;
 use crate::traits::{
     CandidateReranker, CandidateRetriever, ContextExpander, RankFusion, RetrievalEvaluator,
 };
-use crate::types::{RetrievalError, RetrievalResult};
-
+use crate::types::{CandidateSourceFilter, RetrievalError, RetrievalResult};
 #[path = "engine_adaptive.rs"]
 mod engine_adaptive;
 #[path = "engine_capabilities.rs"]
 mod engine_capabilities;
+#[path = "engine_config.rs"]
+mod engine_config;
 #[path = "engine_evaluation.rs"]
 mod engine_evaluation;
 #[path = "engine_pipeline.rs"]
@@ -65,148 +66,6 @@ pub struct RetrievalEngine {
 pub(super) use engine_capabilities::batch_is_eligible;
 
 impl RetrievalEngine {
-    pub fn new(
-        retrievers: Vec<Arc<dyn CandidateRetriever>>,
-        evaluator: Arc<dyn RetrievalEvaluator>,
-        security_policy: maestria_governance::RetrievalSecurityPolicy,
-    ) -> Self {
-        let capabilities = engine_capabilities::capabilities_from_retrievers(&retrievers);
-        Self {
-            retrievers,
-            fusion: None,
-            reranker: None,
-            visual_reranker: false,
-            expander: None,
-            evaluator,
-            capabilities,
-            security_policy,
-            hybrid_policy: crate::types::HybridExecutionPolicy::Shadow,
-            learned_sparse_execution_policy:
-                crate::learned_sparse_policy::LearnedSparseExecutionPolicy::Shadow,
-            learned_sparse_shadow_store: learned_sparse_shadow::LearnedSparseShadowStore::default(),
-            repository_execution_policy:
-                crate::repository_benchmark::RepositoryExecutionPolicy::Shadow,
-            visual_execution_policy: crate::visual_benchmark::VisualExecutionPolicy::Shadow,
-        }
-    }
-
-    pub fn with_hybrid_policy(mut self, policy: crate::types::HybridExecutionPolicy) -> Self {
-        self.hybrid_policy = policy;
-        self
-    }
-
-    pub fn with_learned_sparse_execution_policy(
-        mut self,
-        policy: crate::learned_sparse_policy::LearnedSparseExecutionPolicy,
-    ) -> Self {
-        self.learned_sparse_execution_policy = policy;
-        self
-    }
-
-    pub fn with_learned_sparse_shadow_store(
-        mut self,
-        store: learned_sparse_shadow::LearnedSparseShadowStore,
-    ) -> Self {
-        self.learned_sparse_shadow_store = store;
-        self
-    }
-
-    pub fn with_learned_sparse_observation_repository(
-        mut self,
-        repository: Arc<dyn maestria_ports::LearnedSparseObservationRepository>,
-    ) -> Self {
-        self.learned_sparse_shadow_store =
-            self.learned_sparse_shadow_store.with_repository(repository);
-        self
-    }
-
-    pub fn learned_sparse_shadow_store(&self) -> learned_sparse_shadow::LearnedSparseShadowStore {
-        self.learned_sparse_shadow_store.clone()
-    }
-
-    pub fn with_repository_execution_policy(
-        mut self,
-        policy: crate::repository_benchmark::RepositoryExecutionPolicy,
-    ) -> Self {
-        self.repository_execution_policy = policy;
-        self
-    }
-
-    pub fn with_visual_execution_policy(
-        mut self,
-        policy: crate::visual_benchmark::VisualExecutionPolicy,
-    ) -> Self {
-        self.visual_execution_policy = policy;
-        self
-    }
-
-    pub fn with_capabilities(
-        mut self,
-        capabilities: maestria_governance::SearchCapabilities,
-    ) -> Self {
-        self.capabilities = capabilities;
-        self
-    }
-
-    pub fn with_fusion(mut self, fusion: Arc<dyn RankFusion>) -> Self {
-        self.fusion = Some(fusion);
-        self
-    }
-
-    pub fn with_reranker(mut self, reranker: Arc<dyn CandidateReranker>) -> Self {
-        self.reranker = Some(reranker);
-        self.capabilities = self
-            .capabilities
-            .clone()
-            .with_stage(maestria_domain::SearchStage::Reranking);
-        self
-    }
-
-    pub fn with_visual_reranker(mut self, reranker: Arc<dyn CandidateReranker>) -> Self {
-        self.reranker = Some(reranker);
-        self.visual_reranker = true;
-        self.capabilities = self
-            .capabilities
-            .clone()
-            .with_stage(maestria_domain::SearchStage::Reranking);
-        self
-    }
-
-    pub fn with_expander(mut self, expander: Arc<dyn ContextExpander>) -> Self {
-        self.expander = Some(expander);
-        self.capabilities = self
-            .capabilities
-            .clone()
-            .with_stage(maestria_domain::SearchStage::Filtering);
-        self
-    }
-
-    pub(super) async fn evaluate_batches(
-        &self,
-        plan: &SearchPlan,
-        query: &SearchQuery,
-        batches: &[crate::types::CandidateBatch],
-        started: tokio::time::Instant,
-        execution_usage: &mut maestria_domain::SearchExecutionUsage,
-        authorization: &maestria_governance::RetrievalAuthorizationContext,
-    ) -> RetrievalResult<(
-        SearchOutcome,
-        Vec<maestria_domain::SearchTraceLane>,
-        Option<maestria_domain::SearchTraceRerank>,
-        maestria_domain::SearchTraceDiversity,
-    )> {
-        engine_evaluation::evaluate_batches(
-            self,
-            plan,
-            query,
-            batches,
-            started,
-            execution_usage,
-            authorization,
-        )
-        .await
-    }
-
     /// Execute the search plan and return the outcome.
     ///
     /// # Cancellation
@@ -235,13 +94,38 @@ impl RetrievalEngine {
         plan: &SearchPlan,
         authorization: maestria_governance::RetrievalAuthorizationContext,
     ) -> RetrievalResult<SearchOutcome> {
+        self.search_pre_authorized_with_filter(plan, authorization, None)
+            .await
+    }
+
+    /// Executes an authorized search restricted to the selected artifact set.
+    ///
+    /// # Cancellation
+    /// Dropping the future aborts every active lane and the owned shadow task.
+    /// A non-zero plan latency budget also aborts the search on timeout.
+    pub async fn search_pre_authorized_selected(
+        &self,
+        plan: &SearchPlan,
+        authorization: maestria_governance::RetrievalAuthorizationContext,
+        source_filter: CandidateSourceFilter,
+    ) -> RetrievalResult<SearchOutcome> {
+        self.search_pre_authorized_with_filter(plan, authorization, Some(source_filter))
+            .await
+    }
+
+    async fn search_pre_authorized_with_filter(
+        &self,
+        plan: &SearchPlan,
+        authorization: maestria_governance::RetrievalAuthorizationContext,
+        source_filter: Option<CandidateSourceFilter>,
+    ) -> RetrievalResult<SearchOutcome> {
         self.validate_plan(plan)?;
         if maestria_governance::contains_prompt_injection_risk(plan.original_query()) {
-            return self.prompt_injection_outcome(plan);
+            return self.prompt_injection_outcome(plan, source_filter.as_ref());
         }
         let timeout_ms = plan.budgets().max_latency_ms() as u64;
         let started = tokio::time::Instant::now();
-        let search = self.search_internal(plan, started, authorization);
+        let search = self.search_internal(plan, started, authorization, source_filter);
         if timeout_ms > 0 {
             tokio::time::timeout(Duration::from_millis(timeout_ms), search)
                 .await
@@ -256,11 +140,13 @@ impl RetrievalEngine {
         plan: &SearchPlan,
         started: tokio::time::Instant,
         authorization: maestria_governance::RetrievalAuthorizationContext,
+        source_filter: Option<CandidateSourceFilter>,
     ) -> RetrievalResult<SearchOutcome> {
         let shadow_task = learned_sparse_shadow::spawn_learned_sparse_shadow(
             self.learned_sparse_shadow_retrievers(plan),
             plan.clone(),
             authorization.clone(),
+            source_filter.clone(),
             self.learned_sparse_shadow_store.clone(),
         );
         let active_result = async {
@@ -275,17 +161,24 @@ impl RetrievalEngine {
                 execution_budget: plan.execution_budget()?,
             };
             let (batches, rewrites, web_requests_used, mut execution_usage) =
-                engine_pipeline::collect_initial_batches(&active_retrievers, plan, &authorization)
-                    .await?;
-            let (outcome, lanes, rerank_trace, diversity_trace) = self
-                .evaluate_batches(
+                engine_pipeline::collect_initial_batches(
+                    &active_retrievers,
                     plan,
-                    &query,
-                    &batches,
-                    started,
-                    &mut execution_usage,
                     &authorization,
+                    source_filter.as_ref(),
                 )
+                .await?;
+            let (outcome, lanes, rerank_trace, diversity_trace) =
+                engine_evaluation::evaluate_batches(engine_evaluation::EvaluationRequest {
+                    engine: self,
+                    plan,
+                    query: &query,
+                    batches: &batches,
+                    started,
+                    execution_usage: &mut execution_usage,
+                    authorization: &authorization,
+                    source_filter: source_filter.as_ref(),
+                })
                 .await?;
             let mut state = engine_adaptive::AdaptiveSearchState {
                 batches,
@@ -302,6 +195,7 @@ impl RetrievalEngine {
                 plan,
                 &query,
                 &authorization,
+                source_filter.as_ref(),
                 &mut state,
                 started,
             )
@@ -320,6 +214,9 @@ impl RetrievalEngine {
                     security_policy: trace_policy,
                     fusion_enabled: self.fusion.is_some(),
                     expansion_enabled,
+                    source_selection_digest: source_filter
+                        .as_ref()
+                        .map(CandidateSourceFilter::digest),
                     rerank_trace: state.rerank_trace,
                     diversity_trace: Some(state.diversity_trace),
                     rewrites: state.rewrites.trace_records(),

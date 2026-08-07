@@ -1,5 +1,3 @@
-use std::collections::BTreeMap;
-
 use maestria_domain::RealmId;
 use serde::{Deserialize, Serialize};
 
@@ -7,13 +5,28 @@ use serde::{Deserialize, Serialize};
 mod protocol_client;
 #[path = "protocol_federation.rs"]
 mod protocol_federation;
-
-pub use protocol_client::DaemonClient;
+#[path = "protocol_notebook.rs"]
+mod protocol_notebook;
+#[path = "protocol_read.rs"]
+mod protocol_read;
+pub use protocol_client::{ClientErrorCode, DaemonClient, DaemonRequestError};
 pub(crate) use protocol_client::{ClientReplyOut, read_capped_ndjson_line};
 pub use protocol_federation::{
     ClientAuthentication, FederationCredential, FederationEvidenceResponse,
     FederationSearchResponse, RealmGrantAccess, RealmGrantCreatedResponse, RealmGrantListResponse,
     RealmGrantResponse, RealmGrantSensitivity,
+};
+pub use protocol_notebook::{
+    FrozenNotebookCitationResponse, NotebookCitationResponse, NotebookContextResponse,
+    NotebookDraftDeletedResponse, NotebookDraftListResponse, NotebookDraftResponse,
+    NotebookDraftSavedResponse, NotebookDraftSummary, NotebookListResponse, NotebookResponse,
+    NotebookSourceCatalogEntry, NotebookSourceCatalogResponse, NotebookSourceSelection,
+    NotebookSummary,
+};
+pub use protocol_read::{
+    CoverageResponse, EvidenceResponse, EvidenceSourceResponse, SearchEvidenceResponse,
+    SearchRawRankResponse, SearchResponse, SearchScoreResponse, SearchScoreScaleResponse,
+    StatusResponse, TaskResponse, TaskSummary,
 };
 
 const MAX_SEARCH_LIMIT: usize = 100;
@@ -65,6 +78,63 @@ pub enum ClientOperation {
         query: String,
         limit: usize,
     },
+    NotebookList,
+    NotebookCreate {
+        title: String,
+    },
+    NotebookGet {
+        notebook_id: u64,
+    },
+    NotebookRename {
+        notebook_id: u64,
+        title: String,
+    },
+    NotebookDelete {
+        notebook_id: u64,
+    },
+    NotebookSourceCatalog {
+        query: Option<String>,
+        offset: usize,
+        limit: usize,
+    },
+    NotebookSourceAttach {
+        notebook_id: u64,
+        source_key: String,
+    },
+    NotebookSourceDetach {
+        notebook_id: u64,
+        source_key: String,
+    },
+    NotebookContext {
+        notebook_id: u64,
+        query: String,
+        limit: usize,
+        max_context_bytes: usize,
+    },
+    NotebookEvidence {
+        notebook_id: u64,
+        evidence_id: u64,
+    },
+    NotebookDraftList {
+        notebook_id: u64,
+    },
+    NotebookDraftGet {
+        notebook_id: u64,
+        draft_id: u64,
+    },
+    NotebookDraftSave {
+        notebook_id: u64,
+        draft_id: Option<u64>,
+        expected_revision: Option<u64>,
+        title: String,
+        markdown: String,
+        evidence_ids: Vec<u64>,
+    },
+    NotebookDraftDelete {
+        notebook_id: u64,
+        draft_id: u64,
+        expected_revision: u64,
+    },
     FederationEvidence {
         provider_realm: RealmId,
         evidence_id: u64,
@@ -89,161 +159,17 @@ pub enum ClientResponse {
     RealmGrantList(RealmGrantListResponse),
     FederationBindingInstalled,
     FederationSearch(FederationSearchResponse),
+    NotebookList(NotebookListResponse),
+    Notebook(NotebookResponse),
+    NotebookSources(NotebookSourceCatalogResponse),
+    NotebookContext(NotebookContextResponse),
+    NotebookEvidence(EvidenceResponse),
+    NotebookDrafts(NotebookDraftListResponse),
+    NotebookDraft(NotebookDraftResponse),
+    NotebookDraftSaved(NotebookDraftSavedResponse),
+    NotebookDraftDeleted(NotebookDraftDeletedResponse),
+    NotebookDeleted,
     FederationEvidence(FederationEvidenceResponse),
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct StatusResponse {
-    pub instance_root: String,
-    pub event_count: usize,
-    pub task_count: usize,
-    pub socket_path: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SearchResponse {
-    pub query: String,
-    pub query_id: u64,
-    pub trace_id: u64,
-    pub status: String,
-    pub fingerprint: String,
-    pub index_generation: u64,
-    pub evidence: Vec<SearchEvidenceResponse>,
-    pub coverage: CoverageResponse,
-    pub conflict_count: usize,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SearchEvidenceResponse {
-    pub evidence_id: u64,
-    pub artifact_version: u64,
-    pub source: String,
-    pub range_start: usize,
-    pub range_end: usize,
-    pub score_schema_version: u16,
-    pub scores: Vec<SearchScoreResponse>,
-    pub trust: String,
-    pub freshness: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SearchScoreResponse {
-    pub score_kind: String,
-    pub raw_score: i64,
-    pub raw_rank: SearchRawRankResponse,
-    pub scale: SearchScoreScaleResponse,
-    pub representation: String,
-    pub fingerprint: String,
-    pub fingerprint_components: BTreeMap<String, String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "state", rename_all = "snake_case")]
-pub enum SearchRawRankResponse {
-    Ranked { rank: u32 },
-    Unavailable { reason: String },
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
-pub enum SearchScoreScaleResponse {
-    Binary,
-    Unbounded {
-        name: String,
-        higher_is_better: bool,
-    },
-    FixedPoint {
-        name: String,
-        denominator: u32,
-        minimum: Option<i64>,
-        maximum: Option<i64>,
-        higher_is_better: bool,
-    },
-    RankDerived {
-        name: String,
-        higher_is_better: bool,
-    },
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CoverageResponse {
-    pub percent_covered: u8,
-    pub gaps: Vec<String>,
-    pub distinct_sources: usize,
-    pub distinct_documents: usize,
-    pub distinct_sections: usize,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct EvidenceResponse {
-    pub evidence_id: u64,
-    pub artifact_id: u64,
-    pub artifact_title: String,
-    pub artifact_content_hash: Option<String>,
-    pub source: EvidenceSourceResponse,
-    pub excerpt: String,
-    pub observed_at: u64,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
-pub enum EvidenceSourceResponse {
-    File {
-        path: String,
-        start_line: u32,
-        end_line: u32,
-        content_hash: String,
-    },
-    Pdf {
-        snapshot_id: u64,
-        page_start: u32,
-        page_end: u32,
-    },
-    PdfRegion {
-        snapshot_id: u64,
-        page: u32,
-        x: u32,
-        y: u32,
-        width: u32,
-        height: u32,
-    },
-    Web {
-        url: String,
-        content_hash: String,
-        snapshot_id: u64,
-    },
-    Command {
-        harness_run: u64,
-        stream: String,
-        blob_id: u64,
-    },
-    Test {
-        harness_run: u64,
-        status: String,
-        log_id: u64,
-    },
-    Diff {
-        harness_run: u64,
-        patch_blob_id: u64,
-    },
-    Validation {
-        report_id: u64,
-    },
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TaskResponse {
-    pub tasks: Vec<TaskSummary>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TaskSummary {
-    pub task_id: u64,
-    pub title: String,
-    pub status: String,
-    pub priority: String,
-    pub evidence_ids: Vec<u64>,
-    pub validation_report_id: Option<u64>,
 }
 
 /// Untrusted proposal payload submitted to the model agent endpoint.

@@ -445,6 +445,7 @@ fn high_degree_graph_caps_relation_and_evidence_lookups() -> Result<(), Box<dyn 
             authorization: RetrievalSecurityPolicy::default()
                 .authorization_context(&CorpusScope::Global)?,
             execution_budget: maestria_domain::SearchExecutionBudget::new(2, 128, 128, 0)?,
+            source_filter: None,
         },
     )?;
 

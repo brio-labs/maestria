@@ -1,16 +1,64 @@
 use maestria_domain::{
-    EvidenceCandidate, IndexGenerationId, RepresentationName, SearchExecution,
+    ArtifactId, EvidenceCandidate, IndexGenerationId, RepresentationName, SearchExecution,
     SearchExecutionBudget, SearchLaneStatus, SearchOutcome, SearchPlan,
 };
 use maestria_ports::SearchQuery;
+use sha2::{Digest, Sha256};
+use std::collections::BTreeSet;
 use thiserror::Error;
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RetrieverDescriptor {
     pub id: String,
     pub modality: String,
     pub representation: RepresentationName,
     pub generation: IndexGenerationId,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+pub enum CandidateSourceFilterError {
+    #[error("source filter must contain at least one artifact")]
+    Empty,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CandidateSourceFilter {
+    allowed_artifact_ids: BTreeSet<ArtifactId>,
+}
+
+impl CandidateSourceFilter {
+    pub fn try_new(
+        allowed_artifact_ids: BTreeSet<ArtifactId>,
+    ) -> Result<Self, CandidateSourceFilterError> {
+        if allowed_artifact_ids.is_empty() {
+            return Err(CandidateSourceFilterError::Empty);
+        }
+        Ok(Self {
+            allowed_artifact_ids,
+        })
+    }
+
+    pub fn allows(&self, artifact_id: ArtifactId) -> bool {
+        self.allowed_artifact_ids.contains(&artifact_id)
+    }
+
+    pub fn digest(&self) -> String {
+        let mut hasher = Sha256::new();
+        hasher.update(b"maestria:candidate-source-filter:v1\0");
+        for artifact_id in &self.allowed_artifact_ids {
+            hasher.update(artifact_id.value().to_be_bytes());
+        }
+        let digest = hasher.finalize();
+        let mut output = String::with_capacity(71);
+        output.push_str("sha256:");
+        for byte in digest {
+            output.push_str(&format!("{byte:02x}"));
+        }
+        output
+    }
+
+    pub fn artifact_ids(&self) -> &BTreeSet<ArtifactId> {
+        &self.allowed_artifact_ids
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -20,8 +68,8 @@ pub struct CandidateRequest {
     pub execution_budget: SearchExecutionBudget,
     pub expected_generation: IndexGenerationId,
     pub authorization: maestria_governance::RetrievalAuthorizationContext,
+    pub source_filter: Option<CandidateSourceFilter>,
 }
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CandidateBatch {
     pub descriptor: RetrieverDescriptor,
@@ -119,6 +167,7 @@ pub struct ExpansionPolicy {
     pub required_subquestions: Vec<String>,
     pub authorization: maestria_governance::RetrievalAuthorizationContext,
     pub execution_budget: SearchExecutionBudget,
+    pub source_filter: Option<CandidateSourceFilter>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -126,8 +175,6 @@ pub struct ContextExpansion {
     pub candidates: Vec<EvidenceCandidate>,
     pub execution: SearchExecution,
 }
-
-#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RetrievalExperiment {
     pub plan: SearchPlan,
     pub candidates: Vec<EvidenceCandidate>,
@@ -176,6 +223,7 @@ mod tests {
             authorization: maestria_governance::RetrievalSecurityPolicy::default()
                 .authorization_context(&maestria_domain::CorpusScope::Global)?,
             execution_budget: maestria_domain::SearchExecutionBudget::new(5, 5, 5, 0)?,
+            source_filter: None,
         };
         assert_eq!(policy.max_results, 5);
         assert_eq!(policy.required_claims.len(), 1);

@@ -13,7 +13,8 @@ use tokio_util::sync::CancellationToken;
 use tracing::error;
 
 use super::protocol::{
-    ClientAuthentication, ClientRequest, FederationCredential, read_capped_ndjson_line,
+    ClientAuthentication, ClientErrorCode, ClientRequest, FederationCredential,
+    read_capped_ndjson_line,
 };
 use super::{
     ClientReplyOut, MAX_REQUEST_BYTES, dispatch, load_or_create_token, remove_stale_socket,
@@ -203,6 +204,7 @@ async fn handle_connection(
                 &mut stream,
                 None,
                 Some(error.to_string()),
+                Some(ClientErrorCode::InvalidInput),
             )
             .await;
         }
@@ -212,6 +214,7 @@ async fn handle_connection(
                 &mut stream,
                 None,
                 Some("request timed out".to_string()),
+                Some(ClientErrorCode::InvalidInput),
             )
             .await;
         }
@@ -225,6 +228,7 @@ async fn handle_connection(
                 &mut stream,
                 None,
                 Some(format!("invalid request: {error}")),
+                Some(ClientErrorCode::InvalidInput),
             )
             .await;
         }
@@ -253,6 +257,7 @@ async fn handle_connection(
                 &mut stream,
                 None,
                 Some("unauthorized".to_string()),
+                Some(ClientErrorCode::Unauthorized),
             )
             .await;
         }
@@ -265,22 +270,18 @@ async fn handle_connection(
         };
     match response {
         Ok(response) => {
-            write_reply_until_shutdown(&shutdown, &mut stream, Some(response), None).await
+            write_reply_until_shutdown(&shutdown, &mut stream, Some(response), None, None).await
         }
         Err(error) => {
-            write_reply_until_shutdown(&shutdown, &mut stream, None, Some(error.to_string())).await
+            write_reply_until_shutdown(
+                &shutdown,
+                &mut stream,
+                None,
+                Some(error.to_string()),
+                Some(classify_error(&error.to_string())),
+            )
+            .await
         }
-    }
-}
-
-async fn run_until_shutdown<T, F>(shutdown: &CancellationToken, future: F) -> Option<T>
-where
-    F: Future<Output = T>,
-{
-    tokio::select! {
-        biased;
-        _ = shutdown.cancelled() => None,
-        output = future => Some(output),
     }
 }
 
@@ -289,10 +290,21 @@ async fn write_reply_until_shutdown(
     stream: &mut UnixStream,
     response: Option<super::ClientResponse>,
     error: Option<String>,
+    error_code: Option<ClientErrorCode>,
 ) -> Result<()> {
-    match run_until_shutdown(shutdown, write_reply(stream, response, error)).await {
+    match run_until_shutdown(shutdown, write_reply(stream, response, error, error_code)).await {
         Some(result) => result,
         None => Ok(()),
+    }
+}
+
+async fn run_until_shutdown<T, F>(shutdown: &CancellationToken, future: F) -> Option<T>
+where
+    F: Future<Output = T>,
+{
+    tokio::select! {
+        _ = shutdown.cancelled() => None,
+        output = future => Some(output),
     }
 }
 
@@ -304,13 +316,20 @@ async fn write_reply(
     stream: &mut UnixStream,
     response: Option<super::ClientResponse>,
     error: Option<String>,
+    error_code: Option<ClientErrorCode>,
 ) -> Result<()> {
-    let mut bytes = serde_json::to_vec(&ClientReplyOut { response, error })
-        .context("serialise daemon response")?;
+    let code = error_code.or_else(|| error.as_deref().map(classify_error));
+    let mut bytes = serde_json::to_vec(&ClientReplyOut {
+        response,
+        error,
+        error_code: code,
+    })
+    .context("serialise daemon response")?;
     if bytes.len() + 1 > MAX_REQUEST_BYTES {
         bytes = serde_json::to_vec(&ClientReplyOut {
             response: None,
             error: Some("daemon response exceeds size limit".to_string()),
+            error_code: Some(ClientErrorCode::Internal),
         })
         .context("serialise bounded daemon response")?;
     }
@@ -319,6 +338,40 @@ async fn write_reply(
         .write_all(&bytes)
         .await
         .context("write daemon response")
+}
+
+fn classify_error(message: &str) -> ClientErrorCode {
+    let message = message.to_ascii_lowercase();
+    if message.contains("unauthorized") || message.contains("access denied") {
+        ClientErrorCode::Unauthorized
+    } else if message.contains("source_not_selected")
+        || message.contains("source not selected")
+        || message.contains("evidence not selected")
+    {
+        ClientErrorCode::SourceNotSelected
+    } else if message.contains("source_unavailable")
+        || message.contains("source unavailable")
+        || message.contains("notebook source unavailable")
+    {
+        ClientErrorCode::SourceUnavailable
+    } else if message.contains("revision") && message.contains("conflict") {
+        ClientErrorCode::RevisionConflict
+    } else if message.contains("not found")
+        || message.contains("missing notebook")
+        || message.contains("missing draft")
+    {
+        ClientErrorCode::NotFound
+    } else if message.contains("limit")
+        || message.contains("invalid")
+        || message.contains("must not")
+        || message.contains("must be between")
+        || message.contains("must be absolute")
+        || message.contains("empty")
+    {
+        ClientErrorCode::InvalidInput
+    } else {
+        ClientErrorCode::Internal
+    }
 }
 
 #[cfg(test)]

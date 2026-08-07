@@ -22,6 +22,7 @@
 /// - `blocked_patterns`: blocked-path composition for runtime construction.
 /// - `db_retry`: shared database-busy retry policy.
 /// - `evidence_open`: shared read-only evidence store assembly.
+/// - `notebook_draft_open`: draft blob persistence and opening.
 /// - `ingestion_policy`: shared source-file and privacy exclusion policy.
 /// - `source_identity`: canonical source-path identity keys for watcher and recovery.
 pub mod api;
@@ -36,6 +37,7 @@ mod lifecycle;
 mod lifecycle_entry;
 mod lock;
 mod mutation_session;
+mod notebook_draft_open;
 mod parser_resume;
 mod projection_open;
 mod projection_recovery;
@@ -54,7 +56,11 @@ mod watcher;
 
 pub use api::{
     ApiServer, ClientAuthentication, ClientOperation, ClientRequest, ClientResponse, DaemonClient,
-    FederationCredential, RealmGrantAccess, RealmGrantSensitivity,
+    FederationCredential, FrozenNotebookCitationResponse, NotebookCitationResponse,
+    NotebookContextResponse, NotebookDraftDeletedResponse, NotebookDraftListResponse,
+    NotebookDraftResponse, NotebookDraftSavedResponse, NotebookDraftSummary, NotebookListResponse,
+    NotebookResponse, NotebookSourceCatalogEntry, NotebookSourceCatalogResponse,
+    NotebookSourceSelection, NotebookSummary, RealmGrantAccess, RealmGrantSensitivity,
 };
 pub use approval_recovery::{reconcile_approval_repo, reconcile_pending_approvals};
 pub use full_text_recovery::pending_start_full_text;

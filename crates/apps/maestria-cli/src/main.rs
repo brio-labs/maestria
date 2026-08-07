@@ -5,12 +5,62 @@ mod helpers;
 #[cfg(test)]
 mod tests;
 
-use anyhow::Result;
+use anyhow::{Context, Result, anyhow};
 use clap::Parser as ClapParser;
 use cli_types::{
     ApprovalCommands, Cli, CodeSearchCommands, Commands, EvidenceCommands, IndexCommands,
     MemoryCommands, SearchCommands, TaskCommands,
 };
+use maestria_core::InstanceLayout;
+use maestria_daemon::{ClientOperation, ClientResponse, DaemonClient};
+use maestria_studio::StudioServer;
+
+fn daemon_unavailable(instance_dir: &std::path::Path) -> anyhow::Error {
+    anyhow!(
+        "daemon unavailable; start it with maestria start -i {}",
+        instance_dir.display()
+    )
+}
+
+async fn run_studio(instance_dir: std::path::PathBuf, no_open: bool) -> Result<()> {
+    let layout = InstanceLayout::for_root(instance_dir.clone());
+    let client =
+        DaemonClient::from_instance(&layout).map_err(|_| daemon_unavailable(&instance_dir))?;
+    match client.request(ClientOperation::Status).await {
+        Ok(ClientResponse::Status(_)) => {}
+        _ => return Err(daemon_unavailable(&instance_dir)),
+    }
+
+    let agent_config = instance_dir.join("system").join("studio-agents.toml");
+    let server = StudioServer::start(instance_dir.clone(), Some(agent_config)).await?;
+    let url = server.url();
+    println!("studio_url={url}");
+    if !no_open {
+        open_studio_url(&url);
+    }
+    tokio::signal::ctrl_c()
+        .await
+        .context("wait for Studio shutdown signal")?;
+    server.shutdown().await
+}
+
+#[cfg(target_os = "linux")]
+fn open_studio_url(url: &str) {
+    let _ = std::process::Command::new("xdg-open").arg(url).spawn();
+}
+
+#[cfg(target_os = "macos")]
+fn open_studio_url(url: &str) {
+    let _ = std::process::Command::new("open").arg(url).spawn();
+}
+
+#[cfg(target_os = "windows")]
+fn open_studio_url(url: &str) {
+    let _ = std::process::Command::new("start").arg(url).spawn();
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
+fn open_studio_url(_url: &str) {}
 
 fn resolve_nested_instance_dir(
     outer: std::path::PathBuf,
@@ -61,6 +111,10 @@ async fn dispatch(command: Commands) -> Result<()> {
         } => dispatch_evidence(command, instance_dir)?,
         Commands::Status { instance_dir } => commands::status::run(instance_dir)?,
         Commands::Doctor { instance_dir } => commands::doctor::run(instance_dir)?,
+        Commands::Studio {
+            instance_dir,
+            no_open,
+        } => run_studio(instance_dir, no_open).await?,
         Commands::Start { instance_dir } => maestria_daemon::run_instance(instance_dir).await?,
         Commands::Task { command } => dispatch_task(command).await?,
         Commands::Memory { command } => dispatch_memory(command).await?,

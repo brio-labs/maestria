@@ -281,6 +281,10 @@ impl KernelState {
                 blob_id,
             },
         );
+        if let Ok(source_key) = SourceIdentityKey::try_from(source_path.to_owned()) {
+            self.stale_sources.remove(source_path);
+            self.active_sources.insert(source_key, artifact_id);
+        }
     }
 
     pub(crate) fn apply_pending_index(

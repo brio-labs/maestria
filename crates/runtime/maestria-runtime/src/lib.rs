@@ -12,6 +12,7 @@ mod completion;
 /// - `indexing`: full-text indexing effects.
 /// - `ocr`: module responsibility.
 /// - `parser_mapping`: parser status mappings.
+/// - `notebook_draft`: durable notebook draft blob persistence and opening.
 /// - `parsing`: artifact parsing effects.
 /// - `parsing_records`: parser record construction.
 /// - `persistence`: event and entity persistence effects.
@@ -41,6 +42,7 @@ mod effect_result;
 mod harness;
 mod harness_gate;
 mod indexing;
+mod notebook_draft;
 mod ocr;
 mod parser_mapping;
 mod parsing;

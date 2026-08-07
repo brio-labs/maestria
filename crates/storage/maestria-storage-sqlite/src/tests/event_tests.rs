@@ -199,7 +199,7 @@ fn append_rejects_swapped_existing_event_rows() -> Result<(), PortError> {
 }
 
 #[test]
-fn fresh_schema_writes_payload_version_five() -> Result<(), PortError> {
+fn fresh_schema_writes_payload_version_six() -> Result<(), PortError> {
     let store = SqliteStore::in_memory()?;
     store.append(registered(1, 1, 1))?;
     let connection = store.lock()?;
@@ -210,7 +210,7 @@ fn fresh_schema_writes_payload_version_five() -> Result<(), PortError> {
             |row| row.get(0),
         )
         .map_err(to_port_error)?;
-    assert_eq!(version, 5);
+    assert_eq!(version, 6);
     Ok(())
 }
 

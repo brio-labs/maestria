@@ -11,6 +11,7 @@
 /// - `evidence_pack_provenance`: module responsibility.
 /// - `ingestion`: module responsibility.
 /// - `instance`: module responsibility.
+/// - `notebook_draft_opening`: validates and opens persisted notebook draft blobs.
 /// - `manifest`: module responsibility.
 /// - `ports`: module responsibility.
 /// - `provenance`: module responsibility.
@@ -22,6 +23,7 @@ mod evidence_pack_provenance;
 mod ingestion;
 mod instance;
 mod manifest;
+mod notebook_draft_opening;
 mod ports;
 mod provenance;
 mod types;
@@ -34,6 +36,7 @@ pub use error::{CoreError, CoreResult};
 pub use ingestion::build_artifact_detected_input;
 pub use instance::{InitInstanceInput, InitInstancePlan, InstanceLayout, InstanceService};
 pub use manifest::{EmbeddingConfig, InstanceManifest, OcrConfig, VisualConfig};
+pub use notebook_draft_opening::open_notebook_draft_body;
 pub use ports::{CorePorts, CoreServices};
 pub use provenance::artifact_id_for;
 pub use provenance::content_hash;

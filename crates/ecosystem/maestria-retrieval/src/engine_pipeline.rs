@@ -28,6 +28,7 @@ pub(super) async fn collect_initial_batches(
     retrievers: &[Arc<dyn CandidateRetriever>],
     plan: &SearchPlan,
     authorization: &maestria_governance::RetrievalAuthorizationContext,
+    source_filter: Option<&crate::types::CandidateSourceFilter>,
 ) -> RetrievalResult<(
     Vec<crate::types::CandidateBatch>,
     crate::rewrite::QueryRewriteSession,
@@ -60,6 +61,7 @@ pub(super) async fn collect_initial_batches(
                 plan,
                 &rewrite_query,
                 authorization,
+                source_filter,
                 &mut web_requests_used,
                 &mut execution_usage,
             )
@@ -68,12 +70,12 @@ pub(super) async fn collect_initial_batches(
     }
     Ok((batches, session, web_requests_used, execution_usage))
 }
-
 pub(super) async fn collect_missing_slot_batches(
     retrievers: &[Arc<dyn CandidateRetriever>],
     plan: &SearchPlan,
     query: &str,
     authorization: &maestria_governance::RetrievalAuthorizationContext,
+    source_filter: Option<&crate::types::CandidateSourceFilter>,
     web_requests_used: &mut u32,
     execution_usage: &mut SearchExecutionUsage,
 ) -> RetrievalResult<Vec<crate::types::CandidateBatch>> {
@@ -88,6 +90,7 @@ pub(super) async fn collect_missing_slot_batches(
         plan,
         &query,
         authorization,
+        source_filter,
         web_requests_used,
         execution_usage,
     )

@@ -1,5 +1,6 @@
 use super::*;
 use crate::adapters::CodeIntelSecurityResolverParts;
+use crate::types::CandidateSourceFilter;
 use maestria_code_intel::SymbolRecord;
 use maestria_domain::{
     ArtifactId, ArtifactVersionId, BlobId, ContentHash, CorpusScope, Evidence, EvidenceId,
@@ -12,6 +13,7 @@ use maestria_governance::RetrievalSecurityPolicy;
 use maestria_ports::{
     InMemoryArtifactRepository, InMemoryBlobStore, InMemoryEvidenceRepository, SearchQuery,
 };
+use std::collections::BTreeSet;
 
 fn archive() -> Result<maestria_code_intel::RepositoryCodeIndex, Box<dyn std::error::Error>> {
     Ok(maestria_code_intel::RepositoryCodeIndex {
@@ -113,6 +115,7 @@ fn candidate_request(
         execution_budget,
         expected_generation,
         authorization,
+        source_filter: None,
     })
 }
 
@@ -234,5 +237,37 @@ fn candidate_includes_expected_code_source_provenance() -> Result<(), Box<dyn st
         components.get("observed_worktree_identity"),
         Some(&"live-worktree".to_string())
     );
+    Ok(())
+}
+
+#[test]
+fn source_filter_rejects_disallowed_code_binding() -> Result<(), Box<dyn std::error::Error>> {
+    let retriever = retriever(IndexGenerationId::new(1))?;
+    let mut request = candidate_request(IndexGenerationId::new(1), "compute", 5)?;
+    request.source_filter = Some(CandidateSourceFilter::try_new(BTreeSet::from([
+        ArtifactId::new(72),
+    ]))?);
+    let query_result = QueryResult {
+        summary: maestria_code_intel::QuerySummary {
+            query: maestria_code_intel::CodeQuery::Symbol {
+                pattern: "compute".to_string(),
+            },
+            matched: 1,
+            returned: 1,
+            truncated: false,
+            scanned: 1,
+            limit: 5,
+            regex_error: None,
+        },
+        records: vec![symbol("rec-1")?],
+    };
+    let (candidates, _, _) = retriever.materialize_candidates(
+        &request,
+        query_result,
+        vec![authorized_binding()?],
+        FreshnessStatus::UpToDate,
+        None,
+    )?;
+    assert!(candidates.is_empty());
     Ok(())
 }

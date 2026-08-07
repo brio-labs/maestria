@@ -82,6 +82,7 @@ fn mix_trace_header(hash: &mut u64, trace: &SearchTrace) {
         mix_hash(hash, retriever.as_bytes());
     }
     mix_debug(hash, &trace.policy_fingerprint);
+    mix_debug(hash, &trace.source_selection_digest);
 }
 
 fn mix_trace_budgets(hash: &mut u64, trace: &SearchTrace) {

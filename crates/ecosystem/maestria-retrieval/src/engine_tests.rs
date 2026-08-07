@@ -248,6 +248,7 @@ async fn empty_tightly_budgeted_lane_releases_capacity_to_later_lane()
         &plan,
         &query,
         &authorization,
+        None,
         &mut web_requests_used,
         &mut execution_usage,
     )

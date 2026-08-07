@@ -1,5 +1,15 @@
 use std::sync::Arc;
 
+use super::SourceSnapshotVerifier;
+use super::chunk_access::{load_authorized_chunk, source_filter_allows_chunk};
+use super::common::{candidate_from_records, generation_mismatch, one_based_rank, port_error};
+use super::learned_sparse_generation::LearnedSparseGenerationCapability;
+use super::prescore_cache::PrescoreCache;
+use super::score_provenance::learned_sparse_score;
+use crate::traits::CandidateRetriever;
+use crate::types::{
+    CandidateBatch, CandidateRequest, CandidateSourceFilter, RetrievalError, RetrieverDescriptor,
+};
 use async_trait::async_trait;
 use maestria_domain::{
     EvidenceCandidate, LearnedSparseContribution, LearnedSparseReason, RetrievalModelFingerprint,
@@ -11,15 +21,6 @@ use maestria_ports::{
     LearnedSparseProvider, RetentionPolicy, SparseIdentity, SparseInputKind, SparseSearchHit,
     SparseSearchQuery,
 };
-
-use super::SourceSnapshotVerifier;
-use super::chunk_access::load_authorized_chunk;
-use super::common::{candidate_from_records, generation_mismatch, one_based_rank, port_error};
-use super::learned_sparse_generation::LearnedSparseGenerationCapability;
-use super::prescore_cache::PrescoreCache;
-use super::score_provenance::learned_sparse_score;
-use crate::traits::CandidateRetriever;
-use crate::types::{CandidateBatch, CandidateRequest, RetrievalError, RetrieverDescriptor};
 
 pub struct LearnedSparseChunkRetrieverParts {
     pub index: Arc<dyn LearnedSparseIndex + Send + Sync>,
@@ -41,6 +42,11 @@ pub struct LearnedSparseChunkRetriever {
     fingerprint: RetrievalModelFingerprint,
     descriptor: RetrieverDescriptor,
 }
+type SparseRecords = (
+    maestria_domain::Artifact,
+    maestria_domain::Chunk,
+    maestria_domain::Evidence,
+);
 
 impl LearnedSparseChunkRetriever {
     pub fn new(
@@ -139,6 +145,7 @@ impl LearnedSparseChunkRetriever {
         &self,
         chunk_id: maestria_domain::ChunkId,
         authorization: &maestria_governance::RetrievalAuthorizationContext,
+        source_filter: Option<&CandidateSourceFilter>,
     ) -> Result<
         Option<(
             maestria_domain::Artifact,
@@ -147,6 +154,11 @@ impl LearnedSparseChunkRetriever {
         )>,
         RetrievalError,
     > {
+        if !source_filter_allows_chunk(self.chunks.as_ref(), chunk_id, source_filter)
+            .map_err(port_error)?
+        {
+            return Ok(None);
+        }
         let Some((artifact, chunk)) = load_authorized_chunk(
             self.chunks.as_ref(),
             self.artifacts.as_ref(),
@@ -184,19 +196,19 @@ impl LearnedSparseChunkRetriever {
         hit: SparseSearchHit,
         raw_rank: u32,
         authorization: &maestria_governance::RetrievalAuthorizationContext,
-        prescore_cache: &PrescoreCache<(
-            maestria_domain::Artifact,
-            maestria_domain::Chunk,
-            maestria_domain::Evidence,
-        )>,
+        source_filter: Option<&CandidateSourceFilter>,
+        prescore_cache: &PrescoreCache<SparseRecords>,
     ) -> Result<Option<EvidenceCandidate>, RetrievalError> {
         let records = match prescore_cache.take(hit.chunk_id) {
             Some(records) => Some(records),
-            None => self.checked_records(hit.chunk_id, authorization)?,
+            None => self.checked_records(hit.chunk_id, authorization, source_filter)?,
         };
         let Some((artifact, chunk, evidence)) = records else {
             return Ok(None);
         };
+        if source_filter.is_some_and(|filter| !filter.allows(artifact.id)) {
+            return Ok(None);
+        }
         let contributions = hit
             .contributions
             .into_iter()
@@ -222,6 +234,30 @@ impl LearnedSparseChunkRetriever {
             ))],
         )
         .map(Some)
+    }
+    fn preflight_chunk(
+        &self,
+        chunk_id: maestria_domain::ChunkId,
+        request: &CandidateRequest,
+        prescore_cache: &PrescoreCache<SparseRecords>,
+    ) -> Result<bool, RetrievalError> {
+        let Some(records) = self.checked_records(
+            chunk_id,
+            &request.authorization,
+            request.source_filter.as_ref(),
+        )?
+        else {
+            return Ok(false);
+        };
+        if request
+            .source_filter
+            .as_ref()
+            .is_some_and(|filter| !filter.allows(records.0.id))
+        {
+            return Ok(false);
+        }
+        prescore_cache.insert(chunk_id, records);
+        Ok(true)
     }
 }
 
@@ -271,26 +307,10 @@ impl CandidateRetriever for LearnedSparseChunkRetriever {
                     execution_budget: request.execution_budget,
                 },
                 &|chunk_id| {
-                    self.checked_records(chunk_id, &request.authorization)
-                        .map(|records| {
-                            if let Some(records) = records {
-                                prescore_cache.insert(chunk_id, records);
-                                true
-                            } else {
-                                false
-                            }
-                        })
-                        .map_err(|error| match error {
-                            RetrievalError::Internal(message) => {
-                                maestria_ports::PortError::InternalContext {
-                                    context: "sparse authorization filter",
-                                    source: message,
-                                }
-                            }
-                            other => maestria_ports::PortError::InternalContext {
-                                context: "sparse authorization filter",
-                                source: other.to_string(),
-                            },
+                    self.preflight_chunk(chunk_id, &request, &prescore_cache)
+                        .map_err(|error| maestria_ports::PortError::InternalContext {
+                            context: "sparse authorization filter",
+                            source: error.to_string(),
                         })
                 },
             )
@@ -310,6 +330,7 @@ impl CandidateRetriever for LearnedSparseChunkRetriever {
                 hit,
                 one_based_rank(raw_rank)?,
                 &request.authorization,
+                request.source_filter.as_ref(),
                 &prescore_cache,
             )?
             else {

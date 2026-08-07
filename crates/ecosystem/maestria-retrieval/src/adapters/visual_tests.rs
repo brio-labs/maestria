@@ -4,6 +4,7 @@ use crate::adapters::filtered_test_support::{
 };
 use crate::adapters::visual_access::visual_pdf_prerequisites;
 use crate::adapters::visual_projection::{VisualProjectionRebuildParts, rebuild_visual_projection};
+use crate::types::CandidateSourceFilter;
 use maestria_domain::{EvidenceKind, IndexGeneration, IndexLifecycle, IndexStatus, SourceSpan};
 use maestria_governance::RetrievalSecurityPolicy;
 use maestria_ports::{
@@ -286,6 +287,9 @@ fn denied_visual_candidates_are_authorized_before_content_reads()
     assert_eq!(index.filter_calls(), 0);
     let mut request = request(maestria_domain::SearchIntent::VisualDocument, generation)?;
     request.plan = request.plan.with_corpus_snapshot(corpus_snapshot)?;
+    request.source_filter = Some(CandidateSourceFilter::try_new(
+        std::collections::BTreeSet::from([maestria_domain::ArtifactId::new(999)]),
+    )?);
     let batch = retriever.retrieve_with_vector(
         VectorSearchQuery {
             vector: vec![1.0],

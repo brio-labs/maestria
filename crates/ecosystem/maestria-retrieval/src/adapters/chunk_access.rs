@@ -41,3 +41,19 @@ pub(super) fn load_authorized_chunk(
     }
     Ok(Some((artifact, chunk)))
 }
+
+/// Checks source selection using the metadata-only owner lookup. This must
+/// precede artifact/evidence loading in every chunk-backed adapter.
+pub(super) fn source_filter_allows_chunk(
+    chunks: &dyn ChunkRepository,
+    chunk_id: ChunkId,
+    source_filter: Option<&crate::types::CandidateSourceFilter>,
+) -> Result<bool, PortError> {
+    let Some(filter) = source_filter else {
+        return Ok(true);
+    };
+    let Some(artifact_id) = chunks.find_artifact_id(chunk_id)? else {
+        return Ok(false);
+    };
+    Ok(filter.allows(artifact_id))
+}

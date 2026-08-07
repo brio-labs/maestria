@@ -6,3 +6,6 @@
 /skills-lock.json
 .DS_Store
 __pycache__/
+web/node_modules/
+web/test-results/
+web/assets/tailwind.css
