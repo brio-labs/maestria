@@ -3,8 +3,8 @@ use crate::symbols::markers::{attr_bench, attr_test, declaration_markers};
 use crate::symbols::probe::FunctionProbe;
 use crate::symbols::relation::RelationCandidate;
 use crate::symbols::utils::{
-    dedupe_strings, is_public_api, provenance, qualify, record_id, signature_text, source_range,
-    to_visibility,
+    dedupe_strings, doc_comment_from_attrs, is_public_api, provenance, qualify, record_id,
+    signature_text, source_range, to_visibility,
 };
 use crate::{CodeIntelError, SymbolKind, SymbolRecord};
 use syn::visit::Visit;
@@ -85,6 +85,7 @@ fn extract_methods(
             is_bench: attr_bench(&method.attrs) || context.is_bench_target,
             signature: Some(signature_text(&method.sig)),
             imports: Vec::new(),
+            doc_comment: doc_comment_from_attrs(&method.attrs),
             markers,
             provenance: provenance(context, range),
         };

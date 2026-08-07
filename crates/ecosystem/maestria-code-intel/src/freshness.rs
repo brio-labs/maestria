@@ -1,4 +1,7 @@
-use crate::{CodeIntelError, RepositoryCodeIndex, identity::discover_repository_identity};
+use crate::{
+    CodeIntelError, RepositoryCodeIndex, identity::discover_repository_identity,
+    language::active_backends,
+};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
@@ -34,9 +37,12 @@ impl RepositoryCodeIndex {
             commit_sha: self.summary.commit_sha.clone(),
             worktree_identity: self.summary.worktree_identity.clone(),
         };
+        let repository_root = Path::new(&self.summary.repository_root);
+        let backends = active_backends(repository_root, &self.summary.excluded_patterns)?;
         let current = discover_repository_identity(
-            Path::new(&self.summary.repository_root),
+            repository_root,
             &self.summary.excluded_patterns,
+            &backends,
         )?;
         let current = RepositoryIdentitySnapshot {
             commit_sha: current.commit,

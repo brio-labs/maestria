@@ -51,6 +51,54 @@ pub fn build_index(
     Ok(RepositoryCodeIndex::build(root, parser_generation)?)
 }
 
+pub fn build_or_update(
+    index_path: &Path,
+    candidates_path: &Path,
+    root: &Path,
+) -> Result<(RepositoryCodeIndex, RepositoryIndexBuildMode), Box<dyn Error>> {
+    let (index, mode) =
+        build_or_update_repository_index(index_path, candidates_path, root, "g1", &[])?;
+    if !matches!(mode, RepositoryIndexBuildMode::Noop) {
+        index.save(index_path)?;
+    }
+    Ok((index, mode))
+}
+
+pub fn assert_equivalent_to_full_rebuild(
+    incremental: &RepositoryCodeIndex,
+    root: &Path,
+    compare_changed: bool,
+) -> Result<(), Box<dyn Error>> {
+    let fresh = RepositoryCodeIndex::build(root, "g1")?;
+    assert_eq!(
+        incremental.summary.package_count,
+        fresh.summary.package_count
+    );
+    assert_eq!(incremental.summary.target_count, fresh.summary.target_count);
+    assert_eq!(incremental.summary.symbol_count, fresh.summary.symbol_count);
+    assert_eq!(incremental.summary.file_count, fresh.summary.file_count);
+    assert_eq!(incremental.summary.packages, fresh.summary.packages);
+    assert_eq!(
+        incremental.summary.workspace_warnings,
+        fresh.summary.workspace_warnings
+    );
+    assert_eq!(
+        incremental.summary.relation_summary,
+        fresh.summary.relation_summary
+    );
+    assert_eq!(incremental.file_contexts, fresh.file_contexts);
+    assert_eq!(incremental.relations, fresh.relations);
+    let mut incremental_symbols = incremental.symbols.clone();
+    incremental_symbols.sort_by(|left, right| left.record_id.cmp(&right.record_id));
+    let mut fresh_symbols = fresh.symbols.clone();
+    fresh_symbols.sort_by(|left, right| left.record_id.cmp(&right.record_id));
+    assert_eq!(incremental_symbols, fresh_symbols);
+    if compare_changed {
+        assert_eq!(incremental.summary.changed, fresh.summary.changed);
+    }
+    Ok(())
+}
+
 pub fn make_workspace() -> Result<tempfile::TempDir, Box<dyn Error>> {
     let root = tempdir()?;
     write_file(
@@ -92,6 +140,69 @@ impl Widget {
     pub fn name(&self) -> i32 { self.value }
 }
 "#,
+    )?;
+    init_git(root.path())?;
+    Ok(root)
+}
+
+/// Root workspace with member `crate_one` plus an unrelated nested workspace
+/// at `rust/tools` with its own member `tool_x`: two distinct workspace roots
+/// under one repository.
+pub fn make_nested_workspaces() -> Result<tempfile::TempDir, Box<dyn Error>> {
+    let root = tempdir()?;
+    write_file(
+        &root.path().join("Cargo.toml"),
+        r#"
+[workspace]
+members = ["crate_one"]
+
+[workspace.package]
+edition = "2024"
+"#,
+    )?;
+    fs::create_dir_all(root.path().join("crate_one/src"))?;
+    write_file(
+        &root.path().join("crate_one/Cargo.toml"),
+        r#"
+[package]
+name = "crate_one"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+path = "src/lib.rs"
+"#,
+    )?;
+    write_file(
+        &root.path().join("crate_one/src/lib.rs"),
+        "pub fn root_add(a: i32, b: i32) -> i32 { a + b }\n",
+    )?;
+    write_file(
+        &root.path().join("rust/tools/Cargo.toml"),
+        r#"
+[workspace]
+members = ["tool_x"]
+
+[workspace.package]
+edition = "2024"
+"#,
+    )?;
+    fs::create_dir_all(root.path().join("rust/tools/tool_x/src"))?;
+    write_file(
+        &root.path().join("rust/tools/tool_x/Cargo.toml"),
+        r#"
+[package]
+name = "tool_x"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+path = "src/lib.rs"
+"#,
+    )?;
+    write_file(
+        &root.path().join("rust/tools/tool_x/src/lib.rs"),
+        "pub fn nested_util() -> i32 { 42 }\n",
     )?;
     init_git(root.path())?;
     Ok(root)

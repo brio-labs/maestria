@@ -1,8 +1,11 @@
 use super::{CodeIntelError, RepositoryCodeIndex};
-use crate::identity::discover_repository_identity;
-use crate::metadata::extract_workspace_packages;
+use crate::changes::{build_delta, compute_delta_files};
+use crate::identity::{discover_dirty_paths, discover_repository_identity};
+use crate::language::active_backends;
+use crate::language::compose::{
+    discover_all_packages, merge_extractions, resolve_merged_relations,
+};
 use crate::symbols::RelationCandidate;
-use crate::symbols::extract_symbols;
 use std::collections::BTreeSet;
 use std::path::Path;
 
@@ -36,34 +39,57 @@ impl RepositoryCodeIndex {
     ) -> Result<(Self, Vec<RelationCandidate>), CodeIntelError> {
         let root = root.as_ref();
         let parser_generation = parser_generation.into();
-        let initial_identity = discover_repository_identity(root, excluded_patterns)?;
-        let mut packages = extract_workspace_packages(
+        let backends = active_backends(root, excluded_patterns)?;
+        let initial_identity = discover_repository_identity(root, excluded_patterns, &backends)?;
+        let mut discovery = discover_all_packages(
+            &backends,
             Path::new(&initial_identity.root),
             &initial_identity,
             &parser_generation,
             excluded_patterns,
         )?;
-        let identity = discover_repository_identity(root, excluded_patterns)?;
+        let identity = discover_repository_identity(root, excluded_patterns, &backends)?;
         if identity.commit != initial_identity.commit
             || identity.worktree_identity != initial_identity.worktree_identity
         {
-            packages = extract_workspace_packages(
+            discovery = discover_all_packages(
+                &backends,
                 Path::new(&identity.root),
                 &identity,
                 &parser_generation,
                 excluded_patterns,
             )?;
         }
-        let extraction = extract_symbols(
-            &packages,
-            Path::new(&identity.root),
-            &identity,
-            &parser_generation,
-            excluded_patterns,
-        )?;
+        let packages = discovery.packages;
+        // From-scratch full builds have no prior index to diff against, so the
+        // delta is the porcelain dirty set only (git metadata, no content
+        // reads); incremental rebuilds add the baseline..HEAD diff.
+        let dirty = discover_dirty_paths(root)?;
+        let delta_files = compute_delta_files(root, None, &dirty)?;
 
-        let files = extraction
-            .symbols
+        // Per-backend extraction merged into one index. Relations are
+        // re-resolved from the merged candidate set so the deterministic
+        // global ordering matches the incremental path exactly.
+        let mut extractions = Vec::new();
+        for backend in &backends {
+            let backend_packages: Vec<_> = packages
+                .iter()
+                .filter(|package| backend.owns_package(package))
+                .cloned()
+                .collect();
+            extractions.push(backend.extract(
+                &backend_packages,
+                Path::new(&identity.root),
+                &identity,
+                &parser_generation,
+                excluded_patterns,
+            )?);
+        }
+        let (symbols, candidates, file_contexts) = merge_extractions(extractions);
+        let (relations, relation_summary) =
+            resolve_merged_relations(&parser_generation, &symbols, &candidates);
+
+        let files = symbols
             .iter()
             .map(|symbol| symbol.provenance.file_path.clone())
             .collect::<BTreeSet<_>>();
@@ -76,21 +102,23 @@ impl RepositoryCodeIndex {
                     parser_generation: super::types::ParserGeneration::new(parser_generation),
                     package_count: packages.len(),
                     target_count: packages.iter().map(|package| package.targets.len()).sum(),
-                    symbol_count: extraction.symbols.len(),
+                    symbol_count: symbols.len(),
                     file_count: files.len(),
                     packages: packages
                         .iter()
                         .map(|package| package.name.clone())
                         .collect(),
                     excluded_patterns: excluded_patterns.to_vec(),
-                    relation_summary: extraction.relation_summary,
+                    workspace_warnings: discovery.warnings,
+                    relation_summary,
+                    changed: build_delta(&delta_files, &symbols),
                 },
                 packages,
-                symbols: extraction.symbols,
-                relations: extraction.relations,
-                file_contexts: extraction.file_contexts,
+                symbols,
+                relations,
+                file_contexts,
             },
-            extraction.candidates,
+            candidates,
         ))
     }
 }

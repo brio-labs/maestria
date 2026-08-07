@@ -1,104 +1,63 @@
 //! Rebuilt index and candidate-list assembly, and the new-file check.
 
 use crate::CodeIntelError;
-use crate::identity::{collect_rust_paths, is_excluded_path};
+use crate::language::backend_for_path;
 use crate::symbols::relation;
 use crate::types::{CodeIndexSummary, ParserGeneration, RepositoryCodeIndex};
+use crate::walk::is_excluded_path;
 use std::collections::BTreeSet;
 use std::path::Path;
 
 use super::state::{RebuildInputs, RebuildState, rewrite_identity};
 
-/// New-file check: only newly added cargo auto-discovery targets inside
-/// member packages can become extractable without a manifest change or an
-/// edited parent. Any other `.rs` file absent from contexts is unreachable
-/// for extraction (a full build does not extract it either). Returns whether
-/// a full rebuild is required.
+/// New-file check: only newly added auto-discovery targets can become
+/// extractable without a manifest change or an edited parent. Any other
+/// source file absent from contexts is unreachable for extraction (a full
+/// build does not extract it either). Returns whether a full rebuild is
+/// required.
 pub(crate) fn check_new_auto_targets(
     inputs: &RebuildInputs,
     index: &RepositoryCodeIndex,
     state: &RebuildState,
 ) -> Result<bool, CodeIntelError> {
+    // Every package's manifest directory, as a repository-relative path.
+    // Cargo manifests are absolute (their root manifest strips to the empty
+    // path); walk-based manifests (Python, TypeScript) are relative, so an
+    // empty parent is mapped to the root explicitly.
     let package_roots: BTreeSet<String> = index
         .packages
         .iter()
         .filter_map(|package| {
-            Path::new(&package.manifest_path)
-                .parent()
-                .and_then(|parent| parent.strip_prefix(&inputs.canonical_root).ok())
-                .map(|relative| relative.to_string_lossy().into_owned())
+            let parent = Path::new(&package.manifest_path).parent();
+            match parent.and_then(|parent| parent.strip_prefix(&inputs.canonical_root).ok()) {
+                Some(relative) if relative.as_os_str().is_empty() => Some(String::new()),
+                Some(relative) => Some(relative.to_string_lossy().into_owned()),
+                None if parent.is_some_and(|parent| parent.as_os_str().is_empty()) => {
+                    Some(String::new())
+                }
+                None => None,
+            }
         })
         .collect();
     let mut walk_set = BTreeSet::new();
-    collect_rust_paths(
-        inputs.root,
-        inputs.root,
-        &mut walk_set,
-        inputs.excluded_patterns,
-    )?;
+    for backend in &inputs.backends {
+        walk_set.extend(backend.collect_source_files(inputs.root, inputs.excluded_patterns)?);
+    }
     for path in inputs.file_set.union(&walk_set) {
-        if !path.ends_with(".rs") || is_excluded_path(Path::new(path), inputs.excluded_patterns) {
+        if is_excluded_path(Path::new(path), inputs.excluded_patterns) {
             continue;
         }
+        let Some(backend) = backend_for_path(&inputs.backends, path) else {
+            continue;
+        };
         if !state.contexts.contains_key(path)
             && !state.processed.contains(path)
-            && is_new_auto_target_root(Path::new(path), &package_roots)
+            && backend.is_new_auto_target_root(path, &package_roots)
         {
             return Ok(true);
         }
     }
     Ok(false)
-}
-
-/// Whether a not-yet-indexed `.rs` path is a plausible new cargo
-/// auto-discovery target root: a file cargo turns into a target without any
-/// manifest change, inside a member package. `package_roots` are the relative
-/// repository paths of the package manifest directories from the loaded index.
-fn is_new_auto_target_root(path: &Path, package_roots: &BTreeSet<String>) -> bool {
-    let Some(file_name) = path.file_name().and_then(|name| name.to_str()) else {
-        return false;
-    };
-    if file_name == "mod.rs" {
-        // cargo never auto-discovers `mod.rs` as a target.
-        return false;
-    }
-    let Some(parent) = path
-        .parent()
-        .map(|parent| parent.to_string_lossy().into_owned())
-    else {
-        return false;
-    };
-    let grandparent = path
-        .parent()
-        .and_then(|parent| parent.parent())
-        .map(|parent| parent.to_string_lossy().into_owned());
-    for root in package_roots {
-        let base = if root.is_empty() {
-            String::new()
-        } else {
-            format!("{root}/")
-        };
-        if file_name == "build.rs" && parent == *root {
-            return true;
-        }
-        if matches!(file_name, "lib.rs" | "main.rs") && parent == format!("{base}src") {
-            return true;
-        }
-        if parent == format!("{base}src/bin") {
-            return true;
-        }
-        for directory in ["tests", "benches", "examples"] {
-            if parent == format!("{base}{directory}") {
-                return true;
-            }
-            // Multi-file target: `<dir>/<name>/main.rs`.
-            let multi_root = format!("{base}{directory}");
-            if file_name == "main.rs" && grandparent.as_deref() == Some(multi_root.as_str()) {
-                return true;
-            }
-        }
-    }
-    false
 }
 
 /// Assemble the rebuilt index: symbols in original order with replaced files
@@ -157,6 +116,7 @@ pub(crate) fn assemble_index(
         .iter()
         .map(|symbol| &symbol.provenance.file_path)
         .collect();
+    let changed = crate::changes::build_delta(&inputs.delta_files, &symbols);
     Ok((
         RepositoryCodeIndex {
             summary: CodeIndexSummary {
@@ -173,7 +133,13 @@ pub(crate) fn assemble_index(
                     .map(|package| package.name.clone())
                     .collect(),
                 excluded_patterns: inputs.excluded_patterns.to_vec(),
+                // Discovery only re-runs on Full builds; on an incremental
+                // rebuild the manifest set is unchanged (any dirty
+                // manifest/lock already forced Full), so the warnings from
+                // the previous discovery pass stay valid.
+                workspace_warnings: index.summary.workspace_warnings.clone(),
                 relation_summary: relation::relation_status_summary(relations.len()),
+                changed,
             },
             packages,
             symbols,

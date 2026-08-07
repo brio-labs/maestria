@@ -24,6 +24,9 @@ REQUIRED_MILESTONES = (
     "v0.5 — Evaluated Hybrid Retrieval",
     "v0.7 — Repository Intelligence",
     "v0.8 — Visual Document Retrieval",
+    "v0.9 — Doc & Marker Search",
+    "v1.0 — Python Repository Intelligence",
+    "v1.1 — Web Repository Intelligence",
 )
 REQUIRED_RESULT_KEYS = ("quality", "resource", "security")
 REQUIRED_ENVIRONMENT_KEYS = ("os", "rust_toolchain", "cpu_arch")
@@ -226,6 +229,41 @@ def errors_for_report(
                     and str(status["Unavailable"].get("reason", "")).strip()
                 ):
                     errors.append(f"{prefix}.measurement_status is invalid")
+    elif kind == "build-latency":
+        for key in ("corpus_id", "repository_revision", "index_generation", "model_fingerprint"):
+            if not str(report.get(key, "")).strip():
+                errors.append(f"{path}: missing {key}")
+        if manifest_entry is not None:
+            corpus = manifest_entry.get("corpus", {})
+            fingerprints = manifest_entry.get("fingerprints", {})
+            for key, expected in (
+                ("corpus_id", corpus.get("id")),
+                ("index_generation", fingerprints.get("index_generation")),
+                ("model_fingerprint", fingerprints.get("model_fingerprint")),
+            ):
+                if report.get(key) != expected:
+                    errors.append(f"{path}: {key} is not bound to its manifest")
+        sizes = report.get("sizes")
+        if not isinstance(sizes, list) or not sizes:
+            errors.append(f"{path}: sizes must be non-empty")
+        else:
+            for size_index, size in enumerate(sizes):
+                prefix = f"{path}: sizes[{size_index}]"
+                if not isinstance(size, dict):
+                    errors.append(f"{prefix} must be an object")
+                    continue
+                for key in ("files", "symbols", "runs", "p50_ms", "p95_ms"):
+                    if not isinstance(size.get(key), int) or size[key] < 0:
+                        errors.append(f"{prefix}.{key} must be a non-negative integer")
+                if not isinstance(size.get("measurements_ms"), list) or not size[
+                    "measurements_ms"
+                ]:
+                    errors.append(f"{prefix}.measurements_ms must be non-empty")
+                elif any(
+                    not isinstance(value, int) or value < 0
+                    for value in size["measurements_ms"]
+                ):
+                    errors.append(f"{prefix}.measurements_ms must be non-negative integers")
     elif kind == "visual":
         if report.get("provider_status") != "unavailable":
             errors.append(f"{path}: visual report must state provider_status=unavailable")

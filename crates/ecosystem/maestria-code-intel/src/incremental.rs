@@ -9,7 +9,9 @@
 
 use crate::CodeIntelError;
 use crate::identity::{discover_dirty_paths, discover_file_set, discover_repository_identity};
-use crate::types::RepositoryCodeIndex;
+use crate::language::{LanguageBackend, active_backends, is_backend_manifest_path};
+use crate::types::{FileContextRecord, RepositoryCodeIndex};
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 mod assemble;
@@ -43,6 +45,36 @@ impl RepositoryIndexBuildMode {
             RepositoryIndexBuildMode::Full => "full",
         }
     }
+}
+
+/// Whether any deleted path invalidates persisted package records (a Python
+/// top-level package init removes a discovered target), forcing a full
+/// rebuild. Unstaged deletions appear in the porcelain dirty set (still
+/// cached in the git index); staged and committed deletions only in the
+/// file-set comparison.
+fn deletions_force_full(
+    root: &Path,
+    canonical_root: &Path,
+    backends: &[Box<dyn LanguageBackend>],
+    porcelain_dirty: &BTreeSet<String>,
+    indexed_contexts: &BTreeMap<String, FileContextRecord>,
+    file_set: &BTreeSet<String>,
+) -> bool {
+    let deleted_paths: Vec<String> = indexed_contexts
+        .keys()
+        .filter(|key| !file_set.contains(*key) && !root.join(key).exists())
+        .cloned()
+        .collect();
+    let deletion_forces_full = |path: &str| {
+        !root.join(path).exists()
+            && backends
+                .iter()
+                .any(|backend| backend.deleted_file_requires_full(canonical_root, path))
+    };
+    deleted_paths.iter().any(|path| deletion_forces_full(path))
+        || porcelain_dirty
+            .iter()
+            .any(|path| deletion_forces_full(path))
 }
 
 /// Persisted sidecar filename for the relation candidate list.
@@ -90,7 +122,8 @@ pub fn build_or_update_repository_index(
     {
         return full(candidates_path);
     }
-    let identity = discover_repository_identity(root, excluded_patterns)?;
+    let backends = active_backends(root, excluded_patterns)?;
+    let identity = discover_repository_identity(root, excluded_patterns, &backends)?;
     if index.file_contexts.is_empty() && !index.symbols.is_empty() {
         // Invariant guard: an index with symbols but no per-file contexts
         // cannot be patched incrementally (there is nothing to re-derive or
@@ -105,14 +138,35 @@ pub fn build_or_update_repository_index(
     let Some(candidates) = load_relation_candidates(candidates_path, parser_generation)? else {
         return full(candidates_path);
     };
-    let mut dirty = discover_dirty_paths(root)?;
-    if dirty
-        .iter()
-        .any(|path| path.ends_with(".toml") || path.ends_with(".lock"))
-    {
+    // The porcelain dirty set drives both re-extraction and the changed
+    // delta; the delta uses it BEFORE the content-staleness pass extends it,
+    // because the delta rule is exactly "porcelain dirty set plus baseline
+    // diff", never content-derived files.
+    let porcelain_dirty = discover_dirty_paths(root)?;
+    let mut dirty = porcelain_dirty.clone();
+    if dirty.iter().any(|path| {
+        path.ends_with(".toml")
+            || path.ends_with(".lock")
+            || is_backend_manifest_path(path, &backends)
+    }) {
         return full(candidates_path);
     }
     let file_set = discover_file_set(root)?;
+
+    // Deletions that invalidate persisted package records (a Python
+    // top-level package init removes a discovered target) force a full
+    // rebuild, exactly like a dirty manifest: package records are only
+    // recomputed on full builds.
+    if deletions_force_full(
+        root,
+        &canonical_root,
+        &backends,
+        &porcelain_dirty,
+        &index.file_contexts,
+        &file_set,
+    ) {
+        return full(candidates_path);
+    }
 
     // Content-staleness pass: files whose on-disk content differs from what
     // the previous build extracted (symbols' persisted content hashes). This
@@ -123,6 +177,14 @@ pub fn build_or_update_repository_index(
     let stale = discover_stale_content_files(root, &index.file_contexts, &index.symbols)?;
     dirty.extend(stale);
 
+    // Baseline for the persisted changed delta: the commit of the index being
+    // replaced, read before the rebuilt index overwrites it.
+    let delta_files = crate::changes::compute_delta_files(
+        root,
+        Some(&index.summary.commit_sha),
+        &porcelain_dirty,
+    )?;
+
     let mut state = rebuild_working_stores(&index, &candidates);
     let inputs = RebuildInputs {
         root,
@@ -132,6 +194,8 @@ pub fn build_or_update_repository_index(
         parser_generation,
         file_set,
         dirty,
+        delta_files,
+        backends,
     };
     drop_deleted_files(&inputs, &mut state)?;
     reextract_gitignored(&inputs, &mut state)?;

@@ -1,6 +1,8 @@
 //! Repository identity discovery for provenance.
 
 use crate::CodeIntelError;
+use crate::language::{KNOWN_SOURCE_EXTENSIONS, LanguageBackend, all_manifest_names};
+use crate::walk::{collect_source_paths, discover_manifests, is_excluded_path};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{self, File};
@@ -19,20 +21,14 @@ pub(crate) struct RepositoryIdentity {
 pub(crate) fn discover_repository_identity(
     root: &Path,
     excluded_patterns: &[String],
+    backends: &[Box<dyn LanguageBackend>],
 ) -> Result<RepositoryIdentity, CodeIntelError> {
     let canonical_root = canonical_root(root)?;
     let commit = git_output(root, &["rev-parse", "HEAD"], "git rev-parse HEAD")?;
     let dirty = discover_dirty_paths(root)?;
     let file_set = discover_file_set(root)?;
     let blob_map = git_blob_map(root)?;
-
-    let mut paths: BTreeSet<String> = file_set
-        .iter()
-        .filter(|line| is_identity_input(Path::new(line), excluded_patterns))
-        .cloned()
-        .collect();
-    collect_rust_paths(root, root, &mut paths, excluded_patterns)?;
-
+    let paths = collect_identity_paths(root, excluded_patterns, backends, &file_set)?;
     let mut hasher = Sha256::new();
     hasher.update(b"maestria-worktree-identity-v2\0");
     // Pass 1: per-path presence (missing marker vs path record).
@@ -112,6 +108,43 @@ pub(crate) fn discover_repository_identity(
     })
 }
 
+/// Every path participating in the worktree identity digest: identity inputs
+/// from the git file set, known source files from the bounded walk (so
+/// gitignored sources participate), and every manifest the discovery walk
+/// can see (plus `Cargo.lock` siblings), even when gitignored.
+fn collect_identity_paths(
+    root: &Path,
+    excluded_patterns: &[String],
+    backends: &[Box<dyn LanguageBackend>],
+    file_set: &BTreeSet<String>,
+) -> Result<BTreeSet<String>, CodeIntelError> {
+    let mut paths: BTreeSet<String> = file_set
+        .iter()
+        .filter(|line| is_identity_input(Path::new(line), excluded_patterns, backends))
+        .cloned()
+        .collect();
+    collect_source_paths(
+        root,
+        root,
+        &mut paths,
+        excluded_patterns,
+        &KNOWN_SOURCE_EXTENSIONS,
+    )?;
+    let manifest_names = all_manifest_names(backends);
+    for manifest in discover_manifests(root, excluded_patterns, &manifest_names)? {
+        if let Ok(relative) = manifest.strip_prefix(root) {
+            paths.insert(relative.to_string_lossy().into_owned());
+        }
+        if manifest.file_name().and_then(|name| name.to_str()) == Some("Cargo.toml") {
+            let lock = manifest.with_extension("lock");
+            if let Ok(relative) = lock.strip_prefix(root) {
+                paths.insert(relative.to_string_lossy().into_owned());
+            }
+        }
+    }
+    Ok(paths)
+}
+
 /// The `git ls-files --cached --others --exclude-standard` file set: every
 /// tracked plus untracked non-ignored path, one per line.
 pub(crate) fn discover_file_set(root: &Path) -> Result<BTreeSet<String>, CodeIntelError> {
@@ -134,10 +167,14 @@ pub(crate) fn discover_file_set(root: &Path) -> Result<BTreeSet<String>, CodeInt
 /// then differs from what the previous build extracted even though porcelain
 /// shows no worktree change). Rename/copy entries contribute their target
 /// path (and their source path when the record is not fully clean).
+///
+/// `--untracked-files=all` lists every untracked file individually instead of
+/// collapsing fully-untracked directories into one entry, so nested manifest
+/// and source edits inside untracked directories are detected.
 pub(crate) fn discover_dirty_paths(root: &Path) -> Result<BTreeSet<String>, CodeIntelError> {
     let output = git_output_allow_empty(
         root,
-        &["status", "--porcelain", "-z"],
+        &["status", "--porcelain", "-z", "--untracked-files=all"],
         "git status --porcelain",
     )?;
     let mut dirty = BTreeSet::new();
@@ -213,86 +250,24 @@ fn decode_hex_nibble(byte: u8) -> Option<u8> {
     }
 }
 
-pub(crate) fn collect_rust_paths(
-    root: &Path,
-    directory: &Path,
-    paths: &mut BTreeSet<String>,
+fn is_identity_input(
+    path: &Path,
     excluded_patterns: &[String],
-) -> Result<(), CodeIntelError> {
-    if is_excluded_path(directory, excluded_patterns) {
-        return Ok(());
-    }
-    let metadata = fs::symlink_metadata(directory).map_err(|error| CodeIntelError::Identity {
-        context: "inspect Rust source directory".to_string(),
-        details: format!("{}: {error}", directory.display()),
-    })?;
-    if metadata.is_file() {
-        let relative = directory
-            .strip_prefix(root)
-            .map_err(|error| CodeIntelError::Identity {
-                context: "derive Rust source identity path".to_string(),
-                details: error.to_string(),
-            })?;
-        if directory
-            .extension()
-            .and_then(|extension| extension.to_str())
-            == Some("rs")
-            && is_identity_input(relative, excluded_patterns)
-        {
-            paths.insert(relative.to_string_lossy().into_owned());
-        }
-        return Ok(());
-    }
-    if !metadata.is_dir() {
-        return Ok(());
-    }
-    for entry in fs::read_dir(directory).map_err(|error| CodeIntelError::Identity {
-        context: "read Rust source directory".to_string(),
-        details: format!("{}: {error}", directory.display()),
-    })? {
-        let entry = entry.map_err(|error| CodeIntelError::Identity {
-            context: "read Rust source directory entry".to_string(),
-            details: error.to_string(),
-        })?;
-        let child = entry.path();
-        if child
-            .file_name()
-            .and_then(|name| name.to_str())
-            .is_some_and(|name| name == ".git" || name == "target")
-        {
-            continue;
-        }
-        collect_rust_paths(root, &child, paths, excluded_patterns)?;
-    }
-    Ok(())
-}
-
-fn is_identity_input(path: &Path, excluded_patterns: &[String]) -> bool {
-    let is_source = matches!(
-        path.extension().and_then(|extension| extension.to_str()),
-        Some("rs" | "toml" | "lock")
-    );
+    backends: &[Box<dyn LanguageBackend>],
+) -> bool {
+    let extension = path.extension().and_then(|extension| extension.to_str());
+    let file_name = path.file_name().and_then(|name| name.to_str());
+    let is_source = matches!(extension, Some("toml" | "lock"))
+        || KNOWN_SOURCE_EXTENSIONS
+            .iter()
+            .any(|accepted| extension == Some(*accepted))
+        || backends.iter().any(|backend| {
+            backend
+                .identity_inputs()
+                .iter()
+                .any(|name| file_name == Some(*name))
+        });
     is_source && !is_excluded_path(path, excluded_patterns)
-}
-
-pub(crate) fn is_excluded_path(path: &Path, patterns: &[String]) -> bool {
-    path.components().any(|component| {
-        let name = component.as_os_str().to_string_lossy();
-        name == ".git"
-            || name == ".ssh"
-            || name == ".gnupg"
-            || name == "secrets"
-            || name == "node_modules"
-            || name == "target"
-            || name == "dist"
-            || name == "build"
-            || patterns.iter().any(|pattern| {
-                pattern.as_str() == name
-                    || (pattern == ".env.*" && name.starts_with(".env."))
-                    || (pattern == "*.pem" && name.ends_with(".pem"))
-                    || (pattern == "*.key" && name.ends_with(".key"))
-            })
-    })
 }
 
 fn git_output(root: &Path, args: &[&str], context: &str) -> Result<String, CodeIntelError> {
@@ -329,7 +304,7 @@ fn git_output(root: &Path, args: &[&str], context: &str) -> Result<String, CodeI
 /// (untrimmed) stdout. Used by NUL-delimited calls whose leading-space records
 /// and empty output are meaningful (clean worktree, empty index); callers
 /// split on `\0` or trim per line themselves.
-fn git_output_allow_empty(
+pub(crate) fn git_output_allow_empty(
     root: &Path,
     args: &[&str],
     context: &str,
@@ -391,6 +366,18 @@ mod tests {
         Ok(())
     }
 
+    fn discover_identity(
+        root: &Path,
+        excluded_patterns: &[String],
+    ) -> Result<RepositoryIdentity, Box<dyn std::error::Error>> {
+        let backends = crate::language::active_backends(root, excluded_patterns)?;
+        Ok(discover_repository_identity(
+            root,
+            excluded_patterns,
+            &backends,
+        )?)
+    }
+
     #[test]
     fn clean_blob_hash_matches_git_hash_object() -> Result<(), Box<dyn std::error::Error>> {
         let root = tempdir()?;
@@ -406,6 +393,44 @@ mod tests {
     }
 
     #[test]
+    fn nested_manifest_edit_changes_identity() -> Result<(), Box<dyn std::error::Error>> {
+        let root = tempdir()?;
+        init_repo(root.path())?;
+        fs::create_dir_all(root.path().join("rust/tools"))?;
+        let manifest = root.path().join("rust/tools/Cargo.toml");
+        fs::write(&manifest, "[workspace]\nmembers = []\n")?;
+        run_git_ok(root.path(), &["add", "."])?;
+        run_git_ok(root.path(), &["commit", "-m", "init"])?;
+
+        let original = discover_identity(root.path(), &[])?.worktree_identity;
+
+        fs::write(&manifest, "[workspace]\nmembers = []\n# edited\n")?;
+        let modified = discover_identity(root.path(), &[])?.worktree_identity;
+        assert_ne!(original, modified);
+        Ok(())
+    }
+
+    #[test]
+    fn gitignored_nested_manifest_participates_in_identity()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let root = tempdir()?;
+        init_repo(root.path())?;
+        fs::write(root.path().join(".gitignore"), "rust/ignored/\n")?;
+        fs::create_dir_all(root.path().join("rust/ignored"))?;
+        let manifest = root.path().join("rust/ignored/Cargo.toml");
+        fs::write(&manifest, "[workspace]\nmembers = []\n")?;
+        run_git_ok(root.path(), &["add", "."])?;
+        run_git_ok(root.path(), &["commit", "-m", "init"])?;
+
+        let original = discover_identity(root.path(), &[])?.worktree_identity;
+
+        fs::write(&manifest, "[workspace]\nmembers = []\n# edited\n")?;
+        let modified = discover_identity(root.path(), &[])?.worktree_identity;
+        assert_ne!(original, modified);
+        Ok(())
+    }
+
+    #[test]
     fn identity_changes_then_restores() -> Result<(), Box<dyn std::error::Error>> {
         let root = tempdir()?;
         init_repo(root.path())?;
@@ -415,14 +440,14 @@ mod tests {
         run_git_ok(root.path(), &["add", "."])?;
         run_git_ok(root.path(), &["commit", "-m", "init"])?;
 
-        let original = discover_repository_identity(root.path(), &[])?.worktree_identity;
+        let original = discover_identity(root.path(), &[])?.worktree_identity;
 
         fs::write(&source, "pub fn add(a: i32, b: i32) -> i32 { a - b }\n")?;
-        let modified = discover_repository_identity(root.path(), &[])?.worktree_identity;
+        let modified = discover_identity(root.path(), &[])?.worktree_identity;
         assert_ne!(original, modified);
 
         run_git_ok(root.path(), &["checkout", "--", "src/lib.rs"])?;
-        let restored = discover_repository_identity(root.path(), &[])?.worktree_identity;
+        let restored = discover_identity(root.path(), &[])?.worktree_identity;
         assert_eq!(original, restored);
         Ok(())
     }

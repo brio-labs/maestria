@@ -1,17 +1,23 @@
 //! Deleted, gitignored, dirty, and stale-source reconciliation passes.
 
 use crate::CodeIntelError;
+use crate::language::{DerivedFileContext, backend_for_path};
 use crate::provenance::content_hash;
 use crate::symbols::RelationCandidate;
-use crate::symbols::collect_rust::ModuleContext;
-use crate::symbols::context::FileContext;
-use crate::symbols::{derive_subtree_contexts, extract, markers};
 use crate::types::FileContextRecord;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::Path;
 
 use super::state::{RebuildInputs, RebuildState, parent_chain_reaches, rewrite_identity};
+
+/// One re-extracted file: symbols plus relation candidates.
+type ReextractedFile = (Vec<crate::SymbolRecord>, Vec<RelationCandidate>);
+
+/// Whether a repository-relative path is a source file of any active backend.
+fn is_backend_source_file(path: &str, inputs: &RebuildInputs) -> bool {
+    backend_for_path(&inputs.backends, path).is_some()
+}
 
 /// Deleted-file pass (handles `git rm` staged deletions): drop every context
 /// key that is neither tracked nor present on disk.
@@ -49,13 +55,12 @@ pub(crate) fn reextract_gitignored(
             continue;
         }
         let record = state.contexts[&key].clone();
-        let (symbols, extracted_candidates) = reextract_file(
-            inputs.root,
-            &key,
-            &record,
-            inputs.identity,
-            inputs.parser_generation,
-        )?;
+        let reextracted = reextract_via_backend(inputs, &key, &record)?;
+        let Some((symbols, extracted_candidates)) = reextracted else {
+            state.drop_file(key.clone());
+            state.processed.insert(key.clone());
+            continue;
+        };
         state.candidates_by_id_prefix.remove(&key);
         state.symbols_by_file.insert(key.clone(), symbols);
         if !state.files_in_order.iter().any(|file| file == &key) {
@@ -73,8 +78,8 @@ pub(crate) fn reextract_gitignored(
     Ok(())
 }
 
-/// Dirty-file pass: for every dirty `.rs` path, re-derive its module subtree
-/// and re-extract exactly the files whose extraction inputs changed.
+/// Dirty-file pass: for every dirty source path (any active backend), re-derive
+/// its subtree and re-extract exactly the files whose extraction inputs changed.
 pub(crate) fn reconcile_dirty_files(
     inputs: &RebuildInputs,
     state: &mut RebuildState,
@@ -82,7 +87,7 @@ pub(crate) fn reconcile_dirty_files(
     let mut dirty_files: Vec<&String> = inputs
         .dirty
         .iter()
-        .filter(|path| path.ends_with(".rs"))
+        .filter(|path| is_backend_source_file(path, inputs))
         .collect();
     dirty_files.sort();
     for file in dirty_files {
@@ -104,8 +109,9 @@ pub(crate) fn reconcile_dirty_files(
     Ok(())
 }
 
-/// Re-derive one dirty file's module subtree, re-extracting changed members
-/// in place and dropping modules that are no longer reachable.
+/// Re-derive one dirty file's subtree through its language backend,
+/// re-extracting changed members in place and dropping files that are no
+/// longer reachable.
 fn reconcile_file(
     file: &str,
     inputs: &RebuildInputs,
@@ -115,30 +121,22 @@ fn reconcile_file(
     let canonical = absolute
         .canonicalize()
         .map_err(|error| CodeIntelError::Io {
-            operation: "canonicalize dirty Rust source".to_string(),
+            operation: "canonicalize dirty source".to_string(),
             path: absolute.to_string_lossy().into_owned(),
             details: error.to_string(),
         })?;
     let record = state.contexts[file].clone();
-    let mut out = Vec::new();
-    let mut derived = BTreeMap::new();
-    let mut derived_parents = BTreeMap::new();
-    derive_subtree_contexts(
+    let Some(backend) = backend_for_path(&inputs.backends, file) else {
+        return Ok(());
+    };
+    let derived = backend.derive_subtree_contexts(
         &inputs.canonical_root,
         &canonical,
+        &record,
         inputs.excluded_patterns,
-        ModuleContext {
-            stack: record.stack.clone(),
-            is_test: record.is_test,
-            is_bench: record.is_bench,
-        },
-        &mut out,
-        &mut derived,
-        &mut derived_parents,
     )?;
     // Relative paths reachable from this dirty file's current parse.
-    let derived_rels =
-        reconcile_derived_children(out, derived, derived_parents, &record, inputs, state)?;
+    let derived_rels = reconcile_derived_children(derived, &record, inputs, state)?;
     // Unreachable cleanup — drop files whose parent chain reaches `file` but
     // which are no longer reachable from it. `processed` is not used here: a
     // file re-extracted by the gitignored pass whose `mod` declaration this
@@ -160,18 +158,16 @@ fn reconcile_file(
     Ok(())
 }
 
-/// Re-extract or keep every file in a dirty file's derived module subtree.
-/// Returns the relative paths reachable from the current parse.
+/// Re-extract or keep every file in a dirty file's derived subtree. Returns
+/// the relative paths reachable from the current parse.
 fn reconcile_derived_children(
-    out: Vec<std::path::PathBuf>,
-    derived: BTreeMap<std::path::PathBuf, ModuleContext>,
-    derived_parents: BTreeMap<std::path::PathBuf, std::path::PathBuf>,
+    derived: Vec<(std::path::PathBuf, DerivedFileContext)>,
     record: &FileContextRecord,
     inputs: &RebuildInputs,
     state: &mut RebuildState,
 ) -> Result<BTreeSet<String>, CodeIntelError> {
     let mut derived_rels = BTreeSet::new();
-    for child in out {
+    for (child, new_context) in derived {
         let rel = child
             .strip_prefix(&inputs.canonical_root)
             .map_err(|error| CodeIntelError::Identity {
@@ -182,12 +178,13 @@ fn reconcile_derived_children(
             .into_owned();
         derived_rels.insert(rel.clone());
         let old = state.contexts.get(&rel).cloned();
-        let new = &derived[&child];
         let should_reextract = old.is_none()
             || inputs.dirty.contains(&rel)
             || !inputs.file_set.contains(&rel)
             || old.as_ref().is_some_and(|old| {
-                old.stack != new.stack || old.is_test != new.is_test || old.is_bench != new.is_bench
+                old.stack != new_context.stack
+                    || old.is_test != new_context.is_test
+                    || old.is_bench != new_context.is_bench
             });
         if should_reextract {
             let replacement = FileContextRecord {
@@ -203,30 +200,16 @@ fn reconcile_derived_children(
                 is_bench_target: old
                     .as_ref()
                     .map_or(record.is_bench_target, |old| old.is_bench_target),
-                stack: new.stack.clone(),
-                is_test: new.is_test,
-                is_bench: new.is_bench,
-                parent: derived_parents
-                    .get(&child)
-                    .and_then(|parent| {
-                        parent
-                            .strip_prefix(&inputs.canonical_root)
-                            .ok()
-                            .map(|path| path.to_string_lossy().into_owned())
-                    })
-                    .or_else(|| {
-                        // Derivation root (the dirty file itself): its module
-                        // parent is outside this subtree and unchanged.
-                        old.as_ref().and_then(|old| old.parent.clone())
-                    }),
+                stack: new_context.stack.clone(),
+                is_test: new_context.is_test,
+                is_bench: new_context.is_bench,
+                parent: new_context.parent.clone(),
             };
-            let (symbols, extracted_candidates) = reextract_file(
-                inputs.root,
-                &rel,
-                &replacement,
-                inputs.identity,
-                inputs.parser_generation,
-            )?;
+            let reextracted = reextract_via_backend(inputs, &rel, &replacement)?;
+            let Some((symbols, extracted_candidates)) = reextracted else {
+                state.drop_file(rel.clone());
+                continue;
+            };
             state.candidates_by_id_prefix.remove(&rel);
             state.symbols_by_file.insert(rel.clone(), symbols);
             if !state.files_in_order.iter().any(|file| file == &rel) {
@@ -254,38 +237,28 @@ fn reconcile_derived_children(
     Ok(derived_rels)
 }
 
-/// Re-extract one file with the exact inputs `extract_target_symbols` would
-/// have used for a file with this context record.
-pub(crate) fn reextract_file(
-    root: &Path,
+/// Re-extract one file through its language backend, mapping a `None`
+/// (no-longer-extractable) result to a dropped file.
+fn reextract_via_backend(
+    inputs: &RebuildInputs,
     rel: &str,
     record: &FileContextRecord,
-    identity: &crate::identity::RepositoryIdentity,
-    parser_generation: &str,
-) -> Result<(Vec<crate::SymbolRecord>, Vec<RelationCandidate>), CodeIntelError> {
-    let file = root.join(rel);
-    let source_bytes = fs::read(&file).map_err(|error| CodeIntelError::Io {
-        operation: "read source file".to_string(),
-        path: file.to_string_lossy().into_owned(),
-        details: error.to_string(),
-    })?;
-    let source_content_hash = content_hash(&source_bytes);
-    let source = String::from_utf8(source_bytes).map_err(|error| CodeIntelError::Parse {
-        context: format!("decode Rust source {}", file.display()),
-        details: error.to_string(),
-    })?;
-    let file_context = FileContext {
-        package: &record.package,
-        target: &record.target,
-        relative_path: rel.to_string(),
-        content_hash: source_content_hash,
-        identity,
-        parser_generation,
-        file_markers: markers::file_markers(&file, &source),
-        is_test_target: record.is_test_target || record.is_test,
-        is_bench_target: record.is_bench_target || record.is_bench,
+) -> Result<Option<ReextractedFile>, CodeIntelError> {
+    let Some(backend) = backend_for_path(&inputs.backends, rel) else {
+        return Ok(None);
     };
-    extract::extract_file_symbols(&source, &file_context, &record.stack)
+    let Some(reextracted) = backend.reextract_file(
+        inputs.root,
+        rel,
+        record,
+        inputs.identity,
+        inputs.parser_generation,
+        inputs.excluded_patterns,
+    )?
+    else {
+        return Ok(None);
+    };
+    Ok(Some((reextracted.0, reextracted.1)))
 }
 
 /// Files in `contexts` whose current on-disk content differs from the

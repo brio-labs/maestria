@@ -24,6 +24,9 @@ pub enum RepositoryQueryClass {
     TestAssociation,
     StaleWorktree,
     CorrectAbstention,
+    DocComment,
+    CodeMarker,
+    ReferenceUsage,
 }
 
 impl RepositoryQueryClass {
@@ -50,11 +53,31 @@ impl RepositoryQueryClass {
             || normalized.contains("call chain")
         {
             Self::MultiHopDependency
+        } else if normalized.contains("used by")
+            || normalized.contains("callers of")
+            || normalized.contains("where is")
+            || normalized.contains("usages of")
+        {
+            // Reference phrasing must be classified before the
+            // `definition/reference` arm so a plain "references" question
+            // still lands on DefinitionReference.
+            Self::ReferenceUsage
         } else if normalized.contains("definition")
             || normalized.contains("references")
             || normalized.contains("reference")
         {
             Self::DefinitionReference
+        } else if normalized.contains("doc comment")
+            || normalized.contains("docs for")
+            || normalized.contains("documented")
+        {
+            Self::DocComment
+        } else if normalized.contains("todo")
+            || normalized.contains("fixme")
+            || normalized.contains("unsafe block")
+            || normalized.contains("marker")
+        {
+            Self::CodeMarker
         } else if normalized.contains("symbol")
             || normalized.contains("struct ")
             || normalized.contains("function ")
@@ -69,7 +92,7 @@ impl RepositoryQueryClass {
     }
 
     /// Return all classes required by the frozen benchmark contract.
-    pub const fn all() -> [Self; 7] {
+    pub const fn all() -> [Self; 10] {
         [
             Self::ExactSymbol,
             Self::DefinitionReference,
@@ -78,6 +101,9 @@ impl RepositoryQueryClass {
             Self::TestAssociation,
             Self::StaleWorktree,
             Self::CorrectAbstention,
+            Self::DocComment,
+            Self::CodeMarker,
+            Self::ReferenceUsage,
         ]
     }
 }
@@ -302,4 +328,6 @@ pub enum RepositoryBenchmarkError {
         case_id: String,
         route: RepositoryRoute,
     },
+    #[error("repository code query failed: {0}")]
+    CodeQueryFailed(String),
 }

@@ -57,6 +57,72 @@ class BenchmarkEvidenceManifestTests(unittest.TestCase):
             errors = EVIDENCE.errors_for_report(path, "repository")
         self.assertTrue(any("measurement_status" in error for error in errors))
 
+    def test_build_latency_report_contract_rejects_bad_percentiles(self) -> None:
+        report = {
+            "measurement_kind": "repository_build_latency",
+            "evaluation_date": "2026-08-07",
+            "corpus_id": "corpus-v1",
+            "repository_revision": "commit-v1",
+            "index_generation": "index-v1",
+            "model_fingerprint": "model-v1",
+            "sizes": [
+                {
+                    "files": 50,
+                    "symbols": 120,
+                    "runs": 5,
+                    "p50_ms": 800,
+                    "p95_ms": "slow",
+                    "measurements_ms": [700, 800, 900],
+                }
+            ],
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "build-latency.json"
+            path.write_text(json.dumps(report), encoding="utf-8")
+            errors = EVIDENCE.errors_for_report(path, "build-latency")
+        self.assertTrue(any("p95_ms" in error for error in errors))
+
+    def test_build_latency_report_contract_rejects_empty_measurements(self) -> None:
+        report = {
+            "measurement_kind": "repository_build_latency",
+            "evaluation_date": "2026-08-07",
+            "corpus_id": "corpus-v1",
+            "repository_revision": "commit-v1",
+            "index_generation": "index-v1",
+            "model_fingerprint": "model-v1",
+            "sizes": [{"files": 50, "symbols": 120, "runs": 0, "p50_ms": 0, "p95_ms": 0}],
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "build-latency.json"
+            path.write_text(json.dumps(report), encoding="utf-8")
+            errors = EVIDENCE.errors_for_report(path, "build-latency")
+        self.assertTrue(any("measurements_ms" in error for error in errors))
+
+    def test_build_latency_report_contract_accepts_well_formed_report(self) -> None:
+        report = {
+            "measurement_kind": "repository_build_latency",
+            "evaluation_date": "2026-08-07",
+            "corpus_id": "corpus-v1",
+            "repository_revision": "commit-v1",
+            "index_generation": "index-v1",
+            "model_fingerprint": "model-v1",
+            "sizes": [
+                {
+                    "files": 50,
+                    "symbols": 120,
+                    "runs": 5,
+                    "p50_ms": 800,
+                    "p95_ms": 900,
+                    "measurements_ms": [700, 800, 800, 900, 950],
+                }
+            ],
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "build-latency.json"
+            path.write_text(json.dumps(report), encoding="utf-8")
+            errors = EVIDENCE.errors_for_report(path, "build-latency")
+        self.assertEqual(errors, [])
+
 
 if __name__ == "__main__":
     unittest.main()

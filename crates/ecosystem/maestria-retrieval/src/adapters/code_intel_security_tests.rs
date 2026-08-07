@@ -20,7 +20,7 @@ const SOURCE: &[u8] = b"fn compute() {\n    42\n}\n";
 const REPOSITORY_ROOT: &str = "/root/repo";
 const FILE_PATH: &str = "src/lib.rs";
 const SOURCE_PATH: &str = "/root/repo/src/lib.rs";
-const PARSER_GENERATION: &str = "cargo-rust-code-v3";
+const PARSER_GENERATION: &str = "repository-code-v4";
 
 #[derive(Clone, Copy)]
 enum FixtureMode {
@@ -94,6 +94,7 @@ fn symbol(content_hash: &ContentHash) -> Result<SymbolRecord, Box<dyn std::error
         is_bench: false,
         signature: None,
         imports: Vec::new(),
+        doc_comment: None,
         markers: SymbolMarkers::default(),
         provenance: RecordProvenance {
             repository_root: REPOSITORY_ROOT.to_string(),

@@ -1,6 +1,12 @@
+mod changed_tests;
 mod common;
 mod context_tests;
+mod doc_marker_tests;
 mod freshness_tests;
 mod incremental_tests;
 mod lib_tests;
+mod nested_workspace_tests;
+mod python_tests;
+mod references_tests;
 mod relation_tests;
+mod typescript_tests;

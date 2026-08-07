@@ -21,14 +21,19 @@ fn archive() -> Result<maestria_code_intel::RepositoryCodeIndex, Box<dyn std::er
             repository_root: "/root/repo".to_string(),
             commit_sha: maestria_code_intel::CommitSha::new("abc123"),
             worktree_identity: maestria_code_intel::WorktreeIdentity::new("wt-1"),
-            parser_generation: maestria_code_intel::ParserGeneration::new("cargo-rust-code-v3"),
+            parser_generation: maestria_code_intel::ParserGeneration::new("repository-code-v4"),
             package_count: 1,
             target_count: 1,
             symbol_count: 1,
             file_count: 1,
             packages: vec!["pkg".to_string()],
             excluded_patterns: Vec::new(),
+            workspace_warnings: Vec::new(),
             relation_summary: maestria_code_intel::CodeRelationSummary::default(),
+            changed: maestria_code_intel::RepositoryChangeDelta::from_parts(
+                std::collections::BTreeSet::new(),
+                &[],
+            ),
         },
         packages: Vec::new(),
         symbols: vec![symbol("rec-1")?],
@@ -53,6 +58,7 @@ fn symbol(record_id: &str) -> Result<SymbolRecord, Box<dyn std::error::Error>> {
         is_bench: false,
         signature: None,
         imports: Vec::new(),
+        doc_comment: None,
         markers: maestria_code_intel::SymbolMarkers::default(),
         provenance: maestria_code_intel::RecordProvenance {
             repository_root: "/root/repo".to_string(),
@@ -62,7 +68,7 @@ fn symbol(record_id: &str) -> Result<SymbolRecord, Box<dyn std::error::Error>> {
                 .to_string(),
             file_path: "src/lib.rs".to_string(),
             source_range: maestria_code_intel::SourceRange::new(10, 15)?,
-            parser_generation: maestria_code_intel::ParserGeneration::new("cargo-rust-code-v3"),
+            parser_generation: maestria_code_intel::ParserGeneration::new("repository-code-v4"),
         },
     })
 }
@@ -261,6 +267,7 @@ fn source_filter_rejects_disallowed_code_binding() -> Result<(), Box<dyn std::er
             regex_error: None,
         },
         records: vec![symbol("rec-1")?],
+        relations: Vec::new(),
     };
     let (candidates, _, _) = retriever.materialize_candidates(
         &request,

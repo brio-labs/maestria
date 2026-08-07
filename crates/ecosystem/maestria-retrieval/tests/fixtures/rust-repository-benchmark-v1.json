@@ -80,6 +80,42 @@
         "Abstain": null
       },
       "latency_budget_ms": 110
+    },
+    {
+      "case_id": "rust-doc-comment",
+      "class": "DocComment",
+      "query": "Which documented symbols contain `Build a fresh index` in this Rust repository?",
+      "expected": {
+        "Evidence": {
+          "exact_span_count": 2,
+          "evidence_chain_length": 1
+        }
+      },
+      "latency_budget_ms": 160
+    },
+    {
+      "case_id": "rust-code-marker",
+      "class": "CodeMarker",
+      "query": "Which symbols carry the `unsafe` marker in this repository?",
+      "expected": {
+        "Evidence": {
+          "exact_span_count": 2,
+          "evidence_chain_length": 1
+        }
+      },
+      "latency_budget_ms": 150
+    },
+    {
+      "case_id": "rust-reference-usage",
+      "class": "ReferenceUsage",
+      "query": "Where is `Repository::new` used in this Rust repository?",
+      "expected": {
+        "Evidence": {
+          "exact_span_count": 5,
+          "evidence_chain_length": 1
+        }
+      },
+      "latency_budget_ms": 200
     }
   ]
 }

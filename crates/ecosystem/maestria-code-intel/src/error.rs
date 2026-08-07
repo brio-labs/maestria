@@ -27,6 +27,8 @@ pub enum CodeIntelError {
     Integrity { context: String, details: String },
     /// Regex construction failed.
     Regex { pattern: String, details: String },
+    /// A query kind reached an execution path that does not support it.
+    UnsupportedQuery { details: String },
 }
 
 impl fmt::Display for CodeIntelError {
@@ -59,6 +61,9 @@ impl fmt::Display for CodeIntelError {
             }
             Self::Regex { pattern, details } => {
                 write!(f, "invalid regex `{pattern}`: {details}")
+            }
+            Self::UnsupportedQuery { details } => {
+                write!(f, "unsupported query: {details}")
             }
         }
     }

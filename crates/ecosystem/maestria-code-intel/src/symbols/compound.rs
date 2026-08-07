@@ -3,8 +3,8 @@ use crate::symbols::markers::{attr_bench, attr_test, declaration_markers};
 use crate::symbols::probe::FunctionProbe;
 use crate::symbols::relation::RelationCandidate;
 use crate::symbols::utils::{
-    dedupe_strings, flatten_use_tree, is_public_api, provenance, qualify, record_id,
-    resolve_type_name, signature_text, source_range, to_visibility,
+    dedupe_strings, doc_comment_from_attrs, flatten_use_tree, is_public_api, provenance, qualify,
+    record_id, resolve_type_name, signature_text, source_range, to_visibility,
 };
 use crate::{SymbolKind, SymbolRecord, Visibility};
 use syn::visit::Visit;
@@ -126,6 +126,7 @@ fn build_impl_record(
         is_bench: context.is_bench_target,
         signature: Some(signature),
         imports: Vec::new(),
+        doc_comment: doc_comment_from_attrs(&item.attrs),
         markers: context.file_markers.clone(),
         provenance: provenance(context, impl_range),
     };
@@ -181,6 +182,7 @@ fn extract_impl_method(
         is_bench: attr_bench(&method.attrs) || context.is_bench_target,
         signature: Some(signature_text(&method.sig)),
         imports: Vec::new(),
+        doc_comment: doc_comment_from_attrs(&method.attrs),
         markers,
         provenance: provenance(context, method_range),
     };
@@ -233,6 +235,7 @@ pub(crate) fn extract_imports(
             is_bench: attr_bench(&item.attrs) || context.is_bench_target,
             signature: Some(format!("use {name}")),
             imports: vec![name],
+            doc_comment: doc_comment_from_attrs(&item.attrs),
             markers: markers.clone(),
             provenance: provenance(context, range.clone()),
         });

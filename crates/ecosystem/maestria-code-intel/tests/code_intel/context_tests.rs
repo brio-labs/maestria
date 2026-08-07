@@ -30,6 +30,7 @@ fn make_symbol(id: &str, file_path: &str, line: usize) -> Result<SymbolRecord, B
         is_bench: false,
         signature: None,
         imports: Vec::new(),
+        doc_comment: None,
         markers: SymbolMarkers::default(),
         provenance: make_provenance(file_path, line)?,
     })
@@ -88,10 +89,15 @@ fn context_fixture() -> Result<RepositoryCodeIndex, Box<dyn Error>> {
             file_count: 1,
             packages: vec!["pkg".to_string()],
             excluded_patterns: Vec::new(),
+            workspace_warnings: Vec::new(),
             relation_summary: CodeRelationSummary {
                 total_relations: relations.len(),
                 source_statuses: Vec::new(),
             },
+            changed: maestria_code_intel::RepositoryChangeDelta::from_parts(
+                std::collections::BTreeSet::new(),
+                &[],
+            ),
         },
         packages: Vec::new(),
         symbols,

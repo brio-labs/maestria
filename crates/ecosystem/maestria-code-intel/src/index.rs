@@ -13,7 +13,7 @@ use crate::types::{
 
 /// Persisted filename for the repository code projection.
 pub const REPOSITORY_CODE_INDEX_FILENAME: &str = "repository-code-index.json";
-pub const REPOSITORY_CODE_PARSER_GENERATION: &str = "cargo-rust-code-v3";
+pub const REPOSITORY_CODE_PARSER_GENERATION: &str = "repository-code-v4";
 
 impl RepositoryCodeIndex {
     /// Save index to JSON without exposing a partially written prior index.
@@ -57,6 +57,11 @@ impl RepositoryCodeIndex {
     }
 
     /// Query extracted symbols through the caller's authorization policy.
+    ///
+    /// A `CodeQuery::Changed` query resolves its changed file set here: the
+    /// persisted build-time delta when `since` is `None`, or a live git diff
+    /// plus the current dirty set when `Some`. Live git failures surface as
+    /// the caller's error type (`E: From<CodeIntelError>`).
     pub fn query<E, F>(
         &self,
         query: CodeQuery,
@@ -65,8 +70,21 @@ impl RepositoryCodeIndex {
     ) -> Result<QueryResult, E>
     where
         F: FnMut(&crate::SymbolRecord) -> Result<bool, E>,
+        E: From<CodeIntelError>,
     {
-        symbols::query_symbols(&self.symbols, query, limit, &mut authorize)
+        let changed_files = match &query {
+            CodeQuery::Changed { since } => {
+                Some(crate::changes::changed_file_set(self, since.as_ref())?)
+            }
+            _ => None,
+        };
+        symbols::query_symbols(
+            &self.symbols,
+            query,
+            limit,
+            changed_files.as_ref(),
+            &mut authorize,
+        )
     }
 
     /// Whether stored parser generation matches `parser_generation`.

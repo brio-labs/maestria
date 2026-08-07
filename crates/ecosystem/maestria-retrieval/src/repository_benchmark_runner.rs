@@ -1,8 +1,11 @@
 use super::{
     RepositoryBenchmarkCase, RepositoryBenchmarkCorpus, RepositoryBenchmarkError,
-    RepositoryBenchmarkObservation, RepositoryExpectedOutcome, RepositoryRoute,
+    RepositoryBenchmarkObservation, RepositoryExpectedOutcome, RepositoryQueryClass,
+    RepositoryRoute,
 };
 use crate::MonotonicInstant;
+use maestria_code_intel::MarkerQueryKind;
+use std::str::FromStr;
 
 fn route_config() -> serde_json::Value {
     serde_json::Value::Object(serde_json::Map::from_iter([
@@ -25,9 +28,10 @@ fn route_config() -> serde_json::Value {
         ),
     ]))
 }
-use std::convert::Infallible;
 
-use maestria_code_intel::{CodeQuery, RepositoryCodeIndex, RepositoryFreshness};
+use maestria_code_intel::{
+    CodeQuery, ReferencesDirection, RepositoryCodeIndex, RepositoryFreshness,
+};
 
 /// Executes one frozen repository case against one route and reports measurements.
 pub trait RepositoryBenchmarkExecutor {
@@ -85,7 +89,7 @@ impl<'a> RepositoryCodeIndexExecutor<'a> {
             repository_revision: repository_revision.into(),
             evaluation_date: now,
             index_generation: maestria_code_intel::REPOSITORY_CODE_PARSER_GENERATION.to_string(),
-            model_fingerprint: "repository-code-index-v2".into(),
+            model_fingerprint: "repository-code-index-v3".into(),
             route_config: route_config(),
         }
     }
@@ -95,6 +99,43 @@ impl<'a> RepositoryCodeIndexExecutor<'a> {
             .split('`')
             .nth(1)
             .map_or_else(|| case.query.clone(), str::to_string)
+    }
+
+    /// The specialized route's query for a frozen case: symbol, doc, and
+    /// marker classes run through the symbol scan; `ReferenceUsage` runs
+    /// through the references path (inbound usage sites). The boolean marks
+    /// the references execution path.
+    fn specialized_query(
+        case: &RepositoryBenchmarkCase,
+        pattern: &str,
+    ) -> Result<(CodeQuery, bool), RepositoryBenchmarkError> {
+        Ok(match case.class {
+            RepositoryQueryClass::DocComment => (
+                CodeQuery::Doc {
+                    pattern: pattern.to_string(),
+                },
+                false,
+            ),
+            RepositoryQueryClass::CodeMarker => (
+                CodeQuery::Markers {
+                    marker_kind: parse_marker_kind(pattern)?,
+                },
+                false,
+            ),
+            RepositoryQueryClass::ReferenceUsage => (
+                CodeQuery::References {
+                    pattern: pattern.to_string(),
+                    direction: ReferencesDirection::Inbound,
+                },
+                true,
+            ),
+            _ => (
+                CodeQuery::Symbol {
+                    pattern: pattern.to_string(),
+                },
+                false,
+            ),
+        })
     }
 }
 
@@ -113,26 +154,52 @@ impl RepositoryBenchmarkExecutor for RepositoryCodeIndexExecutor<'_> {
             },
             RepositoryExpectedOutcome::Evidence { .. } => {
                 let pattern = Self::pattern(&case);
-                let query = match route {
-                    RepositoryRoute::PhaseC => CodeQuery::All,
-                    RepositoryRoute::CodeSpecialized => CodeQuery::Symbol {
-                        pattern: pattern.clone(),
-                    },
+                let (query, references_route) = match route {
+                    RepositoryRoute::PhaseC => (CodeQuery::All, false),
+                    RepositoryRoute::CodeSpecialized => Self::specialized_query(&case, &pattern)?,
                 };
-                let result = match self.index.query(query, 32, benchmark_record_authorization) {
+                let result = if references_route {
+                    self.index
+                        .references(query, 32, benchmark_record_authorization)
+                } else {
+                    self.index.query(query, 32, benchmark_record_authorization)
+                };
+                let result = match result {
                     Ok(result) => result,
-                    Err(error) => match error {},
+                    Err(error) => {
+                        return Err(RepositoryBenchmarkError::CodeQueryFailed(error.to_string()));
+                    }
                 };
-                (
-                    result
+                let exact_span_hits = match case.class {
+                    RepositoryQueryClass::DocComment => result
+                        .records
+                        .iter()
+                        .filter(|record| {
+                            record
+                                .doc_comment
+                                .as_deref()
+                                .is_some_and(|doc_comment| doc_comment.contains(&pattern))
+                        })
+                        .count(),
+                    RepositoryQueryClass::CodeMarker => {
+                        let kind = parse_marker_kind(&pattern)?;
+                        result
+                            .records
+                            .iter()
+                            .filter(|record| record.has_marker(kind))
+                            .count()
+                    }
+                    // ReferenceUsage reports the usage-site records the
+                    // references path resolved: inbound callers/importers
+                    // with evidence-backed relations.
+                    RepositoryQueryClass::ReferenceUsage => result.records.len(),
+                    _ => result
                         .records
                         .iter()
                         .filter(|record| record.qualified_name == pattern)
                         .count(),
-                    false,
-                    false,
-                    false,
-                )
+                };
+                (exact_span_hits, false, false, false)
             }
         };
         let outcome_correct = match case.expected {
@@ -175,9 +242,16 @@ impl RepositoryBenchmarkExecutor for RepositoryCodeIndexExecutor<'_> {
 
 fn benchmark_record_authorization(
     _: &maestria_code_intel::SymbolRecord,
-) -> Result<bool, Infallible> {
+) -> Result<bool, maestria_code_intel::CodeIntelError> {
     // Frozen benchmark records measure route quality and never cross a serving boundary.
     Ok(true)
+}
+
+/// Parse the backticked marker kind a frozen `CodeMarker` case carries
+/// (`todo`, `fixme`, `hack`, or `unsafe`, case-insensitive).
+fn parse_marker_kind(pattern: &str) -> Result<MarkerQueryKind, RepositoryBenchmarkError> {
+    MarkerQueryKind::from_str(pattern)
+        .map_err(|error| RepositoryBenchmarkError::CodeQueryFailed(error.to_string()))
 }
 
 /// Execute every frozen case on both routes before comparison.

@@ -209,6 +209,32 @@ async fn dispatch_search(
                 CodeSearchCommands::Regex { pattern } => {
                     maestria_code_intel::CodeQuery::Regex { pattern }
                 }
+                CodeSearchCommands::Doc { pattern } => {
+                    maestria_code_intel::CodeQuery::Doc { pattern }
+                }
+                CodeSearchCommands::Markers { kind } => {
+                    let marker_kind = kind
+                        .parse::<maestria_code_intel::MarkerQueryKind>()
+                        .map_err(|error| anyhow!("invalid marker kind {kind:?}: {error}"))?;
+                    maestria_code_intel::CodeQuery::Markers { marker_kind }
+                }
+                CodeSearchCommands::Changed { since } => {
+                    return commands::code_intel::run_changed(instance_dir, since, limit);
+                }
+                CodeSearchCommands::References { pattern, direction } => {
+                    let direction = match direction {
+                        Some(raw) => raw
+                            .parse::<maestria_code_intel::ReferencesDirection>()
+                            .map_err(|error| anyhow!("invalid references direction: {error}"))?,
+                        None => maestria_code_intel::ReferencesDirection::Inbound,
+                    };
+                    return commands::code_intel::run_references(
+                        instance_dir,
+                        pattern,
+                        direction,
+                        limit,
+                    );
+                }
             };
             commands::code_intel::run_search(instance_dir, query, limit)
         }

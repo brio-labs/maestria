@@ -272,6 +272,13 @@ maestria search -i .maestria-dev code symbol "SearchPlan"
 maestria search -i .maestria-dev code context "RetrievalEngine" --depth 2 --nodes 32
 ```
 
+Cargo workspaces, Python distributions (`pyproject.toml`/`setup.cfg`/`setup.py`), and
+web/TypeScript packages (`package.json`, workspaces discovered by walk) index into the
+same repository projection: Rust, Python, and TS/JS symbols (modules, functions, JSX
+components, classes, interfaces/types, imports) are searchable with the same
+`search code` commands, and web lockfiles participate in the worktree identity.
+
+
 PDF evidence preserves page/region provenance. Text/layout retrieval is the
 stable route. Visual-provider retrieval is optional and remains shadowed unless
 its frozen benchmark proves a quality and resource win; missing visual or OCR
@@ -418,6 +425,10 @@ Query the persisted repository code index built by `index repository`. All
 maestria search code symbol <pattern>
 maestria search code path <pattern>
 maestria search code regex <pattern>
+maestria search code doc <pattern>
+maestria search code markers <todo|fixme|hack|unsafe>
+maestria search code changed [--since <commit>]
+maestria search code references <pattern> [--direction inbound|outbound]
 maestria search code context <pattern> [--depth <n>] [--nodes <n>] [--direction both|forward|reverse]
 ```
 
@@ -426,15 +437,20 @@ maestria search code context <pattern> [--depth <n>] [--nodes <n>] [--direction 
 | `symbol` | Match repository symbols by name or qualified-name substring |
 | `path` | Match repository symbols by source path substring |
 | `regex` | Match repository symbols and paths with a regular expression |
+| `doc` | Match repository symbols whose doc comment contains the pattern (from `///`, `//!`, and `#[doc]` attributes) |
+| `markers` | Match repository symbols carrying a `todo`, `fixme`, `hack`, or `unsafe` source marker |
+| `changed` | Match symbols in files changed since a commit (persisted delta without `--since`, live git diff plus dirty set with it) |
+| `references` | Resolve cross-file symbol references from a seed (inbound callers/importers by default; `--direction outbound` for the symbols the seed uses) |
 | `context` | Traverse bounded repository relations from a symbol seed |
 
 | Flag | Description |
 |------|-------------|
 | `-i, --instance-dir` | Instance root directory |
 | `-l, --limit` | Max results (default 20) |
+| `--since` | Commit reference: full 40-hex SHA-1, short hex prefix, or `HEAD`-family ref (changed only) |
 | `--depth` | Context traversal depth (default 2, context only) |
 | `--nodes` | Max nodes in context response (default 64, context only) |
-| `--direction` | Traversal direction: `both`, `forward`, or `reverse` (default `both`, context only) |
+| `--direction` | References direction `inbound`/`outbound` (default `inbound`, references only; case-insensitive), or context traversal `both`/`forward`/`reverse` (default `both`, context only) |
 
 The code index is built from Cargo metadata and Rust source files. It is
 validated against the instance manifest read scope before indexing and

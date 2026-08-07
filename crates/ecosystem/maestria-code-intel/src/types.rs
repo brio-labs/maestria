@@ -1,5 +1,7 @@
 //! Shared serializable types for repository code intelligence records.
 
+use crate::delta::RepositoryChangeDelta;
+use crate::markers::{CodeMarker, MarkerQueryKind};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
@@ -317,12 +319,16 @@ pub struct SymbolMarkers {
     pub axum_routes: Vec<String>,
     /// SQLx query calls/macros detected in scope.
     pub sqlx_queries: Vec<String>,
+    /// Raw-text todo/fixme/hack comments attached to this symbol by source
+    /// range containment (see `symbols::comments`).
+    pub code_markers: Vec<CodeMarker>,
 }
 
 /// Typed symbol kinds emitted by this index.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SymbolKind {
     Module,
+    Class,
     Struct,
     Enum,
     Union,
@@ -404,8 +410,24 @@ pub struct SymbolRecord {
     pub is_bench: bool,
     pub signature: Option<String>,
     pub imports: Vec<String>,
+    /// Joined `#[doc]` attribute text (`///`, `//!`, or explicit
+    /// `#[doc = "…"]`), lines trimmed and `\n`-joined; `None` when the item
+    /// carries no doc attributes.
+    pub doc_comment: Option<String>,
     pub markers: SymbolMarkers,
     pub provenance: RecordProvenance,
+}
+
+/// Direction of a cross-file references query over persisted relations.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ReferencesDirection {
+    /// Relations whose target is a seed symbol: usage sites that call,
+    /// import, implement, or define the seed.
+    Inbound,
+    /// Relations whose source is a seed symbol: symbols the seed calls,
+    /// imports, implements, or defines.
+    Outbound,
 }
 
 /// Query description for in-memory filtering.
@@ -420,6 +442,23 @@ pub enum CodeQuery {
     Path { pattern: String },
     /// Match symbol, qualified symbol, or path by regex.
     Regex { pattern: String },
+    /// Match symbols whose doc comment contains the pattern (case-sensitive
+    /// substring over the joined `#[doc]` text).
+    Doc { pattern: String },
+    /// Match symbols carrying a todo/fixme/hack/unsafe marker.
+    Markers { marker_kind: MarkerQueryKind },
+    /// Symbols in files that changed since `since`: the persisted build-time
+    /// delta when `since` is `None`, or a live git diff plus the current
+    /// dirty set when `Some`.
+    Changed { since: Option<CommitSha> },
+    /// Cross-file symbol references: symbols whose name or qualified name
+    /// contains `pattern` are the seed; `direction` selects the relations
+    /// that flow into (inbound usage sites) or out of (outbound targets)
+    /// the seed.
+    References {
+        pattern: String,
+        direction: ReferencesDirection,
+    },
 }
 
 /// Query summary.
@@ -441,6 +480,10 @@ pub struct QuerySummary {
 pub struct QueryResult {
     pub summary: QuerySummary,
     pub records: Vec<SymbolRecord>,
+    /// Relations matched by the query. Symbol queries leave this empty;
+    /// `CodeQuery::References` fills it with the evidence-bearing edges
+    /// whose endpoints are the returned records.
+    pub relations: Vec<CodeRelationRecord>,
 }
 
 /// Top-level index summary.
@@ -457,9 +500,18 @@ pub struct CodeIndexSummary {
     pub packages: Vec<String>,
     /// Privacy exclusions applied to source identity and extraction.
     pub excluded_patterns: Vec<String>,
+    /// Per-workspace discovery degradations (a nested manifest that failed
+    /// `cargo metadata` was skipped). Required on every persisted index;
+    /// indexes without it fail to load and are rebuilt from scratch.
+    pub workspace_warnings: Vec<String>,
     /// Relation extraction status and summary.
     #[serde(default)]
     pub relation_summary: CodeRelationSummary,
+    /// Files and symbols changed since the build-time baseline (porcelain
+    /// dirty set plus the git diff between the replaced index's commit and
+    /// HEAD). Required on every persisted index; indexes persisted without
+    /// it fail to load and rebuild from scratch.
+    pub changed: RepositoryChangeDelta,
 }
 
 /// Serializable persisted index container.

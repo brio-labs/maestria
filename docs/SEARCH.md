@@ -317,9 +317,30 @@ Visual activation is benchmark-gated by frozen `Text`, `Table`, `Chart`, `Figure
 ### Repository Code Intelligence
 
 The deterministic repository lane is a persisted projection, not an embedding fallback.
-`maestria index repository <path>` records Cargo workspace packages, targets, features,
-dependencies, and Rust symbols. Each symbol carries repository root, commit SHA, worktree
-identity, source path/range, and parser generation.
+`maestria index repository <path>` discovers every Cargo workspace under the repository
+root with a bounded walk (skipping `.git`, `target/`, hidden directories, and
+privacy-excluded paths) and records each workspace's packages, targets, features,
+dependencies, and Rust symbols into one repository-wide index. Python repositories
+(PEP 621 `pyproject.toml`, `setup.cfg`, or `setup.py`) are discovered with the same
+walk: each distribution becomes a package whose targets are its top-level packages
+and modules, and Python classes, functions, methods, imports, and calls are extracted
+with a deterministic tokenizer (no execution, no installation). Web/TypeScript
+repositories are discovered by walking every `package.json` (skipping `node_modules`,
+`dist/`, hidden directories, and privacy-excluded paths): each package's targets are
+its `src/` walk, its entry points (`main`/`module`/`exports` string leaves), and its
+`tests`/`e2e`/`benchmarks` directories. `workspaces` globs are not resolved — the
+walk finds member manifests and packages are deduplicated by manifest path — and
+lockfiles (`package-lock.json`, `yarn.lock`, `pnpm-lock.yaml`) participate in the
+worktree identity but are never parsed. TypeScript/JavaScript symbols are extracted
+with a deterministic tokenizer (no `tsc`, no bundler, no dependency install): modules,
+functions (including arrow JSX components — a module-level arrow `const` whose body
+contains a JSX marker `<` + letter or `<>` becomes a `Function`), classes with
+methods, interfaces and `type` aliases (both `TypeAlias`), `const`/`let`/`var`
+bindings, and imports. `export` is the public-API signal; `*.test.ts(x)`/`*.spec.ts(x)`
+and `__tests__`/`tests`/`e2e` paths are flagged `is_test`. Relative imports resolve to
+target module paths deterministically; bare package specifiers are not resolvable
+offline and produce no relation. Each symbol carries repository root, commit SHA,
+worktree identity, source path/range, and parser generation.
 
 Exact queries remain available without neural indexes:
 
@@ -327,7 +348,63 @@ Exact queries remain available without neural indexes:
 maestria search code symbol "RetrievalEngine"
 maestria search code path "crates/ecosystem/maestria-retrieval"
 maestria search code regex "impl .*CandidateRetriever"
+maestria search code doc "Build a fresh index"
+maestria search code markers todo
+maestria search code markers unsafe
+maestria search code changed
+maestria search code changed --since HEAD~1
 ```
+
+`search code doc <pattern>` matches symbols whose doc comment contains the
+pattern as a case-sensitive substring. Doc text comes from `#[doc]`
+attributes — `///` lines, `//!` file/module docs, and explicit
+`#[doc = "…"]` — joined and trimmed deterministically from the AST, never
+from a model. File-level `//!` docs attach to the file's root module symbol.
+
+`search code markers <kind>` matches symbols carrying a source marker, where
+`kind` is one of `todo`, `fixme`, `hack`, or `unsafe` (case-insensitive;
+anything else is a parse error). todo/fixme/hack markers come from a
+deterministic raw-text comment scan (strings and char literals are skipped);
+each marker attaches to the innermost symbol whose source range contains the
+comment, with an orphan comment attaching to the file's root module symbol.
+Markers carry validated one-based inclusive source ranges and are never
+LLM-derived. `unsafe` matches `UnsafeBlock` symbols and unsafe-bearing
+declarations instead of comment markers.
+
+`search code changed` returns symbols in files that changed since the
+indexed baseline (the persisted delta), and `--since <commit>` computes the
+change set live: `git diff --name-only <commit> HEAD` plus the current
+porcelain dirty set. `--since` accepts a full 40-hex SHA-1, a short hex
+prefix, or a `HEAD`-family reference (`HEAD`, `HEAD~2`, `HEAD^`); anything
+else is rejected before any git call. Like every code query, a stale index
+fails closed with the freshness message before current-state claims are
+allowed.
+
+`search code references <symbol>` resolves where a symbol is used by
+traversing the persisted relations directly instead of re-resolving source:
+
+```bash
+maestria search code references "Repository::new"
+maestria search code references "Repository::new" --direction inbound
+maestria search code references "Repository::new" --direction outbound
+```
+
+The seed is every indexed symbol whose name or qualified name contains the
+pattern (the same substring semantics as `search code symbol`);
+`--direction inbound` (the default) returns the usage sites — the source
+symbols of relations whose target is a seed, i.e. callers, importers,
+implementors, and defining modules — while `--direction outbound` returns
+the targets of relations whose source is a seed, i.e. the symbols the seed
+calls, imports, implements, or defines. The direction value is
+case-insensitive; anything else is a parse error. Results carry the matched evidence-backed relations (kind,
+confidence, and source/target spans and provenance) alongside the deduped
+records, are ordered by file path then start line then qualified name, and
+`--limit` caps records exactly like the other code queries with truncation
+reflected in the query summary. Authorization applies to both seed symbols
+and returned usage sites; unauthorized endpoints are skipped, never errors.
+References always reflect the indexed state: the relation set is derived on
+every rebuild, and a stale index fails closed with the same freshness
+message as every other code query.
 
 Bounded repository context can expand exact/lexical seeds through typed relations:
 
@@ -349,23 +426,43 @@ and tests are separate governed effects and must return their own evidence.
 `maestria index repository <path>` reports its build mode: `mode=full` (from scratch),
 `mode=incremental` (only files whose extraction inputs changed are re-parsed, and the
 result is exactly equivalent to a full rebuild at the same repository state), or
-`mode=noop` (index already current; nothing written). Worktree identity is derived from
+`mode=noop` (index already current; nothing written). The summary it prints includes a
+`changed` section (`changed_files=N changed_symbols=M` plus the persisted JSON delta):
+the porcelain dirty set (staged plus worktree edits) unioned with
+`git diff --name-only <baseline> HEAD`, where the baseline is the commit of the
+replaced index for incremental rebuilds and the empty set for from-scratch full
+builds. Both porcelain status and the name-only diff are git metadata calls — no file
+contents are read to compute the delta, so a clean worktree costs the same as before.
+`changed.symbols` are the record ids of indexed symbols whose file is in the changed
+set, ordered by file then qualified name. Worktree identity is derived from
 git without content reads when the worktree is clean (index blob map plus porcelain
-status); dirty, untracked, and ignored files are content-hashed. New cargo
+status); dirty, untracked, and ignored files are content-hashed. Every discovered
+manifest (and its `Cargo.lock`) participates in the worktree identity, so editing a
+nested manifest invalidates the index like any other source change. New cargo
 auto-discovery targets and manifest changes fall back to a full rebuild. Sources are
 registered as canonical artifacts through the kernel pipeline, so code queries authorize
 symbols against durable, blob-verified evidence; files the kernel refuses to index
-(secret-bearing content) are skipped by authorization rather than erroring. A
-repository without a root `Cargo.toml` (Python, web, or other non-Rust code) indexes to
-a valid, fresh empty index: `mode=full` with zero symbols, no matches from code queries,
-and no-op rebuilds on subsequent runs; a manifest that exists but fails `cargo metadata`
-is a typed error.
+(secret-bearing content) are skipped by authorization rather than erroring.
 
-Repository-code promotion is governed by the frozen `rust-repository-frozen-v1`
-benchmark in `maestria-retrieval`. It compares the Phase C route with the
-code-specialized route for exact-span recall, evidence-chain accuracy, p95
-latency, freshness errors, outcome accuracy, abstention accuracy, peak memory,
-privacy violations, security violations, and energy across seven query classes:
+Multiple workspace roots share one repository index: member manifests that resolve to an
+already-indexed workspace are deduplicated, and packages are deduplicated by package id.
+A repository without any supported manifest (neither `Cargo.toml`, a Python manifest, nor
+a `package.json`) indexes to a valid, fresh empty index: `mode=full` with zero symbols,
+no matches from code queries, and no-op rebuilds on subsequent runs. A root `Cargo.toml`
+that exists but fails `cargo metadata` is a typed error, as is a root `pyproject.toml`
+that fails to parse and a root `package.json` that fails to parse. A NESTED manifest that
+fails does not kill the index: the broken workspace, distribution, or package is skipped,
+the healthy ones are still indexed, and the degradation is surfaced as a
+`workspace_warnings` entry in the summary JSON plus a `warning:` line on stderr — never
+silently. Web new-file auto-targeting covers `src/` and `tests`/`e2e`/`benchmarks` under
+a package root; new web sources elsewhere need a manifest change to be discovered.
+
+Repository-code promotion is governed by the frozen `rust-repository-frozen-v1`,
+`python-repository-frozen-v1`, and `web-repository-frozen-v1` benchmarks in
+`maestria-retrieval`. They compare the
+Phase C route with the code-specialized route for exact-span recall, evidence-chain
+accuracy, p95 latency, freshness errors, outcome accuracy, abstention accuracy, peak
+memory, privacy violations, security violations, and energy across seven query classes:
 exact symbol, definition/reference, issue-to-file, multi-hop dependency, test
 association, stale worktree, and correct abstention.
 Specialized routing is shadowed by default. A promotion record may activate it
@@ -377,6 +474,29 @@ The daemon and CLI constructors default to shadow mode; an operator may supply t
 typed promotion record returned by the benchmark comparison to the explicit
 repository-policy runtime constructor. No persisted promotion file is trusted
 automatically, so an absent or unverifiable promotion remains on Phase C.
+
+### Build latency
+
+`index repository` registers each symbol-bearing source as a canonical kernel
+artifact through a bounded submit-ahead window: at most 4 artifacts are in
+flight (submitted but not yet awaited) at any time, and waits for the
+terminal indexed state are serialized oldest-first. The window is sized
+inside the runtime's effect-semaphore headroom (16 slots) so a mid-size
+repository never floods the input loop; it is a named constant
+(`REGISTRATION_IN_FLIGHT`) in `crates/apps/maestria-cli/src/commands/
+code_intel_sources.rs` and must not be raised without fresh measurements of
+the runtime pipeline. Per-artifact runtime cost is dominated by the
+full-text indexing effect (tantivy commit per artifact across cards, lexical
+cards, chunks, and lexical chunks); commit batching in the runtime is
+intentionally out of scope until it is proven safe with the daemon e2e.
+
+Build latency is measured by `repository_build_latency_tests` in
+`maestria-retrieval`: it generates fixture workspaces (50 and 200
+symbol-bearing files), times cold full builds of the extraction pipeline
+over several runs, and writes p50/p95 latency to
+`target/benchmark-reports/repository-build-latency.json`, which the
+`benchmark_evidence_v1` ledger validates so latency regressions block
+promotion (Rule 44).
 
 ### Fusion and Ranking
 

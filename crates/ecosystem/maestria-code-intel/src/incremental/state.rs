@@ -1,6 +1,7 @@
 //! Working stores threaded through the incremental rebuild phases.
 
 use crate::identity::RepositoryIdentity;
+use crate::language::LanguageBackend;
 use crate::symbols::RelationCandidate;
 use crate::types::{FileContextRecord, RepositoryCodeIndex};
 use std::collections::{BTreeMap, BTreeSet};
@@ -15,6 +16,12 @@ pub(crate) struct RebuildInputs<'a> {
     pub(crate) parser_generation: &'a str,
     pub(crate) file_set: BTreeSet<String>,
     pub(crate) dirty: BTreeSet<String>,
+    /// Changed file set persisted into the rebuilt summary: porcelain dirty
+    /// set plus the diff between the replaced index's commit and HEAD.
+    pub(crate) delta_files: BTreeSet<String>,
+    /// Active language backends used to dispatch per-file re-extraction,
+    /// subtree derivation, and the new-file check.
+    pub(crate) backends: Vec<Box<dyn LanguageBackend>>,
 }
 
 /// Working stores threaded through the incremental rebuild phases.
@@ -74,11 +81,13 @@ pub(crate) fn rebuild_working_stores(
 
 impl RebuildState {
     /// Remove a file and every context key whose parent chain reaches it
-    /// from the working stores.
+    /// from the working stores. Every dropped key is marked processed so the
+    /// new-file check never re-arms a full rebuild for a reconciled drop.
     pub(crate) fn drop_file(&mut self, key: String) {
         if !self.dropped_files.insert(key.clone()) {
             return;
         }
+        self.processed.insert(key.clone());
         self.symbols_by_file.remove(&key);
         self.candidates_by_id_prefix.remove(&key);
         self.contexts.remove(&key);
@@ -103,6 +112,7 @@ impl RebuildState {
                 if !self.dropped_files.insert(child.clone()) {
                     continue;
                 }
+                self.processed.insert(child.clone());
                 self.symbols_by_file.remove(&child);
                 self.candidates_by_id_prefix.remove(&child);
                 self.contexts.remove(&child);
@@ -155,6 +165,12 @@ pub(crate) fn candidate_id_prefix(candidate: &RelationCandidate) -> String {
             source_record_id, ..
         } => source_record_id,
         RelationCandidate::Implements {
+            source_record_id, ..
+        } => source_record_id,
+        RelationCandidate::PythonCall {
+            source_record_id, ..
+        }
+        | RelationCandidate::TypeScriptCall {
             source_record_id, ..
         } => source_record_id,
     };

@@ -4,33 +4,36 @@ use crate::provenance::content_hash;
 use crate::identity::RepositoryIdentity;
 use crate::query::execute_query;
 use crate::{
-    CodeIntelError, CodeQuery, CodeRelationRecord, CodeRelationSummary, FileContextRecord,
-    PackageRecord, QueryResult, SymbolRecord,
+    CodeIntelError, CodeQuery, FileContextRecord, PackageRecord, QueryResult, SymbolRecord,
 };
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::Path;
 
 pub(crate) mod collect_rust;
+pub(crate) mod comments;
 mod compound;
 pub(crate) mod context;
 pub(crate) mod extract;
 pub(crate) mod markers;
 mod probe;
+pub(crate) mod python;
 pub(crate) mod relation;
+pub(crate) mod resolution;
 pub(crate) use relation::RelationCandidate;
 mod relation_paths;
 mod trait_methods;
-mod utils;
+pub(crate) mod utils;
 
 /// Everything extracted from repository sources in one pass, including the
 /// per-file contexts and relation candidates the incremental rebuild needs.
+/// Relations are not resolved here: the builder and the incremental assembler
+/// resolve the merged candidate set so the deterministic global ordering
+/// matches across full and incremental builds.
 pub(crate) struct SymbolExtraction {
     pub symbols: Vec<SymbolRecord>,
     pub candidates: Vec<relation::RelationCandidate>,
     pub file_contexts: BTreeMap<String, FileContextRecord>,
-    pub relations: Vec<CodeRelationRecord>,
-    pub relation_summary: CodeRelationSummary,
 }
 
 /// Extract symbols from all workspace targets.
@@ -79,14 +82,10 @@ pub(crate) fn extract_symbols(
         }
     }
 
-    let relations = relation::resolve_relations(parser_generation, &symbols, &relation_candidates);
-    let relation_summary = relation::relation_status_summary(relations.len());
     Ok(SymbolExtraction {
         symbols,
         candidates: relation_candidates,
         file_contexts,
-        relations,
-        relation_summary,
     })
 }
 
@@ -256,15 +255,17 @@ pub(crate) fn derive_subtree_contexts(
     )
 }
 
-/// Query extracted symbols.
+/// Query extracted symbols. `changed_files` is the changed file set for
+/// `CodeQuery::Changed`; other queries ignore it.
 pub(crate) fn query_symbols<E, F>(
     symbols: &[SymbolRecord],
     query: CodeQuery,
     limit: usize,
+    changed_files: Option<&std::collections::BTreeSet<String>>,
     authorize: &mut F,
 ) -> Result<QueryResult, E>
 where
     F: FnMut(&SymbolRecord) -> Result<bool, E>,
 {
-    execute_query(symbols, query, limit, authorize)
+    execute_query(symbols, query, limit, changed_files, authorize)
 }

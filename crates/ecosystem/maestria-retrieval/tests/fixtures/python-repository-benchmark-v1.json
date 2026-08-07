@@ -1,0 +1,115 @@
+{
+  "schema_version": 1,
+  "corpus_id": "python-repository-frozen-v1",
+  "repository_revision": "python-repository-frozen-v1-fixture",
+  "cases": [
+    {
+      "case_id": "python-exact-symbol",
+      "class": "ExactSymbol",
+      "query": "Which exact symbol named `wishlist.items.Item` is defined in this Python repository?",
+      "expected": {
+        "Evidence": {
+          "exact_span_count": 1,
+          "evidence_chain_length": 2
+        }
+      },
+      "latency_budget_ms": 250
+    },
+    {
+      "case_id": "python-definition-reference",
+      "class": "DefinitionReference",
+      "query": "Show the definition and references of `wishlist.orders.create_order` in this Python code?",
+      "expected": {
+        "Evidence": {
+          "exact_span_count": 1,
+          "evidence_chain_length": 2
+        }
+      },
+      "latency_budget_ms": 190
+    },
+    {
+      "case_id": "python-issue-to-file",
+      "class": "IssueToFile",
+      "query": "Which file should I edit for issue #184 about `wishlist.pricing.compute_discount`?",
+      "expected": {
+        "Evidence": {
+          "exact_span_count": 1,
+          "evidence_chain_length": 1
+        }
+      },
+      "latency_budget_ms": 180
+    },
+    {
+      "case_id": "python-multi-hop-dependency",
+      "class": "MultiHopDependency",
+      "query": "What dependency chain leads from `wishlist.orders.create_order` to `wishlist.items.Item`?",
+      "expected": {
+        "Evidence": {
+          "exact_span_count": 1,
+          "evidence_chain_length": 2
+        }
+      },
+      "latency_budget_ms": 220
+    },
+    {
+      "case_id": "python-test-association",
+      "class": "TestAssociation",
+      "query": "Which Python tests cover `wishlist.items.Item` and why are they relevant?",
+      "expected": {
+        "Evidence": {
+          "exact_span_count": 1,
+          "evidence_chain_length": 1
+        }
+      },
+      "latency_budget_ms": 150
+    },
+    {
+      "case_id": "python-stale-worktree",
+      "class": "StaleWorktree",
+      "query": "Has the worktree become stale compared to the latest repository head?",
+      "expected": {
+        "Stale": null
+      },
+      "latency_budget_ms": 120
+    },
+    {
+      "case_id": "python-correct-abstention",
+      "class": "CorrectAbstention",
+      "query": "I don't know whether this repository can answer questions about architecture outside its scope.",
+      "expected": {
+        "Abstain": null
+      },
+      "latency_budget_ms": 110
+    },
+    {
+      "case_id": "python-doc-comment",
+      "class": "DocComment",
+      "query": "Which documented symbol carries the doc comment `Item model` in this Python repository?",
+      "expected": {
+        "Abstain": null
+      },
+      "latency_budget_ms": 120
+    },
+    {
+      "case_id": "python-code-marker",
+      "class": "CodeMarker",
+      "query": "Which symbol in this Python repository carries a `todo` marker?",
+      "expected": {
+        "Abstain": null
+      },
+      "latency_budget_ms": 120
+    },
+    {
+      "case_id": "python-reference-usage",
+      "class": "ReferenceUsage",
+      "query": "Where is `wishlist.items.Item` used in this Python repository?",
+      "expected": {
+        "Evidence": {
+          "exact_span_count": 1,
+          "evidence_chain_length": 1
+        }
+      },
+      "latency_budget_ms": 180
+    }
+  ]
+}

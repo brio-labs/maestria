@@ -25,7 +25,7 @@
   },
   "milestones": [
     {
-      "milestone": "v0.4 \u2014 Deterministic Search Baseline",
+      "milestone": "v0.4 — Deterministic Search Baseline",
       "release_stage": "implementation-complete",
       "data_fidelity": "mixed",
       "corpus": {
@@ -38,7 +38,7 @@
           "docs/PHILOSOPHY.md",
           "crates/ecosystem/maestria-retrieval/tests/fixtures/golden-v3.json"
         ],
-        "source_hash": "624745e2c38240d2337a5b21d2e5b9f6a7fd82821545aa49e1dd7eba93e0dd8d"
+        "source_hash": "c2b8fab8f75f3013eda715897b4ad39f8c03d3d68eed52c61e63820d8f3c3811"
       },
       "fingerprints": {
         "corpus_snapshot": "maestria-document-snapshot-v1",
@@ -82,7 +82,7 @@
       ]
     },
     {
-      "milestone": "v0.5 \u2014 Evaluated Hybrid Retrieval",
+      "milestone": "v0.5 — Evaluated Hybrid Retrieval",
       "release_stage": "implementation-complete",
       "data_fidelity": "mixed",
       "corpus": {
@@ -95,7 +95,7 @@
           "docs/PHILOSOPHY.md",
           "crates/ecosystem/maestria-retrieval/tests/fixtures/golden-v3.json"
         ],
-        "source_hash": "624745e2c38240d2337a5b21d2e5b9f6a7fd82821545aa49e1dd7eba93e0dd8d"
+        "source_hash": "c2b8fab8f75f3013eda715897b4ad39f8c03d3d68eed52c61e63820d8f3c3811"
       },
       "fingerprints": {
         "corpus_snapshot": "maestria-document-snapshot-v1",
@@ -139,7 +139,7 @@
       ]
     },
     {
-      "milestone": "v0.7 \u2014 Repository Intelligence",
+      "milestone": "v0.7 — Repository Intelligence",
       "release_stage": "implementation-complete",
       "data_fidelity": "real",
       "corpus": {
@@ -150,12 +150,12 @@
           "crates/ecosystem/maestria-retrieval/tests/fixtures/rust-repository-benchmark-v1.json",
           "crates/ecosystem/maestria-retrieval/src/repository_benchmark_runner.rs"
         ],
-        "source_hash": "1c3db2f8b35d6b1e39c6aebca1740ff72f23cec9fc9bdba39b1df02b8589bf30"
+        "source_hash": "5c8b9a8e1f4b2663cb6793a051b93cc3e4f6324f04db7bc1d559ec6ecf6b05ff"
       },
       "fingerprints": {
         "corpus_snapshot": "rust-repository-frozen-v1",
-        "index_generation": "cargo-rust-code-v3",
-        "model_fingerprint": "repository-code-index-v2"
+        "index_generation": "repository-code-v4",
+        "model_fingerprint": "repository-code-index-v3"
       },
       "environment": {
         "os": "ubuntu-24.04",
@@ -169,7 +169,7 @@
         },
         "resource": {
           "status": "warning",
-          "reason": "code-intel adapter reports platform counters as unavailable"
+          "reason": "code-intel adapter reports platform counters as unavailable; repository build latency is measured by repository_build_latency_tests into repository-build-latency.json"
         },
         "security": {
           "status": "warning",
@@ -182,6 +182,10 @@
           "description": "Memory, disk, and energy counters are unavailable in the code-intel adapter and are not inferred."
         },
         {
+          "area": "resource",
+          "description": "Measured on this machine (2026-08-07, debug build, N=4 registration window + single-commit artifact indexing): 50-file fixture full build 10.8s wall, incremental rebuild 2.8s, 200-file fixture full build 64.9s wall with no runtime cancellation or stall. Extraction-only p50/p95 are in target/benchmark-reports/repository-build-latency.json."
+        },
+        {
           "area": "freshness",
           "description": "Stale worktree outcomes are explicit and cannot support current-worktree claims."
         }
@@ -190,11 +194,15 @@
         {
           "kind": "repository",
           "path": "target/benchmark-reports/repository-real.json"
+        },
+        {
+          "kind": "build-latency",
+          "path": "target/benchmark-reports/repository-build-latency.json"
         }
       ]
     },
     {
-      "milestone": "v0.8 \u2014 Visual Document Retrieval",
+      "milestone": "v0.8 — Visual Document Retrieval",
       "release_stage": "implementation-complete",
       "data_fidelity": "mixed",
       "corpus": {
@@ -251,6 +259,188 @@
         {
           "kind": "visual",
           "path": "target/benchmark-reports/visual-provider-unavailable.json"
+        }
+      ]
+    },
+    {
+      "milestone": "v0.9 — Doc & Marker Search",
+      "release_stage": "implementation-complete",
+      "data_fidelity": "real",
+      "corpus": {
+        "id": "rust-repository-frozen-v1",
+        "snapshot": "sha256:af0a6dc77b5b27dfefff19c071d6b49817965652e9d7ab6942ab08e7d7d0783a",
+        "judgment_set": "rust-repository-benchmark-v1",
+        "source_paths": [
+          "crates/ecosystem/maestria-retrieval/tests/fixtures/rust-repository-benchmark-v1.json",
+          "crates/ecosystem/maestria-retrieval/src/repository_benchmark_runner.rs"
+        ],
+        "source_hash": "5c8b9a8e1f4b2663cb6793a051b93cc3e4f6324f04db7bc1d559ec6ecf6b05ff"
+      },
+      "fingerprints": {
+        "corpus_snapshot": "rust-repository-frozen-v1",
+        "index_generation": "repository-code-v4",
+        "model_fingerprint": "repository-code-index-v3"
+      },
+      "environment": {
+        "os": "ubuntu-24.04",
+        "rust_toolchain": "nightly-2026-06-15",
+        "cpu_arch": "x86_64"
+      },
+      "results": {
+        "quality": {
+          "status": "warning",
+          "reason": "doc-comment and code-marker query classes execute against the real repository index; promotion still requires benchmark comparison"
+        },
+        "resource": {
+          "status": "warning",
+          "reason": "code-intel adapter reports platform counters as unavailable"
+        },
+        "security": {
+          "status": "warning",
+          "reason": "code-intel adapter does not measure serving-boundary security counters"
+        }
+      },
+      "degradations": [
+        {
+          "area": "resource",
+          "description": "Memory, disk, and energy counters are unavailable in the code-intel adapter and are not inferred."
+        },
+        {
+          "area": "promotion",
+          "description": "Doc-comment and marker routes are benchmark-gated and are not promoted by implementation status."
+        }
+      ],
+      "reports": [
+        {
+          "kind": "repository",
+          "path": "target/benchmark-reports/repository-real.json"
+        }
+      ]
+    },
+    {
+      "milestone": "v1.0 — Python Repository Intelligence",
+      "release_stage": "implementation-complete",
+      "data_fidelity": "real",
+      "corpus": {
+        "id": "python-repository-frozen-v1",
+        "snapshot": "sha256:1751c9729ece6fa19f7c355e629ea56b0d80a6fcbe880df83a02b96c1d313b71",
+        "judgment_set": "python-repository-benchmark-v1",
+        "source_paths": [
+          "crates/ecosystem/maestria-retrieval/tests/fixtures/python-repository-v1/pyproject.toml",
+          "crates/ecosystem/maestria-retrieval/tests/fixtures/python-repository-v1/README.md",
+          "crates/ecosystem/maestria-retrieval/tests/fixtures/python-repository-v1/src/wishlist/__init__.py",
+          "crates/ecosystem/maestria-retrieval/tests/fixtures/python-repository-v1/src/wishlist/items.py",
+          "crates/ecosystem/maestria-retrieval/tests/fixtures/python-repository-v1/src/wishlist/orders.py",
+          "crates/ecosystem/maestria-retrieval/tests/fixtures/python-repository-v1/src/wishlist/pricing.py",
+          "crates/ecosystem/maestria-retrieval/tests/fixtures/python-repository-v1/tests/test_items.py",
+          "crates/ecosystem/maestria-retrieval/tests/fixtures/python-repository-v1/tests/test_orders.py",
+          "crates/ecosystem/maestria-retrieval/tests/fixtures/python-repository-benchmark-v1.json",
+          "crates/ecosystem/maestria-retrieval/tests/python_repository_benchmark_tests.rs"
+        ],
+        "source_hash": "7ba5c6406fe8b53f8f9f79d850cfef6a48771d1d24dbb2d81a57bbda7b94eadd"
+      },
+      "fingerprints": {
+        "corpus_snapshot": "python-repository-frozen-v1",
+        "index_generation": "repository-code-v4",
+        "model_fingerprint": "repository-code-index-v3"
+      },
+      "environment": {
+        "os": "ubuntu-24.04",
+        "rust_toolchain": "nightly-2026-06-15",
+        "cpu_arch": "x86_64"
+      },
+      "results": {
+        "quality": {
+          "status": "warning",
+          "reason": "real python repository observations are emitted; promotion still requires benchmark comparison"
+        },
+        "resource": {
+          "status": "warning",
+          "reason": "code-intel adapter reports platform counters as unavailable"
+        },
+        "security": {
+          "status": "warning",
+          "reason": "code-intel adapter does not measure serving-boundary security counters"
+        }
+      },
+      "degradations": [
+        {
+          "area": "resource",
+          "description": "Memory, disk, and energy counters are unavailable in the code-intel adapter and are not inferred."
+        },
+        {
+          "area": "freshness",
+          "description": "Stale worktree outcomes are explicit and cannot support current-worktree claims."
+        }
+      ],
+      "reports": [
+        {
+          "kind": "repository",
+          "path": "target/benchmark-reports/python-repository-real.json"
+        }
+      ]
+    },
+    {
+      "milestone": "v1.1 — Web Repository Intelligence",
+      "release_stage": "implementation-complete",
+      "data_fidelity": "real",
+      "corpus": {
+        "id": "web-repository-frozen-v1",
+        "snapshot": "sha256:f05e58be54cb48c6c43297141f776c59e451c26bb40232f25112fbad7dd85804",
+        "judgment_set": "web-repository-benchmark-v1",
+        "source_paths": [
+          "crates/ecosystem/maestria-retrieval/tests/fixtures/web-repository-v1/package.json",
+          "crates/ecosystem/maestria-retrieval/tests/fixtures/web-repository-v1/README.md",
+          "crates/ecosystem/maestria-retrieval/tests/fixtures/web-repository-v1/src/index.ts",
+          "crates/ecosystem/maestria-retrieval/tests/fixtures/web-repository-v1/src/components/Button.tsx",
+          "crates/ecosystem/maestria-retrieval/tests/fixtures/web-repository-v1/src/components/Card.tsx",
+          "crates/ecosystem/maestria-retrieval/tests/fixtures/web-repository-v1/src/models/Item.ts",
+          "crates/ecosystem/maestria-retrieval/tests/fixtures/web-repository-v1/src/utils/format.ts",
+          "crates/ecosystem/maestria-retrieval/tests/fixtures/web-repository-v1/src/types.ts",
+          "crates/ecosystem/maestria-retrieval/tests/fixtures/web-repository-v1/tests/button.test.ts",
+          "crates/ecosystem/maestria-retrieval/tests/fixtures/web-repository-benchmark-v1.json",
+          "crates/ecosystem/maestria-retrieval/tests/web_repository_benchmark_tests.rs"
+        ],
+        "source_hash": "86e2852fe9c1c0d99cfe1e22a3937b6038361d998df6d8c30478ba71c03e861b"
+      },
+      "fingerprints": {
+        "corpus_snapshot": "web-repository-frozen-v1",
+        "index_generation": "repository-code-v4",
+        "model_fingerprint": "repository-code-index-v3"
+      },
+      "environment": {
+        "os": "ubuntu-24.04",
+        "rust_toolchain": "nightly-2026-06-15",
+        "cpu_arch": "x86_64"
+      },
+      "results": {
+        "quality": {
+          "status": "warning",
+          "reason": "real web repository observations are emitted for every frozen query class; promotion still requires benchmark comparison"
+        },
+        "resource": {
+          "status": "warning",
+          "reason": "code-intel adapter reports platform counters as unavailable"
+        },
+        "security": {
+          "status": "warning",
+          "reason": "code-intel adapter does not measure serving-boundary security counters"
+        }
+      },
+      "degradations": [
+        {
+          "area": "resource",
+          "description": "Memory, disk, and energy counters are unavailable in the code-intel adapter and are not inferred."
+        },
+        {
+          "area": "evidence",
+          "description": "Doc-comment and code-marker classes abstain because the TypeScript extractor does not emit doc comments or source markers (honest expected-Abstain cases)."
+        }
+      ],
+      "reports": [
+        {
+          "kind": "repository",
+          "path": "target/benchmark-reports/web-repository-real.json"
         }
       ]
     }
