@@ -1,5 +1,7 @@
 use std::collections::BTreeMap;
 
+use serde::{Deserialize, Serialize};
+
 use crate::{
     CodeRelationKind, CodeRelationRecord, CodeRelationSummary, RelationSourceAvailability,
     RelationSourceKind, RelationSourceStatus, SymbolKind, SymbolRecord,
@@ -9,7 +11,7 @@ pub(crate) const AST_RELATION_CONFIDENCE_MILLI: u16 = 1000;
 pub(crate) const LSP_DEGRADED_REASON: &str =
     "rust-analyzer-backed relation extraction is unavailable in this build";
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) enum RelationCandidate {
     Defines {
         source_module_qualified: String,
@@ -55,7 +57,7 @@ pub(crate) fn relation_status_summary(total_relations: usize) -> CodeRelationSum
 pub(crate) fn resolve_relations(
     parser_generation: &str,
     symbols: &[SymbolRecord],
-    candidates: Vec<RelationCandidate>,
+    candidates: &[RelationCandidate],
 ) -> Vec<CodeRelationRecord> {
     let mut by_id = BTreeMap::<String, &SymbolRecord>::new();
     let mut by_qualified_name = BTreeMap::<String, Vec<&SymbolRecord>>::new();
@@ -77,7 +79,7 @@ pub(crate) fn resolve_relations(
         });
     }
     let mut relations = candidates
-        .into_iter()
+        .iter()
         .flat_map(|candidate| {
             resolve_candidate(parser_generation, &by_id, &by_qualified_name, candidate)
         })
@@ -91,17 +93,17 @@ fn resolve_candidate(
     parser_generation: &str,
     by_id: &BTreeMap<String, &SymbolRecord>,
     by_qualified_name: &BTreeMap<String, Vec<&SymbolRecord>>,
-    candidate: RelationCandidate,
+    candidate: &RelationCandidate,
 ) -> Vec<CodeRelationRecord> {
     match candidate {
         RelationCandidate::Defines {
             source_module_qualified,
             target_record_id,
         } => {
-            let target = by_id.get(&target_record_id).copied();
+            let target = by_id.get(target_record_id).copied();
             let source = target.and_then(|target| {
                 by_qualified_name
-                    .get(&source_module_qualified)
+                    .get(source_module_qualified)
                     .and_then(|matches| resolve_definition_source(matches, target))
             });
             relation_for(parser_generation, CodeRelationKind::Defines, source, target)
@@ -114,8 +116,8 @@ fn resolve_candidate(
         } => relation_for(
             parser_generation,
             CodeRelationKind::Imports,
-            by_id.get(&source_record_id).copied(),
-            resolve_target(by_qualified_name, &target_qualified, None, None),
+            by_id.get(source_record_id).copied(),
+            resolve_target(by_qualified_name, target_qualified, None, None),
         )
         .into_iter()
         .collect(),
@@ -126,15 +128,15 @@ fn resolve_candidate(
             target_path,
             self_receiver,
         } => {
-            let source = by_id.get(&source_record_id).copied();
-            let target = if self_receiver {
-                resolve_self_receiver_target(by_qualified_name, &source_qualified, &target_path)
+            let source = by_id.get(source_record_id).copied();
+            let target = if *self_receiver {
+                resolve_self_receiver_target(by_qualified_name, source_qualified, target_path)
             } else {
                 resolve_target(
                     by_qualified_name,
-                    &target_path,
-                    Some(&source_qualified),
-                    Some(&module_scope),
+                    target_path,
+                    Some(source_qualified),
+                    Some(module_scope),
                 )
             };
             let Some(call) =
@@ -162,8 +164,8 @@ fn resolve_candidate(
         } => relation_for(
             parser_generation,
             CodeRelationKind::Implements,
-            by_id.get(&source_record_id).copied(),
-            resolve_target(by_qualified_name, &target_qualified, None, None),
+            by_id.get(source_record_id).copied(),
+            resolve_target(by_qualified_name, target_qualified, None, None),
         )
         .into_iter()
         .collect(),

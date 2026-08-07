@@ -153,7 +153,9 @@ fn daemon_bin() -> Result<String, Box<dyn std::error::Error>> {
 fn wait_for_api_files(layout: &InstanceLayout) -> TestResult {
     let socket = layout.system_dir.join("daemon.sock");
     let token = layout.system_dir.join("daemon.token");
-    for _ in 0..200 {
+    // Daemon startup under parallel test runners (nextest with a cold
+    // sccache/cranelift toolchain) can exceed a 2s budget; poll up to 15s.
+    for _ in 0..1500 {
         if socket.exists() && token.exists() {
             return Ok(());
         }

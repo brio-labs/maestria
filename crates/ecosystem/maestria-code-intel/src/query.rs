@@ -43,14 +43,13 @@ where
     };
 
     let mut matched = 0;
-    let mut scanned = 0;
-    let mut scan_exhausted = false;
+    let mut scanned = 0usize;
     let mut selected: Vec<&SymbolRecord> = Vec::with_capacity(limit);
+    // Scan the full in-memory index: matching is substring work only, and
+    // the authorization callback fires solely for pattern matches, so a
+    // scan budget would hide symbols from later files for no cost saving.
+    // `limit` caps the returned records, not the scan.
     for symbol in symbols {
-        if scanned >= limit {
-            scan_exhausted = true;
-            break;
-        }
         scanned = scanned.saturating_add(1);
         if !matcher.matches(symbol) {
             continue;
@@ -72,7 +71,7 @@ where
             query,
             matched,
             returned: records.len(),
-            truncated: scan_exhausted || records.len() < matched,
+            truncated: records.len() < matched,
             scanned,
             limit,
             regex_error: None,

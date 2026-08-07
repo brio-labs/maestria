@@ -96,6 +96,7 @@ fn context_fixture() -> Result<RepositoryCodeIndex, Box<dyn Error>> {
         packages: Vec::new(),
         symbols,
         relations,
+        file_contexts: std::collections::BTreeMap::new(),
     })
 }
 

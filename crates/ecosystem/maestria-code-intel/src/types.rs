@@ -195,6 +195,21 @@ impl std::fmt::Display for ParserGeneration {
     }
 }
 
+/// Extraction context persisted per indexed source file (incremental rebuild input).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FileContextRecord {
+    pub package: String,
+    pub target: String,
+    pub is_test_target: bool,
+    pub is_bench_target: bool,
+    /// Module stack (module names joined) this file was extracted under.
+    pub stack: Vec<String>,
+    pub is_test: bool,
+    pub is_bench: bool,
+    /// Relative path of the file that declared this file via `mod`; `None` for target roots.
+    pub parent: Option<String>,
+}
+
 /// Repository identity attached to every persisted record.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RecordProvenance {
@@ -455,4 +470,8 @@ pub struct RepositoryCodeIndex {
     pub symbols: Vec<SymbolRecord>,
     #[serde(default)]
     pub relations: Vec<CodeRelationRecord>,
+    /// Per-file extraction contexts keyed by relative path. Required on
+    /// every persisted index; indexes without it fail to load and are
+    /// rebuilt from scratch.
+    pub file_contexts: BTreeMap<String, FileContextRecord>,
 }

@@ -8,6 +8,8 @@
 //! - `error`: typed indexing, persistence, and integrity errors.
 //! - `freshness`: repository snapshot freshness comparison.
 //! - `identity`: repository and worktree provenance discovery.
+//! - `incremental`: git-incremental index rebuild (assemble, candidates,
+//!   reconcile, and state submodules).
 //! - `metadata`: bounded Cargo workspace metadata extraction.
 //! - `provenance`: canonical per-file content hashing and hash validation.
 //! - `query`: bounded in-memory symbol query execution.
@@ -22,6 +24,7 @@ mod context_support;
 mod error;
 mod freshness;
 mod identity;
+mod incremental;
 mod metadata;
 mod provenance;
 mod query;
@@ -35,11 +38,14 @@ pub use error::CodeIntelError;
 pub use freshness::{RepositoryFreshness, RepositoryIdentitySnapshot};
 pub use types::{
     CodeIndexSummary, CodeQuery, CodeRelationKind, CodeRelationRecord, CodeRelationSummary,
-    CommitSha, DependencyRecord, PackageRecord, ParserGeneration, QueryResult, QuerySummary,
-    RecordProvenance, RelationSourceAvailability, RelationSourceKind, RelationSourceStatus,
-    RepositoryCodeIndex, SourceRange, SymbolKind, SymbolMarkers, SymbolRecord, TargetRecord,
-    Visibility, WorktreeIdentity,
+    CommitSha, DependencyRecord, FileContextRecord, PackageRecord, ParserGeneration, QueryResult,
+    QuerySummary, RecordProvenance, RelationSourceAvailability, RelationSourceKind,
+    RelationSourceStatus, RepositoryCodeIndex, SourceRange, SymbolKind, SymbolMarkers,
+    SymbolRecord, TargetRecord, Visibility, WorktreeIdentity,
 };
 
 mod index;
+pub use incremental::{
+    REPOSITORY_CODE_CANDIDATES_FILENAME, RepositoryIndexBuildMode, build_or_update_repository_index,
+};
 pub use index::{REPOSITORY_CODE_INDEX_FILENAME, REPOSITORY_CODE_PARSER_GENERATION};
