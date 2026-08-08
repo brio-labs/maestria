@@ -133,14 +133,29 @@ sparse output). Verdict: **not evaluable and not budget-feasible**:
 The lexical lane itself is language-agnostic (tantivy's Unicode-aware default
 tokenizer: no stemming, no stopword language, accents preserved), so a
 non-English user already gets working exact-term retrieval today; the sparse
-lane being unpromoted means no English-model noise is injected. The principled
-multilingual path is therefore: (1) extend the frozen corpus with non-English
-cases and judged spans (the corpus format has no language restriction), and
-(2) evaluate a budget-fitting candidate — either a multilingual sparse
-checkpoint of SPLADE-class size (XLM-R-base-class, ~50-150 ms/text int8) when
-one with a clean license appears, or BGE-M3's *dense* output through the
-dense lane (the released, trained, multilingual artifact) under a
-re-justified judgment set (issue #427).
+lane being unpromoted means no English-model noise is injected. A dense
+embedding comparison was measured alongside BGE-M3 (2026-08-08), all in int8
+ONNX on the same machine (2-thread session, 6 parallel workers, 147-chunk
+corpus, 512-token texts):
+
+| Candidate | Size | Languages | License | Per-text int8 | Corpus re-encode | Budget |
+| --- | --- | --- | --- | --- | --- | --- |
+| SPLADE (pinned) | 110M | English | Apache-2.0 | 57 ms | ~4.2 s | fits (marginal) |
+| LFM2.5-Embedding-350M | 350M | 11 incl. French | LFM Open v1.0 (revenue-capped at $10M) | 637 ms | ~50.6 s | 10× over |
+| BGE-M3 | 560M | 100+ | MIT | 793 ms | ~65.8 s | 13× over |
+
+LFM2.5-Embedding-350M is the strongest multilingual profile per cost (350M,
+11 languages including French, best-in-class multilingual retrieval per its
+card, 3.3× faster than BGE-M3 fp32) and is the recommended dense-lane
+candidate for a French-speaking user — under its documented revenue-capped
+license and with the corpus extended by non-English judged cases. The frozen
+5 s lifecycle budget excludes every transformer encode lane of 350M+ params
+on this CPU class; the budget was authored for local index projections. The
+principled multilingual path is therefore: (1) extend the frozen corpus with
+non-English cases and judged spans (the corpus format has no language
+restriction), and (2) re-justify the lifecycle budget for encode-based lanes
+(issue #427), then pin LFM2.5-Embedding-350M in the dense lane (its trained
+sparse head, unlike BGE-M3's, is not needed — the dense lane is its target).
 
 ### 2.1.1. Frozen learned-sparse task corpus
 
