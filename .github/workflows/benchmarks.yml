@@ -47,6 +47,8 @@ jobs:
             retrieval:
               - ".github/workflows/benchmarks.yml"
               - "crates/ecosystem/maestria-retrieval/**"
+              - "crates/apps/maestria-daemon/**"
+              - "crates/ecosystem/maestria-sparse-local/**"
               - "scripts/benchmark_evidence.py"
               - "scripts/test_benchmark_evidence.py"
               - "tests/contracts/benchmark_evidence_v1.json"
@@ -96,6 +98,7 @@ jobs:
           cargo test -p maestria-retrieval --test python_repository_benchmark_tests -- --nocapture
           cargo test -p maestria-retrieval --test web_repository_benchmark_tests -- --nocapture
           cargo test -p maestria-retrieval --test visual_benchmark_tests -- --nocapture
+          cargo test -p maestria-daemon --test learned_sparse_benchmark -- --nocapture
       - name: Validate benchmark evidence ledger and generated reports
         if: matrix.changed == 'true' && matrix.name == 'retrieval'
         run: |

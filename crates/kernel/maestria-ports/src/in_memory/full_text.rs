@@ -22,6 +22,49 @@ impl crate::FullTextIndex for InMemoryFullTextIndex {
     fn supports_lexical_metadata(&self) -> bool {
         true
     }
+    fn delete_chunks(
+        &self,
+        chunks: &[(maestria_domain::ArtifactId, maestria_domain::ChunkId)],
+    ) -> Result<(), PortError> {
+        let mut guard = self.chunks.lock().map_err(|_| PortError::InternalContext {
+            context: "full-text chunk index lock poisoned",
+            source: "chunk index mutex is poisoned".to_string(),
+        })?;
+        let mut lexical_guard =
+            self.lexical_chunks
+                .lock()
+                .map_err(|_| PortError::InternalContext {
+                    context: "full-text lexical chunk index lock poisoned",
+                    source: "lexical chunk index mutex is poisoned".to_string(),
+                })?;
+        for (artifact_id, chunk_id) in chunks {
+            guard.retain(|existing| {
+                existing.artifact_id != *artifact_id || existing.chunk_id != *chunk_id
+            });
+            lexical_guard.retain(|existing| {
+                existing.artifact_id != *artifact_id || existing.chunk_id != *chunk_id
+            });
+        }
+        Ok(())
+    }
+
+    fn clear(&self) -> Result<(), PortError> {
+        let mut guard = self.chunks.lock().map_err(|_| PortError::InternalContext {
+            context: "full-text chunk index lock poisoned",
+            source: "chunk index mutex is poisoned".to_string(),
+        })?;
+        let mut lexical_guard =
+            self.lexical_chunks
+                .lock()
+                .map_err(|_| PortError::InternalContext {
+                    context: "full-text lexical chunk index lock poisoned",
+                    source: "lexical chunk index mutex is poisoned".to_string(),
+                })?;
+        guard.clear();
+        lexical_guard.clear();
+        Ok(())
+    }
+
     fn index_chunks(&self, chunks: Vec<IndexedChunk>) -> Result<(), PortError> {
         let mut guard = self.chunks.lock().map_err(|_| PortError::InternalContext {
             context: "full-text chunk index lock poisoned",

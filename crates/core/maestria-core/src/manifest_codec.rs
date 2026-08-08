@@ -1,10 +1,13 @@
+#[path = "manifest_codec_common.rs"]
+pub(super) mod common;
 #[path = "manifest_codec_visual.rs"]
 mod visual;
+pub(super) use common::{
+    parse_retention_policy, retention_policy_name, string_or_empty, validate_embedding_endpoint,
+    validate_ocr_endpoint,
+};
 use std::path::PathBuf;
 pub(super) use visual::parse_visual_config;
-
-use maestria_ports::RetentionPolicy;
-use url::Url;
 
 use crate::error::{CoreError, CoreResult};
 
@@ -41,6 +44,17 @@ pub(super) struct ManifestFields {
     visual_preprocessing_version: Option<String>,
     visual_remote_provider: Option<bool>,
     visual_retention_policy: Option<String>,
+    pub(crate) sparse_enabled: Option<bool>,
+    pub(crate) sparse_endpoint: Option<String>,
+    pub(crate) sparse_provider: Option<String>,
+    pub(crate) sparse_revision: Option<String>,
+    pub(crate) sparse_artifact_hash: Option<String>,
+    pub(crate) sparse_preprocessing_version: Option<String>,
+    pub(crate) sparse_model: Option<String>,
+    pub(crate) sparse_vocabulary_size: Option<u32>,
+    pub(crate) sparse_term_cap: Option<u32>,
+    pub(crate) sparse_remote_provider: Option<bool>,
+    pub(crate) sparse_retention_policy: Option<String>,
 }
 
 pub(super) fn parse_ocr_config(fields: &ManifestFields) -> CoreResult<Option<super::OcrConfig>> {
@@ -202,13 +216,6 @@ fn embedding_fingerprint_error() -> CoreError {
     }
 }
 
-fn string_or_empty(value: &Option<String>) -> String {
-    match value {
-        Some(value) => value.clone(),
-        None => String::new(),
-    }
-}
-
 pub(super) fn parse_manifest_fields(contents: &str) -> CoreResult<ManifestFields> {
     let mut fields = empty_manifest_fields();
     for line in contents
@@ -267,6 +274,17 @@ fn empty_manifest_fields() -> ManifestFields {
         visual_preprocessing_version: None,
         visual_remote_provider: None,
         visual_retention_policy: None,
+        sparse_enabled: None,
+        sparse_endpoint: None,
+        sparse_provider: None,
+        sparse_revision: None,
+        sparse_artifact_hash: None,
+        sparse_preprocessing_version: None,
+        sparse_model: None,
+        sparse_vocabulary_size: None,
+        sparse_term_cap: None,
+        sparse_remote_provider: None,
+        sparse_retention_policy: None,
     }
 }
 
@@ -318,6 +336,23 @@ fn parse_manifest_field(fields: &mut ManifestFields, key: &str, value: &str) -> 
         "visual_retention_policy" => {
             fields.visual_retention_policy = Some(value.to_string());
         }
+        "sparse_enabled" => fields.sparse_enabled = Some(parse_value(value, key)?),
+        "sparse_endpoint" => fields.sparse_endpoint = Some(value.to_string()),
+        "sparse_provider" => fields.sparse_provider = Some(value.to_string()),
+        "sparse_revision" => fields.sparse_revision = Some(value.to_string()),
+        "sparse_artifact_hash" => fields.sparse_artifact_hash = Some(value.to_string()),
+        "sparse_preprocessing_version" => {
+            fields.sparse_preprocessing_version = Some(value.to_string());
+        }
+        "sparse_model" => fields.sparse_model = Some(value.to_string()),
+        "sparse_vocabulary_size" => fields.sparse_vocabulary_size = Some(parse_value(value, key)?),
+        "sparse_term_cap" => fields.sparse_term_cap = Some(parse_value(value, key)?),
+        "sparse_remote_provider" => {
+            fields.sparse_remote_provider = Some(parse_value(value, key)?);
+        }
+        "sparse_retention_policy" => {
+            fields.sparse_retention_policy = Some(value.to_string());
+        }
         other => {
             return Err(CoreError::InvalidManifest {
                 key: other.to_string(),
@@ -336,59 +371,4 @@ where
         key: key.to_string(),
         reason: format!("invalid value: {value}"),
     })
-}
-
-pub(super) fn retention_policy_name(policy: &RetentionPolicy) -> &'static str {
-    match policy {
-        RetentionPolicy::NoRetention => "no_retention",
-        RetentionPolicy::ProviderDefined => "provider_defined",
-    }
-}
-
-fn parse_retention_policy(value: &str) -> CoreResult<RetentionPolicy> {
-    match value {
-        "no_retention" => Ok(RetentionPolicy::NoRetention),
-        "provider_defined" => Ok(RetentionPolicy::ProviderDefined),
-        _ => Err(CoreError::InvalidManifest {
-            key: "retention_policy".to_string(),
-            reason: format!("invalid value: {value}"),
-        }),
-    }
-}
-
-fn validate_embedding_endpoint(endpoint: &str) -> CoreResult<()> {
-    let url = Url::parse(endpoint).map_err(|error| CoreError::InvalidManifest {
-        key: "embedding_endpoint".to_string(),
-        reason: format!("invalid URL: {error}"),
-    })?;
-    let valid = url.scheme() == "http"
-        && matches!(url.host_str(), Some("127.0.0.1" | "::1" | "[::1]"))
-        && url.path() == "/v1/embeddings"
-        && url.query().is_none()
-        && url.fragment().is_none();
-    if !valid {
-        return Err(CoreError::InvalidManifest {
-            key: "embedding_endpoint".to_string(),
-            reason: "must be an http loopback /v1/embeddings URL".to_string(),
-        });
-    }
-    Ok(())
-}
-fn validate_ocr_endpoint(endpoint: &str) -> CoreResult<()> {
-    let url = Url::parse(endpoint).map_err(|error| CoreError::InvalidManifest {
-        key: "ocr_endpoint".to_string(),
-        reason: format!("invalid URL: {error}"),
-    })?;
-    let valid = url.scheme() == "http"
-        && matches!(url.host_str(), Some("127.0.0.1" | "::1" | "[::1]"))
-        && url.path() == "/v1/chat/completions"
-        && url.query().is_none()
-        && url.fragment().is_none();
-    if !valid {
-        return Err(CoreError::InvalidManifest {
-            key: "ocr_endpoint".to_string(),
-            reason: "must be an http loopback /v1/chat/completions URL".to_string(),
-        });
-    }
-    Ok(())
 }

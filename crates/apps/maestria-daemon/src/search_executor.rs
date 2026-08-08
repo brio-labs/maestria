@@ -35,7 +35,8 @@ use maestria_ports::{
 };
 use maestria_retrieval::adapters::VisualGenerationCapability;
 use maestria_retrieval::{
-    CandidateReranker, RepositoryExecutionPolicy, SearchPlannerContext, VisualExecutionPolicy,
+    CandidateReranker, CandidateRetriever, RepositoryExecutionPolicy, SearchPlannerContext,
+    VisualExecutionPolicy,
 };
 use maestria_storage_sqlite::SqliteStore;
 
@@ -53,6 +54,8 @@ pub(crate) struct SearchRuntimeParts {
     pub(crate) dense_generation: Option<IndexGenerationId>,
     pub(crate) repository_code_index: Option<Arc<RepositoryCodeIndex>>,
     pub(crate) repository_execution_policy: RepositoryExecutionPolicy,
+    pub(crate) learned_sparse_execution_policy: maestria_retrieval::LearnedSparseExecutionPolicy,
+    pub(crate) sparse_retriever: Option<Arc<dyn CandidateRetriever>>,
     pub(crate) corpus_snapshot: CorpusSnapshotId,
     pub(crate) scope_id: maestria_domain::ScopeId,
 }
@@ -85,6 +88,8 @@ pub struct SearchRuntime {
     pub(crate) repository_code_index: Option<Arc<RepositoryCodeIndex>>,
     pub(crate) repository_execution_policy: RepositoryExecutionPolicy,
     pub(crate) visual_execution_policy: VisualExecutionPolicy,
+    pub(crate) learned_sparse_execution_policy: maestria_retrieval::LearnedSparseExecutionPolicy,
+    pub(crate) sparse_retriever: Option<Arc<dyn CandidateRetriever>>,
     pub(crate) corpus_snapshot: CorpusSnapshotId,
     pub(crate) scope_id: maestria_domain::ScopeId,
     pub(crate) fingerprint: RetrievalModelFingerprint,
@@ -123,6 +128,8 @@ impl SearchRuntime {
             repository_code_index: parts.repository_code_index,
             repository_execution_policy: parts.repository_execution_policy,
             visual_execution_policy: VisualExecutionPolicy::Shadow,
+            learned_sparse_execution_policy: parts.learned_sparse_execution_policy,
+            sparse_retriever: parts.sparse_retriever,
             corpus_snapshot: parts.corpus_snapshot,
             scope_id: parts.scope_id,
             fingerprint,
@@ -160,7 +167,7 @@ impl SearchRuntime {
         runtime
     }
 
-    fn planner_context(&self) -> SearchPlannerContext {
+    pub(crate) fn planner_context(&self) -> SearchPlannerContext {
         SearchPlannerContext {
             corpus_snapshot: self.corpus_snapshot,
             primary_generation: self.primary_generation,

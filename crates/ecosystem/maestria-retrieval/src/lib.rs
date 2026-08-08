@@ -43,14 +43,15 @@ pub use fusion::FixedKRrf;
 pub use learned_sparse_benchmark::{
     CheckStatus, LearnedSparseAcceptedSpan, LearnedSparseBenchmarkBudget,
     LearnedSparseBenchmarkCase, LearnedSparseBenchmarkComparison, LearnedSparseBenchmarkCorpus,
-    LearnedSparseBenchmarkError, LearnedSparseBenchmarkIdentity, LearnedSparseBenchmarkObservation,
-    LearnedSparseClassComparison, LearnedSparseClassDecision, LearnedSparseDataFidelity,
-    LearnedSparseDataSplit, LearnedSparseEnvironment, LearnedSparseExpectedOutcome,
-    LearnedSparseOperationMeasurement, LearnedSparsePromotionRecord,
+    LearnedSparseBenchmarkError, LearnedSparseBenchmarkExecutor, LearnedSparseBenchmarkIdentity,
+    LearnedSparseBenchmarkObservation, LearnedSparseClassComparison, LearnedSparseClassDecision,
+    LearnedSparseDataFidelity, LearnedSparseDataSplit, LearnedSparseEnvironment,
+    LearnedSparseExpectedOutcome, LearnedSparseOperationMeasurement, LearnedSparsePromotionRecord,
     LearnedSparseProviderDisclosure, LearnedSparseQualityMetrics, LearnedSparseQueryClass,
-    LearnedSparseResourceMetrics, LearnedSparseRetentionPolicy, LearnedSparseRollbackTarget,
-    LearnedSparseRoute, LearnedSparseRouteConfiguration, LearnedSparseRouteMetrics,
-    LearnedSparseSafetyMetrics, Measurement,
+    LearnedSparseResourceMetrics, LearnedSparseRetentionPolicy, LearnedSparseRetrievedCandidate,
+    LearnedSparseRetrievedSpan, LearnedSparseRollbackTarget, LearnedSparseRoute,
+    LearnedSparseRouteConfiguration, LearnedSparseRouteMetrics, LearnedSparseSafetyMetrics,
+    Measurement, run_learned_sparse_benchmark, score_case,
 };
 pub use learned_sparse_corpus::{
     LEARNED_SPARSE_TASK_CORPUS_SCHEMA_VERSION, LearnedSparseAbstentionReason,

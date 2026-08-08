@@ -25,7 +25,7 @@
   },
   "milestones": [
     {
-      "milestone": "v0.4 — Deterministic Search Baseline",
+      "milestone": "v0.4 \u2014 Deterministic Search Baseline",
       "release_stage": "implementation-complete",
       "data_fidelity": "mixed",
       "corpus": {
@@ -38,7 +38,7 @@
           "docs/PHILOSOPHY.md",
           "crates/ecosystem/maestria-retrieval/tests/fixtures/golden-v3.json"
         ],
-        "source_hash": "c2b8fab8f75f3013eda715897b4ad39f8c03d3d68eed52c61e63820d8f3c3811"
+        "source_hash": "965968c6078727589a4f3e18dcef37fafd5d3fe254a5b6857c1eccd150d21608"
       },
       "fingerprints": {
         "corpus_snapshot": "maestria-document-snapshot-v1",
@@ -82,7 +82,7 @@
       ]
     },
     {
-      "milestone": "v0.5 — Evaluated Hybrid Retrieval",
+      "milestone": "v0.5 \u2014 Evaluated Hybrid Retrieval",
       "release_stage": "implementation-complete",
       "data_fidelity": "mixed",
       "corpus": {
@@ -95,7 +95,7 @@
           "docs/PHILOSOPHY.md",
           "crates/ecosystem/maestria-retrieval/tests/fixtures/golden-v3.json"
         ],
-        "source_hash": "c2b8fab8f75f3013eda715897b4ad39f8c03d3d68eed52c61e63820d8f3c3811"
+        "source_hash": "965968c6078727589a4f3e18dcef37fafd5d3fe254a5b6857c1eccd150d21608"
       },
       "fingerprints": {
         "corpus_snapshot": "maestria-document-snapshot-v1",
@@ -139,7 +139,7 @@
       ]
     },
     {
-      "milestone": "v0.7 — Repository Intelligence",
+      "milestone": "v0.7 \u2014 Repository Intelligence",
       "release_stage": "implementation-complete",
       "data_fidelity": "real",
       "corpus": {
@@ -202,7 +202,7 @@
       ]
     },
     {
-      "milestone": "v0.8 — Visual Document Retrieval",
+      "milestone": "v0.8 \u2014 Visual Document Retrieval",
       "release_stage": "implementation-complete",
       "data_fidelity": "mixed",
       "corpus": {
@@ -263,7 +263,7 @@
       ]
     },
     {
-      "milestone": "v0.9 — Doc & Marker Search",
+      "milestone": "v0.9 \u2014 Doc & Marker Search",
       "release_stage": "implementation-complete",
       "data_fidelity": "real",
       "corpus": {
@@ -318,7 +318,7 @@
       ]
     },
     {
-      "milestone": "v1.0 — Python Repository Intelligence",
+      "milestone": "v1.0 \u2014 Python Repository Intelligence",
       "release_stage": "implementation-complete",
       "data_fidelity": "real",
       "corpus": {
@@ -381,7 +381,7 @@
       ]
     },
     {
-      "milestone": "v1.1 — Web Repository Intelligence",
+      "milestone": "v1.1 \u2014 Web Repository Intelligence",
       "release_stage": "implementation-complete",
       "data_fidelity": "real",
       "corpus": {
@@ -441,6 +441,64 @@
         {
           "kind": "repository",
           "path": "target/benchmark-reports/web-repository-real.json"
+        }
+      ]
+    },
+    {
+      "milestone": "v1.2 \u2014 Learned-Sparse Four-Profile Evaluation",
+      "release_stage": "benchmark-complete",
+      "data_fidelity": "real",
+      "corpus": {
+        "id": "maestria-learned-sparse-real-tasks-v1",
+        "snapshot": "learned-sparse-task-corpus-v1",
+        "judgment_set": "maestria-learned-sparse-real-judgments-v1",
+        "source_paths": [
+          "tests/contracts/learned_sparse_task_corpus_v1.json"
+        ],
+        "source_hash": "388e29b7ba8fb2d3659b17e9022d377cedf7bad506545d0e572bb1f9ce049c75"
+      },
+      "fingerprints": {
+        "corpus_snapshot": "learned-sparse-task-corpus-v1",
+        "index_generation": "sparse-text-v1-2",
+        "model_fingerprint": "sparse:splade-onnx:prithivida/Splade_PP_en_v1:762be6a7206e2f299182705972a65e5c46e62be2:sha256:fa685bd09ee084ceb5543d6a43708045e7c7048c71f9beb1ffb4327c692d5911:splade-templates-trunc512-v1"
+      },
+      "environment": {
+        "os": "linux",
+        "rust_toolchain": "nightly-2026-06-14",
+        "cpu_arch": "x86_64"
+      },
+      "results": {
+        "quality": {
+          "status": "pass",
+          "reason": "four-profile per-class comparison is scored from the frozen corpus and emitted as the learned-sparse report"
+        },
+        "resource": {
+          "status": "pass",
+          "reason": "latency, memory, disk, and lifecycle budgets are measured per route or explicitly marked unavailable; no value is inferred"
+        },
+        "security": {
+          "status": "pass",
+          "reason": "security, ACL, quarantine, secret, poisoning, and prompt-injection fixtures run through the same search path and are recorded per route"
+        }
+      },
+      "degradations": [
+        {
+          "area": "promotion",
+          "description": "The four-profile benchmark is complete; per-class promotion is granted only by the gate and its promotion record."
+        },
+        {
+          "area": "fingerprints",
+          "description": "Corpus snapshot, sparse generation, and model fingerprint are bound from the evaluated instance; the checked-in ledger entry tracks the committed report."
+        }
+      ],
+      "reports": [
+        {
+          "kind": "learned-sparse",
+          "path": "target/benchmark-reports/learned-sparse.json"
+        },
+        {
+          "kind": "learned-sparse",
+          "path": "tests/contracts/learned_sparse_report_v1.json"
         }
       ]
     }

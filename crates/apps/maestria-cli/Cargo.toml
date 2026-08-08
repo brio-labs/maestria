@@ -28,3 +28,8 @@ ignore = "0.4.28"
 serde_json = "1.0"
 getrandom = "0.2"
 
+[dev-dependencies]
+tempfile = "3"
+maestria-ports = { path = "../../kernel/maestria-ports", features = ["contract-tests"] }
+maestria-retrieval = { path = "../../ecosystem/maestria-retrieval" }
+

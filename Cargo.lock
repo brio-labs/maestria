@@ -2831,6 +2831,7 @@ dependencies = [
  "maestria-storage-sqlite",
  "maestria-studio",
  "serde_json",
+ "tempfile",
  "tokio",
  "tracing-subscriber",
 ]
@@ -2890,6 +2891,7 @@ dependencies = [
  "maestria-retrieval",
  "maestria-runtime",
  "maestria-search-tantivy",
+ "maestria-sparse-local",
  "maestria-storage-sqlite",
  "maestria-vector-sqlite",
  "maestria-visual-local",
@@ -3046,6 +3048,17 @@ dependencies = [
  "maestria-ports",
  "tantivy",
  "tempfile",
+]
+
+[[package]]
+name = "maestria-sparse-local"
+version = "0.6.1"
+dependencies = [
+ "maestria-domain",
+ "maestria-ports",
+ "serde",
+ "serde_json",
+ "ureq",
 ]
 
 [[package]]

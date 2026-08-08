@@ -12,7 +12,7 @@ use maestria_graph_sqlite::SqliteGraphIndex;
 use maestria_harness::LocalShellHarnessAdapter;
 use maestria_parsers::ParserRegistry;
 use maestria_ports::{FullTextIndex, Parser, SearchKnowledgeExecutor, VectorIndex};
-use maestria_retrieval::RepositoryExecutionPolicy;
+use maestria_retrieval::{CandidateRetriever, RepositoryExecutionPolicy};
 use maestria_runtime::{Adapters, Governance, MaestriaRuntime, RuntimeConfig};
 use maestria_storage_sqlite::SqliteStore;
 use maestria_web_evidence::UreqWebFetcher;
@@ -86,15 +86,155 @@ fn build_ecosystem_adapters(
     })
 }
 
+/// Loads the durable promotion record and derives the execution policy.
+///
+/// Fail-closed: an unparsable or invalid record degrades to shadow serving;
+/// a manifest without the sparse profile disables the lane entirely.
+pub(crate) fn learned_sparse_policy(
+    store: &SqliteStore,
+    manifest: &InstanceManifest,
+) -> maestria_retrieval::LearnedSparseExecutionPolicy {
+    use maestria_retrieval::LearnedSparseExecutionPolicy;
+    if manifest
+        .sparse
+        .as_ref()
+        .is_none_or(|config| !config.enabled)
+    {
+        return LearnedSparseExecutionPolicy::Disabled;
+    }
+    match store.load_latest_promotion_record() {
+        Ok(Some(record)) => match serde_json::from_str::<
+            maestria_retrieval::LearnedSparsePromotionRecord,
+        >(&record.record_json)
+        {
+            Ok(record) if record.validate().is_ok() => {
+                LearnedSparseExecutionPolicy::Active(Box::new(record))
+            }
+            Ok(_) => {
+                eprintln!("sparse promotion record is invalid; serving shadow");
+                LearnedSparseExecutionPolicy::Shadow
+            }
+            Err(error) => {
+                eprintln!("sparse promotion record is unparsable; serving shadow: {error}");
+                LearnedSparseExecutionPolicy::Shadow
+            }
+        },
+        Ok(None) => LearnedSparseExecutionPolicy::Shadow,
+        Err(error) => {
+            eprintln!("sparse promotion record is unreadable; serving shadow: {error}");
+            LearnedSparseExecutionPolicy::Shadow
+        }
+    }
+}
+
+/// Builds the registered learned-sparse retriever for the active generation.
+///
+/// Degrades to no lane (hybrid serving) when the generation is not active or
+/// the provider is unavailable; the policy still gates the lane's eligibility.
+pub(crate) fn build_sparse_retriever(
+    state: &KernelState,
+    manifest: &InstanceManifest,
+    store: Arc<SqliteStore>,
+    blobs: Arc<FsBlobStore>,
+) -> Option<Arc<dyn CandidateRetriever>> {
+    use crate::providers::build_sparse_provider;
+    use crate::sparse_startup::sparse_identity;
+    use maestria_ports::{LearnedSparseIndex, SPARSE_REPRESENTATION_V1};
+    use maestria_retrieval::adapters::{
+        LearnedSparseChunkRetriever, LearnedSparseChunkRetrieverParts,
+        LearnedSparseGenerationCapability,
+    };
+    use maestria_storage_sqlite::SqliteLearnedSparseIndex;
+    if manifest
+        .sparse
+        .as_ref()
+        .is_none_or(|config| !config.enabled)
+    {
+        return None;
+    }
+    let generation_id =
+        match state
+            .index_generations
+            .get_active(&maestria_domain::RepresentationName::new(
+                SPARSE_REPRESENTATION_V1,
+            )) {
+            Some(generation) => generation.id,
+            None => {
+                eprintln!("sparse profile enabled but no active sparse generation; serving hybrid");
+                return None;
+            }
+        };
+    let identity = match sparse_identity(state, manifest, generation_id) {
+        Ok(identity) => identity,
+        Err(error) => {
+            eprintln!("sparse identity is unavailable; serving hybrid: {error}");
+            return None;
+        }
+    };
+    let provider = match build_sparse_provider(manifest, identity.clone()) {
+        Ok(Some(provider)) => provider,
+        Ok(None) => {
+            eprintln!("sparse provider is not configured; serving hybrid");
+            return None;
+        }
+        Err(error) => {
+            eprintln!("sparse provider is unavailable; serving hybrid: {error}");
+            return None;
+        }
+    };
+    let index = match SqliteLearnedSparseIndex::new(store.clone(), identity.clone()) {
+        Ok(index) => index,
+        Err(error) => {
+            eprintln!("sparse projection is unavailable; serving hybrid: {error}");
+            return None;
+        }
+    };
+    let capability = match LearnedSparseGenerationCapability::activate(
+        &state.index_generations,
+        identity.clone(),
+    ) {
+        Ok(capability) => capability,
+        Err(error) => {
+            eprintln!("sparse generation is not active; serving hybrid: {error}");
+            return None;
+        }
+    };
+    match LearnedSparseChunkRetriever::new(
+        LearnedSparseChunkRetrieverParts {
+            index: Arc::new(index) as Arc<dyn LearnedSparseIndex + Send + Sync>,
+            artifacts: store.clone(),
+            chunks: store.clone(),
+            evidence: store.clone(),
+            blobs,
+            provider,
+        },
+        capability,
+    ) {
+        Ok(retriever) => Some(Arc::new(retriever)),
+        Err(error) => {
+            eprintln!("sparse retriever construction failed; serving hybrid: {error}");
+            None
+        }
+    }
+}
+
 fn build_search_executor(
     state: &KernelState,
     storage: &StorageAdapters,
     indexes: &IndexAdapters,
     ecosystem: &EcosystemAdapters,
+    manifest: &InstanceManifest,
     embedding_provider: Option<Arc<dyn maestria_ports::EmbeddingProvider + Send + Sync>>,
     repository_execution_policy: RepositoryExecutionPolicy,
 ) -> Result<Arc<dyn SearchKnowledgeExecutor + Send + Sync>> {
     let (primary_generation, corpus_snapshot, dense_generation) = resolve_index_generations(state)?;
+    let learned_sparse_execution_policy = learned_sparse_policy(&storage.sqlite_store, manifest);
+    let sparse_retriever = build_sparse_retriever(
+        state,
+        manifest,
+        storage.sqlite_store.clone(),
+        storage.blob_store.clone(),
+    );
     let search_executor: Arc<dyn SearchKnowledgeExecutor + Send + Sync> =
         Arc::new(SearchRuntime::from_parts(
             SearchRuntimeParts {
@@ -111,6 +251,8 @@ fn build_search_executor(
                 dense_generation,
                 repository_code_index: ecosystem.repository_code_index.clone(),
                 repository_execution_policy,
+                learned_sparse_execution_policy,
+                sparse_retriever,
                 corpus_snapshot,
                 scope_id: maestria_domain::DEFAULT_INSTANCE_SCOPE_ID,
             },
@@ -143,6 +285,7 @@ fn build_adapters(
         &storage,
         &indexes,
         &ecosystem,
+        manifest,
         embedding_provider.clone(),
         repository_execution_policy,
     )?;

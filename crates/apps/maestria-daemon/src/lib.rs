@@ -18,6 +18,8 @@
 /// - `lifecycle_entry`: lifecycle entrypoint orchestration.
 /// - `instance_setup`: instance initialization, replay, and recovery scope validation.
 /// - `providers`: OCR and visual provider construction and status.
+/// - `learned_sparse_benchmark_executor`: real-instance four-profile benchmark execution.
+/// - `sparse_startup`: learned-sparse generation and projection reconciliation.
 /// - `runtime_construction`: runtime adapter and governance assembly.
 /// - `blocked_patterns`: blocked-path composition for runtime construction.
 /// - `db_retry`: shared database-busy retry policy.
@@ -33,6 +35,10 @@ pub mod evidence_open;
 mod full_text_recovery;
 pub mod ingestion_policy;
 mod instance_setup;
+#[cfg(test)]
+#[path = "learned_sparse_activation_tests.rs"]
+mod learned_sparse_activation_tests;
+mod learned_sparse_benchmark_executor;
 mod lifecycle;
 mod lifecycle_entry;
 mod lock;
@@ -47,6 +53,7 @@ mod recovery_staging;
 mod runtime_construction;
 mod search_executor;
 mod source_identity;
+mod sparse_startup;
 mod supervision_recovery;
 #[cfg(test)]
 mod test_support;
@@ -67,6 +74,7 @@ pub use full_text_recovery::pending_start_full_text;
 pub use instance_setup::{
     load_kernel_state, prepare_instance, prepare_instance_with_roots, validate_recovery_scope,
 };
+pub use learned_sparse_benchmark_executor::LearnedSparseBenchmarkExecutor;
 pub(crate) use lifecycle::InstanceLifecycle;
 pub use lifecycle::RecoveryQueue;
 pub use lifecycle_entry::{run_instance, run_instance_with_shutdown};
@@ -79,13 +87,19 @@ pub use parser_resume::verify_pending_blobs;
 pub use projection_recovery::{
     reconcile_graph_projection, reconcile_projections, reconcile_vector_projection,
 };
-pub use providers::{build_visual_provider, ocr_status, visual_status};
+pub use providers::{
+    build_sparse_provider, build_visual_provider, ocr_status, sparse_status, visual_status,
+};
 pub use recovery_inputs::{RecoveryInputs, recovery_inputs};
 pub use search_executor::{
     SearchRuntime, prepare_search_runtime, prepare_search_runtime_read_only,
     prepare_search_runtime_read_only_for_federation,
     prepare_search_runtime_read_only_with_repository_policy,
     prepare_search_runtime_with_repository_policy,
+};
+pub use sparse_startup::{
+    build_sparse_provider_for_layout, reconcile_sparse_generation,
+    reconcile_sparse_projection_for_layout, sparse_fingerprint, sparse_identity, sparse_namespace,
 };
 pub use supervision_recovery::{RecoveryDiagnostics, supervise_recovery};
 pub use validation_recovery::has_current_validation_report;

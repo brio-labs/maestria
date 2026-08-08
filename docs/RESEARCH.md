@@ -55,6 +55,45 @@ A concrete learned-sparse route is eligible for activation only for a frozen que
 
 Removing or invalidating the promotion record restores the existing lexical/hybrid route. The presence of a provider or index adapter never activates sparse retrieval by itself.
 
+### 2.1.0. Four-profile evaluation decision (dated 2026-08-07)
+
+The frozen corpus (`tests/contracts/learned_sparse_task_corpus_v1.json`, revision
+2026-07-30) was evaluated on a real instance against the pinned SPLADE ONNX sidecar
+(`docs/RESEARCH.md` §4.3) across all four routes — Lexical, Hybrid, SparseOnly, and
+SparseFused — with 31 timed runs per case per route, RAPL-measured energy, and the real
+lifecycle operations measured on the durable projections. The candidate was re-pinned
+on 2026-08-07 to the int8-quantized ONNX export with 512-token truncation (standard
+SPLADE preprocessing), which halved the lifecycle encode cost while retaining the
+quality signal. The dated report is
+`tests/contracts/learned_sparse_report_v1.json` (report hash
+`sha256:858f2331e03d8a54b5add4927c7a7b98ddddbd00a411c4524d478613b2406a69`), pinned in
+the benchmark evidence ledger milestone `v1.2` with index generation
+`sparse-text-v1-2` and the splade-onnx model fingerprint.
+
+| Query class | Decision | Winning route | Rollback target |
+| --- | --- | --- | --- |
+| ExactLiteral | RetainLexical | none | — |
+| VocabularyExpansion | RetainHybrid | none | — |
+| DomainTerminology | RetainHybrid | none | — |
+| MultiTerm | RetainHybrid | none | — |
+| NoEvidence | RetainLexical | none | — |
+| Security | RetainLexical | none | — |
+
+No class won, on measured data: telemetry is complete (energy measured from RAPL on all
+72 observations), but the sparse-fused candidate still violates the frozen budgets — the
+int8+truncated lifecycle initial-indexing/rebuild measure ~7.7 s against the 5 s
+`ingest_update_budget_ms` (down from ~17 s for the fp32 candidate) and the fused route's
+p95 latency reaches ~500 ms against the 250 ms budget — so the promotion gate records
+budget violations and yields no winning route. No promotion record exists; the daemon
+serves the lexical and hybrid routes.
+
+The quality signal is real, reproducible, and survives the quantization: sparse fusion
+improves DomainTerminology (recall@20 28.6% → 35.7%, evidence-chain coverage 60.7% →
+67.9%) while exact, no-evidence, and security classes stay protected at zero across
+routes. The lane remains benchmark-gated: a future candidate must meet the lifecycle and
+latency budgets (faster encoding, batched inference, or a re-justified judgment set)
+before the gate can promote.
+
 ### 2.1.1. Frozen learned-sparse task corpus
 
 The representative real-task freeze is `tests/contracts/learned_sparse_task_corpus_v1.json`.
@@ -69,6 +108,11 @@ work independently; disagreement is adjudicated by a third judge. The corpus val
 unknown sources, duplicate cases, path traversal, missing split coverage, underrepresented
 final classes, and incomplete expectations. Changing source content, judgment guidance, or
 judgments requires new corpus and judgment hashes.
+
+Note: the frozen final split (two independent task cases per class) is the dated judgment
+set as authored at the 2026-07-30 freeze; it has not been re-tuned or re-weighted for this
+evaluation. The 2026-08-07 decision above is bound to exactly this split and hash; any
+split change requires a new evaluation and a new dated decision.
 
 ### 2.2. Other semantic backends
 
@@ -166,6 +210,65 @@ Both sidecars accept loopback traffic only, perform CPU inference, and retain
 no inputs. Visual activation additionally requires a matching fingerprinted
 `visual_page_v1` generation and a passing benchmark; otherwise the app keeps
 the text/layout route.
+
+### 4.3. Learned-sparse profile: SPLADE ONNX (CPU)
+
+Dated research candidate (pinned 2026-08-07). The checkpoint is the
+SPLADE++/cocondenser-family export `prithivida/Splade_PP_en_v1` (revision
+`762be6a7206e2f299182705972a65e5c46e62be2`, Apache-2.0, distilbert vocabulary
+of 30 522 terms). Re-pinning a different SPLADE-family checkpoint updates this
+section and the sparse manifest keys.
+
+```bash
+uv venv .venv-sparse
+uv pip install --python .venv-sparse/bin/python \
+  -r scripts/requirements-sparse.txt
+```
+
+Download the pinned artifacts into `.maestria/models/splade/onnx/` (from
+`prithivida/Splade_PP_en_v1` at the revision above), then start the sidecar:
+
+```bash
+.venv-sparse/bin/python scripts/splade_server.py \
+  --host 127.0.0.1 --port 10002 \
+  --model prithivida/Splade_PP_en_v1 \
+  --model-dir .maestria/models/splade
+```
+
+Compute the artifact fingerprint before enabling the profile:
+
+```bash
+python3 scripts/sparse_model_fingerprint.py \
+  --profile splade_pp_en_v1_cpu \
+  --model-dir .maestria/models/splade
+```
+
+Manifest keys (set `sparse_artifact_hash` to the fingerprint output):
+
+```text
+sparse_enabled=true
+sparse_endpoint=http://127.0.0.1:10002/v1/sparse
+sparse_provider=splade-onnx
+sparse_revision=762be6a7206e2f299182705972a65e5c46e62be2
+sparse_artifact_hash=sha256:<fingerprint-output>
+# pinned 2026-08-07 re-pin: int8-quantized ONNX (2.3x encode speedup) with
+# 512-token truncation (standard SPLADE preprocessing); the fp32 checkpoint
+# remains available as onnx/model_fp32.onnx outside the pinned artifact set
+sparse_preprocessing_version=splade-templates-trunc512-v1
+sparse_model=prithivida/Splade_PP_en_v1
+sparse_vocabulary_size=30522
+sparse_term_cap=256
+sparse_remote_provider=false
+sparse_retention_policy=no_retention
+```
+
+The sidecar applies the `query: {text}` / `document: {text}` templates, caps
+term vectors at 256 terms, accepts loopback traffic only, performs CPU
+inference, and retains no inputs. Unlike the embedding/visual profiles, a
+remote provider or retained retention policy is a manifest error, not a
+deferred rejection. Sparse activation additionally requires a matching
+fingerprinted `sparse_text_v1` generation and a passing benchmark; otherwise
+the app keeps the lexical/hybrid route.
 
 ## 3. Promotion Criteria
 

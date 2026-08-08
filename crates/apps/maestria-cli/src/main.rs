@@ -9,7 +9,7 @@ use anyhow::{Context, Result, anyhow};
 use clap::Parser as ClapParser;
 use cli_types::{
     ApprovalCommands, Cli, CodeSearchCommands, Commands, EvidenceCommands, IndexCommands,
-    MemoryCommands, SearchCommands, TaskCommands,
+    MemoryCommands, PromotionCommands, SearchCommands, TaskCommands,
 };
 use maestria_core::InstanceLayout;
 use maestria_daemon::{ClientOperation, ClientResponse, DaemonClient};
@@ -120,8 +120,20 @@ async fn dispatch(command: Commands) -> Result<()> {
         Commands::Memory { command } => dispatch_memory(command).await?,
         Commands::Approval { command } => dispatch_approval(command).await?,
         Commands::Realm { command } => commands::realm::run(command).await?,
+        Commands::Promotion { command } => dispatch_promotion(command)?,
     }
     Ok(())
+}
+
+fn dispatch_promotion(command: PromotionCommands) -> Result<()> {
+    match command {
+        PromotionCommands::Set {
+            instance_dir,
+            record,
+        } => commands::promotion::run_set(instance_dir, record),
+        PromotionCommands::Remove { instance_dir } => commands::promotion::run_remove(instance_dir),
+        PromotionCommands::Show { instance_dir } => commands::promotion::run_show(instance_dir),
+    }
 }
 
 async fn dispatch_index(

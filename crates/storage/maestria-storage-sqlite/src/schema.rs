@@ -9,10 +9,11 @@ use crate::sqlite_store::to_port_error;
 
 /// Current storage schema version supported by this adapter.
 ///
+/// Version 15 adds the durable learned-sparse promotion records table.
 /// Version 14 adds the rebuildable provider realm-read-grant projection.
 /// Version 13 is migrated forward exactly once; newer or older layouts are
 /// rejected rather than guessed.
-pub(crate) const CURRENT_SCHEMA_VERSION: i64 = 14;
+pub(crate) const CURRENT_SCHEMA_VERSION: i64 = 15;
 
 /// Captures the pre-migration state of the database.
 struct SchemaState {
@@ -180,6 +181,16 @@ const BASE_SCHEMA_SQL: &str = r#"CREATE TABLE IF NOT EXISTS schema_version (
      );
      CREATE INDEX IF NOT EXISTS idx_learned_sparse_shadow_observations_order
          ON learned_sparse_shadow_observations(id);
+     CREATE TABLE IF NOT EXISTS learned_sparse_promotion_records (
+         evaluation_id TEXT NOT NULL PRIMARY KEY,
+         corpus_id TEXT NOT NULL,
+         evaluation_date TEXT NOT NULL,
+         report_hash TEXT NOT NULL,
+         record_json TEXT NOT NULL,
+         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+     );
+     CREATE INDEX IF NOT EXISTS idx_learned_sparse_promotion_records_order
+         ON learned_sparse_promotion_records(created_at DESC);
      CREATE TABLE IF NOT EXISTS learned_sparse_projections (
          identity_json TEXT NOT NULL PRIMARY KEY,
          generation_id INTEGER NOT NULL,
@@ -311,6 +322,23 @@ fn ensure_foreign_keys(connection: &Connection) -> Result<(), PortError> {
     Ok(())
 }
 
+fn migrate_v14_to_v15(connection: &Connection) -> Result<(), PortError> {
+    connection
+        .execute_batch(
+            "CREATE TABLE IF NOT EXISTS learned_sparse_promotion_records (
+                 evaluation_id TEXT NOT NULL PRIMARY KEY,
+                 corpus_id TEXT NOT NULL,
+                 evaluation_date TEXT NOT NULL,
+                 report_hash TEXT NOT NULL,
+                 record_json TEXT NOT NULL,
+                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+             );
+             CREATE INDEX IF NOT EXISTS idx_learned_sparse_promotion_records_order
+                 ON learned_sparse_promotion_records(created_at DESC);",
+        )
+        .map_err(to_port_error)
+}
+
 fn migrate_v13_to_v14(connection: &Connection) -> Result<(), PortError> {
     connection
         .execute_batch(
@@ -346,11 +374,12 @@ pub(crate) fn migrate(connection: &mut Connection) -> Result<(), PortError> {
     let state = detect_schema_state(&transaction)?;
     if let Some(version) = state.version
         && version != 13
+        && version != 14
         && version != CURRENT_SCHEMA_VERSION
     {
         return Err(PortError::InternalContext {
             context: "unsupported sqlite schema version",
-            source: format!("{version}; expected 13 or {CURRENT_SCHEMA_VERSION}"),
+            source: format!("{version}; expected 13, 14, or {CURRENT_SCHEMA_VERSION}"),
         });
     }
 
@@ -358,13 +387,16 @@ pub(crate) fn migrate(connection: &mut Connection) -> Result<(), PortError> {
     if state.version == Some(13) {
         migrate_v13_to_v14(&transaction)?;
     }
+    if state.version == Some(13) || state.version == Some(14) {
+        migrate_v14_to_v15(&transaction)?;
+    }
     seed_id_counters(&transaction)?;
 
     validate_domain_events_schema(&transaction)?;
     validate_event_order(&transaction)?;
     validate_stored_event_payloads(&transaction)?;
 
-    if state.version.is_none() || state.version == Some(13) {
+    if state.version.is_none() || state.version == Some(13) || state.version == Some(14) {
         transaction
             .execute(
                 "INSERT OR IGNORE INTO schema_version (version) VALUES (?1)",

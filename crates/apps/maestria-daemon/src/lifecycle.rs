@@ -152,6 +152,16 @@ impl InstanceLifecycle {
             reconcile_vector_projection_for_layout(&layout, &state)
                 .with_context(|| "reconcile vector projection")?;
         }
+        if manifest
+            .sparse
+            .as_ref()
+            .is_some_and(|config| config.enabled)
+        {
+            crate::sparse_startup::reconcile_sparse_projection_for_layout(
+                &layout, &mut state, &manifest,
+            )
+            .with_context(|| "reconcile learned-sparse projection")?;
+        }
 
         let diagnostics = supervise_recovery(&state, &store)?;
         validate_recovery_scope(&layout, &diagnostics.inputs)
