@@ -256,3 +256,53 @@ fn generation_identity_collision_fails_closed() -> Result<(), Box<dyn std::error
     assert!(SqliteLearnedSparseIndex::new(store, collision).is_err());
     Ok(())
 }
+
+#[test]
+fn search_cache_invalidates_on_every_write() -> Result<(), Box<dyn std::error::Error>> {
+    let store = Arc::new(SqliteStore::in_memory()?);
+    let sparse_identity = identity(41, "instance-cache")?;
+    let projection = SqliteLearnedSparseIndex::new(Arc::clone(&store), sparse_identity.clone())?;
+    projection.index_documents(vec![document(&sparse_identity, 1, hash('1')?, 1.0)?])?;
+    projection.transition(IndexLifecycle::Building, IndexLifecycle::Evaluated)?;
+    projection.transition(IndexLifecycle::Evaluated, IndexLifecycle::Shadow)?;
+    assert_eq!(projection.search(query(&sparse_identity)?)?.hits.len(), 1);
+    // A write must invalidate the warm cache, not serve stale rows.
+    projection.index_documents(vec![document(&sparse_identity, 2, hash('2')?, 2.0)?])?;
+    assert_eq!(projection.search(query(&sparse_identity)?)?.hits.len(), 2);
+    projection.delete_chunks(&[maestria_domain::ChunkId::new(1)])?;
+    assert_eq!(projection.search(query(&sparse_identity)?)?.hits.len(), 1);
+    projection.clear()?;
+    assert!(projection.search(query(&sparse_identity)?)?.hits.is_empty());
+    // Rebuild restores the projection and the cache follows.
+    projection.rebuild(vec![document(&sparse_identity, 3, hash('3')?, 3.0)?])?;
+    assert_eq!(projection.search(query(&sparse_identity)?)?.hits.len(), 1);
+    Ok(())
+}
+
+#[test]
+fn search_falls_back_to_cold_reads_without_a_version_row() -> Result<(), Box<dyn std::error::Error>>
+{
+    let store = Arc::new(SqliteStore::in_memory()?);
+    let sparse_identity = identity(42, "instance-cache-fallback")?;
+    let projection = SqliteLearnedSparseIndex::new(Arc::clone(&store), sparse_identity.clone())?;
+    projection.index_documents(vec![document(&sparse_identity, 1, hash('1')?, 1.0)?])?;
+    projection.transition(IndexLifecycle::Building, IndexLifecycle::Evaluated)?;
+    projection.transition(IndexLifecycle::Evaluated, IndexLifecycle::Shadow)?;
+    // A projection written before the version row: cold per-document reads.
+    let connection = store.lock()?;
+    connection
+        .execute(
+            "DELETE FROM learned_sparse_projection_meta WHERE identity_json = ?1",
+            rusqlite::params![serde_json::to_string(&sparse_identity)?],
+        )
+        .map_err(|error| {
+            crate::sqlite_store::to_port_error(rusqlite::Error::FromSqlConversionFailure(
+                0,
+                rusqlite::types::Type::Text,
+                Box::new(error),
+            ))
+        })?;
+    drop(connection);
+    assert_eq!(projection.search(query(&sparse_identity)?)?.hits.len(), 1);
+    Ok(())
+}

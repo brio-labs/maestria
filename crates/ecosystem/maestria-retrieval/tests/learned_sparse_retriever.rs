@@ -630,6 +630,9 @@ async fn sparse_evidence_owner_mismatch_is_conflict() -> Result<(), Box<dyn std:
     assert!(error.to_string().contains("owner mismatch"));
     assert_eq!(fixture.chunks.owner_gets(), 1);
     assert_eq!(fixture.chunks.full_gets(), 1);
+    // The corrupted evidence no longer belongs to the artifact, so the
+    // artifact prefetch cannot surface it; the exact-id fallback read is what
+    // exposes the owner mismatch.
     assert_eq!(fixture.evidence.gets(), 1);
     Ok(())
 }
@@ -670,7 +673,8 @@ async fn learned_sparse_retriever_preserves_score_and_source_lineage()
     assert!(!reason.contributions.is_empty());
     assert_eq!(fixture.chunks.owner_gets(), 1);
     assert_eq!(fixture.chunks.full_gets(), 1);
-    assert_eq!(fixture.evidence.gets(), 1);
+    // Evidence rows are prefetched per artifact through list_for_artifact.
+    assert_eq!(fixture.evidence.gets(), 0);
     Ok(())
 }
 
@@ -687,9 +691,12 @@ async fn sparse_prescore_eviction_rechecks_authorized_records()
         )?)
         .await?;
     assert_eq!(batch.candidates.len(), 1);
+    // Evicted prescore records are re-checked per chunk: every visited chunk
+    // still runs the owner lookup and full record load in this request.
     assert_eq!(fixture.chunks.owner_gets(), 3);
     assert_eq!(fixture.chunks.full_gets(), 3);
-    assert_eq!(fixture.evidence.gets(), 3);
+    // Evidence rows are prefetched per artifact through list_for_artifact.
+    assert_eq!(fixture.evidence.gets(), 0);
     Ok(())
 }
 

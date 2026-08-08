@@ -212,7 +212,13 @@ const BASE_SCHEMA_SQL: &str = r#"CREATE TABLE IF NOT EXISTS schema_version (
              ON DELETE CASCADE
      );
      CREATE INDEX IF NOT EXISTS idx_learned_sparse_projection_documents_lookup
-         ON learned_sparse_projection_documents(identity_json, tombstoned, chunk_id);"#;
+         ON learned_sparse_projection_documents(identity_json, tombstoned, chunk_id);
+     CREATE TABLE IF NOT EXISTS learned_sparse_projection_meta (
+         identity_json TEXT NOT NULL PRIMARY KEY,
+         version INTEGER NOT NULL,
+         FOREIGN KEY (identity_json) REFERENCES learned_sparse_projections(identity_json)
+             ON DELETE CASCADE
+     );"#;
 
 /// Seeds the per-namespace `id_counters` rows from durable identity truth
 /// so that fresh or migrated databases never start at the wrong counter value.

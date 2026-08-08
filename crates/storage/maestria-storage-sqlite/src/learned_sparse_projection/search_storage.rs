@@ -22,6 +22,16 @@ pub(super) enum DocumentVisit {
     Stop,
 }
 
+/// A projection document already decoded and resident in memory; the search
+/// cache's unit of work.
+#[derive(Clone)]
+pub(super) struct CachedDocument {
+    /// The serialized vector's byte length at load time, kept for the byte
+    /// meter so cached searches account the same data volume as cold ones.
+    pub(super) encoded_bytes: u64,
+    pub(super) document: super::storage::StoredDocument,
+}
+
 pub(super) trait DocumentVisitor {
     fn before_load(
         &mut self,
@@ -110,6 +120,32 @@ pub(super) fn visit_documents(
             visitor.after_load(storage::StoredDocument {
                 chunk_id: document.chunk_id,
                 vector,
+            })?,
+            DocumentVisit::Continue
+        ) {
+            break;
+        }
+    }
+    Ok(())
+}
+
+pub(super) fn visit_cached_documents(
+    documents: &[CachedDocument],
+    visitor: &mut dyn DocumentVisitor,
+) -> Result<(), PortError> {
+    for cached in documents {
+        match visitor.before_load(DocumentMetadata {
+            chunk_id: cached.document.chunk_id,
+            encoded_bytes: cached.encoded_bytes,
+        })? {
+            DocumentLoadDecision::Skip => continue,
+            DocumentLoadDecision::Stop => break,
+            DocumentLoadDecision::Load => {}
+        }
+        if !matches!(
+            visitor.after_load(super::storage::StoredDocument {
+                chunk_id: cached.document.chunk_id,
+                vector: cached.document.vector.clone(),
             })?,
             DocumentVisit::Continue
         ) {

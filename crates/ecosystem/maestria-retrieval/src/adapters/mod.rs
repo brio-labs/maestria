@@ -14,6 +14,8 @@ mod prescore_cache;
 mod score_provenance;
 mod secondary;
 mod source_snapshot;
+mod sparse_record_cache;
+mod sparse_records;
 mod visual;
 mod visual_access;
 mod visual_projection;

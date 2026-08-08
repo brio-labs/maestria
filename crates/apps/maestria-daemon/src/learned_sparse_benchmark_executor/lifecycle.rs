@@ -147,20 +147,24 @@ impl LearnedSparseBenchmarkExecutor {
         identity: &SparseIdentity,
         chunks: &[Chunk],
     ) -> Result<Vec<SparseDocument>> {
+        let encoded_texts = chunks
+            .iter()
+            .map(|chunk| crate::sparse_startup::truncate_document_text(&chunk.text))
+            .collect::<Vec<_>>();
+        let vectors =
+            provider.encode_batch(&encoded_texts, SparseInputKind::Document, identity.clone())?;
         chunks
             .iter()
-            .map(|chunk| {
-                let content_hash =
-                    ContentHash::new(maestria_domain::content_hash(chunk.text.as_bytes()))?;
-                let encoded_text = crate::sparse_startup::truncate_document_text(&chunk.text);
-                let vector =
-                    provider.encode(&encoded_text, SparseInputKind::Document, identity.clone())?;
+            .zip(vectors)
+            .map(|(chunk, vector)| {
                 if vector.identity() != identity {
                     return Err(anyhow!(
                         "encode chunk {} returned an incompatible generation identity",
                         chunk.id
                     ));
                 }
+                let content_hash =
+                    ContentHash::new(maestria_domain::content_hash(chunk.text.as_bytes()))?;
                 Ok(SparseDocument {
                     chunk_id: chunk.id,
                     content_hash,

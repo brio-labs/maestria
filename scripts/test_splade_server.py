@@ -6,19 +6,23 @@ import unittest
 try:
     from .splade_server import (
         DOCUMENT_TEMPLATE,
+        MAX_BATCH_SIZE,
         MAX_TEXT_LENGTH,
         QUERY_TEMPLATE,
         input_from_request,
         run_sparse,
+        run_sparse_batch,
         sparse_response,
     )
 except ImportError:
     from splade_server import (
         DOCUMENT_TEMPLATE,
+        MAX_BATCH_SIZE,
         MAX_TEXT_LENGTH,
         QUERY_TEMPLATE,
         input_from_request,
         run_sparse,
+        run_sparse_batch,
         sparse_response,
     )
 
@@ -97,6 +101,53 @@ class SpladeProtocolTests(unittest.TestCase):
     def test_response_rejects_mismatched_lengths(self) -> None:
         with self.assertRaises(ValueError):
             sparse_response("splade", [1], [0.5, 0.25], 256)
+
+
+class SparseBatchProtocolTests(unittest.TestCase):
+    def test_batch_returns_one_vector_per_text_with_templates(self) -> None:
+        engine = RecordingEngine()
+        vectors = run_sparse_batch(
+            engine,
+            {"texts": ["first", "second"], "kind": "document"},
+            256,
+        )
+        self.assertEqual(len(vectors), 2)
+        self.assertEqual(
+            engine.seen,
+            [("document: first", "document"), ("document: second", "document")],
+        )
+        for term_ids, weights in vectors:
+            self.assertEqual(term_ids, [1, 5, 9])
+            self.assertEqual(weights, [0.5, 0.25, 0.125])
+
+    def test_batch_rejects_missing_or_empty_texts(self) -> None:
+        with self.assertRaises(ValueError):
+            run_sparse_batch(RecordingEngine(), {"kind": "document"}, 256)
+        with self.assertRaises(ValueError):
+            run_sparse_batch(RecordingEngine(), {"texts": [], "kind": "document"}, 256)
+
+    def test_batch_rejects_oversized_batch(self) -> None:
+        engine = RecordingEngine()
+        with self.assertRaises(ValueError):
+            run_sparse_batch(
+                engine,
+                {"texts": ["x"] * (MAX_BATCH_SIZE + 1), "kind": "document"},
+                256,
+            )
+
+    def test_batch_rejects_unknown_kind_and_non_string_entries(self) -> None:
+        with self.assertRaises(ValueError):
+            run_sparse_batch(RecordingEngine(), {"texts": ["x"], "kind": "other"}, 256)
+        with self.assertRaises(ValueError):
+            run_sparse_batch(RecordingEngine(), {"texts": [1], "kind": "document"}, 256)
+
+    def test_batch_applies_oversize_text_limit(self) -> None:
+        with self.assertRaises(ValueError):
+            run_sparse_batch(
+                RecordingEngine(),
+                {"texts": ["x" * (MAX_TEXT_LENGTH + 1)], "kind": "document"},
+                256,
+            )
 
 
 if __name__ == "__main__":

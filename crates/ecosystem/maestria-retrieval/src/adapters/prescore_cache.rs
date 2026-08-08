@@ -5,8 +5,10 @@ use maestria_domain::ChunkId;
 
 /// Request-scoped bounded storage for records authorized during index filtering.
 ///
-/// The cache is deliberately not shared across requests. A validated positive query
-/// limit is supplied by each caller, so it bounds retained content-bearing records.
+/// The cache is deliberately not shared across requests. The caller bounds
+/// retained content-bearing records by the larger of the query limit and the
+/// candidate budget, so every visited document's records stay resident and
+/// final hits never re-run the authorization path.
 pub(super) struct PrescoreCache<T> {
     capacity: usize,
     state: RefCell<PrescoreCacheState<T>>,
@@ -18,10 +20,10 @@ struct PrescoreCacheState<T> {
 }
 
 impl<T> PrescoreCache<T> {
-    /// Creates a cache bounded by the validated query limit.
-    pub(super) fn new(validated_query_limit: usize) -> Self {
+    /// Creates a cache bounded by the caller's record budget.
+    pub(super) fn new(record_budget: usize) -> Self {
         Self {
-            capacity: validated_query_limit.max(1),
+            capacity: record_budget.max(1),
             state: RefCell::new(PrescoreCacheState {
                 entries: BTreeMap::new(),
                 oldest: VecDeque::new(),
